@@ -160,11 +160,70 @@ def render_field(record: Any, spec: str) -> Any:
         return None
 
 
+# The optionals a board may legitimately publish as a LIST of scalars, so a list there is
+# real multi-value data rather than a mis-mapped path one level too high. ``posted_at`` is
+# deliberately NOT one of them: a posting has a single publish date, so a list is always a
+# mis-map, and folding it would hand ``parse_date`` a string it can only fail on.
+_MULTI_VALUE_FIELDS = frozenset({"location", "department", "company"})
+
+# Not cosmetic: ``"; "`` is the multi-location spelling the Tier-2 normalization prompt
+# already documents and few-shots ("Sunnyvale, CA, USA; Kirkland, WA, USA" is two), so a
+# folded list canonicalizes into the several ``job_locations`` rows it should rather than
+# into one nonsense place.
+_MULTI_VALUE_SEPARATOR = "; "
+
+
+def _fold_scalar_list(value: Any) -> Any:
+    """Fold a list of scalars into one ``'; '``-joined string; pass everything else through.
+
+    A board that publishes ``locations: ["Remote - Japan - Remote", "Remote - Remote"]``
+    has a perfectly good location — it just is not a bare string. Until this existed the
+    list tripped discovery's non-scalar prune
+    (``request_selector._prune_non_scalar_optionals``) and the model's CORRECT mapping was
+    deleted from the stored recipe outright, so every job on the board landed with a NULL
+    location and ``normalization_status='failed'`` — silently, at 100%. Measured on
+    Atlassian (235/235 jobs, ``locations``) and Microsoft (2,055/2,055,
+    ``standardizedLocations``).
+
+    A list holding a CONTAINER is returned untouched so the prune still deletes it:
+    ``[{'en_name': 'San Jose'}]`` has its leaf one level down, and joining reprs would write
+    a Python spelling into the location column — the exact corruption the prune exists to
+    stop. An empty list folds to ``None`` (a board that published no location for this job),
+    never to ``""``, so it reads as absent everywhere downstream.
+    """
+    if not isinstance(value, list):
+        return value
+    if any(isinstance(v, (dict, list)) for v in value):
+        return value
+    parts = [
+        text
+        for text in (
+            str(v).strip()
+            for v in value
+            if isinstance(v, (str, int, float)) and not isinstance(v, bool)
+        )
+        if text
+    ]
+    return _MULTI_VALUE_SEPARATOR.join(parts) if parts else None
+
+
+def render_row_field(record: Any, name: str, spec: str) -> Any:
+    """Render ONE mapped field the way a stored row will actually carry it.
+
+    THE shared seam between this runner and discovery's ``_prune_non_scalar_optionals``:
+    the prune decides whether a mapping is usable, so it has to render through exactly what
+    the runner will produce. Rendering the two differently is how a usable mapping gets
+    thrown away — or an unusable one kept and written as a repr.
+    """
+    rendered = render_field(record, spec)
+    return _fold_scalar_list(rendered) if name in _MULTI_VALUE_FIELDS else rendered
+
+
 def map_records(records: list[Any], fields: dict[str, str], base_url: str = "") -> list[dict]:
     """Map raw records to rows via ``fields``; drop rows missing id/title; stringify id."""
     mapped: list[dict] = []
     for record in records:
-        row = {name: render_field(record, spec) for name, spec in fields.items()}
+        row = {name: render_row_field(record, name, spec) for name, spec in fields.items()}
         if row.get("id") in (None, "") or row.get("title") in (None, ""):
             continue
         row["id"] = str(row["id"])

@@ -232,6 +232,32 @@ async def test_a_non_scalar_optional_field_is_dropped_not_stored() -> None:
 
 
 @pytest.mark.asyncio
+async def test_a_list_of_location_strings_is_kept_not_pruned() -> None:
+    """The over-prune this check used to commit, on the board that exposed it. Atlassian
+    publishes ``locations`` as a list of plain strings; the model maps it correctly, and
+    the prune then deleted the ONLY location mapping the board had — so all 235 jobs
+    stored a NULL location and went ``normalization_status='failed'``, silently, with
+    nothing in the recipe to show a location had ever been found. A list of scalars is
+    multi-value data the runner folds to ``"a; b"``, so it must survive."""
+    answer = {
+        "chosen_request_index": 0,
+        "records_path": "",
+        "field_map": {
+            "id": "id", "title": "title",
+            "url": "portalJobPost.portalUrl",
+            "location": "locations",          # a list of plain strings — KEEP
+            "posted_at": None,
+            "department": "category",
+        },
+        "pagination": None,
+    }
+    selection = await rs.select_request(
+        _candidates("atlassian"), create_message=_answering(answer)
+    )
+    assert selection.field_map["location"] == "locations"
+
+
+@pytest.mark.asyncio
 async def test_a_non_scalar_id_refuses_rather_than_being_dropped() -> None:
     """The required three are NOT prunable. A dict-valued id would become the dedupe and
     close key as a Python repr — a board we cannot identify is one we refuse, not one we

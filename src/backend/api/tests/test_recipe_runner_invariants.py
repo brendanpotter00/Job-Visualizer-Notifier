@@ -30,6 +30,7 @@ from api.services.recipe_runner import (
     FORBIDDEN_MODULES,
     RecipeExecutionError,
     assert_no_agent_imports,
+    map_records,
     run_recipe,
 )
 from api.services.recipe_schema import RecipeError, validate_recipe
@@ -373,3 +374,92 @@ def test_the_clock_is_one_budget_across_the_whole_facet_fan_out(monkeypatch) -> 
     assert facets == ["a", "a"]   # facet "b" is never asked for
     assert ev.cap_hit is True
     assert ev.terminated_cleanly is False
+
+
+# --- multi-value optionals: a list of scalars is data, not a mis-map ----------
+#
+# These lock the fold that stopped a SILENT, TOTAL location loss. A board publishing
+# ``locations`` as a list of strings had its correctly-mapped location pruned out of the
+# stored recipe by ``request_selector._prune_non_scalar_optionals``, so every job landed
+# with NULL location + ``normalization_status='failed'``. Measured in the owner's dev DB:
+# Atlassian 235/235 and Microsoft 2,055/2,055 jobs with zero canonical locations.
+
+
+def test_a_list_of_location_strings_is_folded_rather_than_lost() -> None:
+    """Atlassian's real record shape, verbatim from the live board. ``'; '`` is not a
+    cosmetic choice — it is the multi-location separator the Tier-2 prompt documents and
+    few-shots, so the folded string canonicalizes into the TWO ``job_locations`` rows the
+    posting actually has instead of one invented place."""
+    rows = map_records(
+        [{
+            "id": 25583,
+            "title": "Account Executive - Japanese Speaking",
+            "portalJobPost": {"portalUrl": "https://x.icims.com/jobs/25583/job"},
+            "locations": ["Remote - Japan - Remote", "Remote - Remote"],
+            "category": "Sales",
+        }],
+        {"id": "id", "title": "title", "url": "portalJobPost.portalUrl",
+         "location": "locations", "department": "category"},
+    )
+    assert rows[0]["location"] == "Remote - Japan - Remote; Remote - Remote"
+
+
+def test_a_one_element_location_list_folds_to_the_bare_string() -> None:
+    """Microsoft's real shape (``standardizedLocations: ["US"]``) — the same 100% loss as
+    Atlassian, out of a list carrying exactly one value. The fold must leave no separator
+    and no brackets behind, or Tier-2 is asked to canonicalize a place that does not
+    exist."""
+    rows = map_records(
+        [{"id": "1", "title": "SWE", "positionUrl": "/j/1", "standardizedLocations": ["US"]}],
+        {"id": "id", "title": "title", "url": "https://h{positionUrl}",
+         "location": "standardizedLocations"},
+    )
+    assert rows[0]["location"] == "US"
+
+
+def test_a_list_of_objects_stays_a_container_so_the_prune_still_deletes_it() -> None:
+    """The guard the fold must NOT weaken. TikTok's location leaf sits one level down
+    (``city_info.en_name``) and the model reaches for the container; joining reprs would
+    write ``{'en_name': 'San Jose'}`` into the location column. A list holding a container
+    stays one, so ``_prune_non_scalar_optionals`` still drops the mapping."""
+    rows = map_records(
+        [{"id": "1", "title": "T", "url": "/x", "city_info": [{"en_name": "San Jose"}]}],
+        {"id": "id", "title": "title", "url": "url", "location": "city_info"},
+    )
+    assert rows[0]["location"] == [{"en_name": "San Jose"}]
+
+
+def test_an_empty_location_list_folds_to_none_not_empty_string() -> None:
+    """A board that published no location for this one job. ``None`` is what every
+    downstream reader already means by absent (``recipe_rows`` stores NULL,
+    ``normalize_location`` short-circuits to 'no-location'); ``""`` would be a second
+    spelling of the same thing that only some of them test for."""
+    rows = map_records(
+        [{"id": "1", "title": "T", "url": "/x", "locations": []}],
+        {"id": "id", "title": "title", "url": "url", "location": "locations"},
+    )
+    assert rows[0]["location"] is None
+
+
+def test_posted_at_is_never_folded() -> None:
+    """A posting has ONE publish date, so a list under ``posted_at`` is a mis-mapped path
+    rather than multi-value data. Folding it would hand ``parse_date``
+    ``"2026-01-01; 2026-02-02"`` — a string it can only fail on — instead of leaving the
+    container visible for the prune to delete the bad mapping outright."""
+    rows = map_records(
+        [{"id": "1", "title": "T", "url": "/x", "dates": ["2026-01-01", "2026-02-02"]}],
+        {"id": "id", "title": "title", "url": "url", "posted_at": "dates"},
+    )
+    assert rows[0]["posted_at"] == ["2026-01-01", "2026-02-02"]
+
+
+def test_the_required_three_are_never_folded() -> None:
+    """id/title/url are REFUSED, not repaired: ``_validate_field_map`` raises on a
+    non-scalar id so a board we cannot identify is not half-read. Folding here would turn
+    that refusal into a plausible-looking joined id and make the dedupe/close key a
+    fiction — a board that closes and reopens every job every night."""
+    rows = map_records(
+        [{"ids": ["a", "b"], "title": "T", "url": "/x"}],
+        {"id": "ids", "title": "title", "url": "url"},
+    )
+    assert rows[0]["id"] == "['a', 'b']"

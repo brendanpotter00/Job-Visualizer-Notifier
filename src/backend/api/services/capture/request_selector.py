@@ -45,7 +45,7 @@ from pydantic import BaseModel, ValidationError
 
 from ...config import settings
 from ..llm_client import extract_text_content
-from ..recipe_runner import render_field
+from ..recipe_runner import render_field, render_row_field
 from ..recipe_schema import RECORDS_WILDCARD, RecipeError, dig_records
 
 logger = logging.getLogger(__name__)
@@ -597,13 +597,20 @@ def _prune_non_scalar_optionals(
     if it were a place. The required three are not pruned; they RAISE in
     :func:`_validate_field_map`, because a board we cannot identify or title is a board
     we must refuse rather than half-read.
+
+    Renders through :func:`render_row_field`, NOT :func:`render_field`, so this sees the
+    value the replay runner will actually store. That distinction is the whole fix for the
+    over-prune this check used to commit: a ``locations: [...]`` list of plain strings is
+    multi-value data the runner folds to ``"a; b"``, and pruning it deleted the only
+    location mapping the board had — Atlassian and Microsoft each lost 100% of their
+    locations that way, correctly mapped and then silently discarded.
     """
     pruned = dict(field_map)
     for name in ("location", "posted_at", "department"):
         spec = pruned.get(name)
         if spec is None or "{" in spec:      # a template always renders a string
             continue
-        rendered = [render_field(r, spec) for r in records[:5] if isinstance(r, dict)]
+        rendered = [render_row_field(r, name, spec) for r in records[:5] if isinstance(r, dict)]
         useful = [v for v in rendered if v not in (None, "")]
         if useful and not any(_is_scalar(v) for v in useful):
             logger.info(

@@ -1,0 +1,28 @@
+{
+ "final_url": "https://www.atlassian.com/company/careers/all-jobs",
+ "page_title": "All Jobs - Atlassian",
+ "responses": [
+  {
+   "url": "https://www.atlassian.com/endpoint/careers/analytics",
+   "method": "GET",
+   "status": 200,
+   "content_type": "application/json",
+   "request_headers": {},
+   "post_data": null,
+   "body": "{\"events\": [{\"name\": \"page_view\", \"ts\": 1}]}",
+   "truncated": false
+  },
+  {
+   "url": "https://www.atlassian.com/endpoint/careers/listings",
+   "method": "GET",
+   "status": 200,
+   "content_type": "application/json",
+   "request_headers": {
+    "accept": "application/json, text/plain, */*"
+   },
+   "post_data": null,
+   "body": "[{\"portalJobPost\": {\"portalId\": 17, \"portalUrl\": \"https://globalcareers-atlassian.icims.com/jobs/25583/account-executive---japanese-speaking/job\", \"id\": 25583, \"updatedDate\": \"2026-08-18 08:11 AM\"}, \"id\": 25583, \"portalId\": 17, \"title\": \"Account Executive - Japanese Speaking\", \"locations\": [\"Remote - Japan - Remote\", \"Remote - Remote\"], \"category\": \"Sales\"}, {\"portalJobPost\": {\"portalId\": 242, \"portalUrl\": \"https://careers-apac-atlassian.icims.com/jobs/25610/manager%2c-account-executives%2c-mid-market/job\", \"id\": 25610, \"updatedDate\": \"2026-08-24 04:36 AM\"}, \"id\": 25610, \"portalId\": 242, \"title\": \"Manager, Account Executives, Mid-Market\", \"locations\": [\"Singapore - Singapore -   Central Singapore  Singapore\"], \"category\": \"Sales\"}]",
+   "truncated": false
+  }
+ ]
+}
