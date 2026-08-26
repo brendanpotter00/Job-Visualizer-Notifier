@@ -75,6 +75,8 @@ All configuration via environment variables:
 | `ENRICHMENT_CLAIM_TTL_MINUTES` | Stale-claim reclaim window in minutes (must exceed a full enricher tick round-trip) | `240` |
 | `ENRICHMENT_REQUIRE_JUDGE_PASS` | If true, hold judge-flagged rows as `needs_human` instead of publishing `done` | `false` |
 | `ENRICHMENT_CLAIM_WITHOUT_DESCRIPTION` | If true, allow claiming description-less rows (e.g. Workday/Eightfold) | `false` |
+| `ENRICHMENT_CUSTOM_SHARE_PCT` | Share of each `/pending` batch reserved for custom (user-added) companies; `0` disables custom claiming | `10` |
+| `ENRICHMENT_CUSTOM_PER_COMPANY_CAP` | Per-custom-company eligibility window: only a company's newest N *unclaimed* OPEN rows compete for the custom slice | `500` |
 | `POSTHOG_PROJECT_TOKEN` | PostHog analytics API key — if unset, all analytics is disabled (`get_posthog()` returns `None`) | *(optional)* |
 | `POSTHOG_HOST` | PostHog ingestion host (US cloud endpoint) | `https://us.i.posthog.com` |
 | `FEEDBACK_RATE_LIMIT_MAX` | Max feedback submissions per client IP per window | `5` |
@@ -161,7 +163,7 @@ All configuration via environment variables:
 
 **Jobs facets:** `GET /api/jobs/facets` - enrichment dropdown catalog (categories + levels with labels/order/parent) from the seeded dimensions.
 
-**Internal Enrichment Router (`/api/internal/enrichment`, X-Internal-Key):** `GET /pending` (claim batch; title-priority order — entry-level/intern, then software-engineering, then everything else, newest `first_seen_at` within each tier), `POST /results` (idempotent write-back; returns `written`/`failed[]`(+`source_id`)/`warnings[]`), `GET /sample`, `GET /health`, `POST /metrics` (per-tick push → `enrichment_ticks`, idempotent on `tick_uuid`), `GET /corrections` (human-correction feed for the enricher's golden-merge).
+**Internal Enrichment Router (`/api/internal/enrichment`, X-Internal-Key):** `GET /pending` (claim batch; title-priority order — entry-level/intern, then software-engineering, then everything else, newest `first_seen_at` within each tier; the batch is **split** — `ENRICHMENT_CUSTOM_SHARE_PCT` of it is reserved for custom companies, dealt round-robin across them, and each slice absorbs the other's unused budget so the reservation never idles the enricher), `POST /results` (idempotent write-back; returns `written`/`failed[]`(+`source_id`)/`warnings[]`), `GET /sample`, `GET /health`, `POST /metrics` (per-tick push → `enrichment_ticks`, idempotent on `tick_uuid`), `GET /corrections` (human-correction feed for the enricher's golden-merge).
 
 **Admin Enrichment (`/api/admin/enrichment/*`, requires admin):** `GET /health`, `GET /needs-human` (paginated triage queue), `GET /ticks`, `GET /recent`, `POST /jobs/{source_id}/{job_id}/correct` (publish human labels + lock row; sets `human_decision='corrected'`), `POST /jobs/{source_id}/{job_id}/confirm` (one-click validate the proposal as-is + lock row; sets `human_decision='confirmed_correct'`; 409 if the row has no proposed labels), `POST /jobs/{source_id}/{job_id}/reenrich` (reset + unlock; clears `human_decision`). Backing SQL in `services/enrichment_monitor.py`. `job_enrichment.human_decision` (`NULL` | `corrected` | `confirmed_correct`) is the human verdict — distinct from the judge's `judged`/`judge_passed` — and rides the `/api/internal/enrichment/corrections` feed as `decision` so the enricher can tell a fix from a validated raise.
 
