@@ -109,6 +109,26 @@ User runs script → Parse CLI args → Select company scraper → Choose mode (
 - 5-phase incremental algorithm minimizes scraping time
 - Batch writing for database performance
 
+## Job Lifecycle — which columns move, and when
+
+Cross-cutting business logic you otherwise have to reassemble from `shared/database.py`, `shared/incremental.py`, the `job_freshness` trigger and the seven backend leaf tasks (`src/backend/api/tasks/fetch_*_company.py`). All of them share the **one** write path in `shared/database.py`, so these rules hold for every company and every ATS.
+
+| Step | Trigger | `job_listings` | `job_freshness` |
+| --- | --- | --- | --- |
+| **First seen** | id has no row → `INSERT` | `first_seen_at` = `created_at` = scrape time; `status='OPEN'` | AFTER INSERT trigger `job_freshness_sync` seeds `last_seen_at = NEW.first_seen_at`, `consecutive_misses = 0` |
+| **Seen again** | id is in this run's results | content columns refreshed *only on paths that upsert the whole board* (the backend `fetch_*` tasks). `shared/incremental.py` upserts only `new_ids`, so a still-OPEN job's content is not rewritten. | `update_last_seen` → `last_seen_at = now`, `consecutive_misses = 0` |
+| **Missed a run** | id was OPEN and is absent from this run | — | `increment_consecutive_misses` → `+1` |
+| **Closed** | `consecutive_misses >= MISSED_RUN_THRESHOLD` (2; 3 on an auto-released run) | `mark_jobs_closed` → `status='CLOSED'`, `closed_on = now` | untouched — misses stay frozen at the closing value |
+| **Reopened** | a CLOSED id reappears. It is not in `get_active_job_ids` (`status='OPEN'` only), so it lands in `new_ids` and goes through the **same** upsert a new job does — there is no separate reopen branch. | `_UPSERT_ON_CONFLICT` → `status='OPEN'`, `closed_on = NULL`, content columns refreshed | `_upsert_freshness` → `last_seen_at = now`, `consecutive_misses = 0` |
+
+**`first_seen_at` and `created_at` NEVER change after the insert.** Both are deliberately absent from `_UPSERT_ON_CONFLICT` (`shared/database.py`), and the only trigger on `job_listings` is AFTER **INSERT**. A job that closes and comes back keeps its **original** discovery date. Note that `batch_writer.py` *does* stamp a fresh `first_seen_at` on every buffered job — Postgres discards it on conflict, which is a common source of confusion.
+
+That immutability is load-bearing, not incidental: keyset pagination (`ORDER BY first_seen_at DESC, source_id DESC, id DESC`) and the enricher's `/pending` claim both sort on it, and a value that moved mid-walk would reshuffle pages and silently skip rows. See commit `8e71fad` (#215) and `src/backend/api/pagination.py`.
+
+**A reopen leaves no per-row trace.** `closed_on` is set back to `NULL` and `consecutive_misses` back to `0`, so nothing on the row records that it was ever closed. Reopens are only countable in aggregate: `sum(scrape_runs.closed_jobs) - count(*) WHERE status='CLOSED'` (19,607 on prod as of 2026-08-25 — 25% of rows; Apple 79%, Microsoft 86%). Making a reopen *visible* anywhere would require a new column; it cannot be recovered from stored data.
+
+**One more thing that surprises people:** a tripped safety guard is a complete no-op against `job_listings` — no ingest, no `last_seen_at` refresh, no miss increment, no close — and `consecutive_misses` persists across the freeze. See the constant block in `shared/incremental.py`.
+
 ## Apple Scraper Details
 
 The Apple scraper uses a **hybrid approach**:

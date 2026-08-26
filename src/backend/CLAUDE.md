@@ -300,6 +300,7 @@ anti-join invariants the `/api/jobs` INNER JOIN depends on — runbook in
   1. **Procrastinate worker** (`tasks/procrastinate_app.py`) — drains the Procrastinate job queue; handles Greenhouse, Ashby, Lever, Gem, Eightfold, and Workday ATS companies via fan-out + per-company fetch tasks. Supervised with auto-restart on crash.
   2. **Auto-scraper loop** (`services/auto_scraper.py`) — asyncio task that periodically spawns subprocesses for Google, Apple, and Microsoft scrapers.
 - **Scraper subprocess**: Runs `scripts/run_scraper.py` via `asyncio.create_subprocess_exec`
+- **Job lifecycle (first seen → missed → closed → reopened)**: every `fetch_*_company.py` leaf task writes through `scripts/shared/database.py`, so the lifecycle rules are shared with the script scrapers and documented once in **`scripts/CLAUDE.md` § Job Lifecycle**. Read it before assuming anything about `first_seen_at`, `closed_on` or `consecutive_misses` — in particular, `first_seen_at` is stamped once at INSERT and is **never** updated when a closed job reopens, which is what makes it a safe keyset sort key (`api/pagination.py`).
 
 ### Schema migrations
 
