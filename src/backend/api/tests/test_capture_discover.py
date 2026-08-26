@@ -78,20 +78,21 @@ _AMAZON_URL = "https://www.amazon.jobs/en/search"
 _TIKTOK_URL = "https://lifeattiktok.com/search"
 _META_URL = "https://www.metacareers.com/jobs"
 
+# Stand-ins for what ``select_request`` returns. No ``description``: both fixtures'
+# records were trimmed before it was a mappable field (the live amazon.jobs payload
+# carries one on 10/10 records), and ``department`` left the canonical set with Δ2.
 _AMAZON_MAP = {
     "id": "id_icims",
     "title": "title",
     "url": "https://www.amazon.jobs{job_path}",
     "location": "normalized_location",
     "posted_at": "posted_date",
-    "department": "job_category",
 }
 _TIKTOK_MAP = {
     "id": "id",
     "title": "title",
     "url": "https://lifeattiktok.com/search/{id}",
     "location": "city_info.en_name",
-    "department": "job_category.en_name",
 }
 
 

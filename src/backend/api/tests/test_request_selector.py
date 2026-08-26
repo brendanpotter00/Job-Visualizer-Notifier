@@ -70,7 +70,11 @@ _AMAZON_ANSWER = {
         "url": "https://www.amazon.jobs{job_path}",
         "location": "normalized_location",
         "posted_at": "posted_date",
-        "department": "job_category",
+        # The live amazon.jobs list payload carries a 4.5 KB ``description`` on 10/10
+        # records; this fixture's were trimmed before it existed as a mappable field,
+        # so the honest answer against these bytes is null. The real thing is exercised
+        # against the Atlassian fixture below.
+        "description": None,
     },
     "pagination": {"style": "offset", "param": "offset", "page_size": 10},
 }
@@ -144,7 +148,9 @@ async def test_correct_pick_and_map() -> None:
     assert selection.records_path == "jobs"
     assert selection.field_map["id"] == "id_icims"
     assert selection.field_map["url"] == "https://www.amazon.jobs{job_path}"
-    assert selection.field_map["department"] == "job_category"
+    assert selection.field_map["location"] == "normalized_location"
+    assert selection.field_map["posted_at"] == "posted_date"
+    assert "description" not in selection.field_map          # answered null
     assert selection.pagination is not None
     assert (selection.pagination.style, selection.pagination.param) == ("offset", "offset")
 
@@ -158,7 +164,7 @@ async def test_maps_a_post_board_with_nested_fields() -> None:
             "id": "id", "title": "title",
             "url": "https://lifeattiktok.com/search/{id}",
             "location": "city_info.en_name", "posted_at": None,
-            "department": "job_category.en_name",
+            "description": None,
         },
         "pagination": {"style": "offset", "param": "offset", "page_size": 10},
     }
@@ -220,7 +226,7 @@ async def test_a_non_scalar_optional_field_is_dropped_not_stored() -> None:
             "url": "https://lifeattiktok.com/search/{id}",
             "location": "city_info",                 # the container, not the leaf
             "posted_at": None,
-            "department": "job_category.en_name",    # the leaf — kept
+            "description": None,
         },
         "pagination": None,
     }
@@ -228,7 +234,8 @@ async def test_a_non_scalar_optional_field_is_dropped_not_stored() -> None:
         _candidates("tiktok"), create_message=_answering(answer)
     )
     assert "location" not in selection.field_map
-    assert selection.field_map["department"] == "job_category.en_name"
+    # Only the OPTIONAL mapping goes; the board is still perfectly trackable.
+    assert selection.field_map["title"] == "title"
 
 
 @pytest.mark.asyncio
@@ -247,7 +254,7 @@ async def test_a_list_of_location_strings_is_kept_not_pruned() -> None:
             "url": "portalJobPost.portalUrl",
             "location": "locations",          # a list of plain strings — KEEP
             "posted_at": None,
-            "department": "category",
+            "description": None,
         },
         "pagination": None,
     }
@@ -255,6 +262,128 @@ async def test_a_list_of_location_strings_is_kept_not_pruned() -> None:
         _candidates("atlassian"), create_message=_answering(answer)
     )
     assert selection.field_map["location"] == "locations"
+
+
+# --- unit 7: the field map learns ``description``, and forgets ``department`` ---
+#
+# The single reason custom-company jobs got ZERO enrichment rows. The claim in
+# ``routers/internal_enrichment`` has no source filter — the only thing excluding
+# them is ``enrichment_monitor.DESCRIPTION_SQL IS NOT NULL``, which reads
+# ``details->>'description'`` — and the selection schema was a CLOSED six-key object
+# with no description key, so the model could not answer with one even while looking
+# straight at it. The Atlassian fixture below is the live payload's own first two
+# records: 1,523 and 757 characters of ``<p>``-heavy ``overview`` HTML.
+
+_ATLASSIAN_DESCRIPTION_ANSWER = {
+    "chosen_request_index": 0,
+    "records_path": "",
+    "field_map": {
+        "id": "id", "title": "title",
+        "url": "portalJobPost.portalUrl",
+        "location": "locations",
+        "posted_at": None,
+        "description": "overview",
+    },
+    "pagination": None,
+}
+
+
+@pytest.mark.asyncio
+async def test_a_real_description_mapping_is_stored_and_survives_the_prune() -> None:
+    """A long HTML string is a SCALAR, not a container, so the prune that ate
+    Atlassian's ``locations`` has no claim on it. Asserted rather than assumed —
+    ``_prune_non_scalar_optionals`` is the exact check that already deleted one
+    correctly-mapped field on this exact board."""
+    selection = await rs.select_request(
+        _candidates("atlassian"),
+        create_message=_answering(_ATLASSIAN_DESCRIPTION_ANSWER),
+    )
+    assert selection.field_map["description"] == "overview"
+
+    # And it renders as the real thing the runner will store: >1 KB of HTML prose.
+    records = rs.dig_records(_candidates("atlassian")[0].payload, "")
+    rendered = rs.render_row_field(records[0], "description", "overview")
+    assert isinstance(rendered, str)
+    assert len(rendered) > 700 and "<p>" in rendered
+
+
+@pytest.mark.asyncio
+async def test_a_container_valued_description_is_still_pruned() -> None:
+    """The failure mode the prune exists for, on the description key: ``portalJobPost``
+    is an object, and storing it writes a Python repr into ``details->>'description'``
+    — which the enrichment claim would then treat as a real description and hand the
+    classifier a dict spelling. Absent is better."""
+    answer = {
+        **_ATLASSIAN_DESCRIPTION_ANSWER,
+        "field_map": {
+            **_ATLASSIAN_DESCRIPTION_ANSWER["field_map"],
+            "description": "portalJobPost",       # the container, not a leaf
+        },
+    }
+    selection = await rs.select_request(
+        _candidates("atlassian"), create_message=_answering(answer)
+    )
+    assert "description" not in selection.field_map
+    assert selection.field_map["location"] == "locations"      # the rest is untouched
+
+
+@pytest.mark.asyncio
+async def test_a_list_valued_description_is_pruned_not_folded() -> None:
+    """``location``/``department``/``company`` are the runner's multi-value fields; a
+    description is not one of them. A board publishing a LIST where a description should
+    be has been mapped one level too high, and joining unrelated prose into one blob
+    would hand the classifier a description no job actually has."""
+    answer = {
+        **_ATLASSIAN_DESCRIPTION_ANSWER,
+        "field_map": {
+            **_ATLASSIAN_DESCRIPTION_ANSWER["field_map"],
+            "description": "locations",           # a list of plain strings
+        },
+    }
+    selection = await rs.select_request(
+        _candidates("atlassian"), create_message=_answering(answer)
+    )
+    assert "description" not in selection.field_map
+
+
+def test_the_closed_key_set_carries_description_and_not_department() -> None:
+    """Anthropic strict mode forbids dynamic keys, so ``field_map`` is a closed object
+    and the key set lives in THREE places that must agree: the pydantic envelope, the
+    JSON schema, and the prompt that tells the model what to look for. A key present in
+    two of them and missing from the third is a mapping the model is asked for and then
+    silently cannot return — which is exactly how ``description`` was unreachable."""
+    schema = rs.build_message_params(_candidates("amazon"))["output_config"]["format"]
+    fields = schema["schema"]["properties"]["field_map"]
+    assert fields["additionalProperties"] is False
+    assert set(fields["properties"]) == {
+        "id", "title", "url", "location", "posted_at", "description",
+    }
+    assert set(fields["required"]) == set(fields["properties"])
+    assert set(rs._FieldMap.model_fields) == set(fields["properties"])
+    # The bullet form, not a bare substring: the prompt still says "departments" while
+    # explaining grouped boards, and still lists "description" among the record key
+    # names a board might use. What must be true is that each is (or is not) a FIELD
+    # the model is being asked to map.
+    assert "- description:" in rs.SYSTEM_PROMPT
+    assert "department:" not in rs.SYSTEM_PROMPT
+
+
+@pytest.mark.asyncio
+async def test_a_department_answer_is_ignored_rather_than_stored() -> None:
+    """A model still answering with the retired key must not smuggle it back into a
+    stored recipe — the envelope ignores unknown keys, and the optional-field walk only
+    looks at names the closed set names."""
+    answer = {
+        **_ATLASSIAN_DESCRIPTION_ANSWER,
+        "field_map": {
+            **_ATLASSIAN_DESCRIPTION_ANSWER["field_map"], "department": "category",
+        },
+    }
+    selection = await rs.select_request(
+        _candidates("atlassian"), create_message=_answering(answer)
+    )
+    assert "department" not in selection.field_map
+    assert selection.field_map["description"] == "overview"
 
 
 @pytest.mark.asyncio
@@ -268,7 +397,7 @@ async def test_a_non_scalar_id_refuses_rather_than_being_dropped() -> None:
         "field_map": {
             "id": "city_info", "title": "title",
             "url": "https://lifeattiktok.com/search/{id}",
-            "location": None, "posted_at": None, "department": None,
+            "location": None, "posted_at": None, "description": None,
         },
         "pagination": None,
     }
@@ -399,7 +528,7 @@ async def test_the_model_can_answer_that_none_of_them_is_a_jobs_feed() -> None:
         "chosen_request_index": None,
         "records_path": "",
         "field_map": {"id": "", "title": "", "url": "",
-                      "location": None, "posted_at": None, "department": None},
+                      "location": None, "posted_at": None, "description": None},
         "pagination": None,
     }
     with pytest.raises(rs.NoJobsFeedError, match="is a list of job postings"):

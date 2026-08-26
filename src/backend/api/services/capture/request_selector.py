@@ -10,7 +10,7 @@ custom-company feature. It is two halves on purpose, and the order is load-beari
   over 40 bodies of which 38 are session pings.
 * :func:`select_request` — **Claude Haiku 4.5, once, ever**, with structured output:
   which candidate is the jobs feed and how its record fields map to
-  ``{id, title, url, location?, posted_at?, department?}``. Runtime never calls this
+  ``{id, title, url, location?, posted_at?, description?}``. Runtime never calls this
   again; the answer is baked into the stored recipe.
 
 The client/validation/degradation pattern is copied deliberately from
@@ -292,13 +292,30 @@ def prefilter_candidates(responses: list[Any]) -> list[Candidate]:
 # step 4 — the one LLM call
 # --------------------------------------------------------------------------
 
+# The CLOSED key set. Anthropic strict mode forbids dynamic keys, so ``field_map`` is
+# an object over exactly these names and adding or removing one is a deliberate edit in
+# three places at once: here, :data:`_SELECTION_SCHEMA`, and the optional-field tuples
+# in :func:`_to_selection` / :func:`_prune_non_scalar_optionals`.
+#
+# ``description`` replaced ``department`` (Δ2). It is the whole reason custom-company
+# jobs got zero enrichment rows: the claim in ``routers/internal_enrichment`` has no
+# source filter at all — the ONLY thing excluding them is
+# ``enrichment_monitor.DESCRIPTION_SQL IS NOT NULL``, which reads
+# ``details->>'description'``, and a closed six-key object with no description key
+# meant the model could not return one even while looking straight at 5.8 KB of it.
+# Atlassian (249/249), amazon.jobs (10/10) and Jane Street (231/231) all ship the text
+# in the list payload we already download nightly and throw away.
+#
+# ``department`` went the other way: the owner does not want it, and the only real
+# reader is the classifier hint in ``internal_enrichment``'s ``/pending`` projection,
+# which is a no-op when the key is absent and still populated by every public ATS row.
 class _FieldMap(BaseModel):
     id: str
     title: str
     url: str
     location: str | None = None
     posted_at: str | None = None
-    department: str | None = None
+    description: str | None = None
 
 
 class _Pagination(BaseModel):
@@ -364,8 +381,13 @@ SYSTEM_PROMPT = (
     "- url: the link to the job's own page. If the record holds only a path or an id, "
     "return a TEMPLATE with {dotted.path} placeholders, e.g. "
     "'https://example.com/jobs/{id}' or 'https://example.com{job_path}'.\n"
-    "- location, posted_at, department: dotted paths when the record has them, "
-    "otherwise null.\n"
+    "- location, posted_at: dotted paths when the record has them, otherwise null.\n"
+    "- description: the field holding the job's own prose — whatever the record calls "
+    "it (description, summary, overview, about, responsibilities, qualifications, "
+    "jobDescription). It is normally the LONGEST string in the record and is often "
+    "HTML. If several such fields exist, pick the ONE that best describes the role "
+    "overall. Return null when the record carries none: a title, a category or a "
+    "location is not a description, and pointing at one is worse than saying null.\n"
     "EVERY mapped path must resolve to a STRING or a NUMBER, never to an object or an "
     "array. If the value lives inside an object, point at the LEAF: 'city_info.en_name', "
     "not 'city_info'.\n"
@@ -398,9 +420,9 @@ _SELECTION_SCHEMA: dict[str, Any] = {
                 "url": {"type": "string"},
                 "location": {"type": ["string", "null"]},
                 "posted_at": {"type": ["string", "null"]},
-                "department": {"type": ["string", "null"]},
+                "description": {"type": ["string", "null"]},
             },
-            "required": ["id", "title", "url", "location", "posted_at", "department"],
+            "required": ["id", "title", "url", "location", "posted_at", "description"],
         },
         "pagination": {
             "type": ["object", "null"],
@@ -604,9 +626,16 @@ def _prune_non_scalar_optionals(
     multi-value data the runner folds to ``"a; b"``, and pruning it deleted the only
     location mapping the board had — Atlassian and Microsoft each lost 100% of their
     locations that way, correctly mapped and then silently discarded.
+
+    ``description`` is checked here for the same reason the others are — the model can
+    point at a ``content: {html: …}`` wrapper as readily as at a ``city_info`` one — and
+    survives for the same reason a plain string does: a long HTML string is a scalar,
+    not a container. It is deliberately NOT in ``recipe_runner._MULTI_VALUE_FIELDS``, so
+    a description mapped to a LIST is a mis-map one level too high and is dropped rather
+    than joined into one blob of unrelated prose.
     """
     pruned = dict(field_map)
-    for name in ("location", "posted_at", "department"):
+    for name in ("location", "posted_at", "description"):
         spec = pruned.get(name)
         if spec is None or "{" in spec:      # a template always renders a string
             continue
@@ -639,7 +668,7 @@ def _to_selection(envelope: _SelectionEnvelope, candidates: list[Candidate]) -> 
         "title": envelope.field_map.title.strip(),
         "url": envelope.field_map.url.strip(),
     }
-    for name in ("location", "posted_at", "department"):
+    for name in ("location", "posted_at", "description"):
         value = getattr(envelope.field_map, name)
         if isinstance(value, str) and value.strip():
             field_map[name] = value.strip()

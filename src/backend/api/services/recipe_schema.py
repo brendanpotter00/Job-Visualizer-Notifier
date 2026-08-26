@@ -117,13 +117,20 @@ _UNIMPLEMENTED_OP_REASONS = {
 # ``recipe_rows`` promotes id/title/url/location/posted_at and folds the remainder
 # into ``details``. ``validate_recipe`` requires the mandatory three and, being a
 # read-path check over possibly-drifted stored data, does not otherwise constrain
-# the key set.
+# the key set — which is what lets a recipe captured under an older set keep
+# replaying unchanged after this tuple moves.
+#
+# ``description`` earns its place by being the ONE key the enrichment claim reads:
+# ``enrichment_monitor.DESCRIPTION_SQL`` COALESCEs over ``details->>'description'``,
+# and until it could be mapped, every custom-company job was invisible to the
+# enricher. ``department`` left with it (Δ2) — the owner does not want it, and the
+# only real reader is a classifier hint that no-ops when the key is absent.
 # The one non-literal segment a ``records_path`` may carry: "every element of the list
 # here". See :func:`dig_records` for what it buys and why it is not in :func:`dig`.
 RECORDS_WILDCARD = "*"
 
 CANONICAL_REQUIRED_FIELDS = ("id", "title", "url")
-CANONICAL_OPTIONAL_FIELDS = ("location", "posted_at", "department", "company")
+CANONICAL_OPTIONAL_FIELDS = ("location", "posted_at", "description", "company")
 
 # Oracle kinds. The three Phase-3 exact-match oracles, plus the two inherited from
 # Phase 2 (a discovered board with no published total is legitimately

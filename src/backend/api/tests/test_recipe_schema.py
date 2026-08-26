@@ -23,6 +23,8 @@ import pytest
 
 from api.services.recipe_schema import (
     BROWSER_FETCH_MAX_PAGES,
+    CANONICAL_OPTIONAL_FIELDS,
+    CANONICAL_REQUIRED_FIELDS,
     RecipeError,
     dig_records,
     validate_recipe,
@@ -415,3 +417,31 @@ def test_an_unrunnable_wildcard_path_is_rejected_on_write_and_on_read(
 
     extract["records_path"] = "*.postings"     # ...and one wildcard is accepted
     validate_recipe(script)
+
+
+# --- unit 7: the canonical optional set gains ``description``, loses ``department`` ---
+
+def test_the_canonical_optional_fields_are_the_set_discovery_can_emit() -> None:
+    """Documentation with a job: the discovery author's structured output is a CLOSED
+    object over exactly these names, because Anthropic strict mode forbids dynamic keys.
+    ``description`` is the one the enrichment claim reads (``DESCRIPTION_SQL`` COALESCEs
+    over ``details->>'description'``); ``department`` left with Δ2."""
+    assert CANONICAL_REQUIRED_FIELDS == ("id", "title", "url")
+    assert "description" in CANONICAL_OPTIONAL_FIELDS
+    assert "department" not in CANONICAL_OPTIONAL_FIELDS
+
+
+def test_a_recipe_captured_under_the_old_field_set_still_validates() -> None:
+    """The five stored recipes were captured when ``department`` was in the set and
+    ``description`` was not. ``_v_fields`` requires the mandatory three and constrains
+    nothing else on purpose — a read-path check over possibly-drifted stored data — so
+    changing the capture set must not turn every recipe already in the database into a
+    nightly RecipeError."""
+    script = _load("janestreet.json")
+    (extract,) = [s for s in script["steps"] if s["op"] == "extract_json_path"]
+    extract["fields"]["department"] = "category"
+    assert validate_recipe(script) is script
+
+    del extract["fields"]["department"]
+    extract["fields"]["description"] = "overview"
+    assert validate_recipe(script) is script
