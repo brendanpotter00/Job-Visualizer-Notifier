@@ -88,7 +88,26 @@ _BROWSER_OPS = ("click_sequence", "page_fetch", "page_request", "dom", "browser_
 # discovery task dies with no refusal row). ``paginate_cursor`` is deliberately
 # NOT implemented: reading the next URL/token out of the response body would add a
 # fresh next-URL-from-body SSRF surface (E7 Phase 3b review, Finding 2).
-_UNIMPLEMENTED_OPS = ("paginate_cursor",)
+#
+# ``lookup_join`` belongs here for a worse reason than "unimplemented": it used to
+# validate cleanly and then be DISCARDED by ``recipe_runner.parse_plan``'s
+# non-exhaustive dispatch, so a stored recipe asking for a per-job detail fetch
+# scraped happily every night while doing none of it, and nothing reported the gap.
+# ``parse_plan`` now raises on any op it cannot run — this entry is the front half of
+# the same fix, refusing the recipe at WRITE time so discovery records a refusal
+# instead of storing a board that fails every replay for the rest of its life.
+# ``_v_lookup_join`` is kept below as the shape spec for the day it is implemented
+# (per-job detail fetch, deferred: ~10 min serial on the 2,055-job Microsoft board
+# against a 600 s budget, and impossible on ``browser_fetch``); until then the
+# validator is unreachable and this tuple is why.
+_UNIMPLEMENTED_OPS = ("paginate_cursor", "lookup_join")
+
+# Why each one is refused, so the rejection message names the actual reason rather than
+# the reason of whichever op happened to be first in the tuple.
+_UNIMPLEMENTED_OP_REASONS = {
+    "paginate_cursor": "cursor pagination would add a next-URL-from-body SSRF surface",
+    "lookup_join": "a per-job detail fetch has no executor and is deferred",
+}
 
 # Canonical job-field names an extraction may map (``fields`` / ``field_selectors``).
 # A FIXED set — the discovery author's strict structured-output schema expresses
@@ -609,7 +628,7 @@ def validate_recipe(
         _require(
             op not in _UNIMPLEMENTED_OPS,
             f"steps[{i}].op {op!r} is not implemented in the replay engine "
-            f"(cursor pagination would add a next-URL-from-body SSRF surface); "
+            f"({_UNIMPLEMENTED_OP_REASONS.get(op, 'no executor exists')}); "
             f"discovery must REFUSE rather than emit it",
         )
         validator = _OP_VALIDATORS.get(op)

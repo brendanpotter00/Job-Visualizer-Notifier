@@ -109,6 +109,77 @@ def test_inv5_zero_records_raises_never_empty() -> None:
             run_recipe(_json_script(expected_min_jobs=1), http)
 
 
+# --- the same contract, one layer up: an op we cannot RUN is a raise, not a shrug ------
+#
+# RAISES-never-empty is usually read as "zero rows is a failure". Its real subject is
+# wider: a harvest must never come back looking complete while quietly having done less.
+# ``parse_plan``'s dispatch had no ``else``, so a ``lookup_join`` step — a per-job detail
+# fetch, fully specified by ``_v_lookup_join`` and implemented by nothing — validated on
+# write and was then dropped on the floor at parse. The board scraped green every night
+# with the detail data missing and no error anywhere. Same silence, same answer.
+
+
+def test_inv5b_unrunnable_op_raises_at_parse_naming_the_op() -> None:
+    """The recipe asks for a per-job detail fetch; the engine has no executor for one.
+
+    Built by hand rather than through ``validate_recipe`` on purpose: the schema now
+    refuses ``lookup_join`` on write (below), and this asserts the SECOND line of defence —
+    a stored script that drifted, or the next op someone adds to the vocabulary without an
+    executor, still cannot reach a nightly run and be silently skipped.
+    """
+    script = _json_script()
+    script["steps"].append({
+        "op": "lookup_join",
+        "detail_fetch": {"url_template": "https://ex.com/job/{id}"},
+        "join_key": "id",
+        "fields": {"description": "body"},
+    })
+    with pytest.raises(RecipeError, match="lookup_join"):
+        recipe_runner.parse_plan(script)
+
+
+def test_inv5b_every_op_the_runner_implements_still_parses() -> None:
+    """The other half, and the one that would catch an over-eager ``else``: every op in the
+    closed vocabulary that the runner DOES handle — folded onto the plan or enforced
+    structurally — must still parse. A raise here would take working boards offline."""
+    script = _json_script()
+    script["steps"] = [
+        {"op": "fetch", "method": "GET", "url": "https://ex.com/api", "headers": {}},
+        {"op": "paginate_offset", "param": "offset", "page_size": 2, "max_pages": 20},
+        {"op": "extract_json_path", "records_path": "jobs",
+         "fields": {"id": "id", "title": "title", "url": "url"}},
+        {"op": "transform", "field": "url", "kind": "base_url_join",
+         "base_url": "https://ex.com"},
+        {"op": "parse_date", "field": "posted_at", "mode": "iso"},
+        {"op": "dedupe_key", "field": "id"},
+        {"op": "assert_no_inband_error", "error_keys": ["error"]},
+        {"op": "assert_unique", "field": "id"},
+        # The four the runner enforces structurally rather than folding onto the plan.
+        {"op": "assert_status"},
+        {"op": "assert_page_advances"},
+        {"op": "assert_unique_ids_vs_total"},
+        {"op": "assert_delta_vs_last_run"},
+    ]
+    validate_recipe(script)  # it is a real, storable recipe, not just a parse fixture
+    plan = recipe_runner.parse_plan(script)
+    assert [s["op"] for s in plan.shaping] == ["transform", "parse_date"]
+    assert plan.unique_field == "id" and plan.error_keys == ("error",)
+
+
+def test_inv5b_lookup_join_is_refused_on_write_not_stored_and_failed_nightly() -> None:
+    """Front half of the fix. Refusing at validate time means discovery records a refusal
+    the owner can read, instead of storing a recipe that FAILs every replay forever."""
+    script = _json_script()
+    script["steps"].append({
+        "op": "lookup_join",
+        "detail_fetch": {"url_template": "https://ex.com/job/{id}"},
+        "join_key": "id",
+        "fields": {"description": "body"},
+    })
+    with pytest.raises(RecipeError, match="lookup_join.*not implemented"):
+        validate_recipe(script)
+
+
 def test_inv6_count_below_expected_min_raises() -> None:
     with _client(_dataset_handler(3)) as http:
         with pytest.raises(RecipeExecutionError, match="below expected_min_jobs"):

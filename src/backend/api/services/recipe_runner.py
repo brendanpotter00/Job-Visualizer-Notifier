@@ -296,12 +296,36 @@ class RecipePlan:
     window_cap: int | None = field(default=None)
 
 
+# Ops that carry NOTHING for the plan to fold because the runner enforces them
+# structurally on every run regardless of whether the script asks for one: 2xx is checked
+# at every fetch, page advance is derived from ``state.page_id_sets``, ids-vs-total and
+# delta-vs-last-run are computed in ``finalize_harvest`` / the Phase-2 gate. Listing them
+# is what lets the dispatch below have a raising ``else`` — without this set, "the runner
+# handles it elsewhere" and "the runner cannot handle it at all" are the same silence.
+_STRUCTURAL_OPS = frozenset({
+    "assert_status",
+    "assert_page_advances",
+    "assert_unique_ids_vs_total",
+    "assert_delta_vs_last_run",
+})
+
+
 def parse_plan(script: dict[str, Any]) -> RecipePlan:
     """Fold a VALIDATED script's ``steps`` list into a :class:`RecipePlan`.
 
     Assumes :func:`~api.services.recipe_schema.validate_recipe` already ran — the
     ``assert`` below is the shape guarantee it makes, not a check. Public for the
     same reason :class:`RecipePlan` is.
+
+    The dispatch is EXHAUSTIVE and its ``else`` raises. It used to fall off the end: an op
+    the schema knows the shape of but this engine cannot execute — ``lookup_join`` is the
+    one that exists — validated on write and was then dropped on the floor here, so the
+    board scraped "successfully" every night while never doing the per-job detail fetch its
+    own recipe asked for. Nothing anywhere reported it. That is the same class of silence as
+    returning ``[]`` for a board that failed, and it gets the same answer: raise.
+    :class:`~api.services.recipe_schema.RecipeError` is a ``ValueError``, which is in the
+    leaf task's narrow ``except`` — so this lands as a recorded FAILED run, which harvests
+    nothing and closes nothing, not as an unhandled crash.
     """
     fetch: dict[str, Any] | None = None
     pagination: dict[str, Any] | None = None
@@ -335,8 +359,13 @@ def parse_plan(script: dict[str, Any]) -> RecipePlan:
             window_cap = step["window_cap"]
         elif op == "assert_unique":
             unique_field = step["field"]
-        # assert_status / assert_page_advances / assert_unique_ids_vs_total /
-        # assert_delta_vs_last_run are enforced structurally by the runner itself.
+        elif op in _STRUCTURAL_OPS:
+            pass  # nothing to fold — see _STRUCTURAL_OPS.
+        else:
+            raise RecipeError(
+                f"steps[].op {op!r} validates but the replay engine has no executor for "
+                "it — refusing to run a recipe that would silently do less than it says"
+            )
 
     assert fetch is not None and extraction is not None  # guaranteed by validate_recipe
     base_url = script.get("base_url") or extraction.get("base_url", "")
