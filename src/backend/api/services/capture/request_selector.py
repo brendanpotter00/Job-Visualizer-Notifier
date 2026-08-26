@@ -10,8 +10,8 @@ custom-company feature. It is two halves on purpose, and the order is load-beari
   over 40 bodies of which 38 are session pings.
 * :func:`select_request` — **Claude Haiku 4.5, once, ever**, with structured output:
   which candidate is the jobs feed and how its record fields map to
-  ``{id, title, url, location?, posted_at?, description?}``. Runtime never calls this
-  again; the answer is baked into the stored recipe.
+  ``{id, title, url, location?, posted_at?, description?, department?}``. Runtime
+  never calls this again; the answer is baked into the stored recipe.
 
 The client/validation/degradation pattern is copied deliberately from
 :mod:`api.services.llm_client` (same model constant family, ``max_retries=0`` — the
@@ -300,21 +300,35 @@ def prefilter_candidates(responses: list[Any]) -> list[Candidate]:
 
 # The CLOSED key set. Anthropic strict mode forbids dynamic keys, so ``field_map`` is
 # an object over exactly these names and adding or removing one is a deliberate edit in
-# three places at once: here, :data:`_SELECTION_SCHEMA`, and the optional-field tuples
-# in :func:`_to_selection` / :func:`_prune_non_scalar_optionals`.
+# FOUR places at once: here, :data:`_SELECTION_SCHEMA`, :data:`SYSTEM_PROMPT` (a key the
+# model is never told about is a key it never returns), and the optional-field tuples in
+# :func:`_to_selection` / :func:`_prune_non_scalar_optionals` (a key missing there is a
+# mapping the model returned and we then dropped in silence). A mutation harness pins
+# all four: removing either optional from any one of them fails a test.
 #
-# ``description`` replaced ``department`` (Δ2). It is the whole reason custom-company
-# jobs got zero enrichment rows: the claim in ``routers/internal_enrichment`` has no
-# source filter at all — the ONLY thing excluding them is
-# ``enrichment_monitor.DESCRIPTION_SQL IS NOT NULL``, which reads
-# ``details->>'description'``, and a closed six-key object with no description key
+# ``description`` (Δ2) is the whole reason custom-company jobs got zero enrichment rows:
+# the claim in ``routers/internal_enrichment`` has no source filter at all — the ONLY
+# thing excluding them is ``enrichment_monitor.DESCRIPTION_SQL IS NOT NULL``, which
+# reads ``details->>'description'``, and a closed six-key object with no description key
 # meant the model could not return one even while looking straight at 5.8 KB of it.
 # Atlassian (249/249), amazon.jobs (10/10) and Jane Street (231/231) all ship the text
 # in the list payload we already download nightly and throw away.
 #
-# ``department`` went the other way: the owner does not want it, and the only real
-# reader is the classifier hint in ``internal_enrichment``'s ``/pending`` projection,
-# which is a no-op when the key is absent and still populated by every public ATS row.
+# ``department`` left with it and has come BACK, and the reason is worth recording
+# because it is the same reason stated twice with opposite answers. Δ2 dropped it on the
+# finding that nothing read it: the only reader was the classifier hint in
+# ``internal_enrichment``'s ``/pending`` projection, a no-op when the key is absent. That
+# was true when it was written and stopped being true hours later — the UI's Department
+# filter turned out to have been silently dead (``/api/jobs`` never sent the key, so
+# ``selectAvailableDepartments`` returned ``[]`` and the control hid itself), and the fix
+# denormalized a ``job_listings.department`` column (migration ``c1539fa03b23``) fed from
+# ``details['department']``. So the field now has a USER-FACING reader, and a recipe that
+# does not map it writes NULL into that column on every upsert
+# (``_UPSERT_ON_CONFLICT``: ``department = EXCLUDED.department``).
+#
+# The two do not compete for the ``details`` blob: ``fetch_custom_company`` bounds this
+# one at ``_DEPARTMENT_MAX_BYTES`` precisely so a long department can never be the reason
+# a description is shrunk. Description is the expensive field and wins any conflict.
 class _FieldMap(BaseModel):
     id: str
     title: str
@@ -322,6 +336,7 @@ class _FieldMap(BaseModel):
     location: str | None = None
     posted_at: str | None = None
     description: str | None = None
+    department: str | None = None
 
 
 class _Pagination(BaseModel):
@@ -407,7 +422,8 @@ SYSTEM_PROMPT = (
     "- url: the link to the job's own page. If the record holds only a path or an id, "
     "return a TEMPLATE with {dotted.path} placeholders, e.g. "
     "'https://example.com/jobs/{id}' or 'https://example.com{job_path}'.\n"
-    "- location, posted_at: dotted paths when the record has them, otherwise null.\n"
+    "- location, posted_at, department: dotted paths when the record has them, "
+    "otherwise null.\n"
     "- description: the field holding the job's own prose — whatever the record calls "
     "it (description, summary, overview, about, responsibilities, qualifications, "
     "jobDescription). It is normally the LONGEST string in the record and is often "
@@ -451,8 +467,11 @@ _SELECTION_SCHEMA: dict[str, Any] = {
                 "location": {"type": ["string", "null"]},
                 "posted_at": {"type": ["string", "null"]},
                 "description": {"type": ["string", "null"]},
+                "department": {"type": ["string", "null"]},
             },
-            "required": ["id", "title", "url", "location", "posted_at", "description"],
+            "required": [
+                "id", "title", "url", "location", "posted_at", "description", "department",
+            ],
         },
         "pagination": {
             "type": ["object", "null"],
@@ -663,9 +682,15 @@ def _prune_non_scalar_optionals(
     not a container. It is deliberately NOT in ``recipe_runner._MULTI_VALUE_FIELDS``, so
     a description mapped to a LIST is a mis-map one level too high and is dropped rather
     than joined into one blob of unrelated prose.
+
+    ``department`` IS one of the runner's multi-value fields, so it behaves like
+    ``location`` and not like ``description``: a list of plain strings is real data the
+    runner folds to ``"a; b"`` and this keeps it, while a list of objects is still
+    dropped. Rendering through :func:`render_row_field` is what makes that distinction
+    free — the prune sees exactly the value the runner will store.
     """
     pruned = dict(field_map)
-    for name in ("location", "posted_at", "description"):
+    for name in ("location", "posted_at", "description", "department"):
         spec = pruned.get(name)
         if spec is None or "{" in spec:      # a template always renders a string
             continue
@@ -890,7 +915,7 @@ def _to_selection(envelope: _SelectionEnvelope, candidates: list[Candidate]) -> 
         "title": envelope.field_map.title.strip(),
         "url": envelope.field_map.url.strip(),
     }
-    for name in ("location", "posted_at", "description"):
+    for name in ("location", "posted_at", "description", "department"):
         value = getattr(envelope.field_map, name)
         if isinstance(value, str) and value.strip():
             field_map[name] = value.strip()

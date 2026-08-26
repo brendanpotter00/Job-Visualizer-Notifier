@@ -419,24 +419,29 @@ def test_an_unrunnable_wildcard_path_is_rejected_on_write_and_on_read(
     validate_recipe(script)
 
 
-# --- unit 7: the canonical optional set gains ``description``, loses ``department`` ---
+# --- unit 7: the canonical optional set carries BOTH ``description`` and ``department`` ---
 
 def test_the_canonical_optional_fields_are_the_set_discovery_can_emit() -> None:
     """Documentation with a job: the discovery author's structured output is a CLOSED
     object over exactly these names, because Anthropic strict mode forbids dynamic keys.
-    ``description`` is the one the enrichment claim reads (``DESCRIPTION_SQL`` COALESCEs
-    over ``details->>'description'``); ``department`` left with Δ2."""
+
+    Each of the two has exactly one reader and neither reader is optional:
+    ``description`` is what the enrichment claim reads (``DESCRIPTION_SQL`` COALESCEs
+    over ``details->>'description'``), and ``department`` is what the UI's Department
+    filter reads, via the denormalized ``job_listings.department`` column (migration
+    ``c1539fa03b23``). Dropping either name from the tuple fails here."""
     assert CANONICAL_REQUIRED_FIELDS == ("id", "title", "url")
     assert "description" in CANONICAL_OPTIONAL_FIELDS
-    assert "department" not in CANONICAL_OPTIONAL_FIELDS
+    assert "department" in CANONICAL_OPTIONAL_FIELDS
 
 
-def test_a_recipe_captured_under_the_old_field_set_still_validates() -> None:
-    """The five stored recipes were captured when ``department`` was in the set and
-    ``description`` was not. ``_v_fields`` requires the mandatory three and constrains
-    nothing else on purpose — a read-path check over possibly-drifted stored data — so
-    changing the capture set must not turn every recipe already in the database into a
-    nightly RecipeError."""
+def test_a_recipe_captured_under_any_older_field_set_still_validates() -> None:
+    """The stored recipes have now been captured under THREE different field sets — with
+    ``department`` and no ``description``, with ``description`` and no ``department``,
+    and with both. ``_v_fields`` requires the mandatory three and constrains nothing else
+    on purpose — a read-path check over possibly-drifted stored data — so moving the
+    capture set must never turn a recipe already in the database into a nightly
+    RecipeError, in either direction."""
     script = _load("janestreet.json")
     (extract,) = [s for s in script["steps"] if s["op"] == "extract_json_path"]
     extract["fields"]["department"] = "category"
@@ -444,4 +449,7 @@ def test_a_recipe_captured_under_the_old_field_set_still_validates() -> None:
 
     del extract["fields"]["department"]
     extract["fields"]["description"] = "overview"
+    assert validate_recipe(script) is script
+
+    extract["fields"]["department"] = "category"
     assert validate_recipe(script) is script

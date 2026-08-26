@@ -137,6 +137,8 @@ _DETAILS_MAX_BYTES = 8 * 1024
 # The number is the blob cap minus 2 KB of headroom for everything else a row
 # carries (``department``/``experience_level``/``is_remote_eligible``, whatever
 # else a recipe mapped, the ``_details_truncated`` marker, and JSON escaping).
+# ``_DEPARTMENT_MAX_BYTES`` below is what turns that headroom from an estimate
+# into a bound.
 # Measured against the 248 live records of atlassian.com/company/careers/all-jobs,
 # after the strip below: the largest single mappable field (``responsibilities``)
 # is 6,257 B at max and 4,864 B at p99, ``qualifications`` 5,406 B / 4,578 B — so
@@ -148,6 +150,31 @@ _DETAILS_MAX_BYTES = 8 * 1024
 # enricher can never see. A truncated one still classifies: the signal a
 # classifier uses is in the opening paragraphs.
 _DESCRIPTION_MAX_BYTES = 6 * 1024
+
+# Byte budget for ``department``, and the reason it exists is the ORDER OF PRECEDENCE
+# between the two fields a recipe can now map into a large blob.
+#
+# ``department`` is back in the capture schema because the UI's Department filter reads
+# it (via the denormalized ``job_listings.department`` column, migration
+# ``c1539fa03b23``). It is a short label — the longest of the 29,090 departments in the
+# dev DB is 122 characters, mean 22.3 — but it is a path a stranger's board chose, and
+# nothing about the recipe format stops a board from putting 4 KB of prose behind it.
+#
+# Unbounded, that is not merely a fat blob: it is a fat blob that costs the DESCRIPTION.
+# ``_cap_details``'s last-resort rung keeps ``department`` whole and shrinks
+# ``description`` to whatever room is left (:func:`_fit_description`), so the cheap field
+# would evict the expensive one — and a dropped description is a row
+# ``enrichment_monitor.DESCRIPTION_SQL`` can never claim, while a clipped department is
+# a filter label with a shorter tail. So the cheap field is the one that gets bounded,
+# and description wins any conflict by construction:
+#
+#     _DESCRIPTION_MAX_BYTES (6144) + _DEPARTMENT_MAX_BYTES (512) = 6656 < 8192
+#
+# leaving ~1.5 KB for the remaining scalars, the keys and JSON escaping — so the
+# shrink loop in :func:`_fit_description` can no longer be reached BECAUSE of a
+# department. Pinned by ``test_a_pathological_department_never_shrinks_the_description``.
+# BYTES, not characters, for the same reason as above: a CJK label is 3 bytes a glyph.
+_DEPARTMENT_MAX_BYTES = 512
 
 # Block-level tags become newlines, everything else is dropped. Copied from
 # ``scripts.amazon_jobs_scraper.api_client.strip_html`` rather than imported —
@@ -248,6 +275,30 @@ def _normalized_description(details: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+def _bounded_department(details: dict[str, Any]) -> dict[str, Any]:
+    """``details`` with ``department`` clipped to :data:`_DEPARTMENT_MAX_BYTES`.
+
+    Runs BEFORE the description is budgeted, which is the whole point: it is what makes
+    the description budget's "2 KB of headroom for everything else" a bound rather than
+    an estimate, so a stranger's board cannot spend the description's room on a label.
+
+    Truncate and flag, never drop — the same rule the description follows, for a weaker
+    but real reason: ``job_listings.department`` is a filter facet, and a clipped label
+    still groups jobs, while a NULL one silently shrinks the filter's option list.
+
+    No tag-stripping. A department is a label, not prose; ``render_row_field`` already
+    unescaped it (``department`` is not in ``_DEFERRED_UNESCAPE_FIELDS``), and stripping
+    here would be this field's SECOND pass over the same text.
+    """
+    department = details.get("department")
+    if not isinstance(department, str):
+        return details
+    clipped = _clip_utf8(department, _DEPARTMENT_MAX_BYTES)
+    if clipped == department:
+        return details
+    return {**details, "department": clipped or None, "_details_truncated": True}
+
+
 def _fit_description(essentials: dict[str, Any]) -> dict[str, Any]:
     """Shrink ``essentials['description']`` until the whole blob fits the cap.
 
@@ -271,13 +322,20 @@ def _fit_description(essentials: dict[str, Any]) -> dict[str, Any]:
 def _cap_details(details: dict[str, Any]) -> dict[str, Any]:
     """Hard-cap the serialized ``details`` at 8 KB, deterministically.
 
-    First normalizes ``description`` to a byte-budgeted plain-text string, then
-    drops the big free-text body (``content``); if still over cap, keeps only the
-    structured essentials the read path uses — ``description`` among them, because
-    it is the ONLY key on a recipe-harvested row the enrichment claim looks at.
-    Always flags a ``_details_truncated`` marker so the loss is visible, never
+    First bounds ``department`` (a short label a stranger's board could nonetheless
+    fill with prose) and normalizes ``description`` to a byte-budgeted plain-text
+    string, then drops the big free-text body (``content``); if still over cap, keeps
+    only the structured essentials the read path uses — ``description`` among them,
+    because it is the ONLY key on a recipe-harvested row the enrichment claim looks
+    at, and ``department`` among them, because it is the one a user-facing filter
+    reads. Always flags a ``_details_truncated`` marker so the loss is visible, never
     silent.
+
+    The two budgets are deliberately ordered: bounding the department FIRST is what
+    stops it from ever being the reason a description is shrunk. See
+    :data:`_DEPARTMENT_MAX_BYTES`.
     """
+    details = _bounded_department(details)
     details = _normalized_description(details)
     if len(json.dumps(details).encode("utf-8")) <= _DETAILS_MAX_BYTES:
         return details
@@ -288,10 +346,11 @@ def _cap_details(details: dict[str, Any]) -> dict[str, Any]:
         return trimmed
     # The last-resort branch is the one that must ALWAYS fit, so the description it
     # carries is shrunk against the room actually left rather than assumed to fit.
-    # ``department`` stays: Δ2 drops it from the CAPTURE schema, but a custom
-    # company on the ``ats_client`` transport is harvested by the same Greenhouse /
-    # Ashby / Lever / Gem / Eightfold clients as a public one, and those still
-    # populate it.
+    # ``department`` stays, and now for two reasons rather than one: a custom company
+    # on the ``ats_client`` transport is harvested by the same Greenhouse / Ashby /
+    # Lever / Gem / Eightfold clients as a public one and those populate it, AND a
+    # recipe-harvested board maps it directly again. It is bounded above, so keeping
+    # it whole here costs the description at most 512 of its ~7.7 KB of room.
     return _fit_description({
         "department": details.get("department"),
         "experience_level": details.get("experience_level"),

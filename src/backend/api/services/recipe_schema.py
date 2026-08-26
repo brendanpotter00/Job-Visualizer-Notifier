@@ -123,14 +123,19 @@ _UNIMPLEMENTED_OP_REASONS = {
 # ``description`` earns its place by being the ONE key the enrichment claim reads:
 # ``enrichment_monitor.DESCRIPTION_SQL`` COALESCEs over ``details->>'description'``,
 # and until it could be mapped, every custom-company job was invisible to the
-# enricher. ``department`` left with it (Δ2) — the owner does not want it, and the
-# only real reader is a classifier hint that no-ops when the key is absent.
+# enricher. ``department`` earns its own by being the ONE key a user-facing FILTER
+# reads: ``job_listings.department`` (migration ``c1539fa03b23``) is denormalized from
+# ``details['department']`` and feeds the Department control on the companies page.
+# It was briefly dropped with Δ2 on the finding that its only reader was a classifier
+# hint that no-ops when absent — true when written, and false a few hours later once
+# that filter was found dead and fixed. A recipe that maps neither still validates;
+# it just writes NULL into that column every night.
 # The one non-literal segment a ``records_path`` may carry: "every element of the list
 # here". See :func:`dig_records` for what it buys and why it is not in :func:`dig`.
 RECORDS_WILDCARD = "*"
 
 CANONICAL_REQUIRED_FIELDS = ("id", "title", "url")
-CANONICAL_OPTIONAL_FIELDS = ("location", "posted_at", "description", "company")
+CANONICAL_OPTIONAL_FIELDS = ("location", "posted_at", "description", "department", "company")
 
 # Oracle kinds. The three Phase-3 exact-match oracles, plus the two inherited from
 # Phase 2 (a discovered board with no published total is legitimately

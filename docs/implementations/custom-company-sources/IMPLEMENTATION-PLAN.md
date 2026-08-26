@@ -46,7 +46,7 @@ Recorded in the enrichment artifact's Decisions log. Δ6–Δ8 are new; D1/D3/D5
 | | Decision | Call | Whose |
 |---|---|---|---|
 | Δ1 | Enricher fairness mechanism | Option B, reserved share. C and E rejected | owner |
-| Δ2 | `department` in the capture field set | Drop it | owner |
+| Δ2 | `department` in the capture field set | Dropped, then **reversed** — the set carries both it and `description` (ENRICHMENT-TRADEOFFS §3a) | owner |
 | Δ3 | Ship title-only labels | Yes | owner |
 | **Δ6** | **Dedupe a pasted URL against boards we already publish** | **Confirmed — and it is the priority. P2 first, P1 deferred** | owner |
 | **Δ7** | **Last owner leaves** | **DELETE.** Overrules the orphan-and-keep recommendation | owner |
@@ -191,7 +191,7 @@ Prefer the check first: the reaper is a delete path and Δ7 already gives delete
 **Changes** — `src/backend/api/tasks/fetch_custom_company.py`:
 - strip HTML → plain text,
 - truncate to a ~6 KB plain-text budget rather than dropping,
-- keep `description` ahead of the last-resort branch (with `department` gone per Δ2, that branch keeps nothing a custom recipe produces anyway).
+- keep `description` ahead of the last-resort branch. *(Written when Δ2 had `department` gone, so that branch kept nothing a custom recipe produced. Δ2 was reversed — the branch now keeps both, and `department` is byte-bounded so it can never shrink the description.)*
 
 **The test that proves it:** a 10 KB HTML description survives as truncated plain text and `details->>'description'` is **non-null** — the exact predicate `DESCRIPTION_SQL` (`enrichment_monitor.py:40-44`) reads; a 500-byte description is stored untouched; a record with *both* a huge `description` and a huge `content` still fits the blob budget.
 
@@ -201,7 +201,7 @@ Prefer the check first: the reaper is a delete path and Δ7 already gives delete
 
 ---
 
-### Unit 7 — Capture schema: `+description`, `−department`
+### Unit 7 — Capture schema: `+description`, `−department` *(the `−department` half was reversed — see the note at the end of this unit)*
 
 The single reason custom jobs get zero enrichment rows. The discovery LLM's structured output is a **closed** 6-key object (`request_selector.py:386-417`, `additionalProperties: false`) — the model *cannot* return a description mapping even when it is looking straight at one. Three of five captured boards already return 2.7–5.8 KB of description text per record in the list payload, which we download nightly and discard.
 
@@ -214,6 +214,8 @@ The single reason custom jobs get zero enrichment rows. The discovery LLM's stru
 **The test that proves it:** a real capture fixture through `select_request` produces a `description` mapping that survives `_prune_non_scalar_optionals` (:590); a stored recipe captured under the **old** field set still validates unchanged; a container-valued description is still pruned. Model on `test_request_selector.py`, which already has the Atlassian fixture from `916d351`.
 
 **Dependency:** unit 6.
+
+> **`−department` reversed.** Δ2 rested on "nothing reads it", and that stopped being true hours after this unit shipped: the Department filter was found silently dead and fixed with a denormalized `job_listings.department` column (migration `c1539fa03b23`), so the field now has a user-facing reader and an unmapped recipe NULLs the column on every upsert. The set carries **both** — the `+description` half stands unchanged, tie-break prompt included, and `description` still wins any conflict over the blob budget because `_DEPARTMENT_MAX_BYTES` bounds the cheap field. Cost, measured before the second re-capture: Microsoft 2,217 → 139 rows with a department, Atlassian 244 → 13, Jane Street 235 → 4, Spotify 86 → 9. Full note in ENRICHMENT-TRADEOFFS §3a.
 
 ---
 

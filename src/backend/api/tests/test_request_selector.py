@@ -264,15 +264,24 @@ async def test_a_list_of_location_strings_is_kept_not_pruned() -> None:
     assert selection.field_map["location"] == "locations"
 
 
-# --- unit 7: the field map learns ``description``, and forgets ``department`` ---
+# --- unit 7: the field map learns ``description`` — and keeps ``department`` ---
 #
-# The single reason custom-company jobs got ZERO enrichment rows. The claim in
-# ``routers/internal_enrichment`` has no source filter — the only thing excluding
-# them is ``enrichment_monitor.DESCRIPTION_SQL IS NOT NULL``, which reads
+# ``description`` is the single reason custom-company jobs got ZERO enrichment rows.
+# The claim in ``routers/internal_enrichment`` has no source filter — the only thing
+# excluding them is ``enrichment_monitor.DESCRIPTION_SQL IS NOT NULL``, which reads
 # ``details->>'description'`` — and the selection schema was a CLOSED six-key object
 # with no description key, so the model could not answer with one even while looking
 # straight at it. The Atlassian fixture below is the live payload's own first two
 # records: 1,523 and 757 characters of ``<p>``-heavy ``overview`` HTML.
+#
+# ``department`` left the set in that same edit and came back, because the premise it
+# left on expired: it was dropped on the finding that its only reader was a classifier
+# hint that no-ops when the key is absent, and hours later the UI's Department filter
+# was found to have been silently dead and was fixed by denormalizing a
+# ``job_listings.department`` column (migration ``c1539fa03b23``) fed from
+# ``details['department']``. A recipe that does not map it writes NULL into that column
+# on every upsert — measured, on the dev DB: Microsoft 2,217 rows with a department
+# before the first re-capture under the six-key set, 139 after.
 
 _ATLASSIAN_DESCRIPTION_ANSWER = {
     "chosen_request_index": 0,
@@ -283,6 +292,7 @@ _ATLASSIAN_DESCRIPTION_ANSWER = {
         "location": "locations",
         "posted_at": None,
         "description": "overview",
+        "department": "category",
     },
     "pagination": None,
 }
@@ -346,26 +356,30 @@ async def test_a_list_valued_description_is_pruned_not_folded() -> None:
     assert "description" not in selection.field_map
 
 
-def test_the_closed_key_set_carries_description_and_not_department() -> None:
+def test_the_closed_key_set_carries_both_description_and_department() -> None:
     """Anthropic strict mode forbids dynamic keys, so ``field_map`` is a closed object
     and the key set lives in THREE places that must agree: the pydantic envelope, the
     JSON schema, and the prompt that tells the model what to look for. A key present in
     two of them and missing from the third is a mapping the model is asked for and then
-    silently cannot return — which is exactly how ``description`` was unreachable."""
+    silently cannot return — which is exactly how ``description`` was unreachable.
+
+    Both names are asserted by SET EQUALITY, so this fails in both directions: dropping
+    either one from the schema or the envelope fails here, and so does adding a seventh
+    key to one place and not the others."""
     schema = rs.build_message_params(_candidates("amazon"))["output_config"]["format"]
     fields = schema["schema"]["properties"]["field_map"]
     assert fields["additionalProperties"] is False
     assert set(fields["properties"]) == {
-        "id", "title", "url", "location", "posted_at", "description",
+        "id", "title", "url", "location", "posted_at", "description", "department",
     }
     assert set(fields["required"]) == set(fields["properties"])
     assert set(rs._FieldMap.model_fields) == set(fields["properties"])
-    # The bullet form, not a bare substring: the prompt still says "departments" while
-    # explaining grouped boards, and still lists "description" among the record key
-    # names a board might use. What must be true is that each is (or is not) a FIELD
-    # the model is being asked to map.
+    # The bullet form, not a bare substring: the prompt says "departments" while
+    # explaining grouped boards and lists "description" among the record key names a
+    # board might use, so neither bare word proves anything. What must be true is that
+    # each is a FIELD the model is being asked to map, which is the bullet.
     assert "- description:" in rs.SYSTEM_PROMPT
-    assert "department:" not in rs.SYSTEM_PROMPT
+    assert "- location, posted_at, department:" in rs.SYSTEM_PROMPT
 
 
 def test_the_prompt_asks_for_the_field_that_differs_between_jobs() -> None:
@@ -381,21 +395,64 @@ def test_the_prompt_asks_for_the_field_that_differs_between_jobs() -> None:
 
 
 @pytest.mark.asyncio
-async def test_a_department_answer_is_ignored_rather_than_stored() -> None:
-    """A model still answering with the retired key must not smuggle it back into a
-    stored recipe — the envelope ignores unknown keys, and the optional-field walk only
-    looks at names the closed set names."""
+async def test_a_board_publishing_both_gets_both_mapped() -> None:
+    """The property the re-capture exists to restore: one answer, both fields stored.
+
+    Both keys have to survive the SAME walk — ``_to_selection``'s optional-field tuple —
+    and a name missing from it is a mapping the model returned and we then threw away in
+    silence. Dropping either name from that tuple fails here."""
+    selection = await rs.select_request(
+        _candidates("atlassian"),
+        create_message=_answering(_ATLASSIAN_DESCRIPTION_ANSWER),
+    )
+    assert selection.field_map["description"] == "overview"
+    assert selection.field_map["department"] == "category"
+
+    # And both render as the real values the runner will store on the captured bytes —
+    # not merely as paths that survived a dict walk.
+    records = rs.dig_records(_candidates("atlassian")[0].payload, "")
+    assert rs.render_row_field(records[0], "department", "category") == "Sales"
+    assert isinstance(rs.render_row_field(records[0], "description", "overview"), str)
+
+
+@pytest.mark.asyncio
+async def test_a_container_valued_department_is_pruned() -> None:
+    """The same failure the prune exists for, on the department key: ``portalJobPost``
+    is an object, and storing it writes a Python repr into the denormalized
+    ``job_listings.department`` column, where it becomes an option in a user-facing
+    filter dropdown. Absent is better."""
     answer = {
         **_ATLASSIAN_DESCRIPTION_ANSWER,
         "field_map": {
-            **_ATLASSIAN_DESCRIPTION_ANSWER["field_map"], "department": "category",
+            **_ATLASSIAN_DESCRIPTION_ANSWER["field_map"],
+            "department": "portalJobPost",       # the container, not a leaf
         },
     }
     selection = await rs.select_request(
         _candidates("atlassian"), create_message=_answering(answer)
     )
     assert "department" not in selection.field_map
-    assert selection.field_map["description"] == "overview"
+    assert selection.field_map["description"] == "overview"   # the rest is untouched
+
+
+@pytest.mark.asyncio
+async def test_a_list_valued_department_is_folded_not_pruned() -> None:
+    """Where ``department`` parts company with ``description``: it IS one of the
+    runner's ``_MULTI_VALUE_FIELDS``, so a list of plain strings is real multi-value
+    data folded to ``"a; b"`` rather than a mis-map. The prune renders through
+    ``render_row_field`` precisely so it sees the fold and keeps the mapping — this is
+    the check that once deleted Atlassian's correctly-mapped ``locations`` outright."""
+    answer = {
+        **_ATLASSIAN_DESCRIPTION_ANSWER,
+        "field_map": {
+            **_ATLASSIAN_DESCRIPTION_ANSWER["field_map"],
+            "department": "locations",           # a list of plain strings
+        },
+    }
+    selection = await rs.select_request(
+        _candidates("atlassian"), create_message=_answering(answer)
+    )
+    assert selection.field_map["department"] == "locations"
 
 
 @pytest.mark.asyncio

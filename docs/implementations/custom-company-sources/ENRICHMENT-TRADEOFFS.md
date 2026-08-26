@@ -53,7 +53,7 @@ Mapping them costs **zero extra requests**. `DESCRIPTION_SQL` already reads `det
 | | Decision | Call | Rationale |
 |---|---|---|---|
 | **Δ1** | Fairness mechanism for the claim query | **Option B — reserved share.** C and E **rejected**. | *"if we add E then it never will backfill everything."* C: reason not recalled; reconstructed in the HTML and **awaiting confirmation**. |
-| **Δ2** | `department` in the canonical recipe field set | **Drop it.** | *"I don't think we need a department."* Traced every reader — cost is one hint field in the enricher payload, on custom rows only. |
+| **Δ2** | `department` in the canonical recipe field set | **Dropped, then REVERSED** — the set now carries both it and `description`. | *"I don't think we need a department."* Traced every reader; cost was one hint field in the enricher payload. **The premise expired the same night** — see §3. |
 | **Δ3** | Is title-only classification accurate enough to ship? | **Yes.** Agreement experiment **not** run. | *"I'm gonna say yes to this."* Closed by decision, not measurement — see the cost note below. |
 | **Δ4** | The bugs found in passing | **Fold into this workstream**, not separate tickets. | *"Fold these fixes into your work."* They are units 6–9. |
 | **Δ5** | Turn `enrichment_claim_without_description` on locally? | **No — deliberately not done.** | Nothing would change. No enricher points at the local DB; the flag only means anything in prod, where it is already on. |
@@ -168,6 +168,23 @@ Every claimed reader was traced, not assumed:
 | `_cap_details` fallback | `fetch_custom_company.py:144` keeps it in the last-resort branch | none |
 
 **The surgical version:** drop `department` from the **capture** schema so the LLM stops being asked to find it. **Leave the `details->'department'` read in `/pending` alone** — it is a no-op when the key is absent, and public ATS rows still populate it.
+
+#### 3a. …and why Δ2 was reversed a few hours later
+
+The table above is the whole argument, and row 2 is the load-bearing one: the Department filter **did not read this field**, so dropping it cost nothing a user could see. That row was true when it was written and false by the end of the same night.
+
+Fixing the bug it names ("and it is a bug in its own right") is what changed the answer. The transformer was repointed at the real department, which exposed a second layer — `/api/jobs` builds `details` from denormalized columns only, so the key never reached the browser at all, `selectAvailableDepartments` returned `[]`, and the control hid itself. The fix denormalized a `job_listings.department` column (**migration `c1539fa03b23`**), fed from `details['department']` by the one job-write path. Prod: 20,671 of 32,014 open rows carry a real department across 120 companies.
+
+So the reader row now reads **"a user-facing filter"**, and a recipe that maps no department writes NULL into that column on every upsert (`_UPSERT_ON_CONFLICT`: `department = EXCLUDED.department`). Measured on the dev DB after the first re-capture under the six-key set:
+
+| board | rows with `department`, before → after |
+|---|---|
+| Microsoft | 2,217 → 139 |
+| Atlassian | 244 → 13 |
+| Jane Street | 235 → 4 |
+| Spotify | 86 → 9 |
+
+The set now carries **both**. This is not a revert of the `+description` half — that stands, and `description` is still the field that wins any conflict over the `details` byte budget (`fetch_custom_company._DEPARTMENT_MAX_BYTES` bounds the cheap one so it can never shrink the expensive one).
 
 ### 4. Deduplication — two problems wearing one name
 

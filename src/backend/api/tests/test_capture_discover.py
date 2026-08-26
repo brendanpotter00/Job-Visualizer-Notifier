@@ -78,9 +78,11 @@ _AMAZON_URL = "https://www.amazon.jobs/en/search"
 _TIKTOK_URL = "https://lifeattiktok.com/search"
 _META_URL = "https://www.metacareers.com/jobs"
 
-# Stand-ins for what ``select_request`` returns. No ``description``: both fixtures'
-# records were trimmed before it was a mappable field (the live amazon.jobs payload
-# carries one on 10/10 records), and ``department`` left the canonical set with Δ2.
+# Stand-ins for what ``select_request`` returns. Neither ``description`` nor
+# ``department``: both fixtures' records were trimmed before either was a mappable field
+# (the live amazon.jobs payload carries a description on 10/10 records). Both are
+# OPTIONAL in the canonical set, so a map without them is a legitimate answer for a
+# board that publishes neither — which is what these two fixtures now are.
 _AMAZON_MAP = {
     "id": "id_icims",
     "title": "title",
