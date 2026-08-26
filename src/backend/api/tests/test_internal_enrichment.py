@@ -19,6 +19,7 @@ enrichment-side tables, which conftest's ``clean_tables`` does not touch).
 """
 
 import json
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi import FastAPI
@@ -189,6 +190,20 @@ class TestConfig:
     def test_enrichment_use_external_defaults_false(self):
         # _env_file=None so a stray local .env can't flip the default.
         assert Settings(_env_file=None).enrichment_use_external is False
+
+    def test_custom_share_defaults(self):
+        """The fairness brake ships ON at 10% with a 500-row per-company window —
+        these two numbers are the whole policy, so pin them."""
+        s = Settings(_env_file=None)
+        assert s.enrichment_custom_share_pct == 10
+        assert s.enrichment_custom_per_company_cap == 500
+
+    @pytest.mark.parametrize("bad", [-1, 101])
+    def test_custom_share_pct_rejects_out_of_range(self, bad):
+        """A share outside 0-100 is nonsense (negative budget / over-subscribed
+        batch) and must fail at boot, not silently clamp at request time."""
+        with pytest.raises(ValueError):
+            Settings(_env_file=None, enrichment_custom_share_pct=bad)
 
 
 # --------------------------------------------------------------------------- #
@@ -1002,6 +1017,383 @@ class TestPending:
         ids = {j["job_id"] for j in resp.json()["jobs"]}
         assert "p-fresh" not in ids
         assert _fetch_listing_facets(db_conn, "p-fresh")["enrichment_status"] == "claimed"
+
+
+# --------------------------------------------------------------------------- #
+# 3b. Router: /pending — the custom-company fairness brake                     #
+# --------------------------------------------------------------------------- #
+
+# Every fixture below seeds custom rows STRICTLY NEWER than every published row.
+# That is the real-world shape (a board added today produces the newest rows in
+# the table) and it is what makes these tests meaningful: under the pre-brake
+# claim — ORDER BY tier, first_seen_at DESC with no source_id filter — the custom
+# rows would sweep 100% of every batch. Any assertion here that a published row
+# was claimed is therefore also an assertion that the brake engaged.
+_PUBLISHED_EPOCH = datetime(2026, 7, 1, tzinfo=timezone.utc)
+_CUSTOM_EPOCH = datetime(2026, 8, 1, tzinfo=timezone.utc)
+# The wire contract, spelled out literally rather than imported from
+# scripts.shared.constants: these tests pin the `custom:` prefix itself, so a
+# change to the constant has to be a deliberate, visible test edit.
+_CUSTOM_PREFIX = "custom:"
+_DESC = json.dumps({"description_html": "<p>x</p>"})
+
+
+def _bulk_insert_jobs(db_conn, jobs: list[dict]) -> None:
+    """Insert many job rows in ONE transaction.
+
+    conftest's ``_insert_job`` commits per row and mirrors ``job_freshness``;
+    the claim reads neither, and these tests seed up to ~90 rows each, so the
+    per-row round trips would be pure overhead. Column names come from
+    ``_make_job``'s fixed literal dict — no user input reaches the SQL text.
+    """
+    cur = db_conn.cursor()
+    cols = [k for k in jobs[0] if k not in ("last_seen_at", "consecutive_misses")]
+    cur.executemany(
+        f"INSERT INTO job_listings ({', '.join(cols)}) "
+        f"VALUES ({', '.join(['%s'] * len(cols))})",
+        [[j[c] for c in cols] for j in jobs],
+    )
+    db_conn.commit()
+
+
+def _custom_jobs(company_id: str, n: int, *, title: str = "Account Executive",
+                 offset: int = 0) -> list[dict]:
+    """`n` OPEN rows for one custom company, oldest first (index 0 = oldest)."""
+    return [
+        _make_job({
+            "id": f"{company_id}-{offset + i}",
+            "source_id": f"{_CUSTOM_PREFIX}{company_id}",
+            "company": company_id,
+            "title": title,
+            "status": "OPEN",
+            "first_seen_at": (
+                _CUSTOM_EPOCH + timedelta(minutes=offset + i)
+            ).isoformat(),
+            "details": _DESC,
+        })
+        for i in range(n)
+    ]
+
+
+def _published_jobs(n: int, *, title: str = "Account Executive") -> list[dict]:
+    return [
+        _make_job({
+            "id": f"pub-{i}",
+            "source_id": "greenhouse_api",
+            "company": "stripe",
+            "title": title,
+            "status": "OPEN",
+            "first_seen_at": (_PUBLISHED_EPOCH + timedelta(minutes=i)).isoformat(),
+            "details": _DESC,
+        })
+        for i in range(n)
+    ]
+
+
+def _split_slices(body: dict) -> tuple[list[dict], list[dict]]:
+    custom = [j for j in body["jobs"] if j["source_id"].startswith(_CUSTOM_PREFIX)]
+    published = [
+        j for j in body["jobs"] if not j["source_id"].startswith(_CUSTOM_PREFIX)
+    ]
+    return custom, published
+
+
+class TestPendingCustomShare:
+    """The fairness brake: custom (user-added) companies get a reserved SHARE of
+    each claim — not the whole queue, and not zero."""
+
+    @pytest.fixture(autouse=True)
+    def _enabled(self, monkeypatch):
+        monkeypatch.setattr(settings, "enrichment_use_external", True)
+
+    def test_split_holds_under_mixed_load(self, enrichment_client, db_conn):
+        """With both slices deeper than one batch, a 60-row claim is 6 custom /
+        54 published — the configured 10% share, exactly."""
+        for company in ("u-aaa", "u-bbb", "u-ccc"):
+            _bulk_insert_jobs(db_conn, _custom_jobs(company, 10))
+        _bulk_insert_jobs(db_conn, _published_jobs(60))
+
+        resp = enrichment_client.get(
+            "/api/internal/enrichment/pending", params={"limit": 60}
+        )
+        assert resp.status_code == 200
+        custom, published = _split_slices(resp.json())
+        assert len(custom) == 6
+        assert len(published) == 54
+
+    def test_one_huge_custom_board_cannot_exceed_its_share(
+        self, enrichment_client, db_conn
+    ):
+        """The 47k-board scenario in miniature: one custom company with more rows
+        than the whole batch still gets only its 10%."""
+        _bulk_insert_jobs(db_conn, _custom_jobs("u-huge", 80))
+        _bulk_insert_jobs(db_conn, _published_jobs(80))
+
+        resp = enrichment_client.get(
+            "/api/internal/enrichment/pending", params={"limit": 60}
+        )
+        assert resp.status_code == 200
+        custom, published = _split_slices(resp.json())
+        assert len(custom) == 6
+        assert len(published) == 54
+
+    def test_custom_slice_round_robins_across_companies(
+        self, enrichment_client, db_conn
+    ):
+        """Within the custom slice the 6 slots are dealt one-per-company before
+        anyone gets a second — three equally deep boards get 2 each.
+
+        The per-company `offset` stagger is load-bearing, not decoration: it makes
+        u-aaa's rows strictly NEWER than u-bbb's and u-ccc's, so plain
+        recency ordering would hand all 6 slots to u-aaa. Without it every board
+        shares the same timestamps and recency alone reproduces 2/2/2, leaving the
+        test unable to fail when the round-robin is removed.
+        """
+        for offset, company in enumerate(("u-ccc", "u-bbb", "u-aaa")):
+            _bulk_insert_jobs(db_conn, _custom_jobs(company, 10, offset=offset * 10))
+        _bulk_insert_jobs(db_conn, _published_jobs(60))
+
+        resp = enrichment_client.get(
+            "/api/internal/enrichment/pending", params={"limit": 60}
+        )
+        assert resp.status_code == 200
+        custom, _ = _split_slices(resp.json())
+        per_company: dict[str, int] = {}
+        for job in custom:
+            per_company[job["source_id"]] = per_company.get(job["source_id"], 0) + 1
+        assert per_company == {
+            f"{_CUSTOM_PREFIX}u-aaa": 2,
+            f"{_CUSTOM_PREFIX}u-bbb": 2,
+            f"{_CUSTOM_PREFIX}u-ccc": 2,
+        }
+
+    def test_busy_custom_board_cannot_crowd_out_a_quiet_one(
+        self, enrichment_client, db_conn
+    ):
+        """Round-robin, not proportional: a 50-row board and two 1-row boards
+        share the slice — the small boards are served FIRST, and the big one only
+        absorbs what they leave."""
+        _bulk_insert_jobs(db_conn, _custom_jobs("u-big", 50))
+        _bulk_insert_jobs(db_conn, _custom_jobs("u-tiny1", 1))
+        _bulk_insert_jobs(db_conn, _custom_jobs("u-tiny2", 1))
+        _bulk_insert_jobs(db_conn, _published_jobs(60))
+
+        resp = enrichment_client.get(
+            "/api/internal/enrichment/pending", params={"limit": 60}
+        )
+        assert resp.status_code == 200
+        custom, _ = _split_slices(resp.json())
+        by_source: dict[str, int] = {}
+        for job in custom:
+            by_source[job["source_id"]] = by_source.get(job["source_id"], 0) + 1
+        assert by_source[f"{_CUSTOM_PREFIX}u-tiny1"] == 1
+        assert by_source[f"{_CUSTOM_PREFIX}u-tiny2"] == 1
+        assert by_source[f"{_CUSTOM_PREFIX}u-big"] == 4  # the rest of the 6 slots
+
+    def test_published_claim_order_is_unchanged_by_the_custom_slice(
+        self, enrichment_client, db_conn
+    ):
+        """The brake changes WHICH rows the published pass sees (custom rows are
+        gone from it), never the order it sees them in.
+
+        Drains the same published fixture twice — once alone, once alongside a
+        deep custom board — one published row per tick, and asserts the two claim
+        SEQUENCES are identical (tier 0 -> 1 -> 2, recency within tier). The two
+        phases use different limits only to isolate one published row per tick
+        (`limit` never appears in the ORDER BY): phase 1 has no custom rows so
+        limit=1 is all published; phase 2 reserves 1 slot for custom, so limit=2
+        yields 1 custom + 1 published.
+        """
+        published = [
+            _make_job({
+                "id": jid, "source_id": "greenhouse_api", "company": "stripe",
+                "title": title, "status": "OPEN", "first_seen_at": ts,
+                "details": _DESC,
+            })
+            for jid, title, ts in [
+                ("o-intern", "Data Science Intern", "2026-07-01T00:00:00Z"),
+                ("o-swe", "Senior Software Engineer", "2026-07-02T00:00:00Z"),
+                ("o-misc-new", "Account Executive", "2026-07-04T00:00:00Z"),
+                ("o-misc-old", "Account Executive", "2026-07-03T00:00:00Z"),
+            ]
+        ]
+        _bulk_insert_jobs(db_conn, published)
+
+        def drain(limit: int) -> list[str]:
+            seen: list[str] = []
+            for _ in range(len(published)):
+                resp = enrichment_client.get(
+                    "/api/internal/enrichment/pending", params={"limit": limit}
+                )
+                assert resp.status_code == 200
+                _, pub = _split_slices(resp.json())
+                seen.extend(j["job_id"] for j in pub)
+            return seen
+
+        baseline = drain(1)
+        assert baseline == ["o-intern", "o-swe", "o-misc-new", "o-misc-old"]
+
+        # Reset the published rows and re-run WITH a deep custom board present.
+        cur = db_conn.cursor()
+        cur.execute(
+            "UPDATE job_listings SET enrichment_status = NULL, "
+            "enrichment_claimed_at = NULL"
+        )
+        db_conn.commit()
+        _bulk_insert_jobs(db_conn, _custom_jobs("u-noisy", 20))
+
+        assert drain(2) == baseline
+
+    def test_empty_custom_slice_falls_back_to_published(
+        self, enrichment_client, db_conn
+    ):
+        """The reservation is a CEILING on custom, not a floor: with no custom
+        rows waiting, the published pass gets 100% of the batch — no idle slot,
+        no short tick."""
+        _bulk_insert_jobs(db_conn, _published_jobs(20))
+
+        resp = enrichment_client.get(
+            "/api/internal/enrichment/pending", params={"limit": 6}
+        )
+        assert resp.status_code == 200
+        custom, publishedjobs = _split_slices(resp.json())
+        assert custom == []
+        assert len(publishedjobs) == 6
+
+    def test_short_custom_slice_spills_back_to_published_same_tick(
+        self, enrichment_client, db_conn
+    ):
+        """The share is a CEILING on custom, never a floor on the tick. With 4
+        slots reserved and only 1 custom row eligible, the batch is still FULL —
+        1 custom + 39 published — not 1 + 36 with three slots wasted.
+
+        This is the throughput bug that would ship silently: a naive `LIMIT
+        share` / `LIMIT total - share` split under-fills every tick where custom
+        is short, and the only symptom is a queue that drains slower.
+        """
+        _bulk_insert_jobs(db_conn, _custom_jobs("u-quiet", 1))
+        _bulk_insert_jobs(db_conn, _published_jobs(60))
+
+        resp = enrichment_client.get(
+            "/api/internal/enrichment/pending", params={"limit": 40}
+        )
+        assert resp.status_code == 200
+        custom, publishedjobs = _split_slices(resp.json())
+        assert len(custom) == 1
+        assert len(publishedjobs) == 39
+        assert len(resp.json()["jobs"]) == 40  # the tick is full
+
+    def test_custom_takes_the_leftovers_when_published_is_dry(
+        self, enrichment_client, db_conn
+    ):
+        """Mirror image of the fallback: an empty published backlog must not leave
+        the enricher idling at 10% — custom absorbs the unused budget."""
+        _bulk_insert_jobs(db_conn, _custom_jobs("u-only", 20))
+
+        resp = enrichment_client.get(
+            "/api/internal/enrichment/pending", params={"limit": 6}
+        )
+        assert resp.status_code == 200
+        custom, publishedjobs = _split_slices(resp.json())
+        assert len(custom) == 6
+        assert publishedjobs == []
+
+    def test_per_company_cap_bounds_eligibility(
+        self, enrichment_client, db_conn, monkeypatch
+    ):
+        """Only a custom company's newest N unclaimed OPEN rows compete. With the
+        cap at 2, the board's two NEWEST (tier-2 "Account Executive") rows are
+        claimed and its older tier-0 interns are not — the cap is applied before
+        the tier ordering, so a mega-board's deep tier-0 history cannot outrank
+        everyone else's fresh postings."""
+        monkeypatch.setattr(settings, "enrichment_custom_per_company_cap", 2)
+        # index 0/1 = oldest = interns (tier 0); index 2/3 = newest (tier 2).
+        _bulk_insert_jobs(db_conn, _custom_jobs("u-cap", 2, title="Data Science Intern"))
+        _bulk_insert_jobs(db_conn, _custom_jobs("u-cap", 2, offset=2))
+        # Published rows soak the leftover budget so the top-up pass can't slide
+        # the window forward within this same tick.
+        _bulk_insert_jobs(db_conn, _published_jobs(20))
+
+        resp = enrichment_client.get(
+            "/api/internal/enrichment/pending", params={"limit": 20}
+        )
+        assert resp.status_code == 200
+        custom, _ = _split_slices(resp.json())
+        assert {j["job_id"] for j in custom} == {"u-cap-2", "u-cap-3"}
+        for interned in ("u-cap-0", "u-cap-1"):
+            assert _fetch_listing_facets(db_conn, interned)["enrichment_status"] is None
+
+    def test_per_company_cap_window_slides_so_the_tail_is_never_stranded(
+        self, enrichment_client, db_conn, monkeypatch
+    ):
+        """The cap ranks UNCLAIMED rows, so it defers a board's tail rather than
+        walling it off: once the newest rows are claimed, the next tick's window
+        slides onto the older ones. (share=100 keeps this tick pure custom.)"""
+        monkeypatch.setattr(settings, "enrichment_custom_per_company_cap", 2)
+        monkeypatch.setattr(settings, "enrichment_custom_share_pct", 100)
+        _bulk_insert_jobs(db_conn, _custom_jobs("u-slide", 4))
+
+        first = enrichment_client.get(
+            "/api/internal/enrichment/pending", params={"limit": 2}
+        )
+        assert {j["job_id"] for j in first.json()["jobs"]} == {"u-slide-2", "u-slide-3"}
+        second = enrichment_client.get(
+            "/api/internal/enrichment/pending", params={"limit": 2}
+        )
+        assert {j["job_id"] for j in second.json()["jobs"]} == {"u-slide-0", "u-slide-1"}
+
+    def test_share_pct_zero_never_claims_custom_rows(
+        self, enrichment_client, db_conn, monkeypatch
+    ):
+        """0% is the kill switch. It also proves custom rows are EXCLUDED from the
+        published pass rather than merely deprioritized — they are the newest rows
+        in the table, so a published pass that could see them would take all 5."""
+        monkeypatch.setattr(settings, "enrichment_custom_share_pct", 0)
+        _bulk_insert_jobs(db_conn, _custom_jobs("u-off", 20))
+        _bulk_insert_jobs(db_conn, _published_jobs(20))
+
+        resp = enrichment_client.get(
+            "/api/internal/enrichment/pending", params={"limit": 5}
+        )
+        assert resp.status_code == 200
+        custom, publishedjobs = _split_slices(resp.json())
+        assert custom == []
+        assert len(publishedjobs) == 5
+
+    def test_small_limit_still_reserves_one_custom_slot(
+        self, enrichment_client, db_conn
+    ):
+        """A limit below 10 must not round the share down to zero — that would
+        block custom rows forever on a worker polling small batches."""
+        _bulk_insert_jobs(db_conn, _custom_jobs("u-small", 5))
+        _bulk_insert_jobs(db_conn, _published_jobs(20))
+
+        resp = enrichment_client.get(
+            "/api/internal/enrichment/pending", params={"limit": 4}
+        )
+        assert resp.status_code == 200
+        custom, publishedjobs = _split_slices(resp.json())
+        assert len(custom) == 1
+        assert len(publishedjobs) == 3
+
+    def test_description_guard_still_applies_to_custom_rows(
+        self, enrichment_client, db_conn
+    ):
+        """The brake changes WHICH rows are handed out, never the eligibility
+        rules: a description-less custom row stays unclaimable while
+        enrichment_claim_without_description is off."""
+        _bulk_insert_jobs(db_conn, [
+            _make_job({
+                "id": "u-nodesc-0", "source_id": f"{_CUSTOM_PREFIX}u-nodesc",
+                "company": "u-nodesc", "status": "OPEN",
+                "first_seen_at": _CUSTOM_EPOCH.isoformat(),
+                "details": json.dumps({}),
+            })
+        ])
+        resp = enrichment_client.get("/api/internal/enrichment/pending")
+        assert resp.status_code == 200
+        assert resp.json()["jobs"] == []
+        assert _fetch_listing_facets(db_conn, "u-nodesc-0")["enrichment_status"] is None
 
 
 class TestResults:

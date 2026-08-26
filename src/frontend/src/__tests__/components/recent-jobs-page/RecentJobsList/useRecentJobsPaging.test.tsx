@@ -232,6 +232,19 @@ describe('useRecentJobsPaging', () => {
       expect(fetchNextPage).not.toHaveBeenCalled();
     });
 
+    it('does not widen from the manual path while the first page is still streaming', () => {
+      // The sentinel stays mounted at zero visible rows (2026-08-10 fix) and
+      // fires immediately, so this path can race the initial stream: a widen
+      // dispatched mid-stream discards the entire in-flight page-1 load. The
+      // widening effect re-fires once the stream settles, so returning here
+      // loses nothing.
+      const { result } = renderPaging('all', { ...SETTLED_90D, isStreaming: true });
+
+      result.current.loadNextServerPage();
+
+      expect(fetchNextPage).not.toHaveBeenCalled();
+    });
+
     it('is a no-op for signed-out visitors', () => {
       const { result } = renderPaging('90d', SETTLED_90D, { enabled: false });
 

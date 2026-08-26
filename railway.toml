@@ -3,30 +3,22 @@ builder = "DOCKERFILE"
 dockerfilePath = "src/backend/Dockerfile"
 
 [deploy]
-# /health/worker returns 503 when EITHER stream is stale:
-#   - procrastinate_events (last job ack)   > 35 min
-#   - worker_heartbeats    (canary tick)    > 10 min
-# Railway auto-restarts the container on 503 — the silent-hang failure class
-# the 2026-05-19 supervisor PR couldn't cover (a hang produces no exception).
+# healthcheckPath gates DEPLOY CUTOVER ONLY — Railway does not monitor it
+# after a deployment goes live and never restarts a live-but-hung container
+# ("not used for continuous monitoring" — Railway docs; disproven-the-hard-way
+# 2026-08-10, see docs/incidents/2026-08-10-postgres-container-freeze-backend-wedge.md).
+# Runtime liveness is owned in-process by api/services/db_watchdog.py, whose
+# non-zero exit engages restartPolicyType ON_FAILURE.
 #
-# The two streams are independent on the WRITE path (events flow through the
-# Procrastinate connector pool; the heartbeat task opens a fresh psycopg2
-# connection), but coupled on the DEQUEUE path (both rely on the connector
-# being able to claim jobs). So the practical failure modes are:
-#   (a) connector dead / scheduler hung    -> both streams stale  -> 503 stale
-#   (b) connector can dequeue, but event-
-#       writes broken (trigger / schema)   -> events stale, heartbeat fresh
-#                                             -> 503 stale; payload shows split
-#   (c) probe query itself raises          -> 503 db_error
-# Cases (a) and (b) both trip the OR in the freshness check; case (b) is the
-# only one where the payload distinguishes "scheduler dead" from "event-write
-# pipe broken" — visible to operators in Railway logs, not affecting the
-# restart decision.
-#
-# `restartPolicyMaxRetries = 10` × ~35-min event threshold ≈ ~6h before
-# Railway gives up — long enough to outlast a Postgres outage but short
-# enough to surface a corrupted deploy.
+# /health/worker 503s when either worker stream is stale, blocking cutover
+# to a build whose worker can't start. Timeout matches the 600s boot
+# connectivity-retry budget (DB_BOOT_CONNECT_RETRY_SECONDS) so a deploy
+# during a short DB blip can still ride it out.
 healthcheckPath = "/health/worker"
-healthcheckTimeout = 300
+healthcheckTimeout = 600
 restartPolicyType = "ON_FAILURE"
-restartPolicyMaxRetries = 10
+# Sized to outlast a multi-hour DB outage: while the DB is down each restart
+# cycle lasts ~6 min (the watchdog window caps the 10-min boot retry budget),
+# so 50 retries covers ~5 hours before Railway gives up. Paid plans allow
+# more than the default 10.
+restartPolicyMaxRetries = 50

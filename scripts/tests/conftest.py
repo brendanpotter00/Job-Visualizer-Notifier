@@ -356,3 +356,210 @@ def microsoft_details_response() -> Dict[str, Any]:
             "postedDate": "2024-12-15",
         }
     }
+
+
+# ============================================================================
+# Amazon Scraper Fixtures
+# ============================================================================
+
+@pytest.fixture
+def amazon_scraper():
+    """AmazonJobsScraper instance for transformation tests"""
+    from scripts.amazon_jobs_scraper.scraper import AmazonJobsScraper
+    return AmazonJobsScraper(headless=True, detail_scrape=False)
+
+
+@pytest.fixture
+def amazon_raw_job() -> Dict[str, Any]:
+    """One raw search.json row, shaped from a live 2026-08-09 response."""
+    return {
+        "id": "8f0d1e2a-0000-4a1b-9c3d-000000000000",  # GUID — NOT the id we key on
+        "id_icims": "10496449",
+        "title": "Software Development Engineer, Conversational Ads Experience",
+        "job_path": "/en/jobs/10496449/software-development-engineer-conversational-ads-experience",
+        "description": "Amazon is building a world class advertising business.<br/>Join us.",
+        "basic_qualifications": "- 3+ years of experience<br/>- BS in CS",
+        "preferred_qualifications": "- Experience with AWS",
+        "posted_date": "August  8, 2026",  # NOTE: double space, as Amazon sends it
+        "normalized_location": "Seattle, Washington, USA",
+        "location": "US, WA, Seattle",
+        "job_category": "Software Development",
+        "team": {"label": "team-aws-sdm"},
+        "job_schedule_type": "Full-Time",
+        "business_category": "Advertising",
+        "job_family": "Software Development",
+        "city": "Seattle",
+        "state": "Washington",
+        "country_code": "USA",
+        "url_next_step": "https://account.amazon.jobs/jobs/10496449/apply",
+        "is_intern": None,
+        "university_job": None,
+        "is_manager": None,
+    }
+
+
+@pytest.fixture
+def amazon_search_response(amazon_raw_job) -> Dict[str, Any]:
+    """A realistic search.json payload envelope."""
+    second = dict(amazon_raw_job)
+    second["id_icims"] = "10496467"
+    second["title"] = "Sr. Software Development Engineer, EC2"
+    second["job_path"] = "/en/jobs/10496467/sr-software-development-engineer-ec2"
+    return {"error": None, "hits": 1303, "jobs": [amazon_raw_job, second]}
+
+
+@pytest.fixture
+def amazon_page_factory(amazon_raw_job):
+    """Build a search.json payload with `count` synthetic rows."""
+    def _make(count: int, offset: int = 0, hits: Any = None) -> Dict[str, Any]:
+        jobs = []
+        for i in range(count):
+            row = dict(amazon_raw_job)
+            row["id_icims"] = str(10_000_000 + offset + i)
+            row["title"] = f"Software Development Engineer {offset + i}"
+            row["job_path"] = f"/en/jobs/{row['id_icims']}/software-development-engineer"
+            jobs.append(row)
+        return {"error": None, "hits": hits, "jobs": jobs}
+    return _make
+
+
+@pytest.fixture
+def sample_amazon_job_data() -> Dict[str, Any]:
+    """A standardised Amazon job *card* (post-_parse_job_from_search)."""
+    return {
+        "id": "10496449",
+        "title": "Software Development Engineer II",
+        "job_url": "https://www.amazon.jobs/en/jobs/10496449/software-development-engineer",
+        "location": "Seattle, Washington, USA",
+        "posted_date": "2026-08-08",
+        "department": "Software Development",
+        "description": "Build things.\n\n- 3+ years of experience",
+        "team": "team-aws-sdm",
+        "job_schedule_type": "Full-Time",
+        "business_category": "Advertising",
+        "job_family": "Software Development",
+        "city": "Seattle",
+        "state": "Washington",
+        "country_code": "USA",
+        "apply_url": "https://account.amazon.jobs/jobs/10496449/apply",
+        "is_intern": None,
+        "university_job": None,
+        "is_manager": None,
+        "company": "amazon",
+    }
+
+
+@pytest.fixture
+def amazon_dirty_json_text() -> str:
+    """A JSON document carrying a raw \\x01 control byte inside a string.
+
+    Mirrors the Amazon payloads that break strict JSON parsers (Python's
+    json.loads and V8's JSON.parse alike).
+    """
+    return '{"jobs": [{"id_icims": "1", "title": "SDE", "description": "a\x01b"}], "hits": 1}'
+
+
+# ============================================================================
+# TikTok Scraper Fixtures
+# ============================================================================
+
+@pytest.fixture
+def tiktok_scraper():
+    """TikTokJobsScraper instance for transformation tests"""
+    from scripts.tiktok_jobs_scraper.scraper import TikTokJobsScraper
+    return TikTokJobsScraper(headless=True, detail_scrape=False)
+
+
+@pytest.fixture
+def tiktok_raw_job() -> Dict[str, Any]:
+    """One raw job_post_list row, shaped from a live 2026-08-09 response."""
+    return {
+        "id": "7613184212766607621",
+        "code": "A07200",
+        "title": "Software Engineer, TikTok AIGC Agentic Workflow",
+        "description": "About the team\nOur team supports the platform behind AIGC.",
+        "requirement": "Minimum Qualifications:\n- BS in Computer Science",
+        "city_info": {
+            "code": "CT_94",
+            "location_type": 3,
+            "name": None,
+            "en_name": "San Jose",
+            "parent": {
+                "code": "ST_100",
+                "location_type": 2,
+                "name": None,
+                "en_name": "California",
+                "parent": {
+                    "code": "CN_6",
+                    "location_type": 1,
+                    "name": None,
+                    "en_name": "United States of America",
+                    "parent": None,
+                },
+            },
+        },
+        "job_category": {
+            "id": "6704215897130666254",
+            "name": None,
+            "en_name": "Backend",
+            "parent": {"id": "6704215862603155720", "name": None, "en_name": "R&D", "parent": None},
+        },
+        "recruit_type": {"id": "101", "name": None, "en_name": "Regular"},
+        "job_subject": None,
+        "vacancies": 1,
+    }
+
+
+@pytest.fixture
+def tiktok_search_response(tiktok_raw_job) -> Dict[str, Any]:
+    """A realistic search envelope (code 0 = success)."""
+    second = dict(tiktok_raw_job)
+    second["id"] = "7613184219506985269"
+    second["title"] = "Senior Software Engineer, TikTok AIGC"
+    return {
+        "code": 0,
+        "message": "ok",
+        "error": None,
+        "data": {
+            "job_post_list": [tiktok_raw_job, second],
+            "count": 716,
+            "BaseResp": {"StatusCode": 0, "StatusMessage": "Success"},
+        },
+    }
+
+
+@pytest.fixture
+def tiktok_page_factory(tiktok_raw_job):
+    """Build a TikTok envelope with `count` synthetic rows."""
+    def _make(count: int, offset: int = 0, total: Any = None) -> Dict[str, Any]:
+        jobs = []
+        for i in range(count):
+            row = dict(tiktok_raw_job)
+            row["id"] = str(7_600_000_000_000_000_000 + offset + i)
+            row["title"] = f"Software Engineer {offset + i}"
+            jobs.append(row)
+        return {
+            "code": 0,
+            "message": "ok",
+            "data": {"job_post_list": jobs, "count": total},
+        }
+    return _make
+
+
+@pytest.fixture
+def sample_tiktok_job_data() -> Dict[str, Any]:
+    """A standardised TikTok job *card* (post-_parse_job_from_search)."""
+    return {
+        "id": "7613184212766607621",
+        "title": "Software Engineer, TikTok AIGC Agentic Workflow",
+        "job_url": "https://lifeattiktok.com/search/7613184212766607621",
+        "location": "San Jose, California, United States of America",
+        "posted_date": None,
+        "department": "R&D / Backend",
+        "description": "About the team\n\nMinimum Qualifications:",
+        "job_code": "A07200",
+        "recruit_type": "Regular",
+        "job_subject": None,
+        "vacancies": 1,
+        "company": "tiktok",
+    }

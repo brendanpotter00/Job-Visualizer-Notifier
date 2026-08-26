@@ -76,7 +76,7 @@ class TestGetSavedFilters:
         resp = sf_client.get(PREFIX)
         assert resp.status_code == 200
         body = resp.json()
-        assert body["recentTimeWindow"] == "90d"
+        assert body["recentTimeWindow"] == "all"
         assert body["trendTimeWindow"] == "90d"
         assert body["locations"] == []
         assert body["category"] == []

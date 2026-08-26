@@ -17,6 +17,9 @@ class SourceId:
     GOOGLE: Final[str] = "google_scraper"
     APPLE: Final[str] = "apple_scraper"
     MICROSOFT: Final[str] = "microsoft_scraper"
+    # ``_scraper`` suffix marks a custom web scraper (no vendor ATS behind it).
+    AMAZON: Final[str] = "amazon_scraper"
+    TIKTOK: Final[str] = "tiktok_scraper"
     GREENHOUSE: Final[str] = "greenhouse_api"
     ASHBY: Final[str] = "ashby_api"
     LEVER: Final[str] = "lever_api"
@@ -37,6 +40,10 @@ class SourceId:
 # ``increment_consecutive_misses`` can only ever touch the ONE company that owns
 # that source_id, never a different user's company. That is precisely the
 # 2026-03-29 class of mass-mutation bug, walled off at the schema level.
+#
+# The enrichment claim (routers/internal_enrichment.py) leans on both halves:
+# the PREFIX separates the custom slice from the published one, and the
+# per-company namespace is what its round-robin partitions on.
 CUSTOM_SOURCE_PREFIX: Final[str] = "custom:"
 
 # ``companies.id`` shape for a custom company: ``u-<10 base36 chars>``. Satisfies

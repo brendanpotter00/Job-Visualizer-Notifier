@@ -85,7 +85,7 @@ export const COMPANIES: Company[] = [
   createBackendScraperCompany('robinhood', 'Robinhood', 'https://boards.greenhouse.io/robinhood', {
     sourceAts: 'greenhouse',
     recruiterLinkedInUrl:
-      'https://www.linkedin.com/search/results/content/?keywords=hiring+software+engineer&origin=FACETED_SEARCH',
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%223254263%22%5D',
   }),
   createBackendScraperCompany('xai', 'XAI', 'https://boards.greenhouse.io/xai', {
     sourceAts: 'greenhouse',
@@ -140,7 +140,7 @@ export const COMPANIES: Company[] = [
   createBackendScraperCompany('squarespace', 'Squarespace', 'https://boards.greenhouse.io/squarespace', {
     sourceAts: 'greenhouse',
     recruiterLinkedInUrl:
-      'https://www.linkedin.com/search/results/content/?keywords=hiring+software+engineer&origin=FACETED_SEARCH',
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22265314%22%5D',
   }),
   createBackendScraperCompany('clear', 'Clear', 'https://boards.greenhouse.io/clear', {
     sourceAts: 'greenhouse',
@@ -308,7 +308,7 @@ export const COMPANIES: Company[] = [
   createBackendScraperCompany('zoox', 'Zoox', 'https://jobs.lever.co/zoox', {
     sourceAts: 'lever',
     recruiterLinkedInUrl:
-      'https://www.linkedin.com/search/results/content/?keywords=hiring+software+engineer&origin=FACETED_SEARCH',
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%227597308%22%5D',
   }),
   // Quant / proprietary trading firm (Lever)
   createBackendScraperCompany('belvederetrading', 'Belvedere Trading', 'https://jobs.lever.co/belvederetrading', {
@@ -365,7 +365,7 @@ export const COMPANIES: Company[] = [
   createBackendScraperCompany('base-power', 'Base Power Company', 'https://careers.ashbyhq.com/base-power', {
     sourceAts: 'ashby',
     recruiterLinkedInUrl:
-      'https://www.linkedin.com/search/results/content/?keywords=hiring+software+engineer&origin=FACETED_SEARCH',
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2296134922%22%5D',
   }),
   createBackendScraperCompany('clickup', 'ClickUp', 'https://careers.ashbyhq.com/clickup', {
     sourceAts: 'ashby',
@@ -374,9 +374,13 @@ export const COMPANIES: Company[] = [
   }),
   createBackendScraperCompany('apex-technology-inc', 'Apex Technology Inc', 'https://careers.ashbyhq.com/apex-technology-inc', {
     sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2289486521%22%5D',
   }),
   createBackendScraperCompany('light', 'Light', 'https://careers.ashbyhq.com/light', {
     sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22107486267%22%5D',
   }),
   createBackendScraperCompany('linear', 'Linear', 'https://careers.ashbyhq.com/Linear', {
     sourceAts: 'ashby',
@@ -405,6 +409,8 @@ export const COMPANIES: Company[] = [
   }),
   createBackendScraperCompany('granola', 'Granola', 'https://careers.ashbyhq.com/granola', {
     sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2293812541%22%5D',
   }),
   createBackendScraperCompany('sunday', 'Sunday', 'https://careers.ashbyhq.com/sunday', {
     sourceAts: 'ashby',
@@ -468,6 +474,8 @@ export const COMPANIES: Company[] = [
   }),
   createBackendScraperCompany('roadrunner', 'Roadrunner', 'https://careers.ashbyhq.com/Roadrunner', {
     sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22109946185%22%5D',
   }),
   createBackendScraperCompany('supabase', 'Supabase', 'https://careers.ashbyhq.com/supabase', {
     sourceAts: 'ashby',
@@ -481,6 +489,8 @@ export const COMPANIES: Company[] = [
   }),
   createBackendScraperCompany('flint', 'Flint', 'https://careers.ashbyhq.com/flint', {
     sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22108761911%22%5D',
   }),
   createBackendScraperCompany('cursor', 'Cursor', 'https://cursor.com/careers', {
     sourceAts: 'ashby',
@@ -534,6 +544,8 @@ export const COMPANIES: Company[] = [
   }),
   createBackendScraperCompany('trajectory', 'Trajectory', 'https://jobs.ashbyhq.com/trajectory', {
     sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22113251209%22%5D',
   }),
   createBackendScraperCompany('krea', 'Krea', 'https://jobs.ashbyhq.com/krea', {
     sourceAts: 'ashby',
@@ -549,13 +561,6 @@ export const COMPANIES: Company[] = [
     sourceAts: 'ashby',
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2237415928%22%5D',
-  }),
-  // The Interaction Company of California (makers of Poke). Ashby board slug is
-  // 'interaction' (board_token), surfaced here as 'Poke'.
-  createBackendScraperCompany('poke', 'Poke', 'https://jobs.ashbyhq.com/interaction', {
-    sourceAts: 'ashby',
-    recruiterLinkedInUrl:
-      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22106772435%22%5D',
   }),
   createBackendScraperCompany('sierra', 'Sierra', 'https://jobs.ashbyhq.com/Sierra', {
     sourceAts: 'ashby',
@@ -574,9 +579,13 @@ export const COMPANIES: Company[] = [
   }),
   createBackendScraperCompany('console', 'Console', 'https://console.com/careers', {
     sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22104441547%22%5D',
   }),
   createBackendScraperCompany('workos', 'WorkOS', 'https://jobs.ashbyhq.com/workos', {
     sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2240057919%22%5D',
   }),
   createBackendScraperCompany('salient', 'Salient', 'https://jobs.ashbyhq.com/salient', {
     sourceAts: 'ashby',
@@ -595,7 +604,7 @@ export const COMPANIES: Company[] = [
   createBackendScraperCompany('appliedintuition', 'Applied Intuition', 'https://jobs.ashbyhq.com/applied', {
     sourceAts: 'ashby',
     recruiterLinkedInUrl:
-      'https://www.linkedin.com/search/results/content/?keywords=hiring+software+engineer&origin=FACETED_SEARCH',
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2218808325%22%5D',
   }),
   createBackendScraperCompany('fal', 'fal', 'https://jobs.ashbyhq.com/fal-ai', {
     sourceAts: 'ashby',
@@ -771,10 +780,16 @@ export const COMPANIES: Company[] = [
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22165158%22%5D',
   }),
 
-  // Backend scraper companies (Python-scraped: Google, Apple, Microsoft)
+  // Backend scraper companies (Python-scraped: Google, Apple, Microsoft,
+  // Amazon, TikTok). These deliberately omit `sourceAts` — that absence is what
+  // groups them under "Custom Web Scrapers" (see config/atsSource.ts).
+  createBackendScraperCompany('amazon', 'Amazon', 'https://www.amazon.jobs/', {
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%221586%22%5D',
+  }),
   createBackendScraperCompany('google', 'Google', 'https://careers.google.com/', {
     recruiterLinkedInUrl:
-      'https://www.linkedin.com/search/results/content/?keywords=hiring+software+engineer&origin=FACETED_SEARCH',
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%221441%22%5D',
   }),
   createBackendScraperCompany('apple', 'Apple', 'https://jobs.apple.com/', {
     recruiterLinkedInUrl:
@@ -784,6 +799,10 @@ export const COMPANIES: Company[] = [
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%221035%22%5D',
   }),
+  createBackendScraperCompany('tiktok', 'TikTok', 'https://lifeattiktok.com/search', {
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2233246798%22%5D',
+  }),
 ];
 
 export const enum COMPANY_IDS {
@@ -791,6 +810,7 @@ export const enum COMPANY_IDS {
   Affirm = 'affirm',
   Airbnb = 'airbnb',
   Airtable = 'airtable',
+  Amazon = 'amazon',
   AndurilIndustries = 'andurilindustries',
   Anthropic = 'anthropic',
   ApexTechnologyInc = 'apex-technology-inc',
@@ -870,7 +890,6 @@ export const enum COMPANY_IDS {
   Pylon = 'pylon-labs',
   Pinterest = 'pinterest',
   Plaid = 'plaid',
-  Poke = 'poke',
   Ramp = 'ramp',
   Reddit = 'reddit',
   Reducto = 'reducto',
@@ -895,6 +914,7 @@ export const enum COMPANY_IDS {
   Sunday = 'sunday',
   Supabase = 'supabase',
   ThinkingMachines = 'thinkingmachines',
+  TikTok = 'tiktok',
   TogetherAI = 'togetherai',
   Trajectory = 'trajectory',
   Traversal = 'traversal',

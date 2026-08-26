@@ -56,7 +56,7 @@ All configuration via environment variables:
 |---------|-------------|---------|
 | `DATABASE_URL` | PostgreSQL connection URL | `postgresql://postgres:postgres@localhost:5432/jobscraper` |
 | `SCRAPER_INTERVAL_HOURS` | Hours between auto-scrape cycles | `1` |
-| `SCRAPER_COMPANIES` | Comma-separated company list | `apple,google,microsoft` |
+| `SCRAPER_COMPANIES` | Comma-separated company list | `apple,google,microsoft,amazon,tiktok` |
 | `SCRAPER_DETAIL_SCRAPE` | Fetch job detail pages | `true` |
 | `SCRAPER_TIMEOUT_MINUTES` | Max time per scrape | `90` |
 | `SCRAPER_SCRIPTS_PATH` | Path to Python scripts | `../../scripts` (local) / `/app/scripts` (Docker) |
@@ -75,6 +75,8 @@ All configuration via environment variables:
 | `ENRICHMENT_CLAIM_TTL_MINUTES` | Stale-claim reclaim window in minutes (must exceed a full enricher tick round-trip) | `240` |
 | `ENRICHMENT_REQUIRE_JUDGE_PASS` | If true, hold judge-flagged rows as `needs_human` instead of publishing `done` | `false` |
 | `ENRICHMENT_CLAIM_WITHOUT_DESCRIPTION` | If true, allow claiming description-less rows (e.g. Workday/Eightfold) | `false` |
+| `ENRICHMENT_CUSTOM_SHARE_PCT` | Share of each `/pending` batch reserved for custom (user-added) companies; `0` disables custom claiming | `10` |
+| `ENRICHMENT_CUSTOM_PER_COMPANY_CAP` | Per-custom-company eligibility window: only a company's newest N *unclaimed* OPEN rows compete for the custom slice | `500` |
 | `POSTHOG_PROJECT_TOKEN` | PostHog analytics API key — if unset, all analytics is disabled (`get_posthog()` returns `None`) | *(optional)* |
 | `POSTHOG_HOST` | PostHog ingestion host (US cloud endpoint) | `https://us.i.posthog.com` |
 | `FEEDBACK_RATE_LIMIT_MAX` | Max feedback submissions per client IP per window | `5` |
@@ -97,8 +99,8 @@ All configuration via environment variables:
   `ORDER BY first_seen_at DESC, source_id DESC, id DESC` with a row-value boundary
   predicate. Locked by `api/tests/test_jobs_keyset_pagination.py`.
 - **`?since=`** — ISO-8601 **with a UTC offset** (`Z` or `±HH:MM`); naive values are a 422,
-  never assumed-UTC. **Inclusive**: `first_seen_at >= since`. No server default; the 90-day
-  default is the frontend's business.
+  never assumed-UTC. **Inclusive**: `first_seen_at >= since`. No server default; which window
+  the Recent page opens on is the frontend's business.
 - **`?cursor=`** — opaque `base64url("<first_seen_at ISO-8601 UTC>|<source_id>|<id>")`,
   minted by the server, echoed back verbatim by the client. Codec + validation live in
   `api/pagination.py`. Malformed input is a **422 with a specific reason** — never a
@@ -151,7 +153,7 @@ All configuration via environment variables:
 - `PUT /api/users/enabled-companies` - Update user's enabled companies (requires Bearer token)
 
 **Saved Filters Router (`/api/users/saved-filters`):** all routes require a Bearer token.
-- `GET /api/users/saved-filters` - Scalar saved filters (per-page time windows, shared locations, active keyword-list pointers); never 404s — returns server defaults (`recent=90d`, `trend=90d`, no locations) when the user has no row
+- `GET /api/users/saved-filters` - Scalar saved filters (per-page time windows, shared locations, active keyword-list pointers); never 404s — returns server defaults (`recent=all`, `trend=90d`, no locations) when the user has no row
 - `PUT /api/users/saved-filters` - Full-replace (upsert) the scalar saved filters; 409 if an active keyword-list pointer is unknown or not owned
 - `GET /api/users/saved-filters/keyword-lists` - List the user's named keyword lists by position, with the read-only built-in "Software Engineering" list (`builtin-swe`) synthesized last
 - `POST /api/users/saved-filters/keyword-lists` - Create a keyword list (201); 409 on duplicate/reserved name, 422 at the per-user list cap
@@ -161,7 +163,7 @@ All configuration via environment variables:
 
 **Jobs facets:** `GET /api/jobs/facets` - enrichment dropdown catalog (categories + levels with labels/order/parent) from the seeded dimensions.
 
-**Internal Enrichment Router (`/api/internal/enrichment`, X-Internal-Key):** `GET /pending` (claim batch; title-priority order — entry-level/intern, then software-engineering, then everything else, newest `first_seen_at` within each tier), `POST /results` (idempotent write-back; returns `written`/`failed[]`(+`source_id`)/`warnings[]`), `GET /sample`, `GET /health`, `POST /metrics` (per-tick push → `enrichment_ticks`, idempotent on `tick_uuid`), `GET /corrections` (human-correction feed for the enricher's golden-merge).
+**Internal Enrichment Router (`/api/internal/enrichment`, X-Internal-Key):** `GET /pending` (claim batch; title-priority order — entry-level/intern, then software-engineering, then everything else, newest `first_seen_at` within each tier; the batch is **split** — `ENRICHMENT_CUSTOM_SHARE_PCT` of it is reserved for custom companies, dealt round-robin across them, and each slice absorbs the other's unused budget so the reservation never idles the enricher), `POST /results` (idempotent write-back; returns `written`/`failed[]`(+`source_id`)/`warnings[]`), `GET /sample`, `GET /health`, `POST /metrics` (per-tick push → `enrichment_ticks`, idempotent on `tick_uuid`), `GET /corrections` (human-correction feed for the enricher's golden-merge).
 
 **Admin Enrichment (`/api/admin/enrichment/*`, requires admin):** `GET /health`, `GET /needs-human` (paginated triage queue), `GET /ticks`, `GET /recent`, `POST /jobs/{source_id}/{job_id}/correct` (publish human labels + lock row; sets `human_decision='corrected'`), `POST /jobs/{source_id}/{job_id}/confirm` (one-click validate the proposal as-is + lock row; sets `human_decision='confirmed_correct'`; 409 if the row has no proposed labels), `POST /jobs/{source_id}/{job_id}/reenrich` (reset + unlock; clears `human_decision`). Backing SQL in `services/enrichment_monitor.py`. `job_enrichment.human_decision` (`NULL` | `corrected` | `confirmed_correct`) is the human verdict — distinct from the judge's `judged`/`judge_passed` — and rides the `/api/internal/enrichment/corrections` feed as `decision` so the enricher can tell a fix from a validated raise.
 
@@ -249,7 +251,7 @@ src/backend/api/
 │   ├── rate_limit.py        # Per-key async rate limiter (used by ATS clients)
 │   ├── scraper_lock.py  # asyncio.Lock singleton shared by runner + auto-scraper
 │   ├── scraper_runner.py # Async subprocess runner for scrapers
-│   ├── auto_scraper.py  # Background scheduled scraping (Google/Apple/Microsoft)
+│   ├── auto_scraper.py  # Background scheduled scraping (Google/Apple/Microsoft/Amazon/TikTok)
 │   ├── ashby_client.py      # Ashby ATS HTTP client
 │   ├── eightfold_client.py  # Eightfold ATS HTTP client (SSRF allowlist lives here)
 │   ├── gem_client.py        # Gem ATS HTTP client
@@ -298,8 +300,9 @@ anti-join invariants the `/api/jobs` INNER JOIN depends on — runbook in
 - **Response serialization**: Pydantic models with `alias_generator=to_camel` produce camelCase JSON matching frontend expectations
 - **Background workers**: Two workers run in the FastAPI lifespan context:
   1. **Procrastinate worker** (`tasks/procrastinate_app.py`) — drains the Procrastinate job queue; handles Greenhouse, Ashby, Lever, Gem, Eightfold, and Workday ATS companies via fan-out + per-company fetch tasks. Supervised with auto-restart on crash.
-  2. **Auto-scraper loop** (`services/auto_scraper.py`) — asyncio task that periodically spawns subprocesses for Google, Apple, and Microsoft scrapers.
+  2. **Auto-scraper loop** (`services/auto_scraper.py`) — asyncio task that periodically spawns subprocesses for the script-ats scrapers (Google, Apple, Microsoft, Amazon, TikTok).
 - **Scraper subprocess**: Runs `scripts/run_scraper.py` via `asyncio.create_subprocess_exec`
+- **DB watchdog** (`services/db_watchdog.py`): daemon thread probing the DB on fresh connections with hard wall-clock deadlines; exits the process after ~5-6 sustained minutes of unreachability so Railway restarts the container (see `railway.toml` and the 2026-08-10 incident doc).
 
 ### Schema migrations
 

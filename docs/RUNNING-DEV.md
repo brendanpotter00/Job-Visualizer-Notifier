@@ -65,4 +65,4 @@ docker compose stop postgres    # or `docker compose down` to remove the contain
     -c "INSERT INTO admins (user_id) SELECT id FROM users WHERE email='you@example.com' ON CONFLICT (user_id) DO NOTHING;"
   ```
 
-- **`scraper[apple] … exit code 1` in the backend log is non-fatal.** The Playwright auto-scrapers (Google/Apple/Microsoft) log errors but the API keeps serving. Only matters if you need those companies' data locally.
+- **`scraper[apple] … exit code 1` in the backend log is non-fatal.** The Playwright auto-scrapers (Google/Apple/Microsoft/Amazon) log errors but the API keeps serving. Only matters if you need those companies' data locally.

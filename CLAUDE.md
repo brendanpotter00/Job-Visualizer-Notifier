@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Job Posting Analytics - A monorepo containing a TypeScript + React frontend, Python FastAPI backend, and Python scraping scripts. The frontend visualizes job posting activity over time for multiple companies, all served from the backend's `/api/jobs` endpoint (Greenhouse, Ashby, Lever, Gem, Eightfold/Netflix, and Workday boards, plus Google, Apple, Microsoft). Built with Redux Toolkit, Recharts, and Material-UI.
+Job Posting Analytics - A monorepo containing a TypeScript + React frontend, Python FastAPI backend, and Python scraping scripts. The frontend visualizes job posting activity over time for multiple companies, all served from the backend's `/api/jobs` endpoint (Greenhouse, Ashby, Lever, Gem, Eightfold/Netflix, and Workday boards, plus Google, Apple, Microsoft, Amazon, TikTok). Built with Redux Toolkit, Recharts, and Material-UI.
 
 ## Project Structure
 
@@ -57,7 +57,7 @@ PYTHONPATH=. uvicorn src.backend.api.main:app --host 0.0.0.0 --port 8000 --reloa
 User selects company → `getJobsForCompany` RTK Query endpoint (src/frontend/src/features/jobs/jobsApi.ts) → Factory selects API client → Transform to normalized Job model → RTK Query cache update → Memoized selectors filter data → Components render
 
 **API Clients:**
-Backend-Scraper (src/frontend/src/api/clients/backendScraperClient.ts) is the only production client — every company flows through the backend `/api/jobs` endpoint. Greenhouse, Ashby, Lever, Gem, Eightfold/Netflix, and Workday boards are fetched by the backend Procrastinate worker (SSRF allowlist for Eightfold lives in Python `src/backend/api/services/eightfold_client.py`); Google, Apple, and Microsoft are scraped via Python scripts. The `createAPIClient` factory (src/frontend/src/api/clients/baseClient.ts) is retained as scaffolding for future ATS integrations; no production client currently consumes it.
+Backend-Scraper (src/frontend/src/api/clients/backendScraperClient.ts) is the only production client — every company flows through the backend `/api/jobs` endpoint. Greenhouse, Ashby, Lever, Gem, Eightfold/Netflix, and Workday boards are fetched by the backend Procrastinate worker (SSRF allowlist for Eightfold lives in Python `src/backend/api/services/eightfold_client.py`); Google, Apple, Microsoft, Amazon, and TikTok are scraped via Python scripts. The `createAPIClient` factory (src/frontend/src/api/clients/baseClient.ts) is retained as scaffolding for future ATS integrations; no production client currently consumes it.
 
 **Key Selectors:**
 - `selectCurrentCompanyJobsRtk` (src/frontend/src/features/jobs/jobsSelectors.ts) - Jobs for selected company
@@ -110,17 +110,6 @@ Automatic per-PR preview deploys are **off** — root `vercel.json` sets `git.de
    - Use `useMemo` for derived data and avoid creating large arrays in render methods
    - Never render unbounded lists - Chrome can consume 50+ GB memory with large unpaginated tables
 8. **Postgres MCP timezone bug**: When debugging time-sensitive state through `mcp__postgres-prod__query`, `now() AT TIME ZONE 'UTC'` (and any `timestamptz → timestamp without time zone` cast) drops the timezone tag and the MCP's JSON serializer then re-renders the naked timestamp **as if it were already local time**. The visible result is a phantom shift equal to your local UTC offset (CDT = +5h, CST = +6h, PDT = +7h, UTC = 0). Always cross-check elapsed time with `EXTRACT(EPOCH FROM now())::bigint` or compare against bare `now()` which renders correctly as `…Z`. This one-time confusion produced a phantom "5h hang" investigation in May 2026 on a CDT machine that wasn't real.
-
-## Key Files (Frontend)
-
-- Redux Store: `src/frontend/src/app/store.ts`
-- Type Definitions: `src/frontend/src/types/index.ts`
-- Company Config: `src/frontend/src/config/companies.ts`
-- API Client Factory: `src/frontend/src/api/clients/baseClient.ts`
-- Filter Slice Factory: `src/frontend/src/features/filters/slices/createFilterSlice.ts`
-- Jobs RTK Query API: `src/frontend/src/features/jobs/jobsApi.ts`, `jobsSelectors.ts`, `progressHelpers.ts`
-- Time Bucketing: `src/frontend/src/lib/timeBucketing.ts`
-- Main App: `src/frontend/src/app/App.tsx`
 
 ## Vercel Serverless Functions (api/)
 

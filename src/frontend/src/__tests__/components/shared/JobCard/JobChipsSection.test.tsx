@@ -4,45 +4,26 @@ import { JobChipsSection } from '../../../../components/shared/JobCard/JobChipsS
 
 /**
  * Tests for JobChipsSection component
- * Verifies rendering of department and remote chips
+ * Verifies rendering of the remote chip and the enrichment category/level chips.
+ * The ATS-provided department chip was removed from the card (it restated the
+ * enrichment chips), so this component no longer takes a `department` prop.
  */
 describe('JobChipsSection', () => {
   describe('Chip Rendering', () => {
-    it('should render department chip when department is provided', () => {
-      render(<JobChipsSection department="Engineering" isRemote={false} />);
-
-      expect(screen.getByText('Engineering')).toBeInTheDocument();
-    });
-
-    it('should not render department chip when department is undefined', () => {
-      render(<JobChipsSection department={undefined} isRemote={false} />);
-
-      expect(screen.queryByText('Engineering')).not.toBeInTheDocument();
-    });
-
     it('should render Remote chip when isRemote is true', () => {
-      render(<JobChipsSection department={undefined} isRemote={true} />);
+      render(<JobChipsSection isRemote={true} />);
 
       expect(screen.getByText('Remote')).toBeInTheDocument();
     });
 
     it('should not render Remote chip when isRemote is false', () => {
-      render(<JobChipsSection department={undefined} isRemote={false} />);
+      render(<JobChipsSection isRemote={false} />);
 
       expect(screen.queryByText('Remote')).not.toBeInTheDocument();
     });
-  });
 
-  describe('Chip Combinations', () => {
-    it('should render both department and remote chips when both are provided', () => {
-      render(<JobChipsSection department="Engineering" isRemote={true} />);
-
-      expect(screen.getByText('Engineering')).toBeInTheDocument();
-      expect(screen.getByText('Remote')).toBeInTheDocument();
-    });
-
-    it('should render no chips when neither department nor remote are provided', () => {
-      const { container } = render(<JobChipsSection department={undefined} isRemote={false} />);
+    it('should render no chips when nothing is provided', () => {
+      const { container } = render(<JobChipsSection isRemote={false} />);
 
       const chips = container.querySelectorAll('.MuiChip-root');
       expect(chips).toHaveLength(0);
@@ -62,6 +43,14 @@ describe('JobChipsSection', () => {
       render(<JobChipsSection category="quantum_widget_wrangler" />);
 
       expect(screen.getByText('quantum widget wrangler')).toBeInTheDocument();
+    });
+
+    it('renders remote alongside the enrichment chips', () => {
+      render(<JobChipsSection isRemote={true} category="software_engineering" level="senior" />);
+
+      expect(screen.getByText('Remote')).toBeInTheDocument();
+      expect(screen.getByText('Software Engineering')).toBeInTheDocument();
+      expect(screen.getByText('Senior')).toBeInTheDocument();
     });
   });
 });
