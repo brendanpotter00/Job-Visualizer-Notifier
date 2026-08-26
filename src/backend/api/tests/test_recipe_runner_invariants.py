@@ -463,3 +463,69 @@ def test_the_required_three_are_never_folded() -> None:
         {"id": "ids", "title": "title", "url": "url"},
     )
     assert rows[0]["id"] == "['a', 'b']"
+
+
+# --- HTML entities: decoded once, at the seam, and never on the key --------------------
+#
+# A discovered board hands us its own page markup. 19 of 85 custom Spotify titles arrive as
+# ``Client Partner, Emerging &amp; Scaled``, which renders literally in the job list AND
+# breaks every exact-match comparison against another board (it measured the Spotify title
+# overlap at 56/81 instead of the true 70/81).
+
+
+def test_an_entity_in_a_title_is_decoded() -> None:
+    """Spotify's real title, verbatim."""
+    rows = map_records(
+        [{"id": "1", "title": "Client Partner, Emerging &amp; Scaled", "url": "/x"}],
+        {"id": "id", "title": "title", "url": "url"},
+    )
+    assert rows[0]["title"] == "Client Partner, Emerging & Scaled"
+
+
+def test_a_double_encoded_entity_is_decoded_exactly_once() -> None:
+    """THE reason there is one unescape site and not two. A board that publishes the five
+    literal characters ``&amp;`` encodes them as ``&amp;amp;``; decoding twice (once here,
+    once in ``recipe_rows``) would silently corrupt it to a bare ``&`` and there would be
+    no way to tell that from a board that published ``&`` in the first place."""
+    rows = map_records(
+        [{"id": "1", "title": "Tips &amp;amp; Tricks", "url": "/x"}],
+        {"id": "id", "title": "title", "url": "url"},
+    )
+    assert rows[0]["title"] == "Tips &amp; Tricks"
+
+
+def test_a_title_with_no_entity_is_byte_identical() -> None:
+    """The no-op case, pinned because this runs over every field of every row of every
+    board: a decode that "helpfully" touched anything else would be a silent rewrite of
+    2,000-job boards that were already correct."""
+    rows = map_records(
+        [{"id": "1", "title": "Staff Engineer, Data & AI", "url": "/x"}],
+        {"id": "id", "title": "title", "url": "url"},
+    )
+    assert rows[0]["title"] == "Staff Engineer, Data & AI"
+
+
+def test_the_id_is_never_unescaped_so_the_close_key_cannot_move() -> None:
+    """The never-wrong-close guard on this change. ``id`` is half of ``job_listings``'
+    composite key and the default ``dedupe_key`` field: decoding it would make tonight's
+    harvest disagree with every row already stored, closing and re-inserting the entire
+    board — a mass close caused by a cosmetic fix. ``url`` rides along for the weaker
+    reason that it is a transport value, not prose."""
+    rows = map_records(
+        [{"id": "a&amp;b", "title": "T", "url": "https://ex.com/j?x=1&amp;y=2"}],
+        {"id": "id", "title": "title", "url": "url"},
+    )
+    assert rows[0]["id"] == "a&amp;b"
+    assert rows[0]["url"] == "https://ex.com/j?x=1&amp;y=2"
+
+
+def test_a_folded_multi_value_field_is_decoded_after_the_join() -> None:
+    """Fold first, decode once. Decoding per element would be identical today and would
+    quietly stop being so the moment a separator or a joiner changes — this pins the order
+    that makes the ``'; '`` spelling the Tier-2 location prompt documents survive."""
+    rows = map_records(
+        [{"id": "1", "title": "T", "url": "/x",
+          "locations": ["Z&uuml;rich", "S&atilde;o Paulo"]}],
+        {"id": "id", "title": "title", "url": "url", "location": "locations"},
+    )
+    assert rows[0]["location"] == "Zürich; São Paulo"

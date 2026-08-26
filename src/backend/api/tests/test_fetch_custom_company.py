@@ -504,3 +504,127 @@ async def test_a_company_with_no_checklist_gets_no_blob_written(db_conn, monkeyp
         (company_id,),
     )
     assert "discovery" not in (cur.fetchone()["provider_config"] or {})
+
+
+# --- unit 6: ``_cap_details`` learns about ``description`` --------------------
+#
+# The blob cap was written when ``details`` held short scalars, so its last-resort
+# branch kept a fixed set of structured keys and dropped everything else. A recipe
+# board's ``description`` is 2.7-5.8 KB of a stranger's HTML, and dropping it is not
+# "a smaller blob": ``enrichment_monitor.DESCRIPTION_SQL`` reads
+# ``details->>'description'`` and the enrichment claim excludes every row where it is
+# NULL, so a dropped description is a job the enricher can never see.
+#
+# These touch neither the database nor the network — they are ``async`` only because
+# the module carries a blanket ``pytest.mark.asyncio``, and a sync test under it is a
+# pytest warning per test.
+
+_HTML_DESCRIPTION = (
+    "<p><strong>Working at Atlassian</strong></p>"
+    "<p>Atlassians can choose where they work &mdash; in an office, from home, "
+    "or a combination of the two.</p>"
+    "<ul><li><p>Own the P99 &lt; 100ms latency budget</p></li>"
+    "<li><p>Partner with Design &amp; Research</p></li></ul>"
+)
+
+
+async def test_a_description_is_stored_as_plain_text_not_markup() -> None:
+    """The mapped value is UNTRUSTED and arrives as markup. Storing it raw spends the
+    blob budget on angle brackets, hands the classifier tags instead of prose, and
+    passes a stranger's HTML on to everything that renders a job."""
+    out = task_mod._cap_details({"description": _HTML_DESCRIPTION})
+    text = out["description"]
+    assert "<p>" not in text and "<strong>" not in text
+    assert "&mdash;" not in text and "&amp;" not in text
+    assert "Working at Atlassian" in text
+    # The literal "<" in prose survives: the loose ``<[^>]+>`` pattern used elsewhere
+    # in this repo eats from it to the ">" of the next real tag.
+    assert "P99 < 100ms" in text
+    assert "Partner with Design & Research" in text
+    assert "_details_truncated" not in out
+
+
+async def test_a_small_plain_description_is_stored_untouched() -> None:
+    """Well under every budget and carrying no markup, so nothing may touch it — a
+    normalization that rewrote short plain descriptions would churn every row of every
+    board on every nightly harvest."""
+    description = "Build and run the payments platform." * 13      # 468 B
+    assert 400 < len(description) < 600
+    out = task_mod._cap_details({"description": description, "category": "Eng"})
+    assert out == {"description": description, "category": "Eng"}
+
+
+async def test_a_huge_description_is_truncated_and_flagged_never_dropped() -> None:
+    """THE unit. A 10 KB HTML description used to fall through to the last-resort
+    branch, whose fixed key set did not include it — so the first descriptions we ever
+    mapped would have been eaten silently. It must come back as non-empty plain text
+    (the exact predicate ``DESCRIPTION_SQL`` reads) with the loss flagged."""
+    out = task_mod._cap_details({"description": "<p>Ship it.</p>" * 800})   # ~11 KB
+    assert isinstance(out["description"], str) and out["description"]
+    assert out["_details_truncated"] is True
+    assert len(out["description"].encode("utf-8")) <= task_mod._DESCRIPTION_MAX_BYTES
+    assert len(json.dumps(out).encode("utf-8")) <= task_mod._DETAILS_MAX_BYTES
+
+
+async def test_a_huge_description_beside_a_huge_content_still_fits_the_blob() -> None:
+    """Both over cap at once. The free-text body still goes (nothing claims it), the
+    description stays, and the whole blob fits."""
+    out = task_mod._cap_details({
+        "description": "<p>Ship it.</p>" * 800,
+        "content": "<p>x</p>" * 4000,
+        "department": "Engineering",
+    })
+    assert out["content"] is None
+    assert out["department"] == "Engineering"
+    assert isinstance(out["description"], str) and out["description"]
+    assert out["_details_truncated"] is True
+    assert len(json.dumps(out).encode("utf-8")) <= task_mod._DETAILS_MAX_BYTES
+
+
+async def test_the_last_resort_branch_keeps_both_description_and_department() -> None:
+    """The rung reached when dropping ``content`` is not enough — here a custom Ashby
+    company whose ``description_html`` is 30 KB, which this ladder has never known how
+    to drop. ``department`` stays on that rung: Δ2 drops it from the CAPTURE schema,
+    but a custom company on the ``ats_client`` transport is harvested by the same
+    Greenhouse/Ashby/Lever/Gem/Eightfold clients as a public one and those still
+    populate it — it is the classifier hint in ``internal_enrichment``'s ``/pending``
+    projection."""
+    out = task_mod._cap_details({
+        "description": "<p>Ship it.</p>" * 800,
+        "description_html": "<p>y</p>" * 4000,
+        "department": "Engineering",
+        "experience_level": "senior",
+        "is_remote_eligible": True,
+        "team": "Platform",                      # not an essential — expected to go
+    })
+    assert "team" not in out and "description_html" not in out
+    assert out["department"] == "Engineering"
+    assert out["experience_level"] == "senior"
+    assert out["is_remote_eligible"] is True
+    assert isinstance(out["description"], str) and out["description"]
+    assert len(json.dumps(out).encode("utf-8")) <= task_mod._DETAILS_MAX_BYTES
+
+
+async def test_the_description_budget_is_bytes_not_characters() -> None:
+    """A CJK board is where a character budget breaks: 6,000 characters of Chinese is
+    18 KB, which alone blows the 8 KB blob cap the description budget exists to fit
+    inside. The clip must also never split a codepoint."""
+    out = task_mod._cap_details({"description": "工程师招聘" * 2000})    # 30 KB of UTF-8
+    text = out["description"]
+    assert len(text.encode("utf-8")) <= task_mod._DESCRIPTION_MAX_BYTES
+    assert text.encode("utf-8").decode("utf-8") == text        # no split codepoint
+    assert len(json.dumps(out).encode("utf-8")) <= task_mod._DETAILS_MAX_BYTES
+
+
+async def test_a_description_of_only_markup_becomes_absent_not_an_empty_string() -> None:
+    """An empty string would satisfy ``DESCRIPTION_SQL IS NOT NULL`` and hand the
+    enricher a claimed row with nothing to classify. Absent is the honest answer."""
+    out = task_mod._cap_details({"description": "<div></div><br/>", "category": "Eng"})
+    assert out["description"] is None
+
+
+async def test_details_with_no_description_are_untouched() -> None:
+    """Every custom company on the ATS transport is this case; a change of shape here
+    would rewrite blobs on boards that never mapped a description."""
+    details = {"department": "Eng", "experience_level": "senior", "content": "<p>d</p>"}
+    assert task_mod._cap_details(dict(details)) == details

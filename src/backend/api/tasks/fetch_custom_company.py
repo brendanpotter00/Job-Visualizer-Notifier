@@ -23,8 +23,10 @@ pool) and call helpers via ``asyncio.to_thread``.
 from __future__ import annotations
 
 import asyncio
+import html
 import json
 import logging
+import re
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Set
@@ -121,18 +123,125 @@ _TASK_TIMEOUT_S: float = 900.0
 
 # ``details`` JSONB hard cap (§2.2). A large job body (Greenhouse ``content``
 # HTML) can blow past this; TOAST/OOM incidents are why it is capped, not
-# truncated silently. The read path only needs department + the two denormalized
-# sub-fields, so an over-cap body is dropped and flagged.
+# truncated silently. The read path needs department, the two denormalized
+# sub-fields and — since the enrichment claim reads it — ``description``; an
+# over-cap body beyond those is dropped and flagged.
 _DETAILS_MAX_BYTES = 8 * 1024
+
+# Plain-text budget for ``description``, in UTF-8 BYTES — the unit the blob cap
+# above is measured in, and the only one that is safe: 6,000 *characters* of a
+# Chinese-language board is 18 KB and would blow the cap on its own.
+#
+# The number is the blob cap minus 2 KB of headroom for everything else a row
+# carries (``department``/``experience_level``/``is_remote_eligible``, whatever
+# else a recipe mapped, the ``_details_truncated`` marker, and JSON escaping).
+# Measured against the 248 live records of atlassian.com/company/careers/all-jobs,
+# after the strip below: the largest single mappable field (``responsibilities``)
+# is 6,257 B at max and 4,864 B at p99, ``qualifications`` 5,406 B / 4,578 B — so
+# 6 KB keeps well over 99% of records whole and shortens only the tail.
+#
+# TRUNCATE, NEVER DROP. ``enrichment_monitor.DESCRIPTION_SQL`` reads
+# ``details->>'description'`` and the enrichment claim excludes any row where it
+# is NULL, so a dropped description is not "a shorter blob" — it is a job the
+# enricher can never see. A truncated one still classifies: the signal a
+# classifier uses is in the opening paragraphs.
+_DESCRIPTION_MAX_BYTES = 6 * 1024
+
+# Block-level tags become newlines, everything else is dropped. Copied from
+# ``scripts.amazon_jobs_scraper.api_client.strip_html`` rather than imported —
+# the leaf task's import closure is walked by an AST guard
+# (``test_recipe_runner_import_guard``) and a scraper package is not something to
+# drag into it for two regexes.
+#
+# The leading ASCII-letter requirement in ``_HTML_TAG_RE`` is load-bearing and was
+# paid for once already: the looser ``<[^>]+>`` spans from a literal "<" in prose
+# ("P99 < 1 second at 40 TPS") to the ">" of the next real tag and eats the
+# sentence between them. ``[^<>]`` also stops a match from spanning another tag.
+_HTML_BLOCK_TAG_RE = re.compile(
+    r"</?\s*(?:br|p|div|li|ul|ol|tr|h[1-6])\b[^<>]*?/?>", re.IGNORECASE
+)
+_HTML_TAG_RE = re.compile(r"</?[a-zA-Z][a-zA-Z0-9]*(?:\s[^<>]*?)?/?>")
+_HORIZONTAL_WS_RE = re.compile(r"[ \t ]+")
+_EXCESS_NEWLINES_RE = re.compile(r"\n{3,}")
+
+
+def _plain_text(value: str) -> str:
+    """A stranger's HTML rendered down to readable plain text.
+
+    The mapped value is UNTRUSTED — Atlassian's is ``<p>``/``<li>``-heavy — and it
+    is stored, then shipped to the enricher and rendered. Storing plain text
+    rather than raw markup means the tags cost no blob budget, the classifier
+    reads prose instead of angle brackets, and nothing downstream inherits a
+    rendering surface it did not ask for.
+    """
+    text = _HTML_BLOCK_TAG_RE.sub("\n", value)
+    text = _HTML_TAG_RE.sub("", text)
+    text = html.unescape(text)
+    text = _HORIZONTAL_WS_RE.sub(" ", text)
+    text = "\n".join(line.strip() for line in text.split("\n"))
+    return _EXCESS_NEWLINES_RE.sub("\n\n", text).strip()
+
+
+def _clip_utf8(text: str, limit: int) -> str:
+    """``text`` shortened to at most ``limit`` UTF-8 bytes, never mid-codepoint."""
+    encoded = text.encode("utf-8")
+    if len(encoded) <= limit:
+        return text
+    return encoded[:limit].decode("utf-8", errors="ignore")
+
+
+def _normalized_description(details: dict[str, Any]) -> dict[str, Any]:
+    """``details`` with ``description`` stripped to plain text and byte-budgeted.
+
+    Applied unconditionally, not only when the blob is over cap, so a board's rows
+    all carry the same shape whether or not this particular record happened to be
+    long. A conditional strip would mean two jobs on one board storing HTML and
+    plain text respectively, decided by a byte count nobody can see.
+    """
+    description = details.get("description")
+    if not isinstance(description, str) or not description:
+        return details
+    plain = _plain_text(description)
+    clipped = _clip_utf8(plain, _DESCRIPTION_MAX_BYTES)
+    if clipped == description:
+        return details
+    out = {**details, "description": clipped or None}
+    if clipped != plain:
+        out["_details_truncated"] = True
+    return out
+
+
+def _fit_description(essentials: dict[str, Any]) -> dict[str, Any]:
+    """Shrink ``essentials['description']`` until the whole blob fits the cap.
+
+    JSON escaping means a byte of text is not a byte of blob (a newline costs two),
+    so the fit is measured rather than predicted, and the loop re-measures because
+    clipping multi-byte text lands short of the arithmetic. Gives up when there is
+    no description left to give — at which point the structured scalars alone are
+    over 8 KB, which no ATS client has ever produced.
+    """
+    while len(json.dumps(essentials).encode("utf-8")) > _DETAILS_MAX_BYTES:
+        description = essentials.get("description")
+        if not isinstance(description, str) or not description:
+            essentials["description"] = None
+            return essentials
+        overflow = len(json.dumps(essentials).encode("utf-8")) - _DETAILS_MAX_BYTES
+        room = max(0, len(description.encode("utf-8")) - overflow)
+        essentials["description"] = _clip_utf8(description, room) or None
+    return essentials
 
 
 def _cap_details(details: dict[str, Any]) -> dict[str, Any]:
     """Hard-cap the serialized ``details`` at 8 KB, deterministically.
 
-    First drops the big free-text body (``content``); if still over cap, keeps
-    only the structured essentials the read path uses. Always flags a
-    ``_details_truncated`` marker so the loss is visible, never silent.
+    First normalizes ``description`` to a byte-budgeted plain-text string, then
+    drops the big free-text body (``content``); if still over cap, keeps only the
+    structured essentials the read path uses — ``description`` among them, because
+    it is the ONLY key on a recipe-harvested row the enrichment claim looks at.
+    Always flags a ``_details_truncated`` marker so the loss is visible, never
+    silent.
     """
+    details = _normalized_description(details)
     if len(json.dumps(details).encode("utf-8")) <= _DETAILS_MAX_BYTES:
         return details
     trimmed = {k: v for k, v in details.items() if k != "content"}
@@ -140,13 +249,20 @@ def _cap_details(details: dict[str, Any]) -> dict[str, Any]:
     trimmed["_details_truncated"] = True
     if len(json.dumps(trimmed).encode("utf-8")) <= _DETAILS_MAX_BYTES:
         return trimmed
-    return {
+    # The last-resort branch is the one that must ALWAYS fit, so the description it
+    # carries is shrunk against the room actually left rather than assumed to fit.
+    # ``department`` stays: Δ2 drops it from the CAPTURE schema, but a custom
+    # company on the ``ats_client`` transport is harvested by the same Greenhouse /
+    # Ashby / Lever / Gem / Eightfold clients as a public one, and those still
+    # populate it.
+    return _fit_description({
         "department": details.get("department"),
         "experience_level": details.get("experience_level"),
         "is_remote_eligible": details.get("is_remote_eligible", False),
+        "description": details.get("description"),
         "content": None,
         "_details_truncated": True,
-    }
+    })
 
 
 def _validated_posted_on(posted_on: str | None, now: datetime) -> str | None:

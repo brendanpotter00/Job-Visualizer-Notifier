@@ -36,6 +36,7 @@ This module imports only the stdlib, ``httpx``, the dependency-free
 
 from __future__ import annotations
 
+import html
 import json
 import logging
 import re
@@ -207,6 +208,22 @@ def _fold_scalar_list(value: Any) -> Any:
     return _MULTI_VALUE_SEPARATOR.join(parts) if parts else None
 
 
+# Mapped fields that are NOT unescaped, and why each one is exempt rather than merely
+# unlisted — see :func:`render_row_field`.
+#
+# ``id`` is the half of ``job_listings``' composite primary key this board owns
+# (``recipe_rows`` writes it verbatim). Rewriting it is not a cosmetic change: every
+# existing row's key stops matching what tonight's harvest produces, so the whole board
+# closes and re-inserts under new ids — the never-wrong-close failure, caused by us. It is
+# also the default ``dedupe_key`` field, so the harvest's own identity would shift under it.
+#
+# ``url`` is a transport value, not display text: nothing renders it as prose, and an
+# ``&amp;`` inside a query string is the *correct* spelling when the value came out of an
+# HTML attribute. Measured on the dev DB: 0 of 4,741 custom rows carry an entity in ``url``
+# (19 carry one in ``title``), so unescaping it buys nothing and risks rewriting a link.
+_UNESCAPE_EXEMPT_FIELDS = frozenset({"id", "url"})
+
+
 def render_row_field(record: Any, name: str, spec: str) -> Any:
     """Render ONE mapped field the way a stored row will actually carry it.
 
@@ -214,9 +231,26 @@ def render_row_field(record: Any, name: str, spec: str) -> Any:
     the prune decides whether a mapping is usable, so it has to render through exactly what
     the runner will produce. Rendering the two differently is how a usable mapping gets
     thrown away — or an unusable one kept and written as a repr.
+
+    HTML entities are decoded HERE, and nowhere else. A discovered board hands us whatever
+    its own page markup carried — 19 of 85 custom Spotify titles arrive as
+    ``Client Partner, Emerging &amp; Scaled`` — and that costs twice: the entity renders
+    literally in the job list, and any exact-match comparison against another board silently
+    misses (it measured the Spotify title overlap at 56/81 instead of 70/81). This is the
+    single unescape site on purpose: ``recipe_rows`` is the obvious alternative, and doing
+    both would decode ``&amp;amp;`` — a board that really does publish the five characters
+    ``&amp;`` — twice, down to a bare ``&``. Once, at the seam, is the only place that is
+    true for every consumer including the prune.
+
+    Order matters: the fold runs first so a multi-value list is joined and then decoded
+    once, rather than element-by-element with a separator that carries no entities anyway.
     """
     rendered = render_field(record, spec)
-    return _fold_scalar_list(rendered) if name in _MULTI_VALUE_FIELDS else rendered
+    if name in _MULTI_VALUE_FIELDS:
+        rendered = _fold_scalar_list(rendered)
+    if isinstance(rendered, str) and name not in _UNESCAPE_EXEMPT_FIELDS:
+        return html.unescape(rendered)
+    return rendered
 
 
 def map_records(records: list[Any], fields: dict[str, str], base_url: str = "") -> list[dict]:
