@@ -175,9 +175,44 @@ def _plain_text(value: str) -> str:
     rather than raw markup means the tags cost no blob budget, the classifier
     reads prose instead of angle brackets, and nothing downstream inherits a
     rendering surface it did not ask for.
+
+    **STRIP FIRST, THEN DECODE ONCE — the order is the correctness property**, and
+    this is the site the repo's entity rule defers ``description`` to. See
+    ``recipe_runner.render_row_field``, which states the rule and carries the
+    ``_DEFERRED_UNESCAPE_FIELDS`` exemption that makes this the field's ONLY decode.
+
+    Two different bugs live in getting this wrong, and they need different fixes:
+
+    * **Decoding twice** loses information outright. ``Team &amp;amp; Co`` — a board
+      publishing the five characters ``&amp;`` — comes out as ``Team & Co``, and
+      nothing downstream can tell that from a board that published ``&``. That is
+      why the runner no longer decodes this field at all.
+    * **Decoding before stripping** loses different information, and removing the
+      second decode does NOT fix it — the first one is the culprit. A board
+      publishing the literal text ``&lt;p&gt;`` has it decoded to a real ``<p>``
+      before the stripper ever runs; the stripper cannot tell that from markup the
+      board emitted, so ``Use &lt;p&gt; for paragraphs`` was silently stored as
+      ``Use\\nfor paragraphs``. Same shape as ``Own the P99 &lt; 100ms budget``.
+
+    Stripping first removes the ambiguity at the source: every real tag is gone
+    before any entity can turn into an angle bracket, so an escaped tag is text and
+    a real tag is markup, and the two can no longer be confused. A tag-shaped
+    entity that survives to the decode below therefore stays TEXT — it is not
+    re-stripped, and it is not live markup either.
+
+    Everything reaching here is a mapped ``description``: on this path
+    ``details['description']`` is written only by ``recipe_rows`` from the runner's
+    mapped row. The ATS-client transport never populates a ``description`` key at
+    all (Greenhouse stores ``content``, Lever ``description_html``, the rest
+    nothing), so ``_normalized_description`` returns early for it and nothing
+    already-decoded can arrive here to be decoded twice.
     """
     text = _HTML_BLOCK_TAG_RE.sub("\n", value)
     text = _HTML_TAG_RE.sub("", text)
+    # The field's single decode. Everything above this line is markup removal, and
+    # everything the board escaped is still escaped at this point — that is what
+    # makes stripping unambiguous. Moving this call above either sub() reintroduces
+    # the prose-deletion bug; a second call anywhere reintroduces the double-decode.
     text = html.unescape(text)
     text = _HORIZONTAL_WS_RE.sub(" ", text)
     text = "\n".join(line.strip() for line in text.split("\n"))
@@ -968,6 +1003,22 @@ async def fetch_custom_company(company_id: str) -> None:
         # Guarded exactly like the checklist rung above: display-only, so any failure is
         # swallowed with a log and can never fail a harvest. It also issues NO outbound
         # request — it compares rows we already hold (see the SSRF note on the module).
+        #
+        # AND ROLLED BACK, which the log alone was not. Swallowing an exception leaves the
+        # SHARED connection exactly as the failure left it, and a psycopg2 error — a
+        # statement timeout on the fleet-wide seq scan in ``_open_titles_by_public_company``
+        # is the realistic one — leaves it in an ABORTED transaction. Every later statement
+        # on it then raises ``InFailedSqlTransaction``, and the very next one is
+        # ``record_company_harvest``, whose own failure is swallowed too. The visible
+        # result was a ``scrape_runs`` row marked ``success=true``, VERIFIED, with NO
+        # ``company_harvests`` evidence row — and this block only runs on the FIRST
+        # VERIFIED harvest, so the one run whose evidence matters most is the one that
+        # loses it.
+        #
+        # Belongs HERE rather than in the two read helpers: the task owns this connection
+        # for the whole ``finally``, so one rollback at the swallow site covers every way
+        # that call can fail, including a raise from ``store_suggestion`` (which already
+        # rolled back — a second rollback on a clean connection is a no-op).
         if graduated_this_run:
             try:
                 await asyncio.to_thread(
@@ -978,6 +1029,16 @@ async def fetch_custom_company(company_id: str) -> None:
                     "Failed to check %s against the boards we already publish",
                     company_id,
                 )
+                try:
+                    await asyncio.to_thread(conn.rollback)
+                except Exception:
+                    # The connection is gone rather than merely aborted. Nothing left to
+                    # salvage here; the writes below have their own guards, and
+                    # record_scrape_run has a fresh-connection fallback.
+                    logger.exception(
+                        "Rollback after the published-board check also failed for %s",
+                        company_id,
+                    )
 
         # Per-run evidence — written for every run (VERIFIED/UNVERIFIED/FAILED) so
         # a wrong match / silent failure is diagnosable weeks later. oracle_kind is

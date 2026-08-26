@@ -1031,3 +1031,85 @@ class TestListEnabledEightfoldCompanies:
     def test_no_eightfold_rows_returns_empty(self, in_memory_db):
         self._seed_company(in_memory_db, "ashby_only", ats="ashby")
         assert db.list_enabled_eightfold_companies(in_memory_db) == []
+
+class TestDenormalizedDetailsColumns:
+    """The three ``details`` sub-fields the ``/api/jobs`` list path serves are
+    written as real columns, not read back out of the JSONB.
+
+    This is the write half of a two-part contract: ``api/services/database.py``'s
+    ``_LIST_COLUMNS`` builds the response's ``details`` object from
+    ``department`` / ``experience_level`` / ``is_remote_eligible`` *columns* so it
+    never detoasts the ~10 KB ``details`` value (2026-07-13 outage). If the write
+    path stops filling a column, the read path serves a silent NULL — which is
+    exactly how ``department`` was invisible in production while every row's
+    JSONB had it.
+
+    ``department`` in particular has no other writer: every scraper and every
+    backend ATS fetch task funnels through ``upsert_jobs_batch`` / ``upsert_job``
+    / ``insert_job``, so these cases cover all of them.
+    """
+
+    @staticmethod
+    def _columns(conn, job):
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT department, experience_level, is_remote_eligible"
+            " FROM job_listings WHERE source_id = %s AND id = %s",
+            (job.source_id, job.id),
+        )
+        return cursor.fetchone()
+
+    @staticmethod
+    def _with_department(job, department):
+        moved = job.model_copy(deep=True)
+        moved.details = {**job.details, "department": department}
+        return moved
+
+    def test_insert_job_denormalizes_department(self, in_memory_db, sample_job_listing):
+        job = self._with_department(sample_job_listing, "Cloud Infrastructure")
+
+        db.insert_job(in_memory_db, job)
+
+        row = self._columns(in_memory_db, job)
+        assert row["department"] == "Cloud Infrastructure"
+        assert row["experience_level"] == "Mid-level"
+        assert row["is_remote_eligible"] is False
+
+    def test_upsert_jobs_batch_denormalizes_department(self, in_memory_db, sample_job_listing):
+        job = self._with_department(sample_job_listing, "Platform")
+
+        db.upsert_jobs_batch(in_memory_db, [job])
+
+        assert self._columns(in_memory_db, job)["department"] == "Platform"
+
+    def test_upsert_job_denormalizes_department(self, in_memory_db, sample_job_listing):
+        job = self._with_department(sample_job_listing, "Security")
+
+        db.upsert_job(in_memory_db, job)
+
+        assert self._columns(in_memory_db, job)["department"] == "Security"
+
+    def test_upsert_refreshes_department_when_the_board_moves_a_role(
+        self, in_memory_db, sample_job_listing
+    ):
+        """A re-scrape must carry a changed department through, not leave the
+        first value frozen — ``department`` is in the ON CONFLICT SET list for the
+        same reason ``title`` and ``location`` are."""
+        db.upsert_jobs_batch(in_memory_db, [self._with_department(sample_job_listing, "Platform")])
+
+        moved = self._with_department(sample_job_listing, "Data Infrastructure")
+        db.upsert_jobs_batch(in_memory_db, [moved])
+
+        assert self._columns(in_memory_db, moved)["department"] == "Data Infrastructure"
+
+    def test_a_board_with_no_department_writes_null_not_empty_string(
+        self, in_memory_db, sample_job_listing
+    ):
+        """Google/Apple/Microsoft publish no department. NULL (not '') is what the
+        frontend's ``Boolean(details.department)`` check expects, and what keeps
+        an empty option out of the Department dropdown."""
+        assert "department" not in sample_job_listing.details
+
+        db.upsert_jobs_batch(in_memory_db, [sample_job_listing])
+
+        assert self._columns(in_memory_db, sample_job_listing)["department"] is None

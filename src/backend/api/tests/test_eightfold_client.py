@@ -548,6 +548,39 @@ class TestParseEightfoldEpoch:
         assert _parse_eightfold_epoch(0) is None
         assert _parse_eightfold_epoch(-1) is None
 
+    @pytest.mark.parametrize("flag", [True, False])
+    def test_a_boolean_is_not_a_timestamp(self, flag):
+        """``t_create=true`` used to parse to ``1970-01-01``.
+
+        ``isinstance(True, int)`` is True and ``float(True)`` is ``1.0``, so a flag
+        that leaked into the date field — or a tenant answering the key with a
+        presence boolean — sailed through ``float()`` as epoch 1. ``False`` was
+        caught only by accident, by the ``<= 0`` guard sitting one line further down.
+
+        It is not a value the caller can log and move past: it becomes a confidently
+        wrong date on ``posted_on`` and, through ``effective_posted_date``, on
+        ``first_seen_at`` — the column the product sorts and buckets by. The shared
+        parser refuses bools for exactly this reason and never sees this one, because
+        by then it has already been turned into a valid ISO string here.
+        """
+        assert _parse_eightfold_epoch(flag) is None
+
+    def test_a_boolean_t_create_ends_up_null_and_logged_like_any_other_bad_value(
+        self, caplog
+    ):
+        """End to end: NULL, not 1970, and ONE ERROR naming the value."""
+        pos = _make_position(7, t_create=True)
+
+        with caplog.at_level("ERROR", logger="api.services.eightfold_client"):
+            jobs = transform_to_job_listings("netflix", [pos])
+
+        assert len(jobs) == 1
+        assert jobs[0].posted_on is None
+        assert not jobs[0].first_seen_at.startswith("1970")
+        errors = [r.getMessage() for r in caplog.records if r.levelname == "ERROR"]
+        assert len(errors) == 1, errors
+        assert "t_create=True" in errors[0]
+
 
 # ----------------------------------------------------------------------------
 # U5c — an unparseable t_create is logged, not swallowed

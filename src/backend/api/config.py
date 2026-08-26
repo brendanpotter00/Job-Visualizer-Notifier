@@ -99,10 +99,21 @@ class Settings(BaseSettings):
     # so description-less rows aren't classified at full confidence in the gap.
     enrichment_claim_without_description: bool = False
     # Share of each /pending batch RESERVED for custom (user-added) companies.
-    # The claim orders first_seen_at DESC, so a freshly-added custom board's rows
-    # are the NEWEST in the table and sort to the FRONT of the queue — one user
-    # pasting one 47k-job careers URL would otherwise hold ~100% of the claim for
-    # years while every published company waits. 10% is deliberately the smallest
+    # The claim orders first_seen_at DESC. That used to mean a freshly-added custom
+    # board's rows were unconditionally the NEWEST in the table and sorted to the
+    # FRONT of the queue. It no longer does: first_seen_at is now seeded from the
+    # board's own POSTED DATE when it publishes one, so a board carrying real
+    # posting dates inserts rows dated months back and those sort to the BACK.
+    #
+    # The reservation is worth strictly MORE after that change, not less, because
+    # both directions are now possible and both are bad. A dateless board (or one
+    # posting today) still front-runs every published company exactly as before —
+    # one user pasting one 47k-job careers URL holding ~100% of the claim for years.
+    # A board with real dates has the opposite problem: its rows land behind a
+    # 16,201-row published backlog that (at one local ollama worker) does not drain,
+    # so without a reserved slice they would never be claimed at all. A floor that
+    # is also a ceiling is what makes neither of those depend on what dates the
+    # board happens to publish. 10% is deliberately the smallest
     # number that is visibly not zero: the pipeline (one local ollama worker) is
     # saturated, so every point above this comes straight out of a published
     # backlog that already never drains. 0 disables custom claiming entirely

@@ -22,6 +22,10 @@ import type {
  *   fine, and ignoring this forever is a supported outcome;
  * - the destructive action routes through the row's ordinary remove handler, so the banner
  *   cannot become a one-click delete just because a heuristic fired;
+ * - and it SAYS it deletes. The handler behind that button issues
+ *   `DELETE FROM job_listings WHERE source_id = 'custom:<id>'`; the copy used to promise
+ *   only that the history "will no longer be collected", which describes a pause. These
+ *   assertions are on the words, because the words were the bug;
  * - DISMISSAL PERSISTS across a reload. A suggestion that comes back after being dismissed
  *   is one people learn to ignore, and this is the only rail against that; and
  * - a *different* later match is a different claim and is still shown — the user dismissed
@@ -119,6 +123,25 @@ describe('PublicBoardMatchBanner', () => {
     // The row's handler opens the ordinary confirmation dialog. The banner must not be a
     // shortcut around the confirm just because a heuristic suggested the removal.
     expect(onRemove).toHaveBeenCalledWith(row);
+  });
+
+  it('calls the destructive button a delete and says what it destroys', () => {
+    renderWithProviders(
+      <PublicBoardMatchBanner company={company(match())} onRemove={vi.fn()} />,
+    );
+
+    // "Remove this board" reads like "stop watching it". The handler behind it deletes
+    // every job row under `custom:<id>` — the label has to carry that.
+    expect(screen.getByTestId('public-board-match-remove')).toHaveTextContent(
+      'Delete this board',
+    );
+
+    const note = screen.getByTestId('public-board-match-delete-note');
+    expect(note).toHaveTextContent('Deleting is permanent');
+    expect(note).toHaveTextContent('erases the jobs already collected for this board');
+    // And the reassurance that makes taking the suggestion safe: the public company is a
+    // different row and this never touches it.
+    expect(note).toHaveTextContent("Spotify's public page is a separate record");
   });
 
   it('renders nothing when the backend found no match', () => {
@@ -271,8 +294,30 @@ describe('PublicBoardMatchBanner on a company row', () => {
     await userEvent.click(screen.getByTestId('public-board-match-remove'));
 
     // Never a one-click delete: the banner suggests, the dialog confirms.
-    expect(await screen.findByText('Stop tracking this company?')).toBeInTheDocument();
+    expect(
+      await screen.findByText('Delete this company and its job history?'),
+    ).toBeInTheDocument();
     expect(screen.getByTestId('my-company-remove-confirm')).toBeInTheDocument();
+  });
+
+  it('warns in the dialog that the collected jobs are destroyed, not just paused', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(listResponse(company(match())));
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    renderWithProviders(<MyCompaniesList />);
+
+    await screen.findByTestId('public-board-match');
+    await userEvent.click(screen.getByTestId('public-board-match-remove'));
+
+    // The exact promise the old copy made ("no longer be collected") described a pause.
+    // What actually runs is a DELETE of every job row under `custom:<id>`, so the dialog
+    // has to name the destruction, the size of it, and the fact that re-adding starts over.
+    const body = await screen.findByText(/deletes every job collected for it/i);
+    expect(body).toHaveTextContent('81 open now');
+    expect(body).toHaveTextContent('closed ones behind its hiring chart');
+    expect(body).toHaveTextContent('This is a delete, not a pause');
+    expect(body).toHaveTextContent('starts the chart over from zero');
+    expect(body).not.toHaveTextContent(/no longer be collected/i);
   });
 
   it('leaves a row with no match rendering exactly as it did before', async () => {

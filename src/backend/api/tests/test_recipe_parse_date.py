@@ -25,6 +25,7 @@ than riding along in an assertion:
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -80,6 +81,70 @@ def test_iso_mode_passes_the_boards_own_string_through_stripped() -> None:
     assert _parse_date_value("  2026-08-26T04:00:00Z  ", _step("iso")) == (
         "2026-08-26T04:00:00Z"
     )
+
+
+@pytest.mark.parametrize(
+    "spelling",
+    [
+        "2026-08-26T04:00:00Z",
+        "2026-08-26T04:00:00+00:00",
+        "2026-08-26T04:00:00",
+        "2026-08-26 04:00:00",
+        "2026-08-26",
+    ],
+)
+def test_iso_mode_keeps_every_real_iso_spelling_verbatim(spelling: str) -> None:
+    """The whole point of validating is that it must not cost a single good date.
+    ``posted_on`` is documented as the RAW board value, so a spelling that parses is
+    handed back exactly as the board wrote it — normalizing is downstream's job."""
+    assert _parse_date_value(spelling, _step("iso")) == spelling
+
+
+@pytest.mark.parametrize(
+    "junk",
+    [
+        "Posted recently",                 # a board that swapped the field for prose
+        "senior-backend-engineer-remote",  # ...or for the slug next to it
+        "1787617881",                      # ...or for an id. NOT a date in `iso` mode.
+        "2026-13-45",                      # a real shape, an impossible day
+        "2026-08-26 08:11 AM",             # Atlassian's spelling — that is strptime's
+        "n/a",
+    ],
+)
+def test_iso_mode_returns_none_for_anything_that_is_not_iso(junk: str) -> None:
+    """``iso`` was the ONE mode that validated nothing — ``return value.strip()`` for any
+    non-empty string. Arbitrary text then flowed to ``recipe_rows`` →
+    ``JobListing.posted_on`` → a TIMESTAMPTZ, with ``_validated_posted_on`` as the only
+    thing in the way: a single layer, and a contract ``recipe_rows`` documented as
+    already met. Every sibling mode returns None on input it cannot read; so does this.
+
+    ``"1787617881"`` is the case that argues for ``fromisoformat`` over the shared
+    parser: the shared one reads a bare epoch, so a ten-digit job ID in a date field
+    would be stored as a confident 2026 date rather than a NULL.
+    """
+    assert _parse_date_value(junk, _step("iso")) is None
+
+
+def test_iso_mode_never_raises_on_a_value_fromisoformat_hates() -> None:
+    """Never-wrong-close: this runs in the same task as the close sweep, so a bad date
+    degrades a FIELD, never the harvest."""
+    for hostile in ("+", "T", "::::", "9999-99-99T99:99:99", "\x00", "2026-08-26T"):
+        assert _parse_date_value(hostile, _step("iso")) is None
+
+
+def test_an_unreadable_iso_date_costs_the_field_and_not_the_row() -> None:
+    """RAISES-never-empty, on the mode that just started rejecting things. A board whose
+    every date stopped being ISO must still hand back every job — dropping the rows
+    would be a mass close dressed up as a date fix."""
+    rows = [
+        {"id": "1", "title": "A", "posted_at": "Posted recently"},
+        {"id": "2", "title": "B", "posted_at": "Posted recently"},
+    ]
+    out = _apply_shaping(rows, [{"op": "parse_date", "field": "posted_at", "mode": "iso"}])
+
+    assert len(out) == 2
+    assert [r["id"] for r in out] == ["1", "2"]
+    assert all(r["posted_at"] is None for r in out)
 
 
 def test_strptime_mode_reads_amazons_real_double_spaced_date() -> None:
@@ -236,6 +301,106 @@ def test_an_ambiguous_all_numeric_date_is_refused_rather_than_guessed() -> None:
 def test_a_format_that_fits_only_some_rows_is_not_this_boards_format() -> None:
     records = [{"p": "August 9, 2026"}, {"p": "August 9, 2026"}, {"p": "yesterday"}]
     assert detect_posted_at_format(records, "p") is None
+
+
+def test_a_decorated_iso_date_is_not_iso_and_says_so(caplog) -> None:
+    """``"2026-08-26 (reposted)"`` — an ISO date with something after it.
+
+    The single most expensive misclassification available here, because ``iso`` is the
+    one answer that emits NO ``parse_date`` step: the value is supposed to already BE a
+    date, so nothing downstream converts it. A prefix-only match said yes, the recipe
+    got no step, ``_validated_posted_on`` could not read the raw string, and every row
+    on the board stored NULL — with nothing raised and nothing logged. A board quietly
+    missing its posting dates while every health signal reads clean.
+
+    NULL is still the outcome (we do not invent a parser for a decoration we have never
+    seen), but it now arrives through the visible path: refused as ISO, refused by every
+    other format, and logged saying exactly that.
+    """
+    records = [{"p": "2026-08-26 (reposted)"}, {"p": "2026-08-25 (reposted)"}]
+    with caplog.at_level(logging.WARNING, logger="api.services.capture.request_selector"):
+        assert detect_posted_at_format(records, "p") is None
+    assert any(
+        "opens with an ISO date but is not one" in r.message and r.levelno >= logging.WARNING
+        for r in caplog.records
+    )
+
+
+def test_a_mixed_field_does_not_get_blamed_on_its_valid_iso_rows(caplog) -> None:
+    """A field that is ISO on some rows and an epoch on others is simply not a format.
+
+    Worth its own test because the "looks like a date but isn't" warning picks a value
+    to name, and naming a row that IS a perfectly good ISO date would point whoever
+    reads the log at the one value in the sample that is fine.
+    """
+    records = [{"p": "2026-08-26"}, {"p": "1700000000"}, {"p": "2026-08-25"}]
+    with caplog.at_level(logging.WARNING, logger="api.services.capture.request_selector"):
+        assert detect_posted_at_format(records, "p") is None
+    assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "2026-08-26 (reposted)",
+        "2026-08-26 — updated",
+        "2026-13-45",            # ISO-SHAPED and impossible: month 13, day 45.
+        "2026-08-26T99:99:99Z",  # shaped, unparseable time.
+    ],
+)
+def test_anything_that_only_looks_iso_is_refused(value: str) -> None:
+    """Shape is not proof. The classification has to be the PARSE, not the prefix —
+    otherwise ``2026-13-45`` ships as a date the recipe declines to convert."""
+    assert detect_posted_at_format([{"p": value}] * 3, "p") is None
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["2026-08-26", "2026-08-26T04:00:00Z", "2026-08-26T04:00:00z",
+     "2026-08-26 04:00:00", "2026-08-26T04:00:00+02:00"],
+)
+def test_a_genuine_iso_value_in_any_of_its_shapes_is_still_iso(value: str) -> None:
+    """The other side of the same boundary — tightening ISO must not start refusing the
+    real thing. The lowercase ``z`` is in here because ``fromisoformat`` rejects it and
+    a board's casing must not decide whether its dates are readable."""
+    assert detect_posted_at_format([{"p": value}] * 3, "p") == PostedDateFormat("iso")
+
+
+def test_an_eight_digit_job_id_is_not_read_as_a_basic_format_iso_date() -> None:
+    """``20050821`` is a valid ISO *basic-format* date AND an ordinary job id.
+
+    The other half of the ISO tightening, and the reason the shape gate stays. Proving
+    the value parses is necessary but not sufficient: ``datetime.fromisoformat`` also
+    accepts the dashless basic format (and ISO week dates), so "parses" alone would let
+    a run of 8-digit identifiers be classified as this board's posting dates. The epoch
+    branch guards that class with a plausibility window; the ISO branch's guard is the
+    SHAPE — ``YYYY-MM-DD``, dashes included, which an integer id can never carry.
+
+    Refusing them costs a board that publishes dashless ISO its dates, which is the
+    conservative side of the trade and the behaviour this pipeline already had.
+    """
+    records = [{"p": f"2005082{i}"} for i in range(1, 6)]
+    assert detect_posted_at_format(records, "p") is None
+
+
+def test_a_superscript_digit_returns_none_instead_of_raising() -> None:
+    """``"²".isdigit()`` is ``True`` and ``float("²")`` raises ``ValueError``.
+
+    ``detect_posted_at_format`` promises in its own docstring that it never raises, and
+    it means it: it runs inside discovery's synthesis step, where an exception refuses
+    the board outright rather than costing it a column. The guard was ``isdigit()``,
+    which is not the predicate ``float()`` implements — ``isdecimal()`` is.
+    """
+    assert detect_posted_at_format([{"p": "\u00b2"}] * 3, "p") is None
+    # And the same character reaching the shared epoch helper directly.
+    assert rs._epoch_mode("\u00b2") is None
+
+
+def test_a_non_ascii_decimal_epoch_is_still_read_as_an_epoch() -> None:
+    """The tightening is to ``isdecimal()``, not to ASCII. Arabic-Indic digits ARE
+    decimal and ``float()`` reads them, so refusing them would be a different bug."""
+    arabic = str(_MS_EPOCH_S).translate({ord(str(d)): 0x0660 + d for d in range(10)})
+    assert rs._epoch_mode(arabic) == "epoch_s"
 
 
 def test_a_board_that_publishes_nothing_in_the_field_has_no_format() -> None:

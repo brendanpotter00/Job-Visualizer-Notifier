@@ -8,14 +8,68 @@ import {
 import { TIME_UNITS } from '../constants/time';
 
 /**
+ * Granularity ladder for the 'all time' window, coarsest-last.
+ *
+ * The first four rungs mirror BUCKET_SIZES for the finite windows and are
+ * unchanged. The two above them (quarterly, then the open-ended yearly rung in
+ * `pickAllTimeBucketSize`) exist because 'all time' has no upper bound on the
+ * span it must draw.
+ *
+ * **Why this can be a 14-year span.** `firstSeenAt` is the board's own posted
+ * date when it publishes one, and that date has no lower bound by design (see
+ * `scripts/shared/posted_date.py`) — Palantir currently republishes listings
+ * stamped 2012. A single such row drags `windowStart` back a decade while every
+ * bit of real activity sits in the last few weeks. At the old flat 30-day
+ * ceiling that rendered ~167 buckets: an unreadable hairline with three
+ * non-zero points at the right edge.
+ *
+ * **The fix is coarser buckets, never fewer jobs.** Dropping the old rows would
+ * make the chart legible by lying about what we hold; widening the bucket keeps
+ * every job on the chart and keeps the bucket count in the same 26–61 band the
+ * finite windows already live in.
+ */
+const ALL_TIME_BUCKET_LADDER: ReadonlyArray<{ maxSpanDays: number; bucketDays: number }> = [
+  { maxSpanDays: 30, bucketDays: 1 }, // <=  1 month  -> ~31 buckets
+  { maxSpanDays: 180, bucketDays: 7 }, // <=  6 months -> ~27 buckets
+  { maxSpanDays: 730, bucketDays: 14 }, // <=  2 years  -> ~53 buckets
+  { maxSpanDays: 1825, bucketDays: 30 }, // <=  5 years  -> ~62 buckets
+  { maxSpanDays: 3650, bucketDays: 91 }, // <= 10 years  -> ~41 buckets
+];
+
+/** The open-ended top rung: one bucket per year beyond 10 years. */
+const ALL_TIME_MAX_BUCKET_DAYS = 365;
+
+/**
+ * Hard ceiling on how many buckets 'all time' may draw, applied only to the
+ * open-ended top rung. Every finite rung above already sits under it; this is
+ * the backstop that keeps a pathological span (a job stamped 1970, a clock-skew
+ * date) from reintroducing the hairline the ladder was widened to prevent.
+ */
+const MAX_ALL_TIME_BUCKETS = 64;
+
+/**
  * Pick a bucket size for the 'all time' window based on the span covered by the jobs.
- * Mirrors the granularity ladder used by BUCKET_SIZES for finite windows.
+ *
+ * Never returns a size that would produce more than {@link MAX_ALL_TIME_BUCKETS}
+ * buckets, and never changes the size chosen for spans of 2 years or less — the
+ * short-span behaviour that shipped is left exactly as it was.
  */
 function pickAllTimeBucketSize(spanMs: number): number {
-  if (spanMs <= 30 * TIME_UNITS.DAY) return TIME_UNITS.DAY;
-  if (spanMs <= 180 * TIME_UNITS.DAY) return 7 * TIME_UNITS.DAY;
-  if (spanMs <= 2 * 365 * TIME_UNITS.DAY) return 14 * TIME_UNITS.DAY;
-  return 30 * TIME_UNITS.DAY;
+  for (const rung of ALL_TIME_BUCKET_LADDER) {
+    if (spanMs <= rung.maxSpanDays * TIME_UNITS.DAY) {
+      return rung.bucketDays * TIME_UNITS.DAY;
+    }
+  }
+  // `bucketJobsByTime` floors `windowStart` onto an epoch-aligned bucket
+  // boundary, which can push the start back by up to one whole bucket and so
+  // draw one bucket MORE than the span alone implies. Size against
+  // MAX - 1 so the ceiling holds after that alignment, not before it.
+  const budget = MAX_ALL_TIME_BUCKETS - 1;
+  const yearly = ALL_TIME_MAX_BUCKET_DAYS * TIME_UNITS.DAY;
+  if (Math.ceil(spanMs / yearly) <= budget) {
+    return yearly;
+  }
+  return Math.ceil(spanMs / budget);
 }
 
 /**

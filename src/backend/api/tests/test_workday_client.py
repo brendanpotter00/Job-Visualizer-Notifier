@@ -553,6 +553,63 @@ class TestParseWorkdayDate:
         out = _parse_workday_date("2026-01-15T14:30:00Z", now=self.NOW)
         assert out == "2026-01-15T14:30:00.000Z"
 
+    def test_a_subsecond_iso_string_is_still_a_valid_timestamp(self) -> None:
+        """The ISO branch with microseconds — the shape that used to be unstorable.
+
+        ``datetime.fromisoformat`` keeps whatever precision the board sent, and the old
+        ``.isoformat().replace("+00:00", ".000Z")`` appended a SECOND fractional part to
+        it: ``2026-01-15T14:30:00.789000.000Z``. Postgres rejects that outright, and
+        ``upsert_jobs_batch`` writes the whole harvest in one statement with no per-row
+        fallback — so one such row fails the entire tenant's batch, not just itself.
+        """
+        out = _parse_workday_date("2026-01-15T14:30:00.789000Z", now=self.NOW)
+        assert out == "2026-01-15T14:30:00.789Z"
+        assert out.count(".") == 1
+
+    def test_an_offset_iso_string_is_converted_not_string_patched(self) -> None:
+        """A non-UTC offset must be MOVED to UTC, not have its suffix swapped.
+
+        ``+02:00`` never contained the literal the old ``replace`` was hunting for, so
+        this depended entirely on ``astimezone`` having already run. Pinned so the
+        conversion cannot be dropped as "the replace handles it".
+        """
+        assert (
+            _parse_workday_date("2026-01-15T14:30:00+02:00", now=self.NOW)
+            == "2026-01-15T12:30:00.000Z"
+        )
+
+    @pytest.mark.parametrize(
+        "raw",
+        [
+            "Posted Today",
+            "Posted Yesterday",
+            "Posted 3 Days Ago",
+            "2026-01-15T14:30:00Z",
+            "2026-01-15T14:30:00.789000Z",
+            "2026-01-15T14:30:00.000001Z",
+            "2026-01-15T14:30:00+02:00",
+            "2026-01-15",
+        ],
+    )
+    def test_every_branch_emits_a_timestamp_postgres_accepts(self, raw: str, db_conn) -> None:
+        """The invariant that actually matters, checked against a real Postgres.
+
+        Not "the string looks right" — ``posted_on`` is written straight into a
+        ``timestamptz`` column, so the only question is whether the server parses it.
+        The cast is the whole test; it raises ``DataError`` on the old output.
+        """
+        out = _parse_workday_date(raw, now=self.NOW)
+        assert out is not None
+        cur = db_conn.cursor()
+        try:
+            cur.execute("SELECT %s::timestamptz AS t", (out,))
+            assert cur.fetchone()["t"] is not None
+        finally:
+            # The connection is module-scoped, and a rejected cast aborts the whole
+            # transaction — without this the FIRST bad value would cascade into every
+            # later test on this fixture and hide which one actually caught it.
+            db_conn.rollback()
+
     def test_naive_now_is_treated_as_utc(self) -> None:
         # Tests pass `now=datetime(...)` without tzinfo on some
         # platforms; the helper must not crash.

@@ -77,11 +77,15 @@ _JOBS_TABLE = "job_listings"
 _RUNS_TABLE = "scrape_runs"
 
 # Column list for job_listings table (used in INSERT statements)
-# NOTE: experience_level / is_remote_eligible are denormalized copies of the two
-# details JSONB sub-fields the API list path serves — written here so that path
-# never has to detoast `details` (see the 2026-07-13 /api/jobs outage and
-# db_models.JobListing). Keep this list, the _build_job_values tuple, and the
-# VALUES (%s, …) placeholder strings in insert_job/upsert_job in lockstep.
+# NOTE: department / experience_level / is_remote_eligible are denormalized
+# copies of the three details JSONB sub-fields the API list path serves — written
+# here so that path never has to detoast `details` (see the 2026-07-13
+# /api/jobs outage and db_models.JobListing). This is the ONE write path for
+# job_listings: every scraper and every backend fetch task funnels through
+# insert_job / upsert_job / *_batch below, so a sub-field added here reaches all
+# of them. Keep this list and the _build_job_values tuple in lockstep — the
+# VALUES (%s, …) placeholders are derived from this list by _JOB_PLACEHOLDERS,
+# so they cannot drift.
 # There is deliberately no last_seen_at / consecutive_misses here: the Unit 4
 # contract migration (18fe9c20a8fd) dropped both from job_listings. Freshness is
 # written to the job_freshness sidecar — by the AFTER INSERT trigger for plain
@@ -91,8 +95,14 @@ _JOB_COLUMNS = """
     details, posted_on, created_at, closed_on, status,
     has_matched, ai_metadata,
     first_seen_at, details_scraped,
-    experience_level, is_remote_eligible
+    department, experience_level, is_remote_eligible
 """.strip()
+
+# "%s, %s, …" with exactly one placeholder per column in _JOB_COLUMNS. Derived
+# rather than written out: the two single-row INSERTs below used a hand-counted
+# literal, which silently becomes a runtime "INSERT has more target columns than
+# expressions" the moment a column is added and one of them is missed.
+_JOB_PLACEHOLDERS = ", ".join(["%s"] * len(_JOB_COLUMNS.split(",")))
 
 # ON CONFLICT clause for upsert operations.
 #
@@ -115,6 +125,7 @@ _UPSERT_ON_CONFLICT = """
         status = 'OPEN',
         closed_on = NULL,
         details_scraped = EXCLUDED.details_scraped,
+        department = EXCLUDED.department,
         experience_level = EXCLUDED.experience_level,
         is_remote_eligible = EXCLUDED.is_remote_eligible
 """.strip()
@@ -184,6 +195,7 @@ def _build_job_values(job: JobListing) -> Tuple:
         json.dumps(job.details), job.posted_on, job.created_at, job.closed_on, job.status,
         job.has_matched, json.dumps(job.ai_metadata),
         job.first_seen_at, job.details_scraped,
+        job.details.get("department"),
         job.details.get("experience_level"), job.details.get("is_remote_eligible", False)
     )
 
@@ -455,7 +467,7 @@ def insert_job(conn: Connection, job: JobListing) -> None:
     cursor = conn.cursor()
 
     cursor.execute(
-        f"INSERT INTO {_JOBS_TABLE} ({_JOB_COLUMNS}) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+        f"INSERT INTO {_JOBS_TABLE} ({_JOB_COLUMNS}) VALUES ({_JOB_PLACEHOLDERS})",
         _build_job_values(job)
     )
 
@@ -483,7 +495,7 @@ def upsert_job(conn: Connection, job: JobListing) -> bool:
     cursor.execute(
         f"""
         INSERT INTO {_JOBS_TABLE} ({_JOB_COLUMNS})
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        VALUES ({_JOB_PLACEHOLDERS})
         {_UPSERT_ON_CONFLICT}
         RETURNING (xmax = 0) AS inserted
         """,

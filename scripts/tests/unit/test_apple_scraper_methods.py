@@ -7,6 +7,7 @@ the appleScraperHangFix work (see docs/implementations/appleScraperHangFix/PLAN.
 """
 
 import asyncio
+import logging
 import sys
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
@@ -166,3 +167,126 @@ class TestTransformPostedDate:
 
         assert job.posted_on is None
         assert job.created_at is not None
+
+
+class TestDetailPostedDateIsValidatedAndLoud:
+    """The detail half of the pair, held to the same bar as the list half.
+
+    `parse_card_posted_date` validates + warns for `posted_date`. `postDateInGMT`
+    was passed straight through: never checked, never logged. That is the exact
+    failure that function's docstring already describes, on the other feed — a
+    string the TIMESTAMPTZ `posted_on` accepts but `shared/posted_date.py`
+    rejects reaches diagnostics and silently misses `first_seen_at`.
+
+    Prod is ISO today (9,949 of 9,990 rows), so this is about what happens the
+    day it isn't.
+    """
+
+    LOGGER = "apple_jobs_scraper.scraper"
+
+    def _records(self, caplog, level):
+        return [r for r in caplog.records if r.levelname == level]
+
+    def _job(self, **extra):
+        return {
+            "id": "200640732-0836",
+            "title": "Software QA Engineer",
+            "job_url": "https://jobs.apple.com/en-us/details/200640732-0836/x",
+            "company": "apple",
+            **extra,
+        }
+
+    def test_unreadable_detail_date_warns_and_does_not_reach_posted_on(
+        self, scraper, caplog
+    ):
+        """The whole finding in one assertion: a value the column would have
+        swallowed must not reach it silently. Here there is no card date either,
+        so the row degrades to NULL — loudly."""
+        with caplog.at_level(logging.WARNING, logger=self.LOGGER):
+            job = scraper.transform_to_job_model(
+                self._job(posted_on="Posted 30+ Days Ago")
+            )
+
+        assert job.posted_on is None
+        warnings = self._records(caplog, "WARNING")
+        assert len(warnings) == 1, warnings
+        assert "Posted 30+ Days Ago" in warnings[0].getMessage()
+
+    def test_unreadable_detail_date_never_reaches_first_seen_at(self, scraper, caplog):
+        """Belt and braces on the half that actually hurts. `posted_on` and
+        `first_seen_at` must tell the same story — the old code could put a
+        string in one and not the other."""
+        with caplog.at_level(logging.WARNING, logger=self.LOGGER):
+            job = scraper.transform_to_job_model(
+                self._job(posted_on="whenever we felt like it")
+            )
+
+        assert job.posted_on is None
+        assert job.first_seen_at == job.created_at
+
+    def test_unreadable_detail_date_still_falls_back_to_the_card(self, scraper, caplog):
+        """Warning is not the same as discarding. A detail value we cannot read
+        must not cost us the card date we CAN read — that fallback is the
+        behaviour the old `or` chain had and it is worth keeping."""
+        with caplog.at_level(logging.WARNING, logger=self.LOGGER):
+            job = scraper.transform_to_job_model(
+                self._job(posted_on="not a date", posted_date="Jan 15, 2026")
+            )
+
+        assert job.posted_on == "2026-01-15"
+        assert job.first_seen_at == "2026-01-15T00:00:00+00:00"
+        assert len(self._records(caplog, "WARNING")) == 1
+
+    def test_empty_detail_date_is_distinguishable_from_a_list_mode_row(
+        self, scraper, caplog
+    ):
+        """The `or` short-circuit. `"" or card` and `missing-key -> card` produced
+        the identical outcome and the identical (empty) log, so a board that
+        started emitting `""` for every job read as a plain list run: no signal
+        anywhere, every date NULL, `first_seen_at` back to "posted today"
+        board-wide. Presence of the key now decides, so the two cases separate.
+        """
+        with caplog.at_level(logging.INFO, logger=self.LOGGER):
+            detail_empty = scraper.transform_to_job_model(self._job(posted_on=""))
+        empty_records = self._records(caplog, "INFO")
+
+        caplog.clear()
+        with caplog.at_level(logging.INFO, logger=self.LOGGER):
+            list_mode = scraper.transform_to_job_model(self._job())
+        list_records = self._records(caplog, "INFO")
+
+        assert detail_empty.posted_on is None
+        assert list_mode.posted_on is None
+        # Same stored value, different story — and only one of them is silent.
+        assert len(empty_records) == 1, empty_records
+        assert list_records == []
+
+    def test_good_detail_date_is_silent_and_kept_verbatim(self, scraper, caplog):
+        """The 9,949-row case. Apple's own string is stored unchanged, and
+        nothing is logged."""
+        with caplog.at_level(logging.INFO, logger=self.LOGGER):
+            job = scraper.transform_to_job_model(
+                self._job(
+                    posted_on="2026-07-29T03:01:01.898+00:00",
+                    posted_date="Jul 29, 2026",
+                )
+            )
+
+        assert job.posted_on == "2026-07-29T03:01:01.898+00:00"
+        # `effective_posted_date` round-trips through a datetime, so it pads the
+        # microseconds — same instant, and the reason `posted_on` keeps the raw
+        # string while `first_seen_at` carries the parser's rendering.
+        assert job.first_seen_at == "2026-07-29T03:01:01.898000+00:00"
+        assert caplog.records == []
+
+    def test_detail_fetch_failure_falls_back_silently(self, scraper, caplog):
+        """`_fetch_job_details` yields `{**job_card, "_detail_fetch_failed": True}`
+        with no `posted_on` key at all — 41 of 9,990 prod rows. It already logged
+        the fetch failure; the date path must not log it a second time."""
+        with caplog.at_level(logging.INFO, logger=self.LOGGER):
+            job = scraper.transform_to_job_model(
+                self._job(posted_date="Jan 15, 2026", _detail_fetch_failed=True)
+            )
+
+        assert job.posted_on == "2026-01-15"
+        assert caplog.records == []

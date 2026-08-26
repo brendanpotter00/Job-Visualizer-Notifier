@@ -74,6 +74,17 @@ def parse_posted_date(
     empty, non-positive as an epoch, or dated more than
     ``FUTURE_SKEW_ALLOWANCE`` beyond ``now``.
 
+    **The "never raises" in the module docstring is a promise this function has to
+    keep, and there was a hole in it.** ``_to_datetime`` is fully guarded, but the
+    UTC conversion below is arithmetic on the result and it can overflow: a value
+    at the very edge of ``datetime``'s range with an offset that pushes it past
+    that edge — ``"9999-12-31T23:59:59-14:00"``, or ``"0001-01-01T00:00:00+14:00"``
+    the other way — parses fine and then raises ``OverflowError`` on
+    ``astimezone``. ``datetime.max + timedelta`` in the window check has the same
+    shape. Both are now caught, because "unreadable" is the honest answer for a
+    date at the end of representable time and a raise here is a mass closure
+    (``docs/incidents/2026-03-29-mass-job-closure.md``), not a bad date.
+
     :param now: reference instant for the future check; defaults to the real
         clock. Pass it in tests so the window is deterministic.
     """
@@ -83,13 +94,27 @@ def parse_posted_date(
 
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=timezone.utc)
-    parsed = parsed.astimezone(timezone.utc)
 
     reference = now if now is not None else datetime.now(timezone.utc)
     if reference.tzinfo is None:
         reference = reference.replace(tzinfo=timezone.utc)
 
-    if parsed > reference.astimezone(timezone.utc) + FUTURE_SKEW_ALLOWANCE:
+    try:
+        parsed = parsed.astimezone(timezone.utc)
+    except (OverflowError, OSError, ValueError):
+        # A date at the end of representable time. Not a posting.
+        return None
+
+    try:
+        horizon = reference.astimezone(timezone.utc) + FUTURE_SKEW_ALLOWANCE
+    except (OverflowError, OSError, ValueError):
+        # Only reachable with a caller-supplied ``now`` at ``datetime.max``. The
+        # reference is already the last representable instant, so nothing can sit
+        # beyond it — clamp rather than reject, so a degenerate clock does not turn
+        # a perfectly good date into a NULL.
+        horizon = datetime.max.replace(tzinfo=timezone.utc)
+
+    if parsed > horizon:
         return None
     return parsed
 

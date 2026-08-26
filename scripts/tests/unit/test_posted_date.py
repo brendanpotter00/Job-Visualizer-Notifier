@@ -89,6 +89,38 @@ class TestUnparseableNeverBecomesNow:
         ]:
             assert parse_posted_date(hostile, now=NOW) is None
 
+    @pytest.mark.parametrize(
+        "edge",
+        [
+            "9999-12-31T23:59:59-14:00",   # the far end, pushed past datetime.max
+            "0001-01-01T00:00:00+14:00",   # the near end, pushed before datetime.min
+        ],
+    )
+    def test_a_datetime_at_the_edge_of_representable_time_returns_none(self, edge):
+        """THE hole in "never raises", and it was not in the parsing.
+
+        ``_to_datetime`` is fully guarded, so every test above exercises a value that
+        fails to PARSE. These two parse perfectly — and then raise ``OverflowError`` on
+        the ``astimezone(utc)`` conversion that follows, because the offset carries them
+        past ``datetime.max`` / before ``datetime.min``. The docstring said the function
+        never raises; the code said otherwise, and one of them had to change.
+
+        Bounded, but not harmlessly: inside ``batch_writer.add_job`` it degrades a row,
+        and everywhere else it fails the whole task — which harvests nothing and closes
+        nothing. "Unreadable" is the honest answer for a date at the end of time.
+        """
+        assert parse_posted_date(edge, now=NOW) is None
+
+    def test_a_reference_clock_at_the_edge_does_not_reject_a_good_date(self):
+        """The other side of the same arithmetic: ``reference + FUTURE_SKEW_ALLOWANCE``
+        overflows too when ``now`` is ``datetime.max``. Catching that must not turn a
+        perfectly ordinary 2026 date into a NULL — nothing can be beyond the last
+        representable instant, so the horizon clamps instead of rejecting."""
+        result = parse_posted_date(
+            "2026-01-01T00:00:00Z", now=datetime.max.replace(tzinfo=timezone.utc)
+        )
+        assert result is not None and result.year == 2026
+
 
 class TestFutureWindow:
     """Rejects what cannot be a posting date. Not a staleness rule (D5/D12)."""

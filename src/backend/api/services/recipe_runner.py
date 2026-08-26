@@ -223,6 +223,22 @@ def _fold_scalar_list(value: Any) -> Any:
 # (19 carry one in ``title``), so unescaping it buys nothing and risks rewriting a link.
 _UNESCAPE_EXEMPT_FIELDS = frozenset({"id", "url"})
 
+# Mapped fields that ARE unescaped, but LATER — a different claim from the set above, kept
+# in a different name so the two reasons cannot be read as one.
+#
+# ``description`` is the only mapped field that is additionally TAG-STRIPPED downstream
+# (``fetch_custom_company._plain_text``), and that extra step is what makes decoding here
+# wrong for it. Decode-then-strip destroys the distinction the escaping exists to carry: a
+# board publishing the literal text ``&lt;p&gt;`` has it decoded into a real ``<p>``, and
+# the stripper — which by then cannot tell that from markup the board actually emitted —
+# deletes it along with the prose around it. ``Own the P99 &lt; 100ms budget`` and a board
+# describing HTML in an engineering job spec are the realistic shapes of that.
+#
+# Strip first, then decode once, and the ambiguity never exists: real tags are gone before
+# any entity becomes an angle bracket. So this field's single decode happens at the strip
+# site instead of here. It is still exactly one decode — see :func:`render_row_field`.
+_DEFERRED_UNESCAPE_FIELDS = frozenset({"description"})
+
 
 def render_row_field(record: Any, name: str, spec: str) -> Any:
     """Render ONE mapped field the way a stored row will actually carry it.
@@ -232,23 +248,47 @@ def render_row_field(record: Any, name: str, spec: str) -> Any:
     the runner will produce. Rendering the two differently is how a usable mapping gets
     thrown away — or an unusable one kept and written as a repr.
 
-    HTML entities are decoded HERE, and nowhere else. A discovered board hands us whatever
-    its own page markup carried — 19 of 85 custom Spotify titles arrive as
-    ``Client Partner, Emerging &amp; Scaled`` — and that costs twice: the entity renders
-    literally in the job list, and any exact-match comparison against another board silently
-    misses (it measured the Spotify title overlap at 56/81 instead of 70/81). This is the
-    single unescape site on purpose: ``recipe_rows`` is the obvious alternative, and doing
-    both would decode ``&amp;amp;`` — a board that really does publish the five characters
-    ``&amp;`` — twice, down to a bare ``&``. Once, at the seam, is the only place that is
-    true for every consumer including the prune.
+    **THE ENTITY RULE, in one line: one decode per field, and for a field that is
+    tag-stripped, that decode happens AFTER the stripping.**
 
-    Order matters: the fold runs first so a multi-value list is joined and then decoded
-    once, rather than element-by-element with a separator that carries no entities anyway.
+    That is the whole invariant, and it is sharper than the "this is the single unescape
+    site" it replaces — which was both false and, for one field, the wrong target anyway.
+
+    *Why decode at all.* A discovered board hands us whatever its own page markup carried
+    — 19 of 85 custom Spotify titles arrive as ``Client Partner, Emerging &amp; Scaled``
+    — and leaving that costs twice: the entity renders literally in the job list, and any
+    exact-match comparison against another board silently misses (it measured the Spotify
+    title overlap at 56/81 instead of the true 70/81).
+
+    *Why exactly once.* Two decodes turn ``&amp;amp;`` — a board that really does publish
+    the five characters ``&amp;`` — into a bare ``&``, and nothing downstream can tell
+    that from a board that published ``&`` to begin with. ``_plain_text`` used to be a
+    silent second site for ``description``, so every recipe-path job hit both passes.
+
+    *Why the ORDER is part of the rule and not a detail.* Decoding before a tag strip
+    destroys the very distinction the escaping carries. A board publishing the literal
+    text ``&lt;p&gt;`` gets it decoded into a real ``<p>``; the stripper then cannot tell
+    that from markup the board actually emitted, and deletes it along with the prose
+    around it. Removing the second decode does not fix that — the FIRST one is the one
+    doing the damage. So ``description``, the one tag-stripped field, is deferred here
+    (``_DEFERRED_UNESCAPE_FIELDS``) and decoded once at the strip site instead.
+
+    Both halves are pinned by tests in ``test_recipe_runner_invariants``, including
+    against a real captured Atlassian payload, because a docstring is not an enforcement
+    mechanism — that is exactly how the previous claim came to be false.
+
+    Fold order is unrelated and also load-bearing: the fold runs first so a multi-value
+    list is joined and then decoded once, rather than element-by-element with a separator
+    that carries no entities anyway.
     """
     rendered = render_field(record, spec)
     if name in _MULTI_VALUE_FIELDS:
         rendered = _fold_scalar_list(rendered)
-    if isinstance(rendered, str) and name not in _UNESCAPE_EXEMPT_FIELDS:
+    if (
+        isinstance(rendered, str)
+        and name not in _UNESCAPE_EXEMPT_FIELDS
+        and name not in _DEFERRED_UNESCAPE_FIELDS
+    ):
         return html.unescape(rendered)
     return rendered
 
@@ -784,7 +824,7 @@ def _parse_date_value(value: Any, step: dict[str, Any]) -> Any:
     if not isinstance(value, str) or not value.strip():
         return None
     if mode == "iso":
-        return value.strip()
+        return _parse_iso_value(value.strip())
     if mode == "strptime":
         from datetime import datetime
         cleaned = _MULTISPACE_RE.sub(" ", value.strip())  # Amazon's double-space dates
@@ -797,6 +837,40 @@ def _parse_date_value(value: Any, step: dict[str, Any]) -> Any:
     # gap: POSTED-DATE-PLAN.md §3 — a board that gives us a bucket has given us no date,
     # and synthesizing one from "12 hours" is the fabrication that rule exists to stop.
     return None
+
+
+def _parse_iso_value(text: str) -> Any:
+    """``text`` if it really is ISO-8601, else ``None``. Never raises.
+
+    ``iso`` mode used to be the one mode that checked nothing: it returned
+    ``value.strip()`` for any non-empty string, so a board that swapped its date field
+    for a slug, a job id, or "Posted recently" sent that text down the path to
+    ``recipe_rows`` → ``JobListing.posted_on`` → a TIMESTAMPTZ. The only thing standing
+    between that and the column was ``fetch_custom_company._validated_posted_on``, one
+    layer with no second — and ``recipe_rows``' own docstring meanwhile asserted the
+    value was "already ISO-normalized", which nothing enforced. Every sibling mode
+    (``strptime``, ``epoch_s``, ``epoch_ms``) has always returned ``None`` on input it
+    could not read; this one now does too.
+
+    Validated with ``fromisoformat``, not the shared ``posted_date`` parser, and that is
+    the point of the mode's name: the shared parser also accepts a bare unix epoch, so a
+    ten-digit JOB ID sitting in a date field would be read as a date in the year 2026
+    and stored with total confidence. ``iso`` means the board publishes ISO; anything
+    else is a board that changed, and a change we cannot read is a NULL.
+
+    The value is handed back as the board spelled it (only stripped) rather than
+    re-rendered, so ``posted_on`` keeps the raw board value the way the column is
+    documented to. ``effective_posted_date`` / ``_validated_posted_on`` do the
+    normalizing downstream.
+    """
+    from datetime import datetime
+
+    candidate = text[:-1] + "+00:00" if text.endswith(("Z", "z")) else text
+    try:
+        datetime.fromisoformat(candidate)
+    except (TypeError, ValueError):
+        return None
+    return text
 
 
 def _parse_epoch_value(value: Any) -> Any:

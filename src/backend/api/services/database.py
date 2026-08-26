@@ -276,18 +276,25 @@ _LOCATIONS_SUBQUERY = sql.SQL(
 )
 
 # Lightweight column list for the list endpoint.  Returns only the
-# two ``details`` sub-fields the frontend transformer actually uses
-# (experience_level, is_remote_eligible) and an empty ai_metadata,
+# three ``details`` sub-fields the frontend transformer actually uses
+# (department, experience_level, is_remote_eligible) and an empty ai_metadata,
 # cutting per-row size from ~10 KB to ~500 bytes.
 # Must be updated if the schema changes.
 #
-# The two sub-fields are read from the denormalized ``experience_level`` /
-# ``is_remote_eligible`` columns, NOT from ``details->'…'``: a JSONB key access
-# detoasts the full ~10 KB ``details`` value per row, and on the batched list
-# query (~12k rows) that ~100 MB of TOAST reads timed out (2026-07-13 outage).
-# This SELECT therefore never touches ``details``/TOAST. Keep the output shape
-# ({experience_level, is_remote_eligible}) identical so the frontend contract
-# is unchanged.
+# The three sub-fields are read from the denormalized ``department`` /
+# ``experience_level`` / ``is_remote_eligible`` columns, NOT from
+# ``details->'…'``: a JSONB key access detoasts the full ~10 KB ``details``
+# value per row, and on the batched list query (~12k rows) that ~100 MB of TOAST
+# reads timed out (2026-07-13 outage). This SELECT therefore never touches
+# ``details``/TOAST.
+#
+# ``department`` is what the frontend's Department filter is built from
+# (``selectAvailableDepartments`` -> ``GraphFilters``). It was missing from this
+# object until c1539fa03b23, which is why that control was hidden on every
+# company: the transformer read ``details.department`` and the API never sent
+# the key. Anything added here must come from a real column for the same TOAST
+# reason — ``details->>'department'`` would have re-created the 2026-07-13
+# outage.
 # Free-form enrichment tags for a job, as a JSON array of strings. Correlated on
 # the FULL composite identity (source_id, id): job_tags is keyed by
 # (source_id, job_listing_id, tag) — `id` is NOT globally unique, so a job must
@@ -308,6 +315,7 @@ _TAGS_SUBQUERY = sql.SQL(
 _LIST_COLUMNS = sql.SQL(
     "job_listings.id, title, company, location, url, job_listings.source_id,"
     " jsonb_build_object("
+    "   'department', department,"
     "   'experience_level', experience_level,"
     "   'is_remote_eligible', is_remote_eligible"
     " ) AS details,"

@@ -39,11 +39,21 @@ interface PublicBoardMatchBannerProps {
  * the difference between a claim they can act on and one they have to trust.
  *
  * Two actions, and the ORDER is the argument. The link is first because it is the thing
- * that helps (the public page already has the history the private copy is missing). Remove
+ * that helps (the public page already has the history the private copy is missing). Delete
  * is second and routes through the list's ordinary confirmation dialog — the destructive
  * action here must be exactly as guarded as it is everywhere else, never a one-click
  * shortcut just because a banner suggested it. Dismiss is last and PERSISTS: a suggestion
  * that comes back after being dismissed is a suggestion people learn to ignore.
+ *
+ * THE MIDDLE BUTTON SAYS "DELETE" BECAUSE IT DELETES. It reaches
+ * `custom_companies_service.remove_owned_company`, which does not stop collection going
+ * forward — it issues `DELETE FROM job_listings WHERE source_id = 'custom:<id>'` and the
+ * same for this board's tags, enrichment, location links, harvests and scrape runs. The
+ * word "Remove", paired with a dialog that said the history "will no longer be collected",
+ * read as a pause. It never was one, and the one place a user can be told that is the
+ * button they are about to press and the dialog behind it. The caption under the row says
+ * the other half — the PUBLIC company we are pointing them at is a different row entirely
+ * and keeps every job it has, so taking the suggestion costs them nothing they can see.
  *
  * THE LINK IS GUARDED, for the reason `AlreadyPublicNotice` documents: `companyId` is a
  * backend id and this build's `companies.ts` is a compile-time list, so a company seeded on
@@ -95,12 +105,22 @@ export function PublicBoardMatchBanner({ company, onRemove }: PublicBoardMatchBa
           onClick={() => onRemove(company)}
           data-testid="public-board-match-remove"
         >
-          Remove this board
+          Delete this board
         </Button>
         <Button size="small" onClick={handleDismiss} data-testid="public-board-match-dismiss">
           Dismiss
         </Button>
       </Stack>
+      <Typography
+        variant="caption"
+        component="p"
+        sx={{ mt: 0.5 }}
+        data-testid="public-board-match-delete-note"
+      >
+        Deleting is permanent — it erases the jobs already collected for this board, not just
+        future ones. {match.displayName}&apos;s public page is a separate record and keeps its
+        history either way.
+      </Typography>
     </Alert>
   );
 }

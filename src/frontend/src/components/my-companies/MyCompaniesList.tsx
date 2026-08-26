@@ -328,19 +328,39 @@ export function MyCompaniesList() {
         </Stack>
       )}
 
+      {/*
+        THE COPY HAS TO NAME THE DELETE. This dialog confirms
+        `DELETE /api/users/companies/{id}` → `custom_companies_service.remove_owned_company`,
+        which is not "stop collecting from here on": it runs
+        `DELETE FROM job_listings WHERE source_id = 'custom:<id>'` plus the same for the
+        board's tags, enrichment, location links, harvests and scrape runs, and drops the
+        company row. The previous wording — the history "will no longer be collected for
+        you" — describes a pause, which is the one thing this is not, and it was the last
+        screen between the user and an irreversible delete of everything the board had
+        gathered. Re-adding the same URL mints a NEW id and a new empty namespace, so the
+        chart genuinely starts at zero.
+
+        The open count is named because it is the only concrete size the user has for what
+        they are about to lose; it is a floor, not a total — the closed rows behind the
+        hiring chart go too, and there is no count for those on this payload.
+      */}
       <Dialog open={pendingRemoval !== null} onClose={() => setPendingRemoval(null)}>
-        <DialogTitle>Stop tracking this company?</DialogTitle>
+        <DialogTitle>Delete this company and its job history?</DialogTitle>
         <DialogContent>
           <DialogContentText>
             {pendingRemoval
-              ? `“${pendingRemoval.displayName}” will be removed from your account and its hiring history will no longer be collected for you.`
+              ? `Removing “${pendingRemoval.displayName}” deletes every job collected for it—${
+                  pendingRemoval.openJobCount > 0
+                    ? `the ${pendingRemoval.openJobCount.toLocaleString()} open now, plus the closed ones behind its hiring chart`
+                    : 'both the open ones and the closed ones behind its hiring chart'
+                }. This is a delete, not a pause: nothing is kept, and adding the board again starts the chart over from zero.`
               : ''}
           </DialogContentText>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setPendingRemoval(null)}>Cancel</Button>
           <Button color="error" onClick={confirmRemoval} data-testid="my-company-remove-confirm">
-            Remove
+            Delete
           </Button>
         </DialogActions>
       </Dialog>

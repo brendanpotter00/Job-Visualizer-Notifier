@@ -15,7 +15,12 @@ export interface BackendJobDetails {
   // transformer read `experience_level` into `Job.department` instead, so the
   // UI's "Department" filter has been showing seniority and this key reached
   // no screen at all.
-  department?: string;
+  //
+  // `| null` because the list endpoint emits it from a nullable column via
+  // `jsonb_build_object`, so "no department" arrives as an explicit `null` on
+  // the wire rather than an absent key. The transformer collapses both to
+  // `undefined`.
+  department?: string | null;
   experience_level?: string;
   salary_range?: string;
   is_remote_eligible?: boolean;

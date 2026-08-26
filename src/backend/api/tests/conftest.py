@@ -154,13 +154,17 @@ def _make_job(overrides: dict | None = None) -> dict:
     if overrides:
         base.update(overrides)
     # Mirror the write path (scripts.shared.database._build_job_values): the list
-    # endpoint reads these two denormalized columns, NOT details->..., to avoid
+    # endpoint reads these three denormalized columns, NOT details->..., to avoid
     # detoasting the wide `details` JSONB (2026-07-13 /api/jobs outage). Derive
     # them from `details` unless a test set them explicitly, so any job seeded
-    # with details.experience_level/is_remote_eligible behaves like a real upsert.
+    # with details.department/experience_level/is_remote_eligible behaves like a
+    # real upsert. Deriving matters more than it looks: a fixture that hand-set
+    # `details` only is exactly how the missing `department` column stayed
+    # invisible to the whole test suite while production served nothing.
     _details = base["details"]
     if isinstance(_details, str):
         _details = json.loads(_details)
+    base.setdefault("department", _details.get("department"))
     base.setdefault("experience_level", _details.get("experience_level"))
     base.setdefault("is_remote_eligible", _details.get("is_remote_eligible", False))
     return base

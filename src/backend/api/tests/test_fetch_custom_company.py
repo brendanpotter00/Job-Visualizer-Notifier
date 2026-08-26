@@ -519,7 +519,8 @@ async def test_a_company_with_no_checklist_gets_no_blob_written(db_conn, monkeyp
 # the module carries a blanket ``pytest.mark.asyncio``, and a sync test under it is a
 # pytest warning per test.
 
-_HTML_DESCRIPTION = (
+# What the BOARD publishes — raw page markup, entities and all.
+_PUBLISHED_DESCRIPTION = (
     "<p><strong>Working at Atlassian</strong></p>"
     "<p>Atlassians can choose where they work &mdash; in an office, from home, "
     "or a combination of the two.</p>"
@@ -528,13 +529,30 @@ _HTML_DESCRIPTION = (
 )
 
 
+def _as_mapped(published: str) -> str:
+    """``published`` after ``render_row_field`` — the shape ``_cap_details`` really gets.
+
+    Goes through the real seam rather than passing the string straight in, so this test
+    keeps testing the real composition if the seam ever changes what it hands over. Today
+    it is a PASS-THROUGH: ``description`` is in ``_DEFERRED_UNESCAPE_FIELDS``, because it
+    is the one mapped field that is tag-stripped and decoding before stripping makes an
+    escaped tag indistinguishable from a real one. So the board's raw markup — entities
+    and all — is exactly what arrives here, and ``_plain_text`` does the single decode
+    after it strips. See ``recipe_runner.render_row_field`` for the rule.
+    """
+    from api.services.recipe_runner import render_row_field
+
+    return render_row_field({"d": published}, "description", "d")
+
+
 async def test_a_description_is_stored_as_plain_text_not_markup() -> None:
     """The mapped value is UNTRUSTED and arrives as markup. Storing it raw spends the
     blob budget on angle brackets, hands the classifier tags instead of prose, and
     passes a stranger's HTML on to everything that renders a job."""
-    out = task_mod._cap_details({"description": _HTML_DESCRIPTION})
+    out = task_mod._cap_details({"description": _as_mapped(_PUBLISHED_DESCRIPTION)})
     text = out["description"]
     assert "<p>" not in text and "<strong>" not in text
+    # Decoded exactly once, by the runner — and NOT again here.
     assert "&mdash;" not in text and "&amp;" not in text
     assert "Working at Atlassian" in text
     # The literal "<" in prose survives: the loose ``<[^>]+>`` pattern used elsewhere

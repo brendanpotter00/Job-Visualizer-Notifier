@@ -109,6 +109,50 @@ describe('transformBackendJob', () => {
     expect(job.tags).toContain('Mid-Senior');
   });
 
+  // The `details` object the LIST endpoint actually sends. Not a hand-picked
+  // subset — `api/services/database.py::_LIST_COLUMNS` builds it with
+  // `jsonb_build_object('department', department, 'experience_level',
+  // experience_level, 'is_remote_eligible', is_remote_eligible)`, so it has
+  // exactly these three keys and every one of them can be `null`. Every other
+  // mock in this file is a hand-written shape that the server never produces;
+  // pinning the real one is what stops "the transformer reads details.department"
+  // from passing while the server sends no such key.
+  const listEndpointDetails = (
+    department: string | null,
+    experienceLevel: string | null = null,
+    isRemoteEligible: boolean | null = false
+  ) =>
+    JSON.stringify({
+      department,
+      experience_level: experienceLevel,
+      is_remote_eligible: isRemoteEligible,
+    });
+
+  it('reads department out of the three-key object the list endpoint sends', () => {
+    const job = transformBackendJob(
+      { ...mockBackendJob, details: listEndpointDetails('Cloud Infrastructure', 'Senior', true) },
+      'google'
+    );
+
+    expect(job.department).toBe('Cloud Infrastructure');
+    expect(job.tags).toContain('Senior');
+    expect(job.isRemote).toBe(true);
+  });
+
+  it('turns the wire\'s explicit null department into undefined, not null', () => {
+    // A board that publishes no department (Google/Apple/Microsoft) yields
+    // `"department": null` — the key is present. `Job.department` is typed
+    // `string | undefined`, so the transformer must collapse it rather than pass
+    // the null straight through.
+    const job = transformBackendJob(
+      { ...mockBackendJob, details: listEndpointDetails(null) },
+      'google'
+    );
+
+    expect(job.department).toBeUndefined();
+    expect(job.department).not.toBeNull();
+  });
+
   it('should generate tags from details', () => {
     const job = transformBackendJob(mockBackendJob, 'google');
 

@@ -529,6 +529,17 @@ def _parse_eightfold_epoch(value: Any) -> Optional[str]:
     """
     if value is None:
         return None
+    # BOOL BEFORE THE FLOAT. ``isinstance(True, int)`` is True and ``float(True)``
+    # is ``1.0``, so ``t_create=true`` — a flag that leaked into a date field, or a
+    # tenant answering the key with a presence boolean — parsed cleanly as epoch 1
+    # and became ``1970-01-01``. That is not a rejected value the caller can log; it
+    # is a confident wrong date riding ``effective_posted_date`` into
+    # ``first_seen_at``, which is the column the product sorts by. The shared parser
+    # (``scripts/shared/posted_date._to_datetime``) refuses bools for exactly this
+    # reason and never sees this one: by the time it is called this function has
+    # already turned it into a valid ISO STRING. The guard has to be here.
+    if isinstance(value, bool):
+        return None
     try:
         numeric = float(value)
     except (TypeError, ValueError):

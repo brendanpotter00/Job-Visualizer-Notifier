@@ -279,6 +279,26 @@ class MicrosoftJobsScraper(BaseScraper):
         - **Non-dates.** ``str()`` passed anything through, including
           humanized strings like ``"2 days ago"``. A relative bucket is not a
           date — store NULL rather than a value the column cannot hold.
+
+        **A value we had and could not read is LOGGED.** Returning ``None``
+        quietly was the one gap Microsoft had versus every other source
+        (``ashby_client``, ``lever_client``, ``gem_client``,
+        ``greenhouse_client``, ``workday_client``, ``eightfold_client``, and the
+        Apple/Amazon scrapers all log this): with ``first_seen_at`` now seeded
+        from the posted date, a Microsoft feed format change would land 100% of
+        rows on "posted today" while the run recorded a clean success. Same
+        WARNING level and ``"microsoft: ..."`` shape the sibling *scrapers*
+        use (``apple_jobs_scraper.parser.parse_card_posted_date``,
+        ``amazon_jobs_scraper.api_client.parse_posted_date``); the backend ATS
+        clients use ERROR because Railway derives ``@level`` from it and they
+        run in the deployed worker, which this does not.
+
+        A legitimately ABSENT date — ``None``, or the ``""`` that
+        ``_get_first_of`` defaults to — is silent. It is the normal shape for
+        "Microsoft published no date", not a failure, and warning on it would
+        bury the format-change alarm this exists to raise. A total format
+        change fires ~470 warnings per run (the live board size) across ~16
+        runs a day: loud on purpose, and the intended alarm.
         """
         from datetime import datetime, timezone
 
@@ -294,6 +314,10 @@ class MicrosoftJobsScraper(BaseScraper):
             try:
                 return datetime.fromtimestamp(numeric, tz=timezone.utc).isoformat()
             except (OverflowError, OSError, ValueError):
+                logger.warning(
+                    "microsoft: could not read posted date epoch %r; storing NULL",
+                    posted_on,
+                )
                 return None
 
         if isinstance(posted_on, str):
@@ -304,11 +328,20 @@ class MicrosoftJobsScraper(BaseScraper):
                 datetime.fromisoformat(candidate.replace("Z", "+00:00"))
             except ValueError:
                 # Not a date Postgres would accept either. NULL, not a guess.
+                logger.warning(
+                    "microsoft: could not parse posted date %r; storing NULL",
+                    posted_on,
+                )
                 return None
             # Parseable — hand back the original string unchanged so the
             # stored value stays exactly what the board published.
             return posted_on
 
+        logger.warning(
+            "microsoft: posted date %r is a %s, not a date; storing NULL",
+            posted_on,
+            type(posted_on).__name__,
+        )
         return None
 
     def transform_to_job_model(self, job_data: Dict[str, Any]) -> JobListing:

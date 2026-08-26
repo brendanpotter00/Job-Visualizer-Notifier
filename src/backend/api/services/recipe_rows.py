@@ -40,10 +40,16 @@ def recipe_rows_to_job_listings(company_id: str, rows: list[dict]) -> list[JobLi
     The runner guarantees each row has a non-empty, stringified ``id`` and a
     non-empty ``title`` (``map_records`` drops the rest) and — because the schema
     requires an ``url`` field — a ``url``. ``location`` / ``posted_at`` are
-    optional. ``posted_on`` is taken verbatim from the row (already ISO-normalized
-    by a ``parse_date`` step, or ``None``); the leaf task's ``_validated_posted_on``
-    applies the ±window sanity check on the nightly path, so nothing is synthesized
-    here.
+    optional.
+
+    ``posted_on`` is taken verbatim from the row. Every ``parse_date`` mode either
+    returns something ``datetime.fromisoformat`` accepts or returns ``None`` — including
+    ``iso`` mode, which used to be the exception and passed any non-empty string
+    through unchecked (see ``recipe_runner._parse_iso_value``). A row with no
+    ``parse_date`` step at all still carries whatever the board put in the field, so
+    this is not a guarantee that the value is a date; the leaf task's
+    ``_validated_posted_on`` is what enforces the ±window before the write. Nothing is
+    synthesized here either way.
     """
     now = get_iso_timestamp()
     source_id = custom(company_id)

@@ -567,6 +567,34 @@ _DAYS_AGO_RE = re.compile(
 )
 
 
+def _iso_millis_z(moment: datetime) -> str:
+    """``moment`` as ``YYYY-MM-DDTHH:MM:SS.mmmZ``. UTC, always exactly this shape.
+
+    Replaces ``.isoformat().replace("+00:00", ".000Z")``, which was correct only for the
+    three relative-date branches — their datetimes are midnight, so ``isoformat()`` emits
+    no fractional part and the appended ``.000`` was the whole of it — and produced an
+    INVALID timestamp on the ISO branch. ``datetime.fromisoformat`` keeps microseconds
+    when the board sends them, so ``2026-08-01T12:34:56.789000+00:00`` came back out as
+    ``2026-08-01T12:34:56.789000.000Z``: two fractional parts, which Postgres rejects.
+
+    Why that was not merely an ugly string. ``upsert_jobs_batch`` writes the harvest in
+    ONE statement with no per-row fallback, so a single malformed ``posted_on`` fails the
+    whole batch — every job of that tenant, not the one row that carried it.
+
+    Latent so far only because every Workday tenant we read answers this endpoint with
+    the relative phrasing ("Posted Today", "Posted 5 Days Ago"): all 6,453 open
+    ``workday_api`` rows in production sit exactly at midnight, so nothing has taken the
+    ISO branch yet. One tenant changing format is all it would take, and it would present
+    as a tenant that abruptly stops updating rather than as a date bug.
+
+    ``isoformat(timespec="milliseconds")`` fixes the precision at the source instead of
+    patching the tail, and ``removesuffix`` is anchored where ``replace`` was not — after
+    ``astimezone(timezone.utc)`` the offset is always exactly ``+00:00``.
+    """
+    utc = moment.astimezone(timezone.utc)
+    return utc.isoformat(timespec="milliseconds").removesuffix("+00:00") + "Z"
+
+
 def _is_open_ended_bucket(posted_on: Any) -> bool:
     """True for Workday's ``"N+ Days Ago"`` open-ended bucket label.
 
@@ -634,12 +662,10 @@ def _parse_workday_date(
     # "today" — must match BEFORE "yesterday" since both contain neither
     # the other, but a future Workday phrasing change could overlap.
     if "today" in lowered:
-        return today_midnight.isoformat().replace("+00:00", ".000Z")
+        return _iso_millis_z(today_midnight)
 
     if "yesterday" in lowered:
-        return (today_midnight - timedelta(days=1)).isoformat().replace(
-            "+00:00", ".000Z",
-        )
+        return _iso_millis_z(today_midnight - timedelta(days=1))
 
     m = _DAYS_AGO_RE.search(lowered)
     if m:
@@ -655,9 +681,7 @@ def _parse_workday_date(
         if m.group(2):
             return None
         days_ago = int(m.group(1))
-        return (today_midnight - timedelta(days=days_ago)).isoformat().replace(
-            "+00:00", ".000Z",
-        )
+        return _iso_millis_z(today_midnight - timedelta(days=days_ago))
 
     # ISO-8601 fallback. The frontend tried `new Date(postedOn)`; we use
     # `datetime.fromisoformat` which is stricter — most Workday CXS
@@ -670,6 +694,4 @@ def _parse_workday_date(
         return None
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=timezone.utc)
-    return parsed.astimezone(timezone.utc).isoformat().replace(
-        "+00:00", ".000Z",
-    )
+    return _iso_millis_z(parsed)

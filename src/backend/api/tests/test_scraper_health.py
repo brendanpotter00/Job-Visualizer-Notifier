@@ -58,10 +58,20 @@ def _seed_job(
     """Seed one job row "last seen" at the given time.
 
     ``job_listings`` has carried no freshness columns since ``18fe9c20a8fd``
-    (#239) — the timestamp is routed through ``first_seen_at``, which the
-    ``job_freshness_sync`` AFTER INSERT trigger copies into the sidecar's
-    ``last_seen_at``. Tests that need last-seen to diverge from first-seen
-    UPDATE ``job_freshness`` directly afterwards.
+    (#239), so last-seen lives only in the ``job_freshness`` sidecar and this
+    helper writes it there explicitly.
+
+    It used to route the timestamp through ``first_seen_at`` and let the
+    ``job_freshness_sync`` AFTER INSERT trigger copy it across. That shortcut
+    died with ``7a4c1e93b6d8``: the trigger now seeds ``now()``, because
+    ``first_seen_at`` is the board's posted date and can be a year old — under
+    the old copy a brand-new job would have been born stale.
+
+    Production never depended on the copy either. ``upsert_job`` and
+    ``upsert_jobs_batch`` both call ``_upsert_freshness`` in the same
+    transaction (``scripts/shared/database.py:500,579``), which stamps
+    last-seen from the run timestamp. The trigger's value only survives for a
+    row written by neither — and "we saw it just now" is the right answer there.
     """
     job_id = f"job-{uuid.uuid4().hex[:8]}"
     cur = conn.cursor()
@@ -81,6 +91,12 @@ def _seed_job(
             last_seen_at,
             status,
         ),
+    )
+    cur.execute(
+        sql.SQL("UPDATE {} SET last_seen_at = %s WHERE source_id = %s AND id = %s").format(
+            sql.Identifier("job_freshness")
+        ),
+        (last_seen_at, "test_scraper", job_id),
     )
     conn.commit()
     return job_id

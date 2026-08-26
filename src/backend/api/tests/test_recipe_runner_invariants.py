@@ -600,3 +600,148 @@ def test_a_folded_multi_value_field_is_decoded_after_the_join() -> None:
         {"id": "id", "title": "title", "url": "url", "location": "locations"},
     )
     assert rows[0]["location"] == "Zürich; São Paulo"
+
+
+# --- ...and the rule held END TO END, including its ORDER ------------------------------
+#
+# THE RULE (``render_row_field``): one decode per field, and for a field that is
+# tag-stripped, that decode happens AFTER the stripping.
+#
+# The four tests above all stop at ``map_records``, which is half the write path. The other
+# half is ``fetch_custom_company._plain_text``, and it broke the rule twice over: it
+# unescaped ``description`` a SECOND time, and the runner's FIRST decode ran before its tag
+# strip. Those are two different bugs with two different fixes, and each is pinned below —
+# a test that only pinned "decoded once" stayed green through the ordering one, which is
+# exactly how it survived.
+#
+# These run the real two stages in the real order, because that composition is the only
+# place either bug was visible and a test of either half alone missed both.
+
+
+def _stored_description(published: str) -> str:
+    """What ``details['description']`` ends up holding for a board that published
+    ``published``. Both real stages, in the order the leaf task runs them."""
+    from api.tasks.fetch_custom_company import _plain_text
+
+    rows = map_records(
+        [{"id": "1", "title": "T", "url": "/x", "overview": published}],
+        {"id": "id", "title": "title", "url": "url", "description": "overview"},
+    )
+    return _plain_text(rows[0]["description"])
+
+
+def test_a_double_encoded_entity_in_a_description_survives_exactly_one_decode() -> None:
+    """The same claim ``test_a_double_encoded_entity_is_decoded_exactly_once`` makes for
+    ``title``, on the field that actually had two sites. A board publishing the five
+    characters ``&amp;`` encodes them ``&amp;amp;``; two decodes flatten that to a bare
+    ``&`` and nothing downstream can tell it from a board that published ``&``."""
+    assert _stored_description("Team &amp;amp; Co") == "Team &amp; Co"
+
+
+def test_an_escaped_tag_stays_text_and_does_not_become_live_markup() -> None:
+    """The half that is worse than a cosmetic double-decode, and the reason the order
+    matters: the second decode ran AFTER the tag strip, so an entity-escaped tag was
+    turned into a REAL tag with nothing left to remove it. ``&amp;lt;script&amp;gt;``
+    was stored as literal ``<script>`` in a column documented as plain text — not
+    exploitable today (nothing in the frontend uses ``dangerouslySetInnerHTML``) but the
+    blob ships to the enricher, and "plain text" has to actually mean it."""
+    stored = _stored_description("&amp;lt;script&amp;gt;alert(1)&amp;lt;/script&amp;gt;")
+
+    assert stored == "&lt;script&gt;alert(1)&lt;/script&gt;"
+    assert "<script>" not in stored
+
+
+def test_real_markup_is_still_stripped_and_its_entities_still_decoded_once() -> None:
+    """The dominant case must be unchanged. Tags out, one decode, prose intact — this is
+    what the removal must NOT cost, and it is the case every Atlassian row hits."""
+    stored = _stored_description("<p>Data &amp; AI</p><li>C++ &amp; Rust</li>")
+
+    assert stored == "Data & AI\n\nC++ & Rust"
+
+
+def test_a_captured_atlassian_description_is_decoded_once_and_reads_as_prose() -> None:
+    """Against a REAL captured payload rather than a synthetic string.
+
+    ``fixtures/discovery/atlassian_capture.json`` is 1.5 KB of the board's own
+    ``overview`` markup and carries a genuine ``&amp;`` mid-sentence, which is exactly
+    the shape the single-decode rule exists for."""
+    import json
+    from pathlib import Path
+
+    capture = json.loads(
+        (
+            Path(__file__).parent / "fixtures" / "discovery" / "atlassian_capture.json"
+        ).read_text()
+    )
+    record = json.loads(capture["responses"][1]["body"])[0]
+    published = record["overview"]
+    assert "&amp;" in published and "<p>" in published, "fixture no longer exercises this"
+
+    stored = _stored_description(published)
+
+    assert "power of software & collaboration" in stored
+    # One decode: the entity is gone, and no tag survived to be rendered later.
+    assert "&amp;" not in stored
+    assert "<p>" not in stored and "<strong>" not in stored
+
+
+def test_escaped_prose_is_not_eaten_by_the_tag_stripper() -> None:
+    """THE ORDERING BUG, and the one removing a decode does not fix.
+
+    A board publishing the literal text ``<p>`` escapes it as ``&lt;p&gt;``. Decoding
+    before the strip turned that into a real ``<p>``, and the stripper — which by then
+    could not tell it from markup the board actually emitted — deleted it AND joined the
+    prose around it onto separate lines: ``Use &lt;p&gt; for paragraphs`` was silently
+    stored as ``Use\\nfor paragraphs``. The board's own words, gone, with no signal.
+
+    Note which decode did it: the FIRST one, in ``render_row_field``. Removing the second
+    decode leaves this exactly as broken, which is why the fix was to defer the field's
+    decode to after the strip rather than to delete one.
+    """
+    assert _stored_description("Use &lt;p&gt; for paragraphs") == (
+        "Use <p> for paragraphs"
+    )
+
+
+def test_a_less_than_sign_in_prose_survives_the_round_trip() -> None:
+    """The same class, in the shape an engineering job spec actually publishes it:
+    ``Own the P99 &lt; 100ms budget`` inside real ``<li><p>`` markup. Real tags must go,
+    the escaped comparison operator must stay."""
+    assert _stored_description("<li><p>Own the P99 &lt; 100ms budget</p></li>") == (
+        "Own the P99 < 100ms budget"
+    )
+
+
+def test_the_runner_hands_description_over_still_escaped() -> None:
+    """The mechanism, pinned separately from its effects.
+
+    ``description`` is in ``_DEFERRED_UNESCAPE_FIELDS``, so ``render_row_field`` leaves its
+    entities alone and ``_plain_text`` owns the field's single decode. Every other mapped
+    field is still decoded at the seam — asserted alongside, because "defer description"
+    must not quietly become "stop decoding anything"."""
+    rows = map_records(
+        [{"id": "1", "title": "Tips &amp; Tricks", "url": "/x",
+          "overview": "<p>Tips &amp; Tricks</p>"}],
+        {"id": "id", "title": "title", "url": "url", "description": "overview"},
+    )
+
+    assert rows[0]["description"] == "<p>Tips &amp; Tricks</p>", (
+        "the runner decoded description — the strip has not run yet, so an escaped tag "
+        "is now indistinguishable from a real one"
+    )
+    assert rows[0]["title"] == "Tips & Tricks", "the seam stopped decoding other fields"
+
+
+def test_plain_text_strips_first_then_decodes_exactly_once() -> None:
+    """The rule stated directly against the one function that must obey it, so a future
+    edit fails here even if the compositions above are refactored away.
+
+    Both halves in one input: a real ``<p>`` that must be stripped, an escaped ``&lt;p&gt;``
+    that must NOT be, and a double-encoded ``&amp;amp;`` that must land on ``&amp;``. No
+    ordering other than strip-then-decode-once produces this line.
+    """
+    from api.tasks.fetch_custom_company import _plain_text
+
+    assert _plain_text("<p>Use &lt;p&gt; for A &amp;amp; B</p>") == (
+        "Use <p> for A &amp; B"
+    )

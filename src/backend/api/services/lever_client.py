@@ -201,9 +201,9 @@ def _transform_one(
 def _ms_to_iso8601(value: Any) -> Optional[str]:
     """Convert an epoch-milliseconds value to an ISO 8601 UTC string.
 
-    Returns ``None`` for ``None``, non-numeric types, or values that overflow
-    Python's ``datetime`` range. The caller logs and stores ``None`` so a
-    corrupt source value never silently lands in ``job_listings``
+    Returns ``None`` for ``None``, non-numeric types, non-positive epochs, or
+    values that overflow Python's ``datetime`` range. The caller logs and stores
+    ``None`` so a corrupt source value never silently lands in ``job_listings``
     (per feedback_correctness_over_dont_crash). The row itself is preserved.
     """
     if value is None:
@@ -212,6 +212,16 @@ def _ms_to_iso8601(value: Any) -> Optional[str]:
     # Defensively accept both int and float — boolean is a subclass of int
     # in Python, so explicitly reject bools to avoid silent coercion.
     if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    # NON-POSITIVE IS NOT A DATE. ``0`` is the zero value of an int column, a
+    # cleared field, a JSON default — and ``datetime.fromtimestamp(0)`` answers
+    # ``1970-01-01`` for it without complaint, which then rides
+    # ``effective_posted_date`` into ``first_seen_at`` as a real posting date
+    # 56 years old. The shared parser (``scripts/shared/posted_date._from_epoch``)
+    # already refuses this, but it never gets the chance: this function hands it a
+    # finished ISO STRING, and a string that parses is a string it believes. The
+    # guard has to run here, on the number, or it does not run at all.
+    if value <= 0:
         return None
     try:
         return datetime.fromtimestamp(value / 1000.0, tz=timezone.utc).isoformat()

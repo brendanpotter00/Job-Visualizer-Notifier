@@ -295,6 +295,25 @@ class TestTransformToJobListings:
         assert listings[0].posted_on is None
         assert listings[0].details["published_at"] is None
 
+    def test_a_zero_createdAt_never_reaches_first_seen_at_as_1970(self, caplog):
+        """End to end, because the string is not where the damage lands.
+
+        ``createdAt: 0`` used to become ``1970-01-01T00:00:00+00:00``, and
+        ``effective_posted_date`` then seeded ``first_seen_at`` from it — a job the
+        graph would bucket 56 years before the company existed. It has to end up
+        indistinguishable from a missing date: NULL ``posted_on``, ``first_seen_at``
+        back on first sight, and ONE ERROR so the data-quality issue is visible
+        rather than absorbed.
+        """
+        raw = {**ONE_JOB_FIXTURE[0], "createdAt": 0}
+        with caplog.at_level("ERROR"):
+            job = transform_to_job_listings("palantir", [raw])[0]
+        assert job.posted_on is None
+        assert job.details["published_at"] is None
+        assert job.first_seen_at == job.created_at
+        assert not job.first_seen_at.startswith("1970")
+        assert any("unparseable createdAt=0" in r.getMessage() for r in caplog.records)
+
 
 class TestSanitizeTags:
     """Mirror the frontend ``sanitizeTags`` semantics from
@@ -343,9 +362,24 @@ class TestSanitizeTags:
 class TestMsToIso8601:
     """Direct tests on the epoch-ms -> ISO 8601 helper."""
 
-    def test_epoch_zero(self):
+    @pytest.mark.parametrize("value", [0, 0.0, -1, -1714857600000, -0.5])
+    def test_non_positive_epochs_are_not_dates(self, value):
+        """``0`` used to come back as ``1970-01-01T00:00:00+00:00``.
+
+        Zero is the zero value of an int column, a cleared field and a JSON default
+        — every shape of "no value" except ``None``, which is the only one this used
+        to catch. ``datetime.fromtimestamp(0)`` answers 1970 for it without
+        complaint, and that answer does not stop at ``posted_on``: it rides
+        ``effective_posted_date`` into ``first_seen_at``, the column the product
+        sorts and buckets by, as a posting 56 years old.
+
+        The shared parser (``scripts/shared/posted_date._from_epoch``) already
+        refuses non-positive epochs. It never got the chance, because this function
+        hands it a finished ISO STRING — and a string that parses is a string it
+        believes. The guard only works on the number, which means here.
+        """
         from api.services.lever_client import _ms_to_iso8601
-        assert _ms_to_iso8601(0) == "1970-01-01T00:00:00+00:00"
+        assert _ms_to_iso8601(value) is None
 
     def test_none_returns_none(self):
         from api.services.lever_client import _ms_to_iso8601

@@ -39,6 +39,7 @@ from api.services.published_board_match import (
     find_published_match,
     normalize_title,
     read_suggestion,
+    score_overlap,
     suggest_published_board,
     title_set,
 )
@@ -145,21 +146,28 @@ def test_a_title_set_counts_each_title_once() -> None:
 def test_the_measured_spotify_pair_produces_a_suggestion(db_conn) -> None:
     """The case that actually bit: 70 of 81 unique OPEN titles, 86%.
 
-    Seeded exactly as measured — 81 candidate titles of which 70 are also on the public
-    board, which carries 85 of its own — and it must clear the bar with room to spare.
+    Seeded exactly as measured — 81 distinct normalized OPEN titles on each side, 70 of
+    them shared — and it must clear the bar with room to spare. (81 on the public side is
+    what production holds today; the 85 in ``normalize_title``'s docstring is the RAW row
+    count before normalization collapses duplicates.)
+
+    It is also the test that pins the one property that made ``shared/max`` the safe
+    denominator to switch to: the two sets are the SAME SIZE here, so ``min`` and ``max``
+    are the same number and this pair scores 0.864 under either. The subset fix cost the
+    true positive nothing at all.
     """
     shared = _titles("Shared", 70)
     _seed_pair(
         db_conn,
         candidate_titles=shared + _titles("OnlyCustom", 11),
-        public_titles=shared + _titles("OnlyPublic", 15),
+        public_titles=shared + _titles("OnlyPublic", 11),
     )
 
     match = suggest_published_board(db_conn, "u-cand000001")
 
     assert match is not None
     assert match.company_id == "spotify"
-    assert (match.shared, match.candidate_titles) == (70, 81)
+    assert (match.shared, match.candidate_titles, match.matched_titles) == (70, 81, 81)
     assert round(match.ratio, 4) == round(70 / 81, 4)
 
     stored = read_suggestion(_provider_config(db_conn, "u-cand000001"))
@@ -322,6 +330,54 @@ def _score(db_conn, *, candidate: int, public: int, shared: int):
         public_titles=common + _titles("OnlyPublic", public - shared),
     )
     return find_published_match(db_conn, "u-cand000001")
+
+
+def test_a_business_unit_board_inside_its_parent_is_not_a_duplicate(db_conn) -> None:
+    """25 titles, ALL of them on a 1,742-title parent board. Nothing is shown.
+
+    The subset case, at production scale and shape: ``andurilindustries`` really does carry
+    1,742 distinct normalized OPEN titles, and a 25-title regional or business-unit board
+    drawn from them is a real thing a user can paste. Under ``shared/min`` this scored a
+    perfect **1.00** — the maximum, over every rail, shared count included (25 >= 20) — and
+    fired the banner. It is the wrong answer twice over: the BU board is a SLICE of the
+    parent, not a copy of it, and the parent's chart is not the chart the user asked for.
+
+    Under ``shared/max`` the same pair scores 25/1742 = 0.014. Containment stops being
+    indistinguishable from equivalence, which is the entire reason the denominator moved.
+    """
+    assert _score(db_conn, candidate=25, public=1742, shared=25) is None
+
+
+def test_the_subset_case_is_symmetric(db_conn) -> None:
+    """And the other way round: a 1,742-title board that swallows a 25-title public row.
+
+    Same arithmetic, opposite sides. ``shared/min`` scored this 1.00 too, because it never
+    looked at which set was bigger. The point of ``shared/max`` is that neither direction of
+    containment can pass on its own — the overlap has to cover BOTH boards.
+    """
+    assert _score(db_conn, candidate=1742, public=25, shared=25) is None
+
+
+def test_the_score_is_the_weaker_of_the_two_containments(db_conn) -> None:
+    """The metric itself, stated as the property it has to have.
+
+    100 shared of a 100-title candidate is 100% of the candidate — one-sided containment,
+    total. The public row carries 200, so only half of IT is covered, and the score is that
+    weaker half: 0.50, under the bar. Pinning the number (not just the verdict) is what
+    stops the denominator quietly sliding back to ``min``, where this reads 1.00.
+    """
+    scored = score_overlap(
+        frozenset(_titles("Shared", 100)),
+        frozenset(_titles("Shared", 100) + _titles("OnlyPublic", 100)),
+        company_id="spotify",
+        display_name="Spotify",
+    )
+    assert scored.shared == 100
+    assert scored.ratio == pytest.approx(0.50)
+    assert not scored.qualifies
+    # The EVIDENCE stays one-sided on purpose: the banner's sentence is "100 of 100 roles on
+    # this board match", which is true and is about the board the user is looking at.
+    assert (scored.candidate_titles, scored.matched_titles) == (100, 200)
 
 
 def test_a_fifty_percent_pair_produces_nothing(db_conn) -> None:
@@ -723,3 +779,108 @@ async def test_a_failing_comparison_never_fails_the_harvest(db_conn, monkeypatch
         (company_id,),
     )
     assert cur.fetchone()["verdict"] == "VERIFIED"
+
+
+@pytest.mark.asyncio
+async def test_a_db_error_in_the_comparison_still_leaves_the_harvest_evidence(
+    db_conn, monkeypatch
+) -> None:
+    """The test above raises a ``RuntimeError``, which does not touch the transaction —
+    so it passed even while this one would have failed.
+
+    A *psycopg2* error is different in kind. This comparison runs on the leaf task's
+    SHARED connection, and its two reads are the only DB calls on this path with no
+    try/except and no rollback (``store_suggestion`` and every ``ccs.*`` helper have
+    both). A statement timeout on ``_open_titles_by_public_company``'s fleet-wide seq
+    scan — the realistic failure, one seq scan of a third of ``job_listings`` — leaves
+    the connection in an ABORTED transaction. Logging the exception does not clear that,
+    so the very next statement raises ``InFailedSqlTransaction``: and the very next
+    statement is ``record_company_harvest``, whose failure is swallowed too.
+
+    What the operator was left with: a ``scrape_runs`` row marked ``success=true``,
+    VERIFIED, and NO ``company_harvests`` evidence row. This block only ever runs on the
+    run that GRADUATES a board, so the single run whose evidence matters most is exactly
+    the one that lost it.
+    """
+    from api.config import settings
+    from api.services import greenhouse_client
+    from api.services.harvest_meta import HarvestEvidence
+    import api.tasks.fetch_custom_company as task_mod
+    from api.tasks.fetch_custom_company import fetch_custom_company
+
+    monkeypatch.setattr(settings, "database_url", os.environ["DATABASE_URL"])
+    configured = MagicMock()
+    configured.defer_async = AsyncMock(return_value=None)
+    monkeypatch.setattr(
+        task_mod.normalize_location, "configure", lambda *a, **k: configured
+    )
+
+    async def _fetch(board_token, http):
+        return [
+            {
+                "id": 1, "title": "Engineer", "absolute_url": "https://x/1",
+                "location": {"name": "Remote"}, "offices": [{"name": "Remote"}],
+                "departments": [{"name": "Eng"}], "metadata": [],
+                "first_published": "2025-01-01T00:00:00Z",
+                "updated_at": "2025-01-01T00:00:00Z", "content": "<p>d</p>",
+            }
+        ], HarvestEvidence.single_shot(declared_total=1)
+
+    monkeypatch.setattr(greenhouse_client, "fetch_jobs_with_meta", _fetch)
+
+    def _db_error(conn, company_id):
+        """Fail the way a statement timeout does: a real psycopg2 error raised out of a
+        SELECT on the shared connection, leaving the transaction aborted. Injected here
+        rather than mocked so the abort is genuine — a fake exception cannot reproduce
+        the state this test is about."""
+        conn.cursor().execute("SELECT title FROM a_table_that_does_not_exist")
+
+    monkeypatch.setattr(pbm, "suggest_published_board", _db_error)
+
+    company_id = "u-harvest003"
+    cur = db_conn.cursor()
+    cur.execute(
+        sql.SQL(
+            "INSERT INTO {} (id, display_name, ats, board_token, enabled, "
+            "provider_config, visibility, cadence_hours, next_run_at, health_state) "
+            "VALUES (%s, %s, 'greenhouse', %s, TRUE, '{{}}'::jsonb, 'user', 24, now(), "
+            "'unverified')"
+        ).format(sql.Identifier("companies")),
+        (company_id, company_id, "tok-u10c"),
+    )
+    cur.execute(
+        sql.SQL(
+            "INSERT INTO {} (company_id, script, script_version, transport, oracle_kind) "
+            "VALUES (%s, %s::jsonb, 1, 'ats_client', 'none')"
+        ).format(sql.Identifier("company_scripts")),
+        (company_id, json.dumps(
+            {"kind": "ats_client", "provider": "greenhouse", "token": "tok-u10c"}
+        )),
+    )
+    db_conn.commit()
+
+    await fetch_custom_company(company_id=company_id)
+
+    db_conn.rollback()
+    cur.execute(
+        sql.SQL("SELECT verdict, records_harvested FROM {} WHERE company_id = %s").format(
+            sql.Identifier("company_harvests")
+        ),
+        (company_id,),
+    )
+    harvest = cur.fetchone()
+    assert harvest is not None, (
+        "the graduating run recorded no company_harvests evidence — a success=true "
+        "scrape_run with nothing to diagnose it by"
+    )
+    assert harvest["verdict"] == "VERIFIED"
+    assert harvest["records_harvested"] == 1
+
+    # ...and the run itself is still recorded as the success it was.
+    cur.execute(
+        sql.SQL("SELECT success FROM {} WHERE company = %s").format(
+            sql.Identifier("scrape_runs")
+        ),
+        (company_id,),
+    )
+    assert cur.fetchone()["success"] is True

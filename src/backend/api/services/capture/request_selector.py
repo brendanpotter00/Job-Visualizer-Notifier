@@ -716,7 +716,44 @@ _EPOCH_PLAUSIBLE_MAX_YEAR = 2100
 # (``recipe_runner._EPOCH_MS_THRESHOLD``, ``eightfold_client._parse_eightfold_epoch``).
 _EPOCH_MS_THRESHOLD = 1e11
 
-_ISO_PREFIX_RE = re.compile(r"^\d{4}-\d{2}-\d{2}([T ]|$)")
+# The cheap SHAPE gate only. It says "this opens with a YYYY-MM-DD", which is not the
+# same claim as "this is a date" — see ``_is_iso_datetime``, which is what decides.
+_ISO_SHAPE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}([T ]|$)")
+
+
+def _is_iso_datetime(value: Any) -> bool:
+    """``value`` is ISO-8601 IN ITS ENTIRETY — not merely one with an ISO prefix.
+
+    The distinction is load-bearing because of what ``iso`` MEANS downstream: it is the
+    one classification that emits NO ``parse_date`` step (``discover``: the value is
+    already a date, so nothing has to convert it). A value that merely STARTS with a
+    date therefore skips every parser we have and is written through verbatim, where
+    ``_validated_posted_on`` cannot read it and stores NULL.
+
+    That is the exact failure the prefix-only match produced: ``"2026-08-26 (reposted)"``
+    matched, the recipe got no ``parse_date`` step, every row on the board stored NULL,
+    and NOTHING raised, logged or looked wrong — a board silently missing its posting
+    dates while reporting a clean synthesis. Proving the whole value parses turns that
+    into an ordinary "we cannot read this format" outcome, which is logged and which
+    still leaves the board perfectly trackable.
+
+    Total by contract, like everything else on this path: a non-string, an empty string
+    or an unparseable one is ``False``, never an exception.
+    """
+    if not isinstance(value, str):
+        return False
+    text = value.strip()
+    if not _ISO_SHAPE_RE.match(text):
+        return False
+    # ``fromisoformat`` handles ``Z`` from 3.11, but not a lowercase ``z``; normalize
+    # both so a board's casing cannot decide whether its dates are readable.
+    if text.endswith(("Z", "z")):
+        text = text[:-1] + "+00:00"
+    try:
+        datetime.fromisoformat(text)
+    except (TypeError, ValueError):
+        return False
+    return True
 
 
 def _epoch_mode(value: Any) -> str | None:
@@ -725,9 +762,16 @@ def _epoch_mode(value: Any) -> str | None:
         return None
     if isinstance(value, str):
         text = value.strip()
-        # A string is only an epoch if it is ALL digits. ``float()`` would happily
-        # accept "2026" (a year), "1e9" and "nan".
-        if not text.isdigit():
+        # A string is only an epoch if it is ALL DECIMAL digits. ``float()`` would
+        # happily accept "2026" (a year), "1e9" and "nan", so the predicate is doing
+        # real work — but ``isdigit()`` was the wrong one: it is True for characters
+        # ``float()`` cannot read, superscripts among them. ``"²".isdigit()`` is True
+        # and ``float("²")`` raises ``ValueError``, which would have escaped
+        # ``detect_posted_at_format`` — a function whose docstring promises it never
+        # raises, running inside discovery's synthesis step where an exception refuses
+        # the whole board. ``isdecimal()`` is exactly the set ``float()`` accepts
+        # (Arabic-Indic "٢" included, which parses to 2.0).
+        if not text.isdecimal():
             return None
         numeric: float = float(text)
     elif isinstance(value, (int, float)):
@@ -775,8 +819,29 @@ def detect_posted_at_format(
     if not values:
         return None
 
-    if all(isinstance(v, str) and _ISO_PREFIX_RE.match(v.strip()) for v in values):
+    if all(_is_iso_datetime(v) for v in values):
         return PostedDateFormat(mode="iso")
+
+    # Something that LOOKS like a date and is not one is the case worth saying out loud.
+    # Everything else here degrades to "unreadable format, store NULL", which is a normal
+    # outcome; this one used to be classified ``iso``, storing NULL with no signal at all.
+    decorated = next(
+        (
+            v
+            for v in values
+            if isinstance(v, str)
+            and _ISO_SHAPE_RE.match(v.strip())
+            and not _is_iso_datetime(v)
+        ),
+        None,
+    )
+    if decorated is not None:
+        logger.warning(
+            "posted_at=%r opens with an ISO date but is not one (%r) — NOT classifying "
+            "it as ISO: that would emit no parse_date step and store NULL for every row "
+            "with nothing in the logs. Falling through to the remaining formats",
+            spec, decorated,
+        )
 
     epoch_modes = {_epoch_mode(v) for v in values}
     if len(epoch_modes) == 1:
