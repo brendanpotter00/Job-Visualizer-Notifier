@@ -84,12 +84,13 @@ Tunable constants (change here, nowhere else):
 | `MASS_CLOSE_COMPANY_MIN` | 50 | per-company 24h closed_jobs floor |
 | `MASS_CLOSE_GLOBAL` | 1000 | global 24h closed_jobs alarm |
 | `HEARTBEAT_DEAD_MINUTES` | 15 | task writes every 5 min (`heartbeat.py:106`); app's own threshold is 10 min (`main.py:53`) |
+| `WARM_UP_HOURS` | 6 | reuses the staleness window — a company seeded less than one window ago has not had time to tick; see A1's warm-up guard |
 
 **Check A1 — staleness** (companies whose last non-zero scrape is old or absent):
 
 ```sql
 WITH per_company AS (
-  SELECT c.id AS company, c.ats, c.board_token,
+  SELECT c.id AS company, c.ats, c.board_token, c.created_at,
          max(sr.started_at::timestamptz) FILTER (WHERE sr.jobs_seen > 0) AS last_ok,
          max(sr.started_at::timestamptz) AS last_run,
          count(*) FILTER (WHERE sr.started_at::timestamptz > now() - interval '24 hours') AS runs_24h,
@@ -98,13 +99,18 @@ WITH per_company AS (
   FROM companies c
   LEFT JOIN scrape_runs sr ON sr.company = c.id
   WHERE c.enabled
-  GROUP BY c.id, c.ats, c.board_token
+  GROUP BY c.id, c.ats, c.board_token, c.created_at
 )
 SELECT company, ats, board_token, last_ok, last_run, runs_24h, err_24h,
        round(((EXTRACT(EPOCH FROM now())::bigint
              - EXTRACT(EPOCH FROM last_ok)::bigint)/3600.0)::numeric, 1) AS hours_since_ok
 FROM per_company
-WHERE last_ok IS NULL OR last_ok < now() - interval '6 hours'
+WHERE (last_ok IS NULL OR last_ok < now() - interval '6 hours')
+  -- WARM-UP GUARD. A company whose seed migration just deployed has never run,
+  -- so last_ok IS NULL sorts it to the TOP (NULLS FIRST) of the degraded list,
+  -- and a repoint PR against a perfectly healthy new company is the result.
+  -- Give it one staleness window to produce its first non-zero run.
+  AND created_at < now() - interval '6 hours'
 ORDER BY hours_since_ok DESC NULLS FIRST;
 ```
 
@@ -126,6 +132,10 @@ ORDER BY c.id;
 ```
 
 A company is **degraded** if it appears in A1 or A2; record which signal(s) tripped.
+**A2 is what keeps the warm-up guard honest:** a brand-new company with a wrong
+`board_token` still trips A2 (its runs are all zero) on its very first tick, so
+suppressing "never ran yet" in A1 blinds nothing. A company younger than
+`WARM_UP_HOURS` with no `scrape_runs` rows at all is warming up, not dead.
 (Both queries returned exactly the same true positives with zero false positives
 across 133 companies on 2026-07-25 and 2026-08-05. A 404-storm source writes ~6
 rows per tick, so A2's "last 3" can span minutes, not 90 — that is why A1 exists.)
@@ -379,6 +389,7 @@ then end the turn immediately (headless: no further tool calls).
 |---|---|
 | Board moved to an ATS with no client in this repo (`unsupported`, affirmative evidence) | Soft-disable PR (`enabled = FALSE`, listings untouched — unity3d precedent); text names the ATS it moved to |
 | Research inconclusive | Text-only (`notfound:<company>`), NO code change |
+| Company seeded <`WARM_UP_HOURS` ago, no runs yet | Not degraded — A1's warm-up guard drops it. It re-enters A1 automatically once it ages past the window; A2 already covers a bad `board_token` |
 | Current board self-healed by probe time | Drop from work list, note `self_healed` in heartbeat |
 | Prod MCP unreachable / query error | verdict UNKNOWN, text (key `unknown_prod`), no PR |
 | Alembic head moved between reading it and committing | Re-read head, re-parent the new migration, retry once |

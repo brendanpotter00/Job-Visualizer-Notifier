@@ -252,7 +252,7 @@ and noting which signal(s) tripped:
 -- ticks) or absent entirely. Validated 2026-07-25 and 2026-08-05: exactly the
 -- known-broken set, zero false positives across all enabled companies.
 WITH per_company AS (
-  SELECT c.id AS company, c.ats,
+  SELECT c.id AS company, c.ats, c.created_at,
          max(sr.started_at::timestamptz) FILTER (WHERE sr.jobs_seen > 0) AS last_ok,
          max(sr.started_at::timestamptz) AS last_run,
          count(*) FILTER (WHERE sr.started_at::timestamptz > now() - interval '24 hours'
@@ -260,13 +260,19 @@ WITH per_company AS (
   FROM companies c
   LEFT JOIN scrape_runs sr ON sr.company = c.id
   WHERE c.enabled
-  GROUP BY c.id, c.ats
+  GROUP BY c.id, c.ats, c.created_at
 )
 SELECT company, ats, last_ok, last_run, err_24h,
        round(((EXTRACT(EPOCH FROM now())::bigint
              - EXTRACT(EPOCH FROM last_ok)::bigint)/3600.0)::numeric, 1) AS hours_since_ok
 FROM per_company
-WHERE last_ok IS NULL OR last_ok < now() - interval '6 hours'
+WHERE (last_ok IS NULL OR last_ok < now() - interval '6 hours')
+  -- WARM-UP GUARD. A company whose seed migration just deployed has never run,
+  -- so last_ok IS NULL sorts it to the TOP (NULLS FIRST) and reads as the most
+  -- dead source on the list. Give it one staleness window to produce its first
+  -- non-zero run. Signal 2 still catches a new company with a wrong board_token
+  -- (its runs are all zero), so this blinds nothing.
+  AND created_at < now() - interval '6 hours'
 ORDER BY hours_since_ok DESC NULLS FIRST;
 ```
 
@@ -501,12 +507,12 @@ Apple:      24/25 confirmed CLOSED ✅
 …
 ```
 
-If the false-close count > 0, dig into each one: pull `consecutive_misses`, `first_seen_at`, `last_seen_at`, `closed_on` and look for patterns (timing tied to a recent deploy? pagination boundary? dedup collision?).
+If the false-close count > 0, dig into each one: pull `consecutive_misses`, `created_at`, `last_seen_at`, `closed_on` and look for patterns (timing tied to a recent deploy? pagination boundary? dedup collision?). **Use `created_at`, not `first_seen_at`** — `first_seen_at` now holds the board's posting date, so a run of identical values means "the board stamped them the same day," not "we inserted them in one batch." `created_at` is the only column that still means insert time (`scripts/CLAUDE.md` § Job Lifecycle).
 
 ```sql
 -- last_seen_at / consecutive_misses exist ONLY in the sidecar; the
 -- job_listings copies were dropped by 18fe9c20a8fd (2026-08-05).
-SELECT j.id, j.title, j.company, j.closed_on, j.first_seen_at,
+SELECT j.id, j.title, j.company, j.closed_on, j.created_at,
        f.last_seen_at, f.consecutive_misses
 FROM job_listings j
 LEFT JOIN job_freshness f ON f.source_id = j.source_id AND f.id = j.id

@@ -123,13 +123,32 @@ Cross-cutting business logic you otherwise have to reassemble from `shared/datab
 
 | Step | Trigger | `job_listings` | `job_freshness` |
 | --- | --- | --- | --- |
-| **First seen** | id has no row → `INSERT` | `first_seen_at` = `created_at` = scrape time; `status='OPEN'` | AFTER INSERT trigger `job_freshness_sync` seeds `last_seen_at = NEW.first_seen_at`, `consecutive_misses = 0` |
+| **First seen** | id has no row → `INSERT` | `created_at` = scrape time; `first_seen_at` = the **effective posted date** (see below); `status='OPEN'` | AFTER INSERT trigger `job_freshness_sync` seeds `last_seen_at = now()`, `consecutive_misses = 0` |
 | **Seen again** | id is in this run's results | content columns refreshed *only on paths that upsert the whole board* (the backend `fetch_*` tasks). `shared/incremental.py` upserts only `new_ids`, so a still-OPEN job's content is not rewritten. | `update_last_seen` → `last_seen_at = now`, `consecutive_misses = 0` |
 | **Missed a run** | id was OPEN and is absent from this run | — | `increment_consecutive_misses` → `+1` |
 | **Closed** | `consecutive_misses >= MISSED_RUN_THRESHOLD` (2; 3 on an auto-released run) | `mark_jobs_closed` → `status='CLOSED'`, `closed_on = now` | untouched — misses stay frozen at the closing value |
 | **Reopened** | a CLOSED id reappears. It is not in `get_active_job_ids` (`status='OPEN'` only), so it lands in `new_ids` and goes through the **same** upsert a new job does — there is no separate reopen branch. | `_UPSERT_ON_CONFLICT` → `status='OPEN'`, `closed_on = NULL`, content columns refreshed | `_upsert_freshness` → `last_seen_at = now`, `consecutive_misses = 0` |
 
-**`first_seen_at` and `created_at` NEVER change after the insert.** Both are deliberately absent from `_UPSERT_ON_CONFLICT` (`shared/database.py`), and the only trigger on `job_listings` is AFTER **INSERT**. A job that closes and comes back keeps its **original** discovery date. Note that `batch_writer.py` *does* stamp a fresh `first_seen_at` on every buffered job — Postgres discards it on conflict, which is a common source of confusion.
+**`first_seen_at` is the effective posted date — not literally "when we first saw it".** It is seeded at INSERT from the board's own posting date when the board publishes a real one, and from first sight when it does not:
+
+```
+first_seen_at = the board's posted date, when the board gives us a real one
+              = now()                    otherwise
+```
+
+| Column | Means | Read by |
+| --- | --- | --- |
+| **`first_seen_at`** | the **effective posted date** | everything a person sees, keyset pagination, the enricher's claim |
+| **`created_at`** | **the true insert time** — the only column that still means "when this row entered the DB" | the audit trail: deploy correlation, onboarding-batch/bulk-insert forensics |
+| **`posted_on`** | the **raw** board value, re-stamped on every upsert | diagnostics only — never sort or filter by it |
+
+**A board that gives a bucket instead of a date has given us no date.** Workday's `"Posted 30+ Days Ago"` is a bucket boundary, so `_parse_workday_date` returns `None` for it and the row falls back to first sight — while `"Posted Today"` / `"Yesterday"` / `"N Days Ago"` are real dates and are kept. Same rule on the custom/recipe path: a humanized string (`"about 12 hours"`) parses to `None` (`recipe_runner.py::_parse_date_value`). **Never synthesise a date from a bucket** — nothing downstream can tell a fabricated timestamp from a real one. Rationale, the measured per-board accuracy, and the per-source table: `docs/implementations/custom-company-sources/POSTED-DATE-PLAN.md`.
+
+**"A real one" is parse-safety, not a staleness judgement.** `scripts/shared/posted_date.py` is the single parser: it rejects only what *cannot* be a date — unparseable values, and anything more than 7 days in the future — and returns `None`, never `now()`. There is deliberately **no age floor**: a board that stamps a 2009 date on a job it re-listed today is publishing a wrong date and we pass it straight through. Do not add one.
+
+**The freshness trigger deliberately does NOT copy `first_seen_at`.** It seeds `last_seen_at = now()`, because `last_seen_at` is an observation — we did just see this job — while `first_seen_at` can be months old. Do not "restore" the older `NEW.first_seen_at` seed: it backdates freshness on every plain INSERT, and makes `last_seen_at` mean two different things depending on which write path created the row. (Even then it could not wrong-close anything: the close sweep is `consecutive_misses >= threshold` and **no time-based close exists**.)
+
+**`first_seen_at` and `created_at` NEVER change after the insert.** Both are deliberately absent from `_UPSERT_ON_CONFLICT` (`shared/database.py`), and the only trigger on `job_listings` is AFTER **INSERT**. A job that closes and comes back keeps its **original** date. Note that `batch_writer.py` *does* stamp a `first_seen_at` on every buffered job — Postgres discards it on conflict, which is a common source of confusion. **The quiet way to break all of this is to add `first_seen_at` to `_UPSERT_ON_CONFLICT`'s SET list:** it compiles, most tests still pass, and it silently imports every board's date drift (Workday re-stamps its relative dates daily) while destroying the reopen guarantee.
 
 That immutability is load-bearing, not incidental: keyset pagination (`ORDER BY first_seen_at DESC, source_id DESC, id DESC`) and the enricher's `/pending` claim both sort on it, and a value that moved mid-walk would reshuffle pages and silently skip rows. See commit `8e71fad` (#215) and `src/backend/api/pagination.py`.
 

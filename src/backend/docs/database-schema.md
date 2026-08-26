@@ -242,25 +242,34 @@ filter. Any request not filtering to `OPEN` (including one that omits `status`) 
 it and sorts instead.
 
 **Recency fields — which to trust (READ THIS before sorting/filtering by "recency"):**
-- **`first_seen_at`** — when the scraper FIRST saw this listing. Set once at discovery and
-  **preserved across close→reopen** (`upsert_job` ON CONFLICT keeps it; `database.py`). This
-  is our **reliable "new to us" signal** and the field to order by for "freshest first"
-  (e.g. the `/api/internal/enrichment/pending` claim orders `first_seen_at DESC`).
+- **`first_seen_at`** — **the effective posted date**, not literally "when we first saw it":
+  seeded at INSERT from the board's own posting date when the board publishes a real one,
+  and from first sight when it does not. Set once and **preserved across close→reopen**
+  (`upsert_job` ON CONFLICT keeps it; `database.py`). This is **the** recency field — order by
+  it for "freshest first" (the keyset ordering below; the `/api/internal/enrichment/pending`
+  claim orders `first_seen_at DESC`). The full rule — including why a relative bucket like
+  Workday's `"Posted 30+ Days Ago"` counts as no date at all — is in
+  **`scripts/CLAUDE.md` § Job Lifecycle**.
 - **`last_seen_at`** (on **`job_freshness`**, NOT `job_listings` — see below) — last scrape
   that still saw the job; **bumped to now() on every pass a job is still OPEN**, and drives
   close-detection (`consecutive_misses`). It signals "still actively listed," NOT freshness:
   it clusters at ~now across the whole open backlog, so it **cannot rank a job posted today
   above one open for months**. Good for "is it live," bad for prioritizing new work.
-- **`posted_on`** — the ATS-supplied posting date. **UNRELIABLE: do not use it as a recency
-  signal.** Companies reuse/repost old listings, so ~8.6% of OPEN rows carry a `posted_on`
-  >180 days (some >16 years) before we first saw them, and ~2.6% are NULL. Sorting by it
-  buries freshly re-listed jobs.
-- **`created_at`** — DB row-insert time (`server_default now()`); ~equal to `first_seen_at`
-  (within a day) today. Not a recency signal to prefer over `first_seen_at`. The frontend
-  does not surface this column directly: the normalized `Job.createdAt` is built as
-  `posted_on || first_seen_at` and used ONLY for the "Posted X ago" display label. Every
-  frontend recency operation — the time-window filter, the "most recent" sort, the
-  activity-over-time graph buckets, and the last-24h/3h counts — keys off `first_seen_at`
+- **`posted_on`** — the **raw** ATS-supplied value, kept for diagnostics: it is the only place
+  the board's own claim survives verbatim. **Still do not sort, filter or paginate on it.** It
+  is mutable — it IS in `_UPSERT_ON_CONFLICT`, so every scrape re-stamps it and any cursor into
+  an ordering keyed on it is invalidated by the next cycle. It is NULL wherever the board
+  publishes nothing or only a bucket. And boards reuse/repost listings, so ~8.6% of OPEN rows
+  carry a `posted_on` >180 days (some >16 years) before we first saw them. Its **credible**
+  values already reach the product through `first_seen_at` — read that instead.
+- **`created_at`** — DB row-insert time (`server_default now()`), and **the only column that
+  still means that**: because `first_seen_at` now carries the board's date, a row inserted today
+  can have a `first_seen_at` months old. Use `created_at`, never `first_seen_at`, for
+  insert-time forensics — deploy correlation, spotting an onboarding batch. Not a user-facing
+  recency signal. The frontend does not surface this column directly: the normalized
+  `Job.createdAt` is built as `posted_on || first_seen_at` and used ONLY for the "Posted X ago"
+  display label. Every frontend recency operation — the time-window filter, the "most recent"
+  sort, the activity-over-time graph buckets, and the last-24h/3h counts — keys off `first_seen_at`
   (see `src/frontend/src/features/filters/utils/jobFilteringUtils.ts`, `lib/timeBucketing.ts`,
   `lib/date.ts`, and `Job.firstSeenAt` in `src/frontend/src/types/index.ts`). The backend
   `/api/jobs` list has **two orderings, and which one you get depends on the request**:

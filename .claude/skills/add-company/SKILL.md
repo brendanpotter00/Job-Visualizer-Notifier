@@ -85,6 +85,28 @@ The token can differ from `id` (e.g. Greenhouse `optiver` → `optiverprivate`,
 
 ---
 
+## Step 0.5 — Note what the board publishes as a posting date
+
+While you still have the Step 0 URL open, look at the date field in the payload.
+**Informational only — there is nothing to configure.** It tells you which date this
+company's jobs will show, and it is the cheapest moment to notice a board whose dates
+are junk.
+
+| What the board gives you | Example | What lands in `first_seen_at` |
+|---|---|---|
+| A real timestamp | `"2026-08-19T14:02:11Z"`, `1787617881` | the board's date |
+| Relative but pinned to a day | `"Posted Today"`, `"Posted 3 Days Ago"` | the board's date |
+| **A bucket** | `"Posted 30+ Days Ago"` | **first sight** — a bucket is not a date |
+| Nothing / `null` | — | first sight |
+
+`first_seen_at` is the **effective posted date** — the field every recency surface sorts
+by (**`scripts/CLAUDE.md` § Job Lifecycle**). If a board's dates are wrong, the fix belongs
+in `src/backend/api/services/<ats>_client.py`, or in the recipe for a custom company —
+**never a per-company config toggle.** There is no date-policy column and there is not
+going to be one: every company on the same ATS gets the same rule.
+
+---
+
 ## Step 1 — Frontend: `companies.ts`
 
 Add a `createBackendScraperCompany(...)` call in the section for that ATS, and a
@@ -217,6 +239,7 @@ npm test                                                            # incl. comp
 Checklist before declaring done:
 - [ ] `companies.ts` entry + `COMPANY_IDS` member (alphabetical), `sourceAts` set
 - [ ] seed migration present, `down_revision` == current head, **single head**
+- [ ] confirmed what the board's posted date actually is (step 0.5)
 - [ ] `changelog.ts` top entry (recent achievement / reason, today's date)
 - [ ] `icons/<id>.png` + `wordmarks/<id>.png` committed (logo skill)
 - [ ] `npm run type-check` + `npm test` green
@@ -225,14 +248,14 @@ Checklist before declaring done:
 
 ## Per-ATS reference
 
-| ATS | `ats` column | `provider_config` | board_token notes |
-|-----|--------------|-------------------|-------------------|
-| greenhouse | `greenhouse` | — | often `id`; can differ (optiver→optiverprivate) |
-| ashby | `ashby` | — | lowercase, case-sensitive |
-| lever | `lever` | — | company slug |
-| gem | `gem` | — | company slug |
-| eightfold | `eightfold` | `{tenant_host, domain}` | tenant_host on SSRF allowlist (`eightfold_client.py`) |
-| workday | `workday` | `{base_url, tenant_slug, career_site_slug, default_facets?}` | slug under base_url |
+| ATS | `ats` column | `provider_config` | board_token notes | Posted date (step 0.5) |
+|-----|--------------|-------------------|-------------------|------------------------|
+| greenhouse | `greenhouse` | — | often `id`; can differ (optiver→optiverprivate) | `first_published` ‖ `updated_at` |
+| ashby | `ashby` | — | lowercase, case-sensitive | `publishedAt` |
+| lever | `lever` | — | company slug | `createdAt` (unix ms); never refreshed when a job is re-listed |
+| gem | `gem` | — | company slug | `first_published_at` ‖ `created_at` |
+| eightfold | `eightfold` | `{tenant_host, domain}` | tenant_host on SSRF allowlist (`eightfold_client.py`) | `t_create` (unix s) |
+| workday | `workday` | `{base_url, tenant_slug, career_site_slug, default_facets?}` | slug under base_url | `postedOn` — **relative English; the `30+` bucket is not a date** |
 
 ## Bundled scripts (`.claude/skills/add-company/scripts/`)
 
@@ -251,6 +274,11 @@ Checklist before declaring done:
   crash-loop on boot.
 - **Verify `board_token` live first** (step 0). A wrong/cased token = a company
   that silently fetches zero jobs.
+- **A bucket is not a posting date.** A board that publishes a relative date it
+  cannot pin to a day — `"Posted 30+ Days Ago"`, `"about 12 hours"` — has not
+  published a posting date. **Do not synthesise one**; the row correctly falls
+  back to first sight. (`"Posted Today"` / `"Posted 3 Days Ago"` do pin to a day
+  and are kept.)
 - **`id` is forever.** It's the PK, every filename, and the logo key. Choose it
   carefully; renaming later touches the DB, frontend, and assets.
 - **Logos are CI-gated** — generate them with `fetch-company-logo` or `npm test`
