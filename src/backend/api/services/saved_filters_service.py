@@ -66,14 +66,16 @@ BUILTIN_SWE_LIST: dict[str, Any] = {
 
 # Server defaults returned when a user has no ``user_saved_filters`` row.
 #
-# 90 days for both pages so a signed-in user who has never saved a filter lands
-# on the same default view as a logged-out visitor (whose default lives in the
-# frontend filter slices, `graphFiltersSlice` / `recentJobsFiltersSlice`). The
+# Each page's value mirrors the matching frontend filter slice
+# (`recentJobsFiltersSlice` / `graphFiltersSlice`) so a signed-in user who has
+# never saved a filter lands on the same default view as a logged-out visitor.
+# Recent opens on all time (a recency feed should show everything until the
+# reader narrows it); the trend chart stays bounded at 90 days. The
 # ``user_saved_filters`` columns still carry their original '3h'/'7d' DB
 # ``server_default``, but that is dead weight: every insert goes through
 # ``upsert_saved_filters`` with explicit values, so the DB default never
-# surfaces — this constant is the authoritative no-row default.
-_DEFAULT_RECENT_TIME_WINDOW = "90d"
+# surfaces — these constants are the authoritative no-row defaults.
+_DEFAULT_RECENT_TIME_WINDOW = "all"
 _DEFAULT_TREND_TIME_WINDOW = "90d"
 
 

@@ -4,7 +4,7 @@ import type { Company } from '../types';
  * Greenhouse, Ashby, Lever, Gem, Eightfold, and Workday boards now flow
  * through the backend `/api/jobs` endpoint, so they share the
  * `backend-scraper` ATS type with the true custom scrapers (Google,
- * Apple, Microsoft). The `Company.sourceAts` field tags migrated
+ * Apple, Microsoft, Amazon). The `Company.sourceAts` field tags migrated
  * providers so the UI can show their original provider instead of
  * lumping them in with the custom scrapers.
  *
@@ -49,9 +49,9 @@ export const NON_CAPITALIZED_GROUPS: ReadonlySet<ATSGroupKey> = new Set([
  * Company Hiring Trends header. The `backend-scraper` ATS type is only the
  * fetch mechanism — every company's jobs originate from its original provider,
  * so we resolve that via `sourceAts` (Greenhouse/Ashby/Lever/Gem/Eightfold/
- * Workday). The true custom scrapers (Google/Apple/Microsoft) carry no
+ * Workday). The true custom scrapers (Google/Apple/Microsoft/Amazon) carry no
  * `sourceAts` and are labeled "Custom Web Scraper" (singular, unlike the Why
- * page's plural column header which groups all three).
+ * page's plural column header which groups all four).
  */
 export function getCompanySourceLabel(company: Company): string {
   const key = getATSGroupKey(company);

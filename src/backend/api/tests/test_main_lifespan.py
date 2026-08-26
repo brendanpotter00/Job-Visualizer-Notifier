@@ -52,7 +52,7 @@ class TestLifespanHappyPath:
     def test_apply_migrations_called_with_settings_then_init_pool(self):
         call_order: list[str] = []
 
-        def _fake_apply(database_url):
+        def _fake_apply(database_url, **kwargs):
             call_order.append("apply")
 
         def _fake_init(*args, **kwargs):
@@ -84,7 +84,7 @@ class TestLifespanHappyPath:
         # async function itself) rather than side_effect — MagicMock with a
         # coroutine-returning side_effect confuses asyncio.create_task and
         # emits "coroutine was never awaited" warnings.
-        with patch.object(api_main, "apply_alembic_migrations", side_effect=_fake_apply) as mock_apply, \
+        with patch.object(api_main, "apply_alembic_migrations_with_retry", side_effect=_fake_apply) as mock_apply, \
              patch.object(api_main, "init_pool", side_effect=_fake_init) as mock_init, \
              patch.object(api_main, "close_pool") as mock_close, \
              patch.object(api_main, "procrastinate_app", new=fake_procrastinate), \
@@ -99,7 +99,10 @@ class TestLifespanHappyPath:
                 # lifespan succeeded enough for the app to handle a request.
                 assert response.status_code in (200, 503)
 
-        mock_apply.assert_called_once_with(settings.database_url)
+        mock_apply.assert_called_once_with(
+            settings.database_url,
+            max_wait_seconds=settings.db_boot_connect_retry_seconds,
+        )
         mock_init.assert_called_once()
         # apply must precede open (Procrastinate connector) which must
         # precede init (request-path pool) which must precede the worker and
@@ -138,7 +141,7 @@ class TestLifespanFailurePath:
         fake_procrastinate = _make_fake_procrastinate()
         async def _fake_ensure_schema(app):
             pass
-        with patch.object(api_main, "apply_alembic_migrations", side_effect=RuntimeError("boom")) as mock_apply, \
+        with patch.object(api_main, "apply_alembic_migrations_with_retry", side_effect=RuntimeError("boom")) as mock_apply, \
              patch.object(api_main, "init_pool") as mock_init, \
              patch.object(api_main, "close_pool") as mock_close, \
              patch.object(api_main, "procrastinate_app", new=fake_procrastinate), \
@@ -155,6 +158,45 @@ class TestLifespanFailurePath:
         mock_close.assert_not_called()
         fake_procrastinate.open_async.assert_not_called()
         fake_procrastinate.close_async.assert_not_called()
+
+
+class TestLifespanWatchdog:
+    def test_watchdog_starts_before_migrations_and_stops_on_shutdown(self):
+        """Pins the 2026-08-10 boot-coverage contract: the DB watchdog must
+        be running BEFORE migrations (a frozen DB can hang the migration
+        engine; only the watchdog can unstick that boot), and must be
+        stopped on clean shutdown."""
+        call_order: list[str] = []
+
+        def _fake_apply(database_url, **kwargs):
+            call_order.append("apply")
+
+        fake_procrastinate = _make_fake_procrastinate()
+
+        async def _fake_ensure_schema(app):
+            pass
+
+        fake_watchdog = MagicMock()
+        fake_watchdog.start.side_effect = lambda: call_order.append("watchdog_start")
+
+        from api.config import settings as app_settings
+
+        with patch.object(app_settings, "db_watchdog_enabled", True), \
+             patch.object(api_main, "DbWatchdog", return_value=fake_watchdog) as mock_cls, \
+             patch.object(api_main, "apply_alembic_migrations_with_retry", side_effect=_fake_apply), \
+             patch.object(api_main, "init_pool"), \
+             patch.object(api_main, "close_pool"), \
+             patch.object(api_main, "procrastinate_app", new=fake_procrastinate), \
+             patch.object(api_main, "ensure_schema_async", new=_fake_ensure_schema), \
+             patch("api.services.auto_scraper.auto_scraper_loop", new=_noop_coro):
+            with TestClient(api_main.app):
+                pass
+
+        mock_cls.assert_called_once()
+        assert call_order.index("watchdog_start") < call_order.index("apply"), (
+            f"watchdog must start before migrations; got {call_order}"
+        )
+        fake_watchdog.stop.assert_called_once()
 
 
 async def _noop_coro(*args, **kwargs):
@@ -210,7 +252,7 @@ class TestLifespanSeedFailureGuard:
                  "api.dependencies.get_db",
                  side_effect=lambda: self._fake_get_db(),
              ), \
-             patch.object(api_main, "apply_alembic_migrations") as mock_apply, \
+             patch.object(api_main, "apply_alembic_migrations_with_retry") as mock_apply, \
              patch.object(api_main, "init_pool") as mock_init, \
              patch.object(api_main, "close_pool"), \
              patch.object(api_main, "procrastinate_app", new=fake_procrastinate), \
@@ -254,7 +296,7 @@ class TestLifespanSeedFailureGuard:
                  "api.dependencies.get_db",
                  side_effect=lambda: self._fake_get_db(),
              ), \
-             patch.object(api_main, "apply_alembic_migrations"), \
+             patch.object(api_main, "apply_alembic_migrations_with_retry"), \
              patch.object(api_main, "init_pool"), \
              patch.object(api_main, "close_pool"), \
              patch.object(api_main, "procrastinate_app", new=fake_procrastinate), \
@@ -308,7 +350,7 @@ class TestLifespanCompanyProfilesSeedFailureGuard:
                  "api.dependencies.get_db",
                  side_effect=lambda: self._fake_get_db(),
              ), \
-             patch.object(api_main, "apply_alembic_migrations") as mock_apply, \
+             patch.object(api_main, "apply_alembic_migrations_with_retry") as mock_apply, \
              patch.object(api_main, "init_pool") as mock_init, \
              patch.object(api_main, "close_pool"), \
              patch.object(api_main, "procrastinate_app", new=fake_procrastinate), \

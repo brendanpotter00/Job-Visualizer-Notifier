@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Multi-Company Job Scraper - A Python-based web scraping framework that extracts job listings from multiple company career sites. Currently supports **Google Careers** (Playwright browser automation), **Apple Jobs** (hybrid HTML + API approach), and **Microsoft Careers** (Eightfold ATS JSON APIs). Designed to feed structured job data into the Job Visualizer application with support for incremental scraping, database persistence, and comprehensive error handling.
+Multi-Company Job Scraper - A Python-based web scraping framework that extracts job listings from multiple company career sites. Currently supports **Google Careers** (Playwright browser automation), **Apple Jobs** (hybrid HTML + API approach), **Microsoft Careers** (Eightfold ATS JSON APIs), **Amazon Jobs** (public JSON search endpoint, no detail fetch), and **TikTok Jobs** (public JSON search endpoint, POST, no detail fetch). Designed to feed structured job data into the Job Visualizer application with support for incremental scraping, database persistence, and comprehensive error handling.
 
 ## Commands
 
@@ -17,6 +17,14 @@ python scripts/run_scraper.py --company apple --detail-scrape           # Apple 
 # Microsoft Scraper
 python scripts/run_scraper.py --company microsoft                       # Microsoft scrape (list data only)
 python scripts/run_scraper.py --company microsoft --detail-scrape       # Microsoft with job details
+
+# Amazon Scraper
+python scripts/run_scraper.py --company amazon                          # Amazon scrape
+python scripts/run_scraper.py --company amazon --max-jobs 10 -v         # Quick smoke test
+
+# TikTok Scraper
+python scripts/run_scraper.py --company tiktok                          # TikTok scrape
+python scripts/run_scraper.py --company tiktok --max-jobs 10 -v         # Quick smoke test
 
 python scripts/run_scraper.py --company all                             # Run all scrapers
 
@@ -45,7 +53,7 @@ pip install -r scripts/requirements-dev.txt      # Install dev dependencies (tes
 ## CLI Options
 
 ```
---company {google,apple,microsoft,all}  # Which scraper to run (default: google)
+--company {google,apple,microsoft,amazon,tiktok,all}  # Which scraper to run (default: google)
 --db-url URL                  # PostgreSQL connection URL
 --incremental                 # Run incremental mode (requires --db-url)
 --detail-scrape               # Scrape individual job detail pages
@@ -87,8 +95,8 @@ pip install -r scripts/requirements-dev.txt      # Install dev dependencies (tes
 
 **Testing:**
 - `tests/conftest.py` - Shared pytest fixtures
-- `tests/unit/` - Unit tests (16 files)
-- `tests/integration/` - Integration tests (11 files)
+- `tests/unit/` - Unit tests
+- `tests/integration/` - Integration tests
 - `pytest.ini` - Test configuration
 
 **Data Flow:**
@@ -170,6 +178,88 @@ The Microsoft scraper uses **Eightfold ATS JSON APIs**:
 - `JOBS_PER_PAGE` - 10 (Microsoft's pagination size)
 - `MAX_PAGES` - Maximum pages to scrape (500)
 - Rate limits and timeouts
+
+## Amazon Scraper Details
+
+The Amazon scraper is **API-only** — no HTML parsing and no detail-fetch phase:
+
+1. **Single JSON endpoint:** `GET https://www.amazon.jobs/en/search.json` with
+   `offset` / `result_limit` / `sort=recent` / `country=USA` / `base_query`
+2. **Descriptions arrive inline:** the list row carries `description`,
+   `basic_qualifications`, and `preferred_qualifications`, so
+   `scrape_job_details_streaming` is a deliberate **pass-through**
+
+**Key Differences from Other Scrapers:**
+- **No detail fetch.** Overriding the streaming method is mandatory, not an
+  optimization — the BaseScraper default would open a page and sleep 2-5s per
+  job (45-110 min for a ~1,300 job board, past `SCRAPER_TIMEOUT_MINUTES`).
+- **Requisition id, not the GUID.** Key on `id_icims`; the `id` field is a GUID
+  that never appears in the canonical URL.
+- **`result_limit` is hard-capped at 100.** Asking for 200 returns
+  `{"error": "...", "jobs": null}` — note `jobs` is `null`, not `[]`.
+- **`posted_date` is date-only English** ("August  8, 2026", with a double
+  space), normalised to a 10-char `YYYY-MM-DD`. Note that `posted_on` is a
+  `timestamptz`, so Postgres casts that to UTC midnight on write — the bare
+  date is the honest encoding of a date-only source, not a way to avoid the
+  timezone skew. Recency UI reads `firstSeenAt`, so impact is minimal.
+- **Same-origin navigation is required.** search.json sends no
+  `Access-Control-Allow-Origin`, so the in-page `fetch()` is blocked unless the
+  page is already on an amazon.jobs origin (`_establish_session`).
+- **Control bytes.** Amazon intermittently embeds raw `\x01` in description
+  HTML, which V8's `JSON.parse` rejects. `_FETCH_JS` parses `r.text()` and only
+  sanitises on failure, so healthy payloads are never mutated.
+
+**Amazon Configuration (`amazon_jobs_scraper/config.py`):**
+- `SEARCH_QUERIES` - `["software engineer"]` (server-side `base_query`)
+- `COUNTRY` - `USA`
+- `INCLUDE_TITLE_KEYWORDS` / `EXCLUDE_TITLE_KEYWORDS` - title filters. EXCLUDE is
+  matched on **word boundaries** and only against the **role segment** (text
+  before the first comma). As a bare substring "HR" matches "T-h-r-eat"; matched
+  against the whole title, "recruiting" in a *team* name killed a real
+  "Principal Engineer, … Global Specialty Recruiting Team" req. An empty
+  EXCLUDE list means "exclude nothing" (an unguarded empty alternation would
+  reject the whole board).
+- `JOBS_PER_PAGE` - 100 (API hard cap)
+- `MAX_PAGES` - 50 safety bound (live `hits` was 1303)
+
+## TikTok Scraper Details
+
+The TikTok scraper is **API-only** — no HTML parsing and no detail-fetch phase:
+
+1. **Single JSON endpoint:** `POST https://api.lifeattiktok.com/api/v1/public/supplier/search/job/posts`
+2. **Descriptions arrive inline:** the row carries plain-text `description` and
+   `requirement`, so `scrape_job_details_streaming` is a **pass-through**
+
+**Key Differences from Other Scrapers:**
+- **POST, not GET.** Pagination and keyword live in a JSON body, not the query string.
+- **`website-path: tiktok` header is REQUIRED** — without it the edge returns HTTP 400.
+- **HTTP 200 can still be an error.** The envelope carries `code`; a non-zero
+  value raises rather than returning partial results, because swallowing it
+  would let the incremental lifecycle close the whole company during an outage.
+- **No posted date exists.** Nothing in the payload carries one, so `posted_on`
+  is always `None` and `first_seen_at` is the only honest signal.
+- **Location is filtered client-side.** `location_code_list` takes *city* codes
+  (`CT_163`); passing a country code (`CN_6` = USA) silently returns zero
+  results, so the US filter matches on the flattened `city_info` string instead.
+- **Same-origin navigation is required.** The API sends no
+  `Access-Control-Allow-Origin`, so the in-page `fetch()` only works once the
+  page is on lifeattiktok.com (`_establish_session`).
+- **Descriptions are plain text** — no HTML stripping, unlike Amazon.
+- **An incomplete run raises, it never returns short.** Exhausting the retry
+  budget or the page budget raises `JobSearchError` and discards what was
+  collected. A truncated list is indistinguishable from "these jobs are gone"
+  to the incremental lifecycle, and losing one TikTok page is only ~13% of the
+  kept board — inside the `partial_scrape` guard's ~85% blind spot, so it would
+  reach close-detection. Same reasoning as Amazon; see
+  `docs/incidents/2026-03-29-mass-job-closure.md`.
+
+**TikTok Configuration (`tiktok_jobs_scraper/config.py`):**
+- `SEARCH_QUERIES` - `["software engineer"]` (~716 of a ~3,900 global catalogue)
+- `LOCATION_FILTER` - `"United States"`, applied client-side
+- `INCLUDE_TITLE_KEYWORDS` / `EXCLUDE_TITLE_KEYWORDS` - title filters; EXCLUDE is
+  matched on **word boundaries** ("HR" as a substring matches "T-h-r-eat")
+- `JOBS_PER_PAGE` - 100
+- `MAX_PAGES` - 50 safety bound (hitting it raises rather than truncating)
 
 ## Common Tasks
 
@@ -253,50 +343,6 @@ Edit company-specific `config.py`:
 12. **Apple Job IDs Include Location**: Apple job IDs have location suffix for uniqueness - this is intentional to distinguish same role in different locations
 13. **Microsoft Uses Eightfold APIs**: Microsoft scraper primarily uses JSON APIs (`/api/pcsx/*`) with HTML fallback - if APIs change, check Eightfold documentation
 14. **Microsoft Position IDs are Large Numbers**: Microsoft uses 16-digit numeric position IDs - ensure database columns can handle large integers or store as strings
-
-## Key Files
-
-**Entry Points:**
-- `scripts/run_scraper.py` - Multi-company CLI (JSON/Database modes)
-
-**Google-Specific:**
-- Main Logic: `scripts/google_jobs_scraper/scraper.py` - Playwright browser automation (extends BaseScraper)
-- HTML Parsing: `scripts/google_jobs_scraper/parser.py` - HTML parsing and data extraction
-- Data Models: `scripts/google_jobs_scraper/models.py`
-- Configuration: `scripts/google_jobs_scraper/config.py`
-- CLI Orchestration: `scripts/google_jobs_scraper/main.py` (JSON mode)
-- Utilities: `scripts/google_jobs_scraper/utils.py`
-
-**Apple-Specific:**
-- Main Logic: `scripts/apple_jobs_scraper/scraper.py` - Hybrid HTML+API scraper (extends BaseScraper)
-- HTML Parsing: `scripts/apple_jobs_scraper/parser.py` - HTML parsing for list/search result pages
-- API Client: `scripts/apple_jobs_scraper/api_client.py` - JSON API client for job details
-- Configuration: `scripts/apple_jobs_scraper/config.py`
-
-**Microsoft-Specific:**
-- Main Logic: `scripts/microsoft_jobs_scraper/scraper.py` - Eightfold API + HTML fallback scraper (extends BaseScraper)
-- HTML Parsing: `scripts/microsoft_jobs_scraper/parser.py`
-- API Client: `scripts/microsoft_jobs_scraper/api_client.py` - `/api/pcsx/search` and position_details client
-- Configuration: `scripts/microsoft_jobs_scraper/config.py`
-
-**Shared Modules:**
-- `scripts/shared/base_scraper.py` - Abstract base class for all company scrapers
-- `scripts/shared/database.py` - PostgreSQL database layer with CRUD operations
-- `scripts/shared/incremental.py` - 5-phase incremental scraping algorithm
-- `scripts/shared/models.py` - Database-aligned Pydantic models (JobListing, ScrapeRun)
-- `scripts/shared/batch_writer.py` - Buffered batch writing utility
-- `scripts/shared/utils.py` - Shared utilities (timestamps)
-
-**Testing:**
-- Test Config: `scripts/pytest.ini`
-- Fixtures: `scripts/tests/conftest.py`
-- Unit tests: `scripts/tests/unit/`
-- Integration tests: `scripts/tests/integration/`
-
-**Output:**
-- JSON: `scripts/output/google_jobs.json` (`scripts/output/` is created at runtime by `ensure_output_directory()` — not committed to the repo)
-- Checkpoint: `scripts/output/.checkpoint.json` (temporary, JSON mode; auto-deleted on success)
-- Database: PostgreSQL connection
 
 ## See Also
 

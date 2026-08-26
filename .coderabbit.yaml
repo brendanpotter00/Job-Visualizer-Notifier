@@ -1,0 +1,241 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+#
+# CodeRabbit configuration — Job-Visualizer-Notifier
+# Reference: https://docs.coderabbit.ai/reference/configuration
+#
+# This repository is public, so CodeRabbit reviews are free with no seat limit.
+# `enable_free_tier` keeps that path active — do not set it to false.
+
+language: en-US
+early_access: false
+enable_free_tier: true
+
+tone_instructions: >-
+  Be direct and concise. Skip praise and restatement. Raise an issue only when
+  you can name the concrete failure it causes; if unsure, say so rather than
+  asserting. Prefer one specific fix. ESLint, tsc, mypy and pytest
+  already gate CI.
+
+reviews:
+  profile: chill
+  request_changes_workflow: false
+
+  high_level_summary: true
+  changed_files_summary: true
+  collapse_walkthrough: true
+  sequence_diagrams: true
+  estimate_code_review_effort: true
+  assess_linked_issues: true
+  related_issues: true
+  related_prs: true
+
+  review_status: true
+  commit_status: true
+  # Never block a merge on the review itself — CI is the gate, CodeRabbit advises.
+  fail_commit_status: false
+
+  # Solo-maintained repo: nobody to suggest, and the cosmetics are just noise.
+  suggested_reviewers: false
+  auto_assign_reviewers: false
+  suggested_labels: true
+  auto_apply_labels: false
+  poem: false
+  in_progress_fortune: false
+
+  abort_on_close: true
+
+  auto_review:
+    enabled: true
+    # Draft PRs stay quiet — WIP pushes should not trigger reviews.
+    drafts: false
+    auto_incremental_review: true
+    base_branches:
+      - main
+    ignore_title_keywords:
+      - wip
+      - "[skip review]"
+
+  path_filters:
+    - "!**/node_modules/**"
+    - "!**/dist/**"
+    - "!**/build/**"
+    - "!**/coverage/**"
+    - "!**/__pycache__/**"
+    - "!.venv/**"
+    - "!**/*.lock"
+    - "!package-lock.json"
+    - "!**/*.png"
+    - "!**/*.svg"
+    - "!**/*.ico"
+    - "!src/frontend/public/**"
+    - "!scripts/output/**"
+    - "!src/backend/api/eval/results/**"
+    - "!docs/learning/**"
+
+  path_instructions:
+    - path: "src/frontend/src/**/*.{ts,tsx}"
+      instructions: >-
+        Enforce the Frontend Foundations rules in src/frontend/CLAUDE.md.
+        (1) Redux consumers must import useAppDispatch/useAppSelector from
+        app/hooks.ts — raw useDispatch/useSelector from react-redux anywhere
+        outside app/hooks.ts is a defect. (2) Page-level data loads use RTK
+        Query or the useFetchWithStatus hook, never a hand-rolled
+        useState+useEffect+fetch block; user-action mutations are exempt.
+        (3) Error decoding goes through extractErrorMessage from lib/errors.ts
+        — flag new `err instanceof Error ? … : …` ternaries and new
+        `'data' in err` blocks. (4) Page-level loading/error UI uses
+        LoadingState / ErrorState from components/shared, not a raw
+        CircularProgress centered in a Box or a raw Alert severity="error";
+        nested skeletons are fine. (5) Mobile sizing consumes the RESPONSIVE
+        tokens in config/responsive.ts — a new hard-coded pixel size, font, or
+        padding that should be a token is a defect, and wide tables need
+        TABLE_SCROLL_SX. (6) New eslint-disable directives are not allowed; if
+        one appears, require it to be justified and added to the authoritative
+        list in src/frontend/CLAUDE.md in the same PR. (7) Any table that can
+        render 100+ rows must paginate — unpaginated large tables have caused
+        multi-GB browser memory blowups here.
+
+    - path: "src/backend/api/**/*.py"
+      instructions: >-
+        mypy runs in CI ahead of pytest and a type error fails the build. Every
+        function in production code under api/ needs typed parameters and a
+        return type (disallow_untyped_defs + disallow_incomplete_defs). Database
+        rows that cross into routers must be carried as TypedDict via
+        typing.cast, so that a db_models column rename surfaces as a mypy error
+        at the read site rather than a runtime KeyError — flag raw dict access on
+        DB rows in router code. Table names are env-agnostic and bare across all
+        environments; flag any reintroduction of an environment suffix or a read
+        of SCRAPER_ENVIRONMENT. Any new environment variable must also be added
+        to the configuration table in src/backend/CLAUDE.md in the same PR.
+
+    - path: "src/backend/alembic/versions/*.py"
+      instructions: >-
+        Migration review is high-stakes here — a migration once filled the
+        production Postgres volume (docs/incidents/2026-04-18-migration-filled-postgres-volume).
+        Verify that (1) down_revision is an actual assigned variable pointing at
+        the current head, not just a value mentioned in the docstring — a wrong
+        or stale down_revision silently forks the migration graph; (2) multiple
+        column additions to the same table are combined into a single ALTER
+        TABLE per the rule in docs/implementations/alembicMigration/DEPLOY.md,
+        rather than issued as separate statements; (3) the revision looks
+        autogenerated from db_models.py rather than hand-written; and (4) no
+        version_table= override is introduced — the tracker is the default
+        alembic_version. Call out any destructive DDL (DROP COLUMN, DROP TABLE,
+        type narrowing) explicitly and ask for the backfill/rollback plan.
+
+    - path: "src/backend/api/routers/**/*.py"
+      instructions: >-
+        For GET /api/jobs, the keyset pagination contract is load-bearing.
+        Passing neither `since` nor `cursor` must stay byte-identical to the
+        legacy path (ORDER BY last_seen_at DESC, bare array body, no
+        X-Next-Cursor header). `since` requires an explicit UTC offset — a naive
+        datetime is a 422, never assumed-UTC. A malformed `cursor` is a 422 with
+        a specific reason, never a silently-ignored parameter, because silent
+        fallback restarts the walk at page 1 with no signal to the client.
+        X-Next-Cursor is present if and only if the page came back full — its
+        absence is the only end-of-walk signal. If you add a response header to
+        this endpoint, it must be wired in all three hops (the api/jobs.ts
+        Vercel proxy re-emitting it, CORSMiddleware expose_headers in main.py,
+        and the Access-Control-Expose-Headers entry in vercel.json) or it will
+        silently never reach the client.
+
+    - path: "api/**/*.ts"
+      instructions: >-
+        These are Vercel serverless functions. Do not rely on process.env for
+        local-development configuration — `vercel dev` pulls env vars from the
+        linked Vercel project and they take absolute precedence over every local
+        .env file and even shell env vars; the api/utils/backendUrl.ts helper is
+        the sanctioned workaround. Note that forwardResponse copies status and
+        body only, so any response header the backend emits must be re-emitted
+        explicitly in the proxy or it is dropped. Flag any user-controlled value
+        that reaches an outbound URL without passing an allowlist check (SSRF).
+
+    - path: "scripts/**/*.py"
+      instructions: >-
+        Scraper correctness rule that overrides normal defensive-coding
+        instincts: a scrape must RAISE on any incomplete or partial exit. It
+        must never swallow an error and return the jobs it managed to collect,
+        because downstream close-detection treats absent jobs as closed and will
+        reap every job the scrape failed to fetch. Flag any try/except around
+        pagination, navigation, or fetch loops that lets the run report success
+        with fewer results than expected. Table names are bare and
+        env-agnostic — there is no --env flag and no SCRAPER_ENVIRONMENT. Rate
+        limiting delays are deliberately conservative; flag reductions.
+        Selector-based parsers (Google, Apple) break silently when the site
+        redesigns — prefer changes that fail loudly over ones that return empty.
+
+    - path: "**/{tests,__tests__}/**"
+      instructions: >-
+        Python tests isolate via a per-worker Postgres schema (PYTEST_SCHEMA =
+        test_<hex> plus SET search_path), with teardown by DROP SCHEMA CASCADE —
+        flag per-table cleanup or hard-coded schema names as a parallelism
+        hazard. Assertions should pin the specific behavior under test; flag
+        tests that would still pass if the feature were deleted, and tests that
+        assert on incidental formatting rather than contract.
+
+    - path: ".github/workflows/**"
+      instructions: >-
+        Flag unpinned third-party actions, secrets exposed to pull_request_target
+        contexts, and any step that would let fork PRs read repository secrets.
+
+  tools:
+    # Signal we actually want.
+    ruff:
+      enabled: true
+    eslint:
+      enabled: true
+    gitleaks:
+      enabled: true
+    actionlint:
+      enabled: true
+    hadolint:
+      enabled: true
+    shellcheck:
+      enabled: true
+    github-checks:
+      enabled: true
+
+    # Duplicates of the above, or linters this repo does not use — off so the
+    # same finding is not reported two or three different ways.
+    flake8:
+      enabled: false
+    pylint:
+      enabled: false
+    biome:
+      enabled: false
+    oxc:
+      enabled: false
+    trufflehog:
+      enabled: false
+
+    # Prose and formatting noise on a documentation-heavy repository.
+    markdownlint:
+      enabled: false
+    languagetool:
+      enabled: false
+    yamllint:
+      enabled: false
+
+    # Infra scanners that mostly emit low-severity advisories here.
+    checkov:
+      enabled: false
+    trivy:
+      enabled: false
+
+chat:
+  auto_reply: true
+
+knowledge_base:
+  opt_out: false
+  learnings:
+    scope: auto
+  issues:
+    scope: auto
+  pull_requests:
+    scope: auto
+  code_guidelines:
+    enabled: true
+    filePatterns:
+      - "CLAUDE.md"
+      - "**/CLAUDE.md"
+      - "src/frontend/docs/RESPONSIVE.md"

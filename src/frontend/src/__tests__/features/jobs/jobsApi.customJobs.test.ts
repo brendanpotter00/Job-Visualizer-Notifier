@@ -553,6 +553,20 @@ describe('fetchNextJobsPage', () => {
   it('restarts the private walk from page 1 when the window widens', async () => {
     const { store, promise } = await seedFirstPage();
 
+    // `RECENT_JOBS_DEFAULT_WINDOW` is all-time, so a freshly loaded walk has
+    // nothing left to widen TO and this would assert against a no-op. Park it
+    // on a genuinely narrow window first — the same seeding trick the public
+    // widening block uses (`jobsApi.keyset.test.ts`) — so the widen below is
+    // real and the private half has a stale cursor to prove it discards.
+    globalThis.fetch = makeFetchMock((path) =>
+      path === CUSTOM_JOBS_PATH
+        ? { rows: [customRow('u-abc', 'cus-90d', '2026-08-08T00:00:00.000Z')], nextCursor: 'CUS-90D' }
+        : { rows: [makeRow('pub1', 'pub-90d', '2026-08-08T00:00:00.000Z')], nextCursor: 'PUB-90D' }
+    ) as unknown as typeof fetch;
+    await store.dispatch(jobsApi.endpoints.fetchNextJobsPage.initiate({ window: '90d' }));
+    await flush();
+    expect(getAllJobsData(store)?.cursors[CUSTOM_JOBS_CHUNK_KEY]).toBe('CUS-90D');
+
     const fetchMock = makeFetchMock(() => ({ rows: [] }));
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
