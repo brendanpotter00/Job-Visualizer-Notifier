@@ -368,6 +368,18 @@ def test_the_closed_key_set_carries_description_and_not_department() -> None:
     assert "department:" not in rs.SYSTEM_PROMPT
 
 
+def test_the_prompt_asks_for_the_field_that_differs_between_jobs() -> None:
+    """A measured fix, not a style note. Asked for Atlassian's description the model
+    first answered ``overview`` — the field that opens 'Working at Atlassian…' on every
+    posting: 294 characters of shared boilerplate and only 154 DISTINCT texts across 248
+    records. It passes ``DESCRIPTION_SQL IS NOT NULL`` and tells a classifier nothing.
+    The schema allows exactly ONE path, so the tie-break has to live in the prompt, and
+    it has to be something the model can DECIDE from the sample records it is shown."""
+    prompt = rs.SYSTEM_PROMPT
+    assert "THIS ROLE" in prompt and "COMPANY" in prompt
+    assert "CHANGES between them" in prompt
+
+
 @pytest.mark.asyncio
 async def test_a_department_answer_is_ignored_rather_than_stored() -> None:
     """A model still answering with the retired key must not smuggle it back into a
