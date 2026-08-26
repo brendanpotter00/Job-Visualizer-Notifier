@@ -18,11 +18,14 @@ every scraped card must construct a valid ``JobListing`` Pydantic model — the
 canonical data contract.
 
 Coverage note: ``posted_on`` is only validated where the list card actually
-carries it. In list-only mode that is Microsoft alone — its transform reads
-``posted_on``/``posted_date`` — while Google and Apple list cards leave
+carries it. In list-only mode that is Microsoft and Amazon — Microsoft's
+transform reads ``posted_on``/``posted_date``, and Amazon's list card carries an
+already-normalised ``posted_date`` (10-char ``YYYY-MM-DD``) that its transform
+maps straight to ``posted_on``. TikTok's payload carries no date field at all
+(``posted_on`` is always None), and Google and Apple list cards likewise leave
 ``posted_on=None`` (Apple's list card emits ``posted_date`` but its transform
-reads ``posted_on``), so the parse branch is exercised for Microsoft and skipped
-for the other two.
+reads ``posted_on``), so the parse branch is exercised for Microsoft and Amazon
+and skipped for the other three.
 """
 
 from __future__ import annotations
@@ -39,6 +42,8 @@ from shared.constants import SourceId
 from google_jobs_scraper.scraper import GoogleJobsScraper
 from apple_jobs_scraper.scraper import AppleJobsScraper
 from microsoft_jobs_scraper.scraper import MicrosoftJobsScraper
+from amazon_jobs_scraper.scraper import AmazonJobsScraper
+from tiktok_jobs_scraper.scraper import TikTokJobsScraper
 
 
 @dataclass(frozen=True)
@@ -109,6 +114,39 @@ SCRAPER_SPECS: List[ScraperSpec] = [
         min_jobs=10,
         id_pattern=re.compile(r"^\d+$"),
         url_prefix="https://apply.careers.microsoft.com",
+    ),
+    ScraperSpec(
+        name="amazon",
+        factory=lambda: AmazonJobsScraper(headless=True, detail_scrape=False),
+        source_id=SourceId.AMAZON,
+        # One Amazon page is exactly 100 jobs, so max_jobs=100 is a SINGLE
+        # request — the same network cost as the others' 30 — for a 3x sample.
+        max_jobs=100,
+        min_jobs=50,
+        id_pattern=re.compile(r"^\d+$"),
+        # Path prefix, not just the host: if job_path ever goes missing,
+        # get_job_url() yields exactly "https://www.amazon.jobs", which a
+        # host-only prefix would wrongly pass.
+        url_prefix="https://www.amazon.jobs/en/jobs/",
+        # normalized_location was present on 803/803 live jobs (2026-08-09),
+        # so this is a real canary rather than the lenient 0.25 default.
+        min_location_coverage=0.90,
+    ),
+    ScraperSpec(
+        name="tiktok",
+        factory=lambda: TikTokJobsScraper(headless=True, detail_scrape=False),
+        source_id=SourceId.TIKTOK,
+        max_jobs=100,
+        # The live US+software set was 377 jobs across 8 pages; 40 leaves a
+        # wide margin while still tripping on a broken/partial scrape.
+        min_jobs=40,
+        id_pattern=re.compile(r"^\d+$"),
+        # Path prefix, not just the host: a missing id would otherwise yield
+        # a bare origin URL that a host-only prefix would wrongly pass.
+        url_prefix="https://lifeattiktok.com/search/",
+        # city_info was present on 716/716 live jobs (2026-08-09), and the
+        # scraper location-filters, so every kept job must carry one.
+        min_location_coverage=0.90,
     ),
 ]
 

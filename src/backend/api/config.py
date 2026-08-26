@@ -10,7 +10,12 @@ class Settings(BaseSettings):
 
     # Scraper settings
     scraper_interval_hours: int = Field(default=1, gt=0)
-    scraper_companies: str = "apple,google,microsoft"
+    # NOTE: SCRAPER_COMPANIES overrides this default if set. It is currently
+    # NOT set in Railway prod (verified 2026-08-10), so this literal is what
+    # production actually runs — adding a scraper here does enable it on the
+    # next deploy. If someone later sets the env var, it silently wins and this
+    # line stops mattering; check Railway before assuming a scraper is live.
+    scraper_companies: str = "apple,google,microsoft,amazon,tiktok"
     scraper_detail_scrape: bool = True
     scraper_timeout_minutes: int = Field(default=90, gt=0)
     scraper_scripts_path: str = "../../scripts"
@@ -28,6 +33,22 @@ class Settings(BaseSettings):
                 f"db_pool_min ({self.db_pool_min}) must not exceed db_pool_max ({self.db_pool_max})"
             )
         return self
+
+    # DB watchdog (services/db_watchdog.py): exits the process after ~5-6
+    # sustained minutes of DB unreachability so Railway restarts the
+    # container. Probe every 30s, 15s hard deadline per probe.
+    db_watchdog_enabled: bool = True
+    db_watchdog_probe_interval_seconds: float = Field(default=30.0, gt=0)
+    db_watchdog_probe_deadline_seconds: float = Field(default=15.0, gt=0)
+    db_watchdog_failure_window_seconds: float = Field(default=300.0, gt=0)
+
+    # Boot-time budget for retrying startup migrations through DB-connectivity
+    # failures (migrations.apply_alembic_migrations_with_retry). Keeps a
+    # watchdog-triggered restart during a long DB outage from crash-looping
+    # in seconds and burning railway.toml's restartPolicyMaxRetries budget.
+    # In practice the watchdog window (~6 min) caps it. Set 0 to fail fast
+    # when booting locally without Postgres.
+    db_boot_connect_retry_seconds: float = Field(default=600.0, ge=0)
 
     # Auth0 authentication
     auth0_domain: str | None = None
@@ -77,6 +98,24 @@ class Settings(BaseSettings):
     # Default OFF: flip ON only AFTER the enricher's title-only handling ships,
     # so description-less rows aren't classified at full confidence in the gap.
     enrichment_claim_without_description: bool = False
+    # Share of each /pending batch RESERVED for custom (user-added) companies.
+    # The claim orders first_seen_at DESC, so a freshly-added custom board's rows
+    # are the NEWEST in the table and sort to the FRONT of the queue — one user
+    # pasting one 47k-job careers URL would otherwise hold ~100% of the claim for
+    # years while every published company waits. 10% is deliberately the smallest
+    # number that is visibly not zero: the pipeline (one local ollama worker) is
+    # saturated, so every point above this comes straight out of a published
+    # backlog that already never drains. 0 disables custom claiming entirely
+    # (kill switch); 100 hands the whole batch to custom.
+    enrichment_custom_share_pct: int = Field(default=10, ge=0, le=100)
+    # Per-custom-company eligibility cap: only a company's newest N *unclaimed*
+    # OPEN rows compete in the custom slice. It bounds how many of ONE board's
+    # rows can enter a single claim, which is what stops a mega-board's deep
+    # tier-0 history (old "intern" titles buried 20k rows down) from outranking
+    # every other company's fresh postings. Unclaimed, not absolute: the window
+    # SLIDES as rows are enriched, so nothing is walled off forever — see
+    # routers/internal_enrichment.py.
+    enrichment_custom_per_company_cap: int = Field(default=500, gt=0)
 
     # Custom company sources (E7). Gates the whole user-pasted-careers-URL
     # feature: today only ``POST /api/companies/resolve`` (which 503s with the

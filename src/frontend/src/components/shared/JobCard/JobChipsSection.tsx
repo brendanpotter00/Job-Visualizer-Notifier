@@ -3,10 +3,6 @@ import { FACET_LABELS } from '../../../constants/enrichment';
 
 interface JobChipsSectionProps {
   /**
-   * Department name to display
-   */
-  department?: string;
-  /**
    * Whether the job is remote
    */
   isRemote?: boolean;
@@ -26,14 +22,18 @@ function facetLabel(slug: string): string {
  * Used by both JobCard and RecentJobCard components
  *
  * Displays:
- * - Department chip (if present)
  * - Remote chip (if job is remote)
  * - Enrichment category/level chips (filled, quiet) when the job is enriched
+ *
+ * The ATS-provided `department` chip used to render here. It was dropped because
+ * it mostly restated our own enrichment chips — a TikTok posting with department
+ * "Senior" rendered right next to level "Senior" — so it read as noise. The field
+ * is still on the Job model and still drives the company-page department filter;
+ * it just isn't shown on the card.
  */
-export function JobChipsSection({ department, isRemote, category, level }: JobChipsSectionProps) {
+export function JobChipsSection({ isRemote, category, level }: JobChipsSectionProps) {
   return (
     <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-      {department && <Chip label={department} size="small" variant="outlined" />}
       {isRemote && <Chip label="Remote" size="small" color="primary" variant="outlined" />}
       {category && <Chip label={facetLabel(category)} size="small" variant="filled" />}
       {level && <Chip label={facetLabel(level)} size="small" variant="filled" />}

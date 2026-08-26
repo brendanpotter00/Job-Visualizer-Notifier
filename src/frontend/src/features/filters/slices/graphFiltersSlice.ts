@@ -10,9 +10,11 @@ export type GraphFiltersState = FiltersState<GraphFilters>;
 const initialFilters: GraphFilters = {
   // Default window for anyone WITHOUT a saved filter (logged-out visitors, and
   // the frame before a signed-in user's saved filters hydrate). Kept in sync
-  // with the Recent Jobs slice and the backend no-saved-row default
+  // with the backend no-saved-row default
   // (`saved_filters_service._DEFAULT_TREND_TIME_WINDOW`) so every "no saved
-  // filter" cohort lands on the same 90-day view.
+  // filter" cohort lands on the same 90-day trend view. The Recent Jobs slice
+  // defaults to 'all' instead — the trend chart wants a bounded span, the
+  // recency feed does not.
   timeWindow: '90d',
   searchTags: undefined,
   location: undefined,

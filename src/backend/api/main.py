@@ -32,7 +32,8 @@ from .routers import (
 )
 from .tasks import procrastinate_app
 from .tasks.procrastinate_app import ensure_schema_async
-from .migrations import apply_alembic_migrations
+from .migrations import apply_alembic_migrations_with_retry
+from .services.db_watchdog import DbWatchdog
 from .services.posthog_client import init_posthog, shutdown_posthog
 
 
@@ -41,8 +42,8 @@ from .services.posthog_client import init_posthog, shutdown_posthog
 # heartbeat task (and far more frequently by fan-out + per-task transitions),
 # so anything older than 35 min indicates the connector / scheduler is dead.
 # The 35 = 30 (worst-case */30 fan-out tick) + 5 (slack) framing covers the
-# fallback case where the heartbeat is also stuck. Railway healthcheckPath
-# uses this to decide when to restart the container.
+# fallback case where the heartbeat is also stuck. Consulted by Railway's
+# healthcheckPath at deploy cutover only (see railway.toml).
 _WORKER_FRESHNESS_SECONDS = 35 * 60
 
 # Heartbeat freshness threshold. The heartbeat task fires every 5 min;
@@ -128,9 +129,28 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             logger.info("PostHog initialized")
         except Exception:
             logger.warning("PostHog init failed — analytics disabled", exc_info=True)
+    # DB watchdog (services/db_watchdog.py): detects a database that hangs
+    # rather than errors and exits the process so Railway restarts the
+    # container. Started before migrations so a frozen DB can't wedge boot.
+    db_watchdog: DbWatchdog | None = None
+    if settings.db_watchdog_enabled:
+        db_watchdog = DbWatchdog(
+            settings.database_url,
+            probe_interval_s=settings.db_watchdog_probe_interval_seconds,
+            probe_deadline_s=settings.db_watchdog_probe_deadline_seconds,
+            failure_window_s=settings.db_watchdog_failure_window_seconds,
+        )
+        db_watchdog.start()
+
     logger.info("Applying database migrations...")
     try:
-        apply_alembic_migrations(settings.database_url)
+        # Connectivity failures retry for up to db_boot_connect_retry_seconds
+        # so a restart during a DB outage doesn't crash-loop in seconds and
+        # burn railway.toml's restartPolicyMaxRetries budget (2026-08-10).
+        apply_alembic_migrations_with_retry(
+            settings.database_url,
+            max_wait_seconds=settings.db_boot_connect_retry_seconds,
+        )
     except Exception:
         logger.exception("Failed to apply migrations during startup")
         raise
@@ -262,6 +282,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     yield
 
     # Shutdown
+    if db_watchdog is not None:
+        db_watchdog.stop()
     worker_task.cancel()
     try:
         await worker_task
@@ -365,10 +387,9 @@ def health_worker(
 
     The two streams are checked independently so a sick connector that
     breaks event-writes but leaves the periodic scheduler alive still
-    surfaces a freshness signal. Wire this as Railway's healthcheckPath
-    so the platform restarts the container when the worker silently hangs
-    (the original failure class the 2026-05-19 supervisor PR couldn't
-    cover, since a hang produces no exception).
+    surfaces a freshness signal. This is Railway's healthcheckPath, which
+    gates deploy cutover only (see railway.toml); runtime liveness is
+    owned by services/db_watchdog.py.
 
     Uses the FastAPI sync pool (NOT Procrastinate's async connector) so a
     sick Procrastinate connector doesn't mask a sick worker.

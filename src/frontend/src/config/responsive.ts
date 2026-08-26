@@ -119,7 +119,7 @@ export const RESPONSIVE = {
    * differs by component, so we gate these overrides on `isMobile` rather than
    * restate fragile per-variant desktop baselines. Applied as descendant
    * selectors on the card's `CardContent`, so they cover every chip row
-   * (location, employment-type, and JobChipsSection dept/remote) without editing
+   * (location, employment-type, and JobChipsSection remote/enrichment) without editing
    * the chip call sites or JobChipsSection.
    *
    * Units: `chipHeight`/`applyMinHeight` are sizing props (bare number -> px).

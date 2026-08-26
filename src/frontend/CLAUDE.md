@@ -1,6 +1,6 @@
 # Frontend CLAUDE.md
 
-React SPA for job posting analytics. Visualizes job posting activity over time for multiple companies, all served via the backend `/api/jobs` endpoint (Greenhouse, Ashby, Lever, Gem, Eightfold/Netflix, and Workday boards, plus Google, Apple, Microsoft). Built with Redux Toolkit, Recharts, and Material-UI.
+React SPA for job posting analytics. Visualizes job posting activity over time for multiple companies, all served via the backend `/api/jobs` endpoint (Greenhouse, Ashby, Lever, Gem, Eightfold/Netflix, and Workday boards, plus Google, Apple, Microsoft, Amazon, TikTok). Built with Redux Toolkit, Recharts, and Material-UI.
 
 **Note:** Commands should be run from project root (not this directory). See root CLAUDE.md for full project context.
 
@@ -38,7 +38,7 @@ All paths below are relative to `src/frontend/src/`.
 User selects company → `getJobsForCompany` RTK Query endpoint (features/jobs/jobsApi.ts) → Factory selects API client → Transform to normalized Job model → RTK Query cache update → Memoized selectors filter data → Components render
 
 **API Clients:**
-Backend-Scraper (api/clients/backendScraperClient.ts) is the only production client — every company flows through the backend `/api/jobs` endpoint. Greenhouse, Ashby, Lever, Gem, Eightfold/Netflix, and Workday boards are fetched by the backend Procrastinate worker (SSRF allowlist for Eightfold lives in Python `src/backend/api/services/eightfold_client.py`); Google, Apple, and Microsoft are scraped via Python scripts. The `createAPIClient` factory (api/clients/baseClient.ts) is retained as scaffolding for future ATS integrations; no production client currently consumes it.
+Backend-Scraper (api/clients/backendScraperClient.ts) is the only production client — every company flows through the backend `/api/jobs` endpoint. Greenhouse, Ashby, Lever, Gem, Eightfold/Netflix, and Workday boards are fetched by the backend Procrastinate worker (SSRF allowlist for Eightfold lives in Python `src/backend/api/services/eightfold_client.py`); Google, Apple, Microsoft, Amazon, and TikTok are scraped via Python scripts. The `createAPIClient` factory (api/clients/baseClient.ts) is retained as scaffolding for future ATS integrations; no production client currently consumes it.
 
 **Key Selectors:**
 - `selectCurrentCompanyJobsRtk` (features/jobs/jobsSelectors.ts) - Jobs for selected company
@@ -217,7 +217,7 @@ New code must not add disables. If a new disable appears unavoidable, update thi
 ## Common Tasks
 
 **Adding a Company:**
-Use the `add-company` skill (repo-root `.claude/skills/add-company/`, `/add-company`) for the full procedure — `config/companies.ts` entry + `COMPANY_IDS`, the backend `companies` seed migration, the `changelog.ts` entry, and logos. Architecture context that still matters here: every ATS flows through the backend `/api/jobs` endpoint, so each new company is a `createBackendScraperCompany()` entry backed by a row in the backend `companies` table (the true Custom Web Scrapers — Google, Apple, Microsoft — omit `sourceAts`).
+Use the `add-company` skill (repo-root `.claude/skills/add-company/`, `/add-company`) for the full procedure — `config/companies.ts` entry + `COMPANY_IDS`, the backend `companies` seed migration, the `changelog.ts` entry, and logos. Architecture context that still matters here: every ATS flows through the backend `/api/jobs` endpoint, so each new company is a `createBackendScraperCompany()` entry backed by a row in the backend `companies` table (the true Custom Web Scrapers — Google, Apple, Microsoft, Amazon, TikTok — omit `sourceAts`).
 
 **Adding ATS Provider:**
 1. Create transformer in `api/transformers/[provider]Transformer.ts`

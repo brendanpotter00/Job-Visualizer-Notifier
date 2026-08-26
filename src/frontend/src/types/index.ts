@@ -187,7 +187,7 @@ export interface Company {
    * served their jobs before migration to the backend. Used by the Why page
    * to group migrated providers (Ashby, Greenhouse, Lever, Gem, Eightfold,
    * Workday) under their own column instead of lumping them with the true
-   * Custom Web Scrapers (Google/Apple/Microsoft).
+   * Custom Web Scrapers (Google/Apple/Microsoft/Amazon).
    */
   sourceAts?: 'ashby' | 'eightfold' | 'gem' | 'greenhouse' | 'lever' | 'workday';
 
