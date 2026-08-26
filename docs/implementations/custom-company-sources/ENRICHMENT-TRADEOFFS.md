@@ -184,6 +184,8 @@ Every claimed reader was traced, not assumed:
 
 ## Order of work
 
+> **Superseded by `IMPLEMENTATION-PLAN.md` (2026-08-25).** The table below is the order as first proposed. The plan is the one scoped to the live PR stack — it drops the units that have since shipped, routes each remaining unit to a specific PR, and carries Δ6–Δ8 (dedupe confirmed as the priority, last-owner delete, local config mirrors production). Build from the plan; keep this table for the reasoning behind each unit.
+
 Each unit is independently shippable and independently revertable. Units 6–9 are the Δ4 fixes.
 
 | # | Unit | Why here | Size |
@@ -252,4 +254,5 @@ There is **no flag service.** All backend flags are plain `pydantic-settings` bo
 - `custom-company-enrichment.html` — the annotated review artifact this document summarizes
 - `BUILD-PLAN.md` — where custom enrichment was originally deferred (line 148, on the now-stale API-spend argument)
 - `CAPTURE-IMPLEMENTATION-PLAN.md` — the capture pipeline whose field map is the blocker
+- `IMPLEMENTATION-PLAN.md` — **the build order**, scoped to the live PR stack
 - `TESTABLE-BOARDS.md` — the boards the coverage table was measured against
