@@ -19,6 +19,12 @@ The two functions split by what each may do:
 * :func:`verify_harvest` — the *verdict* pass (checks 5, 6, 7-vs-total, 9, 10, 11,
   12). Returns VERIFIED | UNVERIFIED and NEVER raises.
 
+A third function, :func:`read_untruncated`, sits OUTSIDE that ladder and is not part
+of it: it answers a strictly weaker question ("did anything in this run say the read
+stopped early?") for the one read-only, non-destructive consumer that needs a
+complete-looking title set rather than a proven-complete one. It licences nothing.
+Only ``verify_harvest`` returning VERIFIED may ever close a job.
+
 The verdict ladder (BUILD-PLAN §1.1):
 
 * ``FAILED``     — a gate check raised. The leaf task writes nothing destructive,
@@ -373,3 +379,84 @@ def _zero_proof(evidence: HarvestEvidence) -> HarvestVerdict:
             VERIFIED, "zero_proven", oracle_total=0, declared_total=0,
         )
     return HarvestVerdict(UNVERIFIED, "zero_unproven")
+
+
+# --- Comparability, which is NOT verification --------------------------------
+# UNVERIFIED reasons that mean "no proof was AVAILABLE", as opposed to "the read
+# stopped early". ``no_oracle`` is the entire list, and it is the whole of what
+# :func:`read_untruncated` adds over ``verdict == VERIFIED``.
+#
+# Every other UNVERIFIED reason is, or may be, a SHORT READ and is excluded:
+# ``cap_hit`` (a ceiling stopped the sweep), ``page_advance_failed`` (offset
+# wrap), ``not_terminated_cleanly`` (ran out of page budget), ``count_mismatch``
+# (n < a trusted total — a PROVEN short read), ``delta_anomaly`` (the count moved
+# far enough off the trailing median that the data is likelier wrong than the
+# board), ``over_harvest`` (n > the trusted total — not short, but the filter
+# widened, so the set is not the board's set either) and ``zero_unproven``.
+_UNTRUNCATED_UNVERIFIED_REASONS = frozenset({"no_oracle"})
+
+
+def read_untruncated(verdict: HarvestVerdict, evidence: HarvestEvidence) -> bool:
+    """Did this run read the whole of what its recipe knows how to read?
+
+    **THIS IS NOT A VERDICT AND IT LICENCES NOTHING DESTRUCTIVE.** ``VERIFIED``
+    remains the only thing that may close a job, increment a miss, or move
+    ``health_state`` / ``tracking_started_at``. No close-path code calls this
+    function, and none may ever start to. Read the two claims side by side:
+
+    * ``VERIFIED``          — "an independent source told us how many jobs this
+                              board has, and we harvested exactly that many."
+    * ``read_untruncated``  — "nothing in this run says the read stopped early."
+
+    The second is NEGATIVE evidence, and negative evidence is the correct strength
+    for a read-only comparison whose worst outcome is one dismissible banner (E7
+    unit 10 — :mod:`api.services.published_board_match`). It is nowhere near strong
+    enough to delete a user's jobs, which is why the close ladder in
+    ``fetch_custom_company`` still branches on ``verdict != VERIFIED`` and on
+    nothing else.
+
+    **Why the gap exists at all.** A board that returns its whole catalogue in ONE
+    request — lifeatspotify, Atlassian, Jane Street, SpaceX, Rockstar — is stored
+    with ``oracle_kind='none'`` by discovery, deliberately: one response holding 79
+    jobs is indistinguishable from page one of a 400-job board that never mentioned
+    its length (``capture/discover.synthesize_recipe``, "the one place discovery
+    may not be generous"). That ambiguity is real and unresolvable from the
+    harvest, so those boards stay UNVERIFIED forever and close nothing, forever.
+    But it does not follow that their title set is unusable: the run issued its one
+    request, got a 200, and mapped every record in the body. Nothing was cut off
+    *by us*, and "cut off by us" is the failure the comparison actually cares
+    about.
+
+    The conjunction below is what "not cut off by us" means, and it is read off the
+    EVIDENCE rather than the verdict — deliberately. ``verify_harvest`` returns
+    ``no_oracle`` before it ever reaches check 5 or check 6, so the ``HarvestVerdict``
+    for such a run carries the *defaults* for these three fields; reading them off
+    the verdict would quietly always be true.
+
+    * ``cap_hit`` — a ceiling (window, record, or wall-clock budget) stopped it;
+    * ``terminated_cleanly`` — it ended on a short/empty page rather than
+      exhausting its page budget;
+    * ``page_advance_ok is False`` — a page re-served ids we already had.
+
+    For the single-request class all three are constants (no sweep, no cap, one
+    page), so for THOSE boards this reduces to "the verdict reason was
+    ``no_oracle``". They are still checked, because ``oracle_kind='none'`` is not a
+    synonym for "no pagination": an unrecognized ATS provider (see
+    :func:`effective_oracle_kind`) and a stored script edited out of sync with its
+    ``oracle_kind`` column both reach ``no_oracle`` with a real sweep behind them,
+    and a capped sweep is exactly the shape whose title set must not be compared.
+
+    A ``FAILED`` run is never comparable: it wrote no rows, so the OPEN set sitting
+    in the database is somebody else's run, not this one's.
+    """
+    if verdict.verdict == FAILED:
+        return False
+    if evidence.cap_hit:
+        return False
+    if not evidence.terminated_cleanly:
+        return False
+    if evidence.page_advance_ok is False:
+        return False
+    if verdict.verdict == VERIFIED:
+        return True
+    return verdict.reason in _UNTRUNCATED_UNVERIFIED_REASONS

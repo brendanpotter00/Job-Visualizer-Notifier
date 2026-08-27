@@ -64,6 +64,7 @@ from ..services.harvest_verification import (
     VERIFIED,
     HarvestGateError,
     effective_oracle_kind,
+    read_untruncated,
     run_gate,
     verify_harvest,
 )
@@ -622,11 +623,12 @@ async def fetch_custom_company(company_id: str) -> None:
     cap_hit = False
     page_advance_ok: bool | None = None
     tolerance_used = 0.0
-    # Did THIS run graduate the board (first VERIFIED harvest)? The one moment its OPEN
-    # title set is both complete and PROVEN complete, which is the only kind of set worth
-    # comparing against the boards we already publish — see the published-board-match
-    # block in the ``finally`` below.
-    graduated_this_run = False
+    # Is THIS run's OPEN title set the board's whole OPEN title set — i.e. did nothing in
+    # the run say the read stopped early? Strictly weaker than VERIFIED, licences nothing
+    # destructive, and gates ONLY the read-only published-board comparison in the
+    # ``finally`` below. Set after this run's rows are actually in ``job_listings``, since
+    # that is what the comparison reads.
+    comparable_read = False
 
     conn = await asyncio.to_thread(
         db.get_connection,
@@ -641,7 +643,7 @@ async def fetch_custom_company(company_id: str) -> None:
                 nonlocal guard_reason, verdict, verdict_reason, records_harvested
                 nonlocal id_dedup_dropped, new_ids, oracle_kind_effective
                 nonlocal declared_total, oracle_total, cap_hit, page_advance_ok
-                nonlocal tolerance_used, graduated_this_run
+                nonlocal tolerance_used, comparable_read
 
                 company = await asyncio.to_thread(
                     ccs.load_custom_company_for_run, conn, company_id
@@ -835,6 +837,14 @@ async def fetch_custom_company(company_id: str) -> None:
                 new_ids = seen_ids - pre_upsert_active
                 new_jobs_count = len(new_ids)
 
+                # This run's rows are now IN job_listings, which is what the
+                # published-board comparison reads — so this is the earliest point the
+                # flag can honestly be set. READ-ONLY consumers only: it gates the
+                # suggestion in the ``finally`` and nothing else. See
+                # ``harvest_verification.read_untruncated`` for why it is not VERIFIED,
+                # and for why VERIFIED remains the only thing that may close a job.
+                comparable_read = read_untruncated(decision, evidence)
+
                 # A VERIFIED run PROVED it saw the whole board → the company is
                 # healthy; the FIRST VERIFIED run also stamps tracking_started_at.
                 if verdict == VERIFIED:
@@ -842,7 +852,6 @@ async def fetch_custom_company(company_id: str) -> None:
                         ccs.mark_verified, conn, company_id,
                         set_tracking=is_first_verified,
                     )
-                    graduated_this_run = is_first_verified
 
                 # ---- close-eligibility precedence (verdict-FIRST; DECISION D1) --
                 # guard_reason records WHY the destructive close was skipped (None
@@ -1047,17 +1056,42 @@ async def fetch_custom_company(company_id: str) -> None:
                 "Failed to record the first-scan checklist rung for %s", company_id
             )
 
-        # "This looks like Spotify, which we already track" (E7 unit 10). Runs ONCE, on
-        # the run that graduated the board, because a first VERIFIED harvest is the first
-        # moment this board's OPEN title set is both complete and proven complete — and a
-        # partial read is exactly how you get a spurious 100% against something it is a
-        # subset of.
+        # "This looks like Spotify, which we already track" (E7 unit 10). Runs ONCE per
+        # board, on its first UNTRUNCATED harvest — the first run whose OPEN title set is
+        # the board's WHOLE OPEN title set, because a partial read is a wrong set: it
+        # shrinks the candidate side while the public side stays whole.
         #
-        # It NEVER MERGES (DECISION D6). It reads title sets, and its only write is a
-        # suggestion blob on this private row's own ``provider_config``; there is no
+        # NOT "the first VERIFIED harvest", which is what this said and which made the
+        # whole unit unreachable for the one case it was written for. A board that returns
+        # its entire catalogue in ONE request (lifeatspotify, Atlassian, Jane Street,
+        # SpaceX, Rockstar) is stored ``oracle_kind='none'``, and ``verify_harvest``
+        # answers UNVERIFIED ``no_oracle`` for that unconditionally and correctly — one
+        # response holding 79 jobs is indistinguishable from page one of a 400-job board.
+        # So it can never verify, and it could never reach here.
+        #
+        # NOTHING ABOUT CLOSING MOVED. VERIFIED is what licences the close sweep and it is
+        # untouched: those boards are still UNVERIFIED, still take the
+        # ``guard_reason='unverified_harvest'`` branch above, and still close nothing,
+        # forever. ``read_untruncated`` is a strictly weaker, read-only-consumer predicate
+        # that no destructive path calls — see its docstring.
+        #
+        # ``comparable_read`` is ANDed with ``success`` because the flag is set part-way
+        # through ``_work`` and a later step there can still fail the whole run. A run
+        # recorded FAILED is not one to draw conclusions from — and, worse, comparing it
+        # would BURN THE ONCE-LATCH on a run we do not trust, costing the board the
+        # comparison permanently.
+        #
+        # It NEVER MERGES (DECISION D6). It reads title sets, and its only writes are one
+        # ``jsonb_set`` of the suggestion blob (on a match) or of the once-latch (on no
+        # match) on this private row's own ``provider_config``; there is no
         # ``job_listings`` write on this path and no identity column is touched. A false
         # suggestion is one dismissible banner; a false merge would be permanent and
         # silent, because this codebase has no un-merge.
+        #
+        # It is safe to hand it EVERY comparable run: ``suggest_published_board`` carries
+        # its own once-latch and returns without scoring for a board it has already
+        # compared. The two guards are independent on purpose — this one decides whether
+        # the run is comparable, that one decides whether the board has been compared.
         #
         # Guarded exactly like the checklist rung above: display-only, so any failure is
         # swallowed with a log and can never fail a harvest. It also issues NO outbound
@@ -1070,15 +1104,14 @@ async def fetch_custom_company(company_id: str) -> None:
         # on it then raises ``InFailedSqlTransaction``, and the very next one is
         # ``record_company_harvest``, whose own failure is swallowed too. The visible
         # result was a ``scrape_runs`` row marked ``success=true``, VERIFIED, with NO
-        # ``company_harvests`` evidence row — and this block only runs on the FIRST
-        # VERIFIED harvest, so the one run whose evidence matters most is the one that
-        # loses it.
+        # ``company_harvests`` evidence row — and this block runs at most ONCE in a board's
+        # life, so the one run whose evidence matters most is the one that loses it.
         #
         # Belongs HERE rather than in the two read helpers: the task owns this connection
         # for the whole ``finally``, so one rollback at the swallow site covers every way
         # that call can fail, including a raise from ``store_suggestion`` (which already
         # rolled back — a second rollback on a clean connection is a no-op).
-        if graduated_this_run:
+        if success and comparable_read:
             try:
                 await asyncio.to_thread(
                     published_board_match.suggest_published_board, conn, company_id

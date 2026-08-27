@@ -10,10 +10,63 @@ this one: ``lifeatspotify.com`` resolves to no ATS, and the endpoint capture pic
 different feed from ``lever:spotify``. Neither the URL nor the captured request links the
 two. The only remaining signal is the JOB SET — and comparing job sets is what this does.
 
-**What it does.** After a discovered board's FIRST VERIFIED harvest: take its OPEN title
+**What it does.** After a discovered board's first UNTRUNCATED harvest: take its OPEN title
 set, normalize it (:func:`normalize_title`), and intersect it against the OPEN title set of
 every ``visibility='public'`` company. ~130 set intersections against rows we already hold,
 once per new board. It fetches NOTHING — see the SSRF note below.
+
+**Why "untruncated" and not "VERIFIED", which is what this originally said.** VERIFIED was
+the wrong trigger for the exact case the module exists for, and it made the whole unit
+unreachable for it. ``lifeatspotify.com`` returns its entire catalogue in ONE request, so
+discovery stores it with ``oracle_kind='none'`` — and ``verify_harvest`` answers
+``UNVERIFIED, "no_oracle"`` for that unconditionally, by design and correctly: a single
+response holding 79 jobs is indistinguishable from page one of a 400-job board that never
+published its length. Such a board can never verify, so it could never reach this
+comparison. Measured on the live row: ``tracking_started_at`` NULL, no suggestion stored,
+every harvest ``UNVERIFIED no_oracle`` — while calling :func:`find_published_match` by hand
+returns ``spotify``, 70 of 79 titles, ratio 0.875, qualifying. (Re-run a day later, after
+both boards moved: 69 of 79 against 82 public titles, ratio 0.841. Still 14+ points clear of
+the bar, which is the point of putting the bar 50 points above the worst false pair.) Every
+board in that class is affected — lifeatspotify, Atlassian, Jane Street, SpaceX, Rockstar.
+
+The fix does NOT widen VERIFIED. VERIFIED is what licences the close sweep, and widening it
+would widen what may delete a user's jobs — the guardrail around this codebase's worst
+incident (a scraper returned ``[]`` and a whole board closed). Those boards stay UNVERIFIED
+and still close nothing, forever. What moved is the trigger: a SUGGESTION is read-only, its
+only write is one ``jsonb_set`` on the private row, and it closes nothing, so it does not
+need the guarantee that gates closing. It needs a weaker and different one — that the title
+set in front of it is the board's whole OPEN set — and that is
+:func:`~api.services.harvest_verification.read_untruncated`: no cap hit, a clean
+termination, no page-advance failure, and a verdict that is either VERIFIED or UNVERIFIED
+for the one reason that means "no proof was available" rather than "the read stopped early".
+
+**Why a partial read still must not reach here.** An UNVERIFIED harvest MAY be a partial
+read, and a partial read is a wrong set: it shrinks the candidate side while the public side
+stays whole. Under the old ``shared/min`` denominator that produced a spurious 100% against
+any superset; under ``shared/max`` it produces the opposite error, silently missing a true
+match — and because this runs ONCE, a miss is permanent. So every UNVERIFIED reason that is
+or may be a short read (``cap_hit``, ``page_advance_failed``, ``not_terminated_cleanly``,
+``count_mismatch``, ``delta_anomaly``, ``over_harvest``, ``zero_unproven``) is excluded from
+the trigger, and so is any run the leaf task recorded FAILED — including one that failed
+*after* its rows landed, which is why the task ANDs the predicate with ``success``.
+
+**ONCE, and what now enforces it.** The old latch was implicit and free: the trigger was
+"first VERIFIED harvest", and ``companies.tracking_started_at`` is stamped by that same run,
+so the condition could never be true twice. A board that is never allowed to verify has no
+such stamp, so the latch has to be explicit — :data:`CHECKED_KEY`, an ISO timestamp written
+beside the suggestion in the same sidecar column, on the same private row, under the same
+``visibility='user'`` clause. It is written ONLY when there is no match; a stored
+``public_match`` is its own latch. That keeps the matching path exactly the one-key
+``jsonb_set`` it already was, and it confines the new write to the case that previously
+wrote nothing.
+
+That case previously wrote nothing on purpose ("a board that stops looking like Spotify does
+not need a tombstone"), and the reasoning behind it is unchanged and still enforced: this
+module never writes, moves or erases the ``public_match`` key on a no-match run, so a
+suggestion the user has already dealt with can neither be resurrected nor deleted by a later
+run finding nothing. :data:`CHECKED_KEY` is not a tombstone for the suggestion; it is a
+record that the comparison happened, and it is the only thing standing between "runs once"
+and "runs a fleet-wide seq scan every night for every board forever".
 
 **What it must never do: MERGE.** (DECISION D6, and the reason the thresholds below are
 set where they are.) There is no un-merge path in this codebase, no merge audit, and no way
@@ -118,6 +171,15 @@ MIN_SHARED_TITLES = 20
 
 #: The ``provider_config`` key the suggestion is stored under.
 SUGGESTION_KEY = "public_match"
+
+#: The ``provider_config`` key that records "this board has already been compared", set
+#: to an ISO timestamp. It exists ONLY to make :func:`suggest_published_board` run once
+#: per board — see the ONCE section of the module docstring for why the old latch
+#: (``companies.tracking_started_at``, stamped on the first VERIFIED harvest) cannot
+#: serve a board that is never allowed to verify. Written on the NO-MATCH path only:
+#: a stored ``public_match`` is its own latch, so the matching path is byte-for-byte
+#: the single ``jsonb_set`` it always was.
+CHECKED_KEY = "public_match_checked_at"
 
 #: Everything that is not a letter or a digit collapses to a single space, so
 #: ``Client Partner, Emerging & Scaled`` and ``Client Partner - Emerging and...`` differ
@@ -386,6 +448,9 @@ def store_suggestion(conn: Connection, company_id: str, match: BoardOverlap) -> 
       and ``job_listings`` is never written at all.
 
     That is a suggestion, not a merge, and it is the difference the whole unit turns on.
+
+    A stored suggestion is also its own ONCE-latch (see :func:`_already_compared`), which is
+    why this still writes exactly one key and did not have to grow a second.
     """
     payload = {
         "company_id": match.company_id,
@@ -415,23 +480,109 @@ def store_suggestion(conn: Connection, company_id: str, match: BoardOverlap) -> 
     return bool(updated)
 
 
+def _already_compared(conn: Connection, company_id: str) -> bool:
+    """Has this board already been compared against the boards we publish? **READ-ONLY.**
+
+    The ONCE-latch, in one PK lookup. Two keys satisfy it, and the order matters:
+
+    * :data:`SUGGESTION_KEY` — we already told this user something. Re-running could only
+      overwrite that with a fresh ``detected_at``, or replace it with a different company,
+      neither of which the user asked for.
+    * :data:`CHECKED_KEY` — we compared and found nothing.
+
+    A row with NEITHER has never been compared, which includes every board that graduated
+    before this latch existed. Those get exactly one comparison on their next untruncated
+    harvest and are then latched like everything else — a one-time backfill, self-limiting,
+    and the safe direction (the alternative is boards that can never be compared at all).
+
+    ``visibility = 'user'`` is on the read for the same reason it is on the write: this
+    module has business only with private rows, and a contrived id must not be able to make
+    it read (or later write) a published company's config.
+    """
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        SELECT provider_config
+        FROM companies
+        WHERE id = %s AND visibility = 'user'
+        """,
+        (company_id,),
+    )
+    row = cursor.fetchone()
+    if row is None:
+        # Not a private row (or gone). Nothing here may write to it either, so refusing to
+        # compare is both the safe answer and the honest one.
+        return True
+    config = row["provider_config"]
+    if not isinstance(config, Mapping):
+        return False
+    return SUGGESTION_KEY in config or CHECKED_KEY in config
+
+
+def _mark_compared(conn: Connection, company_id: str) -> bool:
+    """Latch a NO-MATCH comparison so it never runs again. Returns whether it landed.
+
+    Deliberately the same shape as :func:`store_suggestion` — one ``jsonb_set`` of one key
+    on one row, ``WHERE id = %s AND visibility = 'user'``, no other column touched, no
+    INSERT, no DELETE, and nothing written to ``job_listings``. It differs in exactly one
+    respect: the key it sets is :data:`CHECKED_KEY`, never :data:`SUGGESTION_KEY`, so a
+    run that finds nothing cannot resurrect, overwrite or erase a suggestion the user has
+    already dealt with. That property is what the no-tombstone rule was actually protecting,
+    and it is preserved here rather than traded away.
+    """
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            """
+            UPDATE companies
+            SET provider_config = jsonb_set(
+                provider_config, %s, %s::jsonb, true
+            )
+            WHERE id = %s AND visibility = 'user'
+            """,
+            (
+                "{" + CHECKED_KEY + "}",
+                json.dumps(datetime.now(timezone.utc).isoformat()),
+                company_id,
+            ),
+        )
+        updated = cursor.rowcount
+        conn.commit()
+    except psycopg2.Error:
+        conn.rollback()
+        raise
+    return bool(updated)
+
+
 def suggest_published_board(conn: Connection, company_id: str) -> Optional[BoardOverlap]:
     """Compare, and store the suggestion if there is one. The harvest task's single entry.
 
-    Called once, after a board's FIRST VERIFIED harvest — the first moment its OPEN set is
-    both complete and proven complete, which is the only kind of set worth comparing. An
-    UNVERIFIED harvest may be a partial read, and a partial read is a wrong set: it shrinks
-    the candidate side while the public side stays whole, so the comparison answers a
-    question about a board that does not exist. (Under the old one-sided score that shape
-    produced a spurious 100% against any superset; under ``shared/max`` it produces the
-    opposite error, silently missing a true match. Both are reasons not to compare it.)
+    Called after a board's first UNTRUNCATED harvest — the first run whose OPEN set is the
+    board's whole OPEN set, which is the only kind of set worth comparing. NOT the first
+    VERIFIED harvest: a board that returns its whole catalogue in one request can never
+    verify, and gating on VERIFIED made this unreachable for exactly the case the module was
+    written for. The trigger and the reasoning are argued in full in the module docstring;
+    :func:`~api.services.harvest_verification.read_untruncated` is the predicate, and the
+    caller (``fetch_custom_company``) is where it is evaluated.
 
-    Returns the match for the caller to log. NO match writes nothing at all: a board that
-    stops looking like Spotify does not need a tombstone, and a suggestion that was already
-    stored and dismissed must not be resurrected by a later run finding nothing.
+    **ONCE**, and this function owns it. It returns ``None`` without so much as scoring if
+    the board has already been compared, so the caller may hand it every untruncated run
+    without the comparison ever repeating. The two guards are independent on purpose: the
+    caller decides whether a run is COMPARABLE, this decides whether the board has already
+    BEEN compared, and neither can be defeated by getting the other wrong.
+
+    Returns the match for the caller to log. A no-match writes only the :data:`CHECKED_KEY`
+    latch: never the suggestion key, so a suggestion that was already stored and dismissed
+    can neither be resurrected nor erased by a later run finding nothing.
     """
+    if _already_compared(conn, company_id):
+        logger.debug(
+            "published_board_match: %s has already been compared; skipping", company_id
+        )
+        return None
     match = find_published_match(conn, company_id)
     if match is None:
+        _mark_compared(conn, company_id)
         return None
     store_suggestion(conn, company_id, match)
     logger.info(
