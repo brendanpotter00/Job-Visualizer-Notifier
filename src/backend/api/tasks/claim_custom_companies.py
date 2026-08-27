@@ -45,6 +45,7 @@ from procrastinate import exceptions as procrastinate_exceptions
 from scripts.shared import database as db
 
 from ..config import settings
+from ..services import custom_companies_service as ccs
 from .fetch_custom_company import fetch_custom_company
 from .procrastinate_app import CUSTOM_ATS_FIRST_FETCH_QUEUE, procrastinate_app
 
@@ -198,14 +199,14 @@ async def defer_fetch(company_id: str, *, queue: str | None = None) -> DeferResu
       a state that says the harvest is scheduled.
     """
     try:
+        # The lock string is owned by ``custom_companies_service`` because the removal
+        # path also has to name it (to cancel a queued harvest for a board the user
+        # just deleted). Two f-strings would be two chances to drift.
+        lock = ccs.harvest_queueing_lock(company_id)
         deferrer = (
-            fetch_custom_company.configure(
-                queueing_lock=f"custom:{company_id}", queue=queue
-            )
+            fetch_custom_company.configure(queueing_lock=lock, queue=queue)
             if queue is not None
-            else fetch_custom_company.configure(
-                queueing_lock=f"custom:{company_id}"
-            )
+            else fetch_custom_company.configure(queueing_lock=lock)
         )
         await deferrer.defer_async(company_id=company_id)
         return "deferred"

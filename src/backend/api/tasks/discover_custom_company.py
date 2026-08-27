@@ -145,15 +145,17 @@ async def discover_custom_company(
         logger.error("discover_custom_company timed out for %s", normalized_url)
         outcome = None
 
-    # WEDGED-ROW CAVEAT: the provisional companies row created on the 202 add sits at
-    # health_state='discovering' until the persist below flips it to tracked or refused.
-    # Because this task is retry=1 (it spends money — never retried), a HARD failure
-    # between the ``wait_for`` above and the persist below (a SIGKILL / worker OOM, not
-    # a caught exception — ``discover`` never raises, and a timeout becomes a REFUSE via
-    # ``outcome=None``) leaves that row stuck at 'discovering' forever. The user recovers
-    # by Removing the row and re-adding. TODO: a server-side reconciler that sweeps
-    # 'discovering' rows older than N minutes (and stuck Procrastinate 'doing' jobs) back
-    # to a retryable or refused state.
+    # WEDGED-ROW CAVEAT (now reconciled, not merely documented): the provisional
+    # companies row created on the 202 add sits at health_state='discovering' until the
+    # persist below flips it to tracked or refused. Because this task is retry=1 (it
+    # spends money — never retried), a HARD failure between the ``wait_for`` above and
+    # the persist below (a SIGKILL / worker OOM, not a caught exception — ``discover``
+    # never raises, and a timeout becomes a REFUSE via ``outcome=None``) leaves that row
+    # stuck at 'discovering' with nothing left to move it. So does the flag being
+    # flipped off mid-flight (the early return at the top of this function), and so does
+    # a queue nothing drains. :mod:`api.tasks.reconcile_discovering` sweeps those rows
+    # onto the ordinary refusal state — see it for how a stalled run is told apart from
+    # a slow one, and why it deliberately rides the BULK lane rather than this one.
 
     conn = await asyncio.to_thread(
         db.get_connection, settings.database_url, application_name="task_discover_custom"
@@ -176,6 +178,18 @@ async def discover_custom_company(
                 # disagree and no straggler write can reopen a settled board.
                 progress=outcome.progress,
             )
+            if created is None:
+                # THE USER REMOVED THE BOARD WHILE WE WERE READING IT. The service
+                # refuses to re-create a row whose placeholder is gone, so there is
+                # nothing to track and — crucially — no first harvest to start: a
+                # harvest here would write job_listings under a ``custom:<id>``
+                # namespace nobody owns, which is precisely the resurrection this
+                # whole path exists to prevent.
+                logger.info(
+                    "discover_custom_company: %s was removed while discovery ran; "
+                    "discarding the accepted recipe", normalized_url,
+                )
+                return
             logger.info(
                 "discover_custom_company: tracking %s as %s (transport=%s oracle=%s)",
                 normalized_url, created["id"], outcome.transport, outcome.oracle_kind,
@@ -208,6 +222,12 @@ async def discover_custom_company(
                 # refused row is exactly the how-far-did-we-get the user wants.
                 progress=outcome.progress if outcome is not None else None,
             )
+            if company_id is None:
+                logger.info(
+                    "discover_custom_company: %s was removed while discovery ran; "
+                    "not recording the refusal", normalized_url,
+                )
+                return
             logger.info(
                 "discover_custom_company: REFUSED %s (company %s): %s",
                 normalized_url, company_id, reason,

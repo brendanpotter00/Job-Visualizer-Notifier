@@ -201,11 +201,17 @@ async def _defer_discovery(
     run, but two DIFFERENT users adding the SAME non-ATS URL each get their own
     discovery (a URL-only lock made user B's defer raise AlreadyEnqueued → a 500 and
     a wedged ``discovering`` row).
+
+    The lock STRING comes from :func:`svc.discovery_queueing_lock`, not from an
+    f-string here, because two other places now have to name the same job: the
+    removal path cancels it, and the wedged-row reconciler asks whether it is still
+    alive. An f-string that drifted from theirs would silently cancel nothing and
+    reap a live run.
     """
     from ..tasks.discover_custom_company import discover_custom_company
 
     await discover_custom_company.configure(
-        queueing_lock=f"discover:{user_id}:{normalized_url}",
+        queueing_lock=svc.discovery_queueing_lock(user_id, normalized_url),
     ).defer_async(
         user_id=user_id,
         submitted_url=submitted_url,

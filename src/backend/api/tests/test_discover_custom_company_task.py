@@ -84,6 +84,7 @@ def _row(db_conn, query: str, params: tuple = ()):
 async def test_success_creates_four_rows(db_conn, monkeypatch) -> None:
     _patch_env(monkeypatch)
     user_id = _seed_user(db_conn)
+    _placeholder(db_conn, user_id)
     outcome = DiscoveryOutcome(
         ok=True, script=_recipe(), transport="http_json",
         oracle_kind="facet_sum", attempts=1,
@@ -128,6 +129,7 @@ async def test_success_creates_four_rows(db_conn, monkeypatch) -> None:
 async def test_refuse_writes_disabled_refused_row_and_no_script(db_conn, monkeypatch) -> None:
     _patch_env(monkeypatch)
     user_id = _seed_user(db_conn)
+    _placeholder(db_conn, user_id)
     outcome = DiscoveryOutcome(
         ok=False,
         refuse_reason="verifying we can read it: only 0 of the 12 job(s) the browser saw "
@@ -172,6 +174,7 @@ async def test_browser_fetch_outcome_stores_that_transport(db_conn, monkeypatch)
     nightly leaf task routes on exactly this value."""
     _patch_env(monkeypatch)
     user_id = _seed_user(db_conn)
+    _placeholder(db_conn, user_id)
     script = _recipe()
     script["transport"] = "browser_fetch"
     script["origin_url"] = "https://careers.acme.example/jobs"
@@ -217,9 +220,10 @@ async def test_flag_off_skips_discovery(db_conn, monkeypatch) -> None:
 
 
 def test_add_discovered_company_is_idempotent(db_conn) -> None:
-    """The service create path resolves a re-add to the existing row instead of
-    minting a second company (UNIQUE(user_id, canonical_source_key))."""
+    """A re-discovery of the same board resolves to the SAME row and replaces its
+    script, instead of minting a second company (UNIQUE(user_id, canonical_source_key))."""
     user_id = _seed_user(db_conn)
+    _placeholder(db_conn, user_id)
     first = ccs.add_discovered_company(
         db_conn, user_id=user_id, submitted_url=_SUBMITTED, normalized_url=_NORMALIZED,
         display_name="careers.acme.example", script=_recipe(),
@@ -230,8 +234,13 @@ def test_add_discovered_company_is_idempotent(db_conn) -> None:
         display_name="careers.acme.example", script=_recipe(),
         transport="http_json", oracle_kind="facet_sum",
     )
+    assert first is not None and second is not None
     assert first["id"] == second["id"]
     assert _row(db_conn, "SELECT count(*) AS n FROM companies WHERE ats = 'discovered'")["n"] == 1
+    assert _row(
+        db_conn, "SELECT count(*) AS n FROM company_scripts WHERE company_id = %s",
+        (first["id"],),
+    )["n"] == 1
 
 
 # --- discovery-progress checklist (E7 unit 3) ---------------------------------
@@ -246,11 +255,18 @@ def _progress(db_conn, company_id: str) -> dict:
     return row["d"]
 
 
-def _placeholder(db_conn, user_id: str) -> str:
-    """The provisional 'discovering' row the 202 add path creates, minted directly."""
+def _placeholder(db_conn, user_id: str, url: str = _NORMALIZED) -> str:
+    """The provisional 'discovering' row the 202 add path creates, minted directly.
+
+    EVERY test that runs the task now seeds one first, because production always has
+    one: the router INSERTs the placeholder and only then defers the job. Discovery no
+    longer creates a company of its own — a missing placeholder means the user removed
+    the board mid-run, and re-creating it there is how a deleted board came back (see
+    ``test_a_company_removed_mid_discovery_is_not_resurrected``).
+    """
     created = ccs.add_discovering_placeholder(
         db_conn, user_id=user_id, submitted_url=_SUBMITTED,
-        normalized_url=_NORMALIZED, display_name="careers.acme.example",
+        normalized_url=url, display_name="careers.acme.example",
     )
     return str(created["id"])
 
@@ -519,6 +535,7 @@ async def test_an_accept_enqueues_the_first_harvest_immediately(db_conn, monkeyp
     _patch_env(monkeypatch)
     user_id = _seed_user(db_conn)
     url = "https://careers.first-harvest.example/jobs"
+    _placeholder(db_conn, user_id, url)
     _accepting(monkeypatch)
     calls = _record_defers(monkeypatch)
 
@@ -538,6 +555,7 @@ async def test_the_immediate_harvest_takes_the_row_off_the_claim_ticks_list(
     _patch_env(monkeypatch)
     user_id = _seed_user(db_conn)
     url = "https://careers.interlock.example/jobs"
+    _placeholder(db_conn, user_id, url)
     _accepting(monkeypatch)
     _record_defers(monkeypatch)
 
@@ -558,6 +576,7 @@ async def test_a_claim_tick_right_after_an_accept_queues_no_second_harvest(
     _patch_env(monkeypatch)
     user_id = _seed_user(db_conn)
     url = "https://careers.one-run.example/jobs"
+    _placeholder(db_conn, user_id, url)
     _accepting(monkeypatch)
     calls = _record_defers(monkeypatch)
 
@@ -583,6 +602,7 @@ async def test_a_failed_defer_leaves_the_row_due_for_the_next_claim_tick(
     _patch_env(monkeypatch)
     user_id = _seed_user(db_conn)
     url = "https://careers.broker-down.example/jobs"
+    _placeholder(db_conn, user_id, url)
     _accepting(monkeypatch)
     _record_defers(monkeypatch, result="failed")
 
@@ -599,6 +619,7 @@ async def test_a_refusal_never_enqueues_a_harvest(db_conn, monkeypatch) -> None:
     _patch_env(monkeypatch)
     user_id = _seed_user(db_conn)
     url = "https://careers.refused-nofetch.example/jobs"
+    _placeholder(db_conn, user_id, url)
     calls = _record_defers(monkeypatch)
 
     async def _fake_discover(u, **kwargs):
@@ -621,6 +642,7 @@ async def test_the_kill_switch_stops_an_immediate_browser_fetch_harvest(
     _patch_env(monkeypatch)
     user_id = _seed_user(db_conn)
     url = "https://careers.killswitch.example/jobs"
+    _placeholder(db_conn, user_id, url)
     calls = _record_defers(monkeypatch)
 
     script = _recipe()
@@ -652,6 +674,7 @@ async def test_an_http_json_board_is_not_gated_by_the_discovery_kill_switch(
     _patch_env(monkeypatch)
     user_id = _seed_user(db_conn)
     url = "https://careers.httpjson-flag.example/jobs"
+    _placeholder(db_conn, user_id, url)
     calls = _record_defers(monkeypatch)
 
     script = _recipe()
@@ -668,3 +691,137 @@ async def test_an_http_json_board_is_not_gated_by_the_discovery_kill_switch(
     await discover_custom_company(user_id, _SUBMITTED, url, "httpjson-flag.example")
 
     assert calls == [_discovered_id(db_conn, url)]
+
+
+# --- removal during discovery: a deleted board must stay deleted ----------------
+#
+# THE BUG. ``remove_owned_company`` deleted the company row and left the queued
+# ``discover_custom_company`` job alone. That job is keyed on (user, URL), not on the
+# company id, so when it ran it found no owned row and INSERTed a brand-new one — a
+# board the user had deleted came back, tracked, enabled, and harvesting jobs. The fix
+# is in two halves and both are pinned here: the queued job is CANCELLED on removal
+# (cause, see test_removal_cancels_queued_jobs.py), and the persist path REFUSES to
+# create a row whose placeholder is gone (guarantee, and the only half that also covers
+# a removal landing while the job is already RUNNING).
+
+
+def _counts(db_conn, url: str) -> dict:
+    db_conn.rollback()
+    return {
+        "companies": _row(
+            db_conn,
+            "SELECT count(*) AS n FROM companies WHERE board_token = %s", (url,),
+        )["n"],
+        "owned": _row(db_conn, "SELECT count(*) AS n FROM user_companies")["n"],
+        "scripts": _row(db_conn, "SELECT count(*) AS n FROM company_scripts")["n"],
+        "jobs": _row(db_conn, "SELECT count(*) AS n FROM job_listings")["n"],
+    }
+
+
+async def test_a_company_removed_mid_discovery_is_not_resurrected(
+    db_conn, monkeypatch
+) -> None:
+    """THE REGRESSION, accept side. The user adds a board, presses Remove while it is
+    still setting up, and the already-running discovery then ACCEPTS it. Nothing may be
+    created: not the company, not the ownership row, not the script — and above all not
+    a first harvest, which would write job_listings into a ``custom:<id>`` namespace
+    nobody owns."""
+    _patch_env(monkeypatch)
+    user_id = _seed_user(db_conn)
+    url = "https://careers.removed-accept.example/jobs"
+    company_id = _placeholder(db_conn, user_id, url)
+    _accepting(monkeypatch)
+    calls = _record_defers(monkeypatch)
+
+    assert ccs.remove_owned_company(db_conn, user_id, company_id) == "purged"
+
+    await discover_custom_company(user_id, _SUBMITTED, url, "removed-accept.example")
+
+    assert _counts(db_conn, url) == {
+        "companies": 0, "owned": 0, "scripts": 0, "jobs": 0,
+    }
+    # And no harvest was enqueued for the board that no longer exists.
+    assert calls == []
+
+
+async def test_a_refusal_for_a_removed_company_creates_nothing(
+    db_conn, monkeypatch, caplog
+) -> None:
+    """THE REGRESSION, refuse side. A refusal used to INSERT a disabled 'Not trackable'
+    row, so removing a board mid-setup could put a red badge back in the list of a user
+    who had deleted it. Same rule, same silence.
+
+    The LOG is asserted too, and it is not decoration: on this path there is no state
+    change left to observe — the service already wrote nothing — so the one line saying
+    the board was removed is the entire difference between a legible outcome and a
+    "REFUSED (company None)" that sends the next operator looking for a bug."""
+    _patch_env(monkeypatch)
+    user_id = _seed_user(db_conn)
+    url = "https://careers.removed-refuse.example/jobs"
+    company_id = _placeholder(db_conn, user_id, url)
+
+    outcome = DiscoveryOutcome(
+        ok=False, refuse_reason="finding the jobs feed: nothing job-shaped", attempts=1,
+    )
+
+    async def _fake_discover(u, **kwargs):
+        return outcome
+
+    monkeypatch.setattr(task_mod, "discover", _fake_discover)
+
+    assert ccs.remove_owned_company(db_conn, user_id, company_id) == "purged"
+
+    with caplog.at_level("INFO", logger=task_mod.__name__):
+        await discover_custom_company(user_id, _SUBMITTED, url, "removed-refuse.example")
+
+    assert _counts(db_conn, url) == {
+        "companies": 0, "owned": 0, "scripts": 0, "jobs": 0,
+    }
+    assert any(
+        "was removed while discovery ran" in record.getMessage()
+        for record in caplog.records
+    ), "the task must say the board was removed, not log a refusal of company None"
+
+
+def test_the_service_refuses_to_create_a_board_with_no_placeholder(db_conn) -> None:
+    """The unit behind both tests above: no owned row means DELIBERATE REMOVAL, not a
+    first insert. It used to mean the latter, and that is the whole bug."""
+    user_id = _seed_user(db_conn)
+    url = "https://careers.no-placeholder.example/jobs"
+
+    assert ccs.add_discovered_company(
+        db_conn, user_id=user_id, submitted_url=_SUBMITTED, normalized_url=url,
+        display_name="no-placeholder.example", script=_recipe(),
+        transport="http_json", oracle_kind="facet_sum",
+    ) is None
+    assert ccs.record_discovery_refusal(
+        db_conn, user_id=user_id, submitted_url=_SUBMITTED, normalized_url=url,
+        display_name="no-placeholder.example", reason="nope",
+    ) is None
+    assert _counts(db_conn, url)["companies"] == 0
+
+
+def test_a_promotion_whose_row_vanishes_mid_write_writes_nothing(db_conn) -> None:
+    """The narrowest window in the resurrection fix: the placeholder is read, the user
+    presses Remove, and only THEN does the flip run. Without the rowcount check the
+    UPDATE quietly matches nothing while the two statements after it still land — a
+    ``company_scripts`` recipe and an 'added' audit row for a company id that does not
+    exist. Called through the private helper because the window cannot be opened from
+    outside it."""
+    user_id = _seed_user(db_conn)
+    assert ccs._promote_to_tracked(
+        db_conn, user_id=user_id, company_id="u-doesnotexist",
+        submitted_url=_SUBMITTED, normalized_url="https://careers.ghost.example/jobs",
+        display_name="ghost.example", script=_recipe(), script_version=1,
+        transport="http_json", oracle_kind="facet_sum",
+    ) is None
+    assert _row(
+        db_conn,
+        "SELECT count(*) AS n FROM company_scripts WHERE company_id = %s",
+        ("u-doesnotexist",),
+    )["n"] == 0
+    assert _row(
+        db_conn,
+        "SELECT count(*) AS n FROM company_add_attempts WHERE company_id = %s",
+        ("u-doesnotexist",),
+    )["n"] == 0

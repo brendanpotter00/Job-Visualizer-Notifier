@@ -23,6 +23,7 @@ from psycopg2.extensions import connection as Connection
 from scripts.shared.constants import custom, new_custom_company_id
 from .careers_host_match import match_any_careers_url
 from .discovery.progress import initial_snapshot, with_first_scan
+from .pending_jobs import cancel_queued_jobs
 
 logger = logging.getLogger(__name__)
 
@@ -369,6 +370,28 @@ def discovered_source_key(normalized_url: str) -> str:
     return f"discovered:{normalized_url}"
 
 
+def discovery_queueing_lock(user_id: str, normalized_url: str) -> str:
+    """The Procrastinate queueing lock a ``discover_custom_company`` job is deferred under.
+
+    Keyed PER USER on purpose (a URL-only lock made a second user's add raise
+    ``AlreadyEnqueued``). It lives here, next to the source key it mirrors, because it
+    is now read by three places that must agree to the byte: the router that defers the
+    job, ``remove_owned_company`` when it cancels one, and the reconciler that asks
+    whether a wedged row still has a job behind it. A second copy of this f-string is
+    how "cancel the queued discovery" silently cancels nothing.
+    """
+    return f"discover:{user_id}:{normalized_url}"
+
+
+def harvest_queueing_lock(company_id: str) -> str:
+    """The per-company lock every ``fetch_custom_company`` defer is made under.
+
+    Same reason as :func:`discovery_queueing_lock`: the claim tick, the add-time first
+    harvest and the removal path all name it, and they must name the same string.
+    """
+    return f"custom:{company_id}"
+
+
 def add_discovering_placeholder(
     conn: Connection,
     *,
@@ -619,7 +642,7 @@ def _promote_to_tracked(
     transport: str,
     oracle_kind: str,
     progress: Optional[dict[str, Any]] = None,
-) -> dict[str, Any]:
+) -> Optional[dict[str, Any]]:
     """Flip an existing (usually provisional ``discovering``) row to tracked and write
     its script. The 202-placeholder → tracked transition (§7): the discovery task
     accepted, so enable scraping (``health_state='unverified'``, ``enabled=TRUE``,
@@ -629,7 +652,14 @@ def _promote_to_tracked(
 
     ``progress`` is the terminal checklist (all four steps ticked + the job preview),
     written in the SAME statement as the flip so the two can never disagree — see
-    :func:`_progress_param` for what ``None`` means."""
+    :func:`_progress_param` for what ``None`` means.
+
+    ``None`` when the UPDATE matched no row: the caller read the placeholder a moment
+    ago and the user has REMOVED it since. That window is small but it is the one a
+    person actually hits — the row sits on screen saying "Setting up…" for up to four
+    minutes with a Remove button beside it. Without the rowcount check the flip would
+    quietly write no company and then INSERT a ``company_scripts`` row and an ``added``
+    audit row for a company id that no longer exists."""
     cursor = conn.cursor()
     try:
         cursor.execute(
@@ -645,6 +675,13 @@ def _promote_to_tracked(
             """,
             (display_name, normalized_url, _progress_param(progress), company_id),
         )
+        if cursor.rowcount == 0:
+            conn.rollback()
+            logger.info(
+                "discovery accepted %s but its company row is gone — removed mid-run; "
+                "writing nothing", normalized_url,
+            )
+            return None
         cursor.execute(
             """
             INSERT INTO company_scripts (
@@ -694,118 +731,54 @@ def add_discovered_company(
     transport: str,
     oracle_kind: str,
     progress: Optional[dict[str, Any]] = None,
-) -> dict[str, Any]:
-    """Create the four rows for a DISCOVERED (non-ATS) custom company — E7 Phase 3b.
+) -> Optional[dict[str, Any]]:
+    """Finish a DISCOVERED (non-ATS) custom company by tracking it — E7 Phase 3b.
 
     The Phase-3 analog of :func:`add_custom_company`: the ``company_scripts`` row
     stores the discovery-proven script with ``transport in {'http_json','http_html',
     'browser_fetch'}`` and the REAL ``oracle_kind`` (facet_sum/header/sitemap/
     self_consistent) — not ``'ats_client'``/``'none'``.
 
-    On the capture-discovery add path a PROVISIONAL ``health_state='discovering'`` row
-    already exists (the router inserted it on the 202, §7), so the common case flips
-    that row to tracked and writes the script (:func:`_promote_to_tracked`) rather
-    than INSERTing a second ``companies`` row (which would ``UniqueViolation`` and
-    silently skip the script). Only when NO prior row exists (a task-direct call, or
-    discovery enqueued without a placeholder) does it INSERT fresh. Idempotent per
-    ``UNIQUE(user_id, canonical_source_key)`` either way.
+    IT PROMOTES; IT NEVER CREATES. The add path (``routers/user_companies.add_company``)
+    inserts a PROVISIONAL ``health_state='discovering'`` row before it defers the
+    discovery job (§7), so by the time discovery accepts, the row it is finishing
+    already exists. :func:`_promote_to_tracked` flips it to tracked and writes the
+    script; ``ON CONFLICT`` on ``company_scripts`` makes a re-discovery replace the
+    recipe rather than fail.
+
+    **A MISSING PLACEHOLDER MEANS DELIBERATE REMOVAL, NOT A FIRST INSERT** — the bug
+    this contract closes. This used to INSERT a fresh ``companies`` +
+    ``user_companies`` + ``company_scripts`` trio when it found no owned row, on the
+    reasoning that a task-direct call had no placeholder to promote. But the only way
+    production reaches this function without a placeholder is that the user pressed
+    Remove while their board was still being set up: ``remove_owned_company`` purges
+    the row, the queued job survives, and the INSERT brought the deleted board back —
+    tracked, enabled, and harvesting jobs the user never asked for again. There is no
+    second caller that legitimately wants a create here, so "the row is gone" now
+    returns ``None`` and writes nothing at all. Cancelling the queued job on removal
+    (see :func:`remove_owned_company`) removes the cause; this is the guarantee, and it
+    is the only half that also covers a removal that lands while the job is RUNNING.
+
+    Returns the tracked company, or ``None`` when the board was removed mid-discovery.
     """
     source_key = discovered_source_key(normalized_url)
     script_version = int(script.get("script_version") or 1)
 
-    # Provisional-placeholder (or any prior owned) row exists → promote it and write
-    # the script, never a duplicate INSERT.
     existing = find_owned_company_by_source_key(conn, user_id, source_key)
-    if existing is not None:
-        return _promote_to_tracked(
-            conn, user_id=user_id, company_id=existing["id"],
-            submitted_url=submitted_url, normalized_url=normalized_url,
-            display_name=display_name, script=script, script_version=script_version,
-            transport=transport, oracle_kind=oracle_kind, progress=progress,
+    if existing is None:
+        logger.info(
+            "add_discovered_company: no owned row for %s (user=%s) — the board was "
+            "removed while discovery ran; creating nothing",
+            normalized_url, user_id,
         )
+        return None
 
-    last_error: Optional[psycopg2.Error] = None
-    for _ in range(_ID_GENERATION_ATTEMPTS):
-        company_id = new_custom_company_id()
-        cursor = conn.cursor()
-        try:
-            cursor.execute(
-                """
-                INSERT INTO companies (
-                    id, display_name, ats, board_token, enabled, provider_config,
-                    visibility, cadence_hours, next_run_at, health_state,
-                    consecutive_failures
-                ) VALUES (
-                    %s, %s, %s, %s, TRUE, %s::jsonb,
-                    'user', %s, now(), 'unverified', 0
-                )
-                """,
-                (company_id, display_name, _DISCOVERED_ATS, normalized_url,
-                 json.dumps({"discovery": progress} if progress is not None else {}),
-                 DEFAULT_CADENCE_HOURS),
-            )
-            cursor.execute(
-                """
-                INSERT INTO user_companies (user_id, company_id, canonical_source_key)
-                VALUES (%s, %s, %s)
-                """,
-                (user_id, company_id, source_key),
-            )
-            cursor.execute(
-                """
-                INSERT INTO company_scripts (
-                    company_id, script, script_version, transport, oracle_kind
-                ) VALUES (%s, %s::jsonb, %s, %s, %s)
-                """,
-                (company_id, json.dumps(script), script_version, transport, oracle_kind),
-            )
-            cursor.execute(
-                """
-                INSERT INTO company_add_attempts (
-                    user_id, submitted_url, normalized_url, outcome,
-                    resolved_ats, board_token, company_id
-                ) VALUES (%s, %s, %s, 'added', %s, %s, %s)
-                """,
-                (user_id, submitted_url, normalized_url, _DISCOVERED_ATS,
-                 normalized_url, company_id),
-            )
-            conn.commit()
-            return {
-                "id": company_id,
-                "display_name": display_name,
-                "ats": _DISCOVERED_ATS,
-                "board_token": normalized_url,
-                "health_state": "unverified",
-                "last_success_at": None,
-                "tracking_started_at": None,
-                "source_id": custom(company_id),
-                "open_job_count": 0,
-                "provider_config": {"discovery": progress} if progress is not None else {},
-            }
-        except psycopg2.errors.UniqueViolation as exc:
-            conn.rollback()
-            # Either a companies.id PK collision (regenerate + retry) or a concurrent
-            # placeholder for this (user, source_key). If the board now exists, PROMOTE
-            # it (write the script) rather than returning it script-less.
-            existing = find_owned_company_by_source_key(conn, user_id, source_key)
-            if existing is not None:
-                return _promote_to_tracked(
-                    conn, user_id=user_id, company_id=existing["id"],
-                    submitted_url=submitted_url, normalized_url=normalized_url,
-                    display_name=display_name, script=script,
-                    script_version=script_version, transport=transport,
-                    oracle_kind=oracle_kind, progress=progress,
-                )
-            last_error = exc
-            continue
-        except psycopg2.Error:
-            conn.rollback()
-            raise
-
-    raise RuntimeError(
-        "failed to generate a unique discovered company id after "
-        f"{_ID_GENERATION_ATTEMPTS} attempts"
-    ) from last_error
+    return _promote_to_tracked(
+        conn, user_id=user_id, company_id=existing["id"],
+        submitted_url=submitted_url, normalized_url=normalized_url,
+        display_name=display_name, script=script, script_version=script_version,
+        transport=transport, oracle_kind=oracle_kind, progress=progress,
+    )
 
 
 def record_discovery_refusal(
@@ -817,21 +790,27 @@ def record_discovery_refusal(
     display_name: str,
     reason: str,
     progress: Optional[dict[str, Any]] = None,
-) -> str:
+) -> Optional[str]:
     """Record a loud, terminal discovery REFUSAL (E7 Phase 3b, invariant 6).
 
-    Creates a DISABLED, script-less ``companies`` row with
-    ``health_state='refused'`` (+ ownership + a ``company_add_attempts`` row with
-    ``outcome='refused'``) so the user SEES "we can't reliably track this site" as
-    a badge in their list, while nothing is ever scraped: ``enabled=FALSE``,
-    ``next_run_at=NULL``, and no ``company_scripts`` row (so the leaf task no-ops
-    even if it were ever reached).
+    Flips the caller's existing (provisional ``discovering``) row to a DISABLED,
+    script-less ``health_state='refused'`` and appends a ``company_add_attempts`` row
+    with ``outcome='refused'``, so the user SEES "we can't reliably track this site" as
+    a badge in their list while nothing is ever scraped: ``enabled=FALSE``,
+    ``next_run_at=NULL``, and no ``company_scripts`` row (so the leaf task no-ops even
+    if it were ever reached).
 
     RECONCILIATION NOTE (deliberate): PHASE-3-PLAN §7 says "no company" on refuse
     while the §0.1 non-negotiable invariant says "set health_state='refused'".
     ``health_state`` is a ``companies`` column, so surfacing the refusal as a badge
     requires a row — a disabled, script-less one is the coherent terminal state
     that honors the invariant without ever harvesting. Returns the company id.
+
+    LIKE :func:`add_discovered_company`, IT NO LONGER CREATES. A refusal for a board
+    whose row is gone would put a "Not trackable" chip back in the list of a user who
+    had deleted that board — the same resurrection as the accept path, just wearing a
+    red badge instead of a green one. ``None`` means the row was removed mid-run and
+    nothing was written; the caller logs it and stops.
 
     ``progress`` is the terminal checklist carrying the NAMED STEP that failed, written
     in the SAME statement as the flip to ``refused``. That is what turns a bare "Not
@@ -841,85 +820,44 @@ def record_discovery_refusal(
     """
     source_key = discovered_source_key(normalized_url)
     existing = find_owned_company_by_source_key(conn, user_id, source_key)
-    if existing is not None:
-        cursor = conn.cursor()
-        try:
-            cursor.execute(
-                """
-                UPDATE companies
-                SET health_state = 'refused', enabled = FALSE, next_run_at = NULL,
-                    provider_config = COALESCE(
-                        jsonb_set(provider_config, '{discovery}', %s::jsonb, true),
-                        provider_config
-                    )
-                WHERE id = %s AND visibility = 'user'
-                """,
-                (_progress_param(progress), existing["id"]),
-            )
-            conn.commit()
-        except psycopg2.Error:
-            conn.rollback()
-            raise
-        record_add_attempt(
-            conn, user_id=user_id, submitted_url=submitted_url,
-            normalized_url=normalized_url, outcome="refused", error_detail=reason,
-            resolved_ats=_DISCOVERED_ATS, company_id=existing["id"],
+    if existing is None:
+        logger.info(
+            "record_discovery_refusal: no owned row for %s (user=%s) — the board was "
+            "removed while discovery ran; creating nothing",
+            normalized_url, user_id,
         )
-        return str(existing["id"])
+        return None
 
-    last_error: Optional[psycopg2.Error] = None
-    for _ in range(_ID_GENERATION_ATTEMPTS):
-        company_id = new_custom_company_id()
-        cursor = conn.cursor()
-        try:
-            cursor.execute(
-                """
-                INSERT INTO companies (
-                    id, display_name, ats, board_token, enabled, provider_config,
-                    visibility, cadence_hours, next_run_at, health_state,
-                    consecutive_failures
-                ) VALUES (
-                    %s, %s, %s, %s, FALSE, %s::jsonb,
-                    'user', NULL, NULL, 'refused', 0
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            """
+            UPDATE companies
+            SET health_state = 'refused', enabled = FALSE, next_run_at = NULL,
+                provider_config = COALESCE(
+                    jsonb_set(provider_config, '{discovery}', %s::jsonb, true),
+                    provider_config
                 )
-                """,
-                (company_id, display_name, _DISCOVERED_ATS, normalized_url,
-                 json.dumps({"discovery": progress} if progress is not None else {})),
-            )
-            cursor.execute(
-                """
-                INSERT INTO user_companies (user_id, company_id, canonical_source_key)
-                VALUES (%s, %s, %s)
-                """,
-                (user_id, company_id, source_key),
-            )
-            cursor.execute(
-                """
-                INSERT INTO company_add_attempts (
-                    user_id, submitted_url, normalized_url, outcome, error_detail,
-                    resolved_ats, company_id
-                ) VALUES (%s, %s, %s, 'refused', %s, %s, %s)
-                """,
-                (user_id, submitted_url, normalized_url, reason, _DISCOVERED_ATS,
-                 company_id),
-            )
-            conn.commit()
-            return company_id
-        except psycopg2.errors.UniqueViolation as exc:
+            WHERE id = %s AND visibility = 'user'
+            """,
+            (_progress_param(progress), existing["id"]),
+        )
+        if cursor.rowcount == 0:
+            # Removed between the read above and this write. Same reasoning as
+            # ``_promote_to_tracked``: write nothing rather than leave an audit row
+            # pointing at a company that no longer exists.
             conn.rollback()
-            existing = find_owned_company_by_source_key(conn, user_id, source_key)
-            if existing is not None:
-                return str(existing["id"])
-            last_error = exc
-            continue
-        except psycopg2.Error:
-            conn.rollback()
-            raise
-
-    raise RuntimeError(
-        "failed to record a discovery refusal after "
-        f"{_ID_GENERATION_ATTEMPTS} attempts"
-    ) from last_error
+            return None
+        conn.commit()
+    except psycopg2.Error:
+        conn.rollback()
+        raise
+    record_add_attempt(
+        conn, user_id=user_id, submitted_url=submitted_url,
+        normalized_url=normalized_url, outcome="refused", error_detail=reason,
+        resolved_ats=_DISCOVERED_ATS, company_id=existing["id"],
+    )
+    return str(existing["id"])
 
 
 def count_open_jobs(conn: Connection, company_id: str) -> int:
@@ -1032,11 +970,21 @@ def remove_owned_company(conn: Connection, user_id: str, company_id: str) -> str
     a row — and unreachable by any future re-add, because a re-add mints a NEW
     company id. "Remove" has to mean removed.
 
+    IT ALSO CANCELS THE WORK STILL QUEUED FOR THIS BOARD, in the same transaction.
+    That is the fix for a board coming BACK after it was removed: a pasted URL defers
+    a ``discover_custom_company`` job keyed on ``(user, url)``, not on the company id,
+    so deleting the row left that job on the broker to run four minutes later against
+    a company that no longer existed — and it then created a brand-new one, tracked,
+    with jobs. Cancelling here is the cause-removal (no browser session, no Claude
+    call, no reserved interactive slot spent on a deleted board); the refusal inside
+    :func:`add_discovered_company` is the guarantee, because a job already RUNNING
+    cannot be cancelled. The queued first harvest goes the same way, for the same
+    reason: nothing should read a board nobody owns.
+
     SHARED vs PER-USER. A ``companies`` row is never shared. Every
     ``user_companies`` INSERT in this module is paired with a fresh
     ``INSERT INTO companies`` in the same statement block
-    (:func:`add_custom_company`, :func:`add_discovering_placeholder`,
-    :func:`add_discovered_company`, :func:`record_discovery_refusal`) — nothing
+    (:func:`add_custom_company`, :func:`add_discovering_placeholder`) — nothing
     ever links a second user to an existing row — so two users who add the same
     board get two distinct companies and two distinct ``custom:<id>`` namespaces
     (see :class:`api.db_models.UserCompany`). A hard delete is therefore correct
@@ -1085,7 +1033,7 @@ def remove_owned_company(conn: Connection, user_id: str, company_id: str) -> str
         # that namespace is derived from the id we just proved the caller owned,
         # so orphaned jobs under it are exactly what we came to collect.
         cursor.execute(
-            "SELECT visibility FROM companies WHERE id = %s FOR UPDATE",
+            "SELECT visibility, board_token FROM companies WHERE id = %s FOR UPDATE",
             (company_id,),
         )
         company_row = cursor.fetchone()
@@ -1096,6 +1044,20 @@ def remove_owned_company(conn: Connection, user_id: str, company_id: str) -> str
             # here would take a curated board's jobs off the public site.
             conn.commit()
             return "unlinked"
+
+        # THE QUEUED WORK, cancelled before the rows it would have run against are
+        # gone. Read from the row we just locked rather than from anything the caller
+        # passed: ``board_token`` IS the normalized URL the discovery job was deferred
+        # under (``add_discovering_placeholder`` writes exactly that), so the lock
+        # string we cancel is the one the router minted. A row that has already gone
+        # (``company_row is None``) has no discovery lock to reconstruct — its harvest
+        # lock is still worth cancelling, and is keyed by the id alone.
+        locks = [harvest_queueing_lock(company_id)]
+        if company_row is not None and company_row["board_token"]:
+            locks.append(
+                discovery_queueing_lock(user_id, str(company_row["board_token"]))
+            )
+        cancel_queued_jobs(cursor, locks)
 
         # Resolved HERE, not at the top: ``company_id`` arrives straight off the
         # URL path, and ``custom()`` RAISES on an id it would not have minted. Up

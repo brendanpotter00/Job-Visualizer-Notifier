@@ -1431,6 +1431,13 @@ def test_an_accepted_board_lists_its_four_ticks_and_a_job_preview(client, db_con
     ledger.finish(dp.STEP_FIND_FEED, "found 3 candidate feed(s)")
     ledger.finish(dp.STEP_VERIFY_READ, "read 90 job(s)")
     ledger.finish(dp.STEP_READY, "reading the board's own feed directly — no browser needed")
+    # Discovery PROMOTES the provisional row the add path inserted; it no longer
+    # creates one of its own (a missing placeholder now means the user removed the
+    # board mid-run). So seed the placeholder exactly as the 202 add does.
+    svc.add_discovering_placeholder(
+        db_conn, user_id=user_id, submitted_url=_NON_ATS_URL,
+        normalized_url=_NON_ATS_URL, display_name="acme.example",
+    )
     svc.add_discovered_company(
         db_conn, user_id=user_id, submitted_url=_NON_ATS_URL,
         normalized_url=_NON_ATS_URL, display_name="acme.example",
@@ -1464,6 +1471,10 @@ def test_a_refused_board_lists_the_named_step_that_failed(client, db_conn):
     ledger.finish(dp.STEP_FIND_FEED, "found 3 candidate feed(s)")
     ledger.fail(dp.STEP_VERIFY_READ,
                 "only 1 of the 12 job(s) the browser saw came back from the replay")
+    svc.add_discovering_placeholder(
+        db_conn, user_id=user_id, submitted_url=_NON_ATS_URL,
+        normalized_url=_NON_ATS_URL, display_name="acme.example",
+    )
     svc.record_discovery_refusal(
         db_conn, user_id=user_id, submitted_url=_NON_ATS_URL,
         normalized_url=_NON_ATS_URL, display_name="acme.example",
