@@ -369,43 +369,67 @@ def test_health_worker_stays_cold_on_a_lane_that_has_never_ticked(client, db_con
 
 @pytest_asyncio.fixture
 async def procrastinate_open(db_conn):
-    """Open the Procrastinate connector + install its schema (mirrors
-    test_procrastinate_bootstrap.py's fixture).
+    """Open a Procrastinate connector pinned to the TEST database.
+
+    NOT the module-level `procrastinate_app.connector`. That one is built at
+    IMPORT time from `settings.database_url`, which local dev resolves from
+    `.env.local` — so it points at the real `jobscraper` database no matter what
+    `TEST_DATABASE_URL` says, and setting `DATABASE_URL` from a fixture is far
+    too late to change it. This test starts REAL workers that claim and execute
+    whatever they find, so an unpinned connector would have them draining a real
+    local queue (and it did, until this fixture existed).
+
+    `App.replace_connector` is Procrastinate's supported seam for exactly this;
+    the tasks stay registered on the same app object.
     """
+    from procrastinate import PsycopgConnector
+
+    from scripts.shared.database import augment_db_url
+    from api.tests.conftest import TEST_DB_URL
+
     schema = os.environ.get("PYTEST_SCHEMA")
     assert schema, "db_conn fixture must set PYTEST_SCHEMA"
-    prev_pgoptions = os.environ.get("PGOPTIONS")
-    os.environ["PGOPTIONS"] = f'-c search_path="{schema}",public'
-    try:
-        await procrastinate_app.open_async()
+
+    connector = PsycopgConnector(
+        conninfo=augment_db_url(
+            TEST_DB_URL, application_name="lanetest", statement_timeout_ms=60_000
+        )
+    )
+    with procrastinate_app.replace_connector(connector):
+        await connector.open_async()
         try:
             await ensure_schema_async(procrastinate_app)
             yield
         finally:
-            await procrastinate_app.close_async()
-    finally:
-        if prev_pgoptions is None:
-            os.environ.pop("PGOPTIONS", None)
-        else:
-            os.environ["PGOPTIONS"] = prev_pgoptions
+            await connector.close_async()
 
 
 # Test-only tasks registered on the app singleton. They stand in for the real
-# leaf tasks so the test can control exactly how long a bulk job occupies a
-# slot without doing any network or LLM work.
-_bulk_started = asyncio.Event()
+# leaf tasks so the test can control exactly how long a bulk job occupies a slot
+# without doing any network or LLM work.
+#
+# Saturation is tracked with IN-PROCESS counters rather than by polling
+# `procrastinate_jobs`: the tasks run in this very process, so the counter is
+# authoritative and needs no assumptions about which schema the connector
+# resolved `procrastinate_jobs` to.
+_bulk_running = 0
+_bulk_saturated = asyncio.Event()
 _interactive_ran = asyncio.Event()
 _release_bulk = asyncio.Event()
 
 
 @procrastinate_app.task(queue="workday_fetch", name="_lanetest_slow_bulk")
 async def _lanetest_slow_bulk() -> None:
-    _bulk_started.set()
-    # Holds its slot until the test releases it, so every bulk slot is still
-    # occupied when the interactive job is deferred. Released in the test's
-    # `finally` so teardown is immediate; the timeout is only a safety net
-    # against a hung test.
-    await asyncio.wait_for(_release_bulk.wait(), timeout=60)
+    global _bulk_running
+    _bulk_running += 1
+    if _bulk_running >= _BULK_WORKER_CONCURRENCY:
+        _bulk_saturated.set()
+    try:
+        # Holds its slot until the test releases it. The timeout is only a
+        # safety net so a failing test cannot wedge the suite.
+        await asyncio.wait_for(_release_bulk.wait(), timeout=120)
+    finally:
+        _bulk_running -= 1
 
 
 @procrastinate_app.task(queue="custom_discovery", name="_lanetest_interactive")
@@ -413,72 +437,84 @@ async def _lanetest_interactive() -> None:
     _interactive_ran.set()
 
 
-def _delete_lanetest_jobs(conn) -> None:
+async def _delete_lanetest_jobs() -> None:
     """Remove this module's throwaway jobs from the shared Procrastinate tables.
 
-    Procrastinate's schema is installed once per DATABASE (its connector's
-    conninfo carries its own `options`, which libpq prefers over the PGOPTIONS
-    search_path pin the fixtures set), so these rows live in `public` and
-    outlive this module's test schema. A leftover `todo` row would hand a
-    60-second wait to whichever later module opens a worker on `workday_fetch`.
+    Procrastinate's schema is installed once per DATABASE, so these rows outlive
+    this module's test schema. A leftover `todo` row would hand a long wait to
+    whichever later module opens a worker on `workday_fetch`. Routed through the
+    CONNECTOR, not the `db_conn` fixture: the connector's conninfo carries its
+    own libpq `options`, which takes precedence over the PGOPTIONS search_path
+    the fixtures pin, so the two do not necessarily resolve the table alike.
     """
-    with conn.cursor() as cur:
-        cur.execute(
-            "DELETE FROM procrastinate_events WHERE job_id IN "
-            "(SELECT id FROM procrastinate_jobs WHERE task_name LIKE %s)",
-            ("\\_lanetest%",),
-        )
-        cur.execute(
-            "DELETE FROM procrastinate_jobs WHERE task_name LIKE %s",
-            ("\\_lanetest%",),
-        )
-    conn.commit()
+    # The pattern goes through a PARAMETER, never inlined: psycopg reads a bare
+    # `%` in the SQL text as a placeholder marker and raises on the literal.
+    pattern = "\\_lanetest%"
+    await procrastinate_app.connector.execute_query_async(
+        "DELETE FROM procrastinate_events WHERE job_id IN "
+        "(SELECT id FROM procrastinate_jobs WHERE task_name LIKE %(pattern)s)",
+        pattern=pattern,
+    )
+    await procrastinate_app.connector.execute_query_async(
+        "DELETE FROM procrastinate_jobs WHERE task_name LIKE %(pattern)s",
+        pattern=pattern,
+    )
 
 
 @pytest.mark.asyncio
 async def test_a_discovery_job_runs_while_the_bulk_lane_is_saturated(
-    procrastinate_open, db_conn
+    procrastinate_open,
 ):
     """THE regression the owner hit, end to end.
 
-    Fill every bulk slot with long-running jobs, then defer one job on
+    Fill every bulk slot with jobs that will not let go, then defer one job on
     `custom_discovery`. With the reserved lane it runs immediately. With ONE
     shared worker at concurrency=5 — the shape before this change — all five
-    slots are occupied by the bulk jobs and the discovery job sits in `todo`
-    until one finishes, which is exactly what the owner saw ("Opening the
-    page" forever, `attempts: 0`).
+    slots are occupied and the discovery job sits in `todo` until one frees,
+    which is exactly what the owner saw ("Opening the page" forever,
+    `attempts: 0`).
     """
-    _bulk_started.clear()
+    global _bulk_running
+    _bulk_running = 0
+    _bulk_saturated.clear()
     _interactive_ran.clear()
     _release_bulk.clear()
 
-    # More blockers than the bulk lane has slots, so the bulk worker is
-    # genuinely saturated and has nothing spare.
+    # More blockers than the bulk lane has slots, so it is genuinely saturated
+    # with nothing spare.
     #
     # priority is NOT decoration. `procrastinate_fetch_job` orders by
-    # `priority DESC, id ASC`, and Procrastinate's schema lives in `public`
-    # (shared by every test module in the session), so earlier modules leave
-    # older `todo` rows on the bulk queues. Without a priority these jobs queue
-    # BEHIND those and the bulk lane never fills — the test then times out for a
-    # reason that has nothing to do with what it is checking.
+    # `priority DESC, id ASC`, and Procrastinate's schema is shared by every
+    # test module in the session, so earlier modules leave older `todo` rows on
+    # the bulk queues. Without a priority these jobs queue BEHIND those, the
+    # bulk lane never fills, and the test fails for a reason that has nothing to
+    # do with what it is checking.
     for _ in range(_BULK_WORKER_CONCURRENCY + 2):
         await _lanetest_slow_bulk.configure(priority=100).defer_async()
 
     tasks = start_worker_lanes()
     try:
-        await asyncio.wait_for(_bulk_started.wait(), timeout=30)
-        # Give the bulk worker a moment to claim every slot it can.
-        await asyncio.sleep(1.0)
+        # Saturation is a CHECKED PRECONDITION, not an assumption. Without it
+        # the test could pass vacuously on a bulk lane that had a free slot.
+        await asyncio.wait_for(_bulk_saturated.wait(), timeout=30)
+        assert _bulk_running >= _BULK_WORKER_CONCURRENCY
 
         await _lanetest_interactive.configure(priority=100).defer_async()
-
         await asyncio.wait_for(_interactive_ran.wait(), timeout=30)
+
+        # ...and it ran while the bulk lane was STILL full. If the blockers had
+        # drained, a bulk slot came free and this run would not demonstrate a
+        # reserved lane at all.
+        assert _bulk_running >= _BULK_WORKER_CONCURRENCY, (
+            f"the bulk lane drained to {_bulk_running} busy slots before the "
+            "interactive job ran — this run does not prove the reservation"
+        )
     finally:
         _release_bulk.set()
         for task in tasks:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
-        _delete_lanetest_jobs(db_conn)
+        await _delete_lanetest_jobs()
 
     assert _interactive_ran.is_set()
 
