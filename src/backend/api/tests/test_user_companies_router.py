@@ -29,7 +29,22 @@ GREENHOUSE_URL = "https://boards.greenhouse.io/duolingo"
 
 @pytest.fixture(autouse=True)
 def flag_on(monkeypatch):
+    """Pin BOTH E7 flags to the values these tests assume, rather than inheriting them.
+
+    ``Settings`` loads ``.env.local``, which is untracked and developer-specific. A
+    test that reads a flag it never set therefore behaves one way in CI (flag absent →
+    the compiled-in default) and the opposite way on a machine whose ``.env.local``
+    turns it on. That is exactly how ``test_non_ats_url_returns_422_and_records_unsupported``
+    — a test whose whole premise is "discovery is OFF" — silently started running the
+    discovery branch locally and 500ing on an unopened Procrastinate app.
+
+    So: the parent flag ON (every test here is about the feature), and the discovery
+    sub-flag OFF, which is its production default. Tests that are about discovery
+    being on set it to ``True`` themselves inside the test body, which runs after this
+    fixture and wins.
+    """
     monkeypatch.setattr(settings, "custom_company_sources_enabled", True)
+    monkeypatch.setattr(settings, "custom_company_discovery_enabled", False)
 
 
 @pytest.fixture(autouse=True)
@@ -647,9 +662,17 @@ def test_non_ats_url_returns_422_and_records_unsupported(client, db_conn, monkey
         )
 
     monkeypatch.setattr("api.routers.user_companies._http_client", factory)
+    # THE SIDE EFFECT THIS TEST WAS MISSING. "422 and no side effects" has to include
+    # the broker: the discovery gate is what stands between a flag-off refusal and a
+    # ``defer_async`` on Procrastinate, and if that enqueue ever moved above the gate
+    # the two DB assertions below would still pass while a real user with discovery
+    # off got a queued job they never asked for. (``_capture_defer`` is defined lower
+    # in this module; it is a module-level function, so the order does not matter.)
+    calls = _capture_defer(monkeypatch)
 
     resp = client.post("/api/users/companies", json={"url": "https://careers.acme.test/jobs"})
-    assert resp.status_code == 422
+    assert resp.status_code == 422, resp.text
+    assert calls == []
     assert _count(db_conn, "companies", "WHERE visibility = 'user'") == 0
     assert _count(db_conn, "company_add_attempts", "WHERE outcome = 'unsupported'") == 1
 
