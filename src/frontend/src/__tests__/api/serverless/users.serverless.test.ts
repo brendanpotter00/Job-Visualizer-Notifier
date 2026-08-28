@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import handler from '../../../../../../api/users';
+import { runProxyAllowlistGuard } from './proxyAllowlistGuard';
 import { getBackendUrl } from '../../../../../../api/utils/backendUrl';
 
 function mockJsonResponse(status: number, body: unknown) {
@@ -87,58 +88,62 @@ describe('/api/users serverless function', () => {
       );
     });
 
+    // These four used to use `profile`, `settings/notifications`, `search` and
+    // `me` — none of which are backend routes; they were placeholders chosen to
+    // exercise the string plumbing. That is exactly the habit the allowlist
+    // exists to break, so they now use real routes from PROXIED_ROUTES.
     it('should handle single path segment', async () => {
-      mockReq.query = { path: 'profile' };
+      mockReq.query = { path: 'visit' };
 
       fetchMock.mockResolvedValue(mockJsonResponse(200, {}));
 
       await handler(mockReq as VercelRequest, mockRes as VercelResponse);
 
       expect(fetchMock).toHaveBeenCalledWith(
-        'http://localhost:8000/api/users/profile',
+        'http://localhost:8000/api/users/visit',
         expect.any(Object)
       );
     });
 
     it('should handle multiple path segments as array', async () => {
-      mockReq.query = { path: ['settings', 'notifications'] };
+      mockReq.query = { path: ['saved-filters', 'keyword-lists'] };
 
       fetchMock.mockResolvedValue(mockJsonResponse(200, {}));
 
       await handler(mockReq as VercelRequest, mockRes as VercelResponse);
 
       expect(fetchMock).toHaveBeenCalledWith(
-        'http://localhost:8000/api/users/settings/notifications',
+        'http://localhost:8000/api/users/saved-filters/keyword-lists',
         expect.any(Object)
       );
     });
 
     it('should forward query parameters', async () => {
-      mockReq.query = { path: 'search', q: 'test', limit: '10' };
+      mockReq.query = { path: ['companies', 'jobs'], cursor: 'test', limit: '10' };
 
       fetchMock.mockResolvedValue(mockJsonResponse(200, {}));
 
       await handler(mockReq as VercelRequest, mockRes as VercelResponse);
 
       expect(fetchMock).toHaveBeenCalledWith(
-        expect.stringContaining('http://localhost:8000/api/users/search?'),
+        expect.stringContaining('http://localhost:8000/api/users/companies/jobs?'),
         expect.any(Object)
       );
       const calledUrl = fetchMock.mock.calls[0][0] as string;
       const url = new URL(calledUrl);
-      expect(url.searchParams.get('q')).toBe('test');
+      expect(url.searchParams.get('cursor')).toBe('test');
       expect(url.searchParams.get('limit')).toBe('10');
     });
 
     it('should not append query string when no extra params exist', async () => {
-      mockReq.query = { path: 'me' };
+      mockReq.query = { path: 'enabled-companies' };
 
       fetchMock.mockResolvedValue(mockJsonResponse(200, {}));
 
       await handler(mockReq as VercelRequest, mockRes as VercelResponse);
 
       expect(fetchMock).toHaveBeenCalledWith(
-        'http://localhost:8000/api/users/me',
+        'http://localhost:8000/api/users/enabled-companies',
         expect.any(Object)
       );
     });
@@ -568,4 +573,38 @@ describe('/api/users serverless function', () => {
       expect(mockRes.json).toHaveBeenCalledWith(updatedUser);
     });
   });
+});
+
+/**
+ * The allowlist that closed the production `?path=` traversal.
+ *
+ * `legitimate` below is the whole of PROXIED_ROUTES in `api/users.ts`, and it
+ * is the whole of what the SPA calls: `features/auth/authService.ts` (bare,
+ * `visit`, `enabled-companies`), `features/savedFilters/savedFiltersApi.ts`
+ * (the `saved-filters` family), `features/userCompanies/userCompaniesApi.ts`
+ * (the `companies` family) and `features/userCompanies/customJobsClient.ts`
+ * (`companies/jobs`). Three backend routers mount under `/api/users`, which is
+ * why this is the widest of the five lists.
+ */
+runProxyAllowlistGuard({
+  name: 'users',
+  prefix: '/api/users',
+  handler,
+  legitimate: [
+    ['', '/api/users'],
+    ['visit', '/api/users/visit'],
+    ['enabled-companies', '/api/users/enabled-companies'],
+    ['saved-filters', '/api/users/saved-filters'],
+    ['saved-filters/keyword-lists', '/api/users/saved-filters/keyword-lists'],
+    [
+      ['saved-filters', 'keyword-lists', 'kl-42'],
+      '/api/users/saved-filters/keyword-lists/kl-42',
+    ],
+    ['companies', '/api/users/companies'],
+    ['companies/jobs', '/api/users/companies/jobs'],
+    ['companies/u-abc123', '/api/users/companies/u-abc123'],
+    ['companies/u-abc123/jobs', '/api/users/companies/u-abc123/jobs'],
+  ],
+  normalizes: ['/companies//jobs/', '/api/users/companies/jobs'],
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
 });

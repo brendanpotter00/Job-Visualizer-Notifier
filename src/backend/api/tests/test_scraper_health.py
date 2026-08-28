@@ -443,7 +443,15 @@ class TestProxyAllowlistInvariant:
 
     def _proxy_allowlist(self) -> set[str]:
         src = self.PROXY.read_text()
-        match = re.search(r"const PROXIED_PATHS = new Set\(\[(.*?)\]\)", src, re.S)
+        # Accepts both spellings of the allowlist literal: the original
+        # ``new Set([...])`` and the ``[...] as const`` array the proxy moved to
+        # when the canonicalize-and-match logic was hoisted into the shared
+        # ``api/utils/proxyPath.ts`` (so all seven internal-key proxies use one
+        # implementation). Only the SHAPE is flexible — the invariant this
+        # class enforces is unchanged, and a denylist still fails the assert.
+        match = re.search(
+            r"const PROXIED_PATHS = (?:new Set\()?\[(.*?)\]", src, re.S
+        )
         assert match, (
             "PROXIED_PATHS is missing from api/jobs-qa.ts. If it was replaced "
             "by a denylist, read the class docstring first — that shape was "
@@ -535,9 +543,30 @@ class TestProxyAllowlistInvariant:
         allowlist too — which fails CLOSED, so it is not a vulnerability —
         but ``scrape-runs/`` would then 404 a legitimate caller. The
         canonicalizer is what makes both directions correct.
+
+        The canonicalizer now lives in ``api/utils/proxyPath.ts``, shared with
+        the six other internal-key proxies (``users``, ``companies``,
+        ``feedback``, ``features``, ``admin``, ``jobs``) after the same
+        ``?path=`` traversal was found live on five of them. This test follows
+        it there and additionally pins the guards that were added when it
+        became shared — a dynamic ``:id`` segment is not immune to the
+        URL-restructuring characters the way two fixed literals were.
         """
-        src = self.PROXY.read_text()
+        assert (
+            "from './utils/proxyPath'" in self.PROXY.read_text()
+        ), "api/jobs-qa.ts must use the shared canonicalizer, not a private copy"
+
+        shared = self.PROXY.parent / "utils" / "proxyPath.ts"
+        assert shared.exists(), shared
+        src = shared.read_text()
         assert "function canonicalizeProxyPath" in src
         assert "decodeURIComponent" in src
-        for guard in ("'..'", "'.'", "\\0"):
-            assert guard in src, f"canonicalizeProxyPath is missing {guard}"
+        for guard in (
+            "'..'",  # traversal
+            "'.'",  # './scrape-runs' is not a spelling we accept
+            "STRUCTURAL_HAZARDS",  # the character-class gate itself
+            r"[\\?#",  # backslash separator, query injection, fragment truncation
+            r"\u0000-\u001F",  # NUL truncation and every other C0 control
+            r"\u007F",  # DEL
+        ):
+            assert guard in src, f"the shared canonicalizer is missing {guard}"
