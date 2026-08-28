@@ -172,3 +172,76 @@ import-guard (runtime path imports no LLM/agent).
 4. **>10k caps** — facet-splitting deferred (phase 3); most boards are under the cap.
 5. **Migration** — retire the DOM path, re-discover existing companies.
 6. **ToS/legal** — flagged for the owner; product decision.
+
+---
+
+## Browser-layer safety (carried over from the retired Stagehand plan)
+
+`PHASE-STAGEHAND-PLAN.md` was deleted — the Stagehand tier it described was built, shipped
+and then removed by this capture pivot. Two parts of it survived the swap because the current
+design still drives a real Chromium (`services/capture/network_capture.py`, and
+`services/browser_fetch/_browser_fetch_main.py` which runs `page.evaluate(fetch(...))` on the
+board's own origin). They are reproduced here so they do not go with the file.
+
+### SSRF at the browser layer — `allowedDomains` is necessary but NOT sufficient
+
+- **The add-time entry-URL guard stays.** `url_guard.validate_public_url` already runs on the
+  entry URL through the add flow (`user_companies.py`, `discover`), rejecting IP literals,
+  RFC1918 / loopback / link-local / metadata addresses, and DNS answers that resolve private.
+- **Browserbase's `allowedDomains` restricts only main-frame navigations.** Per its own
+  [create-a-session](https://docs.browserbase.com/reference/api/create-a-session) reference it
+  *"does not block iframe/subframe loads or other in-page resource requests (images, scripts,
+  XHR)"*. It is also bypassable via proxy/translate services hosted on an allowed domain
+  ([gemini-cli #23224](https://github.com/google-gemini/gemini-cli/issues/23224)). Set it to
+  `[host]` as defence in depth; **do not rely on it for request-level SSRF.**
+- **The real control is the request-level pin: CDP `Fetch.requestPaused`.** Connect Playwright
+  over CDP in the subprocess, enable `Fetch.requestPaused`, and **abort any request whose host
+  is not the pinned target**, re-validated through `url_guard` — which is what closes DNS
+  rebinding. This is the browser-layer analog of the existing `GuardedTransport`
+  (`guarded_client.py:50`). Keep `verify=True` / `ignoreCertificateErrors:false`.
+- **The httpx transport does not cover this path.** `GuardedTransport` protects the HTTP
+  replay tier only. Any browser-driving path needs the CDP pin, not the transport.
+
+### The stable-id requirement — prove it or refuse
+
+The lead risk when a tier reads jobs out of a page rather than a JSON feed: the extractor can
+return DOM row indices (`"0-650"`) instead of durable ids, and a row index is stable only
+until the board reorders.
+
+- Discovery must **prove** the `id_field` is stable before storing: if pagination is used,
+  assert **page-2 ids are disjoint from page-1 ids**, and that every id looks like a
+  URL / slug / number of plausible length rather than a row position. If it cannot, retry the
+  extraction with a sharper instruction or **REFUSE**.
+- Replay re-asserts the same invariants every run and **RAISES → FAILED** on violation,
+  reusing the runner's "raise, never return `[]`" contract. A FAILED run writes nothing
+  destructive and is not counted as a miss.
+- Until a board's id is proven stable it stays `oracle_kind='self_consistent'` and never
+  reaches a 3-run VERIFIED streak on shaky evidence — it is shown but **never closes**, which
+  is the safe default the gate already guarantees.
+
+---
+
+## Implementation notes (carried over from the deleted file-level plan)
+
+There used to be a `CAPTURE-DETAILED-PLAN.md` beside this file, holding the per-file change
+list, the test plan and the PR stack. It has been deleted — the change list shipped (read the
+modules), the PR stack lives in `STACK-ORCHESTRATION.md`, and the agent-free-boundary decision
+is stated in `services/browser_fetch/__init__.py`'s own docstring. Three things from it are
+worth keeping:
+
+- **Two deliberate deviations from the planned file layout.** The replay tier lives at
+  `services/browser_fetch/` (not `services/capture/`) so the replay and discovery sides stay
+  **separately import-guardable**; the discovery capture child is
+  `services/capture/_capture_main.py`.
+- **Why `browser_fetch` is a subprocess and not a branch inside `run_recipe`.**
+  `recipe_runner.run_recipe` calls `assert_no_agent_imports()` on every call and forbids
+  `playwright | stagehand | browserbase | langchain` on the replay path. A `browser_fetch`
+  recipe drives a headless Chromium, so it **cannot** execute inside `run_recipe`. It runs
+  out-of-band in its own module and subprocess, drives a local `chromium.launch()`, runs the
+  captured request via `page.evaluate(fetch(...))` on the site origin, and returns the **same
+  `(rows, HarvestEvidence)`** the http path returns — so `run_recipe` and its agent-free guard
+  are untouched and the gate needs nothing new.
+- **Infra needed nothing new.** `requirements.txt` already pinned `playwright>=1.40.0`, and the
+  `Dockerfile` already ran `playwright install --with-deps chromium` and used `tini` to reap
+  browser grandchildren (for the Google/Apple/Microsoft/TikTok scrapers). The local-Chromium
+  executor reuses that as-is; the only dependency change was **removing** `stagehand`.

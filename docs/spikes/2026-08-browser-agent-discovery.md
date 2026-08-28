@@ -262,14 +262,14 @@ never produces jobs. See §8.
 ## 7. Limitations — what this spike does NOT prove
 
 1. **Durability is measured in hours, not 48 h.** Round 1 is recorded and every
-   re-run so far agrees (max drift 0.03%). Rounds 2 and 3 are pending:
-   ```bash
-   ./scripts/one_off/recipe_spike/replay_round.sh replay-2   # ~24 h later
-   ./scripts/one_off/recipe_spike/replay_round.sh replay-3   # ~48 h later
-   ./scripts/one_off/recipe_spike/drift.py                   # verdict per target
-   ```
-   Nothing here needs a human to interpret it — `drift.py` prints per-target
-   drift against round 1 and flags anything over 5%.
+   re-run so far agrees (max drift 0.03%). Rounds 2 and 3 were never run, and the
+   `replay_round.sh` / `drift.py` harness that would have run them was deleted with
+   the rest of the spike scratch (see `scripts/one_off/recipe_spike/README.md` —
+   recover from git history at `a2fcd3c` if it is ever wanted). Replaying a round by
+   hand is `replay.py --all`; the drift verdict was "flag anything over 5% against
+   round 1". **This limitation was overtaken rather than closed:** the production
+   port replays these recipes nightly behind the completeness gate, which is a
+   stronger durability signal than three spike rounds would have been.
 2. ~~**The Browserbase cloud-vs-local comparison never ran.**~~ **CLOSED
    2026-08-08 — it ran. The prediction recorded here was wrong** (see the
    retraction in §6): this section reasoned that a cloud browser "would have

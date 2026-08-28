@@ -4,9 +4,11 @@
 
 **The stack:** `main ← #243 ← #247 ← #248`. Nothing is merged. Anything that lands on #248 reaches production only after three PRs merge — that fact decides half the routing below.
 
-**Source of the work:** [7.7 — Custom-company jobs × the enricher](https://app.clickup.com/t/wdwb1cbq5t) and [7.6 — First-run dates](https://app.clickup.com/t/wdwb1cbp8n), both subtasks of the E7 epic `wdwb1cbnc2`. The reasoning lives in `ENRICHMENT-TRADEOFFS.md` and the two annotated artifacts; **this file is the build order**.
+**Source of the work:** [7.7 — Custom-company jobs × the enricher](https://app.clickup.com/t/wdwb1cbq5t) and [7.6 — First-run dates](https://app.clickup.com/t/wdwb1cbp8n), both subtasks of the E7 epic `wdwb1cbnc2`. The reasoning lives in `ENRICHMENT-TRADEOFFS.md` (its §9 holds the evidence carried out of the review artifacts before they were deleted); **this file is the build order**.
 
 > **Read this before planning anything into it.** Every unit below was checked against the source on this branch, not against the artifacts — which were written at different times and describe work that has since shipped. The list of what is already done is in §1 and it is longer than the list of what is left.
+
+> **Units 11–13 are superseded by `POSTED-DATE-PLAN.md`** (see its header, and its §5 U1–U8). Unit 13 predates decision D9 and recommends the opposite of what shipped; units 11 and 12 were absorbed as U6 and U1. Read POSTED-DATE-PLAN for the posted-date work — the three units below are kept only for the root-cause analysis in unit 11.
 
 ---
 
@@ -380,7 +382,7 @@ Four invariants in this system have named tests. Any PR touching one must name i
 ## See also
 
 - `ENRICHMENT-TRADEOFFS.md` — the reasoning behind Δ1–Δ5 and the option matrix
-- `custom-company-enrichment.html` — the annotated review artifact, with the full Decisions log
+- `ENRICHMENT-TRADEOFFS.md` §9 — the evidence carried out of the deleted review artifact (dedupe cohort data, the flag reference, the measured tick breakdown)
 - `BUILD-PLAN.md:148` — where custom enrichment was originally deferred, on an API-spend argument that is now stale
 - `TESTABLE-BOARDS.md` — the boards every coverage number here was measured against
 - ClickUp [7.7](https://app.clickup.com/t/wdwb1cbq5t) · [7.6](https://app.clickup.com/t/wdwb1cbp8n) · epic `wdwb1cbnc2`

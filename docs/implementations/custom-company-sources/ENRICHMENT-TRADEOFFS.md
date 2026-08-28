@@ -4,7 +4,7 @@
 **Ticket:** [7.7 — Custom-company jobs × the enricher](https://app.clickup.com/t/wdwb1cbq5t) (`wdwb1cbq5t`), a subtask of the E7 epic `wdwb1cbnc2`, beside 7.6.
 **Evidence:** prod Postgres (read-only), dev DB `jobscraper_pr243` (read-only), a live re-probe of all five captured board endpoints, and the E7 source on this branch. No production code changed, no capture run.
 
-> **Two files, one subject.** `custom-company-enrichment.html` in this folder is the **annotated review artifact** — the surface the owner marked up, with the full reasoning, the worked examples and the revision log. **This markdown is the summary of record** — the thing that survives when the review session ends. When they disagree, the HTML has the evidence and this file has the decision.
+> **This is the whole record now.** There used to be a companion `custom-company-enrichment.html` in this folder — a lavish review artifact, the surface the owner marked up. It was a review surface committed by mistake (`.lavish/` is gitignored for exactly this reason) and it has been deleted. Its unique evidence — the dedupe cohort data, the flag reference, the measured tick breakdown and the fleet inventory — was carried into **§9** below before it went.
 
 ---
 
@@ -52,7 +52,7 @@ Mapping them costs **zero extra requests**. `DESCRIPTION_SQL` already reads `det
 
 | | Decision | Call | Rationale |
 |---|---|---|---|
-| **Δ1** | Fairness mechanism for the claim query | **Option B — reserved share.** C and E **rejected**. | *"if we add E then it never will backfill everything."* C: reason not recalled; reconstructed in the HTML and **awaiting confirmation**. |
+| **Δ1** | Fairness mechanism for the claim query | **Option B — reserved share.** C and E **rejected**. | *"if we add E then it never will backfill everything."* C's reason was not recalled at the time; the reconstruction is in §9.2 and is still **awaiting confirmation**. |
 | **Δ2** | `department` in the canonical recipe field set | **Dropped, then REVERSED** — the set now carries both it and `description`. | *"I don't think we need a department."* Traced every reader; cost was one hint field in the enricher payload. **The premise expired the same night** — see §3. |
 | **Δ3** | Is title-only classification accurate enough to ship? | **Yes.** Agreement experiment **not** run. | *"I'm gonna say yes to this."* Closed by decision, not measurement — see the cost note below. |
 | **Δ4** | The bugs found in passing | **Fold into this workstream**, not separate tickets. | *"Fold these fixes into your work."* They are units 6–9. |
@@ -255,20 +255,197 @@ Each unit is independently shippable and independently revertable. Units 6–9 a
 
 There is **no flag service.** All backend flags are plain `pydantic-settings` booleans read from the environment at process boot (`src/backend/api/config.py`). Changing one requires a restart.
 
-| Flag | Default | Gates |
+| Flag | `config.py` | Default | Owner's local | Gates |
+|---|---|---|---|---|
+| `scraper_detail_scrape` | `:14` | **True** | not set | Per-job detail fetching in the legacy scrapers. **The only flag on by default.** |
+| `enrichment_use_external` | `:60` | False | — | **Master.** Gates `/pending` only — with it off the enricher is handed nothing |
+| `enrichment_require_judge_pass` | `:72` | False | — | `/results` holds judge-flagged rows as `needs_human` instead of publishing |
+| `enrichment_claim_without_description` | `:79` | False | — | Drops the `<DESCRIPTION_SQL> IS NOT NULL` predicate. **Inferred ON in prod** from the data (Workday: 0 OPEN rows with a description, 139 enriched in 24 h) — never read back from Railway env |
+| `custom_company_sources_enabled` | `:88` | False | — | The whole E7 feature. Off → routes 503 |
+| `custom_company_discovery_enabled` | `:105` | False | — | Capture discovery — the **single** discovery flag |
+| `capture_use_browserbase` | `:119` | False | **true** | **Costs money.** Runs discovery capture in Browserbase instead of our own headless Chromium. Bills per browser-hour; buys a stealth profile and the live-view URL the progress UI embeds. Sessions TTL-capped at 300 s |
+
+Frontend (Vite):
+
+| Flag | Value | Gates |
 |---|---|---|
-| `enrichment_use_external` | False | **Master.** Gates `/pending` only — with it off the enricher is handed nothing |
-| `enrichment_require_judge_pass` | False | `/results` holds judge-flagged rows as `needs_human` instead of publishing |
-| `enrichment_claim_without_description` | False | Drops the `<DESCRIPTION_SQL> IS NOT NULL` predicate. **Inferred ON in prod** |
-| `custom_company_sources_enabled` | False | The whole E7 feature. Off → routes 503 |
-| `custom_company_discovery_enabled` | False | Capture discovery — the **single** discovery flag |
-| `capture_use_browserbase` | False | **Costs money.** Bills per browser-hour; sessions TTL-capped at 300 s |
+| `VITE_CUSTOM_COMPANIES_ENABLED` | true | The "Add Companies" nav item and the `/add-companies` routes. Off → no route registered at all |
+| `VITE_DISCOVERY_PROGRESS_ENABLED` | true | The 4-step discovery checklist UI instead of a bare "Setting up…" badge |
+
+---
+
+## 9. Evidence carried over from the deleted review artifact
+
+The `custom-company-enrichment.html` review artifact was removed from the repo (a lavish
+review surface is not repo content). Everything below existed only there. Two of its
+recorded decisions have since been **overturned and must not be read as live**:
+
+- **Δ2 "drop `department`" was REVERSED.** The Department filter was found silently dead
+  hours later and fixed with a denormalized `job_listings.department` column
+  (migration `c1539fa03b23`). See §3a. Cost measured before the re-capture:
+  Microsoft 2,217 → 139 rows with a department, Atlassian 244 → 13, Jane Street 235 → 4,
+  Spotify 86 → 9.
+- **D5 "orphan-and-keep" was OVERRULED** by Δ7 in `IMPLEMENTATION-PLAN.md`, which says
+  **DELETE**. P2 dedupe has also since shipped (`services/published_board_match.py`,
+  `AlreadyPublicNotice.tsx`, `outcome='already_public'`).
+
+### 9.1 The measured shape of one enrichment tick (prod tick 3043)
+
+The enricher claims `enrich:per_tick_limit = 40` jobs, spends **2 h 10 m**, and sends back
+**37**. Classify is **153 s/job**, judge **100 s/item**; cleaning and write-back are noise
+(**2 ms** and **1.4 s**). About **3 jobs per tick** are lost outright to the 300 s ollama
+timeout and retried later. **37 classified → 21 judged** in that tick. So a 10% custom
+share = 4 jobs per tick ≈ **44/day**.
+
+Fleet shape at the time: **129 public companies · 8 custom** (7 owned, 1 orphan) ·
+**9 public `source_id`s · 7 custom**. The dev DB held **4,523 custom jobs across 7 boards,
+zero with any description key**; prod held **21,899** enrichment rows and **0** custom jobs.
+**2,610 of 4,523 (58%)** custom rows carried a `department` — Microsoft, Atlassian, Jane
+Street and Spotify have it; Cisco, Intel and Amazon do not. `details_scraped = true` lies on
+**13,714** rows in total.
+
+Already running in prod: `enrichment_claim_without_description` is ON, and Workday +
+Eightfold (0% description) are classified title-only at **~130 jobs/day, about 28% of total
+output** — **5,206** title-only rows against **16,693** description-backed ones.
+
+Backfill shape, if per-job detail fetching were ever built: only new jobs need a
+description, so backfill is a one-time O(N) spike and steady state is O(Δ). A 2,055-job
+board backfills in **a week**; a **47,000-job board takes 157 nights**. A detail page is
+HTML, typically **5–10× the bytes** of a list row, so 0.3 s/request is the optimistic floor
+and 0.6 s the realistic case.
+
+Four sampled title-only classifications — the only qualitative evidence behind Δ3:
+
+| Title | Category | Level | Confidence |
+|---|---|---|---|
+| Sr. Office Manager | `business_ops` | senior | 0.50 |
+| Business Analysis Manager — EP Strategy & Analytics | `business_ops` | manager | 0.50 |
+
+(Both land on the `TITLE_ONLY_MAX_CONFIDENCE` clamp of 0.50 rather than on evidence.)
+
+### 9.2 Why option C was rejected — the reconstruction
+
+Recorded because Δ1's rationale for rejecting C was not recalled at the time.
+
+> C spreads the slice across boards, but every board belongs to one person — you. Four jobs
+> a tick split seven ways means no board is ever finished; all seven sit permanently
+> half-labelled. **And a half-labelled board is worse in the UI than an unlabelled one,
+> because the category and level filters silently drop the unlabelled half without saying
+> so.** Finishing Spotify in two days and then starting Atlassian is strictly better for a
+> single user. C only starts paying when there are many users — and then the right partition
+> key is `user_id` (option D), not `source_id`.
+
+Two more options were killed outright and are not in the §5 matrix:
+
+- **"Off-peak only" does not exist.** The enricher runs 23–24 hours a day; there is no
+  off-peak window to schedule into.
+- **"Opt-in" does not solve fairness**, it just renames who gets starved. The public backlog
+  never drains at current throughput, so strict priority means custom jobs are enriched
+  **never** — not "eventually", not "slowly". Zero.
+
+### 9.3 Deduplication — the one-board-many-owners problem
+
+**What deduping exists today.** Everything is inside one harvest of one company. Nothing
+compares two companies, and nothing compares two users.
+
+| Mechanism | What it does | Scope | Where |
+|---|---|---|---|
+| `dedupe_key` | Recipe op declaring the record key. Validated on write; one field only. | one harvest | `recipe_schema.py:423` |
+| Gate check 7 | The real dedupe — walks rows in document order, keeps the first occurrence of each id, records `id_dedup_dropped`. | one harvest | `harvest_verification.py:183-191` |
+| `assert_unique` / check 8 | Backstop: re-checks uniqueness after the dedupe, raises `HarvestGateError`. A logic-error tripwire, not a data path. | one harvest | `harvest_verification.py:193` |
+| `id_dedup_dropped` | Persisted per harvest. Observability only — nothing reads it back. | one harvest | `db_models.py:810` |
+| `(source_id, id)` composite PK | Says the *opposite* of dedupe: a job id is not globally unique and two boards may legally carry the same one. | one source | `db_models.py:96` |
+| `UNIQUE(user_id, canonical_source_key)` | The only idempotency that exists — one user re-adding a board resolves to their existing row. | one **user** | `db_models.py:749-752` |
+| `find_owned_company_by_source_key` | The lookup behind it; its WHERE is `uc.user_id = %s AND uc.canonical_source_key = %s`. | one **user** | `custom_companies_service.py:43-59` |
+| Across users / across companies | Nothing. Not a table, not a column, not a query. | — | — |
+
+This is deliberate, and `db_models.py:726-729` states it: two different users who add the
+same board get two DISTINCT company rows (and two `custom:<id>` `source_id`s). Commit
+`7a5a57b` left the door open on purpose — `remove_owned_company` already counts remaining
+owners and returns `'unlinked'` without purging when any remain
+(`custom_companies_service.py:936-943`).
+
+**The URL is not the identity — the Spotify pair proves it.**
+
+| Signal | Public Spotify | The custom Spotify | Match |
+|---|---|---|---|
+| Row | `lever_api/spotify` — 191 jobs, 89 OPEN, history from 2026-07-01 | `custom:u-ibr09efe5d` — 85 jobs, 85 OPEN, from 2026-08-25 | — |
+| Host | `jobs.lever.co` | `www.lifeatspotify.com` | ✕ |
+| Registrable domain | `lever.co` — the *vendor's* | `lifeatspotify.com` | ✕ |
+| Jobs feed | `api.lever.co/v0/postings/spotify` | `api.lifeatspotify.com/wp-json/animal/v1/job/search` | ✕ |
+| Job id shape | UUID — `a0fa7da3-4c3c-4fa2-…` | slug — `senior-backend-engineer-podcast` | ✕ |
+| `display_name` | Spotify | Lifeatspotify (auto-derived from the host) | ✕ |
+| OPEN title set | 81 unique | 77 unique | **70 · 86%** |
+
+`lifeatspotify.com` and `lifeatspotify.com/jobs` were fetched and grepped for every ATS host
+the L2 sniffer knows (`lever.co`, `greenhouse.io`, `ashbyhq`): **zero hits in 52 KB of
+HTML**. No link, no script tag, no embedded reference — **L2 can never connect these two**,
+no matter how many sub-paths are added to `_SNIFF_SUBPATHS`.
+
+The four ways URL identity fails, each with a real example:
+
+| Failure | Real example | What breaks |
+|---|---|---|
+| Vendor domain vs own domain | `boards.greenhouse.io/spotify` · `lifeatspotify.com/jobs` · `spotify.com/careers` | One string is the vendor's domain, so the registrable domain carries no company information. Host-based grouping puts every Greenhouse customer in one bucket. |
+| Boards move hosts | ByteDance → `joinbytedance.com`; Microsoft → `apply.careers.microsoft.com`; Shopee → `careers.shopee.sg` | Yesterday's key is today's dead URL. L1 redirect-following fixes the forward direction only while the redirect lives. |
+| Overlapping but not equal | The Jane Street row: `?type=experienced-candidates&location=new-york`, 235 jobs | A filtered board and the full board are not the same source even on one host. **Query-stripping is not a normalization improvement here — it is a correctness bug.** Merge them and the full board's harvest gate starts closing jobs the filtered board never claimed to see. |
+| One host, two boards | Two Greenhouse tokens (eng + sales), or two Workday slugs on one tenant | Same origin, different board. Origin alone is too coarse; the token/slug is the identity and lives in the path. |
+
+**The captured endpoint as identity.** The Spotify row's
+`provider_config.discovery.network.requests[]` holds **14 recorded URLs**, exactly one marked
+`"state": "chosen"` (`api.lifeatspotify.com/wp-json/animal/v1/job/search`, status 200,
+85 records). It beats the entry URL because it is what the board *is* rather than what a
+marketing page links, it is proven by replay rather than guessed, it survives a front-end
+host move, and it is already persisted. It still fails on: the Spotify case itself (two
+different, both-real endpoints); two tenants behind one multi-tenant feed host (the tenant is
+in a query param and which param is tenant-bearing is not derivable); an API version bump
+(`/v1/` → `/v2/`) reading as a brand-new board; and ATS-resolved boards, which have no
+captured endpoint at all and use `ats:token` anyway. **Verdict: a P1 key, not a merge
+oracle.**
+
+**The four mechanisms, and why only two are acceptable:**
+
+| Option | Mechanism | Cost of a wrong merge | Verdict |
+|---|---|---|---|
+| 1. Shared row, many owners (P1) | Drop "one `companies` INSERT per `user_companies` INSERT"; a second owner is one INSERT. | **High** — one shared job history, corrupted for everyone, no undo. | Build next, gated behind the confidence bar. |
+| 2. Canonical-identity table | Add `board_identities` + `company_id → identity_id`; scrape once per identity, fan rows out per company. | Low — un-merging is one UPDATE. | **Argued against hardest.** It buys back 33 seconds of browser time and leaves every duplicate row in the enrichment queue — the expensive half. It also adds *writers*, which is the real reason to prefer 1. |
+| 3. Resolve-and-link (P2) | Pasted URL resolves via L0/L1/L2 to `(ats, board_token)`; look it up in `companies WHERE visibility='public'`. On a hit, return a link and create nothing. | **None** — worst case the user clicks "track it anyway". | **Always, and first.** No schema change, no privacy question, no deletion question. |
+| 4. Merge-on-detect | Background job compares job sets across companies and merges above a threshold. | **Highest** — merges happen unobserved, at 3am, on data nobody is looking at. | **Never.** No un-merge, no merge audit, no way to tell afterwards which rows came from which board. |
+
+**The privacy leak that row-sharing would open.** `provider_config.discovery` is returned to
+the owner and contains the first user's Browserbase `live_view_url`, their full **14-entry**
+captured request log, and a raw job sample. Under sharing that blob would go to *every*
+owner. Also never expose the owner list, or `company_add_attempts` (it carries `user_id` +
+the raw submitted URL). **Fix the `provider_config` projection before sharing ships.**
+What legitimately becomes a shared fact: `open_job_count`, `health_state`, `last_success_at`,
+`tracking_started_at` — B learns somebody tracked it, not who.
+
+**What dedupe is actually worth** — measured against the real Spotify duplicate. Browserbase
+is the *smallest* line; the money is in the enrichment queue.
+
+| Cost avoided | Per duplicate board | Spotify, measured |
+|---|---|---|
+| Browserbase session at add | one capture — **33–95 s** measured (Spotify 33 s, Atlassian 33 s, Microsoft 95 s) | 33 s |
+| LLM spend at add | one request-selection call | 1 call |
+| Recurring browser time | **zero** — all 7 boards replay as `http_json` or `ats_client` | 0 |
+| Recurring harvest | one extra board on the 24 h cadence, forever | 85 rows/night |
+| Duplicate rows in the enrichment queue | = board size, one-off | 85 |
+| Custom slice consumed | at 10% of a 40-job tick ≈ 45 jobs/day | **~1.9 days of the entire custom budget** |
+| GPU wall-clock | 153 s classify + 100 s judge per title-only row | **~6.0 h** |
+
+And duplicates go to the **front**, not the back: the claim orders `first_seen_at DESC`
+within each tier (`internal_enrichment.py:187-193`), so a duplicate board's rows are by
+construction the newest rows in the table.
+
+**Row inventory at the time:** Microsoft 2,055 · Cisco 1,200 · Intel 613 · Atlassian 235 ·
+Jane Street 235 · Amazon 100. Plus the orphan `u-6hkpc6fh0z` ("Amazon (live check)") with
+100 jobs and zero owners — a state the model says cannot exist, produced by a test path,
+`enabled=false` so nothing scrapes it.
 
 ---
 
 ## See also
 
-- `custom-company-enrichment.html` — the annotated review artifact this document summarizes
 - `BUILD-PLAN.md` — where custom enrichment was originally deferred (line 148, on the now-stale API-spend argument)
 - `CAPTURE-IMPLEMENTATION-PLAN.md` — the capture pipeline whose field map is the blocker
 - `IMPLEMENTATION-PLAN.md` — **the build order**, scoped to the live PR stack

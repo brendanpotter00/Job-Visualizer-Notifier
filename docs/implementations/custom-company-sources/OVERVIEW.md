@@ -1,6 +1,6 @@
 # Custom Company Sources — the plan, in one read
 
-**Status:** proposed, awaiting owner approval. This is the high-level shape; `BUILD-PLAN.md` has the detail.
+**Status:** approved 2026-08-09 and **built** — Phases 1–3 have shipped. This is the architecture and the evidence behind it; `BUILD-PLAN.md` has the phase-by-phase detail and `STACK-ORCHESTRATION.md` logs what actually happened. Two things below were later overtaken: the Browserbase-vs-local runtime question was settled by the capture pivot (discovery captures once in our own Chromium; replay is `http_json` or `browser_fetch`), and Phase 4 was dropped as subsumed.
 **Evidence:** ~21 real careers sites harvested end-to-end 2026-08-08/09, one adversarial design review against the live repo code, and browser/CORS/cost claims measured today. $0 spent beyond ~22 free Browserbase minutes.
 
 ---
@@ -155,4 +155,4 @@ Corrected against the live code, not asserted:
 - **Execution-time SSRF + `ignoreCertificateErrors:false`.** Our `url_guard` runs at add-time only; nightly fetches need CDP-enforced host pinning, and Browserbase accepts any cert by default.
 - **Correction of record:** I'd written that a recalibrated `0.85` safety guard was committed. It exists on `main`, **not** in this worktree — and even on main it's inert on a company's first run and tuned for 30-min cadence, so it can't catch a wrong day-one baseline. Daily companies need a per-company learned baseline. *(A subagent asserted this; I wrote it down without verifying. Fixed.)*
 
-Still not built. Nothing here is implemented — this is the shape to approve or poke holes in. `BUILD-PLAN.md` carries the phase-by-phase detail.
+`BUILD-PLAN.md` carries the phase-by-phase detail; `STACK-ORCHESTRATION.md` carries the log of what was built, in what order, and which decisions were reversed on the way.

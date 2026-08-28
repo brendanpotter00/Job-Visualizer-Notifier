@@ -9,7 +9,7 @@
 > retired and deleted. Kept for the reasoning and the tier taxonomy.
 >
 > (Original framing:) Nothing here is built. It supersedes the daily-Stagehand approach in PR #248 as the
-> intended end-state (see `PHASE-STAGEHAND-PLAN.md` for what shipped).
+> intended end-state (see `CAPTURE-IMPLEMENTATION-PLAN.md` for what shipped).
 
 ## Why this exists (the gap the owner caught)
 
