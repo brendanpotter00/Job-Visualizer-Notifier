@@ -113,7 +113,7 @@ function routeFetch(resolve: Response, add?: Response) {
 
 async function submitUrl(url = 'https://intel.com/careers') {
   const user = userEvent.setup();
-  await user.type(screen.getByLabelText(/careers page url/i), url);
+  await user.type(screen.getByLabelText(/job board link/i), url);
   await user.click(screen.getByRole('button', { name: /add company/i }));
   return user;
 }
@@ -127,7 +127,7 @@ describe('MyCompaniesPage', () => {
 
     expect(screen.getByRole('progressbar')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /sign in/i })).not.toBeInTheDocument();
-    expect(screen.queryByLabelText(/careers page url/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/job board link/i)).not.toBeInTheDocument();
   });
 
   // The page is named "Add Companies" in the sidebar, so it has to be named that here
@@ -152,7 +152,7 @@ describe('MyCompaniesPage', () => {
       renderWithProviders(<MyCompaniesPage />);
 
       expect(screen.getByRole('button', { name: /sign in/i })).toBeInTheDocument();
-      expect(screen.queryByLabelText(/careers page url/i)).not.toBeInTheDocument();
+      expect(screen.queryByLabelText(/job board link/i)).not.toBeInTheDocument();
     });
 
     it('calls login() when the prompt button is clicked', async () => {
@@ -179,10 +179,14 @@ describe('MyCompaniesPage', () => {
       // an unrecognized one starts work immediately and the page has to say so up front.
       expect(screen.getByText(/nothing is tracked until you press/i)).toBeInTheDocument();
       expect(screen.getByText(/that begins straight away/i)).toBeInTheDocument();
-      // The field's own helper text has to carry it too — it is the last thing read
-      // before the button is pressed.
-      expect(screen.getByText(/we start a one-time setup to learn how to read it/i))
-        .toBeInTheDocument();
+      // ...and the ALERT is where it lives, alone. The field's helper text used to
+      // repeat the whole branch, which made it three clauses long under a one-line
+      // input — a length people skip, and skipped consent is not consent. It now says
+      // only what to paste, so this pins that it has NOT quietly grown back into a
+      // second copy of the alert above it.
+      const helper = screen.getByText(/paste the exact job board link/i);
+      expect(helper).toBeInTheDocument();
+      expect(helper).not.toHaveTextContent(/one-time setup/i);
     });
 
     it('labels the button for what it actually does, not just a read-only check', () => {
@@ -198,7 +202,7 @@ describe('MyCompaniesPage', () => {
       const button = screen.getByRole('button', { name: /add company/i });
       expect(button).toBeDisabled();
 
-      await user.type(screen.getByLabelText(/careers page url/i), 'https://intel.com');
+      await user.type(screen.getByLabelText(/job board link/i), 'https://intel.com');
       expect(button).toBeEnabled();
     });
 
@@ -206,7 +210,7 @@ describe('MyCompaniesPage', () => {
       const user = userEvent.setup();
       renderWithProviders(<MyCompaniesPage />);
 
-      await user.type(screen.getByLabelText(/careers page url/i), '   ');
+      await user.type(screen.getByLabelText(/job board link/i), '   ');
       expect(screen.getByRole('button', { name: /add company/i })).toBeDisabled();
     });
 
@@ -228,7 +232,7 @@ describe('MyCompaniesPage', () => {
       const user = userEvent.setup();
       renderWithProviders(<MyCompaniesPage />);
 
-      await user.type(screen.getByLabelText(/careers page url/i), 'https://intel.com{Enter}');
+      await user.type(screen.getByLabelText(/job board link/i), 'https://intel.com{Enter}');
 
       await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     });
@@ -265,7 +269,7 @@ describe('MyCompaniesPage', () => {
       );
       renderWithProviders(<MyCompaniesPage />);
 
-      await user.type(screen.getByLabelText(/careers page url/i), 'https://intel.com');
+      await user.type(screen.getByLabelText(/job board link/i), 'https://intel.com');
       await user.click(screen.getByRole('button', { name: /add company/i }));
 
       const toggle = await screen.findByRole('button', { name: /redirect chain \(2\)/i });

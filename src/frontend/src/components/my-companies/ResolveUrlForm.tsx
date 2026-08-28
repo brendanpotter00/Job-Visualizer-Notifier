@@ -39,6 +39,17 @@ interface ResolveUrlFormProps {
  * The in-flight labels stay phase-specific ("Checking…" then "Setting up…") rather than
  * echoing the button: they are the only place the user can see WHICH half of the action
  * is running, and the discovery half is the slow, expensive one.
+ *
+ * THE FIELD COPY IS SHORT ON PURPOSE, and it was not always. The helper text used to
+ * carry the whole branch ("if it's a board we already read you'll see what we found
+ * before anything is tracked; if it isn't, we start a one-time setup to learn how to
+ * read it") — three clauses under a one-line input, which is a length people skip, and
+ * skipped help is worse than none. The page's intro alert already states both outcomes
+ * and IS the consent; this line only has to say what to paste. So: the label names the
+ * thing ("Job board link"), the placeholder repeats the instruction where an empty box
+ * is already looking at you, and the helper adds the one qualifier that actually changes
+ * what a user pastes — EXACT, and from the company. Whatever this becomes, it must not
+ * grow back into a second copy of the alert.
  */
 export function ResolveUrlForm({ onSubmit, status }: ResolveUrlFormProps) {
   const [value, setValue] = useState('');
@@ -58,13 +69,13 @@ export function ResolveUrlForm({ onSubmit, status }: ResolveUrlFormProps) {
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems="flex-start">
         <TextField
           fullWidth
-          label="Careers page URL"
-          placeholder="https://example.com/careers"
+          label="Job board link"
+          placeholder="Paste the company’s job board"
           value={value}
           onChange={(event) => setValue(event.target.value)}
           disabled={busy}
-          helperText="Paste a link to a company's job listings. If it's a board we already read you'll see what we found before anything is tracked; if it isn't, we start a one-time setup to learn how to read it."
-          slotProps={{ htmlInput: { 'aria-label': 'Careers page URL', maxLength: 2048 } }}
+          helperText="Paste the exact job board link, directly from the company."
+          slotProps={{ htmlInput: { 'aria-label': 'Job board link', maxLength: 2048 } }}
         />
         <Button
           type="submit"

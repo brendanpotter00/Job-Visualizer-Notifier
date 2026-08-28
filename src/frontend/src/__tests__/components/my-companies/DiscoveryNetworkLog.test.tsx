@@ -94,6 +94,24 @@ const PICKED: Partial<DiscoveryProgress> = {
   },
 };
 
+/**
+ * The SAME capture one poll earlier: the three rows are there, none of them has won yet.
+ * Rerendering from this into `PICKED` is the only way to exercise the narrowing as an
+ * EVENT rather than as an initial state, which is the difference the collapse turns on.
+ */
+const SEARCHING: Partial<DiscoveryProgress> = {
+  outcome: 'running',
+  network: {
+    recorded: 14,
+    requests: [
+      request({ url: 'https://careers.acme.example/api/session' }),
+      request({ url: 'https://careers.acme.example/graphql/flags' }),
+      request({ url: 'https://careers.acme.example/api/jobs?limit=…', records: null }),
+    ],
+    sample: null,
+  },
+};
+
 describe('DiscoveryNetworkLog', () => {
   it('is OPEN on arrival, with the rows already showing', async () => {
     // The rows landing while the browser is open are the only watchable part of a
@@ -205,8 +223,41 @@ describe('DiscoveryNetworkLog', () => {
       'chosen',
     ]);
 
-    // ...and back to the calm state.
+    // ...and back to the calm state. SYNCHRONOUSLY: a deliberate click is never
+    // animated, only the automatic narrowing is. See the collapse test below.
     await userEvent.click(screen.getByTestId('discovery-show-all'));
+    expect(screen.getAllByTestId('discovery-request')).toHaveLength(1);
+  });
+
+  it('lets the displaced rows collapse away instead of vanishing between two frames', async () => {
+    // The narrowing is the most legible thing this panel does — fourteen rows become one
+    // — and it used to happen between two frames, which reads as the layout glitching
+    // rather than as an answer being found. So the rows a winner displaces stay mounted
+    // for exactly one collapse and are dropped when it has played.
+    const { rerender } = renderWithProviders(
+      <DiscoveryNetworkLog company={company('discovering', SEARCHING)} />
+    );
+    expect(screen.getAllByTestId('discovery-request')).toHaveLength(3);
+
+    // The winner lands on the next poll — nobody clicked anything.
+    rerender(<DiscoveryNetworkLog company={company('discovering', PICKED)} />);
+
+    // STILL THREE. This is the whole assertion: the two it displaced are on their way
+    // out, not already gone, so there is something left to animate.
+    expect(screen.getAllByTestId('discovery-request')).toHaveLength(3);
+
+    // ...and then they go, on their own.
+    await waitFor(() =>
+      expect(screen.getAllByTestId('discovery-request')).toHaveLength(1)
+    );
+  });
+
+  it('does NOT replay the collapse on a row that was already settled when it mounted', () => {
+    // A settled board is the common case — every reload of a tracked row mounts with its
+    // winner already chosen. There is no search to watch end there, so animating one
+    // would be a lie about when it happened AND would fire on every single render of the
+    // list. One row, first frame, no window.
+    renderWithProviders(<DiscoveryNetworkLog company={company('unverified', PICKED)} />);
     expect(screen.getAllByTestId('discovery-request')).toHaveLength(1);
   });
 

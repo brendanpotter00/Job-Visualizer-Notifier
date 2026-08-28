@@ -13,7 +13,7 @@ test.describe('AC-08 add -> track -> remove, end to end', () => {
     await gotoAddCompanies(page);
 
     // paste -> Add company -> preview
-    await page.getByLabel('Careers page URL').fill(CISCO.url);
+    await page.getByLabel('Job board link').fill(CISCO.url);
     await page.getByRole('button', { name: 'Add company' }).click();
 
     const headline = page.getByTestId('resolve-headline');

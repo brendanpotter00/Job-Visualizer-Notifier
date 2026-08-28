@@ -23,7 +23,7 @@ test.describe('AC-01 already-public notice (exact careers-host match)', () => {
   }) => {
     await gotoAddCompanies(page);
 
-    await page.getByLabel('Careers page URL').fill(MICROSOFT.url);
+    await page.getByLabel('Job board link').fill(MICROSOFT.url);
     await page.getByRole('button', { name: 'Add company' }).click();
 
     const notice = page.getByTestId('already-public');
@@ -45,7 +45,7 @@ test.describe('AC-13 name-guess notice (company name in the domain)', () => {
   }) => {
     await gotoAddCompanies(page);
 
-    await page.getByLabel('Careers page URL').fill(SPOTIFY.url);
+    await page.getByLabel('Job board link').fill(SPOTIFY.url);
     await page.getByRole('button', { name: 'Add company' }).click();
 
     const notice = page.getByTestId('already-public');
