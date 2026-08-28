@@ -32,6 +32,9 @@ const PROXIED_ROUTES = [
   'users/:id/admin', // POST/DELETE — grant / revoke
   // feedback
   'feedback', // GET
+  // custom companies (E7 admin oversight — read-only)
+  'custom-companies', // GET
+  'custom-companies/attempts', // GET
   // jobs
   'jobs/:id/normalize', // POST
   // locations

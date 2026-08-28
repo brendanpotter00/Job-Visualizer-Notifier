@@ -32,6 +32,7 @@ suite. They are thin (forward + re-emit headers) and are a known gap, not an ove
 | AC-12 | Microsoft + trackAnyway | API | live (LLM) | 🟢 GREEN | the server-side override still works and routes through real discovery, not a static clone. **The UI no longer offers it here** — see the escape-hatch note below |
 | AC-13 | Spotify (lifeatspotify.com) | API + UI | fast (one resolve, no LLM) | 🟢 GREEN | the company-name dedupe: answers `already_public`/`matchKind='name'` with **no discovery job**, and keeps the correction |
 | AC-13a | the real published fleet | API | fast, hermetic | 🟢 GREEN | no network; runs the real matcher against the e2e DB's clone of prod's ~133 public rows. Pins `dropbox`≠`box` and `figma`≠`gm` |
+| AC-14 | per-user add limits | API | fast (no network — `.invalid` hosts, no LLM) | 🟢 GREEN | the 20/month cap and the 10/60s burst limiter, on the real endpoint with a replayed bearer token. Two short-lived backends on :8202 with their own limits (same trick as AC-09); the main stack runs uncapped because `company_add_attempts` is append-only and survives every sweep |
 
 ## The escape hatch: who still gets one, and why
 

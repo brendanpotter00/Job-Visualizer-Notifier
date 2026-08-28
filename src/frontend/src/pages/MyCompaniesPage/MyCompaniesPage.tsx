@@ -8,9 +8,12 @@ import { RESPONSIVE } from '../../config/responsive';
 import { useAuth } from '../../features/auth/useAuth';
 import { LoadingState } from '../../components/shared/LoadingIndicator';
 import {
+  addsRemaining,
   useAddUserCompanyMutation,
+  useGetUserCompaniesQuery,
   useResolveCareersUrlMutation,
 } from '../../features/userCompanies/userCompaniesApi';
+import { AddQuotaCounter } from '../../components/my-companies/AddQuotaCounter';
 import Divider from '@mui/material/Divider';
 import { ResolveUrlForm } from '../../components/my-companies/ResolveUrlForm';
 import { ResolveResultDisplay } from '../../components/my-companies/ResolveResultDisplay';
@@ -48,6 +51,20 @@ export function MyCompaniesPage() {
   // returns — so the hook count stays stable across renders (a hook after a conditional
   // return breaks the Rules of Hooks).
   const [busy, setBusy] = useState(false);
+  // The SAME cache entry `MyCompaniesList` below subscribes to, so this adds no
+  // second request — RTK Query merges the two subscribers. Skipped while signed out
+  // for the same reason the list is: the endpoint is authed, and an anonymous
+  // visitor would get a guaranteed 401. Declared above the auth ladder's early
+  // returns so the hook count stays stable across renders.
+  const { data: userCompanies } = useGetUserCompaniesQuery(undefined, {
+    skip: !isAuthenticated,
+  });
+  const quota = userCompanies?.quota;
+  // `null` means there is no cap in force (unlimited, or a server that predates the
+  // counter). It must NOT disable the form — an absent quota is "we don't know",
+  // and locking a user out of the feature on a missing field would be the worst
+  // possible reading of it. The server refuses over quota regardless.
+  const exhausted = addsRemaining(quota) === 0;
 
   // ── auth ladder (mirrors SavedFiltersPage / AccountPage) ─────────────────
   if (authLoading) {
@@ -59,7 +76,7 @@ export function MyCompaniesPage() {
       <Container maxWidth="sm" sx={{ py: RESPONSIVE.spacing.pageMarginY }}>
         <Paper sx={{ p: RESPONSIVE.spacing.paperPaddingLg, textAlign: 'center' }}>
           <Typography variant="h5" gutterBottom>
-            Add Companies
+            Add Companies (beta)
           </Typography>
           <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
             Sign in to check whether a company&apos;s careers page can be tracked.
@@ -131,8 +148,12 @@ export function MyCompaniesPage() {
   return (
     <Container maxWidth="md" sx={{ py: RESPONSIVE.spacing.pageMarginY }}>
       <Typography variant="h4" component="h1" gutterBottom>
-        Add Companies
+        Add Companies (beta)
       </Typography>
+
+      {/* The monthly cap, stated once, at the top, as a fact rather than a warning.
+          See `AddQuotaCounter` for why there is no alert and no low-balance notice. */}
+      <AddQuotaCounter quota={quota} />
 
       <Stack spacing={3}>
         {/* This copy is the consent. The submit below can spend real work on the user's
@@ -153,6 +174,10 @@ export function MyCompaniesPage() {
           <ResolveUrlForm
             onSubmit={handleSubmit}
             status={resolving ? 'checking' : busy ? 'setting-up' : 'idle'}
+            // The submit is what may auto-start a discovery, so it is the control
+            // the cap has to close. This is a courtesy, NOT the enforcement: the
+            // server refuses over quota with a 422 whatever the button does.
+            disabled={exhausted}
           />
         </Paper>
 

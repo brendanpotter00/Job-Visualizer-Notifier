@@ -56,8 +56,9 @@ export function RecentJobsFilters() {
     skip: !isAuthenticated || !CUSTOM_COMPANIES_CONFIG.isEnabled,
   });
   const availableCompanies = useMemo(() => {
-    if (!userCompanies?.length) return rosterCompanies;
-    const displayNames = new Map(userCompanies.map((c) => [c.id, c.displayName]));
+    const ownedCompanies = userCompanies?.companies;
+    if (!ownedCompanies?.length) return rosterCompanies;
+    const displayNames = new Map(ownedCompanies.map((c) => [c.id, c.displayName]));
     let renamed = false;
     const named = rosterCompanies.map((company) => {
       const displayName = displayNames.get(company.id);

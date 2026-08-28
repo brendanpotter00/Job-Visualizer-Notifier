@@ -206,7 +206,7 @@ describe('custom company sources — feature flag gate', () => {
     it('shows the "Add Companies" nav entry', async () => {
       await renderAppAt('/', true);
 
-      expect(await screen.findByText('Add Companies')).toBeInTheDocument();
+      expect(await screen.findByText('Add Companies (beta)')).toBeInTheDocument();
     }, FULL_APP_RENDER_TIMEOUT_MS);
 
     it('appends /add-companies to the exported nav config', async () => {
@@ -216,7 +216,7 @@ describe('custom company sources — feature flag gate', () => {
 
       const item = PRIMARY_NAV_ITEMS.find((i) => i.path === ROUTES.MY_COMPANIES);
       expect(item).toBeDefined();
-      expect(item?.label).toBe('Add Companies');
+      expect(item?.label).toBe('Add Companies (beta)');
       // The icon name must exist in NavigationDrawer's iconMap or the entry
       // renders as a blank square.
       expect(item?.icon).toBe('AddBusiness');

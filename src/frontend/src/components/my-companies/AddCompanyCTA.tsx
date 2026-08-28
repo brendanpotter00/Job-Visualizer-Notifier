@@ -19,14 +19,48 @@ interface AddCompanyCTAProps {
   finalUrl: string;
 }
 
+/**
+ * The add endpoint's stable, machine-readable failure codes (backend-owned).
+ *
+ * A CLOSED union, mirroring `RESOLVE_FAILURE_REASONS` in `resolveErrors.ts`, and it
+ * was not always one. `ADD_REASON_TITLES` used to be a plain `Record<string, string>`
+ * with a `??` fallback, so adding a code to the backend without writing copy for it
+ * compiled fine and silently rendered the generic headline — a missing case that only
+ * a user could discover. With the map keyed by this union, a new code is a compile
+ * error at build time instead. The WIRE type stays `string` (see
+ * `AddUserCompanyFailure`): the server owns the list and may add to it, so an unknown
+ * code from a newer server must still render, and `asKnownAddReason` is what narrows.
+ */
+const ADD_FAILURE_REASONS = [
+  'unsupported',
+  'probe_failed',
+  'empty',
+  'deadline_exceeded',
+  'no_ats_detected',
+  'monthly_limit_reached',
+] as const;
+
+type AddFailureReason = (typeof ADD_FAILURE_REASONS)[number];
+
 /** Friendly headline per add-failure `reason`. Backend `detail` fills the body. */
-const ADD_REASON_TITLES: Record<string, string> = {
+const ADD_REASON_TITLES: Record<AddFailureReason, string> = {
   unsupported: "That board isn't supported yet",
   probe_failed: "We couldn't read that board",
   empty: 'That board has no open jobs right now',
   deadline_exceeded: 'That board took too long to answer',
   no_ats_detected: "We couldn't find a job board there",
+  // The monthly cap. The counter at the top of the page already says how many are
+  // left and when they come back, so this headline only has to name what happened —
+  // the server's `detail` carries the numbers.
+  monthly_limit_reached: "You've used this month's company adds",
 };
+
+const KNOWN_ADD_REASONS = new Set<string>(ADD_FAILURE_REASONS);
+
+/** Narrows a wire `reason` to the closed union, or `null` for anything new. */
+function asKnownAddReason(reason: string): AddFailureReason | null {
+  return KNOWN_ADD_REASONS.has(reason) ? (reason as AddFailureReason) : null;
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -113,6 +147,7 @@ export function AddCompanyCTA({ finalUrl }: AddCompanyCTAProps) {
   }
 
   const failure = asAddFailure(error);
+  const knownReason = failure ? asKnownAddReason(failure.reason) : null;
 
   return (
     <Box sx={{ mt: 2 }}>
@@ -130,7 +165,7 @@ export function AddCompanyCTA({ finalUrl }: AddCompanyCTAProps) {
           {failure ? (
             <>
               <AlertTitle>
-                {ADD_REASON_TITLES[failure.reason] ?? "We couldn't add that company"}
+                {knownReason ? ADD_REASON_TITLES[knownReason] : "We couldn't add that company"}
               </AlertTitle>
               {/* The trailing "(code: probe_failed)" is gone for every reason we have
                   copy for — the headline above already says it in English, and the raw
@@ -138,7 +173,7 @@ export function AddCompanyCTA({ finalUrl }: AddCompanyCTAProps) {
                   still prints it: there the headline is generic, so the code is the only
                   thing that makes a screenshot diagnosable. */}
               {failure.detail || 'The board was rejected.'}
-              {ADD_REASON_TITLES[failure.reason] ? '' : ` (code: ${failure.reason})`}
+              {knownReason ? '' : ` (code: ${failure.reason})`}
             </>
           ) : (
             extractErrorMessage(error, "We couldn't add that company. Please try again.")

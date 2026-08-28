@@ -53,6 +53,25 @@ def add_attempts_count(conn: Any, *, user_id: str | None = None) -> int:
         return int(cur.fetchone()["n"])
 
 
+def clear_add_attempts(conn: Any, *, user_id: str) -> int:
+    """Wipe one user's ``company_add_attempts`` rows. TEST FIXTURE ONLY.
+
+    The monthly add cap counts these rows, and nothing in the product can delete
+    them — a company purge deliberately leaves the audit behind, which is exactly what
+    makes "deleting a company doesn't refund a slot" real. So a suite that re-runs
+    against a persistent ``jobscraper_e2e`` accumulates spend forever, and the only way
+    to place the test user at a known count is to reach past the API and truncate here.
+
+    Refuses any database but ``jobscraper_e2e`` by construction: the connection came
+    from :func:`connect`, which asserts the database name.
+    """
+    with conn.cursor() as cur:
+        cur.execute("DELETE FROM company_add_attempts WHERE user_id = %s", (user_id,))
+        deleted = cur.rowcount
+    conn.commit()
+    return int(deleted)
+
+
 def latest_add_attempt(conn: Any, *, user_id: str) -> dict[str, Any] | None:
     with conn.cursor() as cur:
         cur.execute(

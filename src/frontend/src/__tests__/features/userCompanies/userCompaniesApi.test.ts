@@ -1,7 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { configureStore } from '@reduxjs/toolkit';
 import {
+  addsRemaining,
   isDiscoveryPending,
+  isMonthlyLimitError,
   userCompaniesApi,
   type ResolveUrlResponse,
   type ResolveUrlFailure,
@@ -248,8 +250,9 @@ describe('userCompaniesApi', () => {
   };
 
   describe('getUserCompanies', () => {
-    it('GETs /api/users/companies and unwraps the { companies } envelope', async () => {
-      fetchMock.mockResolvedValue(jsonResponse({ companies: [SAMPLE_COMPANY] }));
+    it('GETs /api/users/companies and keeps the whole envelope', async () => {
+      const quota = { used: 3, limit: 20, resetsAt: '2026-09-01T00:00:00Z' };
+      fetchMock.mockResolvedValue(jsonResponse({ companies: [SAMPLE_COMPANY], quota }));
       const store = makeStore(async () => 'tok');
 
       const result = await store
@@ -259,8 +262,9 @@ describe('userCompaniesApi', () => {
       const [input, init] = fetchMock.mock.calls[0] as [RequestInfo | URL, RequestInit | undefined];
       expect(urlFromInput(input)).toMatch(/\/api\/users\/companies$/);
       expect(getMethod(input, init) ?? 'GET').toBe('GET');
-      // transformResponse must hand components the bare array, not the envelope.
-      expect(result).toEqual([SAMPLE_COMPANY]);
+      // NOT unwrapped to a bare array any more: `quota` lives beside `companies` on
+      // the wire, and unwrapping would silently drop the whole counter.
+      expect(result).toEqual({ companies: [SAMPLE_COMPANY], quota });
     });
 
     it('sends the bearer token', async () => {
@@ -452,6 +456,53 @@ describe('userCompaniesApi', () => {
         .unwrap();
 
       await vi.waitFor(() => expect(listCallCount(mock)).toBe(2));
+    });
+  });
+
+  describe('addsRemaining', () => {
+    const RESETS = '2026-09-01T00:00:00Z';
+
+    it('counts down from the limit', () => {
+      expect(addsRemaining({ used: 3, limit: 20, resetsAt: RESETS })).toBe(17);
+      expect(addsRemaining({ used: 0, limit: 20, resetsAt: RESETS })).toBe(20);
+      expect(addsRemaining({ used: 20, limit: 20, resetsAt: RESETS })).toBe(0);
+    });
+
+    it('floors at zero rather than going negative', () => {
+      // Reachable: the cap can be lowered while a user is already over it, and a
+      // counter reading "-3 adds left" would be a bug the reader sees.
+      expect(addsRemaining({ used: 25, limit: 20, resetsAt: RESETS })).toBe(0);
+    });
+
+    it('returns null when there is no cap in force', () => {
+      // `0` is the unlimited switch, and `undefined` is a server older than this
+      // feature. Both mean "render no counter and disable nothing" — which is why
+      // they are `null` rather than `0`, a value the caller would read as exhausted.
+      expect(addsRemaining({ used: 400, limit: 0, resetsAt: RESETS })).toBeNull();
+      expect(addsRemaining(undefined)).toBeNull();
+      expect(addsRemaining(null)).toBeNull();
+    });
+  });
+
+  describe('isMonthlyLimitError', () => {
+    it('recognises the cap refusal', () => {
+      expect(
+        isMonthlyLimitError({
+          status: 422,
+          data: { reason: 'monthly_limit_reached', detail: 'x', finalUrl: '' },
+        })
+      ).toBe(true);
+    });
+
+    it('is false for every other add failure and for non-HTTP rejections', () => {
+      expect(isMonthlyLimitError({ status: 422, data: { reason: 'empty' } })).toBe(false);
+      // 429 is the BURST limiter — a different refusal with different advice.
+      expect(
+        isMonthlyLimitError({ status: 429, data: { detail: 'too quickly' } })
+      ).toBe(false);
+      expect(isMonthlyLimitError({ status: 'FETCH_ERROR', error: 'x' })).toBe(false);
+      expect(isMonthlyLimitError(undefined)).toBe(false);
+      expect(isMonthlyLimitError(null)).toBe(false);
     });
   });
 });

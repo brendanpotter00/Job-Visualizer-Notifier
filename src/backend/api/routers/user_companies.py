@@ -33,6 +33,7 @@ from ..auth.jwt import get_normalized_subject
 from ..config import settings
 from ..dependencies import get_db
 from ..models import (
+    AddQuotaResponse,
     AddUserCompanyRequest,
     AlreadyPublicResponse,
     DiscoveryProgressResponse,
@@ -54,8 +55,10 @@ from ..pagination import (
 # ``CORSMiddleware(expose_headers=...)``. A second copy of the string here would
 # let the two drift and the header would silently stop reaching the browser.
 from ..routers.jobs import NEXT_CURSOR_HEADER
+from ..services import add_quota
 from ..services import custom_companies_service as svc
 from ..services.ats_discovery import discover_ats, probe_candidate
+from ..services.rate_limit import enforce_user_company_add_rate_limit
 from ..services.discovery.progress import read_progress
 from ..services.published_board_match import read_suggestion
 from ..services.database import get_owned_custom_jobs, get_user_company_jobs
@@ -310,6 +313,17 @@ async def add_company(
         raise HTTPException(status_code=401, detail="Token missing required 'sub' claim")
     if not email:
         raise HTTPException(status_code=401, detail="Token missing required 'email' claim")
+
+    # ── Burst limit: 10 adds per 60s per user ────────────────────────────────
+    # AFTER the flag check (a flag-off deployment must answer a clean 503, not a
+    # 429) and BEFORE the users-row lookup, so a burst costs no database work.
+    #
+    # This route, not just ``/resolve``. The UI calls resolve first, which made the
+    # front door look throttled — but a bearer token copied out of DevTools and
+    # replayed straight at THIS endpoint skipped the limiter entirely, and this is
+    # the one that starts a headless Chromium session and an LLM call.
+    enforce_user_company_add_rate_limit(auth0_id)
+
     try:
         user_row = get_or_create_user(
             conn,
@@ -323,6 +337,42 @@ async def add_company(
         logger.exception("Failed to get/create user for custom-company add")
         raise HTTPException(status_code=500, detail="Failed to load user profile")
     user_id = user_row["id"]
+
+    # ── Monthly cap: 20 URLs per user per UTC calendar month ─────────────────
+    # BEFORE any outbound request. A refused add must cost nothing: no DNS, no
+    # fetch of the pasted page, no probe, no placeholder row, no discovery job.
+    # That is also why this is not enforced inside the resolver — by the time the
+    # resolver has an answer the spend has already happened.
+    #
+    # 422 with a machine-readable ``reason``, not 403: the frontend's
+    # ``asAddFailure`` hard-checks ``status !== 422`` before it will read a
+    # ``reason``, so a 403 would lose the explanation and render generic copy.
+    #
+    # NOTHING IS RECORDED HERE. A refusal at the cap never reached the resolver and
+    # created nothing, so it is not an add attempt; recording it would also let a
+    # replayed token inflate ``used`` without bound and make the audit's row count
+    # stop meaning "URLs we acted on".
+    #
+    # A database error here is a 500, NOT a pass-through. The count is the whole
+    # control, and "we could not read it, so go ahead" would fail open on exactly
+    # the request the cap exists to stop. Rolled back first so the aborted
+    # transaction is not handed to the next statement on this connection.
+    try:
+        quota = add_quota.get_quota(conn, user_id)
+    except psycopg2.Error:
+        conn.rollback()
+        logger.exception("Failed to read the add quota for user=%s", user_id)
+        raise HTTPException(status_code=500, detail="Failed to check your add limit")
+    if quota.exhausted:
+        logger.info(
+            "Monthly add cap reached for user=%s (%d/%d)",
+            user_id, quota.used, quota.limit,
+        )
+        return _reject(
+            422,
+            add_quota.MONTHLY_LIMIT_REASON,
+            add_quota.limit_reached_detail(quota),
+        )
 
     deadline = time.monotonic() + _RESOLVE_BUDGET_S
     async with _http_client() as http:
@@ -694,21 +744,44 @@ async def list_companies(
     conn: Connection = Depends(get_db),
     user: TokenClaims = Depends(get_current_user),
 ) -> UserCompanyListResponse:
-    """The caller's private companies with health, open-job count, last success."""
+    """The caller's private companies with health, open-job count, last success.
+
+    Also carries ``quota`` — the "N of 20 adds left this month" counter the Add
+    Companies page renders above the form. It rides THIS payload rather than a
+    second endpoint because the page already fetches and polls this one, so the
+    counter costs no extra request, is refreshed by the ``MyCompanies`` tag every
+    add and delete already invalidates, and cannot go stale against the list it
+    sits above.
+    """
     _require_flag()
     email = user.get("email")
     if not email:
         raise HTTPException(status_code=401, detail="Token missing required 'email' claim")
     row = get_user_by_email(conn, email)
     if row is None:
-        return UserCompanyListResponse(companies=[])
+        # Signed in with no users row yet: nothing owned, and nothing spent either.
+        # The counter must still render — a brand-new user opening this page needs
+        # to see "20 of 20 adds left", not a blank where the allowance goes.
+        empty = add_quota.get_quota_for_new_user()
+        return UserCompanyListResponse(
+            companies=[],
+            quota=AddQuotaResponse(
+                used=empty.used, limit=empty.limit, resets_at=empty.resets_at
+            ),
+        )
     try:
         companies = svc.list_owned_companies(conn, row["id"])
+        quota = add_quota.get_quota(conn, row["id"])
     except psycopg2.Error:
         conn.rollback()
         logger.exception("Failed to list custom companies for user=%s", row["id"])
         raise HTTPException(status_code=500, detail="Failed to load companies")
-    return UserCompanyListResponse(companies=[_to_response(c) for c in companies])
+    return UserCompanyListResponse(
+        companies=[_to_response(c) for c in companies],
+        quota=AddQuotaResponse(
+            used=quota.used, limit=quota.limit, resets_at=quota.resets_at
+        ),
+    )
 
 
 @router.get("/jobs", response_model=list[JobListingResponse])

@@ -223,4 +223,30 @@ describe('DiscoveryStatus', () => {
     expect(alert.textContent).not.toContain('[object Object]');
     expect(alert.textContent).not.toContain('undefined');
   });
+
+  it('gives no board advice when the refusal was the monthly cap', () => {
+    // The cap is not a verdict about the BOARD. "We read Greenhouse, Ashby, … with
+    // no setup at all — paste one of those instead" would send someone hunting for a
+    // different URL when no URL was ever the problem.
+    renderWithProviders(
+      <DiscoveryStatus
+        result={undefined}
+        error={{
+          status: 422,
+          data: {
+            reason: 'monthly_limit_reached',
+            detail:
+              "You've used all 20 of your company adds for this month. " +
+              'Your next 20 become available on 1 September.',
+            finalUrl: 'https://acme.example/careers',
+          },
+        }}
+      />,
+    );
+
+    const alert = screen.getByTestId('discovery-error');
+    expect(alert).toHaveTextContent(/used this month's company adds/i);
+    expect(alert).toHaveTextContent(/1 September/);
+    expect(alert).not.toHaveTextContent('Greenhouse');
+  });
 });

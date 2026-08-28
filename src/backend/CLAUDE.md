@@ -81,6 +81,9 @@ All configuration via environment variables:
 | `POSTHOG_HOST` | PostHog ingestion host (US cloud endpoint) | `https://us.i.posthog.com` |
 | `FEEDBACK_RATE_LIMIT_MAX` | Max feedback submissions per client IP per window | `5` |
 | `FEEDBACK_RATE_LIMIT_WINDOW_SECONDS` | Rate-limit sliding window duration (seconds) | `60` |
+| `RESOLVE_RATE_LIMIT_MAX` / `..._WINDOW_SECONDS` | Burst limit on `POST /api/companies/resolve`, per authenticated user | `10` / `60` |
+| `USER_COMPANY_ADD_RATE_LIMIT_MAX` / `..._WINDOW_SECONDS` | Burst limit on `POST /api/users/companies`, per authenticated user. In-memory, so it resets on deploy — a burst smoother, not the spend guard | `10` / `60` |
+| `CUSTOM_COMPANY_MONTHLY_ADD_LIMIT` | **The spend guard.** URLs one user may submit to `POST /api/users/companies` per UTC calendar month (resets on the 1st). Every submission counts — success, refusal, already-published — and deleting a company does **not** refund a slot. Counted off the append-only `company_add_attempts` audit (`services/add_quota.py`), which is what makes "no refund" real. `0` = unlimited, and boots with a WARNING. **Fail-closed by design**: `Settings` uses `extra="ignore"`, so a typo'd name silently keeps this default — 20 leaves the cap ON, whereas an `..._ENABLED=false` flag would fail open | `20` |
 
 **Table names are env-agnostic.** All environments share bare names (`job_listings`, `scrape_runs`, `users`, `user_enabled_companies`). Test isolation uses per-worker Postgres **schemas** via `PYTEST_SCHEMA=test_<hex>` + `SET search_path`; inside the schema the table names are the same as prod. See `docs/implementations/envAgnosticTables/PLAN.md`.
 

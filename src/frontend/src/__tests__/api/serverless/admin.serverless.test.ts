@@ -246,6 +246,11 @@ runProxyAllowlistGuard({
       'enrichment/jobs/custom:u-x/q-1/reenrich',
       '/api/admin/enrichment/jobs/custom:u-x/q-1/reenrich',
     ],
+    // Custom Companies (E7). Missing allowlist entries here produce a clean 404
+    // in Vercel dev and production while everything still works against
+    // localhost:8000 — a failure that looks like a routing bug and isn't.
+    ['custom-companies', '/api/admin/custom-companies'],
+    ['custom-companies/attempts', '/api/admin/custom-companies/attempts'],
   ],
   normalizes: ['/users//stats/', '/api/admin/users/stats'],
   methods: ['GET', 'POST', 'PUT', 'DELETE'],

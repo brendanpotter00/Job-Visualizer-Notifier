@@ -21,6 +21,7 @@ from api.auth.dependencies import get_current_user
 from api.config import settings
 from api.services import custom_companies_service as svc
 from api.routers.user_companies import _discovery_display_name
+from api.services.rate_limit import user_company_add_rate_limiter
 from api.services.user_service import get_or_create_user
 from scripts.shared.constants import custom
 
@@ -45,6 +46,29 @@ def flag_on(monkeypatch):
     """
     monkeypatch.setattr(settings, "custom_company_sources_enabled", True)
     monkeypatch.setattr(settings, "custom_company_discovery_enabled", False)
+
+
+@pytest.fixture(autouse=True)
+def no_add_limits(monkeypatch):
+    """Neutralise BOTH add limits for every test that is not about them.
+
+    This module makes ~70 POSTs to ``/api/users/companies``, almost all as the same
+    ``auth0|A``, in well under a minute. Left alone, the 10/60s burst limiter would
+    429 the back half of the file and the 20/month cap would 422 it — neither of
+    which is what any of those tests is asserting.
+
+    Both are neutralised HERE rather than at their production defaults so the
+    failure mode is loud: a limit test must set its own value, and one that forgets
+    to sees "no limit at all" (an obviously wrong pass/fail) rather than inheriting a
+    number some unrelated test happened to leave behind. The burst limiter is a
+    process-wide singleton, so it is also RESET rather than only re-sized —
+    ``_max`` alone would leave a previous test's timestamps in the bucket.
+    """
+    user_company_add_rate_limiter.reset()
+    monkeypatch.setattr(user_company_add_rate_limiter, "_max", 1_000_000)
+    monkeypatch.setattr(settings, "custom_company_monthly_add_limit", 0)
+    yield
+    user_company_add_rate_limiter.reset()
 
 
 @pytest.fixture(autouse=True)
@@ -2405,3 +2429,591 @@ def test_the_name_match_costs_no_outbound_request(client, db_conn, monkeypatch):
 
     assert resp.status_code == 200, resp.text
     assert requested == [], f"the name match must cost no request; got {requested}"
+
+
+# ==============================================================================
+# Per-user add limits — the burst limiter (10/60s) and the monthly cap (20/month)
+# ==============================================================================
+#
+# THE ONE THAT MATTERS is server-side enforcement. Every test below POSTs straight
+# at ``/api/users/companies`` with a bearer token and no frontend involved — which is
+# exactly the shape of a token copied out of DevTools and replayed with curl. A
+# disabled submit button is not a control, and none of these assertions could be
+# satisfied by one.
+
+
+def _install_greenhouse_any(monkeypatch, job_ids: list[int] | None = None) -> None:
+    """Like ``_install_greenhouse`` but answers for ANY board token.
+
+    The quota tests need N DISTINCT boards — a re-add of the SAME board takes the
+    idempotent branch, which is a different thing — and each distinct token is a
+    different probe URL.
+    """
+    ids = [1, 2, 3] if job_ids is None else job_ids
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if "boards-api.greenhouse.io/v1/boards/" in str(request.url):
+            return httpx.Response(200, json={"jobs": [_raw_job(i) for i in ids]})
+        return httpx.Response(404)
+
+    def factory() -> httpx.AsyncClient:
+        return httpx.AsyncClient(
+            transport=httpx.MockTransport(handler), follow_redirects=False
+        )
+
+    monkeypatch.setattr("api.routers.user_companies._http_client", factory)
+
+
+def _seed_attempts(
+    db_conn,
+    user_id: str,
+    n: int,
+    *,
+    created_at: str = "now()",
+    outcome: str = "added",
+    resolved_ats: str | None = "greenhouse",
+) -> None:
+    """Append ``n`` raw ``company_add_attempts`` rows, timestamped as asked.
+
+    Writing the audit rows directly (rather than driving ``n`` real adds) is what
+    makes the boundary and rollover cases possible at all: ``created_at`` is a server
+    default, so saying so is the only way to place a row in a previous month.
+    """
+    cur = db_conn.cursor()
+    for i in range(n):
+        cur.execute(
+            sql.SQL(
+                "INSERT INTO {} (user_id, submitted_url, outcome, resolved_ats, "
+                "created_at) VALUES (%s, %s, %s, %s, " + created_at + ")"
+            ).format(sql.Identifier("company_add_attempts")),
+            (user_id, f"https://seeded.example/{outcome}/{i}", outcome, resolved_ats),
+        )
+    db_conn.commit()
+
+
+def _quota(client) -> dict:
+    """The counter exactly as the Add Companies page reads it."""
+    body = client.get("/api/users/companies").json()
+    return body["quota"]
+
+
+# --- The cap: 20 URLs per user per calendar month ------------------------------
+
+
+def test_the_twentieth_add_succeeds_and_the_twenty_first_is_refused(
+    client, db_conn, monkeypatch
+):
+    """The headline rule, at the real default, driven entirely through the endpoint."""
+    monkeypatch.setattr(settings, "custom_company_monthly_add_limit", 20)
+    _login(client, "auth0|CAP", "cap@example.com")
+    _install_greenhouse_any(monkeypatch)
+
+    codes = [
+        client.post(
+            "/api/users/companies", json={"url": f"https://boards.greenhouse.io/cap{i}"}
+        ).status_code
+        for i in range(20)
+    ]
+    assert codes == [201] * 20, codes
+
+    twenty_first = client.post(
+        "/api/users/companies", json={"url": "https://boards.greenhouse.io/cap20"}
+    )
+    assert twenty_first.status_code == 422, twenty_first.text
+    assert twenty_first.json()["reason"] == "monthly_limit_reached"
+
+
+def test_the_cap_is_enforced_against_a_replayed_token_not_just_the_ui(
+    client, db_conn, monkeypatch
+):
+    """THE TEST THAT MATTERS. No component, no button, no ``disabled`` prop — a bearer
+    token aimed straight at the endpoint, which is what a token copied out of DevTools
+    and replayed with curl is. Nothing here can be satisfied by frontend state."""
+    monkeypatch.setattr(settings, "custom_company_monthly_add_limit", 3)
+    _login(client, "auth0|REPLAY", "replay@example.com")
+    user_id = _user_id(db_conn, "replay@example.com")
+    _seed_attempts(db_conn, user_id, 3)
+    _install_greenhouse_any(monkeypatch)
+
+    before_companies = _count(db_conn, "companies", "WHERE visibility = 'user'")
+
+    for _ in range(5):
+        resp = client.post(
+            "/api/users/companies", json={"url": "https://boards.greenhouse.io/replay"}
+        )
+        assert resp.status_code == 422, resp.text
+        assert resp.json()["reason"] == "monthly_limit_reached"
+
+    assert _count(db_conn, "companies", "WHERE visibility = 'user'") == before_companies
+
+
+def test_the_cap_refuses_before_spending_anything(client, db_conn, monkeypatch):
+    """Zero outbound HTTP, no company, no ownership row, and discovery never enqueued.
+
+    A cap that refuses AFTER the resolver has run has already spent the thing it
+    exists to protect, so this pins the check's POSITION in the handler rather than
+    merely its existence.
+    """
+    monkeypatch.setattr(settings, "custom_company_monthly_add_limit", 1)
+    monkeypatch.setattr(settings, "custom_company_discovery_enabled", True)
+    _login(client, "auth0|NOSPEND", "nospend@example.com")
+    user_id = _user_id(db_conn, "nospend@example.com")
+    _seed_attempts(db_conn, user_id, 1)
+    requested = _install_recording_transport(monkeypatch)
+    deferred = _capture_defer(monkeypatch)
+
+    before_companies = _count(db_conn, "companies", "WHERE visibility = 'user'")
+    before_owned = _count(db_conn, "user_companies", "WHERE user_id = %s", (user_id,))
+
+    resp = client.post(
+        "/api/users/companies", json={"url": "https://boards.greenhouse.io/nospend"}
+    )
+
+    assert resp.status_code == 422, resp.text
+    assert resp.json()["reason"] == "monthly_limit_reached"
+    assert requested == [], f"a refused add must make no outbound request; got {requested}"
+    assert deferred == [], "a refused add must never enqueue discovery"
+    assert _count(db_conn, "companies", "WHERE visibility = 'user'") == before_companies
+    assert _count(db_conn, "user_companies", "WHERE user_id = %s", (user_id,)) == before_owned
+
+
+def test_the_cap_refusal_is_not_itself_recorded_as_an_attempt(
+    client, db_conn, monkeypatch
+):
+    """A DECISION, asserted so it cannot drift: a refusal at the cap writes no audit row.
+
+    It never reached the resolver and created nothing, so it is not an add attempt —
+    and recording it would let a replayed token inflate ``used`` without bound, which
+    would stop the row count meaning "URLs we acted on".
+    """
+    monkeypatch.setattr(settings, "custom_company_monthly_add_limit", 2)
+    _login(client, "auth0|NOREC", "norec@example.com")
+    user_id = _user_id(db_conn, "norec@example.com")
+    _seed_attempts(db_conn, user_id, 2)
+    before = _count(db_conn, "company_add_attempts", "WHERE user_id = %s", (user_id,))
+
+    for _ in range(3):
+        client.post(
+            "/api/users/companies", json={"url": "https://boards.greenhouse.io/norecord"}
+        )
+
+    assert _count(db_conn, "company_add_attempts", "WHERE user_id = %s", (user_id,)) == before
+
+
+def test_an_unreadable_count_fails_CLOSED(client, db_conn, monkeypatch):
+    """A database error reading the count is a 500, never a pass-through.
+
+    The count IS the control, so "we couldn't read it, carry on" would fail open on
+    exactly the request the cap exists to stop.
+    """
+    monkeypatch.setattr(settings, "custom_company_monthly_add_limit", 20)
+    _login(client, "auth0|DBFAIL", "dbfail@example.com")
+    requested = _install_recording_transport(monkeypatch)
+
+    def _boom(*_args, **_kwargs):
+        raise psycopg2.OperationalError("injected failure")
+
+    monkeypatch.setattr(svc, "count_add_attempts_since", _boom)
+
+    resp = client.post(
+        "/api/users/companies", json={"url": "https://boards.greenhouse.io/dbfail"}
+    )
+
+    assert resp.status_code == 500, resp.text
+    assert requested == [], "a failed quota read must not fall through to the resolver"
+
+
+def test_every_outcome_spends_a_slot_including_refusals(client, db_conn, monkeypatch):
+    """Three FAILED adds exhaust a three-slot month exactly as three successful ones do.
+
+    The owner's rule caps URLs ENTERED, not boards created: "a success, a refusal, a
+    board that turns out to be one we already publish — all the same". This is the
+    half of it a spend-based rule would have got wrong.
+    """
+    monkeypatch.setattr(settings, "custom_company_monthly_add_limit", 3)
+    monkeypatch.setattr(settings, "custom_company_discovery_enabled", False)
+    _login(client, "auth0|FAIL", "fail@example.com")
+    _patch_no_ats(monkeypatch)
+
+    for i in range(3):
+        resp = client.post("/api/users/companies", json={"url": f"https://no-ats.example/{i}"})
+        assert resp.status_code == 422, resp.text
+        assert resp.json()["reason"] == "no_ats_detected"
+
+    fourth = client.post("/api/users/companies", json={"url": "https://no-ats.example/3"})
+    assert fourth.status_code == 422, fourth.text
+    assert fourth.json()["reason"] == "monthly_limit_reached"
+
+
+def test_an_already_published_board_spends_a_slot(client, db_conn, monkeypatch):
+    """Pasting a board we already publish costs us nothing and still counts. Simple
+    beats fair here — the owner's call, and it is what keeps the rule to one
+    sentence."""
+    monkeypatch.setattr(settings, "custom_company_monthly_add_limit", 1)
+    _login(client, "auth0|PUB", "pub@example.com")
+    _seed_public_company(db_conn, "pubdupe", ats="greenhouse", board_token="pubdupe",
+                         display_name="Pub Dupe")
+    _install_greenhouse_any(monkeypatch)
+
+    first = client.post(
+        "/api/users/companies", json={"url": "https://boards.greenhouse.io/pubdupe"}
+    )
+    assert first.status_code == 200, first.text
+    assert first.json()["status"] == "already_public"
+
+    second = client.post(
+        "/api/users/companies", json={"url": "https://boards.greenhouse.io/anything"}
+    )
+    assert second.status_code == 422, second.text
+    assert second.json()["reason"] == "monthly_limit_reached"
+
+
+def test_deleting_a_company_does_not_refund_a_slot(client, db_conn, monkeypatch):
+    """Add, delete, add — still refused. The purge deliberately leaves
+    ``company_add_attempts`` behind, which is the whole mechanism behind "no refund"."""
+    monkeypatch.setattr(settings, "custom_company_monthly_add_limit", 1)
+    _login(client, "auth0|REFUND", "refund@example.com")
+    _install_greenhouse_any(monkeypatch)
+
+    created = client.post(
+        "/api/users/companies", json={"url": "https://boards.greenhouse.io/refund"}
+    )
+    assert created.status_code == 201, created.text
+
+    deleted = client.delete(f"/api/users/companies/{created.json()['id']}")
+    assert deleted.status_code == 204, deleted.text
+
+    again = client.post(
+        "/api/users/companies", json={"url": "https://boards.greenhouse.io/refund2"}
+    )
+    assert again.status_code == 422, again.text
+    assert again.json()["reason"] == "monthly_limit_reached"
+
+
+def test_checking_a_url_does_not_spend_a_slot(client, db_conn, monkeypatch):
+    """``POST /api/companies/resolve`` writes nothing and must not decrement.
+
+    Only "Track this company" and an auto-started discovery count — the two calls that
+    create something. Checking is already capped at 10/minute on its own route.
+    """
+    from api.services.rate_limit import resolve_rate_limiter
+
+    monkeypatch.setattr(settings, "custom_company_monthly_add_limit", 20)
+    _login(client, "auth0|CHECK", "check@example.com")
+    resolve_rate_limiter.reset()
+    monkeypatch.setattr(resolve_rate_limiter, "_max", 1_000)
+
+    def _resolve_client() -> httpx.AsyncClient:
+        def handler(request: httpx.Request) -> httpx.Response:
+            if "boards-api.greenhouse.io" in str(request.url):
+                return httpx.Response(200, json={"jobs": [_raw_job(1)]})
+            return httpx.Response(404)
+
+        return httpx.AsyncClient(
+            transport=httpx.MockTransport(handler), follow_redirects=False
+        )
+
+    monkeypatch.setattr("api.routers.companies._http_client", _resolve_client)
+
+    before = _quota(client)["used"]
+    for _ in range(5):
+        resp = client.post(
+            "/api/companies/resolve", json={"url": "https://boards.greenhouse.io/checkonly"}
+        )
+        assert resp.status_code == 200, resp.text
+    assert _quota(client)["used"] == before
+
+    resolve_rate_limiter.reset()
+
+
+def test_a_worker_written_discovery_verdict_does_not_spend_a_second_slot(
+    client, db_conn, monkeypatch
+):
+    """ONE submission, TWO audit rows, ONE slot.
+
+    THIS IS WHERE THE APPROVED PLAN'S "straight row count" WAS WRONG. A non-ATS URL
+    writes ``discovery_pending`` from the REQUEST, and then — minutes later, from the
+    WORKER — ``added`` (``add_discovered_company``) or ``refused``
+    (``record_discovery_refusal``). Both carry ``resolved_ats='discovered'``. Counting
+    the second would silently halve the cap for every discovered board.
+    """
+    monkeypatch.setattr(settings, "custom_company_monthly_add_limit", 20)
+    _login(client, "auth0|WORKER", "worker@example.com")
+    user_id = _user_id(db_conn, "worker@example.com")
+
+    _seed_attempts(db_conn, user_id, 1, outcome="discovery_pending", resolved_ats="discovered")
+    assert _quota(client)["used"] == 1
+
+    # The worker's two possible verdicts for that SAME submission.
+    _seed_attempts(db_conn, user_id, 1, outcome="added", resolved_ats="discovered")
+    _seed_attempts(db_conn, user_id, 1, outcome="refused", resolved_ats="discovered")
+
+    assert _quota(client)["used"] == 1, (
+        "the worker's terminal row is the same submission reaching its verdict, "
+        "not a second URL"
+    )
+
+
+def test_an_ats_add_still_spends_its_slot(client, db_conn, monkeypatch):
+    """The mirror of the test above: the exclusion must not swallow a real ATS add,
+    whose audit row is ALSO ``outcome='added'`` — only ``resolved_ats`` separates
+    them."""
+    monkeypatch.setattr(settings, "custom_company_monthly_add_limit", 20)
+    _login(client, "auth0|ATSCOUNT", "atscount@example.com")
+    user_id = _user_id(db_conn, "atscount@example.com")
+
+    _seed_attempts(db_conn, user_id, 2, outcome="added", resolved_ats="greenhouse")
+    assert _quota(client)["used"] == 2
+
+
+def test_zero_disables_the_cap_entirely(client, db_conn, monkeypatch):
+    """The local off switch. Far past any plausible limit, and never refused."""
+    monkeypatch.setattr(settings, "custom_company_monthly_add_limit", 0)
+    _login(client, "auth0|UNLIM", "unlim@example.com")
+    user_id = _user_id(db_conn, "unlim@example.com")
+    _seed_attempts(db_conn, user_id, 500)
+    _install_greenhouse_any(monkeypatch)
+
+    resp = client.post(
+        "/api/users/companies", json={"url": "https://boards.greenhouse.io/unlimited"}
+    )
+    assert resp.status_code == 201, resp.text
+    # ...and the counter says there is nothing to count against.
+    assert _quota(client)["limit"] == 0
+
+
+def test_the_monthly_limit_default_is_pinned() -> None:
+    """``extra="ignore"`` means a typo'd env var name is silently dropped and this
+    default stands. With 20 as the default a typo leaves the cap ON; an
+    ``..._ENABLED=false``-shaped flag would fail OPEN on the same typo."""
+    fields = type(settings).model_fields
+    assert fields["custom_company_monthly_add_limit"].default == 20
+
+
+def test_booting_with_the_cap_off_logs_a_warning(monkeypatch, caplog) -> None:
+    import logging as _logging
+
+    from api.services.add_quota import warn_if_unlimited
+
+    monkeypatch.setattr(settings, "custom_company_monthly_add_limit", 0)
+    caplog.clear()
+    with caplog.at_level(_logging.WARNING, logger="api.services.add_quota"):
+        warn_if_unlimited()
+    assert "CUSTOM_COMPANY_MONTHLY_ADD_LIMIT is 0" in caplog.text
+
+    caplog.clear()
+    monkeypatch.setattr(settings, "custom_company_monthly_add_limit", 20)
+    with caplog.at_level(_logging.WARNING, logger="api.services.add_quota"):
+        warn_if_unlimited()
+    assert caplog.text == ""
+
+
+# --- The window: calendar month, UTC -------------------------------------------
+
+
+def test_last_months_attempts_do_not_count(client, db_conn, monkeypatch):
+    """Month rollover. A user at 20 on the 31st is at 0 used one second later."""
+    monkeypatch.setattr(settings, "custom_company_monthly_add_limit", 3)
+    _login(client, "auth0|ROLL", "roll@example.com")
+    user_id = _user_id(db_conn, "roll@example.com")
+    _seed_attempts(
+        db_conn, user_id, 20,
+        created_at="date_trunc('month', now() AT TIME ZONE 'UTC') - interval '1 day'",
+    )
+    _install_greenhouse_any(monkeypatch)
+
+    assert _quota(client)["used"] == 0
+    resp = client.post(
+        "/api/users/companies", json={"url": "https://boards.greenhouse.io/newmonth"}
+    )
+    assert resp.status_code == 201, resp.text
+
+
+def test_the_first_instant_of_the_month_counts(client, db_conn, monkeypatch):
+    """The boundary is INCLUSIVE at the start: a row stamped exactly at midnight UTC
+    on the 1st belongs to the new month, not the old one."""
+    monkeypatch.setattr(settings, "custom_company_monthly_add_limit", 1)
+    _login(client, "auth0|BOUND", "bound@example.com")
+    user_id = _user_id(db_conn, "bound@example.com")
+    _seed_attempts(
+        db_conn, user_id, 1,
+        created_at="date_trunc('month', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'",
+    )
+    _install_greenhouse_any(monkeypatch)
+
+    assert _quota(client)["used"] == 1
+    resp = client.post(
+        "/api/users/companies", json={"url": "https://boards.greenhouse.io/boundary"}
+    )
+    assert resp.status_code == 422, resp.text
+    assert resp.json()["reason"] == "monthly_limit_reached"
+
+
+def test_the_last_instant_of_last_month_does_not_count(client, db_conn, monkeypatch):
+    """...and EXCLUSIVE at the other end. One microsecond before the boundary is last
+    month's spend, and it is already forgiven."""
+    monkeypatch.setattr(settings, "custom_company_monthly_add_limit", 1)
+    _login(client, "auth0|BOUND2", "bound2@example.com")
+    user_id = _user_id(db_conn, "bound2@example.com")
+    _seed_attempts(
+        db_conn, user_id, 1,
+        created_at=(
+            "(date_trunc('month', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC') "
+            "- interval '1 microsecond'"
+        ),
+    )
+    assert _quota(client)["used"] == 0
+
+
+def test_the_month_window_is_utc_and_rolls_over_december() -> None:
+    """Pure. December rolls to January of the NEXT year, a non-UTC offset is converted
+    rather than ignored, and a naive datetime is REFUSED — silently reading it in the
+    server's local timezone is exactly how "one instant for everybody" stops holding."""
+    from datetime import datetime, timedelta, timezone
+
+    from api.services.add_quota import month_window
+
+    start, nxt = month_window(datetime(2026, 12, 31, 23, 59, tzinfo=timezone.utc))
+    assert start == datetime(2026, 12, 1, tzinfo=timezone.utc)
+    assert nxt == datetime(2027, 1, 1, tzinfo=timezone.utc)
+
+    # 8pm US Central on the last day of August is already September in UTC.
+    central = timezone(timedelta(hours=-5))
+    start, _ = month_window(datetime(2026, 8, 31, 20, 0, tzinfo=central))
+    assert start == datetime(2026, 9, 1, tzinfo=timezone.utc)
+
+    with pytest.raises(ValueError):
+        month_window(datetime(2026, 8, 20, 12, 0))
+
+
+# --- The counter on GET /api/users/companies -----------------------------------
+
+
+def test_the_list_endpoint_carries_the_counter(client, db_conn, monkeypatch):
+    monkeypatch.setattr(settings, "custom_company_monthly_add_limit", 20)
+    _login(client, "auth0|Q", "q@example.com")
+    user_id = _user_id(db_conn, "q@example.com")
+    _seed_attempts(db_conn, user_id, 3)
+
+    quota = _quota(client)
+    assert quota["used"] == 3
+    assert quota["limit"] == 20
+    # The reset instant, so the UI never has to compute a month boundary itself.
+    assert quota["resetsAt"].endswith("Z") or "+00:00" in quota["resetsAt"]
+
+
+def test_a_brand_new_user_sees_a_full_allowance(client, monkeypatch):
+    """Signed in, no ``users`` row yet. Nothing owned and nothing spent — the counter
+    must still render, or a first-time visitor sees a blank where the allowance goes."""
+    monkeypatch.setattr(settings, "custom_company_monthly_add_limit", 20)
+    _login(client, "auth0|NEVERSEEN", "never-seen@example.com")
+
+    body = client.get("/api/users/companies").json()
+    assert body["companies"] == []
+    assert body["quota"]["used"] == 0
+    assert body["quota"]["limit"] == 20
+
+
+def test_the_counter_moves_with_each_submission(client, db_conn, monkeypatch):
+    monkeypatch.setattr(settings, "custom_company_monthly_add_limit", 20)
+    _login(client, "auth0|TICK", "tick@example.com")
+    _install_greenhouse_any(monkeypatch)
+
+    assert _quota(client)["used"] == 0
+    client.post("/api/users/companies", json={"url": "https://boards.greenhouse.io/tick1"})
+    assert _quota(client)["used"] == 1
+    client.post("/api/users/companies", json={"url": "https://boards.greenhouse.io/tick2"})
+    assert _quota(client)["used"] == 2
+
+
+# --- The burst limiter: 10 per 60s, per user -----------------------------------
+
+
+def test_the_eleventh_add_in_a_minute_is_refused(client, db_conn, monkeypatch):
+    """The limit the owner believed he already had. It was on ``/api/companies/resolve``
+    — which spends nothing — and NOT on this route, which starts a browser and an LLM
+    call. It looked done because the UI calls resolve first; a replayed token aimed
+    straight here bypassed it entirely."""
+    monkeypatch.setattr(settings, "custom_company_monthly_add_limit", 0)
+    monkeypatch.setattr(user_company_add_rate_limiter, "_max", 10)
+    user_company_add_rate_limiter.reset()
+    _login(client, "auth0|BURST", "burst@example.com")
+    _install_greenhouse_any(monkeypatch)
+
+    codes = [
+        client.post(
+            "/api/users/companies",
+            json={"url": f"https://boards.greenhouse.io/burst{i}"},
+        ).status_code
+        for i in range(11)
+    ]
+
+    assert codes[:10] == [201] * 10, codes
+    assert codes[10] == 429, codes
+
+
+def test_the_burst_refusal_says_how_long_to_wait_in_the_body(
+    client, db_conn, monkeypatch
+):
+    """``api/users.ts`` forwards through ``forwardResponse``, which copies status +
+    body ONLY — the same reason ``X-Next-Cursor`` needs its own explicit line there.
+    A ``Retry-After`` header therefore never reaches the browser, so the wait has to be
+    in the message. The header is still sent, for direct API callers that do see it."""
+    monkeypatch.setattr(settings, "custom_company_monthly_add_limit", 0)
+    monkeypatch.setattr(user_company_add_rate_limiter, "_max", 1)
+    user_company_add_rate_limiter.reset()
+    _login(client, "auth0|WAIT", "wait@example.com")
+    _install_greenhouse_any(monkeypatch)
+
+    client.post("/api/users/companies", json={"url": "https://boards.greenhouse.io/w1"})
+    resp = client.post("/api/users/companies", json={"url": "https://boards.greenhouse.io/w2"})
+
+    assert resp.status_code == 429
+    detail = resp.json()["detail"]
+    assert "seconds" in detail
+    assert any(ch.isdigit() for ch in detail), detail
+    assert int(resp.headers["retry-after"]) >= 1
+
+
+def test_the_burst_limit_is_keyed_per_user(client, db_conn, monkeypatch):
+    """One user's burst must not lock everybody else out — the key is the
+    authenticated subject, not a global counter."""
+    monkeypatch.setattr(settings, "custom_company_monthly_add_limit", 0)
+    monkeypatch.setattr(user_company_add_rate_limiter, "_max", 1)
+    user_company_add_rate_limiter.reset()
+    _install_greenhouse_any(monkeypatch)
+
+    _login(client, "auth0|KEY1", "key1@example.com")
+    client.post("/api/users/companies", json={"url": "https://boards.greenhouse.io/k1"})
+    blocked = client.post("/api/users/companies", json={"url": "https://boards.greenhouse.io/k2"})
+    assert blocked.status_code == 429
+
+    _login(client, "auth0|KEY2", "key2@example.com")
+    other = client.post("/api/users/companies", json={"url": "https://boards.greenhouse.io/k3"})
+    assert other.status_code == 201, other.text
+
+
+def test_the_burst_limit_settings_are_pinned() -> None:
+    """Same reasoning as every other setting here: ``extra="ignore"`` hides a typo."""
+    fields = type(settings).model_fields
+    assert fields["user_company_add_rate_limit_max"].default == 10
+    assert fields["user_company_add_rate_limit_window_seconds"].default == 60
+
+
+# --- Ordering: the feature flag answers first ----------------------------------
+
+
+def test_neither_limit_is_checked_before_the_feature_flag(client, monkeypatch):
+    """With the feature off the route must stay a clean 503 — not a 429, and not a 422
+    that reads as a quota problem on a feature that is not even running."""
+    monkeypatch.setattr(settings, "custom_company_sources_enabled", False)
+    monkeypatch.setattr(settings, "custom_company_monthly_add_limit", 1)
+    monkeypatch.setattr(user_company_add_rate_limiter, "_max", 1)
+    user_company_add_rate_limiter.reset()
+    _login(client, "auth0|FLAGOFF", "flagoff@example.com")
+
+    for _ in range(3):
+        resp = client.post(
+            "/api/users/companies", json={"url": "https://boards.greenhouse.io/flagoff"}
+        )
+        assert resp.status_code == 503, resp.text

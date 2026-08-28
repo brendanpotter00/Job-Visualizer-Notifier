@@ -3,7 +3,10 @@ import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '../../../test/testUtils';
 import { MyCompaniesPage } from '../../../pages/MyCompaniesPage';
-import type { ResolveUrlResponse } from '../../../features/userCompanies/userCompaniesApi';
+import type {
+  GetUserCompaniesResponse,
+  ResolveUrlResponse,
+} from '../../../features/userCompanies/userCompaniesApi';
 
 // `fetchBaseQuery` builds relative URLs, which Node's `Request` rejects.
 const OriginalRequest = globalThis.Request;
@@ -78,11 +81,38 @@ const DISCOVERY_202 = {
 
 let fetchMock: ReturnType<typeof vi.fn>;
 
+/**
+ * What `GET /api/users/companies` answers with. Only the `quota` half matters here —
+ * `MyCompaniesList` is stubbed out, so nothing on this page renders the rows.
+ * Reset per test; the counter tests below set it.
+ */
+let listBody: GetUserCompaniesResponse = { companies: [] };
+
+/** The page's mount fetch for the add counter. NOT an add. */
+function isListGet(input: Request): boolean {
+  return input.method === 'GET' && input.url.includes('/users/companies');
+}
+
 beforeEach(() => {
   mockAuthState.isAuthenticated = true;
   mockAuthState.isLoading = false;
+  listBody = { companies: [] };
   fetchMock = vi.fn();
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  // The list GET is answered HERE, in front of `fetchMock`, so the per-test mocks
+  // below never see it. Two reasons, both of which bit when it went through them:
+  //
+  //  * `mockResolvedValue(jsonResponse(...))` hands out ONE `Response` object, and a
+  //    body can only be read once — the mount GET would consume it and every test's
+  //    real assertion would then read an already-drained body.
+  //  * `fetchMock.mock.calls` is what tests index into (`calls[0]` is "the resolve
+  //    POST") and filter (`addCalls()`), and a mount GET would silently shift both.
+  //
+  // Set `listBody` to change what it answers.
+  const delegate = fetchMock as unknown as (input: Request) => Promise<Response>;
+  globalThis.fetch = ((input: Request) =>
+    isListGet(input)
+      ? Promise.resolve(jsonResponse(listBody))
+      : delegate(input)) as unknown as typeof fetch;
 });
 
 afterEach(() => {
@@ -136,7 +166,7 @@ describe('MyCompaniesPage', () => {
   // logged-out visitor following the nav link sees.
   it('titles the page "Add Companies" once signed in', () => {
     renderWithProviders(<MyCompaniesPage />);
-    expect(screen.getByRole('heading', { level: 1, name: 'Add Companies' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: 'Add Companies (beta)' })).toBeInTheDocument();
   });
 
   describe('signed out', () => {
@@ -144,7 +174,7 @@ describe('MyCompaniesPage', () => {
       mockAuthState.isAuthenticated = false;
       renderWithProviders(<MyCompaniesPage />);
 
-      expect(screen.getByRole('heading', { name: 'Add Companies' })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'Add Companies (beta)' })).toBeInTheDocument();
     });
 
     it('shows a sign-in prompt instead of the form', () => {
@@ -654,6 +684,69 @@ describe('MyCompaniesPage', () => {
 
       await screen.findByTestId('resolve-error');
       expect(addCalls()).toHaveLength(0);
+    });
+  });
+
+  describe('the monthly add counter', () => {
+    const RESETS_AT = '2026-09-01T00:00:00Z';
+
+    it('states the allowance in one line at the top of the page', async () => {
+      listBody = { companies: [], quota: { used: 3, limit: 20, resetsAt: RESETS_AT } };
+      renderWithProviders(<MyCompaniesPage />);
+
+      const counter = await screen.findByTestId('add-quota-counter');
+      expect(counter).toHaveTextContent('17 of 20 adds left this month');
+      // One line, not an alert. A notice that appears when the number gets low is an
+      // interruption; a counter that is always there is a fact you can check.
+      expect(screen.queryByRole('alert', { name: /adds left/i })).not.toBeInTheDocument();
+    });
+
+    it('decrements as adds are spent', async () => {
+      listBody = { companies: [], quota: { used: 19, limit: 20, resetsAt: RESETS_AT } };
+      renderWithProviders(<MyCompaniesPage />);
+
+      expect(await screen.findByTestId('add-quota-counter')).toHaveTextContent(
+        '1 of 20 adds left this month'
+      );
+    });
+
+    it('reads "0 of 20" and disables the submit when the month is spent', async () => {
+      listBody = { companies: [], quota: { used: 20, limit: 20, resetsAt: RESETS_AT } };
+      const user = userEvent.setup();
+      renderWithProviders(<MyCompaniesPage />);
+
+      expect(await screen.findByTestId('add-quota-counter')).toHaveTextContent(
+        '0 of 20 adds left this month'
+      );
+      // The FIELD stays usable — someone can still paste a URL they are queuing up
+      // for next month, and a dead input reads as a broken page.
+      await user.type(screen.getByLabelText(/job board link/i), 'https://intel.com/careers');
+      expect(screen.getByRole('button', { name: /add company/i })).toBeDisabled();
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('renders no counter and disables nothing when the cap is switched off', async () => {
+      listBody = { companies: [], quota: { used: 400, limit: 0, resetsAt: RESETS_AT } };
+      const user = userEvent.setup();
+      renderWithProviders(<MyCompaniesPage />);
+
+      await user.type(screen.getByLabelText(/job board link/i), 'https://intel.com/careers');
+      expect(screen.queryByTestId('add-quota-counter')).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /add company/i })).toBeEnabled();
+    });
+
+    it('renders no counter, and still lets the user add, when the server sends no quota', async () => {
+      // A server older than this feature. "We don't know" must never be read as
+      // "you have none left" — locking someone out of the whole feature on a missing
+      // field is the worst possible reading of it, and the server refuses over quota
+      // regardless of what this button does.
+      listBody = { companies: [] };
+      const user = userEvent.setup();
+      renderWithProviders(<MyCompaniesPage />);
+
+      await user.type(screen.getByLabelText(/job board link/i), 'https://intel.com/careers');
+      expect(screen.queryByTestId('add-quota-counter')).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /add company/i })).toBeEnabled();
     });
   });
 });

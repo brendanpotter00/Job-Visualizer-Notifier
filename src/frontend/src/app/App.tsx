@@ -19,6 +19,7 @@ import { AdminUsersPage } from '../pages/AdminUsersPage/AdminUsersPage.tsx';
 import { AdminLocationNormalizationPage } from '../pages/AdminLocationNormalizationPage/AdminLocationNormalizationPage.tsx';
 import { AdminEnrichmentPage } from '../pages/AdminEnrichmentPage/AdminEnrichmentPage.tsx';
 import { AdminLocationPipelinePage } from '../pages/AdminLocationPipelinePage/AdminLocationPipelinePage.tsx';
+import { AdminCustomCompaniesPage } from '../pages/AdminCustomCompaniesPage/AdminCustomCompaniesPage.tsx';
 import { AdminFeedbackPage } from '../pages/AdminFeedbackPage/AdminFeedbackPage.tsx';
 import { AdminRoute } from '../components/auth/AdminRoute.tsx';
 import { useEnabledCompanies } from '../features/preferences/useEnabledCompanies';
@@ -117,6 +118,18 @@ function AppContent() {
             element={
               <AdminRoute>
                 <AdminEnrichmentPage />
+              </AdminRoute>
+            }
+          />
+          {/* Admin-gated only — deliberately NOT behind
+              CUSTOM_COMPANIES_CONFIG.isEnabled, because an environment where
+              the user-facing flag is off is exactly when an admin most wants
+              to inspect what the feature did. */}
+          <Route
+            path={ROUTES.ADMIN_CUSTOM_COMPANIES}
+            element={
+              <AdminRoute>
+                <AdminCustomCompaniesPage />
               </AdminRoute>
             }
           />

@@ -162,6 +162,33 @@ describe('ResolveResultDisplay — Add company CTA', () => {
     expect(error).toHaveTextContent('code: some_future_reason');
   });
 
+  it('explains the monthly cap in English, with no raw code', async () => {
+    // 422 and not 403 is load-bearing: `asAddFailure` hard-checks `status !== 422`
+    // before it will read a `reason`, so a 403 would fall through to the generic
+    // "we couldn't add that company" and lose the explanation entirely.
+    fetchMock.mockResolvedValue(
+      jsonResponse(
+        {
+          reason: 'monthly_limit_reached',
+          detail:
+            "You've used all 20 of your company adds for this month. " +
+            'Your next 20 become available on 1 September.',
+          finalUrl: FINAL_URL,
+        },
+        422
+      )
+    );
+    const user = userEvent.setup();
+    renderWithProviders(<ResolveResultDisplay result={OK_RESULT} />);
+
+    await user.click(screen.getByTestId('add-company-button'));
+
+    const error = await screen.findByTestId('add-company-error');
+    expect(error).toHaveTextContent("You've used this month's company adds");
+    expect(error).toHaveTextContent('1 September');
+    expect(error).not.toHaveTextContent('code: monthly_limit_reached');
+  });
+
   it('treats an idempotent 200 (already added) as success, not a crash', async () => {
     fetchMock.mockResolvedValue(jsonResponse(ADDED, 200));
     const user = userEvent.setup();

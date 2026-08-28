@@ -72,7 +72,7 @@ export function CompanyJobHeader({ companyId, title, logoSize }: CompanyJobHeade
 function UserCompanyJobHeader({ companyId, title, logoSize }: CompanyJobHeaderProps) {
   const { isAuthenticated } = useAuth();
   const { data: userCompanies } = useGetUserCompaniesQuery(undefined, { skip: !isAuthenticated });
-  const name = userCompanies?.find((company) => company.id === companyId)?.displayName;
+  const name = userCompanies?.companies.find((company) => company.id === companyId)?.displayName;
   return (
     <HeaderRow
       companyId={companyId}

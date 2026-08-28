@@ -267,3 +267,128 @@ class TestIdempotentReadd:
             "AC-11: no second custom_discovery job — the whole point being that a "
             "typo / accidental double-submit must never cost another LLM call"
         )
+
+
+# A hostname nothing can resolve. Every add below is refused by the SSRF/DNS guard
+# before a single byte leaves the machine, so this whole case is FAST: no board, no
+# network, no LLM — only the limits are under test.
+_UNRESOLVABLE = "https://no-such-board-{n}.invalid/careers"
+
+PRIMARY_EMAIL = "e2e+add-companies@jvn.test"
+
+
+class TestPerUserAddLimits:
+    """AC-14 — the monthly cap and the burst limiter, on the REAL endpoint.
+
+    A bearer token, `httpx`, and nothing else: the same shape as a token copied out
+    of DevTools and replayed with curl. Nothing here can be satisfied by a disabled
+    submit button, which is the whole reason the case exists.
+
+    Both limits get a short-lived backend on :8202 with their own values, exactly the
+    way AC-09 does for the feature flags. The main stack runs with the cap OFF
+    (`env.e2e`) because `company_add_attempts` is append-only and its count therefore
+    survives every `reset_user.sweep` and every re-run of this suite.
+    """
+
+    def test_ac14_the_monthly_cap_refuses_the_next_add_and_the_counter_says_so(
+        self, primary_token: str, db_conn
+    ):
+        user_id = db.user_id_for_email(db_conn, PRIMARY_EMAIL)
+        assert user_id, f"expected a users row for {PRIMARY_EMAIL}"
+        # Place the user at a known count. Nothing in the product can do this — the
+        # audit is append-only on purpose — so the fixture reaches past the API.
+        db.clear_add_attempts(db_conn, user_id=user_id)
+
+        with _flagged_backend(
+            8202,
+            {
+                "CUSTOM_COMPANY_SOURCES_ENABLED": "true",
+                "CUSTOM_COMPANY_DISCOVERY_ENABLED": "false",
+                "CUSTOM_COMPANY_MONTHLY_ADD_LIMIT": "3",
+                "USER_COMPANY_ADD_RATE_LIMIT_MAX": "100",
+            },
+        ) as base:
+            client = httpx.Client(
+                base_url=base, headers={"Authorization": f"Bearer {primary_token}"}, timeout=30.0
+            )
+            try:
+                before_user_rows = db.visibility_count(db_conn, "user")
+
+                # Three REFUSED adds still spend the month. The rule caps URLs
+                # entered, not boards created — "a success, a refusal, a board we
+                # already publish, all the same".
+                for i in range(3):
+                    r = client.post("/api/users/companies", json={"url": _UNRESOLVABLE.format(n=i)})
+                    assert r.status_code == 422, f"add {i}: {r.status_code} {r.text}"
+                    assert r.json().get("reason") != "monthly_limit_reached", (
+                        f"add {i} must be refused for the URL, not the cap: {r.text}"
+                    )
+
+                fourth = client.post("/api/users/companies", json={"url": _UNRESOLVABLE.format(n=3)})
+                assert fourth.status_code == 422, f"{fourth.status_code} {fourth.text}"
+                assert fourth.json()["reason"] == "monthly_limit_reached", fourth.text
+
+                # The counter the Add Companies page renders, from the real endpoint.
+                quota = client.get("/api/users/companies").json()["quota"]
+                assert quota["used"] == 3, quota
+                assert quota["limit"] == 3, quota
+                assert quota["resetsAt"], quota
+
+                assert db.visibility_count(db_conn, "user") == before_user_rows, (
+                    "a refused add must create no company row"
+                )
+            finally:
+                client.close()
+
+        db.clear_add_attempts(db_conn, user_id=user_id)
+
+    def test_ac14_the_burst_limiter_refuses_and_says_how_long_to_wait_in_the_body(
+        self, primary_token: str, db_conn
+    ):
+        """The wait time must be in the BODY. `api/users.ts` forwards through
+        `forwardResponse`, which copies status + body only, so a `Retry-After` header
+        never reaches the browser — the same reason `X-Next-Cursor` needs its own
+        explicit line in that proxy."""
+        user_id = db.user_id_for_email(db_conn, PRIMARY_EMAIL)
+        assert user_id
+        db.clear_add_attempts(db_conn, user_id=user_id)
+
+        with _flagged_backend(
+            8202,
+            {
+                "CUSTOM_COMPANY_SOURCES_ENABLED": "true",
+                "CUSTOM_COMPANY_DISCOVERY_ENABLED": "false",
+                "CUSTOM_COMPANY_MONTHLY_ADD_LIMIT": "0",
+                "USER_COMPANY_ADD_RATE_LIMIT_MAX": "2",
+            },
+        ) as base:
+            client = httpx.Client(
+                base_url=base, headers={"Authorization": f"Bearer {primary_token}"}, timeout=30.0
+            )
+            try:
+                codes = [
+                    client.post(
+                        "/api/users/companies", json={"url": _UNRESOLVABLE.format(n=i)}
+                    )
+                    for i in range(3)
+                ]
+                assert [c.status_code for c in codes[:2]] == [422, 422], (
+                    [c.status_code for c in codes], codes[0].text
+                )
+                assert codes[2].status_code == 429, f"{codes[2].status_code} {codes[2].text}"
+
+                detail = codes[2].json()["detail"]
+                assert "seconds" in detail and any(ch.isdigit() for ch in detail), detail
+                # The header is still sent, for direct API callers like this one.
+                assert int(codes[2].headers["retry-after"]) >= 1
+            finally:
+                client.close()
+
+        db.clear_add_attempts(db_conn, user_id=user_id)
+
+    def test_ac14_the_main_stack_reports_an_uncapped_quota(self, http):
+        """The envelope is wired end to end even with the cap switched off — `limit: 0`
+        is what tells the UI to render no counter at all."""
+        quota = http.get("/api/users/companies").json()["quota"]
+        assert quota["limit"] == 0, quota
+        assert quota["used"] >= 0, quota

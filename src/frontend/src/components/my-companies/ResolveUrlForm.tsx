@@ -17,6 +17,20 @@ interface ResolveUrlFormProps {
    * The page owns this value and holds it non-`idle` across the whole action.
    */
   status: 'idle' | 'checking' | 'setting-up';
+  /**
+   * Refuse the submit outright — today, the caller has no adds left this month.
+   *
+   * SEPARATE from `status`, because it is a different kind of "no". `status` is
+   * transient ("wait, this is running") and re-enables itself; this one does not
+   * change until the 1st, and the counter above the form is its whole explanation.
+   * The FIELD stays editable on purpose: someone can still paste and read a URL
+   * they are queuing up for next month, and disabling the input would look like
+   * the page was broken rather than the allowance spent.
+   *
+   * It is a courtesy, never the control. The server refuses over quota regardless
+   * of what this button does — see the 422 `monthly_limit_reached`.
+   */
+  disabled?: boolean;
 }
 
 /**
@@ -51,12 +65,12 @@ interface ResolveUrlFormProps {
  * what a user pastes — EXACT, and from the company. Whatever this becomes, it must not
  * grow back into a second copy of the alert.
  */
-export function ResolveUrlForm({ onSubmit, status }: ResolveUrlFormProps) {
+export function ResolveUrlForm({ onSubmit, status, disabled = false }: ResolveUrlFormProps) {
   const [value, setValue] = useState('');
 
   const busy = status !== 'idle';
   const trimmed = value.trim();
-  const canSubmit = trimmed.length > 0 && !busy;
+  const canSubmit = trimmed.length > 0 && !busy && !disabled;
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();

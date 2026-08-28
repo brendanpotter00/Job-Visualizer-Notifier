@@ -30,6 +30,12 @@ from ..models import (
     AdminProblemJobsResponse,
     AdminReNormalizeAllResponse,
     AdminReverseLocation,
+    AdminCustomCompaniesResponse,
+    AdminCustomCompaniesSummary,
+    AdminCustomCompanyAttemptRow,
+    AdminCustomCompanyAttemptsResponse,
+    AdminCustomCompanyRow,
+    AdminCustomCompanyUserRow,
     AdminUserRow,
     AdminUsersListResponse,
     AdminEnrichmentCorrectionRequest,
@@ -53,6 +59,10 @@ from ..services.admin_service import (
     revoke_admin,
 )
 from ..services.feedback_service import count_feedback, list_feedback
+from ..services.custom_companies_admin import (
+    list_add_attempts,
+    list_custom_companies,
+)
 from ..services.location_admin import (
     alias_originals,
     count_aliases,
@@ -94,6 +104,12 @@ _ALIAS_LIST_CAP = 200
 
 # Hard cap on the admin feedback page size (same unbounded-reads memory rule).
 _FEEDBACK_LIST_CAP = 200
+
+# Hard caps on the two admin Custom Companies page sizes (same rule). The
+# attempts audit log is append-only and is the one table here that grows
+# without bound, which is why both endpoints paginate server-side.
+_CUSTOM_COMPANIES_LIST_CAP = 200
+_CUSTOM_ATTEMPTS_LIST_CAP = 200
 
 
 @router.get("/users", response_model=AdminUsersListResponse)
@@ -831,3 +847,84 @@ def admin_enrichment_reenrich(
         logger.exception("Failed to request re-enrich")
         raise HTTPException(status_code=500, detail="Failed to request re-enrich")
     return AdminEnrichmentCorrectionResponse(**result)
+
+
+# ---------------------------------------------------------------------------
+# Custom Companies (E7 oversight) — read-only, two GETs, no actions
+# ---------------------------------------------------------------------------
+
+
+@router.get("/custom-companies", response_model=AdminCustomCompaniesResponse)
+def admin_custom_companies(
+    conn: Connection = Depends(get_db),
+    _admin: TokenClaims = Depends(require_admin),
+    # Server-side pagination, like list_admin_feedback: the UI asks for one page
+    # and reads ``total`` to drive the pager. Page size is hard-bounded at 200
+    # (unbounded-reads memory rule) and defaults to one screenful.
+    limit: int = Query(default=25, ge=1, le=_CUSTOM_COMPANIES_LIST_CAP),
+    offset: int = Query(default=0, ge=0),
+    health: str | None = Query(default=None, max_length=64),
+    search: str | None = Query(default=None, max_length=200),
+) -> AdminCustomCompaniesResponse:
+    """One page of user-added boards plus the four headline counts.
+
+    An unknown ``health`` value is not a 422 — it simply matches nothing and
+    returns an empty page with ``total = 0``, so a stale UI degrades to "no
+    results" rather than an error banner.
+    """
+    try:
+        data = list_custom_companies(
+            conn, limit=limit, offset=offset, health=health, search=search
+        )
+    except psycopg2.Error:
+        conn.rollback()
+        logger.exception("Failed to list custom companies for admin dashboard")
+        raise HTTPException(status_code=500, detail="Failed to load custom companies")
+    return AdminCustomCompaniesResponse(
+        companies=[AdminCustomCompanyRow(**r) for r in data["companies"]],
+        total=data["total"],
+        summary=AdminCustomCompaniesSummary(**data["summary"]),
+        schema_present=data["schema_present"],
+    )
+
+
+@router.get(
+    "/custom-companies/attempts",
+    response_model=AdminCustomCompanyAttemptsResponse,
+)
+def admin_custom_company_attempts(
+    conn: Connection = Depends(get_db),
+    _admin: TokenClaims = Depends(require_admin),
+    limit: int = Query(default=25, ge=1, le=_CUSTOM_ATTEMPTS_LIST_CAP),
+    offset: int = Query(default=0, ge=0),
+    outcome: str | None = Query(default=None, max_length=32),
+    user_id: str | None = Query(default=None, max_length=128),
+    search: str | None = Query(default=None, max_length=500),
+) -> AdminCustomCompanyAttemptsResponse:
+    """One row per ADD ATTEMPT (not per audit row) plus the per-user rollup.
+
+    ``by_outcome`` and ``users`` are deliberately computed over ALL attempts and
+    ignore the filters — the User dropdown is fed from the rollup, so narrowing
+    it by the current selection would erase every other option.
+    """
+    try:
+        data = list_add_attempts(
+            conn,
+            limit=limit,
+            offset=offset,
+            outcome=outcome,
+            user_id=user_id,
+            search=search,
+        )
+    except psycopg2.Error:
+        conn.rollback()
+        logger.exception("Failed to list custom-company add attempts for admin dashboard")
+        raise HTTPException(status_code=500, detail="Failed to load add attempts")
+    return AdminCustomCompanyAttemptsResponse(
+        attempts=[AdminCustomCompanyAttemptRow(**r) for r in data["attempts"]],
+        total=data["total"],
+        by_outcome=data["by_outcome"],
+        users=[AdminCustomCompanyUserRow(**r) for r in data["users"]],
+        users_truncated=data["users_truncated"],
+        schema_present=data["schema_present"],
+    )

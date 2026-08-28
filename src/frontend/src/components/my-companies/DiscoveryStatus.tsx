@@ -9,6 +9,7 @@ import { SUPPORTED_BOARDS } from '../../features/userCompanies/resolveErrors';
 import {
   isAlreadyPublic,
   isDiscoveryPending,
+  isMonthlyLimitError,
   isNameGuessMatch,
   type AddUserCompanyResult,
 } from '../../features/userCompanies/userCompaniesApi';
@@ -122,16 +123,32 @@ export function DiscoveryStatus({
   }
 
   if (error !== undefined) {
+    // The monthly cap is not a verdict about the BOARD, so it does not get the board
+    // advice. "We read Greenhouse, Ashby, … with no setup at all — paste one of those
+    // instead" would send someone off to find a different URL when no URL was ever the
+    // problem. Same alert, no new UI: only the headline changes and the advice is
+    // dropped. The counter at the top of the page carries the rest.
+    //
+    // Rare by construction — the submit is disabled at zero — but reachable whenever
+    // the cached counter is a step behind the server (a second tab, an add from
+    // another device), which is exactly when wrong advice would be most confusing.
+    const outOfAdds = isMonthlyLimitError(error);
     return (
       <Alert severity="warning" data-testid="discovery-error">
-        <AlertTitle>We couldn&apos;t set that board up</AlertTitle>
+        <AlertTitle>
+          {outOfAdds
+            ? "You've used this month's company adds"
+            : "We couldn't set that board up"}
+        </AlertTitle>
         <Typography variant="body2">
           {extractErrorMessage(error, "The one-time setup couldn't be started. Please try again.")}
         </Typography>
-        <Typography variant="body2" sx={{ mt: 1 }}>
-          We read {SUPPORTED_BOARDS} boards with no setup at all — if this company uses
-          one, paste a link to its job listings instead.
-        </Typography>
+        {!outOfAdds && (
+          <Typography variant="body2" sx={{ mt: 1 }}>
+            We read {SUPPORTED_BOARDS} boards with no setup at all — if this company uses
+            one, paste a link to its job listings instead.
+          </Typography>
+        )}
       </Alert>
     );
   }

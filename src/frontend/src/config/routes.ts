@@ -37,6 +37,11 @@ export const ROUTES = {
   // ADMIN_NAV_ITEMS; everyone else reaches it from the Changelog card.
   LOCATION_PIPELINE: '/location-pipeline',
   ADMIN_ENRICHMENT: '/admin/enrichment',
+  // Read-only oversight for user-added boards (E7). Behind `AdminRoute` only —
+  // deliberately NOT gated on VITE_CUSTOM_COMPANIES_ENABLED, because the moment
+  // you most want to inspect the feature is an environment where the
+  // user-facing flag is off.
+  ADMIN_CUSTOM_COMPANIES: '/admin/custom-companies',
   ADMIN_FEEDBACK: '/admin/feedback',
 } as const;
 
@@ -74,7 +79,8 @@ export type NavIconName =
   | 'AutoAwesome'
   | 'Feedback'
   | 'FilterListAlt'
-  | 'AddBusiness';
+  | 'AddBusiness'
+  | 'Construction';
 
 /**
  * Shape of a sidebar entry.
@@ -117,7 +123,7 @@ const PRIMARY_NAV_BASE = [
  */
 const MY_COMPANIES_NAV_ITEM = {
   path: ROUTES.MY_COMPANIES,
-  label: 'Add Companies',
+  label: 'Add Companies (beta)',
   icon: 'AddBusiness',
 } as const;
 
@@ -182,6 +188,13 @@ export const ADMIN_NAV_ITEMS = [
     path: ROUTES.QA,
     label: 'Scraper Runs',
     icon: 'BugReport',
+  },
+  // Scraper-adjacent, so it sits with the scraper entry rather than with the
+  // user-facing ones.
+  {
+    path: ROUTES.ADMIN_CUSTOM_COMPANIES,
+    label: 'Custom Companies',
+    icon: 'Construction',
   },
   {
     path: ROUTES.ADMIN_FEEDBACK,

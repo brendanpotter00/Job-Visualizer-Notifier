@@ -309,9 +309,56 @@ export interface UserCompany {
   publicMatch?: PublicBoardMatch | null;
 }
 
-/** `GET /api/users/companies` envelope — newest first. */
+/**
+ * How many companies the signed-in user may still add this calendar month.
+ *
+ * 20 URLs per user per month, resetting at midnight UTC on the 1st. EVERY
+ * submission spends a slot — a success, a refusal, and a board that turns out to be
+ * one we already publish — and deleting a company does not give one back.
+ *
+ * `limit` is the configured cap and **`0` means unlimited**, in which case there is
+ * no counter to render at all. There is no `remaining` on the wire, by design: see
+ * {@link addsRemaining}, the single definition of that arithmetic anywhere.
+ *
+ * Optional on {@link GetUserCompaniesResponse} because a server that predates the
+ * counter simply omits it; the UI renders nothing rather than guessing.
+ */
+export interface AddQuota {
+  /** Submissions recorded this UTC calendar month. */
+  used: number;
+  /** The cap. `0` = unlimited. */
+  limit: number;
+  /** ISO-8601 start of the next UTC month — when `used` goes back to 0. */
+  resetsAt: string;
+}
+
+/**
+ * Slots left, floored at 0. Returns `null` when there is no cap to count against
+ * (unlimited, or a server that does not send a quota) — the caller renders no
+ * counter and disables nothing.
+ *
+ * THE ONLY definition of this arithmetic — the backend deliberately has none (it only
+ * ever asks "is it exhausted?"). The counter copy and the "is the submit disabled?"
+ * check must never be able to disagree, which is exactly what two inline
+ * `limit - used` expressions would allow.
+ */
+export function addsRemaining(quota: AddQuota | null | undefined): number | null {
+  if (!quota || quota.limit <= 0) return null;
+  return Math.max(quota.limit - quota.used, 0);
+}
+
+/**
+ * `GET /api/users/companies` envelope — newest first.
+ *
+ * The slice deliberately does NOT unwrap this to a bare `UserCompany[]` any more.
+ * `quota` rides the same payload because the Add Companies page already fetches and
+ * polls this endpoint, so the counter costs no extra request, is refreshed by the
+ * same `MyCompanies` tag every add and delete already invalidates, and can never go
+ * stale against the list it is rendered above.
+ */
 export interface GetUserCompaniesResponse {
   companies: UserCompany[];
+  quota?: AddQuota | null;
 }
 
 /** Arg for the owner-scoped jobs + delete endpoints. */
@@ -330,6 +377,30 @@ export interface AddUserCompanyFailure {
   reason: string;
   detail: string;
   finalUrl: string;
+}
+
+/**
+ * The `reason` on the 422 the add endpoint returns when the caller has spent every
+ * add of the current calendar month.
+ *
+ * 422 rather than 403 is load-bearing on this side: the UI's `asAddFailure` hard-checks
+ * `status !== 422` before it will read a `reason` at all, so a 403 would fall through
+ * to generic copy and the explanation would be lost.
+ */
+export const MONTHLY_LIMIT_REASON = 'monthly_limit_reached';
+
+/**
+ * True when an RTK Query rejection is the monthly-cap refusal.
+ *
+ * Exists so error UI can avoid giving advice that does not apply — "paste a supported
+ * board instead" is actively wrong when the board was never the problem.
+ */
+export function isMonthlyLimitError(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) return false;
+  if ((error as { status?: unknown }).status !== 422) return false;
+  const data = (error as { data?: unknown }).data;
+  if (typeof data !== 'object' || data === null) return false;
+  return (data as { reason?: unknown }).reason === MONTHLY_LIMIT_REASON;
 }
 
 /**
@@ -474,11 +545,15 @@ export const userCompaniesApi = createApi({
       }),
     }),
 
-    /** The caller's own companies, newest first. */
-    getUserCompanies: builder.query<UserCompany[], void>({
+    /**
+     * The caller's own companies, newest first, plus their monthly add quota.
+     *
+     * The envelope is kept whole rather than unwrapped to a bare array: `quota`
+     * lives beside `companies` on the wire, and unwrapping would drop it. Consumers
+     * read `data?.companies`.
+     */
+    getUserCompanies: builder.query<GetUserCompaniesResponse, void>({
       query: () => 'users/companies',
-      // Unwrap the `{ companies: [...] }` envelope to the array components consume.
-      transformResponse: (response: GetUserCompaniesResponse) => response.companies,
       providesTags: ['MyCompanies'],
     }),
 

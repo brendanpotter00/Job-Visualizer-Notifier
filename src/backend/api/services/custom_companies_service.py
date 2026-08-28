@@ -290,6 +290,62 @@ def record_add_attempt(
         raise
 
 
+# Rows in ``company_add_attempts`` that the REQUEST path did NOT write, and which
+# therefore must not consume a slot of the caller's monthly add quota.
+#
+# THIS IS THE ONE THING THE APPROVED PLAN GOT WRONG, so it is spelled out here rather
+# than inlined. The plan said "company_add_attempts, straight row count". A straight
+# count double-charges every discovered board, because ONE user submission of a
+# non-ATS URL produces TWO rows:
+#
+#   1. ``outcome='discovery_pending'`` written synchronously by the ADD REQUEST
+#      (``add_discovering_placeholder``, or the idempotent re-add branch); then
+#   2. ``outcome='added'`` (``add_discovered_company``) or ``outcome='refused'``
+#      (``record_discovery_refusal``) written MINUTES LATER BY THE WORKER, when the
+#      one-time capture finishes.
+#
+# The owner's rule is "20 URLs entered", so the worker's terminal row is the SAME
+# submission reaching its verdict — not a second URL. Counting it would silently make
+# the cap 10 discovered boards instead of 20.
+#
+# The discriminator: every worker-written row has ``resolved_ats='discovered'`` AND an
+# outcome other than ``'discovery_pending'``; every request-written row is either not
+# ``'discovered'`` at all (the six ATS providers, ``'script'``, ``'name_guess'``, NULL)
+# or is exactly ``'discovery_pending'``. Written as an EXCLUSION so a future terminal
+# outcome on the discovery path (say ``'partial'``) is excluded automatically rather
+# than quietly starting to bill users for it.
+_QUOTA_COUNTED_PREDICATE = (
+    "(resolved_ats IS DISTINCT FROM 'discovered' OR outcome = 'discovery_pending')"
+)
+
+
+def count_add_attempts_since(
+    conn: Connection, user_id: str, since: datetime
+) -> int:
+    """How many URLs ``user_id`` has SUBMITTED to the add endpoint since ``since``.
+
+    Exactly one row per ``POST /api/users/companies`` that got as far as being
+    recorded — success, refusal, already-published board, all of them — which is what
+    makes this a count of *URLs entered* rather than of boards created. Deletes cannot
+    reduce it: the purge in :func:`remove_owned_company` deliberately leaves
+    ``company_add_attempts`` alone, so a slot spent stays spent.
+
+    ``since`` must be timezone-aware; ``created_at`` is ``TIMESTAMP WITH TIME ZONE``,
+    so a naive bound would be compared in the server's timezone and shift the month
+    boundary off UTC.
+
+    Reads, and never writes — safe to call on the list endpoint.
+    """
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT count(*) AS n FROM company_add_attempts "
+        "WHERE user_id = %s AND created_at >= %s AND " + _QUOTA_COUNTED_PREDICATE,
+        (user_id, since),
+    )
+    row = cursor.fetchone()
+    return int(row["n"]) if row else 0
+
+
 def add_custom_company(
     conn: Connection,
     *,

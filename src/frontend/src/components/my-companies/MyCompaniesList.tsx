@@ -239,7 +239,9 @@ function CompanyRow({
  */
 export function MyCompaniesList() {
   const {
-    data: companies,
+    // The whole `{ companies, quota }` envelope. The list only wants the rows; the
+    // quota is read by the page, off this same cache entry.
+    data,
     isLoading,
     isError,
     error,
@@ -248,6 +250,7 @@ export function MyCompaniesList() {
     // which cannot be read during render — see `isDiscoveryLive`.
     fulfilledTimeStamp,
   } = useGetUserCompaniesQuery();
+  const companies = data?.companies;
 
   const [removeUserCompany] = useRemoveUserCompanyMutation();
   const [pendingRemoval, setPendingRemoval] = useState<UserCompany | null>(null);

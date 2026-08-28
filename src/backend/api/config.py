@@ -190,6 +190,35 @@ class Settings(BaseSettings):
     resolve_rate_limit_max: int = Field(default=10, gt=0)
     resolve_rate_limit_window_seconds: int = Field(default=60, gt=0)
 
+    # POST /api/users/companies BURST limit (per authenticated user, sliding
+    # window) — deliberately the same 10/60s shape as the resolve pair above.
+    #
+    # THIS ENDPOINT, not just resolve. The UI happens to call resolve first, so
+    # the front door looked throttled; a bearer token replayed straight at the
+    # add endpoint skipped it entirely. This is the route that starts a headless
+    # Chromium session and an LLM call, so it is the one that had to be bounded.
+    #
+    # In-memory and per-process (see services/rate_limit.py), which is fine here
+    # BECAUSE it is only a burst smoother: the real spend guard is the monthly cap
+    # below, which lives in Postgres and survives a deploy.
+    user_company_add_rate_limit_max: int = Field(default=10, gt=0)
+    user_company_add_rate_limit_window_seconds: int = Field(default=60, gt=0)
+
+    # How many URLs one user may submit to POST /api/users/companies per CALENDAR
+    # MONTH (UTC — resets at midnight on the 1st). Every submission counts: a
+    # success, a refusal, and a board that turns out to be one we already publish.
+    # Deleting a company does NOT give a slot back, which is what makes the cap a
+    # real spend guard rather than a cap on how many boards you hold at once.
+    #
+    # 0 = unlimited, and the DEFAULT IS THE SAFE VALUE ON PURPOSE.
+    # ``Settings.model_config`` sets ``extra="ignore"``, so a typo'd env var name is
+    # silently dropped and the compiled-in default stands. With 20 as that default a
+    # typo leaves the limit ON; an ``..._ENABLED=false``-shaped flag would fail OPEN
+    # on the same typo. Turning the cap off is a deliberate line in .env.local.
+    # The default is pinned by a test, and a boot at 0 logs a startup WARNING
+    # (``services/add_quota.warn_if_unlimited``).
+    custom_company_monthly_add_limit: int = Field(default=20, ge=0)
+
     # Server
     port: int = 8080
     cors_origins: str = "http://localhost:3000,http://localhost:5173,http://localhost:8000"

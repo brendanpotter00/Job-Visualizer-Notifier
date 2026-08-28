@@ -456,19 +456,21 @@ describe('RecentJobsFilters — custom (user-added) companies', () => {
 
   async function seedOwnedCompanies(store: ReturnType<typeof createTestStore>) {
     await store.dispatch(
-      userCompaniesApi.util.upsertQueryData('getUserCompanies', undefined, [
-        {
-          id: CUSTOM_ID,
-          displayName: 'Acme Robotics',
-          ats: 'greenhouse',
-          boardToken: 'acme',
-          sourceId: `custom:${CUSTOM_ID}`,
-          healthState: 'healthy',
-          openJobCount: 1,
-          lastSuccessAt: recentISO(0),
-          trackingStartedAt: recentISO(ONE_DAY_MS),
-        },
-      ])
+      userCompaniesApi.util.upsertQueryData('getUserCompanies', undefined, {
+        companies: [
+          {
+            id: CUSTOM_ID,
+            displayName: 'Acme Robotics',
+            ats: 'greenhouse',
+            boardToken: 'acme',
+            sourceId: `custom:${CUSTOM_ID}`,
+            healthState: 'healthy',
+            openJobCount: 1,
+            lastSuccessAt: recentISO(0),
+            trackingStartedAt: recentISO(ONE_DAY_MS),
+          },
+        ],
+      })
     );
   }
 

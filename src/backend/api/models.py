@@ -1521,7 +1521,217 @@ class UserCompanyResponse(BaseModel):
     public_match: PublicMatchResponse | None = None
 
 
+class AddQuotaResponse(BaseModel):
+    """How many company adds the caller has left this calendar month.
+
+    Rides the ``GET /api/users/companies`` envelope rather than getting its own
+    endpoint: the Add Companies page already fetches (and polls) that list, so the
+    counter arrives with data the page was loading anyway, is invalidated by the same
+    ``MyCompanies`` tag every add and delete already invalidates, and can never be
+    stale relative to the list it sits above.
+
+    ``limit`` is the CONFIGURED cap, and ``0`` means unlimited — the UI renders no
+    counter at all in that case. ``remaining`` is deliberately NOT on the wire:
+    ``max(limit - used, 0)`` is display arithmetic, it has exactly one definition
+    (``addsRemaining`` in ``userCompaniesApi.ts``), and a second copy travelling over
+    the wire would be a second thing that can disagree with the number on screen.
+    """
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    used: int = Field(ge=0)
+    limit: int = Field(ge=0)
+    # Start of the next UTC calendar month — when ``used`` goes back to 0.
+    resets_at: datetime
+
+
 class UserCompanyListResponse(BaseModel):
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
 
     companies: list[UserCompanyResponse]
+    # Optional so a client built before the counter existed keeps parsing this
+    # payload unchanged. The server always sends it.
+    quota: AddQuotaResponse | None = None
+
+
+# ---------------------------------------------------------------------------
+# Admin · Custom Companies (E7 oversight page) — read-only
+# ---------------------------------------------------------------------------
+
+
+class AdminCustomCompanyRow(BaseModel):
+    """One user-added board on the admin Custom Companies page.
+
+    ``live_status`` is derived server-side from ONE SQL ``CASE`` (never re-derived
+    on the client) so the table chips and the headline tile can never disagree.
+    Precedence is top-down: ``orphan`` beats everything, because a board with no
+    ``user_companies`` row is a data-integrity problem whether or not it harvests.
+    """
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    id: str
+    display_name: str
+    ats: str
+    board_token: str
+    enabled: bool
+    health_state: str | None = None
+    cadence_hours: int | None = None
+    created_at: datetime
+    last_success_at: datetime | None = None
+    consecutive_failures: int = Field(ge=0)
+
+    # Owner — LEFT JOIN. ``owner_count == 0`` is a real, present state: deleting a
+    # user's last link leaves the board behind (an "orphan").
+    owner_user_id: str | None = None
+    owner_email: str | None = None
+    owner_display_name: str | None = None
+    owner_count: int = Field(ge=0)
+
+    # company_scripts — LEFT JOIN; all null before the first script is written.
+    transport: str | None = None
+    oracle_kind: str | None = None
+    script_version: int | None = None
+
+    # Newest company_harvests row — LEFT JOIN; all null when never harvested.
+    last_harvest_at: datetime | None = None
+    last_harvest_age_s: int | None = None
+    verdict: str | None = None
+    verdict_reason: str | None = None
+    records_harvested: int | None = None
+    declared_total: int | None = None
+    oracle_total: int | None = None
+    cap_hit: bool | None = None
+
+    # 'orphan' | 'never_harvested' | 'failing' | 'stale' | 'live'
+    live_status: str
+    # Short human reason the row is not live. null IFF live_status == 'live'.
+    live_reason: str | None = None
+
+
+class AdminCustomCompaniesSummary(BaseModel):
+    """Headline counts for the four StatTiles. Always over the WHOLE table —
+    never narrowed by the page's filters, so the tiles stay a stable reference
+    point while the admin drills into the table below them."""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    tracked_count: int = Field(ge=0)
+    live_count: int = Field(ge=0)
+    by_live_status: dict[str, int] = Field(default_factory=dict)
+    # health_state -> count. Key '' means NULL health_state.
+    by_health_state: dict[str, int] = Field(default_factory=dict)
+    attempt_count: int = Field(ge=0)
+    user_count: int = Field(ge=0)
+    failed_count: int = Field(ge=0)
+    refused_count: int = Field(ge=0)
+    stuck_count: int = Field(ge=0)
+
+
+class AdminCustomCompaniesResponse(BaseModel):
+    """GET /api/admin/custom-companies."""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    companies: list[AdminCustomCompanyRow] = Field(default_factory=list)
+    # Rows matching the filters, BEFORE limit/offset. Drives the pager.
+    total: int = Field(ge=0)
+    summary: AdminCustomCompaniesSummary
+    # false when this database has no E7 tables (production today). Everything
+    # else is zeroed/empty and the page renders its EmptyState instead of erroring.
+    schema_present: bool = True
+
+
+class AdminCustomCompanyAttemptRow(BaseModel):
+    """One ADD ATTEMPT (not one audit row) on the admin Custom Companies page.
+
+    A single user submission of a non-ATS URL writes TWO ``company_add_attempts``
+    rows — an interim ``discovery_pending`` from the request path, then a terminal
+    one from the worker. This model is the collapsed view: the newest row per
+    attempt, plus the span metadata (``first_seen_at`` / ``audit_row_count`` /
+    ``decided_in_s``) recovered from the rows it swallowed.
+    """
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    id: int
+    # Stable key: ``company_id`` when set, else ``attempt#<id>``. NOT just
+    # company_id — the column is nullable (unsupported/empty/probe_failed write
+    # none), and collapsing on it alone would fold every NULL into one phantom row.
+    attempt_key: str
+    created_at: datetime
+    first_seen_at: datetime
+    audit_row_count: int = Field(ge=1)
+    # Seconds from the immediately-preceding discovery_pending row to the terminal
+    # row. null when the previous row was not a pending (an idempotent re-add, or
+    # a single-row ATS attempt).
+    decided_in_s: int | None = None
+
+    user_id: str
+    user_email: str | None = None
+    user_display_name: str | None = None
+
+    submitted_url: str
+    normalized_url: str | None = None
+    resolved_ats: str | None = None
+    board_token: str | None = None
+
+    # The DERIVED outcome — 'pending'/'stuck' in place of the raw
+    # 'discovery_pending', split on the stall grace period.
+    outcome: str
+    raw_outcome: str
+    error_detail: str | None = None
+    # error_detail split on the FIRST ": " — the engine's step name, then the reason.
+    failed_step: str | None = None
+    failure_reason: str | None = None
+
+    company_id: str | None = None
+    # false = the companies row was HARD-DELETED. The UI degrades to the URL.
+    company_exists: bool = False
+    company_display_name: str | None = None
+    company_visibility: str | None = None
+    company_health_state: str | None = None
+    # null when company_exists is false or visibility <> 'user'. Same SQL CASE
+    # as AdminCustomCompanyRow.live_status, so the two can never drift.
+    company_live_status: str | None = None
+    # provider_config->'discovery'->'steps' only. NEVER ->'network' (the full
+    # request log plus a payload sample — kilobytes per row, unbounded in general).
+    discovery_steps: list[DiscoveryStepResponse] | None = None
+
+
+class AdminCustomCompanyUserRow(BaseModel):
+    """One submitter's lifetime rollup. ``owns_now`` differs from ``added``
+    because deleting a custom company hard-deletes the ``companies`` row."""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    user_id: str
+    email: str | None = None
+    display_name: str | None = None
+    attempts: int = Field(ge=0)
+    added: int = Field(ge=0)
+    refused: int = Field(ge=0)
+    stuck: int = Field(ge=0)
+    pending: int = Field(ge=0)
+    already_public: int = Field(ge=0)
+    other_failed: int = Field(ge=0)
+    owns_now: int = Field(ge=0)
+    first_attempt_at: datetime
+    last_attempt_at: datetime
+
+
+class AdminCustomCompanyAttemptsResponse(BaseModel):
+    """GET /api/admin/custom-companies/attempts — attempts page + full rollup."""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    attempts: list[AdminCustomCompanyAttemptRow] = Field(default_factory=list)
+    # Attempts matching the filters, BEFORE limit/offset. Drives the pager.
+    total: int = Field(ge=0)
+    # ALWAYS over ALL attempts, ignoring filters — drives the table subtitle.
+    by_outcome: dict[str, int] = Field(default_factory=dict)
+    # ALWAYS over ALL attempts, ignoring filters. Also feeds the User dropdown.
+    users: list[AdminCustomCompanyUserRow] = Field(default_factory=list)
+    # true when the rollup hit its 200-row cap (mirrors AdminUserVisitsResponse).
+    users_truncated: bool = False
+    schema_present: bool = True
