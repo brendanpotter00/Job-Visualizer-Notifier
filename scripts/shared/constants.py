@@ -73,6 +73,14 @@ SCRIPT_COMPANY_CAREERS_HOSTS: Final[dict[str, tuple[tuple[str, str], ...]]] = {
     # the same site, and the normalizer strips the ``www.`` label, so one entry
     # covers both.
     "amazon": (("amazon.jobs", ""),),
+    # NOT extended to ``apple.com/careers``, deliberately -- see the near-miss
+    # parametrize block in ``test_careers_host_match.py``. A final review flagged
+    # that URL falling through to a paid discovery, but measured behaviour says
+    # leave it: ``apple.com/careers/`` 301s to ``apple.com/careers/us/`` and stops
+    # there. It is Apple's careers MARKETING page, not the ``jobs.apple.com``
+    # board this table names. A careers-host hit is TERMINAL with no escape
+    # hatch, so a wrong match hard-blocks the user -- worse than the ~$0.03 the
+    # discovery costs.
     "apple": (("jobs.apple.com", ""),),
     "google": (
         # The vanity host people actually paste. It 301s onto the path below.
@@ -89,6 +97,14 @@ SCRIPT_COMPANY_CAREERS_HOSTS: Final[dict[str, tuple[tuple[str, str], ...]]] = {
         ("apply.careers.microsoft.com", ""),
         # ...and the vanity host in ``companies.ts``.
         ("careers.microsoft.com", ""),
+        # NOT FIXED HERE, deliberately: ``https://www.microsoft.com/en-us/careers/``
+        # was measured falling through to a paid discovery, but the locale sits
+        # BETWEEN the host and ``/careers``, and ``_path_matches`` anchors the
+        # prefix at the start of the path. A bare ``("microsoft.com", "")`` entry
+        # would answer "we already track Microsoft" for microsoft.com/windows,
+        # which is the confidently-wrong link this table exists to avoid.
+        # Catching it needs a segment-aware match in ``careers_host_match`` --
+        # a change to the matcher's contract, not a table addition.
     ),
     "tiktok": (
         ("lifeattiktok.com", ""),

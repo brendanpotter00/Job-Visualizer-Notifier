@@ -139,11 +139,44 @@ change only shows itself on inserts, and the close path only exercises on a real
 
 Only after #248 has been healthy through at least one full scrape cycle.
 
+⚠️ **Step 1 is not the cheap step.** It is the one that exposes `/resolve` to every signed-in
+account, and `/resolve` is the widest surface in the feature. A final review confirmed all
+four of these, and none of them costs the caller an add-quota slot or writes an audit row,
+because `/resolve` persists nothing:
+
+| | |
+|---|---|
+| **Outbound amplifier** | One call is up to 5 HEAD hops + 5 GET hops + 4 sniff GETs × 5 hops, reading up to 512 KiB per sniff target. The limiter is 10/60s **per user**, in-memory, single-process — there is **no global cap and no per-destination cap**. One account sustains ~300 outbound requests/min from our IP |
+| **DNS-pool starvation** | `url_guard` submits blocking `getaddrinfo` to a **4-worker** pool, and cancelling the future does **not** interrupt the thread. 10 req/min × ~30 lookups against 4 uninterruptible threads is 75:1. A host whose nameserver blackholes UDP stalls everything else using `guarded_get` — **including the add path and in-process harvests** |
+| **Existence oracle** | Resolve failure codes are surfaced verbatim, so a signed-in user learns per hostname whether it fails DNS, resolves private, or resolves publicly and fails at connect. Enough to enumerate `*.railway.internal`. `hops` also echoes any site's full redirect chain |
+| **Wrong-board adoption** | The L2 embedded sniff regex-scans a whole page body and picks the most frequent ATS URL — so **a lone link wins with a count of 1**. A portfolio widget or parent-company link pointing at someone else's board becomes the candidate. If that board is published the notice is **terminal with no way past it in the UI** |
+
+None of this blocks the merge — it is all behind the flag. It is the reason step 1 deserves the
+same scrutiny as step 4, rather than being treated as the safe warm-up.
+
 1. **Backend first**, on Railway: `CUSTOM_COMPANY_SOURCES_ENABLED=true`.
    Verify by behaviour: `GET /api/users/companies` with a valid bearer stops returning 503.
+   Then watch outbound volume and the DNS pool for a day before going further.
 2. **Confirm the add path is refused cheaply** while discovery is still off — paste a non-ATS
    URL, expect **422**, and confirm no `company_add_attempts` row with a spend and no
    Chromium session.
+   **Paste `https://www.microsoft.com/en-us/careers/` and `https://www.apple.com/careers/us/`
+   specifically.** Both are companies we have published for years, and both still buy a full
+   discovery. Neither is fixed, and the reasons differ:
+
+   - **Microsoft** — the locale sits between the host and `/careers`, and the matcher anchors
+     its prefix at the start of the path. Catching it needs a segment-aware match, which
+     changes the matcher's contract rather than adding a table row.
+   - **Apple** — `apple.com/careers/` 301s to `apple.com/careers/us/` and stops there. It is
+     Apple's careers **marketing** page, not the `jobs.apple.com` board the table names, and
+     `test_careers_host_match.py` deliberately lists it as a near-miss. Adding it was tried and
+     reverted: a careers-host hit is **terminal with no escape hatch**, so a wrong match
+     hard-blocks a user — worse than the ~$0.03 the discovery costs.
+
+   **This is a product decision, not a bug to fix quietly.** The question is whether pasting a
+   company's careers *marketing* page should link to our published page or start a discovery.
+   Answering yes means the terminal notice fires on pages that are not the board; answering no
+   means we keep paying for duplicates of boards we already publish.
 3. **Frontend**, on Vercel: `VITE_CUSTOM_COMPANIES_ENABLED=true` **and redeploy** — it is
    build-time. Optionally `VITE_DISCOVERY_PROGRESS_ENABLED=true` for the checklist.
 4. **Then, and separately**, `CUSTOM_COMPANY_DISCOVERY_ENABLED=true`. This is the one that
@@ -184,6 +217,16 @@ Not blockers, but they should not be discovered during an incident:
   `browser_fetch` today. It arms the moment `http_html` ships.
 - **Discovery cost is not recorded.** `DiscoveryOutcome.cost_note` exists in memory and is
   never written, so "did this attempt cost anything" is unanswerable from the database.
+- **The company-name matcher discards the TLD and cannot see the Public Suffix List's private
+  section.** Run against the live 137-company list, it answers **vercel** for
+  `acme-careers.vercel.app`, **notion** for `acme.notion.site`, **retool**, **supabase**,
+  **gitlab**, **squarespace**, **sentry** for the equivalent tenant subdomains — every one of
+  those platforms is a company we publish. It also answers **clear** for `clear.co` and
+  **ramp** for `careers.ramp.network`, which are genuinely different organisations. All are
+  `match_kind='name'`, so the "This isn't the same company" escape hatch survives: the cost is
+  friction and a wrong `already_public` audit row, not data loss. `*.vercel.app` is the one
+  that will actually happen.
+- **`microsoft.com/en-us/careers/` still buys a paid discovery** — see §6 step 2.
 
 ---
 
