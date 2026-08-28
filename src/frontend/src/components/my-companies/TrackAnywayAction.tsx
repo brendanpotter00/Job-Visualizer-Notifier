@@ -9,28 +9,36 @@ interface TrackAnywayActionProps {
 }
 
 /**
- * The escape hatch under an "we already track this" notice: track a private copy anyway.
+ * The way out from a GUESSED "we already publish this" notice: tell us it is not the
+ * same company, and add it anyway.
  *
- * DELIBERATELY SECONDARY. A plain text button, never `variant="contained"`, sitting under
- * the notice's link rather than beside it — the primary action is the link to the page
- * that already has the answer, and this is the minority choice. The caption is not
- * decoration either: it names the cost ("its history starts today"), which is the whole
- * difference between an informed choice and a reflex.
+ * IT EXISTS FOR EXACTLY ONE CALLER NOW, and the reason is the difference between the
+ * two things that notice can mean:
  *
- * It must keep existing. Some people legitimately want their own copy of a board we
- * publish — a different filter set, a private annotation, a clean start — and "we already
- * track this" is a suggestion, not a refusal. That is also why the notice above it is a
- * `200` rather than an error.
+ *  - We matched a BOARD — a resolved `(ats, boardToken)` pair, or a careers host in our
+ *    own declared table. That is an exact identifier. A private duplicate of a board we
+ *    already publish re-scrapes the same feed and hands the user a chart whose history
+ *    starts today instead of the full history one click away, so it is strictly worse
+ *    for them. Offering it was a trap, and that branch is now terminal with no button.
+ *  - We matched a NAME inside the domain (`lifeatspotify.com` → Spotify). That is a
+ *    guess, and its failure mode is a false positive: somebody whose company merely
+ *    shares a string with one of ours. With no way out, a wrong guess HARD-BLOCKS them
+ *    from adding a legitimately different company, with no way to tell us we are wrong.
+ *    That is a worse anti-pattern than the one we removed, so this branch keeps a way
+ *    out — this component.
  *
- * ONE component for both places the notice appears, so the copy cannot drift between
- * them. `AddCompanyCTA` renders it after an ATS board matched a published `(ats,
- * board_token)`; `DiscoveryStatus` renders it after a careers URL matched a published
- * script board's host. Those are two different backend checks and the same user choice,
- * and a second copy of this markup is how the two answers start reading differently.
+ * WHICH IS WHY THE COPY IS WHAT IT IS. "Track it separately anyway" invited a duplicate;
+ * "This isn't the same company" corrects a wrong guess. The caption names the consequence
+ * of being right about that rather than the cost of a duplicate, because on this branch
+ * the user is not choosing a duplicate — they are telling us we misread their URL.
  *
- * It owns no mutation. Both callers already hold one (`AddCompanyCTA` its own,
- * `DiscoveryStatus` its parent's), and giving this a third would mean a click here
- * resolving into state neither of them renders.
+ * DELIBERATELY SECONDARY still. A plain text button, never `variant="contained"`, under
+ * the notice's link rather than beside it: the link is the answer for most people who see
+ * this, and this is the minority correction.
+ *
+ * It owns no mutation. `DiscoveryStatus` renders it and its parent holds the mutation;
+ * giving this a third would mean a click here resolving into state neither of them
+ * renders.
  */
 export function TrackAnywayAction({ onClick, isLoading = false }: TrackAnywayActionProps) {
   return (
@@ -41,10 +49,11 @@ export function TrackAnywayAction({ onClick, isLoading = false }: TrackAnywayAct
         disabled={isLoading}
         data-testid="track-anyway-button"
       >
-        {isLoading ? 'Adding…' : 'Track it separately anyway'}
+        {isLoading ? 'Adding…' : "This isn't the same company"}
       </Button>
       <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary' }}>
-        Adds a private copy of the same board. Its history starts today.
+        We matched the name in the web address. If we got that wrong, we&apos;ll set this
+        board up as its own company.
       </Typography>
     </Box>
   );

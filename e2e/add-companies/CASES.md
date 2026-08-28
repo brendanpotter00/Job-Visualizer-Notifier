@@ -17,7 +17,7 @@ suite. They are thin (forward + re-emit headers) and are a known gap, not an ove
 
 | ID | Board | Tier | `live` marker | Status | Notes |
 |---|---|---|---|---|---|
-| AC-01 | Microsoft | API + UI | fast (network, no LLM) | 🟢 GREEN | careers-host dedupe; verified live end to end |
+| AC-01 | Microsoft | API + UI | fast (network, no LLM) | 🟢 GREEN | careers-host dedupe; **terminal** — the UI spec now asserts there is NO way past it |
 | AC-02 | Amazon | API | fast (network, no LLM) | 🟢 GREEN | same mechanism as AC-01 |
 | AC-03 | Cisco | API + UI | live (harvest wait, no LLM) | 🟢 GREEN | embedded Workday; posted_on coverage ~68% live (see below — plan claimed 100%) |
 | AC-04 | Atlassian | API | live (LLM) | 🟢 GREEN | 239 jobs harvested at measurement time (plan estimated ~250) |
@@ -29,7 +29,44 @@ suite. They are thin (forward + re-emit headers) and are a known gap, not an ove
 | AC-09 | flags | API | split — sources-off is fast, discovery-off is live (network, no LLM) | 🟢 GREEN | two short-lived flagged backends on :8202 |
 | AC-10 | two users | API | fast (one Cisco add, no harvest wait) | 🟢 GREEN | 403 on jobs, 404 on delete, row survives |
 | AC-11 | Atlassian (reused) | API | live (LLM) | 🟢 GREEN | idempotent re-add, zero extra spend |
-| AC-12 | Microsoft + trackAnyway | API | live (LLM) | 🟢 GREEN | escape hatch routes through real discovery, not a static clone |
+| AC-12 | Microsoft + trackAnyway | API | live (LLM) | 🟢 GREEN | the server-side override still works and routes through real discovery, not a static clone. **The UI no longer offers it here** — see the escape-hatch note below |
+| AC-13 | Spotify (lifeatspotify.com) | API + UI | fast (one resolve, no LLM) | 🟢 GREEN | the company-name dedupe: answers `already_public`/`matchKind='name'` with **no discovery job**, and keeps the correction |
+| AC-13a | the real published fleet | API | fast, hermetic | 🟢 GREEN | no network; runs the real matcher against the e2e DB's clone of prod's ~133 public rows. Pins `dropbox`≠`box` and `figma`≠`gm` |
+
+## The escape hatch: who still gets one, and why
+
+Certainty decides. It is not a style choice, and the two halves are asserted separately.
+
+| Match | Evidence | Way past the notice |
+|---|---|---|
+| ATS board token (AC-11-adjacent, `AddCompanyCTA`) | a resolved `(ats, boardToken)` pair | **none** — terminal |
+| Careers host (AC-01, AC-02) | a host in our own declared table | **none** — terminal |
+| Company name in the domain (AC-13) | a string read out of a web address | **kept**, worded as a correction |
+
+The owner's objection, on the Amazon notice: *"There should not be an option to track it
+separately anyway. This is an anti-pattern... Why would we let them track something that we
+already track?"* He is right for the exact matches — a private duplicate re-scrapes the
+same feed and hands the user a chart whose history starts today, with the full history one
+click away in the notice itself. Offering a strictly worse option is not user agency.
+
+It does NOT follow for the name match, and that is the load-bearing distinction. That rung
+is a guess, so its failure mode is a false positive: somebody whose company merely shares a
+string with one of ours. With no way out, a wrong guess **hard-blocks** them from adding a
+legitimately different company, with no way to tell us we were wrong — a worse anti-pattern
+than the one that was removed. So it keeps a button, worded *"This isn't the same company"*
+rather than *"Track it separately anyway"*: correcting us, not opting into a duplicate.
+
+**The server still honours `trackAnyway: true` on every rung** (AC-12 asserts it on the
+careers-host path). Only the UI affordance was removed from the certain ones, so a bookmark
+or a replayed request never 500s.
+
+## AC-06 now reaches discovery through the correction
+
+`lifeatspotify.com`'s FIRST answer is the name dedupe (that is the whole point of AC-13), so
+AC-06 — which needs a really-discovered Spotify board to run the title-overlap matcher
+against — gets one the way a user would: it asserts the `already_public` notice, then sends
+`trackAnyway`. `boards.py`'s `SPOTIFY.path` changed from `discovery` to `already_public` to
+match. The Unit-10 assertions themselves are untouched.
 
 ## The `--fast` / `live` split — a judgment call
 
@@ -51,6 +88,13 @@ network (one HTTP resolve, no browser/LLM) but never wait on anything async.
   prints the live ratio every run.
 - **Job counts**: Atlassian 239 (plan: ~250), Jane Street 234 (plan: ~235) — within the
   loose sanity band; reported, not asserted exactly, per PLAN.md §5/§13.
+- **AC-08's "non-zero count" assertion was substring-fragile, and it fired.** It was
+  `expect(row).not.toContainText('0 open jobs')` — a plain substring test over the whole
+  row's text — so on run `20260828T014754Z` Cisco's live count of **1,230** rendered as
+  "1,230 open jobs", which contains "0 open jobs", and the case went RED with a message
+  that read like a product regression. It would fire on any count ending in zero, roughly
+  one run in ten. Now asserted positively (`/[1-9][\d,]* open jobs?/`), which says what the
+  case means and still fails on a genuine zero. Nothing about the product changed.
 - **AC-06's title-overlap numbers move.** PLAN.md quoted a static measurement (70 shared of
   79/80, ratio 0.875) taken against the dev DB at plan-writing time. The suite never
   hardcodes that — it asserts `shared >= 20` and `ratio >= 0.70` (the product's own

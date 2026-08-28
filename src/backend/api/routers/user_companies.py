@@ -282,17 +282,25 @@ async def add_company(
     (Phase 3 will handle these); a resolvable board that probes 0 jobs or errors
     returns 422 with ``outcome='empty'`` / ``'probe_failed'``.
 
-    A URL that is a board we ALREADY PUBLISH creates nothing and returns 200 with
+    A URL that is a company we ALREADY PUBLISH creates nothing and returns 200 with
     an ``AlreadyPublicResponse`` (``outcome='already_public'``) naming that public
-    company. Two checks answer that, in two different places, because a published
-    board has two different kinds of identity:
+    company. THREE checks answer that, in ascending order of cost and descending
+    order of certainty, because a published company can be recognised three ways:
 
-    * the ``(ats, board_token)`` the resolver named — the six ATS providers, and
+    * the ``(ats, board_token)`` the resolver named — the six ATS providers;
     * the careers HOST, for the five ``ats='script'`` boards (Amazon, Apple,
-      Google, Microsoft, TikTok) that no URL can ever spell as an ATS pair.
+      Google, Microsoft, TikTok) that no URL can ever spell as an ATS pair; and
+    * the company NAME inside the registrable domain — ``lifeatspotify.com``.
 
-    See each block for what it does and does not catch. ``trackAnyway: true`` on
-    the request skips both and adds the private copy anyway.
+    The first two are exact and terminal: they answer ``match_kind='board'`` and
+    the UI offers no way past them, because a resolved board token and a declared
+    host leave no reading where the user meant somebody else. The third is a guess
+    (``match_kind='name'``) and keeps a way out, because its failure mode is a false
+    positive and a guess with no way out would block a legitimate different company.
+
+    See each block for what it does and does not catch. ``trackAnyway: true`` on the
+    request skips all three and adds the private copy anyway — still honoured on
+    every rung, so a replayed request or an old client never 500s.
     """
     _require_flag()
 
@@ -333,11 +341,13 @@ async def add_company(
 
         if result.candidate is None:
             # Whether the caller ALREADY owns a private row for this URL. Hoisted out
-            # of the discovery gate below because the careers-host match needs the
-            # same answer, for the same reason unit 9's dedupe sits after its own
-            # idempotent branch: somebody who pressed "Track it separately anyway"
-            # once owns a real private row, and a re-add of that URL has to keep
-            # resolving to THEIR row rather than being sent back to the public page.
+            # of the discovery gate below because BOTH no-candidate dedupe rungs (the
+            # careers-host match and the company-name match) need the same answer, for
+            # the same reason unit 9's dedupe sits after its own idempotent branch:
+            # somebody who once sent ``trackAnyway`` — today via the name match's "This
+            # isn't the same company" correction — owns a real private row, and a re-add
+            # of that URL has to keep resolving to THEIR row rather than being sent back
+            # to the public page.
             owned = (
                 svc.find_owned_company_by_source_key(
                     conn, user_id, svc.discovered_source_key(result.final_url)
@@ -381,9 +391,16 @@ async def add_company(
                         resolved_ats="script", company_id=published["id"],
                     )
                     # 200 and the SAME body shape unit 9 returns, so the frontend
-                    # renders the same notice with the same escape hatch. Nothing
-                    # failed and there is nothing to fix — the company they asked for
-                    # is already there.
+                    # renders the same notice. Nothing failed and there is nothing to
+                    # fix — the company they asked for is already there.
+                    #
+                    # ``match_kind`` defaults to ``'board'``, which is the whole
+                    # difference from the rung below: a declared careers host is exact
+                    # evidence, so the UI renders this TERMINALLY with no way past it. A
+                    # private duplicate of a board we publish re-scrapes the same feed
+                    # for a chart whose history starts today, with the full history one
+                    # click away in this notice. ``trackAnyway`` is still honoured on the
+                    # wire — only the button is gone.
                     return JSONResponse(
                         status_code=200,
                         content=AlreadyPublicResponse(
@@ -395,6 +412,65 @@ async def add_company(
                             company_id=str(published["id"]),
                             display_name=str(published["display_name"]),
                             final_url=result.final_url or payload.url,
+                        ).model_dump(by_alias=True),
+                    )
+
+                # ── The company-name match: the third rung, and the only GUESS ──
+                # ``lifeatspotify.com`` is neither an ATS board nor a declared careers
+                # host, so both checks above say nothing about it and it used to spend
+                # a headless Chromium session and a Claude call before unit 10's
+                # job-title overlap could say "this looks like Spotify". The string
+                # ``spotify`` was in the domain the whole time.
+                #
+                # It sits HERE — after the two exact rungs, before the discovery gate
+                # and before the placeholder insert — because that ordering is the
+                # entire point of the unit: on a hit we create NOTHING and enqueue
+                # NOTHING. Before the gate for the same reason the careers-host match
+                # is: "we probably already publish this" is a useful answer whether or
+                # not discovery is switched on, and with the flag off the alternative
+                # is a 422 that reads as "this board is unsupported".
+                #
+                # AFTER the two exact rungs, and it must stay after them. Their ``None``
+                # answers are deliberate (``learn.microsoft.com`` is not Microsoft's job
+                # board), and this rung is not allowed to overrule an exact check — the
+                # five companies with a declared host table are excluded from the name
+                # index for exactly that reason. See ``company_name_match``.
+                #
+                # ``match_kind='name'`` is not decoration. It is what lets the frontend
+                # word this as a likelihood and keep the escape hatch, while the two
+                # rungs above are terminal. A guess with no way out would hard-block
+                # somebody from adding a company that merely shares a string with ours.
+                published = svc.find_public_company_by_name(
+                    conn, payload.url, result.final_url
+                )
+                if published is not None:
+                    svc.record_add_attempt(
+                        conn, user_id=user_id, submitted_url=payload.url,
+                        normalized_url=result.final_url, outcome="already_public",
+                        # A distinct marker rather than the matched company's real ``ats``:
+                        # the audit's job here is to say WHICH rung answered, and this is
+                        # the only one whose hits are worth reviewing for false positives.
+                        resolved_ats="name_guess", company_id=published["id"],
+                    )
+                    return JSONResponse(
+                        status_code=200,
+                        content=AlreadyPublicResponse(
+                            # Hedged on purpose, and every clause is doing work. "looks
+                            # like" because we matched a name, not a board; "we matched
+                            # the name in the web address" because a user who is about to
+                            # be told they are covered deserves to know what that claim
+                            # rests on; and the last sentence exists so the escape hatch
+                            # reads as correcting us rather than opting into a duplicate.
+                            detail=(
+                                f"That web address looks like {published['display_name']}, "
+                                "which we already publish — we matched the name in the web "
+                                "address, not the board itself. If that's right, its hiring "
+                                "trend is already there."
+                            ),
+                            company_id=str(published["id"]),
+                            display_name=str(published["display_name"]),
+                            final_url=result.final_url or payload.url,
+                            match_kind="name",
                         ).model_dump(by_alias=True),
                     )
 
@@ -523,12 +599,14 @@ async def add_company(
         # Apple, Google, Microsoft, TikTok) are caught by the careers-host match on
         # the no-candidate path above, which keys on the host instead.
         #
-        # What NEITHER catches is a company's own careers site fronting an ATS board
-        # we publish. ``lifeatspotify.com`` resolves to no ATS at all (52 KB of its
-        # HTML names none of the hosts the sniffer knows) and is not a declared
-        # careers host, so Spotify's own site still reaches discovery and becomes a
-        # private duplicate of ``lever:spotify``. Only the job SET links those, which
-        # is what ``published_board_match`` (unit 10) suggests after the first harvest.
+        # A company's own careers site fronting a board we publish is caught by
+        # neither: ``lifeatspotify.com`` resolves to no ATS at all (52 KB of its HTML
+        # names none of the hosts the sniffer knows) and is not a declared careers
+        # host. That is the third rung's case — the company-name match on the
+        # no-candidate path above, which reads ``spotify`` out of the domain. What
+        # remains uncaught after all three is a careers site whose domain does not
+        # name the company at all; only the job SET links those, which is what
+        # ``published_board_match`` (unit 10) suggests after the first harvest.
         if not payload.track_anyway:
             published = svc.find_public_company_for_candidate(
                 conn,

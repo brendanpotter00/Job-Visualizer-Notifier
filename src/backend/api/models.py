@@ -1315,6 +1315,22 @@ class AlreadyPublicResponse(BaseModel):
     already served unauthenticated by ``GET /api/companies``. ``final_url`` is the
     URL the resolver settled on, echoed back so a caller that decides to track a
     private copy anyway can re-send exactly what we resolved.
+
+    ``match_kind`` is HOW SURE WE ARE, and it exists because the same body is now
+    produced by evidence of two very different strengths:
+
+    * ``'board'`` — we matched a BOARD. Either the ``(ats, board_token)`` pair the
+      resolver named, or a careers host in our own declared table. There is no
+      plausible reading where the user meant a different company, so the frontend
+      renders this terminally: "We already track X", and no escape hatch.
+    * ``'name'`` — we matched a STRING IN A DOMAIN against the names of companies we
+      publish (``lifeatspotify.com`` → Spotify). No board was resolved and no job set
+      was compared. It is a good guess and it is still a guess, so the frontend must
+      hedge the wording AND keep a way out; a wrong guess with no way out would
+      hard-block somebody from adding a legitimately different company.
+
+    Defaulted to ``'board'`` so the two exact rungs need say nothing, and so a client
+    built before this field existed keeps reading the stricter, older meaning.
     """
 
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
@@ -1324,6 +1340,7 @@ class AlreadyPublicResponse(BaseModel):
     company_id: str
     display_name: str
     final_url: str
+    match_kind: Literal["board", "name"] = "board"
 
 
 class DiscoveryStepResponse(BaseModel):

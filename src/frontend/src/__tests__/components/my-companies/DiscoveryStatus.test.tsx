@@ -27,12 +27,26 @@ const TRACKED: AddUserCompanyResult = {
   trackingStartedAt: null,
 };
 
+/** The EXACT rung: a careers host in the backend's own declared table. Terminal. */
 const ALREADY_PUBLIC: AddUserCompanyResult = {
   status: 'already_public',
   detail: 'That URL is the same job board as our public Spotify page.',
   companyId: 'spotify',
   displayName: 'Spotify',
   finalUrl: 'https://jobs.lever.co/spotify',
+  matchKind: 'board',
+};
+
+/** The GUESSED rung: the company name read out of the domain. Keeps a way out. */
+const NAME_GUESS: AddUserCompanyResult = {
+  status: 'already_public',
+  detail:
+    'That web address looks like Spotify, which we already publish — we matched the ' +
+    'name in the web address, not the board itself.',
+  companyId: 'spotify',
+  displayName: 'Spotify',
+  finalUrl: 'https://www.lifeatspotify.com/jobs',
+  matchKind: 'name',
 };
 
 describe('isDiscoveryPending', () => {
@@ -90,13 +104,13 @@ describe('DiscoveryStatus', () => {
     expect(screen.queryByRole('button')).not.toBeInTheDocument();
   });
 
-  it('offers "track it separately anyway" when the parent lends it a mutation', () => {
-    // WHY THIS BRANCH MATTERS NOW. This component only ever renders when the first
-    // resolve said `no_ats_detected` — which is exactly what Amazon, Apple, Google,
-    // Microsoft and TikTok do, since they are published with `ats='script'` and no URL
-    // spells an ATS pair for them. The backend's careers-host match answers
-    // `already_public` HERE, so this is where somebody who pasted Microsoft's careers
-    // page lands. Without the escape hatch that is a dead end for five real companies.
+  it('offers NO way past an exact careers-host match, even with a mutation lent', () => {
+    // CHANGED, deliberately. This used to assert the escape hatch here, and the owner
+    // is right that it was wrong: an `ats='script'` careers-host hit means the user
+    // pasted a board we already publish, matched against our own declared table. A
+    // private duplicate re-scrapes the same feed and hands them a chart whose history
+    // starts today instead of the full history one click away — a strictly worse option
+    // dressed as a choice. The only way past this notice is the link.
     const onTrackAnyway = vi.fn();
     renderWithProviders(
       <DiscoveryStatus
@@ -106,24 +120,56 @@ describe('DiscoveryStatus', () => {
       />,
     );
 
-    // The link is still the PRIMARY action; the escape hatch is a plain text button
-    // under it, and its caption names the cost rather than leaving "anyway" bare.
+    expect(screen.getByTestId('already-public-link')).toBeInTheDocument();
+    expect(screen.queryByTestId('track-anyway-button')).not.toBeInTheDocument();
+    expect(onTrackAnyway).not.toHaveBeenCalled();
+  });
+
+  it('offers a correction on a GUESSED name match, because that one can be wrong', () => {
+    // The other half of the same rule. `matchKind: 'name'` means we matched a string
+    // inside the domain (`lifeatspotify.com` → Spotify) — not a board, not a job set.
+    // Its failure mode is a false positive, and a guess with no way out would hard-block
+    // somebody whose company merely shares a substring with one of ours.
+    const onTrackAnyway = vi.fn();
+    renderWithProviders(
+      <DiscoveryStatus
+        result={NAME_GUESS}
+        error={undefined}
+        onTrackAnyway={onTrackAnyway}
+      />,
+    );
+
+    // The headline hedges — an exact match says "We already track X" flat.
+    expect(screen.getByTestId('already-public')).toHaveTextContent(
+      /this looks like spotify, which we already track/i,
+    );
+    // The link is still the PRIMARY action; the correction is a plain text button under
+    // it, and it reads as correcting us rather than as opting into a duplicate.
     expect(screen.getByTestId('already-public-link')).toBeInTheDocument();
     const button = screen.getByTestId('track-anyway-button');
-    expect(button).toHaveTextContent(/track it separately anyway/i);
-    expect(screen.getByText(/its history starts today/i)).toBeInTheDocument();
+    expect(button).toHaveTextContent(/this isn't the same company/i);
+    expect(
+      screen.getByText(/set this board up as its own company/i),
+    ).toBeInTheDocument();
 
     fireEvent.click(button);
 
     // The URL the SERVER settled on, not the one the user typed — that is what
-    // `finalUrl` is on the wire for, and re-sending it is what `AddCompanyCTA` does.
-    expect(onTrackAnyway).toHaveBeenCalledWith('https://jobs.lever.co/spotify');
+    // `finalUrl` is on the wire for.
+    expect(onTrackAnyway).toHaveBeenCalledWith('https://www.lifeatspotify.com/jobs');
   });
 
-  it('disables the escape hatch while the parent add is in flight', () => {
+  it('shows the guessed match with no correction when no mutation is lent', () => {
+    renderWithProviders(<DiscoveryStatus result={NAME_GUESS} error={undefined} />);
+
+    expect(screen.getByTestId('already-public')).toBeInTheDocument();
+    expect(screen.queryByTestId('track-anyway-button')).not.toBeInTheDocument();
+  });
+
+  it('disables the correction while the parent add is in flight', () => {
     renderWithProviders(
       <DiscoveryStatus
-        result={ALREADY_PUBLIC}
+        result={NAME_GUESS}
         error={undefined}
         onTrackAnyway={vi.fn()}
         isTracking

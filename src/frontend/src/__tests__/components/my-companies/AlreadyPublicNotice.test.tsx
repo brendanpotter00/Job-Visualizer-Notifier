@@ -57,4 +57,55 @@ describe('AlreadyPublicNotice', () => {
     renderWithProviders(<AlreadyPublicNotice result={SPOTIFY} />);
     expect(screen.queryByRole('button')).not.toBeInTheDocument();
   });
+
+  describe('the two confidence levels must not read the same', () => {
+    // A board match is an exact identifier — a resolved `(ats, boardToken)` pair or a
+    // careers host in our own declared table. A name match is a string we found inside a
+    // domain. The headline is the one place a user actually reads that difference, so it
+    // is the one place it has to show.
+
+    it('states a board match flatly', () => {
+      renderWithProviders(<AlreadyPublicNotice result={{ ...SPOTIFY, matchKind: 'board' }} />);
+
+      expect(screen.getByTestId('already-public')).toHaveTextContent(
+        /we already track spotify/i,
+      );
+      expect(screen.getByTestId('already-public')).not.toHaveTextContent(/looks like/i);
+    });
+
+    it('hedges a name match', () => {
+      renderWithProviders(
+        <AlreadyPublicNotice
+          result={{
+            ...SPOTIFY,
+            matchKind: 'name',
+            detail:
+              'That web address looks like Spotify, which we already publish — we ' +
+              'matched the name in the web address, not the board itself.',
+            finalUrl: 'https://www.lifeatspotify.com/jobs',
+          }}
+        />,
+      );
+
+      expect(screen.getByTestId('already-public')).toHaveTextContent(
+        /this looks like spotify, which we already track/i,
+      );
+      // The link is still the primary action on a guess.
+      expect(screen.getByTestId('already-public-link')).toHaveAttribute(
+        'href',
+        '/companies?company=spotify',
+      );
+    });
+
+    it('treats a missing matchKind as the stricter, exact reading', () => {
+      // A server that predates the field only ever sent board matches, so silence must
+      // mean "exact" — the reading that offers no way past the notice.
+      renderWithProviders(<AlreadyPublicNotice result={SPOTIFY} />);
+
+      expect(screen.getByTestId('already-public')).toHaveTextContent(
+        /we already track spotify/i,
+      );
+      expect(screen.getByTestId('already-public')).not.toHaveTextContent(/looks like/i);
+    });
+  });
 });

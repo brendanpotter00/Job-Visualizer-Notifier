@@ -9,6 +9,7 @@ import { SUPPORTED_BOARDS } from '../../features/userCompanies/resolveErrors';
 import {
   isAlreadyPublic,
   isDiscoveryPending,
+  isNameGuessMatch,
   type AddUserCompanyResult,
 } from '../../features/userCompanies/userCompaniesApi';
 import { AlreadyPublicNotice } from './AlreadyPublicNotice';
@@ -20,12 +21,13 @@ interface DiscoveryStatusProps {
   /** The add mutation's rejection, if it failed. Typed `unknown` — see `extractErrorMessage`. */
   error: unknown;
   /**
-   * Re-send this URL with `trackAnyway`, creating the private copy after all. Optional
-   * only so a caller that has no mutation to lend can still render the notice; when it
-   * is absent the already-published branch shows the link alone.
+   * Re-send this URL with `trackAnyway`, creating the board as its own company after
+   * all. Used ONLY on a `matchKind: 'name'` result — the guessed match. Optional so a
+   * caller with no mutation to lend can still render the notice; when it is absent (or
+   * the match was exact) the already-published branch shows the link alone.
    */
   onTrackAnyway?: (url: string) => void;
-  /** The parent's add mutation in flight — disables the escape hatch while it runs. */
+  /** The parent's add mutation in flight — disables the correction while it runs. */
   isTracking?: boolean;
 }
 
@@ -70,26 +72,37 @@ export function DiscoveryStatus({
 
   if (result !== undefined && isAlreadyPublic(result)) {
     // NOT a rare branch any more, and that is the change. This component only ever
-    // sees a result when the first resolve said `no_ats_detected` — which is exactly
-    // what the five `ats='script'` boards do. Amazon, Apple, Google, Microsoft and
-    // TikTok resolve to no ATS, so the backend's careers-host match answers
-    // `already_public` HERE rather than in `AddCompanyCTA`, and this is now the
-    // ordinary landing place for "I pasted Microsoft's careers page".
+    // sees a result when the first resolve said `no_ats_detected`, which is where BOTH
+    // of the backend's URL-shaped dedupe answers now land:
     //
-    // Which is why the escape hatch had to arrive with it. Before, this branch was a
-    // dead end with no way to say "I want my own copy anyway" — fine when it was a
-    // transient-failure curiosity, wrong once it is where five real companies land.
+    //  - the careers-host match, for the five `ats='script'` boards (Amazon, Apple,
+    //    Google, Microsoft, TikTok) that no URL can spell as an ATS pair, and
+    //  - the company-name match, for a vanity careers domain like `lifeatspotify.com`.
+    //
+    // ONLY THE SECOND GETS A WAY OUT, and the whole justification is in the difference.
+    // A careers-host hit is an exact match against a declared table: the user pasted a
+    // board we publish, and a private duplicate of it re-scrapes the same feed for a
+    // chart whose history starts today instead of the full one behind the link above.
+    // Offering that was a trap dressed as a choice, so that branch is terminal.
+    //
+    // A name hit is a guess from a string inside a domain. Its failure mode is a false
+    // positive — somebody whose company merely shares a substring with one of ours — and
+    // a guess with no way out would HARD-BLOCK them from adding a legitimately different
+    // company with no way to tell us we were wrong. That is the worse anti-pattern, so
+    // this one keeps the correction.
+    //
     // The mutation is still the parent's; this only renders the button.
+    const guessed = isNameGuessMatch(result);
     return (
       <AlreadyPublicNotice
         result={result}
         action={
-          onTrackAnyway && (
+          guessed && onTrackAnyway ? (
             <TrackAnywayAction
               onClick={() => onTrackAnyway(result.finalUrl)}
               isLoading={isTracking}
             />
-          )
+          ) : undefined
         }
       />
     );

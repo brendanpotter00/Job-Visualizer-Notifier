@@ -458,14 +458,55 @@ describe('MyCompaniesPage', () => {
       expect(addCalls()).toHaveLength(1);
     });
 
-    it('still lets the user take a private copy of a script board anyway', async () => {
-      // The escape hatch must survive: some people legitimately want their own copy,
-      // which is why "we already track this" is a 200 rather than a refusal.
+    it('gives no way past a script board we already publish', async () => {
+      // CHANGED, deliberately. This used to click a "Track it separately anyway" button
+      // here. A careers-host hit is an exact match against our own declared table — the
+      // user pasted Amazon's board, and a private duplicate re-scrapes the same feed for
+      // a chart whose history starts today while the full one is a click away. The only
+      // way onward is the link.
       const AMAZON_URL = 'https://www.amazon.jobs/en/search';
-      let addCallCount = 0;
       fetchMock.mockImplementation((input: Request) => {
         if (!input.url.includes('/users/companies')) {
           return Promise.resolve(jsonResponse({ ...NO_ATS_422, finalUrl: AMAZON_URL }, 422));
+        }
+        return Promise.resolve(
+          jsonResponse(
+            {
+              status: 'already_public',
+              detail: 'That URL is the same job board as our public Amazon page.',
+              companyId: 'amazon',
+              displayName: 'Amazon',
+              finalUrl: AMAZON_URL,
+              matchKind: 'board',
+            },
+            200
+          )
+        );
+      });
+      renderWithProviders(<MyCompaniesPage />);
+
+      await submitUrl(AMAZON_URL);
+      const notice = await screen.findByTestId('already-public');
+
+      expect(notice).toHaveTextContent(/we already track amazon/i);
+      expect(screen.queryByTestId('track-anyway-button')).not.toBeInTheDocument();
+      expect(screen.getByTestId('already-public-link')).toBeInTheDocument();
+      // Exactly one add POST — nothing retried into a duplicate.
+      expect(addCalls()).toHaveLength(1);
+    });
+
+    it('catches a vanity careers domain by name, and lets the user say we guessed wrong', async () => {
+      // The third dedupe rung, end to end. `lifeatspotify.com` resolves to no ATS at
+      // all, so the backend matches the NAME in the domain and answers before spending
+      // a discovery. That is a guess, so unlike the exact rung above it keeps a way out
+      // — and the correction routes to the ordinary discovery path.
+      const SPOTIFY_URL = 'https://www.lifeatspotify.com/jobs';
+      let addCallCount = 0;
+      fetchMock.mockImplementation((input: Request) => {
+        if (!input.url.includes('/users/companies')) {
+          return Promise.resolve(
+            jsonResponse({ ...NO_ATS_422, finalUrl: SPOTIFY_URL }, 422)
+          );
         }
         addCallCount += 1;
         return Promise.resolve(
@@ -473,20 +514,26 @@ describe('MyCompaniesPage', () => {
             ? jsonResponse(
                 {
                   status: 'already_public',
-                  detail: 'That URL is the same job board as our public Amazon page.',
-                  companyId: 'amazon',
-                  displayName: 'Amazon',
-                  finalUrl: AMAZON_URL,
+                  detail:
+                    'That web address looks like Spotify, which we already publish — ' +
+                    'we matched the name in the web address, not the board itself.',
+                  companyId: 'spotify',
+                  displayName: 'Spotify',
+                  finalUrl: SPOTIFY_URL,
+                  matchKind: 'name',
                 },
                 200
               )
-            : jsonResponse({ ...DISCOVERY_202, finalUrl: AMAZON_URL }, 202)
+            : jsonResponse({ ...DISCOVERY_202, finalUrl: SPOTIFY_URL }, 202)
         );
       });
       renderWithProviders(<MyCompaniesPage />);
 
-      const user = await submitUrl(AMAZON_URL);
-      await screen.findByTestId('already-public');
+      const user = await submitUrl(SPOTIFY_URL);
+      const notice = await screen.findByTestId('already-public');
+
+      // The headline must not read like the exact rung's.
+      expect(notice).toHaveTextContent(/this looks like spotify, which we already track/i);
 
       await user.click(screen.getByTestId('track-anyway-button'));
 
@@ -494,7 +541,7 @@ describe('MyCompaniesPage', () => {
       const [, second] = addCalls();
       // The override rides the SECOND add, with the URL the server settled on.
       await expect(second.clone().text()).resolves.toBe(
-        JSON.stringify({ url: AMAZON_URL, trackAnyway: true })
+        JSON.stringify({ url: SPOTIFY_URL, trackAnyway: true })
       );
     });
 

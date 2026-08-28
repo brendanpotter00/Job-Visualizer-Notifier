@@ -32,7 +32,16 @@ test.describe('AC-08 add -> track -> remove, end to end', () => {
     // (Polling trap — PLAN.md §5 AC-08: a settled list stops polling, so this
     // drives its own reloads instead of trusting the page's auto-refresh.)
     await waitForRowText(page, CISCO.label, 'Successfully tracking', { timeoutMs: 180_000 });
-    await expect(row).not.toContainText('0 open jobs');
+    // Asserted POSITIVELY, and it has to be. This was
+    // `expect(row).not.toContainText('0 open jobs')`, which is a plain substring test
+    // over the whole row's text — so it failed the moment Cisco's live count happened
+    // to end in a zero: the row read "1,230 open jobs", which literally contains
+    // "0 open jobs". Measured on run 20260828T014754Z, and it would fire again on any
+    // count ending in 0 (roughly one run in ten) with a message that reads like a
+    // product regression. Requiring a leading 1-9 says the thing the case actually
+    // means — the count is not zero — and cannot be fooled by a trailing digit.
+    // No `\b` anchor: the row's text has no separators ("tracking1,230 open jobs").
+    await expect(row).toContainText(/[1-9][\d,]* open jobs?/);
 
     // Remove -> the dialog names the destruction, not a pause (AC-07 UI).
     await row.getByTestId('my-company-remove').click();

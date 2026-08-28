@@ -102,8 +102,14 @@ export function MyCompaniesPage() {
     }
   };
 
-  // The escape hatch under "we already publish this board". It re-sends the URL the
-  // server settled on with the override, so the private copy is created after all.
+  // The correction under a GUESSED "we already publish this" notice — the one where the
+  // backend matched the company name inside the domain (`matchKind: 'name'`) rather than
+  // a board. It re-sends the URL the server settled on with the override, so the board is
+  // set up as its own company after all.
+  //
+  // `DiscoveryStatus` decides whether to render it, and only does so for that guess: an
+  // exact board or careers-host match is terminal, because a private duplicate of a board
+  // we already publish is strictly worse for the user than the link beside it.
   //
   // It lives HERE rather than in `DiscoveryStatus` for the same reason the auto-start
   // does: this page owns the add mutation, and its result is what `DiscoveryStatus`

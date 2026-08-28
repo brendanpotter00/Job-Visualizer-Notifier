@@ -76,7 +76,22 @@ class TestPublicBoardMatchLive:
         require_reachable(boards.SPOTIFY)
         before_count, before_titles = _spotify_open_titles_snapshot(db_conn)
 
-        resp = http.post("/api/users/companies", json={"url": SPOTIFY_URL})
+        # The company-name dedupe (AC-13) now answers this URL FIRST — `lifeatspotify`
+        # contains `spotify` and we publish Spotify, so a plain add returns 200
+        # `already_public` and spends nothing. That is intended and is what AC-13
+        # asserts. To have a discovered board for the title-overlap matcher to run
+        # against, this case takes the same way out a user would: the "This isn't the
+        # same company" correction, which is `trackAnyway` on the wire.
+        first = http.post("/api/users/companies", json={"url": SPOTIFY_URL})
+        assert first.status_code == 200, first.text
+        assert first.json().get("status") == "already_public", (
+            "AC-06 precondition: the name dedupe should answer lifeatspotify.com "
+            f"before any discovery; got {first.json()}"
+        )
+
+        resp = http.post(
+            "/api/users/companies", json={"url": SPOTIFY_URL, "trackAnyway": True}
+        )
         assert resp.status_code == 202, resp.text
         company_id = resp.json()["id"]
 

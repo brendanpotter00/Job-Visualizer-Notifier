@@ -22,6 +22,7 @@ from psycopg2.extensions import connection as Connection
 
 from scripts.shared.constants import custom, new_custom_company_id
 from .careers_host_match import match_any_careers_url
+from .company_name_match import build_name_index, match_name_in_any_url
 from .discovery.progress import initial_snapshot, with_first_scan
 from .pending_jobs import cancel_queued_jobs
 
@@ -195,6 +196,61 @@ def find_public_company_for_careers_url(
     )
     row = cursor.fetchone()
     return dict(row) if row else None
+
+
+def find_public_company_by_name(
+    conn: Connection, *urls: Optional[str]
+) -> Optional[dict[str, Any]]:
+    """The ENABLED public company these URLs' domain appears to NAME, or None.
+
+    The third rung of the dedupe ladder, and the only one that is a guess. The two
+    above it answer with an exact identifier — a resolved ``(ats, board_token)`` pair
+    and a declared careers host — and between them they still let ``lifeatspotify.com``
+    through to a full one-time discovery, because Spotify's own site is neither. The
+    string ``spotify`` was in the domain the whole time.
+
+    Same two-part split the careers-host check uses, for the same reason:
+    :mod:`api.services.company_name_match` is PURE (no IO, exhaustively testable) and
+    answers with a company **id**; this function is the only part that touches the
+    database. It asks the same two questions both rungs above ask —
+    ``visibility = 'public'`` and ``enabled`` — and neither is decoration:
+
+    * ``visibility``, because a private row must never be offered as the answer to
+      another user, and
+    * ``enabled``, because a disabled public row is a board we have STOPPED reading,
+      and pointing somebody at a chart that no longer updates is worse than letting
+      them track their own copy.
+
+    The SELECT is the whole published fleet (~133 rows, both columns already served
+    unauthenticated by ``GET /api/companies``), because the match runs against the
+    NAMES rather than a key an index could serve: there is no ``WHERE`` clause that
+    expresses "the domain label is one of these strings wearing a careers affix". At
+    this size that is a sub-millisecond scan of a table the add path already reads, and
+    it buys a matcher that is one pure function instead of a chunk of generated SQL.
+
+    Returns ``{id, display_name}`` — the same shape both other rungs return, so
+    ``AlreadyPublicResponse`` does not care which one answered. The CALLER is
+    responsible for saying that this one guessed: see ``match_kind='name'``.
+    """
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        SELECT id, display_name
+        FROM companies
+        WHERE visibility = 'public' AND enabled
+        """
+    )
+    rows = [dict(row) for row in cursor.fetchall()]
+    index = build_name_index(
+        (str(row["id"]), str(row["display_name"] or "")) for row in rows
+    )
+    company_id = match_name_in_any_url(urls, index)
+    if company_id is None:
+        return None
+    for row in rows:
+        if row["id"] == company_id:
+            return {"id": row["id"], "display_name": row["display_name"]}
+    return None
 
 
 def record_add_attempt(

@@ -194,7 +194,14 @@ describe('ResolveResultDisplay — Add company CTA', () => {
       expect(screen.queryByTestId('add-company-error')).not.toBeInTheDocument();
     });
 
-    it('offers "track it anyway" as a secondary action that names its cost', async () => {
+    it('is terminal — there is no way to add a duplicate of a board we publish', async () => {
+      // CHANGED, deliberately. This used to assert a "Track it separately anyway"
+      // button. This component only renders after the resolver named an
+      // `(ats, boardToken)` pair, so the only `already_public` that reaches it is the
+      // EXACT board-token match — the user pasted a board we already publish, by its own
+      // identifier. A private duplicate re-scrapes the same feed for a chart whose
+      // history starts today, with the full history one click away in this very notice.
+      // Offering a strictly worse option is not user agency.
       fetchMock.mockResolvedValue(jsonResponse(ALREADY_PUBLIC, 200));
       const user = userEvent.setup();
       renderWithProviders(<ResolveResultDisplay result={OK_RESULT} />);
@@ -202,27 +209,25 @@ describe('ResolveResultDisplay — Add company CTA', () => {
       await user.click(screen.getByTestId('add-company-button'));
 
       const notice = await screen.findByTestId('already-public');
-      expect(screen.getByTestId('track-anyway-button')).toBeInTheDocument();
-      expect(notice).toHaveTextContent(/its history starts today/i);
+      expect(notice).toHaveTextContent(/we already track spotify/i);
+      expect(screen.queryByTestId('track-anyway-button')).not.toBeInTheDocument();
+      // The link is the ONLY way onward from here.
+      expect(screen.getByTestId('already-public-link')).toBeInTheDocument();
     });
 
-    it('re-sends the url with trackAnyway when the user insists', async () => {
-      fetchMock.mockResolvedValueOnce(jsonResponse(ALREADY_PUBLIC, 200));
-      fetchMock.mockResolvedValueOnce(jsonResponse(ADDED, 201));
+    it('sends exactly one add — nothing retries into a duplicate', async () => {
+      // The other half: with no button there is no second POST, so a board we publish
+      // costs exactly one request and creates nothing.
+      fetchMock.mockResolvedValue(jsonResponse(ALREADY_PUBLIC, 200));
       const user = userEvent.setup();
       renderWithProviders(<ResolveResultDisplay result={OK_RESULT} />);
 
       await user.click(screen.getByTestId('add-company-button'));
-      await user.click(await screen.findByTestId('track-anyway-button'));
+      await screen.findByTestId('already-public');
 
-      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
-      const second = fetchMock.mock.calls[1][0] as Request;
-      await expect(second.text()).resolves.toBe(
-        JSON.stringify({ url: FINAL_URL, trackAnyway: true }),
-      );
-      // The override's result replaces the notice with the ordinary success alert —
-      // one mutation, one piece of state.
-      expect(await screen.findByTestId('add-company-success')).toBeInTheDocument();
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+      const req = fetchMock.mock.calls[0][0] as Request;
+      await expect(req.text()).resolves.toBe(JSON.stringify({ url: FINAL_URL }));
     });
 
     it('does not send trackAnyway on the first, ordinary add', async () => {

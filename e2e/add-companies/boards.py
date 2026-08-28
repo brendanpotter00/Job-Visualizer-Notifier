@@ -74,8 +74,14 @@ SPOTIFY = Board(
     case_id="AC-06",
     label="Spotify",
     url="https://www.lifeatspotify.com/jobs",
-    path="discovery",
-    expect=None,
+    # CHANGED with the company-name dedupe (AC-13). This URL's FIRST answer is now
+    # ``already_public`` — the add path reads ``spotify`` out of ``lifeatspotify`` and
+    # links to the public page before spending a discovery, which is the entire point
+    # of that unit. AC-06 still needs a real discovery of this board to have anything
+    # to run the title-overlap matcher against, so it reaches one the way a user would:
+    # through the "This isn't the same company" correction (``trackAnyway``).
+    path="already_public",
+    expect="spotify",
     approx_job_count=85,
 )
 

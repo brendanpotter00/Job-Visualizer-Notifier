@@ -173,39 +173,66 @@ every import for zero user-visible gain.
 - **Discovery has its own server flag.** With `CUSTOM_COMPANY_DISCOVERY_ENABLED` off the add
   endpoint returns 422 instead of starting anything, and `DiscoveryStatus` renders that
   verdict plus the boards we read without setup — never an endless spinner.
-- **A board we already publish is not added — it is linked.** Before creating anything —
-  and before any discovery is enqueued — the add endpoint runs **two** checks against the
-  ~135 public companies, because a published board has two kinds of identity:
-  1. the resolved **`(ats, board_token)`** pair, for the six ATS providers, and
+- **A company we already publish is not added — it is linked.** Before creating anything —
+  and before any discovery is enqueued — the add endpoint runs **three** checks against the
+  ~135 public companies, in descending order of certainty:
+  1. the resolved **`(ats, board_token)`** pair, for the six ATS providers;
   2. the **careers host**, for the five `ats='script'` boards (Amazon, Apple, Google,
      Microsoft, TikTok) that no URL can ever spell as an ATS pair. The host table lives
      in `scripts/shared/constants.py` (`SCRIPT_COMPANY_CAREERS_HOSTS`) and the matcher in
      `api/services/careers_host_match.py`. Match is **exact host** after normalization
      (case, `www.`, port, trailing dot, userinfo), plus a path prefix where the board is a
      path rather than a host (`google.com/about/careers`) — never a registrable-domain
-     match, which would claim `learn.microsoft.com`.
+     match, which would claim `learn.microsoft.com`; and
+  3. the **company name inside the registrable domain** — `lifeatspotify.com` → Spotify.
+     Matcher in `api/services/company_name_match.py` (pure), DB half in
+     `custom_companies_service.find_public_company_by_name`. **Not containment**: the
+     domain label must BE a published name or be that name wearing one *declared* careers
+     affix (`lifeat`, `join`, `weare`, `get`, `careers`, `jobs`, …). Measured against the
+     real fleet, plain containment produces 2,294 false hits over an English dictionary
+     and answers "General Motors" for `figma.com` (`gm` ⊂ `figma`); the affix rule
+     produces 1. Names ≤4 chars match only as the whole label, ATS/aggregator domains
+     never match, and the five companies from check 2 are excluded so a guess can never
+     overturn an exact refusal.
 
-  Either hit writes **nothing** (no company, no scraper, no jobs, no discovery job) and
-  answers `200 {status: 'already_public', companyId, displayName, finalUrl}`;
-  `AlreadyPublicNotice` renders "We already track Spotify" with a link to
-  `/companies?company=…`, plus a deliberately secondary **"Track it separately anyway"**
-  (`TrackAnywayAction`) that re-sends the same URL with `trackAnyway: true`. The user owns
-  nothing afterwards — a public company is already in everyone's list, and putting a
-  `user_companies` row on one would point the private jobs feed and the purge-on-last-owner
-  delete at a public board. Info severity, terminal, not dismissible: nothing failed, and
-  the next submit replaces it.
+  Any hit writes **nothing** (no company, no scraper, no jobs, no discovery job) and
+  answers `200 {status: 'already_public', companyId, displayName, finalUrl, matchKind}`.
+  The user owns nothing afterwards — a public company is already in everyone's list, and
+  putting a `user_companies` row on one would point the private jobs feed and the
+  purge-on-last-owner delete at a public board. Info severity, terminal, not dismissible.
+
+- **`matchKind` decides whether there is a way past the notice, and certainty decides
+  `matchKind`.** This is a rule, not a style choice.
+
+  | `matchKind` | Which check | Headline | Way out |
+  |---|---|---|---|
+  | `'board'` | 1 or 2 | "We already track Spotify" | **none** |
+  | `'name'` | 3 | "This looks like Spotify, which we already track" | `TrackAnywayAction` |
+
+  Checks 1 and 2 are exact identifiers, so there is no plausible reading where the user
+  meant a different company — and a private duplicate re-scrapes the same feed for a chart
+  whose history starts today while the full one is one click away. Offering that was a trap
+  dressed as a choice, so those branches are terminal.
+
+  Check 3 is a guess, and its failure mode is a false positive. With no way out, a wrong
+  guess **hard-blocks** somebody from adding a legitimately different company that merely
+  shares a string with one of ours, with no way to tell us we are wrong — a worse
+  anti-pattern. So that branch keeps `TrackAnywayAction`, worded **"This isn't the same
+  company"** (correcting us) rather than "Track it separately anyway" (opting into a
+  duplicate). It re-sends the same URL with `trackAnyway: true`.
+
+  **The server still honours `trackAnyway: true` on every check.** Only the UI affordance
+  was removed from the certain ones, so a bookmark or a replayed request never 500s.
 
   **Which check answers determines which component renders it.** An ATS board resolves, so
-  the notice appears inside `ResolveResultDisplay` → `AddCompanyCTA`. A script board
-  resolves to *no* ATS, so the page auto-starts the add and the notice appears in
-  `DiscoveryStatus` instead — which is why that component takes an `onTrackAnyway` prop
-  (its parent owns the mutation) rather than being a dead end.
+  a check-1 notice appears inside `ResolveResultDisplay` → `AddCompanyCTA` — which passes
+  no `action` at all. Checks 2 and 3 only run when the URL resolves to *no* ATS, so the
+  page auto-starts the add and the notice appears in `DiscoveryStatus`, which renders
+  `TrackAnywayAction` **only** when `matchKind === 'name'` (`isNameGuessMatch`).
 
-  **What NEITHER catches**, and the copy must never imply otherwise: a company's own
-  careers site fronting an ATS board we publish. `lifeatspotify.com` resolves to no ATS
-  and is not a declared careers host, so it still becomes a private duplicate of
-  `lever:spotify`. Only the job set links those — see `published_board_match`, which
-  *suggests* the link after the first harvest.
+  **What NONE of the three catches**, and the copy must never imply otherwise: a careers
+  site whose domain does not name the company at all. Only the job set links those — see
+  `published_board_match`, which *suggests* the link after the first harvest.
 - **Two independent flags.** `VITE_CUSTOM_COMPANIES_ENABLED` only reveals the page; the
   backend has its own `CUSTOM_COMPANY_SOURCES_ENABLED` setting and answers **503** while it
   is off. Both must be on for the flow to work. With the frontend flag off there is no nav

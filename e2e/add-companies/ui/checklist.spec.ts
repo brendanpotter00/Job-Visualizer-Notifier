@@ -18,6 +18,16 @@ test.describe('AC-06 discovery checklist + public-board-match banner', () => {
     await page.getByLabel('Careers page URL').fill(SPOTIFY.url);
     await page.getByRole('button', { name: 'Add company' }).click();
 
+    // NEW FIRST STEP, and it is the company-name dedupe (AC-13) working: this URL no
+    // longer goes straight to discovery, because `lifeatspotify` names a company we
+    // publish. A user who genuinely wants their own copy of this board reaches
+    // discovery through the correction, which is exactly what this case needs — and it
+    // exercises the one branch that still has a way past the notice.
+    const notice = page.getByTestId('already-public');
+    await expect(notice).toBeVisible({ timeout: 30_000 });
+    await expect(notice).toContainText('This looks like Spotify, which we already track');
+    await page.getByTestId('track-anyway-button').click();
+
     await expect(page.getByTestId('discovery-pending')).toBeVisible({ timeout: 30_000 });
 
     // The row appears immediately (provisional 'discovering' row) and its

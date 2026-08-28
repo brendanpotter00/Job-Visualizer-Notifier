@@ -13,7 +13,6 @@ import {
   type AddUserCompanyFailure,
 } from '../../features/userCompanies/userCompaniesApi';
 import { AlreadyPublicNotice } from './AlreadyPublicNotice';
-import { TrackAnywayAction } from './TrackAnywayAction';
 
 interface AddCompanyCTAProps {
   /** The resolver's final URL — what we actually probed and now persist. */
@@ -65,13 +64,6 @@ export function AddCompanyCTA({ finalUrl }: AddCompanyCTAProps) {
     void addUserCompany({ url: finalUrl });
   };
 
-  // Re-submits the SAME url with the override, so the already-published branch is
-  // skipped and a private copy is created. Same mutation, so its result replaces the
-  // notice below with the ordinary success alert — no second piece of state.
-  const handleTrackAnyway = () => {
-    void addUserCompany({ url: finalUrl, trackAnyway: true });
-  };
-
   if (data !== undefined && isDiscoveryPending(data)) {
     // A non-ATS URL was routed to one-time discovery (async). Nothing is tracked
     // yet — it will surface in the list below after the first scan.
@@ -84,15 +76,24 @@ export function AddCompanyCTA({ finalUrl }: AddCompanyCTAProps) {
   }
 
   if (data !== undefined && isAlreadyPublic(data)) {
-    // Nothing was created. The primary action is the link inside the notice; the
-    // secondary one lives in `TrackAnywayAction`, shared with `DiscoveryStatus` so the
-    // two places this notice appears cannot drift apart.
-    return (
-      <AlreadyPublicNotice
-        result={data}
-        action={<TrackAnywayAction onClick={handleTrackAnyway} isLoading={isLoading} />}
-      />
-    );
+    // TERMINAL, and no escape hatch — that is deliberate, and it is a change.
+    //
+    // This component only renders after a SUCCESSFUL resolve, which means the resolver
+    // named an `(ats, boardToken)` pair. So the only `already_public` that can land here
+    // is the exact board-token match: the user pasted a board we already publish, by its
+    // own identifier. There is no plausible reading where they meant a different company.
+    //
+    // We used to offer "Track it separately anyway" here. It was a trap dressed as a
+    // choice: a private duplicate re-scrapes the same feed, costs the user a setup, and
+    // gives them a chart whose history starts TODAY instead of the full history sitting
+    // one click away behind the link in this notice. The notice's own copy said so.
+    // Offering a strictly worse option is not user agency.
+    //
+    // The GUESSED match keeps its way out, because there the risk is a false positive
+    // rather than a duplicate — see `DiscoveryStatus`, which is the only place that
+    // branch can land (a name guess only happens when no ATS board resolved at all, and
+    // this component never renders in that case).
+    return <AlreadyPublicNotice result={data} />;
   }
 
   if (data !== undefined) {

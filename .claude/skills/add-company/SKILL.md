@@ -297,6 +297,24 @@ bug. Verify with:
 PYTHONPATH=src/backend:. pytest src/backend/api/tests/test_careers_host_match.py
 ```
 
+### The name check needs no registration — but read this if your company's name is short or common
+
+A third dedupe rung (`src/backend/api/services/company_name_match.py`) reads the company
+name out of the pasted URL's registrable domain — `lifeatspotify.com` → Spotify. It builds
+its index from the `companies` table on every add, so **your new company joins it the
+moment its seed migration lands. There is nothing to register.**
+
+Two consequences worth knowing when you pick an `id` and `display_name`:
+
+- **A name of 4 characters or fewer matches only as the WHOLE domain label.** `gm.com` is
+  General Motors; `lifeatgm.com` is not. That line is what stops `dropbox` from being read
+  as `box`, and it is not negotiable — but it does mean a short-named company is caught
+  less often. Nothing to do about it; just know the rung is quieter for them.
+- **The five `ats='script'` companies above are excluded from this index entirely**,
+  because the exact host table you just edited already answers for them and its refusals
+  (`learn.microsoft.com` is not a job board) must not be second-guessed by a name guess.
+  So for a script company, the table above really is the whole dedupe.
+
 ---
 
 ## Per-ATS reference

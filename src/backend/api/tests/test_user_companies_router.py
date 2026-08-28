@@ -1966,3 +1966,442 @@ def test_another_users_private_copy_is_never_offered_as_the_answer(
     assert resp.status_code == 202, resp.text
     assert len(calls) == 2
     assert _count(db_conn, "companies", "WHERE visibility = 'user'") == 2
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# THE COMPANY-NAME MATCH — the third dedupe rung (the ``lifeatspotify.com`` case)
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+# The pure rule is exhaustively tested in ``test_company_name_match.py``. What is
+# under test HERE is the thing the owner actually asked for: that it runs BEFORE
+# the expensive stuff. Every case below captures ``_defer_discovery`` and asserts
+# on the captured list, because "no discovery was enqueued" is the whole unit.
+
+_SPOTIFY_URL = "https://www.lifeatspotify.com/jobs"
+
+
+def test_a_vanity_careers_domain_names_its_company_before_any_discovery(
+    client, db_conn, monkeypatch
+):
+    """THE case. ``lifeatspotify.com`` is not an ATS board and not a declared careers
+    host, so it used to spend a headless Chromium session and a Claude call before the
+    job-title overlap could say "this looks like Spotify". The string was in the domain.
+    """
+    monkeypatch.setattr(settings, "custom_company_discovery_enabled", True)
+    _login(client, "auth0|A", "a@example.com")
+    _seed_public_company(db_conn, "spotify", ats="lever", board_token="spotify",
+                         display_name="Spotify")
+    _patch_no_ats(monkeypatch, final_url=_SPOTIFY_URL)
+    calls = _capture_defer(monkeypatch)
+
+    resp = client.post("/api/users/companies", json={"url": _SPOTIFY_URL})
+
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["status"] == "already_public"
+    assert body["companyId"] == "spotify"
+    assert body["displayName"] == "Spotify"
+    assert body["finalUrl"] == _SPOTIFY_URL
+
+    # NOTHING WAS ENQUEUED. This assertion is the unit.
+    assert calls == []
+
+    # And NOTHING WAS CREATED — row counts, not response shape.
+    assert _count(db_conn, "companies", "WHERE visibility = 'user'") == 0
+    assert _count(db_conn, "user_companies") == 0
+    assert _count(db_conn, "company_scripts") == 0
+    assert _count(db_conn, "job_listings") == 0
+
+    # The audit says WHICH rung answered, so a false positive is reviewable.
+    assert _count(
+        db_conn, "company_add_attempts",
+        "WHERE outcome = 'already_public' AND company_id = 'spotify' "
+        "AND resolved_ats = 'name_guess'",
+    ) == 1
+
+
+def test_the_name_match_hedges_its_copy_and_says_it_guessed(client, db_conn, monkeypatch):
+    """A name guess and a board match must NOT read identically.
+
+    A board match names the board and is terminal. This one matched a string in a
+    domain, so it says so — and ``matchKind`` is what lets the UI keep a way out here
+    while offering none on the two exact rungs.
+    """
+    monkeypatch.setattr(settings, "custom_company_discovery_enabled", True)
+    _login(client, "auth0|A", "a@example.com")
+    _seed_public_company(db_conn, "spotify", ats="lever", board_token="spotify",
+                         display_name="Spotify")
+    _patch_no_ats(monkeypatch, final_url=_SPOTIFY_URL)
+    _capture_defer(monkeypatch)
+
+    body = client.post("/api/users/companies", json={"url": _SPOTIFY_URL}).json()
+
+    assert body["matchKind"] == "name"
+    detail = body["detail"]
+    assert "looks like" in detail
+    assert "Spotify" in detail
+    # It must NOT claim the board, which is the exact rungs' sentence.
+    assert "the same job board" not in detail
+
+
+def test_a_board_match_still_says_board_and_keeps_its_copy(client, db_conn, monkeypatch):
+    """The regression rail on the other side: adding the third rung must not have
+    softened the two certain ones. Same body, same sentence, ``matchKind='board'``."""
+    monkeypatch.setattr(settings, "custom_company_discovery_enabled", True)
+    _login(client, "auth0|A", "a@example.com")
+    _seed_script_company(db_conn, "microsoft", "Microsoft")
+    url = "https://jobs.careers.microsoft.com/global/en/search"
+    _patch_no_ats(monkeypatch, final_url=url)
+    _capture_defer(monkeypatch)
+
+    body = client.post("/api/users/companies", json={"url": url}).json()
+
+    assert body["matchKind"] == "board"
+    assert "the same job board" in body["detail"]
+    assert "looks like" not in body["detail"]
+
+
+def test_the_submitted_url_is_matched_by_name_even_when_the_resolver_moved_on(
+    client, db_conn, monkeypatch
+):
+    """A vanity careers host that lands on a bare CDN shell only carries the name in
+    what the USER typed."""
+    monkeypatch.setattr(settings, "custom_company_discovery_enabled", True)
+    _login(client, "auth0|A", "a@example.com")
+    _seed_public_company(db_conn, "spotify", ats="lever", board_token="spotify",
+                         display_name="Spotify")
+    _patch_no_ats(monkeypatch, final_url="https://some-cdn.example/shell")
+    calls = _capture_defer(monkeypatch)
+
+    resp = client.post("/api/users/companies", json={"url": _SPOTIFY_URL})
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["companyId"] == "spotify"
+    assert calls == []
+
+
+def test_the_final_url_is_matched_by_name_when_the_submitted_one_misses(
+    client, db_conn, monkeypatch
+):
+    """And the other direction: a link-shortener or aggregator URL only carries the
+    name after the redirect is followed."""
+    monkeypatch.setattr(settings, "custom_company_discovery_enabled", True)
+    _login(client, "auth0|A", "a@example.com")
+    _seed_public_company(db_conn, "spotify", ats="lever", board_token="spotify",
+                         display_name="Spotify")
+    _patch_no_ats(monkeypatch, final_url=_SPOTIFY_URL)
+    calls = _capture_defer(monkeypatch)
+
+    resp = client.post(
+        "/api/users/companies", json={"url": "https://hiring.example/r/8f21c"}
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["companyId"] == "spotify"
+    assert calls == []
+
+
+def test_a_cisco_vanity_url_names_the_published_cisco(client, db_conn, monkeypatch):
+    """The owner's other example: "all those URLs are gonna have like Cisco in them"."""
+    monkeypatch.setattr(settings, "custom_company_discovery_enabled", True)
+    _login(client, "auth0|A", "a@example.com")
+    _seed_public_company(db_conn, "cisco", ats="workday", board_token="cisco",
+                         display_name="Cisco")
+    url = "https://jobs.cisco.com/jobs/SearchJobs/"
+    _patch_no_ats(monkeypatch, final_url=url)
+    calls = _capture_defer(monkeypatch)
+
+    resp = client.post("/api/users/companies", json={"url": url})
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["companyId"] == "cisco"
+    assert resp.json()["matchKind"] == "name"
+    assert calls == []
+    assert _count(db_conn, "companies", "WHERE visibility = 'user'") == 0
+
+
+def test_dropbox_is_never_answered_as_box(client, db_conn, monkeypatch):
+    """The collision the whole rule is shaped around. ``dropbox.com`` contains ``box``;
+    a naive substring match tells a Dropbox user we already track their company.
+
+    Pinned in BOTH directions: with Box published and Dropbox not, ``dropbox.com``
+    must still reach discovery rather than answer "Box".
+    """
+    monkeypatch.setattr(settings, "custom_company_discovery_enabled", True)
+    _login(client, "auth0|A", "a@example.com")
+    _seed_public_company(db_conn, "box", ats="greenhouse", board_token="box",
+                         display_name="Box")
+    url = "https://www.dropbox.com/jobs"
+    _patch_no_ats(monkeypatch, final_url=url)
+    calls = _capture_defer(monkeypatch)
+
+    resp = client.post("/api/users/companies", json={"url": url})
+
+    assert resp.status_code == 202, (
+        "dropbox.com must not be answered as Box — a false hit sends somebody to the "
+        f"wrong company's chart. got: {resp.text}"
+    )
+    assert len(calls) == 1
+    assert _count(db_conn, "company_add_attempts", "WHERE outcome = 'already_public'") == 0
+
+
+def test_figma_is_never_answered_as_general_motors(client, db_conn, monkeypatch):
+    """The same class, but real: ``gm`` IS a substring of ``figma`` in the published
+    table today. Longest-match alone would save this; the affix rule never generates
+    the reading at all."""
+    monkeypatch.setattr(settings, "custom_company_discovery_enabled", True)
+    _login(client, "auth0|A", "a@example.com")
+    _seed_public_company(db_conn, "gm", ats="workday", board_token="gm",
+                         display_name="General Motors")
+    url = "https://www.figma.com/careers"
+    _patch_no_ats(monkeypatch, final_url=url)
+    calls = _capture_defer(monkeypatch)
+
+    resp = client.post("/api/users/companies", json={"url": url})
+
+    assert resp.status_code == 202, resp.text
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://boards.greenhouse.io/spotify",
+        "https://job-boards.greenhouse.io/spotify",
+        "https://jobs.lever.co/spotify",
+        "https://jobs.ashbyhq.com/spotify",
+        "https://spotify.wd1.myworkdayjobs.com/en-US/careers",
+        "https://jobs.gem.com/spotify",
+        "https://www.linkedin.com/company/spotify/jobs/",
+    ],
+)
+def test_an_ats_host_never_name_matches(client, db_conn, monkeypatch, url):
+    """``jobs.lever.co`` reduces to the label ``lever``. If this rung spoke about ATS
+    hosts, every Lever board in the world would match a company called Lever the day we
+    published one — and every board token in the path is somebody else's company."""
+    monkeypatch.setattr(settings, "custom_company_discovery_enabled", True)
+    _login(client, "auth0|A", "a@example.com")
+    _seed_public_company(db_conn, "spotify", ats="lever", board_token="spotify",
+                         display_name="Spotify")
+    _seed_public_company(db_conn, "lever", ats="greenhouse", board_token="lever",
+                         display_name="Lever")
+    _seed_public_company(db_conn, "gem", ats="gem", board_token="gem", display_name="Gem")
+    _patch_no_ats(monkeypatch, final_url=url)
+    calls = _capture_defer(monkeypatch)
+
+    resp = client.post("/api/users/companies", json={"url": url})
+
+    assert resp.status_code == 202, (
+        f"{url} must reach discovery, not be claimed by name: {resp.text}"
+    )
+    assert len(calls) == 1
+    assert _count(db_conn, "company_add_attempts", "WHERE outcome = 'already_public'") == 0
+
+
+def test_an_unrelated_domain_still_goes_to_discovery_past_the_name_match(
+    client, db_conn, monkeypatch
+):
+    """The negative control. Discovery is the right answer for almost every URL, and
+    this rung must not have narrowed it."""
+    monkeypatch.setattr(settings, "custom_company_discovery_enabled", True)
+    _login(client, "auth0|A", "a@example.com")
+    for company_id, display_name in (
+        ("spotify", "Spotify"), ("cursor", "Cursor"), ("block", "Block"),
+        ("light", "Light"), ("snap", "Snap"), ("gm", "General Motors"),
+    ):
+        _seed_public_company(db_conn, company_id, board_token=company_id,
+                             display_name=display_name)
+    _patch_no_ats(monkeypatch)
+    calls = _capture_defer(monkeypatch)
+
+    resp = client.post("/api/users/companies", json={"url": _NON_ATS_URL})
+
+    assert resp.status_code == 202, resp.text
+    assert len(calls) == 1
+    assert _count(db_conn, "companies", "WHERE visibility = 'user'") == 1
+    assert _count(db_conn, "company_add_attempts", "WHERE outcome = 'already_public'") == 0
+
+
+def test_track_anyway_still_creates_the_private_copy_after_a_name_match(
+    client, db_conn, monkeypatch
+):
+    """The escape hatch, and the reason this rung is allowed to be a guess at all.
+
+    Somebody whose company merely SHARES a string with ours must not be hard-blocked.
+    ``trackAnyway`` skips the check and routes to the ordinary discovery path.
+    """
+    monkeypatch.setattr(settings, "custom_company_discovery_enabled", True)
+    _login(client, "auth0|A", "a@example.com")
+    _seed_public_company(db_conn, "spotify", ats="lever", board_token="spotify",
+                         display_name="Spotify")
+    _patch_no_ats(monkeypatch, final_url=_SPOTIFY_URL)
+    calls = _capture_defer(monkeypatch)
+
+    resp = client.post(
+        "/api/users/companies", json={"url": _SPOTIFY_URL, "trackAnyway": True}
+    )
+
+    assert resp.status_code == 202, resp.text
+    assert resp.json()["status"] == "discovery_pending"
+    assert len(calls) == 1
+    assert _count(db_conn, "companies", "WHERE visibility = 'user'") == 1
+    assert _count(db_conn, "company_add_attempts", "WHERE outcome = 'already_public'") == 0
+
+
+def test_a_re_add_after_track_anyway_resolves_to_the_users_own_row_by_name(
+    client, db_conn, monkeypatch
+):
+    """The ``owned is None`` guard, on the third rung. Someone who pressed the escape
+    hatch once owns a real private row, and a re-add of that URL must keep resolving to
+    THEIR row rather than being sent back to the public page."""
+    monkeypatch.setattr(settings, "custom_company_discovery_enabled", True)
+    _login(client, "auth0|A", "a@example.com")
+    _seed_public_company(db_conn, "spotify", ats="lever", board_token="spotify",
+                         display_name="Spotify")
+    _patch_no_ats(monkeypatch, final_url=_SPOTIFY_URL)
+    _capture_defer(monkeypatch)
+
+    optin = client.post(
+        "/api/users/companies", json={"url": _SPOTIFY_URL, "trackAnyway": True}
+    )
+    assert optin.status_code == 202, optin.text
+    owned_id = optin.json()["id"]
+
+    again = client.post("/api/users/companies", json={"url": _SPOTIFY_URL})
+
+    assert again.status_code == 200, again.text
+    assert again.json().get("status") != "already_public"
+    assert again.json()["id"] == owned_id
+
+
+def test_a_disabled_public_company_is_not_offered_by_name(client, db_conn, monkeypatch):
+    """Same rail both other rungs have: a disabled public row is a board we have
+    STOPPED reading, and a chart that no longer updates is worse than the user's own
+    copy."""
+    monkeypatch.setattr(settings, "custom_company_discovery_enabled", True)
+    _login(client, "auth0|A", "a@example.com")
+    _seed_public_company(db_conn, "spotify", ats="lever", board_token="spotify",
+                         display_name="Spotify", enabled=False)
+    _patch_no_ats(monkeypatch, final_url=_SPOTIFY_URL)
+    calls = _capture_defer(monkeypatch)
+
+    resp = client.post("/api/users/companies", json={"url": _SPOTIFY_URL})
+
+    assert resp.status_code == 202, resp.text
+    assert len(calls) == 1
+
+
+def test_another_users_private_row_is_never_offered_by_name(client, db_conn, monkeypatch):
+    """``visibility = 'public'`` is part of the match here for the reason it is in both
+    other rungs: without it, one user's private board leaks by NAME to another."""
+    monkeypatch.setattr(settings, "custom_company_discovery_enabled", True)
+    _patch_no_ats(monkeypatch, final_url=_SPOTIFY_URL)
+    calls = _capture_defer(monkeypatch)
+
+    _login(client, "auth0|A", "a@example.com")
+    assert client.post(
+        "/api/users/companies", json={"url": _SPOTIFY_URL}
+    ).status_code == 202
+
+    _login(client, "auth0|B", "b@example.com")
+    resp = client.post("/api/users/companies", json={"url": _SPOTIFY_URL})
+
+    assert resp.status_code == 202, resp.text
+    assert len(calls) == 2
+    assert _count(db_conn, "companies", "WHERE visibility = 'user'") == 2
+
+
+def test_a_settled_private_row_named_after_the_domain_still_does_not_leak(
+    client, db_conn, monkeypatch
+):
+    """The same leak, but with the row in the state that actually reaches the index.
+
+    A provisional ``discovering`` placeholder is ``enabled = false``, so the ``enabled``
+    predicate alone hides it and the ``visibility`` predicate looks redundant. It is not:
+    once discovery settles the row to ``tracking`` it is ENABLED, and its auto-derived
+    display name is the domain label it came from (``Lifeatspotify``) — an exact name
+    key. Without ``visibility = 'public'`` that row answers the next user's add.
+    """
+    monkeypatch.setattr(settings, "custom_company_discovery_enabled", True)
+    cur = db_conn.cursor()
+    cur.execute(
+        sql.SQL(
+            "INSERT INTO {} (id, display_name, ats, board_token, provider_config, "
+            "enabled, visibility) VALUES (%s, %s, %s, %s, '{{}}'::jsonb, true, 'user')"
+        ).format(sql.Identifier("companies")),
+        ("u-someoneelses", "Lifeatspotify", "discovered", "u-someoneelses"),
+    )
+    db_conn.commit()
+
+    _login(client, "auth0|B", "b@example.com")
+    _patch_no_ats(monkeypatch, final_url=_SPOTIFY_URL)
+    calls = _capture_defer(monkeypatch)
+
+    resp = client.post("/api/users/companies", json={"url": _SPOTIFY_URL})
+
+    assert resp.status_code == 202, (
+        "another user's PRIVATE discovered board must never be offered as the public "
+        f"answer to this add: {resp.text}"
+    )
+    assert len(calls) == 1
+    assert _count(db_conn, "company_add_attempts", "WHERE outcome = 'already_public'") == 0
+
+
+def test_a_name_match_answers_even_with_discovery_switched_off(
+    client, db_conn, monkeypatch
+):
+    """The answer does not depend on the discovery flag, and must not — same reasoning
+    the careers-host rung already carries. With the flag off the alternative is a 422
+    reading "No supported ATS board was found behind this URL", about a company on our
+    own front page."""
+    monkeypatch.setattr(settings, "custom_company_discovery_enabled", False)
+    _login(client, "auth0|A", "a@example.com")
+    _seed_public_company(db_conn, "spotify", ats="lever", board_token="spotify",
+                         display_name="Spotify")
+    _patch_no_ats(monkeypatch, final_url=_SPOTIFY_URL)
+    calls = _capture_defer(monkeypatch)
+
+    resp = client.post("/api/users/companies", json={"url": _SPOTIFY_URL})
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["companyId"] == "spotify"
+    assert calls == []
+    assert _count(db_conn, "companies", "WHERE visibility = 'user'") == 0
+
+
+def test_the_name_match_never_overrules_the_exact_careers_host_table(
+    client, db_conn, monkeypatch
+):
+    """``learn.microsoft.com`` is a training site, and the careers-host table refuses it
+    on purpose. The five companies with a declared host table are excluded from the name
+    index so a guess can never overturn an exact ``None``."""
+    monkeypatch.setattr(settings, "custom_company_discovery_enabled", True)
+    _login(client, "auth0|A", "a@example.com")
+    for company_id, display_name in _SEEDED_SCRIPT_ROWS:
+        _seed_script_company(db_conn, company_id, display_name)
+    url = "https://learn.microsoft.com/en-us/training/"
+    _patch_no_ats(monkeypatch, final_url=url)
+    calls = _capture_defer(monkeypatch)
+
+    resp = client.post("/api/users/companies", json={"url": url})
+
+    assert resp.status_code == 202, resp.text
+    assert len(calls) == 1
+
+
+def test_the_name_match_costs_no_outbound_request(client, db_conn, monkeypatch):
+    """Zero network, zero LLM, zero browser — it is pure string work against rows we
+    already hold. The probe is the only outbound hop on this endpoint and it lives on
+    the other branch; a 404-everything transport makes any regression loud."""
+    monkeypatch.setattr(settings, "custom_company_discovery_enabled", True)
+    _login(client, "auth0|A", "a@example.com")
+    _seed_public_company(db_conn, "spotify", ats="lever", board_token="spotify",
+                         display_name="Spotify")
+    _patch_no_ats(monkeypatch, final_url=_SPOTIFY_URL)
+    _capture_defer(monkeypatch)
+    requested = _install_recording_transport(monkeypatch)
+
+    resp = client.post("/api/users/companies", json={"url": _SPOTIFY_URL})
+
+    assert resp.status_code == 200, resp.text
+    assert requested == [], f"the name match must cost no request; got {requested}"

@@ -67,8 +67,13 @@ export interface ResolveUrlArgs {
 
 /**
  * Arg for `addUserCompany`. `trackAnyway` is the single override for the
- * already-published check: omitted (the default) the add stops and links to the
- * public company; `true` says "I want my own private copy regardless".
+ * already-published checks: omitted (the default) the add stops and links to the
+ * public company; `true` skips all three and creates the private copy.
+ *
+ * THE SERVER HONOURS IT ON EVERY CHECK. The UI only *offers* it on the guessed
+ * `matchKind: 'name'` branch — on an exact board match a duplicate is strictly worse
+ * for the user, so there is no button. That is a UI decision, not a server one: a
+ * bookmarked or replayed request carrying the flag must still work rather than 500.
  *
  * Not sticky and not stored server-side — it is a property of one submit, so the
  * user is never silently opted out of the check on a later add.
@@ -349,7 +354,27 @@ export interface DiscoveryPendingResponse {
 }
 
 /**
- * The `200` body when the pasted URL is a job board we ALREADY PUBLISH.
+ * How sure the backend is, and therefore what the UI is allowed to offer.
+ *
+ * `'board'` — we matched a BOARD: the `(ats, boardToken)` pair the resolver named, or a
+ * careers host in the backend's own declared table. Exact evidence, so the notice is
+ * TERMINAL — there is no plausible reading where the user meant a different company, and
+ * offering a private duplicate of a board we already publish is strictly worse for them
+ * (it re-scrapes the same feed and its history starts today).
+ *
+ * `'name'` — we matched the company NAME inside the domain (`lifeatspotify.com` →
+ * Spotify). No board was resolved and no job set was compared. It is a good guess and it
+ * is still a guess, so this one keeps a way out: a wrong guess with no way out would
+ * hard-block somebody from adding a legitimately different company with no way to tell us
+ * we got it wrong.
+ *
+ * Optional because the field is newer than the shape; absent means `'board'`, which is
+ * the stricter reading and therefore the safe default.
+ */
+export type AlreadyPublicMatchKind = 'board' | 'name';
+
+/**
+ * The `200` body when the pasted URL is a company we ALREADY PUBLISH.
  *
  * Nothing was created — no private company, no scraper, no jobs — and nothing failed
  * either, which is why this arrives as a `200` body rather than an error. The user
@@ -358,15 +383,20 @@ export interface DiscoveryPendingResponse {
  * `companyId` is a PUBLIC company id (`spotify`), not a `u-…` runtime id, so it belongs
  * on `/companies?company=…` and never on `buildMyCompanyDetailPath`.
  *
- * WHAT THIS DOES NOT MEAN: we compared job sets. We did not. Two different server-side
- * checks produce this body and neither of them looks at a single job:
- *  - the URL resolved to the same ATS board (`ats` + `boardToken`) we already read, or
+ * WHAT THIS DOES NOT MEAN: we compared job sets. We did not. Three different server-side
+ * checks produce this body and none of them looks at a single job:
+ *  - the URL resolved to the same ATS board (`ats` + `boardToken`) we already read;
  *  - the URL's HOST is one of the five script-scraped careers boards (Amazon, Apple,
- *    Google, Microsoft, TikTok), which have no ATS pair for the first check to compare.
+ *    Google, Microsoft, TikTok), which have no ATS pair for the first check to compare; or
+ *  - the URL's registrable DOMAIN names a company we publish (`lifeatspotify.com`).
  *
- * So the copy says "the same job board", never "the same company". A company's own
- * careers site fronting an ATS board — `lifeatspotify.com` over `lever:spotify` — is
- * still caught by neither, and reaches discovery as it always did.
+ * `matchKind` separates the first two (exact, `'board'`) from the third (a guess,
+ * `'name'`) — see {@link AlreadyPublicMatchKind}. It is what stops a string match in a
+ * web address from reading, and behaving, like a resolved board identifier.
+ *
+ * What still reaches discovery: a careers site whose domain does not name the company at
+ * all. Only the job SET links those, and `published_board_match` suggests that after the
+ * first harvest.
  */
 export interface AlreadyPublicResponse {
   status: 'already_public';
@@ -375,6 +405,12 @@ export interface AlreadyPublicResponse {
   displayName: string;
   /** What the resolver settled on — re-send this to track a private copy anyway. */
   finalUrl: string;
+  matchKind?: AlreadyPublicMatchKind;
+}
+
+/** True only for the weaker, guessed match — the one branch that keeps a way out. */
+export function isNameGuessMatch(result: AlreadyPublicResponse): boolean {
+  return result.matchKind === 'name';
 }
 
 /**
