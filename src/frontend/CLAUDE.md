@@ -231,7 +231,7 @@ All paths relative to `src/frontend/src/`:
 - API Client Factory: `api/clients/baseClient.ts`
 - Backend Scraper Client: `api/clients/backendScraperClient.ts`
 - Filter Slice Factory: `features/filters/slices/createFilterSlice.ts`
-- Jobs RTK Query API: `features/jobs/jobsApi.ts`, `jobsSelectors.ts`, `progressHelpers.ts`
+- Jobs RTK Query API: `features/jobs/jobsApi.ts`, `jobsSelectors.ts`, `progressHelpers.ts`, `keysetWalk.ts`
 - Recent Jobs Filters: `features/filters/slices/recentJobsFiltersSlice.ts`, `features/filters/selectors/recentJobsSelectors.ts`
 - Time Bucketing: `lib/timeBucketing.ts`
 - Main App: `app/App.tsx`
