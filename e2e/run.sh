@@ -73,7 +73,17 @@ INTERRUPTED=0
 # unconditionally, so a run that refused the lock and then fired its own trap
 # would tear down the stack belonging to the run it just declined to disturb.
 # Exiting here, before any trap exists, is what makes the refusal harmless.
-LOCK_DIR="$REPO_ROOT/e2e/shared/stack/.pids/run.lock"
+# OUTSIDE the repo, deliberately. This lock lived at
+# e2e/shared/stack/.pids/run.lock and took down the owner's dev server: `vercel
+# dev` watches the whole repo root, and when a finishing run removed the lock its
+# file watcher died with
+#     ENOENT: no such file or directory, scandir '.../.pids/run.lock'
+# taking the frontend on :3000 with it. Every completed e2e run killed the stack.
+# .gitignore does not help -- vercel's watcher does not consult it. The only fix
+# is for the churn to happen somewhere the watcher never looks.
+#
+# Keyed by repo path so two checkouts of this repo do not share a lock.
+LOCK_DIR="${TMPDIR:-/tmp}/jvn-e2e-$(printf '%s' "$REPO_ROOT" | shasum | cut -c1-12)/run.lock"
 HELD_LOCK=0
 mkdir -p "$(dirname "$LOCK_DIR")"
 
