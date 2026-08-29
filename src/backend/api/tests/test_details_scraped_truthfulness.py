@@ -39,7 +39,7 @@ class TestHasDescription:
     def test_a_json_null_description_does_not_count(self) -> None:
         """Workday's exact shape. It builds the key so the JSONB matches the other
         ATSs, then leaves it None — which is precisely the 11,901-row lie."""
-        assert has_description({"description_html": None, "department": "Eng"}) is False
+        assert has_description({"description_html": None, "team": "Core"}) is False
 
     def test_an_empty_string_description_does_not_count(self) -> None:
         """``DESCRIPTION_SQL`` COALESCEs an empty ``about_the_job`` away, so treating
@@ -48,9 +48,9 @@ class TestHasDescription:
         assert has_description({"about_the_job": ""}) is False
 
     def test_no_description_key_at_all_does_not_count(self) -> None:
-        """Eightfold's list payload carries department/team/locations and no
+        """Eightfold's list payload carries team/locations and no
         description key whatsoever."""
-        assert has_description({"department": "Eng", "team": "Core"}) is False
+        assert has_description({"team": "Core", "locations": ["SF"]}) is False
 
     def test_empty_and_missing_details_do_not_count(self) -> None:
         assert has_description({}) is False

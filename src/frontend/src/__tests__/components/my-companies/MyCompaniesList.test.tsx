@@ -105,6 +105,62 @@ describe('MyCompaniesList', () => {
     );
   });
 
+  it('shows every row the board it was built from, as an openable link', async () => {
+    // THE GAP THIS CLOSES: a row said what we found and how fresh it was and never once
+    // said WHERE IT CAME FROM. When a board started serving dead job links there was no
+    // way to go and look at it without opening the database.
+    //
+    // Discovered boards are the case it was asked for — their `boardToken` is the URL the
+    // user pasted — but an ATS row raises the same question, so it gets the same link
+    // built from its slug.
+    const discovered: UserCompany = {
+      ...COMPANY_A,
+      id: 'u-cccccccccc',
+      displayName: 'Jane Street',
+      ats: 'discovered',
+      boardToken: 'https://www.janestreet.com/join-jane-street/open-roles/',
+    };
+    fetchMock.mockResolvedValue(jsonResponse({ companies: [COMPANY_A, discovered] }));
+    renderWithProviders(<MyCompaniesList />);
+
+    const rows = await screen.findAllByTestId('my-company-row');
+
+    // The ATS row: built from the slug, at the host Greenhouse actually serves.
+    const atsLink = within(rows[0]).getByTestId('my-company-board-link');
+    expect(atsLink).toHaveAttribute('href', 'https://job-boards.greenhouse.io/duolingo');
+    expect(atsLink).toHaveAttribute('target', '_blank');
+    // `noopener` matters on a link we hand to a third-party board.
+    expect(atsLink).toHaveAttribute('rel', expect.stringContaining('noopener'));
+
+    // The discovered row: the pasted URL, verbatim, labelled by its host so the answer
+    // is readable without a click and exact on hover.
+    const boardLink = within(rows[1]).getByTestId('my-company-board-link');
+    expect(boardLink).toHaveAttribute('href', discovered.boardToken);
+    expect(boardLink).toHaveAttribute('title', discovered.boardToken);
+    expect(boardLink).toHaveTextContent('janestreet.com');
+  });
+
+  it('shows NO board link rather than a guessed one when the host is not derivable', async () => {
+    // Workday and Eightfold keep their real board host in `provider_config`, which this
+    // payload does not carry; `boardToken` is a cosmetic tenant label. A confident link
+    // to a 404 is worse than the gap — the row is missing information either way, and
+    // only one of the two lies about it.
+    const workday: UserCompany = {
+      ...COMPANY_A,
+      id: 'u-dddddddddd',
+      displayName: 'Blue Origin',
+      ats: 'workday',
+      boardToken: 'blueorigin',
+    };
+    fetchMock.mockResolvedValue(jsonResponse({ companies: [workday] }));
+    renderWithProviders(<MyCompaniesList />);
+
+    const row = await screen.findByTestId('my-company-row');
+    expect(within(row).queryByTestId('my-company-board-link')).not.toBeInTheDocument();
+    // ...and the rest of the row is untouched — no gap, no placeholder.
+    expect(within(row).getByText('Blue Origin')).toBeInTheDocument();
+  });
+
   it('shows an empty state when the user tracks nothing', async () => {
     fetchMock.mockResolvedValue(jsonResponse({ companies: [] }));
     renderWithProviders(<MyCompaniesList />);
@@ -488,10 +544,7 @@ describe('MyCompaniesList discovery checklist', () => {
 
     const row = await screen.findByTestId('my-company-row');
     // Reachable...
-    expect(within(row).getByTestId('discovery-checklist')).toHaveAttribute(
-      'data-open',
-      'false'
-    );
+    expect(within(row).getByTestId('discovery-checklist')).toHaveAttribute('data-open', 'false');
     expect(within(row).getByTestId('discovery-headline')).toHaveTextContent(
       /we can read acme's board/i
     );
@@ -590,10 +643,7 @@ describe('MyCompaniesList discovery checklist', () => {
 
     const row = await screen.findByTestId('my-company-row');
     expect(within(row).getByText(/0 open jobs/i)).toBeInTheDocument();
-    expect(within(row).getByTestId('discovery-checklist')).toHaveAttribute(
-      'data-open',
-      'false'
-    );
+    expect(within(row).getByTestId('discovery-checklist')).toHaveAttribute('data-open', 'false');
   });
 
   it('drops back to the 15s cadence once a discovering row goes stale (flag ON)', async () => {
@@ -603,9 +653,7 @@ describe('MyCompaniesList discovery checklist', () => {
     // the list endpoint every 4s for as long as the tab stays open.
     vi.useFakeTimers({ shouldAdvanceTime: true });
     try {
-      fetchMock.mockImplementation(async () =>
-        jsonResponse({ companies: [WEDGED_DISCOVERING] })
-      );
+      fetchMock.mockImplementation(async () => jsonResponse({ companies: [WEDGED_DISCOVERING] }));
       await renderListWithFlag(true);
       await screen.findByTestId('my-company-row');
       const callsAfterLoad = fetchMock.mock.calls.length;

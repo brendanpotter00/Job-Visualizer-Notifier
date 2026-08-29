@@ -57,10 +57,6 @@ class TestTransformToJobModel:
         assert "is_remote_eligible" in job.details
         assert job.details["is_remote_eligible"] is False
 
-    def test_department_preserved(self, tiktok_scraper, sample_tiktok_job_data):
-        job = tiktok_scraper.transform_to_job_model(sample_tiktok_job_data)
-        assert job.details["department"] == "R&D / Backend"
-
     def test_raw_preserved(self, tiktok_scraper, sample_tiktok_job_data):
         job = tiktok_scraper.transform_to_job_model(sample_tiktok_job_data)
         assert job.details["raw"] == sample_tiktok_job_data

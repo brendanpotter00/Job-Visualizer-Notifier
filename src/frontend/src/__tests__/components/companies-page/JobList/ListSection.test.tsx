@@ -38,7 +38,6 @@ const jobs: Job[] = [
     firstSeenAt: '2026-01-01T00:00:00Z',
     url: 'https://example.com/j-jan',
     location: 'Hawthorne, CA',
-    department: 'Engineering',
     raw: {},
   },
   {
@@ -50,7 +49,6 @@ const jobs: Job[] = [
     firstSeenAt: '2026-03-01T00:00:00Z',
     url: 'https://example.com/j-mar',
     location: 'Remote',
-    department: 'People',
     raw: {},
   },
   {
@@ -62,7 +60,6 @@ const jobs: Job[] = [
     firstSeenAt: '2026-02-01T00:00:00Z',
     url: 'https://example.com/j-feb',
     location: 'Hawthorne, CA',
-    department: 'Engineering',
     raw: {},
   },
 ];
@@ -126,7 +123,6 @@ describe('ListSection', () => {
       firstSeenAt: `2026-02-${String(i + 1).padStart(2, '0')}T00:00:00Z`,
       url: `https://example.com/job-${i}`,
       location: 'Hawthorne, CA',
-      department: 'Engineering',
       raw: {},
     }));
 

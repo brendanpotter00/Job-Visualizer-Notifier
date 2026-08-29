@@ -44,7 +44,7 @@ import type {
 function step(
   key: DiscoveryStep['key'],
   status: DiscoveryStep['status'],
-  result: string | null = null,
+  result: string | null = null
 ): DiscoveryStep {
   return { key, status, result };
 }
@@ -67,7 +67,7 @@ function progress(overrides: Partial<DiscoveryProgress> = {}): DiscoveryProgress
 function company(
   healthState: string,
   discovery: DiscoveryProgress | null,
-  overrides: Partial<UserCompany> = {},
+  overrides: Partial<UserCompany> = {}
 ): UserCompany {
   return {
     id: 'u-discover01',
@@ -99,6 +99,16 @@ const RUNNING = progress({
 });
 
 const LIVE_VIEW_URL = 'https://www.browserbase.com/devtools-fullscreen/s/abc';
+
+/**
+ * When the payload under test "landed" — RTK Query's `fulfilledTimeStamp`, which the row
+ * threads down so the live view can tell a fresh claim from a stale one.
+ *
+ * Any non-zero constant will do for the tests that are not ABOUT freshness: the component
+ * measures the lease from the render, and uses this only to notice that a NEW payload has
+ * arrived. The tests that are about freshness pass their own and say so.
+ */
+const POLLED_AT = 1_700_000_000_000;
 
 /**
  * The window in which a hosted session is watchable: the backend has published a URL and
@@ -133,15 +143,17 @@ const REFUSED = progress({
     step(
       'verify_read',
       'failed',
-      'only 1 of the 12 job(s) the browser saw came back from the replay',
+      'only 1 of the 12 job(s) the browser saw came back from the replay'
     ),
     step('ready', 'pending'),
   ],
 });
 
 describe('DiscoveryChecklist', () => {
-  it('names all four steps, in the user\'s words, in order, whatever the state', () => {
-    renderWithProviders(<DiscoveryChecklist company={company('discovering', RUNNING)} />);
+  it("names all four steps, in the user's words, in order, whatever the state", () => {
+    renderWithProviders(
+      <DiscoveryChecklist receivedAt={POLLED_AT} company={company('discovering', RUNNING)} />
+    );
 
     const list = screen.getByTestId('discovery-checklist');
     expect(within(list).getByText('Opening the page')).toBeInTheDocument();
@@ -154,7 +166,9 @@ describe('DiscoveryChecklist', () => {
     // The engine's own words for a finished step — "recorded 14 JSON request(s)",
     // "found 3 candidate feed(s)" — describe our pipeline, not anything the reader can
     // do, and one under every rung turned a 4-line list into an 8-line one.
-    renderWithProviders(<DiscoveryChecklist company={company('unverified', TRACKING)} />);
+    renderWithProviders(
+      <DiscoveryChecklist receivedAt={POLLED_AT} company={company('unverified', TRACKING)} />
+    );
 
     expect(screen.getByText('Reading jobs')).toBeInTheDocument();
     expect(screen.queryByTestId('discovery-result-open_page')).not.toBeInTheDocument();
@@ -165,12 +179,11 @@ describe('DiscoveryChecklist', () => {
   });
 
   it('renders a mid-run board as still working', () => {
-    renderWithProviders(<DiscoveryChecklist company={company('discovering', RUNNING)} />);
-
-    expect(screen.getByTestId('discovery-checklist')).toHaveAttribute(
-      'data-outcome',
-      'running',
+    renderWithProviders(
+      <DiscoveryChecklist receivedAt={POLLED_AT} company={company('discovering', RUNNING)} />
     );
+
+    expect(screen.getByTestId('discovery-checklist')).toHaveAttribute('data-outcome', 'running');
     expect(screen.getByTestId('discovery-headline')).toHaveTextContent(/setting up acme/i);
     // Nothing to act on yet — the alternatives belong to a refusal.
     expect(screen.queryByTestId('discovery-next-actions')).not.toBeInTheDocument();
@@ -179,48 +192,50 @@ describe('DiscoveryChecklist', () => {
   it('renders success as "we can read this board", and says it once', () => {
     // No job preview ("A few of the jobs we found") and no ✓/✕ summary chain: both
     // restated, in a second form, what the ticked rungs beside them already say.
-    renderWithProviders(<DiscoveryChecklist company={company('unverified', TRACKING)} />);
-
-    expect(screen.getByTestId('discovery-headline')).toHaveTextContent(
-      /we can read acme's board/i,
+    renderWithProviders(
+      <DiscoveryChecklist receivedAt={POLLED_AT} company={company('unverified', TRACKING)} />
     );
+
+    expect(screen.getByTestId('discovery-headline')).toHaveTextContent(/we can read acme's board/i);
     expect(screen.queryByTestId('discovery-job-preview')).not.toBeInTheDocument();
     expect(screen.queryByTestId('discovery-summary')).not.toBeInTheDocument();
     expect(screen.queryByText(/jobs we found/i)).not.toBeInTheDocument();
   });
 
   it('frames a refusal as "we couldn\'t read {Company}\'s board" and says why on the step', () => {
-    renderWithProviders(<DiscoveryChecklist company={company('refused', REFUSED)} />);
+    renderWithProviders(
+      <DiscoveryChecklist receivedAt={POLLED_AT} company={company('refused', REFUSED)} />
+    );
 
     expect(screen.getByTestId('discovery-headline')).toHaveTextContent(
-      /we couldn't read acme's board/i,
+      /we couldn't read acme's board/i
     );
     // The reason rides the step that stopped, so "what went wrong" and "where" are one
     // thing to read rather than two.
     const failedStep = screen.getByTestId('discovery-step-verify_read');
     expect(within(failedStep).getByText('Building web scraper')).toBeInTheDocument();
     expect(within(failedStep).getByTestId('discovery-result-verify_read')).toHaveTextContent(
-      /came back from the replay/i,
+      /came back from the replay/i
     );
   });
 
   it('offers one real alternative on a refusal — never a bare retry', () => {
-    renderWithProviders(<DiscoveryChecklist company={company('refused', REFUSED)} />);
+    renderWithProviders(
+      <DiscoveryChecklist receivedAt={POLLED_AT} company={company('refused', REFUSED)} />
+    );
 
     const actions = screen.getByTestId('discovery-next-actions');
     // The fix for most refusals: the pasted URL was the marketing page, not the board.
     expect(within(actions).getByText(/click into a job/i)).toBeInTheDocument();
     expect(within(actions).getByText(/the page you pasted/i)).toHaveAttribute(
       'href',
-      'https://careers.acme.example/jobs',
+      'https://careers.acme.example/jobs'
     );
     expect(within(actions).getByText(/tell us about this board/i)).toBeInTheDocument();
     // Cut: "Remove it." restated the Remove button a few pixels above.
     expect(within(actions).queryByText(/^remove it\.$/i)).not.toBeInTheDocument();
     // Discovery is deterministic — re-running the same URL reproduces the same refusal.
-    expect(
-      screen.queryByRole('button', { name: /try again|retry/i }),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /try again|retry/i })).not.toBeInTheDocument();
   });
 
   it('reads a refused row as refused even when its blob still says "running"', () => {
@@ -235,12 +250,11 @@ describe('DiscoveryChecklist', () => {
         step('ready', 'pending'),
       ],
     });
-    renderWithProviders(<DiscoveryChecklist company={company('refused', stalled)} />);
-
-    expect(screen.getByTestId('discovery-checklist')).toHaveAttribute(
-      'data-outcome',
-      'refused',
+    renderWithProviders(
+      <DiscoveryChecklist receivedAt={POLLED_AT} company={company('refused', stalled)} />
     );
+
+    expect(screen.getByTestId('discovery-checklist')).toHaveAttribute('data-outcome', 'refused');
     expect(screen.getByTestId('discovery-stalled')).toBeInTheDocument();
     expect(screen.getByTestId('discovery-next-actions')).toBeInTheDocument();
     // ...and NOTHING is still spinning. The stale `active` step is drawn as the rung we
@@ -253,7 +267,9 @@ describe('DiscoveryChecklist', () => {
   it('keeps the live spinner while the run really is still going', () => {
     // The other half of the pair above: the downgrade is keyed on the run being
     // terminal, so a `discovering` row must still animate its active step.
-    renderWithProviders(<DiscoveryChecklist company={company('discovering', RUNNING)} />);
+    renderWithProviders(
+      <DiscoveryChecklist receivedAt={POLLED_AT} company={company('discovering', RUNNING)} />
+    );
     expect(screen.getByRole('progressbar')).toBeInTheDocument();
   });
 
@@ -261,7 +277,7 @@ describe('DiscoveryChecklist', () => {
     // The DEFAULT: only a Browserbase capture has a hosted view and we run our own
     // Chromium, so this is the ordinary case, not the exception (DECISION D4).
     const { container } = renderWithProviders(
-      <DiscoveryChecklist company={company('discovering', RUNNING)} />,
+      <DiscoveryChecklist receivedAt={POLLED_AT} company={company('discovering', RUNNING)} />
     );
 
     expect(screen.queryByTestId('discovery-live-view-toggle')).not.toBeInTheDocument();
@@ -274,7 +290,9 @@ describe('DiscoveryChecklist', () => {
 
   it('shows the live view straight away, read-only, while the browser is open', async () => {
     const user = userEvent.setup();
-    renderWithProviders(<DiscoveryChecklist company={company('discovering', CAPTURING)} />);
+    renderWithProviders(
+      <DiscoveryChecklist receivedAt={POLLED_AT} company={company('discovering', CAPTURING)} />
+    );
 
     // EXPANDED on arrival. The session lasts about thirty seconds; a run that ends
     // before the user notices a "Watch live" button showed them nothing at all.
@@ -294,7 +312,10 @@ describe('DiscoveryChecklist', () => {
     // The DEFAULT path: our own headless Chromium has no hosted view, so the checklist
     // must render exactly as it always has — no toggle, no empty frame, no layout shift.
     renderWithProviders(
-      <DiscoveryChecklist company={company('discovering', progress({ ...RUNNING }))} />,
+      <DiscoveryChecklist
+        receivedAt={POLLED_AT}
+        company={company('discovering', progress({ ...RUNNING }))}
+      />
     );
     expect(screen.queryByTestId('discovery-live-view-toggle')).not.toBeInTheDocument();
     expect(screen.queryByTestId('discovery-live-view')).not.toBeInTheDocument();
@@ -306,7 +327,10 @@ describe('DiscoveryChecklist', () => {
     // `height: 0` would satisfy the eye and still be a node; `unmountOnExit` is what
     // makes this assertion possible.
     const { container } = renderWithProviders(
-      <DiscoveryChecklist company={company('discovering', progress({ ...RUNNING }))} />,
+      <DiscoveryChecklist
+        receivedAt={POLLED_AT}
+        company={company('discovering', progress({ ...RUNNING }))}
+      />
     );
     expect(screen.queryByTestId('discovery-live-view-section')).not.toBeInTheDocument();
     expect(screen.queryByTestId('discovery-live-view-frame')).not.toBeInTheDocument();
@@ -331,12 +355,14 @@ describe('DiscoveryChecklist', () => {
     // `running`, and only `liveViewUrl` going null — which is what the backend now
     // publishes at release. Nothing about the checklist may be consulted.
     const { container, rerender } = renderWithProviders(
-      <DiscoveryChecklist company={company('discovering', CAPTURING)} />,
+      <DiscoveryChecklist receivedAt={POLLED_AT} company={company('discovering', CAPTURING)} />
     );
     expect(screen.getByTestId('discovery-live-view')).toBeInTheDocument();
 
     const released = progress({ ...CAPTURING, liveViewUrl: null });
-    rerender(<DiscoveryChecklist company={company('discovering', released)} />);
+    rerender(
+      <DiscoveryChecklist receivedAt={POLLED_AT} company={company('discovering', released)} />
+    );
 
     // Everything the old rule looked at is UNCHANGED: still running, step 1 still
     // active, still spinning. Only the URL moved.
@@ -356,23 +382,25 @@ describe('DiscoveryChecklist', () => {
     // live views that were still alive as readily as it missed dead ones.
     renderWithProviders(
       <DiscoveryChecklist
+        receivedAt={POLLED_AT}
         company={company('discovering', progress({ ...RUNNING, liveViewUrl: LIVE_VIEW_URL }))}
-      />,
+      />
     );
     expect(screen.getByTestId('discovery-live-view')).toBeInTheDocument();
   });
 
   it('closes the space smoothly and ends with nothing in it', async () => {
     const { rerender } = renderWithProviders(
-      <DiscoveryChecklist company={company('discovering', CAPTURING)} />,
+      <DiscoveryChecklist receivedAt={POLLED_AT} company={company('discovering', CAPTURING)} />
     );
     const frameBox = screen.getByTestId('discovery-live-view-frame');
     const panel = screen.getByTestId('discovery-checklist');
 
     rerender(
       <DiscoveryChecklist
+        receivedAt={POLLED_AT}
         company={company('discovering', progress({ ...CAPTURING, liveViewUrl: null }))}
-      />,
+      />
     );
 
     // NO JUMP. The sized wrapper is the SAME node, still mounted and still holding the
@@ -393,6 +421,155 @@ describe('DiscoveryChecklist', () => {
     expect(screen.queryByTestId('discovery-live-view-toggle')).not.toBeInTheDocument();
   });
 
+  it('says goodbye when the session ends UNDER a run that is still going', () => {
+    // A 375px panel that vanishes while the checklist above it is still ticking reads as
+    // something breaking. The close is two beats instead: the frame goes immediately —
+    // that part is not negotiable, it is Browserbase's page and it is already painting
+    // their error — and one line takes the toggle's place to say what happened, before
+    // the section folds itself away.
+    vi.useFakeTimers();
+    try {
+      const { rerender } = renderWithProviders(
+        <DiscoveryChecklist receivedAt={POLLED_AT} company={company('discovering', CAPTURING)} />
+      );
+      fireEvent.load(screen.getByTestId('discovery-live-view'));
+
+      rerender(
+        <DiscoveryChecklist
+          receivedAt={POLLED_AT + 4_000}
+          company={company('discovering', progress({ ...CAPTURING, liveViewUrl: null }))}
+        />
+      );
+
+      // GONE in the same render, and the control over it goes with it.
+      expect(screen.queryByTestId('discovery-live-view')).not.toBeInTheDocument();
+      expect(document.querySelectorAll('iframe')).toHaveLength(0);
+      expect(screen.queryByTestId('discovery-live-view-toggle')).not.toBeInTheDocument();
+
+      // ...and in its place, the reason. Still `running`, so it says so.
+      expect(screen.getByTestId('discovery-live-view-ended')).toHaveTextContent(
+        /live view ended — still setting up/i
+      );
+
+      // Then it closes itself, without anyone pressing anything — and it is the GOODBYE
+      // that collapses, not the toggle flashing back for the last frames of a session
+      // that is over.
+      act(() => {
+        vi.advanceTimersByTime(1_400);
+      });
+      expect(screen.getByTestId('discovery-live-view-ended')).toBeInTheDocument();
+      expect(screen.queryByTestId('discovery-live-view-toggle')).not.toBeInTheDocument();
+
+      // ...and once the collapse settles there is nothing left at all.
+      act(() => {
+        vi.advanceTimersByTime(1_000);
+      });
+      expect(screen.queryByTestId('discovery-live-view-section')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('discovery-live-view-ended')).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('says nothing when the live view ends because the RUN ended', () => {
+    // The checklist directly above has just said how the whole thing turned out. A line
+    // under it announcing that the video stopped is noise stacked on the answer — so the
+    // terminal path keeps the single-movement close it always had.
+    const { rerender } = renderWithProviders(
+      <DiscoveryChecklist receivedAt={POLLED_AT} company={company('discovering', CAPTURING)} />
+    );
+    fireEvent.load(screen.getByTestId('discovery-live-view'));
+
+    rerender(
+      <DiscoveryChecklist
+        receivedAt={POLLED_AT + 4_000}
+        company={company('refused', progress({ ...REFUSED, liveViewUrl: null }))}
+      />
+    );
+
+    expect(screen.queryByTestId('discovery-live-view')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('discovery-live-view-ended')).not.toBeInTheDocument();
+  });
+
+  it('says nothing about a frame the user never actually saw', () => {
+    // The goodbye is owed to a session that was ON SCREEN. A frame that never fired
+    // `load` painted nothing, so there is no "it ended" to refer to — the empty box just
+    // goes, which is what the load watchdog was always for.
+    vi.useFakeTimers();
+    try {
+      renderWithProviders(
+        <DiscoveryChecklist receivedAt={POLLED_AT} company={company('discovering', CAPTURING)} />
+      );
+
+      act(() => {
+        vi.advanceTimersByTime(10_000);
+      });
+
+      expect(screen.queryByTestId('discovery-live-view')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('discovery-live-view-ended')).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('closes the frame the moment it says its own socket is gone', () => {
+    // THE ONLY SIGNAL THAT BEATS THE PAINT. Everything else in this component learns
+    // about the disconnect from a payload, and a payload is structurally later than the
+    // socket — the browser dies inside the capture child, the backend writes the null
+    // after that child exits, and a poll has to carry it. The frame itself says so at
+    // the instant it happens, which is the difference between a user reading
+    // "Debugging connection was closed" for a second and never seeing it.
+    renderWithProviders(
+      <DiscoveryChecklist receivedAt={POLLED_AT} company={company('discovering', CAPTURING)} />
+    );
+    fireEvent.load(screen.getByTestId('discovery-live-view'));
+
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          data: 'browserbase-disconnected',
+          origin: 'https://www.browserbase.com',
+        })
+      );
+    });
+
+    expect(screen.queryByTestId('discovery-live-view')).not.toBeInTheDocument();
+    expect(document.querySelectorAll('iframe')).toHaveLength(0);
+    // ...and it is a real ending, not a silent deletion.
+    expect(screen.getByTestId('discovery-live-view-ended')).toBeInTheDocument();
+  });
+
+  it('ignores a disconnect claim from anywhere but the frame it mounted', () => {
+    // It is a message from someone else's page, so the guard is the whole feature: any
+    // origin on the internet can post the right string into our window, and acting on it
+    // would delete a live view a user is watching. The origin checked is the origin of
+    // the URL WE mounted — not an allowlist, and never `*`.
+    renderWithProviders(
+      <DiscoveryChecklist receivedAt={POLLED_AT} company={company('discovering', CAPTURING)} />
+    );
+    fireEvent.load(screen.getByTestId('discovery-live-view'));
+
+    act(() => {
+      // Right payload, wrong sender.
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          data: 'browserbase-disconnected',
+          origin: 'https://evil.example',
+        })
+      );
+      // Right sender, wrong payload — including the opaque-origin string a sandboxed
+      // frame would produce if `allow-same-origin` were ever dropped.
+      window.dispatchEvent(
+        new MessageEvent('message', { data: 'resize', origin: 'https://www.browserbase.com' })
+      );
+      window.dispatchEvent(
+        new MessageEvent('message', { data: 'browserbase-disconnected', origin: 'null' })
+      );
+    });
+
+    expect(screen.getByTestId('discovery-live-view')).toBeInTheDocument();
+  });
+
   it('takes the space back from a frame that never loads', () => {
     // A frame that shows nothing is the same dead space as a frame showing a dead
     // socket. NOTE the signal: `onError` on an <iframe> can never fire — react-dom 19
@@ -400,7 +577,9 @@ describe('DiscoveryChecklist', () => {
     // of a `load` rather than on a failure event that does not exist.
     vi.useFakeTimers();
     try {
-      renderWithProviders(<DiscoveryChecklist company={company('discovering', CAPTURING)} />);
+      renderWithProviders(
+        <DiscoveryChecklist receivedAt={POLLED_AT} company={company('discovering', CAPTURING)} />
+      );
       expect(screen.getByTestId('discovery-live-view')).toBeInTheDocument();
 
       act(() => {
@@ -413,20 +592,167 @@ describe('DiscoveryChecklist', () => {
     }
   });
 
-  it('leaves a frame that DID load alone', () => {
+  it('leaves a frame that DID load alone, for as long as the polls keep confirming it', () => {
     // The other half of the watchdog, and the one that matters: it must not delete a
-    // working live view. A frame that reports `load` is never touched again, however
-    // long the capture then takes.
+    // working live view. A frame that reports `load` is never touched again by the
+    // watchdog, however long the capture then takes.
+    //
+    // The polls are what makes "however long" true, and they are simulated here rather
+    // than assumed: the live view's lease (`LIVE_VIEW_TRUST_MS`) is renewed by each
+    // fulfilled payload, so a run this long is a run in which the list kept answering.
+    // Without the rerenders this is the STALLED case, which is the next test.
     vi.useFakeTimers();
     try {
-      renderWithProviders(<DiscoveryChecklist company={company('discovering', CAPTURING)} />);
+      const { rerender } = renderWithProviders(
+        <DiscoveryChecklist receivedAt={POLLED_AT} company={company('discovering', CAPTURING)} />
+      );
       fireEvent.load(screen.getByTestId('discovery-live-view'));
 
-      act(() => {
-        vi.advanceTimersByTime(60_000);
-      });
+      // 15 polls at the discovery cadence — a minute of a session the backend has not
+      // retracted, with every poll saying so.
+      for (let poll = 1; poll <= 15; poll += 1) {
+        act(() => {
+          vi.advanceTimersByTime(4_000);
+        });
+        rerender(
+          <DiscoveryChecklist
+            receivedAt={POLLED_AT + poll * 4_000}
+            company={company('discovering', CAPTURING)}
+          />
+        );
+      }
 
       expect(screen.getByTestId('discovery-live-view')).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('takes the frame away when the polls stop confirming it, even though the URL still stands', () => {
+    // THE CASE THE SERVER CANNOT CLOSE, and the one in the screenshot.
+    //
+    // The browser dies inside the capture child, so Browserbase's "Debugging connection
+    // was closed" is already painted before the backend can write `live_view_url: null`
+    // — and while polls are FAILING that null never arrives at all, because RTK Query
+    // deliberately keeps serving the last good payload (that is the "We couldn't refresh
+    // just now" banner working as designed). The URL below therefore never changes; what
+    // changes is that nothing fresh ever confirms it again.
+    //
+    // So the claim EXPIRES. Nothing here is derived from the checklist — the run is still
+    // `running` and step 1 is still `active`, exactly as in the healthy case above.
+    vi.useFakeTimers();
+    try {
+      renderWithProviders(
+        <DiscoveryChecklist receivedAt={POLLED_AT} company={company('discovering', CAPTURING)} />
+      );
+      fireEvent.load(screen.getByTestId('discovery-live-view'));
+
+      // One poll interval: still believed, because a poll that is merely in flight has
+      // not failed. This half is what stops the lease being a flicker.
+      act(() => {
+        vi.advanceTimersByTime(4_000);
+      });
+      expect(screen.getByTestId('discovery-live-view')).toBeInTheDocument();
+
+      // Past the interval plus its round-trip allowance: we have nothing recent enough
+      // to keep asserting there is a browser open, so we stop asserting it.
+      act(() => {
+        vi.advanceTimersByTime(2_500);
+      });
+      expect(screen.queryByTestId('discovery-live-view')).not.toBeInTheDocument();
+      expect(document.querySelectorAll('iframe')).toHaveLength(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not resurrect a frame it has already retired, even if the poll recovers', () => {
+    // A recovered payload is itself one poll behind the socket, so remounting on it
+    // would be guessing again — and the visible cost of guessing wrong is the frame
+    // flickering back to show someone else's error. The live view is a garnish; the tail
+    // of one is not worth a flicker.
+    vi.useFakeTimers();
+    try {
+      const { rerender } = renderWithProviders(
+        <DiscoveryChecklist receivedAt={POLLED_AT} company={company('discovering', CAPTURING)} />
+      );
+      fireEvent.load(screen.getByTestId('discovery-live-view'));
+      act(() => {
+        vi.advanceTimersByTime(6_500);
+      });
+      expect(screen.queryByTestId('discovery-live-view')).not.toBeInTheDocument();
+
+      // The list starts answering again, still carrying the same URL.
+      rerender(
+        <DiscoveryChecklist
+          receivedAt={POLLED_AT + 20_000}
+          company={company('discovering', CAPTURING)}
+        />
+      );
+      expect(screen.queryByTestId('discovery-live-view')).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('gives a NEW session its own frame after an older one was retired', () => {
+    // The reason every verdict is recorded as the URL it refers to rather than as a
+    // boolean: a boolean "this frame is dead" outlives its session, and the next
+    // capture would mount into a component that had already made up its mind.
+    vi.useFakeTimers();
+    try {
+      const { rerender } = renderWithProviders(
+        <DiscoveryChecklist receivedAt={POLLED_AT} company={company('discovering', CAPTURING)} />
+      );
+      act(() => {
+        vi.advanceTimersByTime(10_000);
+      });
+      expect(screen.queryByTestId('discovery-live-view')).not.toBeInTheDocument();
+
+      const secondSession = progress({
+        ...CAPTURING,
+        liveViewUrl: 'https://www.browserbase.com/devtools-fullscreen/s/second',
+      });
+      rerender(
+        <DiscoveryChecklist
+          receivedAt={POLLED_AT + 12_000}
+          company={company('discovering', secondSession)}
+        />
+      );
+
+      expect(screen.getByTestId('discovery-live-view')).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('will not watch a session past the ceiling Browserbase kills it at', () => {
+    // The backstop for the row nobody will ever retract: a SIGKILLed worker never runs
+    // the `finally` that clears the URL, so the polls keep succeeding and keep carrying
+    // it, and the lease keeps being renewed by them. Past
+    // `_BROWSERBASE_SESSION_TTL_S` (300s, the `timeout` we open the session with) the
+    // session cannot exist whatever the row says.
+    vi.useFakeTimers();
+    try {
+      const { rerender } = renderWithProviders(
+        <DiscoveryChecklist receivedAt={POLLED_AT} company={company('discovering', CAPTURING)} />
+      );
+      fireEvent.load(screen.getByTestId('discovery-live-view'));
+
+      // Polls all the way through, so the lease is never the thing that closes it.
+      for (let poll = 1; poll <= 80; poll += 1) {
+        act(() => {
+          vi.advanceTimersByTime(4_000);
+        });
+        rerender(
+          <DiscoveryChecklist
+            receivedAt={POLLED_AT + poll * 4_000}
+            company={company('discovering', CAPTURING)}
+          />
+        );
+      }
+
+      expect(screen.queryByTestId('discovery-live-view')).not.toBeInTheDocument();
     } finally {
       vi.useRealTimers();
     }
@@ -435,8 +761,9 @@ describe('DiscoveryChecklist', () => {
   it('hides the live view once the run is over', () => {
     renderWithProviders(
       <DiscoveryChecklist
+        receivedAt={POLLED_AT}
         company={company('refused', progress({ ...REFUSED, liveViewUrl: LIVE_VIEW_URL }))}
-      />,
+      />
     );
     // The session is gone by then — the URL would render a dead frame.
     expect(screen.queryByTestId('discovery-live-view-toggle')).not.toBeInTheDocument();
@@ -457,7 +784,9 @@ describe('DiscoveryChecklist', () => {
         step('ready', 'pending'),
       ],
     });
-    renderWithProviders(<DiscoveryChecklist company={company('refused', stalledMidCapture)} />);
+    renderWithProviders(
+      <DiscoveryChecklist receivedAt={POLLED_AT} company={company('refused', stalledMidCapture)} />
+    );
 
     expect(screen.queryByTestId('discovery-live-view')).not.toBeInTheDocument();
     expect(screen.queryByTestId('discovery-live-view-section')).not.toBeInTheDocument();
@@ -470,18 +799,35 @@ describe('DiscoveryChecklist', () => {
     // further down the page under the reader's eye.
     renderWithProviders(
       <DiscoveryChecklist
+        receivedAt={POLLED_AT}
         company={company('discovering', {
           ...CAPTURING,
           network: {
             recorded: 2,
             requests: [
-              { method: 'GET', url: 'https://acme.example/a', status: 200, bytes: 512, records: null, state: 'recorded', note: null },
-              { method: 'GET', url: 'https://acme.example/b', status: 200, bytes: 512, records: null, state: 'recorded', note: null },
+              {
+                method: 'GET',
+                url: 'https://acme.example/a',
+                status: 200,
+                bytes: 512,
+                records: null,
+                state: 'recorded',
+                note: null,
+              },
+              {
+                method: 'GET',
+                url: 'https://acme.example/b',
+                status: 200,
+                bytes: 512,
+                records: null,
+                state: 'recorded',
+                note: null,
+              },
             ],
             sample: null,
           },
         })}
-      />,
+      />
     );
 
     const liveView = screen.getByTestId('discovery-live-view-section');
@@ -496,12 +842,11 @@ describe('DiscoveryChecklist', () => {
 
   it('renders nothing at all for a company with no checklist', () => {
     const { container } = renderWithProviders(
-      <DiscoveryChecklist company={company('unverified', null)} />,
+      <DiscoveryChecklist receivedAt={POLLED_AT} company={company('unverified', null)} />
     );
     expect(container).toBeEmptyDOMElement();
   });
 });
-
 
 describe('the first-scan rung', () => {
   // `first_scan` is settled by the FIRST HARVEST — a different run that begins AFTER
@@ -523,7 +868,12 @@ describe('the first-scan rung', () => {
     });
 
   it('names the fifth rung in words, never its raw key', () => {
-    renderWithProviders(<DiscoveryChecklist company={company('unverified', scanning('active'))} />);
+    renderWithProviders(
+      <DiscoveryChecklist
+        receivedAt={POLLED_AT}
+        company={company('unverified', scanning('active'))}
+      />
+    );
     // "Fetching all current jobs", not "Reading the board". This rung IS the first
     // harvest, and the word "all" is what a partial board cannot honestly tick.
     expect(screen.getByText('Fetching all current jobs')).toBeInTheDocument();
@@ -531,7 +881,12 @@ describe('the first-scan rung', () => {
   });
 
   it('keeps its spinner while the harvest runs, even though the outcome is terminal', () => {
-    renderWithProviders(<DiscoveryChecklist company={company('unverified', scanning('active'))} />);
+    renderWithProviders(
+      <DiscoveryChecklist
+        receivedAt={POLLED_AT}
+        company={company('unverified', scanning('active'))}
+      />
+    );
     const row = screen.getByTestId('discovery-step-first_scan');
     // Every OTHER rung is downgraded active -> pending once the outcome settles. This one
     // must not be, or the only thing still happening draws as a grey circle.
@@ -541,8 +896,9 @@ describe('the first-scan rung', () => {
   it('settles to a plain tick, without the engine telemetry, once the harvest lands', () => {
     renderWithProviders(
       <DiscoveryChecklist
+        receivedAt={POLLED_AT}
         company={company('unverified', scanning('done', 'read 88 job(s) from the board'))}
-      />,
+      />
     );
     const row = screen.getByTestId('discovery-step-first_scan');
     expect(within(row).getByText('Fetching all current jobs')).toBeInTheDocument();
@@ -556,11 +912,12 @@ describe('the first-scan rung', () => {
   it('a failed first scan carries its reason and does NOT read as a refusal', () => {
     renderWithProviders(
       <DiscoveryChecklist
+        receivedAt={POLLED_AT}
         company={company(
           'unverified',
-          scanning('failed', 'we could not read the board on this run — we will try again'),
+          scanning('failed', 'we could not read the board on this run — we will try again')
         )}
-      />,
+      />
     );
     expect(screen.getByText(/we will try again/)).toBeInTheDocument();
     // The board IS tracked — a bad first harvest must never present as "not trackable".
@@ -575,18 +932,19 @@ describe('the first-scan rung', () => {
     // to ignore alarm chrome.
     renderWithProviders(
       <DiscoveryChecklist
+        receivedAt={POLLED_AT}
         company={company(
           'unverified',
-          scanning('failed', 'we could not read the board on this run — we will try again'),
+          scanning('failed', 'we could not read the board on this run — we will try again')
         )}
-      />,
+      />
     );
     const row = screen.getByTestId('discovery-step-first_scan');
     expect(within(row).queryByText('✕')).not.toBeInTheDocument();
     expect(within(row).getByText('○')).toBeInTheDocument();
     // The reason still shows — only the colour changed.
     expect(within(row).getByTestId('discovery-result-first_scan')).toHaveTextContent(
-      /we will try again/,
+      /we will try again/
     );
   });
 
@@ -594,9 +952,11 @@ describe('the first-scan rung', () => {
     // The other half: calming the unactionable states must not calm the one state the
     // reader CAN act on. A refused board keeps its red ✕, and it is the only thing that
     // says whether the pasted URL was the wrong page.
-    renderWithProviders(<DiscoveryChecklist company={company('refused', REFUSED)} />);
+    renderWithProviders(
+      <DiscoveryChecklist receivedAt={POLLED_AT} company={company('refused', REFUSED)} />
+    );
     expect(
-      within(screen.getByTestId('discovery-step-verify_read')).getByText('✕'),
+      within(screen.getByTestId('discovery-step-verify_read')).getByText('✕')
     ).toBeInTheDocument();
   });
 
@@ -606,20 +966,19 @@ describe('the first-scan rung', () => {
     // Without this, quietening the retry line and quietening the REFUSAL line look the
     // same to the suite — which is how a fix for over-alarming turns into under-alarming.
     const { unmount } = renderWithProviders(
-      <DiscoveryChecklist company={company('refused', REFUSED)} />,
+      <DiscoveryChecklist receivedAt={POLLED_AT} company={company('refused', REFUSED)} />
     );
-    const refusal = getComputedStyle(
-      screen.getByTestId('discovery-result-verify_read'),
-    ).color;
+    const refusal = getComputedStyle(screen.getByTestId('discovery-result-verify_read')).color;
     unmount();
 
     renderWithProviders(
       <DiscoveryChecklist
+        receivedAt={POLLED_AT}
         company={company(
           'unverified',
-          scanning('failed', 'we could not read the board on this run — we will try again'),
+          scanning('failed', 'we could not read the board on this run — we will try again')
         )}
-      />,
+      />
     );
     const retry = getComputedStyle(screen.getByTestId('discovery-result-first_scan')).color;
 
@@ -643,7 +1002,7 @@ describe('a partial board, and the rung that used to argue with its chip', () =>
         'verify_read',
         'done',
         "read 20 job(s), but this board's own response counts 22,500 job(s) — we can only " +
-          'track part of this board',
+          'track part of this board'
       ),
       step('ready', 'done', 'reading part of the board — every job we can see, refreshed daily'),
       step('first_scan', 'done', 'read 1,000 job(s) from the board'),
@@ -654,13 +1013,13 @@ describe('a partial board, and the rung that used to argue with its chip', () =>
     company('unverified', PARTIAL, { openJobCount: 1_000, lastSuccessAt: null });
 
   it('marks the LAST rung ◐ and puts the board’s own numbers under it', () => {
-    renderWithProviders(<DiscoveryChecklist company={partialCompany()} />);
+    renderWithProviders(<DiscoveryChecklist receivedAt={POLLED_AT} company={partialCompany()} />);
 
     const row = screen.getByTestId('discovery-step-first_scan');
     expect(within(row).getByText('◐')).toBeInTheDocument();
     expect(within(row).queryByText('✓')).not.toBeInTheDocument();
     expect(within(row).getByTestId('discovery-result-first_scan')).toHaveTextContent(
-      "This board's own response counts 22,500 job(s); we can reach 1,000.",
+      "This board's own response counts 22,500 job(s); we can reach 1,000."
     );
   });
 
@@ -669,7 +1028,7 @@ describe('a partial board, and the rung that used to argue with its chip', () =>
     // and are ready to track. Only COVERAGE is partial. Qualifying all five would mark
     // four true things to fix one false one — and cost the list the scannability it was
     // cut back to get.
-    renderWithProviders(<DiscoveryChecklist company={partialCompany()} />);
+    renderWithProviders(<DiscoveryChecklist receivedAt={POLLED_AT} company={partialCompany()} />);
 
     for (const key of ['open_page', 'find_feed', 'verify_read', 'ready']) {
       const row = screen.getByTestId(`discovery-step-${key}`);
@@ -685,11 +1044,11 @@ describe('a partial board, and the rung that used to argue with its chip', () =>
     // The backend's sentence opens with "read 20 job(s)" — the two-page acceptance
     // probe — on a row whose chip says 1,000 open jobs. Printing it verbatim would
     // answer one confusion with a worse one.
-    renderWithProviders(<DiscoveryChecklist company={partialCompany()} />);
+    renderWithProviders(<DiscoveryChecklist receivedAt={POLLED_AT} company={partialCompany()} />);
     expect(screen.queryByText(/read 20 job/)).not.toBeInTheDocument();
     // ...and the verdict clause is not repeated under a heading that already says it.
     expect(screen.getByTestId('discovery-headline')).toHaveTextContent(
-      /we can only read part of acme's board/i,
+      /we can only read part of acme's board/i
     );
     expect(screen.queryByText(/we can only track part of this board/)).not.toBeInTheDocument();
   });
@@ -702,7 +1061,10 @@ describe('a partial board, and the rung that used to argue with its chip', () =>
       steps: [...PARTIAL.steps.slice(0, 4), step('first_scan', 'active')],
     });
     renderWithProviders(
-      <DiscoveryChecklist company={company('unverified', stillFetching, { openJobCount: 0 })} />,
+      <DiscoveryChecklist
+        receivedAt={POLLED_AT}
+        company={company('unverified', stillFetching, { openJobCount: 0 })}
+      />
     );
     const row = screen.getByTestId('discovery-step-first_scan');
     expect(within(row).getByLabelText('in progress')).toBeInTheDocument();
@@ -717,7 +1079,9 @@ describe('a partial board, and the rung that used to argue with its chip', () =>
       outcome: 'tracking',
       steps: [...PARTIAL.steps.slice(0, 4), step('first_scan', 'done', 'read 90 job(s)')],
     });
-    renderWithProviders(<DiscoveryChecklist company={company('unverified', whole)} />);
+    renderWithProviders(
+      <DiscoveryChecklist receivedAt={POLLED_AT} company={company('unverified', whole)} />
+    );
     const row = screen.getByTestId('discovery-step-first_scan');
     expect(within(row).getByText('✓')).toBeInTheDocument();
     expect(within(row).queryByText('◐')).not.toBeInTheDocument();
@@ -734,12 +1098,12 @@ describe('the accordion', () => {
     });
 
   it('is CLOSED on a settled row — one line, and nothing else in the DOM', () => {
-    const { container } = renderWithProviders(<DiscoveryChecklist company={settled()} />);
+    const { container } = renderWithProviders(
+      <DiscoveryChecklist receivedAt={POLLED_AT} company={settled()} />
+    );
 
     expect(screen.getByTestId('discovery-checklist')).toHaveAttribute('data-open', 'false');
-    expect(screen.getByTestId('discovery-headline')).toHaveTextContent(
-      /we can read acme's board/i,
-    );
+    expect(screen.getByTestId('discovery-headline')).toHaveTextContent(/we can read acme's board/i);
     // `unmountOnExit`: the rungs are absent, not hidden. That is what makes it
     // affordable to keep the evidence on every tracked row forever.
     expect(screen.queryByTestId('discovery-step-open_page')).not.toBeInTheDocument();
@@ -749,7 +1113,7 @@ describe('the accordion', () => {
 
   it('opens on a click, and closes again', async () => {
     const user = userEvent.setup();
-    renderWithProviders(<DiscoveryChecklist company={settled()} />);
+    renderWithProviders(<DiscoveryChecklist receivedAt={POLLED_AT} company={settled()} />);
 
     await user.click(screen.getByTestId('discovery-toggle'));
     expect(screen.getByTestId('discovery-step-open_page')).toBeInTheDocument();
@@ -760,13 +1124,17 @@ describe('the accordion', () => {
   });
 
   it('is OPEN while the setup is running — the streaming must not happen in a box', () => {
-    renderWithProviders(<DiscoveryChecklist company={company('discovering', RUNNING)} />);
+    renderWithProviders(
+      <DiscoveryChecklist receivedAt={POLLED_AT} company={company('discovering', RUNNING)} />
+    );
     expect(screen.getByTestId('discovery-checklist')).toHaveAttribute('data-open', 'true');
     expect(screen.getByTestId('discovery-step-open_page')).toBeInTheDocument();
   });
 
   it('is OPEN on a refusal — the verdict and its one action need no click', () => {
-    renderWithProviders(<DiscoveryChecklist company={company('refused', REFUSED)} />);
+    renderWithProviders(
+      <DiscoveryChecklist receivedAt={POLLED_AT} company={company('refused', REFUSED)} />
+    );
     expect(screen.getByTestId('discovery-checklist')).toHaveAttribute('data-open', 'true');
     expect(screen.getByTestId('discovery-next-actions')).toBeInTheDocument();
   });
@@ -774,7 +1142,9 @@ describe('the accordion', () => {
   it('is OPEN on an accepted board whose first harvest has not landed', () => {
     // `first_scan` is still spinning; that is the only thing happening and it is the
     // thing the user is waiting on.
-    renderWithProviders(<DiscoveryChecklist company={company('unverified', TRACKING)} />);
+    renderWithProviders(
+      <DiscoveryChecklist receivedAt={POLLED_AT} company={company('unverified', TRACKING)} />
+    );
     expect(screen.getByTestId('discovery-checklist')).toHaveAttribute('data-open', 'true');
   });
 
@@ -783,11 +1153,11 @@ describe('the accordion', () => {
     // at the exact moment the rung being read ticked over — would be the worst possible
     // time to take it away.
     const { rerender } = renderWithProviders(
-      <DiscoveryChecklist company={company('unverified', TRACKING)} />,
+      <DiscoveryChecklist receivedAt={POLLED_AT} company={company('unverified', TRACKING)} />
     );
     expect(screen.getByTestId('discovery-checklist')).toHaveAttribute('data-open', 'true');
 
-    rerender(<DiscoveryChecklist company={settled()} />);
+    rerender(<DiscoveryChecklist receivedAt={POLLED_AT} company={settled()} />);
     expect(screen.getByTestId('discovery-checklist')).toHaveAttribute('data-open', 'true');
     expect(screen.getByTestId('discovery-step-open_page')).toBeInTheDocument();
   });

@@ -10,10 +10,6 @@ import {
   addLocationToFilters,
   removeLocationFromFilters,
   clearLocations,
-  setDepartments,
-  addDepartmentToFilters,
-  removeDepartmentFromFilters,
-  clearDepartments,
   toggleSoftwareOnlyInFilters,
   setSoftwareOnlyInFilters,
 } from '../../features/filters/utils/filterReducerUtils';
@@ -280,73 +276,6 @@ describe('filterReducerUtils - Locations', () => {
       clearLocations(filters);
 
       expect(filters.location).toBeUndefined();
-    });
-  });
-});
-
-describe('filterReducerUtils - Departments', () => {
-  describe('setDepartments', () => {
-    it('should set departments to a specific value', () => {
-      const filters = { department: undefined };
-      const departments = ['Engineering', 'Product'];
-
-      setDepartments(filters, departments);
-
-      expect(filters.department).toEqual(departments);
-    });
-  });
-
-  describe('addDepartmentToFilters', () => {
-    it('should add a department to empty departments array', () => {
-      const filters = { department: undefined };
-
-      addDepartmentToFilters(filters, 'Engineering');
-
-      expect(filters.department).toEqual(['Engineering']);
-    });
-
-    it('should add a department to existing departments', () => {
-      const filters = { department: ['Engineering'] };
-
-      addDepartmentToFilters(filters, 'Product');
-
-      expect(filters.department).toEqual(['Engineering', 'Product']);
-    });
-
-    it('should not add duplicate departments', () => {
-      const filters = { department: ['Engineering'] };
-
-      addDepartmentToFilters(filters, 'Engineering');
-
-      expect(filters.department).toHaveLength(1);
-    });
-  });
-
-  describe('removeDepartmentFromFilters', () => {
-    it('should remove a department', () => {
-      const filters = { department: ['Engineering', 'Product'] };
-
-      removeDepartmentFromFilters(filters, 'Engineering');
-
-      expect(filters.department).toEqual(['Product']);
-    });
-
-    it('should set department to undefined when removing last department', () => {
-      const filters = { department: ['Engineering'] };
-
-      removeDepartmentFromFilters(filters, 'Engineering');
-
-      expect(filters.department).toBeUndefined();
-    });
-  });
-
-  describe('clearDepartments', () => {
-    it('should clear all departments', () => {
-      const filters = { department: ['Engineering', 'Product'] };
-
-      clearDepartments(filters);
-
-      expect(filters.department).toBeUndefined();
     });
   });
 });

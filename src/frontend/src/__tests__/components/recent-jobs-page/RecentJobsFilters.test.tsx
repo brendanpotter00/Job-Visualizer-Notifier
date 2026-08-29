@@ -139,7 +139,6 @@ const seededJobs: Job[] = [
         isPrimary: true,
       },
     ],
-    department: 'Engineering',
     raw: {},
   },
   {
@@ -162,7 +161,6 @@ const seededJobs: Job[] = [
         isPrimary: true,
       },
     ],
-    department: 'People',
     raw: {},
   },
 ];

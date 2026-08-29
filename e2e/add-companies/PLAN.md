@@ -424,9 +424,12 @@ himself immediately afterwards.*
   | 5 | **`job_listings WHERE source_id='custom:<id>'` is zero** | DB |
   | 6 | `/api/jobs-qa/custom-company-integrity` → `ownerlessCount` **unchanged from the pre-run baseline** | API |
   | 7 | re-adding the same URL immediately afterwards starts a **fresh** flow (new id, new discovery) — the owner's actual next action | API |
-* **Baseline caution**: `ownerlessCount` is **1** in the dev DB today (`u-6hkpc6fh0z`, 10,020 orphan
-  jobs). Assert the **delta**, not zero, or the clone inherits a permanent red. (Scrubbing the clone
-  per §2 removes it — assert the delta anyway.)
+* **Baseline caution**: `ownerlessCount` was **1** in the dev DB when this was written
+  (`u-6hkpc6fh0z`, then 10,020 orphan jobs — 12,437 by the time it was collected). It is **0**
+  now: `_scrub.py` removes inherited `visibility='user'` rows from the clone, and
+  `api.tasks.reap_ownerless_companies` collected the source row in `jobscraper_pr243`. **Assert
+  the delta anyway** — the reaper is allowed to change this number mid-run, so an absolute
+  assertion would be racing it.
 * **UI timing note**: `confirmRemoval` closes the dialog **optimistically**, before the DELETE
   resolves (`MyCompaniesList.tsx:255-260`). Wait for the row to leave the list, not for the dialog to close.
 
@@ -771,7 +774,7 @@ Sequential. Each step is verifiable on its own; do not start the next until the 
 | **`vercel dev` vs `vite dev` divergence** | Low | A proxy bug ships unseen | Stated as explicit non-coverage in `CASES.md`. The proxies are thin. |
 | **The frontend reads the credential once at init** | Medium | Looks like flaky sign-out | `addInitScript` only. Never `page.evaluate` after load. |
 | **A settled list stops polling** | Certain | UI test hangs to timeout | `expect.poll` + explicit `page.reload()`, never a bare `waitFor`. |
-| **`ownerlessCount` baseline is not 0** | Certain in the dev DB | Permanent false red | Scrub the clone, and assert the delta regardless. |
+| **`ownerlessCount` baseline is not 0** | ~~Certain in the dev DB~~ — now 0 (scrub + the ownerless reaper) | Permanent false red | Scrub the clone, and assert the delta regardless: the reaper may move the number mid-run. |
 | **A published dollar cost would be a guess** | Certain | Wrong budget | Measure it from the `usage` block on the first real run. |
 | **Two `discovering` rows + stuck queue jobs exist in the dev DB right now** | Certain | The clone inherits them | `ensure_db.sh` truncates `procrastinate_jobs` and deletes inherited `visibility='user'` rows. |
 

@@ -24,7 +24,9 @@ Three things are pinned here and they are not the same weight.
    ``test_lifeatspotify_reaches_the_suggestion_end_to_end`` (it is reachable) and
    ``test_the_unverified_suggestion_run_closes_nothing_and_accrues_no_miss`` (the SAME run
    still closes nothing and is not even a miss), plus ``test_no_oracle_still_never_verifies``
-   on the guardrail itself.
+   on the guardrail itself. Those two now run against a VERIFIED harvest — the
+   history-delta oracle lets a single-request board verify — and still assert the same
+   thing about the close path, which is what they were always for.
 
 The 70% number itself is evidence-backed, not chosen: scored across all 9,045 pairs of the
 135 production companies, the worst FALSE pair clearing the ≥20 floor reaches 20.0%, the
@@ -1179,12 +1181,16 @@ def test_a_verified_run_is_always_comparable() -> None:
 
 
 def test_no_oracle_still_never_verifies() -> None:
-    """**THE GUARDRAIL, pinned.** The fix must not have widened VERIFIED by one inch.
+    """**THE GUARDRAIL, pinned.** The unit-10 fix must not have widened VERIFIED by one
+    inch, and it did not.
 
-    VERIFIED is what licences the close sweep, and the whole reason ``no_oracle`` exists is
-    that such a board cannot prove it saw everything. Every shape below still answers
-    UNVERIFIED ``no_oracle`` — including the clean single-request one the suggestion now
-    runs on.
+    VERIFIED is what licences the close sweep. Every shape below still answers UNVERIFIED
+    ``no_oracle`` — and note WHY, because the reason changed under this test without the
+    assertions moving: ``verify_harvest`` is called with no ``recipe``, and no recipe means
+    no completeness claim. The history-delta oracle that lets a discovered ``none`` board
+    verify is reachable only from the caller that has the stored request to reason about
+    (``tasks.fetch_custom_company``, discovered transports only), so every OTHER caller —
+    the six public ATS crons, the custom ATS path, and this test — is byte-identical.
     """
     from api.services.custom_baseline import Baseline
     from api.services.harvest_verification import (
@@ -1211,9 +1217,14 @@ async def test_lifeatspotify_reaches_the_suggestion_end_to_end(db_conn, monkeypa
     """**The bug, fixed, at the level the user experiences it.**
 
     A discovered board that returns its whole catalogue in one request, harvested by the
-    real leaf task, lands UNVERIFIED ``no_oracle`` — and now produces the Spotify
-    suggestion anyway. Numbers are the measured ones: 70 shared of 79 candidate titles
-    against 80 on ``lever:spotify``, ratio 0.875.
+    real leaf task, produces the Spotify suggestion. Numbers are the measured ones: 70
+    shared of 79 candidate titles against 80 on ``lever:spotify``, ratio 0.875.
+
+    The run's VERDICT moved under it and that is fine: with the history-delta oracle a
+    single-request board with no page-shaped parameter now reaches VERIFIED instead of
+    UNVERIFIED ``no_oracle``. What this test is about — that the comparison is REACHED
+    for a whole-catalogue board — is unchanged, and ``read_untruncated`` was always
+    true for this shape either way.
     """
     from api.tests.test_fetch_custom_company import _patch_env, _seed_discovered_company
 
@@ -1235,9 +1246,10 @@ async def test_lifeatspotify_reaches_the_suggestion_end_to_end(db_conn, monkeypa
 
     await fetch_custom_company(company_id=company_id)
 
-    # The run itself is, and stays, UNVERIFIED — that is not what changed.
     harvest = _harvest_row(db_conn, company_id)
-    assert (harvest["verdict"], harvest["verdict_reason"]) == ("UNVERIFIED", "no_oracle")
+    assert (harvest["verdict"], harvest["verdict_reason"]) == (
+        "VERIFIED", "history_delta_ok",
+    )
     assert harvest["records_harvested"] == _SPOTIFY_CANDIDATE
 
     stored = read_suggestion(_provider_config(db_conn, company_id))
@@ -1257,17 +1269,23 @@ async def test_lifeatspotify_reaches_the_suggestion_end_to_end(db_conn, monkeypa
 async def test_the_unverified_suggestion_run_closes_nothing_and_accrues_no_miss(
     db_conn, monkeypatch
 ) -> None:
-    """**THE CLOSE PATH, PROVEN UNCHANGED — on the very run that now stores a suggestion.**
+    """**THE CLOSE PATH, PROVEN SAFE — on the very run that now stores a suggestion.**
 
-    Same run, both properties. The board is ``oracle_kind='none'``, so it is UNVERIFIED and
-    may close nothing; the six jobs it used to carry have vanished from the payload, are
-    long past the 36h floor, and would close instantly if the verdict were VERIFIED.
+    Same run, both properties. The six jobs the board used to carry have vanished from
+    the payload, are long past the 36h floor, and carry five misses already — maximally
+    close-eligible.
 
-    Asserted: every prior job is still OPEN, ``consecutive_misses`` is still 0 (an
-    UNVERIFIED run is not even a MISS, let alone a close), ``scrape_runs.closed_jobs`` is
-    0, and ``guard_reason`` is still ``unverified_harvest`` — the same branch the verdict
-    ladder took before this change. And the suggestion is stored, which is the point: the
-    new trigger reaches the comparison WITHOUT reaching anything destructive.
+    They still do not close, and the branch that stops them moved: this is the board's
+    FIRST harvest, so ``first_verified_run`` refuses it. (Before the history-delta
+    oracle the refusal came from ``unverified_harvest``, because an ``oracle_kind='none'``
+    board could never VERIFY at all. A ``none`` board CAN now close — that is the
+    feature — but never on run one, and never before a five-run VERIFIED streak; the full
+    ladder is exercised in ``test_history_delta_oracle.py``.)
+
+    Asserted: every prior job is still OPEN, ``consecutive_misses`` is still 5 (this run
+    did not even count as a MISS, let alone a close), and ``scrape_runs.closed_jobs`` is
+    0 — while the suggestion IS stored, which is the point: the comparison is reached
+    WITHOUT reaching anything destructive.
     """
     from api.tests.test_fetch_custom_company import (
         _job_status, _patch_env, _rows, _scrape_runs, _seed_discovered_company,
@@ -1314,11 +1332,11 @@ async def test_the_unverified_suggestion_run_closes_nothing_and_accrues_no_miss(
     # ...and not one of them was even counted as a miss.
     assert {row["consecutive_misses"] for row in gone.values()} == {5}
 
-    # 3. The verdict ladder took exactly the branch it always took.
+    # 3. The verdict ladder refused the close on the first-run gate.
     run = _scrape_runs(db_conn, company_id)[-1]
     assert run["closed_jobs"] == 0
-    assert run["guard_reason"] == "unverified_harvest"
-    assert _rows(db_conn, "company_harvests", company_id)[-1]["verdict"] == "UNVERIFIED"
+    assert run["guard_reason"] == "first_verified_run"
+    assert _rows(db_conn, "company_harvests", company_id)[-1]["verdict"] == "VERIFIED"
 
 
 @pytest.mark.asyncio

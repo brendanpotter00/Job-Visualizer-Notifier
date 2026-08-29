@@ -3,6 +3,15 @@
 
 Live, not hermetic (PLAN.md §6): real Chromium, real Haiku, real board. Each
 case is a genuine ~30-90s round trip through discovery + the first harvest.
+
+Both boards now reach VERIFIED on that first harvest, where they used to sit at
+``UNVERIFIED no_oracle`` forever. That is the history-delta oracle working — see
+``api/services/harvest_verification.py`` and
+``docs/implementations/custom-company-sources/CLOSING-NO-ORACLE-BOARDS.md`` — and
+its consequence is that these boards can, from their fifth consecutive VERIFIED
+harvest onward, close a job that has left the board. The refusing half of the
+same rule is covered by ``test_verification_refusal.py``; a suite that only
+proved boards CAN verify would be proving half a design.
 """
 
 from __future__ import annotations
@@ -65,9 +74,57 @@ def _run_discovery_case(http, db_conn, board: "boards.Board"):
         f"validated six-board list; got {discovery['outcome']!r} "
         f"(steps={discovery.get('steps')})"
     )
-    assert settled["healthState"] == "unverified", (
-        f"{board.case_id}: expected healthState='unverified' after discovery accepts "
-        f"a Phase-1 board (no oracle yet); got {settled['healthState']!r}"
+    # ---- verification: assert the MECHANISM, not the projection ---------------
+    #
+    # This used to read ``healthState == 'unverified'``, on the grounds that a
+    # discovered board is stored ``oracle_kind='none'`` and a ``none`` board could
+    # never verify. The second half of that stopped being true: the history-delta
+    # oracle lets a board with no declared total and no pagination verify on its
+    # own request shape and its own harvest history, which is what lets these two
+    # boards ever close a filled role.
+    #
+    # So the assertion is deliberately NOT the new string. ``healthState`` is a
+    # projection of the harvest verdict, and asserting the projection alone would
+    # pass whatever the gate decided. What is pinned instead is the reasoning:
+    # which oracle ran, what it concluded, and — the load-bearing half — that this
+    # first run still reached NOTHING destructive.
+    harvest = db.latest_harvest(db_conn, company_id)
+    assert harvest is not None, f"{board.case_id}: no company_harvests row after first_scan"
+    assert harvest["oracle_kind"] == "none", (
+        f"{board.case_id}: a discovered single-request board must still be STORED "
+        f"oracle_kind='none' — discovery must not have started claiming a total; "
+        f"got {harvest['oracle_kind']!r}"
+    )
+    assert (harvest["verdict"], harvest["verdict_reason"]) == (
+        "VERIFIED", "history_delta_ok",
+    ), (
+        f"{board.case_id}: expected the history-delta oracle to accept a whole-catalogue "
+        f"board — one request, no page-index parameter in it, a record count that is not "
+        f"a page-size ceiling — got {harvest['verdict']!r}/{harvest['verdict_reason']!r}. "
+        f"A ``no_oracle`` here means the recipe never reached verify_harvest; a "
+        f"``page_param_unpaginated`` means the captured request carries a page index and "
+        f"this board is NOT whole-catalogue after all."
+    )
+    assert harvest["cap_hit"] is False and harvest["declared_total"] is None, (
+        f"{board.case_id}: a single-request board declares no total and hits no cap; "
+        f"got cap_hit={harvest['cap_hit']!r} declared_total={harvest['declared_total']!r}"
+    )
+    assert settled["healthState"] == "healthy", (
+        f"{board.case_id}: healthState is a projection of the harvest verdict — a "
+        f"VERIFIED harvest must read 'healthy'; got {settled['healthState']!r}"
+    )
+
+    # ...and the first VERIFIED run is still forbidden from closing anything. This
+    # is the invariant the string assertion used to protect by accident and now
+    # protects on purpose: a board verifying is not a board closing.
+    run = db.latest_scrape_run(db_conn, company_id)
+    assert run is not None, f"{board.case_id}: no scrape_runs row after first_scan"
+    assert run["guard_reason"] == "first_verified_run", (
+        f"{board.case_id}: the FIRST verified harvest must be refused the close path by "
+        f"the first-run guard; got guard_reason={run['guard_reason']!r}"
+    )
+    assert run["closed_jobs"] == 0, (
+        f"{board.case_id}: a first harvest must close nothing; closed {run['closed_jobs']}"
     )
 
     step_keys = {s["key"] for s in discovery["steps"]}

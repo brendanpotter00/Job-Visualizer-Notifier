@@ -24,9 +24,12 @@ import {
   type UserCompany,
 } from '../../features/userCompanies/userCompaniesApi';
 import {
+  DISCOVERY_POLL_INTERVAL_MS,
   describeCompanyHealth,
   describeLastFetched,
   shouldShowDiscovery,
+  sourceBoardLabel,
+  sourceBoardUrl,
 } from './companyHealth';
 import { DiscoveryChecklist } from './DiscoveryChecklist';
 import { PublicBoardMatchBanner } from './PublicBoardMatchBanner';
@@ -34,15 +37,11 @@ import { PublicBoardMatchBanner } from './PublicBoardMatchBanner';
 /** Poll cadence while any row is still an empty, unverified board. */
 const POLL_INTERVAL_MS = 15_000;
 
-/**
- * Faster cadence while a one-time discovery is actually running. Its four steps take
- * seconds each, so a 15s poll would show a checklist that jumps two rungs at a time and
- * is usually already stale — the same opaque wait the checklist exists to remove. Still
- * the SAME query and the same component (DECISION D2: extend the existing poll, never
- * add a second channel); only the interval changes, and only while a row is
- * `discovering`, which is a bounded few minutes per board.
- */
-const DISCOVERY_POLL_INTERVAL_MS = 4_000;
+// The faster discovery cadence (`DISCOVERY_POLL_INTERVAL_MS`) is imported from
+// `companyHealth` rather than declared here: it is still the SAME query and the same
+// component (DECISION D2: extend the existing poll, never add a second channel), but the
+// live view's trust window is derived from it, and the two must not drift. See its
+// docstring for why it moved.
 
 /**
  * How stale a `discovering` row's last progress write may be before we stop believing
@@ -146,6 +145,12 @@ function CompanyRow({
 }) {
   const badge = describeCompanyHealth(company);
   const lastFetched = describeLastFetched(company, receivedAt);
+  // The link and its text are resolved together, and BOTH must exist: a label we cannot
+  // derive from the very url we are about to link to means the two could disagree, and a
+  // link whose text is not its destination is the one kind of link nobody should ship.
+  const boardUrl = sourceBoardUrl(company);
+  const boardLabel = boardUrl ? sourceBoardLabel(boardUrl) : null;
+  const boardLink = boardUrl && boardLabel ? { url: boardUrl, label: boardLabel } : null;
   // Flag OFF must render byte-for-byte what shipped before the checklist existed, so
   // the gate is here rather than inside the component: no extra element, no wrapper.
   const showChecklist =
@@ -201,6 +206,31 @@ function CompanyRow({
             >
               {lastFetched.label}
             </Typography>
+            {/* THE BOARD WE BUILT THIS FROM. The row said what we found and how fresh it
+                is and never once said where it came from, so a board that started
+                serving dead job links could only be checked from the database.
+                It sits at the END of the metadata line, after the facts about the data,
+                because it is provenance rather than status — and it wraps off onto its
+                own line first on a narrow screen, which is the right thing to lose.
+                Same short-form/`title` division as the freshness line above it. Renders
+                nothing at all when we cannot build an HONEST url (Workday and Eightfold
+                keep their real host in `provider_config`, which this payload does not
+                carry) — a confident link to a 404 would be worse than the gap. */}
+            {boardLink ? (
+              <Link
+                href={boardLink.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                variant="body2"
+                color="text.secondary"
+                underline="hover"
+                title={boardLink.url}
+                data-testid="my-company-board-link"
+                sx={{ minWidth: 0, overflowWrap: 'anywhere' }}
+              >
+                {boardLink.label} ↗
+              </Link>
+            ) : null}
           </Stack>
         </Box>
 
@@ -214,7 +244,10 @@ function CompanyRow({
         </Button>
       </Stack>
 
-      {showChecklist && <DiscoveryChecklist company={company} />}
+      {/* `receivedAt` is not decoration here: the live view treats `liveViewUrl` as a
+          claim that EXPIRES, and this is the only thing that renews it. See
+          `DiscoveryChecklist`'s `LIVE_VIEW_TRUST_MS`. */}
+      {showChecklist && <DiscoveryChecklist company={company} receivedAt={receivedAt} />}
 
       {/* "This looks like Spotify, which we already track." Renders only when the backend
           actually found an overlap, which is almost never — and the component owns its own

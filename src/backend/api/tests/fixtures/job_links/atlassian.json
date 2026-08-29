@@ -1,0 +1,56 @@
+{
+ "origin_url": "https://www.atlassian.com/company/careers/all-jobs",
+ "records_path": "",
+ "field_map": {
+  "id": "id",
+  "title": "title",
+  "url": "portalJobPost.portalUrl"
+ },
+ "kind": "published",
+ "proves": false,
+ "why": "PUBLISHED, AND THE REASON BRANCH 1 NEVER FETCHES. iCIMS renders the job in an IFRAME, so three different jobs each serve 18,086 chars and none carries its own title — indistinguishable, over plain HTTP, from Goldman's dead shell. Probing this would reject a live production link.",
+ "measured_at": "2026-08-29",
+ "pages": {
+  "https://globalcareers-atlassian.icims.com/jobs/25583/account-executive---japanese-speaking/job": {
+   "status": 200,
+   "chars": 18086,
+   "carries_own_title": false,
+   "carries_other_titles": false
+  },
+  "https://globalcareers-atlassian.icims.com/jobs/25480/account-executive%2c-mid-market/job": {
+   "status": 200,
+   "chars": 18086,
+   "carries_own_title": false,
+   "carries_other_titles": false
+  },
+  "https://careers-apac-atlassian.icims.com/jobs/25493/account-executive%2c-mid-market-%28filipino-speaking%29/job": {
+   "status": 200,
+   "chars": 18086,
+   "carries_own_title": false,
+   "carries_other_titles": false
+  }
+ },
+ "records": [
+  {
+   "title": "Account Executive - Japanese Speaking",
+   "id": 25583,
+   "portalJobPost": {
+    "portalUrl": "https://globalcareers-atlassian.icims.com/jobs/25583/account-executive---japanese-speaking/job"
+   }
+  },
+  {
+   "title": "Account Executive, Mid Market",
+   "id": 25480,
+   "portalJobPost": {
+    "portalUrl": "https://globalcareers-atlassian.icims.com/jobs/25480/account-executive%2c-mid-market/job"
+   }
+  },
+  {
+   "title": "Account Executive, Mid Market (Filipino Speaking)",
+   "id": 25493,
+   "portalJobPost": {
+    "portalUrl": "https://careers-apac-atlassian.icims.com/jobs/25493/account-executive%2c-mid-market-%28filipino-speaking%29/job"
+   }
+  }
+ ]
+}

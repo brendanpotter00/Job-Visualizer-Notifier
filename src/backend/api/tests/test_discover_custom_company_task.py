@@ -215,8 +215,114 @@ async def test_flag_off_skips_discovery(db_conn, monkeypatch) -> None:
     monkeypatch.setattr(task_mod, "discover", _boom)
 
     await discover_custom_company(user_id, _SUBMITTED, _NORMALIZED, "careers.acme.example")
-    # Nothing created.
+    # Nothing created. (No placeholder was seeded here, so there is no row to refuse —
+    # discovery never mints a company of its own. The flag-off REFUSAL is the test
+    # below, which seeds the placeholder production always has.)
     assert _row(db_conn, "SELECT count(*) AS n FROM companies")["n"] == 0
+
+
+async def test_flag_off_refuses_the_row_instead_of_leaving_it_spinning(
+    db_conn, monkeypatch
+) -> None:
+    """A DEFINITE STATE, not a 30-minute spinner.
+
+    The flag can flip between the router's enqueue and this execution, and by then the
+    router has ALREADY inserted the provisional ``discovering`` row. Returning silently
+    left that row spinning with nothing in flight behind it, ended only by
+    ``reconcile_discovering``'s 30-minute sweep — which reaches this very verdict. The
+    task settles it itself: same end state, none of the wait.
+    """
+    _patch_env(monkeypatch)
+    monkeypatch.setattr(settings, "custom_company_discovery_enabled", False)
+    user_id = _seed_user(db_conn)
+    company_id = _placeholder(db_conn, user_id)
+
+    async def _boom(url, **kwargs):
+        raise AssertionError("discovery must not run with the flag off")
+
+    monkeypatch.setattr(task_mod, "discover", _boom)
+
+    await discover_custom_company(user_id, _SUBMITTED, _NORMALIZED, "careers.acme.example")
+
+    company = _row(
+        db_conn,
+        "SELECT health_state, enabled FROM companies WHERE id = %s",
+        (company_id,),
+    )
+    # The whole point: NOT still 'discovering'.
+    assert company["health_state"] == "refused"
+    assert company["enabled"] is False           # never scraped
+    attempt = _row(
+        db_conn,
+        "SELECT error_detail FROM company_add_attempts "
+        "WHERE company_id = %s AND outcome = 'refused'",
+        (company_id,),
+    )
+    assert attempt is not None
+    # And it says WHY, rather than the generic "we could not read this site" — the
+    # board was never read at all.
+    assert "turned off" in attempt["error_detail"]
+
+
+async def test_a_discovery_that_never_returns_is_cut_off_and_refused(
+    db_conn, monkeypatch
+) -> None:
+    """The task's OWN wall clock, PROVEN rather than merely documented.
+
+    ``discover`` never raises, so the only thing standing between a run that stops
+    making progress — a capture that hangs, a replay that never answers — and a row
+    left at ``discovering`` forever is the ``asyncio.wait_for`` wrapping it. Nothing
+    asserted that wrapper existed, so deleting it was a silent way to turn every slow
+    board into a permanent spinner that only the 30-minute reconciler could end.
+
+    The test's OWN outer ``wait_for`` is deliberate: without it a regression here does
+    not fail this test, it hangs the suite, which is the same bug one level up.
+    """
+    _patch_env(monkeypatch)
+    monkeypatch.setattr(task_mod, "_TASK_TIMEOUT_S", 0.05)
+    user_id = _seed_user(db_conn)
+    company_id = _placeholder(db_conn, user_id)
+
+    async def _never_returns(url, **kwargs):
+        await asyncio.sleep(3600)
+
+    monkeypatch.setattr(task_mod, "discover", _never_returns)
+
+    await asyncio.wait_for(
+        discover_custom_company(
+            user_id, _SUBMITTED, _NORMALIZED, "careers.acme.example"
+        ),
+        timeout=10,
+    )
+
+    company = _row(
+        db_conn,
+        "SELECT health_state, enabled FROM companies WHERE id = %s",
+        (company_id,),
+    )
+    assert company["health_state"] == "refused"   # a definite state, on the clock
+    assert company["enabled"] is False
+    attempt = _row(
+        db_conn,
+        "SELECT error_detail FROM company_add_attempts "
+        "WHERE company_id = %s AND outcome = 'refused'",
+        (company_id,),
+    )
+    assert attempt is not None
+    assert "timed out" in attempt["error_detail"]
+
+
+def test_the_task_clock_outlasts_the_capture_clock() -> None:
+    """``_TASK_TIMEOUT_S`` must stay ABOVE the capture subprocess's own cap.
+
+    Both modules document the ordering and neither enforced it. Invert it and a slow
+    capture stops being reported as "capture subprocess timed out after 120s" — the
+    legible, named-step refusal the ladder exists to produce — and becomes the opaque
+    "discovery timed out", which tells the user nothing about which step stopped.
+    """
+    from api.services.capture import network_capture as nc
+
+    assert task_mod._TASK_TIMEOUT_S > nc._SUBPROCESS_TIMEOUT_S
 
 
 def test_add_discovered_company_is_idempotent(db_conn) -> None:
@@ -517,6 +623,28 @@ def _seconds_until_next_run(db_conn, company_id: str) -> float:
     return float(row["s"])
 
 
+def _assert_rescheduled_a_full_cadence_out(db_conn, company_id: str) -> None:
+    """The property this file means: the row was pushed a whole cadence ± jitter ahead,
+    i.e. it is **not left due** and the ``*/15`` claim tick cannot see it.
+
+    Derived from the two constants, never a literal. This used to read ``> 22 * 3600``
+    — a stand-in for "24 h cadence minus ±90 min jitter" that had quietly become an
+    assertion about the cadence rather than about the interlock. Expressed this way a
+    cadence change moves the bounds automatically, while a genuinely broken reschedule
+    (the row left due) still fails.
+    """
+    cadence_s = ccs.DEFAULT_CADENCE_HOURS * 3600
+    spread_s = cadence_s * claim_mod._JITTER_FRACTION
+    actual_s = _seconds_until_next_run(db_conn, company_id)
+
+    # ±5 s: the read-back's now() is a few ms later than the UPDATE's, so the measured
+    # offset sits marginally inside the arithmetic window.
+    assert cadence_s - spread_s - 5 <= actual_s <= cadence_s + spread_s + 5, (
+        f"expected {company_id} rescheduled ~{cadence_s}s out (±{spread_s}s jitter), "
+        f"got {actual_s}s — a value near zero means the row was left DUE"
+    )
+
+
 def _discovered_id(db_conn, board_url: str) -> str:
     db_conn.rollback()
     return str(
@@ -562,8 +690,7 @@ async def test_the_immediate_harvest_takes_the_row_off_the_claim_ticks_list(
     await discover_custom_company(user_id, _SUBMITTED, url, "interlock.example")
     company_id = _discovered_id(db_conn, url)
 
-    # A cadence (24h) minus the ±90 min jitter floor — i.e. nowhere near due.
-    assert _seconds_until_next_run(db_conn, company_id) > 22 * 3600
+    _assert_rescheduled_a_full_cadence_out(db_conn, company_id)
     assert company_id not in claim_mod._claim_due_companies(db_conn, 10)
 
 

@@ -44,7 +44,6 @@ const seededJobs: Job[] = [
         isPrimary: true,
       },
     ],
-    department: 'Engineering',
     raw: {},
   },
   {
@@ -67,7 +66,6 @@ const seededJobs: Job[] = [
         isPrimary: true,
       },
     ],
-    department: 'People',
     raw: {},
   },
 ];
@@ -99,14 +97,13 @@ async function seedStore(jobs: Job[] = seededJobs) {
 }
 
 describe('GraphFilters', () => {
-  it('renders the merged KeywordFilterInput, TimeWindowSelect, Location, Department', async () => {
+  it('renders the merged KeywordFilterInput, TimeWindowSelect and Location', async () => {
     const store = await seedStore();
     renderWithProviders(<GraphFilters />, { store });
 
     expect(screen.getByRole('combobox', { name: 'Keywords' })).toBeInTheDocument();
     expect(screen.getAllByText('Time Window').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Location').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('Department').length).toBeGreaterThan(0);
   });
 
   it('renders Location control unconditionally, even when no job has location data', async () => {
@@ -119,50 +116,16 @@ describe('GraphFilters', () => {
         createdAt: '2026-04-10T10:00:00Z',
         firstSeenAt: '2026-04-10T10:00:00Z',
         url: 'https://example.com/x1',
-        department: 'Engineering',
         raw: {},
       },
     ];
     const store = await seedStore(jobsNoLocation);
     renderWithProviders(<GraphFilters />, { store });
 
-    // Unlike Department (still gated on availableDepartments), Location is the
-    // server-backed AsyncMultiSelectAutocomplete: it doesn't depend on any
-    // locally-derived "available locations" set, so it always renders.
+    // Location is the server-backed AsyncMultiSelectAutocomplete: it doesn't
+    // depend on any locally-derived "available locations" set, so it always
+    // renders.
     expect(screen.getByPlaceholderText('Search location...')).toBeInTheDocument();
-    expect(screen.getAllByText('Department').length).toBeGreaterThan(0);
-  });
-
-  it('does NOT render Department control when availableDepartments is empty', async () => {
-    const jobsNoDept: Job[] = [
-      {
-        id: 'y1',
-        source: 'backend-scraper',
-        company: 'spacex',
-        title: 'Engineer',
-        createdAt: '2026-04-10T10:00:00Z',
-        firstSeenAt: '2026-04-10T10:00:00Z',
-        url: 'https://example.com/y1',
-        location: 'SF',
-        locations: [
-          {
-            canonicalName: 'San Francisco, CA, US',
-            kind: 'city',
-            city: 'San Francisco',
-            region: 'CA',
-            country: 'US',
-            remoteScope: null,
-            isPrimary: true,
-          },
-        ],
-        raw: {},
-      },
-    ];
-    const store = await seedStore(jobsNoDept);
-    renderWithProviders(<GraphFilters />, { store });
-
-    expect(screen.queryByText('Department')).not.toBeInTheDocument();
-    expect(screen.getAllByText('Location').length).toBeGreaterThan(0);
   });
 
   it('dispatches setGraphTimeWindow when TimeWindow option selected', async () => {
@@ -304,21 +267,6 @@ describe('GraphFilters', () => {
     await user.click(firstOption);
 
     expect(store.getState().graphFilters.filters.location).toContain(chosenLocation);
-  });
-
-  it('dispatches addGraphDepartment when department option selected', async () => {
-    const store = await seedStore();
-    const user = userEvent.setup();
-    renderWithProviders(<GraphFilters />, { store });
-
-    const deptInput = screen.getByPlaceholderText('Select department...');
-    await user.click(deptInput);
-    const listbox = await screen.findByRole('listbox');
-    const firstOption = within(listbox).getAllByRole('option')[0];
-    const chosenDept = firstOption.textContent ?? '';
-    await user.click(firstOption);
-
-    expect(store.getState().graphFilters.filters.department).toContain(chosenDept);
   });
 
   it('clears searchTags via the merged control\'s "None" option', async () => {

@@ -20,8 +20,8 @@ suite. They are thin (forward + re-emit headers) and are a known gap, not an ove
 | AC-01 | Microsoft | API + UI | fast (network, no LLM) | 🟢 GREEN | careers-host dedupe; **terminal** — the UI spec now asserts there is NO way past it |
 | AC-02 | Amazon | API | fast (network, no LLM) | 🟢 GREEN | same mechanism as AC-01 |
 | AC-03 | Cisco | API + UI | live (harvest wait, no LLM) | 🟢 GREEN | embedded Workday; posted_on coverage ~68% live (see below — plan claimed 100%) |
-| AC-04 | Atlassian | API | live (LLM) | 🟢 GREEN | 239 jobs harvested at measurement time (plan estimated ~250) |
-| AC-05 | Jane Street | API | live (LLM) | 🟢 GREEN | 234 jobs harvested (plan estimated ~235) |
+| AC-04 | Atlassian | API | live (LLM) | 🟢 GREEN | 239 jobs harvested at measurement time (plan estimated ~250). **Now lands VERIFIED `history_delta_ok`, not `UNVERIFIED no_oracle`** — the history-delta oracle; the case asserts the mechanism and that the first run still closes nothing. See `CLOSING-NO-ORACLE-BOARDS.md` |
+| AC-05 | Jane Street | API | live (LLM) | 🟢 GREEN | 234 jobs harvested (plan estimated ~235). Same verdict change as AC-04 |
 | AC-06 | Spotify (lifeatspotify.com) | API + UI | live (LLM) | 🟢 GREEN (was RED at plan time) | the §11.2 trigger fix landed mid-build; asserts intended behaviour either way — see PLAN.md note in `test_public_match.py` |
 | AC-06a | seeded rows | API | fast, hermetic | 🟢 GREEN | no network, no LLM; exercises the real matcher directly |
 | AC-07 | Cisco (reused) | API + UI | live (harvest wait) | 🟢 GREEN | full purge + `ownerlessCount` delta + fresh re-add |
@@ -33,6 +33,7 @@ suite. They are thin (forward + re-emit headers) and are a known gap, not an ove
 | AC-13 | Spotify (lifeatspotify.com) | API + UI | fast (one resolve, no LLM) | 🟢 GREEN | the company-name dedupe: answers `already_public`/`matchKind='name'` with **no discovery job**, and keeps the correction |
 | AC-13a | the real published fleet | API | fast, hermetic | 🟢 GREEN | no network; runs the real matcher against the e2e DB's clone of prod's ~133 public rows. Pins `dropbox`≠`box` and `figma`≠`gm` |
 | AC-14 | per-user add limits | API | fast (no network — `.invalid` hosts, no LLM) | 🟢 GREEN | the 20/month cap and the 10/60s burst limiter, on the real endpoint with a replayed bearer token. Two short-lived backends on :8202 with their own limits (same trick as AC-09); the main stack runs uncapped because `company_add_attempts` is append-only and survives every sweep |
+| AC-15 | seeded harvest histories (Goldman + Walmart shapes) | API | fast, hermetic | ⚪ NEW — not yet in a suite run | the REFUSING half of verification, and the mirror of AC-04/AC-05. No network: seeds `company_harvests` rows and drives the real `compute_baseline` + `verify_harvest` against them. Pins that a 20-of-1,074 short read and a page-one-of-N board can never verify however long their history — and, as the control, that a whole-catalogue board with the SAME history does |
 
 ## The escape hatch: who still gets one, and why
 
@@ -147,8 +148,14 @@ provisioning scrub to paper over — cleanup happened through the product's own
 
 Both re-run traps PLAN.md §8 names were checked and both hold:
 
-- **`ownerlessCount` baseline is 1, not 0.** AC-07 reads a baseline at test start and asserts
-  the DELTA (`after == baseline_ownerless`), never the absolute value. Passed in both runs.
+- **`ownerlessCount` baseline.** AC-07 reads a baseline at test start and asserts the DELTA
+  (`after == baseline_ownerless`), never the absolute value. Passed in both runs. **The
+  baseline is 0 in `jobscraper_e2e`** — `_scrub.py` purges every inherited `visibility='user'`
+  row at clone time, so the `u-6hkpc6fh0z` orphan that motivated the delta assertion never
+  reached this database (it lived in `jobscraper_pr243`, and has since been collected by
+  `api.tasks.reap_ownerless_companies`). **Keep the delta assertion anyway**: the reaper now
+  purges ownerless rows hourly, so an absolute assertion would be racing a sweep that is
+  allowed to change the number mid-run, and the delta is correct either way.
 - **The Unit-10 dismissal flag lives in localStorage**, which a DB purge cannot reset. The
   Playwright fixture takes a `browser.newContext()` per test, which starts with empty origin
   storage by construction, so run 2 cannot inherit run 1's dismissal. `checklist.spec.ts`

@@ -12,7 +12,6 @@ describe('transformBackendJob', () => {
     url: 'https://careers.google.com/jobs/results/123456',
     sourceId: 'google_scraper',
     details: JSON.stringify({
-      department: 'Cloud Infrastructure',
       experience_level: 'Mid-Senior',
       is_remote_eligible: true,
       minimum_qualifications: 'BS in CS',
@@ -84,73 +83,43 @@ describe('transformBackendJob', () => {
     expect(job.firstSeenAt).toBe('2025-01-05T08:00:00Z');
   });
 
-  it('maps department from details.department, not from experience_level', () => {
-    // The mock carries BOTH keys, which is the only shape that tells the two
-    // apart. Reading experience_level here is what made the UI's "Department"
-    // filter offer seniority values for every backend-scraped company.
-    const job = transformBackendJob(mockBackendJob, 'google');
-
-    expect(job.department).toBe('Cloud Infrastructure');
-    expect(job.department).not.toBe('Mid-Senior');
-  });
-
-  it('gives no department to a row that only carries experience_level', () => {
-    // The Google/Apple/Microsoft scrapers write experience_level and no
-    // department. Absent must stay absent rather than silently borrowing the
-    // seniority string.
-    const seniorityOnlyJob: BackendJobListing = {
-      ...mockBackendJob,
-      details: JSON.stringify({ experience_level: 'Mid-Senior' }),
-    };
-
-    const job = transformBackendJob(seniorityOnlyJob, 'google');
-
-    expect(job.department).toBeUndefined();
-    expect(job.tags).toContain('Mid-Senior');
-  });
-
   // The `details` object the LIST endpoint actually sends. Not a hand-picked
   // subset — `api/services/database.py::_LIST_COLUMNS` builds it with
-  // `jsonb_build_object('department', department, 'experience_level',
-  // experience_level, 'is_remote_eligible', is_remote_eligible)`, so it has
-  // exactly these three keys and every one of them can be `null`. Every other
-  // mock in this file is a hand-written shape that the server never produces;
-  // pinning the real one is what stops "the transformer reads details.department"
-  // from passing while the server sends no such key.
+  // `jsonb_build_object('experience_level', experience_level,
+  // 'is_remote_eligible', is_remote_eligible)`, so it has exactly these two keys
+  // and both of them can be `null`. Every other mock in this file is a
+  // hand-written shape that the server never produces; pinning the real one is
+  // what stops a transformer test from passing against a key the server never
+  // sends.
   const listEndpointDetails = (
-    department: string | null,
     experienceLevel: string | null = null,
     isRemoteEligible: boolean | null = false
   ) =>
     JSON.stringify({
-      department,
       experience_level: experienceLevel,
       is_remote_eligible: isRemoteEligible,
     });
 
-  it('reads department out of the three-key object the list endpoint sends', () => {
+  it('reads the two-key object the list endpoint sends', () => {
     const job = transformBackendJob(
-      { ...mockBackendJob, details: listEndpointDetails('Cloud Infrastructure', 'Senior', true) },
+      { ...mockBackendJob, details: listEndpointDetails('Senior', true) },
       'google'
     );
 
-    expect(job.department).toBe('Cloud Infrastructure');
     expect(job.tags).toContain('Senior');
     expect(job.isRemote).toBe(true);
   });
 
-  it('turns the wire\'s explicit null department into undefined, not null', () => {
-    // A board that publishes no department (Google/Apple/Microsoft) yields
-    // `"department": null` — the key is present. `Job.department` is typed
-    // `string | undefined`, so the transformer must collapse it rather than pass
-    // the null straight through.
+  it('turns the wire\'s explicit nulls into an empty tag list', () => {
+    // A board that publishes neither value yields `null` for both — the keys are
+    // present. Neither may become a tag.
     const job = transformBackendJob(
-      { ...mockBackendJob, details: listEndpointDetails(null) },
+      { ...mockBackendJob, details: listEndpointDetails(null, null) },
       'google'
     );
 
-    expect(job.department).toBeUndefined();
-    expect(job.department).not.toBeNull();
+    expect(job.tags).toEqual([]);
+    expect(job.isRemote).toBeNull();
   });
 
   it('should generate tags from details', () => {
@@ -185,7 +154,6 @@ describe('transformBackendJob', () => {
     const job = transformBackendJob(badDetailsJob, 'google');
 
     expect(job.id).toBe('job-123');
-    expect(job.department).toBeUndefined();
     expect(job.isRemote).toBeUndefined();
     expect(job.tags).toEqual([]);
   });
@@ -198,7 +166,6 @@ describe('transformBackendJob', () => {
 
     const job = transformBackendJob(emptyDetailsJob, 'google');
 
-    expect(job.department).toBeUndefined();
     expect(job.isRemote).toBeUndefined();
     expect(job.tags).toEqual([]);
   });
@@ -279,7 +246,6 @@ describe('transformBackendJob', () => {
 
     const job = transformBackendJob(experienceOnlyJob, 'google');
 
-    expect(job.department).toBeUndefined();
     expect(job.tags).toEqual(['Senior']);
     expect(job.isRemote).toBeUndefined();
   });
@@ -294,7 +260,6 @@ describe('transformBackendJob', () => {
 
     const job = transformBackendJob(remoteOnlyJob, 'google');
 
-    expect(job.department).toBeUndefined();
     expect(job.isRemote).toBe(true);
     expect(job.tags).toEqual(['Remote Eligible']);
   });

@@ -38,6 +38,7 @@ are rejected too: a typo must fail loudly, never silently no-op.
 
 from __future__ import annotations
 
+import re
 from typing import Any, Callable
 
 RECIPE_VERSION = 1
@@ -123,19 +124,14 @@ _UNIMPLEMENTED_OP_REASONS = {
 # ``description`` earns its place by being the ONE key the enrichment claim reads:
 # ``enrichment_monitor.DESCRIPTION_SQL`` COALESCEs over ``details->>'description'``,
 # and until it could be mapped, every custom-company job was invisible to the
-# enricher. ``department`` earns its own by being the ONE key a user-facing FILTER
-# reads: ``job_listings.department`` (migration ``c1539fa03b23``) is denormalized from
-# ``details['department']`` and feeds the Department control on the companies page.
-# It was briefly dropped with Δ2 on the finding that its only reader was a classifier
-# hint that no-ops when absent — true when written, and false a few hours later once
-# that filter was found dead and fixed. A recipe that maps neither still validates;
-# it just writes NULL into that column every night.
+# enricher. A recipe that does not map it still validates; its rows are simply
+# never claimable.
 # The one non-literal segment a ``records_path`` may carry: "every element of the list
 # here". See :func:`dig_records` for what it buys and why it is not in :func:`dig`.
 RECORDS_WILDCARD = "*"
 
 CANONICAL_REQUIRED_FIELDS = ("id", "title", "url")
-CANONICAL_OPTIONAL_FIELDS = ("location", "posted_at", "description", "department", "company")
+CANONICAL_OPTIONAL_FIELDS = ("location", "posted_at", "description", "company")
 
 # Oracle kinds. The three Phase-3 exact-match oracles, plus the two inherited from
 # Phase 2 (a discovered board with no published total is legitimately
@@ -194,13 +190,45 @@ def _require_https(obj: dict[str, Any], key: str, where: str) -> None:
     )
 
 
+# ``[0]`` written where this resolver wants ``.0``. Digits only — a bracket holding
+# anything else is left alone, so a board with a literal ``"items[all]"`` key still
+# resolves by its real name.
+_BRACKET_INDEX_RE = re.compile(r"\[(\d+)\]")
+
+
 def dig(payload: Any, path: str) -> Any:
     """Resolve a dotted path such as ``data.jobs`` or ``hits`` inside a payload.
 
     An empty path returns the payload itself. List indices are supported as numeric
     segments (``data.0.jobs``). Kept verbatim from the spike — it is the resolver
     every extractor and oracle uses.
+
+    ONE ADDITION to the spike's version: a path that fails AND spells a list index in
+    BRACKETS is retried with ``[0]`` rewritten to ``.0``. ``locations[0].city`` is what
+    the selector wrote for higher.gs.com; ``dig`` split on ``.`` only, so the lookup
+    raised, ``render_field`` swallowed it, and every Goldman row stored
+    ``location = NULL`` — silently, at 100%, the same class as the Atlassian and
+    Microsoft location bugs commemorated in ``recipe_runner._fold_scalar_list``.
+
+    The retry is a strict SUPERSET and that is the whole safety argument: a path that
+    resolves today takes the first branch and never sees the rewrite, so no stored
+    recipe changes meaning. A path that resolves under NEITHER spelling re-raises the
+    ORIGINAL error, so diagnostics still name the path the recipe actually carries.
     """
+    try:
+        return _dig_dotted(payload, path)
+    except RecipeError as original:
+        normalized = _BRACKET_INDEX_RE.sub(r".\1", path)
+        if normalized == path:
+            raise
+        try:
+            return _dig_dotted(payload, normalized)
+        except RecipeError:
+            raise original from None
+
+
+def _dig_dotted(payload: Any, path: str) -> Any:
+    """:func:`dig` for a strictly dot-separated path. Every segment is a key or index."""
     if not path:
         return payload
     current = payload

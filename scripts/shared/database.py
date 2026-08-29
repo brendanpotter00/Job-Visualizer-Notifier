@@ -77,8 +77,8 @@ _JOBS_TABLE = "job_listings"
 _RUNS_TABLE = "scrape_runs"
 
 # Column list for job_listings table (used in INSERT statements)
-# NOTE: department / experience_level / is_remote_eligible are denormalized
-# copies of the three details JSONB sub-fields the API list path serves — written
+# NOTE: experience_level / is_remote_eligible are denormalized
+# copies of the two details JSONB sub-fields the API list path serves — written
 # here so that path never has to detoast `details` (see the 2026-07-13
 # /api/jobs outage and db_models.JobListing). This is the ONE write path for
 # job_listings: every scraper and every backend fetch task funnels through
@@ -95,7 +95,7 @@ _JOB_COLUMNS = """
     details, posted_on, created_at, closed_on, status,
     has_matched, ai_metadata,
     first_seen_at, details_scraped,
-    department, experience_level, is_remote_eligible
+    experience_level, is_remote_eligible
 """.strip()
 
 # "%s, %s, …" with exactly one placeholder per column in _JOB_COLUMNS. Derived
@@ -125,7 +125,6 @@ _UPSERT_ON_CONFLICT = """
         status = 'OPEN',
         closed_on = NULL,
         details_scraped = EXCLUDED.details_scraped,
-        department = EXCLUDED.department,
         experience_level = EXCLUDED.experience_level,
         is_remote_eligible = EXCLUDED.is_remote_eligible
 """.strip()
@@ -195,7 +194,6 @@ def _build_job_values(job: JobListing) -> Tuple:
         json.dumps(job.details), job.posted_on, job.created_at, job.closed_on, job.status,
         job.has_matched, json.dumps(job.ai_metadata),
         job.first_seen_at, job.details_scraped,
-        job.details.get("department"),
         job.details.get("experience_level"), job.details.get("is_remote_eligible", False)
     )
 

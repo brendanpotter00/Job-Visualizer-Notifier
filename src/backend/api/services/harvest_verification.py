@@ -11,13 +11,22 @@ the only two oracles the ATS clients can feed:
   advanced with disjoint id-sets, and the count sits within the delta band of the
   trailing-run median. Passing makes the *run* VERIFIED; CLOSING additionally
   needs a 3-consecutive-VERIFIED streak, enforced in the leaf task.
+* ``none`` — the **history-delta** oracle, and the newest of the three. For a
+  DISCOVERED board whose recipe declares no total and does not paginate. Until
+  this existed the answer for such a board was ``no_oracle`` forever, so it could
+  never increment a miss and never close a job: every filled role stayed OPEN
+  forever and the board's count only ever went up. A run VERIFIES iff the stored
+  REQUEST shows no sign of having read one page of a longer list (check 13) and
+  the count is consistent with the board's own history (check 12). Reachable only
+  when the caller passes the recipe — see :func:`verify_harvest`. CLOSING
+  additionally needs a 5-consecutive-VERIFIED streak and the id-churn guard.
 
 The two functions split by what each may do:
 
 * :func:`run_gate` — the *structural* pass (checks 2 zero-aware, 3, 7-dedupe, 8).
   Raises :class:`HarvestGateError` (→ FAILED) ONLY on a genuinely broken run.
 * :func:`verify_harvest` — the *verdict* pass (checks 5, 6, 7-vs-total, 9, 10, 11,
-  12). Returns VERIFIED | UNVERIFIED and NEVER raises.
+  12, 13). Returns VERIFIED | UNVERIFIED and NEVER raises.
 
 A third function, :func:`read_untruncated`, sits OUTSIDE that ladder and is not part
 of it: it answers a strictly weaker question ("did anything in this run say the read
@@ -42,8 +51,9 @@ run that could not prove it saw the whole board.*
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from scripts.shared.models import JobListing
 
@@ -70,15 +80,108 @@ DEFAULT_EXPECTED_MIN_JOBS = 1
 _DECLARED_PROBED_PROVIDERS = frozenset({"greenhouse", "workday"})
 _SELF_CONSISTENT_PROVIDERS = frozenset({"ashby", "lever", "gem", "eightfold"})
 
-# --- self_consistent delta band (check 12) ----------------------------------
-# A self_consistent run is a delta anomaly if its record count falls outside
-# [median * LOW, median * HIGH] of the trailing-run median. Symmetric-ish band:
-# a board halving or doubling in a single run is the "wrong data, not missing
-# data" signal the self-consistency oracle exists to catch. Only applied once a
-# median exists (>= 1 prior VERIFIED run); the very first run skips it (and can
-# only VERIFY, never close, because closing also needs the 3-run streak).
-_SELF_CONSISTENT_DELTA_LOW_RATIO = 0.5
-_SELF_CONSISTENT_DELTA_HIGH_RATIO = 2.0
+# --- the delta band (check 12) ----------------------------------------------
+# A run is a delta anomaly when its record count moves too far from the
+# trailing-run median of prior VERIFIED harvests. Shared by ``self_consistent``
+# and by ``none`` (the history-delta oracle below) — one band, one derivation,
+# one set of tests. Only applied once a median exists (>= 1 prior VERIFIED run).
+#
+# THE LOW SIDE IS THE ONE THAT MATTERS and it is the reason this file changed.
+# An over-read cannot wrong-close (extra rows only get upserted); an under-read
+# is precisely how live jobs disappear. So the low side is a DISJUNCTION of two
+# rules and a run trips if EITHER fires:
+#
+#   (a) n < median * 0.5                       — the original hard floor, kept
+#                                                verbatim so nothing that was
+#                                                refused before is now allowed;
+#   (b) n < median * 0.85 AND (median - n) >= 15 — the new rule.
+#
+# WHY 0.85 AND 15, AND WHY THE ``AND``. Measured on prod ``scrape_runs``,
+# 2026-06-01 -> 2026-08-29, one run per company-hour (the custom cadence is now
+# 1 h), guard-skipped runs excluded, each run scored against the median of its
+# own preceding 14 runs: n = 271,053 scored runs across the published fleet.
+#
+#   ratio to trailing median      p0.5% 0.9167   p1% 0.9504   p5% 0.9871
+#                                 p50   1.0000   p99 1.0460   p99.9 1.1555
+#
+# Ratio alone is unusable on small boards: 659 runs fall below 0.85, and the
+# companies that supply them are ``slack`` (median 16), ``browserbase`` (9),
+# ``posthog`` (18), ``gem`` (11), ``light`` (8) — a 9-job board that posts 6 is
+# not a truncation, it is Tuesday. ANDing an absolute drop of >= 15 removes all
+# of that: 429 runs remain, and 404 of those 429 are n == 0, i.e. total outages
+# the ``empty_scrape`` guard already refuses.
+#
+# So the entire NEW population this band refuses is 25 runs in 271,053 (0.009%),
+# and every one of them was inspected:
+#
+#   * ``apple`` x 5 — 2460/3688, 2585/3577, 2722/3760, 2819/3774, 2859/3577.
+#     These ARE the real Apple truncations that ``incremental.py``'s own
+#     calibration note names. Refusing them is the point.
+#   * ``paypal`` x 19 and ``airtable`` x 1 — genuine step shrinks (87 from 112,
+#     112 from 142, 169 from 201). Handled by the settled-step release below.
+#
+# 0.85 and 15 are not new numbers: they are ``SCRAPER_GUARD_MIN_RATIO`` and
+# ``SCRAPER_GUARD_MIN_ABS_DROP`` from ``scripts/shared/incremental.py``, which
+# were calibrated independently against 455,317 runs and landed on the same
+# knee. This band is that guard's rule shape re-pointed at a different baseline:
+# the guard scores the harvest against ``active_count`` (what the DB holds), this
+# scores it against the trailing median (what the BOARD has been returning). They
+# are ANDed at close time, never substituted.
+_DELTA_HARD_LOW_RATIO = 0.5
+_DELTA_LOW_RATIO = 0.85
+_DELTA_MIN_ABS_DROP = 15
+_DELTA_HIGH_RATIO = 2.0
+
+# SETTLED STEP CHANGE — how a real layoff is told apart from a broken read.
+# Without a release, a VERIFIED-only median latches forever: a board that
+# legitimately drops 1,074 -> 600 is out of band, so it never VERIFIES, so no
+# VERIFIED run ever enters the median, so it is out of band forever. That would
+# freeze most boards eventually — 19 of the 25 runs above are that shape.
+#
+# The discriminator is in the prod data, not invented: a real shrink HOLDS its
+# new number, a truncation WANDERS. Of the 5 Apple truncations, 0 were preceded
+# by 4 runs of the identical count. Of the 19 PayPal step shrinks, 6 were — and
+# those 6 are exactly the settled ones. So: a run outside the band is admitted
+# anyway iff the previous 4 harvests returned the IDENTICAL count. Zero of the
+# known-real truncations in 271,053 runs would be released by that rule.
+#
+# It is a re-baseline, not a close: the released run still needs the VERIFIED
+# streak, the safety guard, the churn guard, two consecutive misses and the
+# 1.5x-cadence wall-clock floor before anything closes.
+#
+# SIZED IN BOTH RUNS AND HOURS, and that is not belt-and-braces. The measurement
+# above is "four consecutive HOURLY observations of the identical count" — both
+# halves of that sentence are load-bearing, and a bare run count keeps only one
+# of them. If the cadence were shortened to 15 minutes, four runs would be one
+# hour of evidence rather than four, and a board that stalls for an hour would
+# re-baseline. If it were lengthened back to a day, four runs would be four days
+# — stronger, and correctly so. So the requirement is the CONJUNCTION: at least
+# ``_SETTLED_MIN_RUNS`` prior harvests AND at least ``_SETTLED_MIN_HOURS`` of
+# wall clock spanned by them. At the shipped 1 h cadence the two coincide at 4,
+# which is exactly what was measured; at any other cadence the stricter one wins.
+_SETTLED_MIN_RUNS = 4
+_SETTLED_MIN_HOURS = 4.0
+
+# The cadence assumed when a caller does not say. It is the shipped default
+# (``custom_companies_service.DEFAULT_CADENCE_HOURS``), NOT imported from there —
+# this module is deliberately free of service-layer imports, and a wrong guess
+# here can only make the two spans LONGER (a smaller assumed cadence means more
+# runs required), which is the safe direction.
+_DEFAULT_CADENCE_HOURS = 1.0
+
+
+def settled_prior_runs(cadence_hours: float = _DEFAULT_CADENCE_HOURS) -> int:
+    """How many PRIOR harvests must have returned an identical count before a
+    step change is treated as real (and before a round count reads as a page
+    limit). See the constant block: runs AND hours, whichever is stricter.
+
+    Both consumers degrade SAFELY when ``custom_baseline``'s window is shorter
+    than this returns. ``_settled_step_change`` requires a full run of matches
+    and gets fewer, so it refuses the release; ``_limit_pinned`` checks ``all()``
+    over fewer values and so refuses MORE often. Neither can silently widen.
+    """
+    cadence = max(float(cadence_hours), 1e-6)
+    return max(_SETTLED_MIN_RUNS, math.ceil(_SETTLED_MIN_HOURS / cadence))
 
 # Phase-3 oracles — now WIRED (Phase 3a). Each is an exact-match (tolerance-0)
 # oracle whose total rides ``evidence.declared_total``, computed upstream by
@@ -90,6 +193,182 @@ _PHASE_3_ORACLES = frozenset({"facet_sum", "header", "sitemap"})
 # Every exact-match oracle: the Phase-2 ``declared_probed`` plus the three Phase-3
 # oracles. All compare the post-dedup count to a trusted total at tolerance 0.
 _EXACT_ORACLES = _PHASE_3_ORACLES | {"declared_probed"}
+
+# The two oracles with NO trusted total, whose completeness claim is historical
+# rather than structural. Both are gated at close time by a consecutive-VERIFIED
+# streak and by the id-churn guard (see ``tasks.fetch_custom_company``).
+HISTORICAL_ORACLES = frozenset({"self_consistent", "none"})
+
+# --- the page-shape tells (check 13), i.e. how ``none`` stops being fatal -----
+# ``discover.synthesize_recipe`` stores ``oracle_kind='none'`` for a recipe with
+# no declared total AND no pagination, on the grounds that "a single request that
+# returns page one of an unknown-length board is indistinguishable from one that
+# returns the whole board". That is true of the RESPONSE. It is NOT true of the
+# REQUEST, and the request is stored right next to it.
+#
+# Measured on the four discovered boards in the owner's dev DB:
+#
+#   Walmart      POST careers.walmart.com/api/graphql, body ... "job_page": 0
+#                -> 10 records. A page index in the request, no paginate step:
+#                   this recipe reads page one of a paginated endpoint, and the
+#                   board has thousands of jobs. THIS is the board that must
+#                   never close, and 13a is what refuses it.
+#   Goldman      body "pageNumber": 0, "pageSize": 20 -> 20 records (also
+#                refused three other ways: declared 1074 vs 20 harvested,
+#                page_advance_ok=False, and empty_scrape at 1.8% of active).
+#   Atlassian    GET /endpoint/careers/listings, no params -> 232 records.
+#   Jane Street  GET /jobs/main.json, no params -> 233 records.
+#
+# So the tell separates the two live shapes cleanly on real data, and it is a
+# statement about what the request ASKED FOR rather than a guess about the reply.
+#
+# Three checks, in order of how much they claim:
+#
+#   13a offset family — the request carries a page-index/offset parameter and the
+#       recipe has no ``paginate_*`` step. The endpoint is paginated BY ITS OWN
+#       INTERFACE and we are reading one page of it. Permanent refusal.
+#   13b size family — the request carries an explicit page-SIZE parameter and the
+#       harvest returned exactly that many rows. The read hit the ceiling it
+#       asked for. (A size of 1,000 that returns 232 is the opposite: positive
+#       evidence, and it passes.)
+#   13c implicit limit — no parameter at all, but the count is exactly a common
+#       page size AND the board has returned that same number on every harvest we
+#       have. A server-side default limit is the only thing that pins a count to
+#       a round number forever; a real board's count drifts off it. The cost of a
+#       false positive is near zero BY CONSTRUCTION: if the count never moves and
+#       the id set never moves, there is nothing to close anyway.
+_PAGE_OFFSET_PARAMS = frozenset({
+    "page", "pagenumber", "pageno", "pageindex", "pagenum", "offset",
+    "start", "startindex", "startrow", "startat", "skip", "from",
+    "cursor", "after", "searchafter", "scroll",
+})
+_PAGE_SIZE_PARAMS = frozenset({
+    "pagesize", "limit", "perpage", "pagelimit", "size", "rows", "count",
+    "maxresults", "top", "num", "first", "results", "hitsperpage", "length",
+})
+# Suffixes that make a key a page index whatever it is prefixed with — Walmart's
+# ``job_page`` (and its siblings ``content_page`` / ``future_roles_page``) would
+# never appear in a fixed list, so the list is backed up by the shape of the name.
+_PAGE_OFFSET_SUFFIXES = ("page", "offset", "pagenumber", "pageindex")
+# Page sizes a server picks when the client did not. Deliberately round numbers
+# only: a limit that is not round is not a limit anybody configured.
+_COMMON_PAGE_SIZES = frozenset({
+    10, 15, 20, 24, 25, 30, 40, 50, 60, 75, 100, 120, 150, 200, 250, 500, 1000,
+})
+
+
+def _normalize_param(name: str) -> str:
+    """``job_page`` / ``page-Number`` / ``pageSize`` -> ``jobpage`` /
+    ``pagenumber`` / ``pagesize``. Case and separators carry no meaning across
+    board APIs, so they are removed before matching."""
+    return "".join(ch for ch in name.lower() if ch.isalnum())
+
+
+def _request_params(fetch: dict[str, Any]) -> dict[str, Any]:
+    """Every normalized parameter name the stored ``fetch`` step sends, with its
+    value: the URL query string plus every LEAF slot of a JSON body.
+
+    Body traversal is ``recipe_runner.iter_body_params`` — the same walker the
+    pagination cursor merge uses — so "where a parameter lives in this body" has
+    exactly one definition in the codebase. On a duplicate name the shallowest
+    wins, which is that walker's breadth-first guarantee.
+    """
+    from urllib.parse import parse_qsl, urlsplit
+
+    from .recipe_runner import iter_body_params
+
+    params: dict[str, Any] = {}
+    for key, value in parse_qsl(urlsplit(str(fetch.get("url") or "")).query):
+        params.setdefault(_normalize_param(key), value)
+    for _path, key, value in iter_body_params(fetch.get("body")):
+        params.setdefault(_normalize_param(key), value)
+    return params
+
+
+def _as_int(value: Any) -> int | None:
+    """The int a request parameter carries, or None. Strings count — a query
+    string has no types, so ``?limit=20`` is the same claim as ``"limit": 20``.
+    ``bool`` is excluded because ``True == 1`` would make a flag look like a page
+    size of one."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        try:
+            return int(value.strip())
+        except ValueError:
+            return None
+    return None
+
+
+def page_shape_refusal(recipe: dict[str, Any], n: int) -> str | None:
+    """Checks 13a/13b — does the stored REQUEST say this read was one page?
+
+    Returns the verdict reason to refuse under, or ``None`` if the request shows
+    no sign of being page-limited. Pure, and safe on a malformed recipe: anything
+    it cannot read is simply not a tell. This function may only ever make a
+    verdict stricter — it never licences one.
+
+    A recipe that DOES paginate is out of scope and returns ``None``: its
+    completeness is judged by checks 5 and 6 (``cap_hit`` / ``page_advance_ok``),
+    which are strictly stronger, and a paginating recipe is not ``none`` anyway.
+    """
+    steps = recipe.get("steps")
+    if not isinstance(steps, list):
+        return None
+    if any(
+        isinstance(step, dict) and str(step.get("op") or "").startswith("paginate_")
+        for step in steps
+    ):
+        return None
+    fetch = next(
+        (s for s in steps if isinstance(s, dict) and s.get("op") == "fetch"), None
+    )
+    if fetch is None:
+        return None
+
+    params = _request_params(fetch)
+
+    # 13a — a page index / offset in the request, and nothing advancing it.
+    for key in params:
+        if key in _PAGE_OFFSET_PARAMS or key.endswith(_PAGE_OFFSET_SUFFIXES):
+            return "page_param_unpaginated"
+
+    # 13b — an explicit page size, and the harvest came back exactly that big.
+    for key, value in params.items():
+        if key in _PAGE_SIZE_PARAMS and _as_int(value) == n:
+            return "page_limit_reached"
+
+    return None
+
+
+def _limit_pinned(
+    n: int, baseline: "Baseline", cadence_hours: float = _DEFAULT_CADENCE_HOURS
+) -> bool:
+    """Check 13c — has this board's count been pinned to a round page size?
+
+    True iff ``n`` is one of the sizes a server defaults to AND the board has
+    returned that identical number on its recent harvests. With no history the
+    ``all()`` is vacuous and a round count refuses on its own, which is the safe
+    direction on a board's first runs (they can never close regardless).
+
+    THE WINDOW IS :func:`settled_prior_runs` ON PURPOSE, and it must not be widened.
+    It is the same run length the settled-step release uses, and the coupling is
+    the point: a count that has held one value long enough to be released as a
+    genuine board shrink is, if that value is a round page size, at least as
+    likely to be a scraper jammed against a server default. Give this check a
+    LONGER window than the release and there is a gap between them where a board
+    that jams at 100 satisfies the release, VERIFIES, and starts closing the
+    hundreds of jobs it stopped being able to see. Same window, no gap: a
+    settled step change can never re-baseline onto a page-size number.
+    """
+    if n not in _COMMON_PAGE_SIZES:
+        return False
+    return all(
+        count == n
+        for count in baseline.recent_records[: settled_prior_runs(cadence_hours)]
+    )
 
 
 class HarvestGateError(ValueError):
@@ -215,19 +494,38 @@ def verify_harvest(
     harvest: GateResult,
     evidence: HarvestEvidence,
     baseline: "Baseline",
+    *,
+    recipe: dict[str, Any] | None = None,
+    cadence_hours: float = _DEFAULT_CADENCE_HOURS,
 ) -> HarvestVerdict:
-    """Verdict pass — checks 5, 6, 7-vs-total, 9, 10, 11, 12. Never raises.
+    """Verdict pass — checks 5, 6, 7-vs-total, 9, 10, 11, 12, 13. Never raises.
 
     ``oracle_kind`` is the EFFECTIVE oracle: for ATS companies the caller derives
     it from the provider (see :func:`effective_oracle_kind`); for a Phase-3
     discovered company it is the STORED ``company_scripts.oracle_kind``
-    (``facet_sum``/``header``/``sitemap``/``self_consistent``). Returns VERIFIED or
-    UNVERIFIED and NEVER raises — an unwired oracle degrades to UNVERIFIED, the safe
-    default (it can never verify, so it can never close).
+    (``facet_sum``/``header``/``sitemap``/``self_consistent``/``none``). Returns
+    VERIFIED or UNVERIFIED and NEVER raises — an unwired oracle degrades to
+    UNVERIFIED, the safe default (it can never verify, so it can never close).
+
+    ``cadence_hours`` is how often this company is harvested, and the two
+    history-shaped checks read it rather than a bare run count so that editing the
+    schedule cannot silently change what they mean — see :func:`settled_prior_runs`.
+
+    ``recipe`` is the stored script, and passing it is what upgrades
+    ``oracle_kind='none'`` from "permanently UNVERIFIED" to the history-delta
+    oracle (:func:`_verify_history_delta`). **NO RECIPE, NO COMPLETENESS CLAIM**:
+    the default is ``None``, so every caller that does not pass one — the six
+    public ATS crons and the custom ATS path, where ``none`` means "unrecognized
+    provider" rather than "single-request discovered board" — keeps the old
+    ``no_oracle`` behaviour byte for byte. The new oracle is reachable only from
+    the discovered-transport branch that has a recipe to reason about.
     """
-    if oracle_kind not in _EXACT_ORACLES and oracle_kind != "self_consistent":
-        # Unknown/unwired oracle (e.g. an unrecognized provider): never claim
-        # completeness we cannot prove.
+    if oracle_kind == "none" and recipe is None:
+        # An ATS provider we do not recognize, or a caller with nothing to
+        # reason about. Unchanged from Phase 2: never claim completeness.
+        return HarvestVerdict(UNVERIFIED, "no_oracle")
+    if oracle_kind not in _EXACT_ORACLES and oracle_kind not in HISTORICAL_ORACLES:
+        # Unknown/unwired oracle: never claim completeness we cannot prove.
         return HarvestVerdict(UNVERIFIED, "no_oracle")
 
     # Check 11 — zero-proof chain (only for a 0-row harvest).
@@ -263,7 +561,12 @@ def verify_harvest(
         # (the oracle_kind column records WHICH one). Any cap / page-advance failure
         # already short-circuited above.
         return _verify_oracle_total(n, evidence, verified_reason="oracle_exact")
-    return _verify_self_consistent(n, evidence, baseline)
+    if oracle_kind == "none":
+        # ``recipe is None`` was rejected at the top, so this is a discovered
+        # board with a stored request to reason about.
+        assert recipe is not None
+        return _verify_history_delta(n, evidence, baseline, recipe, cadence_hours)
+    return _verify_self_consistent(n, evidence, baseline, cadence_hours)
 
 
 def _verify_oracle_total(
@@ -318,7 +621,10 @@ def _verify_declared_probed(n: int, evidence: HarvestEvidence) -> HarvestVerdict
 
 
 def _verify_self_consistent(
-    n: int, evidence: HarvestEvidence, baseline: "Baseline"
+    n: int,
+    evidence: HarvestEvidence,
+    baseline: "Baseline",
+    cadence_hours: float = _DEFAULT_CADENCE_HOURS,
 ) -> HarvestVerdict:
     """Check 9 + 12 for ``self_consistent`` — no trusted total, so completeness
     is the self-consistency conjunction plus the trailing-median delta band.
@@ -337,19 +643,130 @@ def _verify_self_consistent(
         )
 
     # Check 12 — delta vs trailing-run median (only when a median exists).
-    median = baseline.median_records
-    if median is not None and median > 0:
-        low = median * _SELF_CONSISTENT_DELTA_LOW_RATIO
-        high = median * _SELF_CONSISTENT_DELTA_HIGH_RATIO
-        if not (low <= n <= high):
-            return HarvestVerdict(
-                UNVERIFIED, "delta_anomaly",
-                declared_total=evidence.declared_total,
-                page_advance_ok=evidence.page_advance_ok,
-            )
+    if not in_delta_band(n, baseline, cadence_hours):
+        return HarvestVerdict(
+            UNVERIFIED, "delta_anomaly",
+            declared_total=evidence.declared_total,
+            page_advance_ok=evidence.page_advance_ok,
+        )
 
     return HarvestVerdict(
         VERIFIED, "self_consistent_ok",
+        declared_total=evidence.declared_total,
+        page_advance_ok=evidence.page_advance_ok,
+    )
+
+
+def _settled_step_change(
+    n: int, baseline: "Baseline", cadence_hours: float
+) -> bool:
+    """Have the last :func:`settled_prior_runs` harvests all returned exactly
+    ``n``? See the constant block: a real board shrink HOLDS its new number, a
+    truncation WANDERS, and that is measured, not assumed.
+
+    Requires a FULL run of identical counts — a board with less history than
+    that has not settled anything and gets no release.
+    """
+    required = settled_prior_runs(cadence_hours)
+    prior = baseline.recent_records[:required]
+    if len(prior) < required:
+        return False
+    return all(count == n for count in prior)
+
+
+def in_delta_band(
+    n: int, baseline: "Baseline", cadence_hours: float = _DEFAULT_CADENCE_HOURS
+) -> bool:
+    """Check 12 — is ``n`` close enough to the trailing VERIFIED median to be a
+    board that moved rather than a read that broke?
+
+    Vacuously True with no median (a board's first runs cannot close anyway —
+    ``first_verified_run`` and the VERIFIED streak both block them). Otherwise
+    out of band on EITHER low rule or the high rule, then rescued only by a
+    settled step change. Exported (no underscore) because the simulation test
+    replays real harvest histories through exactly this function; there is no
+    second copy of the arithmetic to drift from it.
+    """
+    median = baseline.median_records
+    if median is None or median <= 0:
+        return True
+
+    hard_low = n < median * _DELTA_HARD_LOW_RATIO
+    soft_low = (
+        n < median * _DELTA_LOW_RATIO and (median - n) >= _DELTA_MIN_ABS_DROP
+    )
+    high = n > median * _DELTA_HIGH_RATIO
+    if not (hard_low or soft_low or high):
+        return True
+    return _settled_step_change(n, baseline, cadence_hours)
+
+
+def _verify_history_delta(
+    n: int,
+    evidence: HarvestEvidence,
+    baseline: "Baseline",
+    recipe: dict[str, Any],
+    cadence_hours: float = _DEFAULT_CADENCE_HOURS,
+) -> HarvestVerdict:
+    """Checks 12 + 13 for ``oracle_kind='none'`` — the history-delta oracle.
+
+    THE PROBLEM THIS SOLVES. Discovery stores ``none`` for a recipe with no
+    declared total and no pagination, and until now ``verify_harvest`` answered
+    ``no_oracle`` for it forever. Every board discovered that way — Walmart,
+    Atlassian, Jane Street — was therefore UNVERIFIED on every run it would ever
+    make, which means it could never increment a miss and never close a job. The
+    product consequence is the one that actually matters: filled roles stay OPEN
+    forever, counts only drift upward, and the board lies to the user.
+
+    WHAT IT CLAIMS, AND WHAT IT DOES NOT. ``declared_probed`` proves completeness
+    ("an independent source said 232 and we harvested 232"). This proves nothing
+    of the kind. It says: *this board has consistently returned about this many
+    rows, its request does not look like one page of a longer list, and this run
+    is consistent with that history.* That is EMPIRICAL rather than deductive, so
+    it is hedged three ways the structural oracles are not — the page-shape tells
+    below, a stricter close-time VERIFIED streak
+    (``_NO_ORACLE_STREAK_REQUIRED``), and the id-churn guard, both in
+    ``tasks.fetch_custom_company``.
+
+    Order is deliberate: the tells that say "this read was structurally short"
+    run BEFORE the statistical band, because a board that is always truncated has
+    a perfectly stable history of truncated counts and would sail through a
+    band alone. That is the Walmart shape exactly.
+    """
+    if not evidence.terminated_cleanly:
+        return HarvestVerdict(
+            UNVERIFIED, "not_terminated_cleanly",
+            declared_total=evidence.declared_total,
+            page_advance_ok=evidence.page_advance_ok,
+        )
+
+    # Check 13a/13b — the request's own shape says this was one page.
+    shape = page_shape_refusal(recipe, n)
+    if shape is not None:
+        return HarvestVerdict(
+            UNVERIFIED, shape,
+            declared_total=evidence.declared_total,
+            page_advance_ok=evidence.page_advance_ok,
+        )
+
+    # Check 13c — no parameter, but the count is pinned to a round page size.
+    if _limit_pinned(n, baseline, cadence_hours):
+        return HarvestVerdict(
+            UNVERIFIED, "page_limit_pinned",
+            declared_total=evidence.declared_total,
+            page_advance_ok=evidence.page_advance_ok,
+        )
+
+    # Check 12 — the count is consistent with what this board has been returning.
+    if not in_delta_band(n, baseline, cadence_hours):
+        return HarvestVerdict(
+            UNVERIFIED, "delta_anomaly",
+            declared_total=evidence.declared_total,
+            page_advance_ok=evidence.page_advance_ok,
+        )
+
+    return HarvestVerdict(
+        VERIFIED, "history_delta_ok",
         declared_total=evidence.declared_total,
         page_advance_ok=evidence.page_advance_ok,
     )
@@ -393,6 +810,14 @@ def _zero_proof(evidence: HarvestEvidence) -> HarvestVerdict:
 # far enough off the trailing median that the data is likelier wrong than the
 # board), ``over_harvest`` (n > the trusted total — not short, but the filter
 # widened, so the set is not the board's set either) and ``zero_unproven``.
+#
+# The three check-13 reasons — ``page_param_unpaginated``, ``page_limit_reached``
+# and ``page_limit_pinned`` — are excluded for the same reason, and their
+# exclusion is a deliberate behaviour CHANGE, not an oversight. Before the
+# history-delta oracle a Walmart-shaped board answered ``no_oracle`` and was
+# therefore treated as comparable; its ten rows were being offered to the
+# published-board matcher as if they were the whole board. They are not, and now
+# the matcher is told so.
 _UNTRUNCATED_UNVERIFIED_REASONS = frozenset({"no_oracle"})
 
 
@@ -420,12 +845,16 @@ def read_untruncated(verdict: HarvestVerdict, evidence: HarvestEvidence) -> bool
     with ``oracle_kind='none'`` by discovery, deliberately: one response holding 79
     jobs is indistinguishable from page one of a 400-job board that never mentioned
     its length (``capture/discover.synthesize_recipe``, "the one place discovery
-    may not be generous"). That ambiguity is real and unresolvable from the
-    harvest, so those boards stay UNVERIFIED forever and close nothing, forever.
-    But it does not follow that their title set is unusable: the run issued its one
-    request, got a 200, and mapped every record in the body. Nothing was cut off
-    *by us*, and "cut off by us" is the failure the comparison actually cares
-    about.
+    may not be generous"). That ambiguity is real and unresolvable *from the
+    harvest alone*, which is why this weaker question existed before the
+    history-delta oracle did. It has narrowed since: a ``none`` board that clears
+    checks 12 and 13 now reaches VERIFIED on its own, and one that fails check 13
+    is now correctly reported as NOT comparable. What is left in the gap is the
+    genuinely unproven middle — an unrecognized ATS provider, or a stored script
+    edited out of sync with its ``oracle_kind`` column. For those the run still
+    issued its one request, got a 200, and mapped every record in the body.
+    Nothing was cut off *by us*, and "cut off by us" is the failure the comparison
+    actually cares about.
 
     The conjunction below is what "not cut off by us" means, and it is read off the
     EVIDENCE rather than the verdict — deliberately. ``verify_harvest`` returns

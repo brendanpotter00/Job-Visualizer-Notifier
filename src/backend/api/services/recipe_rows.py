@@ -2,7 +2,7 @@
 
 The replay runner (:mod:`api.services.recipe_runner`) emits plain ``dict`` rows
 shaped by a script's ``fields`` map (``{id, title, url, location?, posted_at?,
-department?, company?, …}``). This module turns those rows into ``JobListing``
+description?, company?, …}``). This module turns those rows into ``JobListing``
 objects, mirroring the ATS clients' ``transform_to_job_listings`` contract so the
 custom-company leaf task's ``_remap_for_custom`` re-scoping path is reused
 unchanged.
@@ -23,7 +23,7 @@ from scripts.shared.models import JobListing
 from scripts.shared.utils import get_iso_timestamp
 
 # Row keys the runner writes that map to first-class JobListing columns; anything
-# else the script extracted (department, company_name, category, …) is preserved
+# else the script extracted (description, company_name, category, …) is preserved
 # under ``details`` so the enrichment/read paths can still see it.
 _PROMOTED_KEYS = frozenset({"id", "title", "url", "location", "posted_at", "posted_on"})
 

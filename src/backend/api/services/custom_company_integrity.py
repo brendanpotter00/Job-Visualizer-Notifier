@@ -7,10 +7,13 @@ same statement block (``add_custom_company``, ``add_discovering_placeholder``,
 ``add_discovered_company``, ``record_discovery_refusal``), and
 ``remove_owned_company`` purges the company outright once the last owner goes. So the
 model says "private company, zero owners" is unreachable. The dev database holds
-``u-6hkpc6fh0z`` ("Amazon (live check)"): **100 job rows, zero owners** — produced by a
-test path, ``enabled=false``, invisible to every UI (the list JOINs
-``user_companies``), and un-deletable through the API, because the only delete route
-first proves the caller owns it. Nothing would ever have reported it.
+``u-6hkpc6fh0z`` ("Amazon (live check)"): zero owners and, by the time it was
+collected, **12,437 job rows across six harvests** — produced by a test path that
+deleted the ownership row without the purge that is supposed to follow it, invisible
+to every UI (the list JOINs ``user_companies``), un-deletable through the API because
+the only delete route first proves the caller owns it, and STILL HARVESTING, because
+the claim tick does not join ``user_companies`` either. Nothing would ever have
+reported it.
 
 That matters beyond tidiness. The question this whole surface has to answer is *how
 many private boards are actually being used by users*, and an ownerless row is counted
@@ -25,11 +28,28 @@ Why a check and not a foreign key
 see :class:`api.db_models.UserCompany`): ``companies`` is truncated freely in tests and
 the ownership row's lifecycle is owned by the delete endpoint. A FK or trigger would
 make the state unrepresentable at the cost of a schema constraint the rest of the
-codebase deliberately does not have. Reporting is also the reversible half — a reaper
-is a delete path, and any reaper written later must reuse ``remove_owned_company``'s
-purge ORDER (job_locations with its NOT EXISTS guard → job_tags → job_enrichment →
-job_listings → company_harvests / scrape_runs / company_scripts → companies), never
-invent a second one.
+codebase deliberately does not have — and it would make THIS check untestable, since
+every test below seeds an ownerless row on purpose. The full argument, including why a
+``DEFERRABLE INITIALLY DEFERRED`` constraint trigger *would* express the invariant and
+is still the wrong tool here, is in :mod:`api.tasks.reap_ownerless_companies`.
+
+Why this check STAYS now that a reaper exists
+---------------------------------------------
+``api.tasks.reap_ownerless_companies`` purges these rows hourly, so ``ownerlessCount``
+is now expected to be **0 at all times except inside the reaper's 30-minute age
+floor**. That does not make this report dead — it INVERTS it. It was a detector for a
+state nobody was fixing; it is now the **tripwire on the fix**. A count that stays
+above zero across two ticks means one of three things, all of which need a human: the
+sweep is not running, its recognition rule has drifted from this query, or something
+is creating orphans faster than they are collected. That is why both predicates are
+the same ``NOT EXISTS`` over ``visibility='user'`` — a detector that names rows the
+reaper will not collect (or misses ones it will) is worse than no detector.
+
+The reaper reuses ``remove_owned_company``'s purge ORDER rather than inventing a
+second one; that order now lives in exactly one place,
+``custom_companies_service.purge_custom_company`` (job_locations with its NOT EXISTS
+guard → job_tags → job_enrichment → job_listings → company_harvests / scrape_runs /
+company_scripts → companies).
 
 Connection contract: SELECT-only, never commits, always rolls back so the caller's
 pooled connection is never left idle-in-transaction (that pins the xmin horizon and

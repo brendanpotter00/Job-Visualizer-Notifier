@@ -89,9 +89,12 @@ outcome: an escaping exception wedges that row at "Setting up…" forever.
 from __future__ import annotations
 
 import asyncio
+import html
 import json
 import logging
+import re
 import time
+import unicodedata
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable, Protocol
@@ -119,8 +122,12 @@ from ..recipe_rows import recipe_rows_to_job_listings
 from ..recipe_runner import (
     HARVEST_TIME_BUDGET_S,
     MAX_HARVEST_RECORDS,
+    _MULTISPACE_RE,
     RecipeExecutionError,
+    find_body_param_path,
+    iter_body_params,
     map_records,
+    render_field,
     run_recipe,
 )
 from ..recipe_schema import (
@@ -141,7 +148,10 @@ from .request_selector import (
     RequestSelection,
     RequestSelectionError,
     SelectorKeyMissingError,
+    is_published_url_spec,
     prefilter_candidates,
+    published_url_fields,
+    repair_url_template,
     select_request,
 )
 
@@ -806,10 +816,19 @@ def _coverage(
 
 @dataclass(frozen=True)
 class _PageSizeParam:
-    """Where a captured request carries the page size it asked for."""
+    """Where a captured request carries the page size it asked for.
+
+    ``path`` is the FULL location inside a POST body and is what the rewrite writes
+    to. A one-element path is the flat body every board had until higher.gs.com, whose
+    ``pageSize`` sits at ``variables.searchQueryInput.page.pageSize``; scanning only
+    ``body.items()`` made that invisible, so ``page_size_attempts`` never tried to
+    raise it and the run bought 54 requests where 11 would do. Empty for a query
+    parameter, whose name is the whole address.
+    """
 
     location: str      # "query" | "body"
     name: str
+    path: tuple[str, ...] = ()
 
 
 def _apply_page_size(
@@ -835,7 +854,16 @@ def _apply_page_size(
             httpx.URL(fetch["url"]).copy_set_param(param.name, str(page_size))
         )
     else:
-        fetch.setdefault("body", {})[param.name] = page_size
+        # WHERE THE BOARD ALREADY CARRIES IT, which for a GraphQL envelope is several
+        # levels down. A top-level write would leave the real ``pageSize`` at its
+        # captured value while ``paginate.page_size`` claimed the raised one — and a
+        # page_size that disagrees with what the request asks for ends the sweep one
+        # page early and reports a partial board as a complete one.
+        path = param.path or (param.name,)
+        node: Any = fetch.setdefault("body", {})
+        for segment in path[:-1]:
+            node = node[segment]
+        node[path[-1]] = page_size
     return page_size
 
 
@@ -857,23 +885,88 @@ def _is_page_size(name: str, value: Any, record_count: int) -> bool:
         return False
 
 
+def _captured_body(candidate: Candidate) -> dict[str, Any] | None:
+    """The captured POST body as a dict, or ``None`` (not a POST / unparseable)."""
+    if candidate.method != "POST":
+        return None
+    try:
+        body = json.loads(candidate.post_data or "", strict=False)
+    except Exception:  # noqa: BLE001 - a body we cannot parse carries no parameter
+        return None
+    return body if isinstance(body, dict) else None
+
+
 def _page_size_param(candidate: Candidate) -> _PageSizeParam | None:
     """The request parameter that set the page we captured, or ``None``. DERIVED from
     the captured request + response, never asked of the model — a guessed page-size
-    parameter is a silently-short sweep, which is the wrong-close direction."""
+    parameter is a silently-short sweep, which is the wrong-close direction.
+
+    The body scan is NESTED (``iter_body_params``, shallowest first) for the same
+    reason the cursor merge is: higher.gs.com carries its page size four levels down a
+    GraphQL envelope, and a flat ``body.items()`` scan simply could not see it.
+    """
     for name, raw in parse_qsl(urlsplit(candidate.url).query, keep_blank_values=True):
         if _is_page_size(name, raw, candidate.record_count):
             return _PageSizeParam("query", name)
-    if candidate.method == "POST":
-        try:
-            body = json.loads(candidate.post_data or "", strict=False)
-        except Exception:  # noqa: BLE001 - a body we cannot parse carries no parameter
-            return None
-        if isinstance(body, dict):
-            for name, value in body.items():
-                if _is_page_size(str(name), value, candidate.record_count):
-                    return _PageSizeParam("body", str(name))
+    body = _captured_body(candidate)
+    if body is not None:
+        for path, name, value in iter_body_params(body):
+            if _is_page_size(name, value, candidate.record_count):
+                return _PageSizeParam("body", name, path)
     return None
+
+
+# The only two page numbers a first page can carry, and therefore the only two
+# ``start_page`` values discovery will commit to. See :func:`_captured_start_page`.
+_STORABLE_START_PAGES = (0, 1)
+
+
+def _captured_start_page(candidate: Candidate, param: str) -> int | None:
+    """The page number the CAPTURED request asked for, when it is a believable base.
+
+    Discovery never emitted this, so ``recipe_runner`` fell back to its default of 1
+    while higher.gs.com's captured body says ``pageNumber: 0`` — the sweep skipped the
+    board's whole first page. THAT MATTERS BEYOND THE MISSING 20 JOBS: the sweep still
+    ends on a short page, so it reports ``terminated_cleanly`` and ``page_advance_ok``,
+    and a board with a ``self_consistent`` oracle therefore VERIFIES a read it knows is
+    short. Only a VERIFIED run may close a job, so that is a self-inflicted mass close.
+    Goldman itself is spared only because its ``declared_probed`` oracle compares at
+    tolerance 0 and the count mismatch drops it to UNVERIFIED.
+
+    Only 0 and 1 are storable. Those are the two bases a first page can have; anything
+    else means the capture recorded a request from the MIDDLE of a sweep, where the
+    board's base is not knowable from one request — and storing "start at page 7" would
+    skip six pages every night, which is strictly worse than today's default. That case
+    returns ``None`` (unchanged behaviour) and says so in the log.
+    """
+    raw: Any = None
+    for name, value in parse_qsl(urlsplit(candidate.url).query, keep_blank_values=True):
+        if name == param:
+            raw = value
+            break
+    if raw is None:
+        body = _captured_body(candidate)
+        if body is not None:
+            path = find_body_param_path(body, param)
+            if path is not None:
+                node: Any = body
+                for segment in path:
+                    node = node[segment]
+                raw = node
+    if raw is None or isinstance(raw, bool):
+        return None
+    try:
+        page = int(str(raw))
+    except (TypeError, ValueError):
+        return None
+    if page not in _STORABLE_START_PAGES:
+        logger.info(
+            "captured %r=%s is not a first page (expected 0 or 1) — storing no "
+            "start_page, so the sweep keeps the runner's default of 1",
+            param, page,
+        )
+        return None
+    return page
 
 
 def _declared_total(candidate: Candidate, selection: RequestSelection) -> int | None:
@@ -1071,6 +1164,14 @@ def synthesize_recipe(
                 transport=transport,
             ),
         }
+        if op == "paginate_page":
+            # THE BASE THE BOARD COUNTS FROM, read off its own captured request. The
+            # runner defaults to 1 and higher.gs.com starts at 0, so omitting this
+            # skipped the board's entire first page — see :func:`_captured_start_page`
+            # for why a short-but-clean sweep is the dangerous shape of that bug.
+            start_page = _captured_start_page(candidate, selection.pagination.param)
+            if start_page is not None:
+                paginate["start_page"] = start_page
         if total_is_capped and isinstance(declared_total, int):
             # The furthest the API will serve. Without it the sweep walks past the
             # window and the board answers with an in-band error — a FAILED run every
@@ -1289,6 +1390,333 @@ def _widen_to_union(
     )
 
 
+def _repair_selection_url(
+    selection: RequestSelection, candidate: Candidate, captured: CaptureResult
+) -> RequestSelection:
+    """``selection`` with a dead url template re-pointed at the board's real route key.
+
+    The evidence is THE CAPTURE'S OWN REQUEST LOG — every URL the browser fetched on
+    the board's host while the page was open, which on a Next.js board includes the
+    ``/_next/data/<build>/roles/<id>.json`` call each job card makes. That is where the
+    board itself spells its route key, so nothing has to be guessed or re-fetched.
+    :func:`~.request_selector.repair_url_template` owns the rule and refuses unless it
+    is certain; this only supplies the two inputs it cannot reach.
+    """
+    board_host = urlsplit(_origin_of(captured.final_url) or captured.final_url).hostname or ""
+    repaired = repair_url_template(
+        candidate.records,
+        selection.field_map["url"],
+        [response.url for response in captured.responses],
+        board_host,
+    )
+    if repaired == selection.field_map["url"]:
+        return selection
+    return replace(selection, field_map={**selection.field_map, "url": repaired})
+
+
+# --------------------------------------------------------------------------
+# step 5b — PROVING the job link, when we are the one who invented it
+# --------------------------------------------------------------------------
+#
+# WHY THIS STEP EXISTS. ``field_map.url`` is either a link the BOARD published or a
+# path WE invented with an id pasted into it, and until this existed both were stored
+# on the strength of looking like a URL. Measured over 19 real payloads
+# (docs/implementations/custom-company-sources/JOB-LINK-RULE.md): 13 boards publish a
+# link field, 6 force a template, and THREE of those six shipped a dead link —
+# Jane Street a flat 404, Goldman and Walmart a 200 that serves the same empty SPA
+# shell for every job. Nothing in the pipeline could see any of it.
+#
+# THE SPLIT IS THE RULE. A published path is the board's own statement and is never
+# fetched, re-pointed or second-guessed; a synthesised one is a claim of ours and has
+# to be PROVED before it is stored. The line between them is
+# ``request_selector.is_published_url_spec``.
+#
+# WHY A PUBLISHED LINK MUST NOT BE PROBED, even though probing looks free: the proof
+# below CANNOT tell a client-rendered job page from a client-rendered 404 shell, and
+# plenty of published links point at exactly that. Measured over the 13 published links
+# in the corpus, 11 would pass a probe and TWO working production links would not:
+# Atlassian's iCIMS page renders the job in an IFRAME, so three different jobs each
+# serve 18,086 chars and none carries its title — the same shape as Goldman's dead
+# shell; and Roblox's page carries a related-jobs block, so every page holds the other
+# jobs' titles too and the pages differ by 0.8%. Atlassian is also the board this change
+# was told not to regress.
+
+# The proof's budget. At most two candidate specs, two jobs each — four GETs per
+# selection round, on the ~1 board in 3 that needs a template at all; ten of the
+# thirteen corpus boards fetch nothing.
+#
+# THE WORST CASE HAS TO FIT THE TASK'S CLOCK. ``discover_custom_company`` wraps the
+# whole run in a 240 s ``asyncio.timeout``, and discovery already spends 27–75 s in a
+# real browser. Two rounds x two candidates x two jobs, every one of them timing out,
+# is 8 x 10 s = 80 s — inside the remaining headroom, and only reachable on a board
+# that is refusing to answer us at all.
+_LINK_PROBE_SAMPLES = 2
+_LINK_PROBE_TIMEOUT_S = 10.0
+# A job page is HTML, not a download. Matches the capture's own per-body cap for the
+# same reason it was raised to 4 MB — real pages get that big.
+#
+# TRUNCATION CANNOT MANUFACTURE A PASS, which is why there is no guard for it. Reading
+# stops on the first chunk past the cap, so two clipped bodies land within one chunk
+# (~64 KB) of each other on length alone — comfortably inside the 2% bar below, which
+# is 80 KB at this cap. A clipped pair that still differs differs because their first
+# 4 MB genuinely differ, and that IS the routing evidence the proof is looking for.
+# The error truncation can cause is the safe one: two pages that diverge only after
+# 4 MB read as identical, and an identical pair is REFUSED.
+_LINK_PROBE_MAX_BYTES = 4_000_000
+# How different two job pages must be before "different" means anything. Both bounds
+# are needed: the fraction alone calls a 400-char difference in a 500-char shell
+# decisive, and the absolute alone calls a 250-char nonce in a 700 KB SPA decisive.
+_MIN_PAGE_DELTA_CHARS = 200
+_MIN_PAGE_DELTA_FRACTION = 0.02
+
+# One probe fetch: ``url -> (status, body)``. A status of 0 means the fetch never
+# happened (guard refusal, DNS, timeout, reset) and is treated exactly like a 500 —
+# unproven, never fatal.
+ProbeFn = Callable[[str], tuple[int, str]]
+
+_SCRIPT_STYLE_RE = re.compile(r"(?is)<(script|style)\b.*?</\1\s*>")
+_TAG_RE = re.compile(r"<[^>]+>")
+_QUOTES = str.maketrans({"‘": "'", "’": "'", "“": '"', "”": '"',
+                         "‐": "-", "‑": "-", "‒": "-", "–": "-",
+                         "—": "-", "―": "-"})
+
+
+def _default_probe(url: str) -> tuple[int, str]:
+    """GET ``url`` through the SAME SSRF-guarded client the nightly replay uses.
+
+    Never raises: every failure is ``(0, "")``, because "we could not check" and "the
+    check failed" lead to the same place — the link is unproven and will not be stored.
+    Reusing ``guarded_sync_client`` is not incidental; this fetches a URL a model
+    composed, which is the exact threat that client's host-pin and IP-pin exist for.
+    """
+    try:
+        http = guarded_sync_client()
+    except Exception:                       # pragma: no cover - client build cannot fail
+        return 0, ""
+    try:
+        with http.stream("GET", url, timeout=_LINK_PROBE_TIMEOUT_S) as response:
+            body = bytearray()
+            for chunk in response.iter_bytes():
+                body.extend(chunk)
+                if len(body) >= _LINK_PROBE_MAX_BYTES:
+                    break
+            return response.status_code, bytes(body).decode("utf-8", "replace")
+    except Exception as exc:                # noqa: BLE001 - every failure is "unproven"
+        logger.info("job-link probe could not fetch %s: %r", url, exc)
+        return 0, ""
+    finally:
+        http.close()
+
+
+def _page_text(body: str) -> str:
+    """An HTML body reduced to comparable words.
+
+    Scripts and styles go first and for a reason bigger than noise: an SPA's payload
+    lives in a ``<script>`` tag, so a shell that renders nothing can still carry every
+    job's title in its bundle. Stripping them is what makes "the page is about THIS
+    job" mean the page, not the app.
+    """
+    text = _TAG_RE.sub(" ", _SCRIPT_STYLE_RE.sub(" ", body))
+    text = unicodedata.normalize("NFKD", html.unescape(text)).translate(_QUOTES)
+    text = "".join(ch for ch in text if not unicodedata.combining(ch))
+    return _MULTISPACE_RE.sub(" ", text).strip().casefold()
+
+
+def _pages_differ(first: str, second: str) -> bool:
+    """The two pages are materially different lengths — i.e. the URL routed on the id."""
+    if not first or not second:
+        return False
+    longest = max(len(first), len(second))
+    return abs(len(first) - len(second)) >= max(
+        _MIN_PAGE_DELTA_CHARS, int(_MIN_PAGE_DELTA_FRACTION * longest)
+    )
+
+
+# How long a job title has to be before finding it on a page means anything. "QA" or
+# "SRE" occurs on half the web by accident, which would turn the proof's strongest
+# signal into its weakest. Below the bar the title is simply not consulted — it is not
+# a reason to reject the board.
+_DISTINCTIVE_TITLE_CHARS = 10
+
+
+def _link_samples(
+    records: list[Any], field_map: dict[str, str], base_url: str
+) -> list[tuple[str, str]]:
+    """``(normalized title, absolute url)`` for :data:`_LINK_PROBE_SAMPLES` jobs with
+    DISTINCT urls, or fewer if the board cannot supply them.
+
+    Distinct on the URL and nothing else, because that is the only thing the proof
+    requires: two records that render the same url prove nothing about routing. Titles
+    may repeat (the same role in two cities is two jobs), and a repeated or too-short
+    title costs only the title half of the proof — :func:`_prove_job_link` falls back to
+    comparing the pages themselves.
+    """
+    picked: list[tuple[str, str]] = []
+    urls: set[str] = set()
+    for record in records:
+        rendered = render_field(record, field_map["url"])
+        if not isinstance(rendered, str):
+            continue
+        url = base_url.rstrip("/") + rendered if rendered.startswith("/") else rendered
+        if not url.startswith(("https://", "http://")) or url in urls:
+            continue
+        title = render_field(record, field_map["title"])
+        urls.add(url)
+        picked.append((_page_text(title) if isinstance(title, str) else "", url))
+        if len(picked) == _LINK_PROBE_SAMPLES:
+            break
+    return picked
+
+
+def _prove_job_link(
+    records: list[Any], field_map: dict[str, str], base_url: str, probe: ProbeFn
+) -> str | None:
+    """``None`` if this url spec is proved, else WHY it is not. Sync; never raises.
+
+    THE PROOF, and why it is two REAL jobs rather than one job plus a fabricated
+    control id. An HTTP status decides nothing — ``higher.gs.com/roles/<anything>``
+    answers 200, and so does every path on ``careers.walmart.com``. Fetching a
+    deliberately-bogus id as a control would work, but the id has to be INVENTED, and
+    an invented id can collide with a real posting and quietly prove the opposite.
+
+    Two real jobs need no invention and answer a sharper question: **if the board
+    serves the same page for two different jobs, the template does not route on this
+    id.** Measured 2026-08-29, after :func:`_page_text` — Goldman's wrong key 23 vs 23
+    chars, its right one 4,003 vs 3,383 with each title on its own page; Walmart 1,606
+    vs 1,606; Kakao 60 vs 60; Jane Street a 404 before the comparison is even reached.
+
+    Each page carrying its OWN title and not the other's is the strong form, and the
+    "not the other's" half is what stops a board that answers every job URL with its
+    full listing page from passing. When the titles are too short to be distinctive or
+    the two jobs share one, only the weak form is available and that is fine — a board
+    that serves two different pages IS routing on the id, whatever is written on them.
+    """
+    samples = _link_samples(records, field_map, base_url)
+    if len(samples) < _LINK_PROBE_SAMPLES:
+        return f"only {len(samples)} of the board's jobs render a distinct link"
+
+    pages: list[tuple[str, str]] = []
+    for title, url in samples:
+        status, body = probe(url)
+        if status == 0 or status >= 400:
+            return f"HTTP {status} on {url}"
+        pages.append((title, _page_text(body)))
+
+    (first_title, first_page), (second_title, second_page) = pages
+    if (
+        first_title != second_title
+        and min(len(first_title), len(second_title)) >= _DISTINCTIVE_TITLE_CHARS
+    ):
+        own = first_title in first_page and second_title in second_page
+        cross = first_title in second_page or second_title in first_page
+        if own and not cross:
+            return None
+    if _pages_differ(first_page, second_page):
+        return None
+    return (
+        f"two different jobs served the same page ({len(first_page)} vs "
+        f"{len(second_page)} chars) — this link does not point at one job"
+    )
+
+
+# A dotted path no payload can carry (``dig`` splits on ``.``, so no key can be named
+# this). ``render_field`` substitutes an unresolvable path with the empty string, which
+# is how the fallback stays a TEMPLATE — and therefore renders at all — when the id spec
+# cannot be interpolated into one.
+_UNRESOLVABLE_PATH = "__no_job_id__"
+
+
+def _board_page_link(origin_url: str, id_spec: str) -> str:
+    """The honest last resort: the board's OWN listing page, keyed by the job id.
+
+    NOT a per-job link and not pretending to be one. It is the page the user pasted, it
+    cannot 404, and clicking it lands on the list the job is actually on — which is
+    strictly better than the alternatives. ``url`` is one of
+    ``CANONICAL_REQUIRED_FIELDS``, so "store nothing" is not available, and an empty
+    one reaches the frontend as ``href=""`` (which reloads the page: worse than a 404
+    and no more honest). Refusing the board outright would throw away a feed we can
+    read perfectly — Jane Street's 233 jobs and its whole hiring-trend graph — to
+    protect a footnote.
+
+    The id rides in the FRAGMENT: it keeps one row per job distinct, and a fragment is
+    never sent to the server, so it cannot turn a working listing URL into a 404.
+
+    An id path that itself contains a brace would nest inside that placeholder and
+    render a mangled string on every row, so it gets a placeholder that resolves to
+    nothing instead. That still has to BE a placeholder: ``render_field`` reads a spec
+    with no ``{`` as a dotted PATH, so a bare literal URL renders ``None`` on every
+    row — the empty link this whole function exists to avoid.
+    """
+    page = origin_url.split("#", 1)[0]
+    if "{" in id_spec or "}" in id_spec:
+        return f"{page}#{{{_UNRESOLVABLE_PATH}}}"
+    return f"{page}#{{{id_spec}}}"
+
+
+async def _resolve_job_link(
+    selection: RequestSelection,
+    candidate: Candidate,
+    captured: CaptureResult,
+    origin_url: str,
+    probe: ProbeFn,
+) -> tuple[RequestSelection, bool]:
+    """``(selection with a url we can stand behind, did we prove a per-job link)``.
+
+    The ladder, in the order the evidence deserves:
+
+    1. **the board published this path** — keep it verbatim, fetch nothing. Microsoft's
+       ``https://apply.careers.microsoft.com{positionUrl}`` and Atlassian's
+       ``portalJobPost.portalUrl`` both land here and are byte-identical afterwards.
+    2. **the board published a path and the model invented one instead** — take the
+       board's. It answers the question the model was guessing at.
+    3. **a template is unavoidable** — prove it by fetching, repaired candidate first
+       (``repair_url_template`` only fires when the model's id appears in ZERO of the
+       board's own links, which is evidence in its own right), then the model's.
+    4. **nothing proved** — :func:`_board_page_link`, and say so out loud.
+
+    NEVER raises. An unprovable link is a downgrade, never a refusal.
+    """
+    records = candidate.records
+    base_url = _origin_of(origin_url)
+    spec = selection.field_map["url"]
+
+    def _with(new_spec: str) -> RequestSelection:
+        return replace(selection, field_map={**selection.field_map, "url": new_spec})
+
+    if is_published_url_spec(records, spec):
+        return selection, True
+
+    published = published_url_fields(records)
+    if published:
+        logger.warning(
+            "field_map.url %r is a path we invented, but this board publishes its own "
+            "link at %r — using the board's", spec, published[0],
+        )
+        return _with(published[0]), True
+
+    repaired = _repair_selection_url(selection, candidate, captured).field_map["url"]
+    tried: list[str] = []
+    for attempt in (repaired, spec):
+        if attempt in tried:
+            continue
+        tried.append(attempt)
+        why = await asyncio.to_thread(
+            _prove_job_link, records, {**selection.field_map, "url": attempt},
+            base_url, probe,
+        )
+        if why is None:
+            logger.info("job link %r proved against the live board", attempt)
+            return _with(attempt), True
+        logger.warning("job link %r is not usable: %s", attempt, why)
+
+    fallback = _board_page_link(origin_url, selection.field_map["id"])
+    logger.warning(
+        "no per-job link could be proved for %s (tried %s); linking every job at this "
+        "board to its own listing page instead (%r)", origin_url, tried, fallback,
+    )
+    return _with(fallback), False
+
+
 def _capture_ids(candidate: Candidate, selection: RequestSelection, base_url: str) -> set[str]:
     """The ids the CAPTURE BROWSER saw, mapped with the same field map the recipe uses.
 
@@ -1421,6 +1849,7 @@ async def discover(
     replay_http: ReplayFn | None = None,
     replay_browser: ReplayFn | None = None,
     validate_url: UrlValidator | None = None,
+    probe_link: ProbeFn | None = None,
     emit: ProgressFn | None = None,
 ) -> DiscoveryOutcome:
     """Run one capture discovery for ``url``. NEVER raises — a failure is a REFUSE.
@@ -1440,6 +1869,7 @@ async def discover(
     # HERE rather than inside a wrapper so an injected validator (tests) takes exactly
     # the same paths as the real one.
     check_url = validate_url or validate_public_url
+    probe_job_link = probe_link or _default_probe
     do_capture = capture or capture_board
     do_select = select or select_request
     run_http = replay_http or _default_replay_http
@@ -1678,6 +2108,10 @@ async def discover(
         # them the wrong one.
         last_step = _STEP_ACCEPT
         last_error: str | None = None
+        # Did we end up with a link to the JOB, or only to the board? Set every round
+        # by :func:`_resolve_job_link`; initialised here because a round that refuses
+        # before reaching it still falls through to the checklist below.
+        per_job_link = True
         for round_number in range(1, _MAX_SELECTION_ROUNDS + 1):
             if not candidates:
                 break
@@ -1735,6 +2169,14 @@ async def discover(
                 # must be about the array we are actually going to store.
                 candidate, selection = _widen_to_union(
                     candidate, selection, _origin_of(origin_url)
+                )
+                # ...and then settle the job link. After the widen so it reads the
+                # final record array, and before synthesis so the stored recipe and
+                # the acceptance replay carry the same link. A published link is kept
+                # untouched; one WE invented is fetched and proved, or downgraded to
+                # the board's own listing page. See :func:`_resolve_job_link`.
+                selection, per_job_link = await _resolve_job_link(
+                    selection, candidate, captured, origin_url, probe_job_link
                 )
             except _Refusal as exc:
                 last_step, last_error = exc.step, exc.detail
@@ -1861,13 +2303,24 @@ async def discover(
                 # The step's result is the honest one either way. A board we can only
                 # read a slice of must not tick the same tick as one we read whole —
                 # that identical green tick is the bug this whole check exists for.
-                ledger.finish(
-                    STEP_VERIFY_READ,
+                #
+                # ...and the same argument for the LINK: a board whose per-job link we
+                # could not prove must not report the same tick as one whose links we
+                # fetched and stood behind. Appended rather than substituted so the
+                # partial-scope sentence keeps its exact wording.
+                read_note = (
                     f"read {len(rows)} job(s), but {coverage.evidence} — we can only "
                     f"track part of this board"
                     if coverage.is_partial
-                    else f"read {len(rows)} job(s)",
+                    else f"read {len(rows)} job(s)"
                 )
+                if not per_job_link:
+                    read_note += (
+                        " — this board publishes no link to its individual jobs and we "
+                        "could not work one out, so every job links to the board's own "
+                        "listing page"
+                    )
+                ledger.finish(STEP_VERIFY_READ, read_note)
                 ledger.finish(
                     STEP_READY,
                     "reading part of the board — every job we can see, refreshed daily"

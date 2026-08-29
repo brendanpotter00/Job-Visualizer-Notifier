@@ -47,7 +47,6 @@ function createMockJobs(count: number): Job[] {
       createdAt,
       firstSeenAt: createdAt,
       url: `https://example.com/job-${i}`,
-      department: 'Engineering',
       team: 'Backend',
       tags: [],
       isRemote: true,

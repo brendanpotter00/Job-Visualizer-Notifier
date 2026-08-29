@@ -265,9 +265,8 @@ class TestTransformToJobListings:
         assert result[0].details["employment_type"] == "Full-time"
         assert result[1].details["employment_type"] == "Part-time"
 
-    def test_department_and_office_passthrough(self):
+    def test_office_passthrough(self):
         result = transform_to_job_listings("retool", [ONE_JOB_RAW])
-        assert result[0].details["department"] == "Engineering"
         assert result[0].details["office"] == "San Francisco"
 
     def test_secondary_offices_filtered(self):

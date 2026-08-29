@@ -34,7 +34,7 @@ import { AsyncMultiSelectAutocomplete } from '../shared/filters/AsyncMultiSelect
 /**
  * Filter controls for Recent Job Postings page
  * Subset of filters: time window, location, search tags, software-only
- * Excludes: department, role category
+ * Excludes: role category
  */
 export function RecentJobsFilters() {
   const dispatch = useAppDispatch();

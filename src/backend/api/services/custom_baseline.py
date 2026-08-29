@@ -5,7 +5,15 @@ there is no stale-value bug and ``company_harvests`` stays the single source of
 truth. Two things come out of it:
 
 * ``median_records`` — the trailing-window median of ``records_harvested`` over
-  VERIFIED harvests. Feeds the ``self_consistent`` delta band (gate check 12).
+  VERIFIED harvests. Feeds the delta band (gate check 12).
+* ``recent_records`` — the trailing-window record counts over **every** harvest,
+  newest first, whatever its verdict. Two checks need the unfiltered series and
+  cannot use the VERIFIED-only median: the settled-step-change release (a board
+  that has held one new number for several runs in a row has really shrunk) and
+  the implicit-page-limit tell (a count pinned to a round page size run after
+  run). A board that has never VERIFIED — which is every discovered board today
+  — has an EMPTY VERIFIED window, so a check that only read the median would be
+  blind on exactly the boards this exists for.
 * ``min_ratio`` — the PER-COMPANY safety-guard ratio that overrides the global
   ``SCRAPER_GUARD_MIN_RATIO`` (0.85, tuned for the 30-min public cron cadence)
   for custom companies only. Daily companies need a learned baseline, not the
@@ -46,11 +54,15 @@ class Baseline:
     ``median_records`` is None until at least one VERIFIED harvest exists.
     ``run_count`` is how many VERIFIED harvests the window saw (capped at the
     window). ``min_ratio`` is the per-company safety-guard ratio (§4.5).
+    ``recent_records`` is the newest-first record counts of the last
+    ``recent_window`` harvests of ANY verdict (see the module docstring); it
+    defaults to empty so every existing positional construction keeps working.
     """
 
     median_records: float | None
     run_count: int
     min_ratio: float
+    recent_records: tuple[int, ...] = ()
 
 
 def _median(values: list[int]) -> float:
@@ -75,7 +87,9 @@ def _clamp(x: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, x))
 
 
-def compute_baseline(conn: Connection, company_id: str, *, window: int = 14) -> Baseline:
+def compute_baseline(
+    conn: Connection, company_id: str, *, window: int = 14, recent_window: int = 14,
+) -> Baseline:
     """Read the last ``window`` VERIFIED harvests and derive the baseline.
 
     ``min_ratio`` per §4.5:
@@ -86,6 +100,12 @@ def compute_baseline(conn: Connection, company_id: str, *, window: int = 14) -> 
     where ``p01`` is the 1st percentile of the consecutive day-over-day retention
     ratios ``r_i = min(1.0, records[i] / records[i-1])`` over the VERIFIED
     harvests in chronological order.
+
+    ``recent_window`` sizes the SECOND, unfiltered series (``recent_records``) —
+    the last N harvests whatever their verdict. It is read in the same round trip
+    but as its own query, because the two windows answer different questions: the
+    median must never see an unproven run, and the step-change / page-limit tells
+    must see every run.
     """
     cursor = conn.cursor()
     try:
@@ -102,6 +122,21 @@ def compute_baseline(conn: Connection, company_id: str, *, window: int = 14) -> 
         # Rows come back newest-first; keep that for run_count/median and reverse
         # for the chronological ratio walk below.
         newest_first = [int(r["records_harvested"]) for r in cursor.fetchall()]
+        # The unfiltered series. Deliberately NOT verdict-filtered: an UNVERIFIED
+        # run is still an observation of what the board returned, and both
+        # consumers (settled step change, page-limit pinning) are asking exactly
+        # "what has this board been returning lately?", not "what have we proven".
+        cursor.execute(
+            """
+            SELECT records_harvested
+            FROM company_harvests
+            WHERE company_id = %s AND verdict <> 'FAILED'
+            ORDER BY started_at DESC
+            LIMIT %s
+            """,
+            (company_id, recent_window),
+        )
+        recent_records = tuple(int(r["records_harvested"]) for r in cursor.fetchall())
     finally:
         # SELECT-only — never leave the caller's connection idle-in-transaction.
         conn.rollback()
@@ -112,7 +147,7 @@ def compute_baseline(conn: Connection, company_id: str, *, window: int = 14) -> 
     if run_count < _CALIBRATION_MIN_RUNS:
         return Baseline(
             median_records=median_records, run_count=run_count,
-            min_ratio=_MIN_RATIO_FLOOR,
+            min_ratio=_MIN_RATIO_FLOOR, recent_records=recent_records,
         )
 
     chronological = list(reversed(newest_first))
@@ -134,4 +169,5 @@ def compute_baseline(conn: Connection, company_id: str, *, window: int = 14) -> 
 
     return Baseline(
         median_records=median_records, run_count=run_count, min_ratio=min_ratio,
+        recent_records=recent_records,
     )

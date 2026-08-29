@@ -12,6 +12,8 @@ import {
   resolveDiscoveryOutcome,
   shouldExpandDiscovery,
   shouldShowDiscovery,
+  sourceBoardLabel,
+  sourceBoardUrl,
 } from '../../../components/my-companies/companyHealth';
 import type {
   DiscoveryProgress,
@@ -136,9 +138,9 @@ describe('describeLastFetched', () => {
   // fetch from the future — the same call `isDiscoveryLive` makes. It must never render a
   // negative age.
   it('reads a forward-dated stamp as clock skew, not a negative age', () => {
-    expect(
-      describeLastFetched({ lastSuccessAt: FETCHED_AT }, fetchedAtMs - 5 * MINUTE).label
-    ).toBe('Last fetched just now');
+    expect(describeLastFetched({ lastSuccessAt: FETCHED_AT }, fetchedAtMs - 5 * MINUTE).label).toBe(
+      'Last fetched just now'
+    );
   });
 
   // Past a month the relative phrase is arithmetic the reader has to undo.
@@ -196,7 +198,7 @@ describe('describeDiscoveryStep', () => {
     }
   });
 
-  it('names the four rungs in the words a person uses, not the engine\'s', () => {
+  it("names the four rungs in the words a person uses, not the engine's", () => {
     // The KEYS are the backend contract and must not move; the LABELS are ours. The
     // previous set ("Finding the jobs feed", "Verifying we can read it") described our
     // pipeline — this set describes what the user gets out of each step.
@@ -224,9 +226,9 @@ describe('resolveDiscoveryOutcome', () => {
   it('reads a refused row as refused even when its blob still says "running"', () => {
     // The discovery TIMEOUT: no terminal checklist was written, so the last live
     // snapshot survives beside health_state='refused'. health_state wins.
-    expect(
-      resolveDiscoveryOutcome({ healthState: 'refused', discovery: progress() })
-    ).toBe('refused');
+    expect(resolveDiscoveryOutcome({ healthState: 'refused', discovery: progress() })).toBe(
+      'refused'
+    );
   });
 
   it('reads a discovering row as running whatever the blob says', () => {
@@ -245,9 +247,7 @@ describe('resolveDiscoveryOutcome', () => {
         discovery: progress({ outcome: 'tracking' }),
       })
     ).toBe('tracking');
-    expect(resolveDiscoveryOutcome({ healthState: 'healthy', discovery: null })).toBe(
-      'running'
-    );
+    expect(resolveDiscoveryOutcome({ healthState: 'healthy', discovery: null })).toBe('running');
   });
 });
 
@@ -658,5 +658,69 @@ describe('the discovery evidence, and when it is reachable', () => {
         discovery: progress({ outcome: 'partial' }),
       })
     ).toBe('refused');
+  });
+});
+
+describe('sourceBoardUrl — the board a tracked row was built from', () => {
+  it('uses a discovered board’s pasted URL verbatim', () => {
+    // `board_token` IS the normalized URL for a discovered board
+    // (`custom_companies_service.py` stores `board_token=normalized_url`), and this is
+    // the case the whole feature was asked for: the Jane Street page we read to build
+    // the scraper was nowhere on screen.
+    expect(
+      sourceBoardUrl({
+        ats: 'discovered',
+        boardToken: 'https://www.janestreet.com/join-jane-street/open-roles/',
+      })
+    ).toBe('https://www.janestreet.com/join-jane-street/open-roles/');
+  });
+
+  it('builds the public board for the four ATS providers whose token IS the slug', () => {
+    expect(sourceBoardUrl({ ats: 'greenhouse', boardToken: 'spacex' })).toBe(
+      'https://job-boards.greenhouse.io/spacex'
+    );
+    expect(sourceBoardUrl({ ats: 'ashby', boardToken: 'sierra' })).toBe(
+      'https://jobs.ashbyhq.com/sierra'
+    );
+    expect(sourceBoardUrl({ ats: 'lever', boardToken: 'zoox' })).toBe('https://jobs.lever.co/zoox');
+    expect(sourceBoardUrl({ ats: 'gem', boardToken: 'nominal' })).toBe(
+      'https://jobs.gem.com/nominal'
+    );
+  });
+
+  it('refuses to GUESS a Workday or Eightfold board', () => {
+    // Their `board_token` is a cosmetic tenant label; the real board lives at a host the
+    // token does not spell (`<tenant>.wd5.myworkdayjobs.com/<career_site>`,
+    // `explore.jobs.netflix.net/careers?domain=…`), and that host is in `provider_config`
+    // which this payload does not carry. A confident link to a 404 is worse than no link
+    // — the row is missing information either way, and one of the two lies about it.
+    expect(sourceBoardUrl({ ats: 'workday', boardToken: 'blueorigin' })).toBeNull();
+    expect(sourceBoardUrl({ ats: 'eightfold', boardToken: 'netflix' })).toBeNull();
+  });
+
+  it('never builds an href out of something that is not http(s)', () => {
+    // `boardToken` is server data, but it ORIGINATES in a URL a stranger pasted, and an
+    // `href` is the one place that distinction matters.
+    expect(sourceBoardUrl({ ats: 'discovered', boardToken: 'javascript:alert(1)' })).toBeNull();
+    expect(sourceBoardUrl({ ats: 'discovered', boardToken: 'careers.acme.example' })).toBeNull();
+    expect(sourceBoardUrl({ ats: 'discovered', boardToken: '' })).toBeNull();
+    expect(sourceBoardUrl({ ats: 'greenhouse', boardToken: '   ' })).toBeNull();
+    // ...and an ATS we have never heard of gets nothing rather than a guessed host.
+    expect(sourceBoardUrl({ ats: 'brand_new_ats', boardToken: 'acme' })).toBeNull();
+  });
+});
+
+describe('sourceBoardLabel — what the link says', () => {
+  it('is the host, without www., so the row answers the question without a click', () => {
+    expect(sourceBoardLabel('https://www.janestreet.com/join-jane-street/open-roles/')).toBe(
+      'janestreet.com'
+    );
+    expect(sourceBoardLabel('https://job-boards.greenhouse.io/spacex')).toBe(
+      'job-boards.greenhouse.io'
+    );
+  });
+
+  it('is null on anything that will not parse, so a label cannot outlive its href', () => {
+    expect(sourceBoardLabel('not a url')).toBeNull();
   });
 });

@@ -627,7 +627,6 @@ class TestPending:
             "id": "p-claim", "status": "OPEN", "details_scraped": True,
             "details": json.dumps({
                 "description_html": "<h1>Role</h1>",
-                "department": "Engineering",
                 "experience_level": "Senior",
             }),
         }))
@@ -646,8 +645,8 @@ class TestPending:
 
         job = body["jobs"][0]
         assert job["description_html"] == "<h1>Role</h1>"
-        # details is the trimmed jsonb projection (department + experience_level).
-        assert job["details"]["department"] == "Engineering"
+        # details is the trimmed jsonb projection (experience_level only).
+        assert job["details"] == {"experience_level": "Senior"}
 
         # The claimed row is now marked 'claimed' with a claim timestamp.
         facets = _fetch_listing_facets(db_conn, "p-claim")

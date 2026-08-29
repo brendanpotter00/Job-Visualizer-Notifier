@@ -141,6 +141,42 @@ def _merge_query(url: str, params: dict[str, Any]) -> str:
     return urlunsplit(parts._replace(query=urlencode(existing)))
 
 
+def _merge_body(body: dict[str, Any], params: dict[str, Any]) -> dict[str, Any]:
+    """SET ``params`` where the captured body already carries them, not at the top.
+
+    The POST twin of :func:`_merge_query`, and it exists for the same reason: the two
+    transports must page identically or the same stored recipe means two different
+    things. Mirrors ``recipe_runner.merge_body_params`` — re-implemented rather than
+    imported under this file's zero-first-party-import rule (see the module docstring),
+    and pinned against the parent's copy by ``test_browser_fetch_runner``.
+
+    Breadth-first, so a body that already carries the key at the TOP level (TikTok's
+    ``offset``, which is the only ``browser_fetch`` board in production) is merged
+    byte-identically to the old ``body.update(params)``. A name found nowhere is still
+    added at the top level. Nested objects are descended into; lists are not.
+    """
+    merged: dict[str, Any] = json.loads(json.dumps(body))  # deep copy: pages re-merge in
+    for name, value in params.items():
+        queue: list[tuple[tuple[str, ...], dict[str, Any]]] = [((), merged)]
+        found: tuple[str, ...] | None = None
+        while queue and found is None:
+            prefix, node = queue.pop(0)
+            for key, existing in node.items():
+                if isinstance(existing, dict):
+                    queue.append((prefix + (str(key),), existing))
+                elif str(key) == name:
+                    found = prefix + (str(key),)
+                    break
+        if found is None:
+            merged[name] = value
+            continue
+        target: Any = merged
+        for segment in found[:-1]:
+            target = target[segment]
+        target[found[-1]] = value
+    return merged
+
+
 def _hostname(url: str) -> str:
     """Lowercased host of ``url``, or ``''``. Mirrors ``runner._hostname``."""
     return (urlsplit(url).hostname or "").lower()
@@ -246,7 +282,7 @@ def _fetch_page(page: Any, plan: dict[str, Any], params: dict[str, Any] | None) 
     body = dict(plan.get("body") or {})
     if params:
         if method == "POST":
-            body.update(params)
+            body = _merge_body(body, params)
         else:
             url = _merge_query(url, params)
     result = page.evaluate(

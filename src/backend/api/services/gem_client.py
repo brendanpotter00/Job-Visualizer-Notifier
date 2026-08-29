@@ -163,11 +163,6 @@ def _transform_one(
         if isinstance(o, dict) and o.get("name")
     ]
 
-    departments = raw.get("departments") or []
-    department_name: Optional[str] = None
-    if departments and isinstance(departments[0], dict):
-        department_name = departments[0].get("name")
-
     # ``first_published_at`` is the canonical "posted on" anchor for
     # Gem boards. It can be null for very-new postings; fall back to
     # ``created_at`` so we always have a usable timestamp.
@@ -187,7 +182,6 @@ def _transform_one(
         )
 
     details = {
-        "department": department_name,
         "office": primary_office_name,
         "secondary_offices": secondary_offices,
         "employment_type": _normalize_employment_type(raw.get("employment_type")),

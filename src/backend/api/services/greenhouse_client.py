@@ -139,13 +139,6 @@ def _transform_one(
     top_location = raw.get("location") or {}
     location_name = office_name or (top_location.get("name") if isinstance(top_location, dict) else None)
 
-    departments = raw.get("departments") or []
-    department_name = (
-        departments[0].get("name")
-        if departments and isinstance(departments[0], dict)
-        else None
-    )
-
     tags: list[str] = []
     for entry in raw.get("metadata") or []:
         if not isinstance(entry, dict):
@@ -187,7 +180,6 @@ def _transform_one(
         )
 
     details = {
-        "department": department_name,
         "office_locations": [
             o.get("name") for o in offices if isinstance(o, dict) and o.get("name")
         ],

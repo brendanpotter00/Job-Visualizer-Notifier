@@ -143,6 +143,61 @@ def _reject(status: int, reason: str, detail: str, final_url: str | None = None)
     return JSONResponse(status_code=status, content=body)
 
 
+# ``resolved_ats`` for an audit row the REQUEST writes about a board the caller
+# ALREADY TRACKS. A rung marker in the same family as ``'script'`` and
+# ``'name_guess'`` — not an ATS — and deliberately NOT ``'discovered'``: the monthly
+# quota tells request-written rows from worker-written ones by exactly that value
+# (``_QUOTA_COUNTED_PREDICATE``), so reusing it here would silently stop charging a
+# re-add a slot, against the rule that every URL entered spends one.
+_READD_RESOLVED_ATS = "already_tracked"
+
+_READD_REFUSED_DETAIL = "re-submitted; this board was already refused"
+
+
+def _readd_attempt_fields(existing: dict) -> tuple[str, str, str | None]:
+    """``(outcome, resolved_ats, error_detail)`` for an idempotent discovery re-add.
+
+    THE BUG THIS FIXES. This branch used to write a flat
+    ``outcome='discovery_pending'`` for every re-add — but a pending row is only ever
+    HALF an attempt. One add writes two audit rows: ``discovery_pending`` from the
+    request, then a terminal row minutes later from the worker. The admin dashboard
+    collapses an attempt to its NEWEST row (``custom_companies_admin._ATTEMPTS_CTE``)
+    and calls a ``discovery_pending`` row older than 40 minutes ``stuck``. On the
+    short-circuit path no worker ever runs, so nothing ever wrote the second half —
+    and re-pasting the URL of a board that was tracked and Live twelve hours earlier
+    made the dashboard report it as stuck. It was not stuck; nothing was wrong at all.
+
+    The fix is to MIRROR the state the board is actually in, so the row is terminal
+    whenever the board is:
+
+    ===================  =====================  ==================================
+    existing board       row written            why
+    ===================  =====================  ==================================
+    ``discovering``      ``discovery_pending``  correct as-is — a discovery run IS
+                                                in flight and WILL write the
+                                                terminal half that pairs with this
+    ``refused``          ``refused``            the board is not trackable; calling
+                                                it ``added`` would be a lie
+    anything else        ``added``              the board is tracked, which is
+                                                exactly what the ATS idempotent
+                                                branch already records
+    ===================  =====================  ==================================
+
+    No new outcome value: every one of these is already in the dashboard's closed
+    vocabulary, so the fix costs no frontend chip, no filter option and no migration.
+
+    A row is still written on every path, because the monthly cap counts URLs
+    ENTERED, not boards created (``services/add_quota``) — a re-add that creates
+    nothing has still spent a submission, and the ATS branch charges for one too.
+    """
+    health = existing.get("health_state")
+    if health == "discovering":
+        return "discovery_pending", "discovered", None
+    if health == "refused":
+        return "refused", _READD_RESOLVED_ATS, _READD_REFUSED_DETAIL
+    return "added", _READD_RESOLVED_ATS, None
+
+
 # Hosts that carry no company identity — the label has to come from the label BEFORE
 # these, or a board on `jobs.acme.co.uk` would be named "Co".
 _HOST_NOISE_PREFIXES = ("www", "jobs", "careers", "boards", "apply", "talent", "life")
@@ -537,10 +592,15 @@ async def add_company(
                 if existing is not None:
                     # Idempotent re-add of an already-discovered (or refused) board:
                     # resolve to the existing row instead of re-spending on discovery.
+                    # The audit row MIRRORS the board's state — see
+                    # ``_readd_attempt_fields`` for why writing a flat
+                    # ``discovery_pending`` here was a bug.
+                    outcome, readd_ats, detail = _readd_attempt_fields(existing)
                     svc.record_add_attempt(
                         conn, user_id=user_id, submitted_url=payload.url,
-                        normalized_url=normalized_url, outcome="discovery_pending",
-                        resolved_ats="discovered", company_id=existing["id"],
+                        normalized_url=normalized_url, outcome=outcome,
+                        error_detail=detail,
+                        resolved_ats=readd_ats, company_id=existing["id"],
                     )
                     existing["source_id"] = custom(existing["id"])
                     existing["open_job_count"] = svc.count_open_jobs(

@@ -140,7 +140,6 @@ def _transform_one(
         )
 
     details = {
-        "department": cats.get("department"),
         "team": cats.get("team"),
         # Lever's postings endpoint doesn't expose secondary location lists;
         # populate the key with an empty list so the JSONB shape stays

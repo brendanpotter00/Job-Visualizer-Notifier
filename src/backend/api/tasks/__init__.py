@@ -19,6 +19,7 @@ from . import fetch_custom_company  # noqa: F401  (registers custom leaf task on
 from . import claim_custom_companies  # noqa: F401  (registers custom claim periodic task)
 from . import discover_custom_company  # noqa: F401  (registers E7 discovery leaf task)
 from . import reconcile_discovering  # noqa: F401  (registers the wedged-row sweep)
+from . import reap_ownerless_companies  # noqa: F401  (registers the ownerless-row sweep)
 from . import heartbeat  # noqa: F401  (registers heartbeat + cleanup periodic tasks)
 from . import normalize_location  # noqa: F401  (registers task on app)
 from . import scan_unnormalized  # noqa: F401  (registers periodic task on app)

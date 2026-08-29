@@ -106,11 +106,15 @@ logger = logging.getLogger(__name__)
 # * ``hours_stale`` is computed in Postgres from ``now()`` rather than in
 #   Python. Both sides of the subtraction are ``timestamptz``, so there is
 #   no naive/aware mix-up and no client-clock dependency.
-# * ``c.visibility = 'public'`` excludes private custom companies (E7). Those
-#   run on a 24h cadence, so against the 24h staleness threshold they would flap
-#   "stale" and pollute this report — the exact signal that pages the owner
-#   about a mass-closure. A private company's health is the owner's concern via
-#   its own per-company ``health_state``, not this fleet-wide dead-scraper probe.
+# * ``c.visibility = 'public'`` excludes private custom companies (E7). A private
+#   company's health is its OWNER's concern, surfaced through its own per-company
+#   ``health_state`` and the admin board's live/stale status (which measures against
+#   that company's own ``cadence_hours``), not through this fleet-wide dead-scraper
+#   probe — one user's dead board is not a scraper outage and must not page the owner
+#   about a mass closure. (The original reason given here was that custom companies
+#   ran on a 24h cadence and would therefore flap against the 24h threshold. They run
+#   hourly now, so they would no longer flap — but the exclusion is not about flapping
+#   and stands on the ownership argument alone.)
 _STALE_QUERY = """
     SELECT
         c.id  AS company,

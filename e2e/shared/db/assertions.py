@@ -165,6 +165,42 @@ def company_script_row(conn: Any, company_id: str) -> dict[str, Any] | None:
         return dict(row) if row else None
 
 
+def latest_harvest(conn: Any, company_id: str) -> dict[str, Any] | None:
+    """The newest ``company_harvests`` row for a company, or None.
+
+    This is the audit row the verification gate writes on every executed run:
+    ``verdict``, ``verdict_reason``, ``oracle_kind``, ``records_harvested``,
+    ``declared_total``, ``cap_hit``, ``page_advance_ok``. A case that wants to
+    assert WHY a board is (or is not) verified reads this rather than the
+    ``health_state`` string it produces, which is a projection of it.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT * FROM company_harvests WHERE company_id = %s "
+            "ORDER BY started_at DESC LIMIT 1",
+            (company_id,),
+        )
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+
+def latest_scrape_run(conn: Any, company_id: str) -> dict[str, Any] | None:
+    """The newest ``scrape_runs`` row for a custom company's source.
+
+    Carries ``guard_reason`` (WHY the destructive tail was skipped) and
+    ``closed_jobs``, which together are the only honest way to assert that a
+    run did or did not reach the close path.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT * FROM scrape_runs WHERE source_id = %s "
+            "ORDER BY started_at DESC LIMIT 1",
+            (f"custom:{company_id}",),
+        )
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+
 def user_id_for_email(conn: Any, email: str) -> str | None:
     with conn.cursor() as cur:
         cur.execute("SELECT id FROM users WHERE email = %s", (email,))

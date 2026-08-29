@@ -1,0 +1,42 @@
+{
+ "steps": [
+  {
+   "op": "fetch",
+   "url": "https://api.lifeatspotify.com/wp-json/animal/v1/job/search",
+   "method": "GET",
+   "headers": {
+    "accept": "application/json, text/plain, */*",
+    "origin": "https://www.lifeatspotify.com",
+    "accept-language": "en-US"
+   }
+  },
+  {
+   "op": "extract_json_path",
+   "fields": {
+    "id": "id",
+    "url": "https://www.lifeatspotify.com/jobs/{id}",
+    "title": "text",
+    "location": "locations.0.location",
+    "department": "main_category.name"
+   },
+   "records_path": "result"
+  },
+  {
+   "op": "dedupe_key",
+   "field": "id"
+  },
+  {
+   "op": "assert_unique",
+   "field": "id"
+  }
+ ],
+ "oracle": {
+  "kind": "none"
+ },
+ "base_url": "https://www.lifeatspotify.com",
+ "transport": "http_json",
+ "discovered_at": "2026-08-25T03:59:09.748308+00:00",
+ "discovered_by": "capture/http_json",
+ "script_version": 1,
+ "expected_min_jobs": 1
+}

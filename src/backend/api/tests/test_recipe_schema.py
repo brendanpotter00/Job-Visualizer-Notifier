@@ -40,7 +40,15 @@ def _load(name: str) -> dict:
 # --- valid multi-primitive scripts round-trip -------------------------------
 
 @pytest.mark.parametrize(
-    "name", ["amazon_global.json", "meta.json", "ycombinator.json", "janestreet.json"]
+    "name",
+    [
+        "amazon_global.json", "meta.json", "ycombinator.json", "janestreet.json",
+        # The captured-board corpus ``test_recipe_corpus_regression`` replays. Every
+        # one is a REAL stored recipe, so a schema change that would have rejected a
+        # board we already track fails here rather than at 3am.
+        "goldman_sachs.json", "microsoft.json", "amazon_search.json",
+        "atlassian.json", "spotify.json",
+    ],
 )
 def test_valid_multiprimitive_scripts_validate(name: str) -> None:
     script = _load(name)
@@ -419,29 +427,27 @@ def test_an_unrunnable_wildcard_path_is_rejected_on_write_and_on_read(
     validate_recipe(script)
 
 
-# --- unit 7: the canonical optional set carries BOTH ``description`` and ``department`` ---
+# --- unit 7: the canonical optional set carries ``description`` ---
 
 def test_the_canonical_optional_fields_are_the_set_discovery_can_emit() -> None:
     """Documentation with a job: the discovery author's structured output is a CLOSED
     object over exactly these names, because Anthropic strict mode forbids dynamic keys.
 
-    Each of the two has exactly one reader and neither reader is optional:
-    ``description`` is what the enrichment claim reads (``DESCRIPTION_SQL`` COALESCEs
-    over ``details->>'description'``), and ``department`` is what the UI's Department
-    filter reads, via the denormalized ``job_listings.department`` column (migration
-    ``c1539fa03b23``). Dropping either name from the tuple fails here."""
+    ``description`` has exactly one reader and that reader is not optional: it is what
+    the enrichment claim reads (``DESCRIPTION_SQL`` COALESCEs over
+    ``details->>'description'``). Dropping it from the tuple fails here."""
     assert CANONICAL_REQUIRED_FIELDS == ("id", "title", "url")
     assert "description" in CANONICAL_OPTIONAL_FIELDS
-    assert "department" in CANONICAL_OPTIONAL_FIELDS
+    assert "department" not in CANONICAL_OPTIONAL_FIELDS
 
 
 def test_a_recipe_captured_under_any_older_field_set_still_validates() -> None:
-    """The stored recipes have now been captured under THREE different field sets — with
-    ``department`` and no ``description``, with ``description`` and no ``department``,
-    and with both. ``_v_fields`` requires the mandatory three and constrains nothing else
-    on purpose — a read-path check over possibly-drifted stored data — so moving the
-    capture set must never turn a recipe already in the database into a nightly
-    RecipeError, in either direction."""
+    """The stored recipes were captured under several different field sets — including
+    ones carrying ``department``, a field the capture schema no longer emits.
+    ``_v_fields`` requires the mandatory three and constrains nothing else on purpose —
+    a read-path check over possibly-drifted stored data — so moving the capture set must
+    never turn a recipe already in the database into a nightly RecipeError, in either
+    direction."""
     script = _load("janestreet.json")
     (extract,) = [s for s in script["steps"] if s["op"] == "extract_json_path"]
     extract["fields"]["department"] = "category"

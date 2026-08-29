@@ -325,7 +325,7 @@ class TestTransform:
         assert job.posted_on.endswith("+00:00") or job.posted_on.endswith("Z")
         # ``details`` contract
         assert job.details["is_remote_eligible"] is False
-        assert job.details["department"] == "Engineering"
+        assert job.details["team"] == "Platform"
         assert job.details["t_create_raw"] == 1_700_000_000
 
     def test_id_fallback_chain(self):

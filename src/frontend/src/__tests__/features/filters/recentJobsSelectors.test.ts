@@ -34,7 +34,6 @@ const createMockJob = (overrides: Partial<Job> = {}): Job => {
     source: 'backend-scraper',
     company: 'spacex',
     title: 'Software Engineer',
-    department: 'Engineering',
     team: 'Backend',
     location: 'San Francisco, CA',
     employmentType: 'Full-time',

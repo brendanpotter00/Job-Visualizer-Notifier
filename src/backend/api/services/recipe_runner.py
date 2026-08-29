@@ -36,12 +36,15 @@ This module imports only the stdlib, ``httpx``, the dependency-free
 
 from __future__ import annotations
 
+import copy
 import html
 import json
 import logging
 import re
 import sys
 import time
+from collections import deque
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from typing import Any
 from xml.etree import ElementTree
@@ -430,15 +433,86 @@ def parse_plan(script: dict[str, Any]) -> RecipePlan:
 # transport
 # --------------------------------------------------------------------------
 
+def iter_body_params(body: Any) -> Iterator[tuple[tuple[str, ...], str, Any]]:
+    """Every LEAF slot in a captured POST body as ``(path, name, value)``, SHALLOWEST
+    FIRST.
+
+    A "leaf" is any key whose value is not a nested object, so a wrapper such as
+    ``page: {pageSize, pageNumber}`` yields its two children and never itself —
+    a cursor merge that replaced the wrapper with an int would destroy the request.
+
+    Breadth-first, and that ordering is the compatibility guarantee: a body that
+    already carries the parameter at the TOP level resolves to the top level exactly
+    as ``dict.update`` did, so every board whose cursor was already flat (TikTok's
+    ``offset``, Amazon's query cursor) is untouched by construction. Only a body where
+    the name appears solely deeper down behaves differently — which is the bug.
+
+    Lists are not descended into. No board we have captured nests its cursor inside an
+    array, and walking one would make "the parameter" ambiguous across elements.
+    """
+    if not isinstance(body, dict):
+        return
+    queue: deque[tuple[tuple[str, ...], dict[str, Any]]] = deque([((), body)])
+    while queue:
+        prefix, node = queue.popleft()
+        for key, value in node.items():
+            name = str(key)
+            if isinstance(value, dict):
+                queue.append((prefix + (name,), value))
+            else:
+                yield prefix + (name,), name, value
+
+
+def find_body_param_path(body: Any, name: str) -> tuple[str, ...] | None:
+    """Where ``name`` already lives inside ``body``, or ``None`` if it is not there."""
+    for path, key, _value in iter_body_params(body):
+        if key == name:
+            return path
+    return None
+
+
+def merge_body_params(
+    body: dict[str, Any] | None, params: dict[str, Any] | None
+) -> dict[str, Any]:
+    """The captured POST body with the cursor set WHERE IT ALREADY IS.
+
+    THE BUG THIS REPLACES: ``merged_body.update(params)`` writes the cursor at the top
+    level unconditionally. A GraphQL envelope carries it nested —
+    ``body.variables.searchQueryInput.page.pageNumber`` on higher.gs.com — so the
+    update added an ignored sibling key and every one of the 56 pages was page 0.
+    Dedupe then collapsed 1,120 rows to 20 and the board looked like a 20-job company.
+    Measured live: the top-level injection is byte-identical to page 0, the nested one
+    has zero id overlap with it.
+
+    A name that appears nowhere in the body still lands at the TOP LEVEL, unchanged —
+    a board that genuinely takes a cursor key it did not send us keeps working.
+
+    Deep-copies, and that is load-bearing rather than tidy: the body belongs to the
+    STORED recipe and every page re-merges into it, so mutating a nested dict in place
+    would edit the recipe under the sweep.
+    """
+    merged = copy.deepcopy(dict(body or {}))
+    for name, value in (params or {}).items():
+        path = find_body_param_path(merged, name)
+        if path is None:
+            merged[name] = value
+            continue
+        node: Any = merged
+        for segment in path[:-1]:
+            node = node[segment]
+        node[path[-1]] = value
+    return merged
+
+
 def _request(
     http: httpx.Client, fetch: dict[str, Any], params: dict[str, Any] | None
 ) -> httpx.Response:
     method = fetch.get("method", "GET")
     headers = {"User-Agent": USER_AGENT, **(fetch.get("headers") or {})}
     if method == "POST":
-        merged_body = dict(fetch.get("body") or {})
-        if params:
-            merged_body.update(params)
+        # SET the cursor where the captured body already carries it — see
+        # :func:`merge_body_params`. A flat body is merged exactly as before.
+        merged_body = merge_body_params(fetch.get("body"), params)
         response = http.post(fetch["url"], json=merged_body, headers=headers)
     else:
         # MERGE the cursor into the URL's existing query rather than passing

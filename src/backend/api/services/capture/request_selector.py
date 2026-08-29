@@ -10,7 +10,7 @@ custom-company feature. It is two halves on purpose, and the order is load-beari
   over 40 bodies of which 38 are session pings.
 * :func:`select_request` — **Claude Haiku 4.5, once, ever**, with structured output:
   which candidate is the jobs feed and how its record fields map to
-  ``{id, title, url, location?, posted_at?, description?, department?}``. Runtime
+  ``{id, title, url, location?, posted_at?, description?}``. Runtime
   never calls this again; the answer is baked into the stored recipe.
 
 The client/validation/degradation pattern is copied deliberately from
@@ -51,7 +51,17 @@ from ..llm_client import extract_text_content
 # ``render_row_field`` is: :func:`detect_posted_at_format` decides whether a strptime
 # pattern fits, and the runner then applies it — so both must normalize the string
 # identically or discovery stores a format that fails on every replay.
-from ..recipe_runner import _MULTISPACE_RE, render_field, render_row_field
+#
+# ``_TEMPLATE_RE`` for the same reason once removed: :func:`repair_url_template` reads a
+# url spec's placeholders and rewrites them, and ``render_field`` is what SUBSTITUTES
+# them. Two spellings of "what is a placeholder" would let the repair rewrite something
+# the runner never fills in, which renders a literal ``{...}`` into every job link.
+from ..recipe_runner import (
+    _MULTISPACE_RE,
+    _TEMPLATE_RE,
+    render_field,
+    render_row_field,
+)
 from ..recipe_schema import RECORDS_WILDCARD, RecipeError, dig_records
 
 logger = logging.getLogger(__name__)
@@ -314,21 +324,11 @@ def prefilter_candidates(responses: list[Any]) -> list[Candidate]:
 # Atlassian (249/249), amazon.jobs (10/10) and Jane Street (231/231) all ship the text
 # in the list payload we already download nightly and throw away.
 #
-# ``department`` left with it and has come BACK, and the reason is worth recording
-# because it is the same reason stated twice with opposite answers. Δ2 dropped it on the
-# finding that nothing read it: the only reader was the classifier hint in
-# ``internal_enrichment``'s ``/pending`` projection, a no-op when the key is absent. That
-# was true when it was written and stopped being true hours later — the UI's Department
-# filter turned out to have been silently dead (``/api/jobs`` never sent the key, so
-# ``selectAvailableDepartments`` returned ``[]`` and the control hid itself), and the fix
-# denormalized a ``job_listings.department`` column (migration ``c1539fa03b23``) fed from
-# ``details['department']``. So the field now has a USER-FACING reader, and a recipe that
-# does not map it writes NULL into that column on every upsert
-# (``_UPSERT_ON_CONFLICT``: ``department = EXCLUDED.department``).
-#
-# The two do not compete for the ``details`` blob: ``fetch_custom_company`` bounds this
-# one at ``_DEPARTMENT_MAX_BYTES`` precisely so a long department can never be the reason
-# a description is shrunk. Description is the expensive field and wins any conflict.
+# ``department`` was in this set twice and is gone for good: the Department filter it fed
+# was removed from the product (the option counts were ~1 job per option — Stripe 46 jobs
+# / 39 departments, Anduril 377 / 195 — a list, not a filter), and with the filter gone
+# the key had no reader at all. A stored recipe that still maps it keeps replaying: the
+# read-path ``validate_recipe`` deliberately does not constrain the key set.
 class _FieldMap(BaseModel):
     id: str
     title: str
@@ -336,7 +336,6 @@ class _FieldMap(BaseModel):
     location: str | None = None
     posted_at: str | None = None
     description: str | None = None
-    department: str | None = None
 
 
 class _Pagination(BaseModel):
@@ -421,8 +420,12 @@ SYSTEM_PROMPT = (
     "- title: the job title.\n"
     "- url: the link to the job's own page. If the record holds only a path or an id, "
     "return a TEMPLATE with {dotted.path} placeholders, e.g. "
-    "'https://example.com/jobs/{id}' or 'https://example.com{job_path}'.\n"
-    "- location, posted_at, department: dotted paths when the record has them, "
+    "'https://example.com/jobs/{id}' or 'https://example.com{job_path}'. When a record "
+    "carries SEVERAL ids, use the one the site's own links are built from — usually the "
+    "short numeric one (an 'externalId'/'sourceId'/'jobNumber'), not a long compound or "
+    "UUID id. A link that is well-formed but points at the wrong id looks correct here "
+    "and 404s for every user.\n"
+    "- location, posted_at: dotted paths when the record has them, "
     "otherwise null.\n"
     "- description: the field holding the job's own prose — whatever the record calls "
     "it (description, summary, overview, about, responsibilities, qualifications, "
@@ -467,10 +470,9 @@ _SELECTION_SCHEMA: dict[str, Any] = {
                 "location": {"type": ["string", "null"]},
                 "posted_at": {"type": ["string", "null"]},
                 "description": {"type": ["string", "null"]},
-                "department": {"type": ["string", "null"]},
             },
             "required": [
-                "id", "title", "url", "location", "posted_at", "description", "department",
+                "id", "title", "url", "location", "posted_at", "description",
             ],
         },
         "pagination": {
@@ -657,6 +659,292 @@ def _validate_url_field(records: list[Any], spec: str) -> None:
     )
 
 
+# --------------------------------------------------------------------------
+# the url TEMPLATE repair (a well-formed link that 404s)
+# --------------------------------------------------------------------------
+
+# How many of the sampled records a replacement field must be PROVEN on. Three is a
+# coincidence bar, not a confidence one: one or two matches is what an unrelated
+# numeric field can hit by accident against a page's worth of URL segments.
+_URL_REPAIR_MIN_HITS = 3
+
+# How many records the scoring reads, and how deep it looks for a replacement.
+_URL_REPAIR_SAMPLE = 20
+_URL_REPAIR_MAX_DEPTH = 3
+
+
+def _same_board_host(netloc: str, board_host: str) -> bool:
+    """``netloc`` is the board's own host or a subdomain of it. Not a substring test —
+    ``higher.gs.com`` is a substring of ``api-higher.gs.com``, which is a different
+    service whose paths carry no job ids."""
+    host = (netloc.split("@")[-1].split(":")[0]).lower()
+    board = board_host.lower()
+    return bool(board) and (host == board or host.endswith("." + board))
+
+
+def _board_url_segments(captured_urls: list[str], board_host: str) -> set[str]:
+    """Path segments (and their pre-dot stems) of every captured URL on the board's
+    own host. ``/_next/data/<build>/roles/181782.json`` contributes both
+    ``181782.json`` and ``181782`` — a Next.js data route spells the id with a suffix."""
+    segments: set[str] = set()
+    for url in captured_urls:
+        parts = urlsplit(url)
+        if not _same_board_host(parts.netloc, board_host):
+            continue
+        for segment in parts.path.split("/"):
+            if not segment:
+                continue
+            segments.add(segment)
+            if "." in segment:
+                segments.add(segment.rsplit(".", 1)[0])
+    return segments
+
+
+def _renders_id_token(records: list[Any], path: str) -> bool:
+    """``path`` renders an OPAQUE TOKEN on every sampled record — never a path.
+
+    THE GUARD THAT KEEPS MICROSOFT WORKING, and it was learned the expensive way: the
+    first version of this repair scored placeholder fields against URL SEGMENTS, and
+    ``https://apply.careers.microsoft.com{positionUrl}`` renders a whole path
+    (``/careers/job/1970393556982379``) which can never equal one segment. It scored 0,
+    ``id`` scored 8, and the rule would have rewritten every Microsoft link to
+    ``https://apply.careers.microsoft.com1970393556982379`` — repairing Goldman by
+    breaking a board that was already right.
+
+    A value containing ``/`` is a path, so neither the template's own field nor any
+    candidate replacement may contain one. The rule can then only ever swap one opaque
+    id token for another.
+    """
+    rendered = [render_field(record, path) for record in records[:10]]
+    values = [
+        str(value) for value in rendered
+        if isinstance(value, (str, int)) and not isinstance(value, bool) and str(value)
+    ]
+    return bool(values) and all("/" not in value for value in values)
+
+
+def _scalar_paths(record: Any, prefix: str = "", depth: int = 0) -> list[str]:
+    """Every dotted path in one record whose leaf is a scalar, to a bounded depth."""
+    out: list[str] = []
+    if not isinstance(record, dict):
+        return out
+    for key, value in record.items():
+        path = f"{prefix}.{key}" if prefix else str(key)
+        if _is_scalar(value):
+            out.append(path)
+        elif isinstance(value, dict) and depth < _URL_REPAIR_MAX_DEPTH:
+            out.extend(_scalar_paths(value, path, depth + 1))
+    return out
+
+
+def _segment_hits(records: list[Any], path: str, segments: set[str]) -> int:
+    """How many sampled records render ``path`` as a segment of a captured board URL."""
+    hits = 0
+    for record in records:
+        value = render_field(record, path)
+        if (
+            isinstance(value, (str, int)) and not isinstance(value, bool)
+            and str(value) and str(value) in segments
+        ):
+            hits += 1
+    return hits
+
+
+# --------------------------------------------------------------------------
+# published vs synthesised — WHO AUTHORED THIS PATH
+# --------------------------------------------------------------------------
+#
+# THE ONE QUESTION THIS WHOLE FILE'S URL HANDLING TURNS ON, asked once and answered in
+# one place. ``field_map["url"]`` comes back as one of two very different things:
+#
+#   PUBLISHED    a field the BOARD filled with a link — ``absolute_url``,
+#                ``hostedUrl``, ``portalJobPost.portalUrl``, ``job_path`` — or a
+#                template wrapped around one (``https://apply.careers.microsoft.com``
+#                ``{positionUrl}``, where ``positionUrl`` is ``/careers/job/197…``).
+#                The board is the authority. Nothing here may second-guess it.
+#
+#   SYNTHESISED  a path WE invented with an id pasted into it
+#                (``https://www.janestreet.com/jobs/{id}``). Nobody has ever confirmed
+#                it resolves, and three of the six template boards in the corpus were
+#                measured dead (JOB-LINK-RULE.md).
+#
+# Measured 2026-08-29 over 19 real payloads: 13 of 19 boards publish a link field, 6
+# force a template. The split is what makes the fix a rule and not a third patch.
+
+
+def is_published_url_spec(records: list[Any], spec: str) -> bool:
+    """``spec`` renders a path THE BOARD authored, not one we invented.
+
+    Two shapes count, and both mean "the slashes came from the payload":
+
+    * a plain field path whose value renders ``http(s)://…`` or ``/…``;
+    * a template whose single placeholder renders a PATH rather than an opaque id —
+      :func:`_renders_id_token` inverted. This is the Microsoft shape, and reusing that
+      predicate is deliberate: there must be exactly ONE definition of "we made this
+      path up", or the verification below and the repair above can disagree about
+      Microsoft and one of them will break it.
+
+    A template with two or more placeholders, or one whose placeholder renders a bare
+    id, is synthesised — we chose every character around the substitution.
+    """
+    sample = [record for record in records[:_URL_REPAIR_SAMPLE] if isinstance(record, dict)]
+    if not sample:
+        return False
+    if "{" not in spec:
+        return _is_per_job_link_field(sample, spec)
+    placeholders = set(_TEMPLATE_RE.findall(spec))
+    if len(placeholders) != 1:
+        return False
+    return not _renders_id_token(sample, next(iter(placeholders)))
+
+
+def _renders_link(record: Any, spec: str) -> bool:
+    """``spec`` renders something ``map_records`` can turn into a link on ``record`` —
+    an absolute URL, or a leading-slash path it resolves against ``base_url``."""
+    rendered = render_field(record, spec)
+    return isinstance(rendered, str) and rendered.startswith(("https://", "http://", "/"))
+
+
+def _is_per_job_link_field(sample: list[Any], spec: str) -> bool:
+    """``spec`` is a field the board fills with a link TO THIS JOB — not to the same
+    place on every row.
+
+    The distinctness half is what keeps a board's ``companyLogoUrl``, careers-site
+    banner or department page out of the ``url`` slot. Every one of them renders a
+    perfectly well-formed absolute URL on every record, so "is it link-shaped" alone
+    would happily store a PNG as the link to 2,000 jobs — a failure that looks fine in
+    the recipe and is only visible by clicking. A per-job link is different per job by
+    definition, so requiring it costs nothing real and closes the whole class.
+
+    A board with a SINGLE record cannot answer the question either way; there, being
+    link-shaped is the best evidence available and the acceptance replay has already
+    proved the board is readable.
+    """
+    values = {
+        render_field(record, spec) for record in sample if _renders_link(record, spec)
+    }
+    return bool(values) and (len(values) > 1 or len(sample) == 1)
+
+
+# Field names that are the APPLY step rather than the posting — Lever publishes
+# ``hostedUrl`` and ``applyUrl`` (the same URL plus ``/app``), Recruitee ``careers_url``
+# and ``careers_apply_url``, Amazon ``job_path`` and ``url_next_step``. Both are real
+# pages for the same job, so this is a preference and never a rejection: it only decides
+# WHICH published field wins when the selector picked neither.
+_APPLY_HINTS = ("apply", "next_step", "nextstep")
+
+
+def published_url_fields(records: list[Any]) -> list[str]:
+    """Every field path in ``records`` the BOARD filled with a link, best first.
+
+    Ranked so the posting beats the apply form (:data:`_APPLY_HINTS`) and a shallower
+    path beats a deeper one; ties break alphabetically so the answer is stable across
+    runs. Only consulted when the selector answered a SYNTHESISED template — a board
+    that publishes a link and a model that invented one instead is the model being
+    wrong about a question the payload already answers.
+
+    Held to the same per-job bar as :func:`is_published_url_spec`: a field that renders
+    the SAME url on every record is a logo, a banner or the careers site, not a link to
+    this job, and swapping an invented template for one of those would be a worse lie
+    than the template.
+    """
+    sample = [record for record in records[:_URL_REPAIR_SAMPLE] if isinstance(record, dict)]
+    if not sample:
+        return []
+    candidates = {
+        path for path in _scalar_paths(sample[0]) if _is_per_job_link_field(sample, path)
+    }
+    return sorted(
+        candidates,
+        key=lambda path: (
+            any(hint in path.lower() for hint in _APPLY_HINTS),
+            path.count("."),
+            path,
+        ),
+    )
+
+
+def repair_url_template(
+    records: list[Any], spec: str, captured_urls: list[str], board_host: str
+) -> str:
+    """``spec`` with its placeholder re-pointed at the field the board's OWN LINKS use,
+    or ``spec`` unchanged. Pure; never raises.
+
+    ONE OF TWO CANDIDATE GENERATORS for a synthesised template, and no longer the last
+    word on one: ``discover._prove_job_link`` now FETCHES what this returns before it is
+    stored. That is the fix for the half of the defect this function cannot reach — it
+    needs the board to have requested a job page during the capture, and a board whose
+    listing page never does (Jane Street) leaves it nothing to score, so it correctly
+    refuses and the wrong link used to ship anyway.
+
+    THE DEFECT. higher.gs.com publishes two ids per role: ``roleId``
+    (``181783_GS_NOTICE_OF_FILING_LCA``, and a bare UUID on 21 of them) and
+    ``externalSource.sourceId`` (``181783``). Only the second is the route key. The
+    selector stored ``https://higher.gs.com/roles/{roleId}``, and because the board is
+    a Next.js SPA that answers 200 for ``/roles/<anything>``, the wrong URL serves a
+    6 KB empty shell where the right one serves 24 KB with the job title on it.
+    :func:`_validate_url_field` cannot see that — its own docstring concedes it cannot
+    detect a well-formed URL that 404s — so every "view job" link on the board was
+    dead and nothing anywhere said so.
+
+    THE RULE, and why it is safe rather than merely clever. Score fields against the
+    path segments of URLs THE CAPTURE ITSELF RECORDED on the board's host, and rewrite
+    only when
+
+    1. the spec is a template with exactly ONE distinct placeholder,
+    2. that placeholder renders an opaque id token, not a path (see
+       :func:`_renders_id_token` — the Microsoft guard),
+    3. it appears in ZERO of the board's own links, and
+    4. exactly one OTHER id-token field appears in at least
+       :data:`_URL_REPAIR_MIN_HITS` of them.
+
+    Condition 3 is the whole safety story: a template whose id already shows up in the
+    board's links can never be rewritten, so every board the model got right is
+    untouched BY CONSTRUCTION rather than by a threshold that could drift. Every other
+    condition can only make the rule refuse.
+
+    Deliberately scoped to ``url``. ``id`` is half of ``job_listings``' composite
+    primary key and the default ``dedupe_key``; re-pointing it would orphan every row
+    the board already has, which then misses and eventually closes — the never-wrong-
+    close failure, caused by us.
+    """
+    if "{" not in spec:
+        return spec
+    placeholders = set(_TEMPLATE_RE.findall(spec))
+    if len(placeholders) != 1:
+        return spec
+    sample = [r for r in records[:_URL_REPAIR_SAMPLE] if isinstance(r, dict)]
+    if len(sample) < _URL_REPAIR_MIN_HITS:
+        return spec
+    segments = _board_url_segments(captured_urls, board_host)
+    if not segments:
+        return spec
+    current = next(iter(placeholders))
+    if not _renders_id_token(sample, current):
+        return spec                       # a PATH placeholder is never repaired
+    if _segment_hits(sample, current, segments) > 0:
+        return spec                       # already the board's own route key
+    winners = {
+        path: hits
+        for path in _scalar_paths(sample[0])
+        if path != current
+        and _renders_id_token(sample, path)
+        and (hits := _segment_hits(sample, path, segments)) >= _URL_REPAIR_MIN_HITS
+    }
+    if len(winners) != 1:
+        return spec
+    winner, hits = next(iter(winners.items()))
+    # A lambda, not a replacement STRING: a backslash in a payload key would otherwise
+    # be read as a group reference and corrupt the template.
+    repaired = _TEMPLATE_RE.sub(lambda _m: "{" + winner + "}", spec)
+    logger.warning(
+        "field_map.url %r never appears in this board's own links; re-pointing it at "
+        "%r, which does on %d of %d sampled records (repaired: %r)",
+        spec, winner, hits, len(sample), repaired,
+    )
+    return repaired
+
+
 def _prune_non_scalar_optionals(
     records: list[Any], field_map: dict[str, str]
 ) -> dict[str, str]:
@@ -683,14 +971,11 @@ def _prune_non_scalar_optionals(
     a description mapped to a LIST is a mis-map one level too high and is dropped rather
     than joined into one blob of unrelated prose.
 
-    ``department`` IS one of the runner's multi-value fields, so it behaves like
-    ``location`` and not like ``description``: a list of plain strings is real data the
-    runner folds to ``"a; b"`` and this keeps it, while a list of objects is still
-    dropped. Rendering through :func:`render_row_field` is what makes that distinction
-    free — the prune sees exactly the value the runner will store.
+    Rendering through :func:`render_row_field` is what makes the scalar/container
+    distinction free — the prune sees exactly the value the runner will store.
     """
     pruned = dict(field_map)
-    for name in ("location", "posted_at", "description", "department"):
+    for name in ("location", "posted_at", "description"):
         spec = pruned.get(name)
         if spec is None or "{" in spec:      # a template always renders a string
             continue
@@ -915,7 +1200,7 @@ def _to_selection(envelope: _SelectionEnvelope, candidates: list[Candidate]) -> 
         "title": envelope.field_map.title.strip(),
         "url": envelope.field_map.url.strip(),
     }
-    for name in ("location", "posted_at", "description", "department"):
+    for name in ("location", "posted_at", "description"):
         value = getattr(envelope.field_map, name)
         if isinstance(value, str) and value.strip():
             field_map[name] = value.strip()

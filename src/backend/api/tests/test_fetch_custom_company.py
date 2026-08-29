@@ -590,33 +590,27 @@ async def test_a_huge_description_beside_a_huge_content_still_fits_the_blob() ->
     out = task_mod._cap_details({
         "description": "<p>Ship it.</p>" * 800,
         "content": "<p>x</p>" * 4000,
-        "department": "Engineering",
     })
     assert out["content"] is None
-    assert out["department"] == "Engineering"
     assert isinstance(out["description"], str) and out["description"]
     assert out["_details_truncated"] is True
     assert len(json.dumps(out).encode("utf-8")) <= task_mod._DETAILS_MAX_BYTES
 
 
-async def test_the_last_resort_branch_keeps_both_description_and_department() -> None:
+async def test_the_last_resort_branch_keeps_the_description_and_the_scalars() -> None:
     """The rung reached when dropping ``content`` is not enough — here a custom Ashby
     company whose ``description_html`` is 30 KB, which this ladder has never known how
-    to drop. ``department`` stays on that rung, and now for two reasons rather than one:
-    a custom company on the ``ats_client`` transport is harvested by the same
-    Greenhouse/Ashby/Lever/Gem/Eightfold clients as a public one and those populate it,
-    AND a recipe-harvested board maps it directly again — it is what the UI's Department
-    filter reads, through the denormalized ``job_listings.department`` column."""
+    to drop. ``description`` stays because it is the ONLY key on a recipe-harvested row
+    the enrichment claim reads; the two denormalized scalars stay because the list
+    endpoint serves them from real columns fed by this blob."""
     out = task_mod._cap_details({
         "description": "<p>Ship it.</p>" * 800,
         "description_html": "<p>y</p>" * 4000,
-        "department": "Engineering",
         "experience_level": "senior",
         "is_remote_eligible": True,
         "team": "Platform",                      # not an essential — expected to go
     })
     assert "team" not in out and "description_html" not in out
-    assert out["department"] == "Engineering"
     assert out["experience_level"] == "senior"
     assert out["is_remote_eligible"] is True
     assert isinstance(out["description"], str) and out["description"]
@@ -644,65 +638,23 @@ async def test_a_description_of_only_markup_becomes_absent_not_an_empty_string()
 async def test_details_with_no_description_are_untouched() -> None:
     """Every custom company on the ATS transport is this case; a change of shape here
     would rewrite blobs on boards that never mapped a description."""
-    details = {"department": "Eng", "experience_level": "senior", "content": "<p>d</p>"}
+    details = {"team": "Eng", "experience_level": "senior", "content": "<p>d</p>"}
     assert task_mod._cap_details(dict(details)) == details
 
 
-# --- the department is back in the capture schema, and it is the CHEAP field ---
-
-async def test_a_real_department_is_stored_untouched() -> None:
-    """The longest department in the dev DB is 122 characters; the mean is 22.3. The
-    budget below exists for a board that is not like that, and must stay invisible to
-    every board that is — a clipped facet label is a second, wrong option in a filter
-    dropdown."""
-    department = "Trading, Research, and Machine Learning"       # Jane Street's own
-    out = task_mod._cap_details({"description": "Short.", "department": department})
-    assert out == {"description": "Short.", "department": department}
+async def test_the_description_budget_leaves_room_for_the_rest_of_the_blob() -> None:
+    """An arithmetic guard on the constants themselves. The description budget plus the
+    structured scalars, the keys and JSON escaping have to fit the blob cap with room to
+    spare; raise it past that and ``_fit_description``'s shrink loop is reached on every
+    long row rather than only on a pathological one."""
+    assert task_mod._DESCRIPTION_MAX_BYTES <= task_mod._DETAILS_MAX_BYTES - 1024
 
 
-async def test_a_pathological_department_never_shrinks_the_description() -> None:
-    """THE precedence rule, stated as a test: when the two mapped fields cannot both
-    fit, the DESCRIPTION wins.
-
-    A dropped description is a row ``enrichment_monitor.DESCRIPTION_SQL`` can never
-    claim — invisible to the enricher forever. A clipped department is a filter label
-    with a shorter tail. So the cheap field is the one that gets bounded, and it is
-    bounded BEFORE the description is measured, which is what keeps the last-resort
-    rung's ``_fit_description`` from ever being reached because of a department.
-
-    Without the bound this is not hypothetical: that rung keeps ``department`` whole and
-    shrinks ``description`` against whatever room is left, so a 4 KB department would
-    silently eat 4 KB of prose."""
-    out = task_mod._cap_details({
-        "description": "Ship it. " * 1200,                        # ~10.8 KB
-        "department": "Platform " * 2000,                         # ~18 KB of label
-    })
-
-    # The description still gets its WHOLE budget — the department cost it nothing.
-    assert len(out["description"].encode("utf-8")) == task_mod._DESCRIPTION_MAX_BYTES
-    assert len(out["department"].encode("utf-8")) <= task_mod._DEPARTMENT_MAX_BYTES
-    assert out["_details_truncated"] is True
-    assert len(json.dumps(out).encode("utf-8")) <= task_mod._DETAILS_MAX_BYTES
-
-
-async def test_the_two_budgets_cannot_be_set_so_they_collide() -> None:
-    """An arithmetic guard on the constants themselves, because the property above holds
-    only while they add up. Both budgets plus the structured scalars, the keys and JSON
-    escaping have to fit the blob cap with room to spare; if a later edit raises either
-    one past that, the description starts paying for the department again."""
-    assert (
-        task_mod._DESCRIPTION_MAX_BYTES + task_mod._DEPARTMENT_MAX_BYTES
-        <= task_mod._DETAILS_MAX_BYTES - 1024
-    )
-
-
-async def test_a_captured_row_lands_with_both_a_description_and_a_department() -> None:
-    """End to end over the real seams, on an Atlassian-shaped record that publishes
-    both: the runner's field map → ``recipe_rows`` → ``_cap_details`` → the tuple the
-    single job-write path binds. This is the regression the re-capture was needed for —
-    a recipe with no ``department`` mapping writes NULL into the denormalized column on
-    every upsert (``_UPSERT_ON_CONFLICT``: ``department = EXCLUDED.department``), which
-    is how Microsoft went from 2,217 rows carrying a department to 139."""
+async def test_a_captured_row_lands_with_a_description() -> None:
+    """End to end over the real seams, on an Atlassian-shaped record: the runner's field
+    map → ``recipe_rows`` → ``_cap_details`` → the tuple the single job-write path binds.
+    ``description`` is the one mapped key with a reader — a row that loses it is a row
+    ``enrichment_monitor.DESCRIPTION_SQL`` can never claim."""
     from api.services.recipe_rows import recipe_rows_to_job_listings
     from api.services.recipe_runner import map_records
     from scripts.shared import database as db
@@ -718,17 +670,16 @@ async def test_a_captured_row_lands_with_both_a_description_and_a_department() -
         "id": "id",
         "title": "title",
         "url": "portalJobPost.portalUrl",
-        "department": "category",
         "description": "responsibilities",
     })
     (job,) = recipe_rows_to_job_listings("u-6in22gc9yf", [row])
     details = task_mod._cap_details(job.details)
 
     assert details["description"] == "Own the pipeline."
-    assert details["department"] == "Sales"
 
-    # The column the filter actually reads, from the one write path every scraper and
-    # every fetch task funnels through.
+    # The blob the enrichment claim actually reads, from the one write path every
+    # scraper and every fetch task funnels through.
     columns = [c.strip() for c in db._JOB_COLUMNS.split(",")]
     values = db._build_job_values(job.model_copy(update={"details": details}))
-    assert values[columns.index("department")] == "Sales"
+    bound = json.loads(values[columns.index("details")])
+    assert bound["description"] == "Own the pipeline."

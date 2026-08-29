@@ -100,7 +100,7 @@ def test_an_unknown_outcome_falls_back_to_running() -> None:
 def test_the_job_preview_is_capped_and_reduced_to_renderable_fields() -> None:
     rows = [
         {"id": str(i), "title": f"Engineer {i}", "location": "Remote",
-         "url": f"https://acme.example/jobs/{i}", "department": "Eng",
+         "url": f"https://acme.example/jobs/{i}", "category": "Eng",
          "posted_at": "2026-01-01"}
         for i in range(MAX_PREVIEW_JOBS + 4)
     ]

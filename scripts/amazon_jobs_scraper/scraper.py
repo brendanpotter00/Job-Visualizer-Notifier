@@ -444,7 +444,6 @@ class AmazonJobsScraper(BaseScraper):
             # Denormalised into real columns by shared/database.py
             "experience_level": self.derive_experience_level(title, job_data),
             "is_remote_eligible": self.derive_is_remote_eligible(title, description),
-            "department": job_data.get("department"),
             "team": job_data.get("team"),
             "job_family": job_data.get("job_family"),
             "business_category": job_data.get("business_category"),

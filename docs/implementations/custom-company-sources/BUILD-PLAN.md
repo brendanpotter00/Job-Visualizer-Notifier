@@ -72,7 +72,7 @@ UNVERIFIED           harvested rows but couldn't prove completeness:
 
 VERIFIED             every applicable gate check passed exactly (tolerance 0)
                      → full destructive path, ANDed with resolve_safety_guard(),
-                       gated by the fleet circuit breaker (§4.3) and 36h floor (§4.2).
+                       gated by the fleet circuit breaker (§4.3) and the 1.5x-cadence wall-clock floor (§4.2).
 ```
 
 **Why UNVERIFIED still upserts:** the `ON CONFLICT` clause is purely protective (`status='OPEN'`, `closed_on=NULL`, `consecutive_misses=0`). Writing the rows we *did* get can only move jobs away from closure. We distrust the *absence* of the rest, not the presence of these.
@@ -215,7 +215,7 @@ verdict = verify_harvest(script, harvest, baseline)                          # N
 # 1. Upsert is safe under everything except FAILED (which already raised).
 db.upsert_jobs_batch(conn, jobs); db.update_last_seen(conn, source_id, seen_ids, ts)
 
-# 2. Destructive phases require BOTH, plus the fleet breaker and 36h floor.
+# 2. Destructive phases require BOTH, plus the fleet breaker and the wall-clock floor.
 #    VERDICT IS EVALUATED FIRST — decision D1, confirmed by the orchestrator
 #    (STACK-ORCHESTRATION.md:59). See the note below.
 if verdict is not VERIFIED:       guard_reason = 'unverified_harvest'  # NEW — the gate is primary
@@ -235,10 +235,12 @@ else:  ...increment_misses → get_jobs_exceeding_miss_threshold → mark_jobs_c
 `count_consecutive_partial_skips` counts on `guard_reason='partial_scrape'` specifically. Never collapse `empty_scrape` / `partial_scrape` / `unverified_harvest` / `approximate_no_close`. `unverified_harvest` must **not** count toward the bounded auto-release (an unknown is not evidence for releasing a destructive guard).
 
 ### 4.2 `MISSED_RUN_THRESHOLD` + wall-clock floor
-Keep threshold 2 (≈48h). **Add a floor on `last_seen_at`, not on the counter** (a retry or scheduler double-fire can otherwise close in minutes):
+Keep threshold 2. **Add a floor on `last_seen_at`, not on the counter** (a retry or scheduler double-fire can otherwise close in minutes):
 ```sql
-AND last_seen_at < now() - INTERVAL '36 hours'   -- 1.5 × cadence_hours
+AND last_seen_at < now() - (1.5 × cadence_hours)
 ```
+
+> **Updated 2026-08-29.** Written when `cadence_hours` was 24, so the plan quoted the two derived numbers as literals: threshold 2 ≈ 48 h, floor = `INTERVAL '36 hours'`. The **code was always written as `1.5 × cadence_hours`**, so both scale automatically. At the current 1 h cadence they are ≈2 h and 1.5 h, and the 2-miss rule is the binding one. The floor's *purpose* is unchanged and is the reason it is expressed as a multiple: it only ever makes closing harder.
 
 ### 4.3 Fleet circuit breaker (the 2026-03-29 generalization)
 **If >20% of the night's scheduled companies FAIL, no company closes anything that night.** Short-circuit the close step. This is the check that would have made the 3,582-job Apple incident a non-event.
@@ -253,6 +255,19 @@ AND last_seen_at < now() - INTERVAL '36 hours'   -- 1.5 × cadence_hours
 On repeated FAILED: one agent re-discovery pass. Gate the swap on **canonical backlink + tenant/eTLD+1 stability**, NOT Jaccard (a Greenhouse→Ashby migration changes every id → Jaccard 0, yet is the most common real repair; a superset parent board shares ids and passes by coincidence). Split: **re-tune** (same host+tenant) hot-swaps with no human; **re-point** (host/tenant changed) requires admin approval. Rate-limit 1/company/7d. **First run after any swap closes nothing** → a bad swap can only add rows. Jaccard is a log line.
 
 ### 4.5 Calibration — do NOT reuse 0.85 for daily companies
+
+> **Largely defused 2026-08-29 by the cadence change.** This section's premise was "custom
+> companies run at 24 h, the 0.85 guard was tuned at 30 min, therefore it is mis-calibrated
+> for them". Custom companies now run at **1 h**, i.e. the cadence the 0.85 knee was tuned at,
+> so the mismatch this section exists to work around is mostly gone. Two knock-on effects, both
+> in the safe direction: hour-over-hour retention is far closer to 1.0 than day-over-day, so
+> the learned `p01` lands at or near the 0.85 ceiling rather than well below it; and
+> `_CALIBRATION_MIN_RUNS = 14` is now ~14 **hours**, not 2–3 weeks, so a board leaves the loose
+> 0.5 floor for the tighter learned ratio within a day. The "PROD-VERIFY / largest single
+> unknown" note below is correspondingly much smaller. The machinery in
+> `services/custom_baseline.py` is kept as-is — it is still the right shape and it is still
+> what runs.
+
 `SCRAPER_GUARD_MIN_RATIO=0.85` was tuned at 30-min cadence; at 24h a company that turns over 20%/day trips it every run. Ship daily companies with a **per-company learned baseline**, derived on the fly from `company_harvests.records_harvested` — no stored value and no new column, because a stored ratio goes stale:
 
 ```
@@ -284,7 +299,7 @@ run_count >= 14  ->  min_ratio = clamp(min(0.85, p01_delta - 0.05), 0.5, 0.85)
 Each ends at the UI and is independently testable. Later slices only make the gate stricter — until then everything is safely UNVERIFIED (shown, never closed).
 
 - **Phase 1 — "Add an ATS company, private to me, see its jobs."** *(the immediate work — §7)*
-- **Phase 2 — The gate + oracles.** Independent oracle (facet_sum/header/sitemap), self-consistency oracle, cap-smell (**the Workday 2,000 ceiling surfaces as `cap_hit` → UNVERIFIED — §9.1**), page-advance, post-dedup-vs-total, tolerance>0⇒no-close, zero-proof chain, fleet breaker, 36h floor, per-company baseline. Companies graduate to VERIFIED and begin closing. *Test: a company drops a job → closes after 2 runs + 36h; a capped Workday tenant lands UNVERIFIED, not silently-partial; Marcus & Millichap fails the zero-chain on canonical-backlink.*
+- **Phase 2 — The gate + oracles.** Independent oracle (facet_sum/header/sitemap), self-consistency oracle, cap-smell (**the Workday 2,000 ceiling surfaces as `cap_hit` → UNVERIFIED — §9.1**), page-advance, post-dedup-vs-total, tolerance>0⇒no-close, zero-proof chain, fleet breaker, wall-clock floor, per-company baseline. Companies graduate to VERIFIED and begin closing. *Test: a company drops a job → closes after 2 runs + the 1.5x-cadence floor; a capped Workday tenant lands UNVERIFIED, not silently-partial; Marcus & Millichap fails the zero-chain on canonical-backlink.*
 - **Phase 3 — Stored HTTP scripts + one-time local-browser discovery.** The closed primitive vocabulary (`fetch`, `paginate_offset/page/cursor/facet`, `extract_json_path/css/embedded_island`, `lookup_join`, `parse_date/transform`, `dedupe_key`, the assert family, the oracle block; **NOT `click_sequence`** — cut from v1). Discovery agent (Sonnet, ~$0.25–1) drives local Playwright, authors a script, gate validates it agent-free, ≤2 attempts then REFUSE. *Test: paste amazon.jobs → ~30s discovery → Amazon VERIFIED at 22,191 via facet partition; Meta 821 via pinned doc_id.*
 - **Phase 4 — Browser runtime (Browserbase) + execution-time SSRF pinning.** For scripts whose transport is `page_fetch`/`dom` and that need a real browser (CBRE WAF, DOM-virtualized). CDP `Fetch.requestPaused` host allowlist, `ignoreCertificateErrors:false`, per-company timeout + checkpointing, batched sessions. *Test: paste CBRE → in-session pagination → VERIFIED.*
 - **Phase 5 — Repair loop, refuse UX, admin dashboard, name input.** Board-identity repair (§4.4), the admin observability dashboard (every add/attempt/cost, promote-to-public), the slug-variant name→URL resolver with a mandatory picker (no auto-accept < confidence 80).
@@ -304,7 +319,7 @@ Each ends at the UI and is independently testable. Later slices only make the ga
   - `GET /api/users/companies` — the caller's companies + `health_state`, `openJobCount`, `lastSuccessAt`.
   - `DELETE /api/users/companies/{id}` — remove ownership; if last owner, disable the company.
   - `GET /api/users/companies/{id}/jobs` — **authed, owner-scoped** (403 if not owner). This is the only path that serves `visibility='user'` jobs.
-- Worker: a `custom_ats_fetch` Procrastinate queue + leaf task **cloned from `fetch_greenhouse_company.py`** (copy the ordering comment verbatim). It runs the existing ATS client for the company's provider/token, then the **minimal gate** (checks 1, 2, 7-dedup, 8) → verdict is UNVERIFIED for everything (oracle_kind='none') → upsert + last_seen only, never close. Writes a `company_harvests` row + a `scrape_runs` row (`source_id`, `success`, `guard_reason='unverified_harvest'`). Scheduling: `cadence_hours` + `next_run_at` + a `*/15` claim task with `FOR UPDATE SKIP LOCKED`, ±90min jitter, global concurrency ceiling 3.
+- Worker: a `custom_ats_fetch` Procrastinate queue + leaf task **cloned from `fetch_greenhouse_company.py`** (copy the ordering comment verbatim). It runs the existing ATS client for the company's provider/token, then the **minimal gate** (checks 1, 2, 7-dedup, 8) → verdict is UNVERIFIED for everything (oracle_kind='none') → upsert + last_seen only, never close. Writes a `company_harvests` row + a `scrape_runs` row (`source_id`, `success`, `guard_reason='unverified_harvest'`). Scheduling: `cadence_hours` (**1 h since 2026-08-29, was 24 h**) + `next_run_at` + a `*/15` claim task with `FOR UPDATE SKIP LOCKED`, jitter of ±¼ cadence capped at 90 min (**was a flat ±90 min**, which is larger than a 1 h cadence and would have pushed `next_run_at` into the past), global concurrency ceiling 3.
 - **Feature flag** `custom_company_sources_enabled` gates all of it (already exists; the resolve endpoint 503s when off).
 
 ### 7.2 Frontend
@@ -327,7 +342,7 @@ Then **start the local stack and hand off to the owner** (backend :8000 with `--
 
 ## 8. The regression test (write it in Phase 2, but keep the shape in mind from Phase 1)
 
-The 2026-03-29 incident's modern form is a run that **succeeds, returns a plausible number, matches the source's own declared total, and is still 83% short** (Target: Workday says 2,000, real 11,960). The test seeds 11,960 open jobs, harvests a capped 2,000, and asserts across two runs: verdict UNVERIFIED, `closed_jobs==0`, `OPEN==11,960`, `max_consecutive_misses==0`, `guard_reason='unverified_harvest'`. Plus: `test_manual_rerun_cannot_accelerate_closure` (36h floor), `test_fleet_breaker_suppresses_closes`, `test_abandoned_board_fails_zero_chain` (Marcus & Millichap → must fail on canonical_backlink), `test_non_executed_run_is_not_a_miss`.
+The 2026-03-29 incident's modern form is a run that **succeeds, returns a plausible number, matches the source's own declared total, and is still 83% short** (Target: Workday says 2,000, real 11,960). The test seeds 11,960 open jobs, harvests a capped 2,000, and asserts across two runs: verdict UNVERIFIED, `closed_jobs==0`, `OPEN==11,960`, `max_consecutive_misses==0`, `guard_reason='unverified_harvest'`. Plus: `test_manual_rerun_cannot_accelerate_closure` (the wall-clock floor), `test_fleet_breaker_suppresses_closes`, `test_abandoned_board_fails_zero_chain` (Marcus & Millichap → must fail on canonical_backlink), `test_non_executed_run_is_not_a_miss`.
 
 ---
 

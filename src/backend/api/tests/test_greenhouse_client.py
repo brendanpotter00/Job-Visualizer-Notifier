@@ -186,12 +186,6 @@ class TestTransformToJobListings:
         result = transform_to_job_listings("stripe", [raw])
         assert result[0].location is None
 
-    def test_no_departments_does_not_raise(self):
-        raw = dict(ONE_JOB_FIXTURE["jobs"][0])
-        raw["departments"] = []
-        result = transform_to_job_listings("stripe", [raw])
-        assert result[0].details["department"] is None
-
     def test_posted_on_parsed_to_utc(self):
         result = transform_to_job_listings("stripe", ONE_JOB_FIXTURE["jobs"])
         assert result[0].posted_on is not None
@@ -270,7 +264,6 @@ class TestTransformToJobListings:
         assert "is_remote_eligible" in details
         assert details["experience_level"] is None
         assert details["is_remote_eligible"] is False
-        assert details["department"] == "Sales"
         assert details["office_locations"] == ["San Francisco HQ"]
         assert details["tags"] == ["GTM", "Python", "TypeScript"]
         assert details["absolute_url"].startswith("https://stripe.com")

@@ -230,7 +230,6 @@ def _parse_job_from_search(job: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         "job_url": get_job_url(job.get("job_path") or ""),
         "location": extract_location(job),
         "posted_date": parse_posted_date(job.get("posted_date")),
-        "department": job.get("job_category"),
         "description": combine_description(job),
         "team": (job.get("team") or {}).get("label") if isinstance(job.get("team"), dict) else None,
         "job_schedule_type": job.get("job_schedule_type"),

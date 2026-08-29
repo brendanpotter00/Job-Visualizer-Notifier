@@ -1038,6 +1038,32 @@ def _seconds_until_next_run(db_conn, company_id: str) -> float:
     return float(cur.fetchone()["s"])
 
 
+def _assert_rescheduled_a_full_cadence_out(db_conn, company_id: str) -> None:
+    """The property these tests actually mean: the row was pushed a whole cadence ±
+    jitter ahead, i.e. it is **not left due** and the `*/15` claim tick cannot see it.
+
+    Derived from the two constants, never spelled as a literal. These assertions used
+    to read ``> 22 * 3600`` — "22 hours", which was a stand-in for "a 24 h cadence minus
+    the ±90 min jitter" and silently became a *cadence* assertion. When the cadence moved
+    to 1 h the number was wrong in a way that says nothing about what the tests are for
+    (one is about the discovery flag, the other about the enqueue interlock). Expressed
+    this way, a future cadence change moves both bounds automatically and a genuinely
+    broken reschedule — the row left due — still fails.
+    """
+    import api.tasks.claim_custom_companies as claim_mod
+
+    cadence_s = svc.DEFAULT_CADENCE_HOURS * 3600
+    spread_s = cadence_s * claim_mod._JITTER_FRACTION
+    actual_s = _seconds_until_next_run(db_conn, company_id)
+
+    # -5 s / +5 s: the read-back's now() is a few ms later than the UPDATE's, so the
+    # measured offset sits marginally inside the arithmetic window.
+    assert cadence_s - spread_s - 5 <= actual_s <= cadence_s + spread_s + 5, (
+        f"expected {company_id} rescheduled ~{cadence_s}s out (±{spread_s}s jitter), "
+        f"got {actual_s}s — a value near zero means the row was left DUE"
+    )
+
+
 def test_an_ats_add_enqueues_its_first_harvest_immediately(client, db_conn, monkeypatch):
     """THE FIX. Without it the company is tracked, green, and empty until the next
     15-minute tick — which reads as "we looked and your board has no jobs" directly
@@ -1070,8 +1096,7 @@ def test_the_immediate_harvest_takes_the_row_off_the_claim_ticks_list(
         "/api/users/companies", json={"url": GREENHOUSE_URL}
     ).json()["id"]
 
-    # A cadence (24h) minus the ±90 min jitter floor — i.e. nowhere near due.
-    assert _seconds_until_next_run(db_conn, company_id) > 22 * 3600
+    _assert_rescheduled_a_full_cadence_out(db_conn, company_id)
     assert company_id not in claim_mod._claim_due_companies(db_conn, 10)
 
 
@@ -1092,7 +1117,9 @@ def test_the_first_harvest_is_not_gated_by_the_discovery_flag(
 
     assert resp.status_code == 201, resp.text
     assert calls == [resp.json()["id"]]
-    assert _seconds_until_next_run(db_conn, resp.json()["id"]) > 22 * 3600
+    # …and the reschedule that goes with it: the harvest was queued AND the row pushed
+    # a cadence out. Property, not a literal — see the helper.
+    _assert_rescheduled_a_full_cadence_out(db_conn, resp.json()["id"])
 
 
 def test_a_re_add_of_a_tracked_board_starts_no_second_harvest(
@@ -1904,6 +1931,115 @@ def test_a_re_add_after_track_anyway_still_resolves_to_the_users_own_row(
     assert again.json()["id"] == company_id
     assert again.json().get("status") != "already_public"
     assert _count(db_conn, "companies", "WHERE visibility = 'user'") == 1
+
+
+# --- The idempotent re-add's audit row must be TERMINAL ------------------------
+#
+# One add writes TWO audit rows — ``discovery_pending`` from the request, then a
+# terminal row from the worker — and the admin dashboard collapses an attempt to its
+# newest row, calling a ``discovery_pending`` row older than 40 minutes STUCK. The
+# short-circuit branch runs no worker, so a flat ``discovery_pending`` here was half an
+# attempt that nothing would ever finish: re-pasting the URL of a board that had been
+# tracked and Live for twelve hours made the dashboard report it as stuck.
+
+
+def _latest_attempt(db_conn) -> dict:
+    db_conn.rollback()
+    cur = db_conn.cursor()
+    cur.execute(
+        sql.SQL(
+            "SELECT outcome, resolved_ats, error_detail, company_id FROM {} "
+            "ORDER BY id DESC LIMIT 1"
+        ).format(sql.Identifier("company_add_attempts"))
+    )
+    return dict(cur.fetchone())
+
+
+def _set_health(db_conn, company_id: str, health: str) -> None:
+    cur = db_conn.cursor()
+    cur.execute(
+        sql.SQL("UPDATE {} SET health_state = %s WHERE id = %s").format(
+            sql.Identifier("companies")
+        ),
+        (health, company_id),
+    )
+    db_conn.commit()
+
+
+def _add_then_readd(client, db_conn, monkeypatch, *, health: str) -> dict:
+    """One real discovery add, forced into ``health``, then the SAME URL re-pasted."""
+    monkeypatch.setattr(settings, "custom_company_discovery_enabled", True)
+    _login(client, "auth0|A", "a@example.com")
+    _patch_no_ats(monkeypatch)
+    _capture_defer(monkeypatch)
+
+    first = client.post("/api/users/companies", json={"url": _NON_ATS_URL})
+    assert first.status_code == 202, first.text
+    company_id = first.json()["id"]
+    _set_health(db_conn, company_id, health)
+
+    again = client.post("/api/users/companies", json={"url": _NON_ATS_URL})
+    assert again.status_code == 200, again.text
+    assert again.json()["id"] == company_id
+    return _latest_attempt(db_conn)
+
+
+def test_re_adding_a_tracked_board_writes_a_terminal_added_attempt(
+    client, db_conn, monkeypatch
+):
+    """THE BUG. The board finished discovery hours ago and is tracked; a re-add must
+    not open a second pending row that nothing will ever close."""
+    attempt = _add_then_readd(client, db_conn, monkeypatch, health="unverified")
+
+    assert attempt["outcome"] == "added"
+    assert attempt["error_detail"] is None
+    # NOT 'discovered': that value is how the monthly quota tells a worker-written row
+    # from a request-written one, so reusing it here would stop charging the re-add.
+    assert attempt["resolved_ats"] == "already_tracked"
+
+
+def test_re_adding_a_refused_board_says_refused_not_added(
+    client, db_conn, monkeypatch
+):
+    """``added`` would be a lie about a board we told the user we cannot read."""
+    attempt = _add_then_readd(client, db_conn, monkeypatch, health="refused")
+
+    assert attempt["outcome"] == "refused"
+    assert attempt["resolved_ats"] == "already_tracked"
+    assert attempt["error_detail"] == "re-submitted; this board was already refused"
+
+
+def test_re_adding_a_board_still_discovering_stays_pending(
+    client, db_conn, monkeypatch
+):
+    """THE ONE CASE THAT MUST NOT CHANGE. A run really is in flight, and it really will
+    write the terminal half that pairs with this row — so ``pending`` is the truth."""
+    attempt = _add_then_readd(client, db_conn, monkeypatch, health="discovering")
+
+    assert attempt["outcome"] == "discovery_pending"
+    assert attempt["resolved_ats"] == "discovered"
+    assert attempt["error_detail"] is None
+
+
+def test_every_re_add_still_spends_a_quota_slot(client, db_conn, monkeypatch):
+    """The cap counts URLs ENTERED, not boards created. A re-add creates nothing and
+    must still cost one — the regression the ``already_tracked`` marker exists to
+    prevent, because ``resolved_ats='discovered'`` on a terminal row reads as the
+    worker's own row and is excluded from the count."""
+    monkeypatch.setattr(settings, "custom_company_discovery_enabled", True)
+    _login(client, "auth0|A", "a@example.com")
+    _patch_no_ats(monkeypatch)
+    _capture_defer(monkeypatch)
+
+    first = client.post("/api/users/companies", json={"url": _NON_ATS_URL})
+    assert first.status_code == 202, first.text
+    used_after_add = _quota(client)["used"]
+    _set_health(db_conn, first.json()["id"], "unverified")
+
+    assert client.post(
+        "/api/users/companies", json={"url": _NON_ATS_URL}
+    ).status_code == 200
+    assert _quota(client)["used"] == used_after_add + 1
 
 
 def test_a_script_board_links_even_with_discovery_switched_off(

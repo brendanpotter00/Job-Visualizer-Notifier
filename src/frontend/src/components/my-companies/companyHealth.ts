@@ -105,7 +105,7 @@ export function describeHealthState(healthState: string): HealthBadge {
  * see `OUTCOME_PARTIAL` in `api/services/discovery/progress.py`.
  */
 export function describeCompanyHealth(
-  company: Pick<UserCompany, 'healthState' | 'discovery' | 'lastSuccessAt'>,
+  company: Pick<UserCompany, 'healthState' | 'discovery' | 'lastSuccessAt'>
 ): HealthBadge {
   // BEFORE the partial check and before the green one, and that order is the whole
   // point — see `isFirstScanInFlight`. A row whose first harvest has not landed knows
@@ -181,7 +181,7 @@ export function isFirstScanInFlight(company: Pick<UserCompany, 'discovery'>): bo
 function isFirstScanFailing(company: Pick<UserCompany, 'discovery'>): boolean {
   return (
     company.discovery?.steps.some(
-      (step) => step.key === 'first_scan' && step.status === 'failed',
+      (step) => step.key === 'first_scan' && step.status === 'failed'
     ) ?? false
   );
 }
@@ -348,7 +348,7 @@ export function describeDiscoveryStep(step: Pick<DiscoveryStep, 'key'>): string 
  * board still being worked on.
  */
 export function resolveDiscoveryOutcome(
-  company: Pick<UserCompany, 'healthState' | 'discovery'>,
+  company: Pick<UserCompany, 'healthState' | 'discovery'>
 ): DiscoveryOutcomeState {
   if (company.healthState === 'refused') return 'refused';
   if (company.healthState === 'discovering') return 'running';
@@ -379,7 +379,7 @@ export function resolveDiscoveryOutcome(
  * we cannot know whether a state we have never heard of makes the receipt a lie.
  */
 export function shouldShowDiscovery(
-  company: Pick<UserCompany, 'healthState' | 'discovery' | 'lastSuccessAt'>,
+  company: Pick<UserCompany, 'healthState' | 'discovery' | 'lastSuccessAt'>
 ): boolean {
   if (!company.discovery) return false;
   return (
@@ -411,7 +411,7 @@ export function shouldShowDiscovery(
  * must not snap the panel shut under someone who is looking at it.
  */
 export function shouldExpandDiscovery(
-  company: Pick<UserCompany, 'healthState' | 'discovery' | 'lastSuccessAt'>,
+  company: Pick<UserCompany, 'healthState' | 'discovery' | 'lastSuccessAt'>
 ): boolean {
   return resolveDiscoveryOutcome(company) === 'refused' || !company.lastSuccessAt;
 }
@@ -429,7 +429,7 @@ export function shouldExpandDiscovery(
  * the company instead: this is about their board, not about our pipeline.
  */
 export function describeDiscoveryOutcome(
-  company: Pick<UserCompany, 'displayName' | 'healthState' | 'discovery'>,
+  company: Pick<UserCompany, 'displayName' | 'healthState' | 'discovery'>
 ): string {
   const outcome = resolveDiscoveryOutcome(company);
   if (outcome === 'refused') {
@@ -490,7 +490,7 @@ export function describeDiscoveryOutcome(
  * and the reason it lives on a rung rather than in the chip.
  */
 export function describePartialScope(
-  company: Pick<UserCompany, 'discovery' | 'openJobCount'>,
+  company: Pick<UserCompany, 'discovery' | 'openJobCount'>
 ): string | null {
   const verified = company.discovery?.steps.find((step) => step.key === 'verify_read');
   const [, afterBut] = (verified?.result ?? '').split(', but ');
@@ -502,6 +502,20 @@ export function describePartialScope(
   }
   return `${sentence}; we can reach ${company.openJobCount.toLocaleString()}.`;
 }
+
+/**
+ * Faster list cadence while a one-time discovery is actually running.
+ *
+ * Its four steps take seconds each, so the ordinary 15s poll would show a checklist that
+ * jumps two rungs at a time and is usually already stale — the same opaque wait the
+ * checklist exists to remove. `MyCompaniesList` owns the cadence; it lives HERE because
+ * `DiscoveryChecklist` derives its live-view trust window from the same number
+ * (`LIVE_VIEW_TRUST_MS`), and those two must never drift apart: "how long may we go
+ * without hearing from the server before we stop believing it" is only answerable if you
+ * know how often we ask. A local copy in each file would let a cadence change quietly
+ * turn the trust window into either a flicker or a no-op.
+ */
+export const DISCOVERY_POLL_INTERVAL_MS = 4_000;
 
 /**
  * The hosted live-view URL WHILE THERE IS STILL A BROWSER OPEN — otherwise null.
@@ -529,9 +543,20 @@ export function describePartialScope(
  * discovery TIMEOUT freezes the last live snapshot instead of writing a terminal one
  * (see `renderedStatus`), so a stalled blob can still carry a URL the killed task never
  * reached the code to clear. A run that is over has no browser open, whatever it says.
+ *
+ * WHAT THIS FUNCTION CANNOT DO, and the reason `DiscoveryChecklist` does not stop here:
+ * it reports what the LAST PAYLOAD said, and the payload is always behind the socket.
+ * The browser dies inside the capture child (`_capture_main.py`'s `await browser.close()`
+ * is its last act); the parent only regains control once that child has exited, and only
+ * then writes the null. The DevTools frame has already painted "Debugging connection was
+ * closed" by the time the write happens, let alone by the time a poll carries it here —
+ * so this null is never early, it is at best one poll late, and if polls are FAILING
+ * (RTK Query keeps serving the last good payload, warning banner and all) or the row has
+ * aged out of the fast cadence, it is late without bound. Closing that is a client-side
+ * job and it lives in `DiscoveryChecklist`'s `LiveView`; see `LIVE_VIEW_TRUST_MS`.
  */
 export function watchableLiveViewUrl(
-  company: Pick<UserCompany, 'healthState' | 'discovery'>,
+  company: Pick<UserCompany, 'healthState' | 'discovery'>
 ): string | null {
   const url = company.discovery?.liveViewUrl;
   if (!url || resolveDiscoveryOutcome(company) !== 'running') {
@@ -566,7 +591,7 @@ export function formatByteSize(bytes: number): string {
  * that is still `running`. The panel should narrow the moment we know, not a poll later.
  */
 export function chosenDiscoveryRequest(
-  company: Pick<UserCompany, 'discovery'>,
+  company: Pick<UserCompany, 'discovery'>
 ): DiscoveryRequest | null {
   return company.discovery?.network?.requests.find((r) => r.state === 'chosen') ?? null;
 }
@@ -591,7 +616,7 @@ export function chosenDiscoveryRequest(
  * evidence to offer, and the checklist's ✕ already says exactly that.
  */
 export function describeNetworkSummary(
-  company: Pick<UserCompany, 'healthState' | 'discovery'>,
+  company: Pick<UserCompany, 'healthState' | 'discovery'>
 ): string | null {
   const network = company.discovery?.network;
   const requests = network?.requests ?? [];
@@ -614,7 +639,87 @@ export function describeNetworkSummary(
 
 /** The step a refusal stopped on, or null (e.g. a timeout, which fails no step). */
 export function failedDiscoveryStep(
-  discovery: Pick<DiscoveryProgress, 'steps'> | null | undefined,
+  discovery: Pick<DiscoveryProgress, 'steps'> | null | undefined
 ): DiscoveryStep | null {
   return discovery?.steps.find((step) => step.status === 'failed') ?? null;
+}
+
+/**
+ * Where each ATS publishes the human-readable board for a bare slug.
+ *
+ * These four are the ones whose `board_token` IS the slug the public board is addressed
+ * by (`ats_link_resolver.py` extracts exactly that), so the URL is a template and nothing
+ * else is needed. Greenhouse gets `job-boards.` rather than the older `boards.` host: the
+ * backend accepts both as input and the old one 301s to this one, so emitting the
+ * destination saves every reader a redirect.
+ *
+ * WORKDAY AND EIGHTFOLD ARE DELIBERATELY ABSENT, and that is why this is a lookup rather
+ * than a switch with a default. Their `board_token` is a cosmetic tenant label —
+ * `blueorigin`, `netflix` — and the real board lives at a host the token does not spell
+ * (`https://<tenant>.wd5.myworkdayjobs.com/<career_site>`,
+ * `https://explore.jobs.netflix.net/careers?domain=…`). Both live in `provider_config`,
+ * which the list endpoint does not send. Guessing would produce a confident link to a
+ * 404 — worse than the missing link this exists to fix — so those rows get no link until
+ * the backend sends one.
+ */
+const ATS_BOARD_HOSTS: Record<string, string> = {
+  greenhouse: 'https://job-boards.greenhouse.io',
+  ashby: 'https://jobs.ashbyhq.com',
+  lever: 'https://jobs.lever.co',
+  gem: 'https://jobs.gem.com',
+};
+
+/** `ats` for a board we discovered ourselves, whose `boardToken` is the pasted URL. */
+const DISCOVERED_ATS = 'discovered';
+
+/**
+ * The board this company was built from — a real, openable URL, or null.
+ *
+ * THE QUESTION IT ANSWERS: "what did we actually read to make this?" A tracked row showed
+ * a name, a chip, a count and a freshness line, and nothing anywhere said which page it
+ * came from — so when a board started serving dead job links there was no way to go and
+ * look at it without opening the database.
+ *
+ * Two sources, one answer:
+ *  - a DISCOVERED board's `boardToken` IS the normalized URL the user pasted
+ *    (`custom_companies_service.py` stores `board_token=normalized_url`), so it is used
+ *    verbatim — and that is the case the request came from;
+ *  - an ATS board's `boardToken` is a slug, and four of the six providers publish a board
+ *    at a fixed host plus that slug (`ATS_BOARD_HOSTS`).
+ *
+ * NULL IS A REAL ANSWER and callers must render nothing for it, never a dead link. It
+ * comes back for the two providers whose board URL is not derivable, and for anything
+ * that does not parse as `http(s)`: a `boardToken` is server data, but it ORIGINATES in
+ * something a stranger pasted, and an `href` is the one place that distinction matters.
+ * The scheme check is what keeps a `javascript:` token from becoming a link.
+ */
+export function sourceBoardUrl(company: Pick<UserCompany, 'ats' | 'boardToken'>): string | null {
+  const token = company.boardToken?.trim();
+  if (!token) return null;
+  if (company.ats === DISCOVERED_ATS) {
+    return /^https?:\/\//i.test(token) ? token : null;
+  }
+  const host = ATS_BOARD_HOSTS[company.ats];
+  return host ? `${host}/${encodeURIComponent(token)}` : null;
+}
+
+/**
+ * What that link SAYS — the board's host, `www.` stripped.
+ *
+ * The host rather than a fixed word like "Board", because the host is the part that
+ * answers the question without a click: `janestreet.com` under a row named "Jane Street"
+ * is a confirmation, and `job-boards.greenhouse.io` tells an ATS row's reader the thing
+ * they actually want to know. A uniform label would make every row's link identical and
+ * push the answer behind a navigation.
+ *
+ * The full URL belongs in a `title` — the same division the freshness line already makes:
+ * the short form is for scanning the list, the exact value is for the one row you care
+ * about. Null if it will not parse, so a label can never disagree with its own href.
+ */
+export function sourceBoardLabel(url: string): string | null {
+  try {
+    return new URL(url).hostname.replace(/^www\./i, '') || null;
+  } catch {
+    return null;
+  }
 }

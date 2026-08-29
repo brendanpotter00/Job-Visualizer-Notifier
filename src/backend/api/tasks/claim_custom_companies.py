@@ -12,8 +12,18 @@ Two bounds keep this gentle:
 * a **global concurrency ceiling of 3** in-flight custom fetches (counted off
   ``procrastinate_jobs``), so a burst of newly-added companies drains a few at a
   time rather than all at once, and
-* **±90 min jitter** on the next run, so companies added together don't
-  synchronize into a nightly thundering herd.
+* **jitter of up to a quarter of the cadence** on the next run, so companies added
+  together don't synchronize into a thundering herd (see ``_JITTER_FRACTION``).
+
+CADENCE. ``ccs.DEFAULT_CADENCE_HOURS`` is **1 hour**, matching what a published
+company gets from the ``*/30`` ``enqueue_*_fan_out`` crons as closely as an INTEGER
+``cadence_hours`` column can. It was 24 h back when a harvest meant a Browserbase
+session; a harvest is now one HTTP request (``ats_client`` / ``http_json``) or one
+short local-Chromium replay. The ceiling above is what actually bounds the load:
+3 fetches per ``*/15`` tick = **12 harvests/hour**, so an hourly cadence is only
+truly hourly for the first ~12 tracked boards. Past that the claim's
+``ORDER BY next_run_at`` degrades it fairly (effective cadence ≈ ``ceil(N/12)``
+hours) — later runs, never earlier ones, so nothing closes sooner than it should.
 
 The claim task carries no queueing lock of its own — if two ticks race, the
 ``FOR UPDATE SKIP LOCKED`` claim + the per-company defer lock make the second a
@@ -56,8 +66,27 @@ logger = logging.getLogger(__name__)
 # on CONCURRENTLY RUNNING fetches is the worker's own concurrency (5), and the
 # per-company queueing lock prevents duplicates for any single company.
 _QUEUE_BACKPRESSURE_CEILING = 3
-# ±90 minutes of jitter on the next scheduled run, in seconds.
-_JITTER_SECONDS = 90 * 60
+
+# Jitter on the next scheduled run, expressed as a FRACTION of that company's own
+# cadence and capped at 90 minutes.
+#
+# It used to be a flat ±90 min, which was only safe because the cadence was 24 h. At
+# the 1 h cadence a flat ±90 min is LARGER than the interval it perturbs:
+# ``now() + 1 hour - 90 minutes`` is half an hour in the PAST, so roughly half of all
+# pushes would leave the row immediately due and the ``*/15`` tick would re-claim it
+# on its very next pass. That does not just make the cadence a lie — it dissolves the
+# PRIMARY interlock documented on :func:`push_next_run_at` ("a rescheduled row is not
+# even a candidate"), leaving only the queueing-lock backstop between us and two
+# concurrent harvests of one board.
+#
+# A quarter of the cadence keeps ``|jitter| < cadence`` by construction, so
+# ``next_run_at`` is ALWAYS in the future, while still spreading companies added
+# together over several ticks — ±15 min at an hourly cadence is three distinct
+# ``*/15`` slots. The 90-minute cap means any row still carrying an explicit
+# ``cadence_hours = 24`` keeps precisely the old behaviour (0.25 × 24 h = 6 h, capped
+# back to 90 min), so this is a no-op for anything that was already scheduled.
+_JITTER_FRACTION = 0.25
+_JITTER_CAP_SECONDS = 90 * 60
 
 
 def _count_queued_fetches(conn: psycopg2.extensions.connection) -> int:
@@ -95,17 +124,28 @@ def _count_queued_fetches(conn: psycopg2.extensions.connection) -> int:
 # out-of-band first harvest, because the two must agree on what "already scheduled"
 # means — a second copy that forgot the jitter would resynchronize the fleet it exists
 # to spread out.
-_PUSH_NEXT_RUN_SQL = """
+#
+# The jitter BOUND is derived here, in SQL, from the row's own ``cadence_hours``,
+# because that is the only place the cadence is known: :func:`push_next_run_at` is
+# handed a company id and nothing else. Python supplies a unit factor in [-1, 1] so
+# the randomness stays seedable/patchable from tests rather than becoming a bare
+# ``random()`` in the statement.
+_PUSH_NEXT_RUN_SQL = f"""
     UPDATE companies
     SET next_run_at = now()
-        + (COALESCE(cadence_hours, 24) || ' hours')::interval
-        + (%s || ' seconds')::interval
+        + make_interval(hours => COALESCE(cadence_hours, {ccs.DEFAULT_CADENCE_HOURS}))
+        + make_interval(secs => %s::double precision * LEAST(
+              {_JITTER_CAP_SECONDS}::double precision,
+              COALESCE(cadence_hours, {ccs.DEFAULT_CADENCE_HOURS})::double precision
+                  * 3600 * {_JITTER_FRACTION}::double precision
+          ))
     WHERE id = %s
 """
 
 
-def _jitter() -> float:
-    return random.uniform(-_JITTER_SECONDS, _JITTER_SECONDS)
+def _jitter_unit() -> float:
+    """A unit jitter factor in [-1, 1]; the SQL scales it by the row's cadence."""
+    return random.uniform(-1.0, 1.0)
 
 
 def push_next_run_at(conn: psycopg2.extensions.connection, company_id: str) -> None:
@@ -125,7 +165,7 @@ def push_next_run_at(conn: psycopg2.extensions.connection, company_id: str) -> N
     """
     cursor = conn.cursor()
     try:
-        cursor.execute(_PUSH_NEXT_RUN_SQL, (_jitter(), company_id))
+        cursor.execute(_PUSH_NEXT_RUN_SQL, (_jitter_unit(), company_id))
         conn.commit()
     except psycopg2.Error:
         conn.rollback()
@@ -160,7 +200,7 @@ def _claim_due_companies(conn: psycopg2.extensions.connection, limit: int) -> li
         )
         ids = [row["id"] for row in cursor.fetchall()]
         for company_id in ids:
-            cursor.execute(_PUSH_NEXT_RUN_SQL, (_jitter(), company_id))
+            cursor.execute(_PUSH_NEXT_RUN_SQL, (_jitter_unit(), company_id))
         conn.commit()
         return ids
     except psycopg2.Error:

@@ -54,7 +54,7 @@ team, employment type, compensation) require a second round-trip per
 job, which the frontend deliberately skipped because the list view
 shows enough to drive the visualization. We mirror that scope:
 ``details`` is populated with the keys other migrated providers emit
-(``experience_level``, ``is_remote_eligible``, ``department``, ``team``,
+(``experience_level``, ``is_remote_eligible``, ``team``,
 ``employment_type``, ``secondary_locations``, ``compensation_summary``,
 ``description_html``, ``tags``), all set to ``None`` / ``[]``. Only
 ``published_at`` (the parsed ``postedOn``) carries data.
@@ -500,7 +500,6 @@ def _transform_one(
     # `locationsText`/`postedOn`/`bulletFields[*]` structurally; the
     # other keys are None / [] because we don't have detail-page data.
     details: dict[str, Any] = {
-        "department": None,
         "team": None,
         "secondary_locations": [],
         "employment_type": None,

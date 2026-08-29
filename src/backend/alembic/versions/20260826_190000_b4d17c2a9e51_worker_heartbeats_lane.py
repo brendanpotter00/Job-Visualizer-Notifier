@@ -16,7 +16,7 @@ Backfill/default is 'bulk': every row written before this migration came from
 the single pre-split worker, whose queues are now the bulk lane.
 
 Revision ID: b4d17c2a9e51
-Revises: c1539fa03b23
+Revises: 7a4c1e93b6d8
 Create Date: 2026-08-26 19:00:00.000000
 """
 
@@ -27,7 +27,7 @@ import sqlalchemy as sa
 
 
 revision: str = "b4d17c2a9e51"
-down_revision: Union[str, None] = "c1539fa03b23"
+down_revision: Union[str, None] = "7a4c1e93b6d8"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

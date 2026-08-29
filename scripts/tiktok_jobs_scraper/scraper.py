@@ -363,7 +363,6 @@ class TikTokJobsScraper(BaseScraper):
             # Denormalised into real columns by shared/database.py
             "experience_level": self.derive_experience_level(title, job_data),
             "is_remote_eligible": self.derive_is_remote_eligible(title, location),
-            "department": job_data.get("department"),
             "job_code": job_data.get("job_code"),
             "recruit_type": job_data.get("recruit_type"),
             "job_subject": job_data.get("job_subject"),

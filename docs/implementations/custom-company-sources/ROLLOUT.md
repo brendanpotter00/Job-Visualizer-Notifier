@@ -19,7 +19,6 @@ The owner has explicitly accepted these staying in that PR rather than being spl
 |---|---|---|
 | `first_seen_at` seeded from the board's posted date | **Every company.** Changes the column the charts sort on and the enrichment queue orders by | revert |
 | Workday `"Posted 30+ Days Ago"` → no date | **2,730 of 6,461 open Workday rows** lose a fabricated date | revert |
-| `department` denormalized column + backfill | ~5–15 s `ACCESS EXCLUSIVE` on `job_listings` (78k rows) during migration | revert + drop column |
 | `job_freshness` trigger seeds `now()` | Required by the seeding change; makes brand-new jobs not born stale | revert |
 | Worker lane split + per-lane heartbeats | Two workers instead of one; `/health/worker` now 503s if **either** lane is stale | revert |
 | Vercel proxy allowlists | Closes a live anonymous-access hole. **You want this one live** | revert (do not) |
@@ -46,7 +45,8 @@ commits carry `Co-Authored-By: Claude Fable 5`, which the owner does not want in
 
 ## 3. Migrations
 
-Production is stamped `1d2d6c17acfc`. Merging the full stack runs **six**:
+Production is stamped `1d2d6c17acfc`. Merging the full stack runs **six**, none of which
+locks a table:
 
 | # | Revision | What | Risk |
 |---|---|---|---|
@@ -55,14 +55,25 @@ Production is stamped `1d2d6c17acfc`. Merging the full stack runs **six**:
 | 3 | `9d2f7ae5c1b4` | Data: retire flat page ceiling | **0 rows** |
 | 4 | `2633dd6348e4` | Empty merge revision | none |
 | 5 | `7a4c1e93b6d8` | `job_freshness` trigger seeds `now()` | `CREATE OR REPLACE FUNCTION`. Verified byte-identical against the live function |
-| 6 | `c1539fa03b23` | `department` column + backfill | **The only lock.** ~5–15 s `ACCESS EXCLUSIVE` on `job_listings` |
-| 7 | `b4d17c2a9e51` | `lane` column on `worker_heartbeats` | trivial |
+| 6 | `b4d17c2a9e51` | `lane` column on `worker_heartbeats` | trivial |
 
-Migration 6 runs the backfill **inside the same transaction as the ADD COLUMN** — deliberately.
-Splitting it was tried and **silently broke Alembic**: a mid-revision `conn.commit()` makes the
-version-table UPDATE a no-op, leaving the data migrated and `alembic_version` unmoved. If the
-lock window ever becomes unacceptable, the answer is a separate one-shot script, not a
+**No migration in this deploy takes a lock.** There used to be one — `c1539fa03b23` added a
+denormalized `department` column and backfilled 78k rows in a single transaction, ~5–15 s of
+`ACCESS EXCLUSIVE` on `job_listings`. The owner then removed the Department filter entirely
+(measured cardinality: Stripe 46 jobs → 39 departments, Anduril 377 → 195 — roughly one job
+per option, which is a list rather than a filter), so the column had no reader and the
+migration was **deleted outright** rather than reversed. It had never shipped; prod is stamped
+`1d2d6c17acfc` and never had the column. `b4d17c2a9e51` was repointed to `7a4c1e93b6d8`.
+
+Worth keeping the lesson even though the migration is gone: splitting the ADD from the backfill
+was tried and **silently broke Alembic** — a mid-revision `conn.commit()` makes the
+version-table UPDATE a no-op, leaving the data migrated and `alembic_version` unmoved. If a
+future migration ever needs a long backfill, the answer is a separate one-shot script, not a
 cleverer migration.
+
+⚠️ Local dev databases that already ran `c1539fa03b23` (`jobscraper_pr243`, `jobscraper_e2e`)
+keep an **orphaned nullable `department` column**. Boot and Alembic resolution are unaffected
+and nothing reads or writes it. Drop it by hand if it bothers you. **Production never had it.**
 
 `migrations.py` calls `command.upgrade(cfg, "head")` — **singular**. A second head does not
 degrade, it fails the boot. Confirm `alembic heads` returns exactly one before each merge.
@@ -93,6 +104,62 @@ can reach the backend even if the backend flag is on. Flip the backend first, fr
 ⚠️ **Reading Railway variables is blocked** by the permission classifier (values return in
 plaintext and may contain secrets). Setting them is possible. So **verify flag state by
 behaviour, not by reading config** — see §6.
+
+---
+
+## 4b. Custom-company cadence — 24 h → 1 h, and what that does to closes
+
+`DEFAULT_CADENCE_HOURS` (`services/custom_companies_service.py`) is now **1**, not 24.
+
+**Why 1.** Every published board is re-read every **30 minutes** — all six
+`enqueue_*_fan_out` tasks are on `*/30 * * * *`. `companies.cadence_hours` is an INTEGER
+column, so 30 minutes is not expressible; 1 h is the nearest legal value and it errs slow.
+"Every 15 minutes" was not available either way: 0.25 is not an integer, the claim tick's
+backpressure ceiling only clears 3 fetches per `*/15` tick (**12 harvests/hour**), and a
+single harvest is allowed 900 s before `fetch_custom_company` kills it — a 15-minute
+cadence is shorter than one harvest's own timeout. 24 h was chosen when a harvest meant a
+Browserbase session; a stored board now replays as one HTTP request.
+
+**⚠️ Closes get faster, by design and with the owner's sign-off.**
+
+| | Before (24 h) | After (1 h) |
+|---|---|---|
+| Harvest interval | 24 h ± 90 min | 1 h ± 15 min, +≤15 min tick lag |
+| `MISSED_RUN_THRESHOLD` misses | 2 | 2 (unchanged) |
+| Wall-clock floor (`1.5 × cadence`) | 36 h | 1.5 h |
+| **A vanished job closes after** | **≈ 48 h** | **≈ 2 h** (bounded 1.5 h – 3 h) |
+| Published companies, for comparison | | ≈ 1 h (2 × `*/30`) |
+
+Nothing else about closing moved. Every gate is still ANDed exactly as before — VERIFIED
+verdict, the safety guard, the fleet breaker, first-verified-run, script-changed, the
+`self_consistent` streak and id-churn guards. **No close can now happen that would not
+have happened before; the same closes happen sooner.**
+
+**Jitter had to change with it.** It was a flat ±90 min, which is *larger than a 1 h
+cadence*: `now() + 1 hour − 90 minutes` is in the past, so roughly half of all reschedules
+would have left the row immediately due, and the `*/15` tick would have re-claimed it at
+once. That is not a slow cadence — it is the loss of the primary interlock against two
+concurrent harvests of one board. The jitter is now **a quarter of the cadence, capped at
+90 min**: ±15 min at 1 h, and *bit-for-bit the old ±90 min* for any row still carrying an
+explicit `cadence_hours = 24`.
+
+**One manual step if you have pre-existing rows.** Production has none — checked
+2026-08-29: `companies` there has no `visibility` column at all, so the E7 migrations have
+not run and no `visibility='user'` row can exist. This is a strict no-op in prod. A
+local/dev database that already has custom companies stored `cadence_hours = 24` at insert
+time and keeps it — there is deliberately **no migration**, because a second Alembic head
+is a worse risk than a one-line UPDATE:
+
+```sql
+UPDATE companies SET cadence_hours = 1 WHERE visibility = 'user' AND cadence_hours = 24;
+```
+
+**Capacity, stated so it is not a surprise later.** 3 fetches per `*/15` tick = 12/hour, so
+an hourly cadence is genuinely hourly for roughly the first **12** tracked boards. Beyond
+that the claim's `ORDER BY next_run_at` degrades it fairly to ≈ `ceil(N/12)` hours —
+later runs, never earlier ones, so nothing closes sooner than it should. Raising
+`_QUEUE_BACKPRESSURE_CEILING` is the lever if the fleet grows; it was left at 3 because
+that is a load decision, not part of this change.
 
 ---
 
@@ -130,14 +197,46 @@ Everything above, plus:
    (`/api/companies`, `/api/features`, `/api/jobs`, `/api/jobs/facets`, `/api/locations/search`).
    `/api/jobs` must still re-emit `x-next-cursor`.
 
-**Do not proceed to the flag flip until a full nightly cycle has run cleanly.** The seeding
-change only shows itself on inserts, and the close path only exercises on a real tick.
+### The gate before the flag flip — what to observe, not how long to wait
+
+This used to read *"do not proceed until a full nightly cycle has run cleanly"*. That was
+wrong on both halves and is replaced by the table below.
+
+- **There is no nightly cycle to wait for.** With the flags off there are **zero
+  `visibility='user'` companies in production**, so nothing is on the custom schedule at
+  all. A day of waiting observes an empty set.
+- **A day would prove the wrong harvest anyway.** When the flag does flip, the first
+  harvest fires within seconds — `claim_custom_companies.start_first_harvest`, called by
+  both add paths — not on a scheduled tick. Waiting a cadence would only demonstrate that
+  the *second* harvest works.
+- **The changes that are actually live are on the public crons**, and all six
+  `enqueue_*_fan_out` tasks run `*/30 * * * *`. That is the clock this gate runs on.
+
+Each row names the signal that proves that specific change, and the earliest it can
+appear. **The gate is the rightmost column, not a duration** — a change whose trigger has
+not fired yet is unproven no matter how long you waited.
+
+| Change | Fires on | Earliest proof | Gate |
+|---|---|---|---|
+| Migrations + `department` backfill | container boot | first `/health` 200 | `alembic_version` at the expected head, one head, `count(department) > 0` |
+| Worker lane split | immediately | first `/health/worker` | `status: ok`, `stale_lanes: []`, **both** `lanes.bulk` and `lanes.interactive` present and fresh |
+| Vercel proxy allowlists | immediately | one curl | the `..%2Finternal%2F…` probe 404s; the five legitimate paths still 200; `/api/jobs` still re-emits `x-next-cursor` |
+| `first_seen_at` **not** moved on existing rows | every tick's UPSERT | **one tick, ≤ 30 min** | a known row's `first_seen_at` byte-identical after a tick that re-saw it |
+| Workday `"Posted 30+ Days Ago"` → NULL | the Workday tick's UPSERT | **one Workday tick, ≤ 30 min** | ~42% of open Workday rows `posted_on IS NULL`; `"Posted N Days Ago"` values intact |
+| `first_seen_at` **seeded** from the board's posted date | **INSERT only** | **the first tick that actually inserts a row** | ≥1 new row exists with `first_seen_at ≈ posted_on`, not ≈ `created_at`. Across the whole Greenhouse fleet this usually lands within the hour, but it is a **content** condition, not a clock one — if nobody posted, you have not tested it yet |
+| `job_freshness` trigger seeds `now()` | **INSERT only** | same insert as above | the new row's `job_freshness` is fresh, i.e. it is not born stale |
+| The close sweep | a tick where a job is missing, twice | **two consecutive ticks, ≈ 1 h** | `scrape_runs.closed_jobs` accrues normally and Check B (`closed_24h >= 50 AND > open_rows`) stays empty |
+
+**So the real timescale is about an hour, plus however long it takes to see an insert** —
+not twenty-four. The one row that cannot be forced is the seeding proof; if no board posts,
+say so and hold, rather than converting the wait into a duration and calling it done.
 
 ---
 
 ## 6. The flag flip
 
-Only after #248 has been healthy through at least one full scrape cycle.
+Only once every row of the §5 gate table has its proof — in particular the two
+INSERT-only rows, which no amount of waiting produces on its own.
 
 ⚠️ **Step 1 is not the cheap step.** It is the one that exposes `/resolve` to every signed-in
 account, and `/resolve` is the widest surface in the feature. A final review confirmed all

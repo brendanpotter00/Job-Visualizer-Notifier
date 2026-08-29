@@ -314,7 +314,7 @@ class TestTransform:
         # Documented shape — every key should be present so the frontend
         # backendScraperTransformer can read uniformly across providers.
         assert set(d.keys()) == {
-            "department", "team", "secondary_locations", "employment_type",
+            "team", "secondary_locations", "employment_type",
             "is_remote_eligible", "compensation_summary", "published_at",
             "description_html", "experience_level", "tags",
         }

@@ -24,13 +24,6 @@ interface FiltersWithLocation {
 }
 
 /**
- * Interface for filter state with department
- */
-interface FiltersWithDepartment {
-  department?: string[];
-}
-
-/**
  * Interface for filter state with software-only flag
  */
 interface FiltersWithSoftwareOnly extends FiltersWithSearchTags {
@@ -142,54 +135,6 @@ export function removeLocationFromFilters(filters: FiltersWithLocation, location
  */
 export function clearLocations(filters: FiltersWithLocation): void {
   filters.location = undefined;
-}
-
-// ============================================================================
-// Department Utilities
-// ============================================================================
-
-/**
- * Set departments to a specific value or undefined
- */
-export function setDepartments(
-  filters: FiltersWithDepartment,
-  departments: string[] | undefined
-): void {
-  filters.department = departments;
-}
-
-/**
- * Add a department to filters with duplicate checking
- */
-export function addDepartmentToFilters(filters: FiltersWithDepartment, department: string): void {
-  if (!filters.department) {
-    filters.department = [department];
-  } else if (!filters.department.includes(department)) {
-    filters.department.push(department);
-  }
-}
-
-/**
- * Remove a department from filters
- */
-export function removeDepartmentFromFilters(
-  filters: FiltersWithDepartment,
-  department: string
-): void {
-  if (!filters.department) return;
-
-  filters.department = filters.department.filter((dept) => dept !== department);
-
-  if (filters.department.length === 0) {
-    filters.department = undefined;
-  }
-}
-
-/**
- * Clear all departments
- */
-export function clearDepartments(filters: FiltersWithDepartment): void {
-  filters.department = undefined;
 }
 
 // ============================================================================

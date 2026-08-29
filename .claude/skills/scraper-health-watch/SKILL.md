@@ -86,6 +86,15 @@ Tunable constants (change here, nowhere else):
 | `HEARTBEAT_DEAD_MINUTES` | 15 | task writes every 5 min (`heartbeat.py:106`); app's own threshold is 10 min (`main.py:53`) |
 | `WARM_UP_HOURS` | 6 | reuses the staleness window — a company seeded less than one window ago has not had time to tick; see A1's warm-up guard |
 
+> **A1 and A2 filter on `c.enabled` only — they do NOT filter on `c.visibility`**, so private
+> custom companies (E7, `visibility='user'`) are in scope. That is fine at the current cadence
+> and was **not** fine before: custom boards ran on a 24 h cadence until 2026-08-29, so
+> `last_ok` was older than the 6 h window for most of every day and every one of them would
+> have tripped A1 permanently the moment the feature flag flipped. They now harvest hourly
+> (`companies.cadence_hours = 1`), comfortably inside the window, so a custom board appearing
+> in A1 is a real signal. If the cadence is ever slowed past `STALE_AFTER_HOURS` again, add
+> `AND c.visibility = 'public'` here or raise the window — do not just mute the noise.
+
 **Check A1 — staleness** (companies whose last non-zero scrape is old or absent):
 
 ```sql

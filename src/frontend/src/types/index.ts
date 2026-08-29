@@ -42,10 +42,7 @@ export interface Job {
   /** Job title */
   title: string;
 
-  /** Department or division */
-  department?: string;
-
-  /** Team within department (if available) */
+  /** Team the role sits in (if available) */
   team?: string;
 
   /** Raw location string from the ATS/scraper (used for free-text search and display fallback). */
@@ -245,7 +242,6 @@ export interface GraphFilters {
   timeWindow: TimeWindow;
   searchTags?: SearchTag[];
   location?: string[];
-  department?: string[];
   employmentType?: string;
   softwareOnly: boolean;
   /** Enrichment category slugs (multi-select OR; empty/undefined = All). Jobs not yet enriched (category null) are always shown. */
@@ -257,7 +253,7 @@ export interface GraphFilters {
 /**
  * Structurally identical to `GraphFilters`. Retained only as generic
  * scaffolding for the `createFilterSlice` factory (its `'list'` slice name and
- * `Filters`/`FiltersWithDepartments` unions) — no Redux slice consumes it. The
+ * the `Filters` union) — no Redux slice consumes it. The
  * company page now uses a single `graphFilters` source that drives both the
  * graph and the list.
  */
@@ -265,7 +261,6 @@ export interface ListFilters {
   timeWindow: TimeWindow;
   searchTags?: SearchTag[];
   location?: string[];
-  department?: string[];
   employmentType?: string;
   softwareOnly: boolean;
   /** Enrichment category slugs (multi-select OR; empty/undefined = All). Jobs not yet enriched (category null) are always shown. */
@@ -276,7 +271,7 @@ export interface ListFilters {
 
 /**
  * Recent jobs filter state (for all-companies view)
- * Subset of GraphFilters/ListFilters without department
+ * Subset of GraphFilters/ListFilters, plus a `company` multi-select
  */
 export interface RecentJobsFilters {
   timeWindow: TimeWindow;

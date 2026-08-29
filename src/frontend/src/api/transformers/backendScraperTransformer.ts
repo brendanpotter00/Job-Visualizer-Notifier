@@ -33,18 +33,6 @@ export function transformBackendJob(raw: BackendJobListing, companyId: string): 
     source: 'backend-scraper' as const,
     company: companyId,
     title: raw.title,
-    // `details.department`, not `details.experience_level`. The two were swapped,
-    // so the UI's "Department" filter has been offering seniority values
-    // ("Mid-Senior", "Junior") all along while the real department key — written
-    // by Ashby, Gem, Eightfold and Workday — reached no screen. `experience_level`
-    // is still surfaced, as a tag, which is where it belonged.
-    //
-    // `?? undefined` because the wire sends `null`, not a missing key: the list
-    // endpoint builds `details` with `jsonb_build_object('department', department,
-    // …)`, so a board that publishes no department yields an explicit
-    // `"department": null`. `Job.department` is typed `string | undefined`, and
-    // parking a `null` in it is a type lie every consumer would have to guess at.
-    department: details.department ?? undefined,
     location: raw.location || undefined,
     locations: raw.locations ?? [],
     isRemote: details.is_remote_eligible,

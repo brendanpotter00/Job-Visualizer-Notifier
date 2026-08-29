@@ -40,6 +40,7 @@ from api.services.capture.discover import (
     _labelled_facet_total,
     _totals_beside_records,
     discover,
+    page_size_attempts,
     synthesize_recipe,
 )
 from api.services.capture.network_capture import (
@@ -73,6 +74,46 @@ from api.services.url_guard import UrlGuardError
 pytestmark = pytest.mark.asyncio
 
 _FIXTURES = Path(__file__).parent / "fixtures" / "discovery"
+
+
+def _one_page_per_job() -> "Any":
+    """A probe double for a board that really does serve a different page per job.
+
+    Discovery now PROVES a job link it INVENTED by fetching it (``_prove_job_link``),
+    and the default probe is a real ``httpx`` GET. No unit test may make that request —
+    it would be slow, flaky, and would silently pass or fail on whatever the live board
+    is doing today — so :func:`_no_live_job_link_probe` installs this everywhere.
+
+    It answers 200 with a page whose LENGTH is unique per URL, which is the shape of a
+    board whose route key is right. The tests that exercise the other answers — a 404,
+    an SPA shell that serves the same bytes for every job, a published link that must
+    never be fetched at all — inject their own probe and are named for it.
+    """
+    lengths: dict[str, int] = {}
+
+    def probe(url: str) -> tuple[int, str]:
+        nth = lengths.setdefault(url, len(lengths))
+        return 200, "<html><body>" + "job " * (500 + 200 * nth) + "</body></html>"
+
+    return probe
+
+
+@pytest.fixture(autouse=True)
+def _no_live_job_link_probe(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No test in this module reaches the network to check a job link. See above.
+
+    Reached through ``sys.modules`` for the reason the import NOTE at the top of this
+    file gives: the capture package's ``__init__`` re-exports the FUNCTION ``discover``,
+    so ``api.services.capture.discover`` is the function, not the module, and patching
+    an attribute on it would silently patch nothing.
+    """
+    import sys
+
+    monkeypatch.setattr(
+        sys.modules["api.services.capture.discover"],
+        "_default_probe",
+        _one_page_per_job(),
+    )
 
 _AMAZON_URL = "https://www.amazon.jobs/en/search"
 _TIKTOK_URL = "https://lifeattiktok.com/search"
@@ -1998,3 +2039,334 @@ async def test_the_finished_capture_replaces_whatever_was_streamed() -> None:
     urls = [row["url"] for row in _log(outcome.progress)]
     assert "https://www.amazon.jobs/never-happened" not in urls
     assert len(urls) == 3
+
+
+# --- higher.gs.com: the three defects, at the point discovery AUTHORS them ----
+#
+# The fixture is the real Aug-2026 capture: one GraphQL POST whose cursor and page
+# size live four levels down ``variables.searchQueryInput.page``, and the twenty
+# ``/_next/data/<build>/roles/<sourceId>.json`` calls the page's own job cards made.
+# Those twenty URLs are the only evidence needed to tell which of the record's two
+# ids the board actually routes on.
+
+_GS_URL = "https://higher.gs.com/results"
+
+_GS_MAP = {
+    "id": "roleId",
+    "url": "https://higher.gs.com/roles/{roleId}",      # the model's answer: WRONG
+    "title": "jobTitle",
+    "location": "locations[0].city",
+    "department": "division",
+}
+
+
+def _gs_selection() -> RequestSelection:
+    return RequestSelection(
+        chosen_request_index=0, records_path="data.roleSearch.items",
+        field_map=dict(_GS_MAP),
+        pagination=PaginationHint(style="page", param="pageNumber", page_size=20),
+    )
+
+
+def _gs_candidate() -> Any:
+    return prefilter_candidates(_capture_result("goldman").responses)[0]
+
+
+def _gs_candidate_with_page(number: int) -> Any:
+    """The same candidate with a different captured ``pageNumber``."""
+    candidate = _gs_candidate()
+    body = json.loads(candidate.post_data)
+    body["variables"]["searchQueryInput"]["page"]["pageNumber"] = number
+    return candidate.__class__(**{**candidate.__dict__, "post_data": json.dumps(body)})
+
+
+def test_a_zero_based_board_stores_the_page_it_actually_starts_from() -> None:
+    """DEFECT A, SECOND HALF. Discovery never emitted ``start_page``, so the runner
+    used its default of 1 while Goldman's captured body says ``pageNumber: 0`` — the
+    sweep skipped the board's whole first page.
+
+    That is worse than twenty missing jobs. The short sweep still ends on a short page,
+    so it reports ``terminated_cleanly`` and ``page_advance_ok`` and looks like a
+    complete read; a board with a ``self_consistent`` oracle would VERIFY it, and only
+    a VERIFIED run may close a job. ``test_recipe_corpus_regression`` pins that
+    interaction end to end.
+    """
+    script = synthesize_recipe(
+        _gs_candidate(), _gs_selection(), transport="http_json", origin_url=_GS_URL
+    )
+    (paginate,) = [s for s in script["steps"] if s["op"].startswith("paginate_")]
+    assert paginate["op"] == "paginate_page"
+    assert paginate["start_page"] == 0
+
+
+def test_a_one_based_board_still_stores_a_one() -> None:
+    """The other believable base, stored explicitly rather than left to a default."""
+    script = synthesize_recipe(
+        _gs_candidate_with_page(1), _gs_selection(),
+        transport="http_json", origin_url=_GS_URL,
+    )
+    (paginate,) = [s for s in script["steps"] if s["op"].startswith("paginate_")]
+    assert paginate["start_page"] == 1
+
+
+def test_a_capture_taken_mid_sweep_stores_no_start_page_at_all() -> None:
+    """A captured ``pageNumber: 7`` is not a base — it is a request from the middle of
+    somebody's scroll, and the board's base is not knowable from it. Storing 7 would
+    skip seven pages every night, which is strictly worse than the default; the honest
+    answer is to store nothing and log."""
+    script = synthesize_recipe(
+        _gs_candidate_with_page(7), _gs_selection(),
+        transport="http_json", origin_url=_GS_URL,
+    )
+    (paginate,) = [s for s in script["steps"] if s["op"].startswith("paginate_")]
+    assert "start_page" not in paginate
+
+
+def test_a_nested_page_size_parameter_is_found_and_raised() -> None:
+    """DEFECT A, THIRD SITE. ``_page_size_param`` scanned only ``body.items()``, so
+    Goldman's ``pageSize`` — beside its ``pageNumber``, four levels down — was
+    invisible and the acceptance ladder never offered the upgrade. The board honours
+    100 (and 500s above it), so the nightly run bought 54 requests where 11 would do.
+    """
+    candidate, selection = _gs_candidate(), _gs_selection()
+    assert page_size_attempts(candidate, selection) == (100, None)
+
+    script = synthesize_recipe(
+        candidate, selection, transport="http_json", origin_url=_GS_URL,
+        page_size_override=100,
+    )
+    page = script["steps"][0]["body"]["variables"]["searchQueryInput"]["page"]
+    # Raised WHERE THE BOARD CARRIES IT — a top-level write would leave the real
+    # pageSize at 20 while paginate.page_size claimed 100, which ends the sweep one
+    # page early and reports a partial board as a complete one.
+    assert page["pageSize"] == 100
+    assert "pageSize" not in script["steps"][0]["body"]
+    (paginate,) = [s for s in script["steps"] if s["op"].startswith("paginate_")]
+    assert paginate["page_size"] == 100
+
+
+async def test_discovery_repoints_a_url_template_at_the_boards_own_route_key() -> None:
+    """DEFECT B, through the whole orchestrator. The model maps ``{roleId}``; the
+    board's own ``_next/data`` calls spell ``{externalSource.sourceId}``. Because
+    higher.gs.com is a Next.js SPA that answers 200 for ``/roles/<anything>``, nothing
+    downstream could ever have caught this — ``_validate_url_field`` checks link SHAPE
+    and its own docstring concedes it cannot detect a well-formed URL that 404s.
+
+    ``id`` is deliberately untouched: it is half of ``job_listings``' composite primary
+    key and the default ``dedupe_key``, so re-pointing it would orphan every row the
+    board already has.
+    """
+    repaired = "https://higher.gs.com/roles/{externalSource.sourceId}"
+    outcome = await discover(
+        _GS_URL,
+        capture=_capturing("goldman"),
+        select=_selecting(_gs_selection()),
+        replay_http=_faithful_replay(
+            "goldman", "data.roleSearch.items", {**_GS_MAP, "url": repaired},
+            declared_total=1033,
+        ),
+        replay_browser=_never_called_replay("browser_fetch"),
+        validate_url=_allow_all,
+    )
+    assert outcome.ok is True, outcome.refuse_reason
+    script = outcome.script
+    assert script is not None
+    (extract,) = [s for s in script["steps"] if s["op"].startswith("extract_")]
+    assert extract["fields"]["url"] == repaired
+    assert extract["fields"]["id"] == "roleId"          # NEVER re-pointed
+    # Defect C rides along: the bracket path survives the non-scalar prune, because it
+    # now resolves to a string instead of raising.
+    assert extract["fields"]["location"] == "locations[0].city"
+
+
+async def test_a_board_whose_url_field_is_already_right_is_left_alone() -> None:
+    """The asymmetry that makes the repair safe: a template whose id already appears in
+    the board's own links can never be rewritten, so every board the model got right is
+    untouched by construction rather than by a threshold."""
+    already_right = "https://higher.gs.com/roles/{externalSource.sourceId}"
+    selection = RequestSelection(
+        chosen_request_index=0, records_path="data.roleSearch.items",
+        field_map={**_GS_MAP, "url": already_right},
+        pagination=PaginationHint(style="page", param="pageNumber", page_size=20),
+    )
+    outcome = await discover(
+        _GS_URL,
+        capture=_capturing("goldman"),
+        select=_selecting(selection),
+        replay_http=_faithful_replay(
+            "goldman", "data.roleSearch.items", {**_GS_MAP, "url": already_right},
+            declared_total=1033,
+        ),
+        replay_browser=_never_called_replay("browser_fetch"),
+        validate_url=_allow_all,
+    )
+    assert outcome.script is not None
+    (extract,) = [s for s in outcome.script["steps"] if s["op"].startswith("extract_")]
+    assert extract["fields"]["url"] == already_right
+
+
+# ==========================================================================
+# THE JOB LINK — published, proved, or downgraded
+# ==========================================================================
+
+
+def _refusing_probe(label: str):
+    """A probe that fails the test if it is called at all."""
+    def probe(url: str) -> tuple[int, str]:
+        raise AssertionError(f"{label}: the job link must not be fetched (asked for {url})")
+    return probe
+
+
+def _shell_probe(chars: int = 400, *, seen: list[str] | None = None):
+    """The SPA that answers 200 with the same bytes for every job — Goldman's wrong
+    route key, Walmart, Kakao. The shape a status check calls healthy."""
+    def probe(url: str) -> tuple[int, str]:
+        if seen is not None:
+            seen.append(url)
+        return 200, "<html><body>" + "x" * chars + "</body></html>"
+    return probe
+
+
+def _status_probe(status: int, *, seen: list[str] | None = None):
+    """An error status with a per-URL body — a real 404 page, not an empty one.
+
+    The bodies are deliberately DIFFERENT: an empty body would make the status the only
+    thing distinguishing this board from a working one, so a build that dropped the
+    status gate entirely would still refuse and the test would prove nothing.
+    """
+    def probe(url: str) -> tuple[int, str]:
+        if seen is not None:
+            seen.append(url)
+        return status, f"<html><body>not found: {url}{'x' * (900 * len(url))}</body></html>"
+    return probe
+
+
+async def test_a_link_the_board_published_is_stored_without_being_fetched() -> None:
+    """BRANCH 1. Amazon maps ``https://www.amazon.jobs{job_path}`` — the placeholder
+    renders ``/en/jobs/...``, a PATH the board wrote — so there is nothing of ours to
+    prove and the probe must never run.
+
+    This is not an optimisation. The proof cannot tell a client-rendered job page from
+    a client-rendered 404 shell, and Atlassian's iCIMS link (a live production link,
+    three jobs, 18,086 chars each, no title on any of them) is exactly that shape. A
+    probe here would reject working links to catch nothing.
+    """
+    outcome = await discover(
+        _AMAZON_URL,
+        capture=_capturing("amazon"),
+        select=_selecting(_amazon_selection()),
+        replay_http=_faithful_replay("amazon", "jobs", _AMAZON_MAP),
+        replay_browser=_never_called_replay("browser_fetch"),
+        validate_url=_allow_all,
+        probe_link=_refusing_probe("amazon"),
+    )
+    assert outcome.ok is True, outcome.refuse_reason
+    (extract,) = [s for s in outcome.script["steps"] if s["op"].startswith("extract_")]
+    assert extract["fields"]["url"] == _AMAZON_MAP["url"]      # byte-identical
+
+
+async def test_the_repaired_goldman_template_is_the_one_that_gets_proved() -> None:
+    """BRANCH 3, and the ORDER inside it. ``repair_url_template`` only fires when the
+    model's id appears in ZERO of the board's own links, so its answer is the
+    better-evidenced candidate and is fetched first. What lands in the recipe is the
+    template we actually proved, not the one we merely preferred.
+    """
+    repaired = "https://higher.gs.com/roles/{externalSource.sourceId}"
+    fetched: list[str] = []
+
+    def probe(url: str) -> tuple[int, str]:
+        fetched.append(url)
+        return 200, f"<html><body>{url}{'x' * (600 + 500 * len(fetched))}</body></html>"
+
+    outcome = await discover(
+        _GS_URL,
+        capture=_capturing("goldman"),
+        select=_selecting(_gs_selection()),
+        replay_http=_faithful_replay(
+            "goldman", "data.roleSearch.items", {**_GS_MAP, "url": repaired},
+            declared_total=1033,
+        ),
+        replay_browser=_never_called_replay("browser_fetch"),
+        validate_url=_allow_all,
+        probe_link=probe,
+    )
+    assert outcome.ok is True, outcome.refuse_reason
+    (extract,) = [s for s in outcome.script["steps"] if s["op"].startswith("extract_")]
+    assert extract["fields"]["url"] == repaired
+    # The REPAIRED urls were the ones fetched — bare numbers, not the compound roleId.
+    assert fetched and all(url.rsplit("/", 1)[-1].isdigit() for url in fetched)
+    assert len(fetched) == 2                       # two jobs, and no second candidate
+
+
+async def test_a_template_that_serves_one_shell_for_every_job_is_not_stored() -> None:
+    """THE GOLDMAN / WALMART / KAKAO SHAPE, end to end. Every job URL answers **200**
+    with the same bytes, so a status check would store it and every "view job" link on
+    the board would be dead.
+
+    Both candidates are tried (the repair's answer and the model's), both fail, and the
+    board is still TRACKED — its feed reads perfectly. Only the link is downgraded.
+    """
+    seen: list[str] = []
+    outcome = await discover(
+        _GS_URL,
+        capture=_capturing("goldman"),
+        select=_selecting(_gs_selection()),
+        replay_http=_faithful_replay(
+            "goldman", "data.roleSearch.items", _GS_MAP, declared_total=1033,
+        ),
+        replay_browser=_never_called_replay("browser_fetch"),
+        validate_url=_allow_all,
+        probe_link=_shell_probe(seen=seen),
+    )
+    assert outcome.ok is True, outcome.refuse_reason      # the BOARD is fine
+    (extract,) = [s for s in outcome.script["steps"] if s["op"].startswith("extract_")]
+    assert extract["fields"]["url"] == f"{_GS_URL}#{{roleId}}"
+    assert extract["fields"]["id"] == "roleId"            # NEVER re-pointed
+    assert len(seen) == 4                                 # two candidates, two jobs each
+    verify = next(s for s in outcome.progress["steps"] if s["key"] == "verify_read")
+    assert "links to the board's own listing page" in verify["result"]
+
+
+async def test_a_link_that_404s_is_not_stored_either() -> None:
+    """The Jane Street shape: no shell, no ambiguity, just a 404 nobody looked at.
+    Cheaper to detect than the shell — and the reason the status check stays as the
+    first gate rather than being replaced by the comparison."""
+    outcome = await discover(
+        _GS_URL,
+        capture=_capturing("goldman"),
+        select=_selecting(_gs_selection()),
+        replay_http=_faithful_replay(
+            "goldman", "data.roleSearch.items", _GS_MAP, declared_total=1033,
+        ),
+        replay_browser=_never_called_replay("browser_fetch"),
+        validate_url=_allow_all,
+        probe_link=_status_probe(404),
+    )
+    assert outcome.ok is True
+    (extract,) = [s for s in outcome.script["steps"] if s["op"].startswith("extract_")]
+    assert extract["fields"]["url"] == f"{_GS_URL}#{{roleId}}"
+
+
+async def test_a_board_that_publishes_a_link_never_gets_an_invented_one() -> None:
+    """BRANCH 2, direction #1 of the rule. The model answered a template it composed
+    out of an id while the payload carries ``hostedUrl`` on every record. The board's
+    own field wins outright and nothing is fetched — a link the board published is
+    better evidence than any number of successful GETs against a path we guessed.
+    """
+    invented = {**_GROUPED_MAP, "url": "https://www.binance.com/careers/{id}"}
+    selection = RequestSelection(
+        chosen_request_index=0, records_path="*.postings",
+        field_map=dict(invented), pagination=None,
+    )
+    outcome = await discover(
+        "https://www.binance.com/en/careers/job-openings",
+        capture=_capturing("grouped"),
+        select=_selecting(selection),
+        replay_http=_faithful_replay("grouped", "*.postings", _GROUPED_MAP),
+        replay_browser=_never_called_replay("browser_fetch"),
+        validate_url=_allow_all,
+        probe_link=_refusing_probe("binance"),
+    )
+    assert outcome.ok is True, outcome.refuse_reason
+    (extract,) = [s for s in outcome.script["steps"] if s["op"].startswith("extract_")]
+    assert extract["fields"]["url"] == "hostedUrl"

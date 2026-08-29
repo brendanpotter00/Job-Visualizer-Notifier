@@ -470,7 +470,7 @@ def test_a_list_of_location_strings_is_folded_rather_than_lost() -> None:
             "category": "Sales",
         }],
         {"id": "id", "title": "title", "url": "portalJobPost.portalUrl",
-         "location": "locations", "department": "category"},
+         "location": "locations"},
     )
     assert rows[0]["location"] == "Remote - Japan - Remote; Remote - Remote"
 

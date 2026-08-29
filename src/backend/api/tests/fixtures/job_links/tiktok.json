@@ -1,0 +1,47 @@
+{
+ "origin_url": "https://lifeattiktok.com/search",
+ "records_path": "data.job_post_list",
+ "field_map": {
+  "id": "id",
+  "title": "title",
+  "url": "https://lifeattiktok.com/search/{id}"
+ },
+ "kind": "synthesised",
+ "proves": true,
+ "why": "SYNTHESISED and PROVED: the shipped TikTok template, and it really works (8,785 / 7,772 / 7,855 chars, own titles).",
+ "measured_at": "2026-08-29",
+ "pages": {
+  "https://lifeattiktok.com/search/7678060214174157061": {
+   "status": 200,
+   "chars": 8785,
+   "carries_own_title": true,
+   "carries_other_titles": false
+  },
+  "https://lifeattiktok.com/search/7677970444566055173": {
+   "status": 200,
+   "chars": 7772,
+   "carries_own_title": true,
+   "carries_other_titles": false
+  },
+  "https://lifeattiktok.com/search/7676621358801013045": {
+   "status": 200,
+   "chars": 7855,
+   "carries_own_title": true,
+   "carries_other_titles": false
+  }
+ },
+ "records": [
+  {
+   "title": "Research Scientist / Software Engineer, LLM/Agent Platform - TikTok - Content Ecology AI Innovation & Platform",
+   "id": "7678060214174157061"
+  },
+  {
+   "title": "Sales Vertical Manager, Specialty Retail - Global Business Solutions (New York)",
+   "id": "7677970444566055173"
+  },
+  {
+   "title": "Client Solutions Manager - Specialty Retail - Los Angeles",
+   "id": "7676621358801013045"
+  }
+ ]
+}

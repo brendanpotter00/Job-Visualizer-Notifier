@@ -299,8 +299,39 @@ because discovery is deterministic and re-running the same URL reproduces the sa
   hosted view and the backend runs its own Chromium. When present it opens **expanded**
   (the session lasts ~30s — a run that ends before the user notices a "Watch live" button
   showed them nothing) behind a toggle that can put it away, and `pointer-events: none`
-  either way. It unmounts the instant the backend nulls `liveViewUrl` at session release;
-  never infer browser liveness from step state, which is always at least one write behind.
+  either way. Never infer browser liveness from step state, which is always at least one
+  write behind.
+- **The backend's null is structurally too late, and that used to be the bug.** The
+  browser dies inside the capture child (`_capture_main.py`'s `await browser.close()` is
+  its last act); the parent only writes `live_view_url: null` after that child exits, and
+  a poll then has to carry it — by which time Browserbase's frame has already painted
+  *"Debugging connection was closed. Reason: WebSocket disconnected"* into our layout. No
+  poll can win that race. So `liveViewUrl` is treated as a **claim with an expiry**, and
+  `DiscoveryChecklist`'s `LiveView` retires the frame on whichever of four comes first:
+  the frame's own `browserbase-disconnected` postMessage (the only one that beats the
+  paint — origin-pinned to the frame we mounted, exact-payload matched, and *not*
+  authoritative: it is undocumented and sent with `targetOrigin: "*"`); the server's null;
+  the **trust lease** (`LIVE_VIEW_TRUST_MS` = one poll interval + a round trip, renewed by
+  every fulfilled payload, which is what closes the *unbounded* cases — a failing poll
+  keeps serving the last good payload, banner and all); and the session ceiling
+  (`_BROWSERBASE_SESSION_TTL_S`, 300s, for a row a SIGKILLed worker will never retract).
+  Retirement is always recorded as *the URL it refers to*, so no verdict outlives its
+  session. `receivedAt` (`fulfilledTimeStamp`) is a **required** prop for exactly this
+  reason — a caller that forgets it would get a frame that outlives its session.
+- **It says goodbye rather than vanishing.** Mid-run the frame unmounts immediately (DOM
+  removal, never `display: none` — while mounted it is Browserbase's page and free to
+  paint their error), the toggle is replaced by *"Live view ended — still setting up"*,
+  the 16:10 box slides shut under it, and then the line goes too. Same 260ms fade+rise as
+  `DiscoveryNetworkLog`'s `ROW_ANIMATION`. On a run that ended there is **no** note — the
+  checklist directly above has just said how it turned out.
+- **Every tracked row links to the board it was built from** (`sourceBoardUrl` /
+  `sourceBoardLabel` in `companyHealth.ts`), on the list row and in the
+  `MyCompanyTrendPage` header. A discovered board's `boardToken` *is* the normalized URL
+  the user pasted; Greenhouse/Ashby/Lever/Gem are built from the slug. **Workday and
+  Eightfold get no link** — their `boardToken` is a cosmetic tenant label and the real
+  host lives in `provider_config`, which the list payload does not carry, so a link would
+  be a confident 404. The label is the host so the row answers the question without a
+  click; the exact URL is on `title`.
 - **The network log** (`DiscoveryNetworkLog.tsx`) is the evidence under the checklist:
   every JSON request the capture browser recorded, which one we picked, and a sample of
   the JSON it returned. **Open by default, and it NARROWS** (one decision, not two):

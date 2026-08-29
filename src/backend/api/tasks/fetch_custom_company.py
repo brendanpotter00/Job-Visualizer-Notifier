@@ -26,6 +26,7 @@ import asyncio
 import html
 import json
 import logging
+import math
 import re
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -61,6 +62,7 @@ from ..services import published_board_match
 from ..services.recipe_rows import recipe_rows_to_job_listings
 from ..services.harvest_verification import (
     FAILED,
+    HISTORICAL_ORACLES,
     VERIFIED,
     HarvestGateError,
     effective_oracle_kind,
@@ -79,13 +81,80 @@ logger = logging.getLogger(__name__)
 # in-flight run (whose harvest row is not written until the finally block).
 _SELF_CONSISTENT_STREAK_REQUIRED = 3
 
-# CHURN GUARD (E7). A ``self_consistent`` board publishes no
+# A ``none`` company — a discovered board judged by the history-delta oracle —
+# must be watched for A DAY, not for a number of runs, before it may close.
+#
+# WHY WALL CLOCK AND NOT A RUN COUNT. This constant was very nearly shipped as a
+# bare ``5``, which was ~5 days when a custom board was harvested daily and became
+# ~5 hours the moment ``DEFAULT_CADENCE_HOURS`` went to 1 in a different file. A
+# threshold whose meaning is decided by somebody else's edit is not a threshold.
+#
+# WHAT THE STREAK IS ACTUALLY PROTECTING AGAINST, which is what sets the number:
+#
+#   1. ``declared_probed`` proves completeness against an independent total, so it
+#      needs no streak at all. ``self_consistent`` has a structural claim to fall
+#      back on — its sweep ran to a genuinely short page without hitting a cap.
+#      ``none`` has NEITHER. Its only completeness evidence is "this board has
+#      been returning about this many rows", and that sentence is worth nothing
+#      until the board has been observed across a period in which it would
+#      actually have moved.
+#   2. A job board's change rhythm is DAILY. Postings appear and roles get pulled
+#      during business hours; overnight a board sits still. "The count did not
+#      change" observed across five quiet night-time hours is not evidence of a
+#      stable read — it is evidence that nothing was happening. Spanning a full
+#      24 h is the shortest window that is guaranteed to contain the part of the
+#      day when the board does move.
+#   3. It doubles as the settling period for a newly-added board: the window in
+#      which a subtly-wrong recipe shows itself BEFORE anything is deleted. The
+#      user sees the board's jobs from the first harvest either way — only
+#      CLOSING waits, so the cost of the wait is invisible and the cost of
+#      skipping it is a user's jobs.
+#
+# The floor keeps ``none`` from ever being LAXER than ``self_consistent``: at a
+# daily cadence one run already spans 24 h, and three is still the right minimum
+# number of independent confirmations.
+_NO_ORACLE_STREAK_MIN_HOURS = 24.0
+
+# The transports whose stored ``script`` is a real recipe describing a real
+# request. Only these may hand the recipe to ``verify_harvest``, which is what
+# gates the history-delta oracle — see the call site. ``ats_client`` is
+# excluded on purpose: its "script" names a provider, not a request, and its
+# ``none`` means "unrecognized provider", which must keep refusing forever.
+_DISCOVERED_TRANSPORTS = frozenset({"http_json", "http_html", "browser_fetch"})
+
+
+def _required_streak(oracle_kind: str, cadence_hours: float) -> int:
+    """Consecutive VERIFIED harvests (this run included) before a no-trusted-total
+    board may close.
+
+    ``self_consistent`` keeps its flat 3 — it is an existing, separately-reasoned
+    constant and this change does not touch it. ``none`` is derived from the
+    company's own cadence so that the requirement stays "a day of observation"
+    whatever the schedule is set to: 24 runs at the shipped 1 h cadence, 3 (the
+    floor) at a daily one. See ``_NO_ORACLE_STREAK_MIN_HOURS``.
+    """
+    if oracle_kind != "none":
+        return _SELF_CONSISTENT_STREAK_REQUIRED
+    cadence = max(float(cadence_hours), 1e-6)
+    return max(
+        _SELF_CONSISTENT_STREAK_REQUIRED,
+        math.ceil(_NO_ORACLE_STREAK_MIN_HOURS / cadence),
+    )
+
+# CHURN GUARD (E7). A ``self_consistent`` or ``none`` board publishes no
 # trusted total, so if MORE THAN this fraction of its prior-OPEN ids disappear in
 # a single run there is nothing to corroborate the drop — it is far more likely a
 # churning ``id_field`` (a per-load session token / DOM position that changes every
 # night) than a real board that shed half its jobs overnight. On such a run NOTHING
 # closes (``guard_reason='id_churn_suspected'``). ``declared_probed`` is EXCLUDED:
 # its trusted total already corroborates a genuine drop, so it closes normally.
+#
+# EXTENDED to ``none`` with the history-delta oracle, and it is load-bearing
+# there rather than belt-and-braces. The one way a page-limited board can still
+# hurt a user is a STABLE count over a ROTATING id set — page one of a busy board
+# holds ten rows every hour, but not the same ten. Check 13 is the first defence
+# and this is the second, because it keys on the ids rather than the count and so
+# catches the shape check 13 was never looking at.
 _ID_CHURN_CLOSE_THRESHOLD = 0.5
 
 # Per-task wall-clock cap. Hitting this raises asyncio.TimeoutError → a recorded FAILED
@@ -126,9 +195,9 @@ _TASK_TIMEOUT_S: float = 900.0
 
 # ``details`` JSONB hard cap (§2.2). A large job body (Greenhouse ``content``
 # HTML) can blow past this; TOAST/OOM incidents are why it is capped, not
-# truncated silently. The read path needs department, the two denormalized
-# sub-fields and — since the enrichment claim reads it — ``description``; an
-# over-cap body beyond those is dropped and flagged.
+# truncated silently. The read path needs the two denormalized sub-fields and —
+# since the enrichment claim reads it — ``description``; an over-cap body beyond
+# those is dropped and flagged.
 _DETAILS_MAX_BYTES = 8 * 1024
 
 # Plain-text budget for ``description``, in UTF-8 BYTES — the unit the blob cap
@@ -136,10 +205,11 @@ _DETAILS_MAX_BYTES = 8 * 1024
 # Chinese-language board is 18 KB and would blow the cap on its own.
 #
 # The number is the blob cap minus 2 KB of headroom for everything else a row
-# carries (``department``/``experience_level``/``is_remote_eligible``, whatever
-# else a recipe mapped, the ``_details_truncated`` marker, and JSON escaping).
-# ``_DEPARTMENT_MAX_BYTES`` below is what turns that headroom from an estimate
-# into a bound.
+# carries (``experience_level``/``is_remote_eligible``, whatever else a recipe
+# mapped, the ``_details_truncated`` marker, and JSON escaping). That headroom is
+# an estimate, not a bound — a stranger's board can put prose behind any mappable
+# path — and :func:`_fit_description` is the backstop that makes an over-run
+# survivable rather than fatal.
 # Measured against the 248 live records of atlassian.com/company/careers/all-jobs,
 # after the strip below: the largest single mappable field (``responsibilities``)
 # is 6,257 B at max and 4,864 B at p99, ``qualifications`` 5,406 B / 4,578 B — so
@@ -151,31 +221,6 @@ _DETAILS_MAX_BYTES = 8 * 1024
 # enricher can never see. A truncated one still classifies: the signal a
 # classifier uses is in the opening paragraphs.
 _DESCRIPTION_MAX_BYTES = 6 * 1024
-
-# Byte budget for ``department``, and the reason it exists is the ORDER OF PRECEDENCE
-# between the two fields a recipe can now map into a large blob.
-#
-# ``department`` is back in the capture schema because the UI's Department filter reads
-# it (via the denormalized ``job_listings.department`` column, migration
-# ``c1539fa03b23``). It is a short label — the longest of the 29,090 departments in the
-# dev DB is 122 characters, mean 22.3 — but it is a path a stranger's board chose, and
-# nothing about the recipe format stops a board from putting 4 KB of prose behind it.
-#
-# Unbounded, that is not merely a fat blob: it is a fat blob that costs the DESCRIPTION.
-# ``_cap_details``'s last-resort rung keeps ``department`` whole and shrinks
-# ``description`` to whatever room is left (:func:`_fit_description`), so the cheap field
-# would evict the expensive one — and a dropped description is a row
-# ``enrichment_monitor.DESCRIPTION_SQL`` can never claim, while a clipped department is
-# a filter label with a shorter tail. So the cheap field is the one that gets bounded,
-# and description wins any conflict by construction:
-#
-#     _DESCRIPTION_MAX_BYTES (6144) + _DEPARTMENT_MAX_BYTES (512) = 6656 < 8192
-#
-# leaving ~1.5 KB for the remaining scalars, the keys and JSON escaping — so the
-# shrink loop in :func:`_fit_description` can no longer be reached BECAUSE of a
-# department. Pinned by ``test_a_pathological_department_never_shrinks_the_description``.
-# BYTES, not characters, for the same reason as above: a CJK label is 3 bytes a glyph.
-_DEPARTMENT_MAX_BYTES = 512
 
 # Block-level tags become newlines, everything else is dropped. Copied from
 # ``scripts.amazon_jobs_scraper.api_client.strip_html`` rather than imported —
@@ -276,30 +321,6 @@ def _normalized_description(details: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
-def _bounded_department(details: dict[str, Any]) -> dict[str, Any]:
-    """``details`` with ``department`` clipped to :data:`_DEPARTMENT_MAX_BYTES`.
-
-    Runs BEFORE the description is budgeted, which is the whole point: it is what makes
-    the description budget's "2 KB of headroom for everything else" a bound rather than
-    an estimate, so a stranger's board cannot spend the description's room on a label.
-
-    Truncate and flag, never drop — the same rule the description follows, for a weaker
-    but real reason: ``job_listings.department`` is a filter facet, and a clipped label
-    still groups jobs, while a NULL one silently shrinks the filter's option list.
-
-    No tag-stripping. A department is a label, not prose; ``render_row_field`` already
-    unescaped it (``department`` is not in ``_DEFERRED_UNESCAPE_FIELDS``), and stripping
-    here would be this field's SECOND pass over the same text.
-    """
-    department = details.get("department")
-    if not isinstance(department, str):
-        return details
-    clipped = _clip_utf8(department, _DEPARTMENT_MAX_BYTES)
-    if clipped == department:
-        return details
-    return {**details, "department": clipped or None, "_details_truncated": True}
-
-
 def _fit_description(essentials: dict[str, Any]) -> dict[str, Any]:
     """Shrink ``essentials['description']`` until the whole blob fits the cap.
 
@@ -323,20 +344,13 @@ def _fit_description(essentials: dict[str, Any]) -> dict[str, Any]:
 def _cap_details(details: dict[str, Any]) -> dict[str, Any]:
     """Hard-cap the serialized ``details`` at 8 KB, deterministically.
 
-    First bounds ``department`` (a short label a stranger's board could nonetheless
-    fill with prose) and normalizes ``description`` to a byte-budgeted plain-text
-    string, then drops the big free-text body (``content``); if still over cap, keeps
-    only the structured essentials the read path uses — ``description`` among them,
-    because it is the ONLY key on a recipe-harvested row the enrichment claim looks
-    at, and ``department`` among them, because it is the one a user-facing filter
-    reads. Always flags a ``_details_truncated`` marker so the loss is visible, never
+    First normalizes ``description`` to a byte-budgeted plain-text string, then
+    drops the big free-text body (``content``); if still over cap, keeps only the
+    structured essentials the read path uses — ``description`` among them, because
+    it is the ONLY key on a recipe-harvested row the enrichment claim looks at.
+    Always flags a ``_details_truncated`` marker so the loss is visible, never
     silent.
-
-    The two budgets are deliberately ordered: bounding the department FIRST is what
-    stops it from ever being the reason a description is shrunk. See
-    :data:`_DEPARTMENT_MAX_BYTES`.
     """
-    details = _bounded_department(details)
     details = _normalized_description(details)
     if len(json.dumps(details).encode("utf-8")) <= _DETAILS_MAX_BYTES:
         return details
@@ -347,13 +361,7 @@ def _cap_details(details: dict[str, Any]) -> dict[str, Any]:
         return trimmed
     # The last-resort branch is the one that must ALWAYS fit, so the description it
     # carries is shrunk against the room actually left rather than assumed to fit.
-    # ``department`` stays, and now for two reasons rather than one: a custom company
-    # on the ``ats_client`` transport is harvested by the same Greenhouse / Ashby /
-    # Lever / Gem / Eightfold clients as a public one and those populate it, AND a
-    # recipe-harvested board maps it directly again. It is bounded above, so keeping
-    # it whole here costs the description at most 512 of its ~7.7 KB of room.
     return _fit_description({
-        "department": details.get("department"),
         "experience_level": details.get("experience_level"),
         "is_remote_eligible": details.get("is_remote_eligible", False),
         "description": details.get("description"),
@@ -663,7 +671,9 @@ async def fetch_custom_company(company_id: str) -> None:
 
                 script = company["script"]
                 transport = str(company.get("transport") or "ats_client")
-                cadence_hours = float(company.get("cadence_hours") or 24)
+                cadence_hours = float(
+                    company.get("cadence_hours") or ccs.DEFAULT_CADENCE_HOURS
+                )
                 is_first_verified = company.get("tracking_started_at") is None
 
                 if transport == "browser_agent":
@@ -750,10 +760,18 @@ async def fetch_custom_company(company_id: str) -> None:
                 records_harvested = gate.records_harvested
                 id_dedup_dropped = gate.id_dedup_dropped
 
-                # ===== Verdict (checks 5, 6, 7-vs-total, 9, 10, 11, 12) =====
+                # ===== Verdict (checks 5, 6, 7-vs-total, 9, 10, 11, 12, 13) =====
                 baseline = await asyncio.to_thread(compute_baseline, conn, company_id)
+                # NO RECIPE, NO COMPLETENESS CLAIM. ``verify_harvest`` only runs
+                # the history-delta oracle for ``oracle_kind='none'`` when it is
+                # handed the stored request to reason about, and only the
+                # DISCOVERED transports have one. The ATS branch deliberately
+                # passes nothing: there ``none`` means "unrecognized provider",
+                # which must keep answering ``no_oracle`` forever.
                 decision = verify_harvest(
-                    oracle_kind_effective, gate, evidence, baseline
+                    oracle_kind_effective, gate, evidence, baseline,
+                    recipe=script if transport in _DISCOVERED_TRANSPORTS else None,
+                    cadence_hours=cadence_hours,
                 )
                 verdict = decision.verdict
                 verdict_reason = decision.reason
@@ -857,7 +875,7 @@ async def fetch_custom_company(company_id: str) -> None:
                 # guard_reason records WHY the destructive close was skipped (None
                 # = a clean VERIFIED close-eligible run). ``increment_misses`` and
                 # ``close_eligible`` split the two destructive sub-steps: a
-                # streak-building self_consistent run accrues misses but may not
+                # streak-building no-trusted-total run accrues misses but may not
                 # close yet (so the accrued misses close it the moment the streak
                 # completes), while every non-VERIFIED / guarded / first-run /
                 # fleet-outage case does NEITHER.
@@ -877,12 +895,12 @@ async def fetch_custom_company(company_id: str) -> None:
                     ccs.script_changed_since_last, conn, company_id
                 ):
                     guard_reason = "script_changed"
-                elif oracle_kind_effective == "self_consistent" and (
+                elif oracle_kind_effective in HISTORICAL_ORACLES and (
                     len(pre_upsert_active) > 0
                     and len(pre_upsert_active - seen_ids) / len(pre_upsert_active)
                     > _ID_CHURN_CLOSE_THRESHOLD
                 ):
-                    # CHURN GUARD (self_consistent only): >50% of prior-OPEN ids
+                    # CHURN GUARD (self_consistent AND none): >50% of prior-OPEN ids
                     # vanished this run with no trusted total to corroborate the
                     # drop — treat it as a churning id_field, not a real board
                     # shrink. Keep every job OPEN and accrue NO misses (so a
@@ -891,9 +909,12 @@ async def fetch_custom_company(company_id: str) -> None:
                     # each night: a steady count but a fresh id set would otherwise
                     # close still-live jobs after the 3-run streak.
                     guard_reason = "id_churn_suspected"
-                elif oracle_kind_effective == "self_consistent" and (
-                    await asyncio.to_thread(ccs.consecutive_verified, conn, company_id)
-                    + 1 < _SELF_CONSISTENT_STREAK_REQUIRED
+                elif oracle_kind_effective in HISTORICAL_ORACLES and (
+                    await asyncio.to_thread(
+                        ccs.consecutive_verified, conn, company_id,
+                        limit=_required_streak(oracle_kind_effective, cadence_hours),
+                    )
+                    + 1 < _required_streak(oracle_kind_effective, cadence_hours)
                 ):
                     # Streak still building: accrue misses so the run that finally
                     # completes the streak can act on them, but do not close yet.
@@ -928,10 +949,22 @@ async def fetch_custom_company(company_id: str) -> None:
                             conn, source_id, list(missing_ids),
                         )
                         if close_eligible:
-                            # 36h wall-clock floor (§4.2) — on last_seen_at, NOT
-                            # the miss counter, so a scheduler double-fire / manual
-                            # rerun cannot shortcut it. guard.miss_threshold (not a
-                            # bare 2) so an auto-released run closes one miss later.
+                            # 1.5-cadence wall-clock floor (§4.2) — on last_seen_at,
+                            # NOT the miss counter, so a scheduler double-fire /
+                            # manual rerun cannot shortcut it. guard.miss_threshold
+                            # (not a bare 2) so an auto-released run closes one miss
+                            # later.
+                            #
+                            # SCALES WITH THE CADENCE BY CONSTRUCTION, which is the
+                            # whole point of writing it as a multiple rather than as
+                            # the literal "36 hours" the plan named: at the 1 h
+                            # cadence it is 1.5 h, and the BINDING constraint is the
+                            # 2-consecutive-miss rule (~2 h), so a job now closes
+                            # roughly 2 h after it leaves the board instead of 48 h.
+                            # Sooner, never looser — every other close gate
+                            # (VERIFIED, the safety guard, the fleet breaker, the
+                            # first-run / script-changed / streak guards) is
+                            # unchanged and still ANDed above.
                             to_close = await asyncio.to_thread(
                                 db.get_jobs_exceeding_miss_threshold,
                                 conn, source_id, list(missing_ids),

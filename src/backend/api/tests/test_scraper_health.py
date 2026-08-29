@@ -124,11 +124,16 @@ class TestGetStaleCompanies:
         assert result["checkedAt"]
 
     def test_private_custom_company_never_appears_stale(self, db_conn):
-        """A ``visibility='user'`` custom company (E7) runs on a 24h cadence, so
-        against the 24h staleness threshold it would flap "stale" and pollute the
-        fleet-wide dead-scraper report that pages the owner about mass-closures.
+        """A ``visibility='user'`` custom company (E7) is one USER's private board.
+        Its health is that user's concern — surfaced through its own
+        ``health_state`` and the admin board's per-company live/stale status — not
+        the fleet-wide dead-scraper report that pages the owner about mass closures.
         It must be excluded outright — even with ZERO job rows, the most-stale
-        state there is, which would otherwise always flag."""
+        state there is, which would otherwise always flag.
+
+        (The original reason recorded here was that custom companies ran on a 24 h
+        cadence and would flap against the 24 h threshold. They run hourly since
+        2026-08-29 and would no longer flap; the exclusion stands on ownership.)"""
         _seed_company(db_conn, "u-privatestale")
         db_conn.cursor().execute(
             sql.SQL("UPDATE {} SET visibility = 'user' WHERE id = %s").format(

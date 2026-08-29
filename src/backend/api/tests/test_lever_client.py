@@ -169,7 +169,6 @@ class TestTransformToJobListings:
         listings = transform_to_job_listings("palantir", ONE_JOB_FIXTURE)
         details = listings[0].details
         expected_keys = {
-            "department",
             "team",
             "secondary_locations",
             "employment_type",
@@ -220,7 +219,6 @@ class TestTransformToJobListings:
         raw = {k: v for k, v in ONE_JOB_FIXTURE[0].items() if k != "categories"}
         listings = transform_to_job_listings("palantir", [raw])
         details = listings[0].details
-        assert details["department"] is None
         assert details["team"] is None
         assert details["employment_type"] is None
         assert listings[0].location is None
@@ -231,7 +229,7 @@ class TestTransformToJobListings:
         still valid)."""
         raw = {**ONE_JOB_FIXTURE[0], "categories": ["unexpected"]}
         listings = transform_to_job_listings("palantir", [raw])
-        assert listings[0].details["department"] is None
+        assert listings[0].details["team"] is None
         assert listings[0].location is None
 
     def test_two_jobs_both_transform(self):

@@ -51,7 +51,7 @@ from scripts.shared import database as db
 
 from ..config import settings
 from ..services import custom_companies_service as ccs
-from ..services.capture import discover
+from ..services.capture import DiscoveryOutcome, discover
 from .claim_custom_companies import start_first_harvest
 from .procrastinate_app import procrastinate_app
 
@@ -125,25 +125,39 @@ async def discover_custom_company(
     display_name: str,
 ) -> None:
     """Discover ``normalized_url`` and persist the result (accept or refuse)."""
+    outcome: DiscoveryOutcome | None = None
+    # A refusal reason that PRE-EMPTS the run, set when we decline to start at all. It
+    # exists so the flag-off branch below can REFUSE rather than ``return``: see there.
+    preempt_reason: str | None = None
+
     if not settings.custom_company_discovery_enabled:
         # Defence in depth: the router gates on this same single flag at enqueue time,
         # but never open a browser or spend an LLM call if it was flipped off after the
         # task was queued. ONE flag on purpose — the retired two-flag arrangement made
         # "discovery is off" indistinguishable from "this board is unsupported".
+        #
+        # THIS IS A REFUSAL, NOT A ``return``. The router already inserted the
+        # provisional ``health_state='discovering'`` row before deferring this task, so
+        # returning here left that row spinning with nothing in flight behind it —
+        # ended only by ``reconcile_discovering``'s 30-minute sweep. A half-hour silent
+        # spinner is not a definite state, and the sweep's verdict is the one we can
+        # reach right now for free: the flag is off, so this run is never happening.
         logger.info(
-            "discover_custom_company: custom_company_discovery_enabled off; skipping %s",
+            "discover_custom_company: custom_company_discovery_enabled off; refusing %s",
             normalized_url,
         )
-        return
-
-    try:
-        outcome = await asyncio.wait_for(
-            discover(normalized_url, emit=_progress_writer(user_id, normalized_url)),
-            timeout=_TASK_TIMEOUT_S,
+        preempt_reason = (
+            "adding boards outside the supported job platforms is turned off right now"
         )
-    except asyncio.TimeoutError:
-        logger.error("discover_custom_company timed out for %s", normalized_url)
-        outcome = None
+    else:
+        try:
+            outcome = await asyncio.wait_for(
+                discover(normalized_url, emit=_progress_writer(user_id, normalized_url)),
+                timeout=_TASK_TIMEOUT_S,
+            )
+        except asyncio.TimeoutError:
+            logger.error("discover_custom_company timed out for %s", normalized_url)
+            outcome = None
 
     # WEDGED-ROW CAVEAT (now reconciled, not merely documented): the provisional
     # companies row created on the 202 add sits at health_state='discovering' until the
@@ -151,9 +165,11 @@ async def discover_custom_company(
     # spends money — never retried), a HARD failure between the ``wait_for`` above and
     # the persist below (a SIGKILL / worker OOM, not a caught exception — ``discover``
     # never raises, and a timeout becomes a REFUSE via ``outcome=None``) leaves that row
-    # stuck at 'discovering' with nothing left to move it. So does the flag being
-    # flipped off mid-flight (the early return at the top of this function), and so does
-    # a queue nothing drains. :mod:`api.tasks.reconcile_discovering` sweeps those rows
+    # stuck at 'discovering' with nothing left to move it. So does a queue nothing
+    # drains. (The flag being flipped off mid-flight USED to belong on that list; it
+    # now takes the ordinary refusal path above, because that is a case this task can
+    # settle itself and a 30-minute sweep is not "ending cleanly".)
+    # :mod:`api.tasks.reconcile_discovering` sweeps the rows that remain
     # onto the ordinary refusal state — see it for how a stalled run is told apart from
     # a slow one, and why it deliberately rides the BULK lane rather than this one.
 
@@ -203,7 +219,12 @@ async def discover_custom_company(
             )
         else:
             reason = (
-                outcome.refuse_reason if outcome is not None else "discovery timed out"
+                preempt_reason
+                or (
+                    outcome.refuse_reason
+                    if outcome is not None
+                    else "discovery timed out"
+                )
             ) or "discovery could not read this site"
             company_id = await asyncio.to_thread(
                 ccs.record_discovery_refusal,

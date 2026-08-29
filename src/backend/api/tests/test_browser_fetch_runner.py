@@ -493,6 +493,92 @@ def test_child_get_cursor_merge_preserves_the_captured_filters() -> None:
     assert missing == "None" and unparseable == "None"
 
 
+def test_child_post_cursor_merge_matches_the_parents_exactly() -> None:
+    """The POST twin of the GET merge above, and the same failure class: a cursor
+    written at the TOP LEVEL of a nested body leaves the real one at its captured value
+    and every page is page one (higher.gs.com: 56 pages, 1,120 rows, 20 after dedupe).
+
+    Pinned as a PARITY test because the child re-implements the merge rather than
+    importing it (this file's zero-first-party-import rule): the two copies drifting is
+    the same recipe meaning two different things on two transports. TikTok — the only
+    ``browser_fetch`` board in production — carries ``offset`` at the top level, and its
+    case is included so byte-identity there is what fails first if this regresses.
+
+    Run in a SUBPROCESS for the reason spelled out above: importing the child would make
+    ``playwright`` resident and every later ``assert_no_agent_imports()`` would raise.
+    """
+    cases = [
+        # (captured body, params) — nested GraphQL, flat TikTok, and a novel key.
+        ({"variables": {"searchQueryInput": {"page": {"pageSize": 20, "pageNumber": 0}}},
+          "operationName": "GetRoles"}, {"pageNumber": 41}),
+        ({"limit": 10, "offset": 0, "keyword": ""}, {"offset": 250}),
+        ({"q": "x"}, {"page": 3}),
+        ({"offset": 0, "filters": {"offset": 99}}, {"offset": 5}),
+    ]
+    code = (
+        "import json\n"
+        "from api.services.browser_fetch._browser_fetch_main import _merge_body\n"
+        f"for body, params in {cases!r}:\n"
+        "    print(json.dumps(_merge_body(body, params), sort_keys=True))\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        cwd=str(_BACKEND), env=_SUBPROC_ENV,
+        capture_output=True, text=True, timeout=120,
+    )
+    assert result.returncode == 0, result.stderr
+
+    from api.services.recipe_runner import merge_body_params
+
+    expected = [
+        json.dumps(merge_body_params(body, params), sort_keys=True)
+        for body, params in cases
+    ]
+    assert result.stdout.strip().splitlines() == expected
+    # ...and the values themselves, so a parity test over two identically-broken
+    # copies cannot pass.
+    assert json.loads(expected[0])["variables"]["searchQueryInput"]["page"] == {
+        "pageSize": 20, "pageNumber": 41,
+    }
+    assert json.loads(expected[1]) == {"limit": 10, "offset": 250, "keyword": ""}
+
+
+def test_child_fetch_page_actually_uses_the_nested_merge() -> None:
+    """The helper being right is not the same claim as the CALL SITE using it.
+
+    ``_fetch_page`` is what hands the body to the in-page ``fetch()``, so this drives
+    it with a stub page and reads the body it would have sent. Without this, a
+    ``_merge_body`` that is perfectly correct and simply not called still passes.
+    """
+    code = (
+        "import json\n"
+        "from api.services.browser_fetch import _browser_fetch_main as m\n"
+        "class _Page:\n"
+        "    def __init__(self): self.arg = None\n"
+        "    def evaluate(self, js, arg):\n"
+        "        self.arg = arg\n"
+        "        return {'status': 200, 'text': '{}', 'headers': {}}\n"
+        "plan = {'method': 'POST', 'url': 'https://b.example/gql', 'headers': {},\n"
+        "        'body': {'variables': {'page': {'pageSize': 20, 'pageNumber': 0}}}}\n"
+        "p = _Page(); m._fetch_page(p, plan, {'pageNumber': 41})\n"
+        "print(json.dumps(p.arg['body'], sort_keys=True))\n"
+        # ...and the GET branch still merges into the query, untouched.
+        "plan2 = {'method': 'GET', 'url': 'https://b.example/api?team=eng', 'headers': {},\n"
+        "         'body': {}}\n"
+        "p2 = _Page(); m._fetch_page(p2, plan2, {'offset': 20})\n"
+        "print(p2.arg['url'])\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        cwd=str(_BACKEND), env=_SUBPROC_ENV,
+        capture_output=True, text=True, timeout=120,
+    )
+    assert result.returncode == 0, result.stderr
+    body, url = result.stdout.strip().splitlines()
+    assert json.loads(body) == {"variables": {"page": {"pageSize": 20, "pageNumber": 41}}}
+    assert "team=eng" in url and "offset=20" in url
+
+
 # --- the host-pin (redirect laundering) --------------------------------------
 #
 # The BROWSER-level proof lives in ``scripts/one_off/http_capture_poc/browser_fetch_pin_repro.py``

@@ -71,21 +71,15 @@ class JobListing(Base):
     details_scraped = Column(Boolean, server_default=text("false"))
     normalization_status = Column(Text, nullable=True)  # NULL (never attempted) | 'done' | 'failed'
 
-    # Denormalized copies of the three ``details`` JSONB sub-fields the API list
-    # path serves (frontend ``job.department``, the seniority tag, and the
-    # "Remote" chip). Reading ``details->'…'`` forces Postgres to detoast the
-    # full ~10 KB ``details`` value per row; on the batched ``/api/jobs`` list
-    # query (~12k rows) that ~100 MB of TOAST reads blew past the 30 s statement
-    # timeout (2026-07-13 outage). These columns let the list query read the
-    # three values WITHOUT touching ``details``/TOAST. All nullable, no default,
-    # so each ADD COLUMN stays metadata-only (see the 2026-04-18 volume
-    # incident). The single-row detail path still returns the full ``details``.
-    #
-    # ``department`` was added later (c1539fa03b23) and IS backfilled, unlike the
-    # two below it: the API had never served department at all, so the
-    # Department filter control stayed hidden until the column had data. See
-    # that migration for the cost numbers.
-    department = Column(Text, nullable=True)
+    # Denormalized copies of the two ``details`` JSONB sub-fields the API list
+    # path serves (the seniority tag and the "Remote" chip). Reading
+    # ``details->'…'`` forces Postgres to detoast the full ~10 KB ``details``
+    # value per row; on the batched ``/api/jobs`` list query (~12k rows) that
+    # ~100 MB of TOAST reads blew past the 30 s statement timeout (2026-07-13
+    # outage). These columns let the list query read both values WITHOUT
+    # touching ``details``/TOAST. All nullable, no default, so each ADD COLUMN
+    # stays metadata-only (see the 2026-04-18 volume incident). The single-row
+    # detail path still returns the full ``details``.
     experience_level = Column(Text, nullable=True)
     is_remote_eligible = Column(Boolean, nullable=True)
 

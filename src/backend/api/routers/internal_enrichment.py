@@ -73,7 +73,6 @@ _JOB_PROJECTION = (
     # local arrival and buries freshly-posted jobs behind its backlog.
     "first_seen_at, "
     "jsonb_build_object("
-    "  'department', details->'department', "
     "  'experience_level', details->'experience_level'"
     ") AS details"
 )

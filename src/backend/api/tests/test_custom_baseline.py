@@ -29,6 +29,52 @@ def _insert_harvest(db_conn, company_id, records, verdict, day):
     db_conn.commit()
 
 
+def test_recent_records_is_not_verdict_filtered(db_conn):
+    """**The window the page-limit tell reads, and why it cannot be the median's.**
+
+    ``median_records`` is VERIFIED-only, on purpose — an unproven run must never
+    become the baseline a later run is measured against. But the two checks that
+    ask "what has this board been RETURNING lately?" need the opposite: a board
+    that has never verified (which is every discovered board on the day this
+    lands, Walmart included) has an EMPTY verified window, and a check that read
+    the median there would be blind on exactly the boards it exists for.
+    """
+    cid = "u-baselinerecent1"
+    for day, rec in enumerate([10, 10, 10, 10, 10], start=1):
+        _insert_harvest(db_conn, cid, rec, "UNVERIFIED", day)
+    b = compute_baseline(db_conn, cid)
+    assert b.median_records is None, "no VERIFIED run may ever produce a median"
+    assert b.run_count == 0
+    assert b.recent_records == (10, 10, 10, 10, 10), (
+        "the unfiltered window must still see the board's five UNVERIFIED reads"
+    )
+
+
+def test_recent_records_excludes_failed_runs(db_conn):
+    """A FAILED run harvested nothing and wrote nothing — it is explicitly not a
+    miss, and it is not an observation of the board either. Letting its zero into
+    the window would poison both consumers: a run of zeros looks exactly like a
+    settled step change, and a zero next to a real count breaks the identical-run
+    test that the page-limit tell depends on."""
+    cid = "u-baselinerecent2"
+    _insert_harvest(db_conn, cid, 233, "VERIFIED", 1)
+    _insert_harvest(db_conn, cid, 0, "FAILED", 2)
+    _insert_harvest(db_conn, cid, 233, "VERIFIED", 3)
+    b = compute_baseline(db_conn, cid)
+    assert 0 not in b.recent_records
+    assert b.recent_records == (233, 233)
+
+
+def test_recent_records_is_newest_first(db_conn):
+    """Ordering is load-bearing: both consumers slice a PREFIX of this tuple to
+    mean "the most recent N harvests". Oldest-first would silently make them read
+    a board's ancient history instead."""
+    cid = "u-baselinerecent3"
+    for day, rec in enumerate([100, 200, 300], start=1):
+        _insert_harvest(db_conn, cid, rec, "VERIFIED", day)
+    assert compute_baseline(db_conn, cid).recent_records == (300, 200, 100)
+
+
 def test_min_ratio_is_floor_below_14_runs(db_conn):
     cid = "u-baseline01"
     for day, rec in enumerate([1000, 400, 1000, 200, 1000], start=1):

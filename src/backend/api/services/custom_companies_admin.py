@@ -34,6 +34,26 @@ logger = logging.getLogger(__name__)
 # 10-minute sweep cron (api/tasks/reconcile_discovering.py). Past that the
 # sweeper SHOULD have refused the row and did not — which is exactly the thing
 # the admin wants to see, so it is surfaced rather than smoothed over.
+#
+# WHY NOTHING SWEEPS 'stuck' ATTEMPTS THE WAY reconcile_discovering SWEEPS ROWS.
+# It was considered and rejected: after the ``_readd_attempt_fields`` fix in
+# ``routers/user_companies`` there is no case left for such a sweep to catch.
+# An unpaired 'discovery_pending' row is now exactly one of three things:
+#
+#   1. genuinely in flight  -> inside the grace, renders 'pending'. Correct.
+#   2. genuinely wedged, company row still there -> reconcile_discovering reaps it
+#      and ``record_discovery_refusal`` writes the terminal 'refused' row that
+#      PAIRS with the pending one. Already handled, synchronously, by the sweep
+#      that owns that state.
+#   3. genuinely wedged, then REMOVED by the user -> the company row is gone, so
+#      there is nothing left to refuse. This is the only permanently-unpaired
+#      shape, and it is REAL HISTORY: the two rows in the owner's dev database
+#      are the 2026-08-26 dead-interactive-worker incident. A sweep that wrote a
+#      synthetic terminal row for them would be inventing history in an
+#      append-only audit and erasing the evidence of a failure that happened.
+#
+# So 'stuck' now means what it says. If this count is non-zero, either a wedge
+# really is outstanding or a board was removed mid-setup — both worth seeing.
 _STUCK_AFTER_SECONDS = 40 * 60
 
 # The DERIVED outcomes that count against the "Failed" tile. 'stuck' belongs

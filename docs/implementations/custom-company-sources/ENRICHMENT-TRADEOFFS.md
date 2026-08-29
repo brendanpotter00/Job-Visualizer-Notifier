@@ -154,7 +154,9 @@ The capacity reality first: the enricher does **~450 jobs/day** (385–640 over 
 
 **Implementation shape.** `source_id LIKE 'custom:%'` rather than a join: custom source ids are minted by `constants.custom()` with a validated id shape, so the prefix is exact. The `companies.visibility='user'` join is semantically purer and is what option D would use, but it costs a join on the hot claim path for zero behavioural difference today. **Index impact: none** — `idx_job_listings_enrichment_claim` is partial on `(first_seen_at) WHERE enrichment_status IS NULL AND status='OPEN'`, and both slices keep that predicate.
 
-> **The symmetry already exists.** Custom companies are *already* second-class on the scrape side: 24-hour cadence vs the public 30-minute cron, a `*/15` claimer with `SKIP LOCKED`, and `oracle_kind='none'` meaning nothing they harvest can close a job. Making enrichment second-class in the same shape is consistent with the design, not bolted on.
+> **The symmetry already exists.** Custom companies are *already* second-class on the scrape side: a `*/15` claimer with `SKIP LOCKED`, a backpressure ceiling of 3 in-flight fetches, and `oracle_kind='none'` meaning nothing they harvest can close a job. Making enrichment second-class in the same shape is consistent with the design, not bolted on.
+>
+> **Correction, 2026-08-29:** this argument originally led with "24-hour cadence vs the public 30-minute cron". That gap is now 1 h vs 30 min — see `ROLLOUT.md` §4b. The *conclusion* is unaffected (the ceiling and the never-close gate carry it), but the cadence is no longer one of the reasons.
 
 ### 3. Dropping `department` (Δ2)
 
@@ -428,7 +430,7 @@ is the *smallest* line; the money is in the enrichment queue.
 | Browserbase session at add | one capture — **33–95 s** measured (Spotify 33 s, Atlassian 33 s, Microsoft 95 s) | 33 s |
 | LLM spend at add | one request-selection call | 1 call |
 | Recurring browser time | **zero** — all 7 boards replay as `http_json` or `ats_client` | 0 |
-| Recurring harvest | one extra board on the 24 h cadence, forever | 85 rows/night |
+| Recurring harvest | one extra board on the harvest cadence (**1 h since 2026-08-29**, was 24 h), forever | 85 rows/harvest |
 | Duplicate rows in the enrichment queue | = board size, one-off | 85 |
 | Custom slice consumed | at 10% of a 40-job tick ≈ 45 jobs/day | **~1.9 days of the entire custom budget** |
 | GPU wall-clock | 153 s classify + 100 s judge per title-only row | **~6.0 h** |
@@ -450,3 +452,4 @@ Jane Street 235 · Amazon 100. Plus the orphan `u-6hkpc6fh0z` ("Amazon (live che
 - `CAPTURE-IMPLEMENTATION-PLAN.md` — the capture pipeline whose field map is the blocker
 - `IMPLEMENTATION-PLAN.md` — **the build order**, scoped to the live PR stack
 - `TESTABLE-BOARDS.md` — the boards the coverage table was measured against
+- `ROW-SHARING.md` — **what §9.3 decided, written down**: what the code does today, the `provider_config` leak that blocks sharing, and what P1 is

@@ -28,12 +28,24 @@ from .pending_jobs import cancel_queued_jobs
 
 logger = logging.getLogger(__name__)
 
-# A custom company is scraped daily; next_run_at is seeded to now() so the row is
-# DUE the instant it exists. The add path then enqueues the first harvest itself
+# How often a custom company is re-harvested. next_run_at is seeded to now() so the row
+# is DUE the instant it exists. The add path then enqueues the first harvest itself
 # (``claim_custom_companies.start_first_harvest``) and pushes next_run_at forward; the
 # seeded-due state is what the 15-minute claim tick falls back to when that enqueue
 # could not happen.
-DEFAULT_CADENCE_HOURS = 24
+#
+# ONE HOUR, matching the published fleet as closely as an INTEGER column can. Every
+# public board is re-read every 30 minutes (``enqueue_*_fan_out``, all six on
+# ``*/30 * * * *``); ``cadence_hours`` cannot express 30 minutes, and 0.25 h ("every
+# 15 minutes") is both unrepresentable and shorter than one harvest's own timeout
+# (``fetch_custom_company._TASK_TIMEOUT_S`` = 900 s), so 1 h is the nearest legal value
+# and it errs slow. The old 24 h was chosen when a harvest meant a Browserbase browser
+# session; a stored board now replays as one ``http_json`` / ``ats_client`` request.
+#
+# Read ``claim_custom_companies._JITTER_FRACTION`` before changing this: the jitter is a
+# fraction of THIS number, precisely so a shorter cadence cannot push ``next_run_at``
+# into the past.
+DEFAULT_CADENCE_HOURS = 1
 # Bounded retry on the astronomically-unlikely companies.id PK collision.
 _ID_GENERATION_ATTEMPTS = 5
 
@@ -310,10 +322,16 @@ def record_add_attempt(
 #
 # The discriminator: every worker-written row has ``resolved_ats='discovered'`` AND an
 # outcome other than ``'discovery_pending'``; every request-written row is either not
-# ``'discovered'`` at all (the six ATS providers, ``'script'``, ``'name_guess'``, NULL)
-# or is exactly ``'discovery_pending'``. Written as an EXCLUSION so a future terminal
-# outcome on the discovery path (say ``'partial'``) is excluded automatically rather
-# than quietly starting to bill users for it.
+# ``'discovered'`` at all (the six ATS providers, ``'script'``, ``'name_guess'``,
+# ``'already_tracked'``, NULL) or is exactly ``'discovery_pending'``. Written as an
+# EXCLUSION so a future terminal outcome on the discovery path (say ``'partial'``) is
+# excluded automatically rather than quietly starting to bill users for it.
+#
+# ``'already_tracked'`` earns its place in that list rather than reusing
+# ``'discovered'``: the idempotent re-add branch in ``routers/user_companies`` writes a
+# TERMINAL row (``added``/``refused``) from the REQUEST — see
+# ``_readd_attempt_fields`` — and with ``resolved_ats='discovered'`` it would be
+# indistinguishable from the worker's own terminal row and would stop being billed.
 _QUOTA_COUNTED_PREDICATE = (
     "(resolved_ats IS DISTINCT FROM 'discovered' OR outcome = 'discovery_pending')"
 )
@@ -1070,6 +1088,109 @@ def get_company_if_owner(
     return dict(row) if row else None
 
 
+def purge_custom_company(
+    cursor: Any,
+    *,
+    company_id: str,
+    board_token: Optional[str],
+    owner_user_id: Optional[str],
+) -> bool:
+    """Delete everything ONE private company owns, in the single order that works.
+
+    EXTRACTED, NOT INVENTED. ``custom_company_integrity``'s docstring says any
+    reaper written later "must reuse ``remove_owned_company``'s purge ORDER …
+    never invent a second one", so the order now lives here and both callers name
+    it: :func:`remove_owned_company` (the user pressed Remove) and
+    ``api.tasks.reap_ownerless_companies`` (nobody is left to press it). A second
+    copy of this sequence is how a purge starts stranding rows in one of the two
+    paths only.
+
+    ORDER matters, and the reasons are load-bearing:
+
+    * the queued work is cancelled FIRST, before the rows it would run against are
+      gone — otherwise a worker picks the job up minutes later and harvests, or
+      re-creates, a board that no longer exists;
+    * ``job_locations`` has NO foreign key and is keyed by ``job_listing_id``
+      alone, so it must be cleared while the listings it derives from still exist,
+      and the ``NOT EXISTS`` narrows it to ids used ONLY by this source (a public
+      listing that happens to share an id keeps its location tags);
+    * ``job_tags`` / ``job_enrichment`` / ``job_listings`` are keyed by
+      ``source_id``, and ``custom:<id>`` is a namespace no other company can write,
+      so the source_id predicate alone scopes them exactly;
+    * ``job_freshness`` is NOT listed because it does not need to be — it carries a
+      composite FK ``ON DELETE CASCADE`` onto ``job_listings``.
+
+    NEVER-WRONG-CLOSE: every statement here is a DELETE. Nothing sets
+    ``status='CLOSED'``, nothing writes ``closed_on``, and nothing touches
+    ``job_freshness.consecutive_misses``. A purge REMOVES a board's history; it
+    never decides that a job went away, which is the only thing a close means.
+
+    ``company_add_attempts`` is deliberately left behind — see
+    :func:`remove_owned_company`.
+
+    CONNECTION CONTRACT: takes a CURSOR, never a connection, and NEVER commits.
+    The caller owns the transaction, because a partial purge strands exactly the
+    rows this exists to remove.
+
+    ``owner_user_id`` is optional because an OWNERLESS row has no user to
+    reconstruct ``discover:{user}:{url}`` from; the harvest lock is keyed by the
+    company id alone and is always cancelled. A discovery job that therefore
+    survives is harmless: ``add_discovered_company`` and
+    ``record_discovery_refusal`` both create nothing when the owned row is gone.
+
+    Returns ``False`` — having cancelled the queued work but deleted nothing —
+    when ``company_id`` is not an id we could have minted, so its ``custom:<id>``
+    namespace cannot contain anything.
+    """
+    locks = [harvest_queueing_lock(company_id)]
+    if owner_user_id and board_token:
+        locks.append(discovery_queueing_lock(owner_user_id, str(board_token)))
+    cancel_queued_jobs(cursor, locks)
+
+    try:
+        source_id = custom(company_id)
+    except ValueError:
+        logger.warning(
+            "purge_custom_company: skipped the purge of %s — the id is not one we "
+            "could have minted", company_id,
+        )
+        return False
+
+    cursor.execute(
+        """
+        DELETE FROM job_locations jl
+        WHERE jl.job_listing_id IN (
+                SELECT id FROM job_listings WHERE source_id = %s
+            )
+          AND NOT EXISTS (
+                SELECT 1 FROM job_listings o
+                WHERE o.id = jl.job_listing_id AND o.source_id <> %s
+            )
+        """,
+        (source_id, source_id),
+    )
+    cursor.execute("DELETE FROM job_tags WHERE source_id = %s", (source_id,))
+    cursor.execute("DELETE FROM job_enrichment WHERE source_id = %s", (source_id,))
+    cursor.execute("DELETE FROM job_listings WHERE source_id = %s", (source_id,))
+
+    # Per-company operational state. Deleted, not kept: none of it is reachable
+    # once the company is gone (no UI joins it, and a re-add mints a new id), and a
+    # leftover scrape_runs row for a company that no longer exists is a false signal
+    # to the health watchdog. ``scrape_runs`` is scoped by ``company`` rather than
+    # source_id so a row written before source_id was populated still goes; a custom
+    # company id is globally unique, so this cannot reach a public board's runs.
+    cursor.execute("DELETE FROM company_harvests WHERE company_id = %s", (company_id,))
+    cursor.execute("DELETE FROM scrape_runs WHERE company = %s", (company_id,))
+    cursor.execute("DELETE FROM company_scripts WHERE company_id = %s", (company_id,))
+    # ``AND visibility = 'user'`` is the last guard: a public board's row must never
+    # be destroyed through any purge path, whatever id reached this function.
+    cursor.execute(
+        "DELETE FROM companies WHERE id = %s AND visibility = 'user'",
+        (company_id,),
+    )
+    return True
+
+
 def remove_owned_company(conn: Connection, user_id: str, company_id: str) -> str:
     """Remove the caller's ownership AND, if that was the last owner, PURGE the
     company and every row it owns — in ONE transaction.
@@ -1104,12 +1225,11 @@ def remove_owned_company(conn: Connection, user_id: str, company_id: str) -> str
     anyway: it is the guard that makes this still safe if row sharing is ever
     introduced, and it costs one indexed count.
 
-    ORDER matters. ``job_freshness`` has a composite FK ``ON DELETE CASCADE`` onto
-    ``job_listings``, so it goes automatically; ``job_locations`` has NO FK and is
-    keyed by ``job_listing_id`` alone, so it must be cleared while the listings it
-    is derived from still exist. Everything runs on one cursor with a single
-    terminal ``commit()`` — a partial purge would strand exactly the rows this
-    function exists to remove, with no owner left to retry it.
+    ORDER matters, and it lives in :func:`purge_custom_company` — one ordering,
+    two callers (this, and the ownerless reaper), never two copies. Everything
+    runs on one cursor with a single terminal ``commit()`` — a partial purge would
+    strand exactly the rows this function exists to remove, with no owner left to
+    retry it.
 
     Returns:
         ``'not_owner'`` if the caller did not own it (→ router 404),
@@ -1157,79 +1277,39 @@ def remove_owned_company(conn: Connection, user_id: str, company_id: str) -> str
             conn.commit()
             return "unlinked"
 
-        # THE QUEUED WORK, cancelled before the rows it would have run against are
-        # gone. Read from the row we just locked rather than from anything the caller
-        # passed: ``board_token`` IS the normalized URL the discovery job was deferred
-        # under (``add_discovering_placeholder`` writes exactly that), so the lock
-        # string we cancel is the one the router minted. A row that has already gone
-        # (``company_row is None``) has no discovery lock to reconstruct — its harvest
-        # lock is still worth cancelling, and is keyed by the id alone.
-        locks = [harvest_queueing_lock(company_id)]
-        if company_row is not None and company_row["board_token"]:
-            locks.append(
-                discovery_queueing_lock(user_id, str(company_row["board_token"]))
-            )
-        cancel_queued_jobs(cursor, locks)
-
-        # Resolved HERE, not at the top: ``company_id`` arrives straight off the
-        # URL path, and ``custom()`` RAISES on an id it would not have minted. Up
-        # front that turned "DELETE an id that isn't yours" — any 404, and any
-        # hand-inserted ownership row — into an unhandled 500. By this point the
-        # caller has been proven to own a ``visibility='user'`` row, so a rejection
-        # means an id we never minted and therefore a ``custom:<id>`` namespace
-        # that cannot contain anything: drop the link and stop, rather than failing
-        # a cleanup.
-        try:
-            source_id = custom(company_id)
-        except ValueError:
+        # THE PURGE ORDER lives in :func:`purge_custom_company`, which the ownerless
+        # reaper also calls — so there is exactly one delete ordering in the codebase.
+        # ``board_token`` is read from the row we just locked rather than from
+        # anything the caller passed: it IS the normalized URL the discovery job was
+        # deferred under (``add_discovering_placeholder`` writes exactly that), so the
+        # lock string cancelled is the one the router minted. A row that has already
+        # gone (``company_row is None``) has no discovery lock to reconstruct.
+        #
+        # ``False`` means ``custom()`` rejected the id, which is resolved THERE and
+        # not at the top of this function on purpose: ``company_id`` arrives straight
+        # off the URL path, and up front a rejection turned "DELETE an id that isn't
+        # yours" — any 404, and any hand-inserted ownership row — into an unhandled
+        # 500. By this point the caller has been proven to own a ``visibility='user'``
+        # row, so a rejection means an id we never minted and therefore a
+        # ``custom:<id>`` namespace that cannot contain anything: drop the link and
+        # stop, rather than failing a cleanup.
+        purged = purge_custom_company(
+            cursor,
+            company_id=company_id,
+            board_token=(
+                str(company_row["board_token"])
+                if company_row is not None and company_row["board_token"]
+                else None
+            ),
+            owner_user_id=user_id,
+        )
+        if not purged:
             logger.warning(
                 "remove_owned_company: unlinked %s but skipped the purge — the id "
                 "is not one we could have minted", company_id,
             )
             conn.commit()
             return "unlinked"
-
-        # Location links first — no FK, and the subquery reads job_listings.
-        # The ``NOT EXISTS`` narrows the delete to job ids used ONLY by this
-        # source: ``job_locations`` carries no source_id, so a bare
-        # ``job_listing_id IN (...)`` would also drop the location tags of an
-        # unrelated public listing that happens to share an id.
-        cursor.execute(
-            """
-            DELETE FROM job_locations jl
-            WHERE jl.job_listing_id IN (
-                    SELECT id FROM job_listings WHERE source_id = %s
-                )
-              AND NOT EXISTS (
-                    SELECT 1 FROM job_listings o
-                    WHERE o.id = jl.job_listing_id AND o.source_id <> %s
-                )
-            """,
-            (source_id, source_id),
-        )
-        # These three ARE keyed by source_id, so the namespace scopes them exactly.
-        cursor.execute("DELETE FROM job_tags WHERE source_id = %s", (source_id,))
-        cursor.execute("DELETE FROM job_enrichment WHERE source_id = %s", (source_id,))
-        # Scoped by source_id ALONE, not ``company = %s AND source_id = %s``:
-        # ``custom:<id>`` is this company's private namespace and can belong to no
-        # other company, so the wider predicate guarantees nothing is stranded
-        # even if a row's ``company`` column were ever wrong. Cascades job_freshness.
-        cursor.execute("DELETE FROM job_listings WHERE source_id = %s", (source_id,))
-
-        # Per-company operational state. Deleted, not kept: none of it is reachable
-        # once the company is gone (no UI joins it, and a re-add mints a new id),
-        # and a leftover scrape_runs row for a company that no longer exists is a
-        # false signal to the health watchdog. ``scrape_runs`` is scoped by
-        # ``company`` rather than source_id so a row written before source_id was
-        # populated still goes; a custom company id is globally unique, so this
-        # cannot reach a public board's runs.
-        cursor.execute("DELETE FROM company_harvests WHERE company_id = %s", (company_id,))
-        cursor.execute("DELETE FROM scrape_runs WHERE company = %s", (company_id,))
-        cursor.execute("DELETE FROM company_scripts WHERE company_id = %s", (company_id,))
-        cursor.execute(
-            "DELETE FROM companies WHERE id = %s AND visibility = 'user'",
-            (company_id,),
-        )
 
         # DELIBERATELY KEPT: ``company_add_attempts``. It is the append-only audit
         # of what the user pasted and what happened to it (see

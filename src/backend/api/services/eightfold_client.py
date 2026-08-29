@@ -616,7 +616,6 @@ def _transform_one(
     details = {
         "experience_level": experience_level,
         "is_remote_eligible": is_remote_eligible,
-        "department": raw.get("department"),
         "team": raw.get("team"),
         "canonical_position_url": url,
         # Preserve original ``locations`` array for debugging — distinct from

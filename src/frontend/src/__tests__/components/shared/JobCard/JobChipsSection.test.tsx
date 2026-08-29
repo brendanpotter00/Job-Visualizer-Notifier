@@ -5,8 +5,6 @@ import { JobChipsSection } from '../../../../components/shared/JobCard/JobChipsS
 /**
  * Tests for JobChipsSection component
  * Verifies rendering of the remote chip and the enrichment category/level chips.
- * The ATS-provided department chip was removed from the card (it restated the
- * enrichment chips), so this component no longer takes a `department` prop.
  */
 describe('JobChipsSection', () => {
   describe('Chip Rendering', () => {

@@ -82,7 +82,7 @@ export const selectAllJobsFromQuery = createSelector(
 
 /**
  * Apply filters to all jobs
- * Leverages existing filterJobsByFilters which gracefully handles missing department/roleCategory
+ * Leverages existing filterJobsByFilters which gracefully handles missing optional filter fields
  */
 export const selectRecentFilteredJobs = createSelector(
   [selectAllJobsFromQuery, selectRecentJobsFilters, selectLocationCatalog],

@@ -255,8 +255,14 @@ class TestCloseBehaviourIsUnaffected:
     def test_a_backdated_row_survives_the_wall_clock_floor(self, in_memory_db):
         """The one time-based clause in the sweep reads ``last_seen_at``, which
         U3 does not change. With misses over threshold but the row seen moments
-        ago, the 36h floor still refuses to close it — regardless of a
-        ``first_seen_at`` from 2020."""
+        ago, the floor still refuses to close it — regardless of a
+        ``first_seen_at`` from 2020.
+
+        The 36 here is an ARBITRARY positive floor chosen to exercise the clause,
+        not the E7 value: the caller derives that as ``1.5 × cadence_hours``
+        (``fetch_custom_company``), so it was 36 h at the old 24 h cadence and is
+        1.5 h now. Any positive floor refuses a row seen moments ago, which is the
+        property under test."""
         _write(in_memory_db, "floor-1", "2020-01-01T00:00:00Z", RUN_TIMESTAMP)
         db.update_last_seen(
             in_memory_db,

@@ -7,7 +7,14 @@
 
 ## The goal
 
-> A user pastes a careers URL (or types a company name). We check it **every 24 hours** and show them that company's jobs — for them only — with open/close detection.
+> A user pastes a careers URL (or types a company name). We check it **every hour** and show them that company's jobs — for them only — with open/close detection.
+
+> **Cadence corrected 2026-08-29 (was "every 24 hours").** 24 h was priced for a harvest that
+> meant a Browserbase session. A stored board now replays as one plain HTTP request, so custom
+> companies run on the same order as the published fleet's `*/30` crons — 1 h, the nearest value
+> an INTEGER `cadence_hours` can hold. Read "nightly" below as "hourly"; the *shape* of every
+> argument (one script, one gate, one verdict per harvest) is unchanged. See
+> `ROLLOUT.md` §4b for the close-latency consequence (≈48 h → ≈2 h).
 
 Your bar, in your words: **it works on nearly every board I try, and failures are loud — never silently wrong.**
 
@@ -113,7 +120,13 @@ The review's synthesis, which I'm adopting: **transport is a declared field on e
 
 ## Closure safety — the 2026-03-29 lesson, generalized
 
-A job closes only when **all** hold: exact coverage (tolerance 0), 2 missed runs, **and** >36h since `last_seen_at`. Plus two rules the review added:
+A job closes only when **all** hold: exact coverage (tolerance 0), 2 missed runs, **and** a wall-clock floor of **1.5 × the company's cadence** since `last_seen_at`. Plus two rules the review added:
+
+> The floor was written as a multiple from the start, so it tracks the cadence: 36 h when custom
+> companies ran daily, **1.5 h** at today's hourly cadence. With the 2-miss rule binding, a
+> vanished job now closes in **≈2 h** rather than ≈48 h — sooner, but through exactly the same
+> conjunction. (A published company, for comparison, closes after 2 × `*/30` ≈ 1 h and has no
+> floor at all.) See `ROLLOUT.md` §4b.
 
 - **A run that didn't execute is not a miss.** Misses increment only inside a VERIFIED harvest — so a Browserbase outage can't close anything.
 - **Fleet circuit breaker:** if >20% of the night's companies FAIL, nobody closes that night. This is the check that would have made 2026-03-29 a non-event.
@@ -155,4 +168,4 @@ Corrected against the live code, not asserted:
 - **Execution-time SSRF + `ignoreCertificateErrors:false`.** Our `url_guard` runs at add-time only; nightly fetches need CDP-enforced host pinning, and Browserbase accepts any cert by default.
 - **Correction of record:** I'd written that a recalibrated `0.85` safety guard was committed. It exists on `main`, **not** in this worktree — and even on main it's inert on a company's first run and tuned for 30-min cadence, so it can't catch a wrong day-one baseline. Daily companies need a per-company learned baseline. *(A subagent asserted this; I wrote it down without verifying. Fixed.)*
 
-`BUILD-PLAN.md` carries the phase-by-phase detail; `STACK-ORCHESTRATION.md` carries the log of what was built, in what order, and which decisions were reversed on the way.
+`BUILD-PLAN.md` carries the phase-by-phase detail; `STACK-ORCHESTRATION.md` carries the log of what was built, in what order, and which decisions were reversed on the way. `ROW-SHARING.md` answers the one structural question this document does not: **why two users adding the same board get two boards**, and what has to be fixed before they stop doing so. `JOB-LINK-RULE.md` answers a second one: **how a discovered board gets a job's link** — measured over 19 real payloads, and why a link we cannot prove is not stored. `CLOSING-NO-ORACLE-BOARDS.md` answers a third, and it is the one that changes what users see: **how a board stored `oracle_kind='none'` earns the right to close a job** — until it existed no discovered board had ever closed one, or could, so filled roles stayed OPEN forever. It carries the delta band's derivation off 271,053 prod runs, the request-shape tells that keep Walmart refused, and what the rule still cannot catch.

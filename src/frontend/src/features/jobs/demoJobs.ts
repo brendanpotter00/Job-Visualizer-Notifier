@@ -159,14 +159,6 @@ const DEMO_LOCATIONS: readonly JobLocation[] = [
   },
 ];
 
-const DEPARTMENTS: readonly string[] = [
-  'Engineering',
-  'Infrastructure',
-  'Platform',
-  'Machine Learning',
-  'Product Engineering',
-];
-
 const LANGS: readonly string[] = ['TypeScript', 'Go', 'Python', 'Rust', 'Java', 'C++'];
 
 /** Number of fake listings to generate. */
@@ -209,7 +201,6 @@ export const DEMO_JOBS: Job[] = Array.from({ length: DEMO_JOB_COUNT }, (_, i): J
   const company = DEMO_COMPANY_IDS[i % DEMO_COMPANY_IDS.length];
   const title = SE_TITLES[(i * 7) % SE_TITLES.length];
   const tag = DEMO_LOCATIONS[(i * 3) % DEMO_LOCATIONS.length];
-  const department = DEPARTMENTS[(i * 2) % DEPARTMENTS.length];
   const lang = LANGS[(i * 5) % LANGS.length];
 
   return {
@@ -217,7 +208,6 @@ export const DEMO_JOBS: Job[] = Array.from({ length: DEMO_JOB_COUNT }, (_, i): J
     source: 'backend-scraper',
     company,
     title,
-    department,
     location: tag.canonicalName,
     locations: [tag],
     isRemote: tag.kind === 'remote',

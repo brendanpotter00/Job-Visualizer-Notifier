@@ -144,7 +144,6 @@ def _transform_one(
         )
 
     details = {
-        "department": raw.get("department"),
         "team": raw.get("team"),
         "secondary_locations": secondary_locations,
         "employment_type": raw.get("employmentType"),

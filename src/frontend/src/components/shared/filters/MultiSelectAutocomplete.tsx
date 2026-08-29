@@ -14,7 +14,7 @@ export interface MultiSelectAutocompleteProps {
 
 /**
  * Generic multi-select autocomplete component for string arrays
- * Used for locations, departments, and other multi-select filters
+ * Used for locations and other multi-select filters
  */
 export function MultiSelectAutocomplete({
   label,

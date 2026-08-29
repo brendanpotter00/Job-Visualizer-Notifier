@@ -1,0 +1,50 @@
+{
+ "origin_url": "https://careers.roblox.com/jobs",
+ "records_path": "jobs",
+ "field_map": {
+  "id": "id",
+  "title": "title",
+  "url": "absolute_url"
+ },
+ "kind": "published",
+ "proves": false,
+ "why": "PUBLISHED, and the SECOND link a probe would reject: 6,447 vs 6,397 chars (0.8%, under the bar) and a related-jobs block puts every OTHER job's title on each page, which trips the listing-page guard.",
+ "measured_at": "2026-08-29",
+ "pages": {
+  "https://careers.roblox.com/jobs/7350081?gh_jid=7350081": {
+   "status": 200,
+   "chars": 6447,
+   "carries_own_title": true,
+   "carries_other_titles": true
+  },
+  "https://careers.roblox.com/jobs/8027587?gh_jid=8027587": {
+   "status": 200,
+   "chars": 6397,
+   "carries_own_title": true,
+   "carries_other_titles": true
+  },
+  "https://careers.roblox.com/jobs/8027588?gh_jid=8027588": {
+   "status": 200,
+   "chars": 6364,
+   "carries_own_title": true,
+   "carries_other_titles": true
+  }
+ },
+ "records": [
+  {
+   "title": "[2026] Senior Machine Learning Engineer, Recommendation Systems - PhD Early Career",
+   "absolute_url": "https://careers.roblox.com/jobs/7350081?gh_jid=7350081",
+   "id": 7350081
+  },
+  {
+   "title": "[2026] Senior Machine Learning Engineer (Systems), Embodied AI/NPCs, ML Platform - PhD Early Career",
+   "absolute_url": "https://careers.roblox.com/jobs/8027587?gh_jid=8027587",
+   "id": 8027587
+  },
+  {
+   "title": "[2026] Senior Machine Learning Engineer (Systems), Embodied AI/NPCs, ML Platform - PhD Early Career",
+   "absolute_url": "https://careers.roblox.com/jobs/8027588?gh_jid=8027588",
+   "id": 8027588
+  }
+ ]
+}

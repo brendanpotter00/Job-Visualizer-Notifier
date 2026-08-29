@@ -254,9 +254,8 @@ class TestTransformToJobListings:
             == "<p>Join Notion to build the future of work.</p>"
         )
 
-    def test_department_and_team_passthrough(self):
+    def test_team_passthrough(self):
         result = transform_to_job_listings("notion", ONE_JOB_FIXTURE["jobs"])
-        assert result[0].details["department"] == "Engineering"
         assert result[0].details["team"] == "Platform"
 
     def test_published_at_preserved_in_details(self):
