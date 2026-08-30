@@ -445,6 +445,55 @@ def test_a_none_board_that_ran_out_of_page_budget_is_refused():
     assert (v.verdict, v.reason) == (UNVERIFIED, "not_terminated_cleanly")
 
 
+def test_an_http_html_board_can_never_earn_the_history_delta_oracle():
+    """CHECK 13d — the transport whose ``terminated_cleanly`` is a hard-coded ``True``.
+
+    ``recipe_runner._run_http_html`` issues ONE request and sets
+    ``terminated_cleanly=True`` unconditionally: it has no sweep, so it cannot know
+    whether that document was the whole board or page one of forty. Every other check
+    on this path is hedging around that flag, so on ``http_html`` the hedge is vacuous.
+
+    The board this forecloses is real now, not latent — ``capture.discover`` emits
+    ``http_html`` for a document candidate (sources 2 and 6) and DROPS the pagination
+    step, because ``validate_recipe`` forbids paging on this transport. A paginating
+    careers page therefore stores a page-one-forever recipe with a perfectly stable
+    history of page-one counts, and a VERIFIED verdict on that is how jobs that merely
+    rotated onto page two get closed while they are still open.
+
+    Note the recipe is otherwise IDENTICAL to ``PLAIN_RECIPE``, which verifies two
+    tests up. The transport is the only difference, and it is the whole difference.
+    """
+    html_recipe = {**PLAIN_RECIPE, "transport": "http_html"}
+    baseline = _bl(400, (400,) * 6)
+    clean = HarvestEvidence(
+        declared_total=None, cap_hit=False, terminated_cleanly=True,
+        page_advance_ok=None, pages_fetched=1,
+    )
+
+    # The identical read on http_json is the feature working as designed...
+    assert _verdict(400, recipe=PLAIN_RECIPE, baseline=baseline,
+                    evidence=clean).verdict == VERIFIED
+
+    # ...and on http_html it is a claim the executor cannot make.
+    v = _verdict(400, recipe=html_recipe, baseline=baseline, evidence=clean)
+    assert (v.verdict, v.reason) == (UNVERIFIED, "html_no_sweep_evidence")
+
+
+def test_an_http_html_board_with_a_TRUSTED_TOTAL_still_verifies():
+    """The guard above is not a ban on the transport — it is a ban on the EMPIRICAL
+    oracle. A trusted total demands ``n == declared_total`` exactly, which a page-one
+    read of a longer board cannot fake, so proof still buys a close on html."""
+    html_recipe = {**PLAIN_RECIPE, "transport": "http_html",
+                   "oracle": {"kind": "sitemap"}}
+    proved = HarvestEvidence(
+        declared_total=400, cap_hit=False, terminated_cleanly=True,
+        page_advance_ok=None, pages_fetched=1,
+    )
+    v = _verdict(400, recipe=html_recipe, baseline=_bl(400, (400,) * 6),
+                 evidence=proved, oracle="sitemap")
+    assert (v.verdict, v.reason) == (VERIFIED, "oracle_exact")
+
+
 def test_a_zero_row_none_harvest_is_still_unprovable():
     """The zero-proof chain is untouched: a board that returns nothing and
     declares nothing cannot prove it is empty, whatever its history says."""

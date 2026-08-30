@@ -58,6 +58,7 @@ from typing import TYPE_CHECKING, Any
 from scripts.shared.models import JobListing
 
 from .harvest_meta import HarvestEvidence
+from .recipe_schema import HTTP_HTML
 
 if TYPE_CHECKING:  # avoid any import cycle; only the type is needed here
     from .custom_baseline import Baseline
@@ -733,6 +734,41 @@ def _verify_history_delta(
     a perfectly stable history of truncated counts and would sail through a
     band alone. That is the Walmart shape exactly.
     """
+    # Check 13d — ``http_html`` cannot earn an EMPIRICAL oracle, because the one
+    # piece of evidence this oracle leans on is a constant there.
+    #
+    # Every other check below is hedging around ``terminated_cleanly``: the
+    # history-delta oracle proves nothing deductively, so it needs "the sweep ran to a
+    # short page" to be a real statement about the board before the page-shape tells
+    # and the delta band are worth anything. ``recipe_runner._run_http_html`` issues
+    # ONE request and hard-codes ``terminated_cleanly=True`` — it has no sweep, so it
+    # cannot know whether that document was the whole board or page one of forty. The
+    # gate below is therefore VACUOUS on this transport, and a vacuous gate in front of
+    # a statistical band is how a permanently truncated board acquires a perfectly
+    # stable history of truncated counts and sails through (the Walmart shape, which
+    # this function's own docstring names as the thing to avoid).
+    #
+    # The concrete failure it forecloses: a paginating careers page whose records live
+    # in the served document. ``capture.discover`` emits ``http_html`` for it (sources
+    # 2 and 6 — the document became a candidate) and DROPS the pagination step, because
+    # ``validate_recipe`` forbids paging on this transport. So we read page one nightly
+    # and forever. Jobs that rotate off page one are still open on page two, but they
+    # are absent from two consecutive runs — and with a VERIFIED verdict the leaf task
+    # closes them. That is a wrong close, which is the one thing this module exists to
+    # prevent.
+    #
+    # This does NOT make ``http_html`` unclosable. It makes it closable only on a
+    # TRUSTED TOTAL — ``declared_probed`` / ``facet_sum`` / ``header`` / ``sitemap``,
+    # every one of which demands ``n == declared_total`` exactly, which a page-one read
+    # of a longer board cannot satisfy. Proof beats a stable history here; nothing else
+    # does.
+    if str(recipe.get("transport") or "") == HTTP_HTML:
+        return HarvestVerdict(
+            UNVERIFIED, "html_no_sweep_evidence",
+            declared_total=evidence.declared_total,
+            page_advance_ok=evidence.page_advance_ok,
+        )
+
     if not evidence.terminated_cleanly:
         return HarvestVerdict(
             UNVERIFIED, "not_terminated_cleanly",
