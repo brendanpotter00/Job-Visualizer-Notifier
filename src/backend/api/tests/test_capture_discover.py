@@ -1775,26 +1775,36 @@ def _replay_records(payload: Any, records_path: str, field_map: dict[str, str]):
     return _replay
 
 
-async def test_a_board_whose_own_response_counts_far_more_is_stored_as_partial() -> None:
-    """careers.walmart.com: a chat endpoint that answers ten jobs and, in the same body,
-    says the board has 47,298.
-
-    Nothing here is broken — the recipe replays, the ids match the capture, the gate
-    passes, and the ``none`` oracle means the nightly run can never close a job. What was
-    wrong is only what we SAID about it: the same green "Successfully tracking" chip and
-    the same "read 10 jobs" tick as a board we had read completely.
-    """
+def _walmart_sliver_body() -> tuple[dict[str, Any], str]:
+    """careers.walmart.com's chat endpoint: ten jobs, and 47,298 in the same body."""
     body = {"data": {"assistant": {"tool_messages": [{"artifact": {
         "total_jobs": 47298,
         "total_future_roles": 276561,     # a bigger count of something that is NOT jobs
         "page_size": 10,
         "jobs": _jobs(10),
     }}]}}}
-    path = "data.assistant.tool_messages.0.artifact.jobs"
+    return body, "data.assistant.tool_messages.0.artifact.jobs"
+
+
+async def test_a_board_we_can_reach_a_fiftieth_of_is_REFUSED_not_stored() -> None:
+    """THE COVERAGE FLOOR (S1). careers.walmart.com: a chat endpoint that answers ten
+    jobs and, in the same body, says the board has 47,298.
+
+    Every structural check is happy — the recipe replays, the ids match the capture, the
+    gate passes, and the ``none`` oracle means the nightly run could never close a job.
+    That is precisely why nothing below this line could catch it: the ONLY evidence that
+    this is the wrong list is arithmetic the board itself published, and until this stage
+    that number was measured, rendered to the user and then allowed to drive nothing.
+
+    Reaching 10 of 47,298 is 0.02%. "We are tracking this company's job board" is not a
+    true sentence about that recipe, so it is refused — with the board's own numbers in
+    the reason, because the user's next action (paste a different URL) depends on knowing
+    which board we could not read.
+    """
+    body, path = _walmart_sliver_body()
     # No page parameter in the REQUEST — that is a different defect with a different
-    # answer (``test_a_page_index_with_nothing_advancing_it_is_refused``). This board
-    # simply hands back a slice and says so in the body, and the honest response to that
-    # is the partial label, not a refusal.
+    # answer (``test_a_page_index_with_nothing_advancing_it_is_refused``), and keeping it
+    # out is what makes this test about the coverage floor and nothing else.
     response = _pageless_response(body)
     selection = RequestSelection(
         chosen_request_index=0, records_path=path,
@@ -1808,16 +1818,62 @@ async def test_a_board_whose_own_response_counts_far_more_is_stored_as_partial()
         replay_browser=_never_called_replay("browser_fetch"),
         validate_url=_allow_all,
     )
-    assert outcome.ok is True                       # still TRACKED — nothing is refused
-    assert outcome.oracle_kind == "none"            # ...and the oracle is untouched
+    assert outcome.ok is False
+    # A REFUSE stores NOTHING — that is the whole point of refusing rather than labelling.
+    assert outcome.script is None
+    assert outcome.transport is None
+    assert outcome.oracle_kind is None
+    assert "47,298" in (outcome.refuse_reason or "")
+    assert "10 job(s)" in (outcome.refuse_reason or "")
     assert outcome.progress is not None
-    assert outcome.progress["outcome"] == "partial"
-    verify = next(s for s in outcome.progress["steps"] if s["key"] == "verify_read")
-    assert verify["result"] == (
-        "read 10 job(s), but this board's own response counts 47,298 job(s) — "
-        "we can only track part of this board"
+    assert outcome.progress["outcome"] == "refused"
+
+
+def test_the_coverage_floor_fires_on_the_FEED_not_on_our_own_page_budget() -> None:
+    """MUTATION GUARD, and the correction the plan needed.
+
+    Two shortfalls look identical in ``reachable`` and mean opposite things:
+
+    * a feed that hands back one page of ten and says the board is 47,298 — the array
+      is not the board, and the floor must refuse it;
+    * a feed that PAGES the whole board while our own browser-tier ceiling (25 pages of
+      TikTok's 10-per-page API = 250 of 4,026) truncates what we read each night — the
+      array IS the board, and refusing would throw away a board we track today.
+
+    ``feed_reach`` is what separates them, and it is what ``is_refused`` reads.
+    """
+    body, path = _walmart_sliver_body()
+    candidate = prefilter_candidates([_pageless_response(body)])[0]
+    sliver = RequestSelection(
+        chosen_request_index=0, records_path=path,
+        field_map=dict(_PARTIAL_MAP), pagination=None,
     )
-    assert "PARTIAL" in (outcome.cost_note or "")
+    script = synthesize_recipe(
+        candidate, sliver, transport="http_json",
+        origin_url="https://careers.walmart.com/results",
+    )
+    coverage = _coverage(script, candidate, sliver)
+    assert coverage.feed_reach == 10
+    assert coverage.visible == 47298
+    assert coverage.is_refused is True
+
+    # ...and the same board through a request that actually pages. The nightly budget
+    # still only reaches a slice (that is the PARTIAL banner's job), but the FEED can
+    # enumerate the board, so the floor must stay silent.
+    paged = RequestSelection(
+        chosen_request_index=0, records_path=path,
+        field_map=dict(_PARTIAL_MAP),
+        pagination=PaginationHint(style="offset", param="offset", page_size=10),
+    )
+    paged_script = synthesize_recipe(
+        candidate, paged, transport="browser_fetch",
+        origin_url="https://careers.walmart.com/results",
+    )
+    paged_coverage = _coverage(paged_script, candidate, paged)
+    assert paged_coverage.feed_reach is None          # bounded by nothing the board said
+    assert paged_coverage.reachable == 250            # 25 browser pages x 10 — OUR limit
+    assert paged_coverage.is_refused is False
+    assert paged_coverage.is_partial is True
 
 
 def test_the_total_that_counts_THESE_records_wins_over_the_bigger_one_beside_it() -> None:

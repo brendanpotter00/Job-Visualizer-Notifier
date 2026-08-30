@@ -318,8 +318,8 @@ _INBAND_ERROR_KEY_CANDIDATES = ("error", "errors", "code", "status", "success")
 #
 # The remedy is ordered: WIDEN if we can prove the wider read is the same board
 # (:func:`_widen_to_union`), otherwise STOP CLAIMING A CLEAN SUCCESS
-# (:data:`OUTCOME_PARTIAL`). It is never a refusal — a partial board still shows every
-# job it can see, and refusing it would trade a truthful partial for nothing at all.
+# (:data:`OUTCOME_PARTIAL`) — and, below the floor at
+# :data:`_COVERAGE_REFUSAL_RATIO`, REFUSE.
 #
 # NOTE WHAT THIS DOES NOT TOUCH: the oracle, the gate, ``verify_harvest``. A partial
 # board keeps exactly the completeness claim it earned, which for all three above is
@@ -331,6 +331,34 @@ _MIN_CAPTURE_COVERAGE = 0.9
 # jobs between the capture and the replay is drift, not a sliver, and labelling it
 # "partial" would burn the label on every board that breathes.
 _MIN_COVERAGE_SHORTFALL = 5
+
+# THE FLOOR — and the whole of stage S1. Below this fraction of the board's own largest
+# published count, the recipe is not "part of the board", it is a different thing that
+# happens to live at the same company.
+#
+# The number was MEASURED, displayed and then drove NOTHING. Walmart's chat endpoint
+# reaches 10 records while the very same payload counts 48,800 — ratio 0.0002 — and the
+# only thing that happened was a sentence in the checklist saying so. A user reading
+# "tracking this board" over 10 of 48,800 jobs has been told something false, and every
+# nightly gate downstream agrees with it forever because the baseline was taken on this
+# run.
+#
+# WHY A REFUSAL AND NOT A LOUDER BANNER. The taxonomy's own rule (BIRTH-DEFECTS-PLAN
+# §0) is that a REQUIRED thing failing is a refusal and only an optional one degrades.
+# "This is the company's job board" is the required claim of the whole feature. Between
+# this floor and :data:`_MIN_CAPTURE_COVERAGE` the partial banner still does its job —
+# a board we read 60% of is a board worth showing — so the degrade path is untouched
+# for every case it was ever right about.
+#
+# WHY 0.10 AND NOT SOMETHING TIGHTER. It has to clear the honest narrowings the partial
+# banner exists for: kakao reaches 8 of 31 (0.26) and binance 81 of 276 (0.29), both of
+# which we would rather show than throw away. 0.10 is comfortably below both and
+# comfortably above the sliver shapes (Walmart 0.0002). A board whose OWN counts say we
+# reach under a tenth of it is not a narrowing, it is the wrong array.
+#
+# It can only ever fire when the board published a count at all: with no claims,
+# ``visible == reachable`` and the ratio is 1.0. Silence costs nothing.
+_COVERAGE_REFUSAL_RATIO = 0.10
 
 # Where a board publishes its own total. Searched deterministically (never asked of the
 # LLM) because a hallucinated oracle path is a nightly FAILED run, and because this is
@@ -767,12 +795,66 @@ class _Coverage:
     reachable: int
     visible: int
     evidence: str
+    # WHAT THE FEED ITSELF CAN ENUMERATE, with OUR budgets taken back out. ``None``
+    # means "the whole array" — a recipe that pages over the board's own list is bounded
+    # by nothing the board told us about.
+    #
+    # THE TWO NUMBERS ANSWER TWO DIFFERENT QUESTIONS and collapsing them refuses boards
+    # we read correctly today. ``reachable`` is what the NIGHTLY HARVEST will read, and
+    # it is clamped by things that are ours and not the board's: the 600 s clock
+    # (:data:`_PAGES_WITHIN_TIME_BUDGET`) and, on the browser tier, 25 pages
+    # (:data:`~api.services.recipe_schema.BROWSER_FETCH_MAX_PAGES`). That clamp is
+    # exactly what the PARTIAL banner exists to announce.
+    #
+    # ``feed_reach`` is what the FEED can enumerate, and it is what the refusal floor
+    # must be measured against, because the floor's question is "is this array the
+    # board, or a sliver of it?" — a question our own page budget has no opinion on.
+    # Measured: TikTok publishes 4,026 jobs 10 to a page and replays on the browser
+    # tier, so its ``reachable`` is 25 x 10 = 250 — 6% of the board, under any floor
+    # worth having, and a board we track perfectly well today at PARTIAL scope. The feed
+    # is not a sliver; our page ceiling is.
+    feed_reach: int | None = None
 
     @property
     def is_partial(self) -> bool:
         return (
             self.visible - self.reachable >= _MIN_COVERAGE_SHORTFALL
             and self.reachable < self.visible * _MIN_CAPTURE_COVERAGE
+        )
+
+    @property
+    def is_refused(self) -> bool:
+        """Below :data:`_COVERAGE_REFUSAL_RATIO` of the board's own largest claim.
+
+        Measured on :attr:`feed_reach`, never on :attr:`reachable` — see that field.
+
+        Strictly stronger than :attr:`is_partial` and deliberately NOT and-ed with
+        :data:`_MIN_COVERAGE_SHORTFALL`: at this ratio the shortfall is implied — one
+        reachable record against a tenth-of-the-board floor already means ``visible``
+        is above ten, so the absolute-shortfall guard could never be the thing that
+        saves a board here.
+
+        ``visible`` is ``max(claim, reachable)`` by construction, so a board that
+        published nothing has ``visible == reachable`` and can never trip this.
+        """
+        if self.feed_reach is None or self.visible <= 0:
+            return False
+        return self.feed_reach < self.visible * _COVERAGE_REFUSAL_RATIO
+
+    @property
+    def refusal_reason(self) -> str:
+        """The user-facing half of :attr:`is_refused`, in the board's own numbers.
+
+        Named as something a person can act on ("this board publishes 48,800 jobs and
+        the feed we found returns 10") rather than as a request-shape technicality —
+        the pasted URL may simply be a search page or a chat widget, and that is a
+        thing the user can fix by pasting a different URL.
+        """
+        return (
+            f"we could only read {self.feed_reach or 0:,} job(s) from the feed we "
+            f"found, but {self.evidence} — that is under "
+            f"{int(_COVERAGE_REFUSAL_RATIO * 100)}% of the board, so tracking it would "
+            "silently miss almost all of it"
         )
 
 
@@ -802,11 +884,38 @@ def _reachable_records(script: dict[str, Any], candidate: Candidate) -> int:
     return candidate.record_count
 
 
+def _feed_reach(script: dict[str, Any], candidate: Candidate) -> int | None:
+    """How many rows THE FEED can enumerate, with our own budgets taken back out.
+
+    ``None`` means "as many as the array holds" — a recipe that pages over the board's
+    own list is bounded only by the board, and the board told us of no bound. The
+    caller reads that as "not a sliver".
+
+    The one board-side bound is ``window_cap``: an API that refuses to serve past
+    offset N genuinely cannot enumerate more than N, whatever we ask (amazon.jobs'
+    ``hits: 10000`` search window over a real 22,621). That is the board's limit, not
+    ours, so it counts.
+
+    A recipe with NO pagination step reaches exactly what the one captured request
+    returned, and that number is the whole of :data:`_COVERAGE_REFUSAL_RATIO`'s subject:
+    ten rows out of a self-declared 48,800 is not a narrow read of the board, it is a
+    different list.
+    """
+    for step in script["steps"]:
+        if step["op"] in ("paginate_offset", "paginate_page"):
+            window_cap = step.get("window_cap")
+            if isinstance(window_cap, int) and window_cap > 0:
+                return window_cap
+            return None
+    return candidate.record_count
+
+
 def _coverage(
     script: dict[str, Any], candidate: Candidate, selection: RequestSelection
 ) -> _Coverage:
     """Measure the stored recipe against the board's own published counts."""
     reachable = _reachable_records(script, candidate)
+    feed_reach = _feed_reach(script, candidate)
     payload, records_path = candidate.payload, selection.records_path
     claims: list[tuple[int, str]] = []
 
@@ -824,9 +933,11 @@ def _coverage(
     # itself, so the biggest is the strongest statement that we are short — and the
     # error we care about is missing a sliver, not over-reporting one.
     if not claims:
-        return _Coverage(reachable, reachable, "")
+        return _Coverage(reachable, reachable, "", feed_reach=feed_reach)
     visible, evidence = max(claims)
-    return _Coverage(reachable, max(visible, reachable), evidence)
+    return _Coverage(
+        reachable, max(visible, reachable), evidence, feed_reach=feed_reach
+    )
 
 
 @dataclass(frozen=True)
@@ -2474,16 +2585,35 @@ async def discover(
                 if accepted is not None:
                     break
 
+            # THE LAST QUESTION, and the one nothing above can answer: we proved we can
+            # read this feed — is this feed the board? Measured against the board's own
+            # published counts, in the bytes we already captured.
+            #
+            # It runs BEFORE the accept block rather than inside it because below
+            # :data:`_COVERAGE_REFUSAL_RATIO` the answer is "no", and "no" has to be able
+            # to cost this CANDIDATE rather than the discovery: a page that fires a chat
+            # widget and a real jobs feed should end up storing the second one. Dropping
+            # ``accepted`` here is what puts us on the next-candidate path below.
+            coverage: _Coverage | None = None
             if accepted is not None:
+                coverage = _coverage(accepted[1], candidate, selection)
+                if coverage.is_refused:
+                    last_step, last_error = _STEP_ACCEPT, coverage.refusal_reason
+                    logger.warning(
+                        "capture discovery REFUSED a replayable candidate for %s: %s %s "
+                        "reaches %s record(s) against a published %d (records_path=%r)",
+                        url, candidate.method, candidate.url, coverage.feed_reach,
+                        coverage.visible, selection.records_path,
+                    )
+                    accepted = None
+
+            if accepted is not None:
+                assert coverage is not None  # set in lockstep with ``accepted`` above
                 transport, script, rows = accepted
                 (paginate_step,) = (
                     [s for s in script["steps"] if s["op"].startswith("paginate_")]
                     or [{}]
                 )
-                # THE LAST QUESTION, and the one nothing above can answer: we proved we
-                # can read this feed — is this feed the board? Measured against the
-                # board's own published counts, in the bytes we already captured.
-                coverage = _coverage(script, candidate, selection)
                 logger.info(
                     "capture discovery ACCEPTED %s: %s %s -> %d jobs on a %d-page probe "
                     "(transport=%s oracle=%s round=%d harvest_budget=%sx%s "
