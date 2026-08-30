@@ -22,7 +22,7 @@ describe('AlreadyPublicNotice', () => {
     );
     const link = screen.getByTestId('already-public-link');
     expect(link).toHaveAttribute('href', '/companies?company=spotify');
-    expect(link).toHaveTextContent(/open spotify's hiring trend/i);
+    expect(link).toHaveTextContent(/see all jobs/i);
   });
 
   it('falls back to the trends page for a company this build has never heard of', () => {
@@ -38,17 +38,17 @@ describe('AlreadyPublicNotice', () => {
 
     const link = screen.getByTestId('already-public-link');
     expect(link).toHaveAttribute('href', '/companies');
-    expect(link).toHaveTextContent(/open company hiring trends/i);
+    expect(link).toHaveTextContent(/see company hiring trends/i);
     expect(link).not.toHaveTextContent(/northwind/i);
   });
 
-  it('renders the server sentence and any secondary action it is given', () => {
+  it('renders any secondary action it is given, alongside the one-line copy', () => {
     renderWithProviders(
       <AlreadyPublicNotice result={SPOTIFY} action={<button>Do the other thing</button>} />,
     );
 
     expect(screen.getByTestId('already-public')).toHaveTextContent(
-      /its hiring trend is already there/i,
+      /we already track spotify/i,
     );
     expect(screen.getByRole('button', { name: 'Do the other thing' })).toBeInTheDocument();
   });

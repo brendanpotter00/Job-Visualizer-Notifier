@@ -55,6 +55,13 @@ interface AlreadyPublicNoticeProps {
  * names a board we already read. We never compared job sets.
  *
  * THE LINK IS THE PRIMARY ACTION on both. `action` is optional and always secondary.
+ *
+ * THE EXACT (`'board'`) CASE IS ONE LINE. It is terminal — no correction, no `action` in
+ * practice — so the server's `detail` sentence explaining *why* would just be restating
+ * "we matched your URL" to someone who cannot do anything with that. The guessed
+ * (`'name'`) case keeps the full `AlertTitle` + `detail` + link layout: a hedge needs the
+ * room to say what kind of evidence it is, because the `action` next to it is the user's
+ * one chance to say we got it wrong.
  */
 export function AlreadyPublicNotice({ result, action }: AlreadyPublicNoticeProps) {
   const known = getCompanyById(result.companyId) !== undefined;
@@ -65,16 +72,24 @@ export function AlreadyPublicNotice({ result, action }: AlreadyPublicNoticeProps
   // field only ever sent board matches.
   const guessed = result.matchKind === 'name';
 
+  if (guessed) {
+    return (
+      <Alert severity="info" sx={{ mt: 2 }} data-testid="already-public">
+        <AlertTitle>{`This looks like ${result.displayName}, which we already track`}</AlertTitle>
+        {result.detail}{' '}
+        <Link component={RouterLink} to={to} data-testid="already-public-link">
+          {known ? `Open ${result.displayName}'s hiring trend` : 'Open Company Hiring Trends'}
+        </Link>
+        {action}
+      </Alert>
+    );
+  }
+
   return (
     <Alert severity="info" sx={{ mt: 2 }} data-testid="already-public">
-      <AlertTitle>
-        {guessed
-          ? `This looks like ${result.displayName}, which we already track`
-          : `We already track ${result.displayName}`}
-      </AlertTitle>
-      {result.detail}{' '}
+      {`We already track ${result.displayName} — `}
       <Link component={RouterLink} to={to} data-testid="already-public-link">
-        {known ? `Open ${result.displayName}'s hiring trend` : 'Open Company Hiring Trends'}
+        {known ? 'See all jobs' : 'See Company Hiring Trends'}
       </Link>
       {action}
     </Alert>

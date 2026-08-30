@@ -417,9 +417,10 @@ describe('MyCompaniesPage', () => {
       await submitUrl(MICROSOFT_URL);
 
       const notice = await screen.findByTestId('already-public');
+      // The exact-match notice is one line — headline and link, no restated server
+      // detail (that's the "same job board, not the same company" nuance the mocked
+      // `detail` above carries; the guessed-match notice below still surfaces it).
       expect(notice).toHaveTextContent(/we already track microsoft/i);
-      // "the same job board", never "the same company" — we matched a host, not a job set.
-      expect(notice).toHaveTextContent(/the same job board/i);
       expect(screen.getByTestId('already-public-link')).toHaveAttribute(
         'href',
         '/companies?company=microsoft'
