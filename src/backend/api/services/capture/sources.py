@@ -629,7 +629,19 @@ _TAG_RE = re.compile(r"<[^>]+>")
 
 
 def _anchor_rows(markup: str, board_host: str) -> dict[str, list[dict[str, str]]]:
-    """Same-host anchors with visible text, grouped by the directory they share."""
+    """Same-host anchors with visible text, grouped by the directory they share.
+
+    A TRAILING SLASH IS NOT A DIRECTORY LEVEL, and treating it as one silently lost a
+    board. ``citadel.com/careers/open-opportunities/`` publishes ten
+    ``<a class="careers-listing-card" href="…/careers/details/<slug>/">`` — with the
+    slash — so ``rsplit`` alone made each posting its own group of ONE, every group fell
+    under :data:`_MIN_HTML_RECORDS`, and :func:`anchor_candidate` returned ``None`` for a
+    board whose whole job list was sitting in the served document. Stripping it first
+    groups all ten under ``/careers/details/``.
+
+    Y Combinator is the natural control: its job hrefs carry no trailing slash, which is
+    exactly why the same code path has always worked there.
+    """
     groups: dict[str, list[dict[str, str]]] = {}
     seen: set[str] = set()
     for href, inner in _ANCHOR_RE.findall(markup):
@@ -639,7 +651,7 @@ def _anchor_rows(markup: str, board_host: str) -> dict[str, list[dict[str, str]]
         parts = urlsplit(href)
         if parts.netloc and (parts.hostname or "").lower() != board_host:
             continue
-        directory = parts.path.rsplit("/", 1)[0] + "/"
+        directory = parts.path.rstrip("/").rsplit("/", 1)[0] + "/"
         if len(directory) <= 1:
             continue
         seen.add(href)

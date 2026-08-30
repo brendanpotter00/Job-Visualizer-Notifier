@@ -31,6 +31,7 @@ from api.services.capture.network_capture import CaptureResult, _islands_from_re
 from api.services.capture.sources import (
     _MAX_HTML_CANDIDATES,
     _MIN_HTML_RECORDS,
+    _anchor_rows,
     anchor_candidate,
     document_candidates,
     island_candidates,
@@ -251,6 +252,57 @@ def test_the_served_documents_job_anchors_become_an_extract_css_candidate() -> N
     assert candidate.records[0] == {
         "id": "/jobs/0-engineer", "title": "Staff Engineer 0", "url": "/jobs/0-engineer",
     }
+
+
+def test_a_trailing_slash_does_not_split_a_job_list_into_singletons() -> None:
+    """THE ONE-CHARACTER LOSS. ``directory = path.rsplit("/", 1)[0] + "/"`` treats a
+    trailing slash as a directory level, so a board whose job hrefs end in one —
+    ``/en/jobs/300235/`` — put every posting in its OWN group of one, every group fell
+    under ``_MIN_HTML_RECORDS``, and ``anchor_candidate`` returned ``None`` for a board
+    whose entire job list was sitting in the served document.
+
+    Measured live on ``jobs.uber.com/en/jobs/`` (2026-08-30, 280,667-byte served
+    document), the same page A/B'd on this one character: before, **10 groups of 1** and
+    no candidate; after, **one group of 10** and an ``extract_css`` candidate.
+    """
+    slashed = "".join(
+        f'<a href="/en/jobs/{300000 + i}/">Engineer {i}</a>' for i in range(10)
+    )
+    captured = _captured(server_html=f"<html><body>{slashed}</body></html>")
+    rows = _anchor_rows(f"<html><body>{slashed}</body></html>", _HOST)
+    assert list(rows) == ["/en/jobs/"], (
+        f"a trailing slash is not a directory level; grouped as {sorted(rows)}"
+    )
+    assert len(rows["/en/jobs/"]) == 10
+
+    candidate = anchor_candidate(captured, _HOST)
+    assert candidate is not None
+    assert candidate.html is not None
+    assert candidate.html.selector == 'a[href*="/en/jobs/"]'
+    assert candidate.record_count == 10
+    # The href is kept VERBATIM, slash and all — ``_run_css`` stores exactly this string
+    # as the row id, so the candidate's ids and the replay's ids stay equal.
+    assert candidate.records[0]["id"] == "/en/jobs/300000/"
+
+
+def test_the_no_trailing_slash_board_groups_exactly_as_it_always_did() -> None:
+    """Y Combinator is the natural control: its job hrefs carry NO trailing slash, which
+    is why this code path has always worked there. Its grouping must not move."""
+    plain = "".join(
+        f'<a href="/companies/raindrop/jobs/{i}-engineer">Engineer {i}</a>'
+        for i in range(9)
+    )
+    rows = _anchor_rows(f"<html><body>{plain}</body></html>", _HOST)
+    assert list(rows) == ["/companies/raindrop/jobs/"]
+    assert len(rows["/companies/raindrop/jobs/"]) == 9
+
+
+def test_a_link_to_a_directory_itself_is_still_not_a_group() -> None:
+    """``/jobs/`` strips to ``/jobs``, whose directory is ``/`` — the root, which the
+    length guard already drops. Stripping the slash must not turn a nav link into a
+    group of its own parent."""
+    markup = '<html><body><a href="/jobs/">All jobs</a><a href="/about/">About</a></body></html>'
+    assert _anchor_rows(markup, _HOST) == {}
 
 
 def test_a_pages_own_navigation_is_not_a_job_list() -> None:

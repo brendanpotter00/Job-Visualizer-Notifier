@@ -729,3 +729,108 @@ class TestAC19OracleFusionPagination:
             "AC-19b: a recipe that DOES sweep is judged by checks 5 and 6, which are "
             "strictly stronger — firing 13a here would refuse every healthy board"
         )
+
+
+# --------------------------------------------------------------------------
+# AC-17 — the anchor directory, and one character of trailing slash
+# --------------------------------------------------------------------------
+
+class TestAC17AnchorTrailingSlash:
+    """AC-17 — **a trailing slash in a job URL must never split the group**.
+
+    ``sources._anchor_rows`` grouped anchors by ``path.rsplit("/", 1)[0] + "/"``, which
+    treats a trailing slash as a directory level. A board whose job hrefs end in one puts
+    every posting in its OWN group of one, every group falls under
+    ``_MIN_HTML_RECORDS = 8``, and ``anchor_candidate`` returns ``None`` for a board
+    whose entire job list is sitting in the served document.
+
+    Hermetic, over the REAL served document of ``jobs.uber.com/en/jobs/``
+    (``fixtures/uber_jobs_document.html`` — every ``<a>`` of the live 280,667-byte page,
+    verbatim, captured 2026-08-30). A/B'd live on that one character the same day:
+    **before, 10 groups of 1 and no candidate; after, one group of 10 and an
+    ``extract_css`` candidate.**
+
+    **A correction to BOARD-FAILURE-TRIAGE.md.** It names Citadel as the board this
+    recovers "outright", on the strength of ten
+    ``<a class="careers-listing-card" href="…/careers/details/<slug>/">`` in the served
+    document. That did not reproduce: measured 2026-08-30 through the real
+    ``capture_board``, ``citadel.com/careers/open-opportunities/`` answers the host-pin
+    fetch with a 5,939-byte Cloudflare interstitial (``<title>Just a moment...</title>``)
+    and its RENDERED DOM carries 102 links, **none** of them under ``/careers/details/``.
+    The Citadel shape is kept below as a shape — it is the exact one this fixes — but
+    Uber is the board with the evidence, so Uber is the fixture.
+    """
+
+    def _rows(self, markup: str, host: str) -> dict:
+        from api.services.capture.sources import _anchor_rows
+        return _anchor_rows(markup, host)
+
+    def test_ac17_uber_job_anchors_group_under_one_directory(self) -> None:
+        from api.services.capture.sources import _MIN_HTML_RECORDS, anchor_candidate
+
+        markup = (FIXTURES / "uber_jobs_document.html").read_text()
+        assert 'href="/en/jobs/300235/"' in markup, (
+            "AC-17: the fixture must keep the TRAILING SLASH — it is the defect"
+        )
+        rows = self._rows(markup, "jobs.uber.com")
+        jobs = [d for d in rows if d.startswith("/en/jobs/")]
+        assert jobs == ["/en/jobs/"], (
+            f"AC-17: ten postings under one directory, not N singletons; got {jobs}"
+        )
+        assert len(rows["/en/jobs/"]) >= _MIN_HTML_RECORDS, (
+            f"AC-17: the group has to clear _MIN_HTML_RECORDS={_MIN_HTML_RECORDS} or "
+            f"anchor_candidate discards it; got {len(rows['/en/jobs/'])}"
+        )
+
+        captured = CaptureResult(
+            final_url="https://jobs.uber.com/en/jobs/", page_title="", responses=[],
+            server_html=markup, server_html_url="https://jobs.uber.com/en/jobs/",
+        )
+        candidate = anchor_candidate(captured, "jobs.uber.com")
+        assert candidate is not None, (
+            "AC-17: this board renders its whole job list into the served document and "
+            "must produce an extract_css candidate"
+        )
+        assert candidate.html.selector == 'a[href*="/en/jobs/"]'
+        assert candidate.records[0]["id"].endswith("/"), (
+            "AC-17: the href is stored VERBATIM — _run_css stores exactly this string as "
+            "the row id, so trimming it here would break the match-the-capture check"
+        )
+
+    def test_ac17_the_citadel_shape_groups_too(self) -> None:
+        """The shape BOARD-FAILURE-TRIAGE.md names, kept as a shape.
+
+        WordPress cards at ``https://www.citadel.com/careers/details/<slug>/``. The live
+        board no longer serves these to us (see the class docstring), so this is the
+        pattern under test rather than the employer.
+        """
+        cards = "".join(
+            f'<a class="careers-listing-card" '
+            f'href="https://www.citadel.com/careers/details/role-{i}/">Role {i}</a>'
+            for i in range(10)
+        )
+        rows = self._rows(f"<html><body>{cards}</body></html>", "www.citadel.com")
+        assert list(rows) == ["/careers/details/"]
+        assert len(rows["/careers/details/"]) == 10
+
+    def test_ac17_the_no_slash_control_is_unchanged(self) -> None:
+        """Y Combinator is the natural control and the reason this path worked at all:
+        its job hrefs carry NO trailing slash. Measured live 2026-08-30 —
+        ``ycombinator.com/companies/raindrop/jobs`` still groups 9 anchors under
+        ``/companies/raindrop/jobs/``. That grouping must not move."""
+        plain = "".join(
+            f'<a href="/companies/raindrop/jobs/{i}-engineer">Engineer {i}</a>'
+            for i in range(9)
+        )
+        rows = self._rows(f"<html><body>{plain}</body></html>", "www.ycombinator.com")
+        assert list(rows) == ["/companies/raindrop/jobs/"]
+        assert len(rows["/companies/raindrop/jobs/"]) == 9
+
+    def test_ac17_a_link_to_the_directory_itself_is_still_not_a_group(self) -> None:
+        """``/jobs/`` strips to ``/jobs``, whose directory is the root — which the length
+        guard drops. Stripping the slash must not promote a nav link into a group."""
+        markup = (
+            '<html><body><a href="/jobs/">All jobs</a>'
+            '<a href="/careers/">Careers</a></body></html>'
+        )
+        assert self._rows(markup, "b.example") == {}
