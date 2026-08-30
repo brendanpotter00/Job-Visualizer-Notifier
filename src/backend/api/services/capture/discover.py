@@ -1783,7 +1783,7 @@ def _rebind_to_selection(candidate: Candidate, selection: RequestSelection) -> C
     replay returned 12 job(s) but the browser saw 30", a message that is also simply
     false, and wrote 30 as the page size of a 12-record page.
 
-    ``select_request`` already proved the path resolves; the guard is for an injected
+    ``select_candidates`` already proved the path resolves; the guard is for an injected
     selector (tests) and for a future caller that does not.
     """
     try:

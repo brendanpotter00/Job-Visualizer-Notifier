@@ -926,7 +926,7 @@ def test_the_re_ask_carries_what_we_measured_about_the_last_answer() -> None:
 
 
 @pytest.mark.asyncio
-async def test_select_request_forwards_the_feedback_to_the_one_paid_call() -> None:
+async def test_the_feedback_reaches_the_candidate_call_that_is_being_re_asked() -> None:
     calls: list[dict[str, Any]] = []
     await _select_one(
         _candidates("amazon"),

@@ -54,7 +54,12 @@ from api.tests.test_capture_discover import (
     _amazon_response,
     _amazon_body,
 )
-from api.tests.test_request_selector import _AMAZON_ANSWER, _answering, _capture
+from api.tests.test_request_selector import (
+    _AMAZON_ANSWER,
+    _answering,
+    _capture,
+    _select_one,
+)
 
 # The real value recorded off apply.careers.microsoft.com — unix SECONDS. Its
 # millisecond twin is the same instant ×1000. Both must land in 2026: read the
@@ -428,7 +433,7 @@ async def test_the_observed_format_actually_travels_to_the_synthesizer() -> None
     can be perfect while the answer never crosses between them — and the symptom would
     be identical to having shipped neither."""
     candidates = rs.prefilter_candidates(_capture("amazon"))
-    selection = await rs.select_request(
+    selection = await _select_one(
         candidates, create_message=_answering(_AMAZON_ANSWER)
     )
     assert selection.posted_at_format == PostedDateFormat("strptime", "%B %d, %Y")

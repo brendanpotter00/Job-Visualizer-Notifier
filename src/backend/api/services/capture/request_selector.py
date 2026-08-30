@@ -8,10 +8,14 @@ custom-company feature. It is two halves on purpose, and the order is load-beari
   noise a careers page fires (a real board sends dozens). This is what makes the LLM
   prompt small, cheap and reproducible; without it the model would be asked to reason
   over 40 bodies of which 38 are session pings.
-* :func:`select_request` — **Claude Haiku 4.5, once, ever**, with structured output:
-  which candidate is the jobs feed and how its record fields map to
-  ``{id, title, url, location?, posted_at?, description?}``. Runtime
-  never calls this again; the answer is baked into the stored recipe.
+* :func:`select_candidates` — **Claude Haiku 4.5, once per surviving candidate, in
+  parallel**, with structured output: is THIS array a list of job postings, and how do
+  its record fields map to ``{id, title, url, location?, posted_at?, description?}``.
+  One array per call is what makes "no" cheap — it costs that array and not the board —
+  and the crowding-out it fixes happened WITHIN one source, so fanning out per source
+  kind would have changed nothing. Runtime never calls any of this again; the answer is
+  baked into the stored recipe, and which of several yeses gets stored is decided on
+  MEASUREMENTS by ``discover._rank_answers``, never on the model's own ranking.
 
 The client/validation/degradation pattern is copied deliberately from
 :mod:`api.services.llm_client` (same model constant family, ``max_retries=0`` — the
