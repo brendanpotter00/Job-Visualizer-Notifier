@@ -273,15 +273,26 @@ def _request_params(fetch: dict[str, Any]) -> dict[str, Any]:
     pagination cursor merge uses — so "where a parameter lives in this body" has
     exactly one definition in the codebase. On a duplicate name the shallowest
     wins, which is that walker's breadth-first guarantee.
+
+    ...AND EVERY ``name=<int>`` TOKEN INSIDE A COMPOSITE QUERY VALUE, through the same
+    walker the GET cursor merge uses. That is not tidiness, it is check 13's own job:
+    Oracle Fusion sends its whole search as ``finder=findReqs;…,limit=25,…,offset=75``,
+    so a scan of real query parameters alone sees NO page index and NO page size on a
+    request that carries both. A stored recipe over such a board with no pagination step
+    would then pass 13a and 13b, read 25 of 7,181 jobs, and — on a board that publishes
+    no total to contradict it — be free to VERIFY and close the other 7,156.
     """
     from urllib.parse import parse_qsl, urlsplit
 
-    from .recipe_runner import iter_body_params
+    from .recipe_runner import iter_body_params, iter_composite_query_params
 
+    url = str(fetch.get("url") or "")
     params: dict[str, Any] = {}
-    for key, value in parse_qsl(urlsplit(str(fetch.get("url") or "")).query):
+    for key, value in parse_qsl(urlsplit(url).query):
         params.setdefault(_normalize_param(key), value)
     for _path, key, value in iter_body_params(fetch.get("body")):
+        params.setdefault(_normalize_param(key), value)
+    for _container, key, value in iter_composite_query_params(url):
         params.setdefault(_normalize_param(key), value)
     return params
 

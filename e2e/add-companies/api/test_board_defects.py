@@ -30,8 +30,10 @@ import json
 import os
 import subprocess
 import sys
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qsl, urlsplit
 
 import pytest
 
@@ -569,4 +571,161 @@ class TestAC18PerElementWrapper:
         assert "from" not in request_body and "offset" not in request_body, (
             "AC-18: if IBM starts sending its page offset, this board becomes "
             "readable and this case should be rewritten rather than deleted"
+        )
+
+
+# --------------------------------------------------------------------------
+# AC-19 clause (b) — Oracle Fusion pages inside its composite finder
+# --------------------------------------------------------------------------
+
+#: The board's own later pages append this to the finder value. The capture records
+#: several of them: the page scrolls itself during the observation window.
+_OFFSET_TOKEN = "%2Coffset%3D25"
+
+
+class TestAC19OracleFusionPagination:
+    """AC-19 clause (b) — **the paging parameter the model cannot see**.
+
+    Oracle Fusion Recruiting carries its whole search in ONE query value::
+
+        finder=findReqs;siteNumber=CX_1001,facetsList=...,limit=25,sortBy=...,offset=75
+
+    The selector prompt asks for "an obvious paging parameter you can see in its URL",
+    and measured 2026-08-30 the real Haiku call answered ``pagination: null`` on **6 of
+    6** candidates — correctly by its own instructions, because ``offset`` is not a
+    parameter of that URL, it is a token inside one. No paging step was synthesised, the
+    recipe reached 25 records against a self-declared 7,181, and the coverage floor
+    refused the board at 0.35%.
+
+    Measured again after the fix, same board, same day, through the real ``discover()``
+    and then the real ``run_recipe``:
+
+    * ``ok=True``, ``transport=http_json``, ``oracle=declared_probed`` on
+      ``items.0.TotalJobsCount``, ``paginate_offset`` on ``offset`` at 25/page,
+      ``max_pages=290``;
+    * the harvest read **7,124 distinct rows over 285 pages in 195s** against a declared
+      **7,181** — ``cap_hit=False``, ``terminated_cleanly=True``, ``page_advance_ok=True``.
+
+    Hermetic, over the real page-1 bytes. A live JPMorgan case would spend a 195s,
+    7,124-row harvest on every suite run, and what is under test is a URL shape a
+    fixture holds perfectly still.
+    """
+
+    def _paged_capture(self) -> CaptureResult:
+        """The captured feed at the offset the board's own scrolling reached."""
+        captured = load_capture("oracle_fusion_jpmc")
+        (response,) = captured.responses
+        return replace(
+            captured, responses=[replace(response, url=response.url + _OFFSET_TOKEN)]
+        )
+
+    def test_ac19b_offset_is_not_a_query_parameter_of_this_board(self) -> None:
+        """The premise, asserted rather than assumed."""
+        raw = json.loads((FIXTURES / "oracle_fusion_jpmc.json").read_text())["url"]
+        names = {name for name, _ in parse_qsl(urlsplit(raw + _OFFSET_TOKEN).query)}
+        assert names == {"onlyData", "expand", "finder"}, (
+            f"AC-19b: this case is about a token INSIDE a value; got {names}"
+        )
+        assert "offset=25" in dict(
+            parse_qsl(urlsplit(raw + _OFFSET_TOKEN).query)
+        )["finder"]
+
+    def test_ac19b_the_recipe_pages_and_carries_the_declared_total(self) -> None:
+        from api.services.recipe_runner import map_records
+
+        captured = self._paged_capture()
+        payload = json.loads(captured.responses[0].body)
+        records = payload["items"][0]["requisitionList"]
+
+        async def _select(candidates: list[Any], **_: Any):
+            # ``pagination=None`` is EXACTLY what the real model returns for this board.
+            return [CandidateAnswer(
+                candidate_index=0,
+                selection=replace(ORACLE_SELECTION, pagination=None),
+                confidence="high",
+            )]
+
+        async def _replay(script: dict[str, Any]) -> tuple[list[dict], HarvestEvidence]:
+            (extract,) = [
+                st for st in script["steps"] if st["op"] == "extract_json_path"
+            ]
+            rows = map_records(records, extract["fields"], script.get("base_url", ""))
+            return rows, HarvestEvidence(
+                declared_total=7181, cap_hit=False, terminated_cleanly=True,
+                page_advance_ok=True, pages_fetched=2, transport_ok=True,
+            )
+
+        outcome = asyncio.run(discover(
+            "https://jpmc.fa.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1001/jobs",
+            capture=capturing(captured),
+            select=_select,
+            replay_http=_replay,
+            replay_browser=failing_replay(AssertionError("http_json must be enough")),
+            validate_url=allow_all,
+            probe_link=one_page_per_job(),
+            collect_sources=no_well_known,
+        ))
+
+        assert outcome.ok is True, (
+            "AC-19b: the coverage floor refused this board at 25-against-7,181 before "
+            f"the paging landed; it must pass now. Got: {outcome.refuse_reason!r}"
+        )
+        assert outcome.script is not None
+        (paginate,) = [
+            st for st in outcome.script["steps"] if st["op"].startswith("paginate_")
+        ]
+        assert (paginate["op"], paginate["param"]) == ("paginate_offset", "offset")
+        assert outcome.script["oracle"] == {
+            "kind": "declared_probed", "total_path": "items.0.TotalJobsCount",
+        }, (
+            "AC-19b: Oracle wraps its whole envelope in a one-element list, so the "
+            "total-path walk has to enter it; without that the board stores "
+            f"self_consistent and makes no completeness claim. Got "
+            f"{outcome.script['oracle']!r}"
+        )
+        assert paginate["max_pages"] >= 7181 // paginate["page_size"], (
+            "AC-19b: the stored budget must be able to REACH the end of the board, or "
+            "the completeness gate can never answer anything but UNVERIFIED"
+        )
+
+    def test_ac19b_the_cursor_is_written_inside_the_finder_not_beside_it(self) -> None:
+        """The half that decides whether the sweep is 285 pages or page one, 285 times.
+
+        ``httpx.URL.copy_merge_params`` appends ``&offset=0``, which this board does not
+        read. Both transports have to agree — that parity is pinned in
+        ``src/backend/api/tests/test_browser_fetch_runner.py``.
+        """
+        from api.services.recipe_runner import merge_query_params
+
+        raw = json.loads((FIXTURES / "oracle_fusion_jpmc.json").read_text())["url"]
+        merged = merge_query_params(raw + _OFFSET_TOKEN, {"offset": 0})
+        finder = merged.params["finder"]
+        assert "offset=0" in finder and "offset=25" not in finder
+        assert "offset" not in merged.params, (
+            "AC-19b: a top-level `&offset=` beside the finder is what the board ignores"
+        )
+        assert "sortBy=POSTING_DATES_DESC" in finder and "limit=25" in finder, (
+            "AC-19b: nothing else in the composite value may move"
+        )
+
+    def test_ac19b_check_13_can_see_the_hidden_page_index_too(self) -> None:
+        """The never-wrong-close half, and it is not a bonus — the fix makes it
+        reachable. Check 13a refuses a stored recipe that carries a page index with
+        nothing advancing it; scanning only real query parameters, it saw NEITHER the
+        index nor the page size on a request that carries both. A composite board with
+        no declared total to contradict it could then read 25 of 7,181 and be free to
+        VERIFY and close the rest.
+        """
+        from api.services.harvest_verification import page_shape_refusal
+
+        raw = json.loads((FIXTURES / "oracle_fusion_jpmc.json").read_text())["url"]
+        unswept = {"steps": [{"op": "fetch", "url": raw + _OFFSET_TOKEN}]}
+        assert page_shape_refusal(unswept, 25) == "page_param_unpaginated"
+        swept = {"steps": unswept["steps"] + [
+            {"op": "paginate_offset", "param": "offset", "page_size": 25,
+             "max_pages": 290},
+        ]}
+        assert page_shape_refusal(swept, 25) is None, (
+            "AC-19b: a recipe that DOES sweep is judged by checks 5 and 6, which are "
+            "strictly stronger — firing 13a here would refuse every healthy board"
         )

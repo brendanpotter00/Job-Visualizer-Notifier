@@ -45,7 +45,9 @@ from api.services.recipe_rows import recipe_rows_to_job_listings
 from api.services.recipe_runner import (
     _request,
     find_body_param_path,
+    iter_composite_query_params,
     merge_body_params,
+    merge_query_params,
     render_field,
     run_recipe,
 )
@@ -195,6 +197,89 @@ def test_unpaginated_recipes_send_the_captured_request_verbatim(name: str) -> No
     if fetch["method"] == "POST":
         assert json.loads(sent.content or b"{}") == (fetch.get("body") or {})
     assert str(sent.url) == fetch["url"]
+
+
+# --------------------------------------------------------------------------
+# DEFECT A, THE GET HALF: the cursor inside a COMPOSITE query value
+# --------------------------------------------------------------------------
+#
+# Oracle Fusion Recruiting carries its whole search — filters, sort, page size AND page
+# offset — inside ONE query parameter:
+#
+#   finder=findReqs;siteNumber=CX_1001,facetsList=...,limit=25,sortBy=...,offset=75
+#
+# ``copy_merge_params`` appends ``&offset=25``, which that board does not read, so every
+# page of the sweep is page one. Same failure class as the higher.gs.com nested body,
+# other transport.
+
+_ORACLE_URL = (
+    "https://jpmc.fa.oraclecloud.com/hcmRestApi/resources/latest/"
+    "recruitingCEJobRequisitions?onlyData=true"
+    "&expand=requisitionList.secondaryLocations"
+    "&finder=findReqs;siteNumber=CX_1001,facetsList=LOCATIONS%3BWORK_LOCATIONS,"
+    "limit=25,sortBy=POSTING_DATES_DESC,offset=75"
+)
+
+
+def test_a_composite_query_cursor_is_set_where_the_board_carries_it() -> None:
+    """Measured 2026-08-30 against the live board: with the cursor written inside the
+    ``finder`` value the sweep read 7,124 distinct rows over 285 pages against a declared
+    7,181; appended as a top-level parameter it reads page one, 285 times."""
+    merged = merge_query_params(_ORACLE_URL, {"offset": 0})
+    finder = merged.params["finder"]
+    assert "offset=0" in finder and "offset=75" not in finder
+    # ...and NOTHING else in that value moved.
+    assert finder == (
+        "findReqs;siteNumber=CX_1001,facetsList=LOCATIONS;WORK_LOCATIONS,"
+        "limit=25,sortBy=POSTING_DATES_DESC,offset=0"
+    )
+    # ...and no stray top-level cursor was appended beside it.
+    assert "offset" not in merged.params
+    # ...and every other captured parameter survives.
+    assert merged.params["onlyData"] == "true"
+    assert merged.params["expand"] == "requisitionList.secondaryLocations"
+
+
+def test_only_an_integer_token_is_ever_rewritten() -> None:
+    """The safety of the whole mechanism. ``sortBy=POSTING_DATES_DESC`` and
+    ``facetsList=LOCATIONS;WORK_LOCATIONS`` live in the same value as the cursor, and a
+    substring rewrite over either of them is a request the board answers with something
+    other than page two."""
+    tokens = {name for _c, name, _v in iter_composite_query_params(_ORACLE_URL)}
+    assert tokens == {"limit", "offset"}, (
+        f"only the integer-valued tokens may be addressable; got {tokens}"
+    )
+    untouched = merge_query_params(_ORACLE_URL, {"sortBy": "x"})
+    assert "sortBy=POSTING_DATES_DESC" in untouched.params["finder"]
+    assert untouched.params["sortBy"] == "x"     # a name it does not carry: top level
+
+
+def test_a_flat_get_cursor_merges_exactly_as_before() -> None:
+    """The compatibility guarantee, and the reason this is safe to land on every board:
+    a name that is already a real query parameter, or that appears nowhere, takes the
+    ``copy_merge_params`` path untouched."""
+    url = "https://b.example/api?team=eng&limit=100&offset=0"
+    assert str(merge_query_params(url, {"offset": 200})) == str(
+        httpx.URL(url).copy_merge_params({"offset": 200})
+    )
+    plain = "https://b.example/api?team=eng"
+    assert str(merge_query_params(plain, {"offset": 200})) == str(
+        httpx.URL(plain).copy_merge_params({"offset": 200})
+    )
+    assert str(merge_query_params(plain, None)) == plain
+
+
+@pytest.mark.parametrize("name", sorted(_CURSOR_PLACEMENT) + list(_NO_PAGINATION))
+def test_no_stored_recipe_has_a_composite_cursor_to_rewrite(name: str) -> None:
+    """The corpus control. Not one board in the tracked set carries a paging token
+    inside a query value, so the new branch is unreachable for all of them and their
+    bytes cannot have changed."""
+    script = _load(_RECIPES / name)
+    url = _step(script, "fetch")["url"]
+    for _container, token, _value in iter_composite_query_params(url):
+        assert token.lower() not in {
+            "offset", "from", "start", "startindex", "startrow", "skip", "firstresult",
+        }, f"{name} carries a composite cursor {token!r} — this test is now load-bearing"
 
 
 def test_a_cursor_name_the_body_does_not_carry_still_lands_at_the_top_level() -> None:

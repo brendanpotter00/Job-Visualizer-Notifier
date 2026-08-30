@@ -493,6 +493,48 @@ def test_child_get_cursor_merge_preserves_the_captured_filters() -> None:
     assert missing == "None" and unparseable == "None"
 
 
+def test_child_composite_cursor_merge_matches_the_parents_exactly() -> None:
+    """The two transports must page IDENTICALLY or the same stored recipe means two
+    different things — so the child's composite write is pinned against the parent's.
+
+    Oracle Fusion carries its offset inside the ``finder`` value; a top-level
+    ``&offset=N`` beside it changes nothing the board reads and every page is page one.
+    """
+    url = (
+        "https://jpmc.fa.oraclecloud.com/hcmRestApi/resources/latest/"
+        "recruitingCEJobRequisitions?onlyData=true"
+        "&finder=findReqs;siteNumber=CX_1001,limit=25,sortBy=POSTING_DATES_DESC,offset=75"
+    )
+    code = (
+        "import json, sys\n"
+        "from api.services.browser_fetch._browser_fetch_main import _merge_query\n"
+        "print(_merge_query(sys.argv[1], {'offset': 0}))\n"
+        "print(_merge_query(sys.argv[1], {'page': 3}))\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code, url],
+        cwd=str(_BACKEND), env=_SUBPROC_ENV,
+        capture_output=True, text=True, timeout=120,
+    )
+    assert result.returncode == 0, result.stderr
+    composite, unknown = result.stdout.strip().splitlines()
+
+    import httpx
+
+    from api.services.recipe_runner import merge_query_params
+
+    assert httpx.URL(composite).params["finder"] == (
+        merge_query_params(url, {"offset": 0}).params["finder"]
+    )
+    assert "offset=0" in httpx.URL(composite).params["finder"]
+    assert "offset" not in httpx.URL(composite).params
+    # A name the URL carries NOWHERE still lands as a top-level parameter, in both.
+    assert httpx.URL(unknown).params["page"] == "3"
+    assert httpx.URL(unknown).params["page"] == (
+        merge_query_params(url, {"page": 3}).params["page"]
+    )
+
+
 def test_child_post_cursor_merge_matches_the_parents_exactly() -> None:
     """The POST twin of the GET merge above, and the same failure class: a cursor
     written at the TOP LEVEL of a nested body leaves the real one at its captured value

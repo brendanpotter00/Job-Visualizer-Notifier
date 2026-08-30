@@ -36,6 +36,7 @@ graph — and therefore the forbidden-import closure — behind Playwright.
 from __future__ import annotations
 
 import json
+import re
 import sys
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
@@ -126,6 +127,20 @@ def _count_records(text: str, records_path: str) -> int | None:
     return len(records) if isinstance(records, list) else None
 
 
+# Delimiters of a COMPOSITE query value — see ``recipe_runner._COMPOSITE_DELIMITERS``.
+# Re-declared rather than imported under this file's zero-first-party-import rule (see
+# the module docstring), and pinned against the parent's copy by
+# ``test_browser_fetch_runner``.
+_COMPOSITE_DELIMITERS = ",;"
+
+
+def _composite_pattern(name: str) -> "re.Pattern[str]":
+    return re.compile(
+        rf"(?:(?<=[{_COMPOSITE_DELIMITERS}])|\A){re.escape(name)}="
+        rf"(?P<value>\d+)(?=[{_COMPOSITE_DELIMITERS}]|\Z)"
+    )
+
+
 def _merge_query(url: str, params: dict[str, Any]) -> str:
     """MERGE ``params`` into the URL's EXISTING query, replacing only those keys.
 
@@ -133,12 +148,31 @@ def _merge_query(url: str, params: dict[str, Any]) -> str:
     exactly the reason spelled out there: replacing the whole query string would drop
     every captured filter and silently turn a scoped board into the global one. The
     two transports must page identically or the same recipe means two different things.
+
+    ...and SETS the cursor inside a COMPOSITE value where the board already carries it,
+    which is the same rule ``recipe_runner.merge_query_params`` follows. Oracle Fusion
+    (``finder=findReqs;siteNumber=CX_1001,limit=25,offset=75``) reads its offset only
+    from inside that one value; appending a top-level ``&offset=25`` would make every
+    page of the sweep page one.
     """
     parts = urlsplit(url)
-    existing = [(k, v) for k, v in parse_qsl(parts.query, keep_blank_values=True)
-                if k not in params]
-    existing.extend((k, str(v)) for k, v in params.items())
-    return urlunsplit(parts._replace(query=urlencode(existing)))
+    existing = parse_qsl(parts.query, keep_blank_values=True)
+    inline = {k: v for k, v in params.items()
+              if not any(k == name for name, _ in existing)}
+    placed: set[str] = set()
+    merged: list[tuple[str, str]] = []
+    for key, value in existing:
+        if key in params:
+            continue
+        for name, cursor in inline.items():
+            pattern = _composite_pattern(name)
+            if pattern.search(value):
+                replacement = f"{name}={cursor}"
+                value = pattern.sub(lambda _m: replacement, value, count=1)
+                placed.add(name)
+        merged.append((key, value))
+    merged.extend((k, str(v)) for k, v in params.items() if k not in placed)
+    return urlunsplit(parts._replace(query=urlencode(merged)))
 
 
 def _merge_body(body: dict[str, Any], params: dict[str, Any]) -> dict[str, Any]:

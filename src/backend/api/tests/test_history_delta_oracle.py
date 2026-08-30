@@ -230,6 +230,51 @@ def test_a_generous_page_size_the_harvest_did_not_fill_is_positive_evidence():
     assert page_shape_refusal(recipe, 232) is None
 
 
+def test_a_page_index_hidden_inside_a_composite_query_value_is_still_a_tell():
+    """13a, over the shape a real-parameter scan cannot see.
+
+    Oracle Fusion sends its whole search as one query value —
+    ``finder=findReqs;siteNumber=CX_1001,limit=25,sortBy=...,offset=75`` — so a scan of
+    the URL's actual parameters finds NO page index and NO page size on a request that
+    carries both. A stored recipe over such a board with no pagination step would pass
+    13a and 13b, read 25 of 7,181 jobs, and on a board that publishes no total to
+    contradict it be free to VERIFY and close the other 7,156.
+    """
+    recipe = {"steps": [{"op": "fetch", "url": (
+        "https://jpmc.fa.oraclecloud.com/hcmRestApi/resources/latest/"
+        "recruitingCEJobRequisitions?onlyData=true"
+        "&finder=findReqs;siteNumber=CX_1001,limit=25,sortBy=POSTING_DATES_DESC,offset=75"
+    )}]}
+    assert page_shape_refusal(recipe, 25) == "page_param_unpaginated"
+    # ...and the same request WITH a sweep is out of scope, exactly like Goldman's:
+    # checks 5 and 6 are strictly stronger and this must not double-count.
+    swept = {"steps": recipe["steps"] + [
+        {"op": "paginate_offset", "param": "offset", "page_size": 25, "max_pages": 290},
+    ]}
+    assert page_shape_refusal(swept, 25) is None
+
+
+def test_a_page_size_hidden_inside_a_composite_query_value_is_still_a_tell():
+    """13b, same blind spot. ``limit=25`` inside the ``finder`` value returning exactly
+    25 rows is a read that hit the ceiling it asked for."""
+    recipe = {"steps": [{"op": "fetch", "url": (
+        "https://x.test/api/jobs?q=find;siteNumber=CX_1,limit=25,sortBy=DATE"
+    )}]}
+    assert page_shape_refusal(recipe, 25) == "page_limit_reached"
+    # ...and a composite that fills nothing is still positive evidence.
+    assert page_shape_refusal(recipe, 12) is None
+
+
+def test_a_non_integer_composite_token_is_never_read_as_a_page_parameter():
+    """``sortBy=POSTING_DATES_DESC`` and ``facetsList=LOCATIONS;WORK_LOCATIONS`` share
+    the value with the cursor. Reading either as a page index would refuse every Oracle
+    board forever, sweep or no sweep."""
+    recipe = {"steps": [{"op": "fetch", "url": (
+        "https://x.test/api/jobs?q=find;facetsList=LOCATIONS%3BSTART,sortBy=DATE_DESC"
+    )}]}
+    assert page_shape_refusal(recipe, 25) is None
+
+
 def test_page_shape_refusal_is_inert_on_a_malformed_recipe():
     """It may only ever make a verdict stricter, never licence one — so anything
     it cannot read is simply not a tell."""

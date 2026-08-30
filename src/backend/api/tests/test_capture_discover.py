@@ -36,7 +36,9 @@ from api.services.capture.discover import (
     _MAX_REQUEST_PUBLISHES,
     _MAX_SELECTION_ROUNDS,
     _PAGES_WITHIN_TIME_BUDGET,
+    _composite_pagination,
     _coverage,
+    _find_total_path,
     _inband_error_keys,
     _labelled_facet_total,
     _totals_beside_records,
@@ -621,6 +623,160 @@ async def test_a_first_round_no_still_says_the_page_publishes_no_jobs_feed() -> 
     assert "finding the jobs feed" in (outcome.refuse_reason or "")
     assert "is a list of job postings" in (outcome.refuse_reason or "")
     _assert_stores_nothing(outcome)
+
+
+# --------------------------------------------------------------------------
+# Oracle Fusion — paging inside a composite query value
+# --------------------------------------------------------------------------
+
+_ORACLE_URL = (
+    "https://jpmc.fa.oraclecloud.com/hcmRestApi/resources/latest/"
+    "recruitingCEJobRequisitions?onlyData=true"
+    "&finder=findReqs;siteNumber=CX_1001,facetsList=LOCATIONS%3BWORK_LOCATIONS,"
+    "limit=25,sortBy=POSTING_DATES_DESC,offset=75"
+)
+
+
+def _oracle_payload(records: int = 25) -> dict[str, Any]:
+    """Oracle Fusion's shape: the WHOLE envelope wrapped in a one-element list, with the
+    board's own total sitting beside the records rather than above them."""
+    return {"items": [{
+        "TotalJobsCount": 7181,
+        "Limit": 25,
+        "requisitionList": [
+            {"Id": str(500 + i), "Title": f"Engineer {i}",
+             "PostedDate": "2026-08-29", "PrimaryLocation": "Plano, TX"}
+            for i in range(records)
+        ],
+    }]}
+
+
+def _oracle_response(url: str = _ORACLE_URL, *, records: int = 25) -> Any:
+    original = _amazon_response(_oracle_payload(records))
+    return original.__class__(**{
+        **original.__dict__, "url": url, "method": "GET", "post_data": None,
+        "content_type": "application/vnd.oracle.adf.resourcecollection+json",
+    })
+
+
+def _oracle_candidate(url: str = _ORACLE_URL, *, records: int = 25) -> Any:
+    return prefilter_candidates([_oracle_response(url, records=records)])[0]
+
+
+def test_the_paging_parameter_the_model_cannot_see_is_derived_from_the_url() -> None:
+    """Oracle Fusion carries its paging INSIDE one query value —
+    ``finder=findReqs;siteNumber=CX_1001,limit=25,sortBy=...,offset=75``.
+
+    The selector prompt asks for "an obvious paging parameter you can see in its URL",
+    and measured 2026-08-30 the real model answered ``pagination: null`` on **6 of 6**
+    candidates for this board — correctly by its own instructions, since ``offset`` is
+    not a parameter of that URL but a token inside one. No paging step was synthesised,
+    the recipe reached 25 of a self-declared 7,181, and the coverage floor refused the
+    board with a sentence that blamed the board.
+    """
+    hint = _composite_pagination(_oracle_candidate())
+    assert hint is not None
+    assert (hint.style, hint.param, hint.page_size) == ("offset", "offset", 25)
+
+
+def test_no_paging_is_derived_from_a_composite_that_carries_none() -> None:
+    """Silence costs nothing, and a guessed cursor is a silently-short sweep."""
+    url = "https://b.example/api?finder=findReqs;siteNumber=CX_1,sortBy=DATE_DESC"
+    assert _composite_pagination(_oracle_candidate(url)) is None
+    # ...and a date is not a cursor, however much its name looks like one.
+    dated = "https://b.example/api?q=a;startDate=20260101,fromLocation=NYC"
+    assert _composite_pagination(_oracle_candidate(dated)) is None
+
+
+def test_a_composite_page_index_is_deliberately_not_derived() -> None:
+    """OFFSET ONLY. An offset sweep always starts its cursor at 0, so there is no base
+    to get wrong; a composite ``page=N`` would need a ``start_page``, and
+    ``_captured_start_page`` reads only real query parameters and real body slots.
+    Guessing 1 for a 0-based board skips its whole first page and still ends on a short
+    page — the higher.gs.com bug, which is a self-inflicted mass close."""
+    url = "https://b.example/api?q=findJobs;limit=25,page=0"
+    assert _composite_pagination(_oracle_candidate(url)) is None
+
+
+def test_a_total_wrapped_in_a_list_is_still_the_boards_declared_total() -> None:
+    """Oracle wraps its ENTIRE envelope in a one-element list: ``items[0]`` holds
+    ``requisitionList`` and ``TotalJobsCount: 7181`` as siblings. A dict-only walk never
+    reached the total, so the board stored ``self_consistent`` while
+    ``_totals_beside_records`` — which decides the coverage verdict — read 7,181 out of
+    the same bytes."""
+    candidate = _oracle_candidate()
+    assert candidate.records_path == "items.0.requisitionList"
+    assert _find_total_path(
+        candidate.payload, candidate.records_path, candidate.record_count
+    ) == "items.0.TotalJobsCount"
+
+
+def test_a_facet_bucket_in_a_sibling_list_is_never_the_declared_total() -> None:
+    """THE MEASURED REASON the walk only enters a list ALONG THE RECORDS PATH.
+    careers.kakao.com publishes one tab's 8 jobs beside a per-tab count list whose
+    biggest entry is 14 — a count of a DIFFERENT tab. A walk into every list plus
+    "largest wins" makes 14 the declared total of a board that returns 8, and the
+    acceptance replay then refuses a board we read perfectly."""
+    payload = {
+        "jobList": _jobs(8, "P-"),
+        "jobTypeCountDtoList": [
+            {"jobType": "TECHNOLOGY", "jobCount": 8},
+            {"jobType": "BUSINESS_SERVICES", "jobCount": 14},
+        ],
+        "totalJobCount": 8,
+    }
+    assert _find_total_path(payload, "jobList", 8) == "totalJobCount"
+
+
+async def test_a_composite_paged_board_is_accepted_and_declares_its_total() -> None:
+    """END TO END over the Oracle shape: the derived hint reaches the stored recipe, the
+    coverage floor that refused this board at 25-against-7,181 now passes, and the total
+    the list was hiding becomes the completeness oracle.
+
+    Measured against the live board the same day: 7,124 distinct rows over 285 pages in
+    195s, ``cap_hit=False``, ``page_advance_ok=True``, declared 7,181."""
+    candidate = _oracle_candidate()
+    response = _oracle_response()
+    field_map = {
+        "id": "Id", "title": "Title",
+        "url": "https://jpmc.fa.oraclecloud.com/job/{Id}",
+        "location": "PrimaryLocation", "posted_at": "PostedDate",
+    }
+    selection = RequestSelection(
+        chosen_request_index=0, records_path="items.0.requisitionList",
+        field_map=dict(field_map), pagination=None,      # exactly what the model returns
+    )
+
+    async def _replay(script: dict[str, Any]) -> tuple[list[dict], HarvestEvidence]:
+        rows = map_records(
+            candidate.payload["items"][0]["requisitionList"], field_map,
+            script.get("base_url", ""),
+        )
+        return rows, HarvestEvidence(
+            declared_total=7181, cap_hit=False, terminated_cleanly=True,
+            page_advance_ok=True, pages_fetched=2, transport_ok=True,
+        )
+
+    outcome = await discover(
+        "https://jpmc.fa.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1001/jobs",
+        capture=_capture_of(response),
+        select=_selecting(selection),
+        replay_http=_replay,
+        replay_browser=_never_called_replay("browser_fetch"),
+        validate_url=_allow_all,
+    )
+    assert outcome.ok is True, outcome.refuse_reason
+    assert outcome.script is not None
+    (paginate,) = [s for s in outcome.script["steps"] if s["op"].startswith("paginate_")]
+    assert paginate["op"] == "paginate_offset"
+    assert paginate["param"] == "offset"
+    assert paginate["page_size"] == 25
+    assert outcome.script["oracle"] == {
+        "kind": "declared_probed", "total_path": "items.0.TotalJobsCount",
+    }
+    # ...and the budget is derived from the board's own two numbers, so the sweep can
+    # actually reach the end: 7181 / 25 = 288 pages.
+    assert paginate["max_pages"] >= 288
 
 
 async def test_a_transport_level_network_error_falls_through_to_browser_fetch() -> None:

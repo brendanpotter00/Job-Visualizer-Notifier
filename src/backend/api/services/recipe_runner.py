@@ -47,6 +47,7 @@ from collections import deque
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from typing import Any
+from urllib.parse import parse_qsl, urlencode, urlsplit
 from xml.etree import ElementTree
 
 import httpx
@@ -504,6 +505,79 @@ def merge_body_params(
     return merged
 
 
+# THE OTHER PLACE A PAGE CURSOR HIDES: inside ONE query parameter's value.
+#
+# Oracle Fusion Recruiting — one of the largest enterprise ATSs, and the ATS behind
+# jpmc.fa.oraclecloud.com's 7,181 postings — carries its whole search, including the
+# paging, in a single composite value:
+#
+#     finder=findReqs;siteNumber=CX_1001,facetsList=...,limit=25,sortBy=...,offset=75
+#
+# ``offset`` is not a query parameter there, it is a token inside one. Merging a new
+# top-level ``?offset=25`` changes nothing the board reads, so every page of the sweep
+# would be page one — the exact shape of the higher.gs.com nested-body bug this module
+# already fixes for POSTs, in the other transport.
+#
+# Delimited by ``,`` OR ``;`` because Oracle uses both in the same value, and the token
+# value must be an INTEGER: that is what keeps ``sortBy=POSTING_DATES_DESC`` and
+# ``facetsList=LOCATIONS;WORK_LOCATIONS`` out of reach of a cursor write.
+_COMPOSITE_DELIMITERS = ",;"
+
+
+def composite_param_pattern(name: str) -> re.Pattern[str]:
+    """Match ``<name>=<int>`` as a whole delimited token of a composite value."""
+    return re.compile(
+        rf"(?:(?<=[{_COMPOSITE_DELIMITERS}])|\A){re.escape(name)}="
+        rf"(?P<value>\d+)(?=[{_COMPOSITE_DELIMITERS}]|\Z)"
+    )
+
+
+def iter_composite_query_params(url: str) -> Iterator[tuple[str, str, str]]:
+    """``(container, name, value)`` for every ``name=<int>`` token inside a query value.
+
+    ``container`` is the query parameter the token lives in, so a caller can rewrite
+    that one value and leave the rest of the query byte-identical.
+    """
+    for container, raw in parse_qsl(urlsplit(url).query, keep_blank_values=True):
+        if not any(d in raw for d in _COMPOSITE_DELIMITERS):
+            continue
+        for token in re.split(f"[{_COMPOSITE_DELIMITERS}]", raw):
+            name, sep, value = token.partition("=")
+            if sep and value.isdigit() and name:
+                yield container, name, value
+
+
+def merge_query_params(url: str, params: dict[str, Any] | None) -> httpx.URL:
+    """The captured URL with the cursor set WHERE IT ALREADY IS.
+
+    The GET twin of :func:`merge_body_params`, and it exists for the same reason: a
+    cursor written somewhere the board does not read it makes every page page one.
+    A name that is already a real query parameter, or that appears nowhere, still goes
+    through ``copy_merge_params`` exactly as before — so every board that works today
+    is untouched by construction.
+    """
+    target = httpx.URL(url)
+    if not params:
+        return target
+    inline = {k: v for k, v in params.items() if k not in target.params}
+    if not inline:
+        return target.copy_merge_params(params)
+    placed: set[str] = set()
+    rewritten: list[tuple[str, str]] = []
+    for container, raw in parse_qsl(urlsplit(url).query, keep_blank_values=True):
+        for name, cursor in inline.items():
+            pattern = composite_param_pattern(name)
+            if pattern.search(raw):
+                raw = pattern.sub(lambda _m: f"{name}={cursor}", raw, count=1)
+                placed.add(name)
+        rewritten.append((container, raw))
+    if not placed:
+        return target.copy_merge_params(params)
+    target = httpx.URL(url).copy_with(query=urlencode(rewritten).encode())
+    left = {k: v for k, v in params.items() if k not in placed}
+    return target.copy_merge_params(left) if left else target
+
+
 def _request(
     http: httpx.Client, fetch: dict[str, Any], params: dict[str, Any] | None
 ) -> httpx.Response:
@@ -520,10 +594,9 @@ def _request(
         # every filter and turns a 76-job search into the global 10,000-job one
         # (replay.py:104-108). Silent scope change is the failure class this exists
         # to eliminate.
-        target = httpx.URL(fetch["url"])
-        if params:
-            target = target.copy_merge_params(params)
-        response = http.get(target, headers=headers)
+        # ...and SET it inside a composite value where the board already carries it —
+        # see :func:`merge_query_params`. A flat cursor merges exactly as before.
+        response = http.get(merge_query_params(fetch["url"], params), headers=headers)
     if response.status_code >= 400:
         raise RecipeExecutionError(
             f"HTTP {response.status_code} from {response.request.url} "

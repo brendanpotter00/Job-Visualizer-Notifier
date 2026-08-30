@@ -132,6 +132,7 @@ from ..recipe_runner import (
     RecipeExecutionError,
     find_body_param_path,
     iter_body_params,
+    iter_composite_query_params,
     map_records,
     render_field,
     run_recipe,
@@ -152,6 +153,7 @@ from .request_selector import (
     Candidate,
     CandidateAnswer,
     NoJobsFeedError,
+    PaginationHint,
     RequestSelection,
     RequestSelectionError,
     SelectorKeyMissingError,
@@ -583,6 +585,15 @@ def _inband_error_keys(payload: Any) -> list[str]:
     return [k for k in _INBAND_ERROR_KEY_CANDIDATES if k in payload and not payload[k]]
 
 
+def _leads_to_records(path: str, records_path: str) -> bool:
+    """Is ``path`` a strict ancestor of ``records_path``? ``*`` matches any index."""
+    want = records_path.split(".")
+    got = path.split(".")
+    if len(got) >= len(want):
+        return False
+    return all(w in (g, RECORDS_WILDCARD) for w, g in zip(want, got))
+
+
 def _find_total_path(payload: Any, records_path: str, record_count: int) -> str | None:
     """The dotted path to the board's own declared total, or ``None``.
 
@@ -600,14 +611,41 @@ def _find_total_path(payload: Any, records_path: str, record_count: int) -> str 
     The tie always breaks toward the larger number because the two errors are not
     symmetric: too large is UNVERIFIED forever (shows its jobs, closes nothing), too
     small is a confident wrong-close.
+
+    THE WALK ENTERS A LIST ONLY ALONG THE RECORDS PATH, and it used not to enter one at
+    all. Oracle Fusion wraps its ENTIRE envelope in a one-element list — ``items[0]``
+    holds ``requisitionList`` and ``TotalJobsCount: 7181`` as siblings — so a dict-only
+    walk never reached the total, and ``jpmc.fa.oraclecloud.com`` stored
+    ``self_consistent`` while :func:`_totals_beside_records` (which walks UP from the
+    records path, and decides the coverage verdict) read 7,181 out of the very same
+    bytes. Two functions disagreeing about whether a board declares a total is a bug on
+    its own.
+
+    "Only along the records path" is the whole safety of it, and the alternative was
+    MEASURED to be wrong. Walking every list finds careers.kakao.com's
+    ``jobTypeCountDtoList[2].jobCount = 14`` — one tab's count on a capture of a
+    DIFFERENT 8-job tab — and "largest wins" then makes 14 the declared total of a board
+    that returns 8. A list element that is an ancestor of ``records_path`` is the same
+    envelope the records live in; any other list is a facet block, whose buckets are
+    counts of something else.
     """
-    if not isinstance(payload, dict):
+    if not isinstance(payload, (dict, list)):
         return None
     best: tuple[int, int, str] | None = None      # (value, -depth, path)
     frontier: list[tuple[Any, str, int]] = [(payload, "", 0)]
     while frontier:
         node, path, depth = frontier.pop(0)
-        if depth > _MAX_TOTAL_SEARCH_DEPTH or not isinstance(node, dict):
+        if depth > _MAX_TOTAL_SEARCH_DEPTH:
+            continue
+        if isinstance(node, list):
+            for index, element in enumerate(node):
+                child_path = f"{path}.{index}" if path else str(index)
+                if isinstance(element, (dict, list)) and _leads_to_records(
+                    child_path, records_path
+                ):
+                    frontier.append((element, child_path, depth + 1))
+            continue
+        if not isinstance(node, dict):
             continue
         for key, value in node.items():
             child_path = f"{path}.{key}" if path else str(key)
@@ -623,6 +661,8 @@ def _find_total_path(payload: Any, records_path: str, record_count: int) -> str 
                 if best is None or found > best:
                     best = found
             if isinstance(value, dict):
+                frontier.append((value, child_path, depth + 1))
+            elif isinstance(value, list) and _leads_to_records(child_path, records_path):
                 frontier.append((value, child_path, depth + 1))
     return best[2] if best is not None else None
 
@@ -1326,6 +1366,56 @@ def _page_size_param(candidate: Candidate) -> _PageSizeParam | None:
         for path, name, value in iter_body_params(body):
             if _is_page_size(name, value, candidate.record_count):
                 return _PageSizeParam("body", name, path)
+    return None
+
+
+# Offset-token names a COMPOSITE query value may carry. Matched EXACTLY, not by
+# substring: ``start`` must not match ``startDate`` and ``from`` must not match
+# ``fromLocation``, because a cursor written over a date is a request the board answers
+# with something other than page two.
+_COMPOSITE_OFFSET_NAMES = frozenset({
+    "offset", "from", "start", "startindex", "startrow", "skip", "firstresult",
+})
+
+
+def _composite_pagination(candidate: Candidate) -> PaginationHint | None:
+    """An OFFSET paging hint read out of a composite query value, or ``None``.
+
+    THE PARAMETER THE MODEL CANNOT SEE. Oracle Fusion Recruiting — the ATS behind
+    ``jpmc.fa.oraclecloud.com`` and a very large slice of enterprise employers — carries
+    its whole search in one query value::
+
+        finder=findReqs;siteNumber=CX_1001,facetsList=...,limit=25,sortBy=...,offset=75
+
+    The selector prompt asks for "an obvious paging parameter you can see in its URL",
+    and measured 2026-08-30 the model answered ``pagination: null`` on **6 of 6**
+    candidates for this board — correctly, by its own instructions: ``offset`` is not a
+    parameter of that URL, it is a token inside one. No paging step was synthesised, the
+    recipe reached 25 of a self-declared 7,181, and the coverage floor refused the board.
+
+    So this is DERIVED from the captured bytes rather than asked, which is the same rule
+    :func:`_page_size_param` and :func:`_captured_start_page` already follow, and for the
+    same reason: a guessed cursor is a silently-short sweep, and a short sweep that looks
+    complete is the wrong-close direction.
+
+    OFFSET ONLY, deliberately. An offset sweep always starts its cursor at 0, so there is
+    no base to get wrong. A composite ``page=N`` would need a ``start_page``, and
+    :func:`_captured_start_page` reads only real query parameters and real body slots —
+    guessing 1 for a 0-based board skips its entire first page and still ends on a short
+    page, which is exactly the higher.gs.com bug. Such a board keeps today's behaviour
+    (no paging, and the coverage floor or check 13 decides) until someone measures one.
+    """
+    for _container, name, value in iter_composite_query_params(candidate.url):
+        if name.lower() not in _COMPOSITE_OFFSET_NAMES:
+            continue
+        logger.info(
+            "derived an offset paging hint %r=%s from a composite query value on %s "
+            "— the model cannot see this parameter and answered null",
+            name, value, candidate.url,
+        )
+        return PaginationHint(
+            style="offset", param=name, page_size=candidate.record_count
+        )
     return None
 
 
@@ -2916,6 +3006,14 @@ async def discover(
                     candidate, selection = _widen_to_union(
                         candidate, selection, _origin_of(origin_url)
                     )
+                    # ...and if the model saw no paging parameter, look where it cannot:
+                    # inside a composite query value. Rebound HERE, once, so the page-size
+                    # ladder, the recipe, the coverage verdict and the round's feedback
+                    # all reason about the same paging.
+                    if selection.pagination is None:
+                        derived = _composite_pagination(candidate)
+                        if derived is not None:
+                            selection = replace(selection, pagination=derived)
                     # ...and then settle the job link. After the widen so it reads the
                     # final record array, and before synthesis so the stored recipe and
                     # the acceptance replay carry the same link. A published link is kept
