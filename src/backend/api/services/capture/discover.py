@@ -97,7 +97,7 @@ import time
 import unicodedata
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
-from typing import Any, Awaitable, Callable, Protocol
+from typing import Any, Awaitable, Callable, Protocol, Sequence
 from urllib.parse import parse_qsl, urljoin, urlsplit, urlunsplit
 
 import httpx
@@ -156,6 +156,12 @@ from .request_selector import (
     published_url_fields,
     repair_url_template,
     select_request,
+)
+from .sources import (
+    SitemapMatch,
+    WellKnownEvidence,
+    collect_well_known,
+    sitemap_match,
 )
 
 logger = logging.getLogger(__name__)
@@ -407,6 +413,30 @@ _MAX_REQUEST_PUBLISHES = 12
 LiveViewFn = Callable[[str], Awaitable[None]]
 # ...and the write that takes it back off the row when the browser closes.
 LiveViewClosedFn = Callable[[], Awaitable[None]]
+# Source 5's seam — :func:`sources.collect_well_known` or a $0 test double. Injectable
+# for the same reason ``probe_link`` is: the real one reaches the public internet, and
+# no unit test may do that.
+WellKnownFn = Callable[[str], Awaitable[WellKnownEvidence]]
+
+
+async def _abandon(task: "asyncio.Future[Any]") -> None:
+    """Cancel a side task and swallow its ending. Never raises.
+
+    A cancelled task nobody awaits produces "Task exception was never retrieved" noise
+    at interpreter shutdown, and the one place this is used is a refusal path — the log
+    line the user's failure is diagnosed from must not be buried under it.
+    """
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        # ...unless it is OUR OWN cancellation passing through, which must never be
+        # swallowed: the discovery task's 240 s guard is exactly that, and a coroutine
+        # that eats its own CancelledError is a task that will not die.
+        if not task.cancelled():
+            raise
+    except Exception:  # noqa: BLE001 - abandoning it, by name
+        logger.debug("abandoned side task ended in an error", exc_info=True)
 
 
 class CaptureFn(Protocol):
@@ -911,13 +941,25 @@ def _feed_reach(script: dict[str, Any], candidate: Candidate) -> int | None:
 
 
 def _coverage(
-    script: dict[str, Any], candidate: Candidate, selection: RequestSelection
+    script: dict[str, Any],
+    candidate: Candidate,
+    selection: RequestSelection,
+    *,
+    extra_claims: Sequence[tuple[int, str]] = (),
 ) -> _Coverage:
-    """Measure the stored recipe against the board's own published counts."""
+    """Measure the stored recipe against the board's own published counts.
+
+    ``extra_claims`` is how a source OTHER than the candidate's own payload gets a vote
+    — the sitemap's matching-``<loc>`` count is the one that matters. Nothing about a
+    claim cares which source produced it: they are all lower bounds the board published
+    about ITSELF, and the biggest is the strongest statement that we are short. That is
+    the entire mechanism by which the one source the page never requests can kill a
+    wrong answer derived from a source it did.
+    """
     reachable = _reachable_records(script, candidate)
     feed_reach = _feed_reach(script, candidate)
     payload, records_path = candidate.payload, selection.records_path
-    claims: list[tuple[int, str]] = []
+    claims: list[tuple[int, str]] = list(extra_claims)
 
     declared = _totals_beside_records(payload, records_path, candidate.record_count)
     if declared is not None:
@@ -938,6 +980,49 @@ def _coverage(
     return _Coverage(
         reachable, max(visible, reachable), evidence, feed_reach=feed_reach
     )
+
+
+def _sitemap_evidence(
+    well_known: WellKnownEvidence,
+    candidate: Candidate,
+    selection: RequestSelection,
+    origin_url: str,
+) -> SitemapMatch | None:
+    """Which sitemap (if any) enumerates the jobs THIS candidate returned.
+
+    Matched on the ids the capture browser actually saw, mapped through the same field
+    map the recipe uses — the same discipline :func:`_capture_ids` follows, and for the
+    same reason: deriving ids two different ways compares the mappers, not the boards.
+
+    ``None`` on every board without a sitemap, on every board whose sitemap does not
+    carry our ids, and on any error at all. That is three boards in four and it has to
+    cost nothing.
+    """
+    if not well_known.sitemaps:
+        return None
+    try:
+        ids = _capture_ids(candidate, selection, _origin_of(origin_url))
+    except Exception:  # noqa: BLE001 - a mapping failure here is not a discovery failure
+        return None
+    match = sitemap_match(well_known, ids)
+    if match is None:
+        return None
+    logger.info(
+        "sitemap %s lists %d page(s) under %r and carries %d of the %d captured job id(s)",
+        match.sitemap_url, match.loc_count, match.url_pattern,
+        len(match.matched_ids), len(ids),
+    )
+    return match
+
+
+def _sitemap_claims(match: SitemapMatch | None) -> tuple[tuple[int, str], ...]:
+    """The sitemap's ``<loc>`` count, as a coverage claim. Empty when there is none."""
+    if match is None or match.loc_count <= 0:
+        return ()
+    return ((
+        match.loc_count,
+        f"this board's own sitemap lists {match.loc_count:,} job page(s)",
+    ),)
 
 
 @dataclass(frozen=True)
@@ -2172,6 +2257,7 @@ async def discover(
     replay_browser: ReplayFn | None = None,
     validate_url: UrlValidator | None = None,
     probe_link: ProbeFn | None = None,
+    collect_sources: WellKnownFn | None = None,
     emit: ProgressFn | None = None,
 ) -> DiscoveryOutcome:
     """Run one capture discovery for ``url``. NEVER raises — a failure is a REFUSE.
@@ -2193,6 +2279,7 @@ async def discover(
     check_url = validate_url or validate_public_url
     probe_job_link = probe_link or _default_probe
     do_capture = capture or capture_board
+    do_collect_well_known = collect_sources or collect_well_known
     do_select = select or select_request
     run_http = replay_http or _default_replay_http
     run_browser = replay_browser or _default_replay_browser
@@ -2303,7 +2390,14 @@ async def discover(
             ) from exc
 
         # STEP 2 — one browser session, ever.
+        #
+        # ...and, BESIDE it, the one source no browser can observe. Source 5 needs only
+        # the entry URL and httpx, both of which exist before the subprocess spawns, so
+        # it runs concurrently with a capture that takes 30-120 s and its own 15 s
+        # ceiling is spent entirely inside that shadow. Its cost to the user is zero
+        # seconds and zero dollars, and on three boards in four it finds nothing at all.
         current_step = _STEP_CAPTURE
+        well_known_task = asyncio.ensure_future(do_collect_well_known(url))
         try:
             captured = await do_capture(
                 url,
@@ -2312,7 +2406,22 @@ async def discover(
                 on_request=_publish_request,
             )
         except CaptureError as exc:
+            await _abandon(well_known_task)
             raise _Refusal(_STEP_CAPTURE, str(exc)) from exc
+        except BaseException:
+            # Every other exit from the capture — including the discovery task's own
+            # 240 s cancellation — must not leave a pending task nobody awaits.
+            await _abandon(well_known_task)
+            raise
+        # ``collect_well_known`` never raises, so this can only ever return evidence
+        # (empty, on the common path). It has almost always finished already.
+        well_known = await well_known_task
+        if well_known.sources:
+            logger.info(
+                "well-known collector read %d document(s) for %s: %s",
+                len(well_known.sources), url,
+                ", ".join(f"{s.origin} ({s.note})" for s in well_known.sources),
+            )
 
         # ``captured.live_view_url`` IS DELIBERATELY NOT COPIED BACK ONTO THE LEDGER
         # HERE. It used to be, as a belt-and-braces "in case the callback never fired",
@@ -2596,7 +2705,17 @@ async def discover(
             # ``accepted`` here is what puts us on the next-candidate path below.
             coverage: _Coverage | None = None
             if accepted is not None:
-                coverage = _coverage(accepted[1], candidate, selection)
+                # THE CROSS-SOURCE CLAIM. The candidate came out of the JSON network
+                # list; the sitemap came from a URL that list does not contain and never
+                # will. Joining them here is the whole point of collecting a second
+                # source: a feed's 10 records against the board's own 15,660 published
+                # job pages is a disagreement that is pure ARITHMETIC, and arithmetic is
+                # something code can refuse on without asking anybody.
+                sitemap = _sitemap_evidence(well_known, candidate, selection, origin_url)
+                coverage = _coverage(
+                    accepted[1], candidate, selection,
+                    extra_claims=_sitemap_claims(sitemap),
+                )
                 if coverage.is_refused:
                     last_step, last_error = _STEP_ACCEPT, coverage.refusal_reason
                     logger.warning(

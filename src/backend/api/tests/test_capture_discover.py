@@ -56,6 +56,10 @@ from api.services.capture.request_selector import (
     SelectorKeyMissingError,
     prefilter_candidates,
 )
+from api.services.capture.sources import (
+    SitemapDocument,
+    WellKnownEvidence,
+)
 from api.services.discovery.progress import (
     OUTCOME_RUNNING,
     STATUS_ACTIVE,
@@ -113,6 +117,26 @@ def _no_live_job_link_probe(monkeypatch: pytest.MonkeyPatch) -> None:
         sys.modules["api.services.capture.discover"],
         "_default_probe",
         _one_page_per_job(),
+    )
+
+
+@pytest.fixture(autouse=True)
+def _no_live_well_known(monkeypatch: pytest.MonkeyPatch) -> None:
+    """...and no test in this module fetches a real robots.txt or sitemap either.
+
+    Source 5 composes URLs from the entry origin and GETs them for real, concurrently
+    with the capture. Every fixture in this file names a live board, so without this the
+    suite would hammer amazon.jobs and careers.walmart.com on every run and pass or fail
+    on whatever they served that second. Tests that exercise the collector inject their
+    own evidence through the ``collect_sources`` seam and are named for it.
+    """
+    import sys
+
+    async def _nothing(_url: str) -> WellKnownEvidence:
+        return WellKnownEvidence()
+
+    monkeypatch.setattr(
+        sys.modules["api.services.capture.discover"], "collect_well_known", _nothing
     )
 
 _AMAZON_URL = "https://www.amazon.jobs/en/search"
@@ -1874,6 +1898,133 @@ def test_the_coverage_floor_fires_on_the_FEED_not_on_our_own_page_budget() -> No
     assert paged_coverage.reachable == 250            # 25 browser pages x 10 — OUR limit
     assert paged_coverage.is_refused is False
     assert paged_coverage.is_partial is True
+
+
+# --- source 5: the claim nothing on the page could have produced ------------
+
+def _walmart_ids(n: int) -> list[str]:
+    """``R-1075582``-shaped, which is what Walmart's really are."""
+    return [f"R-{1075582 + i}" for i in range(n)]
+
+
+def _walmart_jobs(n: int) -> list[dict[str, Any]]:
+    return [
+        {"job_id": jid, "jobPostingTitle": f"Role {i}", "city": "Bentonville"}
+        for i, jid in enumerate(_walmart_ids(n))
+    ]
+
+
+def _walmart_sitemap(job_pages: int) -> WellKnownEvidence:
+    """Walmart's sitemap at fixture scale: job pages under one prefix, plus noise.
+
+    The ids are ``R-1075582``-shaped because that is what Walmart's really are, and
+    because an id has to be long enough to mean something inside a URL — a two-character
+    id "matches" half the site and would manufacture a claim out of a coincidence.
+    """
+    locs = [
+        f"https://careers.walmart.com/us/en/jobs/{jid}-software-engineer"
+        for jid in _walmart_ids(job_pages)
+    ]
+    locs += [f"https://careers.walmart.com/us/en/stores/{i}" for i in range(7)]
+    return WellKnownEvidence(
+        sitemaps=(SitemapDocument(
+            "https://careers.walmart.com/sitemap.xml", tuple(locs), False,
+        ),),
+    )
+
+
+def _well_known(evidence: WellKnownEvidence, *, calls: list[str] | None = None):
+    async def _collect(url: str) -> WellKnownEvidence:
+        if calls is not None:
+            calls.append(url)
+        return evidence
+    return _collect
+
+
+async def test_the_sitemap_becomes_a_coverage_claim_the_page_never_published() -> None:
+    """S2, and the whole reason source 5 exists.
+
+    This board's payload publishes NO total at all — so before source 5, ``_coverage``
+    had nothing to compare against, ``visible == reachable``, and a ten-row read of a
+    fifteen-thousand-job board was a clean green success. The sitemap is a count of the
+    same board, from a URL the careers page never requests and never will, and it lands
+    in exactly the same claim list.
+    """
+    body = {"data": {"jobs": _walmart_jobs(10)}}
+    response = _pageless_response(body)
+    selection = RequestSelection(
+        chosen_request_index=0, records_path="data.jobs",
+        field_map=dict(_PARTIAL_MAP), pagination=None,
+    )
+    calls: list[str] = []
+    outcome = await discover(
+        "https://careers.walmart.com/results",
+        capture=_capture_of(response),
+        select=_selecting(selection),
+        replay_http=_replay_records(body, "data.jobs", _PARTIAL_MAP),
+        replay_browser=_never_called_replay("browser_fetch"),
+        validate_url=_allow_all,
+        collect_sources=_well_known(_walmart_sitemap(15_660), calls=calls),
+    )
+    # The collector was asked about the ENTRY url, before anything was known about the
+    # board — that is what lets it run concurrently with the capture.
+    assert calls == ["https://careers.walmart.com/results"]
+    assert outcome.ok is False
+    assert outcome.script is None
+    assert "sitemap lists 15,660 job page(s)" in (outcome.refuse_reason or "")
+
+
+async def test_a_board_with_no_sitemap_is_completely_unaffected() -> None:
+    """Jane Street 404s on ``/sitemap.xml``, as do amazon.jobs and higher.gs.com — three
+    of the four boards measured. The silent-miss path is the COMMON path, so it has to
+    leave a healthy board byte-for-byte where it was."""
+    with_nothing = await discover(
+        _AMAZON_URL,
+        capture=_capturing("amazon"),
+        select=_selecting(_amazon_selection()),
+        replay_http=_faithful_replay("amazon", "jobs", _AMAZON_MAP, declared_total=76),
+        replay_browser=_never_called_replay("browser_fetch"),
+        validate_url=_allow_all,
+        collect_sources=_well_known(WellKnownEvidence()),
+    )
+    assert with_nothing.ok is True
+    assert with_nothing.progress is not None
+    assert with_nothing.progress["outcome"] == "tracking"
+    verify = next(
+        s for s in with_nothing.progress["steps"] if s["key"] == "verify_read"
+    )
+    assert verify["result"] == "read 10 job(s)"
+
+
+async def test_a_sitemap_that_agrees_with_the_feed_changes_nothing() -> None:
+    """The control. A claim is a lower bound, and a lower bound we already meet has
+    nothing to say — a source that fires on a healthy board is a source that gets turned
+    off."""
+    body = {"jobs": _walmart_jobs(40), "total_jobs": 40}
+    response = _pageless_response(body)
+    selection = RequestSelection(
+        chosen_request_index=0, records_path="jobs",
+        field_map=dict(_PARTIAL_MAP), pagination=None,
+    )
+    sitemap = WellKnownEvidence(sitemaps=(SitemapDocument(
+        "https://careers.walmart.com/sitemap.xml",
+        tuple(
+            f"https://careers.walmart.com/us/en/jobs/{jid}" for jid in _walmart_ids(40)
+        ),
+        False,
+    ),))
+    outcome = await discover(
+        "https://careers.walmart.com/results",
+        capture=_capture_of(response),
+        select=_selecting(selection),
+        replay_http=_replay_records(body, "jobs", _PARTIAL_MAP),
+        replay_browser=_never_called_replay("browser_fetch"),
+        validate_url=_allow_all,
+        collect_sources=_well_known(sitemap),
+    )
+    assert outcome.ok is True
+    assert outcome.progress is not None
+    assert outcome.progress["outcome"] == "tracking"
 
 
 def test_the_total_that_counts_THESE_records_wins_over_the_bigger_one_beside_it() -> None:
