@@ -143,7 +143,12 @@ describe('MyCompaniesPage', () => {
   // logged-out visitor following the nav link sees.
   it('titles the page "Add Companies" once signed in', () => {
     renderWithProviders(<MyCompaniesPage />);
-    expect(screen.getByRole('heading', { level: 1, name: 'Add Companies (beta)' })).toBeInTheDocument();
+    // "Beta" is INSIDE the <h1>, so it lands in the heading's accessible name.
+    // That is the point of the badge markup: a screen reader still reads the
+    // status as part of the title rather than skipping it as decoration.
+    expect(
+      screen.getByRole('heading', { level: 1, name: 'Add Companies Beta' })
+    ).toBeInTheDocument();
   });
 
   describe('signed out', () => {
@@ -151,7 +156,7 @@ describe('MyCompaniesPage', () => {
       mockAuthState.isAuthenticated = false;
       renderWithProviders(<MyCompaniesPage />);
 
-      expect(screen.getByRole('heading', { name: 'Add Companies (beta)' })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'Add Companies Beta' })).toBeInTheDocument();
     });
 
     it('shows a sign-in prompt instead of the form', () => {

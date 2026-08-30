@@ -38,6 +38,7 @@ import {
 import { useAuth } from '../../features/auth/useAuth';
 import { useCurrentUser } from '../../features/auth/useCurrentUser';
 import { useAppSelector } from '../../app/hooks';
+import { BetaBadge } from '../shared/BetaBadge';
 
 /**
  * Props for the NavigationDrawer component
@@ -152,7 +153,11 @@ export function NavigationDrawer({
     }
   };
 
-  function renderNavItem(path: string, label: string, icon: IconName) {
+  // `beta` renders a chip after the label. The tooltip keeps the bare label:
+  // it only shows while the drawer is COLLAPSED, where the badge is hidden
+  // along with every other label, so a marker there would be the one piece of
+  // status text in an icons-only rail.
+  function renderNavItem(path: string, label: string, icon: IconName, beta?: boolean) {
     const Icon = iconMap[icon];
     const isActive = location.pathname === path;
 
@@ -173,7 +178,34 @@ export function NavigationDrawer({
               <Icon />
             </ListItemIcon>
           </Tooltip>
-          <ListItemText primary={label} sx={[open ? { opacity: 1 } : { opacity: 0 }]} />
+          <ListItemText
+            primary={
+              beta ? (
+                // The drawer sets `white-space: nowrap` on its root and hides
+                // overflow, so a long label is CLIPPED rather than wrapped —
+                // that is the pre-existing behaviour ("Company Hiring Trends"
+                // is already wider than the 151px a label gets). The badge must
+                // not be what gets cut, so the label ellipsizes and the badge
+                // holds its width. Measured in the browser nothing is cut here:
+                // "Add Companies" (114px) + 3px + badge (33px) = 150px of 151px.
+                <Box
+                  component="span"
+                  sx={{ display: 'flex', alignItems: 'center', gap: '3px', minWidth: 0 }}
+                >
+                  <Box
+                    component="span"
+                    sx={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}
+                  >
+                    {label}
+                  </Box>
+                  <BetaBadge scale="nav" />
+                </Box>
+              ) : (
+                label
+              )
+            }
+            sx={[open ? { opacity: 1 } : { opacity: 0 }]}
+          />
         </ListItemButton>
       </ListItem>
     );
@@ -348,7 +380,7 @@ export function NavigationDrawer({
       )}
       <List>
         {PRIMARY_NAV_ITEMS.map((item) =>
-          renderNavItem(item.path, item.label, item.icon as IconName)
+          renderNavItem(item.path, item.label, item.icon as IconName, item.beta)
         )}
       </List>
       {renderInfoGroup()}

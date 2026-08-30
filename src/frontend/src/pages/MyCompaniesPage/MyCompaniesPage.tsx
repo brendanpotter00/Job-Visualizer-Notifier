@@ -5,6 +5,7 @@ import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 import { RESPONSIVE } from '../../config/responsive';
+import { BetaBadge } from '../../components/shared/BetaBadge';
 import { useAuth } from '../../features/auth/useAuth';
 import { LoadingState } from '../../components/shared/LoadingIndicator';
 import {
@@ -66,8 +67,21 @@ export function MyCompaniesPage() {
     return (
       <Container maxWidth="sm" sx={{ py: RESPONSIVE.spacing.pageMarginY }}>
         <Paper sx={{ p: RESPONSIVE.spacing.paperPaddingLg, textAlign: 'center' }}>
-          <Typography variant="h5" gutterBottom>
-            Add Companies (beta)
+          {/* `justifyContent: center` because the Paper centres its text and a
+              flex heading ignores `textAlign`. */}
+          <Typography
+            variant="h5"
+            gutterBottom
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexWrap: 'wrap',
+              gap: 1,
+            }}
+          >
+            Add Companies
+            <BetaBadge />
           </Typography>
           <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
             Sign in to add a company from its careers page.
@@ -121,8 +135,18 @@ export function MyCompaniesPage() {
 
   return (
     <Container maxWidth="md" sx={{ py: RESPONSIVE.spacing.pageMarginY }}>
-      <Typography variant="h4" component="h1" gutterBottom>
-        Add Companies (beta)
+      {/* The badge lives INSIDE the `<h1>` so it is part of the heading's
+          accessible name ("Add Companies Beta") rather than a decoration a
+          screen reader steps over. `flexWrap` keeps it off the title's line
+          rather than squeezing the title on a narrow phone. */}
+      <Typography
+        variant="h4"
+        component="h1"
+        gutterBottom
+        sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 1 }}
+      >
+        Add Companies
+        <BetaBadge />
       </Typography>
 
       {/* The monthly cap, stated once, at the top, as a fact rather than a warning.

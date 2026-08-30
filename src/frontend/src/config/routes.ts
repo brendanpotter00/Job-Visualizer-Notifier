@@ -96,6 +96,12 @@ export interface NavItem {
   readonly path: string;
   readonly label: string;
   readonly icon: NavIconName;
+  /**
+   * Renders a `BetaBadge` chip after the label in the sidebar. A flag rather
+   * than free text on purpose — the marker is the same everywhere it appears,
+   * and a `badge: string` would invite a second, differently-worded one.
+   */
+  readonly beta?: boolean;
 }
 
 const PRIMARY_NAV_BASE = [
@@ -123,8 +129,14 @@ const PRIMARY_NAV_BASE = [
  */
 const MY_COMPANIES_NAV_ITEM = {
   path: ROUTES.MY_COMPANIES,
-  label: 'Add Companies (beta)',
+  // The beta marker is a BADGE, not part of the label — the label used to read
+  // "Add Companies (beta)" and the parenthesised word had to be carried by every
+  // consumer of `label` (tooltip, tests, any future search). Keeping the label
+  // the page's actual name and the status a separate flag means the drawer
+  // decides how the marker looks, and nothing else has to know about it.
+  label: 'Add Companies',
   icon: 'AddBusiness',
+  beta: true,
 } as const;
 
 /**
