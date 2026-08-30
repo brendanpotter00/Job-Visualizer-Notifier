@@ -140,13 +140,40 @@ class TestNameMatchStopsTheSpend:
             "AC-13 assertion 5: a provisional private row must exist immediately"
         )
 
+        company_id = resp.json()["id"]
+
         # AC-13 assertion 6: and a re-add now resolves to THAT row, not back to the
         # public notice — the `owned is None` guard, on this rung.
+        #
+        # THE STATUS MIRRORS THE BOARD'S STATE, and both legal answers are asserted
+        # rather than either being waved through. d27379e made the re-add body agree
+        # with the row it hands back: a board still being set up answers 202
+        # `discovery_pending`, a tracked one keeps its 200, and the green "Now
+        # tracking" card is reserved for a row that actually is. Which of the two we
+        # get here is a race against a live ~30s discovery, so the assertion pins the
+        # PAIRING — status code to `status` string — rather than guessing the timing.
+        # What must hold either way is this assertion's actual subject: the same
+        # private row comes back, and never the name-guess notice.
         again = http.post("/api/users/companies", json={"url": SPOTIFY_URL})
-        assert again.status_code == 200, again.text
-        assert again.json().get("status") != "already_public", (
+        body = again.json()
+        assert again.status_code in (200, 202), again.text
+        if again.status_code == 202:
+            assert body.get("status") == "discovery_pending", (
+                "AC-13 assertion 6: a 202 re-add must say the setup is still "
+                f"running; got {body}"
+            )
+        else:
+            assert body.get("status") != "discovery_pending", (
+                "AC-13 assertion 6: a 200 re-add claims the board is tracked, so it "
+                f"must not also report the setup as pending; got {body}"
+            )
+        assert body.get("id") == company_id, (
+            "AC-13 assertion 6: the re-add must resolve to the private row the "
+            f"correction created ({company_id}); got {body}"
+        )
+        assert body.get("status") != "already_public", (
             "AC-13 assertion 6: a caller who already owns a private copy must get "
-            f"their own row back, not the name-guess notice; got {again.json()}"
+            f"their own row back, not the name-guess notice; got {body}"
         )
 
 
