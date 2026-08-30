@@ -376,6 +376,48 @@ def test_the_wildcard_records_path_is_the_union_of_every_group() -> None:
     assert dig_records(nested, "data.groups.*.bucket.jobs") == [{"id": "a"}, {"id": "b"}]
 
 
+def test_the_wildcard_also_unwraps_one_record_per_element() -> None:
+    """The PER-ELEMENT WRAPPER, which is a whole ATS family rather than one board.
+
+    Elasticsearch answers ``hits.hits: [{_index, _id, _score, _source: {...}, sort}]``
+    and Relay answers ``edges: [{cursor, node: {...}}]`` — the job is one level INSIDE
+    each element, so the tail resolves to a dict per element instead of to a list.
+    Measured on ``www-api.ibm.com/search/api/v2``: ``hits.total.value = 1806``, 30
+    records at ``hits.hits[]._source``, and not one concrete path in the payload can
+    name them.
+    """
+    elastic = {"hits": {"total": {"value": 1806}, "hits": [
+        {"_index": "careers", "_id": "1", "_score": 1.0,
+         "_source": {"title": "SRE", "url": "https://x/1"}, "sort": [1]},
+        {"_index": "careers", "_id": "2", "_score": 1.0,
+         "_source": {"title": "PM", "url": "https://x/2"}, "sort": [2]},
+    ]}}
+    assert dig_records(elastic, "hits.hits.*._source") == [
+        {"title": "SRE", "url": "https://x/1"},
+        {"title": "PM", "url": "https://x/2"},
+    ]
+
+    relay = {"data": {"jobs": {"edges": [
+        {"cursor": "a", "node": {"id": "1", "title": "SRE"}},
+        {"cursor": "b", "node": {"id": "2", "title": "PM"}},
+    ]}}}
+    assert dig_records(relay, "data.jobs.edges.*.node") == [
+        {"id": "1", "title": "SRE"}, {"id": "2", "title": "PM"},
+    ]
+
+
+def test_the_two_wildcard_shapes_can_be_mixed_in_one_payload() -> None:
+    """A list tail concatenates, a dict tail is one record. Both, same wildcard, and
+    neither shape may quietly eat the other: a scalar tail is still nothing."""
+    payload = [
+        {"postings": [{"id": "a"}, {"id": "b"}], "node": {"id": "n1"}, "n": 3},
+        {"postings": [{"id": "c"}], "node": {"id": "n2"}, "n": 4},
+    ]
+    assert dig_records(payload, "*.postings") == [{"id": "a"}, {"id": "b"}, {"id": "c"}]
+    assert dig_records(payload, "*.node") == [{"id": "n1"}, {"id": "n2"}]
+    assert dig_records(payload, "*.n") == []
+
+
 def test_a_group_that_does_not_carry_the_array_is_skipped_not_fatal() -> None:
     """A grouped board legitimately ships one shapeless group beside a dozen good ones;
     refusing the whole board over it would be the wrong trade. Emptiness is still caught

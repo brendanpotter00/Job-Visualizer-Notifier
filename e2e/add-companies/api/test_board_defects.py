@@ -412,3 +412,161 @@ class TestAC16ContentTypeAperture:
             "AC-16: the refusal must name the form-encoded POST body — the step that "
             f"actually stops this board; got {reason!r}"
         )
+
+
+# --------------------------------------------------------------------------
+# AC-18 — IBM, and the per-element wrapper
+# --------------------------------------------------------------------------
+
+class TestAC18PerElementWrapper:
+    """AC-18 — **a record nested one level inside each element must still be seen**.
+
+    ``_walk_record_arrays`` scored only an array's DIRECT elements. Elasticsearch wraps
+    each job in ``{_index, _id, _score, _source, sort}`` (job score **1**, under the
+    floor) and Relay wraps it in ``{cursor, node}`` (score **0**), so the walk returned
+    nothing and ``prefilter_candidates`` dropped the whole response with the tracking
+    pings.
+
+    Measured live 2026-08-30 on ``ibm.com/careers/search``: 38 responses recorded, the
+    jobs feed among them at ``www-api.ibm.com/search/api/v2`` with
+    ``hits.total.value = 1806`` and 30 records at ``hits.hits[]._source``. The
+    pre-filter returned **two** candidates for that page, neither of them the feed, and
+    the user was told none of the requests the page made is a list of job postings.
+    After the fix the same bytes rank the jobs feed **first**.
+
+    Hermetic and PARAMETRISED, because the point is the shape and not the employer:
+    the Elasticsearch half is IBM's real payload
+    (``fixtures/ibm_elasticsearch_hits.json``), the Relay half is the same defect in
+    the ``edges[].node`` dialect that every GraphQL board speaks.
+    """
+
+    RELAY = {"data": {"jobSearch": {"edges": [
+        {"cursor": f"cursor-{i}",
+         "node": {"id": f"R{i}", "title": f"Engineer {i}",
+                  "locationName": "Austin, TX", "absoluteUrl": f"https://b/{i}"}}
+        for i in range(12)
+    ]}}}
+
+    def test_ac18_an_elasticsearch_hits_hits_source_body_is_a_candidate(self) -> None:
+        from api.services.capture.request_selector import prefilter_candidates
+        from api.services.recipe_schema import dig_records
+
+        captured = load_capture("ibm_elasticsearch_hits")
+        payload = json.loads(captured.responses[0].body)
+        assert payload["hits"]["total"]["value"] == 1806, (
+            "AC-18: the fixture must keep IBM's own declared total — it is what makes "
+            "the 30-record page a sliver rather than the board"
+        )
+        wrapper_keys = sorted(payload["hits"]["hits"][0])
+        assert wrapper_keys == ["_id", "_index", "_score", "_source", "sort"], (
+            f"AC-18: the fixture stopped being the wrapper shape: {wrapper_keys}"
+        )
+
+        (candidate,) = prefilter_candidates(captured.responses)
+        assert candidate.records_path == "hits.hits.*._source", (
+            "AC-18: the records are one level inside each element and the walk must say "
+            f"so; got {candidate.records_path!r}"
+        )
+        assert candidate.record_count == 30
+        resolved = dig_records(candidate.payload, candidate.records_path)
+        assert len(resolved) == 30 and all("title" in r for r in resolved), (
+            "AC-18: the path must RESOLVE to the 30 job objects, not merely be emitted"
+        )
+
+    def test_ac18_a_relay_edges_node_body_is_a_candidate(self) -> None:
+        """The same defect in the dialect every GraphQL board speaks."""
+        from api.services.capture.network_capture import (
+            CaptureResult,
+            CapturedResponse,
+        )
+        from api.services.capture.request_selector import prefilter_candidates
+        from api.services.recipe_schema import dig_records
+
+        response = CapturedResponse(
+            url="https://boards.example/graphql", method="POST", status=200,
+            content_type="application/json", request_headers={}, post_data="{}",
+            body=json.dumps(self.RELAY), truncated=False,
+            body_bytes=len(json.dumps(self.RELAY)),
+        )
+        captured = CaptureResult(
+            final_url="https://boards.example/careers", page_title="",
+            responses=[response],
+        )
+        (candidate,) = prefilter_candidates(captured.responses)
+        assert candidate.records_path == "data.jobSearch.edges.*.node"
+        assert candidate.record_count == 12
+        assert len(dig_records(candidate.payload, candidate.records_path)) == 12
+
+    def test_ac18_the_unwrap_never_offers_a_duplicate_or_a_coin_flip(self) -> None:
+        """The three ways this could go wrong, all measured or reasoned:
+
+        * an array whose elements are ALREADY job-shaped needs no unwrapping, and
+          offering both paths spends one of the model's six candidate slots twice;
+        * a ONE-element array cannot be told apart from a record — on the live IBM
+          capture that admitted an Adobe analytics blob with job score 8 that then
+          outranked the 30-record jobs feed;
+        * TWO dict-valued keys is a record with two nested objects, and unwrapping it
+          would pick one of them arbitrarily.
+        """
+        from api.services.capture.network_capture import (
+            CaptureResult,
+            CapturedResponse,
+        )
+        from api.services.capture.request_selector import prefilter_candidates
+
+        def _candidates(payload: Any) -> list[Any]:
+            body = json.dumps(payload)
+            return prefilter_candidates(CaptureResult(
+                final_url="https://b.example/careers", page_title="",
+                responses=[CapturedResponse(
+                    url="https://b.example/api", method="GET", status=200,
+                    content_type="application/json", request_headers={},
+                    post_data=None, body=body, truncated=False, body_bytes=len(body),
+                )],
+            ).responses)
+
+        already = {"jobs": [
+            {"id": str(i), "title": f"E{i}", "meta": {"team": "x", "location": "y"}}
+            for i in range(8)
+        ]}
+        (only,) = _candidates(already)
+        assert only.records_path == "jobs", (
+            f"AC-18: no second path to the same records; got {only.records_path!r}"
+        )
+
+        single = {"items": [{"meta": {
+            "title": "t", "id": "1", "url": "u", "location": "l", "posted": "p",
+        }}]}
+        assert _candidates(single) == []
+
+        ambiguous = {"rows": [
+            {"node": {"title": f"E{i}", "id": str(i)},
+             "extra": {"title": "no", "id": "no"}}
+            for i in range(6)
+        ]}
+        assert _candidates(ambiguous) == []
+
+    def test_ac18_the_honest_end_state_is_named(self) -> None:
+        """**THE TRIAGE DOC OVERSTATES THIS ONE TOO.** It says the wrapper fix "recovers
+        IBM — 1,806 jobs". Measured live with the fix in place, IBM gets FURTHER and
+        still refuses, for a reason that has nothing to do with the walk: its captured
+        request carries ``size: 30`` and **no** ``from``/``offset`` field at all, so no
+        pagination step can be synthesised from it, and a 30-of-1,806 read is refused —
+        correctly, and by the guard that exists to stop exactly that
+        (``page_limit_reached``). Its records also carry no id: ``entitled`` is ``""``
+        and the only identity is a ``jobId`` inside ``url``.
+
+        What the fix bought is real and is what this case pins: the feed is now VISIBLE
+        to the pipeline. What it did not buy is a stored recipe, and inventing a
+        pagination parameter the board never sent is not a thing to do quietly.
+        """
+        from api.services.capture.request_selector import prefilter_candidates
+
+        captured = load_capture("ibm_elasticsearch_hits")
+        (candidate,) = prefilter_candidates(captured.responses)
+        request_body = json.loads(candidate.post_data or "{}")
+        assert request_body.get("size") == 30
+        assert "from" not in request_body and "offset" not in request_body, (
+            "AC-18: if IBM starts sending its page offset, this board becomes "
+            "readable and this case should be rewritten rather than deleted"
+        )

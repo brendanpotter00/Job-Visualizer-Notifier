@@ -266,9 +266,13 @@ def dig_records(payload: Any, path: str) -> Any:
     response, ``records_path`` must be able to point at the whole board.
 
     ``*`` means "for each element of the list here, resolve the rest of the path and
-    concatenate the lists it yields". At most ONE wildcard is admitted (validated on
-    write and again on read): a second one is a cross-product whose cost is unbounded
-    in a payload we did not write, and no real board has needed it.
+    collect what it yields" — a list is CONCATENATED, a dict is taken as ONE RECORD. The
+    second half is the per-element wrapper, and it is a whole family rather than one
+    board: Elasticsearch answers ``hits.hits: [{_index, _id, _score, _source: {...}}]``
+    and Relay answers ``edges: [{cursor, node: {...}}]``, so ``hits.hits.*._source`` and
+    ``edges.*.node`` yield one dict per element. At most ONE wildcard is admitted
+    (validated on write and again on read): a second one is a cross-product whose cost
+    is unbounded in a payload we did not write, and no real board has needed it.
 
     An element that does not carry the remainder is SKIPPED rather than fatal — a
     grouped board legitimately ships an empty or shapeless group beside fourteen good
@@ -311,6 +315,16 @@ def dig_records(payload: Any, path: str) -> Any:
             continue
         if isinstance(found, list):
             out.extend(found)
+        elif isinstance(found, dict):
+            # ONE RECORD PER ELEMENT, not a list of them — the PER-ELEMENT WRAPPER, and
+            # the second shape a whole ATS family needs. Elasticsearch answers
+            # ``hits.hits: [{_index, _id, _score, _source: {...}, sort}]`` and Relay
+            # answers ``edges: [{cursor, node: {...}}]``: the job is one level inside
+            # each element, so ``hits.hits.*._source`` and ``edges.*.node`` resolve to a
+            # dict per element rather than to a list. Measured on
+            # ``www-api.ibm.com/search/api/v2``: 1,806 postings that no concrete path in
+            # the payload can name.
+            out.append(found)
     return out
 
 

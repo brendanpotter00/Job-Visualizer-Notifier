@@ -28,6 +28,7 @@ import pytest
 from api.config import settings
 from api.services.capture import request_selector as rs
 from api.services.capture.network_capture import _responses_from_report
+from api.services.recipe_schema import dig_records
 
 # Marked per-test rather than module-wide: half of these are the PURE pre-filter,
 # and a blanket asyncio mark on a sync test is a pytest warning, not a no-op.
@@ -140,6 +141,98 @@ def test_prefilter_drops_a_board_with_no_jobs_feed() -> None:
     objects anywhere, so there is nothing to select and discovery must refuse rather
     than hand the model noise to pick from."""
     assert _candidates("noise") == []
+
+
+def _one_response(payload: Any) -> list[Any]:
+    return _responses_from_report({
+        "final_url": "https://b.example/careers",
+        "page_title": "",
+        "responses": [{
+            "url": "https://b.example/api", "method": "POST", "status": 200,
+            "content_type": "application/json", "request_headers": {},
+            "post_data": "{}", "body": json.dumps(payload), "truncated": False,
+        }],
+    })
+
+
+@pytest.mark.parametrize(
+    "payload, expected_path",
+    [
+        pytest.param(
+            {"hits": {"total": {"value": 1806}, "hits": [
+                {"_index": "careers", "_id": str(i), "_score": 1.0, "sort": [i],
+                 "_source": {"title": f"Engineer {i}", "url": f"https://c/{i}",
+                             "description": "prose", "field_keyword_19": "Austin, TX"}}
+                for i in range(30)
+            ]}},
+            "hits.hits.*._source",
+            id="elasticsearch-hits.hits[]._source",
+        ),
+        pytest.param(
+            {"data": {"jobSearch": {"edges": [
+                {"cursor": f"c{i}", "node": {"id": str(i), "title": f"Engineer {i}",
+                                             "locationName": "Austin, TX"}}
+                for i in range(12)
+            ]}}},
+            "data.jobSearch.edges.*.node",
+            id="relay-edges[].node",
+        ),
+    ],
+)
+def test_prefilter_sees_a_record_wrapped_one_level_inside_each_element(
+    payload: Any, expected_path: str
+) -> None:
+    """THE PER-ELEMENT WRAPPER, and it is an ATS FAMILY rather than one board.
+
+    ``_walk_record_arrays`` scored only an array's DIRECT elements. Elasticsearch wraps
+    each job in ``{_index, _id, _score, _source, sort}`` — job score **1**, under
+    ``_MIN_JOB_SCORE`` — and Relay wraps it in ``{cursor, node}`` — score **0**. The job
+    objects one level down score 3+, and the walk never looked at them, so the whole
+    response was dropped with the tracking pings.
+
+    Measured 2026-08-30 on ``www-api.ibm.com/search/api/v2``: ``hits.total.value =
+    1806``, 30 records at ``hits.hits[]._source``, and the pre-filter returned **two**
+    candidates for that page, neither of them the jobs feed. The user was told none of
+    the 37 JSON requests the page made is a list of job postings.
+    """
+    (candidate,) = rs.prefilter_candidates(_one_response(payload))
+    assert candidate.records_path == expected_path
+    resolved = dig_records(candidate.payload, candidate.records_path)
+    assert len(resolved) == candidate.record_count
+    assert all(isinstance(r, dict) and "title" in r for r in resolved)
+
+
+def test_an_element_array_that_is_already_job_shaped_is_not_also_unwrapped() -> None:
+    """No duplicate candidate for the same records. The model gets six slots; spending
+    one on a second path to the array it is already being shown is a real cost."""
+    payload = {"jobs": [
+        {"id": str(i), "title": f"Engineer {i}", "meta": {"team": "x", "location": "y"}}
+        for i in range(8)
+    ]}
+    (candidate,) = rs.prefilter_candidates(_one_response(payload))
+    assert candidate.records_path == "jobs"
+
+
+def test_a_single_element_array_is_never_unwrapped() -> None:
+    """A wrapper and a record are indistinguishable when there is only one of them.
+
+    Measured on the live IBM capture: without this floor an Adobe analytics blob
+    (``handle.2.payload.0.items.*.meta``, ONE element, job score 8) outranked the
+    30-record jobs feed the unwrap exists to find.
+    """
+    payload = {"items": [{"meta": {
+        "title": "t", "id": "1", "url": "u", "location": "l", "posted": "p",
+    }}]}
+    assert rs.prefilter_candidates(_one_response(payload)) == []
+
+
+def test_two_dict_valued_keys_are_a_record_not_a_wrapper() -> None:
+    """Unwrapping would have to pick one of them arbitrarily, so it picks neither."""
+    payload = {"rows": [
+        {"node": {"title": f"E{i}", "id": str(i)}, "extra": {"title": "no", "id": "no"}}
+        for i in range(6)
+    ]}
+    assert rs.prefilter_candidates(_one_response(payload)) == []
 
 
 def test_prefilter_ignores_non_2xx_responses() -> None:

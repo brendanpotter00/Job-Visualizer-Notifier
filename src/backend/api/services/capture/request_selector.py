@@ -271,6 +271,64 @@ def _grouped_union_arrays(
             out.append((union_path, total, score, keys))
 
 
+def _unwrapped_element_arrays(
+    node: list[Any], path: str, out: list[tuple[str, int, int, tuple[str, ...]]]
+) -> None:
+    """Emit ``<path>.*.<key>`` when every element WRAPS its record one level down.
+
+    The per-element analogue of :func:`_grouped_union_arrays`, and the same kind of
+    blind spot: that one could not see a record array split ACROSS siblings, this one
+    could not see a record nested INSIDE each element.
+
+    Measured on ``www-api.ibm.com/search/api/v2`` (2026-08-30, 23,990 B): an
+    Elasticsearch response, ``hits.total.value = 1806``, records at
+    ``hits.hits[]._source``. The elements of ``hits.hits`` carry
+    ``['_index','_id','_score','_source','sort']`` — job score **1**, under
+    :data:`_MIN_JOB_SCORE` — while the job objects one level down in ``_source`` score
+    **3**. The walk returned NOTHING, ``prefilter_candidates`` dropped the response with
+    the tracking pings, and the user was told none of the 37 requests the page made is a
+    list of job postings. This is every Elasticsearch board and every Relay/GraphQL
+    ``edges[].node`` board, not one employer.
+
+    THE RULE IS "EXACTLY ONE DICT-VALUED KEY, SHARED BY EVERY ELEMENT". Two of them is
+    not a wrapper — it is a record with two nested objects, and unwrapping it would pick
+    one of them arbitrarily. One is unambiguous, and it is what both real shapes look
+    like (``_source`` beside four scalars; ``node`` beside ``cursor``).
+
+    Called ONLY from the branch where the element array itself did not qualify: a board
+    whose elements are already job-shaped needs no unwrapping, and offering both paths
+    for the same records would spend one of the model's six candidate slots on a
+    duplicate.
+
+    ...and TWO ELEMENTS MINIMUM, the same floor :func:`_grouped_union_arrays` keeps, for
+    a measured reason. In a one-element array a wrapper and a record are indistinguishable
+    — every record "has exactly one dict-valued key" if you only look at one of them. On
+    the live IBM capture that admitted an Adobe analytics blob
+    (``handle.2.payload.0.items.*.meta``, ONE element, job score 8) which then outranked
+    the 30-record jobs feed it was supposed to be helping find. With the floor, the jobs
+    feed ranks first.
+    """
+    if len(node) < 2:
+        return
+    shared: set[str] | None = None
+    for element in node:
+        if not isinstance(element, dict):
+            return
+        dicty = {str(k) for k, v in element.items() if isinstance(v, dict)}
+        shared = dicty if shared is None else (shared & dicty)
+        if not shared:
+            return
+    if shared is None or len(shared) != 1:
+        return
+    (key,) = shared
+    sample = [element[key] for element in node[:5]]
+    score, keys = _job_score(sample)
+    if score < _MIN_JOB_SCORE:
+        return
+    unwrapped = f"{path}.{RECORDS_WILDCARD}.{key}" if path else f"{RECORDS_WILDCARD}.{key}"
+    out.append((unwrapped, len(node), score, keys))
+
+
 def _walk_record_arrays(
     node: Any, path: str, depth: int, out: list[tuple[str, int, int, tuple[str, ...]]]
 ) -> None:
@@ -282,6 +340,10 @@ def _walk_record_arrays(
             score, keys = _job_score(node)
             if score >= _MIN_JOB_SCORE:
                 out.append((path, len(node), score, keys))
+            else:
+                # ...and if the ELEMENTS are not job-shaped, the records may still be
+                # one level inside each of them. See :func:`_unwrapped_element_arrays`.
+                _unwrapped_element_arrays(node, path, out)
             _grouped_union_arrays(node, path, out)
         for i, child in enumerate(node[:5]):
             _walk_record_arrays(child, f"{path}.{i}" if path else str(i), depth + 1, out)
