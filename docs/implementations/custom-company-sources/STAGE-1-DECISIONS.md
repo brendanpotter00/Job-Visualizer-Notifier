@@ -187,11 +187,32 @@ code comment gives it.
 Any threshold in (0, 50) separates the corpus perfectly; 120 keeps a wide margin over
 both, and over the per-request nonce/CSRF/timestamp noise the bound exists for.
 
-**Honest caveat:** this change bought nothing on the live re-run. The YC job pair
-available today differs by 1,826 chars, so the old floor proved it too. The fix is
-justified against the plan's own recorded numbers (asserted directly in
-`test_the_absolute_delta_floor_no_longer_overrules_the_fraction`), not by a board that
-needed it on the day.
+**It did not buy YC on the day** — the job pair available today differs by 1,826 chars,
+so the old floor proved it too, and the plan's exact 7,088/6,936 pair is asserted
+directly in `test_the_absolute_delta_floor_no_longer_overrules_the_fraction` instead.
+
+**It did buy Jane Street, found by the e2e run.** `…/position/8213653002/` and
+`…/position/8233259002/` are *ASIC Engineer, New York* and *ASIC Engineer, London* —
+two real jobs on near-identical sibling pages, **4,745 vs 4,598 chars after stripping**.
+That is a delta of **147** against a 2% bar of 94: it clears the new 120 floor and would
+have failed the old 200 one. The declared titles differ too, so the link is proved
+twice over — but at HEAD this pair had **neither** rule and would have fallen back to
+`listing-page#{id}` on a board this suite exists to protect.
+
+### The duplicate copy of this rule, and why it is now gone
+
+`e2e/.../test_discovery.py::_assert_two_job_links_resolve` carried its **own**
+reimplementation of the comparison — raw `len(resp.text)`, a flat 200 floor, a 2%
+fraction — and it is what failed the first e2e run of this change: on those same two
+Jane Street pages it measured **53,710 vs 53,535 raw bytes** and demanded 1,074. The
+production prover said yes (declared titles differ); the copy said no. Its own docstring
+claims it "asks the same question `discover._prove_job_link` asks", and it had stopped.
+
+Fixed by importing `_declared_title` / `_page_text` / `_pages_differ` from production
+rather than retyping them. What stays local is the **split**, which is a property of the
+e2e case and not of the prover: a *published* link is never page-compared (Atlassian's
+iCIMS iframe serves 478,872 / 478,860 / 478,906 chars for three different jobs), and the
+zero-path-segments check (Nintendo, AC-20) still runs on every row.
 
 ## 6. TRAP 1 — the plan's fifth bullet, skipped
 

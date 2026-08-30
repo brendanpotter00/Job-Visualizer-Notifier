@@ -16,12 +16,20 @@ proved boards CAN verify would be proving half a design.
 
 from __future__ import annotations
 
+import sys
 from urllib.parse import urlsplit
 
 import boards
 import httpx
 import pytest
 from conftest import db, find_company, poll_until, require_reachable
+
+# The capture package's ``__init__`` re-exports the FUNCTION ``discover``, which shadows
+# the submodule of the same name, so the module is reached through ``sys.modules`` — the
+# same trick ``src/backend/api/tests/test_recipe_corpus_regression.py`` uses.
+import api.services.capture  # noqa: E402,F401  (import order is the point)
+
+_discover = sys.modules["api.services.capture.discover"]
 
 EXPECTED_STEP_KEYS = {"open_page", "find_feed", "verify_read", "ready", "first_scan"}
 TERMINAL = {"done", "failed"}
@@ -244,7 +252,22 @@ _MIN_LOCATION_COVERAGE = 0.8       # Atlassian leaves ~9% of its postings withou
 _MIN_URL_DISTINCTNESS = 0.8        # two postings CAN share an application page
 _LINK_CHECK_SAMPLES = 2
 _LINK_CHECK_TIMEOUT_S = 30.0
-_MIN_PAGE_DELTA_FRACTION = 0.02    # matches discover._MIN_PAGE_DELTA_FRACTION
+
+# THE REAL RULES, IMPORTED — not retyped. This helper used to carry its own copy of the
+# page comparison (raw ``len(resp.text)``, a flat 200-char floor and a 2% fraction), and
+# on 2026-08-30 the copy went out of sync with production and failed a board that
+# production had correctly PROVED: Jane Street's ``…/position/8213653002/`` and
+# ``…/position/8233259002/`` are *ASIC Engineer, New York* and *ASIC Engineer, London* —
+# two real jobs, near-identical sibling pages, 53,710 vs 53,535 raw bytes. The shipped
+# prover reads the DECLARED title and says yes; the copy read only bytes and said no.
+#
+# A duplicated rule that can disagree with the rule it is checking is worse than no
+# check, so the duplication is gone. What stays local is the SPLIT — a published link
+# is never page-compared (Atlassian's iCIMS iframe serves 478,872 / 478,860 / 478,906
+# chars for three different jobs) and the path check runs on every row (Nintendo).
+_declared_title = _discover._declared_title
+_page_text = _discover._page_text
+_pages_differ = _discover._pages_differ
 
 
 def _harvested_rows(conn, source_id: str) -> list[dict]:
@@ -340,16 +363,23 @@ def _assert_two_job_links_resolve(
             f"{board.case_id}: the stored job link {row['url']!r} answers HTTP "
             f"{resp.status_code} — every user clicking this job gets that"
         )
-        pages.append((row["url"], len(resp.text)))
-    (url_a, len_a), (url_b, len_b) = pages
-    print(f"{board.case_id}: job links resolve — {url_a} ({len_a}b), {url_b} ({len_b}b)")
+        pages.append((row["url"], resp.text))
+    (url_a, body_a), (url_b, body_b) = pages
+    said_a, said_b = _declared_title(body_a), _declared_title(body_b)
+    text_a, text_b = _page_text(body_a), _page_text(body_b)
+    print(
+        f"{board.case_id}: job links resolve — {url_a} ({len(text_a)} chars, "
+        f"{said_a!r}), {url_b} ({len(text_b)} chars, {said_b!r})"
+    )
     if "{" not in url_spec:
         return                      # a link the BOARD published; see the docstring
-    floor = max(200, int(_MIN_PAGE_DELTA_FRACTION * max(len_a, len_b)))
-    assert abs(len_a - len_b) >= floor, (
+    if said_a and said_b and said_a != said_b:
+        return                      # the pages declare two different jobs
+    assert _pages_differ(text_a, text_b), (
         f"{board.case_id}: the TEMPLATE {url_spec!r} served two different jobs the same "
-        f"page ({len_a} vs {len_b} chars: {url_a} / {url_b}) — it does not route on the "
-        f"job id, so every link on this board points at the same place"
+        f"page ({len(text_a)} vs {len(text_b)} chars, declared {said_a!r} / {said_b!r}: "
+        f"{url_a} / {url_b}) — it does not route on the job id, so every link on this "
+        f"board points at the same place"
     )
 
 
