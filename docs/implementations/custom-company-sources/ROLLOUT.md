@@ -186,9 +186,11 @@ Everything above, plus:
 3. **Workday rows lost the fabricated date, and only those.** Expect ~42% of open Workday
    rows to have `posted_on IS NULL`; the `"Posted N Days Ago"` values must survive.
    Most affected: capitalone, blueorigin, nvidia, gm, disney, adobe, snap, paypal.
-4. **The department backfill completed** — `count(department)` non-zero on `job_listings`,
-   and the Department filter renders on a Greenhouse company (it will stay hidden on
-   Workday/script companies, which publish none — that is correct, not a regression).
+4. **There is NO department check to run.** This step used to read "confirm the
+   department backfill completed". It is deleted, not softened: §3 removed the migration
+   and the Department filter outright, `job_listings` has no `department` column on this
+   branch and prod never had one, so `count(department)` is a `column does not exist`
+   error, not a failed deploy. Verified against prod 2026-08-30.
 5. **Both worker lanes are ticking.** `/health/worker` reports `lanes.bulk` and
    `lanes.interactive` separately. A single stale lane now 503s the probe by design —
    that tag is the thing that stopped a 14-hour silent worker death going unnoticed.
@@ -218,7 +220,7 @@ not fired yet is unproven no matter how long you waited.
 
 | Change | Fires on | Earliest proof | Gate |
 |---|---|---|---|
-| Migrations + `department` backfill | container boot | first `/health` 200 | `alembic_version` at the expected head, one head, `count(department) > 0` |
+| Migrations | container boot | first `/health` 200 | `alembic_version` = `b4d17c2a9e51`, exactly one head. **No `department` check** — the column does not exist; see §5.4 |
 | Worker lane split | immediately | first `/health/worker` | `status: ok`, `stale_lanes: []`, **both** `lanes.bulk` and `lanes.interactive` present and fresh |
 | Vercel proxy allowlists | immediately | one curl | the `..%2Finternal%2F…` probe 404s; the five legitimate paths still 200; `/api/jobs` still re-emits `x-next-cursor` |
 | `first_seen_at` **not** moved on existing rows | every tick's UPSERT | **one tick, ≤ 30 min** | a known row's `first_seen_at` byte-identical after a tick that re-saw it |
@@ -310,10 +312,23 @@ Not blockers, but they should not be discovered during an incident:
   *and* leaves a `discovering` row with no job. The reconciler recovers it in ~40 min.
 - **A refused board cannot be retried by re-adding** — the user must Remove first. Correct for
   a genuine refusal (discovery is deterministic), wrong for a swept row.
-- **`http_html` recipes ignore their pagination step** — validated, never read. A page-1-only
-  sweep reports `terminated_cleanly`, which a `self_consistent` oracle would verify, and it
-  would then close everything past page one. **Latent**: discovery only emits `http_json` and
-  `browser_fetch` today. It arms the moment `http_html` ships.
+- **`http_html` recipes ignore their pagination step. NO LONGER LATENT — and now guarded.**
+  This entry used to end "discovery only emits `http_json` and `browser_fetch` today; it arms
+  the moment `http_html` ships". `http_html` shipped, in `1757370` (sources 2 and 6 — the
+  document becomes a candidate), so the entry was wrong by the time you read it.
+  `synthesize_recipe` drops the pagination step for a document candidate because
+  `validate_recipe` forbids paging on that transport, and `_run_http_html` then reports
+  `terminated_cleanly=True` from a single request it never swept. A paginating careers page
+  therefore stores a page-one-forever recipe whose truncated counts are perfectly stable — and
+  the history-delta oracle, which hedges entirely on `terminated_cleanly`, VERIFIES it. Jobs
+  that merely rotated onto page two then close while still open.
+  **Fixed** by check 13d in `harvest_verification._verify_history_delta`: `http_html` cannot
+  earn the EMPIRICAL oracle. It can still close on a trusted total
+  (`declared_probed`/`facet_sum`/`header`/`sitemap`), each of which demands `n ==
+  declared_total` exactly — proof a page-one read cannot fake. Still open, and deliberately:
+  such a board is tracked as a **sliver** with no notice saying so, unless the coverage
+  refusal (`_COVERAGE_REFUSAL_RATIO = 0.10`) catches it. It will not close wrongly; it will
+  under-report.
 - **Discovery cost is not recorded.** `DiscoveryOutcome.cost_note` exists in memory and is
   never written, so "did this attempt cost anything" is unanswerable from the database.
 - **The company-name matcher discards the TLD and cannot see the Public Suffix List's private
