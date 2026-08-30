@@ -1,0 +1,263 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "title": "JobBoardRecipe",
+  "type": "object",
+  "required": ["status", "board_url", "recipe", "evidence", "blockers", "notes"],
+  "additionalProperties": false,
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": ["recipe_ready", "recipe_partial", "refused"],
+      "description": "recipe_ready = all four proofs passed. recipe_partial = a usable recipe with at least one proof unmet or an optional field dropped; blockers says which. refused = no usable recipe; refusal_reason says why."
+    },
+    "refusal_reason": {
+      "type": ["string", "null"],
+      "enum": ["no_per_job_id_or_link", "pagination_undriveable", "declared_total_unreachable", "search_only_board", "unstable_ids", "blocked_by_site", "other", null],
+      "description": "Non-null only when status is refused."
+    },
+    "board_url": {
+      "type": "string",
+      "description": "The careers URL this run was given."
+    },
+
+    "recipe": {
+      "type": ["object", "null"],
+      "description": "Null only when status is refused.",
+      "required": ["script_version", "transport", "base_url", "expected_min_jobs", "steps", "oracle"],
+      "additionalProperties": false,
+      "properties": {
+        "script_version": { "type": "integer", "const": 1 },
+        "transport": {
+          "type": "string",
+          "enum": ["http_json", "browser_fetch"],
+          "description": "http_json = the request replays fine from a plain HTTP client. browser_fetch = the board origin-checks, cookie-gates or signs the request, so it must be reissued from inside a page on its own origin."
+        },
+        "origin_url": {
+          "type": ["string", "null"],
+          "description": "REQUIRED when transport is browser_fetch: the page to load before issuing the request. Must be null for http_json."
+        },
+        "base_url": {
+          "type": "string",
+          "description": "Origin used to absolutize relative job links, e.g. https://www.example.com"
+        },
+        "expected_min_jobs": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "A floor a healthy replay should clear. Be conservative — this trips a failure if a future run returns fewer."
+        },
+
+        "steps": {
+          "type": "array",
+          "minItems": 2,
+          "description": "Exactly one fetch, at most one paginate_*, exactly one extract_json_path.",
+          "items": {
+            "oneOf": [
+              {
+                "type": "object",
+                "required": ["op", "url"],
+                "additionalProperties": false,
+                "properties": {
+                  "op": { "type": "string", "const": "fetch" },
+                  "method": { "type": "string", "enum": ["GET", "POST"] },
+                  "url": { "type": "string", "description": "Absolute https URL of the jobs request." },
+                  "headers": { "type": "object", "description": "Only headers the request genuinely needs. Never include a cookie, bearer token, or any per-session credential." },
+                  "body": { "type": "object", "description": "POST body, nested exactly as the page sent it. Do not flatten it." }
+                }
+              },
+              {
+                "type": "object",
+                "required": ["op", "param", "page_size", "max_pages"],
+                "additionalProperties": false,
+                "properties": {
+                  "op": { "type": "string", "const": "paginate_page" },
+                  "param": { "type": "string", "description": "Dotted path to the page-number field, in the query string or nested in the body, e.g. variables.filters.job_page" },
+                  "page_size": { "type": "integer", "minimum": 1 },
+                  "max_pages": { "type": "integer", "minimum": 1 },
+                  "start_page": { "type": "integer", "description": "0 or 1 — whichever the board uses." }
+                }
+              },
+              {
+                "type": "object",
+                "required": ["op", "param", "page_size", "max_pages"],
+                "additionalProperties": false,
+                "properties": {
+                  "op": { "type": "string", "const": "paginate_offset" },
+                  "param": { "type": "string", "description": "Dotted path to the offset/from/start field." },
+                  "page_size": { "type": "integer", "minimum": 1 },
+                  "max_pages": { "type": "integer", "minimum": 1 }
+                }
+              },
+              {
+                "type": "object",
+                "required": ["op", "facet_param", "page_size", "max_pages_per_facet"],
+                "additionalProperties": false,
+                "properties": {
+                  "op": { "type": "string", "const": "paginate_facet" },
+                  "facet_param": { "type": "string", "description": "The parameter that partitions the board (a location, category, store id)." },
+                  "facet_values": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+                  "facet_values_path": { "type": "string", "description": "Path in the response to the list of facet values, if the board publishes it." },
+                  "page_size": { "type": "integer", "minimum": 1 },
+                  "max_pages_per_facet": { "type": "integer", "minimum": 1 }
+                }
+              },
+              {
+                "type": "object",
+                "required": ["op", "records_path", "fields"],
+                "additionalProperties": false,
+                "properties": {
+                  "op": { "type": "string", "const": "extract_json_path" },
+                  "records_path": { "type": "string", "description": "Dotted path to the jobs array. '' when the response is itself the array. One '*' wildcard allowed mid-path, never trailing." },
+                  "fields": {
+                    "type": "object",
+                    "required": ["id", "title", "url"],
+                    "additionalProperties": false,
+                    "description": "Each value is a dotted path into one record, or a template with {placeholders}. OMIT an optional key entirely rather than mapping a field that is null or identical across the sample.",
+                    "properties": {
+                      "id": { "type": "string" },
+                      "title": { "type": "string" },
+                      "url": { "type": "string" },
+                      "location": { "type": "string" },
+                      "posted_at": { "type": "string" },
+                      "description": { "type": "string" },
+                      "company": { "type": "string" }
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+
+        "oracle": {
+          "type": "object",
+          "required": ["kind"],
+          "description": "How a future replay can know it read the whole board. Never established by crawling.",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": ["declared_probed", "facet_sum", "header", "sitemap", "self_consistent", "none"]
+            },
+            "total_path": { "type": "string", "description": "declared_probed: dotted path to the total the board publishes." },
+            "facet_path": { "type": "string", "description": "facet_sum: path to the per-facet counts." },
+            "single_valued": { "type": "boolean", "description": "facet_sum: true only if each job belongs to exactly one facet. If a job can appear under two, this oracle is wrong." },
+            "header_name": { "type": "string", "description": "header: the response header carrying the total." },
+            "sitemap_url": { "type": "string" },
+            "url_pattern": { "type": "string" }
+          }
+        }
+      }
+    },
+
+    "evidence": {
+      "type": "object",
+      "description": "The four proofs, with real numbers. Null for any proof that was not run.",
+      "required": ["pagination", "id_stability", "job_links", "field_coverage"],
+      "additionalProperties": false,
+      "properties": {
+        "pagination": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "properties": {
+            "proved": { "type": "boolean" },
+            "page_1_record_count": { "type": ["integer", "null"] },
+            "page_2_record_count": { "type": ["integer", "null"] },
+            "new_ids_on_page_2": { "type": ["integer", "null"], "description": "Ids on page 2 absent from page 1. Zero means the parameter does not page." },
+            "declared_total": { "type": ["integer", "null"], "description": "The board's own stated total, if it publishes one. Read, never counted." },
+            "detail": { "type": ["string", "null"] }
+          }
+        },
+        "id_stability": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "properties": {
+            "proved": { "type": "boolean" },
+            "first_run_count": { "type": ["integer", "null"] },
+            "second_run_count": { "type": ["integer", "null"] },
+            "symmetric_difference": { "type": ["integer", "null"], "description": "Must be 0. Anything above 0 means ids churn and every job would close and reopen hourly." },
+            "seconds_between_runs": { "type": ["integer", "null"] },
+            "id_source": { "type": ["string", "null"], "description": "Where the id comes from — a response field, a URL segment, a DOM attribute." }
+          }
+        },
+        "job_links": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "properties": {
+            "proved": { "type": "boolean" },
+            "checked": { "type": "integer" },
+            "resolved": { "type": "integer", "description": "How many fetched pages actually contained that job's own title." },
+            "published_by_board": { "type": "boolean", "description": "True if the records carry the link themselves rather than you constructing it. Strongly preferred." },
+            "samples": {
+              "type": "array",
+              "maxItems": 8,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "url": { "type": "string" },
+                  "http_status": { "type": "integer" },
+                  "title_found_on_page": { "type": "boolean" },
+                  "page_bytes": { "type": ["integer", "null"], "description": "Two different jobs returning near-identical byte counts means the URL is not routing on the id." }
+                }
+              }
+            }
+          }
+        },
+        "field_coverage": {
+          "type": ["object", "null"],
+          "description": "Per mapped field, measured over the sample. A field non-null on fewer than all records, or identical on all of them, should have been omitted from the recipe.",
+          "additionalProperties": false,
+          "properties": {
+            "sample_size": { "type": "integer" },
+            "fields": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["field", "non_null_count", "distinct_count"],
+                "additionalProperties": false,
+                "properties": {
+                  "field": { "type": "string" },
+                  "non_null_count": { "type": "integer" },
+                  "distinct_count": { "type": "integer" },
+                  "example_value": { "type": ["string", "null"] }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+
+    "budget": {
+      "type": ["object", "null"],
+      "description": "Self-reported cost of this run. Ceilings: 40 requests, 3 pages, 150 records, 8 detail fetches.",
+      "additionalProperties": false,
+      "properties": {
+        "board_requests_made": { "type": "integer" },
+        "job_records_fetched": { "type": "integer" },
+        "pages_fetched": { "type": "integer" },
+        "detail_pages_fetched": { "type": "integer" },
+        "exceeded_a_ceiling": { "type": "boolean" }
+      }
+    },
+
+    "blockers": {
+      "type": "array",
+      "description": "Everything that stopped you, one entry each. Empty array if nothing did.",
+      "items": {
+        "type": "object",
+        "required": ["what", "why"],
+        "additionalProperties": false,
+        "properties": {
+          "what": { "type": "string", "description": "The thing you could not do, e.g. 'prove pagination', 'map posted_at'." },
+          "why": { "type": "string" },
+          "attempts": { "type": "integer" }
+        }
+      }
+    },
+
+    "notes": {
+      "type": "string",
+      "description": "What you are NOT confident about and what would break this first. One or two sentences. Do not restate the recipe here, and never put the answer here instead of in the structured fields."
+    }
+  }
+}
