@@ -28,6 +28,27 @@ from .pending_jobs import cancel_queued_jobs
 
 logger = logging.getLogger(__name__)
 
+#: THE NAME THE OWNER SEES, spelled exactly once.
+#:
+#: ``display_name`` is the label we DERIVED from the pasted URL
+#: (``routers/user_companies._discovery_display_name``); ``user_display_name`` is the
+#: one the owner typed, NULL until they rename. Their own name always wins.
+#:
+#: Why they are two columns and not one column plus a flag: ``display_name`` is
+#: rewritten by :func:`_promote_to_tracked` on every discovery ACCEPT and by
+#: :func:`restart_refused_discovery` on the retry of a refused board. Those are not
+#: add-time writes — they re-run whenever a user re-pastes a URL — so a single column
+#: would need each of them (and every write added later) to remember a guard, and the
+#: first one that forgot would silently revert a rename. Neither statement names
+#: ``user_display_name``, so neither can touch it. That is the whole protection, and it
+#: is structural: it cannot be forgotten, only deliberately undone.
+#:
+#: Qualified ``c.`` because every owner-facing read joins ``companies AS c``. It is
+#: aliased ``AS display_name`` at each of those sites, so the row dicts callers already
+#: pass around carry the effective name and there is no second, Python-side resolution
+#: step for a caller to skip.
+EFFECTIVE_DISPLAY_NAME_SQL = "COALESCE(c.user_display_name, c.display_name)"
+
 # How often a custom company is re-harvested. next_run_at is seeded to now() so the row
 # is DUE the instant it exists. The add path then enqueues the first harvest itself
 # (``claim_custom_companies.start_first_harvest``) and pushes next_run_at forward; the
@@ -58,11 +79,17 @@ def canonical_source_key(ats: str, board_token: str) -> str:
 def find_owned_company_by_source_key(
     conn: Connection, user_id: str, source_key: str
 ) -> Optional[dict[str, Any]]:
-    """The caller's company for ``source_key`` (idempotent re-add), or None."""
+    """The caller's company for ``source_key`` (idempotent re-add), or None.
+
+    ``display_name`` is the EFFECTIVE name (:data:`EFFECTIVE_DISPLAY_NAME_SQL`) — a
+    re-add of a board the user has renamed must answer with the name they gave it, not
+    with the label we derived from the URL.
+    """
     cursor = conn.cursor()
     cursor.execute(
-        """
-        SELECT c.id, c.display_name, c.ats, c.board_token, c.health_state,
+        f"""
+        SELECT c.id, {EFFECTIVE_DISPLAY_NAME_SQL} AS display_name,
+               c.ats, c.board_token, c.health_state,
                c.last_success_at, c.tracking_started_at, c.created_at,
                c.provider_config
         FROM user_companies uc
@@ -789,7 +816,14 @@ def _promote_to_tracked(
     person actually hits — the row sits on screen saying "Setting up…" for up to four
     minutes with a Remove button beside it. Without the rowcount check the flip would
     quietly write no company and then INSERT a ``company_scripts`` row and an ``added``
-    audit row for a company id that no longer exists."""
+    audit row for a company id that no longer exists.
+
+    ``display_name`` here is the DERIVED name and it goes to the derived column, which
+    is why this statement can re-run on every re-discovery without ever touching a
+    rename. It then READS BACK the effective name in the same statement
+    (``RETURNING``) for the dict it returns: the response body must show what the row
+    now says, and on a renamed board that is the user's name, not the one just written.
+    A second SELECT could disagree with the UPDATE; ``RETURNING`` cannot."""
     cursor = conn.cursor()
     try:
         cursor.execute(
@@ -802,16 +836,19 @@ def _promote_to_tracked(
                     provider_config
                 )
             WHERE id = %s AND visibility = 'user'
+            RETURNING COALESCE(user_display_name, display_name) AS effective_name
             """,
             (display_name, normalized_url, _progress_param(progress), company_id),
         )
-        if cursor.rowcount == 0:
+        updated_row = cursor.fetchone()
+        if updated_row is None:
             conn.rollback()
             logger.info(
                 "discovery accepted %s but its company row is gone — removed mid-run; "
                 "writing nothing", normalized_url,
             )
             return None
+        effective_name = str(updated_row["effective_name"])
         cursor.execute(
             """
             INSERT INTO company_scripts (
@@ -838,7 +875,7 @@ def _promote_to_tracked(
     )
     return {
         "id": company_id,
-        "display_name": display_name,
+        "display_name": effective_name,
         "ats": _DISCOVERED_ATS,
         "board_token": normalized_url,
         "health_state": "unverified",
@@ -1019,10 +1056,20 @@ def restart_refused_discovery(
     under ``discovery_queueing_lock``, and a second defer while the first job is still
     ``todo``/``doing`` raises ``AlreadyEnqueued`` instead of opening a second browser.
 
-    THE DISPLAY NAME IS REFRESHED with the caller's freshly derived one. The stored
-    label was computed by the deployment that refused the board — the same YC row is
-    literally named "Ycombinator" — and there is no rename endpoint, so leaving it would
-    make the retry the one moment we could fix it and did not.
+    THE DERIVED DISPLAY NAME IS REFRESHED with the caller's freshly computed one. The
+    stored label was computed by the deployment that refused the board — the same YC row
+    is literally named "Ycombinator" — so recomputing it here picks up every improvement
+    to ``_discovery_display_name`` since.
+
+    IT CANNOT REACH A RENAME, and that is now the point rather than a happy accident.
+    ``PATCH /api/users/companies/{id}`` writes ``user_display_name``; this statement
+    writes ``display_name``. Re-pasting a URL is the ONLY retry the UI offers, so this
+    is the single most likely path to walk over a user's rename, and the two names
+    living in two columns is what makes that impossible — see
+    :data:`EFFECTIVE_DISPLAY_NAME_SQL`. The returned dict therefore carries the
+    EFFECTIVE name, read back by ``RETURNING`` in the same statement: writing the
+    derived name into the response would make the retry *look* like it had reverted the
+    rename even though the row was correct.
 
     Guarded on ``health_state='refused'`` IN THE UPDATE, not just in the read above it:
     two re-adds racing must not both reset the row and both enqueue. The loser sees
@@ -1050,12 +1097,15 @@ def restart_refused_discovery(
                     provider_config, '{discovery}', %s::jsonb, true
                 )
             WHERE id = %s AND visibility = 'user' AND health_state = 'refused'
+            RETURNING COALESCE(user_display_name, display_name) AS effective_name
             """,
             (display_name, json.dumps(seeded_progress), existing["id"]),
         )
-        if cursor.rowcount == 0:
+        updated_row = cursor.fetchone()
+        if updated_row is None:
             conn.rollback()
             return None
+        effective_name = str(updated_row["effective_name"])
         conn.commit()
     except psycopg2.Error:
         conn.rollback()
@@ -1068,7 +1118,7 @@ def restart_refused_discovery(
     )
     return {
         **existing,
-        "display_name": display_name,
+        "display_name": effective_name,
         "health_state": "discovering",
         "source_id": custom(existing["id"]),
         "open_job_count": count_open_jobs(conn, existing["id"]),
@@ -1097,12 +1147,18 @@ def list_owned_companies(conn: Connection, user_id: str) -> list[dict[str, Any]]
     ``open_job_count`` is computed inline against the per-company source_id
     (``'custom:'||c.id``) so a single round-trip returns everything the list
     view needs.
+
+    ``display_name`` is the EFFECTIVE name (:data:`EFFECTIVE_DISPLAY_NAME_SQL`): the
+    owner's own label when they have renamed the board, the URL-derived one otherwise.
+    This is the read behind the My Companies list, so it is the one that has to be
+    right — the rename would be invisible without it.
     """
     cursor = conn.cursor()
     cursor.execute(
-        """
+        f"""
         SELECT
-            c.id, c.display_name, c.ats, c.board_token, c.health_state,
+            c.id, {EFFECTIVE_DISPLAY_NAME_SQL} AS display_name,
+            c.ats, c.board_token, c.health_state,
             c.last_success_at, c.tracking_started_at, c.enabled, c.created_at,
             -- Carries the discovery checklist for an ats='discovered' row (see
             -- ``discovery.progress``). For an ATS company it holds that provider's
@@ -1161,11 +1217,15 @@ def list_owned_source_ids(conn: Connection, user_id: str) -> list[str]:
 def get_company_if_owner(
     conn: Connection, user_id: str, company_id: str
 ) -> Optional[dict[str, Any]]:
-    """The company row IF ``user_id`` owns ``company_id``, else None (→ 403)."""
+    """The company row IF ``user_id`` owns ``company_id``, else None (→ 403).
+
+    ``display_name`` is the EFFECTIVE name (:data:`EFFECTIVE_DISPLAY_NAME_SQL`).
+    """
     cursor = conn.cursor()
     cursor.execute(
-        """
-        SELECT c.id, c.display_name, c.ats, c.board_token, c.health_state,
+        f"""
+        SELECT c.id, {EFFECTIVE_DISPLAY_NAME_SQL} AS display_name,
+               c.ats, c.board_token, c.health_state,
                c.last_success_at, c.tracking_started_at, c.enabled, c.created_at
         FROM user_companies uc
         JOIN companies c ON c.id = uc.company_id
@@ -1175,6 +1235,74 @@ def get_company_if_owner(
     )
     row = cursor.fetchone()
     return dict(row) if row else None
+
+
+def rename_owned_company(
+    conn: Connection, user_id: str, company_id: str, display_name: str
+) -> Optional[dict[str, Any]]:
+    """Set the OWNER's name for their own private board. ``None`` if it is not theirs.
+
+    ``display_name`` is expected to be already validated and normalized by the caller
+    (``routers/user_companies._clean_display_name``); this function is about who may
+    write and where the write lands, not about what the string may contain.
+
+    IT WRITES ``user_display_name`` AND NEVER ``display_name``. The derived label keeps
+    living in its own column, maintained by discovery, so a later re-discovery or a
+    re-add of a refused board refreshes THAT and cannot reach this one — the whole
+    reason the two are separate columns (:data:`EFFECTIVE_DISPLAY_NAME_SQL`).
+
+    OWNERSHIP IS THE STATEMENT'S OWN PREDICATE, not a read followed by a write. Both
+    halves ride in the WHERE clause:
+
+    * ``EXISTS (SELECT 1 FROM user_companies …)`` — only an owner may rename;
+    * ``visibility = 'user'`` — a PUBLIC company can never be renamed through here,
+      even if some contrived ``user_companies`` row pointed at one. That is the same
+      defence-in-depth guard :func:`list_owned_source_ids` and
+      :func:`remove_owned_company` carry, and here it is what stops one user renaming
+      a board on everybody else's screen.
+
+    There is therefore no window between the check and the write, and no second code
+    path that could reach the UPDATE with the check skipped. ``None`` (no row matched)
+    deliberately conflates "not yours", "no such company" and "that is a public board"
+    — the router answers all three 404, exactly as ``DELETE`` already does, so the
+    response cannot be used to probe which company ids exist.
+
+    Returns the row in the same shape :func:`list_owned_companies` yields, so the
+    router's ``_to_response`` renders it with no special case. ``RETURNING`` rather
+    than a follow-up SELECT: one statement, and the body cannot disagree with the row.
+    """
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            f"""
+            UPDATE companies c
+            SET user_display_name = %s
+            WHERE c.id = %s
+              AND c.visibility = 'user'
+              AND EXISTS (
+                  SELECT 1 FROM user_companies uc
+                  WHERE uc.company_id = c.id AND uc.user_id = %s
+              )
+            RETURNING c.id, {EFFECTIVE_DISPLAY_NAME_SQL} AS display_name,
+                      c.ats, c.board_token, c.health_state, c.last_success_at,
+                      c.tracking_started_at, c.enabled, c.created_at,
+                      c.provider_config
+            """,
+            (display_name, company_id, user_id),
+        )
+        row = cursor.fetchone()
+        if row is None:
+            conn.rollback()
+            return None
+        conn.commit()
+    except psycopg2.Error:
+        conn.rollback()
+        raise
+
+    renamed = dict(row)
+    renamed["source_id"] = custom(renamed["id"])
+    renamed["open_job_count"] = count_open_jobs(conn, renamed["id"])
+    return renamed
 
 
 def purge_custom_company(

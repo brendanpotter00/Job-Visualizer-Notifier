@@ -1303,6 +1303,29 @@ class AddUserCompanyRequest(BaseModel):
     track_anyway: bool = False
 
 
+class RenameUserCompanyRequest(BaseModel):
+    """Body for PATCH /api/users/companies/{id} — the owner's name for their board.
+
+    The REAL limits (trim, control-character stripping, the 100-character cap) live in
+    ``routers/user_companies._clean_display_name`` and are enforced there, NOT here.
+    That is deliberate: a Pydantic ``Field`` violation returns Pydantic's own 422 shape
+    (``detail`` as a list of error objects, no ``reason``), and the frontend's
+    ``asAddFailure`` requires a 422 carrying a string ``reason`` before it will render
+    specific copy — so a name rejected by a ``Field`` constraint would surface as
+    generic "something went wrong" text instead of "that name is too long".
+
+    ``max_length`` here is only a payload ceiling, an order of magnitude above the real
+    cap, so a megabyte of text is refused before it is ever normalized. A client that
+    trips it is broken or hostile, and the generic 422 is the right answer for both.
+    """
+
+    model_config = ConfigDict(
+        alias_generator=to_camel, populate_by_name=True, extra="forbid"
+    )
+
+    display_name: str = Field(min_length=1, max_length=1000)
+
+
 class AlreadyPublicResponse(BaseModel):
     """200 body when a pasted URL is a board we already publish (the P2 dedupe).
 
@@ -1530,8 +1553,11 @@ class AddQuotaResponse(BaseModel):
     ``MyCompanies`` tag every add and delete already invalidates, and can never be
     stale relative to the list it sits above.
 
-    ``limit`` is the CONFIGURED cap, and ``0`` means unlimited — the UI renders no
-    counter at all in that case. ``remaining`` is deliberately NOT on the wire:
+    ``limit`` is the CONFIGURED cap and means exactly what it says: the number of adds
+    allowed this month. ``0`` allows none (the kill switch), and the UI renders
+    "0 of 0 adds left this month" — it is NOT an "unlimited" sentinel. The UI renders
+    no counter only when this whole object is absent, which is a different thing: a
+    server that predates the counter. ``remaining`` is deliberately NOT on the wire:
     ``max(limit - used, 0)`` is display arithmetic, it has exactly one definition
     (``addsRemaining`` in ``userCompaniesApi.ts``), and a second copy travelling over
     the wire would be a second thing that can disagree with the number on screen.

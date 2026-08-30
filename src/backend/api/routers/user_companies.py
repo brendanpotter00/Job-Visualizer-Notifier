@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 from datetime import datetime
 from urllib.parse import urlparse
@@ -39,6 +40,7 @@ from ..models import (
     DiscoveryProgressResponse,
     JobListingResponse,
     PublicMatchResponse,
+    RenameUserCompanyRequest,
     UserCompanyListResponse,
     UserCompanyResponse,
 )
@@ -59,7 +61,10 @@ from ..services import add_quota
 from ..services import custom_companies_service as svc
 from ..services.ats_discovery import REASON_NO_ATS, discover_ats, probe_candidate
 from ..services.company_name_match import directory_tenant
-from ..services.rate_limit import enforce_user_company_add_rate_limit
+from ..services.rate_limit import (
+    enforce_user_company_add_rate_limit,
+    enforce_user_company_rename_rate_limit,
+)
 from ..services.discovery.progress import read_progress
 from ..services.published_board_match import read_suggestion
 from ..services.database import get_owned_custom_jobs, get_user_company_jobs
@@ -291,6 +296,52 @@ def _discovery_display_name(final_url: str) -> str:
     if labels[-1] in _HOST_NOISE_PREFIXES:
         return host
     return _title_case_slug(labels[-1]) or host
+
+
+# The owner's own name for a board, capped. NOT a new number: it is the cap
+# ``UserUpdateRequest.display_name`` and ``AccountPage``'s ``maxLength`` already use for
+# the other display name in this product. A second limit for the same kind of field is
+# a thing that drifts, and the card renders both.
+_DISPLAY_NAME_MAX_LENGTH = 100
+
+#: Characters DELETED from a submitted name rather than rejected. Every one of them is
+#: invisible, and none of them is anything a person meant to type into a company name:
+#:
+#: * the non-whitespace C0/C1 controls, and DEL;
+#: * ZERO-WIDTH SPACE and the BOM — a name that renders as nothing but is not empty;
+#: * the bidi marks, embeddings, overrides and isolates (U+200E/200F, U+202A-202E,
+#:   U+2066-2069). An RTL override makes a label render in an order it is not stored
+#:   in, which is the one way an escaped, un-injectable string can still lie about what
+#:   it says.
+#:
+#: WHITESPACE CONTROLS ARE DELIBERATELY NOT IN THIS CLASS — tab, newline, the C0/C1
+#: separators, NEL, U+2028/U+2029. Deleting a tab would turn "Acme\tCorp" into
+#: "AcmeCorp"; leaving it lets ``str.split()`` below treat it as the WORD BREAK it
+#: obviously is and produce "Acme Corp". (It is also why NBSP becomes an ordinary
+#: space rather than surviving as one.)
+#:
+#: ZWJ/ZWNJ (U+200C/U+200D) are not stripped either: they are load-bearing in Persian
+#: and several Indic scripts and inside emoji sequences, so removing them would corrupt
+#: legitimate names to defend against nothing.
+#:
+#: DELETED, NOT REJECTED, because "your name contains an invisible character" is not an
+#: error anyone can act on. What survives is re-checked for emptiness, so a name made
+#: only of these is a clean ``name_empty`` rather than a row called "".
+_INVISIBLE_CHARS = re.compile(
+    "[\x00-\x08\x0e-\x1b\x7f-\x84\x86-\x9f"
+    "\u200b\u200e\u200f\u202a-\u202e\u2066-\u2069\ufeff]"
+)
+
+
+def _clean_display_name(raw: str) -> str:
+    """Normalize a submitted company name: no invisibles, no runs of whitespace.
+
+    ``str.split()`` with no argument splits on every run of Unicode whitespace and
+    drops the leading and trailing runs, so the join both TRIMS and COLLAPSES:
+    ``"  Acme   Corp  "``, ``"Acme<TAB>Corp"`` and ``"Acme<NBSP>Corp"`` all become
+    ``"Acme Corp"``. Callers treat ``""`` as "the user typed nothing usable".
+    """
+    return " ".join(_INVISIBLE_CHARS.sub("", raw).split())
 
 
 async def _defer_discovery(
@@ -1123,6 +1174,90 @@ async def get_all_owned_jobs(
             tail["first_seen_at"], tail["source_id"], tail["id"]
         )
     return [JobListingResponse(**job) for job in jobs]
+
+
+@router.patch("/{company_id}", response_model=UserCompanyResponse)
+async def rename_company(
+    payload: RenameUserCompanyRequest,
+    company_id: str = Path(max_length=64),
+    conn: Connection = Depends(get_db),
+    user: TokenClaims = Depends(get_current_user),
+) -> UserCompanyResponse | JSONResponse:
+    """Rename one of the caller's own private boards.
+
+    THE NAME WE DERIVED AND THE NAME THE USER CHOSE ARE DIFFERENT COLUMNS. This writes
+    ``companies.user_display_name``; :func:`_discovery_display_name`'s output keeps
+    living in ``companies.display_name``, which discovery is free to keep rewriting.
+    That is what makes a rename survive the two paths that would otherwise undo it —
+    ``_promote_to_tracked`` on any re-discovery, and ``restart_refused_discovery`` on
+    the re-add of a refused board, both of which SET ``display_name`` unconditionally.
+    Neither statement names the column this one writes, so neither can reach it. See
+    ``custom_companies_service.EFFECTIVE_DISPLAY_NAME_SQL``.
+
+    Ownership is enforced inside the UPDATE (``EXISTS`` on ``user_companies`` plus
+    ``visibility = 'user'``), so a board that is not yours — and a PUBLIC company,
+    which nobody may rename — matches no row. All three cases answer **404 Company not
+    found**, the same answer ``DELETE`` gives, which does not disclose whether the id
+    exists. AC-10's rule for this router is 403 on a READ of a known id and 404 on a
+    MUTATION; this is a mutation.
+
+    NEITHER ADD BUDGET IS CHARGED. A rename makes no outbound request and starts no
+    discovery, so it does not touch the 10/60s add burst limiter and it does not spend
+    one of the twenty monthly slots (nothing is written to ``company_add_attempts`` —
+    a rename is not a URL we acted on, and counting it would make the audit's row count
+    stop meaning what ``add_quota._QUOTA_COUNTED_PREDICATE`` says it means). It gets its
+    own, much looser bucket instead.
+
+    An empty or whitespace-only name is REJECTED, not treated as "go back to the
+    derived one". Clearing the box is far more likely a mistake than a request to be
+    called "Ycombinator" again, and Cancel is the affordance for "never mind". The
+    column supports a revert (``user_display_name = NULL``); it is deliberately not
+    reachable from here.
+    """
+    _require_flag()
+
+    auth0_id = get_normalized_subject(user)
+    email = user.get("email")
+    if not auth0_id:
+        raise HTTPException(status_code=401, detail="Token missing required 'sub' claim")
+    if not email:
+        raise HTTPException(status_code=401, detail="Token missing required 'email' claim")
+
+    # After the flag check so a flag-off deployment answers a clean 503, and before any
+    # database work so a burst costs nothing — same ordering as the add path.
+    enforce_user_company_rename_rate_limit(auth0_id)
+
+    cleaned = _clean_display_name(payload.display_name)
+    if not cleaned:
+        return _reject(
+            422,
+            "name_empty",
+            "A company name can't be blank. Type a name, or press Cancel to keep the "
+            "current one.",
+        )
+    if len(cleaned) > _DISPLAY_NAME_MAX_LENGTH:
+        return _reject(
+            422,
+            "name_too_long",
+            f"That name is {len(cleaned)} characters. Please keep it to "
+            f"{_DISPLAY_NAME_MAX_LENGTH} or fewer.",
+        )
+
+    row = get_user_by_email(conn, email)
+    if row is None:
+        # Signed in with no users row yet: they cannot own anything, so there is
+        # nothing here to rename. Same answer as a board belonging to somebody else.
+        raise HTTPException(status_code=404, detail="Company not found")
+    try:
+        renamed = svc.rename_owned_company(conn, row["id"], company_id, cleaned)
+    except psycopg2.Error:
+        logger.exception(
+            "Failed to rename custom company %s for user=%s", company_id, row["id"]
+        )
+        raise HTTPException(status_code=500, detail="Failed to rename company")
+    if renamed is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    return _to_response(renamed)
 
 
 @router.delete("/{company_id}", status_code=204)

@@ -125,6 +125,18 @@ user_company_add_rate_limiter = SlidingWindowRateLimiter(
     window_seconds=settings.user_company_add_rate_limit_window_seconds,
 )
 
+# ...and for PATCH /api/users/companies/{id} — the rename.
+#
+# ITS OWN BUCKET, an order of magnitude looser. A rename costs one UPDATE: no browser,
+# no outbound request, no LLM call. Sharing the add limiter would make correcting a
+# typo eat a slot the add path needs, and it would tie a cheap write's ceiling to an
+# expensive one's tuning. The monthly cap is not consulted at all here — that one is
+# the spend guard, and a rename spends nothing.
+user_company_rename_rate_limiter = SlidingWindowRateLimiter(
+    max_requests=settings.user_company_rename_rate_limit_max,
+    window_seconds=settings.user_company_rename_rate_limit_window_seconds,
+)
+
 
 def client_ip_from_request(request: Request) -> str:
     """Best-effort client IP for rate-limit keying.
@@ -193,6 +205,28 @@ def enforce_user_company_add_rate_limit(user_key: str) -> None:
             status_code=429,
             detail=(
                 "You're adding companies too quickly. Please wait about "
+                f"{wait_seconds} seconds and try again."
+            ),
+            headers={"Retry-After": str(wait_seconds)},
+        )
+
+
+def enforce_user_company_rename_rate_limit(user_key: str) -> None:
+    """429 when ``user_key`` is renaming companies faster than the burst limit.
+
+    Same plain-function shape as its two neighbours. The wait time is in the BODY as
+    well as the header for the reason spelled out in
+    :func:`enforce_user_company_add_rate_limit`: ``api/users.ts`` forwards status and
+    body only, so a ``Retry-After`` header never reaches the browser.
+    """
+    retry_after = user_company_rename_rate_limiter.check(user_key)
+    if retry_after is not None:
+        wait_seconds = int(retry_after) + 1
+        logger.info("Rate-limited company rename from %s", user_key)
+        raise HTTPException(
+            status_code=429,
+            detail=(
+                "You're renaming companies too quickly. Please wait about "
                 f"{wait_seconds} seconds and try again."
             ),
             headers={"Retry-After": str(wait_seconds)},

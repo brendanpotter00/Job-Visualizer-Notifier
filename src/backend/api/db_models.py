@@ -706,6 +706,24 @@ class Company(Base):
     consecutive_failures = Column(
         Integer, nullable=False, server_default=text("0")
     )
+    # THE OWNER'S OWN NAME FOR THEIR PRIVATE BOARD — NULL means "we never renamed
+    # it", which is every row that exists today and every public row forever.
+    #
+    # It is a SECOND column rather than a flag on ``display_name`` for one reason:
+    # ``display_name`` is written by more than one thing. Discovery derives it from
+    # the URL on the add, ``_promote_to_tracked`` rewrites it every time discovery
+    # ACCEPTS the board, and ``restart_refused_discovery`` rewrites it on the retry
+    # of a refused board. A boolean would mean every one of those (and every one
+    # written later) has to remember a ``CASE WHEN`` guard, and the first one that
+    # forgets silently reverts a user's rename. Nothing can clobber a name it does
+    # not write, so the guard is structural instead of remembered.
+    #
+    # Readers resolve ``COALESCE(user_display_name, display_name)`` — spelled once,
+    # as ``custom_companies_service.EFFECTIVE_DISPLAY_NAME_SQL``. Keeping the
+    # derived name alive also means re-discovery keeps refreshing it underneath,
+    # so clearing an override would yield the CURRENT derivation rather than the
+    # one from the day the board was added.
+    user_display_name = Column(Text, nullable=True)
 
     __table_args__ = (
         Index("ix_companies_ats_enabled", "ats", "enabled"),

@@ -204,19 +204,42 @@ class Settings(BaseSettings):
     user_company_add_rate_limit_max: int = Field(default=10, gt=0)
     user_company_add_rate_limit_window_seconds: int = Field(default=60, gt=0)
 
+    # PATCH /api/users/companies/{id} — the rename. A SEPARATE, much looser limit,
+    # and deliberately not the add pair above.
+    #
+    # A rename is one UPDATE. It opens no browser, makes no outbound request and
+    # spends no LLM call, so charging it against either of the add path's budgets
+    # would be wrong twice over: the 10/60s burst limiter exists to bound Chromium
+    # sessions, and the monthly cap is a SPEND guard defined as "URLs we acted on" —
+    # making a user pay one of their twenty adds to fix a typo would be absurd.
+    #
+    # It is still an authenticated write, so it is not unbounded. 30/60s is an order
+    # of magnitude above any human's editing rate (a user correcting one name presses
+    # save once) while bounding a replayed token to a harmless trickle.
+    user_company_rename_rate_limit_max: int = Field(default=30, gt=0)
+    user_company_rename_rate_limit_window_seconds: int = Field(default=60, gt=0)
+
     # How many URLs one user may submit to POST /api/users/companies per CALENDAR
     # MONTH (UTC — resets at midnight on the 1st). Every submission counts: a
     # success, a refusal, and a board that turns out to be one we already publish.
     # Deleting a company does NOT give a slot back, which is what makes the cap a
     # real spend guard rather than a cap on how many boards you hold at once.
     #
-    # 0 = unlimited, and the DEFAULT IS THE SAFE VALUE ON PURPOSE.
-    # ``Settings.model_config`` sets ``extra="ignore"``, so a typo'd env var name is
-    # silently dropped and the compiled-in default stands. With 20 as that default a
-    # typo leaves the limit ON; an ``..._ENABLED=false``-shaped flag would fail OPEN
-    # on the same typo. Turning the cap off is a deliberate line in .env.local.
-    # The default is pinned by a test, and a boot at 0 logs a startup WARNING
-    # (``services/add_quota.warn_if_unlimited``).
+    # THE NUMBER IS THE NUMBER OF ADDS ALLOWED. 0 allows NONE — there is no sentinel
+    # here, because you should not have to understand the business context to know
+    # what zero means. ``ge=0`` stays so 0 remains legal and meaningful: it is a
+    # genuine per-user kill switch, one env var that stops every add without a deploy.
+    #
+    # EVERY MISCONFIGURATION FAILS CLOSED, and that is the point.
+    # ``Settings.model_config`` sets ``extra="ignore"``, so a typo'd env var NAME is
+    # silently dropped and this compiled-in 20 stands — the limit stays ON, whereas an
+    # ``..._ENABLED=false``-shaped flag would fail OPEN on the same typo. And a typo'd
+    # VALUE that lands on 0 (a bad template, an empty string coerced to an int) now
+    # blocks adds; it used to grant every signed-in user unbounded browser + LLM spend.
+    #
+    # Local dev gets its freedom from a large number (CUSTOM_COMPANY_MONTHLY_ADD_LIMIT
+    # =10000 in .env.local), never from 0. The default is pinned by a test, and a boot
+    # at 0 logs a startup WARNING (``services/add_quota.warn_if_adds_disabled``).
     custom_company_monthly_add_limit: int = Field(default=20, ge=0)
 
     # Server
