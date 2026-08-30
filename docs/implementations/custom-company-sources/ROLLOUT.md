@@ -22,6 +22,18 @@ The owner has explicitly accepted these staying in that PR rather than being spl
 | `job_freshness` trigger seeds `now()` | Required by the seeding change; makes brand-new jobs not born stale | revert |
 | Worker lane split + per-lane heartbeats | Two workers instead of one; `/health/worker` now 503s if **either** lane is stale | revert |
 | Vercel proxy allowlists | Closes a live anonymous-access hole. **You want this one live** | revert (do not) |
+| `details.department` dropped from the `details` JSONB by all 8 producers | **20,778 open rows** lose a populated key on their next tick (greenhouse 13,050 / ashby 5,034 / amazon 1,363 / eightfold 501 / tiktok 429 / lever 349 / gem 52) | revert — `details` is rebuilt wholesale from the raw payload on every upsert, so one tick restores it |
+| `details_scraped` becomes truthful (`has_description(details)` instead of hard-coded `True`) | **7,047 open rows flip `true` → `false`** (workday 6,546, eightfold 501). It is in `_UPSERT_ON_CONFLICT`'s SET list, so existing rows move, not just new ones | revert — same self-healing shape |
+| The enricher's `/pending` payload drops `details.department` | **Cross-repo contract.** Nothing in THIS repo reads it; the job-enricher might | revert |
+
+⚠️ **The last three were not in this table until 2026-08-30 and are not in §5 either.** All
+three are recoverable-by-revert and none has a reader in this repo — that is why they are
+listed rather than blocking. The counts above were measured against prod on 2026-08-30.
+
+⚠️ **One of them needs an answer from outside this repo before the merge:** confirm the
+**job-enricher** does not read `details.department` in its prompt or its parser. If it does,
+classification quality changes silently for every published company and nothing here will
+say so.
 
 **So "flags off" is not "no change".** Section 5 verifies these specifically.
 
@@ -186,11 +198,18 @@ Everything above, plus:
 3. **Workday rows lost the fabricated date, and only those.** Expect ~42% of open Workday
    rows to have `posted_on IS NULL`; the `"Posted N Days Ago"` values must survive.
    Most affected: capitalone, blueorigin, nvidia, gm, disney, adobe, snap, paypal.
-4. **There is NO department check to run.** This step used to read "confirm the
-   department backfill completed". It is deleted, not softened: §3 removed the migration
-   and the Department filter outright, `job_listings` has no `department` column on this
-   branch and prod never had one, so `count(department)` is a `column does not exist`
-   error, not a failed deploy. Verified against prod 2026-08-30.
+4. **There is NO department COLUMN check to run — but there IS a department JSONB
+   change.** This step used to read "confirm the department backfill completed". §3
+   removed that migration and the Department filter outright; `job_listings` has no
+   `department` column on this branch and prod never had one, so `count(department)` is a
+   `column does not exist` error, not a failed deploy.
+   What DID change is the `details` **JSONB key**, and that one is live (see §1):
+   ```sql
+   -- expect this to fall from 20,778 toward 0 as each board takes its next tick
+   SELECT count(*) FROM job_listings
+    WHERE status='OPEN' AND details->>'department' IS NOT NULL;
+   ```
+   Falling is correct. Verified against prod 2026-08-30.
 5. **Both worker lanes are ticking.** `/health/worker` reports `lanes.bulk` and
    `lanes.interactive` separately. A single stale lane now 503s the probe by design —
    that tag is the thing that stopped a 14-hour silent worker death going unnoticed.
@@ -286,6 +305,27 @@ same scrutiny as step 4, rather than being treated as the safe warm-up.
    - confirm the Anthropic Console spend cap is in place — the owner keeps ~$20 there as the
      backstop, and accepts that hitting it kills AI features rather than costing money
    - leave `CAPTURE_USE_BROWSERBASE` **off**; our own Chromium is proven and free
+
+   ⚠️ **THE CAPTURE BROWSER'S SUB-RESOURCES ARE UNFILTERED, AND THIS IS THE FLAG THAT
+   EXPOSES THEM.** Money is not the only thing step 4 turns on. The host-pin in
+   `capture/_capture_main.py` scopes itself to NAVIGATIONS — `if not
+   request.is_navigation_request(): await route.continue_()` — and Chromium is launched
+   with only `--no-sandbox --disable-blink-features=AutomationControlled`: no proxy, no
+   `--host-resolver-rules`, no egress filter. So the pasted page's own JavaScript runs
+   with our Railway network position and may fetch `*.railway.internal`, RFC1918 or
+   `169.254.169.254` and POST what it reads back to its own origin. That is a READ SSRF
+   against any internal service with permissive CORS, not a blind one.
+
+   The module comment says the risk "is closed on the PARENT side" by
+   `validate_public_url` over every surviving candidate. That is true of what can become
+   a RECIPE; it is not true of the request being made, and the two are different claims.
+   Navigation redirects, the in-page `fetch()` of the `browser_fetch` tier, and the
+   candidate list are all genuinely guarded — sub-resources are the gap.
+
+   Reachable by any signed-in account the moment this flag flips, bounded only by 10
+   adds/60 s and 20/month. **Not a merge blocker — nothing runs with the flags off — but
+   it belongs to step 4, not to a later cleanup.** The cheap containment is a resolver
+   rule plus a route handler that drops sub-resources resolving to non-public IPs.
 5. **Watch the first real add end to end** before telling anyone the feature exists.
 
 **Rollback at any step is the flag, not a revert** — except for the §1 changes, which are
