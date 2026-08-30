@@ -549,6 +549,80 @@ async def test_the_selector_may_answer_that_none_of_them_is_a_jobs_feed() -> Non
     _assert_stores_nothing(outcome)
 
 
+async def test_a_second_round_no_reports_the_failure_that_provoked_it() -> None:
+    """THE REFUSAL THAT LIED. Round two asks the model again with OUR OWN measured
+    failure attached, so its "none of these is jobs" is frequently an echo of that
+    failure rather than a verdict on the bytes — and the old code answered the user with
+    the filter-step sentence regardless, blaming the board for something we did.
+
+    Measured on ``jpmc.fa.oraclecloud.com`` (BOARD-FAILURE-TRIAGE.md §2): the fan-out
+    answered **6 of 6 yes**, the coverage floor refused every one of them at 25 records
+    against a published 7,181, round two said no with that attached, and the user was
+    told the page publishes no jobs feed. Four unrelated boards wore that identical
+    sentence for four different reasons.
+
+    So: when something was actually measured, THAT is the refusal."""
+    rounds: list[str | None] = []
+
+    async def _select(candidates: list[Any], *, feedback: str | None = None):
+        rounds.append(feedback)
+        if len(rounds) == 1:
+            return [CandidateAnswer(
+                candidate_index=0, selection=_amazon_selection(), confidence="high",
+            )]
+        raise NoJobsFeedError("none of the 1 captured array(s) is a list of job postings")
+
+    async def _wrong_feed(script: dict[str, Any]) -> tuple[list[dict], HarvestEvidence]:
+        rows = [{"id": f"other-{i}", "title": f"Unrelated {i}", "url": "/x"} for i in range(20)]
+        return rows, HarvestEvidence(
+            declared_total=76, cap_hit=False, terminated_cleanly=True,
+            page_advance_ok=None, pages_fetched=1, transport_ok=True,
+        )
+
+    outcome = await discover(
+        _AMAZON_URL,
+        capture=_capturing("amazon"),
+        select=_select,
+        replay_http=_wrong_feed, replay_browser=_wrong_feed,
+        validate_url=_allow_all,
+    )
+    assert outcome.ok is False
+    assert len(rounds) == 2 and rounds[1] is not None   # round two WAS told what we measured
+    assert "verifying we can read it" in (outcome.refuse_reason or "")
+    assert "not reading the same list" in (outcome.refuse_reason or "")
+    assert "is a list of job postings" not in (outcome.refuse_reason or ""), (
+        "the model's second-round no is downstream of the acceptance failure we fed it; "
+        "reporting it as 'this page publishes no jobs feed' is the sentence that sent "
+        "two investigations down the wrong path"
+    )
+    # The CHECKLIST has to move with it, or the UI keeps telling the old story.
+    (failed_step,) = [
+        s for s in (outcome.progress or {}).get("steps", []) if s["status"] == "failed"
+    ]
+    assert failed_step["key"] == "verify_read"
+    _assert_stores_nothing(outcome)
+
+
+async def test_a_first_round_no_still_says_the_page_publishes_no_jobs_feed() -> None:
+    """The control for the test above, and the reason the old sentence is KEPT rather
+    than deleted: when nothing we tried ever failed — the model simply read the captured
+    requests and saw no jobs in them — the sentence is literally true and is the most
+    useful thing we can say."""
+    async def _no_feed(candidates: list[Any], **_: Any) -> RequestSelection:
+        raise NoJobsFeedError("none of the 2 captured request(s) is a list of job postings")
+
+    outcome = await discover(
+        _TIKTOK_URL, capture=_capturing("tiktok"), select=_no_feed,
+        replay_http=_never_called_replay("http_json"),
+        replay_browser=_never_called_replay("browser_fetch"),
+        validate_url=_allow_all,
+    )
+    assert outcome.ok is False
+    assert "finding the jobs feed" in (outcome.refuse_reason or "")
+    assert "is a list of job postings" in (outcome.refuse_reason or "")
+    _assert_stores_nothing(outcome)
+
+
 async def test_a_transport_level_network_error_falls_through_to_browser_fetch() -> None:
     """The ladder's whole point, for the boards it exists for. An anti-bot origin that
     RSTs or blackholes a non-browser client raises ``httpx.ConnectTimeout`` /

@@ -1,0 +1,244 @@
+{
+ "url": "https://jpmc.fa.oraclecloud.com/hcmRestApi/resources/latest/recruitingCEJobRequisitions?onlyData=true&expand=requisitionList.secondaryLocations%2CflexFieldsFacet.values&finder=findReqs%3BsiteNumber%3DCX_1001%2CfacetsList%3DLOCATIONS%3BWORK_LOCATIONS%3BWORKPLACE_TYPES%3BTITLES%3BCATEGORIES%3BORGANIZATIONS%3BPOSTING_DATES%3BFLEX_FIELDS%2Climit%3D25%2CsortBy%3DPOSTING_DATES_DESC",
+ "method": "GET",
+ "status": 200,
+ "content_type": "application/vnd.oracle.adf.resourcecollection+json",
+ "body": {
+  "items": [
+   {
+    "Offset": 0,
+    "Limit": 25,
+    "SortBy": "POSTING_DATES_DESC",
+    "SiteNumber": "CX_1001",
+    "TotalJobsCount": 7181,
+    "requisitionList": [
+     {
+      "Id": "210775811",
+      "Title": "AI Lead Security Engineer",
+      "PostedDate": "2026-08-29",
+      "JobFamily": "Security Engineering",
+      "JobFunction": "Technology",
+      "ShortDescriptionStr": "Carry out critical AI/ML cybersecurity solutions across multiple technical areas as an integral part of an agile team",
+      "PrimaryLocation": "Plano, TX, United States"
+     },
+     {
+      "Id": "210776728",
+      "Title": "Credit Card Customer Service Account Specialist I",
+      "PostedDate": "2026-08-29",
+      "JobFamily": "Account Service",
+      "JobFunction": "Operations",
+      "ShortDescriptionStr": "Join the Call Center team that is assisting customers find solutions in one of the world\u2019s most innovative banks",
+      "PrimaryLocation": "Heathrow, FL, United States"
+     },
+     {
+      "Id": "210779562",
+      "Title": "Part Time (30 Hours) Associate Banker, Lehigh Acres Branch, Lehigh Acres, FL",
+      "PostedDate": "2026-08-29",
+      "JobFamily": "Associate Bankers",
+      "JobFunction": "Client Management",
+      "ShortDescriptionStr": "As an Associate Banker, you will embody our commitment to hospitality and client care.",
+      "PrimaryLocation": "Lehigh Acres, FL, United States"
+     },
+     {
+      "Id": "210783635",
+      "Title": "Associate Relationship Banker - Pickerington North - Pickerington, OH",
+      "PostedDate": "2026-08-29",
+      "JobFamily": "Assoc Relationship Banker",
+      "JobFunction": "Client Management",
+      "ShortDescriptionStr": "Deliver exceptional client experience as an Associate Relationship Banker, embodying our commitment to hospitality and client care.",
+      "PrimaryLocation": "Pickerington, OH, United States"
+     },
+     {
+      "Id": "210785015",
+      "Title": "Relationship Banker - Missoula Brooks Street (New Build) - Missoula, MT",
+      "PostedDate": "2026-08-29",
+      "JobFamily": "Relationship Bankers",
+      "JobFunction": "Client Management",
+      "ShortDescriptionStr": "Deliver exceptional client experience as a Relationship Banker, embodying our commitment to hospitality and client care.",
+      "PrimaryLocation": "Missoula, MT, United States"
+     },
+     {
+      "Id": "210785063",
+      "Title": "Associate Relationship Banker - Columbus Central West- Columbus, OH",
+      "PostedDate": "2026-08-29",
+      "JobFamily": "Assoc Relationship Banker",
+      "JobFunction": "Client Management",
+      "ShortDescriptionStr": "Deliver exceptional client experience as an Associate Relationship Banker, embodying our commitment to hospitality and client care.",
+      "PrimaryLocation": "Columbus, OH, United States"
+     },
+     {
+      "Id": "210785987",
+      "Title": "Full Stack Engineer - Sr Lead Security Engineer",
+      "PostedDate": "2026-08-29",
+      "JobFamily": "Security Engineering",
+      "JobFunction": "Technology",
+      "ShortDescriptionStr": "Drive significant business impact and tackle cybersecurity challenges that span multiple technology domains",
+      "PrimaryLocation": "Plano, TX, United States"
+     },
+     {
+      "Id": "210640571",
+      "Title": "Payments Sales Manager - Broker Dealers & Market Structure - Executive Director",
+      "PostedDate": "2026-08-28",
+      "JobFamily": "Relationship Sales",
+      "JobFunction": "Client Management",
+      "ShortDescriptionStr": "As a key member of the team, you will drive the end-to-end client experience",
+      "PrimaryLocation": "New York, NY, United States"
+     },
+     {
+      "Id": "210683990",
+      "Title": "Card Fraud Strategy - Senior Associate (SQL, SAS, Python)",
+      "PostedDate": "2026-08-28",
+      "JobFamily": "Risk Analytics/Modeling",
+      "JobFunction": "Risk",
+      "ShortDescriptionStr": "As a part of Fraud Strategy, you are at the center of keeping JPMorgan Chase strong and resilient.",
+      "PrimaryLocation": "Wilmington, DE, United States"
+     },
+     {
+      "Id": "210698466",
+      "Title": "Investment Banking - Real Estate - Vice President",
+      "PostedDate": "2026-08-28",
+      "JobFamily": "Client Management",
+      "JobFunction": "Client Management",
+      "ShortDescriptionStr": "We're seeking a Vice President to join our Real Estate team. ",
+      "PrimaryLocation": "New York, NY, United States"
+     },
+     {
+      "Id": "210708072",
+      "Title": "Part Time Associate Banker Greater Arlington (30 hours)",
+      "PostedDate": "2026-08-28",
+      "JobFamily": "Associate Bankers",
+      "JobFunction": "Client Management",
+      "ShortDescriptionStr": "As an Associate Banker, you will embody our commitment to hospitality and client care.",
+      "PrimaryLocation": "Arlington, TX, United States"
+     },
+     {
+      "Id": "210708099",
+      "Title": "Part Time Associate Banker South Tarrant SE (30 hours)",
+      "PostedDate": "2026-08-28",
+      "JobFamily": "Associate Bankers",
+      "JobFunction": "Client Management",
+      "ShortDescriptionStr": "As an Associate Banker, you will embody our commitment to hospitality and client care.",
+      "PrimaryLocation": "Arlington, TX, United States"
+     },
+     {
+      "Id": "210709016",
+      "Title": "Part Time Associate Banker Tampa Bay Northwest North (30 hours)",
+      "PostedDate": "2026-08-28",
+      "JobFamily": "Associate Bankers",
+      "JobFunction": "Client Management",
+      "ShortDescriptionStr": "As an Associate Banker, you will embody our commitment to hospitality and client care.",
+      "PrimaryLocation": "Tarpon Springs, FL, United States"
+     },
+     {
+      "Id": "210710072",
+      "Title": "Global Corporate Banking - Large Cap Vice President, Frankfurt (all genders)",
+      "PostedDate": "2026-08-28",
+      "JobFamily": "Banking",
+      "JobFunction": "Client Management",
+      "ShortDescriptionStr": "Vice President level Corporate banker to join our Large Cap coverage team in Frankfurt",
+      "PrimaryLocation": "Frankfurt a. Main, Germany"
+     },
+     {
+      "Id": "210714035",
+      "Title": "Part Time Associate Banker Columbus Central West (30 Hours)",
+      "PostedDate": "2026-08-28",
+      "JobFamily": "Associate Bankers",
+      "JobFunction": "Client Management",
+      "ShortDescriptionStr": "As an Associate Banker, you will embody our commitment to hospitality and client care.",
+      "PrimaryLocation": "Columbus, OH, United States"
+     },
+     {
+      "Id": "210739946",
+      "Title": "Lead Software Engineer - Backend Java Spring Boot, Kafka",
+      "PostedDate": "2026-08-28",
+      "JobFamily": "Software Engineering",
+      "JobFunction": "Technology",
+      "ShortDescriptionStr": "Carry out critical tech solutions across multiple technical areas as an integral part of an agile team",
+      "PrimaryLocation": "Jersey City, NJ, United States"
+     },
+     {
+      "Id": "210742873",
+      "Title": "Lead Software Engineer - Java Full Stack",
+      "PostedDate": "2026-08-28",
+      "JobFamily": "Software Engineering",
+      "JobFunction": "Technology",
+      "ShortDescriptionStr": "We have an exciting and rewarding opportunity for you to take your software engineering career to the next level. ",
+      "PrimaryLocation": "Mumbai, Maharashtra, India"
+     },
+     {
+      "Id": "210744687",
+      "Title": "Markets Asset Servicing \u2013 Income and Corporate Action Analyst",
+      "PostedDate": "2026-08-28",
+      "JobFamily": "Asset Servicing",
+      "JobFunction": "Operations",
+      "ShortDescriptionStr": "Join our Markets Income Team to drive asset servicing excellence, collaborate across business lines, and expand your product expertise.",
+      "PrimaryLocation": "Newark, DE, United States"
+     },
+     {
+      "Id": "210745395",
+      "Title": "Senior Lead Software Engineer - Python, Golang, Java",
+      "PostedDate": "2026-08-28",
+      "JobFamily": "Software Engineering",
+      "JobFunction": "Technology",
+      "ShortDescriptionStr": "Be an integral part of an agile team constantly pushing the envelope to enhance, build, and deliver top-notch technology products",
+      "PrimaryLocation": "Jersey City, NJ, United States"
+     },
+     {
+      "Id": "210745730",
+      "Title": "Data Scientist (Card Data & Analytics Strategy)-Executive Director",
+      "PostedDate": "2026-08-28",
+      "JobFamily": "Predictive Science",
+      "JobFunction": "Data & Analytics",
+      "ShortDescriptionStr": "Lead a high performing data science team to deliver innovation, insights, and intelligence that promote measurable business impact.",
+      "PrimaryLocation": "Wilmington, DE, United States"
+     },
+     {
+      "Id": "210748551",
+      "Title": "Data Management Associate",
+      "PostedDate": "2026-08-28",
+      "JobFamily": "Data Management",
+      "JobFunction": "Data & Analytics",
+      "ShortDescriptionStr": "We know that people want great value combined with an excellent experience from a bank they can trust, so we launched our digital bank.",
+      "PrimaryLocation": "Bengaluru, Karnataka, India"
+     },
+     {
+      "Id": "210753947",
+      "Title": "Associate I - Global Fund Services Operations Service Delivery",
+      "PostedDate": "2026-08-28",
+      "JobFamily": "Fund Servicing",
+      "JobFunction": "Operations",
+      "ShortDescriptionStr": "Join the operations team that is driving the success of both the client and stakeholders in the Fund Services organization.\u202f",
+      "PrimaryLocation": "Boston, MA, United States"
+     },
+     {
+      "Id": "210754295",
+      "Title": "Software Engineer III - Salesforce Developer",
+      "PostedDate": "2026-08-28",
+      "JobFamily": "Software Engineering",
+      "JobFunction": "Technology",
+      "ShortDescriptionStr": "Design and deliver market-leading technology products in a secure and scalable way as a seasoned member of an agile team",
+      "PrimaryLocation": "Bengaluru, Karnataka, India"
+     },
+     {
+      "Id": "210755191",
+      "Title": "Data Analytics Engineer - Senior Associate",
+      "PostedDate": "2026-08-28",
+      "JobFamily": "Analytics Solutions & Delivery",
+      "JobFunction": "Data & Analytics",
+      "ShortDescriptionStr": "Build analytics-ready data models and a trusted semantic layer that standardizes business metrics. ",
+      "PrimaryLocation": "Plano, TX, United States"
+     },
+     {
+      "Id": "210756437",
+      "Title": "Product Delivery Manager - Identity and Access Management",
+      "PostedDate": "2026-08-28",
+      "JobFamily": "Product Portfolio & Delivery",
+      "JobFunction": "Product",
+      "ShortDescriptionStr": "As a member of our team, you'll play a crucial role in developing technology solutions that drive our strategic goals.",
+      "PrimaryLocation": "Columbus, OH, United States"
+     }
+    ]
+   }
+  ]
+ }
+}

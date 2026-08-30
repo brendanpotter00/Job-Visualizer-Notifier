@@ -2835,10 +2835,26 @@ async def discover(
                 # The model looked at what is left and said none of it is jobs. Asking
                 # again cannot change that, and the alternative — a schema with no
                 # refusal branch — is what lets a leftover filter catalogue be stored
-                # as the company's board. Stop here and name the FILTER step, because
-                # that is the user's real problem: we recorded requests, none is a
-                # jobs feed.
+                # as the company's board. Stop here.
+                #
+                # BUT WHOSE "NO" IS IT? On round two the model is answering with OUR OWN
+                # measured failure attached as feedback, so its no is often an echo of
+                # that failure rather than a verdict on the bytes — and reporting the
+                # filter step then blames the board for something we did. Measured on
+                # ``jpmc.fa.oraclecloud.com``: the fan-out answered 6 of 6 YES, the
+                # coverage floor refused every one of them at 25 records against a
+                # published 7,181, round two re-asked with exactly that attached, the
+                # model reasonably said no — and the user was told the page publishes no
+                # jobs feed. FOUR unrelated boards wore that identical sentence for four
+                # different reasons and sent two investigations down the wrong path.
+                #
+                # So when we already measured why the last candidate died, report THAT
+                # step and THAT reason. The jobs-feed sentence survives only for the case
+                # where it is literally true: nothing we tried ever failed, the model
+                # simply read the captured requests and saw no jobs in them.
                 logger.info("discovery found no jobs feed for %s: %s", url, exc)
+                if last_error is not None:
+                    raise _Refusal(last_step, last_error) from exc
                 raise _Refusal(
                     _STEP_FILTER,
                     f"none of the {len(captured.responses)} JSON request(s) this page "
