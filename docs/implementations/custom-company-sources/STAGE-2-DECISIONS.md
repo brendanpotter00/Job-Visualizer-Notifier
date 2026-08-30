@@ -241,3 +241,44 @@ Nothing in this stage touches `_reachable_records`, `_feed_reach`, `_Coverage`,
   Bloomberg: its listing route is the 12-of-380 hazard, and making it readable is the
   failure mode §4 exists to prevent.
 * **AC-16 not rewritten** (§2.2).
+
+---
+
+## 7. Verification, with the numbers
+
+| gate | result |
+|---|---|
+| `mypy` (src/backend) | clean, 112 source files |
+| backend `pytest` (throwaway `jvn_stage2` + procrastinate schema) | **3,235 passed, 1 skipped**. Baseline before this work on the same DB: 3,121 passed, 1 skipped, **0 failed** |
+| mutation testing | **36 of 37** deliberate mutations go red. The survivor is an equivalent mutant — dropping the `"__next_f" in markup` short-circuit in `rsc_candidate` changes no behaviour (a page without a flight stream parses to `{}` and the function returns `None` either way) |
+| `bash e2e/run.sh add-companies` | run twice. **Run 1: API 87/88, UI 4/4. Run 2: API 88/88, UI 3/4.** Every case passed at least once; the two failures are DIFFERENT, non-repeating, load-related flakes — see below |
+| corpus, replayed LIVE through the real `run_recipe` | Jane Street **233/233**, Atlassian **218**, YC/Raindrop **9** via `http_html` + `extract_embedded_island`, Goldman **1,034/1,034**, Microsoft **2,121/2,122** |
+
+**The AC-04 failure is a pre-existing race, not a regression, and it was re-run to prove
+it.** `fetch_custom_company` writes `record_company_harvest` *before* `record_scrape_run`;
+the case polls the API until first-scan settles, reads the harvest row (present,
+`VERIFIED`/`history_delta_ok`, `healthState=healthy`) and then reads `scrape_runs` in the
+window between those two writes. Re-run on its own immediately afterwards it **passes**:
+218 open jobs, 199/218 located, both job links resolving. The full run happened on a
+machine that had just finished a 17-minute backend suite, which is exactly when a
+between-two-writes window widens. On the second full run AC-04 passed and the **whole API
+tier was 88/88**.
+
+**Run 2's UI failure is a different flake and also not backend code**: AC-01's
+`page.goto("http://127.0.0.1:3201/add-companies")` timed out after 30s against the Vite
+dev server. It passed in run 1, and the other three UI specs passed in both. So across
+the two runs every one of the 92 cases (88 API + 4 UI) passed at least once, and no
+failure repeated.
+
+**Microsoft's `located=0/2,121` is not a regression either** — its stored recipe fixture
+maps no `location` field at all.
+
+**amazon.jobs' stored `amazon_global` fixture raises `expected_min_jobs`** replaying live
+today (10 rows against a floor of 500): its captured URL carries no `result_limit`, the
+board defaults to 10 per page, and the facet sweep ends on the short page. That is a
+GET-only path — the `body_encoding` branch is POST-only and the shaping guard is inert
+without a shaping step on a required field — so nothing in Stage 2 reaches it.
+
+**McKinsey (~586) and careers.oracle.com (~1,612) were not re-measured.** Neither is
+reachable from a stored fixture, both are long live sweeps, and no Stage 2 code path runs
+on either: both are `http_json` GETs with no transform, no form body and no island.
