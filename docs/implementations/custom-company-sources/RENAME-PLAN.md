@@ -132,11 +132,20 @@ The name is rendered as a React text child, so it is HTML-escaped on render and 
 threat is not injection. It is *layout* and *spoofing*:
 
 1. `strip()` + collapse internal whitespace runs to single spaces.
-2. Remove C0/C1 controls, zero-width characters, `U+2028`/`U+2029`, the bidi
-   overrides (`U+202A`–`U+202E`, `U+2066`–`U+2069`, `U+200E`/`U+200F`) and `U+FEFF`.
-   Stripping rather than rejecting: an invisible character is not something a user can
-   act on an error message about, and a bidi override in a company label has no
-   legitimate use. This is what stops `"Acme‮…"` visually reordering the card.
+2. Remove the NON-WHITESPACE C0/C1 controls and DEL, `U+200B`, `U+FEFF`, and the bidi
+   marks/embeddings/overrides/isolates (`U+200E`/`U+200F`, `U+202A`–`U+202E`,
+   `U+2066`–`U+2069`). Stripping rather than rejecting: an invisible character is not
+   something a user can act on an error message about, and a bidi override in a company
+   label has no legitimate use. That last group is what stops `"Acme‮…"` reordering
+   itself on the card.
+
+   **The whitespace controls are deliberately NOT in that set** — tab, newline, the C0/C1
+   separators, NEL, `U+2028`/`U+2029`. Deleting a tab turns `"Acme\tCorp"` into
+   `"AcmeCorp"`; leaving it lets step 1's `str.split()` treat it as the word break it
+   obviously is and produce `"Acme Corp"`. (A first draft got this wrong and the smoke
+   check caught it.) `U+200C`/`U+200D` are left alone too: ZWJ/ZWNJ are load-bearing in
+   Persian, several Indic scripts and emoji sequences, so stripping them would corrupt
+   real names to defend against nothing.
 3. Empty after all that ⇒ 422 `name_empty`.
 4. Longer than **100** characters after all that ⇒ 422 `name_too_long`. 100 is not a
    new number: it is the cap `UserUpdateRequest.display_name` and `AccountPage`'s
@@ -181,5 +190,18 @@ replayed token to a harmless trickle.
 
 ## Card polish (tightening, not redesign)
 
-Same card, same components, same information. Alignment, hierarchy and spacing only —
-see the commit for the specifics.
+Same card, same components, same information. Four changes, all of them tightening:
+
+| What | Before | After | Why |
+|---|---|---|---|
+| **Alignment** | actions vertically centred against the whole left column | top-aligned, and the two buttons grouped with `flexShrink: 0` | the left column is two lines and the actions are one, so centring floated them against the gap and lined them up with nothing |
+| **Wrapping** | left column sized by its content | `flexGrow: 1` beside the existing `minWidth: 0`, name wraps anywhere | `minWidth: 0` did nothing without a grow, so a long name pushed the buttons off the card. A user can now type the name, so "no spaces in it" stopped being hypothetical |
+| **Hierarchy** | count was one of four identical `body2 text.secondary` phrases | count takes `text.primary` + weight 500 | it is the number people scan this list for, and finding it meant reading the whole line |
+| **Spacing** | one uniform 8px gap both ways | column gap 1.5, row gap 0.25 | the metadata wraps to two lines at narrow widths, and at 8px the second line read as part of the first |
+
+**The count is deliberately not two-toned** with a `<span>` around just the digits, which
+is the obvious way to do it. Testing Library matches an element on its DIRECT text
+children, so wrapping the number splits `"12 open jobs"` across two elements and every
+`getByText(/12 open jobs/)` in the suite stops matching. Three existing tests failed on
+exactly that; bending assertions about what the user reads to fit a styling choice is the
+wrong trade, so the styling changed instead.

@@ -260,6 +260,22 @@ every import for zero user-visible gain.
   The burst limiter on this route is what bounds how fast discoveries can be started; it used
   to be the resolve endpoint's limiter doing that indirectly, which a replayed bearer token
   skipped entirely.
+- **A user can RENAME a board they track**, inline on the card (`PATCH
+  /api/users/companies/{id}`, its own 30/60s bucket, charging neither add budget). The
+  non-obvious half is in the backend and is the reason the feature is not a trap:
+  `companies.display_name` is DERIVED from the URL and re-derived by more than one path
+  (`_promote_to_tracked` on every discovery accept, `restart_refused_discovery` on the
+  retry of a refused board — which is the only retry the UI offers). A rename stored in
+  that column would be silently reverted by an ordinary re-add, so it lands in a separate
+  `companies.user_display_name` and readers COALESCE the two. Nothing can clobber a column
+  it does not write. Full reasoning:
+  `docs/implementations/custom-company-sources/RENAME-PLAN.md`.
+  - The editor holds a **pending state, never an optimistic patch** — a rename that
+    appears to succeed and then reverts is the exact failure this is designed against.
+  - Its 422 codes (`name_empty`, `name_too_long`) live in `userCompaniesApi.ts` beside
+    `describeRenameError`, keyed by a closed union for the same reason the add codes are.
+  - `api/users.ts` needed no change: its allowlist is per PATH, and `companies/:id` was
+    already listed for DELETE.
 - **Two different 422 bodies.** The endpoint's own failure is *flat*
   (`{reason, detail, finalUrl}`); FastAPI request-validation failure is
   `{detail: [...]}` with no `reason`. `features/userCompanies/resolveErrors.ts` is the single
