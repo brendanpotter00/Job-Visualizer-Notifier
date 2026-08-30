@@ -10,24 +10,31 @@
  "proves": false,
  "why": "Every path on careers.kakao.com returns the same 60-char shell, so no HTTP-only probe can ever prove a link here. Refusing is the correct answer.",
  "measured_at": "2026-08-29",
+ "titles_measured_at": "2026-08-30",
  "pages": {
   "https://careers.kakao.com/jobs/14472": {
    "status": 200,
    "chars": 60,
    "carries_own_title": false,
-   "carries_other_titles": false
+   "carries_other_titles": false,
+   "og_title": "",
+   "title_tag": "카카오 영입"
   },
   "https://careers.kakao.com/jobs/14276": {
    "status": 200,
    "chars": 60,
    "carries_own_title": false,
-   "carries_other_titles": false
+   "carries_other_titles": false,
+   "og_title": "",
+   "title_tag": "카카오 영입"
   },
   "https://careers.kakao.com/jobs/14519": {
    "status": 200,
    "chars": 60,
    "carries_own_title": false,
-   "carries_other_titles": false
+   "carries_other_titles": false,
+   "og_title": "",
+   "title_tag": "카카오 영입"
   }
  },
  "records": [

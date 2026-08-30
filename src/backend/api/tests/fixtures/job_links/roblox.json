@@ -7,27 +7,34 @@
   "url": "absolute_url"
  },
  "kind": "published",
- "proves": false,
- "why": "PUBLISHED, and the SECOND link a probe would reject: 6,447 vs 6,397 chars (0.8%, under the bar) and a related-jobs block puts every OTHER job's title on each page, which trips the listing-page guard.",
+ "proves": true,
+ "why": "PUBLISHED. It was the second link a probe would have rejected — 6,447 vs 6,397 chars (0.8%, under the bar) and a related-jobs block puts every OTHER job's title on each page, tripping the listing-page guard. The 2026-08-30 prover reads the page's DECLARED title instead: og:title is that job's own title and the two differ, so the probe now agrees with reality. Branch 1 still fetches nothing — Atlassian is the board that keeps that rule honest, because its iCIMS iframe declares no title at all and three different jobs still serve 18,086 identical chars.",
  "measured_at": "2026-08-29",
+ "titles_measured_at": "2026-08-30",
  "pages": {
   "https://careers.roblox.com/jobs/7350081?gh_jid=7350081": {
    "status": 200,
    "chars": 6447,
    "carries_own_title": true,
-   "carries_other_titles": true
+   "carries_other_titles": true,
+   "og_title": "[2026] Senior Machine Learning Engineer, Recommendation Systems - PhD Early Career | Roblox",
+   "title_tag": "[2026] Senior Machine Learning Engineer, Recommendation Systems - PhD Early Career | Roblox"
   },
   "https://careers.roblox.com/jobs/8027587?gh_jid=8027587": {
    "status": 200,
    "chars": 6397,
    "carries_own_title": true,
-   "carries_other_titles": true
+   "carries_other_titles": true,
+   "og_title": "[2026] Senior Machine Learning Engineer (Systems), Embodied AI/NPCs, ML Platform - PhD Early Career | Roblox",
+   "title_tag": "[2026] Senior Machine Learning Engineer (Systems), Embodied AI/NPCs, ML Platform - PhD Early Career | Roblox"
   },
   "https://careers.roblox.com/jobs/8027588?gh_jid=8027588": {
    "status": 200,
    "chars": 6364,
    "carries_own_title": true,
-   "carries_other_titles": true
+   "carries_other_titles": true,
+   "og_title": "[2026] Senior Machine Learning Engineer (Systems), Embodied AI/NPCs, ML Platform - PhD Early Career | Roblox",
+   "title_tag": "[2026] Senior Machine Learning Engineer (Systems), Embodied AI/NPCs, ML Platform - PhD Early Career | Roblox"
   }
  },
  "records": [

@@ -62,10 +62,12 @@ class GuardedTransport(httpx.BaseTransport):
         validator: Validator = validate_public_url,
         inner: httpx.BaseTransport | None = None,
         max_hops: int = _MAX_HOPS,
+        allow_cross_host: bool = False,
     ) -> None:
         self._validate = validator
         self._inner = inner if inner is not None else httpx.HTTPTransport(verify=True)
         self._max_hops = max_hops
+        self._allow_cross_host = allow_cross_host
 
     def handle_request(self, request: httpx.Request) -> httpx.Response:
         method = request.method
@@ -96,7 +98,7 @@ class GuardedTransport(httpx.BaseTransport):
             host = httpx.URL(guarded.url).host
             if origin_host is None:
                 origin_host = host
-            elif host != origin_host:
+            elif host != origin_host and not self._allow_cross_host:
                 raise RecipeExecutionError(
                     f"replay blocked a cross-host redirect {origin_host!r} -> {host!r} "
                     f"(SSRF host-pin) — a scrape must stay on the discovered board host"
@@ -159,10 +161,33 @@ def guarded_sync_client(
     validator: Validator = validate_public_url,
     inner_transport: httpx.BaseTransport | None = None,
     timeout: float = _DEFAULT_TIMEOUT_S,
+    allow_cross_host: bool = False,
 ) -> httpx.Client:
-    """The SSRF-guarded sync client both the replay leaf task and discovery use."""
+    """The SSRF-guarded sync client both the replay leaf task and discovery use.
+
+    ``allow_cross_host`` DROPS ONE CHECK AND ONLY ONE: the same-host pin between
+    redirect hops. Every hop is still put through ``validate_public_url`` **before its
+    socket opens** — https-only, no userinfo, standard port, real DNS, and a public
+    answer (RFC1918 / loopback / link-local ``169.254`` / metadata / ULA / CGNAT all
+    refused) — and every hop is still IP-pinned to the address that validation
+    resolved, with the hostname preserved for SNI and certificate verification. The
+    5-hop ceiling is unchanged. Nothing is disabled to make a board pass.
+
+    **It is opt-in, and the REPLAY must never opt in.** The host-pin's job on the replay
+    path is to stop a vanity board silently relaying a nightly scrape somewhere else,
+    and that reasoning is untouched. What it was never meant to do is refuse to look at
+    ``boards.greenhouse.io`` → ``job-boards.greenhouse.io`` or ``databricks.com`` →
+    ``www.databricks.com``: measured 2026-08-30, both are plain ``301``s to the same
+    company's own board, and the discovery LINK PROBE reported them as "HTTP 0 — this
+    link is not usable" and threw away two correct recipes. A probe that reads one page
+    twice and compares them has no scrape to relay; refusing the hop bought nothing and
+    cost boards.
+    """
     return httpx.Client(
-        transport=GuardedTransport(validator=validator, inner=inner_transport),
+        transport=GuardedTransport(
+            validator=validator, inner=inner_transport,
+            allow_cross_host=allow_cross_host,
+        ),
         timeout=timeout,
         follow_redirects=False,   # the transport follows + re-validates hops itself
         headers={"User-Agent": USER_AGENT},

@@ -10,24 +10,31 @@
  "proves": false,
  "why": "A THIRD DEAD BOARD nobody had noticed: careers.walmart.com answers 200 with the same 1,606-char shell for every path, so every job link is dead.",
  "measured_at": "2026-08-29",
+ "titles_measured_at": "2026-08-30",
  "pages": {
   "https://careers.walmart.com/job/CP-9438-11101": {
    "status": 200,
    "chars": 1606,
    "carries_own_title": false,
-   "carries_other_titles": false
+   "carries_other_titles": false,
+   "og_title": "",
+   "title_tag": ""
   },
   "https://careers.walmart.com/job/CP-9046-11101": {
    "status": 200,
    "chars": 1606,
    "carries_own_title": false,
-   "carries_other_titles": false
+   "carries_other_titles": false,
+   "og_title": "",
+   "title_tag": ""
   },
   "https://careers.walmart.com/job/CP-9399-11013": {
    "status": 200,
    "chars": 1606,
    "carries_own_title": false,
-   "carries_other_titles": false
+   "carries_other_titles": false,
+   "og_title": "",
+   "title_tag": ""
   }
  },
  "records": [

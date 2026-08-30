@@ -1155,3 +1155,210 @@ class TestAC20PublishedJobLink:
             f"AC-20: published vs derived — {records[0]['absolute_url']} carries no "
             f"job title; /jobs/{records[0]['id']}/ does"
         )
+
+
+# --------------------------------------------------------------------------
+# AC-21 — the prover that cost ten correct recipes to catch three wrong ones
+# --------------------------------------------------------------------------
+#
+# PATH-TO-90-PERCENT.md §"Stage 1". ``_prove_job_link`` rejected TEN correct job-link
+# templates across 27 boards and caught THREE wrong ones, and every one of the ten
+# failed for a reason about OUR CLIENT rather than about the board. Re-measured live
+# 2026-08-30 against the real prover, two real job URLs per board:
+#
+#   board       before                                  after
+#   ---------   -------------------------------------   ------------------------
+#   JPMorgan    same page, 30 vs 30 chars               PROVED (og:title)
+#   Micron      same page, 0 vs 0 chars                 PROVED (og:title)
+#   Oracle      same page, 6 vs 6 chars                 PROVED (og:title)
+#   Meta        HTTP 400 (our Chrome User-Agent)        PROVED (UA retry + og:title)
+#   SpaceX      HTTP 0 (cross-host 301)                 PROVED
+#   Databricks  HTTP 0 (cross-host 301)                 PROVED
+#   IBM         same page, 0 vs 0 chars                 UNPROVEN — 202/empty from a WAF
+#   Nintendo    same page, 842 vs 842                   **still refused**
+#   Walmart     same page, 1,606 vs 1,606               **still refused**
+#
+# Hermetic, and that is the decision. Every mechanism here is a SHAPE of served bytes —
+# a shell with a per-job og:title, a shell with one og:title for the whole board, a WAF
+# answering 202 with nothing — and a shape can be frozen. Six of these boards are
+# behind a WAF, a redirect chain or a UA filter, which is exactly the class of thing
+# that changes under a test suite. The live numbers were taken by hand and are recorded
+# above and in the decision log; what is checked in is the shape. The prover's own
+# unit-level cases live in ``src/backend/api/tests/test_recipe_corpus_regression.py``
+# (§ "DEFECT E"); what AC-21 adds is the LADDER's behaviour end-to-end through the real
+# ``discover()``.
+
+_JPMC_JOB = ("https://jpmc.fa.oraclecloud.com/hcmUI/CandidateExperience/en/sites/"
+             "CX_1001/job/{Id}")
+_JPMC_APPLY = ("https://jpmc.fa.oraclecloud.com/hcmUI/CandidateExperience/en/sites/"
+               "CX_1001/apply/{Id}")
+
+
+def _oracle_shell(og_title: str) -> str:
+    """JPMorgan's real served shape: ~30 chars of text, a generic ``<title>`` on every
+    job, and the job's own name in an ``og:title`` ATTRIBUTE the tag-stripper deletes."""
+    return (
+        "<html><head><title>JPMC Candidate Experience page</title>"
+        f'<meta property="og:title" content="{og_title}"></head>'
+        "<body>Loading, please wait</body></html>"
+    )
+
+
+def _jpmc_records() -> list[dict]:
+    raw = json.loads((FIXTURES / "oracle_fusion_jpmc.json").read_text())
+    return raw["body"]["items"][0]["requisitionList"]
+
+
+def _jpmc_discovery(probe, url_spec: str, board_links: tuple[str, ...] = ()):
+    """The real ``discover()`` over the real JPMorgan page-1 bytes, no LLM, no network.
+
+    ``pagination`` is the shape AC-19b already pins; what varies here is only the url
+    spec the model proposed, what the board's own DOM published, and what the probe
+    answers when the link is fetched.
+    """
+    from api.services.recipe_runner import map_records
+
+    captured = load_capture("oracle_fusion_jpmc")
+    captured = replace(captured, board_links=board_links)
+    records = json.loads(captured.responses[0].body)["items"][0]["requisitionList"]
+    selection = replace(
+        ORACLE_SELECTION,
+        field_map={**ORACLE_SELECTION.field_map, "url": url_spec},
+    )
+
+    async def _select(candidates: list[Any], **_: Any):
+        return [CandidateAnswer(
+            candidate_index=0, selection=selection, confidence="high",
+        )]
+
+    async def _replay(script: dict[str, Any]) -> tuple[list[dict], HarvestEvidence]:
+        (extract,) = [st for st in script["steps"] if st["op"] == "extract_json_path"]
+        rows = map_records(records, extract["fields"], script.get("base_url", ""))
+        return rows, HarvestEvidence(
+            declared_total=len(records), cap_hit=False, terminated_cleanly=True,
+            page_advance_ok=True, pages_fetched=1, transport_ok=True,
+        )
+
+    return asyncio.run(discover(
+        "https://jpmc.fa.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1001/jobs",
+        capture=capturing(captured),
+        select=_select,
+        replay_http=_replay,
+        replay_browser=failing_replay(AssertionError("http_json must be enough")),
+        validate_url=allow_all,
+        probe_link=probe,
+        collect_sources=no_well_known,
+    ))
+
+
+def _stored_url(outcome: Any) -> str:
+    assert outcome.ok is True, outcome.refuse_reason
+    (extract,) = [
+        st for st in outcome.script["steps"] if st["op"] == "extract_json_path"
+    ]
+    return extract["fields"]["url"]
+
+
+class TestAC21TheProverReadsWhatThePageDeclares:
+    """AC-21 clause (a) — **a client-rendered board still names the job, in an
+    attribute.**
+
+    ``_page_text`` strips ``<script>`` (rightly — an SPA bundle carries every job's
+    title) and then strips tags, which deletes every attribute with them. On an Oracle
+    Fusion, Workday or Next.js board that leaves 0-30 characters, identical on every
+    job, and the proof said *"two different jobs served the same page"* about links that
+    were correct. Measured live 2026-08-30: JPMorgan 30 vs 30 chars and
+    ``og:title = "AI Lead Security Engineer"`` vs *"Credit Card Customer Service Account
+    Specialist I"*; Micron 0 vs 0 with per-job og:titles; careers.oracle.com 6 vs 6 with
+    *"Oracle Database Administrator"* vs *"Oracle WebLogic Consultant"*.
+    """
+
+    def test_ac21a_a_per_job_og_title_proves_the_link(self) -> None:
+        records = _jpmc_records()
+        titles = {str(r["Id"]): r["Title"] for r in records}
+
+        def probe(url: str) -> tuple[int, str]:
+            return 200, _oracle_shell(titles[url.rsplit("/", 1)[-1]])
+
+        stored = _stored_url(_jpmc_discovery(probe, _JPMC_JOB))
+        assert stored == _JPMC_JOB, (
+            "AC-21a: every job page is a 30-char shell, so the ONLY thing separating "
+            "these two URLs is the og:title. Falling back here links 7,124 jobs to one "
+            f"listing page; got {stored!r}"
+        )
+
+    def test_ac21a_one_og_title_for_the_whole_board_still_falls_back(self) -> None:
+        """The control, and it is Nintendo's shape. A board that declares the same title
+        on every job has told us nothing, and the length comparison — which is all that
+        is left — says the pages are identical."""
+        def probe(url: str) -> tuple[int, str]:
+            return 200, _oracle_shell("Careers at JPMorganChase")
+
+        stored = _stored_url(_jpmc_discovery(probe, _JPMC_JOB))
+        assert stored.endswith("#{Id}"), (
+            "AC-21a: an identical declared title is NO EVIDENCE, never a pass. If this "
+            f"regresses, Nintendo's embed and Goldman's dead {{roleId}} ship. Got {stored!r}"
+        )
+
+
+class TestAC21SilenceIsNotADenial:
+    """AC-21 clause (b) — **a board that will not answer has disproved nothing.**
+
+    Measured live 2026-08-30: ``careers.ibm.com/careers/JobDetail?jobId=<id>`` answers
+    **HTTP 202 with zero bytes** on every job page, under four different User-Agents —
+    an AWS WAF, not IBM. The old prover compared the two empty bodies, found them equal,
+    and reported *"two different jobs served the same page (0 vs 0 chars)"*: a positive
+    claim about the board built out of bytes the board never sent. Rendered in Chromium
+    the same two URLs are two different jobs.
+
+    So an unanswered probe is now UNPROVEN, and the ladder keeps an unproven candidate
+    ahead of the listing-page fallback — **but only one the BOARD's own evidence
+    produced.** The model's bare guess still falls back, because that is exactly Jane
+    Street's ``/jobs/{id}`` and the whole point of JOB-LINK-RULE is not to ship it.
+    """
+
+    #: The board's own rendered DOM, linking its own jobs. `_MIN_TEMPLATE_AGREEMENT`
+    #: is 3, so three is the floor for a derivation to be offered at all.
+    def _anchors(self) -> tuple[str, ...]:
+        return tuple(
+            _JPMC_JOB.format(Id=r["Id"]) for r in _jpmc_records()[:6]
+        )
+
+    @staticmethod
+    def _waf(url: str) -> tuple[int, str]:
+        return 202, ""
+
+    def test_ac21b_a_waf_does_not_disprove_a_link_the_board_itself_published(self) -> None:
+        stored = _stored_url(_jpmc_discovery(
+            self._waf, _JPMC_APPLY, board_links=self._anchors()
+        ))
+        assert stored == _JPMC_JOB, (
+            "AC-21b: the board's own DOM links every job at /job/{Id} and its WAF "
+            "answers our probe 202/empty. We have learned NOTHING about that template, "
+            "and trading it for a listing-page fragment trades a probably-right link "
+            f"for a certainly-wrong one. Got {stored!r}"
+        )
+
+    def test_ac21b_a_waf_does_not_promote_the_models_bare_guess(self) -> None:
+        """THE BOUND, and it is the load-bearing half. With no anchors and no repair
+        there is only the spec the model invented, and 'we could not check' is not a
+        reason to ship one. Jane Street's ``/jobs/{id}`` is this case with a board that
+        answers — and a board that answers 404 stays a hard no either way."""
+        stored = _stored_url(_jpmc_discovery(self._waf, _JPMC_APPLY))
+        assert stored.endswith("#{Id}"), (
+            "AC-21b: an unprovable guess with no corroborating evidence must still "
+            f"degrade to the board's own listing page; got {stored!r}"
+        )
+
+    def test_ac21b_a_404_is_still_a_hard_no_however_it_was_derived(self) -> None:
+        """404 is the board answering the question we asked — the one status that is
+        real evidence a template is wrong. It must not be softened into 'unproven' by
+        the same door the WAF came through."""
+        stored = _stored_url(_jpmc_discovery(
+            lambda url: (404, "Page not found"), _JPMC_APPLY,
+            board_links=self._anchors(),
+        ))
+        assert stored.endswith("#{Id}"), (
+            "AC-21b: if a 404 starts reading as 'unproven', Jane Street's dead "
+            f"/jobs/{{id}} ships again; got {stored!r}"
+        )

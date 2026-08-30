@@ -10,24 +10,31 @@
  "proves": false,
  "why": "THE JANE STREET DEFECT: the stored spec 404s on every job. The real path is /join-jane-street/position/{id}/ and nothing we hold — payload, capture, page HTML or sitemap — names it.",
  "measured_at": "2026-08-29",
+ "titles_measured_at": "2026-08-30",
  "pages": {
   "https://www.janestreet.com/jobs/8631912002": {
    "status": 404,
    "chars": 2213,
    "carries_own_title": false,
-   "carries_other_titles": false
+   "carries_other_titles": false,
+   "og_title": "",
+   "title_tag": "Page not found :: Jane Street"
   },
   "https://www.janestreet.com/jobs/8596771002": {
    "status": 404,
    "chars": 2213,
    "carries_own_title": false,
-   "carries_other_titles": false
+   "carries_other_titles": false,
+   "og_title": "",
+   "title_tag": "Page not found :: Jane Street"
   },
   "https://www.janestreet.com/jobs/8233259002": {
    "status": 404,
    "chars": 2213,
    "carries_own_title": false,
-   "carries_other_titles": false
+   "carries_other_titles": false,
+   "og_title": "",
+   "title_tag": "Page not found :: Jane Street"
   }
  },
  "records": [

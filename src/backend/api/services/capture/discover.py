@@ -555,14 +555,51 @@ def _clean_headers(headers: dict[str, str]) -> dict[str, str]:
     return out
 
 
-def _post_body(candidate: Candidate) -> dict[str, Any]:
-    """The captured POST body as an object, or raise a refusal.
+def _is_form_capture(candidate: Candidate) -> bool:
+    """Did the board's own request declare an ``x-www-form-urlencoded`` body?
+
+    Read off the CAPTURED request header, never guessed from the body's shape: almost
+    any string parses as a degenerate form ("hello" is one blank-valued field), so
+    sniffing would turn a body we genuinely cannot read into a body we misread. The
+    header is the board's own statement about its bytes, which is the standard every
+    other derived part of the recipe is held to.
+    """
+    for name, value in (candidate.request_headers or {}).items():
+        if str(name).lower() == "content-type":
+            return "x-www-form-urlencoded" in str(value).lower()
+    return False
+
+
+def _post_body(candidate: Candidate) -> tuple[dict[str, Any], str]:
+    """The captured POST body as ``(object, body_encoding)``, or raise a refusal.
 
     ``recipe_schema`` requires ``fetch.body`` to be an object because that is what the
-    pagination merge writes into. A form-encoded or non-object body is a board this
-    vocabulary cannot express, and saying so here is better than storing a recipe whose
-    paging silently does nothing.
+    pagination merge writes into. Until Stage 2 that also meant JSON was the only body a
+    recipe could carry, so a form-encoded request was refused outright — and
+    metacareers.com is exactly that board: its jobs GraphQL answers 200 with 876 records
+    to a form body and **400** to the same fields as JSON, so "we cannot replay this"
+    was true only of our vocabulary.
+
+    A form capture becomes a FLAT dict plus ``body_encoding='form'``. Flat is not a
+    simplification, it is the wire format; a duplicate field name is refused because a
+    dict cannot round-trip it and the second value would be silently dropped.
     """
+    if _is_form_capture(candidate):
+        pairs = parse_qsl(candidate.post_data or "", keep_blank_values=True)
+        if not pairs:
+            raise _Refusal(
+                _STEP_SYNTHESIZE,
+                "the jobs request declares a form-encoded body but we recorded no "
+                "fields in it",
+            )
+        names = [name for name, _ in pairs]
+        if len(set(names)) != len(names):
+            raise _Refusal(
+                _STEP_SYNTHESIZE,
+                "the jobs request POSTs a form body with repeated field names, which "
+                "the recipe vocabulary cannot express without dropping one",
+            )
+        return {name: value for name, value in pairs}, "form"
     try:
         parsed = json.loads(candidate.post_data or "", strict=False)
     except Exception as exc:  # noqa: BLE001
@@ -576,7 +613,7 @@ def _post_body(candidate: Candidate) -> dict[str, Any]:
             "the jobs request POSTs a JSON body that is not an object; "
             "the recipe vocabulary cannot express it",
         )
-    return parsed
+    return parsed, "json"
 
 
 def _inband_error_keys(payload: Any) -> list[str]:
@@ -1787,7 +1824,12 @@ def synthesize_recipe(
         "headers": {} if candidate.html else _clean_headers(candidate.request_headers),
     }
     if candidate.method == "POST" and candidate.html is None:
-        fetch["body"] = _post_body(candidate)
+        # ``body_encoding`` is written only when it is NOT the default, so a JSON board's
+        # stored recipe is byte-identical to the one this function produced before
+        # Stage 2 — the diff between two nightly recipes has to stay readable.
+        fetch["body"], body_encoding = _post_body(candidate)
+        if body_encoding != "json":
+            fetch["body_encoding"] = body_encoding
 
     steps: list[dict[str, Any]] = [fetch]
 
@@ -1876,6 +1918,25 @@ def synthesize_recipe(
     # ``recipe_runner`` since Phase 3a and discovery has never emitted either; the
     # transport that replays them, ``http_html``, has likewise never been emitted.
     steps.append(_extraction_step(candidate, selection))
+
+    # THE TITLE, when the board publishes only a link (PATH-TO-90-PERCENT.md §6 Stage 2).
+    # ``transform`` has existed since Phase 3a with two kinds and discovery has emitted
+    # neither; ``regex_capture`` is the third and this is the one place that emits it.
+    # The pattern is not the model's — ``derive_title_from_url`` proved it against the
+    # captured records through the very function the runner replays it with — so the
+    # only thing decided here is whether to write the step down.
+    #
+    # Emitted AFTER the extraction and BEFORE ``parse_date`` because ``_apply_shaping``
+    # runs steps in order and this one has to see the mapped row, not the raw record.
+    if selection.title_from_url is not None:
+        steps.append({
+            "op": "transform",
+            "field": "title",
+            "kind": "regex_capture",
+            "from": "url",
+            "pattern": selection.title_from_url.pattern,
+            "unslug": selection.title_from_url.unslug,
+        })
 
     # THE POSTING DATE (POSTED-DATE-PLAN.md §5/U6). ``parse_date`` has been fully
     # implemented in the runner since Phase 3a and was never emitted here, so every
@@ -2184,7 +2245,21 @@ _LINK_PROBE_MAX_BYTES = 4_000_000
 # How different two job pages must be before "different" means anything. Both bounds
 # are needed: the fraction alone calls a 400-char difference in a 500-char shell
 # decisive, and the absolute alone calls a 250-char nonce in a 700 KB SPA decisive.
-_MIN_PAGE_DELTA_CHARS = 200
+#
+# THE ABSOLUTE BOUND WAS 200 AND IT REJECTED A CORRECT BOARD. Measured on YC/Raindrop:
+# 7,088 vs 6,936 chars — a 152-char difference against a 2% bar of 141, so the FRACTION
+# said "different" and the flat 200 overruled it. That is the bound working backwards:
+# on a 7 KB page the absolute is the stricter of the two, which is the opposite of the
+# job the comment above gives it.
+#
+# 120 is where the corpus puts it, not a taste. Across the 13 boards in
+# ``fixtures/job_links`` plus the 10 re-measured on 2026-08-30, EVERY wrong template
+# serves byte-identical pages — Goldman's dead key 23 vs 23, Walmart 1,606 vs 1,606,
+# Kakao 53 vs 53, Nintendo 842 vs 842, Atlassian 18,076 vs 18,076, JPMorgan 30 vs 30 —
+# and the smallest difference any CORRECT link produced is Roblox's 50 chars (0.8%).
+# So every threshold in (0, 50) separates the corpus perfectly and 120 keeps a wide
+# margin over the per-request nonce/CSRF/timestamp noise the bound exists for.
+_MIN_PAGE_DELTA_CHARS = 120
 _MIN_PAGE_DELTA_FRACTION = 0.02
 
 # One probe fetch: ``url -> (status, body)``. A status of 0 means the fetch never
@@ -2192,8 +2267,41 @@ _MIN_PAGE_DELTA_FRACTION = 0.02
 # unproven, never fatal.
 ProbeFn = Callable[[str], tuple[int, str]]
 
+# WHO WE SAY WE ARE ON THE RETRY, and why the first attempt still says Chrome.
+#
+# ``guarded_sync_client`` sends the replay's Chrome User-Agent, and on three boards
+# measured 2026-08-30 that string is ITSELF the failure: ``metacareers.com`` answers a
+# real job page **HTTP 400** to Chrome and **200** to anything else. The plan said to
+# stop sending a browser UA. Measured across 22 live job pages, doing that
+# unconditionally trades one board for another:
+#
+#   * with no ``User-Agent`` header at all: ``higher.gs.com`` 403, ``janestreet.com``
+#     403 — two working boards lost;
+#   * with a non-browser UA (httpx's own or the string below): ``careers.roblox.com``
+#     tarpits every request to a read timeout, reproducibly, three tries each.
+#
+# So the browser UA stays FIRST and this one is the RETRY, fired only when the board
+# answered and refused (see ``_ANSWERED_BUT_REFUSED``). Roblox never reaches it (it
+# answers 200 to Chrome), Goldman and Jane Street never reach it, and Meta does.
+_PROBE_USER_AGENT = "onesecondswe-link-check/1.0 (+https://onesecondswe.dev)"
+
+# A status that means "the board answered, and what it answered was about US" — a WAF
+# challenge, a bot filter, a rate limit, a 400 on our own User-Agent. Worth exactly one
+# retry with a different client identity. 404/410 are deliberately NOT here: they are
+# the board answering about the URL, which is the question we asked.
+_ANSWERED_BUT_REFUSED = frozenset({400, 401, 403, 405, 406, 409, 415, 429})
+# The board said this page does not exist. The one status that is real evidence the
+# template is WRONG rather than merely unproven.
+_NOT_FOUND_STATUSES = frozenset({404, 410})
+
 _SCRIPT_STYLE_RE = re.compile(r"(?is)<(script|style)\b.*?</\1\s*>")
 _TAG_RE = re.compile(r"<[^>]+>")
+_META_RE = re.compile(r"(?is)<meta\b[^>]*>")
+_META_TITLE_KEY_RE = re.compile(
+    r"""(?is)(?:property|name)\s*=\s*["']?\s*(?:og:title|twitter:title)\s*["']?"""
+)
+_META_CONTENT_RE = re.compile(r"""(?is)\bcontent\s*=\s*(?:"([^"]*)"|'([^']*)')""")
+_TITLE_TAG_RE = re.compile(r"(?is)<title[^>]*>(.*?)</title\s*>")
 _QUOTES = str.maketrans({"‘": "'", "’": "'", "“": '"', "”": '"',
                          "‐": "-", "‑": "-", "‒": "-", "–": "-",
                          "—": "-", "―": "-"})
@@ -2206,13 +2314,45 @@ def _default_probe(url: str) -> tuple[int, str]:
     check failed" lead to the same place — the link is unproven and will not be stored.
     Reusing ``guarded_sync_client`` is not incidental; this fetches a URL a model
     composed, which is the exact threat that client's host-pin and IP-pin exist for.
+
+    Two deliberate differences from the replay's client, both measured:
+
+    * ``allow_cross_host=True`` — a redirect to another host is FOLLOWED, with every
+      hop re-validated and IP-pinned by the same guard (see ``guarded_sync_client``).
+      Without it ``boards.greenhouse.io`` → ``job-boards.greenhouse.io`` (SpaceX) and
+      ``databricks.com`` → ``www.databricks.com`` both reported "HTTP 0" and killed a
+      correct recipe.
+    * ONE retry under :data:`_PROBE_USER_AGENT` when the board answers with a status
+      that is about our client rather than about the URL. Only fires on an answer, so
+      a board that is timing out still costs exactly one timeout, and the ladder's
+      worst case is the same wall clock it was before.
     """
     try:
-        http = guarded_sync_client()
+        http = guarded_sync_client(allow_cross_host=True)
     except Exception:                       # pragma: no cover - client build cannot fail
         return 0, ""
     try:
-        with http.stream("GET", url, timeout=_LINK_PROBE_TIMEOUT_S) as response:
+        status, body = _probe_once(http, url, None)
+        if status in _ANSWERED_BUT_REFUSED:
+            retried, retried_body = _probe_once(http, url, _PROBE_USER_AGENT)
+            logger.info(
+                "job-link probe retried %s without the browser User-Agent: %d -> %d",
+                url, status, retried,
+            )
+            if retried and retried not in _ANSWERED_BUT_REFUSED:
+                return retried, retried_body
+        return status, body
+    finally:
+        http.close()
+
+
+def _probe_once(http: httpx.Client, url: str, user_agent: str | None) -> tuple[int, str]:
+    """One bounded GET. ``(0, "")`` for anything that never produced a response."""
+    headers = {"User-Agent": user_agent} if user_agent else None
+    try:
+        with http.stream(
+            "GET", url, timeout=_LINK_PROBE_TIMEOUT_S, headers=headers
+        ) as response:
             body = bytearray()
             for chunk in response.iter_bytes():
                 body.extend(chunk)
@@ -2222,8 +2362,6 @@ def _default_probe(url: str) -> tuple[int, str]:
     except Exception as exc:                # noqa: BLE001 - every failure is "unproven"
         logger.info("job-link probe could not fetch %s: %r", url, exc)
         return 0, ""
-    finally:
-        http.close()
 
 
 def _page_text(body: str) -> str:
@@ -2235,9 +2373,59 @@ def _page_text(body: str) -> str:
     job" mean the page, not the app.
     """
     text = _TAG_RE.sub(" ", _SCRIPT_STYLE_RE.sub(" ", body))
+    return _normalize_words(text)
+
+
+def _normalize_words(text: str) -> str:
     text = unicodedata.normalize("NFKD", html.unescape(text)).translate(_QUOTES)
     text = "".join(ch for ch in text if not unicodedata.combining(ch))
     return _MULTISPACE_RE.sub(" ", text).strip().casefold()
+
+
+def _declared_title(body: str) -> str:
+    """WHAT THE PAGE SAYS IT IS — ``og:title``/``twitter:title``, else ``<title>``.
+
+    THE SIGNAL :func:`_page_text` CANNOT SEE, and the reason the proof rejected five
+    correct boards. ``_page_text`` strips ``<script>`` (rightly — an SPA bundle carries
+    every job's title) and then strips tags, which deletes every ATTRIBUTE with them.
+    A client-rendered job page's only server-delivered per-job fact is usually an
+    ``og:title`` meta tag, i.e. an attribute. Measured 2026-08-30, all four served by
+    plain httpx with no browser:
+
+    ==================  =====================  ==================================
+    board               ``_page_text`` says    this function says
+    ==================  =====================  ==================================
+    JPMorgan CX_1001    30 chars, both jobs    *AI Lead Security Engineer* /
+                                               *Credit Card Customer Service …*
+    Micron Workday      0 chars, both jobs     *TECHNOLOGIST - FAC UPW & WWTP* /
+                                               *ENGINEER - FACILITIES CHEMICAL …*
+    careers.oracle.com  6 chars, both jobs     *Oracle Database Administrator* /
+                                               *Oracle WebLogic Consultant*
+    metacareers.com     12 chars, both jobs    *Software Engineer, Machine …* /
+                                               *Technical Program Manager, …*
+    ==================  =====================  ==================================
+
+    ``<title>`` is the fallback and not the first choice because a board is far more
+    likely to leave it generic than to leave ``og:title`` generic: JPMorgan's is
+    *"JPMC Candidate Experience page"* on every job, Oracle's is *"Oracle"*. It still
+    earns its place — Micron's ``<title>`` is empty and YC/Raindrop has no ``og:title``
+    difference the body lengths do not already carry.
+
+    Returns ``""`` when the page declares nothing, which is not a failure: Walmart and
+    Atlassian genuinely declare no title, and the caller falls back to comparing pages.
+    """
+    for meta in _META_RE.finditer(body):
+        tag = meta.group(0)
+        if not _META_TITLE_KEY_RE.search(tag):
+            continue
+        content = _META_CONTENT_RE.search(tag)
+        if content is None:
+            continue
+        value = _normalize_words(next(g for g in content.groups() if g is not None))
+        if value:
+            return value
+    title = _TITLE_TAG_RE.search(body)
+    return _normalize_words(title.group(1)) if title else ""
 
 
 def _pages_differ(first: str, second: str) -> bool:
@@ -2286,10 +2474,61 @@ def _link_samples(
     return picked
 
 
+@dataclass(frozen=True)
+class LinkProof:
+    """The proof's verdict, and the distinction the old ``str | None`` could not carry.
+
+    ``proved`` and ``blocked`` are three states, not four: proved / **wrong** /
+    **blocked**. The middle one is "we looked and the board told us this template does
+    not point at one job" — a 404, or the same page served for two different ids.
+    The third is "we never got to look": a WAF challenge, a bot filter, a 400 aimed at
+    our own User-Agent, a timeout.
+
+    THEY WERE THE SAME OUTCOME AND THAT IS THE BUG. Measured on IBM 2026-08-30, AWS WAF
+    answers our probe **202 with an empty body** on every job page. Two empty bodies
+    compare equal, so the proof reported *"two different jobs served the same page (0 vs
+    0 chars)"* — a positive claim about the board, made out of bytes the board never
+    sent. Rendered in Chromium the same two URLs are two different jobs with correct
+    titles. Silence is not a denial; it has to be able to say so.
+    """
+
+    proved: bool
+    blocked: bool
+    why: str
+
+
+_PROVED = LinkProof(proved=True, blocked=False, why="")
+
+
+def _classify_page(status: int, body: str) -> tuple[str, LinkProof | None]:
+    """``(page text, refusal)`` for one probe answer — refusal is ``None`` when usable.
+
+    THE LINE BETWEEN "WRONG" AND "BLOCKED" IS DRAWN NARROWLY ON PURPOSE. Blocked means
+    the board sent us **no document at all** — a status that is about our client, or a
+    2xx with an empty body (IBM's AWS WAF answers ``202`` with zero bytes on every job
+    page). It does NOT mean "a document we could not read anything out of": a
+    ``<script>``-only SPA shell is thousands of bytes of real answer, and Goldman's dead
+    ``{roleId}`` differed from a correct link by 23 of them. Widening blocked to cover
+    empty-after-stripping would move that board from *disproved* to *unproven* — and
+    ``_resolve_job_link`` keeps an unproven candidate. The 404 that this whole rule
+    exists to stop would ship again.
+    """
+    if status in _NOT_FOUND_STATUSES:
+        return "", LinkProof(False, False, f"HTTP {status} — the board says this page "
+                                           "does not exist")
+    if status == 0 or status >= 400:
+        return "", LinkProof(False, True, f"HTTP {status or 'no answer'} — the board did "
+                                          "not let us look at this page")
+    if not body.strip():
+        return "", LinkProof(False, True, f"HTTP {status} with an empty body — the board "
+                                          "answered without serving a page")
+    return _page_text(body), None
+
+
 def _prove_job_link(
     records: list[Any], field_map: dict[str, str], base_url: str, probe: ProbeFn
-) -> str | None:
-    """``None`` if this url spec is proved, else WHY it is not. Sync; never raises.
+) -> LinkProof:
+    """Proved / wrong / blocked for this url spec. Sync; never raises.
 
     THE PROOF, and why it is two REAL jobs rather than one job plus a fabricated
     control id. An HTTP status decides nothing — ``higher.gs.com/roles/<anything>``
@@ -2308,32 +2547,65 @@ def _prove_job_link(
     full listing page from passing. When the titles are too short to be distinctive or
     the two jobs share one, only the weak form is available and that is fine — a board
     that serves two different pages IS routing on the id, whatever is written on them.
+
+    THREE WAYS TO SAY YES, tried in order of how much they claim. Each one on its own
+    answers the only question being asked — *does this URL route on this id?*
+
+    1. **the page carries this job's own title and not the other's** — the strongest,
+       and the only one that also says the page is ABOUT the job;
+    2. **the two pages DECLARE different titles** (:func:`_declared_title`) — the one
+       that recovers every client-rendered board, because a 30-char shell still ships
+       an ``og:title``;
+    3. **the two pages are materially different lengths** — the original weak form.
+
+    None of the three is a veto, and (2) especially must not be: SpaceX's Greenhouse
+    board serves the same ``og:title`` on three genuinely different job pages, and
+    Oracle can have two open reqs with one title. Equal declared titles mean *no
+    evidence from titles*, never *no*.
+
+    AND THE ONE SHAPE THAT STILL HAS TO FAIL. A board that answers every job URL with
+    the same near-empty shell AND a generic declared title is refused — Kakao (53
+    chars, *"카카오 영입"*, a correct template) fails exactly like Goldman's dead
+    ``{roleId}`` (23 chars, *"Careers | Goldman Sachs"*) and Nintendo's embed (842
+    chars, *"Careers at Nintendo - Join Our Team"*, the wrong page). Over plain HTTP
+    those three are the same bytes, and there is no rule that keeps Kakao without
+    resurrecting Goldman's 404. Refusing all three is the honest floor of a prover that
+    does not render.
     """
     samples = _link_samples(records, field_map, base_url)
     if len(samples) < _LINK_PROBE_SAMPLES:
-        return f"only {len(samples)} of the board's jobs render a distinct link"
+        return LinkProof(
+            False, False,
+            f"only {len(samples)} of the board's jobs render a distinct link",
+        )
 
-    pages: list[tuple[str, str]] = []
+    pages: list[tuple[str, str, str]] = []
     for title, url in samples:
         status, body = probe(url)
-        if status == 0 or status >= 400:
-            return f"HTTP {status} on {url}"
-        pages.append((title, _page_text(body)))
+        text, refusal = _classify_page(status, body)
+        if refusal is not None:
+            return replace(refusal, why=f"{refusal.why} ({url})")
+        pages.append((title, text, _declared_title(body)))
 
-    (first_title, first_page), (second_title, second_page) = pages
+    (feed_a, page_a, said_a), (feed_b, page_b, said_b) = pages
     if (
-        first_title != second_title
-        and min(len(first_title), len(second_title)) >= _DISTINCTIVE_TITLE_CHARS
+        feed_a != feed_b
+        and min(len(feed_a), len(feed_b)) >= _DISTINCTIVE_TITLE_CHARS
     ):
-        own = first_title in first_page and second_title in second_page
-        cross = first_title in second_page or second_title in first_page
+        own = feed_a in page_a and feed_b in page_b
+        cross = feed_a in page_b or feed_b in page_a
         if own and not cross:
-            return None
-    if _pages_differ(first_page, second_page):
-        return None
-    return (
-        f"two different jobs served the same page ({len(first_page)} vs "
-        f"{len(second_page)} chars) — this link does not point at one job"
+            return _PROVED
+    if said_a and said_b and said_a != said_b:
+        return _PROVED
+    if _pages_differ(page_a, page_b):
+        return _PROVED
+    return LinkProof(
+        False, False,
+        f"two different jobs served the same page ({len(page_a)} vs "
+        f"{len(page_b)} chars"
+        + (f", both titled {said_a!r}" if said_a and said_a == said_b else "")
+        + ") — this link does not point at one job",
     )
 
 
@@ -2516,7 +2788,10 @@ async def _resolve_job_link(
        page's anchors, then from the board's own code, then ``repair_url_template``'s
        swap (it only fires when the model's id appears in ZERO of the board's links,
        which is evidence in its own right), then the model's own answer.
-    4. **nothing proved** — :func:`_board_page_link`, and say so out loud.
+    4. **nothing proved, but the board never answered** — keep the best candidate the
+       board's own evidence produced. A WAF challenge disproves nothing, and
+       ``listing-page#{id}`` is certainly not a job link (see the ``blocked`` branch).
+    5. **nothing proved** — :func:`_board_page_link`, and say so out loud.
 
     Rung 3 is the new one, and the split it rests on is that DERIVING and TRUSTING are
     different acts. Every candidate — ours or the model's — goes through the same proof,
@@ -2546,8 +2821,24 @@ async def _resolve_job_link(
     derived = await _derived_candidates(selection, candidate, context, origin_url)
     repaired = _repair_selection_url(selection, candidate, context.captured).field_map["url"]
 
+    # The candidates the BOARD's own evidence produced, as opposed to the model's
+    # invention. The distinction only matters when the board refuses to be probed —
+    # see the ``blocked`` branch below.
+    #
+    # ``repaired`` HAS TO BE COMPARED, not just added. ``repair_url_template`` returns
+    # the selection unchanged when it has nothing to swap, so on the ~2 boards in 3 with
+    # no repair evidence it hands back the model's own spec — and putting that in this
+    # set would let the guess back in through the evidence door. Caught by
+    # ``test_ac21b_a_waf_does_not_promote_the_models_bare_guess``, which passed with the
+    # bug in place because the wrong string was the right string.
+    evidenced = {*derived} | ({repaired} if repaired != spec else set())
+
     tried: list[str] = []
     why = ""
+    # A candidate we could not DISPROVE, only because the board would not let us look.
+    # Kept as the answer of last resort ahead of the listing-page fallback, and only
+    # for a template the board's own anchors, scripts or captured URLs support.
+    unprovable: str | None = None
     for attempt in [*derived, repaired, spec]:
         if attempt in tried:
             continue
@@ -2557,15 +2848,41 @@ async def _resolve_job_link(
             )
             break
         tried.append(attempt)
-        unproven: str | None = await asyncio.to_thread(
+        proof: LinkProof = await asyncio.to_thread(
             _prove_job_link, records, {**selection.field_map, "url": attempt},
             base_url, context.probe,
         )
-        why = unproven or ""
-        if not why:
+        why = proof.why
+        if proof.proved:
             logger.info("job link %r proved against the live board", attempt)
             return _with(attempt), True, ""
-        logger.warning("job link %r is not usable: %s", attempt, why)
+        if proof.blocked and unprovable is None and attempt in evidenced:
+            unprovable = attempt
+        logger.warning(
+            "job link %r is %s: %s", attempt,
+            "unproven — the board would not answer the probe" if proof.blocked
+            else "not usable", why,
+        )
+
+    # NOT PROVED IS NOT THE SAME AS DISPROVED, and this is the whole of what that buys.
+    # A board behind a WAF (IBM answers our probe 202/empty on every job page) tells us
+    # NOTHING about a template — so falling back to ``listing-page#{id}``, which is
+    # certainly not a job link, trades a probably-right link for a certainly-wrong one.
+    #
+    # Bounded on purpose: only a template the BOARD's own evidence produced is kept
+    # this way. The model's bare guess is not — that is exactly Jane Street's
+    # ``/jobs/{id}``, and if a board ever blocked us while the model guessed like that,
+    # shipping it would undo the whole reason this ladder exists. A 404 or a
+    # same-page-twice answer is still a hard no here, because those the board DID tell
+    # us.
+    if unprovable is not None:
+        logger.warning(
+            "job link %r could not be proved because %s would not answer the probe; "
+            "keeping it — it is derived from the board's own links or scripts, and the "
+            "listing-page fallback is certainly not a job link",
+            unprovable, _hostname_of(origin_url),
+        )
+        return _with(unprovable), True, ""
 
     fallback = _board_page_link(origin_url, selection.field_map["id"])
     logger.warning(

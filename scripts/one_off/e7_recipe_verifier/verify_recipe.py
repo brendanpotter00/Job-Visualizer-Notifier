@@ -201,16 +201,16 @@ def main() -> int:
     # strict FAIL + lenient PASS  => our verifier is too strict, the recipe is fine.
     field_map = {"url": "url", "title": "title", "id": "id"}
     try:
-        why = _prove_job_link(rows, field_map, "", _default_probe)
-        if why is None:
+        proof = _prove_job_link(rows, field_map, "", _default_probe)
+        if proof.proved:
             ok("links")
         else:
-            fail("links", why)
+            fail("links", ("BLOCKED: " if proof.blocked else "") + proof.why)
     except Exception as exc:  # noqa: BLE001
         fail("links", f"prover raised {type(exc).__name__}: {exc}")
     try:
-        why_l = _prove_job_link(rows, field_map, "", lenient_probe)
-        r["links_lenient"] = {"pass": why_l is None, "why": why_l}
+        lenient = _prove_job_link(rows, field_map, "", lenient_probe)
+        r["links_lenient"] = {"pass": lenient.proved, "why": lenient.why or None}
     except Exception as exc:  # noqa: BLE001
         r["links_lenient"] = {"pass": False, "why": f"{type(exc).__name__}: {exc}"}
 

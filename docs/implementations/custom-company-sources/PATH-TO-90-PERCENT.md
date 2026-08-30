@@ -304,6 +304,18 @@ both ceilings.
 Cost: $0. No agent, no browser, no schema change. On this corpus it moves the current
 pipeline's own stored recipes from 1/6 to 3/6 and takes the agent from 48% to 85%.
 
+> **SHIPPED 2026-08-30 — and three of the five bullets above are wrong.** The decision
+> log is **[STAGE-1-DECISIONS.md](STAGE-1-DECISIONS.md)**: the ten boards re-run through
+> the real prover (6 flip to proved, 1 to unproven, Nintendo and Walmart still refused),
+> the SSRF reasoning for following cross-host redirects, and where this section did not
+> survive contact with the live boards —
+> **the title rule does not flip IBM or Kakao** (IBM has no document to read a title
+> out of; Kakao's shell is byte-identical to Goldman's dead link and refusing it is
+> correct), **dropping the browser User-Agent unconditionally loses Roblox, Goldman and
+> Jane Street** so it is a one-shot retry instead, and **the fifth bullet is not
+> implemented at all** — it would undo `34a1b5d` and re-ship Nintendo's listing-page
+> link.
+
 ### Stage 2 — three named schema gaps, still $0 recurring
 - **`transform` with a regex/split field spec** — derive a title from a URL slug. Fixes
   Bloomberg and Citadel outright (the two "title is the URL" defects). Smallest fix with

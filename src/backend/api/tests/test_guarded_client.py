@@ -131,6 +131,168 @@ def test_cross_host_redirect_is_blocked() -> None:
     client.close()
 
 
+# --- the opt-in cross-host mode: ONE check dropped, and only one ---------------
+#
+# ``allow_cross_host=True`` exists for the discovery LINK PROBE and nothing else.
+# Measured 2026-08-30, two correct recipes were thrown away over a plain 301 to the
+# same company's own board — ``boards.greenhouse.io`` -> ``job-boards.greenhouse.io``
+# (SpaceX) and ``databricks.com`` -> ``www.databricks.com``. The probe reported
+# "HTTP 0 — this link is not usable".
+#
+# The four tests below are the price of that flag: every OTHER guarantee has to still
+# hold on the far side of the hop, or the flag is an SSRF hole wearing a bug fix's
+# clothes.
+
+def test_a_bare_GuardedTransport_still_refuses_a_cross_host_redirect() -> None:
+    """The default is checked on the TRANSPORT, not only through the factory.
+
+    Found by mutation: flipping ``GuardedTransport(allow_cross_host=True)``'s default
+    left every test green, because ``guarded_sync_client`` passes the flag explicitly
+    and its own default (False) masked it. Anyone building the transport directly —
+    a future caller, a test helper — would silently have got the open behaviour.
+    """
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.headers.get("host") == "good.com":
+            return httpx.Response(302, headers={"location": "https://other-public.com/api"})
+        return httpx.Response(200, json={})
+
+    client = httpx.Client(
+        transport=GuardedTransport(
+            validator=_fake_validate, inner=httpx.MockTransport(handler)
+        ),
+        follow_redirects=False,
+    )
+    with pytest.raises(RecipeExecutionError, match="cross-host"):
+        client.get("https://good.com/api")
+    client.close()
+
+
+def test_cross_host_redirect_is_followed_when_the_caller_opts_in() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.headers.get("host") == "good.com":
+            return httpx.Response(301, headers={"location": "https://other-public.com/api"})
+        return httpx.Response(200, json={"jobs": [{"id": "1"}]})
+
+    client = guarded_sync_client(
+        validator=_fake_validate, inner_transport=httpx.MockTransport(handler),
+        allow_cross_host=True,
+    )
+    resp = client.get("https://good.com/api")
+    assert resp.status_code == 200 and resp.json() == {"jobs": [{"id": "1"}]}
+    client.close()
+
+
+def test_cross_host_redirect_to_an_INTERNAL_host_is_still_refused() -> None:
+    """THE ONE THAT MATTERS. Following cross-host hops must not become following
+    ANY hop: the second host is put through the same validator as the first, so a
+    board that 301s to the cloud metadata service is refused before its socket opens.
+    """
+    issued: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        issued.append(str(request.url))
+        return httpx.Response(
+            302, headers={"location": "http://169.254.169.254/latest/meta-data/"}
+        )
+
+    client = guarded_sync_client(
+        validator=_fake_validate, inner_transport=httpx.MockTransport(handler),
+        allow_cross_host=True,
+    )
+    with pytest.raises(RecipeExecutionError, match="SSRF guard"):
+        client.get("https://good.com/api")
+    assert len(issued) == 1, "the metadata hop must never be issued"
+    client.close()
+
+
+def test_a_cross_host_hop_is_ip_pinned_like_every_other_hop() -> None:
+    """The IP-pin (and therefore the DNS-rebind TOCTOU closure) is per-hop, so the
+    host we were redirected TO gets the same treatment as the one we started on."""
+    seen: list[tuple[str | None, str | None, object]] = []
+
+    def validator(url: str) -> GuardedUrl:
+        host = httpx.URL(url).host
+        ips = {"good.com": "93.184.216.34", "other-public.com": "93.184.216.35"}
+        if host not in ips:
+            raise UrlGuardError(REASON_PRIVATE_ADDRESS, f"{host!r} is not public")
+        return GuardedUrl(url=url, host=host, resolved_ips=(ips[host],))
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append((request.url.host, request.headers.get("host"),
+                     request.extensions.get("sni_hostname")))
+        if request.headers.get("host") == "good.com":
+            return httpx.Response(301, headers={"location": "https://other-public.com/j"})
+        return httpx.Response(200, json={})
+
+    client = guarded_sync_client(
+        validator=validator, inner_transport=httpx.MockTransport(handler),
+        allow_cross_host=True,
+    )
+    client.get("https://good.com/j")
+    assert seen == [
+        ("93.184.216.34", "good.com", "good.com"),
+        ("93.184.216.35", "other-public.com", "other-public.com"),
+    ]
+    client.close()
+
+
+def test_cross_host_mode_still_honours_the_hop_cap() -> None:
+    hosts = ["good.com", "other-public.com"]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nxt = hosts[len(handler.calls) % 2]      # type: ignore[attr-defined]
+        handler.calls.append(nxt)                # type: ignore[attr-defined]
+        return httpx.Response(302, headers={"location": f"https://{nxt}/next"})
+
+    handler.calls = []                           # type: ignore[attr-defined]
+    client = guarded_sync_client(
+        validator=_fake_validate, inner_transport=httpx.MockTransport(handler),
+        allow_cross_host=True,
+    )
+    with pytest.raises(RecipeExecutionError, match="hop"):
+        client.get("https://good.com/api")
+    client.close()
+
+
+def test_only_the_discovery_link_probe_opts_into_cross_host() -> None:
+    """The flag is opt-in, the default is closed, and exactly ONE caller takes it.
+
+    Checked by reading the source rather than by exercising each caller: the nightly
+    replay's host-pin is a property of the whole codebase, not of one code path, and a
+    new ``allow_cross_host=True`` anywhere else should fail a test rather than a review.
+
+    Scoped to ``guarded_sync_client`` on purpose — ``url_guard.guarded_get`` has carried
+    its own, older ``allow_cross_host`` since the add-time resolver, and that is a
+    different surface with a different answer (a pasted careers URL is EXPECTED to
+    redirect to another host).
+    """
+    import inspect
+    import pathlib
+    import re
+
+    from api.services import guarded_client as module
+
+    assert inspect.signature(module.guarded_sync_client).parameters[
+        "allow_cross_host"
+    ].default is False
+    assert inspect.signature(module.GuardedTransport.__init__).parameters[
+        "allow_cross_host"
+    ].default is False
+
+    backend = pathlib.Path(module.__file__).resolve().parents[2]
+    call = re.compile(r"guarded_sync_client\([^)]*allow_cross_host\s*=\s*True")
+    opted_in = {
+        str(path.relative_to(backend))
+        for path in (backend / "api").rglob("*.py")
+        if "/tests/" not in str(path) and call.search(path.read_text())
+    }
+    assert opted_in == {"api/services/capture/discover.py"}, (
+        "the SSRF host-pin is what stops a stored board silently relaying a nightly "
+        f"scrape to another host. Only the discovery link probe may drop it; got "
+        f"{sorted(opted_in)}"
+    )
+
+
 # --- legitimate same-host redirect + normal fetch still work ------------------
 
 def test_same_host_redirect_and_normal_fetch_still_work() -> None:
