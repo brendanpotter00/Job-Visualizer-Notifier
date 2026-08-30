@@ -34,6 +34,20 @@ site's origin", NOT "let a script drive a browser".
 
 Anything not enumerated here is a :class:`RecipeError`. Unknown keys inside a step
 are rejected too: a typo must fail loudly, never silently no-op.
+
+STAGE 2 (PATH-TO-90-PERCENT.md §6) widened the vocabulary in exactly three places, and
+each one is a WIDENING of a closed set rather than an opening of it — the reason the
+prior-art survey gave for keeping it closed (nobody documents sandboxing LLM-written
+scraper code, so a config vocabulary is the feature) applies with equal force to the
+additions:
+
+* ``transform.kind = 'regex_capture'`` — derive a field from another MAPPED field via a
+  regex in a bounded subset (:func:`validate_capture_pattern`). Not an expression
+  language, nothing eval-shaped, and a non-matching pattern yields ABSENT, never a
+  wrong value.
+* ``fetch.body_encoding`` — ``json`` (the default, and what every stored recipe still
+  means) or ``form``.
+* ``extract_embedded_island.source = 'rsc_flight'`` — the Next.js App-Router row parser.
 """
 
 from __future__ import annotations
@@ -332,13 +346,55 @@ def dig_records(payload: Any, path: str) -> Any:
 # per-op validators (the closed vocabulary)
 # --------------------------------------------------------------------------
 
+# How a POST body goes on the wire. ``json`` is the DEFAULT and the only value a
+# pre-Stage-2 recipe can mean, so an absent key must keep meaning exactly what it
+# meant before — every stored script keeps its current behaviour byte for byte.
+#
+# ``form`` exists because a board measured on 2026-08-30 accepts NOTHING else:
+# metacareers.com's ``CareersJobSearchResultsV2DataQuery`` answers 200 with 876 job
+# records to an ``application/x-www-form-urlencoded`` body and **400** to the same
+# fields as JSON — from inside its own origin, where the request works at all. Both
+# executors used to hard-code JSON, so the only way past it was to move the whole body
+# into the query string, and a board needing a non-empty form body was unreachable.
+BODY_ENCODINGS = ("json", "form")
+
+
 def _v_fetch(step: dict[str, Any]) -> None:
-    _reject_unknown_keys(step, {"method", "url", "headers", "body"}, "fetch")
+    _reject_unknown_keys(
+        step, {"method", "url", "headers", "body", "body_encoding"}, "fetch"
+    )
     method = step.get("method", "GET")
     _require(method in ("GET", "POST"), f"fetch.method must be GET or POST, got {method!r}")
     _require_https(step, "url", "fetch")
     _require(isinstance(step.get("headers", {}), dict), "fetch.headers must be an object")
     _require(isinstance(step.get("body", {}), dict), "fetch.body must be an object")
+    encoding = step.get("body_encoding", "json")
+    _require(
+        encoding in BODY_ENCODINGS,
+        f"fetch.body_encoding must be one of {BODY_ENCODINGS}, got {encoding!r}",
+    )
+    if "body_encoding" in step:
+        # A GET has no body to encode, so the key can only be a mislabel — and silently
+        # ignoring it is how an author believes a request is form-encoded when it is not.
+        _require(
+            method == "POST",
+            "fetch.body_encoding is only meaningful on a POST (a GET carries no body)",
+        )
+    if encoding == "form":
+        # A form body is a FLAT list of name=value pairs by definition. A nested object
+        # has no single spelling on the wire (PHP brackets? JSON-in-a-field? repeated
+        # keys?), and — the half that actually bites — ``merge_body_params`` sets the
+        # pagination cursor at whatever depth it finds the name, so a nested form body
+        # would page correctly in the recipe and not at all on the wire. Refusing here
+        # is cheaper than a sweep that reads page one N times.
+        body = step.get("body") or {}
+        assert isinstance(body, dict)  # narrow for mypy; checked above
+        for name, value in body.items():
+            _require(
+                isinstance(value, (str, int, float)) and not isinstance(value, bool),
+                f"fetch.body[{name!r}] is a {type(value).__name__}; a form-encoded body "
+                "must be flat name=value pairs of strings or numbers",
+            )
 
 
 def _v_paginate_offset(step: dict[str, Any]) -> None:
@@ -435,6 +491,25 @@ def _v_extract_json_path(step: dict[str, Any]) -> None:
     _v_fields(step.get("fields"), "extract_json_path")
 
 
+# Where an embedded island's JSON lives inside the matched node(s).
+#
+# ``rsc_flight`` is the Next.js App-Router source and the third one because it is a
+# different SHAPE, not a different selector: the page does not hold one JSON blob, it
+# holds a React Flight STREAM split across dozens of ``self.__next_f.push([1,"…"])``
+# calls that have to be concatenated and then framed by the stream's own row grammar
+# (``<hex-id>:<payload>``, where a ``T<hexlen>,`` row is delimited by a BYTE length and
+# may contain raw newlines). ``text`` reads ONE node and hands it to ``json.loads``,
+# which on such a page parses nothing at all — measured on jobs.deel.com/job-boards/klarna,
+# where the whole 81-job board sits at ``9.3.jobPostings`` inside that stream.
+#
+# The harder half of RSC is deliberately NOT here: rows that serialize React ELEMENT
+# TREES (``["$","div",null,{children:…}]``) would need a walker, and Roblox — the board
+# that would need one — publishes a static CloudFront ``jobs.json`` that is a better
+# source anyway (PATH-TO-90-PERCENT.md §3). A records_path into an element tree simply
+# fails to resolve, which is a loud FAILED run, not a wrong answer.
+ISLAND_SOURCES = ("attribute", "text", "rsc_flight")
+
+
 def _v_extract_embedded_island(step: dict[str, Any]) -> None:
     _reject_unknown_keys(
         step, {"selector", "source", "attribute", "records_path", "fields", "base_url"},
@@ -444,8 +519,8 @@ def _v_extract_embedded_island(step: dict[str, Any]) -> None:
     _require_records_path(step, "extract_embedded_island")
     source = step.get("source", "attribute")
     _require(
-        source in ("attribute", "text"),
-        "extract_embedded_island.source must be 'attribute' or 'text'",
+        source in ISLAND_SOURCES,
+        f"extract_embedded_island.source must be one of {ISLAND_SOURCES}",
     )
     if source == "attribute":
         _require_str(step, "attribute", "extract_embedded_island")
@@ -465,15 +540,190 @@ def _v_extract_css(step: dict[str, Any]) -> None:
         )
 
 
+# The closed ``transform`` kind set. ``regex_capture`` is Stage 2's addition
+# (PATH-TO-90-PERCENT.md §6): a board whose only readable source publishes URLs and no
+# titles — Bloomberg's and Citadel's sitemaps publish ``<loc>`` and ``<lastmod>`` and
+# nothing else — had ``title`` mapped to the job's own URL, and no primitive could turn
+# ``…/JobDetail/Senior-Software-Engineer/12345`` into "Senior Software Engineer".
+TRANSFORM_KINDS = ("template", "base_url_join", "regex_capture")
+
+# A ``regex_capture`` reads one ALREADY-MAPPED canonical field, never an arbitrary path
+# into the raw record. Shaping runs on ROWS (``_apply_shaping``), after ``map_records``
+# has flattened them, so a raw-record path would silently render empty; naming the
+# closed field set here makes that a write-time refusal instead.
+CAPTURE_SOURCE_FIELDS = CANONICAL_REQUIRED_FIELDS + CANONICAL_OPTIONAL_FIELDS
+
+# --------------------------------------------------------------------------
+# THE PATTERN BOUND — why a stored regex is a restricted language, not a regex
+# --------------------------------------------------------------------------
+# The pattern lands in ``company_scripts.script`` JSONB, which is data that DRIFTS and
+# is re-validated on every nightly READ. Python's ``re`` has no timeout and no step
+# budget, so a pattern that backtracks catastrophically is a worker pinned for hours,
+# per row, with no way to interrupt it. The answer that fits this module is the same one
+# the op vocabulary already uses: admit a CLOSED, checkable subset rather than the whole
+# language, and refuse everything else by name.
+#
+# The subset forbids exactly the shapes that make backtracking blow up:
+#
+# * a quantifier applied to a GROUP — ``(a+)+``, ``(a|a)*``, ``(a*)*``. Every classic
+#   exponential form needs one, because the ambiguity has to be re-tried across a
+#   quantified sub-expression;
+# * backreferences and lookaround (``\1``, ``(?=``, ``(?<``), whose cost is not
+#   expressible as a function of the input length at all;
+# * an unbounded ``{n,}`` and any ``{n,m}`` past :data:`CAPTURE_PATTERN_MAX_REPEAT`;
+# * more than :data:`CAPTURE_PATTERN_MAX_QUANTIFIERS` quantified atoms in total.
+#
+# WHAT THAT BUYS, STATED HONESTLY: it is a bound, not a proof of linearity. Adjacent
+# quantified atoms over overlapping classes (``[^/]*[^/]*x``) still backtrack
+# polynomially, so the residual worst case is O(n^q) with q <= 3 over a subject the
+# runner caps at ``recipe_runner.CAPTURE_SUBJECT_MAX_CHARS`` — ~1.3e8 engine steps for a
+# deliberately adversarial pattern, and linear for every realistic one. Reaching that
+# requires the ability to write the recipe row; the exponential cliff, which does not,
+# is closed.
+CAPTURE_PATTERN_MAX_CHARS = 200
+CAPTURE_PATTERN_MAX_QUANTIFIERS = 3
+CAPTURE_PATTERN_MAX_REPEAT = 64
+
+_REPEAT_SPEC_RE = re.compile(r"(\d+)(?:,(\d*))?$")
+
+
+def validate_capture_pattern(pattern: str, where: str) -> None:
+    """Raise unless ``pattern`` is in the bounded regex subset described above.
+
+    Public because both the WRITE path (discovery's synthesis) and the READ path
+    (``validate_recipe`` on a stored row) must apply the identical rule — a pattern that
+    is admitted on one side and not the other is a recipe that stores and can never
+    replay.
+    """
+    _require(
+        len(pattern) <= CAPTURE_PATTERN_MAX_CHARS,
+        f"{where}.pattern is {len(pattern)} chars; at most "
+        f"{CAPTURE_PATTERN_MAX_CHARS} are allowed",
+    )
+    try:
+        compiled = re.compile(pattern)
+    except re.error as exc:
+        raise RecipeError(f"{where}.pattern is not a valid regex: {exc}") from None
+    _require(
+        compiled.groups == 1,
+        f"{where}.pattern must have EXACTLY one capture group (the derived value); "
+        f"got {compiled.groups}",
+    )
+
+    quantifiers = 0
+    i, n = 0, len(pattern)
+    while i < n:
+        ch = pattern[i]
+        if ch == "\\":
+            nxt = pattern[i + 1:i + 2]
+            _require(
+                not (nxt.isdigit() and nxt != "0"),
+                f"{where}.pattern uses a backreference (\\{nxt}); its cost is not "
+                "bounded by the input length",
+            )
+            i += 2
+            continue
+        if ch == "[":                       # a character class: skip it wholesale
+            j = i + 1
+            if pattern[j:j + 1] == "^":
+                j += 1
+            if pattern[j:j + 1] == "]":     # a literal ']' first in the class
+                j += 1
+            while j < n and pattern[j] != "]":
+                j += 2 if pattern[j] == "\\" else 1
+            _require(j < n, f"{where}.pattern has an unterminated character class")
+            i = j + 1
+            continue
+        if ch == "(":
+            if pattern.startswith("(?", i):
+                _require(
+                    pattern.startswith("(?:", i),
+                    f"{where}.pattern uses a '(?…)' construct other than the "
+                    "non-capturing '(?:' — lookaround, named groups, inline flags and "
+                    "conditionals are all outside the bounded subset",
+                )
+                i += 3
+            else:
+                i += 1
+            continue
+        if ch == ")":
+            _require(
+                pattern[i + 1:i + 2] not in ("*", "+", "?", "{"),
+                f"{where}.pattern applies a quantifier to a GROUP, which is the shape "
+                "every catastrophic-backtracking pattern needs",
+            )
+            i += 1
+            continue
+        if ch in ("*", "+", "?"):
+            quantifiers += 1
+            i += 1
+            if ch != "?" and pattern[i:i + 1] == "?":
+                i += 1                      # the lazy modifier, not a second quantifier
+            continue
+        if ch == "{":
+            close = pattern.find("}", i)
+            _require(close != -1, f"{where}.pattern has an unterminated '{{'")
+            spec = _REPEAT_SPEC_RE.fullmatch(pattern[i + 1:close])
+            _require(
+                spec is not None,
+                f"{where}.pattern has a repetition '{pattern[i:close + 1]}' that is not "
+                "{n} or {n,m}",
+            )
+            assert spec is not None  # narrow for mypy; _require already raised otherwise
+            high = spec.group(2)
+            _require(
+                high != "",
+                f"{where}.pattern uses an unbounded repetition "
+                f"'{pattern[i:close + 1]}'; give it an upper bound",
+            )
+            ceiling = int(high) if high is not None else int(spec.group(1))
+            _require(
+                ceiling <= CAPTURE_PATTERN_MAX_REPEAT,
+                f"{where}.pattern repeats up to {ceiling} times; the bound is "
+                f"{CAPTURE_PATTERN_MAX_REPEAT}",
+            )
+            quantifiers += 1
+            i = close + 1
+            if pattern[i:i + 1] == "?":
+                i += 1
+            continue
+        i += 1
+
+    _require(
+        quantifiers <= CAPTURE_PATTERN_MAX_QUANTIFIERS,
+        f"{where}.pattern has {quantifiers} quantifiers; at most "
+        f"{CAPTURE_PATTERN_MAX_QUANTIFIERS} are allowed (each one multiplies the "
+        "backtracking the engine may do on a subject that does not match)",
+    )
+
+
 def _v_transform(step: dict[str, Any]) -> None:
-    _reject_unknown_keys(step, {"field", "kind", "template", "base_url"}, "transform")
+    _reject_unknown_keys(
+        step,
+        {"field", "kind", "template", "base_url", "from", "pattern", "unslug"},
+        "transform",
+    )
     _require_str(step, "field", "transform")
     kind = step.get("kind")
-    _require(kind in ("template", "base_url_join"), "transform.kind must be 'template' or 'base_url_join'")
+    _require(kind in TRANSFORM_KINDS, f"transform.kind must be one of {TRANSFORM_KINDS}")
     if kind == "template":
         _require_str(step, "template", "transform")
-    else:
+    elif kind == "base_url_join":
         _require_str(step, "base_url", "transform")
+    else:  # regex_capture
+        _require_str(step, "from", "transform")
+        _require(
+            step["from"] in CAPTURE_SOURCE_FIELDS,
+            f"transform.from must be one of {CAPTURE_SOURCE_FIELDS}, got "
+            f"{step['from']!r} — shaping reads MAPPED rows, not raw records",
+        )
+        _require_str(step, "pattern", "transform")
+        validate_capture_pattern(step["pattern"], "transform")
+        if "unslug" in step:
+            _require(
+                isinstance(step["unslug"], bool),
+                "transform.unslug must be true or false",
+            )
 
 
 # The closed mode set for ``parse_date``. ``epoch_s``/``epoch_ms`` were added by
@@ -684,6 +934,7 @@ def validate_recipe(
     pagination_op: str | None = None
     pagination_step: dict[str, Any] | None = None
     extraction_op: str | None = None
+    extraction_step: dict[str, Any] | None = None
     for i, step in enumerate(steps):
         _require(isinstance(step, dict), f"steps[{i}] must be an object")
         op = step.get("op")
@@ -715,6 +966,7 @@ def validate_recipe(
         elif op in _EXTRACTION_OPS:
             counts["extraction"] += 1
             extraction_op = op
+            extraction_step = step
 
     _require(counts["fetch"] == 1, f"exactly one 'fetch' step is required, got {counts['fetch']}")
     _require(steps[0].get("op") == "fetch", "the first step must be 'fetch'")
@@ -742,6 +994,23 @@ def validate_recipe(
             f"transport {HTTP_HTML!r} does not paginate — the HTML executor issues one "
             f"request and reports a clean complete sweep, so a {pagination_op!r} step "
             f"would silently close every job past page one",
+        )
+
+    # ``rsc_flight`` reads a SERVED HTML DOCUMENT's ``<script>`` stream. Only
+    # ``_run_http_html`` ever hands an extraction the raw markup: ``http_json`` feeds its
+    # extraction a ``json.loads``-ed body and ``browser_fetch``'s child returns raw JSON
+    # bodies, so on either of them this source names a document that never arrives.
+    # Rejected on write and on every read rather than left to fail at 3am with a
+    # selector error that names the wrong problem.
+    if (
+        extraction_step is not None
+        and extraction_step.get("source") == "rsc_flight"
+        and tr != HTTP_HTML
+    ):
+        raise RecipeError(
+            f"extract_embedded_island.source 'rsc_flight' parses a served HTML "
+            f"document's script stream and is only replayable on transport "
+            f"{HTTP_HTML!r}, not {tr!r}"
         )
 
     if tr == BROWSER_FETCH:

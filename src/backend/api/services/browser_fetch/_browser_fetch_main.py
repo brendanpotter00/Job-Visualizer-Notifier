@@ -65,7 +65,7 @@ _USER_AGENT = (
 # only for a same-origin response or one the board CORS-exposes — a header oracle on
 # a cross-origin endpoint will legitimately find nothing and FAIL loudly.
 _FETCH_JS = """
-async ({url, method, headers, body, timeoutMs}) => {
+async ({url, method, headers, body, bodyEncoding, timeoutMs}) => {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -74,9 +74,24 @@ async ({url, method, headers, body, timeoutMs}) => {
     // so 'follow' would let a board launder our fetch onto an internal address and
     // hand us its body as if it were jobs. 'error' rejects instead -> the child
     // exits non-zero -> the parent raises -> FAILED run -> nothing closes.
-    const init = {method: method, headers: headers, credentials: 'same-origin',
+    const init = {method: method, headers: {...headers}, credentials: 'same-origin',
                   redirect: 'error', signal: controller.signal};
-    if (method === 'POST') { init.body = JSON.stringify(body); }
+    if (method === 'POST') {
+      // THE ENCODING IS THE RECIPE'S, and this tier is where it earns its keep.
+      // metacareers.com answers this exact request 200 with 876 job records when the
+      // body is x-www-form-urlencoded and 400 when the same fields are JSON --
+      // measured 2026-08-30 from inside its own origin, which is the only place the
+      // request works at all. Overriding content-type on the form branch (and ONLY
+      // there) is what stops a captured 'application/json' header from contradicting
+      // the bytes; the JSON branch is unchanged, so every stored recipe still means
+      // exactly what it meant.
+      if (bodyEncoding === 'form') {
+        init.headers['content-type'] = 'application/x-www-form-urlencoded';
+        init.body = new URLSearchParams(body).toString();
+      } else {
+        init.body = JSON.stringify(body);
+      }
+    }
     const r = await fetch(url, init);
     const text = await r.text();
     return {status: r.status, text: text,
@@ -326,6 +341,9 @@ def _fetch_page(page: Any, plan: dict[str, Any], params: dict[str, Any] | None) 
             "method": method,
             "headers": dict(plan.get("headers") or {}),
             "body": body,
+            # Default "json" so a plan built before this key existed — and every
+            # stored recipe that omits it — issues exactly the request it always did.
+            "bodyEncoding": str(plan.get("body_encoding") or "json"),
             "timeoutMs": int(plan.get("fetch_timeout_ms") or _DEFAULT_FETCH_TIMEOUT_MS),
         },
     )

@@ -47,7 +47,7 @@ from collections import deque
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from typing import Any
-from urllib.parse import parse_qsl, urlencode, urlsplit
+from urllib.parse import parse_qsl, unquote, urlencode, urlsplit
 from xml.etree import ElementTree
 
 import httpx
@@ -578,6 +578,19 @@ def merge_query_params(url: str, params: dict[str, Any] | None) -> httpx.URL:
     return target.copy_merge_params(left) if left else target
 
 
+def _form_fields(body: Any) -> dict[str, str]:
+    """A validated form body as the ``name=value`` strings httpx will urlencode.
+
+    ``validate_recipe`` already refused any non-scalar value (a nested form body pages
+    correctly in the recipe and not at all on the wire), so this only has to stringify.
+    The merged pagination cursor arrives as an ``int``, which is exactly why the
+    stringify happens HERE rather than being assumed of the stored body.
+    """
+    if not isinstance(body, dict):
+        return {}
+    return {str(name): str(value) for name, value in body.items() if value is not None}
+
+
 def _request(
     http: httpx.Client, fetch: dict[str, Any], params: dict[str, Any] | None
 ) -> httpx.Response:
@@ -587,7 +600,21 @@ def _request(
         # SET the cursor where the captured body already carries it — see
         # :func:`merge_body_params`. A flat body is merged exactly as before.
         merged_body = merge_body_params(fetch.get("body"), params)
-        response = http.post(fetch["url"], json=merged_body, headers=headers)
+        if fetch.get("body_encoding", "json") == "form":
+            # ...and OVERRIDE the captured content-type, which is the one header that
+            # cannot be allowed to disagree with the encoding: form bytes under
+            # ``application/json`` is a 400 on every board, and the recipe's own
+            # ``body_encoding`` is the authoritative statement of what is on the wire.
+            # Only the ``form`` branch does this — the ``json`` branch is left byte-for-
+            # byte as it was so no stored recipe changes meaning.
+            headers = {
+                **headers, "content-type": "application/x-www-form-urlencoded",
+            }
+            response = http.post(
+                fetch["url"], data=_form_fields(merged_body), headers=headers
+            )
+        else:
+            response = http.post(fetch["url"], json=merged_body, headers=headers)
     else:
         # MERGE the cursor into the URL's existing query rather than passing
         # params= — httpx replaces the whole query string, which silently drops
@@ -851,6 +878,110 @@ def _run_http_html(http: httpx.Client, plan: RecipePlan) -> _HarvestState:
     return state
 
 
+# --------------------------------------------------------------------------
+# the Next.js App-Router (React Flight) row parser — extract_embedded_island
+# with source='rsc_flight' (PATH-TO-90-PERCENT.md §6, Stage 2)
+# --------------------------------------------------------------------------
+#
+# A Next.js App-Router page does not embed one JSON island. It streams a React Flight
+# document in dozens of ``<script>self.__next_f.push([1,"<chunk>"])</script>`` calls
+# whose decoded chunks CONCATENATE into one text stream, and that stream is a sequence
+# of rows::
+#
+#     <hex-id> ":" <payload> "\n"
+#
+# ``<payload>`` is a JSON value, optionally with a one-letter tag in front (``I[…]``
+# module refs, ``HL[…]`` preloads, ``E{…}`` errors), OR a length-prefixed text blob
+# ``T<hexlen>,<blob>``.
+#
+# THE BYTE LENGTH IS THE DETAIL THAT DECIDES WHETHER THIS WORKS. ``T<hexlen>`` counts
+# UTF-8 BYTES, not characters, and the blobs are job descriptions full of typographic
+# quotes and em dashes. Framing on characters lands mid-blob, the parser loses sync with
+# the row grammar, and the row holding the jobs is never seen at all — measured on
+# jobs.deel.com/job-boards/klarna, where a character-framed parse found 0 job arrays and
+# a byte-framed one found all 81 at ``9.3.jobPostings``. So the whole parse runs on
+# ``bytes``.
+_RSC_PUSH_RE = re.compile(r"self\.__next_f\.push\(\[\s*1\s*,\s*")
+_RSC_ROW_RE = re.compile(rb"([0-9a-fA-F]{1,8}):")
+
+# Bounds. The body itself is whatever the board served; these keep a hostile or merely
+# enormous page from turning one nightly replay into an unbounded allocation. Klarna's
+# is 174 chunks / 473,102 chars / 32 rows, so each is ~an order of magnitude of headroom.
+_RSC_MAX_CHUNKS = 4_000
+_RSC_MAX_STREAM_CHARS = 8_000_000
+_RSC_MAX_ROWS = 2_000
+
+
+def parse_rsc_flight(scripts: list[str]) -> dict[str, Any]:
+    """``{row_id: parsed JSON}`` for every Flight row in these ``<script>`` bodies.
+
+    Public because it is the whole of the new capability and is worth testing directly
+    against captured bytes. TEXT rows (``T<hexlen>,``) are FRAMED but not returned: they
+    are the ``$<id>``-referenced description blobs, and resolving those references is
+    the element-tree half of RSC that Stage 2 deliberately skips. Their length still has
+    to be honoured or every row after them is lost.
+
+    Never raises. An unparseable stream yields ``{}``, and the caller's ``records_path``
+    dig is what turns that into the loud FAILED run — one place that decides, as
+    everywhere else here.
+    """
+    decoder = json.JSONDecoder()
+    chunks: list[str] = []
+    total = 0
+    for script in scripts:
+        for match in _RSC_PUSH_RE.finditer(script):
+            if len(chunks) >= _RSC_MAX_CHUNKS or total >= _RSC_MAX_STREAM_CHARS:
+                break
+            start = match.end()
+            if script[start:start + 1] != '"':
+                continue  # push([1, <non-string>]) — a flush marker, not a chunk
+            try:
+                value, _ = decoder.raw_decode(script, start)
+            except ValueError:
+                continue
+            if isinstance(value, str):
+                chunks.append(value)
+                total += len(value)
+    if not chunks:
+        return {}
+
+    raw = "".join(chunks).encode("utf-8")
+    rows: dict[str, Any] = {}
+    pos, end = 0, len(raw)
+    while pos < end and len(rows) < _RSC_MAX_ROWS:
+        marker = _RSC_ROW_RE.match(raw, pos)
+        if marker is None:
+            newline = raw.find(b"\n", pos)
+            if newline == -1:
+                break
+            pos = newline + 1
+            continue
+        row_id = marker.group(1).decode("ascii")
+        pos = marker.end()
+        if raw[pos:pos + 1] == b"T":
+            comma = raw.find(b",", pos)
+            if comma == -1:
+                break
+            try:
+                length = int(raw[pos + 1:comma], 16)
+            except ValueError:
+                break
+            pos = comma + 1 + length          # BYTES — see the note above
+            if raw[pos:pos + 1] == b"\n":
+                pos += 1
+            continue
+        newline = raw.find(b"\n", pos)
+        stop = end if newline == -1 else newline
+        payload = raw[pos:stop].lstrip(b"IHEL")
+        pos = stop + 1
+        if payload[:1] in (b"[", b"{"):
+            try:
+                rows.setdefault(row_id, json.loads(payload))
+            except ValueError:
+                continue
+    return rows
+
+
 def _run_embedded_island(http: httpx.Client, plan: RecipePlan, state: _HarvestState) -> None:
     from bs4 import BeautifulSoup  # local import: html-only dependency
 
@@ -858,6 +989,25 @@ def _run_embedded_island(http: httpx.Client, plan: RecipePlan, state: _HarvestSt
     response = _request(http, plan.fetch, None)
     state.first_headers = dict(response.headers)
     soup = BeautifulSoup(response.text, "html.parser")
+    if ext.get("source") == "rsc_flight":
+        # ALL matching nodes, not one: the stream is split across every push script and
+        # a single node holds a fragment that parses to nothing.
+        nodes = soup.select(ext["selector"])
+        if not nodes:
+            raise RecipeExecutionError(
+                f"rsc_flight selector {ext['selector']!r} matched nothing (markup changed?)"
+            )
+        payload = parse_rsc_flight([node.get_text() for node in nodes])
+        if not payload:
+            raise RecipeExecutionError(
+                f"rsc_flight selector {ext['selector']!r} matched {len(nodes)} node(s) "
+                "but no React Flight rows parsed out of them"
+            )
+        state.first_payload = payload
+        records = _dig_records(payload, ext["records_path"], "in the RSC flight stream")
+        state.rows = map_records(records, ext["fields"], plan.base_url)
+        state.page_id_sets = [{r["id"] for r in state.rows}]
+        return
     node = soup.select_one(ext["selector"])
     if node is None:
         raise RecipeExecutionError(
@@ -941,14 +1091,75 @@ def _apply_shaping(rows: list[dict], shaping: list[dict[str, Any]]) -> list[dict
     return rows
 
 
+# The longest subject a stored ``regex_capture`` pattern is ever run against. A URL
+# longer than this is not a slug to read a title out of, and bounding the SUBJECT is the
+# other half of the pattern bound in ``recipe_schema.validate_capture_pattern``: that
+# one closes the exponential shapes, this one caps the polynomial residue.
+CAPTURE_SUBJECT_MAX_CHARS = 512
+
+# What ``unslug`` collapses to a space. ``+`` is here because a query-string slug spells
+# a space that way, and ``unquote_plus`` is deliberately NOT used — a literal ``+`` in a
+# PATH segment is a plus sign, and one rule that reads both is better than a decode that
+# is right for one shape and silently wrong for the other.
+_SLUG_SEPARATORS_RE = re.compile(r"[-_+]+")
+
+
+def _unslug(text: str) -> str:
+    """A URL slug as prose: percent-decoded, separators to spaces, whitespace collapsed.
+
+    TITLE-CASING IS CONDITIONAL, and the condition is the whole of the rule: the result
+    is title-cased ONLY when the slug carries no case information at all. Bloomberg's
+    ``Senior-Software-Engineer-Data`` already spells its own capitalisation and
+    ``.title()`` would not improve it, while Citadel's ``commodities-portfolio-manager``
+    has none to preserve. Upper-casing a slug that already had case would be the wrong
+    kind of confident — it would rewrite ``iOS`` and ``ML`` — so it is left alone.
+    """
+    text = unquote(text)
+    text = _SLUG_SEPARATORS_RE.sub(" ", text)
+    text = _MULTISPACE_RE.sub(" ", text).strip()
+    if text and not any(ch.isupper() for ch in text):
+        text = text.title()
+    return text
+
+
 def _transform_value(row: dict, step: dict[str, Any]) -> Any:
-    if step["kind"] == "template":
+    kind = step["kind"]
+    if kind == "template":
         return render_field(row, step["template"])
+    if kind == "regex_capture":
+        return _regex_capture_value(row, step)
     # base_url_join
     value = row.get(step["field"])
     if isinstance(value, str) and value.startswith("/"):
         return step["base_url"].rstrip("/") + value
     return value
+
+
+def _regex_capture_value(row: dict, step: dict[str, Any]) -> Any:
+    """Derive a field from another mapped field. **No match → ``None``, never a guess.**
+
+    THE ONE RULE THIS PRIMITIVE EXISTS TO HOLD: a pattern that does not match must
+    degrade the field to ABSENT, not leave the source value standing in its place. Both
+    the boards this was built for map ``title`` to the job's own URL as the only way to
+    get a row past ``map_records``; "leave it alone on a miss" would therefore ship a URL
+    as a job title on exactly the rows where the derivation failed — the Bloomberg defect
+    the primitive is meant to fix, reintroduced only on the rows nobody looks at.
+
+    ``finalize_harvest`` is what turns an absent REQUIRED field into a FAILED run (see
+    :func:`_assert_shaping_kept_required_fields`); an absent optional is simply absent.
+    """
+    value = row.get(step["from"])
+    if not isinstance(value, str) or not value:
+        return None
+    match = re.search(step["pattern"], value[:CAPTURE_SUBJECT_MAX_CHARS])
+    if match is None:
+        return None
+    captured = match.group(1)
+    if captured is None:                      # an optional group that matched nothing
+        return None
+    if step.get("unslug"):
+        captured = _unslug(captured)
+    return captured or None
 
 
 # Above this a numeric timestamp is MILLISECONDS, not seconds: 1e11 seconds is the
@@ -1294,6 +1505,52 @@ def _assert_pinned(plan: RecipePlan, state: _HarvestState) -> None:
             ) from exc
 
 
+# The two row keys ``map_records`` refuses to let a row live without, and therefore the
+# two a SHAPING step may not quietly take away again.
+_SHAPING_REQUIRED_FIELDS = ("id", "title")
+
+
+def _assert_shaping_kept_required_fields(
+    rows: list[dict], shaping: list[dict[str, Any]]
+) -> None:
+    """RAISE if a shaping step emptied ``id`` or ``title`` on any row.
+
+    Shaping is OUR derivation, not the board's data, and that asymmetry is the whole
+    argument for raising here while ``map_records`` merely drops. ``map_records`` drops a
+    record the BOARD published without a title — a real, ordinary thing for a board to
+    do. A ``regex_capture`` that stops matching is us discovering that the recipe no
+    longer describes the board, and there are only bad ways to be quiet about it:
+
+    * leave the source value → a job list full of URLs where titles should be, which is
+      the exact Bloomberg defect this primitive was added to fix;
+    * drop the row → a SHORTER sweep that still reports ``terminated_cleanly`` with no
+      cap, which on a ``self_consistent`` board VERIFIES and starts closing the missing
+      jobs. That is invariant #2, lost to a silent partial;
+    * write ``None`` → ``recipe_rows`` does ``str(row["title"])`` and stores the literal
+      string ``"None"`` on every affected job.
+
+    Raising is the only option that harvests nothing and closes nothing. It is a FAILED
+    run: the leaf task records it, does not count a miss, and retries.
+
+    Scoped to recipes that actually shape a required field, so a board with no such step
+    pays one tuple comparison and nothing else.
+    """
+    targets = {
+        step["field"] for step in shaping if step["field"] in _SHAPING_REQUIRED_FIELDS
+    }
+    if not targets:
+        return
+    for row in rows:
+        for name in targets:
+            if row.get(name) in (None, ""):
+                raise RecipeExecutionError(
+                    f"a shaping step emptied the required field {name!r} on a row "
+                    f"(id={row.get('id')!r}, url={row.get('url')!r}) — the recipe no "
+                    "longer describes this board; FAILED rather than storing a wrong "
+                    "title or silently dropping the row"
+                )
+
+
 def finalize_harvest(
     plan: RecipePlan, state: _HarvestState, http: httpx.Client | None
 ) -> tuple[list[dict], HarvestEvidence]:
@@ -1309,6 +1566,7 @@ def finalize_harvest(
     _assert_pinned(plan, state)
 
     rows = _apply_shaping(state.rows, plan.shaping)
+    _assert_shaping_kept_required_fields(rows, plan.shaping)
     if not rows:
         raise RecipeExecutionError(
             "recipe produced zero records — treated as FAILED, never as 'no jobs today'"

@@ -366,3 +366,27 @@ not an agent.
 worry about: given a hard board and no constraint, the agent found a way in that we should
 not take. It was confident, it was correct on the six criteria, and shipping it would have
 been wrong. That gate has to exist before this goes near production.
+
+---
+
+## Stage 2 — implementation decisions
+
+Stage 2 is **built**. Every judgement it took that this document did not spell out —
+the `regex_capture` semantics, the bound on a stored pattern and what that bound
+honestly buys, what happens to a row the pattern misses, the byte-framing that decides
+whether the RSC parser works at all, the completeness check on the Bloomberg
+12-of-380 hazard, and **three places where this document turned out to be wrong** —
+is in **[STAGE-2-DECISIONS.md](STAGE-2-DECISIONS.md)**.
+
+The two headline corrections, so they are not only in the sibling doc:
+
+- **Bloomberg and Citadel are not "fixed outright" by Stage 2.** Their recipes are now
+  expressible and replay live at **380/380** and **56/56** with real titles — but both
+  read the board's *sitemap*, and `sources.EvidenceSource` deliberately keeps the
+  sitemap out of the record path, so our own deterministic discovery still cannot
+  author them. Stage 2 gives Stage 3's agent the vocabulary; it does not move those two
+  boards on its own.
+- **Meta is a `browser_fetch` board.** Form encoding was necessary and not sufficient:
+  measured the same session, `body_encoding: "form"` through our own Chromium returns
+  **876 rows in 5.4s** and the default JSON returns **400** — while plain `httpx` 400s in
+  *every* combination of encoding, headers and cookies.

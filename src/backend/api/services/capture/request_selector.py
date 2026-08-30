@@ -62,13 +62,24 @@ from ..llm_client import extract_text_content
 # url spec's placeholders and rewrites them, and ``render_field`` is what SUBSTITUTES
 # them. Two spellings of "what is a placeholder" would let the repair rewrite something
 # the runner never fills in, which renders a literal ``{...}`` into every job link.
+#
+# ``_regex_capture_value`` closes the same seam for :func:`derive_title_from_url`: it
+# PROVES a slug pattern against the captured records, and the runner is what applies it
+# nightly. Re-implementing the match/unslug/degrade-to-absent rule here would let a
+# pattern be proven under one meaning and replayed under another.
 from ..recipe_runner import (
     _MULTISPACE_RE,
     _TEMPLATE_RE,
+    _regex_capture_value,
     render_field,
     render_row_field,
 )
-from ..recipe_schema import RECORDS_WILDCARD, RecipeError, dig_records
+from ..recipe_schema import (
+    RECORDS_WILDCARD,
+    RecipeError,
+    dig_records,
+    validate_capture_pattern,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -476,6 +487,21 @@ class PostedDateFormat:
 
 
 @dataclass(frozen=True)
+class TitleFromUrl:
+    """Derive ``title`` from the job's own URL slug — the ``transform`` step's payload.
+
+    Built ONLY by :func:`derive_title_from_url`, which measures it against the captured
+    records; the model never writes the pattern. That split is the same one the oracle,
+    the headers and the in-band error keys already follow, and it is what makes the
+    bounded-regex rule in ``recipe_schema.validate_capture_pattern`` a defence against
+    JSONB drift rather than the only thing standing between us and a model's regex.
+    """
+
+    pattern: str
+    unslug: bool = True
+
+
+@dataclass(frozen=True)
 class RequestSelection:
     """The believed-and-re-checked answer: which candidate, and how to read it.
 
@@ -498,6 +524,10 @@ class RequestSelection:
     # OTHER reason, telling the model "location rendered nothing on all 20 records" is
     # free and is the only way it can map the field differently. Empty on the happy path.
     field_notes: tuple[str, ...] = ()
+    # SET when the mapped ``title`` renders a URL on the captured records — the
+    # "title is the URL" defect (PATH-TO-90-PERCENT.md §3). ``None`` on every board
+    # whose title is a title, which is all of them today.
+    title_from_url: TitleFromUrl | None = None
 
 
 SYSTEM_PROMPT = (
@@ -521,7 +551,13 @@ SYSTEM_PROMPT = (
     "The fields are:\n"
     "- id: a stable per-job identifier that will not change between days (a job id or "
     "requisition id; never an array index or a position).\n"
-    "- title: the job title.\n"
+    "- title: the job title. If — and ONLY if — the record carries no title field at "
+    "all but its link or path holds a readable slug "
+    "('/JobDetail/Senior-Software-Engineer/21653', "
+    "'/careers/details/commodities-portfolio-manager/'), map title to that same "
+    "link/path field: we derive the title from the slug afterwards, deterministically. "
+    "Never do this when a real title field exists, and never point title at an id, a "
+    "category or a location.\n"
     "- url: the link to the job's own page. If the record holds only a path or an id, "
     "return a TEMPLATE with {dotted.path} placeholders, e.g. "
     "'https://example.com/jobs/{id}' or 'https://example.com{job_path}'. When a record "
@@ -1482,6 +1518,107 @@ def _prune_unusable_optionals(
 
 
 # --------------------------------------------------------------------------
+# "title is the URL" — deriving a title from a job link's slug
+# (PATH-TO-90-PERCENT.md §3 "Our schema", §6 Stage 2)
+# --------------------------------------------------------------------------
+#
+# Two measured boards are readable ONLY from a source that publishes URLs and nothing
+# else. Bloomberg's Avature sitemap and Citadel's Yoast career sitemap both list
+# ``<loc>`` and ``<lastmod>``, so the only value a recipe can put in ``title`` is the
+# job's own URL — and ``map_records`` drops a row with no title, so mapping title to the
+# URL is not a mistake, it is the only way the row exists at all. What was missing was
+# any way to say "and the title is the slug inside it".
+#
+# THE PATTERN IS DERIVED AND PROVEN HERE, NEVER ASKED OF THE MODEL. Same rule as the
+# oracle, the headers and the in-band error keys: a plausible hallucination in this
+# position costs a nightly FAILED run, and the bytes we captured can answer it exactly.
+# ``recipe_schema.validate_capture_pattern`` still bounds whatever ends up stored,
+# because a JSONB row can be edited by someone who is not this function.
+#
+# The family is ORDERED and short. Each entry has exactly one capture group and stays
+# inside the schema's quantifier bound; a board whose links match neither simply gets no
+# transform, which is the same outcome it has today.
+_TITLE_SLUG_PATTERNS: tuple[str, ...] = (
+    # ``…/JobDetail/Senior-Software-Engineer/21653`` — the slug, then a numeric req id.
+    r"/([^/?#]+)/\d+/?$",
+    # ``…/careers/details/commodities-portfolio-manager/`` — the slug is the last
+    # segment, trailing slash or not.
+    r"/([^/?#]+)/?$",
+)
+
+# How many records the derivation reads. Shared with the field-quality prune on purpose:
+# both are answering "what does this map ACTUALLY produce on this board".
+_TITLE_DERIVE_SAMPLE = _FIELD_QUALITY_SAMPLE
+
+# Below this the questions below cannot be answered — a two-record board cannot show
+# that a derivation is distinct rather than a constant.
+_MIN_TITLE_DERIVE_RECORDS = 3
+
+# A derived title has to be plausible PROSE, not the leftovers of a path. All three
+# bounds come from the failure they prevent: too short is an id fragment, no letter is a
+# number, and looking like a URL means the pattern captured the wrong segment.
+_MIN_DERIVED_TITLE_CHARS = 3
+
+
+def _looks_like_url(value: Any) -> bool:
+    return isinstance(value, str) and value.startswith(("https://", "http://", "/"))
+
+
+def _usable_derived_title(text: Any) -> bool:
+    return (
+        isinstance(text, str)
+        and len(text) >= _MIN_DERIVED_TITLE_CHARS
+        and any(ch.isalpha() for ch in text)
+        and not _looks_like_url(text)
+    )
+
+
+def derive_title_from_url(
+    records: list[Any], field_map: dict[str, str]
+) -> TitleFromUrl | None:
+    """A proven slug-to-title derivation for this board, or ``None``.
+
+    ``None`` is the answer for every board whose title is a title, which is all of them
+    today — the derivation only fires when the mapped ``title`` renders a LINK on EVERY
+    sampled record, i.e. when the recipe would otherwise store a URL in the title column.
+
+    The proof bar is 100% of the sample, not a majority, and that is deliberate: as of
+    Stage 2 a shaping step that empties a required field is a FAILED run
+    (``recipe_runner._assert_shaping_kept_required_fields``), so a pattern that works on
+    nine records in ten would take the board down every night instead of mis-titling one
+    row. A pattern that cannot do the whole sample is not this board's pattern.
+    """
+    sample = [r for r in records[:_TITLE_DERIVE_SAMPLE] if r is not None]
+    if len(sample) < _MIN_TITLE_DERIVE_RECORDS:
+        return None
+    titles = [render_row_field(r, "title", field_map["title"]) for r in sample]
+    if not all(_looks_like_url(t) for t in titles):
+        return None
+    urls = [render_row_field(r, "url", field_map["url"]) for r in sample]
+    if not all(isinstance(u, str) and u for u in urls):
+        return None
+
+    for pattern in _TITLE_SLUG_PATTERNS:
+        try:
+            validate_capture_pattern(pattern, "transform")
+        except RecipeError:  # pragma: no cover - the family is pinned by a test
+            continue
+        derived = [
+            _regex_capture_value({"url": url}, {"from": "url", "pattern": pattern,
+                                                "unslug": True})
+            for url in urls
+        ]
+        if not all(_usable_derived_title(d) for d in derived):
+            continue
+        if len(set(derived)) < 2:
+            # One value for the whole board is not a title, it is a path constant the
+            # pattern happened to capture (``/careers/details/`` on every link).
+            continue
+        return TitleFromUrl(pattern=pattern, unslug=True)
+    return None
+
+
+# --------------------------------------------------------------------------
 # what shape is this board's posting date? (POSTED-DATE-PLAN.md §5/U6)
 # --------------------------------------------------------------------------
 
@@ -1728,6 +1865,9 @@ def _to_selection(envelope: _SelectionEnvelope, candidate: Candidate) -> Request
         pagination=pagination,
         posted_at_format=posted_at_format,
         field_notes=field_notes,
+        # Measured LAST, after the prune, for the same reason ``posted_at_format`` is:
+        # it is a statement about the field map that will actually be stored.
+        title_from_url=derive_title_from_url(records, field_map),
     )
 
 

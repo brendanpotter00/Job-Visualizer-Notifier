@@ -622,6 +622,73 @@ def island_candidates(captured: Any, document_url: str) -> list[Any]:
     return out
 
 
+# --------------------------------------------------------------------------
+# source 2b — the Next.js App-Router flight stream in the SERVED document
+# --------------------------------------------------------------------------
+
+# The smallest job-shaped array in a flight stream worth offering. Same floor as the
+# anchor source and for the same reason: a Next.js page's flight stream carries the
+# nav menu, the locale list and the footer links as arrays too.
+_MIN_RSC_RECORDS = 8
+
+
+def rsc_candidate(captured: Any, document_url: str) -> Any | None:
+    """SOURCE 2b — the served document's React Flight rows, as one island candidate.
+
+    ``island_candidates`` reads islands the capture child found, and a child that looks
+    for ``<script type="application/json">`` finds NOTHING on an App-Router page: there
+    is no island, there is a STREAM split across dozens of ``self.__next_f.push`` calls.
+    So the whole class was invisible — measured on jobs.deel.com/klarna, whose 81-job
+    board sits at ``9.3.jobPostings`` in that stream and produced zero candidates.
+
+    Wholly deterministic, like the anchor source: the parse is
+    ``recipe_runner.parse_rsc_flight`` (the SAME function the nightly replay uses, so a
+    candidate that exists here is a candidate the runner can reproduce), and the array is
+    chosen by ``_walk_record_arrays``'s own job scoring. The candidate then goes through
+    the normal ladder — the model can decline it, acceptance must reproduce it, the
+    coverage floor still applies.
+    """
+    from ..recipe_runner import parse_rsc_flight
+    from .request_selector import Candidate, HtmlSource, _walk_record_arrays
+
+    markup = getattr(captured, "server_html", "") or ""
+    if not markup or not document_url or "__next_f" not in markup:
+        return None
+    scripts = _SCRIPT_BODY_RE.findall(markup)
+    if not scripts:
+        return None
+    rows = parse_rsc_flight(scripts)
+    if not rows:
+        return None
+    found: list[tuple[str, int, int, tuple[str, ...]]] = []
+    _walk_record_arrays(rows, "", 0, found)
+    found = [f for f in found if f[1] >= _MIN_RSC_RECORDS]
+    if not found:
+        return None
+    path, count, score, keys = max(found, key=lambda t: (t[2], t[1]))
+    return Candidate(
+        index=0,
+        url=document_url,
+        method="GET",
+        request_headers={},
+        post_data=None,
+        payload=rows,
+        records_path=path,
+        record_count=count,
+        job_score=score,
+        sample_keys=keys,
+        source_index=-1,
+        html=HtmlSource(
+            document_url=document_url,
+            op="extract_embedded_island",
+            selector="script",
+            source="rsc_flight",
+        ),
+    )
+
+
+_SCRIPT_BODY_RE = re.compile(r"(?is)<script\b[^>]*>(.*?)</script\s*>")
+
 _ANCHOR_RE = re.compile(
     r"""(?is)<a\b[^>]*?\bhref\s*=\s*["']([^"'>\s]{1,400})["'][^>]*>(.*?)</a\s*>"""
 )
@@ -730,6 +797,13 @@ def document_candidates(captured: Any, board_host: str, document_url: str) -> li
     answer crowded out by a marketing page's ld+json.
     """
     candidates = island_candidates(captured, document_url)
+    # The App-Router stream competes WITH the islands on job score rather than being
+    # appended after them: a page that has both has the same question to answer (which
+    # of these arrays is the board?), and the stream is usually the richer one. On a
+    # page with no ``__next_f`` at all this adds nothing and changes no ordering.
+    flight = rsc_candidate(captured, document_url)
+    if flight is not None:
+        candidates.append(flight)
     candidates.sort(key=lambda c: (c.job_score, c.record_count), reverse=True)
     anchors = anchor_candidate(captured, board_host)
     if anchors is not None:
@@ -751,5 +825,6 @@ __all__ = [
     "island_sources",
     "parse_sitemap",
     "robots_sitemap_urls",
+    "rsc_candidate",
     "sitemap_match",
 ]

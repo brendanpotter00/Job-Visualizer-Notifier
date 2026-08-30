@@ -164,6 +164,13 @@ def build_subprocess_plan(script: dict[str, Any], plan: RecipePlan) -> dict[str,
         "url": fetch_url,
         "headers": dict(plan.fetch.get("headers") or {}),
         "body": dict(plan.fetch.get("body") or {}),
+        # HOW the POST body goes on the wire, forwarded verbatim because the child is
+        # dumb and this is a property of the RECIPE. It is the one Stage-2 primitive
+        # that had to cross this boundary: metacareers.com's jobs GraphQL answers 200
+        # with 876 records to a form-encoded body and 400 to the same fields as JSON,
+        # from inside its own origin — which is the only place it answers at all, so
+        # ``browser_fetch`` is the transport that needs it most.
+        "body_encoding": plan.fetch.get("body_encoding", "json"),
         "pagination": _child_pagination(plan),
         # The child counts records ONLY to know when to stop paging; the parent is
         # what turns an unresolvable path into a FAILED run.
