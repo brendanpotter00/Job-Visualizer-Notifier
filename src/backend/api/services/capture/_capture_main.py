@@ -350,14 +350,48 @@ def _safe_headers(headers: dict[str, Any] | None) -> dict[str, str]:
     }
 
 
+def _is_json_shaped(body: str) -> bool:
+    """Does this body LOOK like a JSON document, judged on the bytes?
+
+    A first-character probe rather than a parse, deliberately: this runs on every
+    XHR/fetch a board makes, some of which are megabytes, and the only question that
+    has to be answered here is "could the parent's pre-filter possibly want this?".
+    The parent already runs the real ``json.loads`` and drops anything that fails it.
+    """
+    head = body.lstrip()[:1]
+    return head in ("{", "[")
+
+
 async def _record(response: Any, captured: list[dict[str, Any]], limits: dict[str, int]) -> None:
-    """Record one response IFF it is a JSON XHR/fetch. Never raises out.
+    """Record one response IFF it is an XHR/fetch carrying a JSON document. Never raises out.
 
     Every failure mode here is a response we simply do not carry (a body already
     discarded by Chromium, a redirect with no body, a stream that errored). Losing one
     is not a discovery failure — the pre-filter downstream decides whether what we DID
     capture contains a jobs feed, and an empty capture becomes a named-step refusal
     rather than a crash.
+
+    THE APERTURE IS THE BODY, NOT THE CONTENT-TYPE HEADER — and that is a fix, not a
+    style choice. The test used to be ``"json" in content-type``, which SILENTLY LOST a
+    whole board: measured 2026-08-30, ``metacareers.com/jobsearch/`` answers its
+    ``POST /graphql`` with **``content-type: text/html``** over 186,957 bytes of pure
+    JSON carrying 877 job records and a sibling call that declares ``job_count: 877``.
+    The capture recorded **zero** requests and discovery told the user the page loads
+    its jobs without any JSON request we could record. A board we can read perfectly
+    well, refused over a header.
+
+    WHY A BODY PROBE AND NOT "RECORD EVERY XHR/FETCH", which is the obvious wider fix:
+    :data:`_MAX_RESPONSES` is 40 and it is spent in ARRIVAL ORDER. Measured on
+    ``jobs.uber.com``, one page load produced **42** ``fetch`` responses of
+    ``text/x-component`` (React Server Components) at ~163 KB each — enough, on their
+    own, to fill the budget and evict a jobs feed that arrived after them. Nothing
+    downstream can read RSC: :func:`~api.services.capture.request_selector.prefilter_candidates`
+    keeps only what ``json.loads`` accepts. So the aperture is widened to exactly what
+    the pre-filter can use, which recovers Meta and cannot crowd anything out.
+
+    The old content-type test is kept as an OR, so this is a strict widening: a
+    ``application/json`` response whose body is malformed is still recorded, and still
+    reported honestly, exactly as it is today.
     """
     try:
         if len(captured) >= limits["max_responses"]:
@@ -366,9 +400,9 @@ async def _record(response: Any, captured: list[dict[str, Any]], limits: dict[st
         if request.resource_type not in ("xhr", "fetch"):
             return
         content_type = str((response.headers or {}).get("content-type", ""))
-        if "json" not in content_type.lower():
-            return
         body = await response.text()
+        if "json" not in content_type.lower() and not _is_json_shaped(body):
+            return
         # ALL OR NOTHING. Half a JSON document is not "the shape" — it does not parse,
         # so the parent's pre-filter discards it exactly like a tracking ping and the
         # board's own jobs feed disappears from a refusal that then blames the board.

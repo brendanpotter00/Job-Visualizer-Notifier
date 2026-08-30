@@ -281,6 +281,104 @@ def test_the_child_never_carries_half_a_body() -> None:
     ]
 
 
+def test_the_aperture_is_the_body_not_the_content_type_header() -> None:
+    """THE HEADER THAT LOST A BOARD. The recorder used to keep a response only if
+    ``"json" in content-type``, and ``metacareers.com/jobsearch/`` answers its
+    ``POST /graphql`` with **``content-type: text/html``** over 186,957 bytes of pure
+    JSON carrying 877 job records. Measured 2026-08-30: the capture recorded **0**
+    responses and discovery told the user the page loads its jobs without any JSON
+    request we could record. After this fix the same page records **4**.
+
+    The keep test is now the BODY, or the old header test — a strict widening. And it
+    is a body PROBE rather than "keep every xhr/fetch", because ``_MAX_RESPONSES`` is
+    40 and it is spent in arrival order: one ``jobs.uber.com`` page load produced 42
+    ``text/x-component`` fetches at ~163 KB each, which is enough on its own to fill
+    the budget and evict a real feed. Nothing downstream can read RSC — the pre-filter
+    keeps only what ``json.loads`` accepts — so admitting it would cost a board to
+    gain nothing.
+
+    Subprocess for the reason every other ``_capture_main`` test here is: importing it
+    makes ``playwright`` resident and every later ``assert_no_agent_imports()`` raises.
+    """
+    cases = [
+        # (content_type, body, kept?)
+        ("application/json", '{"jobs":[1]}', True),                  # unchanged
+        ('text/html; charset="utf-8"', '{"data":{"all_jobs":[1]}}', True),   # META
+        ("text/plain;charset=UTF-8", '[{"id":1}]', True),
+        ("application/x-ndjson", '{"id":1}\n{"id":2}', True),
+        ("application/vnd.oracle.adf.resourcecollection+json", '{"items":[]}', True),
+        ("application/json", "not json at all", True),               # honest, as today
+        ("text/x-component", '0:["$","div",null,{}]', False),        # RSC — unreadable
+        ("text/html", "<!DOCTYPE html><html></html>", False),        # a PAGE, not a feed
+        ("image/png", "\u0089PNG", False),
+    ]
+    code = (
+        "import asyncio, json, sys\n"
+        "from api.services.capture._capture_main import _record\n"
+        "cases = json.loads(sys.argv[1])\n"
+        "class R:\n"
+        "    def __init__(self):\n"
+        "        self.resource_type='xhr'; self.url='https://b.example/api'\n"
+        "        self.method='POST'; self.post_data=None; self.headers={}\n"
+        "class Resp:\n"
+        "    def __init__(self, ct, body):\n"
+        "        self.request=R(); self.status=200\n"
+        "        self.headers={'content-type': ct}; self._body=body\n"
+        "    async def text(self):\n"
+        "        return self._body\n"
+        "limits={'max_responses':40,'max_body_bytes':10**7,'max_total_body_bytes':10**8}\n"
+        "kept=[]\n"
+        "for ct, body, _ in cases:\n"
+        "    out=[]\n"
+        "    asyncio.run(_record(Resp(ct, body), out, limits))\n"
+        "    kept.append(bool(out))\n"
+        "print(json.dumps(kept))\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code, json.dumps(cases)],
+        cwd=str(_BACKEND), env=_SUBPROC_ENV,
+        capture_output=True, text=True, timeout=120,
+    )
+    assert result.returncode == 0, result.stderr
+    kept = json.loads(result.stdout.strip().splitlines()[-1])
+    assert kept == [c[2] for c in cases], (
+        "aperture regression — expected "
+        f"{[(c[0], c[2]) for c in cases]}, kept {kept}"
+    )
+
+
+def test_a_non_xhr_response_is_still_never_recorded() -> None:
+    """The resource-type half of the aperture does NOT move. Widening the content-type
+    test while also admitting documents/scripts/images would put the board's own HTML,
+    every bundle and every image into a 40-slot budget the jobs feed has to fit in."""
+    code = (
+        "import asyncio, json\n"
+        "from api.services.capture._capture_main import _record\n"
+        "class R:\n"
+        "    def __init__(self, rt):\n"
+        "        self.resource_type=rt; self.url='https://b.example/x'\n"
+        "        self.method='GET'; self.post_data=None; self.headers={}\n"
+        "class Resp:\n"
+        "    def __init__(self, rt):\n"
+        "        self.request=R(rt); self.status=200\n"
+        "        self.headers={'content-type':'application/json'}\n"
+        "    async def text(self):\n"
+        "        return '{\"jobs\":[1]}'\n"
+        "limits={'max_responses':40,'max_body_bytes':10**7,'max_total_body_bytes':10**8}\n"
+        "out=[]\n"
+        "for rt in ('document','script','stylesheet','image','other','xhr'):\n"
+        "    asyncio.run(_record(Resp(rt), out, limits))\n"
+        "print(json.dumps(len(out)))\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        cwd=str(_BACKEND), env=_SUBPROC_ENV,
+        capture_output=True, text=True, timeout=120,
+    )
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout.strip().splitlines()[-1]) == 1
+
+
 # The fake page both window tests drive. No browser, no network: ``_settle`` only ever
 # calls ``wait_for_timeout`` and ``evaluate``, so a counter for the first and a switch
 # for the second is the whole seam.

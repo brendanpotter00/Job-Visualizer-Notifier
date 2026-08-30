@@ -27,6 +27,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
+import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -49,6 +52,26 @@ from api.services.harvest_meta import HarvestEvidence  # noqa: E402
 from api.services.recipe_runner import RecipeExecutionError  # noqa: E402
 
 FIXTURES = Path(__file__).parent / "fixtures"
+_BACKEND = Path(__file__).resolve().parents[3] / "src" / "backend"
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+# ``_capture_main`` is the capture SUBPROCESS entrypoint and the only module on this
+# side that imports playwright. It is exercised in a child process for the same reason
+# ``src/backend/api/tests/test_network_capture.py`` does: importing it in-process makes
+# playwright resident, and the agent-free-replay import guard then raises everywhere.
+_SUBPROC_ENV = {
+    **os.environ,
+    "PYTHONPATH": os.pathsep.join([str(_REPO_ROOT), str(_BACKEND)]),
+}
+
+
+def run_in_capture_child(code: str, *args: str) -> str:
+    result = subprocess.run(
+        [sys.executable, "-c", code, *args],
+        cwd=str(_BACKEND), env=_SUBPROC_ENV,
+        capture_output=True, text=True, timeout=120,
+    )
+    assert result.returncode == 0, result.stderr
+    return result.stdout.strip().splitlines()[-1]
 
 
 # --------------------------------------------------------------------------
@@ -235,4 +258,157 @@ class TestAC19RefusalNamesTheRealStep:
         assert "finding the jobs feed" in reason and "is a list of job postings" in reason, (
             f"AC-19a control: with nothing measured, the honest sentence must survive; "
             f"got {reason!r}"
+        )
+
+
+# --------------------------------------------------------------------------
+# AC-16 — Meta, and the content-type aperture
+# --------------------------------------------------------------------------
+
+class TestAC16ContentTypeAperture:
+    """AC-16 — **the recorder keeps a response on its BODY, not on its content-type**.
+
+    ``metacareers.com/jobsearch/`` answers its ``POST /graphql`` with
+    ``content-type: text/html`` over 186,957 bytes of pure JSON holding 877 job
+    records. The recorder's keep test was ``"json" in content-type``, so the capture
+    came back with **0** responses and discovery told the user the page loads its jobs
+    without any JSON request we could record. Measured again after the fix, same board,
+    same day: **4** recorded, the jobs feed among them.
+
+    Hermetic, over the REAL bytes that capture returned
+    (``fixtures/meta_graphql_text_html.json``, 2026-08-30, trimmed to id/title/teams).
+    A live Meta add is deliberately not the vehicle: see
+    ``test_ac16_the_honest_end_state_is_named`` — the board does NOT reach ``tracking``,
+    and a live case asserting that it does would be asserting a thing that is not true.
+    """
+
+    #: The body probe, run in the capture child. Answers "kept?" for a (ct, body) pair.
+    _PROBE = (
+        "import asyncio, json, sys\n"
+        "from api.services.capture._capture_main import _record\n"
+        "ct, body = json.loads(sys.argv[1])\n"
+        "class R:\n"
+        "    resource_type='xhr'; url='https://www.metacareers.com/graphql'\n"
+        "    method='POST'; post_data=None; headers={}\n"
+        "class Resp:\n"
+        "    request=R(); status=200\n"
+        "    def __init__(self, ct, body):\n"
+        "        self.headers={'content-type': ct}; self._body=body\n"
+        "    async def text(self):\n"
+        "        return self._body\n"
+        "limits={'max_responses':40,'max_body_bytes':10**7,'max_total_body_bytes':10**8}\n"
+        "out=[]\n"
+        "asyncio.run(_record(Resp(ct, body), out, limits))\n"
+        "print(json.dumps(bool(out)))\n"
+    )
+
+    def test_ac16_a_json_body_under_a_text_html_header_is_recorded(self) -> None:
+        raw = json.loads((FIXTURES / "meta_graphql_text_html.json").read_text())
+        content_type, body = raw["content_type"], json.dumps(raw["body"])
+
+        assert "json" not in content_type.lower(), (
+            "AC-16: the whole case rests on Meta answering with a NON-json "
+            f"content-type; the fixture says {content_type!r}"
+        )
+        kept = json.loads(run_in_capture_child(
+            self._PROBE, json.dumps([content_type, body])
+        ))
+        assert kept is True, (
+            f"AC-16: a {content_type!r} response whose body is a JSON document must be "
+            "recorded — this is the 877-job Meta feed, and the old header test dropped "
+            "it and then blamed the board for loading its jobs without any JSON request"
+        )
+
+    def test_ac16_a_body_the_prefilter_could_never_read_is_still_dropped(self) -> None:
+        """The other half, and the reason this is a PROBE and not "keep everything".
+
+        ``_MAX_RESPONSES`` is 40, spent in arrival order. One ``jobs.uber.com`` page
+        load produced 42 ``text/x-component`` (React Server Components) fetches at
+        ~163 KB each — on their own enough to fill the budget and evict a real feed
+        that arrived later. Nothing downstream can read RSC:
+        ``prefilter_candidates`` keeps only what ``json.loads`` accepts. Admitting it
+        would cost boards to gain none.
+        """
+        for content_type, body in (
+            ("text/x-component", '0:["$","div",null,{"children":[]}]'),
+            ("text/html", "<!DOCTYPE html><html><body>jobs</body></html>"),
+        ):
+            kept = json.loads(run_in_capture_child(
+                self._PROBE, json.dumps([content_type, body])
+            ))
+            assert kept is False, (
+                f"AC-16: {content_type!r} carrying {body[:24]!r} is not a JSON document "
+                "and cannot become a candidate — recording it only spends one of the 40 "
+                "slots the jobs feed has to fit in"
+            )
+
+    def test_ac16_the_recorded_feed_becomes_a_877_record_candidate(self) -> None:
+        """...and it survives all the way to the pre-filter, which is the point."""
+        from api.services.capture.request_selector import prefilter_candidates
+
+        captured = load_capture("meta_graphql_text_html")
+        (candidate,) = prefilter_candidates(captured.responses)
+        assert candidate.records_path == "data.job_search_with_featured_jobs_v2.all_jobs"
+        assert candidate.record_count == 877, (
+            f"AC-16: expected Meta's 877 postings, got {candidate.record_count}"
+        )
+
+    def test_ac16_the_honest_end_state_is_named(self) -> None:
+        """**THE TRIAGE DOC IS WRONG HERE AND THIS CASE IS THE RECORD OF IT.**
+
+        BOARD-FAILURE-TRIAGE.md says the aperture "recovers Meta outright — 877 jobs, a
+        declared total, and the feed replays with bare ``httpx``". Measured on
+        2026-08-30 with the fix in place, all three claims fail:
+
+        * the ``POST`` body is ``application/x-www-form-urlencoded``
+          (``av=0&__user=0&__a=1&…&doc_id=…``), and ``recipe_schema`` requires
+          ``fetch.body`` to be an OBJECT because that is what the pagination merge
+          writes into — so no recipe can be synthesised;
+        * a bare-``httpx`` replay of that exact request answers **HTTP 400**, with the
+          captured headers and without them alike (it is cookie-bound, like Sequoia);
+        * the 877-record payload declares no total, and its records carry no URL and
+          no date — only ``id``, ``title``, ``locations``, ``teams``, ``sub_teams``.
+
+        So Meta is a REFUSAL, and what this case pins is that the refusal is now the
+        TRUE one. Before the aperture fix it read "this page loaded its jobs without
+        any JSON request we could record", which is what sent the last investigation
+        after a capture bug that was only half the story.
+        """
+        selection = RequestSelection(
+            chosen_request_index=0,
+            records_path="data.job_search_with_featured_jobs_v2.all_jobs",
+            field_map={
+                "id": "id",
+                "title": "title",
+                "url": "https://www.metacareers.com/jobs/{id}/",
+            },
+            pagination=None,
+        )
+
+        async def _select(candidates: list[Any], **_: Any):
+            return [CandidateAnswer(
+                candidate_index=0, selection=selection, confidence="high",
+            )]
+
+        outcome = asyncio.run(discover(
+            "https://www.metacareers.com/jobsearch/",
+            capture=capturing(load_capture("meta_graphql_text_html")),
+            select=_select,
+            replay_http=failing_replay(AssertionError("must not reach a replay")),
+            replay_browser=failing_replay(AssertionError("must not reach a replay")),
+            validate_url=allow_all,
+            probe_link=one_page_per_job(),
+            collect_sources=no_well_known,
+        ))
+        reason = outcome.refuse_reason or ""
+        assert outcome.ok is False, (
+            "AC-16: if Meta ever starts succeeding, this case is the place to record "
+            "why — do not delete it, rewrite it"
+        )
+        assert "without any JSON request we could record" not in reason, (
+            f"AC-16: the capture DID record it; got {reason!r}"
+        )
+        assert "writing the replay recipe" in reason and "non-JSON body" in reason, (
+            "AC-16: the refusal must name the form-encoded POST body — the step that "
+            f"actually stops this board; got {reason!r}"
         )
