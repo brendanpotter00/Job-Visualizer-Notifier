@@ -953,9 +953,38 @@ def _renders_link(record: Any, spec: str) -> bool:
     return isinstance(rendered, str) and rendered.startswith(("https://", "http://", "/"))
 
 
+def _names_a_page(value: Any) -> bool:
+    """The rendered link names a PAGE, not a query against the site root.
+
+    THE GUARD THAT KEEPS RUNG 1 HONEST, and it was learned on a board we were already
+    tracking. Nintendo's Greenhouse feed publishes
+    ``absolute_url = "https://careers.nintendo.com/?gh_jid=4295098009"`` — every posting
+    distinct, every one link-shaped, so every other test here passes it and discovery
+    kept it verbatim without fetching anything. Measured live 2026-08-30: that URL
+    answers **200 with 64,408 bytes of the LISTING PAGE**, titled "Careers at Nintendo -
+    Join Our Team", and the job's own title is nowhere in it. The working link is
+    ``/jobs/4295098009/``.
+
+    ALL THE IDENTITY IS IN THE QUERY STRING, and the codebase already states the reason
+    that is fatal, on the derivation side: see :func:`repair_url_template`'s note that
+    the QUERY IS DROPPED when a board's own links are read, so "a board that keys its
+    jobs by query parameter alone cannot be derived". This is its counterpart on the
+    PUBLISHED side, and it costs nothing on the boards that are right: all 13 of the 19
+    corpus boards that take rung 1 publish a path-bearing link (``job_path``,
+    ``positionUrl``, ``portalJobPost.portalUrl``, Lever ``hostedUrl``, Greenhouse
+    ``absolute_url`` at ``boards.greenhouse.io/<board>/jobs/<id>``,
+    ``canonicalPositionUrl``, Recruitee ``careers_url``, SmartRecruiters ``ref``).
+
+    Falling through sends the spec to rung 3, where ``derive_url_templates_from_links``
+    reads the board's own anchors and PROVES what it emits by fetching two real jobs —
+    which is exactly the treatment a link we cannot vouch for should get.
+    """
+    return isinstance(value, str) and urlsplit(value).path.strip("/") != ""
+
+
 def _is_per_job_link_field(sample: list[Any], spec: str) -> bool:
     """``spec`` is a field the board fills with a link TO THIS JOB — not to the same
-    place on every row.
+    place on every row, and not to the site root with an id hung off the query.
 
     The distinctness half is what keeps a board's ``companyLogoUrl``, careers-site
     banner or department page out of the ``url`` slot. Every one of them renders a
@@ -964,14 +993,19 @@ def _is_per_job_link_field(sample: list[Any], spec: str) -> bool:
     the recipe and is only visible by clicking. A per-job link is different per job by
     definition, so requiring it costs nothing real and closes the whole class.
 
-    A board with a SINGLE record cannot answer the question either way; there, being
-    link-shaped is the best evidence available and the acceptance replay has already
-    proved the board is readable.
+    The path half is :func:`_names_a_page`, and it closes the other half of the same
+    class: a URL that is distinct per job and still serves the same page to all of them.
+
+    A board with a SINGLE record cannot answer the DISTINCTNESS question either way;
+    there, being link-shaped is the best evidence available and the acceptance replay
+    has already proved the board is readable. It still has to name a page.
     """
     values = {
         render_field(record, spec) for record in sample if _renders_link(record, spec)
     }
-    return bool(values) and (len(values) > 1 or len(sample) == 1)
+    if not values or not all(_names_a_page(value) for value in values):
+        return False
+    return len(values) > 1 or len(sample) == 1
 
 
 # Field names that are the APPLY step rather than the posting — Lever publishes

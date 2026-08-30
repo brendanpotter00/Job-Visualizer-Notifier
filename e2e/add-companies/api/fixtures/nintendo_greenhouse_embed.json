@@ -1,0 +1,497 @@
+{
+ "board": "https://careers.nintendo.com/jobs/",
+ "captured": "2026-08-30",
+ "note": "The Greenhouse EMBED shape. absolute_url points at the site root with the requisition id in the query string; measured the same day it answers 200 with the LISTING page (64,408 B, title 'Careers at Nintendo - Join Our Team') and the job's own title is absent. /jobs/{id}/ is the working link.",
+ "records": [
+  {
+   "id": 4295098009,
+   "internal_job_id": 4173984009,
+   "title": "Brand Ambassador [Part-Time] - Peoria, IL",
+   "absolute_url": "https://careers.nintendo.com/?gh_jid=4295098009",
+   "first_published": "2026-07-16T15:43:14-04:00",
+   "location": {
+    "name": "Peoria, IL"
+   }
+  },
+  {
+   "id": 4204762009,
+   "internal_job_id": 4119610009,
+   "title": "CONTRACT - Ambassador - Nintendo SF",
+   "absolute_url": "https://careers.nintendo.com/?gh_jid=4204762009",
+   "first_published": "2026-05-15T14:40:27-04:00",
+   "location": {
+    "name": "San Francisco, CA"
+   }
+  },
+  {
+   "id": 4323508009,
+   "internal_job_id": 4189305009,
+   "title": "Counsel, Privacy",
+   "absolute_url": "https://careers.nintendo.com/?gh_jid=4323508009",
+   "first_published": "2026-07-22T19:01:35-04:00",
+   "location": {
+    "name": "Redmond, WA"
+   }
+  },
+  {
+   "id": 4209945009,
+   "internal_job_id": 4123131009,
+   "title": "Influencer Marketing Manager",
+   "absolute_url": "https://careers.nintendo.com/?gh_jid=4209945009",
+   "first_published": "2026-04-17T14:43:50-04:00",
+   "location": {
+    "name": "Redmond, WA"
+   }
+  },
+  {
+   "id": 4240712009,
+   "internal_job_id": 4140652009,
+   "title": "Sr Principal, Corporate Communications",
+   "absolute_url": "https://careers.nintendo.com/?gh_jid=4240712009",
+   "first_published": "2026-05-27T19:55:12-04:00",
+   "location": {
+    "name": "Redmond, WA"
+   }
+  },
+  {
+   "id": 4114431009,
+   "internal_job_id": 4077891009,
+   "title": "Sr Account Planner - Publisher Developer Relations ",
+   "absolute_url": "https://careers.nintendo.com/?gh_jid=4114431009",
+   "first_published": "2026-03-18T19:06:05-04:00",
+   "location": {
+    "name": "Redmond, WA"
+   }
+  },
+  {
+   "id": 4157311009,
+   "internal_job_id": 4096178009,
+   "title": "Manager, Special Projects - Publisher Developer Relations ",
+   "absolute_url": "https://careers.nintendo.com/?gh_jid=4157311009",
+   "first_published": "2026-03-09T18:07:15-04:00",
+   "location": {
+    "name": "Redmond, WA"
+   }
+  },
+  {
+   "id": 4183836009,
+   "internal_job_id": 4106484009,
+   "title": "Manager, eShop - Publisher Developer Relations",
+   "absolute_url": "https://careers.nintendo.com/?gh_jid=4183836009",
+   "first_published": "2026-04-02T12:24:40-04:00",
+   "location": {
+    "name": "Redmond, WA"
+   }
+  },
+  {
+   "id": 4287796009,
+   "internal_job_id": 4169462009,
+   "title": "Supply Chain Agent I",
+   "absolute_url": "https://careers.nintendo.com/?gh_jid=4287796009",
+   "first_published": "2026-08-14T19:32:02-04:00",
+   "location": {
+    "name": "North Bend, WA"
+   }
+  },
+  {
+   "id": 4236981009,
+   "internal_job_id": 4138471009,
+   "title": "Principal, Vendor Management",
+   "absolute_url": "https://careers.nintendo.com/?gh_jid=4236981009",
+   "first_published": "2026-05-21T13:02:52-04:00",
+   "location": {
+    "name": "North Bend, WA"
+   }
+  },
+  {
+   "id": 4094385009,
+   "internal_job_id": 4063892009,
+   "title": "Supervisor, Supply Chain Operations",
+   "absolute_url": "https://careers.nintendo.com/?gh_jid=4094385009",
+   "first_published": "2026-01-09T13:28:37-05:00",
+   "location": {
+    "name": "North Bend, WA"
+   }
+  },
+  {
+   "id": 4121150009,
+   "internal_job_id": 4082226009,
+   "title": "Structural Packaging Engineer",
+   "absolute_url": "https://careers.nintendo.com/?gh_jid=4121150009",
+   "first_published": "2026-03-19T13:13:04-04:00",
+   "location": {
+    "name": "Redmond, WA"
+   }
+  },
+  {
+   "id": 4210908009,
+   "internal_job_id": 4123736009,
+   "title": "Sr Software Engineer",
+   "absolute_url": "https://careers.nintendo.com/?gh_jid=4210908009",
+   "first_published": "2026-04-21T20:45:36-04:00",
+   "location": {
+    "name": "Redmond, WA"
+   }
+  },
+  {
+   "id": 4184846009,
+   "internal_job_id": 4107111009,
+   "title": "IT Project Manager - Salesforce",
+   "absolute_url": "https://careers.nintendo.com/?gh_jid=4184846009",
+   "first_published": "2026-04-06T16:04:09-04:00",
+   "location": {
+    "name": "Redmond, WA"
+   }
+  },
+  {
+   "id": 4210788009,
+   "internal_job_id": 4123662009,
+   "title": "Principal, FP&A Analyst [Limited Term]",
+   "absolute_url": "https://careers.nintendo.com/?gh_jid=4210788009",
+   "first_published": "2026-04-29T15:22:53-04:00",
+   "location": {
+    "name": "Redmond, WA"
+   }
+  },
+  {
+   "id": 4358016009,
+   "internal_job_id": 4208249009,
+   "title": "Sr Credit & Accounts Receivable Coordinator",
+   "absolute_url": "https://careers.nintendo.com/?gh_jid=4358016009",
+   "first_published": "2026-08-10T17:43:52-04:00",
+   "location": {
+    "name": "Redmond, WA"
+   }
+  },
+  {
+   "id": 4253961009,
+   "internal_job_id": 4148531009,
+   "title": "Sr UX Writer",
+   "absolute_url": "https://careers.nintendo.com/?gh_jid=4253961009",
+   "first_published": "2026-07-23T19:15:39-04:00",
+   "location": {
+    "name": "Redmond, WA"
+   }
+  },
+  {
+   "id": 4265294009,
+   "internal_job_id": 4155082009,
+   "title": "Sr Business Systems Analyst",
+   "absolute_url": "https://careers.nintendo.com/?gh_jid=4265294009",
+   "first_published": "2026-08-04T16:43:36-04:00",
+   "location": {
+    "name": "Redmond, WA"
+   }
+  },
+  {
+   "id": 4094751009,
+   "internal_job_id": 4064114009,
+   "title": "Principal, Talent Management Partner - Talent Development",
+   "absolute_url": "https://careers.nintendo.com/?gh_jid=4094751009",
+   "first_published": "2026-01-20T19:03:26-05:00",
+   "location": {
+    "name": "Redmond, WA"
+   }
+  },
+  {
+   "id": 4322311009,
+   "internal_job_id": 4188645009,
+   "title": "Manager, Talent Development",
+   "absolute_url": "https://careers.nintendo.com/?gh_jid=4322311009",
+   "first_published": "2026-07-22T12:14:33-04:00",
+   "location": {
+    "name": "Redmond, WA"
+   }
+  },
+  {
+   "id": 4336760009,
+   "internal_job_id": 4197072009,
+   "title": "CONTRACT - Sr Sourcing Recruiter",
+   "absolute_url": "https://careers.nintendo.com/?gh_jid=4336760009",
+   "first_published": "2026-08-10T20:08:06-04:00",
+   "location": {
+    "name": "Redmond, WA"
+   }
+  },
+  {
+   "id": 4363523009,
+   "internal_job_id": 4210955009,
+   "title": "Principal, HR Business Partner [Limited Term]",
+   "absolute_url": "https://careers.nintendo.com/?gh_jid=4363523009",
+   "first_published": "2026-08-17T12:48:25-04:00",
+   "location": {
+    "name": "Redmond, WA"
+   }
+  },
+  {
+   "id": 4117718009,
+   "internal_job_id": 4079974009,
+   "title": "Language QA Tester - Brazilian Portuguese",
+   "absolute_url": "https://careers.nintendo.com/?gh_jid=4117718009",
+   "first_published": "2026-02-09T13:27:59-05:00",
+   "location": {
+    "name": "Redmond, WA"
+   }
+  },
+  {
+   "id": 4272293009,
+   "internal_job_id": 4158790009,
+   "title": "Associate Localization Specialist - Japanese",
+   "absolute_url": "https://careers.nintendo.com/?gh_jid=4272293009",
+   "first_published": "2026-06-11T19:53:08-04:00",
+   "location": {
+    "name": "Redmond, WA"
+   }
+  },
+  {
+   "id": 4327767009,
+   "internal_job_id": 4192330009,
+   "title": "Assoc Localization Planner - (Bilingual Japanese)",
+   "absolute_url": "https://careers.nintendo.com/?gh_jid=4327767009",
+   "first_published": "2026-08-07T15:21:17-04:00",
+   "location": {
+    "name": "Redmond, WA"
+   }
+  },
+  {
+   "id": 4287683009,
+   "internal_job_id": 4169394009,
+   "title": "Retail & Digital Strategy Manager",
+   "absolute_url": "https://careers.nintendo.com/?gh_jid=4287683009",
+   "first_published": "2026-07-13T12:52:23-04:00",
+   "location": {
+    "name": "Redmond, WA"
+   }
+  },
+  {
+   "id": 4336780009,
+   "internal_job_id": 4197083009,
+   "title": "Forecast & Strategic Planning Analyst",
+   "absolute_url": "https://careers.nintendo.com/?gh_jid=4336780009",
+   "first_published": "2026-08-11T12:00:07-04:00",
+   "location": {
+    "name": "Redmond, WA"
+   }
+  },
+  {
+   "id": 4330392009,
+   "internal_job_id": 4193900009,
+   "title": "Mgr, Experiential Marketing - Nintendo Stores",
+   "absolute_url": "https://careers.nintendo.com/?gh_jid=4330392009",
+   "first_published": "2026-08-06T14:17:52-04:00",
+   "location": {
+    "name": "Redmond, WA"
+   }
+  },
+  {
+   "id": 4363567009,
+   "internal_job_id": 4210980009,
+   "title": "Ambassador - Nintendo REDMOND",
+   "absolute_url": "https://careers.nintendo.com/?gh_jid=4363567009",
+   "first_published": "2026-08-26T17:31:56-04:00",
+   "location": {
+    "name": "Redmond, WA"
+   }
+  },
+  {
+   "id": 4370803009,
+   "internal_job_id": 4214330009,
+   "title": "CONTRACT - Associate Configuration Support Specialist",
+   "absolute_url": "https://careers.nintendo.com/?gh_jid=4370803009",
+   "first_published": "2026-08-20T13:56:32-04:00",
+   "location": {
+    "name": "Redmond, WA"
+   }
+  },
+  {
+   "id": 4336417009,
+   "internal_job_id": 4196867009,
+   "title": "Sr Partner Marketing Specialist",
+   "absolute_url": "https://careers.nintendo.com/?gh_jid=4336417009",
+   "first_published": "2026-08-05T15:43:13-04:00",
+   "location": {
+    "name": "Redmond, WA"
+   }
+  },
+  {
+   "id": 4280860009,
+   "internal_job_id": 4164911009,
+   "title": "Sr Mgr, Financial Analysis & Operations",
+   "absolute_url": "https://careers.nintendo.com/?gh_jid=4280860009",
+   "first_published": "2026-06-24T12:10:49-04:00",
+   "location": {
+    "name": "Vancouver, BC"
+   }
+  },
+  {
+   "id": 4094467009,
+   "internal_job_id": 4063945009,
+   "title": "Sr Software Engineer - Gameplay (NST)",
+   "absolute_url": "https://careers.nintendo.com/?gh_jid=4094467009",
+   "first_published": "2026-01-20T19:03:33-05:00",
+   "location": {
+    "name": "Redmond, WA"
+   }
+  },
+  {
+   "id": 4330353009,
+   "internal_job_id": 4193882009,
+   "title": "CONTRACT - Associate Game Designer (NST)",
+   "absolute_url": "https://careers.nintendo.com/?gh_jid=4330353009",
+   "first_published": "2026-07-27T13:56:34-04:00",
+   "location": {
+    "name": "Redmond, WA"
+   }
+  },
+  {
+   "id": 4341082009,
+   "internal_job_id": 4199577009,
+   "title": "CONTRACT - Gameplay Software Engineer ",
+   "absolute_url": "https://careers.nintendo.com/?gh_jid=4341082009",
+   "first_published": "2026-07-31T17:02:57-04:00",
+   "location": {
+    "name": "Redmond, WA"
+   }
+  },
+  {
+   "id": 4371239009,
+   "internal_job_id": 4214565009,
+   "title": "Software Engineer II (NST)",
+   "absolute_url": "https://careers.nintendo.com/?gh_jid=4371239009",
+   "first_published": "2026-08-26T17:34:34-04:00",
+   "location": {
+    "name": "Redmond, WA"
+   }
+  },
+  {
+   "id": 4101175009,
+   "internal_job_id": 4069862009,
+   "title": "CONTRACT - Engineer, Data Scientist (NTD)",
+   "absolute_url": "https://careers.nintendo.com/?gh_jid=4101175009",
+   "first_published": "2026-01-20T19:02:04-05:00",
+   "location": {
+    "name": "Redmond, WA"
+   }
+  },
+  {
+   "id": 4101334009,
+   "internal_job_id": 4069971009,
+   "title": "CONTRACT - Sr Systems Engineer, Cloud (NTD)",
+   "absolute_url": "https://careers.nintendo.com/?gh_jid=4101334009",
+   "first_published": "2026-01-20T19:02:16-05:00",
+   "location": {
+    "name": "Redmond, WA"
+   }
+  },
+  {
+   "id": 4101432009,
+   "internal_job_id": 4070031009,
+   "title": "Sr Engineer, Display (NTD)",
+   "absolute_url": "https://careers.nintendo.com/?gh_jid=4101432009",
+   "first_published": "2026-01-20T19:03:08-05:00",
+   "location": {
+    "name": "Redmond, WA"
+   }
+  },
+  {
+   "id": 4130435009,
+   "internal_job_id": 4085933009,
+   "title": "Sr Engineer, IT Security (NTD)",
+   "absolute_url": "https://careers.nintendo.com/?gh_jid=4130435009",
+   "first_published": "2026-02-13T19:03:21-05:00",
+   "location": {
+    "name": "Redmond, WA"
+   }
+  },
+  {
+   "id": 4251061009,
+   "internal_job_id": 4146821009,
+   "title": "CONTRACT - Associate Software Engineer, Audio (NTD)",
+   "absolute_url": "https://careers.nintendo.com/?gh_jid=4251061009",
+   "first_published": "2026-05-19T13:35:29-04:00",
+   "location": {
+    "name": "Redmond, WA"
+   }
+  },
+  {
+   "id": 4313596009,
+   "internal_job_id": 4184219009,
+   "title": "CONTRACT - Associate Engineer, ML SDET",
+   "absolute_url": "https://careers.nintendo.com/?gh_jid=4313596009",
+   "first_published": "2026-07-10T16:11:29-04:00",
+   "location": {
+    "name": "Redmond, WA"
+   }
+  },
+  {
+   "id": 4314772009,
+   "internal_job_id": 4184953009,
+   "title": "CONTRACT - Sr Engineer, Kubernetes (NTD)",
+   "absolute_url": "https://careers.nintendo.com/?gh_jid=4314772009",
+   "first_published": "2026-07-13T15:34:00-04:00",
+   "location": {
+    "name": "Redmond, WA"
+   }
+  },
+  {
+   "id": 4315217009,
+   "internal_job_id": 4185191009,
+   "title": "CONTRACT - Sr Network Engineer, Cloud + SDET (NTD)",
+   "absolute_url": "https://careers.nintendo.com/?gh_jid=4315217009",
+   "first_published": "2026-07-13T19:40:45-04:00",
+   "location": {
+    "name": "Redmond, WA"
+   }
+  },
+  {
+   "id": 4317531009,
+   "internal_job_id": 4186118009,
+   "title": "Sr Engineer, Platform Software (NTD)",
+   "absolute_url": "https://careers.nintendo.com/?gh_jid=4317531009",
+   "first_published": "2026-07-15T16:06:29-04:00",
+   "location": {
+    "name": "Redmond, WA"
+   }
+  },
+  {
+   "id": 4317536009,
+   "internal_job_id": 4186122009,
+   "title": "Technical Localization Specialist (NTD)",
+   "absolute_url": "https://careers.nintendo.com/?gh_jid=4317536009",
+   "first_published": "2026-07-15T16:10:51-04:00",
+   "location": {
+    "name": "Redmond, WA"
+   }
+  },
+  {
+   "id": 4299941009,
+   "internal_job_id": 4175803009,
+   "title": "Tools Engineer - User Interface (Retro Studios)",
+   "absolute_url": "https://careers.nintendo.com/?gh_jid=4299941009",
+   "first_published": "2026-06-26T15:12:26-04:00",
+   "location": {
+    "name": "Austin, TX"
+   }
+  },
+  {
+   "id": 4299949009,
+   "internal_job_id": 4175810009,
+   "title": "Tools Engineer - Systems (Retro Studios)",
+   "absolute_url": "https://careers.nintendo.com/?gh_jid=4299949009",
+   "first_published": "2026-06-26T15:17:35-04:00",
+   "location": {
+    "name": "Austin, TX"
+   }
+  },
+  {
+   "id": 4300159009,
+   "internal_job_id": 4175927009,
+   "title": "Technology Engineer (Retro Studios)",
+   "absolute_url": "https://careers.nintendo.com/?gh_jid=4300159009",
+   "first_published": "2026-06-26T17:49:35-04:00",
+   "location": {
+    "name": "Austin, TX"
+   }
+  }
+ ]
+}

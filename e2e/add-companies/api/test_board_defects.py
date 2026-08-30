@@ -28,6 +28,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import subprocess
 import sys
 from dataclasses import replace
@@ -834,3 +835,145 @@ class TestAC17AnchorTrailingSlash:
             '<a href="/careers/">Careers</a></body></html>'
         )
         assert self._rows(markup, "b.example") == {}
+
+
+# --------------------------------------------------------------------------
+# AC-20 — Nintendo, and the link rung 1 never fetched
+# --------------------------------------------------------------------------
+
+#: The same UA the capture browser sends — a job page fetched with httpx's default UA
+#: is a different request, and some boards answer it differently.
+_BROWSER_UA = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+)
+_LINK_CHECK_TIMEOUT_S = 30.0
+
+
+class TestAC20PublishedJobLink:
+    """AC-20 — **a published link still has to name a page**.
+
+    Rung 1 of the job-link ladder takes the board's own ``field_map["url"]`` VERBATIM
+    and fetches nothing, on the theory that a path the board published must be right.
+    **13 of the 19 corpus boards take rung 1** (JOB-LINK-RULE.md §"The corpus"), so it is
+    the highest-exposure rung there is.
+
+    Greenhouse EMBEDS disprove the theory. ``careers.nintendo.com/jobs/`` publishes
+    ``absolute_url = "https://careers.nintendo.com/?gh_jid=4295098009"`` — distinct per
+    job, link-shaped, HTTP 200 — and every test rung 1 applied passed it. Measured live
+    2026-08-30 (and re-measured by ``test_ac20_the_two_links_differ_live`` below): that
+    URL serves **64,408 bytes of the LISTING page**, titled *"Careers at Nintendo - Join
+    Our Team"*, with the job's own title nowhere in it. The working link is
+    ``/jobs/4295098009/`` — 82,962 bytes, titled *"Brand Ambassador [Part-Time] -
+    Peoria, IL - Nintendo Careers"*.
+
+    The guard is the one the codebase already states on the DERIVATION side
+    (``repair_url_template``: *"the QUERY IS DROPPED … a board that keys its jobs by
+    query parameter alone cannot be derived"*) and had no counterpart on the PUBLISHED
+    side: a rendered URL whose path is ``/`` puts all its identity in the query string.
+    It is free on the boards that are right — measured against the live payloads the
+    same day, **10 of 10 publicly fetchable corpus boards still take rung 1** and only
+    Nintendo's embed moves.
+
+    The shared helper ``test_discovery._assert_two_job_links_resolve`` now applies the
+    same path check to every stored row on AC-04 and AC-05, which is where the triage
+    doc asked for it. It does NOT apply the title check there: measured the same day,
+    Atlassian's published iCIMS link renders the posting in an IFRAME, so the fetched
+    document carries the job's title **not at all** — asserting it would fail a board
+    that works.
+    """
+
+    def _records(self) -> list[dict]:
+        raw = json.loads((FIXTURES / "nintendo_greenhouse_embed.json").read_text())
+        return raw["records"]
+
+    def test_ac20_the_embed_link_is_declined_by_rung_one_and_rung_two(self) -> None:
+        from api.services.capture.request_selector import (
+            is_published_url_spec,
+            published_url_fields,
+        )
+
+        records = self._records()
+        assert len(records) > 8
+        assert all(
+            r["absolute_url"].startswith("https://careers.nintendo.com/?gh_jid=")
+            for r in records
+        ), "AC-20: the fixture must keep the path-less embed shape"
+
+        assert is_published_url_spec(records, "absolute_url") is False, (
+            "AC-20: rung 1 keeps this VERBATIM and fetches nothing, so declining it "
+            "here is the only thing between the user and a link to the listing page"
+        )
+        assert "absolute_url" not in published_url_fields(records), (
+            "AC-20: rung 2 hands back the board's own published field when the model "
+            "invented one — the same string must not come back through that door"
+        )
+
+    def test_ac20_a_path_bearing_greenhouse_board_is_untouched(self) -> None:
+        """The non-regression, and it is the whole risk of the guard. Every other
+        Greenhouse board in the corpus publishes a path-bearing ``absolute_url``."""
+        from api.services.capture.request_selector import is_published_url_spec
+
+        for template in (
+            "https://boards.greenhouse.io/spacex/jobs/86639380{i}?gh_jid=86639380{i}",
+            "https://job-boards.greenhouse.io/anthropic/jobs/44612{i}",
+            "https://careers.roblox.com/jobs/73500{i}?gh_jid=73500{i}",
+            "https://stripe.com/jobs/search?gh_jid=75327{i}",
+        ):
+            records = [
+                {"id": i, "title": f"Engineer {i}", "absolute_url": template.format(i=i)}
+                for i in range(3)
+            ]
+            assert is_published_url_spec(records, "absolute_url") is True, template
+
+    @pytest.mark.live
+    def test_ac20_the_two_links_differ_live(self) -> None:
+        """**The assertion that would have caught this**, against the live board.
+
+        Two fetches, no LLM and no discovery: the published embed URL must NOT carry the
+        job's own title, and the derived ``/jobs/{id}/`` URL must. If Nintendo ever fixes
+        its embed, the first half fails and this case should be rewritten rather than
+        deleted — the guard would then be costing us nothing and protecting nothing.
+        """
+        import httpx
+
+        records = self._records()[:2]
+        for record in records:
+            title = record["title"].lower()
+            pages = {}
+            for label, url in (
+                ("published", record["absolute_url"]),
+                ("derived", f"https://careers.nintendo.com/jobs/{record['id']}/"),
+            ):
+                try:
+                    resp = httpx.get(
+                        url, timeout=_LINK_CHECK_TIMEOUT_S, follow_redirects=True,
+                        headers={"User-Agent": _BROWSER_UA},
+                    )
+                except httpx.HTTPError as exc:
+                    pytest.skip(f"BLOCKED: careers.nintendo.com unreachable ({exc!r})")
+                assert resp.status_code < 400, (
+                    f"AC-20: {label} link {url} answers HTTP {resp.status_code}"
+                )
+                stripped = re.sub(
+                    r"(?is)<script.*?</script>|<style.*?</style>", " ", resp.text
+                )
+                stripped = " ".join(re.sub(r"<[^>]+>", " ", stripped).split()).lower()
+                pages[label] = (len(resp.text), title in stripped)
+
+            (_pub_bytes, pub_has_title) = pages["published"]
+            (_der_bytes, der_has_title) = pages["derived"]
+            assert der_has_title, (
+                f"AC-20: the DERIVED link /jobs/{record['id']}/ must serve this job's "
+                f"own page — {record['title']!r} was not on it. If this fails the guard "
+                f"is sending boards somewhere worse than where they were."
+            )
+            assert not pub_has_title, (
+                f"AC-20: the PUBLISHED embed link {record['absolute_url']} now carries "
+                f"{record['title']!r}. Nintendo may have fixed its embed; re-measure "
+                f"before assuming the guard is still earning its place."
+            )
+        print(
+            f"AC-20: published vs derived — {records[0]['absolute_url']} carries no "
+            f"job title; /jobs/{records[0]['id']}/ does"
+        )

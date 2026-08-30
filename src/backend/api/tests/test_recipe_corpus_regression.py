@@ -282,6 +282,90 @@ def test_no_stored_recipe_has_a_composite_cursor_to_rewrite(name: str) -> None:
         }, f"{name} carries a composite cursor {token!r} — this test is now load-bearing"
 
 
+# --------------------------------------------------------------------------
+# RUNG 1 — a published link we can stand behind
+# --------------------------------------------------------------------------
+#
+# Rung 1 takes the board's own ``field_map["url"]`` VERBATIM and fetches nothing, on the
+# theory that a path the board published must be right. 13 of the 19 corpus boards take
+# it (JOB-LINK-RULE.md), so it is the highest-exposure rung there is.
+#
+# Greenhouse EMBEDS disprove the theory. Nintendo's feed publishes
+# ``absolute_url = "https://careers.nintendo.com/?gh_jid=4295098009"`` — distinct per
+# job, link-shaped, and measured live 2026-08-30 it answers 200 with 64,408 bytes of the
+# LISTING page (``<title>Careers at Nintendo - Join Our Team</title>``) with the job's
+# own title nowhere in it. ``/jobs/4295098009/`` is the working link: 82,962 bytes,
+# ``<title>Brand Ambassador [Part-Time] - Peoria, IL - …</title>``.
+
+_NINTENDO_EMBED = [
+    {"id": 4295098009, "internal_job_id": 4173984009,
+     "title": "Brand Ambassador [Part-Time] - Peoria, IL",
+     "absolute_url": "https://careers.nintendo.com/?gh_jid=4295098009"},
+    {"id": 4204762009, "internal_job_id": 4119610009,
+     "title": "CONTRACT - Ambassador - Nintendo SF",
+     "absolute_url": "https://careers.nintendo.com/?gh_jid=4204762009"},
+    {"id": 4363567009, "internal_job_id": 4239003009,
+     "title": "Software Engineer",
+     "absolute_url": "https://careers.nintendo.com/?gh_jid=4363567009"},
+]
+
+
+def test_a_published_link_with_no_path_is_not_a_link_to_one_job() -> None:
+    """All the identity in the query string, and the query is exactly what a board
+    serving one SPA shell ignores. Rung 1 must decline it — and rung 2 as well, or the
+    same string comes back through ``published_url_fields``."""
+    assert is_published_url_spec(_NINTENDO_EMBED, "absolute_url") is False
+    assert "absolute_url" not in published_url_fields(_NINTENDO_EMBED)
+
+
+@pytest.mark.parametrize(
+    "label, spec, url",
+    [
+        ("greenhouse", "absolute_url",
+         "https://boards.greenhouse.io/spacex/jobs/866393800{i}?gh_jid=866393800{i}"),
+        ("greenhouse-hosted", "absolute_url",
+         "https://job-boards.greenhouse.io/anthropic/jobs/446123{i}"),
+        ("greenhouse-on-brand", "absolute_url",
+         "https://careers.roblox.com/jobs/735008{i}?gh_jid=735008{i}"),
+        ("stripe-search-page", "absolute_url",
+         "https://stripe.com/jobs/search?gh_jid=753273{i}"),
+        ("lever", "hostedUrl",
+         "https://jobs.lever.co/palantir/ac978161-6f46-4f6b-adcd-00000000000{i}"),
+        ("icims", "portalUrl",
+         "https://globalcareers-atlassian.icims.com/jobs/2558{i}/account-executive/job"),
+        ("amazon-relative", "job_path", "/en/jobs/1052120{i}/senior-networking-sa"),
+        ("microsoft-relative", "positionUrl", "/careers/job/197039355698322{i}"),
+    ],
+)
+def test_every_path_bearing_published_link_still_takes_rung_one(
+    label: str, spec: str, url: str
+) -> None:
+    """THE NON-REGRESSION, and it is the whole risk of this guard.
+
+    Measured against the live boards 2026-08-30: **10 of the 10 corpus boards whose
+    payload is publicly fetchable still take rung 1** (SpaceX, Figma, Roblox, Anthropic,
+    Stripe, Palantir, Binance, Amazon, Atlassian, Microsoft), and only Nintendo's embed
+    changes. Note Stripe deliberately survives — ``/jobs/search?gh_jid=…`` names a page,
+    even though the id is in the query, and the guard is about the PATH being empty
+    rather than about where the id lives.
+    """
+    records = [
+        {"id": i, "title": f"Engineer {i}", spec: url.format(i=i)} for i in range(3)
+    ]
+    assert is_published_url_spec(records, spec) is True, label
+
+
+def test_a_single_record_board_still_has_to_name_a_page() -> None:
+    """The distinctness test is waived for a one-record board (it cannot be answered
+    there). The path test is not — it is answerable on one row."""
+    one = [{"id": 1, "title": "Engineer",
+            "absolute_url": "https://careers.nintendo.com/?gh_jid=1"}]
+    assert is_published_url_spec(one, "absolute_url") is False
+    good = [{"id": 1, "title": "Engineer",
+             "absolute_url": "https://boards.greenhouse.io/x/jobs/1"}]
+    assert is_published_url_spec(good, "absolute_url") is True
+
+
 def test_a_cursor_name_the_body_does_not_carry_still_lands_at_the_top_level() -> None:
     """The unchanged fallback: a board that takes a cursor key it never sent us."""
     assert merge_body_params({"q": "x"}, {"page": 3}) == {"q": "x", "page": 3}

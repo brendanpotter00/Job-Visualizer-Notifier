@@ -16,6 +16,8 @@ proved boards CAN verify would be proving half a design.
 
 from __future__ import annotations
 
+from urllib.parse import urlsplit
+
 import boards
 import httpx
 import pytest
@@ -305,7 +307,22 @@ def _assert_two_job_links_resolve(
     A TRANSPORT failure is BLOCKED, not FAILED (PLAN.md §6): a third-party outage must
     not read as our regression. A 4xx/5xx always FAILS; an identical pair FAILS only for
     a template, per the split above.
+
+    ...AND A THIRD QUESTION, ASKED OF BOTH: does the stored URL name a PAGE? This is the
+    half that used to be missing entirely. Nintendo's Greenhouse embed publishes
+    ``absolute_url = "https://careers.nintendo.com/?gh_jid=4295098009"``: distinct per
+    job, link-shaped, HTTP 200 — and 64,408 bytes of the LISTING page with the job's own
+    title absent. Everything above passes it. A link whose path is ``/`` puts all its
+    identity in a query string, which is exactly what a board serving one SPA shell
+    ignores, so it is checked on EVERY row and before anything is fetched. See AC-20.
     """
+    for row in rows:
+        url = row.get("url")
+        assert isinstance(url, str) and urlsplit(url).path.strip("/"), (
+            f"{board.case_id}: the stored job link {url!r} has no path segments — all "
+            f"its identity is in the query string. Measured on Nintendo: such a URL "
+            f"answers 200 and serves the board's listing page to every job."
+        )
     sample = [r for r in rows if isinstance(r.get("url"), str)][:_LINK_CHECK_SAMPLES]
     assert len(sample) == _LINK_CHECK_SAMPLES, f"{board.case_id}: too few rows to check"
     pages: list[tuple[str, int]] = []
