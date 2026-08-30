@@ -238,7 +238,35 @@ predicted it. **Atlassian does not move** and is now the whole of the argument f
 plain HTTP from Goldman's dead shell, and the board the brief names as
 must-not-regress.
 
-## 7. Smaller calls
+## 7. What the e2e suite said, both runs
+
+`bash e2e/run.sh add-companies`, twice, 88 collected (the 83 at HEAD + this change's 5
+AC-21 cases; the tree also carried the parallel Stage 2 agent's in-flight edits and its
+own new cases, so the count is not comparable to the "74/74" in the brief).
+
+| run | pytest | UI | the one failure |
+|---|---|---|---|
+| 1 | 87 passed, 1 failed | 4/4 | **AC-05** — the stale duplicate prover in `test_discovery.py`, §5 above. Fixed. |
+| 2 | 87 passed, 1 failed | 4/4 | **AC-11** — live Haiku answered `records_path '[*]'` on its second Atlassian call. **Passes on re-run** (`--case AC-11`: 1 passed, 37.8 s). |
+
+AC-11's refusal is at the SELECT step — *"reading the jobs feed: every candidate's
+selection call failed … path segment `[*]` is not a list index"* — which is strictly
+upstream of `_resolve_job_link` and cannot be reached by anything in this change. AC-04
+discovered the same board successfully in the same run (218 jobs). It is live-LLM
+non-determinism, and it is recorded here rather than swept up because a reader
+comparing the two runs deserves to know which failure was real.
+
+**The two failures are disjoint and every case passed in at least one run.** The five
+AC-21 cases passed in both.
+
+Live corpus numbers from the runs, against the brief's expectations:
+
+| board | expected | measured |
+|---|---|---|
+| Jane Street | 233 rows at `…/join-jane-street/position/{id}/` | **233**, that exact template, 233/233 located |
+| Atlassian | ~218, ~91% located | **218**, **199/218 = 91.3%** located |
+
+## 8. Smaller calls
 
 - **`_prove_job_link` returns a `LinkProof` dataclass**, not `str | None`. Three
   outcomes cannot ride on one optional string. Call sites updated:
