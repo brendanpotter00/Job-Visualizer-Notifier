@@ -32,7 +32,7 @@ const PROXIED_ROUTES = [
   'saved-filters/keyword-lists/:id', // PATCH/DELETE
   'companies', // GET/POST
   'companies/jobs', // GET (keyset-paged; see X-Next-Cursor below)
-  'companies/:id', // DELETE
+  'companies/:id', // PATCH (rename) / DELETE — the allowlist is per PATH, not per method
   'companies/:id/jobs', // GET
 ] as const;
 

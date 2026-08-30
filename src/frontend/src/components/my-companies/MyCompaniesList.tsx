@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
@@ -12,15 +12,20 @@ import DialogTitle from '@mui/material/DialogTitle';
 import Link from '@mui/material/Link';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
+import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
+import EditIcon from '@mui/icons-material/Edit';
 import { LoadingState } from '../shared/LoadingIndicator';
 import { ErrorState, EmptyState } from '../shared/ErrorDisplay';
 import { extractErrorMessage } from '../../lib/errors';
 import { buildMyCompanyDetailPath } from '../../config/routes';
 import { CUSTOM_COMPANIES_CONFIG } from '../../config/customCompanies';
 import {
+  COMPANY_NAME_MAX_LENGTH,
+  describeRenameError,
   useGetUserCompaniesQuery,
   useRemoveUserCompanyMutation,
+  useRenameUserCompanyMutation,
   type UserCompany,
 } from '../../features/userCompanies/userCompaniesApi';
 import {
@@ -128,6 +133,114 @@ function CompaniesPoller({ intervalMs }: { intervalMs: number }) {
   return null;
 }
 
+/**
+ * Inline rename for one board's name. Renders in place of the title link.
+ *
+ * A PENDING STATE, NOT AN OPTIMISTIC PATCH. The failure mode worth designing against is
+ * a rename that looks saved and then quietly reverts, and the only shape that cannot do
+ * that is one which does not claim success until the server agrees. The round trip is a
+ * single local UPDATE, so the wait is a flicker; a patch-then-undo would trade that for
+ * a visible take-back.
+ *
+ * FOCUS GOES BACK WHERE IT CAME FROM. Save and Cancel both unmount this, and without the
+ * effect below focus would land on `<body>` — a keyboard user would be dropped at the top
+ * of the page after renaming a row halfway down it. Nothing is trapped: this is ordinary
+ * inline markup, so Tab leaves in both directions at all times.
+ */
+function CompanyNameEditor({
+  company,
+  onClose,
+  returnFocusTo,
+}: {
+  company: UserCompany;
+  onClose: () => void;
+  returnFocusTo: React.RefObject<HTMLButtonElement | null>;
+}) {
+  const [draft, setDraft] = useState(company.displayName);
+  const [error, setError] = useState<string | null>(null);
+  const [renameUserCompany, { isLoading }] = useRenameUserCompanyMutation();
+  const trimmed = draft.trim();
+
+  // On unmount — which is what Save and Cancel both do — hand focus back to the button
+  // that opened this.
+  useEffect(() => () => returnFocusTo.current?.focus(), [returnFocusTo]);
+
+  const commit = async () => {
+    if (!trimmed || isLoading) return;
+    // Nothing to save. Closing without a request is not a shortcut: an unchanged name
+    // is not a change, and a no-op write would still bill a rate-limit slot.
+    if (trimmed === company.displayName) {
+      onClose();
+      return;
+    }
+    setError(null);
+    try {
+      await renameUserCompany({ id: company.id, displayName: trimmed }).unwrap();
+      onClose();
+    } catch (err) {
+      // Stay open with the draft intact. Closing on failure would throw away what they
+      // typed and leave the old name on screen with no explanation.
+      setError(describeRenameError(err));
+    }
+  };
+
+  return (
+    <Box
+      component="form"
+      onSubmit={(event: React.FormEvent) => {
+        event.preventDefault();
+        void commit();
+      }}
+      onKeyDown={(event: React.KeyboardEvent) => {
+        if (event.key === 'Escape') {
+          event.stopPropagation();
+          onClose();
+        }
+      }}
+    >
+      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems="flex-start">
+        <TextField
+          // A real <label>, not a placeholder: a placeholder disappears the moment
+          // anyone types, which is exactly when a screen reader needs it most.
+          label="Company name"
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          size="small"
+          fullWidth
+          autoFocus
+          disabled={isLoading}
+          error={Boolean(error)}
+          // MUI wires this to the input with aria-describedby, so the failure is
+          // announced rather than merely drawn.
+          helperText={error ?? ' '}
+          slotProps={{ htmlInput: { maxLength: COMPANY_NAME_MAX_LENGTH } }}
+          data-testid="my-company-name-input"
+        />
+        <Stack direction="row" spacing={1} sx={{ flexShrink: 0, mt: { sm: 0.5 } }}>
+          <Button
+            type="submit"
+            variant="contained"
+            size="small"
+            disabled={!trimmed || isLoading}
+            data-testid="my-company-name-save"
+          >
+            {isLoading ? 'Saving…' : 'Save'}
+          </Button>
+          <Button
+            type="button"
+            size="small"
+            onClick={onClose}
+            disabled={isLoading}
+            data-testid="my-company-name-cancel"
+          >
+            Cancel
+          </Button>
+        </Stack>
+      </Stack>
+    </Box>
+  );
+}
+
 /** One company row: name → trend page, health badge, count, last-fetched, remove. */
 function CompanyRow({
   company,
@@ -143,6 +256,10 @@ function CompanyRow({
    */
   receivedAt: number;
 }) {
+  const [isRenaming, setIsRenaming] = useState(false);
+  // Where focus goes when the editor closes. Held here rather than inside the editor
+  // because the button it points at is unmounted-and-remounted around it.
+  const renameButtonRef = useRef<HTMLButtonElement | null>(null);
   const badge = describeCompanyHealth(company);
   const lastFetched = describeLastFetched(company, receivedAt);
   // The link and its text are resolved together, and BOTH must exist: a label we cannot
@@ -160,25 +277,47 @@ function CompanyRow({
       <Stack
         direction={{ xs: 'column', sm: 'row' }}
         spacing={1.5}
-        alignItems={{ xs: 'flex-start', sm: 'center' }}
+        // TOP-aligned on sm+, where it used to be centred. The left column is two lines
+        // (name + metadata) and the actions are one, so centring floated the buttons
+        // against the gap between them and lined them up with nothing. Level with the
+        // name is the line a reader is already on when they decide to act.
+        alignItems="flex-start"
         justifyContent="space-between"
       >
-        <Box sx={{ minWidth: 0 }}>
-          <Link
-            component={RouterLink}
-            to={buildMyCompanyDetailPath(company.id)}
-            variant="h6"
-            data-testid="my-company-link"
-          >
-            {company.displayName}
-          </Link>
+        {/* `flexGrow` is what makes `minWidth: 0` do anything: without it the column is
+            sized by its content, so a long name pushed the buttons off the card instead
+            of wrapping inside it. */}
+        <Box sx={{ minWidth: 0, flexGrow: 1, width: '100%' }}>
+          {isRenaming ? (
+            <CompanyNameEditor
+              company={company}
+              onClose={() => setIsRenaming(false)}
+              returnFocusTo={renameButtonRef}
+            />
+          ) : (
+            <Link
+              component={RouterLink}
+              to={buildMyCompanyDetailPath(company.id)}
+              variant="h6"
+              data-testid="my-company-link"
+              // Same wrap-anywhere rule the board link below already uses. A user can
+              // now type the name, so "a name with no spaces in it" stopped being
+              // hypothetical — and the house choice here is to wrap, never to ellipsise
+              // a thing the reader cannot then hover to read in full.
+              sx={{ display: 'inline-block', minWidth: 0, overflowWrap: 'anywhere' }}
+            >
+              {company.displayName}
+            </Link>
+          )}
           <Stack
             direction="row"
-            spacing={1}
             alignItems="center"
             flexWrap="wrap"
             useFlexGap
-            sx={{ mt: 0.5 }}
+            // A wider COLUMN gap and a tighter ROW gap, replacing one uniform 8px. The
+            // facts on this line wrap onto two lines at narrow widths, and at 8px each
+            // way the second line sat close enough to the first to read as part of it.
+            sx={{ mt: 0.75, columnGap: 1.5, rowGap: 0.25 }}
           >
             {/* `variant` carries the one qualifier colour is not allowed to carry: a
                 hollow green chip is a board we track incompletely, and it must not
@@ -190,7 +329,18 @@ function CompanyRow({
               variant={badge.variant ?? 'filled'}
               label={badge.label}
             />
-            <Typography variant="body2" color="text.secondary">
+            {/* THE COUNT IS THE NUMBER PEOPLE SCAN THIS LIST FOR, and it used to be one
+                of four same-weight secondary phrases — so finding it meant reading the
+                whole line. Primary colour and a half-step of weight lift it out of the
+                metadata without making it shout.
+
+                Deliberately NOT a nested <span> around just the digits, which is the
+                obvious way to two-tone this: Testing Library matches an element on its
+                DIRECT text children, so wrapping the number splits "12 open jobs" across
+                two elements and every `getByText(/12 open jobs/)` in the suite stops
+                matching. A styling choice is not worth rewriting assertions about what
+                the user reads. */}
+            <Typography variant="body2" color="text.primary" sx={{ fontWeight: 500 }}>
               {company.openJobCount.toLocaleString()}{' '}
               {company.openJobCount === 1 ? 'open job' : 'open jobs'}
             </Typography>
@@ -234,14 +384,34 @@ function CompanyRow({
           </Stack>
         </Box>
 
-        <Button
-          color="error"
-          size="small"
-          onClick={() => onRemove(company)}
-          data-testid="my-company-remove"
-        >
-          Remove
-        </Button>
+        {/* The two row actions, grouped and pinned. `flexShrink: 0` is what keeps a long
+            company name from squeezing them; before there was one button and nothing to
+            squeeze it against. Rename is a plain button and Remove keeps `color="error"`,
+            so the destructive one is still the only coloured thing here. */}
+        <Stack direction="row" spacing={0.5} sx={{ flexShrink: 0 }}>
+          <Button
+            ref={renameButtonRef}
+            size="small"
+            startIcon={<EditIcon />}
+            onClick={() => setIsRenaming(true)}
+            disabled={isRenaming}
+            // The row's own name is in the label because a screen-reader user listing
+            // the page's buttons otherwise hears "Rename" once per board.
+            aria-label={`Rename ${company.displayName}`}
+            data-testid="my-company-rename"
+          >
+            Rename
+          </Button>
+          <Button
+            color="error"
+            size="small"
+            onClick={() => onRemove(company)}
+            aria-label={`Remove ${company.displayName}`}
+            data-testid="my-company-remove"
+          >
+            Remove
+          </Button>
+        </Stack>
       </Stack>
 
       {/* `receivedAt` is not decoration here: the live view treats `liveViewUrl` as a

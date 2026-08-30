@@ -315,6 +315,98 @@ export interface UserCompanyIdArg {
   id: string;
 }
 
+/** Arg for the rename mutation. */
+export interface RenameUserCompanyArgs {
+  id: string;
+  displayName: string;
+}
+
+/**
+ * How long a company name may be, enforced identically on both sides.
+ *
+ * The server is the authority (`_DISPLAY_NAME_MAX_LENGTH` in
+ * `routers/user_companies.py`) and rejects an over-long name with
+ * `reason: 'name_too_long'`. This copy exists so the input can stop the user at the
+ * boundary rather than letting them type a paragraph and then explaining it — and it
+ * is the same 100 the account-page display name already uses, not a new number.
+ */
+export const COMPANY_NAME_MAX_LENGTH = 100;
+
+/**
+ * The 422 body when a rename is rejected: `name_empty` or `name_too_long`.
+ *
+ * Same flat `{ reason, detail }` shape as the add failure, and 422 for the same
+ * load-bearing reason — the UI's narrowers hard-check the status before they will
+ * read a `reason`, so any other 4xx loses the explanation.
+ */
+export interface RenameUserCompanyFailure {
+  reason: string;
+  detail: string;
+}
+
+const RENAME_FAILURE_REASONS = ['name_empty', 'name_too_long'] as const;
+
+type RenameFailureReason = (typeof RENAME_FAILURE_REASONS)[number];
+
+/**
+ * One line of copy per code the rename endpoint can return.
+ *
+ * A `Record` over the closed union, exactly like `ADD_REASON_TITLES` and
+ * `REASON_COPY`: a code added to the union without copy is a compile error rather
+ * than a blank alert. The server's `detail` is preferred when it sends one; this is
+ * the floor.
+ */
+const RENAME_REASON_COPY: Record<RenameFailureReason, string> = {
+  name_empty: "A company name can't be blank.",
+  name_too_long: `Keep the name to ${COMPANY_NAME_MAX_LENGTH} characters or fewer.`,
+};
+
+/**
+ * The rename endpoint's own 422, or `null` for anything else.
+ *
+ * `status !== 422` is a hard check for the same reason `asAddFailure` makes it: only
+ * that status carries the flat `{ reason, detail }` body. A 404, a 429 or a network
+ * error falls through to {@link describeRenameError}'s generic branch.
+ */
+export function asRenameFailure(error: unknown): RenameUserCompanyFailure | null {
+  if (typeof error !== 'object' || error === null) return null;
+  if ((error as { status?: unknown }).status !== 422) return null;
+  const data = (error as { data?: unknown }).data;
+  if (typeof data !== 'object' || data === null) return null;
+  const reason = (data as { reason?: unknown }).reason;
+  if (typeof reason !== 'string') return null;
+  const detail = (data as { detail?: unknown }).detail;
+  return { reason, detail: typeof detail === 'string' ? detail : '' };
+}
+
+/**
+ * One short sentence for any rename failure — never empty, never `[object Object]`.
+ *
+ * The card renders this inline under the field, so it has to be one line and it has
+ * to always say something. The four cases the feature can actually produce (too long,
+ * empty, not found, not yours) are all named; everything else gets the generic line.
+ */
+export function describeRenameError(error: unknown): string {
+  const failure = asRenameFailure(error);
+  if (failure) {
+    const known = (RENAME_FAILURE_REASONS as readonly string[]).includes(failure.reason)
+      ? (failure.reason as RenameFailureReason)
+      : null;
+    if (known) return failure.detail || RENAME_REASON_COPY[known];
+    // An unknown 422 code: the server still sent a sentence, so use it.
+    if (failure.detail) return failure.detail;
+  }
+  const status = (error as { status?: unknown } | null)?.status;
+  // 404 is "not yours" and "no longer there" at once — the endpoint deliberately does
+  // not distinguish them, so neither does this. Either way the list is about to
+  // refresh and the row will tell the truth.
+  if (status === 404) return "That company isn't in your list any more.";
+  if (status === 401 || status === 403) return 'Please sign in again to rename this.';
+  if (status === 429) return "You're renaming too quickly. Try again in a moment.";
+  if (status === 503) return 'Renaming is unavailable right now.';
+  return "That didn't save. Please try again.";
+}
+
 /**
  * The 422 body when an add is rejected. Distinct from the *resolver's* flat 422
  * (`ResolveUrlFailure`): the add failure carries a human `detail` and the
@@ -516,6 +608,31 @@ export const userCompaniesApi = createApi({
       invalidatesTags: ['MyCompanies'],
     }),
 
+    /**
+     * Give one of the caller's own boards a new name (`200` with the updated row).
+     *
+     * `404` covers not-yours, not-found and not-a-private-board alike — the same
+     * answer `DELETE` gives, so the response cannot be used to probe which company
+     * ids exist. `422` carries `{ reason, detail }` (`name_empty` / `name_too_long`),
+     * read by {@link asRenameFailure}.
+     *
+     * Invalidate rather than optimistically patch. The response IS the updated row,
+     * so the refetch is a formality — but the list is also polled, carries `quota`
+     * and can be reordered by an add landing in the same window, and a hand-rolled
+     * optimistic patch would have to keep all of that consistent to save one request
+     * the page was already making on a timer. The card holds a pending state for the
+     * one round trip, which is also the only shape that cannot show a rename as
+     * saved and then take it back.
+     */
+    renameUserCompany: builder.mutation<UserCompany, RenameUserCompanyArgs>({
+      query: ({ id, displayName }) => ({
+        url: `users/companies/${id}`,
+        method: 'PATCH',
+        body: { displayName },
+      }),
+      invalidatesTags: ['MyCompanies'],
+    }),
+
     /** Drop the caller's ownership of a company (`204`; `404` if not owned). */
     removeUserCompany: builder.mutation<void, string>({
       query: (id) => ({
@@ -544,6 +661,7 @@ export const userCompaniesApi = createApi({
 export const {
   useGetUserCompaniesQuery,
   useAddUserCompanyMutation,
+  useRenameUserCompanyMutation,
   useRemoveUserCompanyMutation,
   useGetUserCompanyJobsQuery,
 } = userCompaniesApi;
