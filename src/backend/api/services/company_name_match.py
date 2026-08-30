@@ -94,6 +94,7 @@ from __future__ import annotations
 
 import re
 from typing import Iterable, Optional, Sequence
+from urllib.parse import urlsplit
 
 from scripts.shared.constants import SCRIPT_COMPANY_CAREERS_HOSTS
 
@@ -166,6 +167,74 @@ _MIN_AFFIX_CORE_LEN = 5
 #: Everything that is not a letter or a digit is noise in a domain label: ``jane-street``
 #: and ``janestreet`` are one name, and so are "Base Power Company" and ``basepower``.
 _NON_ALNUM = re.compile(r"[^a-z0-9]+")
+
+#: Path segments that introduce a DIRECTORY OF COMPANIES rather than naming one.
+#: See :func:`directory_tenant`.
+_DIRECTORY_SEGMENTS = frozenset({
+    "companies", "company", "employers", "employer", "startups",
+    "organizations", "organisations", "orgs", "org", "profiles",
+})
+
+#: Path segments that are about the JOBS, never about who is hiring. A candidate tenant
+#: slug drawn from this set is not a tenant at all — it is the careers section of a
+#: single-company site that happens to sit under ``/company/``. This is what keeps
+#: ``atlassian.com/company/careers/all-jobs`` named "Atlassian" and not "Careers".
+_GENERIC_PATH_SEGMENTS = frozenset({
+    "careers", "career", "jobs", "job", "hiring", "apply", "search",
+    "openings", "opening", "opportunities", "roles", "open-roles", "all-jobs",
+    "positions", "position", "vacancies", "listings", "life", "culture",
+    "join-us", "join", "work-with-us", "work", "about", "about-us", "team",
+})
+
+
+def directory_tenant(url: str) -> Optional[str]:
+    """The company slug ``url``'s PATH names inside a directory host, or ``None``.
+
+    THE PROBLEM THIS SOLVES. ``www.ycombinator.com/companies/raindrop/jobs`` is
+    Raindrop's board, not Y Combinator's. On a host like that the registrable domain is
+    the DIRECTORY's brand and every one of its ~1,500 tenants shares it, so anything
+    that reads identity out of the host alone gives them all the SAME answer: the add
+    flow named the row "Ycombinator", and this rung would hand every tenant to a
+    published company called Ycombinator if one ever existed. The identity of a
+    path-bearing board has to come from the path.
+
+    THE SHAPE, and it is the only thing recognised — no host list, no per-board rule::
+
+        /<directory segment>/<tenant slug>/<at least one more segment>
+
+    THREE CONDITIONS, ALL REQUIRED, and each one is a false positive that was measured
+    against the boards this repo already tracks:
+
+    1. **A declared directory segment** (:data:`_DIRECTORY_SEGMENTS`). Jane Street's
+       ``/join-jane-street/open-roles/`` has none, so it keeps its host name.
+    2. **The next segment is not a generic careers word**
+       (:data:`_GENERIC_PATH_SEGMENTS`). Atlassian's ``/company/careers/all-jobs``
+       would otherwise be named "Careers".
+    3. **Something follows the tenant.** A directory URL points AT a tenant's page and
+       then keeps going; a single-company site's ``/company/<word>`` is a leaf. Without
+       this, an undeclared leaf word (``/company/our-story``) becomes a company name.
+       The cost is real and accepted: a bare ``/companies/raindrop`` with no trailing
+       segment falls back to the host name. That is the status quo, and this codebase's
+       rule is that a slightly ugly name beats a confidently wrong one.
+
+    PURE, like everything else here, and it decides NO identity of its own: the row is
+    still keyed on the full normalized URL (``discovered_source_key``), so two tenants
+    were never at risk of sharing a row. This fixes what they DO share — the label, and
+    this rung's reading of the host.
+
+    Returns the raw slug (``"raindrop"``, ``"wispr-flow"``); callers normalize it.
+    """
+    if not isinstance(url, str):
+        return None
+    segments = [s for s in urlsplit(url).path.split("/") if s]
+    for index, segment in enumerate(segments[:-2]):
+        if segment.lower() not in _DIRECTORY_SEGMENTS:
+            continue
+        tenant = segments[index + 1]
+        if tenant.lower() in _GENERIC_PATH_SEGMENTS or tenant.lower() in _DIRECTORY_SEGMENTS:
+            continue
+        return tenant
+    return None
 
 
 def normalize_name(value: str) -> str:
@@ -271,6 +340,20 @@ def match_name_in_url(url: str, index: dict[str, set[str]]) -> Optional[str]:
     if host is None:
         return None
     if registrable_domain(host) in _NEVER_MATCH_DOMAINS:
+        return None
+    # A URL whose PATH names a tenant is a page ON a directory, so its host label is the
+    # directory's brand and speaks for none of the ~1,500 companies underneath it.
+    # :data:`_NEVER_MATCH_DOMAINS` says the same thing for the aggregators we happen to
+    # have listed (``wellfound.com``, ``builtin.com``); this says it for the ones we have
+    # not, which is the half that would otherwise hand EVERY tenant of an unlisted
+    # directory to one published company the day its name collided with the host's.
+    #
+    # We do NOT then match on the tenant slug instead. It would be a real improvement —
+    # ``ycombinator.com/companies/ramp/jobs`` is the Ramp we publish — but a slug is
+    # chosen by the directory, not by the company, and this rung's failure mode is
+    # telling somebody they are already covered when they are not. Declining is free;
+    # the cost of a wrong guess here is a user sent to another company's chart.
+    if directory_tenant(url) is not None:
         return None
     label = normalize_name(registrable_label(host) or "")
     if not label:

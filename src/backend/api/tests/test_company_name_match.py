@@ -15,6 +15,7 @@ import pytest
 
 from api.services.company_name_match import (
     build_name_index,
+    directory_tenant,
     match_name_in_any_url,
     match_name_in_url,
     normalize_name,
@@ -197,6 +198,63 @@ def test_an_ats_or_aggregator_host_never_name_matches(url):
     Rung 1 owns these URLs, so this rung must say nothing about them — including for the
     company whose name IS the ATS (``gem.com``)."""
     assert match(url) is None
+
+
+# ───────────────── a directory host speaks for none of its tenants ───────────────────
+
+
+@pytest.mark.parametrize(
+    "url,tenant",
+    [
+        ("https://www.ycombinator.com/companies/raindrop/jobs", "raindrop"),
+        ("https://www.ycombinator.com/companies/wispr-flow/jobs", "wispr-flow"),
+        ("https://directory.example/employers/acme/jobs", "acme"),
+        ("https://hub.example/startups/acme/roles/12", "acme"),
+    ],
+)
+def test_a_directory_path_names_its_tenant(url, tenant):
+    assert directory_tenant(url) == tenant
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        # The next segment is a careers word, not a tenant. This is Atlassian's real
+        # URL and the one that would have been read as a company called "Careers".
+        "https://www.atlassian.com/company/careers/all-jobs",
+        # No directory segment at all.
+        "https://www.janestreet.com/join-jane-street/open-roles/",
+        "https://careers.walmart.com/results",
+        # The condition-1 case: a deep path whose second segment is NOT a careers word
+        # and IS followed by more path. Only "the first segment must be a declared
+        # directory noun" stops a locale prefix from naming a company called "Us".
+        "https://careers.example.com/en/us/search",
+        # A leaf: a directory URL points AT a tenant and then keeps going. Without this
+        # condition an undeclared leaf word becomes a company name.
+        "https://acme.example/company/our-story",
+        "https://www.ycombinator.com/companies/raindrop",
+        # Nothing parseable.
+        "not-a-url",
+    ],
+)
+def test_an_ordinary_careers_url_names_no_tenant(url):
+    assert directory_tenant(url) is None
+
+
+def test_a_directory_host_never_name_matches_even_when_it_is_published():
+    """THE LATENT COLLISION. This rung reads the registrable LABEL and discards the
+    path, so the day a company whose name normalizes to the directory's own label is
+    published, EVERY tenant on that host is answered "you already track this" — one
+    answer for ~1,500 different companies. ``_NEVER_MATCH_DOMAINS`` says this for the
+    aggregators that happen to be listed; the path shape says it for the ones that are
+    not, which is the half that would actually have fired here."""
+    index = build_name_index(PUBLISHED + [("ycombinator", "Y Combinator")])
+
+    # The directory's own careers page is still fair game — it names no tenant.
+    assert match("https://www.ycombinator.com/careers", index) == "ycombinator"
+    # A tenant's board is not.
+    assert match("https://www.ycombinator.com/companies/raindrop/jobs", index) is None
+    assert match("https://www.ycombinator.com/companies/spotify/jobs", index) is None
 
 
 # ──────────────────────── the five with an exact host table ──────────────────────────
