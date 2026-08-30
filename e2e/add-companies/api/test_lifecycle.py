@@ -291,9 +291,10 @@ class TestPerUserAddLimits:
     submit button, which is the whole reason the case exists.
 
     Both limits get a short-lived backend on :8202 with their own values, exactly the
-    way AC-09 does for the feature flags. The main stack runs with the cap OFF
-    (`env.e2e`) because `company_add_attempts` is append-only and its count therefore
-    survives every `reset_user.sweep` and every re-run of this suite.
+    way AC-09 does for the feature flags. The main stack runs with the cap raised out
+    of the way (`env.e2e`, a large number — NOT 0, which now means no adds at all)
+    because `company_add_attempts` is append-only and its count therefore survives
+    every `reset_user.sweep` and every re-run of this suite.
     """
 
     def test_ac14_the_monthly_cap_refuses_the_next_add_and_the_counter_says_so(
@@ -386,7 +387,9 @@ class TestPerUserAddLimits:
             {
                 "CUSTOM_COMPANY_SOURCES_ENABLED": "true",
                 "CUSTOM_COMPANY_DISCOVERY_ENABLED": "false",
-                "CUSTOM_COMPANY_MONTHLY_ADD_LIMIT": "0",
+                # Large, not 0: this case is about the BURST limiter, and 0 would
+                # refuse every POST on the monthly cap before the burst is reached.
+                "CUSTOM_COMPANY_MONTHLY_ADD_LIMIT": "100000",
                 "USER_COMPANY_ADD_RATE_LIMIT_MAX": "2",
             },
         ) as base:
@@ -414,9 +417,11 @@ class TestPerUserAddLimits:
 
         db.clear_add_attempts(db_conn, user_id=user_id)
 
-    def test_ac14_the_main_stack_reports_an_uncapped_quota(self, http):
-        """The envelope is wired end to end even with the cap switched off — `limit: 0`
-        is what tells the UI to render no counter at all."""
+    def test_ac14_the_main_stack_reports_the_configured_quota(self, http):
+        """The envelope is wired end to end. The main stack's cap is raised out of the
+        way rather than switched off, because there is no "off" any more: `0` now
+        refuses every add, so a suite running at 0 would refuse its own adds."""
         quota = http.get("/api/users/companies").json()["quota"]
-        assert quota["limit"] == 0, quota
+        assert quota["limit"] == 100000, quota
         assert quota["used"] >= 0, quota
+        assert quota["used"] < quota["limit"], quota

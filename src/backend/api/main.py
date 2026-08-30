@@ -15,7 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse
 
 from .auth.internal_key import require_internal_key, warn_if_unset
-from .services.add_quota import warn_if_unlimited as warn_if_add_limit_unlimited
+from .services.add_quota import warn_if_adds_disabled
 from .config import settings
 from .dependencies import get_db, init_pool, close_pool, pool_is_healthy
 from .routers import (
@@ -290,9 +290,9 @@ def start_worker_lanes() -> list[asyncio.Task]:
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Startup
     warn_if_unset()
-    # Same contract as warn_if_unset above: a gate that is open must say so in the
-    # logs at boot rather than only being discovered from a bill.
-    warn_if_add_limit_unlimited()
+    # Same contract as warn_if_unset above: a limit parked at an extreme must say so
+    # in the boot log rather than being discovered from a bug report.
+    warn_if_adds_disabled()
     if settings.posthog_project_token:
         try:
             init_posthog(settings.posthog_project_token, settings.posthog_host)

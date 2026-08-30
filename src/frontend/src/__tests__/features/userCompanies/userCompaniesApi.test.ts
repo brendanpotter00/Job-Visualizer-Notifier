@@ -391,13 +391,22 @@ describe('userCompaniesApi', () => {
       expect(addsRemaining({ used: 25, limit: 20, resetsAt: RESETS })).toBe(0);
     });
 
-    it('returns null when there is no cap in force', () => {
-      // `0` is the unlimited switch, and `undefined` is a server older than this
-      // feature. Both mean "render no counter and disable nothing" — which is why
-      // they are `null` rather than `0`, a value the caller would read as exhausted.
-      expect(addsRemaining({ used: 400, limit: 0, resetsAt: RESETS })).toBeNull();
+    it('returns null ONLY when the payload carries no quota at all', () => {
+      // A server older than this feature. "We don't know" must not be read as "you
+      // have none left" — hence `null` rather than `0`, a value the caller reads as
+      // exhausted and uses to disable the submit.
       expect(addsRemaining(undefined)).toBeNull();
       expect(addsRemaining(null)).toBeNull();
+    });
+
+    it('returns 0 — not null — when the limit is 0', () => {
+      // THIS IS THE CASE THAT SWAPPED MEANING. `limit: 0` used to be the unlimited
+      // sentinel and returned `null`. It is now a cap that is in force and allows
+      // nothing, so it must count down to `0` like any other spent month: the counter
+      // renders and the submit disables. Collapsing it back into `null` would turn
+      // the kill switch into "unlimited" in the UI while the server refuses.
+      expect(addsRemaining({ used: 0, limit: 0, resetsAt: RESETS })).toBe(0);
+      expect(addsRemaining({ used: 400, limit: 0, resetsAt: RESETS })).toBe(0);
     });
   });
 

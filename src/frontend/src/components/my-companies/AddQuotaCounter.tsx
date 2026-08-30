@@ -2,7 +2,7 @@ import Typography from '@mui/material/Typography';
 import { addsRemaining, type AddQuota } from '../../features/userCompanies/userCompaniesApi';
 
 interface AddQuotaCounterProps {
-  /** From `GET /api/users/companies`. Absent while it loads, or when uncapped. */
+  /** From `GET /api/users/companies`. Absent while it loads, or from an older server. */
   quota: AddQuota | null | undefined;
 }
 
@@ -17,9 +17,13 @@ interface AddQuotaCounterProps {
  * the submit is disabled — those two together are the whole explanation, which is
  * why there is no extra copy for the exhausted state.
  *
- * Renders NOTHING when there is no cap to report: no quota on the payload (a server
- * older than this feature), or `limit === 0` (the cap is switched off). A counter
- * saying "unlimited" would be a line of chrome about a rule that is not in force.
+ * Renders NOTHING in exactly one case: no quota on the payload at all, i.e. a server
+ * older than this feature. "We don't know" is not a number, so there is nothing
+ * honest to put on the line.
+ *
+ * `limit === 0` is NOT that case. Zero is a cap that is in force and allows no adds,
+ * so this reads "0 of 0 adds left this month" in the error colour and the submit is
+ * disabled — the same treatment as a spent month, because it is the same fact.
  */
 export function AddQuotaCounter({ quota }: AddQuotaCounterProps) {
   const remaining = addsRemaining(quota);

@@ -648,21 +648,28 @@ describe('MyCompaniesPage', () => {
       expect(fetchMock).not.toHaveBeenCalled();
     });
 
-    it('renders no counter and disables nothing when the cap is switched off', async () => {
-      listBody = { companies: [], quota: { used: 400, limit: 0, resetsAt: RESETS_AT } };
+    it('reads "0 of 0" and disables the submit when the limit is 0', async () => {
+      // THE CASE THAT SWAPPED. `limit: 0` used to mean unlimited — no counter, submit
+      // enabled. It is now the kill switch: a cap in force that allows nothing, and it
+      // gets the same treatment as a spent month because it is the same fact.
+      listBody = { companies: [], quota: { used: 0, limit: 0, resetsAt: RESETS_AT } };
       const user = userEvent.setup();
       renderWithProviders(<MyCompaniesPage />);
 
+      expect(await screen.findByTestId('add-quota-counter')).toHaveTextContent(
+        '0 of 0 adds left this month'
+      );
       await user.type(screen.getByLabelText(/job board link/i), 'https://intel.com/careers');
-      expect(screen.queryByTestId('add-quota-counter')).not.toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /add company/i })).toBeEnabled();
+      expect(screen.getByRole('button', { name: /add company/i })).toBeDisabled();
+      expect(fetchMock).not.toHaveBeenCalled();
     });
 
     it('renders no counter, and still lets the user add, when the server sends no quota', async () => {
-      // A server older than this feature. "We don't know" must never be read as
-      // "you have none left" — locking someone out of the whole feature on a missing
-      // field is the worst possible reading of it, and the server refuses over quota
-      // regardless of what this button does.
+      // A server older than this feature — and now the ONLY case that renders nothing.
+      // "We don't know" must never be read as "you have none left": locking someone out
+      // of the whole feature on a missing field is the worst possible reading of it,
+      // and the server refuses over quota regardless of what this button does. This is
+      // deliberately NOT the same case as `limit: 0` above.
       listBody = { companies: [] };
       const user = userEvent.setup();
       renderWithProviders(<MyCompaniesPage />);

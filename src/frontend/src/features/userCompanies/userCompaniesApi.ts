@@ -256,26 +256,35 @@ export interface UserCompany {
  * give one back. A URL it could not read at all (a bad scheme, a private address, a
  * dead domain) costs nothing: see `add_quota.py`, which owns that exception.
  *
- * `limit` is the configured cap and **`0` means unlimited**, in which case there is
- * no counter to render at all. There is no `remaining` on the wire, by design: see
- * {@link addsRemaining}, the single definition of that arithmetic anywhere.
+ * `limit` is the configured cap and means exactly what it says: the number of adds
+ * allowed this month. **`0` allows none** — it is a kill switch, not an "unlimited"
+ * sentinel. There is no `remaining` on the wire, by design: see {@link addsRemaining},
+ * the single definition of that arithmetic anywhere.
  *
  * Optional on {@link GetUserCompaniesResponse} because a server that predates the
- * counter simply omits it; the UI renders nothing rather than guessing.
+ * counter simply omits it; the UI renders nothing rather than guessing. THAT absence
+ * is the only "no cap in force" case, and it is a different thing from `limit: 0`.
  */
 export interface AddQuota {
   /** Submissions recorded this UTC calendar month. */
   used: number;
-  /** The cap. `0` = unlimited. */
+  /** The cap. `0` allows no adds at all — it is not "unlimited". */
   limit: number;
   /** ISO-8601 start of the next UTC month — when `used` goes back to 0. */
   resetsAt: string;
 }
 
 /**
- * Slots left, floored at 0. Returns `null` when there is no cap to count against
- * (unlimited, or a server that does not send a quota) — the caller renders no
- * counter and disables nothing.
+ * Slots left, floored at 0. Returns `null` in EXACTLY ONE case: there is no quota on
+ * the payload at all — a server that predates the counter. That means "we don't know",
+ * so the caller renders no counter and disables nothing; the server still refuses over
+ * quota regardless of what the button does. Locking a user out of the whole feature on
+ * a missing field would be the worst possible reading of it.
+ *
+ * `null` and `0` ARE NOT THE SAME THING and must never be collapsed. `limit: 0` is a
+ * cap that is in force and fully spent, so it returns `0` — the counter renders and the
+ * submit disables. (It used to return `null` here, because `0` meant unlimited. It
+ * doesn't any more: the number is the number of adds allowed.)
  *
  * THE ONLY definition of this arithmetic — the backend deliberately has none (it only
  * ever asks "is it exhausted?"). The counter copy and the "is the submit disabled?"
@@ -283,7 +292,7 @@ export interface AddQuota {
  * `limit - used` expressions would allow.
  */
 export function addsRemaining(quota: AddQuota | null | undefined): number | null {
-  if (!quota || quota.limit <= 0) return null;
+  if (!quota) return null;
   return Math.max(quota.limit - quota.used, 0);
 }
 

@@ -63,10 +63,14 @@ def no_add_limits(monkeypatch):
     number some unrelated test happened to leave behind. The burst limiter is a
     process-wide singleton, so it is also RESET rather than only re-sized —
     ``_max`` alone would leave a previous test's timestamps in the bucket.
+
+    The monthly cap is neutralised with a LARGE NUMBER, and it has to be: ``0`` used
+    to mean unlimited and now means "no adds at all", so the old value would refuse
+    every POST in this file rather than allowing them.
     """
     user_company_add_rate_limiter.reset()
     monkeypatch.setattr(user_company_add_rate_limiter, "_max", 1_000_000)
-    monkeypatch.setattr(settings, "custom_company_monthly_add_limit", 0)
+    monkeypatch.setattr(settings, "custom_company_monthly_add_limit", 1_000_000)
     yield
     user_company_add_rate_limiter.reset()
 
@@ -3183,20 +3187,48 @@ def test_an_ats_add_still_spends_its_slot(client, db_conn, monkeypatch):
     assert _quota(client)["used"] == 2
 
 
-def test_zero_disables_the_cap_entirely(client, db_conn, monkeypatch):
-    """The local off switch. Far past any plausible limit, and never refused."""
+def test_zero_refuses_every_add_including_a_users_first(client, db_conn, monkeypatch):
+    """ZERO MEANS ZERO — the half of this that used to mean the exact opposite.
+
+    ``0`` was the unlimited sentinel, so a value that landed on it by accident (a
+    typo, a bad deploy template, an empty string coerced to an int) handed every
+    signed-in user unbounded browser + LLM spend. It now refuses, and it refuses a
+    brand-new user with nothing spent, which is the case that proves there is no
+    sentinel left: ``used=0 >= limit=0``.
+    """
     monkeypatch.setattr(settings, "custom_company_monthly_add_limit", 0)
-    _login(client, "auth0|UNLIM", "unlim@example.com")
-    user_id = _user_id(db_conn, "unlim@example.com")
+    _login(client, "auth0|ZERO", "zero@example.com")
+    _install_greenhouse_any(monkeypatch)
+    before = _quota(client)
+    assert before["used"] == 0 and before["limit"] == 0, before
+
+    resp = client.post(
+        "/api/users/companies", json={"url": "https://boards.greenhouse.io/zeroed"}
+    )
+
+    assert resp.status_code == 422, resp.text
+    assert resp.json()["reason"] == "monthly_limit_reached", resp.text
+    # And the copy does not read "you've used all 0 of your company adds", which is
+    # what the plain sentence would say to somebody who has spent nothing.
+    detail = resp.json()["detail"]
+    assert "all 0" not in detail, detail
+    assert "turned off" in detail, detail
+
+
+def test_a_large_limit_permits_the_add(client, db_conn, monkeypatch):
+    """The other half of the swap: local dev buys its freedom with a big number now,
+    not with ``0``. Far past any plausible usage, and never refused."""
+    monkeypatch.setattr(settings, "custom_company_monthly_add_limit", 10_000)
+    _login(client, "auth0|BIG", "big@example.com")
+    user_id = _user_id(db_conn, "big@example.com")
     _seed_attempts(db_conn, user_id, 500)
     _install_greenhouse_any(monkeypatch)
 
     resp = client.post(
-        "/api/users/companies", json={"url": "https://boards.greenhouse.io/unlimited"}
+        "/api/users/companies", json={"url": "https://boards.greenhouse.io/roomy"}
     )
     assert resp.status_code == 201, resp.text
-    # ...and the counter says there is nothing to count against.
-    assert _quota(client)["limit"] == 0
+    assert _quota(client)["limit"] == 10_000
 
 
 def test_the_monthly_limit_default_is_pinned() -> None:
@@ -3207,21 +3239,36 @@ def test_the_monthly_limit_default_is_pinned() -> None:
     assert fields["custom_company_monthly_add_limit"].default == 20
 
 
-def test_booting_with_the_cap_off_logs_a_warning(monkeypatch, caplog) -> None:
+def test_zero_is_still_a_legal_value() -> None:
+    """``ge=0``, not ``gt=0``. Zero has to stay constructible now that it means
+    something: it is the per-user kill switch, one env var that stops every add
+    without a deploy. A ``gt=0`` bound would turn that into a boot crash."""
+    from pydantic import ValidationError
+
+    assert type(settings)(custom_company_monthly_add_limit=0)
+    with pytest.raises(ValidationError):
+        type(settings)(custom_company_monthly_add_limit=-1)
+
+
+def test_booting_with_adds_disabled_logs_a_warning(monkeypatch, caplog) -> None:
+    """The warning survived the sentinel's removal, INVERTED. It used to say the gate
+    was wide open; it now says nothing can get through. Still worth a boot line
+    because ``0`` is reachable by accident and looks like a broken feature."""
     import logging as _logging
 
-    from api.services.add_quota import warn_if_unlimited
+    from api.services.add_quota import warn_if_adds_disabled
 
     monkeypatch.setattr(settings, "custom_company_monthly_add_limit", 0)
     caplog.clear()
     with caplog.at_level(_logging.WARNING, logger="api.services.add_quota"):
-        warn_if_unlimited()
+        warn_if_adds_disabled()
     assert "CUSTOM_COMPANY_MONTHLY_ADD_LIMIT is 0" in caplog.text
+    assert "NO user can add a company" in caplog.text
 
     caplog.clear()
     monkeypatch.setattr(settings, "custom_company_monthly_add_limit", 20)
     with caplog.at_level(_logging.WARNING, logger="api.services.add_quota"):
-        warn_if_unlimited()
+        warn_if_adds_disabled()
     assert caplog.text == ""
 
 
@@ -3351,7 +3398,9 @@ def test_the_eleventh_add_in_a_minute_is_refused(client, db_conn, monkeypatch):
     — which spends nothing — and NOT on this route, which starts a browser and an LLM
     call. It looked done because the UI calls resolve first; a replayed token aimed
     straight here bypassed it entirely."""
-    monkeypatch.setattr(settings, "custom_company_monthly_add_limit", 0)
+    # A LARGE number, not 0 — 0 means "no adds at all" now, which would refuse these
+    # POSTs for the wrong reason and make the burst assertion meaningless.
+    monkeypatch.setattr(settings, "custom_company_monthly_add_limit", 1_000_000)
     monkeypatch.setattr(user_company_add_rate_limiter, "_max", 10)
     user_company_add_rate_limiter.reset()
     _login(client, "auth0|BURST", "burst@example.com")
@@ -3376,7 +3425,9 @@ def test_the_burst_refusal_says_how_long_to_wait_in_the_body(
     body ONLY — the same reason ``X-Next-Cursor`` needs its own explicit line there.
     A ``Retry-After`` header therefore never reaches the browser, so the wait has to be
     in the message. The header is still sent, for direct API callers that do see it."""
-    monkeypatch.setattr(settings, "custom_company_monthly_add_limit", 0)
+    # A LARGE number, not 0 — 0 means "no adds at all" now, which would refuse these
+    # POSTs for the wrong reason and make the burst assertion meaningless.
+    monkeypatch.setattr(settings, "custom_company_monthly_add_limit", 1_000_000)
     monkeypatch.setattr(user_company_add_rate_limiter, "_max", 1)
     user_company_add_rate_limiter.reset()
     _login(client, "auth0|WAIT", "wait@example.com")
@@ -3395,7 +3446,9 @@ def test_the_burst_refusal_says_how_long_to_wait_in_the_body(
 def test_the_burst_limit_is_keyed_per_user(client, db_conn, monkeypatch):
     """One user's burst must not lock everybody else out — the key is the
     authenticated subject, not a global counter."""
-    monkeypatch.setattr(settings, "custom_company_monthly_add_limit", 0)
+    # A LARGE number, not 0 — 0 means "no adds at all" now, which would refuse these
+    # POSTs for the wrong reason and make the burst assertion meaningless.
+    monkeypatch.setattr(settings, "custom_company_monthly_add_limit", 1_000_000)
     monkeypatch.setattr(user_company_add_rate_limiter, "_max", 1)
     user_company_add_rate_limiter.reset()
     _install_greenhouse_any(monkeypatch)

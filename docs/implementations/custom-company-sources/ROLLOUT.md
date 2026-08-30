@@ -101,7 +101,7 @@ degrade, it fails the boot. Confirm `alembic heads` returns exactly one before e
 | `CUSTOM_COMPANY_SOURCES_ENABLED` | `False` | Every `/api/users/companies` route returns **503** |
 | `CUSTOM_COMPANY_DISCOVERY_ENABLED` | `False` | Free ATS path works; a non-ATS URL returns **422**, spends nothing |
 | `CAPTURE_USE_BROWSERBASE` | `False` | Discovery uses our own Chromium. **Costs money when on** |
-| `CUSTOM_COMPANY_MONTHLY_ADD_LIMIT` | `20` | `0` = unlimited. **Fail-closed:** a typo'd name keeps the default, so the limit stays ON |
+| `CUSTOM_COMPANY_MONTHLY_ADD_LIMIT` | `20` | Adds allowed per user per month. **`0` allows NONE** — a kill switch, not "unlimited" (see §4c). **Fail-closed both ways:** a typo'd *name* keeps the default 20, and a typo'd *value* landing on `0` blocks adds |
 
 **Frontend (Vercel, `VITE_*`). BUILD-TIME — a change requires a REDEPLOY, not just an env edit.**
 
@@ -116,6 +116,46 @@ can reach the backend even if the backend flag is on. Flip the backend first, fr
 ⚠️ **Reading Railway variables is blocked** by the permission classifier (values return in
 plaintext and may contain secrets). Setting them is possible. So **verify flag state by
 behaviour, not by reading config** — see §6.
+
+---
+
+## 4c. ⚠️ BREAKING ON DEPLOY — `CUSTOM_COMPANY_MONTHLY_ADD_LIMIT=0` flipped meaning
+
+**Not flag-gated. Ships with the code.** `0` used to mean **unlimited**; it now means
+**zero adds allowed**.
+
+| | Before | After |
+|---|---|---|
+| `CUSTOM_COMPANY_MONTHLY_ADD_LIMIT` unset | 20/month | 20/month (unchanged) |
+| `…=20` | 20/month | 20/month (unchanged) |
+| **`…=0`** | **unlimited** | **every add refused, 422 `monthly_limit_reached`** |
+
+**Any environment currently sitting on `0` flips from unbounded to fully blocked the
+moment this deploys.** That is the intended direction — a guard on money should fail
+closed, and the old shape meant a typo, a bad template, or an empty string coerced to an
+int silently handed every signed-in user unbounded headless-browser and LLM spend — but
+it is a real behaviour change, not a refactor.
+
+### ✅ ACTION REQUIRED BEFORE THIS DEPLOYS — only Brendan can do this
+
+**Confirm `CUSTOM_COMPANY_MONTHLY_ADD_LIMIT` is UNSET in Railway production.** It is
+*expected* to be unset, so the compiled-in default of `20` applies and nothing changes.
+**This has NOT been verified**: reading Railway variables is blocked by the permission
+classifier (see the warning above), so no agent can check it. If it turns out to be set
+to `0`, either delete the variable or set it to a number **before** merging — otherwise
+every user's next add returns 422.
+
+Two things that make the new state visible rather than silent:
+
+- A boot at `0` logs a WARNING naming the state
+  (`services/add_quota.warn_if_adds_disabled`) — kept from the old code, inverted.
+- The UI stops hiding it. `limit: 0` renders **"0 of 0 adds left this month"** with the
+  submit disabled, instead of rendering no counter at all.
+
+**Local and e2e keep their freedom with a large number, never `0`:** `.env.local` uses
+`10000`, and `e2e/shared/stack/env.e2e` uses `100000`. `ge=0` is deliberately retained,
+so `0` is still legal — it is now a genuine per-user kill switch, one env var that stops
+every add without a deploy.
 
 ---
 
@@ -301,7 +341,11 @@ same scrutiny as step 4, rather than being treated as the safe warm-up.
    build-time. Optionally `VITE_DISCOVERY_PROGRESS_ENABLED=true` for the checklist.
 4. **Then, and separately**, `CUSTOM_COMPANY_DISCOVERY_ENABLED=true`. This is the one that
    starts spending money. Before flipping it:
-   - confirm `CUSTOM_COMPANY_MONTHLY_ADD_LIMIT` is set (or intentionally `0`)
+   - confirm `CUSTOM_COMPANY_MONTHLY_ADD_LIMIT` is **unset (default 20) or set to a
+     positive number**. `0` is no longer "unlimited" — it now refuses every add (§4c),
+     so the old wording of this step ("or intentionally `0`") would have you flip the
+     spend gate on with the add endpoint dead. If you want adds off, `0` is the switch;
+     if you want them on, `0` is the one value that must not be there.
    - confirm the Anthropic Console spend cap is in place — the owner keeps ~$20 there as the
      backstop, and accepts that hitting it kills AI features rather than costing money
    - leave `CAPTURE_USE_BROWSERBASE` **off**; our own Chromium is proven and free
@@ -339,6 +383,8 @@ Stated plainly so nobody is surprised:
 
 - The six migrations run regardless.
 - Every change in §1 is live regardless.
+- **`CUSTOM_COMPANY_MONTHLY_ADD_LIMIT=0` means zero regardless — see §4c.** No flag gates
+  it, and an environment sitting on `0` goes from unlimited to fully blocked on deploy.
 - The proxy fix is live regardless — **this is desirable**; it closes an anonymous path to
   the internal-key routes.
 

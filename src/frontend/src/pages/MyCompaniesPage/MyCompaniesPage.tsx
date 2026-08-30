@@ -52,10 +52,14 @@ export function MyCompaniesPage() {
     skip: !isAuthenticated,
   });
   const quota = userCompanies?.quota;
-  // `null` means there is no cap in force (unlimited, or a server that predates the
-  // counter). It must NOT disable the form — an absent quota is "we don't know",
-  // and locking a user out of the feature on a missing field would be the worst
+  // `null` means ONLY one thing: the payload carried no quota, i.e. a server that
+  // predates the counter. It must NOT disable the form — an absent quota is "we don't
+  // know", and locking a user out of the feature on a missing field would be the worst
   // possible reading of it. The server refuses over quota regardless.
+  //
+  // `0` is the opposite and must stay distinct: a cap that is in force with nothing
+  // left, including `limit: 0` (adds turned off), which disables the submit. `=== 0`
+  // rather than a falsy check is what keeps `null` out of the exhausted branch.
   const exhausted = addsRemaining(quota) === 0;
 
   // ── auth ladder (mirrors SavedFiltersPage / AccountPage) ─────────────────
