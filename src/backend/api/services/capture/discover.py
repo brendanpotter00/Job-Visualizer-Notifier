@@ -2826,11 +2826,11 @@ async def _resolve_job_link(
     # see the ``blocked`` branch below.
     #
     # ``repaired`` HAS TO BE COMPARED, not just added. ``repair_url_template`` returns
-    # the selection unchanged when it has nothing to swap, so on the ~2 boards in 3 with
-    # no repair evidence it hands back the model's own spec — and putting that in this
-    # set would let the guess back in through the evidence door. Caught by
-    # ``test_ac21b_a_waf_does_not_promote_the_models_bare_guess``, which passed with the
-    # bug in place because the wrong string was the right string.
+    # the selection unchanged when it has nothing to swap, so on most boards it hands
+    # back the model's OWN spec — and ``{*derived, repaired}`` therefore let the guess
+    # straight back in through the evidence door. The first version of this line did
+    # exactly that; ``test_ac21b_a_waf_does_not_promote_the_models_bare_guess`` is the
+    # case that caught it.
     evidenced = {*derived} | ({repaired} if repaired != spec else set())
 
     tried: list[str] = []
