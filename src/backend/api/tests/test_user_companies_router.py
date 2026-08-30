@@ -1701,9 +1701,37 @@ def test_an_ats_companys_provider_config_never_leaks_as_a_checklist(
         ("https://amazon.jobs/en/search", "Amazon"),       # noise label as the TLD
         ("https://jane-street.com/x", "Jane Street"),      # hyphens are word breaks
         ("https://jobs.example.com", "Example"),
+        # THE DIRECTORY CASE. The host is Y Combinator's; the company is Raindrop's.
+        # Naming this after the host gave one label to ~1,500 different boards.
+        ("https://www.ycombinator.com/companies/raindrop/jobs", "Raindrop"),
+        # The tenant slug gets the same hyphen treatment the host label gets.
+        ("https://www.ycombinator.com/companies/wispr-flow/jobs", "Wispr Flow"),
+        # Any directory host, not one we named: the shape is what is recognised.
+        ("https://directory.example/employers/acme/jobs", "Acme"),
     ],
 )
 def test_discovery_display_name_reads_like_a_company(url, expected):
+    assert _discovery_display_name(url) == expected
+
+
+@pytest.mark.parametrize(
+    "url,expected",
+    [
+        # Atlassian sits under `/company/`, but the next segment is a careers word, not
+        # a tenant — this is the case that would have been named "Careers".
+        ("https://www.atlassian.com/company/careers/all-jobs", "Atlassian"),
+        # No directory segment at all.
+        ("https://www.janestreet.com/join-jane-street/open-roles/", "Janestreet"),
+        # A leaf under `/company/`: a directory URL points AT a tenant and keeps going,
+        # so nothing following the slug means we decline rather than guess.
+        ("https://acme.example/company/our-story", "Acme"),
+        ("https://www.ycombinator.com/companies/raindrop", "Ycombinator"),
+    ],
+)
+def test_a_path_only_names_a_company_when_it_is_a_directory(url, expected):
+    """The path is asked first, but it answers rarely — three conditions, and every one
+    of them is a wrong name that was measured against a board this repo already tracks.
+    """
     assert _discovery_display_name(url) == expected
 
 
@@ -2034,7 +2062,9 @@ def test_a_re_add_after_track_anyway_still_resolves_to_the_users_own_row(
 
     again = client.post("/api/users/companies", json={"url": url})
 
-    assert again.status_code == 200, again.text
+    # 202, because the opted-in row is still ``discovering`` — the re-add answer mirrors
+    # the board's state. What this test is about is the id: it resolves to THEIR row.
+    assert again.status_code == 202, again.text
     assert again.json()["id"] == company_id
     assert again.json().get("status") != "already_public"
     assert _count(db_conn, "companies", "WHERE visibility = 'user'") == 1
@@ -2073,8 +2103,37 @@ def _set_health(db_conn, company_id: str, health: str) -> None:
     db_conn.commit()
 
 
-def _add_then_readd(client, db_conn, monkeypatch, *, health: str) -> dict:
-    """One real discovery add, forced into ``health``, then the SAME URL re-pasted."""
+def _set_display_name(db_conn, company_id: str, name: str) -> None:
+    cur = db_conn.cursor()
+    cur.execute(
+        sql.SQL("UPDATE {} SET display_name = %s WHERE id = %s").format(
+            sql.Identifier("companies")
+        ),
+        (name, company_id),
+    )
+    db_conn.commit()
+
+
+def _set_enabled(db_conn, company_id: str, enabled: bool) -> None:
+    cur = db_conn.cursor()
+    cur.execute(
+        sql.SQL("UPDATE {} SET enabled = %s, next_run_at = NULL WHERE id = %s").format(
+            sql.Identifier("companies")
+        ),
+        (enabled, company_id),
+    )
+    db_conn.commit()
+
+
+def _add_then_readd(
+    client, db_conn, monkeypatch, *, health: str, expect_status: int = 200
+) -> tuple[dict, dict]:
+    """One real discovery add, forced into ``health``, then the SAME URL re-pasted.
+
+    Returns ``(response body, newest audit row)``. The BODY is half the contract and
+    used not to be checked at all: every re-add answered 200 with the tracked-company
+    shape, which the frontend renders as "Now tracking …".
+    """
     monkeypatch.setattr(settings, "custom_company_discovery_enabled", True)
     _login(client, "auth0|A", "a@example.com")
     _patch_no_ats(monkeypatch)
@@ -2086,9 +2145,11 @@ def _add_then_readd(client, db_conn, monkeypatch, *, health: str) -> dict:
     _set_health(db_conn, company_id, health)
 
     again = client.post("/api/users/companies", json={"url": _NON_ATS_URL})
-    assert again.status_code == 200, again.text
-    assert again.json()["id"] == company_id
-    return _latest_attempt(db_conn)
+    assert again.status_code == expect_status, again.text
+    body = again.json()
+    if expect_status != 422:
+        assert body["id"] == company_id
+    return body, _latest_attempt(db_conn)
 
 
 def test_re_adding_a_tracked_board_writes_a_terminal_added_attempt(
@@ -2096,24 +2157,78 @@ def test_re_adding_a_tracked_board_writes_a_terminal_added_attempt(
 ):
     """THE BUG. The board finished discovery hours ago and is tracked; a re-add must
     not open a second pending row that nothing will ever close."""
-    attempt = _add_then_readd(client, db_conn, monkeypatch, health="unverified")
+    body, attempt = _add_then_readd(client, db_conn, monkeypatch, health="unverified")
 
     assert attempt["outcome"] == "added"
     assert attempt["error_detail"] is None
     # NOT 'discovered': that value is how the monthly quota tells a worker-written row
     # from a request-written one, so reusing it here would stop charging the re-add.
     assert attempt["resolved_ats"] == "already_tracked"
+    # A tracked board is the ONE case that legitimately gets the company body — the
+    # only shape the frontend renders as "Now tracking …".
+    assert body["healthState"] == "unverified"
+    assert "status" not in body
 
 
-def test_re_adding_a_refused_board_says_refused_not_added(
+def test_re_adding_a_refused_board_retries_its_discovery(
     client, db_conn, monkeypatch
 ):
-    """``added`` would be a lie about a board we told the user we cannot read."""
-    attempt = _add_then_readd(client, db_conn, monkeypatch, health="refused")
+    """THE BUG THE OWNER HIT. ``health_state='refused'`` records what our capture
+    pipeline could do on the day it ran, not a property of the board — he pasted a
+    Y-Combinator-hosted URL before the ``http_html`` transport existed, and re-pasted it
+    after. The re-add short-circuited on the refused row, re-ran nothing, and answered
+    200 with the company body, which renders as the green "Now tracking …" card over a
+    row that is disabled, recipe-less and empty. Re-pasting the URL is the only retry
+    the UI offers, so it has to actually retry."""
+    monkeypatch.setattr(settings, "custom_company_discovery_enabled", True)
+    _login(client, "auth0|A", "a@example.com")
+    _patch_no_ats(monkeypatch)
+    calls = _capture_defer(monkeypatch)
 
-    assert attempt["outcome"] == "refused"
-    assert attempt["resolved_ats"] == "already_tracked"
-    assert attempt["error_detail"] == "re-submitted; this board was already refused"
+    first = client.post("/api/users/companies", json={"url": _NON_ATS_URL})
+    company_id = first.json()["id"]
+    _set_health(db_conn, company_id, "refused")
+    # A refusal disables the row; the retry must leave it disabled until it succeeds.
+    _set_enabled(db_conn, company_id, False)
+    # The label the REFUSING deployment stored. The owner's row is literally named
+    # "Ycombinator" for a board belonging to Raindrop, and there is no rename endpoint,
+    # so the retry is the one moment we can correct it.
+    _set_display_name(db_conn, company_id, "Stale Name")
+
+    again = client.post("/api/users/companies", json={"url": _NON_ATS_URL})
+
+    # NOT 200, and not the company body: the board is not tracked.
+    assert again.status_code == 202, again.text
+    assert again.json()["status"] == "discovery_pending"
+    assert again.json()["id"] == company_id
+
+    # A SECOND discovery really was enqueued — the whole point.
+    assert len(calls) == 2
+    assert calls[1]["normalized_url"] == _NON_ATS_URL
+
+    # The row is back to 'discovering' with a fresh checklist, and still disabled and
+    # script-less: a retry must scrape nothing until it has proved it can read the board.
+    db_conn.rollback()
+    cur = db_conn.cursor()
+    cur.execute(
+        "SELECT health_state, enabled, next_run_at, display_name, provider_config "
+        "FROM companies WHERE id = %s", (company_id,),
+    )
+    row = cur.fetchone()
+    assert row["health_state"] == "discovering"
+    assert row["enabled"] is False
+    assert row["next_run_at"] is None
+    assert row["provider_config"]["discovery"]["outcome"] == "running"
+    assert _count(db_conn, "company_scripts") == 0
+    # The label is re-derived. The stored one was written by the deployment that
+    # refused the board, and the retry is the only moment we can correct it.
+    assert row["display_name"] == "Acme"
+
+    # It is charged like a first add: a counted ``discovery_pending`` audit row.
+    attempt = _latest_attempt(db_conn)
+    assert attempt["outcome"] == "discovery_pending"
+    assert attempt["resolved_ats"] == "discovered"
+    assert attempt["company_id"] == company_id
 
 
 def test_re_adding_a_board_still_discovering_stays_pending(
@@ -2121,11 +2236,68 @@ def test_re_adding_a_board_still_discovering_stays_pending(
 ):
     """THE ONE CASE THAT MUST NOT CHANGE. A run really is in flight, and it really will
     write the terminal half that pairs with this row — so ``pending`` is the truth."""
-    attempt = _add_then_readd(client, db_conn, monkeypatch, health="discovering")
+    body, attempt = _add_then_readd(
+        client, db_conn, monkeypatch, health="discovering", expect_status=202,
+    )
 
     assert attempt["outcome"] == "discovery_pending"
     assert attempt["resolved_ats"] == "discovered"
     assert attempt["error_detail"] is None
+    # And the RESPONSE says the same thing. It used to hand back the company body for a
+    # board whose setup had not finished, which renders as "Now tracking …".
+    assert body["status"] == "discovery_pending"
+
+
+def test_a_retry_that_loses_the_race_resets_nothing(client, db_conn, monkeypatch):
+    """The ``health_state = 'refused'`` predicate INSIDE the reset's UPDATE, not just in
+    the read above it. Two re-adds arriving together both read a refused row; without
+    the predicate both reset it and both enqueue a browser session for the same board.
+    The read is faked here because that is the only way to hold the two statements apart
+    in one process — what is under test is that the WRITE re-checks."""
+    monkeypatch.setattr(settings, "custom_company_discovery_enabled", True)
+    _login(client, "auth0|A", "a@example.com")
+    _patch_no_ats(monkeypatch)
+    _capture_defer(monkeypatch)
+
+    first = client.post("/api/users/companies", json={"url": _NON_ATS_URL})
+    company_id = first.json()["id"]
+    # The row is 'discovering' — the winner of the race already reset it — but our
+    # reader still holds the 'refused' snapshot it read a moment ago.
+    stale = dict(svc.find_owned_company_by_source_key(
+        db_conn, _user_id(db_conn, "a@example.com"),
+        svc.discovered_source_key(_NON_ATS_URL),
+    ))
+    stale["health_state"] = "refused"
+    monkeypatch.setattr(
+        svc, "find_owned_company_by_source_key", lambda *a, **k: dict(stale)
+    )
+
+    assert svc.restart_refused_discovery(
+        db_conn, user_id=_user_id(db_conn, "a@example.com"),
+        submitted_url=_NON_ATS_URL,
+        normalized_url=_NON_ATS_URL, display_name="Acme",
+    ) is None
+
+    db_conn.rollback()
+    cur = db_conn.cursor()
+    cur.execute("SELECT health_state FROM companies WHERE id = %s", (company_id,))
+    assert cur.fetchone()["health_state"] == "discovering"
+
+
+def test_re_adding_a_board_still_discovering_starts_no_second_run(
+    client, db_conn, monkeypatch
+):
+    """The retry above is for REFUSED boards only. A run already in flight is answered,
+    not duplicated — a second browser session for the same board is pure spend."""
+    monkeypatch.setattr(settings, "custom_company_discovery_enabled", True)
+    _login(client, "auth0|A", "a@example.com")
+    _patch_no_ats(monkeypatch)
+    calls = _capture_defer(monkeypatch)
+
+    client.post("/api/users/companies", json={"url": _NON_ATS_URL})
+    client.post("/api/users/companies", json={"url": _NON_ATS_URL})
+
+    assert len(calls) == 1
 
 
 def test_every_re_add_still_spends_a_quota_slot(client, db_conn, monkeypatch):
@@ -2536,7 +2708,9 @@ def test_a_re_add_after_track_anyway_resolves_to_the_users_own_row_by_name(
 
     again = client.post("/api/users/companies", json={"url": _SPOTIFY_URL})
 
-    assert again.status_code == 200, again.text
+    # 202, because the opted-in row is still ``discovering``. The point of this test is
+    # the id: it resolves to THEIR row instead of being sent back to the public page.
+    assert again.status_code == 202, again.text
     assert again.json().get("status") != "already_public"
     assert again.json()["id"] == owned_id
 

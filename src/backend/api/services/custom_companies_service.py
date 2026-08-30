@@ -990,6 +990,95 @@ def record_discovery_refusal(
     return str(existing["id"])
 
 
+def restart_refused_discovery(
+    conn: Connection,
+    *,
+    user_id: str,
+    submitted_url: str,
+    normalized_url: str,
+    display_name: str,
+) -> Optional[dict[str, Any]]:
+    """Put a REFUSED discovered board back into ``discovering`` so a re-add retries it.
+
+    WHY A REFUSAL IS NOT PERMANENT. ``health_state='refused'`` records what our capture
+    pipeline could do on the day it ran — not a property of the board. The owner pasted
+    ``ycombinator.com/companies/raindrop/jobs`` while discovery could not yet emit the
+    ``http_html`` transport, got a (correct, at the time) refusal, and then re-pasted the
+    same URL after that transport shipped. The re-add short-circuited on the refused row,
+    re-ran nothing, and answered ``200`` with the company body — which the frontend
+    renders as the green "Now tracking …" card, over a row that is ``enabled=FALSE``,
+    carries no ``company_scripts`` recipe and has zero jobs. Re-pasting the URL is the
+    ONLY retry affordance the UI offers (``DiscoveryChecklist.NextActions`` says to paste
+    a different address; there is no retry button), so it has to actually retry.
+
+    WHAT IT COSTS, and why that is the right bound. A retry is a fresh browser session
+    plus a Haiku call, so it must be charged exactly like a first add — and it is: the
+    ``discovery_pending`` + ``resolved_ats='discovered'`` audit row it writes is counted
+    by ``add_quota._QUOTA_COUNTED_PREDICATE``, so a retry spends one of the twenty
+    monthly slots. Rapid re-presses collapse rather than multiplying: the caller defers
+    under ``discovery_queueing_lock``, and a second defer while the first job is still
+    ``todo``/``doing`` raises ``AlreadyEnqueued`` instead of opening a second browser.
+
+    THE DISPLAY NAME IS REFRESHED with the caller's freshly derived one. The stored
+    label was computed by the deployment that refused the board — the same YC row is
+    literally named "Ycombinator" — and there is no rename endpoint, so leaving it would
+    make the retry the one moment we could fix it and did not.
+
+    Guarded on ``health_state='refused'`` IN THE UPDATE, not just in the read above it:
+    two re-adds racing must not both reset the row and both enqueue. The loser sees
+    ``rowcount == 0`` and gets ``None``, which the caller reads as "somebody else already
+    moved this row" and answers from the row's current state instead.
+
+    ``None`` also covers the ordinary case the other terminal writers cover — the board
+    was REMOVED between the read and the write — for the same reason they do: never
+    write an audit row pointing at a company that no longer exists.
+    """
+    source_key = discovered_source_key(normalized_url)
+    existing = find_owned_company_by_source_key(conn, user_id, source_key)
+    if existing is None or existing.get("health_state") != "refused":
+        return None
+
+    seeded_progress = initial_snapshot()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            """
+            UPDATE companies
+            SET health_state = 'discovering', enabled = FALSE, next_run_at = NULL,
+                display_name = %s,
+                provider_config = jsonb_set(
+                    provider_config, '{discovery}', %s::jsonb, true
+                )
+            WHERE id = %s AND visibility = 'user' AND health_state = 'refused'
+            """,
+            (display_name, json.dumps(seeded_progress), existing["id"]),
+        )
+        if cursor.rowcount == 0:
+            conn.rollback()
+            return None
+        conn.commit()
+    except psycopg2.Error:
+        conn.rollback()
+        raise
+
+    record_add_attempt(
+        conn, user_id=user_id, submitted_url=submitted_url,
+        normalized_url=normalized_url, outcome="discovery_pending",
+        resolved_ats=_DISCOVERED_ATS, company_id=existing["id"],
+    )
+    return {
+        **existing,
+        "display_name": display_name,
+        "health_state": "discovering",
+        "source_id": custom(existing["id"]),
+        "open_job_count": count_open_jobs(conn, existing["id"]),
+        "provider_config": {
+            **(existing.get("provider_config") or {}),
+            "discovery": seeded_progress,
+        },
+    }
+
+
 def count_open_jobs(conn: Connection, company_id: str) -> int:
     """OPEN job_listings for a custom company (scoped by its own source_id)."""
     cursor = conn.cursor()

@@ -58,6 +58,7 @@ from ..routers.jobs import NEXT_CURSOR_HEADER
 from ..services import add_quota
 from ..services import custom_companies_service as svc
 from ..services.ats_discovery import REASON_NO_ATS, discover_ats, probe_candidate
+from ..services.company_name_match import directory_tenant
 from ..services.rate_limit import enforce_user_company_add_rate_limit
 from ..services.discovery.progress import read_progress
 from ..services.published_board_match import read_suggestion
@@ -199,6 +200,12 @@ def _readd_attempt_fields(existing: dict) -> tuple[str, str, str | None]:
     No new outcome value: every one of these is already in the dashboard's closed
     vocabulary, so the fix costs no frontend chip, no filter option and no migration.
 
+    THE ``refused`` ROW IS NOW ALL BUT UNREACHABLE, which is a fix rather than dead
+    code. Re-adding a refused board RETRIES its discovery
+    (``svc.restart_refused_discovery``): that path writes its own ``discovery_pending``
+    row and never arrives here. Only a re-add that LOSES the race to reset the row
+    falls through, and it must still write the truth about what it found.
+
     A row is still written on every path, because the monthly cap counts URLs
     ENTERED, not boards created (``services/add_quota``) — a re-add that creates
     nothing has still spent a submission, and the ATS branch charges for one too.
@@ -218,13 +225,34 @@ _HOST_NOISE_PREFIXES = ("www", "jobs", "careers", "boards", "apply", "talent", "
 _HOST_SUFFIX_LABELS = ("co", "com", "net", "org", "ac", "gov", "edu")
 
 
-def _discovery_display_name(final_url: str) -> str:
-    """A human label for a discovered company, derived from its final URL's host.
+def _title_case_slug(slug: str) -> str:
+    """`wispr-flow` → `Wispr Flow`. Hyphens and underscores are word breaks; a
+    run-together label is capitalised and left alone (see the caller for why)."""
+    name = slug.replace("-", " ").replace("_", " ").strip()
+    return " ".join(word.capitalize() for word in name.split())
 
-    The host is what we have — a discovered board has no name field to read. But the
-    RAW host is what the user then sees on every job card and in their companies list,
-    and `www.janestreet.com` reads like a URL someone forgot to clean up rather than a
-    company. So we take the registrable label and title-case it: `Jane Street`.
+
+def _discovery_display_name(final_url: str) -> str:
+    """A human label for a discovered company, derived from its final URL.
+
+    THE PATH IS ASKED FIRST, because on a DIRECTORY host it is the only thing that
+    names the company. ``www.ycombinator.com/companies/raindrop/jobs`` is Raindrop's
+    board; naming it after the host produced a row called "Ycombinator", and every
+    other YC-hosted board a user added would have carried that same label — one name
+    for ~1,500 different companies. ``company_name_match.directory_tenant`` recognises
+    the shape (a declared directory segment, a tenant slug that is not a careers word,
+    and something after it) and returns the slug, or ``None`` for the ordinary
+    single-company careers URL, which then falls through to the host reading below
+    unchanged: Jane Street and Atlassian both take that path.
+
+    Two tenants never shared a ROW — ``discovered_source_key`` has always been the full
+    normalized URL — so this is the label, not the identity. It is still the label the
+    user reads on every job card, in their companies list and in every health sentence.
+
+    The host is what is left when the path says nothing — a discovered board has no name
+    field to read. But the RAW host is what the user then sees, and `www.janestreet.com`
+    reads like a URL someone forgot to clean up rather than a company. So we take the
+    registrable label and title-case it: `Jane Street`.
 
     Deliberately conservative about WHICH label: stripping only a leading `www.` names
     `jobs.acme.com` as "Jobs". We drop every leading noise label, then walk back from
@@ -237,6 +265,12 @@ def _discovery_display_name(final_url: str) -> str:
     no reliable way to tell `janestreet` from `mongodb`, and "Mongo Db" is worse than
     "Janestreet". The user can rename it; we just must not invent.
     """
+    tenant = directory_tenant(final_url)
+    if tenant:
+        tenant_name = _title_case_slug(tenant)
+        if tenant_name:
+            return tenant_name
+
     host = urlparse(final_url).netloc.split("@")[-1].split(":")[0].strip().lower()
     if not host:
         return final_url
@@ -254,10 +288,9 @@ def _discovery_display_name(final_url: str) -> str:
     while len(labels) > 1 and labels[0] in _HOST_NOISE_PREFIXES:
         labels = labels[1:]
 
-    name = labels[-1].replace("-", " ").replace("_", " ").strip()
-    if not name or name in _HOST_NOISE_PREFIXES:
+    if labels[-1] in _HOST_NOISE_PREFIXES:
         return host
-    return " ".join(word.capitalize() for word in name.split())
+    return _title_case_slug(labels[-1]) or host
 
 
 async def _defer_discovery(
@@ -288,6 +321,55 @@ async def _defer_discovery(
         submitted_url=submitted_url,
         normalized_url=normalized_url,
         display_name=display_name,
+    )
+
+
+async def _defer_discovery_or_500(
+    *, user_id: str, submitted_url: str, normalized_url: str, display_name: str
+) -> None:
+    """:func:`_defer_discovery`, turning any failure into the 500 the caller owes.
+
+    Both callers — the first add and the retry of a refused board — have already
+    committed a row that says ``discovering``. If the enqueue then fails there is no
+    worker to move it, so answering 202 would hand back a row that narrates a setup
+    nobody is running; the reconciler would eventually refuse it half an hour later.
+    One helper so the two paths cannot disagree about that.
+    """
+    try:
+        await _defer_discovery(
+            user_id=user_id, submitted_url=submitted_url,
+            normalized_url=normalized_url, display_name=display_name,
+        )
+    except Exception:
+        logger.exception("Failed to enqueue discovery for %s", normalized_url)
+        raise HTTPException(status_code=500, detail="Failed to start discovery")
+
+
+def _discovery_pending_response(
+    row: dict, normalized_url: str, detail: str
+) -> JSONResponse:
+    """The 202 ``discovery_pending`` body for a board whose setup is in flight.
+
+    Hand back the row's id. Without it the caller can only find the board it just
+    added by diffing the list, so the "one-time setup" notice could never point at the
+    row now narrating its own progress. ``isDiscoveryPending`` discriminates on
+    ``status``. Hand-cased keys — this is a raw dict, not a Pydantic model, so no
+    ``to_camel`` generator runs over it.
+
+    ``detail`` is the caller's, because the three ways to reach this state are three
+    different sentences: a first setup, a setup already running, and a RETRY of a board
+    we previously refused. They used to be one sentence because two of them did not
+    exist — the retry answered "Now tracking" instead.
+    """
+    return JSONResponse(
+        status_code=202,
+        content={
+            "status": "discovery_pending",
+            "detail": detail,
+            "finalUrl": normalized_url,
+            "id": row["id"],
+            "sourceId": row.get("source_id") or custom(row["id"]),
+        },
     )
 
 
@@ -356,6 +438,14 @@ async def add_company(
     canonical_source_key)`` — re-adding the same board returns the existing
     company (200) instead of erroring. A resolvable board that probes 0 jobs or errors
     returns 422 with ``outcome='empty'`` / ``'probe_failed'``.
+
+    THE RE-ADD ANSWER MIRRORS THE BOARD'S STATE, and the 200 above is only the
+    tracked case. A discovered board still being set up answers 202
+    ``discovery_pending``, and one we previously REFUSED is RETRIED — a refusal
+    records what our capture pipeline could do that day, not a property of the board,
+    and re-pasting the URL is the only retry the UI offers. Both used to answer 200
+    with the company body, which the frontend renders as "Now tracking …" over a row
+    that is disabled, recipe-less and empty.
 
     A URL we could not READ — a url_guard refusal or a transport failure — is refused
     422 with the resolver's own ``reason`` and **records nothing**, so it starts no
@@ -654,13 +744,54 @@ async def add_company(
             # board is unsupported", with nothing distinguishing the two.
             if settings.custom_company_discovery_enabled and result.final_url:
                 normalized_url = result.final_url
+                display_name = _discovery_display_name(normalized_url)
                 existing = owned
+
+                # ── A REFUSAL IS A SNAPSHOT OF US, NOT A VERDICT ON THE BOARD ────
+                # ``health_state='refused'`` records what the capture pipeline could
+                # do on the day it ran. The owner pasted a Y-Combinator-hosted board
+                # before discovery could emit the ``http_html`` transport, got a
+                # refusal that was correct at the time, and re-pasted the same URL
+                # after that transport shipped. The branch below used to short-circuit
+                # on the refused row, re-run nothing, and answer 200 with the company
+                # body — which ``AddCompanyOutcome`` renders as the green "Now
+                # tracking …" card over a row that is ``enabled=FALSE``, has no
+                # ``company_scripts`` recipe and zero jobs. Re-pasting the URL is the
+                # ONLY retry the UI offers (``DiscoveryChecklist.NextActions`` has no
+                # retry button), so it has to actually retry.
+                #
+                # It costs exactly what a first add costs and is charged the same: the
+                # ``discovery_pending`` audit row the reset writes is counted by
+                # ``add_quota._QUOTA_COUNTED_PREDICATE``, so a retry spends one of the
+                # twenty monthly slots — and the queueing lock below collapses rapid
+                # re-presses into one browser session instead of three.
+                if existing is not None and existing.get("health_state") == "refused":
+                    retried = svc.restart_refused_discovery(
+                        conn, user_id=user_id, submitted_url=payload.url,
+                        normalized_url=normalized_url, display_name=display_name,
+                    )
+                    if retried is not None:
+                        await _defer_discovery_or_500(
+                            user_id=user_id, submitted_url=payload.url,
+                            normalized_url=normalized_url, display_name=display_name,
+                        )
+                        return _discovery_pending_response(
+                            retried, normalized_url,
+                            "We're taking another look at this board — jobs appear "
+                            "after the first scan.",
+                        )
+                    # The reset matched no row: a concurrent re-add moved it first, or
+                    # the user pressed Remove. Answer from whatever state it is in NOW
+                    # rather than from the stale dict we read before the write.
+                    existing = svc.find_owned_company_by_source_key(
+                        conn, user_id, svc.discovered_source_key(normalized_url)
+                    )
+
                 if existing is not None:
-                    # Idempotent re-add of an already-discovered (or refused) board:
-                    # resolve to the existing row instead of re-spending on discovery.
-                    # The audit row MIRRORS the board's state — see
-                    # ``_readd_attempt_fields`` for why writing a flat
-                    # ``discovery_pending`` here was a bug.
+                    # Idempotent re-add of a board this caller already owns: resolve to
+                    # the existing row instead of re-spending on discovery. The audit
+                    # row MIRRORS the board's state — see ``_readd_attempt_fields`` for
+                    # why writing a flat ``discovery_pending`` here was a bug.
                     outcome, readd_ats, detail = _readd_attempt_fields(existing)
                     svc.record_add_attempt(
                         conn, user_id=user_id, submitted_url=payload.url,
@@ -672,6 +803,31 @@ async def add_company(
                     existing["open_job_count"] = svc.count_open_jobs(
                         conn, existing["id"]
                     )
+                    # AND SO DOES THE RESPONSE. The audit row was taught to mirror the
+                    # board's state; the body handed to the user was not, so a board
+                    # still being set up — and, before the retry above, a board we had
+                    # refused outright — was answered with the tracked-company body and
+                    # rendered as "Now tracking". The success card is reserved for a row
+                    # that is actually tracked.
+                    health = existing.get("health_state")
+                    if health == "discovering":
+                        return _discovery_pending_response(
+                            existing, normalized_url,
+                            "One-time setup is already running for this board; jobs "
+                            "appear after the first scan.",
+                        )
+                    if health == "refused":
+                        # Only reachable if a whole discovery ran and refused between
+                        # the reset's UPDATE and the re-read above. Unreachable in
+                        # practice, and deliberately NOT falling through to the success
+                        # body — an "impossible" branch that reports success is the
+                        # exact class of bug this block exists to remove.
+                        return _reject(
+                            422, "discovery_refused",
+                            "We couldn't work out how to read this board, so there is "
+                            "nothing to track yet.",
+                            final_url=normalized_url,
+                        )
                     response.status_code = 200
                     return _to_response(existing)
 
@@ -684,7 +840,7 @@ async def add_company(
                     placeholder = svc.add_discovering_placeholder(
                         conn, user_id=user_id, submitted_url=payload.url,
                         normalized_url=normalized_url,
-                        display_name=_discovery_display_name(normalized_url),
+                        display_name=display_name,
                     )
                 except (psycopg2.Error, RuntimeError):
                     logger.exception(
@@ -693,39 +849,16 @@ async def add_company(
                     raise HTTPException(
                         status_code=500, detail="Failed to start discovery"
                     )
-                try:
-                    await _defer_discovery(
-                        user_id=user_id,
-                        submitted_url=payload.url,
-                        normalized_url=normalized_url,
-                        display_name=_discovery_display_name(normalized_url),
-                    )
-                except Exception:
-                    logger.exception(
-                        "Failed to enqueue discovery for %s", normalized_url
-                    )
-                    raise HTTPException(
-                        status_code=500, detail="Failed to start discovery"
-                    )
-                # Hand back the placeholder's id. Without it the caller can only find
-                # the board it just added by diffing the list, so the "one-time setup"
-                # notice could never point at the row now narrating its own progress.
-                # Purely additive: ``isDiscoveryPending`` discriminates on ``status``.
-                # Hand-cased keys — this is a raw dict, not a Pydantic model, so no
-                # ``to_camel`` generator runs over it.
-                return JSONResponse(
-                    status_code=202,
-                    content={
-                        "status": "discovery_pending",
-                        "detail": (
-                            "One-time setup — we're figuring out how to read this "
-                            "board; jobs appear after the first scan."
-                        ),
-                        "finalUrl": normalized_url,
-                        "id": placeholder["id"],
-                        "sourceId": placeholder.get("source_id")
-                        or custom(placeholder["id"]),
-                    },
+                await _defer_discovery_or_500(
+                    user_id=user_id,
+                    submitted_url=payload.url,
+                    normalized_url=normalized_url,
+                    display_name=display_name,
+                )
+                return _discovery_pending_response(
+                    placeholder, normalized_url,
+                    "One-time setup — we're figuring out how to read this board; "
+                    "jobs appear after the first scan.",
                 )
 
             svc.record_add_attempt(
