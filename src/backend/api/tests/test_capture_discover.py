@@ -46,6 +46,7 @@ from api.services.capture.discover import (
 from api.services.capture.network_capture import (
     CaptureError,
     CaptureResult,
+    _islands_from_report,
     _responses_from_report,
 )
 from api.services.capture.request_selector import (
@@ -71,6 +72,7 @@ from api.services.recipe_runner import (
     MAX_HARVEST_RECORDS,
     RecipeExecutionError,
     map_records,
+    run_recipe,
 )
 from api.services.recipe_schema import BROWSER_FETCH_MAX_PAGES, dig_records
 from api.services.url_guard import UrlGuardError
@@ -2164,6 +2166,248 @@ async def test_a_board_that_already_has_a_trusted_total_keeps_it() -> None:
     )
     assert outcome.ok is True
     assert outcome.oracle_kind == "declared_probed"
+
+
+# --- S4: the document as a candidate, end to end ----------------------------
+#
+# Two replay paths that have been implemented in ``recipe_runner`` since Phase 3a and
+# that discovery has never emitted, plus the transport that carries them. What is proved
+# here is that a whole discovery run — pre-filter, selection, synthesis,
+# ``validate_recipe``, the acceptance ladder — produces a STORABLE ``http_html`` recipe.
+
+_ISLAND_URL = "https://boards.example.com/careers"
+_ISLAND_MAP = {"id": "id", "title": "title", "url": "https://boards.example.com/j/{id}"}
+
+
+def _island_markup(n: int) -> str:
+    blob = json.dumps({"props": {"pageProps": {"jobs": [
+        {"id": f"J{i}", "title": f"Engineer {i}"} for i in range(n)
+    ]}}})
+    return (
+        "<!doctype html><html><body>"
+        f'<script id="__NEXT_DATA__" type="application/json">{blob}</script>'
+        "</body></html>"
+    )
+
+
+def _served_islands(markup: str) -> tuple[dict[str, Any], ...]:
+    """The island rows a child would report for ``markup``, built HERE.
+
+    Deliberately not by calling ``_capture_main._json_islands``: that module is the one
+    place on the discovery side that imports ``playwright``, and importing it into the
+    pytest process makes every later ``assert_no_agent_imports()`` raise. The child's own
+    extractor is exercised in a subprocess by ``test_capture_sources``.
+    """
+    if "__NEXT_DATA__" not in markup:
+        return ()
+    blob = markup.split('type="application/json">', 1)[1].split("</script>", 1)[0]
+    return _islands_from_report([
+        {"scope": "served", "selector": "script#__NEXT_DATA__",
+         "source": "text", "body": blob},
+    ])
+
+
+def _document_capture(markup: str):
+    async def _capture(url: str, **_: Any) -> CaptureResult:
+        return CaptureResult(
+            final_url=_ISLAND_URL, page_title="Careers", responses=[],
+            server_html=markup, server_html_url=_ISLAND_URL,
+            islands=_served_islands(markup),
+        )
+    return _capture
+
+
+def _html_replay(rows: list[dict[str, Any]]):
+    async def _replay(script: dict[str, Any]) -> tuple[list[dict], HarvestEvidence]:
+        assert script["transport"] == "http_html", script["transport"]
+        return rows, HarvestEvidence(
+            declared_total=None, cap_hit=False, terminated_cleanly=True,
+            page_advance_ok=None, pages_fetched=1, transport_ok=True,
+        )
+    return _replay
+
+
+async def test_a_served_island_becomes_a_stored_http_html_recipe() -> None:
+    """SOURCE 2a, end to end. The page fires no XHR at all — every JSON candidate the
+    old pipeline could ever have had is absent — and the board is still readable, because
+    its jobs are sitting in the served document's ``__NEXT_DATA__``."""
+    markup = _island_markup(12)
+    selection = RequestSelection(
+        chosen_request_index=0, records_path="props.pageProps.jobs",
+        field_map=dict(_ISLAND_MAP), pagination=None,
+    )
+    rows = [
+        {"id": f"J{i}", "title": f"Engineer {i}",
+         "url": f"https://boards.example.com/j/J{i}"}
+        for i in range(12)
+    ]
+    outcome = await discover(
+        _ISLAND_URL,
+        capture=_document_capture(markup),
+        select=_selecting(selection),
+        replay_http=_html_replay(rows),
+        replay_browser=_never_called_replay("browser_fetch"),
+        validate_url=_allow_all,
+    )
+    assert outcome.ok is True
+    assert outcome.transport == "http_html"
+    assert outcome.script is not None
+    (extract,) = [
+        s for s in outcome.script["steps"] if s["op"] == "extract_embedded_island"
+    ]
+    assert extract["selector"] == "script#__NEXT_DATA__"
+    assert extract["source"] == "text"
+    assert extract["records_path"] == "props.pageProps.jobs"
+    (fetch,) = [s for s in outcome.script["steps"] if s["op"] == "fetch"]
+    assert fetch == {"op": "fetch", "method": "GET", "url": _ISLAND_URL, "headers": {}}
+    # ``http_html`` may never paginate — the executor issues one request and reports a
+    # clean complete sweep, so a paging step would close every job past page one.
+    assert not any(s["op"].startswith("paginate_") for s in outcome.script["steps"])
+    assert outcome.script["discovered_by"] == "capture/http_html"
+
+
+async def test_the_browser_tier_is_never_offered_a_document_candidate() -> None:
+    """``browser_fetch`` hard-requires ``extract_json_path`` because its subprocess
+    returns raw JSON bodies. Offering it a markup extraction would be an attempt that can
+    only ever fail schema validation, so the tier list is a property of where the records
+    came from."""
+    markup = _island_markup(12)
+    selection = RequestSelection(
+        chosen_request_index=0, records_path="props.pageProps.jobs",
+        field_map=dict(_ISLAND_MAP), pagination=None,
+    )
+    outcome = await discover(
+        _ISLAND_URL,
+        capture=_document_capture(markup),
+        select=_selecting(selection),
+        replay_http=_failing_replay(RecipeExecutionError("HTTP 403")),
+        replay_browser=_never_called_replay("browser_fetch"),
+        validate_url=_allow_all,
+    )
+    assert outcome.ok is False
+    # ...and the reason is the board's 403, NOT a schema complaint about a browser
+    # recipe we should never have tried to assemble. That is the difference between a
+    # tier list derived from where the records came from and one that guesses.
+    assert "403" in (outcome.refuse_reason or "")
+    assert "browser_fetch" not in (outcome.refuse_reason or "")
+
+
+async def test_the_served_documents_anchors_become_a_stored_extract_css_recipe() -> None:
+    """SOURCE 6, end to end and with NO model involvement in the mapping: an ``<a href>``
+    carries exactly a link and a label, so the field selectors are fixed."""
+    markup = (
+        "<!doctype html><html><body>"
+        + "".join(
+            f'<a href="/careers/{i}-staff-engineer">Staff Engineer {i}</a>'
+            for i in range(12)
+        )
+        + "</body></html>"
+    )
+    selection = RequestSelection(
+        chosen_request_index=0, records_path="records",
+        field_map={"id": "id", "title": "title", "url": "url"}, pagination=None,
+    )
+    rows = [
+        {"id": f"/careers/{i}-staff-engineer", "title": f"Staff Engineer {i}",
+         "url": f"https://boards.example.com/careers/{i}-staff-engineer"}
+        for i in range(12)
+    ]
+    outcome = await discover(
+        _ISLAND_URL,
+        capture=_document_capture(markup),
+        select=_selecting(selection),
+        replay_http=_html_replay(rows),
+        replay_browser=_never_called_replay("browser_fetch"),
+        validate_url=_allow_all,
+    )
+    assert outcome.ok is True
+    assert outcome.transport == "http_html"
+    assert outcome.script is not None
+    (extract,) = [s for s in outcome.script["steps"] if s["op"] == "extract_css"]
+    assert extract["record_selector"] == 'a[href*="/careers/"]'
+    assert extract["field_selectors"] == {
+        "id": ".@href", "title": ".@text", "url": ".@href",
+    }
+
+
+@pytest.mark.parametrize("markup_kind", ["island", "anchors"])
+async def test_the_stored_html_recipe_really_replays_through_the_runner(
+    markup_kind: str,
+) -> None:
+    """THE PROOF THAT MATTERS. Everything above uses a replay double; this one runs the
+    recipe discovery actually stored through the REAL ``run_recipe`` against the REAL
+    markup, so the selector, the records path and the field selectors are checked by the
+    thing that will read them at 3am rather than by a fixture that agrees with itself.
+    """
+    if markup_kind == "island":
+        markup = _island_markup(12)
+        selection = RequestSelection(
+            chosen_request_index=0, records_path="props.pageProps.jobs",
+            field_map=dict(_ISLAND_MAP), pagination=None,
+        )
+    else:
+        markup = (
+            "<!doctype html><html><body>"
+            + "".join(
+                f'<a href="/careers/{i}-staff-engineer">Staff Engineer {i}</a>'
+                for i in range(12)
+            )
+            + "</body></html>"
+        )
+        selection = RequestSelection(
+            chosen_request_index=0, records_path="records",
+            field_map={"id": "id", "title": "title", "url": "url"}, pagination=None,
+        )
+
+    def _serve(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text=markup, headers={"content-type": "text/html"})
+
+    async def _real_replay(script: dict[str, Any]) -> tuple[list[dict], HarvestEvidence]:
+        with httpx.Client(transport=httpx.MockTransport(_serve)) as http:
+            return run_recipe(script, http)
+
+    outcome = await discover(
+        _ISLAND_URL,
+        capture=_document_capture(markup),
+        select=_selecting(selection),
+        replay_http=_real_replay,
+        replay_browser=_never_called_replay("browser_fetch"),
+        validate_url=_allow_all,
+    )
+    assert outcome.ok is True
+    assert outcome.transport == "http_html"
+    assert outcome.progress is not None
+    verify = next(s for s in outcome.progress["steps"] if s["key"] == "verify_read")
+    assert verify["result"] == "read 12 job(s)"
+
+
+async def test_a_document_candidate_never_displaces_a_real_jobs_xhr() -> None:
+    """THE CROWDING-OUT GUARD. Amazon publishes a real jobs feed AND a document; the
+    document candidates go on the END of the list the pre-filter ranked, so index 0 is
+    still the XHR and the stored recipe is still a $0 ``http_json`` replay."""
+    async def _capture(url: str, **_: Any) -> CaptureResult:
+        base = _capture_result("amazon")
+        markup = _island_markup(30)
+        return CaptureResult(
+            final_url=base.final_url, page_title=base.page_title,
+            responses=base.responses, server_html=markup,
+            server_html_url=_AMAZON_URL, islands=_served_islands(markup),
+        )
+
+    seen: list[int] = []
+    outcome = await discover(
+        _AMAZON_URL,
+        capture=_capture,
+        select=_selecting(_amazon_selection(), calls=seen),
+        replay_http=_faithful_replay("amazon", "jobs", _AMAZON_MAP, declared_total=76),
+        replay_browser=_never_called_replay("browser_fetch"),
+        validate_url=_allow_all,
+    )
+    assert outcome.ok is True
+    assert outcome.transport == "http_json"
+    # The document candidate WAS offered — it is one of the candidates the model saw —
+    # it simply did not come first.
+    assert seen == [2]
 
 
 def test_the_total_that_counts_THESE_records_wins_over_the_bigger_one_beside_it() -> None:

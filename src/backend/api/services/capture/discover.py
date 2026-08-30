@@ -161,6 +161,7 @@ from .sources import (
     SitemapMatch,
     WellKnownEvidence,
     collect_well_known,
+    document_candidates,
     sitemap_match,
 )
 
@@ -1308,7 +1309,7 @@ def page_size_attempts(
     what makes :func:`_assert_page_size_honoured` a sound proof rather than a coin
     flip, since a board with 150 jobs would serve a legitimately short second page.
     """
-    if selection.pagination is None:
+    if selection.pagination is None or candidate.html is not None:
         return (None,)
     if candidate.record_count >= _TARGET_PAGE_SIZE:
         return (None,)
@@ -1379,6 +1380,41 @@ def probe_script(script: dict[str, Any]) -> dict[str, Any]:
     return probe
 
 
+def _extraction_step(
+    candidate: Candidate, selection: RequestSelection
+) -> dict[str, Any]:
+    """The extraction op this candidate replays through.
+
+    ``extract_css`` deliberately does NOT take the model's field map: an ``<a href>``
+    carries exactly a link and a label, the selectors were derived from the served
+    document, and re-mapping them through dotted paths would be re-answering a question
+    that has no second answer. The other two take it.
+    """
+    html = candidate.html
+    if html is None:
+        return {
+            "op": "extract_json_path",
+            "records_path": selection.records_path,
+            "fields": dict(selection.field_map),
+        }
+    if html.op == "extract_css":
+        return {
+            "op": "extract_css",
+            "record_selector": html.selector,
+            "field_selectors": dict(html.field_selectors or {}),
+        }
+    step: dict[str, Any] = {
+        "op": "extract_embedded_island",
+        "selector": html.selector,
+        "source": html.source,
+        "records_path": selection.records_path,
+        "fields": dict(selection.field_map),
+    }
+    if html.source == "attribute":
+        step["attribute"] = html.attribute
+    return step
+
+
 def synthesize_recipe(
     candidate: Candidate,
     selection: RequestSelection,
@@ -1406,10 +1442,10 @@ def synthesize_recipe(
     fetch: dict[str, Any] = {
         "op": "fetch",
         "method": candidate.method,
-        "url": candidate.url,
-        "headers": _clean_headers(candidate.request_headers),
+        "url": candidate.html.document_url if candidate.html else candidate.url,
+        "headers": {} if candidate.html else _clean_headers(candidate.request_headers),
     }
-    if candidate.method == "POST":
+    if candidate.method == "POST" and candidate.html is None:
         fetch["body"] = _post_body(candidate)
 
     steps: list[dict[str, Any]] = [fetch]
@@ -1455,7 +1491,11 @@ def synthesize_recipe(
         and declared_total <= candidate.record_count
         and not total_is_capped
     )
-    if selection.pagination is not None and not one_page_proven:
+    # ...and NEVER on ``http_html``. ``validate_recipe`` rejects it (``_run_http_html``
+    # issues one request and reports a clean complete sweep, so a paginating html recipe
+    # would read as complete and close every job past page one) — building one only to
+    # be refused would turn a readable single-page board into a refusal.
+    if selection.pagination is not None and not one_page_proven and candidate.html is None:
         op = "paginate_offset" if selection.pagination.style == "offset" else "paginate_page"
         paginate: dict[str, Any] = {
             "op": op,
@@ -1490,11 +1530,11 @@ def synthesize_recipe(
             paginate["window_cap"] = declared_total
         steps.append(paginate)
 
-    steps.append({
-        "op": "extract_json_path",
-        "records_path": selection.records_path,
-        "fields": dict(selection.field_map),
-    })
+    # THE EXTRACTION, and the one place a DOCUMENT candidate diverges from an XHR one.
+    # Both ``extract_embedded_island`` and ``extract_css`` have been implemented in
+    # ``recipe_runner`` since Phase 3a and discovery has never emitted either; the
+    # transport that replays them, ``http_html``, has likewise never been emitted.
+    steps.append(_extraction_step(candidate, selection))
 
     # THE POSTING DATE (POSTED-DATE-PLAN.md §5/U6). ``parse_date`` has been fully
     # implemented in the runner since Phase 3a and was never emitted here, so every
@@ -2570,13 +2610,40 @@ async def discover(
         # STEP 3 — deterministic pre-filter, then the endpoint SSRF half.
         current_step = _STEP_FILTER
         candidates = prefilter_candidates(captured.responses)
+        # SOURCES 2a AND 6 — the DOCUMENT, as candidates. Zero network requests and zero
+        # added wall clock: the served body was already fetched by the host pin and
+        # thrown away, and the rendered DOM was already read for the link harvest. What
+        # they cost is pipe bytes.
+        #
+        # They go on the END, after the pre-filter has ranked the XHRs, because a board
+        # that publishes a real jobs feed must never have its answer crowded out by a
+        # marketing page's ld+json. And only SERVED islands are here: an island that
+        # exists only after hydration has no replay transport, so it may contribute ids
+        # and never a recipe (:class:`~.sources.HtmlSource`).
+        document = document_candidates(
+            captured, _hostname_of(origin_url), captured.server_html_url or origin_url
+        )
+        if document:
+            logger.info(
+                "discovery derived %d document candidate(s) for %s: %s",
+                len(document), url,
+                ", ".join(
+                    f"{c.html.op}({c.html.selector}) -> {c.record_count} record(s)"
+                    for c in document if c.html is not None
+                ),
+            )
         # THE PRE-FILTER'S VERDICT ON EVERY ROW, published before any refusal below can
         # leave the function. The commonest refusal we serve is "none of the 14 JSON
         # requests this page made returned a list of job postings", and that sentence is
         # an assertion with no evidence unless the fourteen rows are sitting under it
         # saying 0 records each.
+        #
+        # Scored off the NETWORK candidates only: a document candidate has no row in the
+        # network log to mark (``source_index`` is -1), and inventing one would put a
+        # request the browser never made into the list the user is reading.
         scores = {c.source_index: c.record_count for c in candidates}
         ledger.score_requests(scores)
+        candidates = candidates + document
         if not candidates:
             # Three genuinely different boards, and the user's next action differs, so
             # the copy does too: a page that fetched NO JSON at all is server-rendered
@@ -2610,7 +2677,7 @@ async def discover(
                 )
             raise _Refusal(_STEP_FILTER, detail)
         public = await _public_candidates(candidates, check_url)
-        blocked = set(scores) - {c.source_index for c in public}
+        blocked = set(scores) - {c.source_index for c in public} - {-1}
         if blocked:
             # Re-marked rather than marked once, because "job-shaped but at an address
             # we refuse to fetch" is a different row state from "no jobs in it" and it
@@ -2735,7 +2802,17 @@ async def discover(
             # being refused for a parameter we chose.
             attempts_ps = page_size_attempts(candidate, selection)
             accepted: tuple[str, dict[str, Any], list[dict]] | None = None
-            for transport, replay in (("http_json", run_http), ("browser_fetch", run_browser)):
+            # THE TIERS THIS CANDIDATE CAN BE REPLAYED ON, which is a property of where
+            # its records CAME FROM. A document candidate has exactly one: ``http_html``,
+            # over the plain GET the served bytes came out of. ``browser_fetch`` cannot
+            # carry markup at all (``recipe_schema`` hard-requires ``extract_json_path``
+            # there), so offering it would be an attempt that can only ever fail schema
+            # validation.
+            tiers: tuple[tuple[str, ReplayFn], ...] = (
+                (("http_html", run_http),) if candidate.html is not None
+                else (("http_json", run_http), ("browser_fetch", run_browser))
+            )
+            for transport, replay in tiers:
                 for page_size_override in attempts_ps:
                     try:
                         script = synthesize_recipe(

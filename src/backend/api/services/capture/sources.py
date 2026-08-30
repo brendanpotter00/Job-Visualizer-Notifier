@@ -40,10 +40,11 @@ of re-argued at every call site.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import re
 from dataclasses import dataclass
-from typing import Callable, Literal
+from typing import Any, Callable, Literal
 from urllib.parse import urljoin, urlsplit
 from xml.etree import ElementTree
 
@@ -497,6 +498,212 @@ def sitemap_match(
     return best
 
 
+# --------------------------------------------------------------------------
+# sources 2 and 6 — the document as a candidate
+# --------------------------------------------------------------------------
+
+# How many document-derived candidates may join the list the model is shown. Two, and
+# they go on the END: a board that publishes a real jobs XHR must never have its answer
+# crowded out by a marketing page's ld+json, and the JSON candidates were ranked by the
+# pre-filter for exactly that reason.
+_MAX_HTML_CANDIDATES = 2
+
+# The smallest number of same-shaped job anchors in a SERVED document that is worth
+# calling a job list. A page's own navigation is the false positive this bounds, so it is
+# bounded twice: this count, and the requirement below that the path they share reads as
+# a jobs path.
+_MIN_HTML_RECORDS = 8
+
+# ...and the second bound. The anchors must sit under a path that SAYS jobs. A nav menu
+# under ``/company/`` is the shape this excludes; a board whose job URLs carry none of
+# these words is missed, silently, which is the safe direction.
+_JOB_PATH_HINTS = ("job", "career", "position", "opening", "vacanc", "role", "opportunit")
+
+# The field map an anchor-derived candidate uses, and it is FIXED, never asked of a
+# model: an ``<a href>`` carries exactly a link and a label. ``id`` is the raw href
+# because that is what ``recipe_runner._run_css`` stores (it stringifies ``id`` and
+# base-joins only ``url``), so the candidate's ids and the replay's ids are the same
+# strings by construction — which is what the match-the-capture assertion compares.
+_ANCHOR_FIELD_SELECTORS = {"id": ".@href", "title": ".@text", "url": ".@href"}
+
+
+def island_sources(captured: Any) -> list[EvidenceSource]:
+    """Every embedded island the child carried, typed by what it may contribute.
+
+    The served/rendered split IS the contribution: an island in the served document is
+    replayable by one GET plus one CSS selector, so it may carry records; an island that
+    exists only after hydration is reproducible by no transport we admit, so it may
+    carry ids and nothing else.
+    """
+    out: list[EvidenceSource] = []
+    for island in getattr(captured, "islands", ()) or ():
+        served = island.get("scope") == "served"
+        out.append(EvidenceSource(
+            kind="island",
+            origin=(
+                f"{getattr(captured, 'server_html_url', '') or getattr(captured, 'final_url', '')}"
+                f" {island.get('selector', '')}"
+            ).strip(),
+            media="json",
+            body=island.get("body", ""),
+            contributions=(
+                frozenset({"records", "oracle", "id_set"}) if served
+                else frozenset({"id_set"})
+            ),
+            replay_transport="http_html" if served else None,
+            note=f"{island.get('scope')} document, {island.get('selector')}",
+        ))
+    return out
+
+
+def island_candidates(captured: Any, document_url: str) -> list[Any]:
+    """SERVED islands, as ``Candidate``s the existing ladder can already read.
+
+    A rendered-only island never reaches this function, and that is the whole rule: it
+    has no replay transport, so it must not be able to become a stored recipe however
+    job-shaped its contents are.
+    """
+    from .request_selector import Candidate, HtmlSource, _walk_record_arrays
+
+    out: list[Any] = []
+    for island in getattr(captured, "islands", ()) or ():
+        if island.get("scope") != "served":
+            continue
+        try:
+            payload = json.loads(island.get("body") or "", strict=False)
+        except Exception:  # noqa: BLE001 - already parsed once in the child; be safe
+            continue
+        found: list[tuple[str, int, int, tuple[str, ...]]] = []
+        _walk_record_arrays(payload, "", 0, found)
+        if not found:
+            continue
+        path, count, score, keys = max(found, key=lambda t: (t[2], t[1]))
+        out.append(Candidate(
+            index=0,
+            url=document_url,
+            method="GET",
+            request_headers={},
+            post_data=None,
+            payload=payload,
+            records_path=path,
+            record_count=count,
+            job_score=score,
+            sample_keys=keys,
+            source_index=-1,
+            html=HtmlSource(
+                document_url=document_url,
+                op="extract_embedded_island",
+                selector=island.get("selector", ""),
+                source=island.get("source", "text"),
+                attribute=island.get("attribute", ""),
+            ),
+        ))
+    return out
+
+
+_ANCHOR_RE = re.compile(
+    r"""(?is)<a\b[^>]*?\bhref\s*=\s*["']([^"'>\s]{1,400})["'][^>]*>(.*?)</a\s*>"""
+)
+_TAG_RE = re.compile(r"<[^>]+>")
+
+
+def _anchor_rows(markup: str, board_host: str) -> dict[str, list[dict[str, str]]]:
+    """Same-host anchors with visible text, grouped by the directory they share."""
+    groups: dict[str, list[dict[str, str]]] = {}
+    seen: set[str] = set()
+    for href, inner in _ANCHOR_RE.findall(markup):
+        text = " ".join(_TAG_RE.sub(" ", inner).split())
+        if len(text) < 3 or href in seen:
+            continue
+        parts = urlsplit(href)
+        if parts.netloc and (parts.hostname or "").lower() != board_host:
+            continue
+        directory = parts.path.rsplit("/", 1)[0] + "/"
+        if len(directory) <= 1:
+            continue
+        seen.add(href)
+        groups.setdefault(directory, []).append(
+            {"id": href, "title": text, "url": href}
+        )
+    return groups
+
+
+def anchor_candidate(captured: Any, board_host: str) -> Any | None:
+    """SOURCE 6 — the served document's own job anchors, as one ``extract_css`` candidate.
+
+    Wholly deterministic: no model is asked anything, because an ``<a href>`` carries
+    exactly a link and a label and there is nothing to map. The candidate is still put
+    through the normal ladder — the selector call can decline it, the acceptance replay
+    has to reproduce it, the coverage floor still applies — so the derivation only ever
+    PROPOSES, which is the same discipline the job-link derivations follow.
+
+    Two bounds keep a page's own NAVIGATION out: at least :data:`_MIN_HTML_RECORDS`
+    distinct anchors, and a shared path that reads as a jobs path. A board whose job URLs
+    say none of those words is missed silently — the safe direction, and it costs nothing
+    because that board's XHR candidates are unaffected.
+    """
+    from .request_selector import Candidate, HtmlSource
+
+    markup = getattr(captured, "server_html", "") or ""
+    document_url = (
+        getattr(captured, "server_html_url", "")
+        or getattr(captured, "final_url", "")
+    )
+    if not markup or not document_url:
+        return None
+    groups = _anchor_rows(markup, board_host)
+    best: tuple[str, list[dict[str, str]]] | None = None
+    for directory, rows in groups.items():
+        if len(rows) < _MIN_HTML_RECORDS:
+            continue
+        if not any(hint in directory.lower() for hint in _JOB_PATH_HINTS):
+            continue
+        if best is None or len(rows) > len(best[1]):
+            best = (directory, rows)
+    if best is None:
+        return None
+    directory, rows = best
+    return Candidate(
+        index=0,
+        url=document_url,
+        method="GET",
+        request_headers={},
+        post_data=None,
+        # A SYNTHETIC payload, so everything downstream — the prompt, the field-map
+        # validation, ``_capture_ids``, the match-the-capture assertion — reads this
+        # candidate exactly the way it reads a JSON one. The rows are built with the
+        # same rule ``_run_css`` replays with, so the two id sets are equal by
+        # construction rather than by hope.
+        payload={"records": rows},
+        records_path="records",
+        record_count=len(rows),
+        job_score=0,
+        sample_keys=("id", "title", "url"),
+        source_index=-1,
+        html=HtmlSource(
+            document_url=document_url,
+            op="extract_css",
+            selector=f'a[href*="{directory}"]',
+            field_selectors=dict(_ANCHOR_FIELD_SELECTORS),
+        ),
+    )
+
+
+def document_candidates(captured: Any, board_host: str, document_url: str) -> list[Any]:
+    """Sources 2a and 6 together, capped, ranked most-job-shaped first.
+
+    Capped at :data:`_MAX_HTML_CANDIDATES` and appended AFTER the pre-filter's own list
+    by the caller, because a board that publishes a real jobs XHR must never have its
+    answer crowded out by a marketing page's ld+json.
+    """
+    candidates = island_candidates(captured, document_url)
+    candidates.sort(key=lambda c: (c.job_score, c.record_count), reverse=True)
+    anchors = anchor_candidate(captured, board_host)
+    if anchors is not None:
+        candidates.append(anchors)
+    return candidates[:_MAX_HTML_CANDIDATES]
+
+
 __all__ = [
     "Contribution",
     "EvidenceSource",
@@ -504,7 +711,11 @@ __all__ = [
     "SitemapMatch",
     "WellKnownEvidence",
     "WellKnownFetch",
+    "anchor_candidate",
     "collect_well_known",
+    "document_candidates",
+    "island_candidates",
+    "island_sources",
     "parse_sitemap",
     "robots_sitemap_urls",
     "sitemap_match",

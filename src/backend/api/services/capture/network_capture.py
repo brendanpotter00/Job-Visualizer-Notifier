@@ -203,6 +203,17 @@ class CaptureResult:
     # failing the capture.
     board_links: tuple[str, ...] = ()
     board_scripts: tuple[str, ...] = ()
+    # SOURCE 6 — the SERVED navigation document, which the host pin already fetched and
+    # used to throw away. These are the exact bytes an ``http_html`` recipe re-fetches
+    # every night, which is what makes them the right evidence for that transport and
+    # the wrong evidence for link derivation (BIRTH-DEFECTS-PLAN §0, mirrored).
+    server_html: str = ""
+    server_html_url: str = ""
+    # SOURCES 2a/2b — JSON blobs embedded in a document, each with the CSS selector that
+    # re-finds it and the ``scope`` that says WHICH document. ``served`` is replayable
+    # (one GET + one selector); ``rendered`` exists only after hydration and no transport
+    # we admit can reproduce it, so it contributes ids and never records.
+    islands: tuple[dict[str, Any], ...] = ()
 
 
 def _hostname(url: str) -> str:
@@ -613,6 +624,44 @@ def _string_list(raw: Any) -> tuple[str, ...]:
     return tuple(item for item in raw if isinstance(item, str) and item)
 
 
+_ISLAND_SCOPES = ("served", "rendered")
+
+
+def _islands_from_report(raw: Any) -> tuple[dict[str, Any], ...]:
+    """The child's island rows, minus anything we cannot fully believe. Never raises.
+
+    Same discipline as :func:`_responses_from_report`: an entry we cannot read is one
+    lost observation, and losing it degrades to exactly today's behaviour. An unknown
+    ``scope`` is DROPPED rather than defaulted — defaulting it to ``served`` would let an
+    unreplayable island become a stored recipe, which is the one thing the split exists
+    to prevent.
+    """
+    if not isinstance(raw, list):
+        return ()
+    out: list[dict[str, Any]] = []
+    for entry in raw:
+        if not isinstance(entry, dict):
+            continue
+        scope, selector, body = (
+            entry.get("scope"), entry.get("selector"), entry.get("body")
+        )
+        if scope not in _ISLAND_SCOPES:
+            continue
+        if not isinstance(selector, str) or not selector:
+            continue
+        if not isinstance(body, str) or not body:
+            continue
+        source = entry.get("source")
+        out.append({
+            "scope": scope,
+            "selector": selector,
+            "source": source if source in ("text", "attribute") else "text",
+            "attribute": str(entry.get("attribute") or ""),
+            "body": body,
+        })
+    return tuple(out)
+
+
 def _responses_from_report(report: dict[str, Any]) -> list[CapturedResponse]:
     """Turn the child's raw ``responses`` into typed rows, skipping malformed entries.
 
@@ -789,6 +838,15 @@ async def capture_board(
             live_view_url=session.live_view_url if session is not None else None,
             board_links=_string_list(report.get("board_links")),
             board_scripts=_string_list(report.get("board_scripts")),
+            server_html=(
+                report["server_html"]
+                if isinstance(report.get("server_html"), str) else ""
+            ),
+            server_html_url=(
+                report["server_html_url"]
+                if isinstance(report.get("server_html_url"), str) else ""
+            ),
+            islands=_islands_from_report(report.get("islands")),
         )
     finally:
         # NOT in an ``except``: the paths that leak money are exactly the ones that

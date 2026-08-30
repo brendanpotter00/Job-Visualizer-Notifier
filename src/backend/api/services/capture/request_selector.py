@@ -134,6 +134,32 @@ class NoJobsFeedError(RequestSelectionError):
 # --------------------------------------------------------------------------
 
 @dataclass(frozen=True)
+class HtmlSource:
+    """This candidate's records came out of a DOCUMENT, not out of an XHR.
+
+    It is the whole of what makes a source HONEST: a source with no replay transport can
+    never become a stored recipe, whatever anything says about it. Carrying the
+    extraction shape ON the candidate is how synthesis knows to emit ``http_html`` with
+    an ``extract_embedded_island`` / ``extract_css`` step instead of ``http_json`` with
+    an ``extract_json_path`` — two replay paths that have been implemented since Phase 3a
+    and that discovery has never emitted.
+
+    ``document_url`` is the one URL the nightly replay fetches. There is deliberately no
+    field for a paging parameter: ``validate_recipe`` forbids any pagination step on
+    ``http_html`` (``_run_http_html`` issues ONE request and reports a clean complete
+    sweep, so a paginating html recipe would close every job past page one), which makes
+    every candidate of this kind a single-page read by construction.
+    """
+
+    document_url: str
+    op: str                                   # extract_embedded_island | extract_css
+    selector: str                             # island: the <script>; css: the record
+    source: str = "text"                      # island only
+    attribute: str = ""                       # island only
+    field_selectors: dict[str, str] | None = None   # css only
+
+
+@dataclass(frozen=True)
 class Candidate:
     """One captured response that survived the pre-filter, plus what we found in it.
 
@@ -162,6 +188,9 @@ class Candidate:
     # ``source_index`` never moves, which is what lets the network log the user is
     # reading — capture order, never re-sorted — say which of those rows we picked.
     source_index: int = -1
+    # ``None`` for the XHR/fetch source this class was written for. Set for a candidate
+    # that came out of a DOCUMENT — see :class:`HtmlSource`.
+    html: HtmlSource | None = None
 
     @property
     def records(self) -> list[Any]:

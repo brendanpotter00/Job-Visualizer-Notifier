@@ -141,6 +141,42 @@ _MAX_BOARD_LINKS = 600
 # is the list it chooses from, not the list it reads.
 _MAX_BOARD_SCRIPTS = 20
 
+# --------------------------------------------------------------------------
+# sources 2 and 6 — JSON islands, and the SERVED document they may live in
+# --------------------------------------------------------------------------
+#
+# THE SPLIT THAT MATTERS, AND IT IS NOT OPTIONAL. An embedded island is a RECORD source
+# only if it is in the **served** document, because ``recipe_runner.extract_embedded_island``
+# replays by issuing one plain GET and running a CSS selector over the SERVER's bytes.
+# An island that only exists after hydration is not replayable by any transport we admit,
+# so it may contribute ids and nothing else. Both documents are already in this process's
+# memory — ``_install_host_pin`` fetches the served one and throws it away, and
+# ``page.content()`` is already called for the link harvest — so carrying both costs
+# ZERO extra requests and zero wall clock. The cost is pipe bytes.
+#
+# THE CHILD STILL DECIDES NOTHING. Same class of mechanical extraction as ``_HREF_RE``
+# above: find <script> blocks with a JSON-ish type or a known id, keep the blob and the
+# CSS selector that would re-find it, rank nothing. Which of them (if any) holds job
+# postings is the agent-free parent's question, answered against the records it captured
+# and then PROVEN by an acceptance replay.
+_SCRIPT_BLOCK_RE = re.compile(r"(?is)<script\b([^>]*)>(.*?)</script\s*>")
+_SCRIPT_ATTR_RE = re.compile(r"""(?i)([a-zA-Z_:][-\w:.]*)\s*=\s*["']([^"']*)["']""")
+# Ids whose blob is JSON by convention even when the tag carries no type.
+_ISLAND_IDS = ("__next_data__", "__nuxt_data__", "__universal_data_for_rehydration__")
+# Bounds. Eight islands per document is already far past the point of diminishing
+# evidence (a page has one __NEXT_DATA__ and a handful of ld+json blocks), and the
+# aggregate is folded into the SAME ``_MAX_TOTAL_BODY_BYTES`` accounting the XHR bodies
+# spend from, so raising the per-island cap cannot raise the worst case.
+_MAX_ISLANDS_PER_DOC = 8
+_MAX_ISLAND_BYTES = 2_000_000
+_MAX_TOTAL_ISLAND_BYTES = 6_000_000
+# The served document itself, carried whole for source 6. A careers page is routinely
+# 1-2 MB of markup and this is the ONE document a stored ``http_html`` recipe will fetch
+# every night, so it is the right bytes to reason about — the mirror of the finding that
+# it is the WRONG bytes for link derivation (BIRTH-DEFECTS-PLAN §0), and the mirror is
+# the point: the replay transport decides which bytes are the right evidence.
+_MAX_SERVER_HTML_BYTES = 2_000_000
+
 # Request headers we refuse to carry back out of the browser. ``cookie`` and the
 # authorization family are session secrets that must never reach a stored recipe (a
 # board that needs them belongs on the browser_fetch tier, which re-earns them
@@ -167,7 +203,74 @@ def _redirect_target_host(response: Any) -> str:
     return _hostname(urljoin(response.url, location))
 
 
-async def _install_host_pin(context: Any, allowed_hosts: set[str]) -> None:
+def _script_attrs(raw: str) -> dict[str, str]:
+    return {k.lower(): v for k, v in _SCRIPT_ATTR_RE.findall(raw or "")}
+
+
+def _json_islands(markup: str, scope: str, budget: dict[str, int]) -> list[dict[str, Any]]:
+    """Every JSON blob embedded in ``markup``, with the selector that re-finds it.
+
+    ``scope`` is ``"served"`` or ``"rendered"`` and is the ONLY thing the parent needs to
+    know the difference between a record source and an id set.
+
+    THE SELECTOR MUST BE UNAMBIGUOUS or the island is not carried at all, because
+    ``_run_embedded_island`` replays with ``soup.select_one`` and a selector matching two
+    blocks would silently read whichever one happens to come first in tomorrow's markup.
+    So: ``script#id`` when the id is unique in the document, ``script[type=...]`` when
+    exactly one script carries that type, and nothing otherwise.
+
+    The blob is JSON-parsed here purely to avoid pushing two megabytes of minified
+    JavaScript down the pipe. That is a filter, not a judgement — exactly like the
+    resource-type test in ``_record``.
+    """
+    blocks: list[tuple[dict[str, str], str]] = []
+    for attrs_raw, blob in _SCRIPT_BLOCK_RE.findall(markup):
+        blocks.append((_script_attrs(attrs_raw), blob.strip()))
+
+    id_counts: dict[str, int] = {}
+    type_counts: dict[str, int] = {}
+    for attrs, _ in blocks:
+        if attrs.get("id"):
+            id_counts[attrs["id"]] = id_counts.get(attrs["id"], 0) + 1
+        if attrs.get("type"):
+            type_counts[attrs["type"]] = type_counts.get(attrs["type"], 0) + 1
+
+    out: list[dict[str, Any]] = []
+    for attrs, blob in blocks:
+        if len(out) >= _MAX_ISLANDS_PER_DOC:
+            break
+        if not blob or len(blob) > _MAX_ISLAND_BYTES:
+            continue
+        if budget["islands"] + len(blob) > _MAX_TOTAL_ISLAND_BYTES:
+            break
+        element_id = attrs.get("id") or ""
+        element_type = attrs.get("type") or ""
+        json_ish = "json" in element_type.lower() or element_id.lower() in _ISLAND_IDS
+        if not json_ish:
+            continue
+        if element_id and id_counts.get(element_id) == 1:
+            selector = f"script#{element_id}"
+        elif element_type and type_counts.get(element_type) == 1:
+            selector = f'script[type="{element_type}"]'
+        else:
+            continue
+        try:
+            json.loads(blob, strict=False)
+        except Exception:  # noqa: BLE001 - a blob that is not JSON is not an island
+            continue
+        budget["islands"] += len(blob)
+        out.append({
+            "scope": scope,
+            "selector": selector,
+            "source": "text",
+            "body": blob,
+        })
+    return out
+
+
+async def _install_host_pin(
+    context: Any, allowed_hosts: set[str], served: dict[str, str] | None = None
+) -> None:
     """Pin NAVIGATIONS to the hosts the parent SSRF-validated.
 
     Identical in shape and in reasoning to ``_browser_fetch_main._install_host_pin``
@@ -206,6 +309,19 @@ async def _install_host_pin(context: Any, allowed_hosts: set[str]) -> None:
             # APIResponse makes every sub-resource of that document fail, which would
             # break exactly the client-rendered boards whose XHRs we are here to read.
             response = await route.fetch(max_redirects=0)
+            # SOURCE 6, for free. This body was already fetched and already thrown away;
+            # it is the exact bytes an ``http_html`` recipe re-fetches every night, and
+            # it is where a SERVED (i.e. replayable) JSON island lives. Only the FIRST
+            # navigation document is kept — that is the page the user pasted, and the
+            # one a stored recipe would name.
+            if served is not None and not served.get("html"):
+                try:
+                    body = await response.text()
+                except Exception:  # noqa: BLE001 - the pin is what matters, not the copy
+                    body = ""
+                if body:
+                    served["html"] = body[:_MAX_SERVER_HTML_BYTES]
+                    served["url"] = request.url
             target = _redirect_target_host(response)
             if target and target not in allowed_hosts:
                 print(
@@ -378,6 +494,8 @@ async def run_capture(plan: dict[str, Any]) -> dict[str, Any]:
 
     captured: list[dict[str, Any]] = []
     pending: list[asyncio.Task[None]] = []
+    # The served navigation document, filled in from inside the host pin.
+    served: dict[str, str] = {}
     async with async_playwright() as pw:
         if cdp_url:
             # Browserbase (or any CDP endpoint the parent chose). Opt-in only.
@@ -403,7 +521,7 @@ async def run_capture(plan: dict[str, Any]) -> dict[str, Any]:
                 )
             # BEFORE the first navigation — a pin installed after ``goto`` would miss
             # the one hop that matters.
-            await _install_host_pin(context, allowed_hosts)
+            await _install_host_pin(context, allowed_hosts, served)
             page = context.pages[0] if context.pages else await context.new_page()
             page.on(
                 "response",
@@ -428,10 +546,14 @@ async def run_capture(plan: dict[str, Any]) -> dict[str, Any]:
             # that will not hand us its DOM (detached frame, navigation mid-read) simply
             # publishes no job links, which downgrades the job link to the board's own
             # listing page — the outcome we already ship today.
+            island_budget = {"islands": 0}
+            islands = _json_islands(served.get("html", ""), "served", island_budget)
             try:
-                board_links, board_scripts = _document_links(await page.content())
+                rendered = await page.content()
             except Exception:  # noqa: BLE001 - see above; links are never load-bearing
-                board_links, board_scripts = [], []
+                rendered = ""
+            board_links, board_scripts = _document_links(rendered)
+            islands += _json_islands(rendered, "rendered", island_budget)
         finally:
             await browser.close()
 
@@ -442,6 +564,12 @@ async def run_capture(plan: dict[str, Any]) -> dict[str, Any]:
         "responses_total": len(captured),
         "board_links": board_links,
         "board_scripts": board_scripts,
+        # SOURCE 6 — the bytes an ``http_html`` replay re-fetches every night, and the
+        # document a SERVED island's selector is resolved against.
+        "server_html": served.get("html", ""),
+        "server_html_url": served.get("url", ""),
+        # SOURCES 2a + 2b, told apart by ``scope`` and by nothing else.
+        "islands": islands,
     }
 
 
