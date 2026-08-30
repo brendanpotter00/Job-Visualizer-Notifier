@@ -1,15 +1,26 @@
 """The per-user monthly cap on ``POST /api/users/companies``.
 
 **The rule.** 20 URLs per user per calendar month, resetting at midnight UTC on the
-1st. EVERY submission spends a slot — a success, a refusal, and a board that turns
-out to be one we already publish. Deleting a company does **not** give one back.
+1st. Every submission we ACT on spends a slot — a success, a board we refused after
+reading it, and a board that turns out to be one we already publish. Deleting a
+company does **not** give one back.
+
+**The one exception, and it is narrow.** A URL we could not read at all — refused by
+``url_guard`` (``http://``, userinfo, an odd port, a bare IP, a private address) or
+lost to DNS / a dead connection / a redirect loop — is refused *before* the resolver
+has anything to say about a board, writes no ``company_add_attempts`` row, and
+therefore costs nothing. That exception exists because the Add Companies page stopped
+calling ``/api/companies/resolve`` for a free preview: with the preview gone, every
+mistyped scheme lands on the add endpoint, and charging somebody 1/20 of their month
+for a URL that cost us a DNS lookup is not "capping the input", it is a fine for a
+typo. ``routers/user_companies``' ``unreachable`` branch is the whole implementation.
 
 Three things about that rule are deliberate and were chosen over the alternatives:
 
 * **URLs entered, not boards created.** Capping the input is easier to explain and
   easier to trust than capping "real spend", and it deletes a bug: a spend-based rule
   needs a dedupe so that an idempotent re-add does not overcount, and this one does
-  not need any.
+  not need any. ("Entered" means entered *at a board* — see the exception above.)
 * **Calendar month, not a rolling 30-day window.** "It resets on the 1st" is a
   sentence a user can hold in their head. The midnight-double-burst risk that usually
   argues for a rolling window is not real here, because a slot costs a *click*, not a

@@ -89,7 +89,12 @@ _SNIFF_MAX_BYTES = 512 * 1024
 # individually guard-validated before it is fetched.
 _SNIFF_SUBPATHS: tuple[str, ...] = ("search-results", "careers", "jobs")
 
-_REASON_NO_ATS = "no_ats_detected"
+# "We fetched the page and there is no board we support behind it." PUBLIC, because it
+# is the one no-candidate reason that means we actually READ something — every other
+# value on ``DiscoveryResult.reason`` is a url_guard refusal or a transport failure, i.e.
+# we never got a look. ``routers/user_companies`` keys the one-time-discovery gate on
+# exactly this distinction, so the two must not drift.
+REASON_NO_ATS = "no_ats_detected"
 
 # Known ATS URL forms, scanned against the raw page text. Kept deliberately
 # narrow — a false positive here becomes a company row pointed at someone
@@ -236,7 +241,7 @@ async def follow_to_ats(
         via="unsupported",
         hops=hops,
         final_url=hops[-1] if hops else url,
-        reason=_REASON_NO_ATS,
+        reason=REASON_NO_ATS,
     )
 
 
@@ -409,9 +414,9 @@ async def sniff_embedded_ats(
     if last_reason == REASON_DEADLINE:
         reason = REASON_DEADLINE
     elif scanned_any:
-        reason = _REASON_NO_ATS
+        reason = REASON_NO_ATS
     else:
-        reason = last_reason or _REASON_NO_ATS
+        reason = last_reason or REASON_NO_ATS
 
     return DiscoveryResult(
         candidate=None,
@@ -450,7 +455,7 @@ async def discover_ats(
     followed = await follow_to_ats(url, http, deadline=deadline)
     if followed.candidate is not None:
         return followed
-    if followed.reason is not None and followed.reason != _REASON_NO_ATS:
+    if followed.reason is not None and followed.reason != REASON_NO_ATS:
         # A guard rejection or a transport failure is a definitive answer about
         # this URL. Sniffing sub-paths of a host we just refused to talk to
         # would be both pointless and a second helping of the same risk.
@@ -475,7 +480,7 @@ async def discover_ats(
         # ``no_ats_detected``; the one reason worth carrying up is that we ran out
         # of budget, which is not the same answer as "this site has no board".
         final_url=sniffed.final_url or followed.final_url,
-        reason=REASON_DEADLINE if sniffed.reason == REASON_DEADLINE else _REASON_NO_ATS,
+        reason=REASON_DEADLINE if sniffed.reason == REASON_DEADLINE else REASON_NO_ATS,
     )
 
 

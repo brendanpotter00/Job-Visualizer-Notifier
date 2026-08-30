@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { screen, fireEvent } from '@testing-library/react';
 import { renderWithProviders } from '../../../test/testUtils';
-import { DiscoveryStatus } from '../../../components/my-companies/DiscoveryStatus';
+import { AddCompanyOutcome } from '../../../components/my-companies/AddCompanyOutcome';
 import {
   isAlreadyPublic,
   isDiscoveryPending,
@@ -65,32 +65,57 @@ describe('isAlreadyPublic', () => {
   });
 });
 
-describe('DiscoveryStatus', () => {
-  it('renders no button — discovery is already running by the time this shows', () => {
-    // The defect this component was reshaped to fix: a second click between the submit
-    // and the one-time discovery. If a button ever comes back here, that click is back.
-    renderWithProviders(<DiscoveryStatus result={undefined} error={undefined} />);
+describe('AddCompanyOutcome', () => {
+  it('renders nothing at all before the add has answered', () => {
+    // The page renders this unconditionally next to its spinner, so "no result yet"
+    // has to be silence. A placeholder here would sit under the spinner claiming
+    // something about a request that has not landed.
+    const { container } = renderWithProviders(
+      <AddCompanyOutcome result={undefined} error={undefined} />,
+    );
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it('renders the success card for a 201 with a link to the new trend page', () => {
+    renderWithProviders(<AddCompanyOutcome result={TRACKED} error={undefined} />);
+
+    expect(screen.getByTestId('add-company-success')).toBeInTheDocument();
+    expect(screen.getByText(/now tracking acme\.example/i)).toBeInTheDocument();
+    expect(screen.getByTestId('view-company-link')).toHaveAttribute(
+      'href',
+      '/add-companies/u-abc1234567',
+    );
+  });
+
+  it('quotes no job count on the success card', () => {
+    // On a fresh add `openJobCount` is 0 — the first harvest was only just enqueued —
+    // so a count here would confidently report zero jobs on a board we have not read
+    // yet. The list right below carries the real number the moment it lands.
+    renderWithProviders(<AddCompanyOutcome result={TRACKED} error={undefined} />);
+    expect(screen.getByTestId('add-company-success')).not.toHaveTextContent(/open jobs?/i);
+  });
+
+  it('offers no second button anywhere — one press is the whole flow', () => {
+    // The defect this component was reshaped to fix: pressing "Add company" used to
+    // open a preview whose "Track this company" button did the actual adding. If a
+    // button ever comes back on a success, that second press is back with it.
+    renderWithProviders(<AddCompanyOutcome result={TRACKED} error={undefined} />);
     expect(screen.queryByRole('button')).not.toBeInTheDocument();
-    expect(screen.getByTestId('discovery-starting')).toBeInTheDocument();
   });
 
   it('renders the one-time-setup notice for a 202 discovery_pending', () => {
-    renderWithProviders(<DiscoveryStatus result={PENDING} error={undefined} />);
+    renderWithProviders(<AddCompanyOutcome result={PENDING} error={undefined} />);
 
     expect(screen.getByTestId('discovery-pending')).toBeInTheDocument();
     expect(screen.getByText('Setting this board up')).toBeInTheDocument();
-    // The server's own sentence, plus ONE line saying where to watch it. The two
-    // flag-dependent variants this used to carry were two ways of saying that.
+    // The server's own sentence, plus ONE line saying where to watch it.
     expect(screen.getByTestId('discovery-pending')).toHaveTextContent(
       /jobs appear after the first scan\. Watch it in your list below\./,
     );
   });
 
-  it('links to the public page when the add resolved to a board we already publish', () => {
-    // Reachable when the FIRST resolve said `no_ats_detected` and the add's own
-    // re-resolve then found the board. Without this branch the fall-through below
-    // would read "Now tracking undefined" and link to `/add-companies/undefined`.
-    renderWithProviders(<DiscoveryStatus result={ALREADY_PUBLIC} error={undefined} />);
+  it('links to the public page when the URL is a board we already publish', () => {
+    renderWithProviders(<AddCompanyOutcome result={ALREADY_PUBLIC} error={undefined} />);
 
     expect(screen.getByTestId('already-public')).toHaveTextContent(
       /we already track spotify/i,
@@ -99,21 +124,17 @@ describe('DiscoveryStatus', () => {
       'href',
       '/companies?company=spotify',
     );
-    expect(screen.queryByTestId('discovery-already-tracked')).not.toBeInTheDocument();
-    // This component owns no mutation, so it must not grow a button here either.
-    expect(screen.queryByRole('button')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('add-company-success')).not.toBeInTheDocument();
   });
 
   it('offers NO way past an exact careers-host match, even with a mutation lent', () => {
-    // CHANGED, deliberately. This used to assert the escape hatch here, and the owner
-    // is right that it was wrong: an `ats='script'` careers-host hit means the user
-    // pasted a board we already publish, matched against our own declared table. A
-    // private duplicate re-scrapes the same feed and hands them a chart whose history
-    // starts today instead of the full history one click away — a strictly worse option
-    // dressed as a choice. The only way past this notice is the link.
+    // An `ats='script'` careers-host hit means the user pasted a board we already
+    // publish, matched against our own declared table. A private duplicate re-scrapes
+    // the same feed and hands them a chart whose history starts today instead of the
+    // full history one click away — a strictly worse option dressed as a choice.
     const onTrackAnyway = vi.fn();
     renderWithProviders(
-      <DiscoveryStatus
+      <AddCompanyOutcome
         result={ALREADY_PUBLIC}
         error={undefined}
         onTrackAnyway={onTrackAnyway}
@@ -132,7 +153,7 @@ describe('DiscoveryStatus', () => {
     // somebody whose company merely shares a substring with one of ours.
     const onTrackAnyway = vi.fn();
     renderWithProviders(
-      <DiscoveryStatus
+      <AddCompanyOutcome
         result={NAME_GUESS}
         error={undefined}
         onTrackAnyway={onTrackAnyway}
@@ -160,42 +181,38 @@ describe('DiscoveryStatus', () => {
   });
 
   it('shows the guessed match with no correction when no mutation is lent', () => {
-    renderWithProviders(<DiscoveryStatus result={NAME_GUESS} error={undefined} />);
+    renderWithProviders(<AddCompanyOutcome result={NAME_GUESS} error={undefined} />);
 
     expect(screen.getByTestId('already-public')).toBeInTheDocument();
     expect(screen.queryByTestId('track-anyway-button')).not.toBeInTheDocument();
   });
 
-  it('disables the correction while the parent add is in flight', () => {
+  it("uses the add endpoint's own copy for its own reason codes", () => {
     renderWithProviders(
-      <DiscoveryStatus
-        result={NAME_GUESS}
-        error={undefined}
-        onTrackAnyway={vi.fn()}
-        isTracking
+      <AddCompanyOutcome
+        result={undefined}
+        error={{
+          status: 422,
+          data: {
+            reason: 'probe_failed',
+            detail: 'HTTP 503 from the board.',
+            finalUrl: 'https://jobs.ashbyhq.com/acme',
+          },
+        }}
       />,
     );
 
-    const button = screen.getByTestId('track-anyway-button');
-    expect(button).toBeDisabled();
-    expect(button).toHaveTextContent(/adding/i);
+    const alert = screen.getByTestId('add-company-error');
+    expect(alert).toHaveTextContent(/couldn't read that board/i);
+    expect(alert).toHaveTextContent('HTTP 503 from the board.');
+    // No trailing "(code: probe_failed)" — the headline already says it in English.
+    expect(alert).not.toHaveTextContent(/code:/);
   });
 
-  it('renders an idempotent 200 as an already-tracked company with a link to it', () => {
-    renderWithProviders(<DiscoveryStatus result={TRACKED} error={undefined} />);
-
-    expect(screen.getByTestId('discovery-already-tracked')).toBeInTheDocument();
-    expect(screen.getByText(/now tracking acme\.example/i)).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /view its trend page/i })).toHaveAttribute(
-      'href',
-      '/add-companies/u-abc1234567',
-    );
-  });
-
-  it('surfaces the server message and names the no-setup boards when discovery fails', () => {
+  it('names the no-setup boards when no job board was found behind the URL', () => {
     // The shape the backend returns when `custom_company_discovery_enabled` is OFF.
     renderWithProviders(
-      <DiscoveryStatus
+      <AddCompanyOutcome
         result={undefined}
         error={{
           status: 422,
@@ -208,20 +225,10 @@ describe('DiscoveryStatus', () => {
       />,
     );
 
-    const alert = screen.getByTestId('discovery-error');
+    const alert = screen.getByTestId('add-company-error');
     expect(alert).toHaveTextContent('No supported ATS board was found behind this URL.');
     // Truthful dead end with a way forward, not a spinner that never resolves.
     expect(alert).toHaveTextContent('Greenhouse');
-    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
-  });
-
-  it('never renders [object Object] for an error with no readable message', () => {
-    renderWithProviders(<DiscoveryStatus result={undefined} error={{ status: 500 }} />);
-
-    const alert = screen.getByTestId('discovery-error');
-    expect(alert).toHaveTextContent(/couldn't be started/i);
-    expect(alert.textContent).not.toContain('[object Object]');
-    expect(alert.textContent).not.toContain('undefined');
   });
 
   it('gives no board advice when the refusal was the monthly cap', () => {
@@ -229,7 +236,7 @@ describe('DiscoveryStatus', () => {
     // no setup at all — paste one of those instead" would send someone hunting for a
     // different URL when no URL was ever the problem.
     renderWithProviders(
-      <DiscoveryStatus
+      <AddCompanyOutcome
         result={undefined}
         error={{
           status: 422,
@@ -244,9 +251,74 @@ describe('DiscoveryStatus', () => {
       />,
     );
 
-    const alert = screen.getByTestId('discovery-error');
+    const alert = screen.getByTestId('add-company-error');
     expect(alert).toHaveTextContent(/used this month's company adds/i);
     expect(alert).toHaveTextContent(/1 September/);
     expect(alert).not.toHaveTextContent('Greenhouse');
+  });
+
+  it("falls back to the resolver's copy for a URL-shaped refusal", () => {
+    // THE REGRESSION THIS PINS. These reasons used to be answered by the separate
+    // `POST /api/companies/resolve` call and rendered by `ResolveErrorDisplay`. With
+    // the preview gone they arrive from the ADD call, and without the
+    // `describeResolveError` fallback this alert would print the generic "we couldn't
+    // add that company" plus a raw `(code: scheme_not_https)`.
+    renderWithProviders(
+      <AddCompanyOutcome
+        result={undefined}
+        error={{
+          status: 422,
+          data: {
+            reason: 'scheme_not_https',
+            detail: 'Only https:// URLs are accepted.',
+            finalUrl: 'http://acme.example/careers',
+          },
+        }}
+      />,
+    );
+
+    const alert = screen.getByTestId('add-company-error');
+    expect(alert).toHaveTextContent(/must use HTTPS/i);
+    expect(alert).toHaveTextContent(/https:\/\//);
+  });
+
+  it("still prints the raw code for a reason neither vocabulary knows", () => {
+    // An unknown code means this build is older than the server. The headline is
+    // generic there, so the code is the only thing that makes a screenshot fixable.
+    renderWithProviders(
+      <AddCompanyOutcome
+        result={undefined}
+        error={{
+          status: 422,
+          data: { reason: 'brand_new_reason', detail: '', finalUrl: '' },
+        }}
+      />,
+    );
+
+    expect(screen.getByTestId('add-company-error')).toHaveTextContent(
+      /code: brand_new_reason/,
+    );
+  });
+
+  it('renders the flag-off 503 as the feature being off, not as a bad URL', () => {
+    renderWithProviders(
+      <AddCompanyOutcome
+        result={undefined}
+        error={{ status: 503, data: { detail: 'Custom company sources are not enabled' } }}
+      />,
+    );
+
+    expect(screen.getByTestId('add-company-error')).toHaveTextContent(
+      /turned off on the server/i,
+    );
+  });
+
+  it('never renders [object Object] for an error with no readable message', () => {
+    renderWithProviders(<AddCompanyOutcome result={undefined} error={{ status: 500 }} />);
+
+    const alert = screen.getByTestId('add-company-error');
+    expect(alert.textContent).not.toContain('[object Object]');
+    expect(alert.textContent).not.toContain('undefined');
+    expect(alert.textContent?.trim().length).toBeGreaterThan(0);
   });
 });

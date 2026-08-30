@@ -57,7 +57,7 @@ from ..pagination import (
 from ..routers.jobs import NEXT_CURSOR_HEADER
 from ..services import add_quota
 from ..services import custom_companies_service as svc
-from ..services.ats_discovery import discover_ats, probe_candidate
+from ..services.ats_discovery import REASON_NO_ATS, discover_ats, probe_candidate
 from ..services.rate_limit import enforce_user_company_add_rate_limit
 from ..services.discovery.progress import read_progress
 from ..services.published_board_match import read_suggestion
@@ -134,6 +134,19 @@ def _to_response(row: dict) -> UserCompanyResponse:
             else None
         ),
     )
+
+
+def _unreachable_detail(reason: str) -> str:
+    """One honest sentence for a URL we never got far enough to read.
+
+    Deliberately GENERIC and deliberately short. The user-facing wording for each of
+    the eleven url_guard / transport codes already lives in exactly one place — the
+    frontend's ``features/userCompanies/resolveErrors.ts``, keyed by the
+    machine-readable ``reason`` this response carries beside it — and a second,
+    diverging set of sentences here would be the copy that eventually contradicts it.
+    This is what a direct API caller (or an older client) reads.
+    """
+    return f"We couldn't read that URL ({reason}), so there was nothing to add."
 
 
 def _reject(status: int, reason: str, detail: str, final_url: str | None = None) -> JSONResponse:
@@ -333,12 +346,23 @@ async def add_company(
 ) -> UserCompanyResponse | JSONResponse:
     """Resolve a pasted careers URL, probe it, and create a private company.
 
+    THIS IS THE WHOLE FLOW. The Add Companies page presses one button and calls this
+    once; it no longer calls ``POST /api/companies/resolve`` for a preview first. That
+    endpoint still exists (it persists nothing and is separately tested) — it just has
+    no frontend caller, because everything it produced was a card the user then had to
+    confirm, about a board this endpoint re-resolves from scratch anyway.
+
     Requires ``job_count > 0``. Idempotent per ``UNIQUE(user_id,
     canonical_source_key)`` — re-adding the same board returns the existing
-    company (200) instead of erroring. A non-ATS / unresolvable URL writes a
-    ``company_add_attempts`` row with ``outcome='unsupported'`` and returns 422
-    (Phase 3 will handle these); a resolvable board that probes 0 jobs or errors
+    company (200) instead of erroring. A resolvable board that probes 0 jobs or errors
     returns 422 with ``outcome='empty'`` / ``'probe_failed'``.
+
+    A URL we could not READ — a url_guard refusal or a transport failure — is refused
+    422 with the resolver's own ``reason`` and **records nothing**, so it starts no
+    discovery and spends no monthly slot. A URL we DID read and found no board behind
+    (``no_ats_detected``) is the opposite: that is a verdict, it goes to one-time
+    discovery, and it charges. See the ``unreachable`` branch for why that line is
+    where it is.
 
     A URL that is a company we ALREADY PUBLISH creates nothing and returns 200 with
     an ``AlreadyPublicResponse`` (``outcome='already_public'``) naming that public
@@ -437,12 +461,54 @@ async def add_company(
                 timeout=_RESOLVE_BUDGET_S + _RESOLVE_GRACE_S,
             )
         except asyncio.TimeoutError:
-            svc.record_add_attempt(
-                conn, user_id=user_id, submitted_url=payload.url,
-                normalized_url=None, outcome="unsupported",
-                error_detail="deadline_exceeded",
-            )
+            # NOTHING RECORDED, so nothing charged. See ``_UNREACHABLE_SPENDS_NOTHING``
+            # below — this is the same refusal, reached through the outer wait_for
+            # instead of through the resolver's own deadline.
             return _reject(422, "deadline_exceeded", "Resolving the URL timed out.")
+
+        unreachable = (
+            result.reason
+            if result.candidate is None and result.reason not in (None, REASON_NO_ATS)
+            else None
+        )
+        if unreachable is not None:
+            # ── We could not even LOOK at the URL ────────────────────────────────
+            # ``_UNREACHABLE_SPENDS_NOTHING``. A url_guard refusal (``http://``,
+            # userinfo in the URL, a non-standard port, a bare IP, a hostname that
+            # resolves inside a private range) or a transport failure (DNS, connection
+            # refused, too many redirects, an encoding we do not accept). No page was
+            # read, so there is no verdict about a BOARD to record, and there is
+            # nothing here for a one-time discovery to work on either.
+            #
+            # THIS GATE WAS THE FRONTEND'S, and it had to move. The Add Companies page
+            # used to call ``POST /api/companies/resolve`` first and only POST here when
+            # the resolver answered ``no_ats_detected`` — every other reason stayed a
+            # plain error that never reached this endpoint. That preview is gone (one
+            # press adds the company), so every typo now arrives here, and the two
+            # things the old client-side gate bought have to be bought server-side:
+            #
+            #  * **No discovery.** The gate below is ``if discovery_enabled and
+            #    result.final_url``, and ``final_url`` falls back to the URL the user
+            #    typed — so WITHOUT this branch ``https://192.168.1.1/careers`` would
+            #    insert a provisional row and enqueue a capture run for an address the
+            #    resolver just refused to fetch. (The capture re-runs the same guard and
+            #    would refuse, so nothing was ever leaked; it still spent a queue job and
+            #    left the user watching a "Setting up…" row that could only end in
+            #    ``refused``.)
+            #  * **No monthly slot.** ``company_add_attempts`` is what the 20-per-month
+            #    cap counts, and the rule is deliberately "URLs entered, not boards
+            #    created" (``services/add_quota``). That rule is about URLs we ACTED on.
+            #    Charging 1/20 for a mistyped scheme — which costs us a DNS lookup at
+            #    most — is not that rule, it is a regression the removed preview used to
+            #    hide.
+            #
+            # ``no_ats_detected`` is deliberately NOT here: we fetched the page, read it,
+            # and found no board. That is a real verdict, it is what one-time discovery
+            # exists for, and starting one spends real money — so it charges.
+            return _reject(
+                422, unreachable, _unreachable_detail(unreachable),
+                final_url=result.final_url,
+            )
 
         if result.candidate is None:
             # Whether the caller ALREADY owns a private row for this URL. Hoisted out

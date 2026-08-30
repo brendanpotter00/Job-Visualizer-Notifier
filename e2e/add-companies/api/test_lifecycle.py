@@ -314,15 +314,37 @@ class TestPerUserAddLimits:
             try:
                 before_user_rows = db.visibility_count(db_conn, "user")
 
-                # Three REFUSED adds still spend the month. The rule caps URLs
-                # entered, not boards created — "a success, a refusal, a board we
-                # already publish, all the same".
+                # A URL WE COULD NOT READ COSTS NOTHING, and that is the half of this
+                # case that changed. These `.invalid` hosts are refused by the DNS
+                # guard before a byte leaves the machine — no page read, no board
+                # judged, nothing enqueued — so the endpoint records no attempt and
+                # the counter does not move.
+                #
+                # It used to assert the opposite ("three refused adds still spend the
+                # month"). That was defensible while the Add Companies page previewed
+                # every URL through `/api/companies/resolve` first, which charges
+                # nothing: a URL only reached THIS endpoint once it had already been
+                # resolved. The preview is gone — one press adds the company — so every
+                # typo lands here, and charging 1/20 of somebody's month for a mistyped
+                # scheme is a fine for a typo, not a cap on URLs entered.
                 for i in range(3):
                     r = client.post("/api/users/companies", json={"url": _UNRESOLVABLE.format(n=i)})
                     assert r.status_code == 422, f"add {i}: {r.status_code} {r.text}"
                     assert r.json().get("reason") != "monthly_limit_reached", (
                         f"add {i} must be refused for the URL, not the cap: {r.text}"
                     )
+
+                free = client.get("/api/users/companies").json()["quota"]
+                assert free["used"] == 0, (
+                    f"a URL we never read must spend no slot: {free}"
+                )
+
+                # Now the cap itself. The rows are SEEDED rather than spent, because
+                # after the change above there is no cheap way to spend a slot through
+                # the API — every real one costs a live board, a harvest or an LLM call.
+                # The audit is append-only by design, so this reaches past the API the
+                # same way `clear_add_attempts` above does.
+                db.seed_add_attempts(db_conn, user_id=user_id, n=3)
 
                 fourth = client.post("/api/users/companies", json={"url": _UNRESOLVABLE.format(n=3)})
                 assert fourth.status_code == 422, f"{fourth.status_code} {fourth.text}"

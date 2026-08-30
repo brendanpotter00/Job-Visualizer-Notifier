@@ -1,5 +1,14 @@
 /**
- * Translates a failed `resolveCareersUrl` mutation into display copy.
+ * Translates a failed add into display copy, for every failure that is about the URL
+ * rather than about a board.
+ *
+ * It was written for `resolveCareersUrl`, which the Add Companies page no longer calls —
+ * one press now goes straight to `addUserCompany`. The codes below did not move with it:
+ * the add endpoint runs the SAME resolver and hands back the same `reason` values, so
+ * this is still the single owner of their copy. `AddCompanyOutcome` tries the add
+ * endpoint's own six codes first and falls through to `describeResolveError` for
+ * everything else — including 401 / 429 / 502 / 503 and RTK Query's non-HTTP statuses,
+ * which used to be answered by the resolve call.
  *
  * Pure and dependency-free so the whole matrix of failure shapes is testable
  * without a store, a component, or a network. The hard requirement this module
@@ -201,7 +210,7 @@ function describeResolverFailure(data: Record<string, unknown>): ResolveErrorDis
 }
 
 /**
- * Maps any rejection from `resolveCareersUrl` to display copy.
+ * Maps any rejection from `addUserCompany` (or `resolveCareersUrl`) to display copy.
  *
  * Accepts `unknown` because callers get either an RTK Query
  * `FetchBaseQueryError`, a `SerializedError`, or (from `.unwrap()`) a thrown

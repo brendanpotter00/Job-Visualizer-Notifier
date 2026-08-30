@@ -72,6 +72,33 @@ def clear_add_attempts(conn: Any, *, user_id: str) -> int:
     return int(deleted)
 
 
+def seed_add_attempts(conn: Any, *, user_id: str, n: int) -> None:
+    """Place a user at a known monthly spend. TEST FIXTURE ONLY, and the mirror of
+    :func:`clear_add_attempts` above.
+
+    The cap counts ``company_add_attempts`` rows, and the endpoint only writes one for
+    a URL it actually acted on — a refusal we could not even read (a bad scheme, a dead
+    domain) deliberately writes nothing and charges nothing, which is exactly what
+    AC-14's first case asserts. So there is no longer a CHEAP way to spend a slot
+    through the API: every real one costs a live board, a harvest, or an LLM call. The
+    audit is append-only by design, so the only way to sit a user at the boundary
+    without spending real money is to write the rows.
+
+    ``resolved_ats`` is a real ATS name on purpose: ``'discovered'`` rows are the ones
+    the quota predicate EXCLUDES (they are the worker's terminal half of a submission
+    already billed), so seeding those would count for nothing.
+    """
+    with conn.cursor() as cur:
+        for i in range(n):
+            cur.execute(
+                "INSERT INTO company_add_attempts "
+                "(user_id, submitted_url, outcome, resolved_ats) "
+                "VALUES (%s, %s, 'added', 'greenhouse')",
+                (user_id, f"https://seeded-{i}.e2e.test/careers"),
+            )
+    conn.commit()
+
+
 def latest_add_attempt(conn: Any, *, user_id: str) -> dict[str, Any] | None:
     with conn.cursor() as cur:
         cur.execute(

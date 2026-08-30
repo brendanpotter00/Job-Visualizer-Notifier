@@ -9,18 +9,21 @@ interface ResolveUrlFormProps {
   /** Called with the trimmed URL. Never called while busy or with an empty value. */
   onSubmit: (url: string) => void;
   /**
-   * Which half of the submit action is in flight. ONE prop rather than two booleans
-   * because the action is resolve-then-maybe-discover: between the resolve settling and
-   * the discovery POST being dispatched both mutations are momentarily idle, and a
-   * `checking || settingUp` flag derived from them would blink the button back to
-   * "ready" mid-action — inviting a second submit that starts a second paid discovery.
-   * The page owns this value and holds it non-`idle` across the whole action.
+   * The add is in flight.
+   *
+   * ONE boolean, and it used to be a three-state `status` (`idle | checking |
+   * setting-up`) plus a `busy` flag the page held across both. That machinery existed
+   * because the submit ran a preview resolve and then MAYBE a second call, and the two
+   * mutations were both momentarily idle in between — so anything derived from them
+   * blinked the button back to "ready" mid-action. There is one call now, so there is
+   * one phase, and a label naming which half is running would name a half that no
+   * longer exists.
    */
-  status: 'idle' | 'checking' | 'setting-up';
+  busy: boolean;
   /**
    * Refuse the submit outright — today, the caller has no adds left this month.
    *
-   * SEPARATE from `status`, because it is a different kind of "no". `status` is
+   * SEPARATE from `busy`, because it is a different kind of "no". `busy` is
    * transient ("wait, this is running") and re-enables itself; this one does not
    * change until the 1st, and the counter above the form is its whole explanation.
    * The FIELD stays editable on purpose: someone can still paste and read a URL
@@ -37,38 +40,33 @@ interface ResolveUrlFormProps {
  * The careers-URL input, and the ONLY action in the add flow.
  *
  * Submitting is wired through a real `<form>` so Enter works for free rather
- * than needing a keydown handler. The field keeps its value while a check is in
+ * than needing a keydown handler. The field keeps its value while the add is in
  * flight (disabled, not cleared) so a failed URL can be edited and retried
  * instead of retyped.
  *
- * The label says "Add company", never "Check URL", because this button no longer only
- * reads: a URL with no supported ATS behind it goes straight into a one-time discovery
- * that costs an LLM call and a headless browser session. A button promising a read-only
- * check that quietly spends money is a worse defect than the extra click it replaced, so
- * the label names the thing the user is actually asking for — the company ends up tracked
- * — and the helper text below, plus the page's intro alert, name which of the two routes
- * it takes to get there. Whatever this label becomes, it must never shrink back to
- * promising a read-only check.
- *
- * The in-flight labels stay phase-specific ("Checking…" then "Setting up…") rather than
- * echoing the button: they are the only place the user can see WHICH half of the action
- * is running, and the discovery half is the slow, expensive one.
+ * ONE PRESS, ONE OUTCOME, and that is the change this component exists to carry.
+ * Pressing this used to open a preview card ("Found 377 open jobs on Ashby") that the
+ * user then had to confirm with a second **Track this company** button. The second
+ * press is gone: this one adds the company, or fails and says why. The label already
+ * said "Add company" and now it is literally true — and it must never shrink back to
+ * promising a read-only check, because a URL with no supported board behind it goes
+ * straight into a one-time discovery that costs an LLM call and a headless browser
+ * session.
  *
  * THE FIELD COPY IS SHORT ON PURPOSE, and it was not always. The helper text used to
  * carry the whole branch ("if it's a board we already read you'll see what we found
  * before anything is tracked; if it isn't, we start a one-time setup to learn how to
  * read it") — three clauses under a one-line input, which is a length people skip, and
- * skipped help is worse than none. The page's intro alert already states both outcomes
- * and IS the consent; this line only has to say what to paste. So: the label names the
- * thing ("Job board link"), the placeholder repeats the instruction where an empty box
- * is already looking at you, and the helper adds the one qualifier that actually changes
- * what a user pastes — EXACT, and from the company. Whatever this becomes, it must not
- * grow back into a second copy of the alert.
+ * skipped help is worse than none. The page's intro alert already states what pressing
+ * this does and IS the consent; this line only has to say what to paste. So: the label
+ * names the thing ("Job board link"), the placeholder repeats the instruction where an
+ * empty box is already looking at you, and the helper adds the one qualifier that
+ * actually changes what a user pastes — EXACT, and from the company. Whatever this
+ * becomes, it must not grow back into a second copy of the alert.
  */
-export function ResolveUrlForm({ onSubmit, status, disabled = false }: ResolveUrlFormProps) {
+export function ResolveUrlForm({ onSubmit, busy, disabled = false }: ResolveUrlFormProps) {
   const [value, setValue] = useState('');
 
-  const busy = status !== 'idle';
   const trimmed = value.trim();
   const canSubmit = trimmed.length > 0 && !busy && !disabled;
 
@@ -98,11 +96,7 @@ export function ResolveUrlForm({ onSubmit, status, disabled = false }: ResolveUr
           sx={{ mt: { xs: 0, sm: 1 }, flexShrink: 0 }}
           startIcon={busy ? <CircularProgress size={16} color="inherit" /> : undefined}
         >
-          {status === 'setting-up'
-            ? 'Setting up…'
-            : status === 'checking'
-              ? 'Checking…'
-              : 'Add company'}
+          {busy ? 'Adding…' : 'Add company'}
         </Button>
       </Stack>
     </Box>

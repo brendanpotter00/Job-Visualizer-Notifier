@@ -4,8 +4,6 @@ import Typography from '@mui/material/Typography';
 
 interface TrackAnywayActionProps {
   onClick: () => void;
-  /** Disables the button and swaps its label while the add is in flight. */
-  isLoading?: boolean;
 }
 
 /**
@@ -39,17 +37,18 @@ interface TrackAnywayActionProps {
  * It owns no mutation. `DiscoveryStatus` renders it and its parent holds the mutation;
  * giving this a third would mean a click here resolving into state neither of them
  * renders.
+ *
+ * NO IN-FLIGHT STATE, and it used to have one. Clicking this fires the page's add
+ * mutation, which clears its own `data` — so the notice this button lives inside
+ * unmounts on the very next render and the page's spinner takes the screen. A
+ * `disabled` + "Adding…" label had nothing left to render itself into. The window a
+ * double-click could squeeze into is closed on the page, where the mutation is.
  */
-export function TrackAnywayAction({ onClick, isLoading = false }: TrackAnywayActionProps) {
+export function TrackAnywayAction({ onClick }: TrackAnywayActionProps) {
   return (
     <Box sx={{ mt: 1 }}>
-      <Button
-        size="small"
-        onClick={onClick}
-        disabled={isLoading}
-        data-testid="track-anyway-button"
-      >
-        {isLoading ? 'Adding…' : "This isn't the same company"}
+      <Button size="small" onClick={onClick} data-testid="track-anyway-button">
+        This isn&apos;t the same company
       </Button>
       <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary' }}>
         We matched the name in the web address. If we got that wrong, we&apos;ll set this

@@ -4,68 +4,6 @@ import type { BackendJobListing } from '../../api/types';
 import { transformBackendJob } from '../../api/transformers/backendScraperTransformer';
 
 /**
- * ATS providers `POST /api/companies/resolve` can currently name.
- *
- * The backend types this field as a bare `str`, so a newer server could return
- * a provider this build has never heard of. Display code must therefore treat
- * an unknown value as data, not as an impossible state — see `atsLabel()`.
- */
-export type AtsProvider = 'greenhouse' | 'ashby' | 'lever' | 'gem' | 'workday' | 'eightfold';
-
-/** How the resolver arrived at the candidate board. Also a bare `str` on the wire. */
-export type ResolveVia = 'direct' | 'redirect' | 'embedded';
-
-/** A job board the resolver recognized behind the pasted URL. */
-export interface AtsCandidate {
-  ats: AtsProvider;
-  boardToken: string;
-  /** Provider-specific extras (e.g. Workday's `baseUrl` / `tenantSlug`). Often empty. */
-  providerConfig: Record<string, string>;
-  /** The URL the candidate was actually discovered on (may differ from what was pasted). */
-  sourceUrl: string;
-}
-
-/** What the real ATS client saw when it called the candidate board. */
-export interface ProbeResult {
-  /** False means the board was identified but calling it failed — see `error`. */
-  ok: boolean;
-  jobCount: number;
-  error: string | null;
-}
-
-/** 200 body. Persists nothing — this endpoint is a read-only preview. */
-export interface ResolveUrlResponse {
-  candidate: AtsCandidate;
-  probe: ProbeResult;
-  via: ResolveVia;
-  /** Redirect chain that was followed, oldest first. Empty for a direct hit. */
-  hops: string[];
-  finalUrl: string;
-}
-
-/**
- * The 422 body for a *resolver* failure.
- *
- * Deliberately FLAT (`reason` / `finalUrl` / `hops`), not nested under
- * `detail`. FastAPI's own request-validation 422 is a different shape
- * (`{ detail: [...] }`) with no `reason` key at all — `resolveErrors.ts` is
- * responsible for telling the two apart.
- *
- * `reason` is typed as `string` rather than a closed union because the server
- * owns the code list and can add to it; the mapper narrows it and falls back
- * to generic copy (while still surfacing the raw code) for anything unknown.
- */
-export interface ResolveUrlFailure {
-  reason: string;
-  finalUrl: string;
-  hops: string[];
-}
-
-export interface ResolveUrlArgs {
-  url: string;
-}
-
-/**
  * Arg for `addUserCompany`. `trackAnyway` is the single override for the
  * already-published checks: omitted (the default) the add stops and links to the
  * public company; `true` skips all three and creates the private copy.
@@ -312,9 +250,11 @@ export interface UserCompany {
 /**
  * How many companies the signed-in user may still add this calendar month.
  *
- * 20 URLs per user per month, resetting at midnight UTC on the 1st. EVERY
- * submission spends a slot — a success, a refusal, and a board that turns out to be
- * one we already publish — and deleting a company does not give one back.
+ * 20 URLs per user per month, resetting at midnight UTC on the 1st. Every submission
+ * the server ACTS on spends a slot — a success, a board it read and refused, and a
+ * board that turns out to be one we already publish — and deleting a company does not
+ * give one back. A URL it could not read at all (a bad scheme, a private address, a
+ * dead domain) costs nothing: see `add_quota.py`, which owns that exception.
  *
  * `limit` is the configured cap and **`0` means unlimited**, in which case there is
  * no counter to render at all. There is no `remaining` on the wire, by design: see
@@ -514,12 +454,10 @@ interface UserCompaniesApiExtra {
 export const userCompaniesApi = createApi({
   reducerPath: 'userCompaniesApi',
   baseQuery: fetchBaseQuery({
-    // `/api` and NOT `/api/companies` on purpose. This slice owns the whole
-    // "companies the user brings themselves" surface, and the follow-up work
-    // adds `users/companies` endpoints (list / add / remove) alongside the
-    // `companies/resolve` probe below. Those live under a different path
-    // prefix, so pinning the base to `/api/companies` here would force the
-    // next endpoints to escape it with `../`.
+    // `/api` and NOT `/api/users/companies` on purpose. This slice owns the whole
+    // "companies the user brings themselves" surface, and its endpoints sit under
+    // more than one path prefix — pinning the base any deeper would force the next
+    // one to escape it with `../`.
     baseUrl: '/api',
     prepareHeaders: async (headers, { extra }) => {
       const { getTokenOrNull } = extra as UserCompaniesApiExtra;
@@ -530,21 +468,12 @@ export const userCompaniesApi = createApi({
       return headers;
     },
   }),
-  // `resolve` still writes nothing, but the `users/companies` list below is
-  // real server state, so the slice now owns one tag. Per-company job caches
-  // tag `{ type: 'MyCompanies', id }`; the list tags the bare type, and add /
-  // remove invalidate the bare type (which sweeps both the list and per-id
-  // job caches). One tag type keeps the invalidation graph trivial for Phase 1.
+  // The `users/companies` list is real server state, so the slice owns one tag.
+  // Per-company job caches tag `{ type: 'MyCompanies', id }`; the list tags the bare
+  // type, and add / remove invalidate the bare type (which sweeps both the list and
+  // per-id job caches). One tag type keeps the invalidation graph trivial.
   tagTypes: ['MyCompanies'],
   endpoints: (builder) => ({
-    resolveCareersUrl: builder.mutation<ResolveUrlResponse, ResolveUrlArgs>({
-      query: ({ url }) => ({
-        url: 'companies/resolve',
-        method: 'POST',
-        body: { url },
-      }),
-    }),
-
     /**
      * The caller's own companies, newest first, plus their monthly add quota.
      *
@@ -604,7 +533,6 @@ export const userCompaniesApi = createApi({
 });
 
 export const {
-  useResolveCareersUrlMutation,
   useGetUserCompaniesQuery,
   useAddUserCompanyMutation,
   useRemoveUserCompanyMutation,

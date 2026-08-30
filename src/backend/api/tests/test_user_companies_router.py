@@ -1426,6 +1426,113 @@ def test_discovery_is_gated_by_exactly_one_flag(client, db_conn, monkeypatch):
     assert _count(db_conn, "companies", "WHERE visibility = 'user'") == 0  # no placeholder
 
 
+# --- A URL we could not even READ: no discovery, no audit row, no slot ---------
+#
+# THE REGRESSION THESE PIN, and it is one this endpoint's own contract created the
+# moment the Add Companies page stopped calling `/api/companies/resolve` first.
+#
+# The page used to preview a URL through the resolve endpoint (which persists nothing
+# and charges nothing) and only POST here on `no_ats_detected`. Every OTHER resolver
+# reason — a url_guard refusal, a DNS or connection failure, a redirect loop — stayed a
+# plain client-side error that never reached this route. One press now sends every URL
+# straight here, so both properties the client-side gate bought have to be bought on
+# this side:
+#
+#   * the discovery gate is `if discovery_enabled and result.final_url`, and
+#     `final_url` falls back to the URL the user typed — so `https://192.168.1.1/x`
+#     would insert a provisional row and enqueue a capture run for an address the
+#     resolver had just refused to fetch; and
+#   * `company_add_attempts` is what the 20-a-month cap counts, so a mistyped scheme
+#     would cost 1/20 of somebody's month.
+#
+# `http://` needs no mock and no network: `resolve_ats_url` finds no ATS in it, and
+# `guarded_get` raises `scheme_not_https` before a byte leaves the process.
+_UNREADABLE_URL = "http://careers.acme.test/jobs"
+
+
+def test_a_url_we_could_not_read_starts_no_discovery(client, db_conn, monkeypatch):
+    monkeypatch.setattr(settings, "custom_company_discovery_enabled", True)
+    _login(client, "auth0|UNREAD", "unread@example.com")
+    calls = _capture_defer(monkeypatch)
+
+    resp = client.post("/api/users/companies", json={"url": _UNREADABLE_URL})
+
+    assert resp.status_code == 422, resp.text
+    # The resolver's OWN code, passed through — that is what the frontend's
+    # `describeResolveError` keys off to say "The address must use HTTPS".
+    assert resp.json()["reason"] == "scheme_not_https", resp.text
+    assert calls == [], "a URL we refused to fetch must never reach the capture queue"
+    assert _count(db_conn, "companies", "WHERE visibility = 'user'") == 0
+
+
+def test_a_url_we_could_not_read_spends_no_monthly_slot(client, db_conn, monkeypatch):
+    monkeypatch.setattr(settings, "custom_company_discovery_enabled", True)
+    monkeypatch.setattr(settings, "custom_company_monthly_add_limit", 20)
+    _login(client, "auth0|UNREAD2", "unread2@example.com")
+    _capture_defer(monkeypatch)
+
+    before = _quota(client)["used"]
+    for _ in range(3):
+        assert client.post(
+            "/api/users/companies", json={"url": _UNREADABLE_URL}
+        ).status_code == 422
+
+    assert _quota(client)["used"] == before, (
+        "three typos must not cost three of this month's twenty adds"
+    )
+    assert _count(db_conn, "company_add_attempts", "WHERE outcome = 'unsupported'") == 0
+
+
+def test_an_unreachable_host_is_refused_the_same_way(client, db_conn, monkeypatch):
+    """The transport half of the same rule — a domain that does not resolve.
+
+    Same verdict as the guard refusal above: we never read a page, so there is no
+    verdict about a board to record and nothing for discovery to work on."""
+    monkeypatch.setattr(settings, "custom_company_discovery_enabled", True)
+    _login(client, "auth0|DNS", "dns@example.com")
+    calls = _capture_defer(monkeypatch)
+
+    from api.services.ats_discovery import DiscoveryResult
+
+    async def _fake(url, http, *, deadline):
+        return DiscoveryResult(
+            candidate=None, via="unsupported", hops=(), final_url=url,
+            reason="dns_resolution_failed",
+        )
+
+    monkeypatch.setattr("api.routers.user_companies.discover_ats", _fake)
+
+    resp = client.post("/api/users/companies", json={"url": "https://nope.invalid/x"})
+
+    assert resp.status_code == 422
+    assert resp.json()["reason"] == "dns_resolution_failed"
+    assert calls == []
+    assert _count(db_conn, "company_add_attempts") == 0
+
+
+def test_a_page_we_DID_read_still_charges_and_still_discovers(
+    client, db_conn, monkeypatch
+):
+    """The other side of the line, and why it is drawn where it is.
+
+    `no_ats_detected` means we fetched the page, read it, and found no board we
+    support. That is a real verdict about a real board, it is exactly what one-time
+    discovery exists for, and starting one spends a headless Chromium session and an
+    LLM call — so it records an attempt and it charges. This must NOT be "fixed"."""
+    monkeypatch.setattr(settings, "custom_company_discovery_enabled", True)
+    monkeypatch.setattr(settings, "custom_company_monthly_add_limit", 20)
+    _login(client, "auth0|CHARGED", "charged@example.com")
+    _patch_no_ats(monkeypatch)
+    calls = _capture_defer(monkeypatch)
+
+    before = _quota(client)["used"]
+    resp = client.post("/api/users/companies", json={"url": _NON_ATS_URL})
+
+    assert resp.status_code == 202, resp.text
+    assert len(calls) == 1
+    assert _quota(client)["used"] == before + 1
+
+
 def test_two_users_same_url_get_per_user_discovery_locks(monkeypatch):
     """FIX 5: the discovery queueing_lock is per-user, so two different users adding
     the SAME non-ATS URL each get their own discovery run (a URL-only lock made user

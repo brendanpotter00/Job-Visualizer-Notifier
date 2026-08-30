@@ -32,8 +32,49 @@ suite. They are thin (forward + re-emit headers) and are a known gap, not an ove
 | AC-12 | Microsoft + trackAnyway | API | live (LLM) | 🟢 GREEN | the server-side override still works and routes through real discovery, not a static clone. **The UI no longer offers it here** — see the escape-hatch note below |
 | AC-13 | Spotify (lifeatspotify.com) | API + UI | fast (one resolve, no LLM) | 🟢 GREEN | the company-name dedupe: answers `already_public`/`matchKind='name'` with **no discovery job**, and keeps the correction |
 | AC-13a | the real published fleet | API | fast, hermetic | 🟢 GREEN | no network; runs the real matcher against the e2e DB's clone of prod's ~133 public rows. Pins `dropbox`≠`box` and `figma`≠`gm` |
-| AC-14 | per-user add limits | API | fast (no network — `.invalid` hosts, no LLM) | 🟢 GREEN | the 20/month cap and the 10/60s burst limiter, on the real endpoint with a replayed bearer token. Two short-lived backends on :8202 with their own limits (same trick as AC-09); the main stack runs uncapped because `company_add_attempts` is append-only and survives every sweep |
+| AC-14 | per-user add limits | API | fast (no network — `.invalid` hosts, no LLM) | 🟢 GREEN | the 20/month cap and the 10/60s burst limiter, on the real endpoint with a replayed bearer token. Two short-lived backends on :8202 with their own limits (same trick as AC-09); the main stack runs uncapped because `company_add_attempts` is append-only and survives every sweep. **Rewritten with the one-press flow** — see "What a refused add costs" below |
 | AC-15 | seeded harvest histories (Goldman + Walmart shapes) | API | fast, hermetic | ⚪ NEW — not yet in a suite run | the REFUSING half of verification, and the mirror of AC-04/AC-05. No network: seeds `company_harvests` rows and drives the real `compute_baseline` + `verify_harvest` against them. Pins that a 20-of-1,074 short read and a page-one-of-N board can never verify however long their history — and, as the control, that a whole-catalogue board with the SAME history does |
+
+## One press, not two (AC-08 and AC-14 both changed)
+
+Pressing **Add company** used to call `POST /api/companies/resolve`, render a preview card
+("Found 1,213 open jobs on Workday" plus a Job board / How we found it / Final URL grid),
+and wait for a second press on **Track this company**. The owner's objection: *"We don't
+need this extra step. When we say add company, we add it simple. And it either succeeds or
+fails."* He is right — `POST /api/users/companies` re-resolves the raw pasted URL from
+scratch, so the middle step decided nothing the first press had not already decided.
+
+The frontend no longer calls `/api/companies/resolve` at all. That endpoint still exists,
+persists nothing, and keeps its own tests — it just has no caller.
+
+**AC-08** now asserts paste → one press → `add-company-success`, and that
+`add-company-button` / `resolve-headline` do not exist.
+
+### What a refused add costs — the regression the preview used to hide
+
+With the preview gone, every typo hits the add endpoint directly. Two things had to move
+server-side, because the client-side gate that used to buy them is gone:
+
+| The URL | Discovery? | Monthly slot? |
+|---|---|---|
+| we READ the page, no board we support (`no_ats_detected`) | **yes** — that is what it is for | **yes**, it spends a Chromium session + an LLM call |
+| we could not READ it (`scheme_not_https`, `resolves_to_private_address`, `dns_resolution_failed`, a redirect loop, a timeout) | **no** | **no** — nothing recorded |
+
+Before the change, `if discovery_enabled and result.final_url` was the whole gate, and
+`final_url` falls back to the URL the user typed — so `https://192.168.1.1/careers` would
+have inserted a provisional row and queued a capture run for an address the resolver had
+just refused to fetch. (The capture re-runs the same guard, so nothing could leak; it still
+burnt a queue job and a monthly slot and left the user watching a "Setting up…" row that
+could only end `refused`.)
+
+**AC-14's monthly-cap case was rewritten, not deleted.** It used to assert "three refused
+`.invalid` adds still spend the month" — defensible while a URL only reached this endpoint
+after a free resolve, and a fine for a typo once every URL lands here. It now asserts the
+`.invalid` refusals cost **nothing**, then seeds three `company_add_attempts` rows
+(`db.seed_add_attempts`, the mirror of the existing `clear_add_attempts`) to sit the user
+at the cap and drive the real `monthly_limit_reached` refusal. Seeding is necessary because
+after the change there is no cheap way to spend a slot through the API — every real one
+costs a live board, a harvest, or an LLM call.
 
 ## The escape hatch: who still gets one, and why
 
@@ -41,7 +82,7 @@ Certainty decides. It is not a style choice, and the two halves are asserted sep
 
 | Match | Evidence | Way past the notice |
 |---|---|---|
-| ATS board token (AC-11-adjacent, `AddCompanyCTA`) | a resolved `(ats, boardToken)` pair | **none** — terminal |
+| ATS board token (AC-11-adjacent) | a resolved `(ats, boardToken)` pair | **none** — terminal |
 | Careers host (AC-01, AC-02) | a host in our own declared table | **none** — terminal |
 | Company name in the domain (AC-13) | a string read out of a web address | **kept**, worded as a correction |
 

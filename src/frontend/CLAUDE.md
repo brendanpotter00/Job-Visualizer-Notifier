@@ -144,7 +144,7 @@ own eventual signup. Event taxonomy (custom events live in `features/analytics/e
 ## Custom company sources (Add Companies)
 
 Flag-gated. The `/add-companies` page takes a pasted careers URL and tracks the company
-behind it — **one user action, two outcomes**:
+behind it — **one press, one outcome**:
 
 **The page was renamed** from "My Companies" / `/my-companies`. The old path is still
 registered (behind the same flag) as a splat route that redirects onto `/add-companies`,
@@ -153,26 +153,43 @@ company's trend page. `ROUTES.MY_COMPANIES` / `MyCompaniesPage` / `components/my
 kept their old *internal* names on purpose — renaming files and symbols would have churned
 every import for zero user-visible gain.
 
-- **A supported board** (Greenhouse / Ashby / Lever / Gem / Workday / Eightfold) is resolved,
-  probed, and previewed ("Found 663 open jobs on Workday"). Nothing is persisted until the
-  user presses **Track this company** — a readable board is cheap, so the confirm stays.
-- **Anything else** goes straight to a **one-time discovery** from that same submit: the page
-  POSTs the add endpoint the moment the resolver answers `no_ats_detected`, and the backend
-  answers `202 discovery_pending`. There is deliberately **no second button** — the removed
-  "Try one-time discovery" CTA was a click standing between the user and the only thing left
-  to do. Because discovery costs a Claude call and a headless Chromium session, the submit
-  button says **"Add company"** and the page's intro alert names both outcomes: that copy
-  is the consent, and it must not be softened back into "nothing is added". The button label
-  may change; what it may never do is shrink back to promising a read-only check.
-- **The trigger is exactly `no_ats_detected`.** Every other resolver failure (malformed URL,
-  SSRF refusal, 429, 503, timeout) stays a plain error and starts nothing — a typo must never
-  cost an LLM call. `MyCompaniesPage` owns both mutations plus one synchronous `busy` flag
-  spanning the handoff, so the form is never re-enabled mid-action;
-  `components/my-companies/DiscoveryStatus.tsx` is purely presentational and only renders the
-  outcome (202 pending / idempotent 200 / failure).
+- **ONE CALL: `POST /api/users/companies`.** Pressing **Add company** adds the company, or
+  fails and says why. There is no preview and no confirm. The page used to call
+  `POST /api/companies/resolve` first and render a card ("Found 663 open jobs on Workday",
+  plus a Job board / How we found it / Final URL grid) behind a second **Track this company**
+  button — but the add endpoint re-resolves the raw pasted URL from scratch, probes it,
+  applies both limits, runs all three already-published checks and routes a non-ATS URL into
+  discovery, so the second press decided nothing. The resolve endpoint still exists, still
+  persists nothing, and keeps its own backend tests; **the frontend simply has no caller for
+  it**, and re-adding one would re-add the step.
+- **Four outcomes, all rendered by `components/my-companies/AddCompanyOutcome.tsx`** (the old
+  `AddCompanyCTA`, minus its button): `201`/`200` a tracked `UserCompany` → the success card;
+  `202` → the one-time-setup notice; `200 already_public` → the link to the public page; a
+  `422`/`4xx`/`5xx` → one alert. `DiscoveryStatus` renders the middle two and nothing else —
+  its error branch and its "starting…" placeholder went with the resolve→discovery handoff
+  they narrated.
+- **The failure alert speaks two vocabularies.** The add endpoint's own six reason codes
+  (`unsupported`, `probe_failed`, `empty`, `deadline_exceeded`, `no_ats_detected`,
+  `monthly_limit_reached`) get `ADD_REASON_TITLES`; **everything else falls through to
+  `describeResolveError`**. That fallback is load-bearing, not tidiness: a URL-shaped refusal
+  (`scheme_not_https`, `resolves_to_private_address`, a 429, a 503) used to be answered by the
+  resolve call and rendered by `ResolveErrorDisplay`, and without the fallback a mistyped
+  scheme would now render "we couldn't add that company (code: scheme_not_https)".
+- **A typo costs nothing, and that is enforced on the SERVER now.** The old client-side gate
+  ("only POST the add endpoint when the resolver said `no_ats_detected`") was what stopped a
+  malformed URL from starting a paid discovery. With one call there is no such gate, so
+  `routers/user_companies` refuses any resolver reason other than `no_ats_detected` **before**
+  the discovery gate and **without writing a `company_add_attempts` row** — so it starts
+  nothing and spends none of the 20 monthly adds. `no_ats_detected` is the opposite: we read
+  the page, found no board, and that goes to discovery and charges.
+- **The intro alert IS the consent, and it may not promise a confirm.** It used to say
+  "nothing is tracked until you press Track this company"; that button is gone, so the
+  sentence became a lie about spending. It now says the press adds it, that an unknown board
+  starts a one-time setup immediately, and that everything is private. The button label may
+  change; what it may never do is shrink back to promising a read-only check.
 - **Discovery has its own server flag.** With `CUSTOM_COMPANY_DISCOVERY_ENABLED` off the add
-  endpoint returns 422 instead of starting anything, and `DiscoveryStatus` renders that
-  verdict plus the boards we read without setup — never an endless spinner.
+  endpoint returns `422 no_ats_detected` instead of starting anything, and the failure alert
+  renders that verdict plus the boards we read without setup — never an endless spinner.
 - **A company we already publish is not added — it is linked.** Before creating anything —
   and before any discovery is enqueued — the add endpoint runs **three** checks against the
   ~135 public companies, in descending order of certainty:
@@ -224,11 +241,11 @@ every import for zero user-visible gain.
   **The server still honours `trackAnyway: true` on every check.** Only the UI affordance
   was removed from the certain ones, so a bookmark or a replayed request never 500s.
 
-  **Which check answers determines which component renders it.** An ATS board resolves, so
-  a check-1 notice appears inside `ResolveResultDisplay` → `AddCompanyCTA` — which passes
-  no `action` at all. Checks 2 and 3 only run when the URL resolves to *no* ATS, so the
-  page auto-starts the add and the notice appears in `DiscoveryStatus`, which renders
-  `TrackAnywayAction` **only** when `matchKind === 'name'` (`isNameGuessMatch`).
+  **One component renders all three**: `AddCompanyOutcome` hands any `already_public` body
+  to `DiscoveryStatus`, which renders `TrackAnywayAction` **only** when
+  `matchKind === 'name'` (`isNameGuessMatch`). The `matchKind` on the wire is the whole
+  rule — which check answered is no longer visible in the component tree, and must not be
+  re-derived from one.
 
   **What NONE of the three catches**, and the copy must never imply otherwise: a careers
   site whose domain does not name the company at all. Only the job set links those — see
@@ -237,25 +254,27 @@ every import for zero user-visible gain.
   backend has its own `CUSTOM_COMPANY_SOURCES_ENABLED` setting and answers **503** while it
   is off. Both must be on for the flow to work. With the frontend flag off there is no nav
   entry, no route (`App.tsx` skips registering it), and no network calls.
-- **Two endpoints, in that order:** `POST /api/companies/resolve` (Bearer auth, 10 requests/60s
-  per user) then, only on `no_ats_detected`, `POST /api/users/companies`. They reach the backend
-  through the existing `api/companies.ts` / `api/users.ts` Vercel proxies — no new proxy. The
-  resolve rate limit is what indirectly bounds how fast discoveries can be started, since every
-  discovery is preceded by a resolve.
-- **Two different 422 bodies.** The resolver's own failure is *flat*
-  (`{reason, finalUrl, hops}`); FastAPI request-validation failure is
+- **One endpoint: `POST /api/users/companies`** (Bearer auth, 10 requests/60s per user, 20
+  adds per user per UTC month). It reaches the backend through the existing `api/users.ts`
+  Vercel proxy — no new proxy, and `api/companies.ts` is no longer used by this page at all.
+  The burst limiter on this route is what bounds how fast discoveries can be started; it used
+  to be the resolve endpoint's limiter doing that indirectly, which a replayed bearer token
+  skipped entirely.
+- **Two different 422 bodies.** The endpoint's own failure is *flat*
+  (`{reason, detail, finalUrl}`); FastAPI request-validation failure is
   `{detail: [...]}` with no `reason`. `features/userCompanies/resolveErrors.ts` is the single
-  place that tells them apart and owns all user-facing copy — add new `reason` codes there
-  (the `Record<ResolveFailureReason, …>` map makes a missing one a compile error).
-- **200 does not mean success.** `probe.ok === false` is a real 200 response: the board was
-  identified but reading it failed. It renders as its own state, not as "0 open jobs".
+  place that tells them apart and owns all user-facing copy for the resolver's codes — add new
+  `reason` codes there (the `Record<ResolveFailureReason, …>` map makes a missing one a
+  compile error). The add endpoint's own six codes live in `AddCompanyOutcome.tsx`, keyed by
+  a closed union for the same reason.
 
 **Key files** (relative to `src/frontend/src/`):
 - `config/customCompanies.ts` — the flag (`VITE_CUSTOM_COMPANIES_ENABLED === 'true'`)
 - `features/userCompanies/userCompaniesApi.ts` — RTK Query slice; `baseUrl: '/api'` on
-  purpose, so follow-up `users/companies` endpoints can join it
-- `features/userCompanies/resolveErrors.ts` — error-code → copy mapping
-- `components/my-companies/` — form, result, and error displays
+  purpose, so endpoints under more than one path prefix can share it
+- `features/userCompanies/resolveErrors.ts` — resolver-code → copy mapping
+- `components/my-companies/ResolveUrlForm.tsx` — the input and the only button
+- `components/my-companies/AddCompanyOutcome.tsx` — every outcome one press can land on
 - `pages/MyCompaniesPage/` — the page (signed-out gate + form + results)
 
 **Discovery-progress checklist** (`VITE_DISCOVERY_PROGRESS_ENABLED`, its own flag, default
