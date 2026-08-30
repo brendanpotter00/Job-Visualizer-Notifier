@@ -733,6 +733,184 @@ class TestAC19OracleFusionPagination:
 
 
 # --------------------------------------------------------------------------
+# AC-19c — the SAME ATS, on a board that never scrolls
+# --------------------------------------------------------------------------
+
+def _oracle_probe(page_two: list[Any] | None, status: int = 200) -> Any:
+    """A probe that answers the seeded ``offset=25`` request with ``page_two``.
+
+    Everything else — the job links — falls through to :func:`one_page_per_job`, so a
+    case can control the paging proof without disturbing the link proof.
+    """
+    links = one_page_per_job()
+
+    def _probe(url: str) -> tuple[int, str]:
+        if "offset%3D25" not in url and "offset=25" not in url:
+            return links(url)
+        if page_two is None:
+            return 404, ""
+        return status, json.dumps({"items": [{
+            "TotalJobsCount": 7181, "requisitionList": page_two,
+        }]})
+    return _probe
+
+
+class TestAC19cSeededCompositeOffset:
+    """AC-19c — **a Fusion board that paginates by BUTTON must read like one that scrolls.**
+
+    AC-19b buys a composite cursor only when the capture SAW one, and a board only shows
+    one if it happens to fetch page two while ``_settle`` is scrolling. Measured
+    2026-08-30 on two Oracle Fusion Recruiting tenants — same ATS, same
+    ``finder=findReqs;…,limit=N,…`` grammar, same ``TotalJobsCount`` oracle:
+
+    * ``jpmc.fa.oraclecloud.com`` INFINITE-SCROLLS: the scroll fetched
+      ``offset=25,50,75,100`` unprompted, so AC-19b's fix applies and the board reads.
+    * ``careers.oracle.com`` — Oracle's OWN careers site — paginates with a **SHOW MORE
+      RESULTS button**. Scrolling fetches nothing. Every captured URL reads ``limit=14``
+      with no offset token, ``_composite_pagination`` finds nothing, and check 13b
+      refused the board ``page_limit_reached`` at 14 of a declared 1,612.
+
+    Nothing about the FEED differs — only whether the site's paging control happens to
+    fire on scroll. So the cursor is SEEDED and then PROVEN against the live board
+    (:func:`~api.services.capture.discover._seed_composite_offset`).
+
+    Measured after the fix, careers.oracle.com, through the real ``discover()`` and then
+    the real ``run_recipe``: ``ok=True``, ``transport=http_json``,
+    ``oracle=declared_probed`` on ``items.0.TotalJobsCount``, ``paginate_offset`` on
+    ``offset`` at 14/page, ``max_pages=118`` — and the harvest read **1,612 distinct rows
+    over 116 pages in 95.7s** against a declared **1,612**, ``cap_hit=False``,
+    ``terminated_cleanly=True``, ``page_advance_ok=True``.
+
+    Hermetic over the SAME page-1 fixture AC-19b uses, with the offset token left OFF —
+    which is precisely the careers.oracle.com shape.
+    """
+
+    def _run(self, probe: Any) -> Any:
+        async def _select(candidates: list[Any], **_: Any):
+            # ``pagination=None`` is EXACTLY what the real model returns for this board.
+            return [CandidateAnswer(
+                candidate_index=0,
+                selection=replace(ORACLE_SELECTION, pagination=None),
+                confidence="high",
+            )]
+
+        async def _replay(script: dict[str, Any]) -> tuple[list[dict], HarvestEvidence]:
+            from api.services.recipe_runner import map_records
+            payload = json.loads(
+                (FIXTURES / "oracle_fusion_jpmc.json").read_text()
+            )["body"]
+            (extract,) = [
+                st for st in script["steps"] if st["op"] == "extract_json_path"
+            ]
+            rows = map_records(
+                payload["items"][0]["requisitionList"],
+                extract["fields"], script.get("base_url", ""),
+            )
+            return rows, HarvestEvidence(
+                declared_total=7181, cap_hit=False, terminated_cleanly=True,
+                page_advance_ok=True, pages_fetched=2, transport_ok=True,
+            )
+
+        return asyncio.run(discover(
+            "https://jpmc.fa.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1001/jobs",
+            capture=capturing(load_capture("oracle_fusion_jpmc")),
+            select=_select,
+            replay_http=_replay,
+            replay_browser=failing_replay(AssertionError("http_json must be enough")),
+            validate_url=allow_all,
+            probe_link=probe,
+            collect_sources=no_well_known,
+        ))
+
+    def test_ac19c_the_captured_url_carries_no_cursor_at_all(self) -> None:
+        """The premise, asserted rather than assumed — this is the button-paged shape."""
+        raw = json.loads((FIXTURES / "oracle_fusion_jpmc.json").read_text())["url"]
+        finder = dict(parse_qsl(urlsplit(raw).query))["finder"]
+        assert "limit=25" in finder, "AC-19c: the page size is the anchor we seed beside"
+        assert "offset" not in finder, (
+            "AC-19c: this case is about a board that NEVER showed us a cursor; if the "
+            "fixture grew one, AC-19b already covers it and this case proves nothing"
+        )
+
+    def test_ac19c_a_proven_cursor_is_seeded_into_the_finder(self) -> None:
+        page_two = [
+            {"Id": f"9{n:05d}", "Title": f"Page-two role {n}",
+             "PrimaryLocation": "New York, NY", "PostedDate": "2026-08-01",
+             "ShortDescriptionStr": "..."}
+            for n in range(25)
+        ]
+        outcome = self._run(_oracle_probe(page_two))
+
+        assert outcome.ok is True, (
+            "AC-19c: check 13b refused this board `page_limit_reached` at one page; a "
+            f"proven cursor must recover it. Got: {outcome.refuse_reason!r}"
+        )
+        assert outcome.script is not None
+        (paginate,) = [
+            st for st in outcome.script["steps"] if st["op"].startswith("paginate_")
+        ]
+        assert (paginate["op"], paginate["param"]) == ("paginate_offset", "offset")
+        (fetch,) = [st for st in outcome.script["steps"] if st["op"] == "fetch"]
+        finder = dict(parse_qsl(urlsplit(fetch["url"]).query))["finder"]
+        assert "limit=25,offset=0" in finder, (
+            "AC-19c: the seed has to live INSIDE the finder, beside the page size the "
+            "board proved it pages on — a top-level `&offset=` is ignored and makes "
+            f"every page page one. Got finder={finder!r}"
+        )
+        assert "offset" not in dict(parse_qsl(urlsplit(fetch["url"]).query)), (
+            "AC-19c: ...and never as a query parameter of its own"
+        )
+
+    def test_ac19c_a_board_that_ignores_the_cursor_keeps_its_refusal(self) -> None:
+        """The half that keeps this safe, and the reason the seed is fetched at all.
+
+        A board that does not read the token re-serves page one. Storing a paginator for
+        it would sweep ``max_pages`` copies of the same page, dedupe to one page's worth
+        and report a clean, terminated sweep — a short read that looks complete, which
+        is the wrong-close direction. It must keep today's refusal instead.
+        """
+        page_one = json.loads(
+            (FIXTURES / "oracle_fusion_jpmc.json").read_text()
+        )["body"]["items"][0]["requisitionList"]
+        outcome = self._run(_oracle_probe(page_one))
+
+        assert outcome.ok is False, (
+            "AC-19c: a re-served page one is NOT evidence of pagination"
+        )
+        assert "page_limit_reached" in (outcome.refuse_reason or ""), (
+            f"AC-19c: ...and the board keeps its honest refusal; got "
+            f"{outcome.refuse_reason!r}"
+        )
+
+    def test_ac19c_an_unreachable_second_page_keeps_the_refusal_too(self) -> None:
+        """"We could not check" and "the check failed" lead to the same place."""
+        outcome = self._run(_oracle_probe(None))
+        assert outcome.ok is False
+        assert "page_limit_reached" in (outcome.refuse_reason or "")
+
+    def test_ac19c_a_non_2xx_page_two_proves_nothing_however_it_reads(self) -> None:
+        """A body is only evidence if the board served it as an ANSWER.
+
+        Boards answer a rejected parameter with a 4xx/5xx that still carries a JSON
+        envelope — Oracle's own does, measured 2026-08-30: an unknown token in the
+        ``finder`` comes back non-2xx with a body. Reading the records out of an error
+        response and calling them page two would seed a cursor the board never accepted.
+        """
+        page_two = [
+            {"Id": f"9{n:05d}", "Title": f"Page-two role {n}",
+             "PrimaryLocation": "New York, NY", "PostedDate": "2026-08-01",
+             "ShortDescriptionStr": "..."}
+            for n in range(25)
+        ]
+        outcome = self._run(_oracle_probe(page_two, status=500))
+        assert outcome.ok is False, (
+            "AC-19c: a 500 that happens to carry a well-formed, disjoint-looking body "
+            "is not proof that this board pages on that token"
+        )
+        assert "page_limit_reached" in (outcome.refuse_reason or "")
+
+
+# --------------------------------------------------------------------------
 # AC-17 — the anchor directory, and one character of trailing slash
 # --------------------------------------------------------------------------
 

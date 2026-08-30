@@ -104,7 +104,7 @@ import unicodedata
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable, Protocol, Sequence
-from urllib.parse import parse_qsl, urljoin, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
 
 import httpx
 
@@ -130,6 +130,7 @@ from ..recipe_runner import (
     MAX_HARVEST_RECORDS,
     _MULTISPACE_RE,
     RecipeExecutionError,
+    composite_param_pattern,
     find_body_param_path,
     iter_body_params,
     iter_composite_query_params,
@@ -1417,6 +1418,155 @@ def _composite_pagination(candidate: Candidate) -> PaginationHint | None:
             style="offset", param=name, page_size=candidate.record_count
         )
     return None
+
+
+# The cursor token seeded into a composite value that carries a page size but no
+# offset. ONE name, and the one that pairs with ``limit`` in every REST convention
+# this shape comes from (OData ``$top``/``$skip`` aside). It is never trusted on the
+# strength of the name — :func:`_seed_composite_offset` FETCHES it and keeps it only
+# if the board answered with a different page.
+_SEEDED_COMPOSITE_OFFSET = "offset"
+
+
+async def _seed_composite_offset(
+    candidate: Candidate, selection: RequestSelection, probe: ProbeFn
+) -> Candidate | None:
+    """``candidate`` with a PROVEN ``offset=0`` written into its composite, or ``None``.
+
+    THE PAGE THE BOARD NEVER ASKED FOR. :func:`_composite_pagination` can only read a
+    cursor the capture SAW, and a board only shows one if it happens to fetch page two
+    while we are watching. Measured 2026-08-30 on two Oracle Fusion Recruiting tenants —
+    the same ATS, the same ``finder=findReqs;…,limit=N,…`` grammar, the same
+    ``TotalJobsCount`` oracle:
+
+    * ``jpmc.fa.oraclecloud.com`` INFINITE-SCROLLS. ``_settle``'s scroll made it fetch
+      ``offset=25,50,75,100`` unprompted, the capture recorded those URLs, and the board
+      discovers today (7,124 rows over 285 pages).
+    * ``careers.oracle.com`` paginates with a **SHOW MORE RESULTS button**. Scrolling
+      fetches nothing, so every captured URL reads ``limit=14`` with no offset token, no
+      paging step is synthesised, and check 13b refuses the board ``page_limit_reached``
+      at 14 of a declared 1,612.
+
+    Nothing about the FEED differs — only whether the site's paging control happens to
+    fire on scroll. That is not a property a board should be judged on, so the cursor is
+    seeded rather than waited for.
+
+    SEEDED AS ``offset=0`` INTO THE CAPTURED URL, not carried as a side-channel, and that
+    is what keeps this small: the rewritten URL is a first page byte-for-byte (verified
+    live — identical ids to the unseeded request), so :func:`_composite_pagination` finds
+    the token by its normal path, ``merge_query_params`` writes the cursor WHERE IT NOW
+    ALREADY IS instead of appending a ``&offset=`` the board would ignore, and check 13,
+    the coverage floor and ``_assert_matches_capture`` all reason about one URL.
+
+    PROVEN, NEVER GUESSED — the standard :func:`_composite_pagination` sets. We fetch
+    page two through the SSRF-guarded probe seam and keep the seed only if the board
+    answered with a non-empty, DISJOINT set of records. A board that ignores the token
+    re-serves page one and is rejected here; a board that rejects it outright fails the
+    probe and is rejected here. Either way the board keeps today's refusal rather than
+    gaining a paginator that silently re-reads page one — the wrong-close direction.
+    """
+    # An XHR/fetch GET only: ``http_html`` may never paginate (``validate_recipe``
+    # rejects it) and a POST carries its cursor in the body, which is a different seam.
+    if candidate.html is not None or candidate.method != "GET":
+        return None
+    if candidate.record_count <= 0:
+        return None
+    # A cursor the capture already showed us is _composite_pagination's job, and a
+    # board whose own total says the captured page IS the board must not gain a paging
+    # step it does not need — ``one_page_proven`` would drop it and check 13a would then
+    # refuse the seeded ``offset`` as an unpaginated page parameter.
+    tokens = list(iter_composite_query_params(candidate.url))
+    if any(name.lower() in _COMPOSITE_OFFSET_NAMES for _c, name, _v in tokens):
+        return None
+    declared = _declared_total(candidate, selection)
+    if declared is not None and declared <= candidate.record_count:
+        return None
+    # THE ANCHOR IS THE PAGE SIZE, not the name of the container. ``_is_page_size``
+    # requires the token to both NAME a size and equal the number of records that came
+    # back, which is what tells us this composite is the one the board paged on.
+    anchor = next(
+        (
+            (container, name)
+            for container, name, value in tokens
+            if _is_page_size(name, value, candidate.record_count)
+        ),
+        None,
+    )
+    if anchor is None:
+        return None
+    container, size_name = anchor
+    probe_url = _write_composite_offset(
+        candidate.url, container, size_name, candidate.record_count
+    )
+    status, body = await asyncio.to_thread(probe, probe_url)
+    if status != 200 or not body:
+        logger.info(
+            "composite offset seed rejected for %s: HTTP %s asking for %s=%d",
+            candidate.url, status, _SEEDED_COMPOSITE_OFFSET, candidate.record_count,
+        )
+        return None
+    try:
+        page_two = dig_records(json.loads(body, strict=False), candidate.records_path)
+    except (ValueError, RecipeError, TypeError) as exc:
+        logger.info(
+            "composite offset seed rejected for %s: page two did not parse at %r (%r)",
+            candidate.url, candidate.records_path, exc,
+        )
+        return None
+    if not isinstance(page_two, list) or not page_two:
+        logger.info(
+            "composite offset seed rejected for %s: page two held no records at %r",
+            candidate.url, candidate.records_path,
+        )
+        return None
+    first = {_record_fingerprint(record) for record in candidate.records}
+    second = {_record_fingerprint(record) for record in page_two}
+    if not first.isdisjoint(second):
+        logger.info(
+            "composite offset seed rejected for %s: %r=%d re-served %d of page one's "
+            "%d record(s) — this board does not read that token",
+            candidate.url, _SEEDED_COMPOSITE_OFFSET, candidate.record_count,
+            len(first & second), len(first),
+        )
+        return None
+    seeded = _write_composite_offset(candidate.url, container, size_name, 0)
+    logger.info(
+        "seeded a PROVEN %r cursor beside %r in the composite %r of %s — page two "
+        "returned %d record(s), none of them page one's",
+        _SEEDED_COMPOSITE_OFFSET, size_name, container, candidate.url, len(page_two),
+    )
+    return replace(candidate, url=seeded)
+
+
+def _write_composite_offset(
+    url: str, container: str, size_name: str, cursor: int
+) -> str:
+    """``url`` with ``offset=<cursor>`` written immediately after the page-size token.
+
+    Beside the page size on purpose: that is the token we PROVED this board pages on,
+    so it is the composite value — and the position inside it — the cursor belongs to.
+    The re-encode is ``merge_query_params``' own, so a seeded URL and a swept one are
+    spelled identically.
+    """
+    rewritten: list[tuple[str, str]] = []
+    for name, raw in parse_qsl(urlsplit(url).query, keep_blank_values=True):
+        if name == container:
+            raw = composite_param_pattern(size_name).sub(
+                lambda m: f"{size_name}={m.group('value')}"
+                f",{_SEEDED_COMPOSITE_OFFSET}={cursor}",
+                raw,
+                count=1,
+            )
+        rewritten.append((name, raw))
+    return str(httpx.URL(url).copy_with(query=urlencode(rewritten).encode()))
+
+
+def _record_fingerprint(record: Any) -> str:
+    """A stable identity for one record, for comparing two pages of the same feed."""
+    try:
+        return json.dumps(record, sort_keys=True, default=str)
+    except (TypeError, ValueError):  # pragma: no cover - default=str takes everything
+        return repr(record)
 
 
 # The only two page numbers a first page can carry, and therefore the only two
@@ -3012,6 +3162,16 @@ async def discover(
                     # all reason about the same paging.
                     if selection.pagination is None:
                         derived = _composite_pagination(candidate)
+                        if derived is None:
+                            # ...and if the board never fetched a second page while we
+                            # watched, seed one and PROVE it. See
+                            # :func:`_seed_composite_offset`.
+                            seeded = await _seed_composite_offset(
+                                candidate, selection, link_context.probe
+                            )
+                            if seeded is not None:
+                                candidate = seeded
+                                derived = _composite_pagination(candidate)
                         if derived is not None:
                             selection = replace(selection, pagination=derived)
                     # ...and then settle the job link. After the widen so it reads the
