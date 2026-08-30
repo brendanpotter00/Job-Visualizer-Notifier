@@ -245,7 +245,13 @@ class TestIdempotentReadd:
         company_id = resp.json()["id"]
 
         def _tracking(row: dict) -> bool:
-            return (row.get("discovery") or {}).get("outcome") in ("tracking", "refused")
+            # Every TERMINAL outcome, not just the two we hope for. ``partial`` is
+            # terminal too (``discovery/progress.py`` ``_OUTCOMES``); leaving it out
+            # turns a settled-but-partial board into a 240s poll and then an assertion
+            # that blames a hang instead of naming the outcome we actually got.
+            return (row.get("discovery") or {}).get("outcome") in (
+                "tracking", "partial", "refused",
+            )
 
         settled = poll_until(http, company_id, _tracking, timeout_s=240.0, what="discovery settled")
         assert settled["discovery"]["outcome"] == "tracking"

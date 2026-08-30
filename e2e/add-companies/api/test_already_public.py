@@ -27,6 +27,14 @@ AMAZON_URL = boards.AMAZON.url
 PRIMARY_EMAIL = "e2e+add-companies@jvn.test"
 
 
+# Every terminal discovery outcome. ``running`` is the ONLY non-terminal one
+# (``discovery/progress.py`` ``_OUTCOMES``), and ``partial`` — a board we can read but
+# not the whole of — is as settled as ``tracking`` is. Omitting it made a perfectly
+# ordinary Microsoft result poll for the full 240s and then report a hang that never
+# happened, which is a harness bug masquerading as a product one.
+_SETTLED_OUTCOMES = ("tracking", "partial", "refused")
+
+
 def _poll_until_settled(http, company_id: str, *, timeout_s: int = 240, interval_s: float = 3.0):
     deadline = time.monotonic() + timeout_s
     last = None
@@ -37,12 +45,12 @@ def _poll_until_settled(http, company_id: str, *, timeout_s: int = 240, interval
             if c["id"] == company_id:
                 last = c
                 discovery = c.get("discovery") or {}
-                if discovery.get("outcome") in ("tracking", "refused"):
+                if discovery.get("outcome") in _SETTLED_OUTCOMES:
                     return c
         time.sleep(interval_s)
     raise AssertionError(
-        f"company {company_id} did not settle (outcome=tracking/refused) within "
-        f"{timeout_s}s; last observed row: {last}"
+        f"company {company_id} did not settle (outcome in {sorted(_SETTLED_OUTCOMES)}) "
+        f"within {timeout_s}s; last observed row: {last}"
     )
 
 
