@@ -32,16 +32,4 @@ describe('BetaBadge', () => {
     // `aria-hidden` or to a sibling-of-the-heading layout drops "Beta" here.
     expect(screen.getByRole('heading', { name: 'Add Companies Beta' })).toBeInTheDocument();
   });
-
-  it('renders a smaller badge for the sidebar than for a page title', () => {
-    const { container: title } = render(<BetaBadge scale="title" />);
-    const { container: nav } = render(<BetaBadge scale="nav" />);
-
-    const fontSize = (c: HTMLElement) =>
-      parseFloat(getComputedStyle(c.firstElementChild as HTMLElement).fontSize);
-
-    // The point of having two scales: a nav row is 16px text and a page heading
-    // is 20–24px, so one badge size would be wrong in one of the two places.
-    expect(fontSize(nav)).toBeLessThan(fontSize(title));
-  });
 });

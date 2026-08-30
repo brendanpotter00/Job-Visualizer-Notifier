@@ -203,13 +203,15 @@ describe('custom company sources — feature flag gate', () => {
       expect(await screen.findByTestId('my-company-trend-page')).toBeInTheDocument();
     }, FULL_APP_RENDER_TIMEOUT_MS);
 
-    it('shows the "Add Companies" nav entry, with the beta marker as a badge', async () => {
+    it('shows the "Add Companies" nav entry with no beta marker', async () => {
       await renderAppAt('/', true);
 
-      // The label is its own element now — the beta marker is a sibling chip,
-      // not " (beta)" glued onto the end of the text.
+      // The nav row is plain text now — the beta marker was removed from the
+      // sidebar (it still lives on the page's own `<h1>`, covered by
+      // MyCompaniesPage.test.tsx, which this file does not render — the page
+      // is mocked above).
       expect(await screen.findByText('Add Companies')).toBeInTheDocument();
-      expect(screen.getByText('Beta')).toBeInTheDocument();
+      expect(screen.queryByText('Beta')).not.toBeInTheDocument();
     }, FULL_APP_RENDER_TIMEOUT_MS);
 
     it('appends /add-companies to the exported nav config', async () => {
@@ -219,11 +221,10 @@ describe('custom company sources — feature flag gate', () => {
 
       const item = PRIMARY_NAV_ITEMS.find((i) => i.path === ROUTES.MY_COMPANIES);
       expect(item).toBeDefined();
-      // The marker is a `beta` flag the drawer renders as a badge, NOT text
-      // appended to the label — a regression here puts "(beta)" back in the
-      // tooltip and in every other consumer of `label`.
       expect(item?.label).toBe('Add Companies');
-      expect(item?.beta).toBe(true);
+      // No beta marker on the nav entry — `NavItem` no longer carries a
+      // `beta` field at all (removed with the nav badge).
+      expect(item).not.toHaveProperty('beta');
       // The icon name must exist in NavigationDrawer's iconMap or the entry
       // renders as a blank square.
       expect(item?.icon).toBe('AddBusiness');
