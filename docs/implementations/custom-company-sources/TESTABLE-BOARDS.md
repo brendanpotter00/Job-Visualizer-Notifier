@@ -490,3 +490,84 @@ selection round.
   only *told* so when nothing else survives the pre-filter; with any other candidate
   present it gets the generic "none of them is a list of job postings". That is how Binance
   hid for a day.
+
+---
+
+## Candidate boards — proposed, not yet run through `discover()`
+
+**Added 2026-08-30.** Everything below this line is a *candidate list*, not a measurement.
+Nothing here was run through `discover()` — no Chromium, no Haiku call, no acceptance
+replay. What was done instead, for every URL: fetched it with `curl`/`httpx` (or, where the
+page is a client-rendered SPA, loaded it in a real browser and read the actual network
+requests) and confirmed it returns 200 and is a real job listing, not a marketing page or a
+redirect to one; grepped the page and its script bundles for `boards.greenhouse.io`,
+`myworkdayjobs`, `ashbyhq`, `icims`, `smartrecruiters`, `jobvite`, `lever`, `phenom`,
+`eightfold`, `workable`, `successfactors` and a few more; and checked `/robots.txt` and
+`/sitemap.xml` for a job-specific sitemap. **A board not verified this way is not listed.**
+Companies already excluded per the brief (already published, already listed above, or
+already an ATS-fast-path control in this doc): Amazon, Apple, Google, Microsoft, TikTok,
+Netflix, Spotify, Cisco, Atlassian, Jane Street, Goldman Sachs, Walmart, Y Combinator,
+Raindrop, Palantir, Hudson River Trading.
+
+**17 boards, grouped by technical shape, not by company fame.** The interesting axis is how
+each board serves its jobs.
+
+### Shape 1 — Custom board, no vendor ATS
+
+| Company | URL | Jobs | Sitemap | Why it's interesting |
+|---|---|---|---|---|
+| **Roblox** | `https://careers.roblox.com/jobs` | 234 | **Yes** — 235 individual `/jobs/{id}` URLs in `sitemap.xml`, matching the JSON almost 1:1 | A second SpaceX: the whole board is one static file, `https://d32kbl9jppd7az.cloudfront.net/careers/jobs.json`, no vendor markers anywhere. But the fetch **failed** (`net::ERR_FAILED`) inside a real browser tab while plain `curl` succeeded — a CORS/referrer quirk our own headless Chromium capture could plausibly hit too |
+| **Grab** | `https://www.grab.careers/jobs/` | 400 (declared inline: *"Displaying 1 to 20 of 400 matching jobs"*) | **Yes** — 402 `/en/jobs/{id}/...` URLs in `sitemap.xml` | Fully server-rendered (zero XHRs fire — confirmed job titles are present in plain `curl` output with no JS), so this is YC's shape on a fresh company, but it *also* declares its own total inline and *also* has a job sitemap — three signals at once on one board |
+| **Toss** | `https://toss.im/career/jobs` | 352 (`count` field) | **Yes**, but disagrees — `https://toss.im/career/sitemap.xml` lists **439** `job_id=` URLs, 87 more than the API's own declared count | Custom REST API (`api-public.toss.im/api-public/v3/ipd-thor/api/v1/workspaces/13/posts?page=1`) with `next`/`previous` cursor links and an internal codename leaking through the URL path. `robots.txt` separately disallows a `gh_jid=...` URL, implying a legacy/parallel Greenhouse board exists too. The sitemap-vs-API mismatch is a live version of the exact completeness problem the [2026-08-22 correction](#correction--2026-08-22--the-sliver-reads) is about, on a board we haven't touched |
+
+### Shape 2 — Custom front end over vendor ATS
+
+| Company | URL | Behind it | Jobs | Sitemap | Why it's interesting |
+|---|---|---|---|---|---|
+| **Robinhood** | `https://careers.robinhood.com/` | Greenhouse, called directly: `api.greenhouse.io/v1/boards/{robinhood,sherwoodmedia}/jobs` | 51 | No | Client JS calls Greenhouse's raw API (not the embed widget) for **two** boards and merges them on one page. The URL itself isn't a Greenhouse domain, so this tests whether the resolver's embedded-ATS detection still catches it |
+| **Discord** | `https://discord.com/careers` | Greenhouse, three boards: `discord` (51), `discordinternational` (1), `internationaleor` | 52+ | No (general sitemap only) | **Zero** ATS markers in the served HTML — the fetch call lives in a separately-loaded chunk (`/webflow-scripts/careersNew2025.js`) that fans out to three Greenhouse boards and merges them client-side. Nothing in the initial document hints Greenhouse exists |
+| **SAP** | `https://jobs.sap.com/` | SAP SuccessFactors (`performancemanager5.successfactors.eu`) — a vendor not in our supported list at all | 253+ | **Yes, and it IS the feed** — `sitemap.xml` is a Google-Jobs RSS feed with full job descriptions inline, 4.2 MB | A brand-new ATS vendor, plus the purest version of "sitemap.xml doubles as the complete job feed" we found |
+| **NVIDIA** | `https://jobs.nvidia.com/careers` | Eightfold (`static.vscdn.net`, `eightfold.ai`) on NVIDIA's own subdomain, not an eightfold.com domain | not stated (paginates 10 at a time via `/api/pcsx/search?query=&location=&start=0`, no total in the response) | No | Eightfold is already a supported fast-path vendor — this tests whether the resolver's embedded-ATS detection catches an Eightfold deployment on a fully custom domain the way it catches Cisco's Workday |
+| **Ramp** | `https://ramp.com/careers` | Ashby (`jobs.ashbyhq.com/ramp`) | 139 | No (general sitemap only, no job URLs) | The entire job list, including full HTML descriptions, is server-rendered directly into the page — confirmed present in plain `curl` output — not fetched via XHR. Same "nothing to capture" shape as Snap/YC, but the source underneath is a supported ATS |
+| **Klarna** | `https://www.klarna.com/careers/` | Deel, used as a full ATS product (not payroll/EOR): `jobs.deel.com/klarna` | 81 (declared inline: *"we have 81 open roles"*) | **Yes, exact match** — `jobs.deel.com/klarna/sitemap.xml` lists 82 URLs (1 index + 81 jobs) | Deel-as-ATS is a vendor we don't support at all, and it ships **no plain JSON API** — job data arrives inside Next.js React Server Component payloads (`?_rsc=...` requests, `content-type: text/html`). A clean test of what our pre-filter does when the real data isn't JSON |
+
+### Shape 3 — Standard vendor ATS, pasted directly (controls)
+
+| Company | URL | Jobs |
+|---|---|---|
+| **Anthropic** | `https://job-boards.greenhouse.io/anthropic` | 571 |
+| **Notion** | `https://jobs.ashbyhq.com/notion` | 133 |
+| **Micron** | `https://micron.wd1.myworkdayjobs.com/External` | 2,783 (via the board's own `wday/cxs` search API) — comfortably past the 2,000-job cap (`WORKDAY_MAX_PAGES × WORKDAY_PAGE_SIZE`) in `src/backend/api/services/workday_client.py`, useful if that cap ever needs a bigger board to reproduce against |
+| **WHOOP** | `https://jobs.lever.co/whoop` | **0 right now** — confirmed live (Lever-hosted, loads normally) but genuinely empty: *"No job postings currently open."* Every other Lever slug tried (Netlify, 1Password, Customer.io, Vanta, Carta, Render, Postman, Chainalysis, Attentive, Webflow, Lattice, Digital Ocean, Patreon, Gusto, Amplitude, Medium) 404'd — Lever's tech-company footprint has shrunk. Useful only as an ATS-fast-path resolution control, not as a board with real jobs to page through |
+
+### Shape 4 — Server-rendered HTML
+
+| Company | URL | Behind it | Jobs | Sitemap | Why it's interesting |
+|---|---|---|---|---|---|
+| **Reddit** | `https://redditinc.com/careers` | Greenhouse — but only as outbound links | 153 | No (general sitemap only) | The page bakes `<a href="https://job-boards.greenhouse.io/reddit/jobs/{id}">` for all 153 jobs directly into the markup — confirmed with plain `curl`, no JS needed. "No XHR to capture" (like YC) **and** "the source is Greenhouse" (like Cisco) on the same board |
+| **Snap** | `https://careers.snap.com/jobs` | None — genuinely custom | ~170 (170 rows tagged `Regular` employment type in the static HTML) | No (general sitemap, no job URLs) | True SSR: `curl` with no JS returns the full Role/Team/Type/Location table. A background `POST` to Contentful's GraphQL API loads page copy only — tempting to mistake for the jobs source, but it isn't |
+
+### Shape 5 — GraphQL or nested POST bodies
+
+| Company | URL | Behind it | Jobs | Sitemap | Why it's interesting |
+|---|---|---|---|---|---|
+| **Rippling** | `https://www.rippling.com/careers/open-roles` | Algolia (`6fnax3tbef-dsn.algolia.net`), not an ATS | 752 (`nbHits` in the response) | No (general sitemap only) | Not GraphQL, but the closest thing to it here: one batched `POST /1/indexes/*/queries` whose body is `{"requests":[{"indexName":"careers_en-US_production","params":"query=...&hitsPerPage=..."}]}` — the actual query parameters live inside a **URL-encoded string nested inside a JSON array**, two levels deep. The public search key is exposed in the page JS with no origin check and replays cleanly from plain `curl` outside any browser |
+
+*No genuine GraphQL jobs API turned up among the candidates checked (Anduril, Applied Intuition, GitLab, Deel, Faire, Adyen, Instacart, Twitch, Brex, Scale AI, Retool all either ATS-backed or had nothing capturable at the landing URL). Goldman Sachs, already in the [✅ Tracked table](#-tracked--17-boards), remains this doc's only confirmed GraphQL-POST example.*
+
+### Shape 6 — Structurally odd
+
+| Company | URL | Behind it | Jobs | Sitemap | Why it's interesting |
+|---|---|---|---|---|---|
+| **Databricks** | `https://www.databricks.com/company/careers/open-positions` | Greenhouse — but only at build time | 851 unique `gh_jid`s | **Yes** — a dedicated careers sitemap lists 908 job URLs | Gatsby static site. The entire feed — every job, full descriptions, department taxonomy, Greenhouse ids — is baked at **build time** into one static `page-data.json` (7.9 MB) shipped with the page. There is no runtime call to Greenhouse at all. The JSON XHR our capture wants to find *is* there (the client does fetch `page-data.json`), but it's Gatsby's internal page-cache format, not a jobs API by any normal definition — a stress test of the pre-filter's job-shaped-response heuristic on a payload that's real but alien |
+
+### What to test first
+
+**Toss, Klarna, Databricks** — in that order. Toss because the sitemap-vs-API mismatch is
+the exact failure class the [2026-08-22 correction](#correction--2026-08-22--the-sliver-reads)
+exists to catch, on a board that has never been measured. Klarna because RSC payloads are a
+transport our JSON-XHR pre-filter has plausibly never seen, and the outcome — clean
+`tracking`, honest `partial`, or a refusal — says something new about how the pre-filter
+degrades. Databricks because it inverts the usual assumption that a big JSON response is
+good news: 7.9 MB of real job data, zero of it reachable by any request our recipe format
+can express.
