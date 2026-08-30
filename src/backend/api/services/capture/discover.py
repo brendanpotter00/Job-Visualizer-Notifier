@@ -14,7 +14,9 @@ The seven steps, in order, each named because the REFUSE reason is rendered to t
 2. :data:`_STEP_CAPTURE` — one browser session; record every JSON XHR/fetch.
 3. :data:`_STEP_FILTER` — deterministic pre-filter to job-shaped arrays, then
    SSRF-validate every surviving endpoint (invariant #4, discovered-endpoint half).
-4. :data:`_STEP_SELECT` — ONE Haiku call: which request, and how its fields map.
+4. :data:`_STEP_SELECT` — ONE Haiku call PER CANDIDATE ARRAY, in parallel: is this a
+   list of job postings, and how do its fields map? Code then RANKS the yeses on
+   measurements the board published about itself (:func:`_rank_answers`).
 5. :data:`_STEP_SYNTHESIZE` — assemble a recipe and run it through
    ``recipe_schema.validate_recipe`` (validate-on-write, invariant #5).
 6. :data:`_STEP_ACCEPT` — replay it FROM THE PRODUCTION PATH and check it against the
@@ -43,7 +45,11 @@ and is still the wrong feed.
 
 **A board with no capturable API is REFUSED.** There is no DOM tier to fall back to, by
 design (the owner's deterministic-only principle): every runtime path either works or it
-does not, decided once, here. Refusing is how we never wrong-track. Two shapes of that,
+does not, decided once, here. What the capture reads is wider than the network log —
+the SERVED document and the JSON islands inside it are candidates too, replayed as
+``http_html``, and the board's own ``robots.txt``/``sitemap.xml`` supply counts no
+browser could ever observe — but every one of them is a DETERMINISTIC replay or it is
+not stored. Refusing is how we never wrong-track. Two shapes of that,
 both learned the hard way: the selector can answer "none of these is a jobs feed"
 (:class:`~.request_selector.NoJobsFeedError`) rather than be forced to name something,
 and the next-candidate round is only offered arrays at least as job-shaped as the one
@@ -144,6 +150,7 @@ from ..url_guard import _DNS_EXECUTOR, UrlGuardError, validate_public_url
 from .network_capture import CaptureError, CaptureResult, RequestFn, capture_board
 from .request_selector import (
     Candidate,
+    CandidateAnswer,
     NoJobsFeedError,
     RequestSelection,
     RequestSelectionError,
@@ -155,7 +162,8 @@ from .request_selector import (
     prefilter_candidates,
     published_url_fields,
     repair_url_template,
-    select_request,
+    select_candidates,
+    session_token_keys,
 )
 from .sources import (
     SitemapMatch,
@@ -467,16 +475,17 @@ class CaptureFn(Protocol):
 
 
 class SelectFn(Protocol):
-    """The selection seam — :func:`request_selector.select_request` or a $0 double.
+    """The selection seam — :func:`request_selector.select_candidates` or a $0 double.
 
-    A Protocol rather than a ``Callable`` alias because of ``feedback``: a second round
-    that cannot say WHY the first was rejected is a re-roll of the same question over the
-    same bytes, which is the least likely way to get a different answer.
+    It answers about EVERY candidate now, not about the list. A Protocol rather than a
+    ``Callable`` alias because of ``feedback``: a second round that cannot say WHY the
+    first was rejected is a re-roll of the same question over the same bytes, which is
+    the least likely way to get a different answer.
     """
 
     def __call__(
         self, candidates: list[Candidate], *, feedback: str | None = None
-    ) -> Awaitable[RequestSelection]: ...
+    ) -> Awaitable[list[CandidateAnswer]]: ...
 
 
 ReplayFn = Callable[[dict[str, Any]], Awaitable[tuple[list[dict], HarvestEvidence]]]
@@ -1014,6 +1023,98 @@ def _sitemap_evidence(
         len(match.matched_ids), len(ids),
     )
     return match
+
+
+# --------------------------------------------------------------------------
+# THE REFEREE — code MEASURES, and for now code alone DECIDES
+# --------------------------------------------------------------------------
+# The fan-out can come back with several candidates that are all "a list of job
+# postings". Which one gets stored is settled on MEASUREMENTS, never on the model's
+# ranking — that is the whole point of asking one question per array instead of asking
+# one model to rank them. ``confidence`` is the last tie-break, used only after every
+# measurement has tied.
+#
+# There is deliberately NO model-interpreted check here. Where the measurements are
+# ambiguous the answer is the conservative one (a lower rank, or a refusal at the
+# coverage floor), which is the safe half of every ambiguity.
+#
+# ``http_json`` outranks ``browser_fetch`` because it costs $0 a night, and both outrank
+# ``http_html`` because the html executor cannot paginate at all — a board readable both
+# ways should be read the way that can see all of it.
+_TRANSPORT_RANK = {"http_json": 2, "browser_fetch": 1, "http_html": 0}
+
+
+def _published_claims(candidate: Candidate, records_path: str) -> list[int]:
+    """Every count the board publishes about itself, beside THESE records."""
+    payload = candidate.payload
+    return [
+        n for n in (
+            _totals_beside_records(payload, records_path, candidate.record_count),
+            _facet_consensus_total(payload, records_path),
+            _labelled_facet_total(payload, records_path),
+        ) if isinstance(n, int) and n > 0
+    ]
+
+
+def _precoverage_ratio(candidate: Candidate, selection: RequestSelection) -> float:
+    """How much of the board this candidate could reach, BEFORE anything is replayed.
+
+    The same question :attr:`_Coverage.is_refused` asks and the same answer shape, but
+    computed from the captured bytes alone so it can ORDER the candidates before we
+    spend a replay on any of them. A candidate the board's own numbers say is 0.02% of
+    itself sorts below one that is 100% of itself, and Walmart's chat endpoint is
+    exactly that: ten records beside a self-declared 47,298.
+
+    A candidate with a paging hint is treated as reaching the whole board, for the
+    reason ``_feed_reach`` gives: what our own budget can spend is not a statement about
+    the feed.
+    """
+    if selection.pagination is not None:
+        return 1.0
+    claims = _published_claims(candidate, selection.records_path)
+    if not claims:
+        return 1.0
+    return min(1.0, candidate.record_count / max(claims))
+
+
+def _oracle_strength(candidate: Candidate, selection: RequestSelection) -> int:
+    """2 = the board publishes a trusted total, 1 = a real sweep, 0 = no claim at all.
+
+    Straight from ``synthesize_recipe``'s own oracle decision, so the ranking prefers
+    the candidate that will end up with the completeness claim that can actually
+    VERIFY — which is the difference between a board that closes jobs correctly and one
+    that is UNVERIFIED forever.
+    """
+    total_path = _find_total_path(
+        candidate.payload, selection.records_path, candidate.record_count
+    )
+    if total_path:
+        return 2
+    return 1 if selection.pagination is not None else 0
+
+
+def _rank_answers(
+    answers: list[CandidateAnswer], candidates: list[Candidate]
+) -> list[CandidateAnswer]:
+    """Order the model's yeses by what we MEASURED about each one. Best first."""
+    def _key(answer: CandidateAnswer) -> tuple[Any, ...]:
+        candidate = candidates[answer.candidate_index]
+        selection = answer.selection
+        assert selection is not None            # only yeses reach the referee
+        return (
+            # C15 FIRST, as a demotion and never a verdict. A request carrying a
+            # thread/session/conversation id is textbook birth-defect shape — it passes
+            # acceptance BY CONSTRUCTION, because acceptance runs minutes later while
+            # the token is still alive — but code cannot prove the key is fatal, so it
+            # sorts below every candidate without one and decides nothing.
+            not session_token_keys(candidate),
+            _precoverage_ratio(candidate, selection),
+            _oracle_strength(candidate, selection),
+            _TRANSPORT_RANK["http_html" if candidate.html is not None else "http_json"],
+            candidate.job_score,
+            1 if answer.confidence == "high" else 0,
+        )
+    return sorted(answers, key=_key, reverse=True)
 
 
 def _sitemap_claims(match: SitemapMatch | None) -> tuple[tuple[int, str], ...]:
@@ -2420,7 +2521,7 @@ async def discover(
     probe_job_link = probe_link or _default_probe
     do_capture = capture or capture_board
     do_collect_well_known = collect_sources or collect_well_known
-    do_select = select or select_request
+    do_select = select or select_candidates
     run_http = replay_http or _default_replay_http
     run_browser = replay_browser or _default_replay_browser
 
@@ -2729,7 +2830,7 @@ async def discover(
             attempts = round_number
             current_step = _STEP_SELECT
             try:
-                selection = await do_select(candidates, feedback=feedback)
+                answers = await do_select(candidates, feedback=feedback)
             except NoJobsFeedError as exc:
                 # The model looked at what is left and said none of it is jobs. Asking
                 # again cannot change that, and the alternative — a schema with no
@@ -2770,296 +2871,305 @@ async def discover(
             ledger.start(STEP_VERIFY_READ)
             await _publish()
 
-            current_step = _STEP_SYNTHESIZE
-            try:
-                candidate = _rebind_to_selection(
-                    candidates[selection.chosen_request_index], selection
-                )
-                # ...and if that bound ONE GROUP of a grouped payload, take the whole
-                # board instead. Before the acceptance ladder, because everything it
-                # measures — the page size, the ids to match, the coverage verdict —
-                # must be about the array we are actually going to store.
-                candidate, selection = _widen_to_union(
-                    candidate, selection, _origin_of(origin_url)
-                )
-                # ...and then settle the job link. After the widen so it reads the
-                # final record array, and before synthesis so the stored recipe and
-                # the acceptance replay carry the same link. A published link is kept
-                # untouched; one WE invented is DERIVED from the board's own evidence,
-                # fetched and proved, or downgraded to the board's own listing page.
-                # See :func:`_resolve_job_link`.
-                selection, per_job_link, link_why = await _resolve_job_link(
-                    selection, candidate, link_context, origin_url
-                )
-            except _Refusal as exc:
-                last_step, last_error = exc.step, exc.detail
-                feedback = _selection_feedback(exc.detail, selection)
-                logger.info("discovery selection unusable for %s: %s", url, exc.detail)
-                continue
-            # The page sizes to try, best first. ``None`` means "exactly what the
-            # capture asked for" and is ALWAYS the last attempt, so a board that
-            # refuses a bigger page falls back to the recipe we know works rather than
-            # being refused for a parameter we chose.
-            attempts_ps = page_size_attempts(candidate, selection)
-            accepted: tuple[str, dict[str, Any], list[dict]] | None = None
-            # THE TIERS THIS CANDIDATE CAN BE REPLAYED ON, which is a property of where
-            # its records CAME FROM. A document candidate has exactly one: ``http_html``,
-            # over the plain GET the served bytes came out of. ``browser_fetch`` cannot
-            # carry markup at all (``recipe_schema`` hard-requires ``extract_json_path``
-            # there), so offering it would be an attempt that can only ever fail schema
-            # validation.
-            tiers: tuple[tuple[str, ReplayFn], ...] = (
-                (("http_html", run_http),) if candidate.html is not None
-                else (("http_json", run_http), ("browser_fetch", run_browser))
+            # THE REFEREE. Several arrays on one page can all be "a list of job
+            # postings"; which one gets STORED is settled on measurements, never on the
+            # model's own ranking. See :func:`_rank_answers`.
+            ranked = _rank_answers(answers, candidates)
+            logger.info(
+                "discovery fan-out for %s: %d of %d candidate(s) answered yes, ranked %s",
+                url, len(ranked), len(candidates),
+                [candidates[a.candidate_index].url for a in ranked],
             )
-            for transport, replay in tiers:
-                for page_size_override in attempts_ps:
-                    try:
-                        script = synthesize_recipe(
-                            candidate, selection, transport=transport,
-                            origin_url=origin_url,
-                            page_size_override=page_size_override,
-                        )
-                        current_step = _STEP_ACCEPT
-                        # THE STORED recipe carries the whole-board budget; ACCEPTANCE
-                        # replays the same recipe with only that budget clamped. Two
-                        # budgets, one recipe — see ``probe_script``.
-                        rows = await _try_acceptance(
-                            probe_script(script), candidate, selection, replay=replay,
-                            prove_page_size=page_size_override,
-                        )
-                    except _Refusal as exc:
-                        last_step, last_error = exc.step, exc.detail
-                        logger.info(
-                            "discovery %s rejected for %s on %s (page_size=%s): %s",
-                            transport, url, candidate.url, page_size_override,
-                            exc.detail,
-                        )
-                        # A page-size refusal costs this ATTEMPT; every other refusal
-                        # is about the FEED and the next page size cannot fix it.
-                        if isinstance(exc, _PageSizeRefusal):
-                            continue
+            # The candidates that got as far as being TRIED and failed. Round two
+            # re-asks exactly these, with what we measured attached — never the ones the
+            # model already declined, because asking again cannot change a no.
+            failed: list[int] = []
+
+            for answer in ranked:
+                selection = answer.selection
+                assert selection is not None      # ``_rank_answers`` only ranks yeses
+                current_step = _STEP_SYNTHESIZE
+                try:
+                    candidate = _rebind_to_selection(
+                        candidates[answer.candidate_index], selection
+                    )
+                    # ...and if that bound ONE GROUP of a grouped payload, take the whole
+                    # board instead. Before the acceptance ladder, because everything it
+                    # measures — the page size, the ids to match, the coverage verdict —
+                    # must be about the array we are actually going to store.
+                    candidate, selection = _widen_to_union(
+                        candidate, selection, _origin_of(origin_url)
+                    )
+                    # ...and then settle the job link. After the widen so it reads the
+                    # final record array, and before synthesis so the stored recipe and
+                    # the acceptance replay carry the same link. A published link is kept
+                    # untouched; one WE invented is DERIVED from the board's own evidence,
+                    # fetched and proved, or downgraded to the board's own listing page.
+                    # See :func:`_resolve_job_link`.
+                    selection, per_job_link, link_why = await _resolve_job_link(
+                        selection, candidate, link_context, origin_url
+                    )
+                except _Refusal as exc:
+                    last_step, last_error = exc.step, exc.detail
+                    feedback = _selection_feedback(exc.detail, selection)
+                    logger.info("discovery selection unusable for %s: %s", url, exc.detail)
+                    continue
+                # The page sizes to try, best first. ``None`` means "exactly what the
+                # capture asked for" and is ALWAYS the last attempt, so a board that
+                # refuses a bigger page falls back to the recipe we know works rather than
+                # being refused for a parameter we chose.
+                attempts_ps = page_size_attempts(candidate, selection)
+                accepted: tuple[str, dict[str, Any], list[dict]] | None = None
+                # THE TIERS THIS CANDIDATE CAN BE REPLAYED ON, which is a property of where
+                # its records CAME FROM. A document candidate has exactly one: ``http_html``,
+                # over the plain GET the served bytes came out of. ``browser_fetch`` cannot
+                # carry markup at all (``recipe_schema`` hard-requires ``extract_json_path``
+                # there), so offering it would be an attempt that can only ever fail schema
+                # validation.
+                tiers: tuple[tuple[str, ReplayFn], ...] = (
+                    (("http_html", run_http),) if candidate.html is not None
+                    else (("http_json", run_http), ("browser_fetch", run_browser))
+                )
+                for transport, replay in tiers:
+                    for page_size_override in attempts_ps:
+                        try:
+                            script = synthesize_recipe(
+                                candidate, selection, transport=transport,
+                                origin_url=origin_url,
+                                page_size_override=page_size_override,
+                            )
+                            current_step = _STEP_ACCEPT
+                            # THE STORED recipe carries the whole-board budget; ACCEPTANCE
+                            # replays the same recipe with only that budget clamped. Two
+                            # budgets, one recipe — see ``probe_script``.
+                            rows = await _try_acceptance(
+                                probe_script(script), candidate, selection, replay=replay,
+                                prove_page_size=page_size_override,
+                            )
+                        except _Refusal as exc:
+                            last_step, last_error = exc.step, exc.detail
+                            logger.info(
+                                "discovery %s rejected for %s on %s (page_size=%s): %s",
+                                transport, url, candidate.url, page_size_override,
+                                exc.detail,
+                            )
+                            # A page-size refusal costs this ATTEMPT; every other refusal
+                            # is about the FEED and the next page size cannot fix it.
+                            if isinstance(exc, _PageSizeRefusal):
+                                continue
+                            break
+                        except (
+                            RecipeExecutionError, RecipeError, HarvestGateError, ValueError,
+                            # A TRANSPORT failure costs this TIER, not the discovery. httpx
+                            # raises ConnectTimeout/ConnectError/RemoteProtocolError — none
+                            # of them a RecipeExecutionError — on exactly the boards tier 1b
+                            # exists for (a bot-walled origin that RSTs or blackholes a
+                            # non-browser client). Uncaught, they escaped BOTH loops into the
+                            # last-resort handler and permanently refused a board browser_fetch
+                            # would have accepted. ``OSError`` covers the same class out of the
+                            # browser_fetch subprocess spawn.
+                            httpx.HTTPError, OSError,
+                        ) as exc:
+                            last_step = _STEP_ACCEPT
+                            last_error = f"{type(exc).__name__}: {exc}"
+                            logger.info(
+                                "discovery %s replay failed for %s on %s (page_size=%s): %s",
+                                transport, url, candidate.url, page_size_override, last_error,
+                            )
+                            # A board that REJECTS the bigger page (amazon.jobs answers
+                            # "Result limit cannot be greater than 100" in-band, i.e. a
+                            # RecipeExecutionError, not a short page) must fall back to the
+                            # captured size, not be refused for a parameter we invented.
+                            if page_size_override is not None:
+                                continue
+                            break
+
+                        accepted = (transport, script, rows)
                         break
-                    except (
-                        RecipeExecutionError, RecipeError, HarvestGateError, ValueError,
-                        # A TRANSPORT failure costs this TIER, not the discovery. httpx
-                        # raises ConnectTimeout/ConnectError/RemoteProtocolError — none
-                        # of them a RecipeExecutionError — on exactly the boards tier 1b
-                        # exists for (a bot-walled origin that RSTs or blackholes a
-                        # non-browser client). Uncaught, they escaped BOTH loops into the
-                        # last-resort handler and permanently refused a board browser_fetch
-                        # would have accepted. ``OSError`` covers the same class out of the
-                        # browser_fetch subprocess spawn.
-                        httpx.HTTPError, OSError,
-                    ) as exc:
-                        last_step = _STEP_ACCEPT
-                        last_error = f"{type(exc).__name__}: {exc}"
-                        logger.info(
-                            "discovery %s replay failed for %s on %s (page_size=%s): %s",
-                            transport, url, candidate.url, page_size_override, last_error,
-                        )
-                        # A board that REJECTS the bigger page (amazon.jobs answers
-                        # "Result limit cannot be greater than 100" in-band, i.e. a
-                        # RecipeExecutionError, not a short page) must fall back to the
-                        # captured size, not be refused for a parameter we invented.
-                        if page_size_override is not None:
-                            continue
+                    if accepted is not None:
                         break
 
-                    accepted = (transport, script, rows)
-                    break
+                # THE LAST QUESTION, and the one nothing above can answer: we proved we can
+                # read this feed — is this feed the board? Measured against the board's own
+                # published counts, in the bytes we already captured.
+                #
+                # It runs BEFORE the accept block rather than inside it because below
+                # :data:`_COVERAGE_REFUSAL_RATIO` the answer is "no", and "no" has to be able
+                # to cost this CANDIDATE rather than the discovery: a page that fires a chat
+                # widget and a real jobs feed should end up storing the second one. Dropping
+                # ``accepted`` here is what puts us on the next-candidate path below.
+                coverage: _Coverage | None = None
+                sitemap: SitemapMatch | None = None
                 if accepted is not None:
-                    break
-
-            # THE LAST QUESTION, and the one nothing above can answer: we proved we can
-            # read this feed — is this feed the board? Measured against the board's own
-            # published counts, in the bytes we already captured.
-            #
-            # It runs BEFORE the accept block rather than inside it because below
-            # :data:`_COVERAGE_REFUSAL_RATIO` the answer is "no", and "no" has to be able
-            # to cost this CANDIDATE rather than the discovery: a page that fires a chat
-            # widget and a real jobs feed should end up storing the second one. Dropping
-            # ``accepted`` here is what puts us on the next-candidate path below.
-            coverage: _Coverage | None = None
-            sitemap: SitemapMatch | None = None
-            if accepted is not None:
-                # THE CROSS-SOURCE CLAIM. The candidate came out of the JSON network
-                # list; the sitemap came from a URL that list does not contain and never
-                # will. Joining them here is the whole point of collecting a second
-                # source: a feed's 10 records against the board's own 15,660 published
-                # job pages is a disagreement that is pure ARITHMETIC, and arithmetic is
-                # something code can refuse on without asking anybody.
-                sitemap = _sitemap_evidence(well_known, candidate, selection, origin_url)
-                coverage = _coverage(
-                    accepted[1], candidate, selection,
-                    extra_claims=_sitemap_claims(sitemap),
-                )
-                if coverage.is_refused:
-                    last_step, last_error = _STEP_ACCEPT, coverage.refusal_reason
-                    logger.warning(
-                        "capture discovery REFUSED a replayable candidate for %s: %s %s "
-                        "reaches %s record(s) against a published %d (records_path=%r)",
-                        url, candidate.method, candidate.url, coverage.feed_reach,
-                        coverage.visible, selection.records_path,
+                    # THE CROSS-SOURCE CLAIM. The candidate came out of the JSON network
+                    # list; the sitemap came from a URL that list does not contain and never
+                    # will. Joining them here is the whole point of collecting a second
+                    # source: a feed's 10 records against the board's own 15,660 published
+                    # job pages is a disagreement that is pure ARITHMETIC, and arithmetic is
+                    # something code can refuse on without asking anybody.
+                    sitemap = _sitemap_evidence(well_known, candidate, selection, origin_url)
+                    coverage = _coverage(
+                        accepted[1], candidate, selection,
+                        extra_claims=_sitemap_claims(sitemap),
                     )
-                    accepted = None
-
-            if accepted is not None:
-                assert coverage is not None  # set in lockstep with ``accepted`` above
-                transport, script, rows = accepted
-                # ...and, only now that we know what the replay actually reads, the
-                # sitemap may become the board's COMPLETENESS ORACLE. See
-                # :func:`_attach_sitemap_oracle` for the two conditions and for why they
-                # answer different questions.
-                script = _attach_sitemap_oracle(
-                    script, sitemap, rows, candidate, selection, origin_url
-                )
-                (paginate_step,) = (
-                    [s for s in script["steps"] if s["op"].startswith("paginate_")]
-                    or [{}]
-                )
-                logger.info(
-                    "capture discovery ACCEPTED %s: %s %s -> %d jobs on a %d-page probe "
-                    "(transport=%s oracle=%s round=%d harvest_budget=%sx%s "
-                    "coverage=%d/%d%s)",
-                    url, candidate.method, candidate.url, len(rows),
-                    _ACCEPTANCE_MAX_PAGES, transport, script["oracle"]["kind"],
-                    round_number, paginate_step.get("max_pages"),
-                    paginate_step.get("page_size"),
-                    coverage.reachable, coverage.visible,
-                    " PARTIAL" if coverage.is_partial else "",
-                )
-                if coverage.is_partial:
-                    logger.warning(
-                        "capture discovery accepted %s at PARTIAL scope: the recipe "
-                        "reaches %d record(s) but %s (records_path=%r)",
-                        url, coverage.reachable, coverage.evidence,
-                        selection.records_path,
-                    )
-                # MARK THE WINNER IN THE NETWORK LOG, with the bytes behind it. This is
-                # the answer to "which one did you pick, and what did it say?" — and it
-                # is only written HERE, after the acceptance replay, so "chosen" can
-                # never mean "the model liked the look of it".
-                #
-                # The sample is one record FROM THE CAPTURE, not from the replay rows:
-                # the rows are already mapped into our own {title, location, url} shape
-                # (that is what ``job_preview`` shows), and the question this answers is
-                # what the BOARD sent. ``payload_sample`` clips and redacts it — a
-                # captured record can be tens of kilobytes of HTML description and can
-                # echo a session token back in its own JSON.
-                captured_records = candidate.records
-                ledger.choose_request(
-                    candidate.source_index,
-                    note=(
-                        f"{len(rows)} job(s) came back when we replayed it "
-                        + ("in a browser" if transport == "browser_fetch"
-                           else "from our own servers")
-                    ),
-                    records_path=candidate.records_path,
-                    records=len(captured_records),
-                    sample=payload_sample(
-                        captured_records[0] if captured_records else None
-                    ),
-                )
-                # The step's result is the honest one either way. A board we can only
-                # read a slice of must not tick the same tick as one we read whole —
-                # that identical green tick is the bug this whole check exists for.
-                #
-                # ...and the same argument for the LINK: a board whose per-job link we
-                # could not prove must not report the same tick as one whose links we
-                # fetched and stood behind. Appended rather than substituted so the
-                # partial-scope sentence keeps its exact wording.
-                read_note = (
-                    f"read {len(rows)} job(s), but {coverage.evidence} — we can only "
-                    f"track part of this board"
-                    if coverage.is_partial
-                    else f"read {len(rows)} job(s)"
-                )
-                if not per_job_link:
-                    read_note += (
-                        " — this board publishes no link to its individual jobs and we "
-                        "could not work one out, so every job links to the board's own "
-                        "listing page"
-                    )
-                ledger.finish(STEP_VERIFY_READ, read_note)
-                ledger.finish(
-                    STEP_READY,
-                    "reading part of the board — every job we can see, refreshed daily"
-                    if coverage.is_partial
-                    else "reading the board's own feed directly — no browser needed"
-                    if transport == "http_json"
-                    else "reading the board in a browser each night",
-                )
-                # THE RUNG THIS RUN DOES NOT OWN. The caller enqueues the first harvest
-                # the moment it persists this outcome, and that harvest is what puts
-                # jobs on the row — so the checklist opens the rung here and the harvest
-                # task closes it (``progress.with_first_scan``). Leaving the list at
-                # four ✓ is what made an accepted board render as "all done" above "0
-                # open jobs" for as long as the harvest took: a complete checklist over
-                # an empty company reads as "we finished and there was nothing there".
-                ledger.start(STEP_FIRST_SCAN)
-                return DiscoveryOutcome(
-                    ok=True,
-                    script=script,
-                    transport=transport,
-                    oracle_kind=script["oracle"]["kind"],
-                    attempts=round_number,
-                    cost_note=(
-                        f"1 browser capture + {round_number} Haiku selection(s); "
-                        f"replays as {transport}"
-                        + (
-                            f"; PARTIAL — reaches {coverage.reachable} of {coverage.visible}"
-                            if coverage.is_partial else ""
+                    if coverage.is_refused:
+                        last_step, last_error = _STEP_ACCEPT, coverage.refusal_reason
+                        logger.warning(
+                            "capture discovery REFUSED a replayable candidate for %s: %s %s "
+                            "reaches %s record(s) against a published %d (records_path=%r)",
+                            url, candidate.method, candidate.url, coverage.feed_reach,
+                            coverage.visible, selection.records_path,
                         )
-                    ),
-                    # The rows the ACCEPTANCE REPLAY returned — the same bytes the
-                    # nightly harvest will read, not the capture's. Showing the user
-                    # jobs that only our production path can actually see is the whole
-                    # claim we are making by promising to track this board.
-                    progress=ledger.snapshot(
-                        outcome=(
-                            OUTCOME_PARTIAL if coverage.is_partial else OUTCOME_TRACKING
+                        accepted = None
+
+                if accepted is not None:
+                    assert coverage is not None  # set in lockstep with ``accepted`` above
+                    transport, script, rows = accepted
+                    # ...and, only now that we know what the replay actually reads, the
+                    # sitemap may become the board's COMPLETENESS ORACLE. See
+                    # :func:`_attach_sitemap_oracle` for the two conditions and for why they
+                    # answer different questions.
+                    script = _attach_sitemap_oracle(
+                        script, sitemap, rows, candidate, selection, origin_url
+                    )
+                    (paginate_step,) = (
+                        [s for s in script["steps"] if s["op"].startswith("paginate_")]
+                        or [{}]
+                    )
+                    logger.info(
+                        "capture discovery ACCEPTED %s: %s %s -> %d jobs on a %d-page probe "
+                        "(transport=%s oracle=%s round=%d harvest_budget=%sx%s "
+                        "coverage=%d/%d%s)",
+                        url, candidate.method, candidate.url, len(rows),
+                        _ACCEPTANCE_MAX_PAGES, transport, script["oracle"]["kind"],
+                        round_number, paginate_step.get("max_pages"),
+                        paginate_step.get("page_size"),
+                        coverage.reachable, coverage.visible,
+                        " PARTIAL" if coverage.is_partial else "",
+                    )
+                    if coverage.is_partial:
+                        logger.warning(
+                            "capture discovery accepted %s at PARTIAL scope: the recipe "
+                            "reaches %d record(s) but %s (records_path=%r)",
+                            url, coverage.reachable, coverage.evidence,
+                            selection.records_path,
+                        )
+                    # MARK THE WINNER IN THE NETWORK LOG, with the bytes behind it. This is
+                    # the answer to "which one did you pick, and what did it say?" — and it
+                    # is only written HERE, after the acceptance replay, so "chosen" can
+                    # never mean "the model liked the look of it".
+                    #
+                    # The sample is one record FROM THE CAPTURE, not from the replay rows:
+                    # the rows are already mapped into our own {title, location, url} shape
+                    # (that is what ``job_preview`` shows), and the question this answers is
+                    # what the BOARD sent. ``payload_sample`` clips and redacts it — a
+                    # captured record can be tens of kilobytes of HTML description and can
+                    # echo a session token back in its own JSON.
+                    captured_records = candidate.records
+                    ledger.choose_request(
+                        candidate.source_index,
+                        note=(
+                            f"{len(rows)} job(s) came back when we replayed it "
+                            + ("in a browser" if transport == "browser_fetch"
+                               else "from our own servers")
                         ),
-                        job_preview=rows,
-                    ),
-                )
-            # This candidate cannot be replayed either way. TELL THE MODEL WHAT WE
-            # MEASURED, then ask again — over what is left if anything is, and over the
-            # SAME candidate if it is the only one there is.
+                        records_path=candidate.records_path,
+                        records=len(captured_records),
+                        sample=payload_sample(
+                            captured_records[0] if captured_records else None
+                        ),
+                    )
+                    # The step's result is the honest one either way. A board we can only
+                    # read a slice of must not tick the same tick as one we read whole —
+                    # that identical green tick is the bug this whole check exists for.
+                    #
+                    # ...and the same argument for the LINK: a board whose per-job link we
+                    # could not prove must not report the same tick as one whose links we
+                    # fetched and stood behind. Appended rather than substituted so the
+                    # partial-scope sentence keeps its exact wording.
+                    read_note = (
+                        f"read {len(rows)} job(s), but {coverage.evidence} — we can only "
+                        f"track part of this board"
+                        if coverage.is_partial
+                        else f"read {len(rows)} job(s)"
+                    )
+                    if not per_job_link:
+                        read_note += (
+                            " — this board publishes no link to its individual jobs and we "
+                            "could not work one out, so every job links to the board's own "
+                            "listing page"
+                        )
+                    ledger.finish(STEP_VERIFY_READ, read_note)
+                    ledger.finish(
+                        STEP_READY,
+                        "reading part of the board — every job we can see, refreshed daily"
+                        if coverage.is_partial
+                        else "reading the board's own feed directly — no browser needed"
+                        if transport == "http_json"
+                        else "reading the board in a browser each night",
+                    )
+                    # THE RUNG THIS RUN DOES NOT OWN. The caller enqueues the first harvest
+                    # the moment it persists this outcome, and that harvest is what puts
+                    # jobs on the row — so the checklist opens the rung here and the harvest
+                    # task closes it (``progress.with_first_scan``). Leaving the list at
+                    # four ✓ is what made an accepted board render as "all done" above "0
+                    # open jobs" for as long as the harvest took: a complete checklist over
+                    # an empty company reads as "we finished and there was nothing there".
+                    ledger.start(STEP_FIRST_SCAN)
+                    return DiscoveryOutcome(
+                        ok=True,
+                        script=script,
+                        transport=transport,
+                        oracle_kind=script["oracle"]["kind"],
+                        attempts=round_number,
+                        cost_note=(
+                            f"1 browser capture + {round_number} Haiku selection(s); "
+                            f"replays as {transport}"
+                            + (
+                                f"; PARTIAL — reaches {coverage.reachable} of {coverage.visible}"
+                                if coverage.is_partial else ""
+                            )
+                        ),
+                        # The rows the ACCEPTANCE REPLAY returned — the same bytes the
+                        # nightly harvest will read, not the capture's. Showing the user
+                        # jobs that only our production path can actually see is the whole
+                        # claim we are making by promising to track this board.
+                        progress=ledger.snapshot(
+                            outcome=(
+                                OUTCOME_PARTIAL if coverage.is_partial else OUTCOME_TRACKING
+                            ),
+                            job_preview=rows,
+                        ),
+                    )
+                # THIS candidate cannot be replayed. Record what we measured about it
+                # and move to the NEXT ONE THE MODEL SAID YES ABOUT — which the fan-out
+                # makes a real fallback for the first time: before it, "the next
+                # candidate" meant a second forced pick out of a list the model had
+                # already ranked, and a forced pick of a leftover facet catalogue passes
+                # the acceptance gate trivially (it proves the replay reads the SAME
+                # array the browser saw, so a filter list overlaps itself 100%).
+                # Measured on the TikTok capture: with the jobs POST dropped, discovery
+                # stored ``…/job/filters`` and tracked "Engineering" and "Design" as the
+                # company's job postings, forever, with a nightly harvest that would
+                # never fail. Now a candidate is only ever tried because the model was
+                # asked about IT and said yes about IT.
+                feedback = _selection_feedback(last_error, selection, link_why)
+                failed.append(answer.candidate_index)
+
+            # The round is spent. ROUND TWO RE-ASKS EXACTLY THE CANDIDATES THAT FAILED
+            # ACCEPTANCE, with the measured evidence attached — never the ones the model
+            # declined, because asking again cannot change a no, and never a fresh list,
+            # because the point of a second round is the evidence and not the re-roll.
             #
-            # THE SECOND HALF IS THE FIX FOR A REAL GAP. ``_MAX_SELECTION_ROUNDS`` fires
-            # on an acceptance failure, not just a schema failure — but the drop below
-            # used to be unconditional, so a SINGLE-FEED board emptied the list and the
-            # ``if not candidates: break`` at the top of the loop ended the discovery
-            # before round two could happen. Atlassian and Jane Street each publish
-            # exactly one jobs feed, so the boards that most needed a second ask were
-            # precisely the ones that never got one.
-            #
-            # WHY THE DROP STILL HAPPENS WHEN THERE IS SOMETHING ELSE TO ASK ABOUT. The
-            # next round's schema still demands an answer over whatever it is shown, and
-            # the acceptance gate cannot save us: it proves the replay reads the SAME
-            # array the browser saw, so a forced pick of a leftover facet/filter
-            # catalogue overlaps itself 100% and is ACCEPTED. Measured on the TikTok
-            # capture — with the jobs POST dropped, discovery stored ``…/job/filters``
-            # (records_path ``data.job_category_list``) and tracked "Engineering" and
-            # "Design" as the company's job postings, forever, with a nightly harvest
-            # that would never fail.
-            #
-            # The floor is the FAILED candidate's own score, not the pre-filter's top
-            # rank: the pre-filter is deliberately dumb and the model correcting it is a
-            # designed path, so "must be the highest-ranked" would refuse boards we can
-            # read. "Not less job-shaped than the thing that just failed" costs nothing
-            # real and removes the manufactured answer.
-            feedback = _selection_feedback(last_error, selection, link_why)
-            floor = candidate.job_score
-            survivors = [
-                c for c in candidates
-                if c.index != candidate.index and c.job_score >= floor
+            # THIS IS THE FIX FOR A REAL GAP, KEPT. ``_MAX_SELECTION_ROUNDS`` fires on an
+            # acceptance failure and not just a schema failure, and the old loop dropped
+            # the failed candidate unconditionally — so a SINGLE-FEED board emptied the
+            # list and ended before round two could happen. Atlassian and Jane Street
+            # each publish exactly one jobs feed, so the boards that most needed a second
+            # ask were precisely the ones that never got one.
+            candidates = [
+                replace(candidates[i], index=n) for n, i in enumerate(failed)
             ]
-            # The failed candidate AS THE MODEL SAW IT — not the rebound-and-widened one
-            # this round derived, which carries a records_path the model never proposed.
-            sole = [c for c in candidates if c.index == candidate.index]
-            candidates = [replace(c, index=i) for i, c in enumerate(survivors or sole)]
 
         raise _Refusal(
             last_step,

@@ -22,6 +22,7 @@ The properties under test are the load-bearing ones:
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -50,6 +51,7 @@ from api.services.capture.network_capture import (
     _responses_from_report,
 )
 from api.services.capture.request_selector import (
+    CandidateAnswer,
     NoJobsFeedError,
     PaginationHint,
     RequestSelection,
@@ -189,17 +191,40 @@ def _selecting(
     *,
     calls: list[int] | None = None,
     feedbacks: list[str | None] | None = None,
+    confidence: str = "high",
 ):
-    """A selection double. ``feedbacks`` records what each round was TOLD about the last
-    one — the seam that lets a test prove a re-ask carried the probe's evidence."""
+    """A fan-out double answering YES about exactly one candidate.
+
+    The seam returns a LIST of per-candidate answers now (one model call per array
+    instead of one over the list), so this wraps a single ``RequestSelection`` into the
+    one-yes answer the referee then ranks trivially. ``feedbacks`` records what each
+    round was TOLD about the last one — the seam that lets a test prove a re-ask carried
+    the probe's evidence.
+    """
     async def _select(
         candidates: list[Any], *, feedback: str | None = None
-    ) -> RequestSelection:
+    ) -> list[CandidateAnswer]:
         if calls is not None:
             calls.append(len(candidates))
         if feedbacks is not None:
             feedbacks.append(feedback)
-        return selection
+        index = min(selection.chosen_request_index, len(candidates) - 1)
+        return [CandidateAnswer(
+            candidate_index=index,
+            selection=replace(selection, chosen_request_index=index),
+            confidence=confidence,
+        )]
+    return _select
+
+
+def _answering(*answers: CandidateAnswer, calls: list[int] | None = None):
+    """A fan-out double returning SEVERAL yeses, so the referee has something to rank."""
+    async def _select(
+        candidates: list[Any], *, feedback: str | None = None
+    ) -> list[CandidateAnswer]:
+        if calls is not None:
+            calls.append(len(candidates))
+        return list(answers)
     return _select
 
 
@@ -2408,6 +2433,132 @@ async def test_a_document_candidate_never_displaces_a_real_jobs_xhr() -> None:
     # The document candidate WAS offered — it is one of the candidates the model saw —
     # it simply did not come first.
     assert seen == [2]
+
+
+# --- S5: the fan-out, at the whole-discovery level ---------------------------
+
+async def test_the_referee_stores_the_board_not_the_chat_widget_beside_it() -> None:
+    """THE CROWDING-OUT CASE, end to end and with both arrays saying yes.
+
+    One page, two JSON responses, both of them genuinely lists of job objects: a chat
+    endpoint that hands back ten of a self-declared 47,298, and the board's own feed that
+    hands back all forty of its forty. The old pipeline showed both to one model and
+    asked it to rank; the referee ranks on the board's own arithmetic instead, and the
+    model's confidence is not consulted because nothing tied.
+    """
+    chat_body = {"jobs": _walmart_jobs(10), "total_jobs": 47298}
+    feed_body = {"jobs": _walmart_jobs(40), "total_jobs": 40}
+    chat = _pageless_response(chat_body)
+    feed = _amazon_response(feed_body).__class__(
+        **{**_amazon_response(feed_body).__dict__,
+           "url": "https://careers.walmart.com/api/jobs.json"}
+    )
+    both = [
+        CandidateAnswer(
+            candidate_index=i,
+            selection=RequestSelection(
+                chosen_request_index=i, records_path="jobs",
+                field_map=dict(_PARTIAL_MAP), pagination=None,
+            ),
+            confidence="high",
+        )
+        for i in (0, 1)
+    ]
+
+    async def _replay(script: dict[str, Any]) -> tuple[list[dict], HarvestEvidence]:
+        body = feed_body if "jobs.json" in script["steps"][0]["url"] else chat_body
+        return map_records(
+            body["jobs"], _PARTIAL_MAP, script.get("base_url", "")
+        ), HarvestEvidence(
+            declared_total=None, cap_hit=False, terminated_cleanly=True,
+            page_advance_ok=None, pages_fetched=1, transport_ok=True,
+        )
+
+    outcome = await discover(
+        "https://careers.walmart.com/results",
+        capture=_capture_of(chat, feed),
+        select=_answering(*both),
+        replay_http=_replay,
+        replay_browser=_never_called_replay("browser_fetch"),
+        validate_url=_allow_all,
+    )
+    assert outcome.ok is True
+    assert outcome.script is not None
+    assert outcome.script["steps"][0]["url"] == "https://careers.walmart.com/api/jobs.json"
+
+
+async def test_a_second_yes_is_tried_when_the_first_fails_acceptance() -> None:
+    """"The next candidate" is a REAL fallback for the first time. Before the fan-out it
+    meant a second forced pick out of a list the model had already ranked; now a
+    candidate is only ever tried because the model was asked about IT and said yes about
+    IT — and every yes gets its turn inside ONE round."""
+    # The failing one is the BIGGER array, so the pre-filter ranks it first and the
+    # referee has nothing to separate them on — which is the case worth testing: the
+    # fallback has to work when the ordering was not already lucky.
+    first_body = {"jobs": _walmart_jobs(30)}
+    second_body = {"jobs": _walmart_jobs(12)}
+    first = _pageless_response(first_body)
+    second = _amazon_response(second_body).__class__(
+        **{**_amazon_response(second_body).__dict__,
+           "url": "https://careers.walmart.com/api/real.json"}
+    )
+    both = [
+        CandidateAnswer(
+            candidate_index=i,
+            selection=RequestSelection(
+                chosen_request_index=i, records_path="jobs",
+                field_map=dict(_PARTIAL_MAP), pagination=None,
+            ),
+            confidence="high",
+        )
+        for i in (0, 1)
+    ]
+    tried: list[str] = []
+
+    async def _replay(script: dict[str, Any]) -> tuple[list[dict], HarvestEvidence]:
+        url = script["steps"][0]["url"]
+        tried.append(url)
+        if "real.json" not in url:
+            raise RecipeExecutionError("HTTP 500 from the chat endpoint")
+        return map_records(
+            second_body["jobs"], _PARTIAL_MAP, script.get("base_url", "")
+        ), HarvestEvidence(
+            declared_total=None, cap_hit=False, terminated_cleanly=True,
+            page_advance_ok=None, pages_fetched=1, transport_ok=True,
+        )
+
+    outcome = await discover(
+        "https://careers.walmart.com/results",
+        capture=_capture_of(first, second),
+        select=_answering(*both),
+        replay_http=_replay,
+        replay_browser=_failing_replay(RecipeExecutionError("no browser either")),
+        validate_url=_allow_all,
+    )
+    assert outcome.ok is True
+    assert outcome.attempts == 1                   # ONE round, two candidates tried
+    assert outcome.script is not None
+    assert "real.json" in outcome.script["steps"][0]["url"]
+    assert any("real.json" not in u for u in tried)  # the first one WAS tried
+
+
+async def test_a_page_whose_every_array_is_declined_is_refused() -> None:
+    """A no is now per-array, so "none of these is a jobs feed" is the fan-out returning
+    nothing rather than one model answering null about a list. The refusal the user sees
+    is unchanged, and it still stops the ladder rather than re-asking."""
+    async def _all_no(candidates: list[Any], *, feedback: str | None = None):
+        raise NoJobsFeedError("none of them")
+
+    outcome = await discover(
+        _AMAZON_URL,
+        capture=_capturing("amazon"),
+        select=_all_no,
+        replay_http=_never_called_replay("http_json"),
+        replay_browser=_never_called_replay("browser_fetch"),
+        validate_url=_allow_all,
+    )
+    assert outcome.ok is False
+    assert "is a list of job postings" in (outcome.refuse_reason or "")
 
 
 def test_the_total_that_counts_THESE_records_wins_over_the_bigger_one_beside_it() -> None:

@@ -34,6 +34,8 @@ A malformed or hallucinated answer must REFUSE — never crash, never store.
 
 from __future__ import annotations
 
+import asyncio
+import hashlib
 import json
 import logging
 import re
@@ -374,10 +376,12 @@ class _Pagination(BaseModel):
 
 
 class _SelectionEnvelope(BaseModel):
-    # ``None`` is THE refusal branch — see :class:`NoJobsFeedError`. The rest of the
-    # envelope is then ignored, so the model is told to send empty strings.
-    chosen_request_index: int | None = None
-    records_path: str
+    # ``False`` is THE refusal branch, and it is now per-ARRAY rather than per-page —
+    # see :func:`select_candidates`. The rest of the envelope is then ignored, so the
+    # model is told to send empty strings.
+    is_jobs_feed: bool = False
+    confidence: str = "low"
+    records_path: str = ""
     field_map: _FieldMap
     pagination: _Pagination | None = None
 
@@ -431,20 +435,20 @@ class RequestSelection:
 
 
 SYSTEM_PROMPT = (
-    "You identify a job board's underlying jobs API from captured browser network "
-    "traffic. You are shown a numbered list of JSON responses a careers page fetched, "
-    "each with its method, URL, the dotted path to an array of records inside it, the "
-    "record count, and one or two sample records.\n"
-    "Choose the ONE response that is the board's list of JOB POSTINGS — not a facet/"
-    "filter list, not a list of offices or departments, not search suggestions, not "
-    "analytics. Prefer the response whose records are individual job postings with "
-    "titles.\n"
-    "If NONE of the responses is a list of job postings — they are all filter "
-    "catalogues, office lists, suggestions or analytics — return "
-    "chosen_request_index: null with empty strings for records_path and the field "
-    "map, and null pagination. Say null rather than picking the closest thing: a "
-    "wrong pick is stored and tracked as if it were the company's jobs.\n"
-    "Then map that record shape to our canonical fields using DOTTED PATHS relative to "
+    "You are shown ONE array of records that a careers page's own code produced — "
+    "either from a network response it fetched, or from JSON embedded in its HTML — "
+    "with its method, URL or page selector, the dotted path to the array, the record "
+    "count, the record's field names, and one or two sample records.\n"
+    "ANSWER ONE QUESTION: is this a list of JOB POSTINGS?\n"
+    "Set is_jobs_feed false for anything else — a facet or filter catalogue, a list of "
+    "offices, departments or categories, search suggestions, analytics, a chat "
+    "transcript, a navigation menu. Saying false is cheap and correct: it costs this "
+    "one array and nothing else, and other arrays from the same page are being asked "
+    "about separately. A wrong true is STORED and tracked as if it were the company's "
+    "jobs. When you answer false, return empty strings for records_path and the field "
+    "map, and null pagination.\n"
+    "If it IS a jobs feed, map that record shape to our canonical fields using DOTTED "
+    "PATHS relative to "
     "ONE record. Use ONLY field names that appear in that response's 'record fields' "
     "list or inside its sample records — never a name you expect a job board to have. "
     "For a value nested inside an object, use the dotted path (e.g. 'city_info.en_name'). "
@@ -474,25 +478,27 @@ SYSTEM_PROMPT = (
     "EVERY mapped path must resolve to a STRING or a NUMBER, never to an object or an "
     "array. If the value lives inside an object, point at the LEAF: 'city_info.en_name', "
     "not 'city_info'.\n"
-    "Set records_path to the dotted path of the job array inside the chosen response "
-    "(use the one you were shown unless it is wrong). A path containing '*' means "
-    "'every element of the list here' — e.g. '*.postings' is the union of the postings "
-    "arrays of ALL groups, while '4.postings' is only the fifth group's. When the "
-    "response splits the board into groups (by department, category or office), ALWAYS "
-    "choose the '*' path: the concrete one tracks a single department as if it were the "
-    "whole company.\n"
-    "Finally, if the request has an obvious paging parameter you can see in its URL or "
+    "Set records_path to the dotted path of the job array (use the one you were shown "
+    "unless it is wrong). A path containing '*' means 'every element of the list here' "
+    "— '*.postings' is the union of the postings arrays of ALL groups, while "
+    "'4.postings' is only the fifth group's — so leave a '*' path exactly as you were "
+    "shown it.\n"
+    "If the request has an obvious paging parameter you can see in its URL or "
     "POST body (offset/from/start, or page/pageNumber), return pagination with style "
     "'offset' (the parameter counts RECORDS) or 'page' (it counts PAGES), the exact "
     "parameter name, and the page size the request used. Return null when you cannot "
-    "see one — guessing a paging parameter is worse than not paging."
+    "see one — guessing a paging parameter is worse than not paging.\n"
+    "Finally set confidence: 'high' when these records are unmistakably individual job "
+    "postings, 'low' when you are answering true but could be wrong. Confidence is only "
+    "ever used to break a tie between arrays that every measurement rates equally."
 )
 
 _SELECTION_SCHEMA: dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,
     "properties": {
-        "chosen_request_index": {"type": ["integer", "null"]},
+        "is_jobs_feed": {"type": "boolean"},
+        "confidence": {"type": "string", "enum": ["high", "low"]},
         "records_path": {"type": "string"},
         "field_map": {
             "type": "object",
@@ -520,7 +526,9 @@ _SELECTION_SCHEMA: dict[str, Any] = {
             "required": ["style", "param", "page_size"],
         },
     },
-    "required": ["chosen_request_index", "records_path", "field_map", "pagination"],
+    "required": [
+        "is_jobs_feed", "confidence", "records_path", "field_map", "pagination",
+    ],
 }
 
 
@@ -559,9 +567,17 @@ def _describe(candidate: Candidate) -> str:
     records = _sample_records(candidate)
     body = (candidate.post_data or "")[:_SAMPLE_RECORD_CHARS]
     parts = urlsplit(candidate.url)
-    lines = [
+    origin = (
+        # A document candidate has no method worth naming and no query to reason about;
+        # what identifies it is the selector its records were extracted with.
+        f"[{candidate.index}] {candidate.html.op} {candidate.html.selector} in "
+        f"{parts.scheme}://{parts.netloc}{parts.path}"
+        if candidate.html is not None else
         f"[{candidate.index}] {candidate.method} "
-        f"{parts.scheme}://{parts.netloc}{parts.path}"[:_URL_PROMPT_CHARS],
+        f"{parts.scheme}://{parts.netloc}{parts.path}"
+    )
+    lines = [
+        origin[:_URL_PROMPT_CHARS],
         f"    records_path: {candidate.records_path or '(top level)'} "
         f"({candidate.record_count} records)",
         f"    record fields: {', '.join(_record_keys(records)) or '(none)'}",
@@ -588,9 +604,17 @@ _FEEDBACK_CHARS = 1_200
 
 
 def build_message_params(
-    candidates: list[Candidate], *, feedback: str | None = None
+    candidate: Candidate, *, feedback: str | None = None
 ) -> dict[str, Any]:
-    """The exact ``messages.create(...)`` kwargs for one selection.
+    """The exact ``messages.create(...)`` kwargs for ONE candidate.
+
+    ONE ARRAY PER CALL, and that is the whole of the fan-out. The old shape rendered
+    every candidate into one prompt and asked the model to RANK and MAP in a single
+    answer, so a wrong-but-plausible array could crowd out a right one — and the
+    crowding-out that actually happened was WITHIN one source (a chatbot response and a
+    real jobs response are both XHR JSON), which is why fanning out per source KIND
+    would have changed nothing. Per candidate, the question is strictly simpler, the
+    context is a tenth the size, and "no" costs one array instead of the board.
 
     Single source of truth for the request shape (model, prompt, structured-outputs
     schema), for the same reason ``llm_client.build_message_params`` is: a test or a
@@ -603,14 +627,16 @@ def build_message_params(
     answer; and on a board with only ONE candidate feed there was no second round at all,
     because the loop dropped the failed candidate and found nothing left to ask about.
     """
-    listing = "\n".join(_describe(c) for c in candidates)
-    content = f"Captured JSON responses:\n\n{listing}\n\nChoose the jobs feed."
+    content = (
+        f"One captured array:\n\n{_describe(candidate)}\n\n"
+        "Is this a list of job postings?"
+    )
     if feedback:
         content += (
             "\n\nYour previous answer was REJECTED. What we CHECKED against the real "
             "board, and what we found:\n"
             f"{feedback[:_FEEDBACK_CHARS]}\n"
-            "Answer again over the same responses. Change what the evidence says is "
+            "Answer again over the same records. Change what the evidence says is "
             "wrong; leave the rest alone. Every required field is still required — an "
             "empty string is not a correction."
         )
@@ -1547,18 +1573,15 @@ def _parses_with(text: str, fmt: str) -> bool:
     return True
 
 
-def _to_selection(envelope: _SelectionEnvelope, candidates: list[Candidate]) -> RequestSelection:
-    index = envelope.chosen_request_index
-    if index is None:
-        raise NoJobsFeedError(
-            f"none of the {len(candidates)} captured request(s) is a list of job postings"
-        )
-    if not 0 <= index < len(candidates):
-        raise RequestSelectionError(
-            f"chosen_request_index {index} is not one of the {len(candidates)} "
-            "candidates it was shown"
-        )
-    candidate = candidates[index]
+def _to_selection(envelope: _SelectionEnvelope, candidate: Candidate) -> RequestSelection:
+    """The believed-and-re-checked answer for ONE candidate.
+
+    Every check below is unchanged from when this took a whole list and an index: the
+    records path must resolve, the required fields must render scalars, the url must be
+    a link, the unusable optionals are pruned. What changed is only WHAT it is checking —
+    one array the model said yes about, instead of one array it ranked first.
+    """
+    index = candidate.index
     records = _resolved_records(candidate, envelope.records_path)
 
     field_map = {
@@ -1608,34 +1631,117 @@ def _to_selection(envelope: _SelectionEnvelope, candidates: list[Candidate]) -> 
     )
 
 
-async def select_request(
-    candidates: list[Candidate],
+@dataclass(frozen=True)
+class CandidateAnswer:
+    """What the model said about ONE array.
+
+    ``selection`` is ``None`` for a no — the per-array restatement of
+    :class:`NoJobsFeedError`, and the reason a no is now CHEAP: saying it about one
+    array does not forfeit the board.
+    """
+
+    candidate_index: int
+    selection: RequestSelection | None
+    confidence: str = "low"
+
+
+# The keys that mark a request as SESSION-BOUND (check C15). Walmart's stored fetch body
+# carries ``thread_id: "S-1788038636412-<uuid>"`` whose embedded epoch decodes to six
+# seconds after the company row was created — minted inside that one discovery browser
+# session. It is the defining property of a chat reply masquerading as a jobs API.
+#
+# It is a RANKING DEMOTION and never a refusal, because code cannot prove a session key
+# is fatal: plenty of boards send a correlation id the server ignores. And a recipe
+# carrying one PASSES ACCEPTANCE BY CONSTRUCTION, because acceptance runs minutes later
+# while the token is still alive — which is exactly why the honest handling is to demote
+# it below every candidate without one rather than to trust the gate.
+SESSION_KEY_NAMES = frozenset({
+    "threadid", "sessionid", "conversationid", "chatid",
+    "correlationid", "requestid", "traceid",
+})
+
+# THE FAN-OUT'S BOUNDS. Ten calls per round, six at a time. Ten because the pre-filter
+# already ranks and caps, so the tail this truncates is the least job-shaped; six
+# because the calls are ~1.3k input tokens each and the point of the semaphore is to
+# keep one board's discovery from being the thing that rate-limits the next one's.
+_MAX_FANOUT_CALLS = 10
+_FANOUT_CONCURRENCY = 6
+
+
+def _candidate_body(candidate: Candidate) -> Any:
+    if not candidate.post_data:
+        return None
+    try:
+        return json.loads(candidate.post_data, strict=False)
+    except Exception:  # noqa: BLE001 - a body we cannot read carries no session key
+        return None
+
+
+def session_token_keys(candidate: Candidate) -> tuple[str, ...]:
+    """The session-bound parameter names this candidate's request carries (C15).
+
+    Deliberately reuses ``iter_body_params`` — the same walker ``page_shape_refusal``
+    uses to find a page parameter — so "where a parameter lives in this body" keeps
+    exactly one definition in the codebase.
+    """
+    from ..recipe_runner import iter_body_params
+
+    body = _candidate_body(candidate)
+    if body is None:
+        return ()
+    found: list[str] = []
+    for _path, key, _value in iter_body_params(body):
+        flat = "".join(ch for ch in str(key).lower() if ch.isalnum())
+        if flat in SESSION_KEY_NAMES and key not in found:
+            found.append(str(key))
+    return tuple(found)
+
+
+def _records_digest(candidate: Candidate) -> str:
+    """A stable fingerprint of the RECORDS, so the same array is never paid for twice.
+
+    Islands frequently duplicate an XHR payload byte for byte — the served document
+    embeds exactly what the page would otherwise fetch — and asking about the same rows
+    from two sources is one wasted call and two chances at a different answer.
+    """
+    try:
+        blob = json.dumps(candidate.records, sort_keys=True, default=str)
+    except Exception:  # noqa: BLE001 - an unserializable record is its own fingerprint
+        blob = repr(candidate.records)
+    return hashlib.sha256(blob.encode("utf-8", "replace")).hexdigest()
+
+
+def _is_known_non_feed(candidate: Candidate) -> bool:
+    """A shape we can rule out without spending a token.
+
+    One or zero records from a request carrying a conversational session key is a chat
+    reply, not a board. Both halves are needed: a one-record jobs API is a small board,
+    and a session key on a hundred records is a correlation id.
+    """
+    return candidate.record_count < 2 and bool(session_token_keys(candidate))
+
+
+async def classify_candidate(
+    candidate: Candidate,
     *,
     feedback: str | None = None,
     create_message: CreateMessage | None = None,
-) -> RequestSelection:
-    """Ask Haiku 4.5 which candidate is the jobs feed and how to read its records.
+) -> CandidateAnswer:
+    """Ask Haiku 4.5 about ONE array: is it a jobs feed, and how does it map?
 
     Raises :class:`SelectorKeyMissingError` when no API key is configured (degrade, do
-    not retry), :class:`NoJobsFeedError` when the model says none of the candidates is
-    a jobs feed (stop, do not re-ask) and :class:`RequestSelectionError` for every
-    other unbelievable answer or a failed call (re-ask). ``create_message`` is the
-    injectable seam: the unit tests run at $0 against a canned response object.
-
-    ``feedback`` carries what the last round MEASURED about the last answer — see
-    :func:`build_message_params`. It is the difference between a re-ask and a re-roll.
+    not retry) and :class:`RequestSelectionError` for an unbelievable answer or a failed
+    call. A ``False`` answer is a RETURN, not an exception — it kills this candidate and
+    nothing else.
     """
-    if not candidates:
-        raise RequestSelectionError("no job-shaped JSON responses were captured")
-
     try:
         response = await (create_message or _default_create_message)(
-            build_message_params(candidates, feedback=feedback)
+            build_message_params(candidate, feedback=feedback)
         )
     except APIError as exc:
         # A 529/overload/connection blip is not an unbelievable ANSWER, but the caller
-        # must treat it the same way — as a failed ROUND it can re-ask, not as an
-        # escaping exception. Uncaught, it lands in ``discover``'s last-resort handler
+        # must treat it the same way — as a failed candidate it can re-ask about, not as
+        # an escaping exception. Uncaught, it lands in ``discover``'s last-resort handler
         # and permanently refuses a trackable board on a transient LLM outage.
         # ``max_retries=0`` above is why this surfaces at all: the queue owns retries.
         # Deliberately narrow: ``SelectorKeyMissingError`` is not an ``APIError``, so
@@ -1657,4 +1763,107 @@ async def select_request(
         raise RequestSelectionError(
             f"the selector's answer failed schema validation: {exc}"
         ) from exc
-    return _to_selection(envelope, candidates)
+    confidence = envelope.confidence if envelope.confidence in ("high", "low") else "low"
+    if not envelope.is_jobs_feed:
+        return CandidateAnswer(candidate.index, None, confidence)
+    return CandidateAnswer(
+        candidate.index, _to_selection(envelope, candidate), confidence
+    )
+
+
+async def select_candidates(
+    candidates: list[Candidate],
+    *,
+    feedback: str | None = None,
+    create_message: CreateMessage | None = None,
+) -> list[CandidateAnswer]:
+    """THE FAN-OUT — one model call per record-bearing candidate, in parallel.
+
+    Returns only the candidates the model said YES about, in the order they were asked
+    (i.e. pre-filter rank order); the referee in ``discover`` re-ranks them on
+    MEASUREMENTS, and the ``confidence`` field is only ever the last tie-break.
+
+    Raises :class:`NoJobsFeedError` when every candidate came back a clean no — asking
+    again cannot change that. Raises :class:`RequestSelectionError` when nothing came
+    back usable but something went WRONG (a timeout, an unbelievable answer, an SDK
+    error), because that is a round worth re-asking with the evidence attached. The
+    difference between those two is the difference between stopping and retrying.
+
+    A call that raises or times out kills THAT CANDIDATE ONLY. That is a strict
+    robustness gain over one call over the whole list, where a single bad answer burned
+    the round and, on a single-feed board, the discovery.
+    """
+    if not candidates:
+        raise RequestSelectionError("no job-shaped JSON responses were captured")
+
+    asked: list[Candidate] = []
+    digests: set[str] = set()
+    for candidate in candidates:
+        if len(asked) >= _MAX_FANOUT_CALLS:
+            break
+        if _is_known_non_feed(candidate):
+            logger.info(
+                "fan-out skipped %s %s: %d record(s) from a request carrying %s",
+                candidate.method, candidate.url, candidate.record_count,
+                ", ".join(session_token_keys(candidate)),
+            )
+            continue
+        digest = _records_digest(candidate)
+        if digest in digests:
+            logger.info(
+                "fan-out skipped %s: byte-identical to a candidate already asked about",
+                candidate.url,
+            )
+            continue
+        digests.add(digest)
+        asked.append(candidate)
+
+    if not asked:
+        raise NoJobsFeedError(
+            f"none of the {len(candidates)} captured array(s) can be a list of job "
+            "postings"
+        )
+
+    semaphore = asyncio.Semaphore(_FANOUT_CONCURRENCY)
+
+    async def _one(candidate: Candidate) -> CandidateAnswer:
+        async with semaphore:
+            return await asyncio.wait_for(
+                classify_candidate(
+                    candidate, feedback=feedback, create_message=create_message
+                ),
+                timeout=LLM_TIMEOUT_SECONDS,
+            )
+
+    results = await asyncio.gather(
+        *(_one(c) for c in asked), return_exceptions=True
+    )
+
+    answers: list[CandidateAnswer] = []
+    key_missing: SelectorKeyMissingError | None = None
+    failures: list[str] = []
+    for candidate, result in zip(asked, results):
+        if isinstance(result, SelectorKeyMissingError):
+            key_missing = result
+            continue
+        if isinstance(result, BaseException):
+            failures.append(f"{candidate.url}: {result}")
+            logger.info(
+                "fan-out call failed for %s (%s) — this candidate only",
+                candidate.url, result,
+            )
+            continue
+        if result.selection is not None:
+            answers.append(result)
+    if answers:
+        return answers
+    # A misconfigured deployment is not the board's fault and must not burn an attempt.
+    if key_missing is not None:
+        raise key_missing
+    if failures:
+        raise RequestSelectionError(
+            f"every candidate's selection call failed: {'; '.join(failures[:3])}"
+        )
+    raise NoJobsFeedError(
+        f"none of the {len(asked)} captured array(s) is a list of job postings"
+    )

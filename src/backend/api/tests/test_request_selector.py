@@ -54,11 +54,39 @@ def _fake_response(payload: Any) -> SimpleNamespace:
 
 
 def _answering(payload: Any, *, calls: list[dict] | None = None):
+    """A canned model answer.
+
+    Old-shape payloads (``chosen_request_index``) are translated to the per-candidate
+    envelope, so the dozens of tests written against the ranking prompt keep asserting
+    exactly what they were written to assert. The seam under test is the answer's
+    CONTENT; the shape of the question is pinned separately by the prompt tests.
+    """
+    if isinstance(payload, dict) and "chosen_request_index" in payload:
+        payload = {
+            **{k: v for k, v in payload.items() if k != "chosen_request_index"},
+            "is_jobs_feed": payload["chosen_request_index"] is not None,
+            "confidence": payload.get("confidence", "high"),
+        }
+
     async def _create(params: dict[str, Any]) -> SimpleNamespace:
         if calls is not None:
             calls.append(params)
         return _fake_response(payload)
     return _create
+
+
+async def _select_one(candidates: list[Any], **kwargs: Any) -> rs.RequestSelection:
+    """The one accepted answer out of the fan-out.
+
+    These tests were written when the selector took a list and returned ONE selection.
+    It now asks about every candidate separately and returns every yes; the referee in
+    ``discover`` ranks them. What each of these tests is about is whether an individual
+    answer is BELIEVED, so unwrapping the first yes here keeps them pointed at that.
+    """
+    answers = await rs.select_candidates(candidates, **kwargs)
+    selection = answers[0].selection
+    assert selection is not None
+    return selection
 
 
 _AMAZON_ANSWER = {
@@ -125,7 +153,7 @@ def test_prefilter_ignores_non_2xx_responses() -> None:
 def test_build_message_params_pins_the_request_shape() -> None:
     """One source of truth for model/prompt/schema — a second builder would let the
     tests pass against a request production does not send."""
-    params = rs.build_message_params(_candidates("amazon"))
+    params = rs.build_message_params(_candidates("amazon")[0])
     assert params["model"] == rs.HAIKU_MODEL == "claude-haiku-4-5-20251001"
     assert params["max_tokens"] == rs.MAX_TOKENS
     fmt = params["output_config"]["format"]
@@ -140,7 +168,7 @@ def test_build_message_params_pins_the_request_shape() -> None:
 @pytest.mark.asyncio
 async def test_correct_pick_and_map() -> None:
     calls: list[dict] = []
-    selection = await rs.select_request(
+    selection = await _select_one(
         _candidates("amazon"), create_message=_answering(_AMAZON_ANSWER, calls=calls)
     )
     assert len(calls) == 1                       # ONE call, ever
@@ -168,7 +196,7 @@ async def test_maps_a_post_board_with_nested_fields() -> None:
         },
         "pagination": {"style": "offset", "param": "offset", "page_size": 10},
     }
-    selection = await rs.select_request(
+    selection = await _select_one(
         _candidates("tiktok"), create_message=_answering(answer)
     )
     assert selection.field_map["location"] == "city_info.en_name"
@@ -178,10 +206,18 @@ async def test_maps_a_post_board_with_nested_fields() -> None:
 
 
 @pytest.mark.asyncio
-async def test_hallucinated_index_refuses() -> None:
-    answer = {**_AMAZON_ANSWER, "chosen_request_index": 7}
-    with pytest.raises(rs.RequestSelectionError, match="not one of the 1 candidates"):
-        await rs.select_request(_candidates("amazon"), create_message=_answering(answer))
+async def test_an_index_can_no_longer_be_hallucinated_because_there_is_none() -> None:
+    """The old schema made the model NAME a candidate, which it could get wrong, and the
+    guard against that was a bounds check. One call per array removes the field
+    entirely: the answer is about the array it was shown, so the class of error is gone
+    rather than caught."""
+    params = rs.build_message_params(_candidates("amazon")[0])
+    schema = params["output_config"]["format"]["schema"]
+    assert "chosen_request_index" not in schema["properties"]
+    selection = await _select_one(
+        _candidates("amazon"), create_message=_answering(_AMAZON_ANSWER)
+    )
+    assert selection.chosen_request_index == 0
 
 
 @pytest.mark.asyncio
@@ -191,14 +227,14 @@ async def test_records_path_that_does_not_resolve_refuses() -> None:
     every night."""
     answer = {**_AMAZON_ANSWER, "records_path": "data.results"}
     with pytest.raises(rs.RequestSelectionError, match="does not resolve"):
-        await rs.select_request(_candidates("amazon"), create_message=_answering(answer))
+        await _select_one(_candidates("amazon"), create_message=_answering(answer))
 
 
 @pytest.mark.asyncio
 async def test_records_path_resolving_to_a_non_list_refuses() -> None:
     answer = {**_AMAZON_ANSWER, "records_path": "hits"}
     with pytest.raises(rs.RequestSelectionError, match="non-empty list"):
-        await rs.select_request(_candidates("amazon"), create_message=_answering(answer))
+        await _select_one(_candidates("amazon"), create_message=_answering(answer))
 
 
 @pytest.mark.asyncio
@@ -208,7 +244,7 @@ async def test_field_map_that_renders_no_id_or_title_refuses() -> None:
     answer = {**_AMAZON_ANSWER,
               "field_map": {**_AMAZON_ANSWER["field_map"], "id": "requisition_number"}}
     with pytest.raises(rs.RequestSelectionError, match="renders no usable scalar id/title"):
-        await rs.select_request(_candidates("amazon"), create_message=_answering(answer))
+        await _select_one(_candidates("amazon"), create_message=_answering(answer))
 
 
 @pytest.mark.asyncio
@@ -230,7 +266,7 @@ async def test_a_non_scalar_optional_field_is_dropped_not_stored() -> None:
         },
         "pagination": None,
     }
-    selection = await rs.select_request(
+    selection = await _select_one(
         _candidates("tiktok"), create_message=_answering(answer)
     )
     assert "location" not in selection.field_map
@@ -258,7 +294,7 @@ async def test_a_list_of_location_strings_is_kept_not_pruned() -> None:
         },
         "pagination": None,
     }
-    selection = await rs.select_request(
+    selection = await _select_one(
         _candidates("atlassian"), create_message=_answering(answer)
     )
     assert selection.field_map["location"] == "locations"
@@ -294,7 +330,7 @@ async def test_a_real_description_mapping_is_stored_and_survives_the_prune() -> 
     Atlassian's ``locations`` has no claim on it. Asserted rather than assumed —
     ``_prune_non_scalar_optionals`` is the exact check that already deleted one
     correctly-mapped field on this exact board."""
-    selection = await rs.select_request(
+    selection = await _select_one(
         _candidates("atlassian"),
         create_message=_answering(_ATLASSIAN_DESCRIPTION_ANSWER),
     )
@@ -320,7 +356,7 @@ async def test_a_container_valued_description_is_still_pruned() -> None:
             "description": "portalJobPost",       # the container, not a leaf
         },
     }
-    selection = await rs.select_request(
+    selection = await _select_one(
         _candidates("atlassian"), create_message=_answering(answer)
     )
     assert "description" not in selection.field_map
@@ -340,7 +376,7 @@ async def test_a_list_valued_description_is_pruned_not_folded() -> None:
             "description": "locations",           # a list of plain strings
         },
     }
-    selection = await rs.select_request(
+    selection = await _select_one(
         _candidates("atlassian"), create_message=_answering(answer)
     )
     assert "description" not in selection.field_map
@@ -356,7 +392,7 @@ def test_the_closed_key_set_carries_description() -> None:
     The key set is asserted by SET EQUALITY, so this fails in both directions: dropping
     ``description`` from the schema or the envelope fails here, and so does adding a
     seventh key to one place and not the others."""
-    schema = rs.build_message_params(_candidates("amazon"))["output_config"]["format"]
+    schema = rs.build_message_params(_candidates("amazon")[0])["output_config"]["format"]
     fields = schema["schema"]["properties"]["field_map"]
     assert fields["additionalProperties"] is False
     assert set(fields["properties"]) == {
@@ -390,7 +426,7 @@ async def test_a_board_publishing_a_description_gets_it_mapped() -> None:
     It has to get through ``_to_selection``'s optional-field tuple, and a name missing
     from that tuple is a mapping the model returned and we then threw away in silence.
     Dropping ``description`` from it fails here."""
-    selection = await rs.select_request(
+    selection = await _select_one(
         _candidates("atlassian"),
         create_message=_answering(_ATLASSIAN_DESCRIPTION_ANSWER),
     )
@@ -419,7 +455,7 @@ async def test_a_non_scalar_id_refuses_rather_than_being_dropped() -> None:
         "pagination": None,
     }
     with pytest.raises(rs.RequestSelectionError, match="no usable scalar id/title"):
-        await rs.select_request(_candidates("tiktok"), create_message=_answering(answer))
+        await _select_one(_candidates("tiktok"), create_message=_answering(answer))
 
 
 def test_the_prompt_shows_exact_field_names_and_parsed_query_params() -> None:
@@ -427,7 +463,7 @@ def test_the_prompt_shows_exact_field_names_and_parsed_query_params() -> None:
     invented ``position_title`` for a record whose key is ``title``; and given a
     character-truncated URL it answered "no pagination" for amazon.jobs, whose ``offset``
     parameter sits behind a dozen ``facets[]`` entries."""
-    prompt = rs.build_message_params(_candidates("amazon"))["messages"][0]["content"]
+    prompt = rs.build_message_params(_candidates("amazon")[0])["messages"][0]["content"]
     assert "record fields: id, id_icims, title, job_path" in prompt
     assert "query params: sort=recent, offset=0, result_limit=10" in prompt
     assert "position_title" not in prompt
@@ -436,7 +472,7 @@ def test_the_prompt_shows_exact_field_names_and_parsed_query_params() -> None:
 @pytest.mark.asyncio
 async def test_non_json_text_refuses() -> None:
     with pytest.raises(rs.RequestSelectionError, match="non-JSON"):
-        await rs.select_request(
+        await _select_one(
             _candidates("amazon"), create_message=_answering("I think it is the first one!")
         )
 
@@ -444,7 +480,7 @@ async def test_non_json_text_refuses() -> None:
 @pytest.mark.asyncio
 async def test_schema_violation_refuses() -> None:
     with pytest.raises(rs.RequestSelectionError, match="failed schema validation"):
-        await rs.select_request(
+        await _select_one(
             _candidates("amazon"),
             create_message=_answering({"chosen_request_index": 0, "records_path": "jobs"}),
         )
@@ -456,7 +492,7 @@ async def test_empty_text_content_refuses() -> None:
         return SimpleNamespace(content=[], stop_reason="max_tokens")
 
     with pytest.raises(rs.RequestSelectionError, match="no text content"):
-        await rs.select_request(_candidates("amazon"), create_message=_create)
+        await _select_one(_candidates("amazon"), create_message=_create)
 
 
 @pytest.mark.asyncio
@@ -466,7 +502,7 @@ async def test_unusable_pagination_hint_is_dropped_not_fatal() -> None:
     the whole board over a bad paging guess would be strictly worse."""
     answer = {**_AMAZON_ANSWER,
               "pagination": {"style": "offset", "param": "  ", "page_size": 0}}
-    selection = await rs.select_request(
+    selection = await _select_one(
         _candidates("amazon"), create_message=_answering(answer)
     )
     assert selection.pagination is None
@@ -478,7 +514,7 @@ async def test_no_candidates_refuses_without_calling_the_model() -> None:
         raise AssertionError("the model must not be called with nothing to choose from")
 
     with pytest.raises(rs.RequestSelectionError, match="no job-shaped"):
-        await rs.select_request([], create_message=_boom)
+        await _select_one([], create_message=_boom)
 
 
 @pytest.mark.asyncio
@@ -493,7 +529,7 @@ async def test_missing_api_key_degrades_before_any_client_is_built(monkeypatch) 
 
     monkeypatch.setattr(rs, "AsyncAnthropic", _boom)
     with pytest.raises(rs.SelectorKeyMissingError):
-        await rs.select_request(_candidates("amazon"))
+        await _select_one(_candidates("amazon"))
 
 
 def test_key_missing_error_is_a_selection_error() -> None:
@@ -515,7 +551,7 @@ async def test_a_url_mapping_that_is_not_a_link_refuses() -> None:
     answer = {**_AMAZON_ANSWER,
               "field_map": {**_AMAZON_ANSWER["field_map"], "url": "id_icims"}}
     with pytest.raises(rs.RequestSelectionError, match="renders no usable link"):
-        await rs.select_request(_candidates("amazon"), create_message=_answering(answer))
+        await _select_one(_candidates("amazon"), create_message=_answering(answer))
 
 
 @pytest.mark.asyncio
@@ -526,7 +562,7 @@ async def test_a_relative_path_or_a_template_is_a_usable_link(spec: str) -> None
     would refuse boards we can read."""
     answer = {**_AMAZON_ANSWER,
               "field_map": {**_AMAZON_ANSWER["field_map"], "url": spec}}
-    selection = await rs.select_request(
+    selection = await _select_one(
         _candidates("amazon"), create_message=_answering(answer)
     )
     assert selection.field_map["url"] == spec
@@ -549,15 +585,20 @@ async def test_the_model_can_answer_that_none_of_them_is_a_jobs_feed() -> None:
         "pagination": None,
     }
     with pytest.raises(rs.NoJobsFeedError, match="is a list of job postings"):
-        await rs.select_request(_candidates("amazon"), create_message=_answering(answer))
+        await _select_one(_candidates("amazon"), create_message=_answering(answer))
 
 
 def test_the_prompt_and_schema_both_offer_the_refusal_branch() -> None:
-    """A nullable field the prompt never mentions is a branch the model never takes."""
-    params = rs.build_message_params(_candidates("amazon"))
+    """A field the prompt never mentions is a branch the model never takes.
+
+    The branch is now PER ARRAY, which is what makes saying no cheap: it costs this one
+    array and nothing else, and the other arrays on the same page are being asked about
+    separately."""
+    params = rs.build_message_params(_candidates("amazon")[0])
     schema = params["output_config"]["format"]["schema"]
-    assert schema["properties"]["chosen_request_index"]["type"] == ["integer", "null"]
-    assert "chosen_request_index: null" in params["system"]
+    assert schema["properties"]["is_jobs_feed"]["type"] == "boolean"
+    assert "is_jobs_feed false" in params["system"]
+    assert "costs this one array and nothing else" in params["system"]
 
 
 # --- a failed CALL is a failed round, not a crash ----------------------------
@@ -581,7 +622,7 @@ async def test_an_sdk_error_becomes_a_selection_error() -> None:
         )
 
     with pytest.raises(rs.RequestSelectionError, match="the selector call failed"):
-        await rs.select_request(_candidates("amazon"), create_message=_overloaded)
+        await _select_one(_candidates("amazon"), create_message=_overloaded)
 
 
 @pytest.mark.asyncio
@@ -591,7 +632,7 @@ async def test_a_missing_key_is_still_a_key_error_not_a_call_failure(monkeypatch
     an attempt."""
     monkeypatch.setattr(settings, "anthropic_api_key", None)
     with pytest.raises(rs.SelectorKeyMissingError):
-        await rs.select_request(_candidates("amazon"))
+        await _select_one(_candidates("amazon"))
 
 
 # --- the grouped payload (binance): offer the WHOLE board, not one group ----
@@ -651,7 +692,9 @@ def test_the_prompt_tells_the_model_what_a_star_path_means() -> None:
     deterministic widening in ``discover`` is the guarantee — this is what keeps it from
     having to fire."""
     assert "'*.postings'" in rs.SYSTEM_PROMPT
-    listing = rs.build_message_params(_candidates("grouped"))["messages"][0]["content"]
+    listing = rs.build_message_params(
+        _candidates("grouped")[0]
+    )["messages"][0]["content"]
     assert "records_path: *.postings" in listing
 
 
@@ -869,11 +912,11 @@ def test_every_drop_says_why_so_a_retry_can_repeat_it_to_the_model() -> None:
 def test_the_re_ask_carries_what_we_measured_about_the_last_answer() -> None:
     """Without this a second round is a re-roll of the same question over the same
     bytes, which is the least likely way to get a different answer."""
-    plain = rs.build_message_params(_candidates("amazon"))["messages"][0]["content"]
+    plain = rs.build_message_params(_candidates("amazon")[0])["messages"][0]["content"]
     assert "REJECTED" not in plain
 
     retold = rs.build_message_params(
-        _candidates("amazon"), feedback="- HTTP 404 on https://x/jobs/1",
+        _candidates("amazon")[0], feedback="- HTTP 404 on https://x/jobs/1",
     )["messages"][0]["content"]
     assert "REJECTED" in retold
     assert "HTTP 404 on https://x/jobs/1" in retold
@@ -885,7 +928,7 @@ def test_the_re_ask_carries_what_we_measured_about_the_last_answer() -> None:
 @pytest.mark.asyncio
 async def test_select_request_forwards_the_feedback_to_the_one_paid_call() -> None:
     calls: list[dict[str, Any]] = []
-    await rs.select_request(
+    await _select_one(
         _candidates("amazon"),
         feedback="- that url 404s",
         create_message=_answering({
