@@ -18,6 +18,7 @@ What is under test here is mostly what the collector must NOT do:
 
 from __future__ import annotations
 
+import time
 from typing import Any
 
 import httpx
@@ -235,6 +236,36 @@ def test_the_total_byte_ceiling_stops_the_collector_dead() -> None:
 
     _collect_well_known_sync(_WALMART, _fetch)
     assert total[0] <= _WELL_KNOWN_MAX_TOTAL_BYTES
+
+
+def test_running_out_of_time_keeps_what_was_already_read() -> None:
+    """MEASURED LIVE on ``www.atlassian.com`` (2026-08-29): five documents, 17.4 s —
+    over the ceiling. A timeout at the coroutine boundary would throw away the
+    robots.txt and the sitemaps already in hand; stopping inside the collector returns
+    them and simply asks for nothing more. Degrade before you refuse.
+    """
+    children = [f"{_ORIGIN}/sitemap-jobs-{i}.xml" for i in range(3)]
+    pages = {
+        f"{_ORIGIN}/robots.txt": _WALMART_ROBOTS,
+        f"{_ORIGIN}/sitemap.xml": _urlset(*_walmart_job_locs(9)),
+    }
+    for url in children:
+        pages[url] = _urlset(*_walmart_job_locs(3))
+    seen: list[str] = []
+    slow = _fetcher(pages, seen=seen)
+
+    def _slow(url: str, max_bytes: int) -> tuple[int, str]:
+        time.sleep(0.05)
+        return slow(url, max_bytes)
+
+    evidence = _collect_well_known_sync(_WALMART, _slow, budget_s=0.06)
+    # It STOPPED ASKING: the last speculative path is never reached, and without the
+    # deadline every one of them is.
+    assert f"{_ORIGIN}/api/jobs" not in seen
+    assert len(seen) < _WELL_KNOWN_MAX_REQUESTS
+    # ...and it kept the documents it had already read rather than losing all of them.
+    assert len(evidence.sitemaps) == 1
+    assert len(evidence.page_locs) == 9
 
 
 def test_a_sitemap_on_another_host_is_not_followed() -> None:

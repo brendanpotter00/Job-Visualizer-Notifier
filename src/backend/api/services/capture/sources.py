@@ -43,6 +43,7 @@ import asyncio
 import json
 import logging
 import re
+import time
 from dataclasses import dataclass
 from typing import Any, Callable, Literal
 from urllib.parse import urljoin, urlsplit
@@ -266,7 +267,7 @@ def _rank_index_children(children: list[str]) -> list[str]:
 
 
 def _collect_well_known_sync(
-    entry_url: str, fetch: WellKnownFetch
+    entry_url: str, fetch: WellKnownFetch, *, budget_s: float = _WELL_KNOWN_BUDGET_S
 ) -> WellKnownEvidence:
     """The whole of source 5, synchronously. NEVER raises — a miss is silence.
 
@@ -274,12 +275,20 @@ def _collect_well_known_sync(
     ``/sitemap.xml`` when it names none), then ONE level of ``<sitemapindex>``
     expansion out of the same document budget, then the speculative paths with whatever
     request budget is left.
+
+    THE CLOCK IS ENFORCED HERE, not only by the caller's ``wait_for``, and that is the
+    difference between DEGRADING and losing everything. Measured live on
+    ``www.atlassian.com`` (2026-08-29): five documents, 17.4 s — over the ceiling. A
+    timeout at the coroutine boundary would throw away the robots.txt and the three
+    sitemaps already in hand and leave the thread running; stopping HERE returns what
+    was read and simply asks for nothing more.
     """
     origin = _origin_of(entry_url)
     if not origin:
         return WellKnownEvidence()
     entry_host = _hostname_of(entry_url)
 
+    deadline = time.monotonic() + budget_s
     sources: list[EvidenceSource] = []
     sitemaps: list[SitemapDocument] = []
     spent_requests = 0
@@ -290,6 +299,12 @@ def _collect_well_known_sync(
         if spent_requests >= _WELL_KNOWN_MAX_REQUESTS:
             return 0, ""
         if spent_bytes >= _WELL_KNOWN_MAX_TOTAL_BYTES:
+            return 0, ""
+        if time.monotonic() >= deadline:
+            logger.info(
+                "well-known collector out of time after %d request(s); keeping what it "
+                "already read", spent_requests,
+            )
             return 0, ""
         spent_requests += 1
         status, body = fetch(url, min(max_bytes, _WELL_KNOWN_MAX_TOTAL_BYTES - spent_bytes))
@@ -381,9 +396,15 @@ async def collect_well_known(
     indistinguishable from never having asked on every one of them.
     """
     try:
+        # The INNER deadline is the real one — it stops asking for more and returns what
+        # it has. This outer one is the backstop for a single request that hangs past
+        # its own 8 s timeout, and it is deliberately slack enough that the inner one
+        # always fires first on a merely slow board.
         return await asyncio.wait_for(
-            asyncio.to_thread(_collect_well_known_sync, entry_url, fetch or _default_fetch),
-            timeout=_WELL_KNOWN_BUDGET_S,
+            asyncio.to_thread(
+                _collect_well_known_sync, entry_url, fetch or _default_fetch
+            ),
+            timeout=_WELL_KNOWN_BUDGET_S + _PER_REQUEST_TIMEOUT_S,
         )
     except asyncio.CancelledError:
         raise
