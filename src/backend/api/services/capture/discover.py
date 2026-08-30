@@ -1025,6 +1025,106 @@ def _sitemap_claims(match: SitemapMatch | None) -> tuple[tuple[int, str], ...]:
     ),)
 
 
+# The oracles a sitemap may REPLACE, and it is deliberately not "any of them".
+#
+# ``declared_probed`` and ``facet_sum`` already carry a trusted total out of bytes we
+# were downloading anyway; swapping one of those for a sitemap buys nothing and costs a
+# 2 MB GET every night forever. The two below are the HISTORICAL oracles — neither has a
+# trusted total, ``none`` can never be VERIFIED at all, and both are exactly the boards
+# §4.2 wants to give a completeness claim to. So the attach is only ever an upgrade.
+_SITEMAP_UPGRADABLE_ORACLES = frozenset({"none", "self_consistent"})
+
+
+def _attach_sitemap_oracle(
+    script: dict[str, Any],
+    match: SitemapMatch | None,
+    rows: list[dict],
+    candidate: Candidate,
+    selection: RequestSelection,
+    origin_url: str,
+) -> dict[str, Any]:
+    """Promote the sitemap from a coverage CLAIM to the stored completeness ORACLE.
+
+    The ``sitemap`` oracle has been implemented end to end since Phase 3a — admitted by
+    the schema, shape-validated, computed at replay on both transports, verified into a
+    verdict, unit-tested — and discovery has never emitted one, because its oracle
+    decision could only ever produce ``declared_probed``, ``self_consistent`` or
+    ``none``. This is the three lines that were missing, plus the rule that makes them
+    safe.
+
+    TWO CONDITIONS, AND THEY ANSWER DIFFERENT QUESTIONS.
+
+    * **id overlap** proves it is the SAME BOARD. Without it we would attach the sitemap
+      of whatever site the careers page lives on.
+    * **exact agreement** proves the oracle is USABLE. ``_verify_oracle_total`` is
+      tolerance 0: a sitemap oracle VERIFIES only when tonight's post-dedup count
+      exactly equals the ``<loc>`` count. On a board where those two numbers do not
+      already agree, attaching one replaces an oracle that can verify with one that
+      structurally cannot, forever.
+
+    Overlap alone is not enough and Walmart is why: its chat endpoint returns REAL
+    Walmart job ids, so ten of ten would be found in the sitemap. **The count is what
+    kills it.** Overlap proves same-board; count proves whole-board.
+
+    Returns the script unchanged whenever anything does not line up — which is most
+    boards, and has to cost nothing.
+    """
+    if match is None or match.loc_count <= 0:
+        return script
+    if script["oracle"]["kind"] not in _SITEMAP_UPGRADABLE_ORACLES:
+        return script
+    # (a) SAME BOARD.
+    try:
+        captured = _capture_ids(candidate, selection, _origin_of(origin_url))
+    except Exception:  # noqa: BLE001 - an unmappable capture is simply no evidence
+        return script
+    floor = max(1, int(len(captured) * _MIN_ID_OVERLAP_RATIO))
+    if len(match.matched_ids) < floor:
+        logger.info(
+            "sitemap %s carries only %d of the %d captured job id(s) — not this board's "
+            "own catalogue, keeping oracle %r",
+            match.sitemap_url, len(match.matched_ids), len(captured),
+            script["oracle"]["kind"],
+        )
+        return script
+    # (b) WHOLE BOARD. The acceptance replay is clamped to two pages on purpose, so on a
+    # paginated board this is essentially never true and the oracle stays where it was —
+    # which is the conservative outcome §4.2 asks for, reached without a special case.
+    if len(rows) != match.loc_count:
+        logger.info(
+            "sitemap %s lists %d page(s) but the replay reads %d — a tolerance-0 oracle "
+            "that never matches is worse than none, keeping oracle %r",
+            match.sitemap_url, match.loc_count, len(rows), script["oracle"]["kind"],
+        )
+        return script
+
+    upgraded = dict(script)
+    upgraded["oracle"] = {
+        "kind": "sitemap",
+        "sitemap_url": match.sitemap_url,
+        "url_pattern": match.url_pattern,
+    }
+    try:
+        validate_recipe(
+            upgraded, transport=upgraded["transport"], oracle_kind="sitemap"
+        )
+    except RecipeError as exc:
+        # A recipe we cannot validate is one we do not store. Degrading to the oracle
+        # discovery already chose keeps a board we can read.
+        logger.warning(
+            "sitemap oracle for %s did not validate (%s) — keeping oracle %r",
+            match.sitemap_url, exc, script["oracle"]["kind"],
+        )
+        return script
+    logger.info(
+        "attached a sitemap oracle for %s: %d <loc> under %r == %d replayed row(s), "
+        "and %d of %d captured id(s) appear in it (was %r)",
+        match.sitemap_url, match.loc_count, match.url_pattern, len(rows),
+        len(match.matched_ids), len(captured), script["oracle"]["kind"],
+    )
+    return upgraded
+
+
 @dataclass(frozen=True)
 class _PageSizeParam:
     """Where a captured request carries the page size it asked for.
@@ -2704,6 +2804,7 @@ async def discover(
             # widget and a real jobs feed should end up storing the second one. Dropping
             # ``accepted`` here is what puts us on the next-candidate path below.
             coverage: _Coverage | None = None
+            sitemap: SitemapMatch | None = None
             if accepted is not None:
                 # THE CROSS-SOURCE CLAIM. The candidate came out of the JSON network
                 # list; the sitemap came from a URL that list does not contain and never
@@ -2729,6 +2830,13 @@ async def discover(
             if accepted is not None:
                 assert coverage is not None  # set in lockstep with ``accepted`` above
                 transport, script, rows = accepted
+                # ...and, only now that we know what the replay actually reads, the
+                # sitemap may become the board's COMPLETENESS ORACLE. See
+                # :func:`_attach_sitemap_oracle` for the two conditions and for why they
+                # answer different questions.
+                script = _attach_sitemap_oracle(
+                    script, sitemap, rows, candidate, selection, origin_url
+                )
                 (paginate_step,) = (
                     [s for s in script["steps"] if s["op"].startswith("paginate_")]
                     or [{}]

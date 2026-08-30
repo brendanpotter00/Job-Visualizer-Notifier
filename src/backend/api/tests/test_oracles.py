@@ -246,3 +246,114 @@ def test_sitemap_oracle_empty_raises() -> None:
     with httpx.Client(transport=httpx.MockTransport(handler)) as http:
         with pytest.raises(RecipeExecutionError, match="0 <loc> matching"):
             run_recipe(_sitemap_script(), http)
+
+
+# --- the <sitemapindex> bug -------------------------------------------------
+#
+# Measured on ``www.atlassian.com/sitemap.xml`` (2026-08-29): HTTP 200, and it is an
+# INDEX naming eight child sitemaps (products / solutions / resources / templates /
+# customers / company / locales / other) — none of which is jobs.
+#
+# Both document types carry ``<loc>`` and they mean opposite things: pages in a
+# ``<urlset>``, other SITEMAPS in a ``<sitemapindex>``. The old counter iterated every
+# element whose tag ended ``}loc`` at any depth, so on an index it counted CHILD SITEMAP
+# URLS as job pages. A ``url_pattern`` loose enough to match a child sitemap's name
+# reported eight jobs; a tight one raised "0 <loc> matching" and FAILED the run. Neither
+# is right, and this oracle is compared at tolerance 0.
+
+_NS = 'xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"'
+
+
+def _index(*locs: str) -> str:
+    body = "".join(f"<sitemap><loc>{loc}</loc></sitemap>" for loc in locs)
+    return f'<?xml version="1.0"?><sitemapindex {_NS}>{body}</sitemapindex>'
+
+
+def _urlset(*locs: str) -> str:
+    body = "".join(f"<url><loc>{loc}</loc></url>" for loc in locs)
+    return f'<?xml version="1.0"?><urlset {_NS}>{body}</urlset>'
+
+
+def _serving(documents: dict[str, str]):
+    body = {"jobs": [{"id": "1001", "title": "Staff Engineer",
+                      "url": "https://jobs.example.org/job/1001"}]}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        doc = documents.get(str(request.url))
+        if doc is not None:
+            return httpx.Response(200, text=doc,
+                                  headers={"content-type": "application/xml"})
+        if "sitemap" in str(request.url):
+            return httpx.Response(404)
+        return httpx.Response(200, json=body)
+    return handler
+
+
+def test_a_sitemapindex_is_followed_one_level_and_its_children_are_counted() -> None:
+    """The shard case, which is the one worth keeping working: an index naming two job
+    shards has as many job pages as the two shards list, not two."""
+    handler = _serving({
+        "https://jobs.example.org/sitemap.xml": _index(
+            "https://jobs.example.org/sitemap-jobs-1.xml",
+            "https://jobs.example.org/sitemap-jobs-2.xml",
+        ),
+        "https://jobs.example.org/sitemap-jobs-1.xml": _urlset(
+            *[f"https://jobs.example.org/job/{i}" for i in range(4)]
+        ),
+        "https://jobs.example.org/sitemap-jobs-2.xml": _urlset(
+            *[f"https://jobs.example.org/job/{i}" for i in range(4, 7)],
+            "https://jobs.example.org/about",
+        ),
+    })
+    with httpx.Client(transport=httpx.MockTransport(handler)) as http:
+        _, evidence = run_recipe(_sitemap_script(), http)
+    # 7 job pages across the two shards. The two CHILD SITEMAP urls are not jobs, and
+    # the /about page is not a job either.
+    assert evidence.declared_total == 7
+
+
+def test_an_index_naming_more_children_than_we_follow_is_a_named_failure() -> None:
+    """A total we could only PARTLY read is worse than no total: this oracle is compared
+    at tolerance 0, so an undercount from a truncated crawl is a number that could
+    coincidentally equal tonight's harvest and VERIFY a board we never finished."""
+    handler = _serving({
+        "https://jobs.example.org/sitemap.xml": _index(
+            *[f"https://jobs.example.org/sitemap-{i}.xml" for i in range(9)]
+        ),
+    })
+    with httpx.Client(transport=httpx.MockTransport(handler)) as http:
+        with pytest.raises(RecipeExecutionError, match="is an index naming 9 child"):
+            run_recipe(_sitemap_script(), http)
+
+
+def test_an_index_of_indexes_is_a_named_failure() -> None:
+    """One level. A second is where an enormous site spends the whole harvest clock,
+    and there is no honest partial answer to give."""
+    handler = _serving({
+        "https://jobs.example.org/sitemap.xml": _index(
+            "https://jobs.example.org/sitemap-jobs.xml"
+        ),
+        "https://jobs.example.org/sitemap-jobs.xml": _index(
+            "https://jobs.example.org/sitemap-jobs-1.xml"
+        ),
+    })
+    with httpx.Client(transport=httpx.MockTransport(handler)) as http:
+        with pytest.raises(RecipeExecutionError, match="index of indexes"):
+            run_recipe(_sitemap_script(), http)
+
+
+def test_the_atlassian_shape_never_reports_eight_jobs() -> None:
+    """The measured board. Its index names eight children, none of them jobs — the
+    answer must be a FAILED oracle, never a total of eight."""
+    handler = _serving({
+        "https://jobs.example.org/sitemap.xml": _index(*[
+            f"https://jobs.example.org/sitemap-{n}.xml" for n in (
+                "products", "solutions", "resources", "templates",
+                "customers", "company", "locales", "other",
+            )
+        ]),
+    })
+    with httpx.Client(transport=httpx.MockTransport(handler)) as http:
+        with pytest.raises(RecipeExecutionError) as exc:
+            run_recipe(_sitemap_script(), http)
+    assert "8 child" in str(exc.value)

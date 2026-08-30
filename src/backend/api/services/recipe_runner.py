@@ -1055,22 +1055,86 @@ def _oracle_header(headers: dict[str, str], oracle: dict[str, Any]) -> int:
         raise RecipeExecutionError(f"header oracle {name!r} = {raw!r}, not an int") from exc
 
 
-def _oracle_sitemap(http: httpx.Client, oracle: dict[str, Any]) -> int:
-    response = _request(http, {"method": "GET", "url": oracle["sitemap_url"], "headers": {}}, None)
-    pattern = oracle["url_pattern"]
+# How many child sitemaps a ``<sitemapindex>`` may name before we refuse to count it.
+# A sharded sitemap is real and small (Walmart's is one document; a big board shards
+# into a handful); an index naming hundreds is a site map of a whole website, and
+# reading every shard would turn one 300 ms oracle into a minutes-long crawl inside the
+# harvest's own clock. Refusing is the safe answer — a FAILED oracle closes nothing.
+_SITEMAP_INDEX_MAX_CHILDREN = 4
+
+
+def _sitemap_locs(body: str, sitemap_url: str) -> tuple[list[str], bool]:
+    """``(<loc> texts, is_index)`` for one sitemap document.
+
+    THE SPLIT THIS FUNCTION EXISTS FOR. ``<urlset>`` and ``<sitemapindex>`` both carry
+    ``<loc>`` elements and they mean opposite things — pages in the first, other
+    SITEMAPS in the second. Measured on ``atlassian.com/sitemap.xml`` (2026-08-29): an
+    index naming eight children, none of them jobs. Counting those eight as eight job
+    pages is a wrong total that a tolerance-0 oracle would then compare a real harvest
+    against.
+    """
     try:
-        root = ElementTree.fromstring(response.text)
+        root = ElementTree.fromstring(body)
     except ElementTree.ParseError as exc:
-        raise RecipeExecutionError(f"sitemap {oracle['sitemap_url']!r} did not parse: {exc}") from exc
-    count = 0
-    for loc in root.iter():
-        if loc.tag.endswith("}loc") or loc.tag == "loc":
-            text = (loc.text or "").strip()
-            if pattern in text:
-                count += 1
+        raise RecipeExecutionError(
+            f"sitemap {sitemap_url!r} did not parse: {exc}"
+        ) from exc
+    tag = root.tag.rsplit("}", 1)[-1].lower() if isinstance(root.tag, str) else ""
+    locs: list[str] = []
+    for element in root.iter():
+        name = (
+            element.tag.rsplit("}", 1)[-1].lower() if isinstance(element.tag, str) else ""
+        )
+        if name != "loc":
+            continue
+        text = (element.text or "").strip()
+        if text:
+            locs.append(text)
+    return locs, tag == "sitemapindex"
+
+
+def _oracle_sitemap(http: httpx.Client, oracle: dict[str, Any]) -> int:
+    """The board's own page count, from the sitemap it publishes for crawlers.
+
+    A ``<sitemapindex>`` is followed exactly ONE level and only up to
+    :data:`_SITEMAP_INDEX_MAX_CHILDREN` children, because a total we could only
+    PARTLY read is worse than no total at all: this oracle is compared at tolerance 0
+    (``harvest_verification._verify_oracle_total``), so an undercount from a truncated
+    crawl is a number that could coincidentally equal tonight's harvest and VERIFY a
+    board we never finished reading. Refuse instead — a FAILED oracle closes nothing.
+    """
+    pattern = oracle["url_pattern"]
+    sitemap_url = oracle["sitemap_url"]
+    response = _request(http, {"method": "GET", "url": sitemap_url, "headers": {}}, None)
+    locs, is_index = _sitemap_locs(response.text, sitemap_url)
+
+    if is_index:
+        if len(locs) > _SITEMAP_INDEX_MAX_CHILDREN:
+            raise RecipeExecutionError(
+                f"sitemap {sitemap_url!r} is an index naming {len(locs)} child "
+                f"sitemap(s), more than the {_SITEMAP_INDEX_MAX_CHILDREN} we will "
+                "follow — a partly-read index is an undercount, not a total; FAILED"
+            )
+        child_locs: list[str] = []
+        for child_url in locs:
+            child = _request(
+                http, {"method": "GET", "url": child_url, "headers": {}}, None
+            )
+            nested, nested_is_index = _sitemap_locs(child.text, child_url)
+            if nested_is_index:
+                # ONE level. A second is where an enormous site would spend the whole
+                # harvest clock, and there is no honest partial answer to give.
+                raise RecipeExecutionError(
+                    f"sitemap {sitemap_url!r} is an index of indexes ({child_url!r} is "
+                    "itself an index) — we follow exactly one level; FAILED"
+                )
+            child_locs.extend(nested)
+        locs = child_locs
+
+    count = sum(1 for text in locs if pattern in text)
     if count == 0:
         raise RecipeExecutionError(
-            f"sitemap {oracle['sitemap_url']!r} yielded 0 <loc> matching {pattern!r} — "
+            f"sitemap {sitemap_url!r} yielded 0 <loc> matching {pattern!r} — "
             "empty/unusable oracle; FAILED"
         )
     return count

@@ -2027,6 +2027,145 @@ async def test_a_sitemap_that_agrees_with_the_feed_changes_nothing() -> None:
     assert outcome.progress["outcome"] == "tracking"
 
 
+# --- S3: the sitemap as a stored ORACLE -------------------------------------
+
+def _sitemap_of(job_ids: list[str], *, noise: int = 0) -> WellKnownEvidence:
+    locs = [f"https://careers.walmart.com/us/en/jobs/{jid}" for jid in job_ids]
+    locs += [f"https://careers.walmart.com/us/en/stores/{i}" for i in range(noise)]
+    return WellKnownEvidence(sitemaps=(SitemapDocument(
+        "https://careers.walmart.com/sitemap.xml", tuple(locs), False,
+    ),))
+
+
+async def _discover_with_sitemap(
+    body: dict[str, Any], records_path: str, evidence: WellKnownEvidence
+):
+    response = _pageless_response(body)
+    selection = RequestSelection(
+        chosen_request_index=0, records_path=records_path,
+        field_map=dict(_PARTIAL_MAP), pagination=None,
+    )
+    return await discover(
+        "https://careers.walmart.com/results",
+        capture=_capture_of(response),
+        select=_selecting(selection),
+        replay_http=_replay_records(body, records_path, _PARTIAL_MAP),
+        replay_browser=_never_called_replay("browser_fetch"),
+        validate_url=_allow_all,
+        collect_sources=_well_known(evidence),
+    )
+
+
+async def test_a_sitemap_that_agrees_exactly_becomes_the_stored_oracle() -> None:
+    """S3, and the thing the plan found orphaned. The ``sitemap`` oracle has been
+    implemented end to end since Phase 3a — schema, replay on both transports,
+    verification, tests — and discovery's oracle decision could only ever produce
+    ``declared_probed``, ``self_consistent`` or ``none``.
+
+    This board publishes no total and does not paginate, so its oracle was ``none``:
+    UNVERIFIED forever, showing its jobs every night and closing nothing. Its own
+    sitemap lists exactly the 40 pages the replay reads, which is a completeness proof
+    the board published about itself.
+    """
+    ids = _walmart_ids(40)
+    outcome = await _discover_with_sitemap(
+        {"jobs": _walmart_jobs(40)}, "jobs", _sitemap_of(ids, noise=6),
+    )
+    assert outcome.ok is True
+    assert outcome.oracle_kind == "sitemap"
+    assert outcome.script is not None
+    assert outcome.script["oracle"] == {
+        "kind": "sitemap",
+        "sitemap_url": "https://careers.walmart.com/sitemap.xml",
+        "url_pattern": "https://careers.walmart.com/us/en/jobs/",
+    }
+    # The six store pages are NOT in the pattern, so they are not in the total.
+    assert outcome.progress is not None
+    assert outcome.progress["outcome"] == "tracking"
+
+
+async def test_a_sitemap_that_does_not_agree_exactly_is_only_a_claim() -> None:
+    """MUTATION TARGET — condition (b). ``_verify_oracle_total`` is tolerance 0, so a
+    sitemap oracle VERIFIES only when tonight's count exactly equals the ``<loc>`` count.
+    Attaching one to a board where those two numbers already disagree replaces an oracle
+    that can verify with one that structurally cannot, forever."""
+    outcome = await _discover_with_sitemap(
+        {"jobs": _walmart_jobs(40)}, "jobs", _sitemap_of(_walmart_ids(43)),
+    )
+    assert outcome.ok is True
+    assert outcome.oracle_kind == "none"          # unchanged
+    # ...but the count is still recorded as a claim: 40 of 43 is a 93% read, above the
+    # partial bar and far above the refusal floor, so nothing else changes either.
+    assert outcome.progress is not None
+    assert outcome.progress["outcome"] == "tracking"
+
+
+async def test_a_sitemap_carrying_none_of_our_ids_never_becomes_the_oracle() -> None:
+    """Overlap proves SAME BOARD. Without it we would attach the sitemap of whatever
+    site the careers page happens to live on, and its count would be a number about
+    something else entirely."""
+    someone_elses = WellKnownEvidence(sitemaps=(SitemapDocument(
+        "https://careers.walmart.com/sitemap.xml",
+        tuple(f"https://careers.walmart.com/us/en/jobs/X-{i}" for i in range(40)),
+        False,
+    ),))
+    outcome = await _discover_with_sitemap(
+        {"jobs": _walmart_jobs(40)}, "jobs", someone_elses,
+    )
+    assert outcome.ok is True
+    assert outcome.oracle_kind == "none"
+
+
+async def test_a_sitemap_that_only_PARTLY_overlaps_never_becomes_the_oracle() -> None:
+    """MUTATION TARGET — condition (a), on the case where it is the ONLY thing holding.
+
+    A sitemap listing 40 job pages against a 40-row replay satisfies condition (b)
+    perfectly — the counts agree exactly. But only five of those pages carry an id we
+    captured, so the two 40s are a coincidence between two different lists, and a
+    tolerance-0 oracle built on a coincidence VERIFIES a board we never read.
+    """
+    ours = _walmart_ids(40)
+    locs = [f"https://careers.walmart.com/us/en/jobs/{jid}" for jid in ours[:5]]
+    locs += [f"https://careers.walmart.com/us/en/jobs/X-{i}" for i in range(35)]
+    half_matching = WellKnownEvidence(sitemaps=(SitemapDocument(
+        "https://careers.walmart.com/sitemap.xml", tuple(locs), False,
+    ),))
+    outcome = await _discover_with_sitemap(
+        {"jobs": _walmart_jobs(40)}, "jobs", half_matching,
+    )
+    assert outcome.ok is True
+    assert outcome.oracle_kind == "none"
+
+
+async def test_overlap_alone_does_not_attach_the_oracle_and_walmart_is_why() -> None:
+    """The two conditions answer DIFFERENT questions, and this is the case that proves
+    it. Walmart's chat endpoint returns REAL Walmart job ids, so ten of ten are found in
+    the sitemap — overlap is perfect. The COUNT is what kills it: ten rows against
+    15,660 published job pages.
+
+    (Here the coverage floor gets there first, which is the correct order: the board is
+    refused outright rather than stored with any oracle at all.)
+    """
+    outcome = await _discover_with_sitemap(
+        {"jobs": _walmart_jobs(10)}, "jobs", _sitemap_of(_walmart_ids(15_660)),
+    )
+    assert outcome.ok is False
+    assert outcome.oracle_kind is None
+    assert "sitemap lists 15,660 job page(s)" in (outcome.refuse_reason or "")
+
+
+async def test_a_board_that_already_has_a_trusted_total_keeps_it() -> None:
+    """A ``declared_probed`` oracle is exact, free, and comes out of bytes we download
+    anyway. Swapping it for a sitemap would buy nothing and cost a multi-megabyte GET
+    every night forever, so the attach only ever upgrades the two HISTORICAL oracles."""
+    outcome = await _discover_with_sitemap(
+        {"jobs": _walmart_jobs(40), "total_jobs": 40}, "jobs",
+        _sitemap_of(_walmart_ids(40)),
+    )
+    assert outcome.ok is True
+    assert outcome.oracle_kind == "declared_probed"
+
+
 def test_the_total_that_counts_THESE_records_wins_over_the_bigger_one_beside_it() -> None:
     """walmart publishes ``total_jobs: 47298`` next to ``total_future_roles: 276561``.
     Taking the largest would report a board of 47,298 as a board of 276,561, in copy the
