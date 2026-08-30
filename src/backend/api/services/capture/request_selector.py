@@ -40,7 +40,7 @@ import re
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable
-from urllib.parse import parse_qsl, urlsplit
+from urllib.parse import parse_qsl, urljoin, urlsplit
 
 from anthropic import APIError, AsyncAnthropic
 from pydantic import BaseModel, ValidationError
@@ -394,6 +394,11 @@ class RequestSelection:
     # Both correctly end in a NULL ``posted_on`` — §3's rule is that a value we cannot
     # turn into a date is not a date, and the one thing we may never do is invent one.
     posted_at_format: PostedDateFormat | None = None
+    # WHAT THE FIELD-QUALITY PRUNE THREW AWAY, in words, so a retry can say so. A drop is
+    # a degrade and never causes a round of its own — but when a round happens for some
+    # OTHER reason, telling the model "location rendered nothing on all 20 records" is
+    # free and is the only way it can map the field differently. Empty on the happy path.
+    field_notes: tuple[str, ...] = ()
 
 
 SYSTEM_PROMPT = (
@@ -547,22 +552,44 @@ def _describe(candidate: Candidate) -> str:
     return "\n".join(lines)
 
 
-def build_message_params(candidates: list[Candidate]) -> dict[str, Any]:
+# How much of the previous round's evidence rides in the prompt. A refusal detail is a
+# sentence; a stack of them from a board that failed several ways is not, and the point
+# of feedback is that the model READS it.
+_FEEDBACK_CHARS = 1_200
+
+
+def build_message_params(
+    candidates: list[Candidate], *, feedback: str | None = None
+) -> dict[str, Any]:
     """The exact ``messages.create(...)`` kwargs for one selection.
 
     Single source of truth for the request shape (model, prompt, structured-outputs
     schema), for the same reason ``llm_client.build_message_params`` is: a test or a
     future eval that builds its own would drift from what production actually sends.
+
+    ``feedback`` is WHAT WE MEASURED ABOUT THE LAST ANSWER — a job link that 404'd on two
+    real jobs, a field that rendered nothing on every record, an acceptance replay that
+    would not run. Until it existed a second round was a blind re-roll of the same
+    question over the same bytes, which is the least likely way to get a different
+    answer; and on a board with only ONE candidate feed there was no second round at all,
+    because the loop dropped the failed candidate and found nothing left to ask about.
     """
     listing = "\n".join(_describe(c) for c in candidates)
+    content = f"Captured JSON responses:\n\n{listing}\n\nChoose the jobs feed."
+    if feedback:
+        content += (
+            "\n\nYour previous answer was REJECTED. What we CHECKED against the real "
+            "board, and what we found:\n"
+            f"{feedback[:_FEEDBACK_CHARS]}\n"
+            "Answer again over the same responses. Change what the evidence says is "
+            "wrong; leave the rest alone. Every required field is still required — an "
+            "empty string is not a correction."
+        )
     return {
         "model": HAIKU_MODEL,
         "max_tokens": MAX_TOKENS,
         "system": SYSTEM_PROMPT,
-        "messages": [{
-            "role": "user",
-            "content": f"Captured JSON responses:\n\n{listing}\n\nChoose the jobs feed.",
-        }],
+        "messages": [{"role": "user", "content": content}],
         "output_config": {"format": {"type": "json_schema", "schema": _SELECTION_SCHEMA}},
     }
 
@@ -945,10 +972,293 @@ def repair_url_template(
     return repaired
 
 
-def _prune_non_scalar_optionals(
+# --------------------------------------------------------------------------
+# DERIVING a job-url template — the rung above "prove it or degrade"
+# --------------------------------------------------------------------------
+#
+# WHY THIS IS A NEW RULE AND NOT AN EXTENSION OF ``repair_url_template``. That function
+# swaps the PLACEHOLDER FIELD and never the surrounding path, and its condition 3
+# refuses unless the current id appears in ZERO of the board's own links. Jane Street's
+# ``{id}`` is the RIGHT id in the WRONG path — the id appears everywhere, so condition 3
+# fails and the repair correctly no-ops. Nothing that only rewrites the substitution can
+# reach a defect in the path.
+#
+# WHAT THESE TWO FUNCTIONS DO INSTEAD is derive the PATH, from evidence the board itself
+# published, and hand the result to ``discover._prove_job_link`` — which fetches two real
+# jobs and compares the rendered pages — before it can be stored. They only ever PROPOSE.
+# A derivation that is wrong is rejected by the same gate that rejects the model's guess:
+# measured against the live board, ``/join-jane-street/position/{id}/`` proves,
+# ``/search/?query={id}`` is refused ("two different jobs served the same page") and the
+# model's ``/jobs/{id}`` is refused (HTTP 404).
+
+# How many sampled records must independently produce the SAME template shape. Three
+# different job ids landing in the same URL shape is not a coincidence; one is a
+# navigation link that happens to contain a number.
+_MIN_TEMPLATE_AGREEMENT = 3
+# Below this an id token matches path segments by accident — "1" or "42" occurs in
+# pagination links, breadcrumbs and asset names on nearly every page.
+_MIN_ID_TOKEN_CHARS = 3
+# How many derived candidates are handed on. Each one costs two live GETs to prove, and
+# the ranking below is confident enough that a third-placed template has never been the
+# answer in the corpus.
+MAX_DERIVED_LINK_CANDIDATES = 2
+
+# ``href="/join-jane-street/position/${t.id}/"`` — a link the board's OWN CODE builds,
+# carrying exactly one substitution. This is the fallback source for a board that renders
+# no job anchors at all, and it is the only reason Jane Street is reachable: its listing
+# page is a chooser that renders zero postings, so there are no anchors to mine, but the
+# script it loads spells the shape literally. Deliberately anchored on ``href=`` rather
+# than on any URL-looking string: a bare path in a bundle is as likely to be an API route
+# or an image as a page, while an ``href`` is by definition something the board intends a
+# human to open.
+_HREF_TEMPLATE_RE = re.compile(
+    r"""href\s*=\s*(?P<q>["'`])"""
+    r"""(?P<head>(?:https?://[^"'`\s>]{1,200})?/[^"'`\s>${}]{0,200})"""
+    r"""\$\{[^{}]{1,60}\}"""
+    r"""(?P<tail>[^"'`\s>${}]{0,200})(?P=q)"""
+)
+
+
+def _absolute_board_links(links: list[str], base_url: str, board_host: str) -> list[str]:
+    """The hrefs that are pages on the BOARD'S OWN HOST, absolutized against ``base_url``.
+
+    Everything else is dropped without ceremony: ``mailto:``/``javascript:``/``#anchor``
+    are not pages, and an off-host link is somebody else's site. Same-host is the same
+    predicate :func:`repair_url_template` uses, for the same reason — there must be one
+    definition of "the board's own host" or two rules can disagree about a subdomain.
+    """
+    out: list[str] = []
+    for href in links:
+        if not href or href.startswith(("#", "mailto:", "tel:", "javascript:", "data:")):
+            continue
+        absolute = urljoin(base_url, href) if not href.startswith(("http://", "https://")) else href
+        parts = urlsplit(absolute)
+        if parts.scheme not in ("http", "https"):
+            continue
+        if not _same_board_host(parts.netloc, board_host):
+            continue
+        out.append(absolute)
+    return out
+
+
+def _id_token_paths(sample: list[Any], preferred: str | None = None) -> list[str]:
+    """Record paths that render an OPAQUE ID TOKEN, ``preferred`` first.
+
+    ``preferred`` is the field the recipe already uses as ``id``; putting it first is
+    what makes the derived template agree with the ``dedupe_key`` whenever the board
+    routes on the same id, which is the common case and the one worth being stable on.
+    """
+    if not sample:
+        return []
+    paths = [p for p in _scalar_paths(sample[0]) if _renders_id_token(sample, p)]
+    if preferred in paths:
+        paths.remove(preferred)
+        paths.insert(0, preferred)
+    return paths
+
+
+def _generalize(url: str, token: str, field: str) -> str | None:
+    """``url`` with the path segment equal to ``token`` replaced by ``{field}``.
+
+    Only whole SEGMENTS and their pre-dot stems count (``/roles/181782.json`` yields
+    ``/roles/{field}.json``), which is the same reading of "the board spells the id here"
+    that :func:`_board_url_segments` already uses.
+
+    The QUERY IS DROPPED. An anchor's query string is where boards put tracking
+    (``?gh_src=``, ``?utm_campaign=``), and carrying it into a stored template would
+    replay somebody's campaign parameters on every job link forever. A board that keys
+    its jobs by query parameter alone therefore cannot be derived from its anchors — it
+    falls through to the model's own answer, which is where it is today.
+    """
+    parts = urlsplit(url)
+    segments = parts.path.split("/")
+    for i, segment in enumerate(segments):
+        if segment == token:
+            segments[i] = "{" + field + "}"
+        elif "." in segment and segment.rsplit(".", 1)[0] == token:
+            segments[i] = "{" + field + "}." + segment.rsplit(".", 1)[1]
+        else:
+            continue
+        return f"{parts.scheme}://{parts.netloc}{'/'.join(segments)}"
+    return None
+
+
+def derive_url_templates_from_links(
+    records: list[Any], board_links: list[str], base_url: str, board_host: str,
+    *, id_spec: str | None = None,
+) -> list[str]:
+    """Job-url templates the BOARD'S OWN ANCHORS agree on, best first. Pure; never raises.
+
+    THE DERIVATION THE PROBE COULD NOT DO. ``_prove_job_link`` can prove a template wrong
+    and cannot find the right one, so a board with no published link field degraded to a
+    ``listing-page#{id}`` fragment however obvious its real shape was. This reads the
+    shape straight off the page: match each record's id tokens against the path segments
+    of the links the rendered document contains, and generalize the ones that hit.
+
+    Agreement is the whole guard. A single record whose id happens to equal a path
+    segment proves nothing — ``/careers/2024/`` matches a job id of ``2024`` — so a
+    template is only returned when :data:`_MIN_TEMPLATE_AGREEMENT` DIFFERENT records
+    produce it (or every record, on a board that has fewer). Ranked by agreement, then by
+    the shortest template, so ``/company/careers/details/{id}`` beats a longer link that
+    merely contains the same segment.
+    """
+    sample = [r for r in records[:_URL_REPAIR_SAMPLE] if isinstance(r, dict)]
+    links = _absolute_board_links(board_links, base_url, board_host)
+    if not sample or not links:
+        return []
+    # {template: the records that produced it} — records, not hits, so one record
+    # matching one template ten times still counts once.
+    agreement: dict[str, set[int]] = {}
+    for path in _id_token_paths(sample, id_spec):
+        for index, record in enumerate(sample):
+            value = render_field(record, path)
+            if not isinstance(value, (str, int)) or isinstance(value, bool):
+                continue
+            token = str(value)
+            if len(token) < _MIN_ID_TOKEN_CHARS:
+                continue
+            for link in links:
+                template = _generalize(link, token, path)
+                if template is not None:
+                    agreement.setdefault(template, set()).add(index)
+    floor = min(_MIN_TEMPLATE_AGREEMENT, len(sample))
+    winners = [t for t, seen in agreement.items() if len(seen) >= floor]
+    winners.sort(key=lambda t: (-len(agreement[t]), len(t), t))
+    if winners:
+        logger.info(
+            "derived %d job-url template(s) from the board's own links, best %r "
+            "(agreed on by %d of %d sampled records)",
+            len(winners), winners[0], len(agreement[winners[0]]), len(sample),
+        )
+    return winners[:MAX_DERIVED_LINK_CANDIDATES]
+
+
+def href_templates(body: str) -> list[str]:
+    """Every ``href="…${…}…"`` literal in one document or script, deduped, in order.
+
+    A template with TWO substitutions is not returned — Jane Street's bundle also builds
+    ``/join-jane-street/closed-internship/${i}-${a}-${s}/``, which is assembled from a
+    slug, a duration and a location and cannot be reconstructed from a job id. The regex
+    admits exactly one ``${…}`` and rejects the rest by construction.
+    """
+    seen: dict[str, None] = {}
+    for match in _HREF_TEMPLATE_RE.finditer(body):
+        seen.setdefault(match.group("head") + "{}" + match.group("tail"), None)
+    return list(seen)
+
+
+def derive_url_templates_from_code(
+    records: list[Any], templates: list[str], base_url: str, board_host: str,
+    *, id_spec: str | None = None, careers_path: str = "",
+) -> list[str]:
+    """The board's own link templates, filled with OUR id fields, best first. Pure.
+
+    Ranked by how much of the careers page's own path each one shares. That is the whole
+    heuristic and it is a good one: a board's job page lives next to its listing page
+    (``/join-jane-street/open-roles/`` → ``/join-jane-street/position/{id}/``), while the
+    site-wide search box the same bundle also builds (``/search/?query={}``) shares
+    nothing. It only decides ORDER — every candidate is still fetched and proved, and the
+    search template is exactly the one the proof rejects for serving the same page twice.
+    """
+    sample = [r for r in records[:_URL_REPAIR_SAMPLE] if isinstance(r, dict)]
+    id_paths = _id_token_paths(sample, id_spec)
+    if not sample or not id_paths:
+        return []
+    wanted = [s for s in careers_path.split("/") if s]
+
+    def shared_prefix(template: str) -> int:
+        got = [s for s in urlsplit(template).path.split("/") if s]
+        n = 0
+        for a, b in zip(wanted, got):
+            if a != b:
+                break
+            n += 1
+        return n
+
+    ranked = sorted(
+        {t for t in templates if t.count("{}") == 1},
+        key=lambda t: (-shared_prefix(t), len(t), t),
+    )
+    out: list[str] = []
+    for template in ranked:
+        absolute = (
+            template if template.startswith(("http://", "https://"))
+            else urljoin(base_url, template)
+        )
+        if not _same_board_host(urlsplit(absolute).netloc, board_host):
+            continue
+        # ONE id field per template, not the cross product: a second field would double
+        # the proof's fetch bill for a shape we have no evidence prefers it, and
+        # ``_id_token_paths`` already puts the recipe's own id first.
+        out.append(absolute.replace("{}", "{" + id_paths[0] + "}"))
+        if len(out) >= MAX_DERIVED_LINK_CANDIDATES:
+            break
+    if out:
+        logger.info(
+            "derived %d job-url template(s) from the board's own code, best %r", len(out), out[0]
+        )
+    return out
+
+
+# How many records the field-quality rules read. WIDER than the five the container check
+# used, and the direction matters: every rule below asks whether something is true of
+# EVERY sampled record, so more samples make a drop HARDER to reach, not easier. Twenty
+# identical descriptions is boilerplate; five could be one job family.
+_FIELD_QUALITY_SAMPLE = 20
+# Below this the distinctness question is unanswerable — two jobs can legitimately share
+# a description (the same role posted in two cities), and one job can answer nothing at
+# all. A board that small keeps whatever it mapped.
+_MIN_DISTINCTNESS_SAMPLE = 3
+
+# The optionals whose value must DIFFER between jobs to be worth storing, and the whole
+# argument for why this list has exactly one member.
+#
+# ``description`` is per-job data by definition: it is the prose about THIS role. Prose
+# that is byte-identical across twenty different postings is describing the EMPLOYER —
+# "Working at Atlassian", a benefits blurb, an EEO statement — and it identifies nothing.
+# Storing it is worse than storing nothing: it fills the field, so nothing downstream
+# ever asks again, and every job on the board reads the same.
+#
+# EVERY OTHER FIELD IS DELIBERATELY ABSENT, because for them identical is CORRECT:
+#
+#   location    a single-office company has one location on every job. Dropping it would
+#               delete correct data from exactly the boards that are easiest to read.
+#   posted_at   a board that published its catalogue on one day, or that stamps a batch
+#               date, is a real board with a real date.
+#   company_name  is SUPPOSED to be identical. That is what the field means.
+#   id, title   are required; an unusable one RAISES in ``_validate_field_map`` and the
+#               board is refused, which is the taxonomy's answer for a required field.
+#   url         is already held to this bar by ``_is_per_job_link_field`` — the same idea,
+#               generalized here rather than duplicated.
+_MUST_DIFFER_FIELDS = ("description",)
+
+
+def _prune_unusable_optionals(
     records: list[Any], field_map: dict[str, str]
-) -> dict[str, str]:
-    """Drop any OPTIONAL mapping that renders a container rather than a scalar.
+) -> tuple[dict[str, str], tuple[str, ...]]:
+    """``(field_map minus the optionals that are not real data, why each was dropped)``.
+
+    THREE FAILURES, one of which this check has always caught and two of which walked
+    straight past it. All three are invisible to every replay-time gate — the baseline is
+    taken on the first run, so a field that was wrong at birth is simply what this board
+    looks like, forever.
+
+    1. **renders a container** (the original rule, unchanged — see below).
+    2. **renders NOTHING, on every record.** ``useful`` is empty, so the container rule's
+       ``if useful and …`` is vacuously false and the mapping was KEPT. Measured shape:
+       ``location: "locations[0].city"`` against a payload whose ``locations`` is a list
+       of plain strings — a column of NULLs on 100% of rows, reported as a healthy board.
+    3. **renders the SAME value on every record** (:data:`_MUST_DIFFER_FIELDS`). A
+       description identical across twenty jobs is company boilerplate, not this job's
+       prose. Read that constant for why the list has exactly one member and why
+       ``location``/``posted_at`` must never join it.
+
+    Dropping is a DEGRADE and never a refusal: the board keeps being tracked with one
+    fewer optional. The required three are not pruned here at all — they RAISE in
+    :func:`_validate_field_map` / :func:`_validate_url_field`, because a board we cannot
+    identify, title or link is a board we must refuse rather than half-read.
+
+    Drop any OPTIONAL mapping that renders a container rather than a scalar.
 
     Dropping beats keeping: an absent location is a job with no location, while a
     location of ``{'en_name': 'San Jose'}`` is a job whose location is a Python repr —
@@ -975,18 +1285,45 @@ def _prune_non_scalar_optionals(
     distinction free — the prune sees exactly the value the runner will store.
     """
     pruned = dict(field_map)
+    notes: list[str] = []
+
+    def _drop(name: str, spec: str, why: str) -> None:
+        logger.info("dropping field_map.%s=%r: %s", name, spec, why)
+        notes.append(f"field_map.{name} {spec!r} was dropped — {why}")
+        del pruned[name]
+
+    sample = [r for r in records[:_FIELD_QUALITY_SAMPLE] if isinstance(r, dict)]
     for name in ("location", "posted_at", "description"):
         spec = pruned.get(name)
-        if spec is None or "{" in spec:      # a template always renders a string
+        if spec is None:
             continue
-        rendered = [render_row_field(r, name, spec) for r in records[:5] if isinstance(r, dict)]
+        if "{" in spec:                      # a template always renders a string
+            continue
+        rendered = [render_row_field(r, name, spec) for r in sample]
         useful = [v for v in rendered if v not in (None, "")]
-        if useful and not any(_is_scalar(v) for v in useful):
-            logger.info(
-                "dropping non-scalar field_map.%s=%r (renders %r)", name, spec, useful[0]
+        if not rendered:
+            continue
+        if not useful:
+            _drop(
+                name, spec,
+                f"it renders nothing on all {len(rendered)} sampled record(s), so it "
+                "would store an empty column on every job",
             )
-            del pruned[name]
-    return pruned
+            continue
+        if not any(_is_scalar(v) for v in useful):
+            _drop(name, spec, f"it renders a container ({useful[0]!r}), not a value")
+            continue
+        if (
+            name in _MUST_DIFFER_FIELDS
+            and len(rendered) >= _MIN_DISTINCTNESS_SAMPLE
+            and len({str(v) for v in rendered}) == 1
+        ):
+            _drop(
+                name, spec,
+                f"it renders the SAME value on all {len(rendered)} sampled record(s), so "
+                "it describes the company rather than this job",
+            )
+    return pruned, tuple(notes)
 
 
 # --------------------------------------------------------------------------
@@ -1209,7 +1546,7 @@ def _to_selection(envelope: _SelectionEnvelope, candidates: list[Candidate]) -> 
             raise RequestSelectionError(f"field_map.{required} is empty")
     _validate_field_map(records, field_map)
     _validate_url_field(records, field_map["url"])
-    field_map = _prune_non_scalar_optionals(records, field_map)
+    field_map, field_notes = _prune_unusable_optionals(records, field_map)
 
     pagination: PaginationHint | None = None
     if envelope.pagination is not None:
@@ -1238,12 +1575,14 @@ def _to_selection(envelope: _SelectionEnvelope, candidates: list[Candidate]) -> 
         field_map=field_map,
         pagination=pagination,
         posted_at_format=posted_at_format,
+        field_notes=field_notes,
     )
 
 
 async def select_request(
     candidates: list[Candidate],
     *,
+    feedback: str | None = None,
     create_message: CreateMessage | None = None,
 ) -> RequestSelection:
     """Ask Haiku 4.5 which candidate is the jobs feed and how to read its records.
@@ -1253,13 +1592,16 @@ async def select_request(
     a jobs feed (stop, do not re-ask) and :class:`RequestSelectionError` for every
     other unbelievable answer or a failed call (re-ask). ``create_message`` is the
     injectable seam: the unit tests run at $0 against a canned response object.
+
+    ``feedback`` carries what the last round MEASURED about the last answer — see
+    :func:`build_message_params`. It is the difference between a re-ask and a re-roll.
     """
     if not candidates:
         raise RequestSelectionError("no job-shaped JSON responses were captured")
 
     try:
         response = await (create_message or _default_create_message)(
-            build_message_params(candidates)
+            build_message_params(candidates, feedback=feedback)
         )
     except APIError as exc:
         # A 529/overload/connection blip is not an unbelievable ANSWER, but the caller

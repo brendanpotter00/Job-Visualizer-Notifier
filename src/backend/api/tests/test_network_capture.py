@@ -1020,3 +1020,60 @@ def test_an_oversize_response_reports_what_it_actually_weighed() -> None:
         ],
     })
     assert [r.body_bytes for r in responses] == [2_775_685, 5]
+
+
+# --------------------------------------------------------------------------
+# the board document's own LINKS — raw material for job-link derivation
+# --------------------------------------------------------------------------
+
+def test_the_child_reads_links_off_the_RENDERED_dom_not_the_served_document() -> None:
+    """WHY ``page.content()`` AND NOT THE HOST-PIN BODY, which is already fetched and
+    thrown away and looks free.
+
+    That body is what the SERVER sent, and the boards this feature exists for render
+    their job list on the client. Measured 2026-08-30:
+    ``atlassian.com/company/careers/all-jobs`` contains ``careers/details/`` **0 times**
+    in the served document and 233 times in the DOM after the observation window; Jane
+    Street's served document carries none of its 233 job ids either. A harvest that read
+    the server body would find job links only on the boards that never needed help.
+
+    Run in a SUBPROCESS for the reason the truncation test above gives: importing
+    ``_capture_main`` would make ``playwright`` resident and every later
+    ``assert_no_agent_imports()`` in the suite would then raise.
+    """
+    rendered = (
+        '<a href="/company/careers">All</a>'
+        "<a href='/company/careers/details/25583'>A</a>"
+        '<a href="/company/careers/details/25583">dup</a>'
+        '<script src="/assets/app.js"></script>'
+        "<script src='https://cdn.example.com/x.js'></script>"
+    )
+    code = (
+        "import json, sys\n"
+        "from api.services.capture._capture_main import _document_links\n"
+        "print(json.dumps(_document_links(json.loads(sys.argv[1]))))\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code, json.dumps(rendered)],
+        cwd=str(_BACKEND), env=_SUBPROC_ENV,
+        capture_output=True, text=True, timeout=120,
+    )
+    assert result.returncode == 0, result.stderr
+    links, scripts = json.loads(result.stdout.strip().splitlines()[-1])
+    # Deduped, first-seen order, both quote styles.
+    assert links == ["/company/careers", "/company/careers/details/25583"]
+    # Every script SRC, on-host or not — the PARENT decides which it may read, because
+    # only the parent knows the board's host and owns the SSRF-guarded client.
+    assert scripts == ["/assets/app.js", "https://cdn.example.com/x.js"]
+
+
+def test_a_child_that_reports_no_links_degrades_to_todays_behaviour() -> None:
+    """A report from a child that predates the field — a rolling deploy, a replayed
+    fixture — must not fail a capture that recorded the whole board. The job link then
+    falls to the board's own listing page, which is what we ship today."""
+    result = nc.CaptureResult(
+        final_url="https://b.example/careers", page_title="", responses=[],
+    )
+    assert result.board_links == () and result.board_scripts == ()
+    assert nc._string_list(None) == ()
+    assert nc._string_list(["/a", 7, "", None, "/b"]) == ("/a", "/b")

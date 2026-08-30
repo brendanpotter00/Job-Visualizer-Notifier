@@ -190,6 +190,19 @@ class CaptureResult:
     page_title: str
     responses: list[CapturedResponse]
     live_view_url: str | None = None
+    # THE BOARD DOCUMENT'S OWN LINKS, read off the RENDERED DOM once the observation
+    # window closed. Raw material for job-link derivation and nothing else: the parent
+    # matches captured job ids against these hrefs to work out the shape of a per-job
+    # URL, and PROVES the result by fetching two real jobs before it can be stored.
+    # ``board_scripts`` is the fallback source for a board that renders no job anchors at
+    # all (Jane Street) — the parent fetches a couple of them through its SSRF-guarded
+    # client and reads the ``href="…${…}…"`` literal the board builds its own links with.
+    #
+    # Both default to empty, so a report from a child that predates them (a rolling
+    # deploy, a replayed fixture) degrades to exactly today's behaviour rather than
+    # failing the capture.
+    board_links: tuple[str, ...] = ()
+    board_scripts: tuple[str, ...] = ()
 
 
 def _hostname(url: str) -> str:
@@ -587,6 +600,19 @@ async def _open_browserbase_session(
         return None
 
 
+def _string_list(raw: Any) -> tuple[str, ...]:
+    """The strings in a child-reported list, or ``()``. Never raises.
+
+    Same discipline as :func:`_responses_from_report`: a field we cannot read is one
+    lost observation, and losing it degrades the job link to the board's own listing
+    page — the behaviour we already ship. It is never a reason to fail a capture that
+    otherwise recorded the whole board.
+    """
+    if not isinstance(raw, list):
+        return ()
+    return tuple(item for item in raw if isinstance(item, str) and item)
+
+
 def _responses_from_report(report: dict[str, Any]) -> list[CapturedResponse]:
     """Turn the child's raw ``responses`` into typed rows, skipping malformed entries.
 
@@ -761,6 +787,8 @@ async def capture_board(
             page_title=str(report.get("page_title") or ""),
             responses=responses,
             live_view_url=session.live_view_url if session is not None else None,
+            board_links=_string_list(report.get("board_links")),
+            board_scripts=_string_list(report.get("board_scripts")),
         )
     finally:
         # NOT in an ``except``: the paths that leak money are exactly the ones that

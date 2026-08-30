@@ -158,10 +158,21 @@ def _capturing(name: str, *, calls: list[str] | None = None):
     return _capture
 
 
-def _selecting(selection: RequestSelection, *, calls: list[int] | None = None):
-    async def _select(candidates: list[Any]) -> RequestSelection:
+def _selecting(
+    selection: RequestSelection,
+    *,
+    calls: list[int] | None = None,
+    feedbacks: list[str | None] | None = None,
+):
+    """A selection double. ``feedbacks`` records what each round was TOLD about the last
+    one — the seam that lets a test prove a re-ask carried the probe's evidence."""
+    async def _select(
+        candidates: list[Any], *, feedback: str | None = None
+    ) -> RequestSelection:
         if calls is not None:
             calls.append(len(candidates))
+        if feedbacks is not None:
+            feedbacks.append(feedback)
         return selection
     return _select
 
@@ -410,19 +421,30 @@ async def test_a_less_job_shaped_leftover_is_never_offered_a_second_round() -> N
 
     So a candidate LESS job-shaped than the one that just failed is not offered at all.
     The floor is the failed candidate's own score, not the pre-filter's top rank — the
-    pre-filter is deliberately dumb and the model correcting it is a designed path."""
+    pre-filter is deliberately dumb and the model correcting it is a designed path.
+
+    Round two now happens anyway, over the ONE feed that failed and with the failure's
+    evidence attached — that is the retry-gap fix, and it is compatible with this rule
+    rather than in tension with it: what must never be offered is the CATALOGUE, and it
+    never is. The second ask is one candidate wide, not two."""
     select_calls: list[int] = []
+    feedbacks: list[str | None] = []
     outcome = await discover(
         _TIKTOK_URL,
         capture=_capturing("tiktok"),
-        select=_selecting(_tiktok_selection(), calls=select_calls),
+        select=_selecting(_tiktok_selection(), calls=select_calls, feedbacks=feedbacks),
         replay_http=_failing_replay(RecipeExecutionError("HTTP 400")),
         replay_browser=_failing_replay(RecipeExecutionError("Chromium crashed")),
         validate_url=_allow_all,
     )
     assert outcome.ok is False
     assert "verifying we can read it" in (outcome.refuse_reason or "")
-    assert select_calls == [2]              # asked once, over both; never re-asked
+    # Round 1 saw both; round 2 saw ONLY the jobs feed — the catalogue is gone for good.
+    assert select_calls == [2, 1]
+    assert feedbacks[0] is None                          # nothing measured yet
+    # The LAST thing measured, which on a board that failed both tiers is the browser
+    # tier's answer. What matters is that the round was TOLD something.
+    assert "Chromium crashed" in (feedbacks[1] or "")
     _assert_stores_nothing(outcome)
 
 
@@ -459,7 +481,7 @@ async def test_the_selector_may_answer_that_none_of_them_is_a_jobs_feed() -> Non
     requests; none of them is a jobs feed)."""
     select_calls: list[int] = []
 
-    async def _no_feed(candidates: list[Any]) -> RequestSelection:
+    async def _no_feed(candidates: list[Any], **_: Any) -> RequestSelection:
         select_calls.append(len(candidates))
         raise NoJobsFeedError("none of the 2 captured request(s) is a list of job postings")
 
@@ -674,7 +696,7 @@ async def test_refuses_when_the_capture_itself_fails() -> None:
 
 
 async def test_refuses_when_the_selector_answer_is_unbelievable() -> None:
-    async def _select(candidates: list[Any]) -> RequestSelection:
+    async def _select(candidates: list[Any], **_: Any) -> RequestSelection:
         raise RequestSelectionError("records_path 'data.results' does not resolve")
 
     outcome = await discover(
@@ -692,7 +714,7 @@ async def test_missing_llm_key_refuses_without_burning_an_attempt() -> None:
     """A deployment without an API key is OUR misconfiguration. Refusing with
     ``attempts=0`` keeps that distinguishable in the audit row from a board we genuinely
     could not read after two real rounds."""
-    async def _select(candidates: list[Any]) -> RequestSelection:
+    async def _select(candidates: list[Any], **_: Any) -> RequestSelection:
         raise SelectorKeyMissingError("anthropic_api_key is not configured")
 
     outcome = await discover(
@@ -733,7 +755,7 @@ async def test_an_unexpected_crash_in_the_selector_names_the_selection_step() ->
     """Same property, a different step — proving the step is tracked rather than
     coincidentally right. A selector that raises something nobody anticipated is a
     "reading the jobs feed" problem, not an acceptance one."""
-    async def _explode(candidates: list[Any]) -> RequestSelection:
+    async def _explode(candidates: list[Any], **_: Any) -> RequestSelection:
         raise MemoryError("something nobody predicted")
 
     outcome = await discover(
@@ -802,6 +824,21 @@ def _amazon_response(body: dict[str, Any]) -> Any:
     return original.__class__(**{**original.__dict__, "body": json.dumps(body)})
 
 
+def _pageless_response(body: dict[str, Any]) -> Any:
+    """The captured Amazon response carrying ``body``, at a URL with NO paging parameter.
+
+    ``synthesize_recipe`` now runs ``page_shape_refusal`` (the Walmart catch: a page
+    index in the request and nothing advancing it), and the Amazon fixture's own URL
+    carries ``offset``/``result_limit``. So a test about something ELSE that borrows that
+    response and answers "no pagination" would be answering the WALMART question by
+    accident and refusing. Same bytes, whole-catalogue URL.
+    """
+    original = _amazon_response(body)
+    return original.__class__(
+        **{**original.__dict__, "url": "https://www.amazon.jobs/en/all-jobs.json"}
+    )
+
+
 def _untotalled_amazon() -> Any:
     """The Amazon jobs response with every total-ish key removed — a board that
     publishes no total at all."""
@@ -809,6 +846,15 @@ def _untotalled_amazon() -> Any:
     del body["hits"]
     del body["facets"]
     return _amazon_response(body)
+
+
+def _untotalled_pageless() -> Any:
+    """...and the same board at a URL that asks for no particular page. See
+    :func:`_pageless_response`."""
+    body = _amazon_body()
+    del body["hits"]
+    del body["facets"]
+    return _pageless_response(body)
 
 
 def test_no_pagination_step_when_the_capture_already_saw_the_whole_board() -> None:
@@ -850,7 +896,11 @@ def test_a_page_one_only_recipe_makes_no_completeness_claim_at_all() -> None:
     one that returns the whole board, so the recipe must not claim ``self_consistent``
     — a sweep it never ran. ``none`` maps to UNVERIFIED in ``verify_harvest``, which
     shows the board's jobs every night and closes none of them."""
-    candidate = prefilter_candidates([_untotalled_amazon()])[0]
+    # A WHOLE-CATALOGUE URL, deliberately: a request that DOES carry a page index and
+    # has nothing advancing it is the Walmart shape and is now refused at synthesis
+    # (see ``test_a_page_index_with_nothing_advancing_it_is_refused``). This test is
+    # about the residual — no total, no hint, and no page parameter either.
+    candidate = prefilter_candidates([_untotalled_pageless()])[0]
     no_paging = RequestSelection(
         chosen_request_index=0, records_path="jobs",
         field_map=dict(_AMAZON_MAP), pagination=None,
@@ -1025,7 +1075,7 @@ async def test_a_failed_step_overrides_the_tick_it_had_already_earned() -> None:
     """The pre-filter finds job-shaped feeds ("found N candidate feeds" ✓) and the
     selector then says none of them is a jobs list. Leaving the ✓ on "finding the jobs
     feed" would hide the one thing the user needs to know."""
-    async def _no_feed(candidates: list[Any]) -> RequestSelection:
+    async def _no_feed(candidates: list[Any], **_: Any) -> RequestSelection:
         raise NoJobsFeedError("none of these is a jobs feed")
 
     outcome = await discover(
@@ -1664,7 +1714,7 @@ async def test_widening_is_declined_when_the_wider_path_maps_no_extra_jobs() -> 
             {"category": "remote", "location": "LON", "posted": "yes"},
         ]},
     ]
-    response = _amazon_response(body)
+    response = _pageless_response(body)
     candidates = prefilter_candidates([response])
     assert candidates[0].records_path == "*.postings"    # the pre-filter offers it...
 
@@ -1741,7 +1791,11 @@ async def test_a_board_whose_own_response_counts_far_more_is_stored_as_partial()
         "jobs": _jobs(10),
     }}]}}}
     path = "data.assistant.tool_messages.0.artifact.jobs"
-    response = _amazon_response(body)
+    # No page parameter in the REQUEST — that is a different defect with a different
+    # answer (``test_a_page_index_with_nothing_advancing_it_is_refused``). This board
+    # simply hands back a slice and says so in the body, and the honest response to that
+    # is the partial label, not a refusal.
+    response = _pageless_response(body)
     selection = RequestSelection(
         chosen_request_index=0, records_path=path,
         field_map=dict(_PARTIAL_MAP), pagination=None,
@@ -1881,7 +1935,7 @@ def test_the_partial_bar_is_a_shortfall_AND_a_ratio_not_either_alone() -> None:
     """
     def coverage_of(records: int, declared: int):
         body = {"jobs": _jobs(records), "total_jobs": declared}
-        candidate = prefilter_candidates([_amazon_response(body)])[0]
+        candidate = prefilter_candidates([_pageless_response(body)])[0]
         selection = RequestSelection(
             chosen_request_index=0, records_path="jobs",
             field_map=dict(_PARTIAL_MAP), pagination=None,
@@ -2370,3 +2424,276 @@ async def test_a_board_that_publishes_a_link_never_gets_an_invented_one() -> Non
     assert outcome.ok is True, outcome.refuse_reason
     (extract,) = [s for s in outcome.script["steps"] if s["op"].startswith("extract_")]
     assert extract["fields"]["url"] == "hostedUrl"
+
+
+# --------------------------------------------------------------------------
+# DERIVING the job link — the rung the proof could not reach
+# --------------------------------------------------------------------------
+#
+# ``_prove_job_link`` is verification-only: it can show a template is wrong and cannot
+# find the right one, so a board with no published link field fell to
+# ``_board_page_link`` — a ``listing-page#{id}`` fragment. Measured on Jane Street:
+# 233 jobs, every one linking to the same page. These prove the two new sources and,
+# just as importantly, that neither is TRUSTED — every candidate still goes through the
+# same two-real-jobs proof.
+
+_JS_URL = "https://www.janestreet.com/join-jane-street/open-roles/"
+_JS_FEED = "https://www.janestreet.com/jobs/main.json"
+_JS_RECORDS = [
+    {"id": f"{4273643 + i}002", "position": f"Role {i}", "city": "NYC",
+     "overview": f"About role {i}"}
+    for i in range(6)
+]
+_JS_MAP = {
+    "id": "id", "title": "position",
+    # The model's own guess, and it is a 404 on the live board.
+    "url": "https://www.janestreet.com/jobs/{id}",
+    "location": "city", "description": "overview",
+}
+# The one line of Jane Street's own bundle that matters. The board's page renders NO
+# job anchors at all — it is a chooser that fetches all 233 roles and shows none — so
+# this is the only place the shape exists.
+_JS_BUNDLE = (
+    'l="open"===t.status?`<a href="/join-jane-street/position/${t.id}/">`:'
+    '`<a href="/join-jane-street/closed-internship/${i}-${a}-${s}/">`'
+)
+
+
+def _feed_response(url: str, records: list[dict[str, Any]]) -> Any:
+    """One captured JSON response carrying ``records`` as its whole body."""
+    original = _amazon_response({})
+    return original.__class__(
+        **{**original.__dict__, "url": url, "body": json.dumps(records)}
+    )
+
+
+def _capture_with(
+    response: Any, *, final_url: str, links: tuple[str, ...] = (),
+    scripts: tuple[str, ...] = (),
+):
+    async def _capture(url: str, **_: Any) -> CaptureResult:
+        return CaptureResult(
+            final_url=final_url, page_title="Careers", responses=[response],
+            board_links=links, board_scripts=scripts,
+        )
+    return _capture
+
+
+def _replay_script(records: list[dict[str, Any]]):
+    """Replay through the recipe's OWN field map, so the stored url is what comes back."""
+    async def _replay(script: dict[str, Any]) -> tuple[list[dict], HarvestEvidence]:
+        (extract,) = [s for s in script["steps"] if s["op"] == "extract_json_path"]
+        rows = map_records(records, extract["fields"], script.get("base_url", ""))
+        return rows, HarvestEvidence(
+            declared_total=None, cap_hit=False, terminated_cleanly=True,
+            page_advance_ok=None, pages_fetched=1, transport_ok=True,
+        )
+    return _replay
+
+
+def _routing_probe(good_prefix: str, *, script_body: str = "", seen: list[str] | None = None):
+    """A board that serves a REAL page under ``good_prefix`` and 404s everywhere else.
+
+    Any ``.js`` URL answers with ``script_body`` — the same ``ProbeFn`` seam carries both
+    the job-page proof and the script read, which is the point: one SSRF-guarded client,
+    one test double.
+    """
+    lengths: dict[str, int] = {}
+
+    def probe(url: str) -> tuple[int, str]:
+        if seen is not None:
+            seen.append(url)
+        if url.endswith(".js"):
+            return (200, script_body) if script_body else (404, "")
+        if not url.startswith(good_prefix):
+            return 404, ""
+        nth = lengths.setdefault(url, len(lengths))
+        return 200, "<html><body>" + "job " * (500 + 300 * nth) + "</body></html>"
+
+    return probe
+
+
+async def test_a_boards_own_anchors_become_the_job_link_after_being_proved() -> None:
+    """The anchor source, end to end. The page links every posting; nothing read it
+    before, so the model's invented template was stored or a fragment was."""
+    outcome = await discover(
+        "https://www.atlassian.com/company/careers/all-jobs",
+        capture=_capture_with(
+            _feed_response("https://www.atlassian.com/endpoint/careers/listings", _JS_RECORDS),
+            final_url="https://www.atlassian.com/company/careers/all-jobs",
+            links=tuple(
+                f"/company/careers/details/{r['id']}" for r in _JS_RECORDS
+            ) + ("/company/careers",),
+        ),
+        select=_selecting(RequestSelection(
+            chosen_request_index=0, records_path="",
+            field_map={**_JS_MAP, "url": "https://www.atlassian.com/jobs/{id}"},
+            pagination=None,
+        )),
+        replay_http=_replay_script(_JS_RECORDS),
+        replay_browser=_never_called_replay("browser_fetch"),
+        validate_url=_allow_all,
+        probe_link=_routing_probe("https://www.atlassian.com/company/careers/details/"),
+    )
+    assert outcome.ok is True
+    assert outcome.script is not None
+    (extract,) = [s for s in outcome.script["steps"] if s["op"] == "extract_json_path"]
+    assert extract["fields"]["url"] == (
+        "https://www.atlassian.com/company/careers/details/{id}"
+    )
+
+
+async def test_a_board_that_renders_no_job_anchors_falls_back_to_its_own_code() -> None:
+    """JANE STREET, the board this rung exists for. Its careers page is a chooser: it
+    fetches all 233 roles as JSON and renders NONE of them, so there is not one job
+    anchor to mine — measured 2026-08-30, zero job ids in the rendered DOM. The template
+    lives in the bundle the page loads, and that is where this finds it."""
+    seen: list[str] = []
+    outcome = await discover(
+        _JS_URL,
+        capture=_capture_with(
+            _feed_response(_JS_FEED, _JS_RECORDS),
+            final_url=_JS_URL,
+            links=("/join-jane-street/overview/", "/puzzles/"),
+            scripts=("/assets/pg/open_positions-abc.js",),
+        ),
+        select=_selecting(RequestSelection(
+            chosen_request_index=0, records_path="",
+            field_map=dict(_JS_MAP), pagination=None,
+        )),
+        replay_http=_replay_script(_JS_RECORDS),
+        replay_browser=_never_called_replay("browser_fetch"),
+        validate_url=_allow_all,
+        probe_link=_routing_probe(
+            "https://www.janestreet.com/join-jane-street/position/",
+            script_body=_JS_BUNDLE, seen=seen,
+        ),
+    )
+    assert outcome.ok is True
+    assert outcome.script is not None
+    (extract,) = [s for s in outcome.script["steps"] if s["op"] == "extract_json_path"]
+    assert extract["fields"]["url"] == (
+        "https://www.janestreet.com/join-jane-street/position/{id}/"
+    )
+    # ...and the ONE script was read from the board's own host, once.
+    assert seen.count("https://www.janestreet.com/assets/pg/open_positions-abc.js") == 1
+
+
+async def test_a_derived_template_that_does_not_route_is_still_refused() -> None:
+    """DERIVING AND TRUSTING ARE DIFFERENT ACTS. The same bundle builds a site-wide
+    search box (``/search/?query=${q}``), and a board that answers every query with the
+    same page is not routing on the job id. Measured against the live board:
+    ``/search/?query={id}`` serves 2,255 chars for two different jobs. It must lose to
+    the honest fragment, not be stored."""
+    outcome = await discover(
+        _JS_URL,
+        capture=_capture_with(
+            _feed_response(_JS_FEED, _JS_RECORDS),
+            final_url=_JS_URL,
+            scripts=("/assets/main.js",),
+        ),
+        select=_selecting(RequestSelection(
+            chosen_request_index=0, records_path="",
+            field_map=dict(_JS_MAP), pagination=None,
+        )),
+        replay_http=_replay_script(_JS_RECORDS),
+        replay_browser=_never_called_replay("browser_fetch"),
+        validate_url=_allow_all,
+        # Every job URL answers 200 with the SAME page — the shape of a search box and
+        # of an SPA shell alike.
+        probe_link=lambda url: (
+            (200, _JS_BUNDLE.replace("position/${t.id}", "search/?query=${q}"))
+            if url.endswith(".js") else (200, "<html>same page every time</html>")
+        ),
+    )
+    assert outcome.ok is True
+    assert outcome.script is not None
+    (extract,) = [s for s in outcome.script["steps"] if s["op"] == "extract_json_path"]
+    assert extract["fields"]["url"] == f"{_JS_URL}#{{id}}"
+
+
+async def test_a_published_link_still_costs_no_fetch_at_all() -> None:
+    """Rung 1 is unchanged and must stay that way: a board that publishes its own link is
+    the authority, and the proof CANNOT tell a client-rendered job page from a
+    client-rendered 404 shell. Deriving does not get to change that."""
+    records = [
+        {**r, "hostedUrl": f"https://boards.example.com/j/{r['id']}"} for r in _JS_RECORDS
+    ]
+    seen: list[str] = []
+    outcome = await discover(
+        "https://example.com/careers",
+        capture=_capture_with(
+            _feed_response("https://example.com/api/jobs", records),
+            final_url="https://example.com/careers",
+            links=tuple(f"/careers/{r['id']}" for r in records),
+            scripts=("/static/app.js",),
+        ),
+        select=_selecting(RequestSelection(
+            chosen_request_index=0, records_path="",
+            field_map={**_JS_MAP, "url": "hostedUrl"}, pagination=None,
+        )),
+        replay_http=_replay_script(records),
+        replay_browser=_never_called_replay("browser_fetch"),
+        validate_url=_allow_all,
+        probe_link=_routing_probe("https://never-fetched.example", seen=seen),
+    )
+    assert outcome.ok is True
+    assert seen == []
+
+
+# --------------------------------------------------------------------------
+# THE WALMART CATCH — a page index with nothing advancing it
+# --------------------------------------------------------------------------
+
+def test_a_page_index_with_nothing_advancing_it_is_refused() -> None:
+    """``page_shape_refusal`` is checks 13a/13b of the nightly gate — pure, already
+    written, and never called by discovery. So a recipe whose fetch says "page one" and
+    whose steps say nothing about page two passed synthesis, passed acceptance (the
+    replay reads back the SAME rows the browser saw, so match-the-capture is delighted)
+    and was stored. Measured on careers.walmart.com: 10 jobs tracked out of 48,800, and
+    every later gate agrees forever because the baseline came from this run."""
+    candidate = prefilter_candidates([_untotalled_amazon()])[0]   # url carries ``offset``
+    no_paging = RequestSelection(
+        chosen_request_index=0, records_path="jobs",
+        field_map=dict(_AMAZON_MAP), pagination=None,
+    )
+    with pytest.raises(Exception) as caught:
+        synthesize_recipe(
+            candidate, no_paging, transport="http_json", origin_url=_AMAZON_URL
+        )
+    assert "one page of results" in str(caught.value)
+
+
+def test_the_boards_own_total_beats_the_shape_of_its_request() -> None:
+    """The one exception, and it is the difference between a rule and a nuisance. When
+    the board says N and hands us N, a page index in the request means "page one is the
+    whole board" — refusing there would throw away boards we read correctly today."""
+    body = _amazon_body()
+    body["hits"] = 10                                   # == the captured record count
+    candidate = prefilter_candidates([_amazon_response(body)])[0]
+    script = synthesize_recipe(
+        candidate,
+        RequestSelection(
+            chosen_request_index=0, records_path="jobs",
+            field_map=dict(_AMAZON_MAP), pagination=None,
+        ),
+        transport="http_json", origin_url=_AMAZON_URL,
+    )
+    assert [s["op"] for s in script["steps"] if s["op"].startswith("paginate_")] == []
+
+
+def test_a_recipe_that_actually_pages_is_never_caught_by_the_shape_check() -> None:
+    """13a is about a page index NOTHING advances. A recipe with a paginate step is
+    judged by the stronger checks (cap_hit / page_advance_ok) instead."""
+    candidate = prefilter_candidates([_untotalled_amazon()])[0]
+    script = synthesize_recipe(
+        candidate,
+        RequestSelection(
+            chosen_request_index=0, records_path="jobs", field_map=dict(_AMAZON_MAP),
+            pagination=PaginationHint(style="offset", param="offset", page_size=10),
+        ),
+        transport="http_json", origin_url=_AMAZON_URL,
+    )
+    assert [s["op"] for s in script["steps"] if s["op"].startswith("paginate_")] == [
+        "paginate_offset"
+    ]

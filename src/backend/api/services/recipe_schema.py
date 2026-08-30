@@ -52,6 +52,11 @@ TRANSPORTS = ("http_json", "http_html", "browser_fetch")
 # the ONLY one that carries ``origin_url``.
 BROWSER_FETCH = "browser_fetch"
 
+# The HTML transport. Named because it has a rule of its own below: its executor cannot
+# paginate and reports a one-page read as a complete sweep, so a paginating html recipe
+# is unstorable (see ``validate_recipe``).
+HTTP_HTML = "http_html"
+
 # THE BROWSER TIER'S PAGE CEILING, and the reason it lives in the SCHEMA rather than
 # only in ``browser_fetch.runner``: a page budget the tier cannot honour is a property
 # of the RECIPE, so it must be caught where every other unstorable recipe is — on write
@@ -701,6 +706,29 @@ def validate_recipe(
     _require(steps[0].get("op") == "fetch", "the first step must be 'fetch'")
     _require(counts["pagination"] <= 1, "at most one pagination step is allowed")
     _require(counts["extraction"] == 1, f"exactly one extraction step is required, got {counts['extraction']}")
+
+    if tr == HTTP_HTML:
+        # THE LANDMINE, defused at write time and on every nightly read.
+        #
+        # ``recipe_runner._run_http_html`` does not paginate. It issues ONE request and
+        # hardcodes ``pages_fetched=1, cap_hit=False, terminated_cleanly=True`` — i.e. it
+        # reports a page-one-only read as a CLEAN, COMPLETE sweep. A stored html recipe
+        # carrying a ``paginate_page`` step would validate, the runner would ignore the
+        # step, the completeness gate would read "terminated cleanly, no cap" as
+        # self-consistent and VERIFY it — and a VERIFIED harvest is allowed to close.
+        # Every job past page one would be closed, every night, by a recipe that looks
+        # like it paginates.
+        #
+        # Discovery emits no ``http_html`` today, so this is not live; that is exactly
+        # why the rule belongs here rather than in a runbook. The refusal is the honest
+        # answer either way — a board that needs paging and can only be read as HTML is a
+        # board this tier cannot fully read, and saying so beats closing it.
+        _require(
+            counts["pagination"] == 0,
+            f"transport {HTTP_HTML!r} does not paginate — the HTML executor issues one "
+            f"request and reports a clean complete sweep, so a {pagination_op!r} step "
+            f"would silently close every job past page one",
+        )
 
     if tr == BROWSER_FETCH:
         # The browser_fetch executor replays ONE captured JSON request per page and

@@ -17,11 +17,19 @@ proved boards CAN verify would be proving half a design.
 from __future__ import annotations
 
 import boards
+import httpx
 import pytest
 from conftest import db, find_company, poll_until, require_reachable
 
 EXPECTED_STEP_KEYS = {"open_page", "find_feed", "verify_read", "ready", "first_scan"}
 TERMINAL = {"done", "failed"}
+
+# The same UA the capture browser sends. A job page fetched with httpx's default UA is a
+# different request from the one a user makes, and some boards answer it differently.
+_BROWSER_UA = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+)
 
 
 def _first_scan_settled(row: dict) -> bool:
@@ -171,6 +179,16 @@ def _run_discovery_case(http, db_conn, board: "boards.Board"):
         f"{board.case_id}: first_seen_at must be set for every job — "
         f"{with_first_seen} of {total} set"
     )
+
+    # ...and WHAT IS ON THE ROWS, which this suite could not see until now. See the
+    # block at the bottom of this file for why each of these is here.
+    rows = _harvested_rows(db_conn, source_id)
+    (extract,) = [
+        st for st in script["script"]["steps"] if st["op"] == "extract_json_path"
+    ]
+    _assert_job_links_point_at_jobs(board, rows)
+    _assert_fields_are_per_job(board, rows)
+    _assert_two_job_links_resolve(board, rows, url_spec=extract["fields"]["url"])
     return company_id
 
 
@@ -202,3 +220,147 @@ class TestDiscoveryJaneStreet:
     @pytest.mark.live
     def test_ac05_jane_street_discovers_and_harvests_with_no_date_field(self, http, db_conn):
         _run_discovery_case(http, db_conn, boards.JANE_STREET)
+
+
+# --------------------------------------------------------------------------
+# WHAT THE HARVEST ACTUALLY WROTE — the half this suite could not see
+# --------------------------------------------------------------------------
+#
+# AC-04 and AC-05 have run these two boards LIVE on every suite run since they were
+# written, and asserted the verdict, the oracle, the transport, ``openJobCount``,
+# ``posted_on`` and ``first_seen_at`` — never a URL, a location or a description. So
+# Jane Street shipped 233 jobs whose "view job" link went to the board's own listing
+# page, green, through 48 passing cases. These are the assertions that would have seen
+# it, and they are deliberately about the CONTENT of a row rather than about the shape
+# of the pipeline that wrote it.
+#
+# A job link is not checkable from its status code — a client-rendered board answers
+# 200 for any path — so the live half asks the same question ``discover._prove_job_link``
+# asks: do two different jobs get two different pages?
+
+_MIN_LOCATION_COVERAGE = 0.8       # Atlassian leaves ~9% of its postings without one
+_MIN_URL_DISTINCTNESS = 0.8        # two postings CAN share an application page
+_LINK_CHECK_SAMPLES = 2
+_LINK_CHECK_TIMEOUT_S = 30.0
+_MIN_PAGE_DELTA_FRACTION = 0.02    # matches discover._MIN_PAGE_DELTA_FRACTION
+
+
+def _harvested_rows(conn, source_id: str) -> list[dict]:
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT id, title, url, location, details->>'description' AS description "
+            "FROM job_listings WHERE source_id = %s",
+            (source_id,),
+        )
+        return list(cur.fetchall())
+
+
+def _assert_job_links_point_at_jobs(board: "boards.Board", rows: list[dict]) -> None:
+    """Every link absolute, per-job, and NOT the honest listing-page fallback.
+
+    ``discover._board_page_link`` produces ``<listing page>#<job id>`` when no per-job
+    link can be proved. It is safe and it is honest and it is not a job link, so a board
+    that lands there has not been fixed — which is exactly the state Jane Street was in
+    while this suite was green.
+    """
+    urls = [r["url"] for r in rows]
+    assert all(isinstance(u, str) and u.startswith("https://") for u in urls), (
+        f"{board.case_id}: every job URL must be an absolute https link; got "
+        f"{[u for u in urls if not (isinstance(u, str) and u.startswith('https://'))][:3]}"
+    )
+    fragments = [u for u in urls if "#" in u]
+    assert not fragments, (
+        f"{board.case_id}: {len(fragments)} of {len(urls)} job URLs are "
+        f"listing-page fragments (e.g. {fragments[0]!r}) — that is "
+        f"``_board_page_link``, the fallback discovery uses when it cannot PROVE a "
+        f"per-job link. The job-url derivation did not find one for this board."
+    )
+    distinct = len(set(urls))
+    assert distinct >= _MIN_URL_DISTINCTNESS * len(urls), (
+        f"{board.case_id}: only {distinct} distinct URLs across {len(urls)} jobs — a "
+        f"link that is the same on every row is a careers page, a logo or an SPA shell, "
+        f"not a link to this job"
+    )
+
+
+def _assert_two_job_links_resolve(
+    board: "boards.Board", rows: list[dict], *, url_spec: str
+) -> None:
+    """Fetch two real job pages and prove the stored link is a link.
+
+    Two questions, and the SECOND is asked only of a link WE composed:
+
+    * every sampled link answers < 400. Always asked.
+    * two different jobs get two materially different pages. Asked only when
+      ``url_spec`` is a TEMPLATE (it carries a placeholder), because that is the only
+      case where the path is our invention rather than the board's own statement.
+
+    THE SPLIT IS THE ONE ``discover._resolve_job_link`` ALREADY MAKES, and it is not
+    pedantry — measured 2026-08-30, Atlassian's published iCIMS links serve
+    **478,872 / 478,860 / 478,906 chars** for three different jobs, because the posting
+    renders inside an IFRAME. That is byte-for-byte the shape of a dead SPA shell, and
+    it is a perfectly good working link. Applying the page-diff test to a published link
+    would fail one of the two boards this suite exists to protect.
+
+    A TRANSPORT failure is BLOCKED, not FAILED (PLAN.md §6): a third-party outage must
+    not read as our regression. A 4xx/5xx always FAILS; an identical pair FAILS only for
+    a template, per the split above.
+    """
+    sample = [r for r in rows if isinstance(r.get("url"), str)][:_LINK_CHECK_SAMPLES]
+    assert len(sample) == _LINK_CHECK_SAMPLES, f"{board.case_id}: too few rows to check"
+    pages: list[tuple[str, int]] = []
+    for row in sample:
+        try:
+            resp = httpx.get(
+                row["url"], timeout=_LINK_CHECK_TIMEOUT_S, follow_redirects=True,
+                headers={"User-Agent": _BROWSER_UA},
+            )
+        except httpx.HTTPError as exc:
+            pytest.skip(
+                f"BLOCKED: {board.label} job page {row['url']} unreachable ({exc!r})"
+            )
+        assert resp.status_code < 400, (
+            f"{board.case_id}: the stored job link {row['url']!r} answers HTTP "
+            f"{resp.status_code} — every user clicking this job gets that"
+        )
+        pages.append((row["url"], len(resp.text)))
+    (url_a, len_a), (url_b, len_b) = pages
+    print(f"{board.case_id}: job links resolve — {url_a} ({len_a}b), {url_b} ({len_b}b)")
+    if "{" not in url_spec:
+        return                      # a link the BOARD published; see the docstring
+    floor = max(200, int(_MIN_PAGE_DELTA_FRACTION * max(len_a, len_b)))
+    assert abs(len_a - len_b) >= floor, (
+        f"{board.case_id}: the TEMPLATE {url_spec!r} served two different jobs the same "
+        f"page ({len_a} vs {len_b} chars: {url_a} / {url_b}) — it does not route on the "
+        f"job id, so every link on this board points at the same place"
+    )
+
+
+def _assert_fields_are_per_job(board: "boards.Board", rows: list[dict]) -> None:
+    """Locations populated, descriptions per-job.
+
+    Both boards publish a location on nearly every posting and prose on every one. A
+    column of NULLs means a mapping that renders nothing was stored anyway (the gap in
+    ``_prune_unusable_optionals``); one description repeated on every row means company
+    boilerplate was stored as this job's description.
+    """
+    located = [r for r in rows if r["location"]]
+    assert len(located) >= _MIN_LOCATION_COVERAGE * len(rows), (
+        f"{board.case_id}: only {len(located)} of {len(rows)} jobs carry a location — a "
+        f"field mapped to a path that renders nothing must be DROPPED at discovery, not "
+        f"stored as a column of NULLs"
+    )
+    described = [r["description"] for r in rows if r["description"]]
+    assert described, (
+        f"{board.case_id}: no job carries a description, but this board publishes prose "
+        f"on every posting — either the mapping was lost or it was dropped as boilerplate"
+    )
+    assert len(set(described)) > 1, (
+        f"{board.case_id}: all {len(described)} descriptions are identical — that is the "
+        f"employer's boilerplate, not this job's prose, and it must be dropped at "
+        f"discovery rather than written onto every row"
+    )
+    print(
+        f"{board.case_id}: {len(located)}/{len(rows)} located, "
+        f"{len(set(described))} distinct descriptions"
+    )

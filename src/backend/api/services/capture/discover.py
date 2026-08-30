@@ -98,7 +98,7 @@ import unicodedata
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable, Protocol
-from urllib.parse import parse_qsl, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, urljoin, urlsplit, urlunsplit
 
 import httpx
 
@@ -117,7 +117,7 @@ from ..discovery.progress import (
 )
 from ..guarded_client import guarded_sync_client
 from ..harvest_meta import HarvestEvidence
-from ..harvest_verification import HarvestGateError, run_gate
+from ..harvest_verification import HarvestGateError, page_shape_refusal, run_gate
 from ..recipe_rows import recipe_rows_to_job_listings
 from ..recipe_runner import (
     HARVEST_TIME_BUDGET_S,
@@ -148,6 +148,9 @@ from .request_selector import (
     RequestSelection,
     RequestSelectionError,
     SelectorKeyMissingError,
+    derive_url_templates_from_code,
+    derive_url_templates_from_links,
+    href_templates,
     is_published_url_spec,
     prefilter_candidates,
     published_url_fields,
@@ -404,7 +407,19 @@ class CaptureFn(Protocol):
     ) -> Awaitable[CaptureResult]: ...
 
 
-SelectFn = Callable[[list[Candidate]], Awaitable[RequestSelection]]
+class SelectFn(Protocol):
+    """The selection seam — :func:`request_selector.select_request` or a $0 double.
+
+    A Protocol rather than a ``Callable`` alias because of ``feedback``: a second round
+    that cannot say WHY the first was rejected is a re-roll of the same question over the
+    same bytes, which is the least likely way to get a different answer.
+    """
+
+    def __call__(
+        self, candidates: list[Candidate], *, feedback: str | None = None
+    ) -> Awaitable[RequestSelection]: ...
+
+
 ReplayFn = Callable[[dict[str, Any]], Awaitable[tuple[list[dict], HarvestEvidence]]]
 UrlValidator = Callable[[str], Any]
 # One live checklist write. Injected (the task supplies a short-lived DB write), and
@@ -1255,6 +1270,32 @@ def synthesize_recipe(
         validate_recipe(script, transport=transport, oracle_kind=oracle["kind"])
     except RecipeError as exc:
         raise _Refusal(_STEP_SYNTHESIZE, f"the recipe we assembled is invalid: {exc}") from exc
+
+    # THE WALMART CATCH, and the cheapest probe in the whole ladder: does the request we
+    # are about to store SAY it read one page?
+    #
+    # ``page_shape_refusal`` is checks 13a/13b of the nightly gate, already written,
+    # already pure — and discovery never called it. So a recipe whose fetch carries
+    # ``job_page=1`` with no step advancing it passed synthesis, passed acceptance (the
+    # replay reads back the SAME ten rows the browser saw, so the match-the-capture check
+    # is delighted) and was stored. Measured on careers.walmart.com: 10 jobs tracked out
+    # of 48,800. Every later gate agrees with it forever, because the baseline it is
+    # measured against was taken on this run.
+    #
+    # THE ONE EXCEPTION IS EVIDENCE BEATING SHAPE. When the board's own declared total
+    # says the captured page IS the whole board, a page index in the request means "page
+    # one is all of it" and refusing would throw away boards we read correctly today.
+    # ``one_page_proven`` is exactly that statement and nothing weaker — a total that the
+    # board's own facets contradict (``total_is_capped``) does not count.
+    if not one_page_proven:
+        shape = page_shape_refusal(script, candidate.record_count)
+        if shape is not None:
+            raise _Refusal(
+                _STEP_SYNTHESIZE,
+                "this board's own request asks for one page of results and we could not "
+                f"work out how to ask for the next one ({shape}) — tracking it would "
+                f"show {candidate.record_count} job(s) and silently miss the rest",
+            )
     return script
 
 
@@ -1653,14 +1694,138 @@ def _board_page_link(origin_url: str, id_spec: str) -> str:
     return f"{page}#{{{id_spec}}}"
 
 
+# --------------------------------------------------------------------------
+# step 5c — DERIVING a job link, when the board never published one
+# --------------------------------------------------------------------------
+#
+# THE CEILING ``_prove_job_link`` COULD NOT RAISE. That proof is verification-only: it
+# can show a template is wrong and it cannot find the right one, so a board with no
+# published link field fell all the way to :func:`_board_page_link` — a
+# ``listing-page#{id}`` fragment that is honest and is not a job link. Measured on Jane
+# Street: 233 jobs, every one linking to the same page.
+#
+# The derivations live in ``request_selector`` (they are pure and belong with the other
+# url rules); what lives HERE is the only part that touches the network — reading the
+# board's own scripts when its rendered page carries no job anchors at all.
+
+# The whole job-link ladder's wall clock, ACROSS selection rounds. Each proof is two
+# GETs and each script is one, and while every one of them is a fetch of the board's own
+# host — which the capture just proved answers us — an arrangement of timeouts must not
+# be able to eat the discovery task's 240s. This is the hard stop; everything below it
+# is a preference.
+_LINK_RESOLUTION_BUDGET_S = 75.0
+# How many of the board's own scripts we are willing to read, once per discovery. This
+# is the LAST-RESORT source and it is consulted only when the page publishes no link
+# field and renders no job anchors — roughly the one board in six that has nothing else
+# to offer. Measured on Jane Street: 2 same-host scripts, 394 KB, 28 ms of body reads,
+# so in the normal case this number is not the binding constraint. It is five rather
+# than two because a bundler splits a board's code into chunks and the one that builds
+# the job list is not reliably the first; the shared DEADLINE above, not this count, is
+# what bounds the pathological case.
+_MAX_SCRIPT_FETCHES = 5
+# How many candidate specs are put through the two-real-jobs proof per round.
+_MAX_PROVE_ATTEMPTS = 4
+
+
+class _JobLinkContext:
+    """State the job-link ladder must keep BETWEEN selection rounds.
+
+    The one thing that genuinely has to survive is the script read: it is the only part
+    of the ladder that costs network before a candidate exists, and a second round
+    re-fetching the same bundles would double the bill for bytes that cannot have
+    changed. The deadline is shared for the same reason — a per-call budget multiplied by
+    the round count is not a budget.
+    """
+
+    def __init__(self, captured: CaptureResult, probe: ProbeFn) -> None:
+        self.captured = captured
+        self.probe = probe
+        self.deadline = time.monotonic() + _LINK_RESOLUTION_BUDGET_S
+        self._code_templates: list[str] | None = None
+
+    def expired(self) -> bool:
+        return time.monotonic() >= self.deadline
+
+    async def code_templates(self) -> list[str]:
+        """``href="…${…}…"`` literals from the board's OWN scripts. Fetched once, ever.
+
+        WHY THIS SOURCE EXISTS AT ALL. Jane Street's careers page is a chooser: it fetches
+        all 233 roles as JSON and renders NONE of them, so there are no anchors to mine —
+        measured 2026-08-30, its rendered DOM contains zero job ids. The script it loads
+        contains the answer verbatim::
+
+            `<a href="/join-jane-street/position/${t.id}/">`
+
+        Through the SAME SSRF-guarded ``ProbeFn`` seam the link proof uses, because it is
+        the same threat: a URL that came off a page a stranger pasted. Everything it
+        returns is still only a CANDIDATE — the bundle also builds ``/search/?query={}``,
+        which the proof rejects for serving the same page to two different jobs.
+        """
+        if self._code_templates is not None:
+            return self._code_templates
+        self._code_templates = []
+        board_host = _hostname_of(self.captured.final_url)
+        base = _origin_of(self.captured.final_url)
+        fetched = 0
+        for src in self.captured.board_scripts:
+            if fetched >= _MAX_SCRIPT_FETCHES or self.expired():
+                break
+            url = src if src.startswith(("http://", "https://")) else urljoin(base, src)
+            if _hostname_of(url) != board_host:
+                continue                     # somebody else's CDN is not this board's code
+            fetched += 1
+            status, body = await asyncio.to_thread(self.probe, url)
+            if status == 0 or status >= 400 or not body:
+                continue
+            for template in href_templates(body):
+                if template not in self._code_templates:
+                    self._code_templates.append(template)
+        logger.info(
+            "read %d of the board's own script(s) for a link template; found %d",
+            fetched, len(self._code_templates),
+        )
+        return self._code_templates
+
+
+async def _derived_candidates(
+    selection: RequestSelection,
+    candidate: Candidate,
+    context: _JobLinkContext,
+    origin_url: str,
+) -> list[str]:
+    """Job-url templates DERIVED from the board's own evidence, best first.
+
+    Anchors first and code second, because an anchor is a link the board actually
+    rendered while a code template is one it says it builds. The second source is only
+    consulted when the first found nothing, so a board that links its own jobs never
+    pays for a script fetch.
+    """
+    records = candidate.records
+    base_url = _origin_of(origin_url)
+    board_host = _hostname_of(origin_url)
+    id_spec = selection.field_map.get("id")
+    derived = derive_url_templates_from_links(
+        records, list(context.captured.board_links), base_url, board_host, id_spec=id_spec,
+    )
+    if derived:
+        return derived
+    return derive_url_templates_from_code(
+        records,
+        await context.code_templates(),
+        base_url,
+        board_host,
+        id_spec=id_spec,
+        careers_path=urlsplit(origin_url).path,
+    )
+
+
 async def _resolve_job_link(
     selection: RequestSelection,
     candidate: Candidate,
-    captured: CaptureResult,
+    context: _JobLinkContext,
     origin_url: str,
-    probe: ProbeFn,
-) -> tuple[RequestSelection, bool]:
-    """``(selection with a url we can stand behind, did we prove a per-job link)``.
+) -> tuple[RequestSelection, bool, str]:
+    """``(selection with a url we can stand behind, is it a per-job link, why not)``.
 
     The ladder, in the order the evidence deserves:
 
@@ -1669,12 +1834,19 @@ async def _resolve_job_link(
        ``portalJobPost.portalUrl`` both land here and are byte-identical afterwards.
     2. **the board published a path and the model invented one instead** — take the
        board's. It answers the question the model was guessing at.
-    3. **a template is unavoidable** — prove it by fetching, repaired candidate first
-       (``repair_url_template`` only fires when the model's id appears in ZERO of the
-       board's own links, which is evidence in its own right), then the model's.
+    3. **a template is unavoidable** — build every candidate the board's own evidence
+       supports and PROVE each by fetching two real jobs, best first: derived from the
+       page's anchors, then from the board's own code, then ``repair_url_template``'s
+       swap (it only fires when the model's id appears in ZERO of the board's links,
+       which is evidence in its own right), then the model's own answer.
     4. **nothing proved** — :func:`_board_page_link`, and say so out loud.
 
-    NEVER raises. An unprovable link is a downgrade, never a refusal.
+    Rung 3 is the new one, and the split it rests on is that DERIVING and TRUSTING are
+    different acts. Every candidate — ours or the model's — goes through the same proof,
+    so a derivation that is wrong is rejected by the same gate that rejects a guess.
+
+    NEVER raises. An unprovable link is a downgrade, never a refusal: refusing would
+    throw away a feed we can read perfectly to protect a footnote.
     """
     records = candidate.records
     base_url = _origin_of(origin_url)
@@ -1684,7 +1856,7 @@ async def _resolve_job_link(
         return replace(selection, field_map={**selection.field_map, "url": new_spec})
 
     if is_published_url_spec(records, spec):
-        return selection, True
+        return selection, True, ""
 
     published = published_url_fields(records)
     if published:
@@ -1692,21 +1864,30 @@ async def _resolve_job_link(
             "field_map.url %r is a path we invented, but this board publishes its own "
             "link at %r — using the board's", spec, published[0],
         )
-        return _with(published[0]), True
+        return _with(published[0]), True, ""
 
-    repaired = _repair_selection_url(selection, candidate, captured).field_map["url"]
+    derived = await _derived_candidates(selection, candidate, context, origin_url)
+    repaired = _repair_selection_url(selection, candidate, context.captured).field_map["url"]
+
     tried: list[str] = []
-    for attempt in (repaired, spec):
+    why = ""
+    for attempt in [*derived, repaired, spec]:
         if attempt in tried:
             continue
+        if len(tried) >= _MAX_PROVE_ATTEMPTS or context.expired():
+            logger.warning(
+                "job-link proof budget spent after %d attempt(s) on %s", len(tried), origin_url
+            )
+            break
         tried.append(attempt)
-        why = await asyncio.to_thread(
+        unproven: str | None = await asyncio.to_thread(
             _prove_job_link, records, {**selection.field_map, "url": attempt},
-            base_url, probe,
+            base_url, context.probe,
         )
-        if why is None:
+        why = unproven or ""
+        if not why:
             logger.info("job link %r proved against the live board", attempt)
-            return _with(attempt), True
+            return _with(attempt), True, ""
         logger.warning("job link %r is not usable: %s", attempt, why)
 
     fallback = _board_page_link(origin_url, selection.field_map["id"])
@@ -1714,7 +1895,11 @@ async def _resolve_job_link(
         "no per-job link could be proved for %s (tried %s); linking every job at this "
         "board to its own listing page instead (%r)", origin_url, tried, fallback,
     )
-    return _with(fallback), False
+    return (
+        _with(fallback),
+        False,
+        f"field_map.url {spec!r} is not a link to one job: {why or 'unproven'}",
+    )
 
 
 def _capture_ids(candidate: Candidate, selection: RequestSelection, base_url: str) -> set[str]:
@@ -1839,6 +2024,32 @@ async def _public_candidates(
         kept.append(candidate)
     # Re-index so ``chosen_request_index`` still means "position in the list you saw".
     return [replace(candidate, index=i) for i, candidate in enumerate(kept)]
+
+
+def _selection_feedback(
+    detail: str | None, selection: RequestSelection | None, link_why: str = ""
+) -> str:
+    """Everything we MEASURED about the last answer, as a prompt block.
+
+    Three sources, and each says something the others cannot:
+
+    * ``detail`` — the refusal that ended the round. This is the only one that names
+      what actually stopped us.
+    * ``selection.field_notes`` — the optionals the field-quality prune deleted. A drop
+      is a DEGRADE and never causes a round of its own, so these ride along for free
+      whenever a round happens anyway; there is no other moment the model can be told
+      that ``locations[0].city`` renders nothing on every record of this board.
+    * ``link_why`` — the job-link probe's verdict, when it got as far as fetching. It
+      never causes a round either (an unprovable link degrades to the board's listing
+      page), but it is the sharpest evidence we ever hold about a url the model wrote.
+
+    Deduplicated and ordered, because the same detail can arrive from two of them.
+    """
+    lines: list[str] = []
+    for line in (detail, link_why, *(selection.field_notes if selection else ())):
+        if line and line not in lines:
+            lines.append(line)
+    return "\n".join(f"- {line}" for line in lines)
 
 
 async def discover(
@@ -2108,17 +2319,30 @@ async def discover(
         # them the wrong one.
         last_step = _STEP_ACCEPT
         last_error: str | None = None
+        # WHAT WE MEASURED ABOUT THE LAST ANSWER, carried into the next ask. Until this
+        # existed a second round re-rolled the same question over the same bytes, which
+        # is the least likely way to get a different answer — and on a SINGLE-FEED board
+        # there was no second round at all, because the loop dropped the failed candidate
+        # and found nothing left to ask about. That is exactly the case that needs one:
+        # Jane Street and Atlassian each publish ONE jobs feed.
+        feedback: str | None = None
         # Did we end up with a link to the JOB, or only to the board? Set every round
         # by :func:`_resolve_job_link`; initialised here because a round that refuses
         # before reaching it still falls through to the checklist below.
         per_job_link = True
+        # ...and WHY not, when it is not. Empty on the happy path; carried into the next
+        # round's feedback so the model learns what the probe learned.
+        link_why = ""
+        # The job-link ladder's shared state — one deadline and one script read for the
+        # WHOLE discovery, not one per round. See :class:`_JobLinkContext`.
+        link_context = _JobLinkContext(captured, probe_job_link)
         for round_number in range(1, _MAX_SELECTION_ROUNDS + 1):
             if not candidates:
                 break
             attempts = round_number
             current_step = _STEP_SELECT
             try:
-                selection = await do_select(candidates)
+                selection = await do_select(candidates, feedback=feedback)
             except NoJobsFeedError as exc:
                 # The model looked at what is left and said none of it is jobs. Asking
                 # again cannot change that, and the alternative — a schema with no
@@ -2151,6 +2375,7 @@ async def discover(
                 # same candidates is cheap next to refusing a board we can read. It is
                 # bounded by _MAX_SELECTION_ROUNDS like every other round.
                 last_step, last_error = _STEP_SELECT, str(exc)
+                feedback = str(exc)
                 logger.info("discovery selection rejected for %s: %s", url, exc)
                 continue
 
@@ -2173,13 +2398,15 @@ async def discover(
                 # ...and then settle the job link. After the widen so it reads the
                 # final record array, and before synthesis so the stored recipe and
                 # the acceptance replay carry the same link. A published link is kept
-                # untouched; one WE invented is fetched and proved, or downgraded to
-                # the board's own listing page. See :func:`_resolve_job_link`.
-                selection, per_job_link = await _resolve_job_link(
-                    selection, candidate, captured, origin_url, probe_job_link
+                # untouched; one WE invented is DERIVED from the board's own evidence,
+                # fetched and proved, or downgraded to the board's own listing page.
+                # See :func:`_resolve_job_link`.
+                selection, per_job_link, link_why = await _resolve_job_link(
+                    selection, candidate, link_context, origin_url
                 )
             except _Refusal as exc:
                 last_step, last_error = exc.step, exc.detail
+                feedback = _selection_feedback(exc.detail, selection)
                 logger.info("discovery selection unusable for %s: %s", url, exc.detail)
                 continue
             # The page sizes to try, best first. ``None`` means "exactly what the
@@ -2362,30 +2589,43 @@ async def discover(
                         job_preview=rows,
                     ),
                 )
-            # This candidate cannot be replayed either way — drop it and ask again over
-            # what is left, but ONLY over arrays that look at least as job-shaped as the
-            # one that just failed. The next round's schema still demands an answer over
-            # whatever it is shown, and the acceptance gate cannot save us: it proves the
-            # replay reads the SAME array the browser saw, so a forced pick of a leftover
-            # facet/filter catalogue overlaps itself 100% and is ACCEPTED. Measured on
-            # the TikTok capture — with the jobs POST dropped, discovery stored
-            # ``…/job/filters`` (records_path ``data.job_category_list``) and tracked
-            # "Engineering" and "Design" as the company's job postings, forever, with a
-            # nightly harvest that would never fail.
+            # This candidate cannot be replayed either way. TELL THE MODEL WHAT WE
+            # MEASURED, then ask again — over what is left if anything is, and over the
+            # SAME candidate if it is the only one there is.
+            #
+            # THE SECOND HALF IS THE FIX FOR A REAL GAP. ``_MAX_SELECTION_ROUNDS`` fires
+            # on an acceptance failure, not just a schema failure — but the drop below
+            # used to be unconditional, so a SINGLE-FEED board emptied the list and the
+            # ``if not candidates: break`` at the top of the loop ended the discovery
+            # before round two could happen. Atlassian and Jane Street each publish
+            # exactly one jobs feed, so the boards that most needed a second ask were
+            # precisely the ones that never got one.
+            #
+            # WHY THE DROP STILL HAPPENS WHEN THERE IS SOMETHING ELSE TO ASK ABOUT. The
+            # next round's schema still demands an answer over whatever it is shown, and
+            # the acceptance gate cannot save us: it proves the replay reads the SAME
+            # array the browser saw, so a forced pick of a leftover facet/filter
+            # catalogue overlaps itself 100% and is ACCEPTED. Measured on the TikTok
+            # capture — with the jobs POST dropped, discovery stored ``…/job/filters``
+            # (records_path ``data.job_category_list``) and tracked "Engineering" and
+            # "Design" as the company's job postings, forever, with a nightly harvest
+            # that would never fail.
             #
             # The floor is the FAILED candidate's own score, not the pre-filter's top
             # rank: the pre-filter is deliberately dumb and the model correcting it is a
             # designed path, so "must be the highest-ranked" would refuse boards we can
             # read. "Not less job-shaped than the thing that just failed" costs nothing
             # real and removes the manufactured answer.
+            feedback = _selection_feedback(last_error, selection, link_why)
             floor = candidate.job_score
-            candidates = [
-                replace(c, index=i)
-                for i, c in enumerate(
-                    c for c in candidates
-                    if c.index != candidate.index and c.job_score >= floor
-                )
+            survivors = [
+                c for c in candidates
+                if c.index != candidate.index and c.job_score >= floor
             ]
+            # The failed candidate AS THE MODEL SAW IT — not the rebound-and-widened one
+            # this round derived, which carries a records_path the model never proposed.
+            sole = [c for c in candidates if c.index == candidate.index]
+            candidates = [replace(c, index=i) for i, c in enumerate(survivors or sole)]
 
         raise _Refusal(
             last_step,

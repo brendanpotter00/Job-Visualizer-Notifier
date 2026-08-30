@@ -459,3 +459,45 @@ def test_a_recipe_captured_under_any_older_field_set_still_validates() -> None:
 
     extract["fields"]["department"] = "category"
     assert validate_recipe(script) is script
+
+
+# --- the http_html landmine -------------------------------------------------
+
+def test_an_html_recipe_may_not_claim_to_paginate() -> None:
+    """THE LANDMINE, and it is worth a test even though nothing emits it today.
+
+    ``recipe_runner._run_http_html`` does not paginate: it issues ONE request and
+    hardcodes ``pages_fetched=1, cap_hit=False, terminated_cleanly=True`` — i.e. it
+    reports a page-one-only read as a clean, complete sweep. A stored html recipe
+    carrying a paginate step would validate; the runner would ignore the step; the
+    completeness gate would read "terminated cleanly, no cap" as self-consistent and
+    VERIFY it; and a VERIFIED harvest is allowed to close. Every job past page one would
+    be closed, every night, by a recipe that looks like it paginates.
+
+    Discovery emits no ``http_html``, which is exactly why the rule belongs in the schema
+    rather than in somebody's memory."""
+    script = _load("ycombinator.json")
+    assert script["transport"] == "http_html"
+    script["steps"].insert(
+        1, {"op": "paginate_page", "param": "page", "page_size": 50, "max_pages": 10}
+    )
+    with pytest.raises(RecipeError, match="does not paginate"):
+        validate_recipe(script)
+
+
+def test_an_html_recipe_without_pagination_is_untouched() -> None:
+    """The rule may only ever refuse the pairing. A one-request html recipe is exactly
+    as storable as it was."""
+    script = _load("ycombinator.json")
+    assert validate_recipe(script) is script
+
+
+def test_the_html_pagination_rule_is_re_asserted_on_every_read() -> None:
+    """validate-on-READ is the half that matters for a landmine: the recipe that trips
+    this will be a JSONB row somebody edited, not one discovery wrote."""
+    script = _load("ycombinator.json")
+    script["steps"].insert(
+        1, {"op": "paginate_offset", "param": "start", "page_size": 50, "max_pages": 4}
+    )
+    with pytest.raises(RecipeError, match="does not paginate"):
+        validate_recipe(script, transport="http_html", oracle_kind=script["oracle"]["kind"])

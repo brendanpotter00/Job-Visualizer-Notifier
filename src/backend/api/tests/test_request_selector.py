@@ -653,3 +653,250 @@ def test_the_prompt_tells_the_model_what_a_star_path_means() -> None:
     assert "'*.postings'" in rs.SYSTEM_PROMPT
     listing = rs.build_message_params(_candidates("grouped"))["messages"][0]["content"]
     assert "records_path: *.postings" in listing
+
+
+# --------------------------------------------------------------------------
+# DERIVING a job-url template from the board's own evidence
+# --------------------------------------------------------------------------
+#
+# The rung ``_prove_job_link`` could not reach: that proof is verification-only, so a
+# board with no published link field degraded to a ``listing-page#{id}`` fragment however
+# obvious its real shape was. These are the two derivations that PROPOSE a shape; nothing
+# here decides — ``discover._prove_job_link`` fetches two real jobs before any of it is
+# stored.
+
+_ATLASSIAN_RECORDS = [
+    {"id": 25583, "title": "Account Executive", "locations": ["Remote"]},
+    {"id": 25584, "title": "Engineer", "locations": ["Sydney"]},
+    {"id": 25585, "title": "Designer", "locations": ["Austin"]},
+]
+_ATLASSIAN_LINKS = [
+    "/company/careers",
+    "/company/careers/details/25583",
+    "/company/careers/details/25584",
+    "/company/careers/details/25585",
+    "https://www.atlassian.com/software/jira",
+]
+
+
+def test_a_boards_own_anchors_give_up_its_job_url_shape() -> None:
+    """Atlassian's rendered page links every posting at ``/careers/details/{id}``, and
+    until now nothing read it: the model's answer was stored, or a fragment was."""
+    derived = rs.derive_url_templates_from_links(
+        _ATLASSIAN_RECORDS, _ATLASSIAN_LINKS,
+        "https://www.atlassian.com", "www.atlassian.com", id_spec="id",
+    )
+    assert derived[0] == "https://www.atlassian.com/company/careers/details/{id}"
+
+
+def test_one_record_agreeing_is_a_coincidence_and_derives_nothing() -> None:
+    """``/careers/2024/`` matches a job id of ``2024`` by accident. Agreement across
+    several DIFFERENT records is the whole guard — without it the derivation would
+    manufacture a template out of a breadcrumb."""
+    records = [
+        {"id": 2024, "title": "a"}, {"id": 77771, "title": "b"},
+        {"id": 88881, "title": "c"}, {"id": 99991, "title": "d"},
+    ]
+    assert rs.derive_url_templates_from_links(
+        records, ["/careers/2024/", "/about"], "https://x.com", "x.com", id_spec="id",
+    ) == []
+
+
+def test_a_link_on_somebody_elses_host_is_never_the_job_link() -> None:
+    """Same-host is the same predicate ``repair_url_template`` uses. A partner site that
+    happens to carry our ids is not this board."""
+    links = [f"https://jobs.example.net/roles/{r['id']}" for r in _ATLASSIAN_RECORDS]
+    assert rs.derive_url_templates_from_links(
+        _ATLASSIAN_RECORDS, links,
+        "https://www.atlassian.com", "www.atlassian.com", id_spec="id",
+    ) == []
+
+
+def test_a_tracking_query_never_rides_into_a_stored_template() -> None:
+    """An anchor's query string is where boards put campaign parameters. Carrying one
+    into the recipe would replay somebody's UTM on every job link forever."""
+    links = [
+        f"/company/careers/details/{r['id']}?utm_campaign=spring"
+        for r in _ATLASSIAN_RECORDS
+    ]
+    derived = rs.derive_url_templates_from_links(
+        _ATLASSIAN_RECORDS, links,
+        "https://www.atlassian.com", "www.atlassian.com", id_spec="id",
+    )
+    assert derived == ["https://www.atlassian.com/company/careers/details/{id}"]
+
+
+def test_a_next_data_style_suffix_is_generalized_too() -> None:
+    """``/roles/181782.json`` spells the id with a suffix — the same reading
+    ``_board_url_segments`` already uses for the repair."""
+    records = [{"id": n, "title": "t"} for n in (181782, 181783, 181784)]
+    derived = rs.derive_url_templates_from_links(
+        records, [f"/_next/data/abc/roles/{r['id']}.json" for r in records],
+        "https://higher.gs.com", "higher.gs.com", id_spec="id",
+    )
+    assert derived[0] == "https://higher.gs.com/_next/data/abc/roles/{id}.json"
+
+
+# --- the board's own CODE, for a page that renders no job anchors at all -----
+
+_JANE_STREET_BUNDLE = (
+    'function displayFilteredJobs(){$(".jobs-container").empty(),'
+    'l="open"===t.status?`<a href="/join-jane-street/position/${t.id}/">`:'
+    '`<a href="/join-jane-street/closed-internship/${i}-${a}-${s}/">`}'
+    'search:`<a href="/search/?query=${q}">`'
+)
+
+
+def test_a_two_placeholder_template_is_not_a_job_link() -> None:
+    """Jane Street's bundle also builds a closed-internship slug out of three separate
+    values. Nothing we hold can reconstruct it from a job id, so it must not be offered
+    — the regex admits exactly one substitution by construction."""
+    found = rs.href_templates(_JANE_STREET_BUNDLE)
+    assert "/join-jane-street/position/{}/" in found
+    assert not any("closed-internship" in t for t in found)
+
+
+def test_the_template_nearest_the_careers_page_is_tried_first() -> None:
+    """A board's job page lives next to its listing page; the site-wide search box the
+    same bundle builds shares nothing with it. Ranking is all this decides — both are
+    still fetched and proved, and the search one is exactly what the proof rejects."""
+    records = [{"id": f"{800 + i}0002", "title": f"Role {i}"} for i in range(5)]
+    derived = rs.derive_url_templates_from_code(
+        records, rs.href_templates(_JANE_STREET_BUNDLE),
+        "https://www.janestreet.com", "www.janestreet.com",
+        id_spec="id", careers_path="/join-jane-street/open-roles/",
+    )
+    assert derived[0] == "https://www.janestreet.com/join-jane-street/position/{id}/"
+
+
+def test_a_code_template_pointing_off_host_is_dropped() -> None:
+    records = [{"id": f"{800 + i}0002", "title": "t"} for i in range(5)]
+    assert rs.derive_url_templates_from_code(
+        records, ["https://apply.elsewhere.com/j/{}"],
+        "https://www.janestreet.com", "www.janestreet.com", id_spec="id",
+    ) == []
+
+
+# --------------------------------------------------------------------------
+# the field-quality prune
+# --------------------------------------------------------------------------
+
+def _prune(records: list[Any], field_map: dict[str, str]) -> dict[str, str]:
+    pruned, _notes = rs._prune_unusable_optionals(records, field_map)
+    return pruned
+
+
+def test_a_field_that_renders_nothing_at_all_is_dropped() -> None:
+    """THE ATLASSIAN NULL COLUMN. ``locations`` is a list of plain strings, so
+    ``locations[0].city`` resolves to nothing on every record — and the container rule
+    could not see it, because with no useful values its ``if useful and …`` guard is
+    vacuously false. The mapping was KEPT and the column was NULL on 100% of rows,
+    forever, reported as a healthy board."""
+    records = [{"id": i, "title": "t", "locations": ["Remote"]} for i in range(6)]
+    assert "location" not in _prune(
+        records,
+        {"id": "id", "title": "title", "url": "/u", "location": "locations[0].city"},
+    )
+
+
+def test_the_mapping_that_DOES_render_survives_the_same_check() -> None:
+    """The other half, and the reason the prune renders through ``render_row_field``: a
+    list of plain strings is multi-value data the runner folds to ``"a; b"``."""
+    records = [{"id": i, "title": "t", "locations": ["Remote", "Sydney"]} for i in range(6)]
+    assert _prune(
+        records, {"id": "id", "title": "title", "url": "/u", "location": "locations"}
+    )["location"] == "locations"
+
+
+def test_a_description_identical_on_every_job_is_boilerplate_not_data() -> None:
+    """Prose byte-identical across twenty postings describes the EMPLOYER. Storing it is
+    worse than storing nothing: it fills the field, so nothing downstream asks again, and
+    every job on the board reads the same."""
+    boiler = "<p><strong>Working at Atlassian</strong></p><p>Atlassians can choose…</p>"
+    records = [{"id": i, "title": f"t{i}", "overview": boiler} for i in range(20)]
+    assert "description" not in _prune(
+        records, {"id": "id", "title": "title", "url": "/u", "description": "overview"}
+    )
+
+
+def test_a_description_that_differs_between_jobs_is_kept() -> None:
+    records = [{"id": i, "title": f"t{i}", "overview": f"About role {i}"} for i in range(20)]
+    assert _prune(
+        records, {"id": "id", "title": "title", "url": "/u", "description": "overview"}
+    )["description"] == "overview"
+
+
+def test_one_location_on_every_job_is_a_single_office_company_not_a_defect() -> None:
+    """THE FIELD THE DISTINCTNESS RULE MUST NOT TOUCH. A company with one office has one
+    location on every posting, and dropping it would delete correct data from exactly the
+    boards that are easiest to read. Same argument for ``posted_at``: a catalogue
+    published on one day is a real board with a real date."""
+    records = [
+        {"id": i, "title": f"t{i}", "city": "NYC", "posted": "2026-08-01"}
+        for i in range(20)
+    ]
+    pruned = _prune(records, {
+        "id": "id", "title": "title", "url": "/u",
+        "location": "city", "posted_at": "posted",
+    })
+    assert pruned["location"] == "city"
+    assert pruned["posted_at"] == "posted"
+
+
+def test_two_jobs_cannot_answer_the_distinctness_question_so_it_is_not_asked() -> None:
+    """The same role posted in two cities legitimately shares a description. Below the
+    sample floor the field is simply kept — an inconclusive probe degrades nothing."""
+    records = [{"id": i, "title": "t", "overview": "same"} for i in range(2)]
+    assert _prune(
+        records, {"id": "id", "title": "title", "url": "/u", "description": "overview"}
+    )["description"] == "overview"
+
+
+def test_every_drop_says_why_so_a_retry_can_repeat_it_to_the_model() -> None:
+    records = [{"id": i, "title": "t", "locations": ["Remote"]} for i in range(6)]
+    _pruned, notes = rs._prune_unusable_optionals(
+        records,
+        {"id": "id", "title": "title", "url": "/u", "location": "locations[0].city"},
+    )
+    assert len(notes) == 1
+    assert "locations[0].city" in notes[0] and "renders nothing" in notes[0]
+
+
+# --------------------------------------------------------------------------
+# the feedback parameter
+# --------------------------------------------------------------------------
+
+def test_the_re_ask_carries_what_we_measured_about_the_last_answer() -> None:
+    """Without this a second round is a re-roll of the same question over the same
+    bytes, which is the least likely way to get a different answer."""
+    plain = rs.build_message_params(_candidates("amazon"))["messages"][0]["content"]
+    assert "REJECTED" not in plain
+
+    retold = rs.build_message_params(
+        _candidates("amazon"), feedback="- HTTP 404 on https://x/jobs/1",
+    )["messages"][0]["content"]
+    assert "REJECTED" in retold
+    assert "HTTP 404 on https://x/jobs/1" in retold
+    # ...and it may not answer by emptying a required field, which is what the model
+    # does when it is told a url is wrong and given no way to say "I do not know".
+    assert "an empty string is not a correction" in retold
+
+
+@pytest.mark.asyncio
+async def test_select_request_forwards_the_feedback_to_the_one_paid_call() -> None:
+    calls: list[dict[str, Any]] = []
+    await rs.select_request(
+        _candidates("amazon"),
+        feedback="- that url 404s",
+        create_message=_answering({
+            "chosen_request_index": 0,
+            "records_path": "jobs",
+            "field_map": {
+                "id": "id_icims", "title": "title",
+                "url": "https://www.amazon.jobs{job_path}",
+                "location": None, "posted_at": None, "description": None,
+            },
+            "pagination": None,
+        }, calls=calls),
+    )
+    assert "that url 404s" in calls[0]["messages"][0]["content"]

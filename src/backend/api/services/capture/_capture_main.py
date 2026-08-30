@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import sys
 from typing import Any
 from urllib.parse import urljoin, urlsplit
@@ -104,6 +105,41 @@ _USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 )
+
+# --------------------------------------------------------------------------
+# the board document's own LINKS — the raw material of job-link derivation
+# --------------------------------------------------------------------------
+#
+# WHY THE RENDERED DOM AND NOT THE HOST-PIN BODY. ``_install_host_pin`` already fetches
+# the navigation document (``route.fetch(max_redirects=0)``) and throws it away, and
+# reusing that body looks free. It is the WRONG BYTES. That response is what the SERVER
+# sent, and the boards this whole feature exists for render their job list on the
+# client: measured 2026-08-30, ``atlassian.com/company/careers/all-jobs`` contains
+# ``careers/details/`` **0 times** in the served document and 233 times in the DOM after
+# the observation window. A harvest that reads the server body finds job links on
+# exactly the boards that never needed help.
+#
+# ``page.content()`` is ONE round-trip, taken AFTER ``_settle`` has already returned, so
+# it cannot shorten the watch or delay a body read. What crosses the pipe is hrefs, not
+# a document — a careers page is routinely 1-2 MB of markup and none of it but the links
+# has a reader.
+#
+# THE CHILD STILL DECIDES NOTHING. This is the same kind of mechanical filter as the
+# resource-type/content-type test in ``_record``: it extracts strings and ranks nothing.
+# Which of these links (if any) is a job link is a question the agent-free parent asks,
+# against the records it captured, and then PROVES by fetching two real jobs.
+_HREF_RE = re.compile(r"""\bhref\s*=\s*["']([^"'>\s]{1,400})["']""", re.IGNORECASE)
+_SCRIPT_SRC_RE = re.compile(
+    r"""<script\b[^>]*?\bsrc\s*=\s*["']([^"'>\s]{1,400})["']""", re.IGNORECASE
+)
+# Bounds, and they are pipe bounds rather than taste. A board with 2,000 postings on one
+# page publishes 2,000 anchors; the derivation needs a handful of records to AGREE on a
+# shape, so a few hundred is already far past the point of diminishing evidence.
+_MAX_BOARD_LINKS = 600
+# Scripts are a fallback source consulted only when a board publishes no job anchors at
+# all, and the parent FETCHES them one at a time through its SSRF-guarded client. This
+# is the list it chooses from, not the list it reads.
+_MAX_BOARD_SCRIPTS = 20
 
 # Request headers we refuse to carry back out of the browser. ``cookie`` and the
 # authorization family are session secrets that must never reach a stored recipe (a
@@ -301,6 +337,27 @@ async def _settle(page: Any, settle_ms: int) -> None:
         await page.wait_for_timeout(_SCROLL_PAUSE_MS)
 
 
+def _document_links(html: str) -> tuple[list[str], list[str]]:
+    """``(hrefs, script srcs)`` from one rendered document, deduped, order preserved.
+
+    Order is first-seen ON PURPOSE: a page's own navigation comes before its list, so a
+    truncated harvest keeps the chrome and loses the tail of the postings — which is the
+    harmless direction, because the derivation needs SEVERAL postings to agree and a few
+    hundred is already far more than enough.
+    """
+    def _unique(pattern: "re.Pattern[str]", limit: int) -> list[str]:
+        seen: dict[str, None] = {}
+        for match in pattern.finditer(html):
+            value = match.group(1).strip()
+            if value and value not in seen:
+                seen[value] = None
+                if len(seen) >= limit:
+                    break
+        return list(seen)
+
+    return _unique(_HREF_RE, _MAX_BOARD_LINKS), _unique(_SCRIPT_SRC_RE, _MAX_BOARD_SCRIPTS)
+
+
 async def run_capture(plan: dict[str, Any]) -> dict[str, Any]:
     """Open ``entry_url``, record its JSON XHR/fetch traffic, return the raw report."""
     entry_url = plan["entry_url"]
@@ -367,6 +424,14 @@ async def run_capture(plan: dict[str, Any]) -> dict[str, Any]:
                 page_title = await page.title()
             except Exception:  # noqa: BLE001 - a title is nice-to-have, never load-bearing
                 page_title = ""
+            # THE LINKS, read once, last, and never at the cost of the recording. A page
+            # that will not hand us its DOM (detached frame, navigation mid-read) simply
+            # publishes no job links, which downgrades the job link to the board's own
+            # listing page — the outcome we already ship today.
+            try:
+                board_links, board_scripts = _document_links(await page.content())
+            except Exception:  # noqa: BLE001 - see above; links are never load-bearing
+                board_links, board_scripts = [], []
         finally:
             await browser.close()
 
@@ -375,6 +440,8 @@ async def run_capture(plan: dict[str, Any]) -> dict[str, Any]:
         "page_title": page_title,
         "responses": captured,
         "responses_total": len(captured),
+        "board_links": board_links,
+        "board_scripts": board_scripts,
     }
 
 
