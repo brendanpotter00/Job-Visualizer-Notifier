@@ -93,6 +93,7 @@ Tunable constants (change here, nowhere else):
 | `HEARTBEAT_DEAD_MINUTES` | 15 | task writes every 5 min (`heartbeat.py:106`); app's own threshold is 10 min (`main.py:53`) |
 | `WARM_UP_HOURS` | 6 | reuses the staleness window — a company seeded less than one window ago has not had time to tick; see A1's warm-up guard |
 | `COVERAGE_MIN_FRACTION` | 0.5 | Check D floor — alert if fewer than half of enabled companies had a successful scrape in 24h. On the 2026-08-29 outage this read 5/133 (3.8%); anything under ~50% is a fleet-level failure, not per-company drift |
+| `GUARD_LATCH_MIN_RUNS` | 4 | Check A3 floor — the last N runs ALL guard-skipped (`skipped_update`) marks a latched-dark company. 4 = `SCRAPER_GUARD_MAX_CONSECUTIVE_SKIPS`(3, `incremental.py`) + 1, so a normally auto-releasing `partial_scrape` (which releases by the 3rd skip) can never reach it — only a non-releasing `empty_scrape` latch or a partial whose released run also fails. Validated on prod 2026-08-31: fires on apple (81 consecutive `empty_scrape` skips), zero other companies |
 
 > **A1 and A2 filter on `c.enabled` only — they do NOT filter on `c.visibility`**, so private
 > custom companies (E7, `visibility='user'`) are in scope. That is fine at the current cadence
@@ -103,12 +104,21 @@ Tunable constants (change here, nowhere else):
 > in A1 is a real signal. If the cadence is ever slowed past `STALE_AFTER_HOURS` again, add
 > `AND c.visibility = 'public'` here or raise the window — do not just mute the noise.
 
-**Check A1 — staleness** (companies whose last non-zero scrape is old or absent):
+**Check A1 — staleness** (companies whose last scrape that actually *wrote* is old or absent):
 
 ```sql
 WITH per_company AS (
   SELECT c.id AS company, c.ats, c.board_token, c.created_at,
-         max(sr.started_at::timestamptz) FILTER (WHERE sr.jobs_seen > 0) AS last_ok,
+         -- `last_ok` = the last run that both returned jobs AND wrote to
+         -- job_listings. A guard-tripped run (skipped_update=true) returned
+         -- rows but ingested NOTHING, so it is not an "ok" run — excluding it
+         -- is what makes A1 catch a company that keeps returning a small
+         -- non-zero count and is guard-blocked every run (the 2026-08-28 Apple
+         -- empty_scrape latch: jobs_seen=17>0 kept last_ok fresh, hiding a
+         -- 3.5-day outage). Check A3 below is the fast primary alarm for that
+         -- shape; this one-clause change makes A1 itself a backstop for it.
+         max(sr.started_at::timestamptz)
+           FILTER (WHERE sr.jobs_seen > 0 AND sr.skipped_update IS NOT TRUE) AS last_ok,
          max(sr.started_at::timestamptz) AS last_run,
          count(*) FILTER (WHERE sr.started_at::timestamptz > now() - interval '24 hours') AS runs_24h,
          count(*) FILTER (WHERE sr.started_at::timestamptz > now() - interval '24 hours'
@@ -156,6 +166,44 @@ suppressing "never ran yet" in A1 blinds nothing. A company younger than
 (Both queries returned exactly the same true positives with zero false positives
 across 133 companies on 2026-07-25 and 2026-08-05. A 404-storm source writes ~6
 rows per tick, so A2's "last 3" can span minutes, not 90 — that is why A1 exists.)
+
+**Check A3 — latched guard** (a company whose recent runs ALL got guard-skipped —
+it runs, returns a non-zero count, and writes **nothing** to `job_listings`).
+This is the check that was missing on 2026-08-28: the Apple scraper collapsed to
+17 jobs/run, tripped the `empty_scrape` guard every run, and stayed invisible to
+A1 (jobs_seen=17>0 kept `last_ok` fresh), A2 (17≠0), and D (counted as scraped-ok)
+for 3.5 days. Every prior check asks "did anything come back?"; this asks "did the
+run actually **do** anything?". See
+`docs/incidents/2026-08-28-apple-pagination-single-page.md`.
+
+```sql
+WITH lastN AS (
+  SELECT company, jobs_seen, skipped_update, guard_reason, started_at,
+         row_number() OVER (PARTITION BY company
+                            ORDER BY started_at::timestamptz DESC) AS rn
+  FROM scrape_runs
+)
+SELECT l.company, c.ats,
+       count(*) FILTER (WHERE l.skipped_update)  AS skipped_of_last4,
+       max(l.guard_reason)                       AS guard_reason,
+       min(l.jobs_seen) AS min_seen, max(l.jobs_seen) AS max_seen
+FROM lastN l
+JOIN companies c ON c.id = l.company
+WHERE c.enabled AND l.rn <= 4          -- 4 = GUARD_LATCH_MIN_RUNS
+GROUP BY l.company, c.ats
+HAVING count(*) = 4
+   AND count(*) FILTER (WHERE l.skipped_update) = 4
+ORDER BY l.company;
+```
+
+Alert **CRITICAL** (key `guard_latched:<company>`) on **any** row — a company that
+has run ≥4 times and written nothing to `job_listings` is dark regardless of what
+`jobs_seen` says, and (for `empty_scrape`) will NOT self-heal:
+`resolve_safety_guard`'s bounded auto-release counts `partial_scrape` only
+(`incremental.py:count_consecutive_partial_skips`), so `empty_scrape` latches
+forever until code is fixed. The 4-run floor (`GUARD_LATCH_MIN_RUNS`) is why a
+normally auto-releasing `partial_scrape` can never trip this: it releases by the
+3rd consecutive skip, so 4 consecutive skips means a non-releasing latch.
 
 **Check B — mass closures** (the 2026-03-29 incident closed 3,582 Apple jobs in
 ~6 minutes; see `docs/incidents/2026-03-29-mass-job-closure.md`):
@@ -216,6 +264,9 @@ LEFT JOIN (
   FROM scrape_runs
   WHERE started_at::timestamptz > now() - interval '24 hours'
     AND jobs_seen > 0
+    -- A guard-skipped run returned rows but wrote nothing, so it is not a
+    -- "successful scrape" for coverage purposes (same reasoning as A1/A3).
+    AND skipped_update IS NOT TRUE
 ) f ON f.company = c.id;
 ```
 
@@ -229,8 +280,10 @@ staleness list (Check A) can bury a total collapse; this number cannot.
 Severity — highest wins, and it decides the alert cadence (§4):
 
 - **CRITICAL** — an active outage: worker heartbeat dead (C), coverage collapse
-  (D), or a mass closure (B). These **re-alert on every run until resolved** —
-  never suppressed by the 72h window (§4.2).
+  (D), a mass closure (B), or a latched guard (A3 — a company that runs but writes
+  nothing). These **re-alert on every run until resolved** — never suppressed by
+  the 72h window (§4.2). A3 is text-only (no PR): a latched guard is a scraper
+  code bug a human must fix, not a board move the watchdog can repoint.
 - **DEGRADED** — per-company staleness / silent-zero (A) with the fleet still
   broadly healthy; carry the per-company list (id, ats, board_token, hours dark,
   signals). PR-able board moves dedupe on the open PR (§4.1).
@@ -249,7 +302,7 @@ Severity — highest wins, and it decides the alert cadence (§4):
    without merging naturally re-alerts on the next run.)
 2. **CRITICAL alerts re-text on EVERY run — no 72h suppression.** Keys
    `heartbeat_dead`, `coverage_collapse`, `mass_closure:global`,
-   `mass_closure:<company>`, `unknown_prod`. **Why this is not "spam":** the
+   `mass_closure:<company>`, `guard_latched:<company>`, `unknown_prod`. **Why this is not "spam":** the
    2026-08-29 incident — `heartbeat_dead` was texted once, then this gate
    suppressed it for 72h; that single text was missed and prod stayed dark 61h.
    An ongoing, actionable outage MUST keep alerting until it clears. Re-send every
@@ -417,6 +470,7 @@ Fix PR: <url>
 
 - One line per company: `id: dark Nd (<old evidence> -> <destination or verdict>)`.
 - Non-PR findings get their own line (`worker heartbeat DEAD 47m`,
+  `apple: guard-latched, 4/4 runs skipped (empty_scrape, 17 jobs) — scraper writing nothing`,
   `could not determine prod health (MCP error)`, `board not found — needs a human`).
 - **CRITICAL escalation (§4.2):** when a CRITICAL key is still active on a repeat
   run, lead with the elapsed duration and a day counter so each send is visibly
@@ -443,8 +497,12 @@ Append exactly one line to `~/Library/Application Support/jvn-health-watch/heart
 (create the directory if needed):
 
 ```
-2026-08-05T16:03Z verdict=DEGRADED severity=degraded checked=133 coverage=131/133 stale=fireworksai,thinkingmachines mass_closure=none heartbeat_min=3 pr=https://github.com/.../pull/NNN texted=1 suppressed=none
+2026-08-05T16:03Z verdict=DEGRADED severity=degraded checked=133 coverage=131/133 stale=fireworksai,thinkingmachines guard_latched=none mass_closure=none heartbeat_min=3 pr=https://github.com/.../pull/NNN texted=1 suppressed=none
 ```
+
+`guard_latched=` lists any Check A3 companies (comma-separated ids, or `none`) —
+a run where `guard_latched=apple` but `coverage` and `stale` look fine is exactly
+the 2026-08-28 blind spot reading correctly at last.
 
 Always include `severity=` (ok|degraded|critical|unknown) and `coverage=<scraped_ok_24h>/<enabled>`
 (Check D) — a collapse then reads at a glance in the log, e.g. a worker-death run is

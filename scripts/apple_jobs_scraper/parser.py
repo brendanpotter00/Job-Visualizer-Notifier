@@ -241,7 +241,23 @@ def extract_job_id_from_url(url: str) -> Optional[str]:
 
 async def check_has_next_page(page: Page) -> Optional[bool]:
     """
-    Check if there's a next page of results
+    Check if there's a next page of results.
+
+    Select by the ACCESSIBLE NAME, not by text content. Apple's "Next" control
+    is an icon-only chevron ``<button class="icon icon-chevronend">`` whose
+    visible text is empty (``textContent === ""``); its label lives only in
+    ``aria-label="Next Page"``. The old probe ``button:has-text("Next Page")``
+    matches on text content, so it found NOTHING on every page, returned False,
+    and ``scrape_query`` stopped after page 1 — collecting ~17 of ~3,350 jobs on
+    every run. That silent single-paging ran for 3.5 days
+    (2026-08-28 → 2026-08-31) before it was caught, because the guard blocked
+    the empty result rather than alarming on it. Full write-up:
+    ``docs/incidents/2026-08-28-apple-pagination-single-page.md``.
+
+    Honour BOTH of Apple's disabled encodings. On the last page Apple sets the
+    Next button ``disabled`` AND ``aria-disabled="true"``; the ``disabled``
+    attribute is present as an EMPTY STRING (``disabled=""``), so test for its
+    presence (``is None``), never its truthiness.
 
     Args:
         page: Playwright page object
@@ -252,16 +268,48 @@ async def check_has_next_page(page: Page) -> Optional[bool]:
         None if check failed (caller should handle - e.g., retry or stop with warning)
     """
     try:
-        next_button = await page.query_selector('button:has-text("Next Page")')
+        next_button = await page.query_selector('button[aria-label="Next Page"]')
         if not next_button:
             return False
 
-        # Check if button is disabled
-        is_disabled = await next_button.get_attribute("disabled")
-        return is_disabled is None
+        # Present-but-disabled is the last page. `disabled` arrives as "" (an
+        # empty string, which is falsy) when set, so `is None` is the only
+        # correct presence test; `aria-disabled` is the redundant a11y encoding.
+        disabled = await next_button.get_attribute("disabled")
+        aria_disabled = await next_button.get_attribute("aria-disabled")
+        return disabled is None and aria_disabled != "true"
 
     except Exception as e:
         logger.error(f"Failed to check for next page: {e}")
+        return None
+
+
+async def get_total_pages(page: Page) -> Optional[int]:
+    """Apple publishes its own result-page count; read it as a board-size oracle.
+
+    The pagination control renders the total number of result pages in
+    ``.rc-pagination-total-pages`` (``data-autom="paginationTotalPages"``) — e.g.
+    ``226`` for the US board. ``scrape_query`` reads it once on page 1 and, when
+    the walk terminates far short of it, logs a LOUD truncation error. That is
+    what turns "``check_has_next_page`` said stop after page 1" from something
+    indistinguishable from a genuine one-page board into an alarming signal — the
+    exact indistinguishability that let the 2026-08-28 break run for 3.5 days.
+
+    Returns None when the element is absent or unparseable. The caller treats
+    None as "board size unknown — cannot assert truncation", never as zero, so a
+    future markup change here degrades to "no cross-check", not to a false alarm.
+    """
+    try:
+        el = await page.query_selector(".rc-pagination-total-pages")
+        if el is None:
+            return None
+        text = await el.text_content()
+        if not isinstance(text, str):
+            return None
+        raw = text.replace(",", "").strip()
+        return int(raw) if raw.isdigit() else None
+    except Exception as e:
+        logger.warning(f"Could not read Apple total-pages count: {e}")
         return None
 
 

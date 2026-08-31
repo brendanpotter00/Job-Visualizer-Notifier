@@ -45,6 +45,7 @@ from .parser import (
     extract_job_cards_from_list,
     extract_job_id_from_url,
     check_has_next_page,
+    get_total_pages,
     parse_card_posted_date,
     JobCardExtractionError,
 )
@@ -56,6 +57,14 @@ logger = logging.getLogger(__name__)
 # because ``_detail_posted_date`` keys the whole list-vs-detail decision on its
 # PRESENCE, not on its truthiness — see there.
 _DETAIL_POSTED_KEY = "posted_on"
+
+# Loud-truncation slack. ``scrape_query`` reads Apple's own advertised total
+# page count once (``get_total_pages``) and, if the walk ends more than this
+# many pages short of it, logs an ERROR. The slack absorbs the board
+# legitimately drifting by a page or two during a ~20-minute walk; a real
+# pagination break (stop after page 1 of ~226) overshoots it by two orders of
+# magnitude. See docs/incidents/2026-08-28-apple-pagination-single-page.md.
+_TRUNCATION_PAGE_SLACK = 2
 
 
 def _detail_posted_date(job_data: Dict[str, Any], job_id: str) -> Optional[str]:
@@ -232,6 +241,14 @@ class AppleJobsScraper(BaseScraper):
         consecutive_errors = 0
         max_consecutive_errors = 3
 
+        # Loud-truncation cross-check (see _TRUNCATION_PAGE_SLACK). Apple's own
+        # advertised page count, read once on page 1; the number of pages we
+        # actually collected from; and whether we stopped because we hit the
+        # caller's max_jobs cap (a deliberate short walk, not a truncation).
+        expected_total_pages: Optional[int] = None
+        pages_scraped = 0
+        stopped_for_max_jobs = False
+
         page = await self.context.new_page()
 
         try:
@@ -280,6 +297,17 @@ class AppleJobsScraper(BaseScraper):
 
                 logger.info(f"Found {len(job_cards)} jobs on page {page_num}")
 
+                # Read Apple's advertised total-page count once, on page 1, as a
+                # board-size oracle for the post-loop truncation check.
+                if page_num == 1:
+                    expected_total_pages = await get_total_pages(page)
+                    if expected_total_pages is not None:
+                        logger.info(
+                            f"Apple board advertises {expected_total_pages} result pages"
+                        )
+
+                pages_scraped += 1
+
                 # Filter jobs by title keywords
                 filtered_jobs = [
                     job
@@ -297,6 +325,7 @@ class AppleJobsScraper(BaseScraper):
                 if max_jobs and len(all_jobs) >= max_jobs:
                     logger.info(f"Reached max jobs limit: {max_jobs}")
                     all_jobs = all_jobs[:max_jobs]
+                    stopped_for_max_jobs = True
                     break
 
                 # Check for next page
@@ -316,6 +345,29 @@ class AppleJobsScraper(BaseScraper):
 
         finally:
             await page.close()
+
+        # LOUD TRUNCATION CHECK. If Apple told us the board is N pages and we
+        # walked far fewer — and we did not deliberately stop for max_jobs — the
+        # pagination walk was truncated. This is the signal that was missing on
+        # 2026-08-28: a stop-after-page-1 produced a clean-looking 17-job result
+        # that the safety guard blocked silently for 3.5 days. An ERROR here is
+        # greppable (Railway @level:error) and distinct from a genuine one-page
+        # board. It does NOT raise: the incremental guard remains the backstop
+        # that prevents mass closure; this only makes the failure visible.
+        if (
+            expected_total_pages is not None
+            and not stopped_for_max_jobs
+            and expected_total_pages - pages_scraped > _TRUNCATION_PAGE_SLACK
+        ):
+            logger.error(
+                "SCRAPER TRUNCATION (apple): walked %d of %d advertised pages "
+                "(%d jobs collected). A large board that stops early is the "
+                "2026-08-28 single-page failure signature — verify "
+                "check_has_next_page against Apple's live pagination markup.",
+                pages_scraped,
+                expected_total_pages,
+                len(all_jobs),
+            )
 
         logger.info(f"Completed Apple scrape: {len(all_jobs)} jobs collected")
         return all_jobs
