@@ -310,7 +310,14 @@ anti-join invariants the `/api/jobs` INNER JOIN depends on — runbook in
   3. **Auto-scraper loop** (`services/auto_scraper.py`) — asyncio task that periodically spawns subprocesses for the script-ats scrapers (Google, Apple, Microsoft, Amazon, TikTok).
 - **Scraper subprocess**: Runs `scripts/run_scraper.py` via `asyncio.create_subprocess_exec`
 - **Job lifecycle (first seen → missed → closed → reopened)**: every `fetch_*_company.py` leaf task writes through `scripts/shared/database.py`, so the lifecycle rules are shared with the script scrapers and documented once in **`scripts/CLAUDE.md` § Job Lifecycle**. Read it before assuming anything about `first_seen_at`, `closed_on` or `consecutive_misses` — in particular, `first_seen_at` is stamped once at INSERT and is **never** updated when a closed job reopens, which is what makes it a safe keyset sort key (`api/pagination.py`). **What it now holds is the effective posted date, not "when we first saw it"** — seeded at INSERT from the board's own posting date when the board publishes a real one, from first sight otherwise; `created_at` is the true insert time and `posted_on` the raw board value. A board that publishes a bucket (`"Posted 30+ Days Ago"`) has published no date, and we never synthesise one.
-- **DB watchdog** (`services/db_watchdog.py`): daemon thread probing the DB on fresh connections with hard wall-clock deadlines; exits the process after ~5-6 sustained minutes of unreachability so Railway restarts the container (see `railway.toml` and the 2026-08-10 incident doc).
+- **Two liveness watchdogs, partitioning the failure space** (both daemon threads that `os._exit` so Railway `ON_FAILURE` restarts the container; `/health/worker` is Railway's `healthcheckPath` but gates deploy cutover only and never restarts a live container):
+  - **DB watchdog** (`services/db_watchdog.py`, exit 70): probes the DB on fresh connections with hard wall-clock deadlines; exits after ~5-6 sustained minutes of **DB unreachability** (see the 2026-08-10 incident doc).
+  - **Worker watchdog** (`services/worker_watchdog.py`, exit 75): reads `MAX(worker_heartbeats.at)` and exits when the worker heartbeat is stale past ~15 min **while the DB is reachable** — i.e. the executor is **wedged** but the DB is fine (the 2026-08-29 incident: `run_worker_async` hung mid-drain after a transient DB blip and never returned; nothing restarted it for 61h). Keys on `worker_heartbeats`, NOT `procrastinate_events`, because the periodic deferrer keeps writing events even with a dead executor. An unreachable DB is inconclusive here and left to the DB watchdog. Tunable via `WORKER_WATCHDOG_*` env vars; disabled under pytest by a conftest fixture.
+    ⚠️ **It reads `MAX(at)` across ALL lanes, so it restarts on BOTH lanes dying, not one.**
+    A single dead lane keeps `MAX(at)` fresh from its survivor and this watchdog stays
+    quiet — `/health/worker` still 503s on it (that probe is per-lane), but nothing
+    auto-restarts. Making the restart per-lane means grouping by `lane`, which is a
+    deliberate follow-up rather than part of the lane split.
 
 ### Schema migrations
 

@@ -50,6 +50,23 @@ class Settings(BaseSettings):
     # when booting locally without Postgres.
     db_boot_connect_retry_seconds: float = Field(default=600.0, ge=0)
 
+    # Worker watchdog (services/worker_watchdog.py): exits the process when the
+    # Procrastinate worker stops advancing worker_heartbeats.at while the DB is
+    # reachable, so Railway restarts the container. Catches a *wedged* executor
+    # (2026-08-29 incident: run_worker_async hung mid-drain and never returned,
+    # so the lifespan supervisor never restarted it — 61h silent outage). The
+    # heartbeat task fires every 5 min; stale_after 15 min = 3 missed beats, a
+    # margin over a legitimately busy worker (jobs are capped at 120s). The
+    # window requires the staleness to persist before exiting. startup_grace
+    # gives a freshly-restarted worker time to write its first beat before a
+    # pre-restart (stale) row is judged. Unreachable DB is db_watchdog's job,
+    # not this one's.
+    worker_watchdog_enabled: bool = True
+    worker_watchdog_probe_interval_seconds: float = Field(default=60.0, gt=0)
+    worker_watchdog_stale_after_seconds: float = Field(default=900.0, gt=0)
+    worker_watchdog_failure_window_seconds: float = Field(default=120.0, gt=0)
+    worker_watchdog_startup_grace_seconds: float = Field(default=600.0, ge=0)
+
     # Auth0 authentication
     auth0_domain: str | None = None
     auth0_audience: str | None = None
