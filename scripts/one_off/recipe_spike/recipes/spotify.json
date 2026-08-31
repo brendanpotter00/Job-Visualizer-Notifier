@@ -1,0 +1,31 @@
+{
+  "recipe_version": 1,
+  "target": "spotify",
+  "kind": "http_json",
+  "entrypoint": {
+    "method": "GET",
+    "url": "https://api.lifeatspotify.com/wp-json/animal/v1/job/search",
+    "headers": {}
+  },
+  "pagination": { "style": "none" },
+  "records_path": "result",
+  "fields": {
+    "id": "id",
+    "title": "text",
+    "location": "locations.0.location",
+    "url": "https://www.lifeatspotify.com/jobs/{id}",
+    "department": "main_category.name",
+    "job_type": "job_type.name"
+  },
+  "expected_min_jobs": 30,
+  "discovered_at": "2026-08-05T00:00:00Z",
+  "discovered_by": "claude-fable-5 + local playwright (capture.py)",
+  "notes": [
+    "lifeatspotify.com is Next.js over a headless WordPress; the jobs page fetches this wp-json 'animal/v1/job/search' endpoint once and paginates client-side ('Load more jobs'). The endpoint returns EVERY open job in one response — limit/per_page/page/offset params are ignored (verified: all return the identical full set).",
+    "Total oracle: __NEXT_DATA__ allFilters.categories positions sum to exactly the result count (90 at discovery); locations sum higher (120) because 29/90 jobs list multiple locations — never use locations as the completeness check.",
+    "id is a URL slug, not a numeric ID; detail URL is https://www.lifeatspotify.com/jobs/{id} (verified 200).",
+    "No posted/created date exists anywhere in the payload — first_seen_at in our DB is the only freshness signal for Spotify.",
+    "location maps to the FIRST of possibly several locations; full list lives in the raw 'locations' array. job_type is missing/false on some records (7/90 at discovery) and maps to None.",
+    "expected_min_jobs=30: one third of the discovery-time total (90). Spotify is a 7000+ employee public company; fewer than 30 open roles globally would be extraordinary and far more likely a truncated/filtered response, e.g. an accidental category filter ('c' param) which returns subsets."
+  ]
+}

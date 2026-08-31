@@ -361,7 +361,12 @@ def list_enabled_companies(conn: Connection, ats: str) -> List[Dict[str, Any]]:
 
     cursor.execute(
         "SELECT id, board_token, provider_config FROM companies "
-        "WHERE ats = %s AND enabled = true "
+        # Custom-source leak fix (E7): the six public ATS fan-outs must only pick
+        # up curated ``visibility='public'`` companies. A private custom company
+        # (visibility='user') shares the same ``ats`` value as a public one, so
+        # without this filter it would ride the public greenhouse/workday/... cron
+        # instead of its own dedicated custom_ats_fetch queue.
+        "WHERE ats = %s AND enabled = true AND visibility = 'public' "
         "ORDER BY id",
         (ats,),
     )
@@ -390,7 +395,9 @@ def list_enabled_eightfold_companies(conn: Connection) -> List[Dict[str, Any]]:
     cursor = conn.cursor()
     cursor.execute(
         "SELECT id, board_token, provider_config FROM companies "
-        "WHERE ats = 'eightfold' AND enabled = true "
+        # E7 leak fix, same reasoning as list_enabled_companies: the public
+        # Eightfold fan-out must skip private custom companies.
+        "WHERE ats = 'eightfold' AND enabled = true AND visibility = 'public' "
         "ORDER BY id"
     )
     return [dict(row) for row in cursor.fetchall()]
@@ -871,14 +878,14 @@ def record_scrape_run(conn: Connection, run_data: ScrapeRun) -> None:
         INSERT INTO {_RUNS_TABLE} (
             run_id, company, started_at, completed_at, mode,
             jobs_seen, new_jobs, closed_jobs, details_fetched, error_count,
-            skipped_update, guard_reason
-        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            skipped_update, guard_reason, source_id, success
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """,
         (
             run_data.run_id, run_data.company, run_data.started_at, run_data.completed_at,
             run_data.mode, run_data.jobs_seen, run_data.new_jobs, run_data.closed_jobs,
             run_data.details_fetched, run_data.error_count, run_data.skipped_update,
-            run_data.guard_reason
+            run_data.guard_reason, run_data.source_id, run_data.success,
         )
     )
 

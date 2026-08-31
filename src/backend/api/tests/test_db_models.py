@@ -34,6 +34,11 @@ def test_all_tables_present():
         "job_enrichment",
         "job_freshness",
         "enrichment_ticks",
+        # E7 custom company sources (Phase 1).
+        "user_companies",
+        "company_scripts",
+        "company_harvests",
+        "company_add_attempts",
     }, f"Unexpected metadata.tables: {sorted(names)}"
 
 
@@ -78,6 +83,9 @@ def test_scrape_runs_columns():
         "error_count",
         "skipped_update",
         "guard_reason",
+        # E7: per-company namespace + boolean outcome for custom-company runs.
+        "source_id",
+        "success",
     }
 
 

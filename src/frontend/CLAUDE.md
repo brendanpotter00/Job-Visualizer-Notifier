@@ -141,6 +141,39 @@ own eventual signup. Event taxonomy (custom events live in `features/analytics/e
 - `VITE_POSTHOG_KEY` — PostHog project key (optional; analytics off when unset)
 - `VITE_POSTHOG_HOST` — ingestion host (optional; defaults to `/ingest`)
 
+## Custom company sources (My Companies)
+
+Flag-gated, currently a **resolve-only preview**: the `/my-companies` page takes a pasted
+careers URL, asks the backend whether a supported job board sits behind it, and shows what it
+found. Nothing is persisted — no company is added, no scraping is scheduled. The "save it"
+half needs backend endpoints that do not exist yet.
+
+- **Two independent flags.** `VITE_CUSTOM_COMPANIES_ENABLED` only reveals the page; the
+  backend has its own `CUSTOM_COMPANY_SOURCES_ENABLED` setting and answers **503** while it
+  is off. Both must be on for the flow to work. With the frontend flag off there is no nav
+  entry, no route (`App.tsx` skips registering it), and no network calls.
+- **One endpoint:** `POST /api/companies/resolve` (Bearer auth, 10 requests/60s per user).
+  It reaches the backend through the existing `api/companies.ts` Vercel proxy — no new proxy.
+- **Two different 422 bodies.** The resolver's own failure is *flat*
+  (`{reason, finalUrl, hops}`); FastAPI request-validation failure is
+  `{detail: [...]}` with no `reason`. `features/userCompanies/resolveErrors.ts` is the single
+  place that tells them apart and owns all user-facing copy — add new `reason` codes there
+  (the `Record<ResolveFailureReason, …>` map makes a missing one a compile error).
+- **200 does not mean success.** `probe.ok === false` is a real 200 response: the board was
+  identified but reading it failed. It renders as its own state, not as "0 open jobs".
+
+**Key files** (relative to `src/frontend/src/`):
+- `config/customCompanies.ts` — the flag (`VITE_CUSTOM_COMPANIES_ENABLED === 'true'`)
+- `features/userCompanies/userCompaniesApi.ts` — RTK Query slice; `baseUrl: '/api'` on
+  purpose, so follow-up `users/companies` endpoints can join it
+- `features/userCompanies/resolveErrors.ts` — error-code → copy mapping
+- `components/my-companies/` — form, result, and error displays
+- `pages/MyCompaniesPage/` — the page (signed-out gate + form + results)
+
+**Env vars** (go in `src/frontend/.env.local` — see Gotcha #2):
+- `VITE_CUSTOM_COMPANIES_ENABLED` — set to exactly `true` to show the My Companies page
+  (optional; **defaults to off**, and any other value keeps it off)
+
 ## Frontend Foundations
 
 All paths below are relative to `src/frontend/src/`.

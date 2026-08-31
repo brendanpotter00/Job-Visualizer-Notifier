@@ -106,6 +106,11 @@ logger = logging.getLogger(__name__)
 # * ``hours_stale`` is computed in Postgres from ``now()`` rather than in
 #   Python. Both sides of the subtraction are ``timestamptz``, so there is
 #   no naive/aware mix-up and no client-clock dependency.
+# * ``c.visibility = 'public'`` excludes private custom companies (E7). Those
+#   run on a 24h cadence, so against the 24h staleness threshold they would flap
+#   "stale" and pollute this report — the exact signal that pages the owner
+#   about a mass-closure. A private company's health is the owner's concern via
+#   its own per-company ``health_state``, not this fleet-wide dead-scraper probe.
 _STALE_QUERY = """
     SELECT
         c.id  AS company,
@@ -119,6 +124,7 @@ _STALE_QUERY = """
     LEFT JOIN job_freshness f
         ON f.source_id = j.source_id AND f.id = j.id
     WHERE c.enabled
+      AND c.visibility = 'public'
     GROUP BY c.id, c.ats
     ORDER BY c.id
 """

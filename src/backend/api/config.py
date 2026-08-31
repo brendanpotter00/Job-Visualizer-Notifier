@@ -134,6 +134,15 @@ class Settings(BaseSettings):
     # routers/internal_enrichment.py.
     enrichment_custom_per_company_cap: int = Field(default=500, gt=0)
 
+    # Custom company sources (E7). Gates the whole user-pasted-careers-URL
+    # feature: today only ``POST /api/companies/resolve`` (which 503s with the
+    # flag off), later the recipe runtime and the self-serve add path. Default
+    # OFF so the code can ship dark; rollback is flipping this back to False.
+    # NOTE: ``Settings.model_config`` sets ``extra="ignore"``, so a typo'd env
+    # var name would silently leave this False — the name is pinned by
+    # ``api/tests/test_companies_resolve_endpoint.py``.
+    custom_company_sources_enabled: bool = False
+
     # PostHog analytics
     posthog_project_token: str | None = None
     posthog_host: str = "https://us.i.posthog.com"
@@ -144,6 +153,17 @@ class Settings(BaseSettings):
     # for why an in-memory limiter is appropriate here.
     feedback_rate_limit_max: int = Field(default=5, gt=0)
     feedback_rate_limit_window_seconds: int = Field(default=60, gt=0)
+
+    # POST /api/companies/resolve rate limit (per authenticated user, sliding
+    # window). Unlike feedback this route is authenticated, so the key is the
+    # user id rather than a spoofable client IP. The limit is not about spam: one
+    # call fans out to as many as 36 outbound requests and occupies a slot in
+    # url_guard's 4-thread DNS pool for as long as a hostile host's resolver
+    # cares to stall, so an unlimited authenticated caller is a self-inflicted
+    # denial of service on the whole process. 10/60s is far more than the paste-
+    # one-URL-and-look-at-it flow needs.
+    resolve_rate_limit_max: int = Field(default=10, gt=0)
+    resolve_rate_limit_window_seconds: int = Field(default=60, gt=0)
 
     # Server
     port: int = 8080

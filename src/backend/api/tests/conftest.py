@@ -252,7 +252,9 @@ def _insert_user(conn, user: dict) -> None:
 def _clear_tables(conn) -> None:
     """Truncate test tables between tests."""
     cursor = conn.cursor()
-    cursor.execute(sql.SQL("TRUNCATE {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {} CASCADE").format(
+    cursor.execute(sql.SQL(
+        "TRUNCATE {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {} CASCADE"
+    ).format(
         sql.Identifier("feature_upvotes"),
         sql.Identifier("features"),
         # feedback FKs users with ON DELETE SET NULL, so a users CASCADE would
@@ -262,6 +264,12 @@ def _clear_tables(conn) -> None:
         # user_visits FKs users with ON DELETE CASCADE, so a users CASCADE would
         # already clear it; list it explicitly for clarity / future-proofing.
         sql.Identifier("user_visits"),
+        # E7 custom-company tables. user_companies FKs users (CASCADE), the
+        # other three are soft-linked (no FK) so they need explicit truncation.
+        sql.Identifier("user_companies"),
+        sql.Identifier("company_scripts"),
+        sql.Identifier("company_harvests"),
+        sql.Identifier("company_add_attempts"),
         sql.Identifier("job_listings"),
         sql.Identifier("scrape_runs"),
         sql.Identifier("admins"),
@@ -322,7 +330,9 @@ def disable_db_watchdog():
 @pytest.fixture(scope="module")
 def test_app(db_conn):
     """FastAPI test app with database connection wired up (no auto-scraper)."""
-    from api.routers import admin, companies, feedback, features, jobs, jobs_qa, users
+    from api.routers import (
+        admin, companies, feedback, features, jobs, jobs_qa, user_companies, users,
+    )
     from api.dependencies import get_db
     from api.auth.dependencies import (
         get_current_user,
@@ -334,6 +344,7 @@ def test_app(db_conn):
     app.include_router(jobs.router, prefix="/api/jobs")
     app.include_router(jobs_qa.router, prefix="/api/jobs-qa")
     app.include_router(users.router, prefix="/api/users")
+    app.include_router(user_companies.router, prefix="/api/users/companies")
     app.include_router(features.router, prefix="/api/features")
     app.include_router(companies.router, prefix="/api/companies")
     app.include_router(feedback.router, prefix="/api/feedback")

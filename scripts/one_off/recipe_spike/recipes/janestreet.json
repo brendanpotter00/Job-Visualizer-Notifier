@@ -1,0 +1,36 @@
+{
+  "recipe_version": 1,
+  "target": "janestreet",
+  "kind": "http_json",
+  "entrypoint": {
+    "method": "GET",
+    "url": "https://www.janestreet.com/jobs/main.json",
+    "headers": {}
+  },
+  "pagination": { "style": "none" },
+  "records_path": "",
+  "fields": {
+    "id": "id",
+    "title": "position",
+    "location": "city",
+    "url": "https://www.janestreet.com/join-jane-street/position/{id}/",
+    "department": "category",
+    "team": "team",
+    "employment_type": "availability",
+    "min_salary": "min_salary",
+    "max_salary": "max_salary"
+  },
+  "expected_min_jobs": 100,
+  "discovered_at": "2026-08-05T00:00:00Z",
+  "discovered_by": "claude-fable-5 + local playwright (capture.py) + httpx probes",
+  "notes": [
+    "Hand-rolled site, but the open-roles SPA fetches its entire inventory as one flat JSON array from /jobs/main.json (no auth, no cookies, plain GET, 200 via httpx).",
+    "Single full listing: 225 records at discovery, one per (position, city), distinct numeric ids (Greenhouse-style ...002 ids). No pagination anywhere.",
+    "The records carry no URL; detail pages verified at https://www.janestreet.com/join-jane-street/position/{id}/ (200). Slug/suffix variants 404.",
+    "The visible list at /join-jane-street/open-roles/?type=... DEFAULTS TO A NEW YORK FILTER (94 rows). main.json is the superset across NYC/LDN/HKG/SGP — rendered NYC ids reconciled 94/94 against main.json city=NYC.",
+    "expected_min_jobs=100: total was 225 at discovery, and the largest single-city subset (NYC=94) sits below the floor, so a silent partial (one-city regression) trips the guard instead of passing.",
+    "Anti-scrape quirk: 3 records ('Machine Learning Researcher') spell M/L/R with Lisu homoglyphs (U+A4DF/U+A4E1/U+A4E3). Visually identical, but breaks naive string matching on title.",
+    "city values are codes (NYC/LDN/HKG/SGP), not full names. availability values: 'Full-Time: Experienced', 'Full-Time: New Grad', 'Summer Internship', 'Winter Internship', 'Winter Co-Op', 'Summer Internship (December-February)'.",
+    "No posted-at/created-at field exists anywhere in the payload — freshness must come from first_seen_at on our side."
+  ]
+}

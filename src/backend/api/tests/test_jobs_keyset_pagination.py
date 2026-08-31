@@ -761,6 +761,11 @@ def test_legacy_call_emits_the_exact_pre_keyset_sql(db_conn):
     where, expected_params = db_service._build_where(
         company=None, status="OPEN", companies=["google"],
         category=None, level=None, exclude_hidden_companies=True,
+        # E7 leak fix: the public read now ALSO excludes private
+        # visibility='user' companies unconditionally. This is a permanent
+        # predicate on the public path, not keyset machinery — the ORDER BY and
+        # everything else below stays the pre-keyset shape.
+        exclude_user_companies=True,
     )
     expected_sql = sql.SQL(
         "SELECT {} FROM {}{} {} ORDER BY f.last_seen_at DESC LIMIT %s OFFSET %s"

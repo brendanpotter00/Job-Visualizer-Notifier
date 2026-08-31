@@ -1229,3 +1229,95 @@ class AdminEnrichmentCorrectionResponse(BaseModel):
     human_corrected_at: datetime | None = None
     human_corrected_by: str | None = None
     human_decision: str | None = None        # NULL | 'corrected' | 'confirmed_correct'
+
+
+class ResolveUrlRequest(BaseModel):
+    """Body for POST /api/companies/resolve.
+
+    ``extra="forbid"`` so a client that misspells the field gets a 422 instead
+    of silently resolving nothing. 2048 is the practical URL ceiling; anything
+    longer is rejected before it reaches the SSRF guard.
+    """
+
+    model_config = ConfigDict(
+        alias_generator=to_camel, populate_by_name=True, extra="forbid"
+    )
+
+    url: str = Field(min_length=1, max_length=2048)
+
+
+class AtsCandidateResponse(BaseModel):
+    """An ATS board we recognized, in the shape the backend clients consume."""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    ats: str
+    board_token: str
+    provider_config: dict[str, str] = Field(default_factory=dict)
+    source_url: str
+
+
+class ProbeResultResponse(BaseModel):
+    """What the real ATS client returned when we called the candidate board.
+
+    ``error`` carries the underlying message rather than a bare flag — "board
+    not found" and "timed out" need different answers from the user.
+    """
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    ok: bool
+    job_count: int = Field(ge=0)
+    error: str | None = None
+
+
+class ResolveUrlResponse(BaseModel):
+    """200 body for POST /api/companies/resolve. Persists nothing."""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    candidate: AtsCandidateResponse
+    probe: ProbeResultResponse
+    via: str                       # 'direct' | 'redirect' | 'embedded'
+    hops: list[str] = Field(default_factory=list)
+    final_url: str
+
+
+class AddUserCompanyRequest(BaseModel):
+    """Body for POST /api/users/companies — the careers URL to add.
+
+    Same shape + caps as ``ResolveUrlRequest`` (``extra='forbid'`` so a
+    misspelled field is a 422, 2048-char URL ceiling before the SSRF guard).
+    """
+
+    model_config = ConfigDict(
+        alias_generator=to_camel, populate_by_name=True, extra="forbid"
+    )
+
+    url: str = Field(min_length=1, max_length=2048)
+
+
+class UserCompanyResponse(BaseModel):
+    """One private custom company the caller owns.
+
+    ``sourceId`` is the ``custom:<id>`` namespace; ``healthState`` is
+    'unverified' for a Phase-1 company (no oracle yet, so its harvests can never
+    be proven complete). ``openJobCount`` and ``lastSuccessAt`` render the list.
+    """
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    id: str
+    display_name: str
+    ats: str
+    board_token: str
+    source_id: str
+    health_state: str | None = None
+    open_job_count: int = Field(ge=0)
+    last_success_at: datetime | None = None
+
+
+class UserCompanyListResponse(BaseModel):
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    companies: list[UserCompanyResponse]

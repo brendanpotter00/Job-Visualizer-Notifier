@@ -8,7 +8,12 @@ import { WhyPage } from '../pages/WhyPage/WhyPage.tsx';
 import { AccountPage } from '../pages/AccountPage/AccountPage.tsx';
 import { SavedFiltersPage } from '../pages/SavedFiltersPage';
 import { VoteFeaturesPage } from '../pages/VoteFeaturesPage';
+import { MyCompaniesPage } from '../pages/MyCompaniesPage';
+// Imported from its own module (not the barrel) so the flag-gate test can mock
+// each page independently.
+import { MyCompanyTrendPage } from '../pages/MyCompaniesPage/MyCompanyTrendPage';
 import { ROUTES } from '../config/routes';
+import { CUSTOM_COMPANIES_CONFIG } from '../config/customCompanies';
 import { QAPage } from '../pages/QAPage/QAPage.tsx';
 import { AdminUsersPage } from '../pages/AdminUsersPage/AdminUsersPage.tsx';
 import { AdminLocationNormalizationPage } from '../pages/AdminLocationNormalizationPage/AdminLocationNormalizationPage.tsx';
@@ -109,6 +114,18 @@ function AppContent() {
           <Route path={ROUTES.ACCOUNT} element={<AccountPage />} />
           <Route path={ROUTES.SAVED_FILTERS} element={<SavedFiltersPage />} />
           <Route path={ROUTES.VOTE_FEATURES} element={<VoteFeaturesPage />} />
+          {/* Flag-gated: with VITE_CUSTOM_COMPANIES_ENABLED off the route is
+              not registered at all, so /my-companies is a 404 rather than a
+              reachable-but-hidden page. */}
+          {CUSTOM_COMPANIES_CONFIG.isEnabled && (
+            <Route path={ROUTES.MY_COMPANIES} element={<MyCompaniesPage />} />
+          )}
+          {/* Private per-company trend page. Same flag gate — with the flag off
+              the `/my-companies/:id` route is not registered, so a runtime id
+              is a 404 rather than a reachable-but-empty page. */}
+          {CUSTOM_COMPANIES_CONFIG.isEnabled && (
+            <Route path={ROUTES.MY_COMPANY_DETAIL} element={<MyCompanyTrendPage />} />
+          )}
         </Route>
       </Routes>
     </>
