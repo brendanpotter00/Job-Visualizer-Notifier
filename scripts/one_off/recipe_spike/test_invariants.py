@@ -9,7 +9,7 @@ import json
 import sys
 
 import replay
-from recipe_schema import RecipeError, validate_recipe
+from recipe_schema import validate_recipe
 
 PASS, FAIL = "PASS", "FAIL"
 results: list[tuple[str, str, str]] = []
@@ -64,8 +64,7 @@ def main() -> None:
     # 2. Zero records must never be reported as "no jobs today".
     expect_raises(
         "zero records raises, never returns []",
-        lambda: replay.run_recipe({**BASE, "kind": "http_json", "entrypoint": {"method": "GET", "url": "https://example.com/x"}, "records_path": "jobs"})
-        if False else _run_with_records([]),
+        lambda: _run_with_records([]),
         "zero records",
     )
 

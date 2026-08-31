@@ -1,8 +1,9 @@
 """Scrape-recipe schema v1 (spike candidate).
 
-Imported by BOTH capture-side and replay-side code. It is pure data
-definition and validation: it must never import an agent, an LLM client,
-or a browser driver.
+Imported by replay.py and test_invariants.py — never by capture.py (see
+README's "discovery and replay are two code paths that never meet"). It is
+pure data definition and validation: it must never import an agent, an LLM
+client, or a browser driver.
 """
 
 from __future__ import annotations

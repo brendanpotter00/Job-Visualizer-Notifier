@@ -13,15 +13,12 @@ paths — those are guarded separately (see the visibility-leak fixes).
 from __future__ import annotations
 
 import json
-import logging
 from typing import Any, Optional
 
 import psycopg2
 from psycopg2.extensions import connection as Connection
 
 from scripts.shared.constants import custom, new_custom_company_id
-
-logger = logging.getLogger(__name__)
 
 # A custom company is scraped daily; next_run_at is seeded to now() so the first
 # harvest happens on the next claim tick rather than 24h later.

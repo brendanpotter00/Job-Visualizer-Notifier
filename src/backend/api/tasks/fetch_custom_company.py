@@ -217,7 +217,7 @@ async def fetch_custom_company(company_id: str) -> None:
     try:
         try:
             async def _work() -> None:
-                nonlocal jobs_seen, new_jobs_count, error_count, guard_reason
+                nonlocal jobs_seen, new_jobs_count, guard_reason
                 nonlocal verdict, verdict_reason, records_harvested, id_dedup_dropped
                 nonlocal new_ids
 
