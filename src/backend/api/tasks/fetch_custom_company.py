@@ -256,7 +256,7 @@ async def fetch_custom_company(company_id: str) -> None:
     try:
         try:
             async def _work() -> None:
-                nonlocal jobs_seen, new_jobs_count, closed_jobs_count, error_count
+                nonlocal jobs_seen, new_jobs_count, closed_jobs_count
                 nonlocal guard_reason, verdict, verdict_reason, records_harvested
                 nonlocal id_dedup_dropped, new_ids, oracle_kind_effective
                 nonlocal declared_total, oracle_total, cap_hit, page_advance_ok

@@ -54,7 +54,6 @@ from __future__ import annotations
 
 import asyncio
 import ipaddress
-import logging
 import socket
 import time
 import zlib
@@ -76,8 +75,6 @@ from .eightfold_client import _is_allowed_eightfold_host
 from .gem_client import GEM_BASE_URL
 from .greenhouse_client import GREENHOUSE_BASE_URL
 from .lever_client import LEVER_BASE_URL
-
-logger = logging.getLogger(__name__)
 
 # -----------------------------------------------------------------------------
 # Stable reason codes
