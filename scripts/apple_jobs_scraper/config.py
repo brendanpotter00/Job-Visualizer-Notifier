@@ -65,7 +65,15 @@ PAGE_LOAD_TIMEOUT = 30000  # milliseconds
 
 # Pagination
 JOBS_PER_PAGE = 20
-MAX_PAGES = 250  # Safety limit (250 * 20 = 5000 jobs max)
+# Safety cap only — real termination is check_has_next_page's Next-button probe,
+# cross-checked against Apple's advertised total-pages count (get_total_pages).
+# The US board is ~226 pages (~3,350 kept) today. Bumped 250 -> 300 for headroom:
+# at 250 a board that grew past 5,000 listings would have silently truncated at
+# the cap. That is no longer silent — scrape_query logs a loud SCRAPER TRUNCATION
+# error whenever the walk ends short of the advertised page count, including at
+# this cap — but the extra headroom keeps the cap from biting a growing board in
+# the first place.
+MAX_PAGES = 300  # 300 * 20 = 6000 jobs max
 
 # Retry configuration
 MAX_RETRIES = 3
