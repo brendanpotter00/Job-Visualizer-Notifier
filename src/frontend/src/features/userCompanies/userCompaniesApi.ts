@@ -230,8 +230,9 @@ export interface UserCompany {
   lastSuccessAt: string | null;
   /**
    * ISO-8601 of the first VERIFIED harvest (E7 Phase 2), or null until the
-   * company graduates. The trend page uses it to shade the pre-tracking seed
-   * bucket ("N openings already live when tracking began").
+   * company graduates. Carried on the wire ahead of any consumer: the trend
+   * page's "already live when tracking began" line is still derived from the
+   * `firstSeenAt` seed-window heuristic, not from this field.
    */
   trackingStartedAt: string | null;
   /**
