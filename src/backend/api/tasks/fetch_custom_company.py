@@ -1,17 +1,21 @@
 """Procrastinate task: harvest ONE custom (user-added, private) company — E7.
 
 Per-company unit of work for the ``custom_ats_fetch`` claim task. It runs the
-stored script (Phase 1: a one-primitive ``ats_client`` script — the existing ATS
-client IS script primitive #1), runs the **minimal Phase-1 gate**, and — because
-no oracle exists yet — lands the harvest **UNVERIFIED** and upserts ONLY. It
-NEVER increments misses and NEVER closes a job. That is the load-bearing safety
-property of Phase 1, not a gap: *a job is never closed by a run that could not
-prove it saw the whole board*, and in Phase 1 no run can prove that.
+stored script (a one-primitive ``ats_client`` script — the existing ATS client
+IS script primitive #1), runs the harvest gate, and asks ``verify_harvest`` for
+a verdict.
+
+The load-bearing safety property is unchanged from Phase 1: *a job is never
+closed by a run that could not prove it saw the whole board*. What Phase 2
+changed is that a run CAN now prove it, via an ATS oracle. An UNVERIFIED harvest
+still upserts ONLY — it never increments misses and never closes. Closing needs
+a VERIFIED verdict AND every gate in the close-eligibility ladder below clear
+(guard reason, approximate tolerance, fleet breaker, first verified run, script
+changed, self-consistent streak).
 
 Cloned from ``fetch_greenhouse_company`` — same connection model, same
 ``finally``-writes-a-scrape-run bookkeeping, same narrow ``except`` tuple. The
-divergence is the destructive tail: it is replaced by the verify-gate, which in
-Phase 1 always skips closing.
+divergence is the destructive tail: it is replaced by the verify-gate.
 
 Concurrency model
 -----------------

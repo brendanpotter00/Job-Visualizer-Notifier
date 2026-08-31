@@ -16,7 +16,7 @@ import pytest
 from psycopg2 import sql
 
 import api.tasks.fetch_custom_company as task_mod
-from api.services import eightfold_client, greenhouse_client, lever_client, workday_client
+from api.services import greenhouse_client, lever_client, workday_client
 from api.services.harvest_meta import HarvestEvidence
 from api.tasks.fetch_custom_company import fetch_custom_company
 from scripts.shared.constants import custom
