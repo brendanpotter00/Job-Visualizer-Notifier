@@ -745,3 +745,78 @@ def test_plain_text_strips_first_then_decodes_exactly_once() -> None:
     assert _plain_text("<p>Use &lt;p&gt; for A &amp;amp; B</p>") == (
         "Use <p> for A &amp; B"
     )
+
+
+# --- a wildcard skip must never end a sweep (never-wrong-close) --------------
+
+def _relay_edges_script() -> dict:
+    """A Relay board read through the per-element wrapper, paged two at a time."""
+    return {
+        "script_version": 1,
+        "transport": "http_json",
+        "expected_min_jobs": 1,
+        "steps": [
+            {"op": "fetch", "method": "GET", "url": "https://ex.com/api", "headers": {}},
+            {"op": "paginate_offset", "param": "offset", "page_size": 2, "max_pages": 20},
+            {"op": "extract_json_path", "records_path": "data.jobs.edges.*.node",
+             "fields": {"id": "id", "title": "title", "url": "url"}},
+            {"op": "dedupe_key", "field": "id"},
+            {"op": "assert_page_advances"},
+        ],
+        "oracle": {"kind": "self_consistent"},
+    }
+
+
+def _relay_handler(null_at: int, count: int = 8):
+    """A board of ``count`` edges, one of which may carry ``node: null``.
+
+    ``null`` rather than a missing key because that is the realistic half: a Relay
+    connection legally nulls the node of an object that was deleted or that the caller
+    may not see, and the board still SERVES the edge — so the page is full.
+    """
+    edges = [
+        {"cursor": str(i),
+         "node": None if i == null_at
+         else {"id": str(i), "title": f"t{i}", "url": f"https://ex.com/{i}"}}
+        for i in range(count)
+    ]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        offset = int(request.url.params.get("offset", "0"))
+        return httpx.Response(
+            200, json={"data": {"jobs": {"edges": edges[offset:offset + 2]}}}
+        )
+    return handler
+
+
+def test_a_null_relay_node_does_not_end_the_sweep_mid_board() -> None:
+    """THE WRONG-CLOSE SHAPE THE PER-ELEMENT WRAPPER MADE REACHABLE.
+
+    ``edges.*.node`` drops an element whose node is null, so a FULL page of 2 edges
+    yields 1 record. The sweep's stop rule is "shorter than the page size", which read
+    that as the last page: it broke on page 2 of 4, kept 3 of 7 jobs, and — because
+    ``ended_short`` was set — reported ``terminated_cleanly=True``. With no trusted
+    total, ``_verify_self_consistent`` VERIFIES exactly that conjunction, and a VERIFIED
+    harvest is allowed to close. The jobs it never fetched would be absent twice and
+    CLOSED (``MISSED_RUN_THRESHOLD = 2``).
+
+    The board's page is full; only our path is short. The sweep must count elements.
+    """
+    with _client(_relay_handler(null_at=3)) as http:
+        rows, ev = run_recipe(_relay_edges_script(), http)
+
+    assert len(rows) == 7, "the sweep stopped at the page the wildcard shortened"
+    assert ev.pages_fetched == 5, "one page per two edges, plus the empty last one"
+    assert ev.terminated_cleanly is True and ev.cap_hit is False
+
+
+def test_a_genuinely_short_page_still_ends_the_sweep() -> None:
+    """The other half: the fix may only ever ADD pages. A board that really does serve
+    a short page must still terminate cleanly on it, or every wildcard board would run
+    to ``max_pages`` and read as UNVERIFIED forever."""
+    with _client(_relay_handler(null_at=-1, count=7)) as http:
+        rows, ev = run_recipe(_relay_edges_script(), http)
+
+    assert len(rows) == 7
+    assert ev.pages_fetched == 4, "4 pages: 2 + 2 + 2 + 1, and the short one stops it"
+    assert ev.terminated_cleanly is True and ev.cap_hit is False

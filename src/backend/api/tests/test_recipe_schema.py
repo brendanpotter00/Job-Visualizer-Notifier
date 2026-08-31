@@ -27,6 +27,7 @@ from api.services.recipe_schema import (
     CANONICAL_REQUIRED_FIELDS,
     RecipeError,
     dig_records,
+    dig_records_with_skips,
     validate_recipe,
 )
 
@@ -425,6 +426,40 @@ def test_a_group_that_does_not_carry_the_array_is_skipped_not_fatal() -> None:
     payload = [{"postings": [{"id": "a"}]}, {"title": "no postings key"}, "not an object"]
     assert dig_records(payload, "*.postings") == [{"id": "a"}]
     assert dig_records([{"title": "x"}], "*.postings") == []
+
+
+def test_every_skipped_element_is_counted_for_the_caller() -> None:
+    """THE COUNT THE SWEEP NEEDS, and the reason it is not just a diagnostic.
+
+    ``_sweep_offset_page`` ends its loop on "this page came back shorter than the page
+    size". A skipped element makes a FULL page look short, so without the count one
+    null ``edges[].node`` stops the sweep mid-board and still reports
+    ``terminated_cleanly=True`` — a partial read claiming to be complete, which is the
+    one shape that closes jobs that are still open.
+
+    Both ways of losing an element count: the key is MISSING (``dig`` raises) and the
+    key is present but ``null`` (``dig`` returns it, and it is neither list nor dict).
+    Relay's ``node`` is legally nullable, so the second one is the realistic half.
+    """
+    relay = {"edges": [
+        {"cursor": "a", "node": {"id": "1"}},
+        {"cursor": "b", "node": None},          # deleted / unauthorised: legal Relay
+        {"cursor": "c"},                        # no node key at all
+        {"cursor": "d", "node": {"id": "2"}},
+    ]}
+    records, skipped = dig_records_with_skips(relay, "edges.*.node")
+    assert (records, skipped) == ([{"id": "1"}, {"id": "2"}], 2)
+    # ...and the element count is recoverable, which is the only thing the caller
+    # actually asks: did the board serve a full page?
+    assert len(records) + skipped == len(relay["edges"])
+
+
+def test_a_path_with_no_wildcard_reports_no_skips() -> None:
+    """Every board running today takes this branch, and it must stay a plain zero —
+    the sweep adds this number to its short-page test."""
+    assert dig_records_with_skips({"data": {"jobs": [{"id": "a"}]}}, "data.jobs") == (
+        [{"id": "a"}], 0,
+    )
 
 
 def test_a_wildcard_over_something_that_is_not_a_list_raises() -> None:

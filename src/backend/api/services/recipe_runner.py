@@ -53,7 +53,12 @@ from xml.etree import ElementTree
 import httpx
 
 from .harvest_meta import HarvestEvidence
-from .recipe_schema import RecipeError, dig, dig_records, validate_recipe
+from .recipe_schema import (
+    RecipeError,
+    dig,
+    dig_records_with_skips,
+    validate_recipe,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -654,13 +659,30 @@ def _check_inband_error(payload: Any, error_keys: tuple[str, ...]) -> None:
 
 
 def _dig_records(payload: Any, records_path: str, where: str) -> list[Any]:
-    # ``dig_records``, not ``dig``: a ``records_path`` may carry one ``*`` segment
-    # meaning "the union of every group's array" (binance.com ships its whole board as
-    # 14 department groups). Everything else about this function is unchanged — a path
-    # that does not resolve, or resolves to something that is not a list, is still the
-    # loud failure it always was.
+    # The records-only form, for every caller that is NOT deciding whether a page was
+    # short. A ``records_path`` may carry one ``*`` segment meaning "the union of every
+    # group's array" (binance.com ships its whole board as 14 department groups); a
+    # path that does not resolve, or resolves to something that is not a list, is still
+    # the loud failure it always was.
+    return _dig_page_records(payload, records_path, where)[0]
+
+
+def _dig_page_records(
+    payload: Any, records_path: str, where: str
+) -> tuple[list[Any], int]:
+    """``(records, elements the wildcard skipped)`` — the form a SWEEP must use.
+
+    A sweep decides "was this the last page?" by comparing what came back against the
+    page size, and the wildcard can drop an element (a null Relay ``node``, an element
+    missing its wrapper key — see :func:`recipe_schema.dig_records_with_skips`). Those
+    two facts multiply: 25 elements minus one null node is 24 records, 24 < 25 reads
+    as a short final page, the loop breaks with ``terminated_cleanly=True``, and every
+    job on every page after it is absent from a harvest that calls itself complete.
+    Two of those close the lot. Counting the skips is what lets the caller ask the only
+    question that is actually about the board — *how many elements did it serve?*
+    """
     try:
-        records = dig_records(payload, records_path)
+        records, skipped = dig_records_with_skips(payload, records_path)
     except RecipeError as exc:
         raise RecipeExecutionError(
             f"records_path {records_path!r} did not resolve {where}: {exc}"
@@ -669,7 +691,7 @@ def _dig_records(payload: Any, records_path: str, where: str) -> list[Any]:
         raise RecipeExecutionError(
             f"records_path {records_path!r} did not resolve to a list {where}"
         )
-    return records
+    return records, skipped
 
 
 # --------------------------------------------------------------------------
@@ -759,13 +781,25 @@ def _sweep_offset_page(
             state.first_payload = payload
             state.first_headers = dict(response.headers)
         _check_inband_error(payload, plan.error_keys)
-        page_records = _dig_records(payload, records_path, f"on page {seen_pages}")
+        page_records, skipped = _dig_page_records(
+            payload, records_path, f"on page {seen_pages}"
+        )
         page_rows = map_records(page_records, fields, plan.base_url)
         state.rows.extend(page_rows)
         state.page_id_sets.append({r["id"] for r in page_rows})
         seen_pages += 1
         state.pages_fetched += 1
-        if len(page_records) < page_size:
+        # THE SHORT-PAGE TEST IS ABOUT THE BOARD, NOT ABOUT OUR PATH. ``skipped`` is
+        # the elements the wildcard dropped (see :func:`_dig_page_records`), so adding
+        # it back asks "did the board serve a full page?" instead of "did a full page
+        # survive ``records_path``?". Without it, one null ``edges[].node`` ends the
+        # sweep mid-board and still reports a clean complete read — the one shape that
+        # closes jobs that are still open. ``skipped`` is 0 for every non-wildcard
+        # path, so this is byte-identical for every board running today, and where it
+        # differs it can only make the sweep keep paging: the worst it can do is run
+        # out of pages, which is ``terminated_cleanly=False`` → UNVERIFIED → nothing
+        # closes.
+        if len(page_records) + skipped < page_size:
             ended_short = True
             break
         cursor += page_size if style == "offset" else 1

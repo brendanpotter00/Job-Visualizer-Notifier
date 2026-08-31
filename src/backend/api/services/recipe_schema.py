@@ -270,7 +270,29 @@ def _dig_dotted(payload: Any, path: str) -> Any:
 
 
 def dig_records(payload: Any, path: str) -> Any:
-    """Resolve a ``records_path``, which MAY carry one :data:`RECORDS_WILDCARD` segment.
+    """Resolve a ``records_path``. See :func:`dig_records_with_skips` for the rules.
+
+    The one-value form, for every caller that only wants the records. A caller that
+    is deciding whether a PAGE was short must use the two-value form instead — see
+    ``recipe_runner._dig_page_records``.
+    """
+    return dig_records_with_skips(payload, path)[0]
+
+
+def dig_records_with_skips(payload: Any, path: str) -> tuple[Any, int]:
+    """``(records, elements skipped by the wildcard)`` for a ``records_path``.
+
+    THE SECOND VALUE EXISTS BECAUSE A SKIP CAN LOOK LIKE THE END OF A BOARD. The
+    wildcard deliberately drops an element it cannot resolve (see below), so a page of
+    25 elements can legitimately produce 24 records — and ``_sweep_offset_page``'s
+    stop rule is "this page came back shorter than the page size, so it was the last
+    one". Those two together turn one null ``edges[].node`` into a sweep that stops
+    mid-board and still reports ``terminated_cleanly=True``: a partial read claiming
+    to be complete, which is what closes jobs that are still open. Handing the caller
+    the skip count lets it ask about the number of elements the BOARD served rather
+    than the number that survived our own path.
+
+    ``0`` for every non-wildcard path, so nothing that works today changes.
 
     THE ONE PATH SHAPE ``dig`` CANNOT EXPRESS, and the reason it exists is a measured
     partial read: binance.com serves its whole board as a list of 14 department groups
@@ -293,7 +315,8 @@ def dig_records(payload: Any, path: str) -> Any:
     ones, and refusing the whole board over one of them is the wrong trade. A path that
     yields nothing at all still raises through the caller's own non-empty check
     (``recipe_runner._dig_records``, ``request_selector._resolved_records``), so the
-    RAISES-never-empty contract is unchanged.
+    RAISES-never-empty contract is unchanged. Every skip is COUNTED and returned, for
+    the reason in this function's first paragraph.
 
     Kept beside :func:`dig` rather than folded into it on purpose: ``dig`` also resolves
     oracle totals and field templates, where a path returning a CONCATENATION instead of
@@ -302,7 +325,7 @@ def dig_records(payload: Any, path: str) -> Any:
     """
     segments = path.split(".")
     if RECORDS_WILDCARD not in segments:
-        return dig(payload, path)
+        return dig(payload, path), 0
     at = segments.index(RECORDS_WILDCARD)
     if at == len(segments) - 1 or RECORDS_WILDCARD in segments[at + 1:]:
         raise RecipeError(
@@ -322,10 +345,12 @@ def dig_records(payload: Any, path: str) -> Any:
             f"{type(groups).__name__}, not a list to iterate"
         )
     out: list[Any] = []
+    skipped = 0
     for group in groups:
         try:
             found = dig(group, tail)
         except RecipeError:
+            skipped += 1
             continue
         if isinstance(found, list):
             out.extend(found)
@@ -339,7 +364,13 @@ def dig_records(payload: Any, path: str) -> Any:
             # ``www-api.ibm.com/search/api/v2``: 1,806 postings that no concrete path in
             # the payload can name.
             out.append(found)
-    return out
+        else:
+            # A key that IS present but holds ``null`` (or a scalar) — Relay's
+            # ``edges[].node`` is legally nullable for a deleted or unauthorised
+            # object. ``dig`` returns it without raising, so this is the branch that
+            # loses a record, and it counts exactly like the raising one.
+            skipped += 1
+    return out, skipped
 
 
 # --------------------------------------------------------------------------
