@@ -308,11 +308,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     yield
 
-    # Shutdown
-    if db_watchdog is not None:
-        db_watchdog.stop()
-    if worker_watchdog is not None:
-        worker_watchdog.stop()
+    # Shutdown. Stop the liveness watchdogs first so neither can os._exit
+    # mid-shutdown, and stop them concurrently off the event loop so their
+    # worst-case joins don't stack ahead of the bounded worker await below
+    # (each stop() only sets a flag plus a short best-effort join).
+    watchdog_stops = [
+        asyncio.to_thread(wd.stop)
+        for wd in (db_watchdog, worker_watchdog)
+        if wd is not None
+    ]
+    if watchdog_stops:
+        await asyncio.gather(*watchdog_stops)
     worker_task.cancel()
     try:
         # Bounded, not a bare `await worker_task`: a wedged worker can swallow

@@ -103,8 +103,18 @@ def _cleanup_heartbeats_sync(database_url: str) -> int:
             )
 
 
+# priority=9 (well above the default 0 of every fetch/normalize task): the
+# worker fetches jobs `ORDER BY priority DESC, id ASC`, so without this the
+# heartbeat — which is deferred with a higher id than the per-company fetches a
+# fan-out just enqueued — would queue BEHIND the entire fetch backlog and go
+# stale under load, even on a perfectly healthy worker. That stale-under-load
+# window is exactly what worker_watchdog reads to decide a worker is wedged, so
+# a starved heartbeat would risk a false-positive restart during a heavy drain
+# (e.g. right after recovering from an outage). Jumping the one sub-second
+# heartbeat ahead of fetches every 5 min keeps the liveness signal honest at
+# negligible cost to fetch throughput. See the 2026-08-29 incident doc.
 @procrastinate_app.periodic(cron="*/5 * * * *", periodic_id="heartbeat")
-@procrastinate_app.task(queue="heartbeat", name="worker_heartbeat")
+@procrastinate_app.task(queue="heartbeat", name="worker_heartbeat", priority=9)
 async def worker_heartbeat(timestamp: int) -> None:
     """Insert one row into ``worker_heartbeats``. No retries — if a tick
     misses (connector blip, etc.) the next */5 tick will catch up; a

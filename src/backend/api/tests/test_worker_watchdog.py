@@ -71,14 +71,15 @@ class TestWorkerWatchdog:
         finally:
             wd.stop()
 
-    def test_sustained_stale_from_boot_triggers_after_grace(self) -> None:
+    def test_never_started_worker_trips_after_a_real_grace(self) -> None:
         # A worker that never starts: the heartbeat is stale from the first
-        # sample and never goes fresh. With grace ~0 it must still trip.
+        # sample and never goes fresh. It must be tolerated for a real
+        # (non-zero) startup grace, then trip once the grace is spent.
         fatal = threading.Event()
-        wd = self._make(lambda: _STALE_BEAT, fatal.set, startup_grace=0.0)
+        wd = self._make(lambda: _STALE_BEAT, fatal.set, startup_grace=0.15)
         wd.start()
         try:
-            assert _wait_for(fatal), "worker that never beat did not restart"
+            assert _wait_for(fatal), "never-started worker did not trip after grace"
         finally:
             wd.stop()
 
@@ -183,8 +184,10 @@ class TestWorkerWatchdog:
         finally:
             wd.stop()
 
-    def test_no_heartbeat_rows_is_inconclusive(self) -> None:
-        # Cold DB before the first beat: MAX(at) is NULL. Not a verdict.
+    def test_empty_table_tolerated_during_startup_grace(self) -> None:
+        # Cold start: a successful read of an empty table (MAX(at) IS NULL) is
+        # "not fresh", but during the startup grace the not-yet-beating worker
+        # must be given time — no restart.
         fatal = threading.Event()
         probed = threading.Event()
 
@@ -192,12 +195,46 @@ class TestWorkerWatchdog:
             probed.set()
             return None
 
-        wd = self._make(read, fatal.set, window=0.02, startup_grace=0.0)
+        wd = self._make(read, fatal.set, window=0.02, startup_grace=30.0)
         wd.start()
         try:
             assert _wait_for(probed), "watchdog never sampled"
             time.sleep(0.3)
-            assert not fatal.is_set(), "restarted on an empty heartbeat table"
+            assert not fatal.is_set(), "restarted a cold worker inside its grace"
+        finally:
+            wd.stop()
+
+    def test_empty_table_past_grace_trips(self) -> None:
+        # A reachable DB with an empty heartbeat table past the startup grace
+        # means the worker never started and never wrote a beat — restart it.
+        # (Distinct from a FAILED read, which stays inconclusive; see below.)
+        fatal = threading.Event()
+        wd = self._make(lambda: None, fatal.set, window=0.02, startup_grace=0.15)
+        wd.start()
+        try:
+            assert _wait_for(fatal), "empty table past grace did not trip"
+        finally:
+            wd.stop()
+
+    def test_inconclusive_does_not_reset_stale_anchor(self) -> None:
+        # A transient DB blip (inconclusive read) in the MIDDLE of a wedge must
+        # not reset the staleness clock — otherwise a wedged worker whose DB
+        # occasionally flickers would never trip. Alternate stale/inconclusive:
+        # if inconclusive reset the anchor, no two stale samples would ever span
+        # the window and it would never fire. Asserting it FIRES proves no reset.
+        fatal = threading.Event()
+        calls = {"n": 0}
+
+        def read() -> datetime:
+            calls["n"] += 1
+            if calls["n"] % 2 == 0:
+                raise ConnectionError("transient blip")
+            return _STALE_BEAT
+
+        wd = self._make(read, fatal.set, window=0.05, startup_grace=0.0)
+        wd.start()
+        try:
+            assert _wait_for(fatal), "inconclusive samples reset the stale anchor"
         finally:
             wd.stop()
 

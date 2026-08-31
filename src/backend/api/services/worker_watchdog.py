@@ -92,6 +92,10 @@ class WorkerWatchdog:
     ``read_last_beat_fn`` / ``now_fn`` / ``on_fatal`` are injectable for tests.
     """
 
+    # Best-effort join on stop(); see stop() for why it is a small constant
+    # rather than the read deadline.
+    _STOP_JOIN_TIMEOUT_S = 2.0
+
     def __init__(
         self,
         dsn: str,
@@ -139,11 +143,16 @@ class WorkerWatchdog:
         self._thread.start()
 
     def stop(self) -> None:
+        # Setting the event is what matters: the loop checks it and will not
+        # os._exit after stop() is called. The join is a short best-effort
+        # cleanup — it is NOT sized to the read deadline, because on a
+        # shutdown path a read that is mid-hang (a freezing DB) must not make
+        # stop() block for ~15s and push the whole shutdown past Railway's
+        # SIGTERM->SIGKILL grace. The thread is a daemon and dies with the
+        # process regardless.
         self._stop_event.set()
         if self._thread is not None:
-            # The loop only blocks on the stop event or a bounded read join,
-            # so this join is bounded too.
-            self._thread.join(timeout=self._read_deadline_s + 5.0)
+            self._thread.join(timeout=self._STOP_JOIN_TIMEOUT_S)
 
     def _default_read(self) -> datetime | None:
         import psycopg2
@@ -198,10 +207,20 @@ class WorkerWatchdog:
                 errors[0],
             )
             return _INCONCLUSIVE
-        last_beat = result[0] if result else None
-        if last_beat is None:
-            # No heartbeat rows at all — cold DB before the first beat.
+        if not result:
+            # Read returned nothing without erroring — shouldn't happen, but
+            # treat as inconclusive rather than invent a verdict.
             return _INCONCLUSIVE
+        last_beat = result[0]
+        if last_beat is None:
+            # The read SUCCEEDED (DB reachable) but the table is empty — no
+            # beat has ever been written. This is "not fresh", not
+            # "inconclusive": at cold start the startup grace tolerates it, and
+            # past the grace with a reachable DB and no beat ever, it means the
+            # worker failed to start and should trip. (A dead worker never
+            # empties the table — cleanup_heartbeats is itself a worker task —
+            # so in the wedge case MAX(at) is a stale timestamp, not NULL.)
+            return _STALE
         gap = (self._now() - last_beat).total_seconds()
         return _FRESH if gap <= self._stale_after_s else _STALE
 
