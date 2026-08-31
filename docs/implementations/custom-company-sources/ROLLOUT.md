@@ -58,17 +58,29 @@ commits carry `Co-Authored-By: Claude Fable 5`, which the owner does not want in
 ## 3. Migrations
 
 Production is stamped `1d2d6c17acfc` (re-checked against prod 2026-08-30). Merging the
-full stack runs **seven**, none of which locks a table:
+full stack runs **eight**, none of which locks a table:
 
 | # | Revision | What | Risk |
 |---|---|---|---|
 | 1 | `fb8467065dfc` | E7 Phase 1 schema — 4 tables, 7 `companies` cols, 2 `scrape_runs` cols | Catalog-only on PG 17.9. **No table rewrite** — matters, `scrape_runs` is 634k rows |
 | 2 | `c4f0a91b2d73` | Data: raise legacy page budgets | **0 rows** — table created empty one step earlier |
 | 3 | `9d2f7ae5c1b4` | Data: retire flat page ceiling | **0 rows** |
-| 4 | `2633dd6348e4` | Empty merge revision | none |
-| 5 | `7a4c1e93b6d8` | `job_freshness` trigger seeds `now()` | `CREATE OR REPLACE FUNCTION`. Verified byte-identical against the live function |
-| 6 | `b4d17c2a9e51` | `lane` column on `worker_heartbeats` | trivial |
-| 7 | `fe69ff596030` | `user_display_name` on `companies` (the owner rename) | Nullable `TEXT`, **no server default** → catalog-only, no rewrite. Every existing row is NULL = "never renamed", so it cannot change a name that renders today |
+| 4 | `a5cf3aed5f15` | Empty merge revision — rejoins Phase 1 with main | none |
+| 5 | `2633dd6348e4` | Empty merge revision — rejoins that with the Phase 3 line | none |
+| 6 | `7a4c1e93b6d8` | `job_freshness` trigger seeds `now()` | `CREATE OR REPLACE FUNCTION`. Verified byte-identical against the live function |
+| 7 | `b4d17c2a9e51` | `lane` column on `worker_heartbeats` | trivial |
+| 8 | `fe69ff596030` | `user_display_name` on `companies` (the owner rename) | Nullable `TEXT`, **no server default** → catalog-only, no rewrite. Every existing row is NULL = "never renamed", so it cannot change a name that renders today |
+
+That order is not hypothetical. It is the replay of this branch's chain against a throwaway
+database built from `main`'s models and stamped `1d2d6c17acfc`, exactly as prod is; it ends
+with `alembic_version` holding one row, `fe69ff596030`.
+
+Two empty merge revisions rather than one, because the fork is real and predates this branch.
+`fb8467065dfc` was authored off `b4e1c9d77a02` while `main` advanced along that same parent
+(`-> c7a41b93e5d2 -> d8b52c04f6e3 -> 1d2d6c17acfc`), so Phases 1 and 2 each sat on two heads
+and failed CI on `MultipleHeads` out of `command.stamp(cfg, "head")`. `a5cf3aed5f15` closes
+that fork down at Phase 1, where it belongs; `2633dd6348e4` already existed here and was
+repointed onto it, which is what keeps this branch at one head.
 
 **No migration in this deploy takes a lock.** There used to be one — `c1539fa03b23` added a
 denormalized `department` column and backfilled 78k rows in a single transaction, ~5–15 s of
