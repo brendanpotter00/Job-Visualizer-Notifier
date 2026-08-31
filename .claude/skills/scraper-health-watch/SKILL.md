@@ -191,12 +191,21 @@ SELECT l.company, c.ats,
        min(l.jobs_seen) AS min_seen, max(l.jobs_seen) AS max_seen
 FROM lastN l
 JOIN companies c ON c.id = l.company
-WHERE c.enabled AND l.rn <= 4          -- 4 = GUARD_LATCH_MIN_RUNS
+WHERE c.enabled AND l.rn <= 4          -- GUARD_LATCH_MIN_RUNS (see below)
 GROUP BY l.company, c.ats
-HAVING count(*) = 4
-   AND count(*) FILTER (WHERE l.skipped_update) = 4
+HAVING count(*) = 4                     -- GUARD_LATCH_MIN_RUNS
+   AND count(*) FILTER (WHERE l.skipped_update) = 4   -- GUARD_LATCH_MIN_RUNS
 ORDER BY l.company;
 ```
+
+> **Keep the three `4`s above in step with `GUARD_LATCH_MIN_RUNS`.** This is a
+> SQL-in-Markdown check with no runtime binding, so the literal is inlined the
+> same way every other check inlines its tunable (A1 hardcodes `interval '6
+> hours'` for `STALE_AFTER_HOURS`, etc.). If you retune `GUARD_LATCH_MIN_RUNS`,
+> change all three occurrences here (the `rn <= N` bound, the `count(*) = N`
+> floor, and the all-skipped `= N`). They MUST match: `rn <= N` selects at most N
+> rows, `count(*) = N` requires a full window of N, and the FILTER `= N` requires
+> all N skipped.
 
 Alert **CRITICAL** (key `guard_latched:<company>`) on **any** row — a company that
 has run ≥4 times and written nothing to `job_listings` is dark regardless of what
