@@ -301,7 +301,7 @@ Content-Type: application/json
 | Quarantine threshold | **3 consecutive failures** | At `*/30` that is 90 min of continuous failure. It is *not* racing the close sweep: a failing recipe raises, so `increment_consecutive_misses` never runs and `MISSED_RUN_THRESHOLD=2` is never approached. 3 is purely transient-blip tolerance (the spike hit one real blip). |
 | One queue or one per recipe | **One `recipe_fetch` queue** | Worker concurrency is 5 and the six existing ATS queues already share it (`main.py:60-69`). `_TASK_TIMEOUT_S = 120.0` bounds any single recipe. Per-recipe queues would grow `_WORKER_QUEUES` unboundedly, and a test pins its membership. |
 | Are attempts public? | **No.** `company_add_attempts` is admin-only. | D2 makes it an audit log. A public "requested companies" board exposes what users are job-hunting for, and D1 removed the dedupe/queue motive for it. |
-| Feature flag | Backend `settings.custom_company_sources_enabled: bool = False`; frontend `VITE_CUSTOM_COMPANIES`. **Both must be on.** Backend is authoritative. | Copies the enrichment-flag pattern (`config.py:53-79`) and `config/auth.ts:21`. `Settings.model_config` has `extra="ignore"` (`config.py:104`), so a typo'd env var fails silently — pin the name with a test. |
+| Feature flag | Backend `settings.custom_company_sources_enabled: bool = False`; frontend `VITE_CUSTOM_COMPANIES_ENABLED`. **Both must be on.** Backend is authoritative. | Copies the enrichment-flag pattern (`config.py:53-79`) and `config/auth.ts:21`. `Settings.model_config` has `extra="ignore"` (`config.py:104`), so a typo'd env var fails silently — pin the name with a test. |
 
 ### 1.6 Verified ground-truth corrections to the briefing
 

@@ -78,7 +78,7 @@ class EvidenceSource:
 
 `Candidate` (`request_selector.py:137`) is unchanged and stays the currency of the rest of
 the pipeline. A source with `"records"` in `contributions` produces zero or more
-`Candidate`s through a per-kind adapter; everything downstream — `select_request`,
+`Candidate`s through a per-kind adapter; everything downstream — `select_candidates`,
 `synthesize_recipe`, `_try_acceptance`, `_resolve_job_link` — keeps speaking `Candidate`
 and needs no change to accept a candidate that came from HTML instead of from an XHR.
 

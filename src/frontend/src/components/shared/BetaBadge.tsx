@@ -1,10 +1,10 @@
 import Box from '@mui/material/Box';
 
 /**
- * Metrics for the one call site left: a page heading (h4/h5, 20–24px). A
- * second, tighter scale used to exist for a sidebar nav row (body1, 16px);
- * it was removed with the nav badge itself, so this is no longer keyed by
- * a `scale` prop.
+ * Metrics for the only kind of call site left: a page heading (h4/h5,
+ * 20–24px). A second, tighter scale used to exist for a sidebar nav row
+ * (body1, 16px); it was removed with the nav badge itself, so this is no
+ * longer keyed by a `scale` prop.
  */
 const TITLE_SCALE = {
   fontSize: 11,

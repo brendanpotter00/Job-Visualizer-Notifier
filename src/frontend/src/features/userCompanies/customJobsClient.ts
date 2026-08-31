@@ -65,21 +65,6 @@ export interface CustomJobsPage {
 }
 
 /**
- * The company id a custom row belongs to.
- *
- * Derived from `source_id` rather than trusted from the `company` column
- * because `custom:<id>` is the namespace the row is *keyed* by — it is what the
- * endpoint's authorization is expressed in and what the backend's per-company
- * isolation is enforced on — whereas `company` is a value the harvest writes
- * alongside it. They agree today (`fetch_custom_company` writes both), and
- * `company` is the fallback if a row ever arrives under a namespace this build
- * does not recognize.
- *
- * The result must be the `u-<...>` runtime id, because that is the key the rest
- * of the custom-company UI (the Add Companies list, the trend page, the job
- * card's company lookup) already uses.
- */
-/**
  * Whether `companyId` is a user-added board rather than one of the curated
  * compile-time companies.
  *
@@ -99,7 +84,21 @@ export function isCustomCompanyId(companyId: string): boolean {
   return /^u-[0-9a-z]+$/.test(companyId);
 }
 
-
+/**
+ * The company id a custom row belongs to.
+ *
+ * Derived from `source_id` rather than trusted from the `company` column
+ * because `custom:<id>` is the namespace the row is *keyed* by — it is what the
+ * endpoint's authorization is expressed in and what the backend's per-company
+ * isolation is enforced on — whereas `company` is a value the harvest writes
+ * alongside it. They agree today (`fetch_custom_company` writes both), and
+ * `company` is the fallback if a row ever arrives under a namespace this build
+ * does not recognize.
+ *
+ * The result must be the `u-<...>` runtime id, because that is the key the rest
+ * of the custom-company UI (the Add Companies list, the trend page, the job
+ * card's company lookup) already uses.
+ */
 function companyIdForRow(row: BackendJobListing): string {
   return row.sourceId?.startsWith(CUSTOM_SOURCE_PREFIX)
     ? row.sourceId.slice(CUSTOM_SOURCE_PREFIX.length)

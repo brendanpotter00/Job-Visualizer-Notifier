@@ -1051,7 +1051,7 @@ def restart_refused_discovery(
     WHAT IT COSTS, and why that is the right bound. A retry is a fresh browser session
     plus a Haiku call, so it must be charged exactly like a first add — and it is: the
     ``discovery_pending`` + ``resolved_ats='discovered'`` audit row it writes is counted
-    by ``add_quota._QUOTA_COUNTED_PREDICATE``, so a retry spends one of the twenty
+    by ``_QUOTA_COUNTED_PREDICATE`` (this module), so a retry spends one of the twenty
     monthly slots. Rapid re-presses collapse rather than multiplying: the caller defers
     under ``discovery_queueing_lock``, and a second defer while the first job is still
     ``todo``/``doing`` raises ``AlreadyEnqueued`` instead of opening a second browser.

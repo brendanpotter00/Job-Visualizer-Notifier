@@ -146,9 +146,8 @@ def main() -> None:
     lines.append("| Case | Tier | Status | Duration | Notes |")
     lines.append("|---|---|---|---|---|")
     for c in cases:
-        icon = {"PASS": "PASS", "FAIL": "FAIL", "BLOCKED": "BLOCKED"}[c.status]
         note = c.detail.splitlines()[0][:140] if c.detail else ""
-        lines.append(f"| {c.name} | {c.tier} | {icon} | {c.duration_s:.1f}s | {note} |")
+        lines.append(f"| {c.name} | {c.tier} | {c.status} | {c.duration_s:.1f}s | {note} |")
     lines.append("")
     if interrupted:
         # An aborted run must never publish its teardown cascade as a verdict.

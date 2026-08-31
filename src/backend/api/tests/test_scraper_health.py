@@ -69,7 +69,7 @@ def _seed_job(
 
     Production never depended on the copy either. ``upsert_job`` and
     ``upsert_jobs_batch`` both call ``_upsert_freshness`` in the same
-    transaction (``scripts/shared/database.py:500,579``), which stamps
+    transaction (``scripts/shared/database.py:510,589``), which stamps
     last-seen from the run timestamp. The trigger's value only survives for a
     row written by neither — and "we saw it just now" is the right answer there.
     """

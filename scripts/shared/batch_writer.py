@@ -7,7 +7,7 @@ is saved if scraping is interrupted.
 """
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import List, Dict, Any, Protocol
 
 from .models import JobListing

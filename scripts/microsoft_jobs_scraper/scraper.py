@@ -42,7 +42,6 @@ from .parser import (
     extract_job_cards_from_list,
     extract_position_id_from_url,
     check_has_next_page,
-    JobCardExtractionError,
 )
 from .api_client import (
     fetch_search_results,

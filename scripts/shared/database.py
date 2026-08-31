@@ -132,8 +132,8 @@ _UPSERT_ON_CONFLICT = """
 # Sidecar (job_freshness) table + its re-seen upsert.
 #
 # The AFTER INSERT trigger on job_listings already materializes a freshness row
-# for every *genuinely new* listing (seeded from first_seen_at), so plain INSERT
-# paths (insert_job / insert_jobs_batch) need no freshness write. The upsert
+# for every *genuinely new* listing (seeded from now(), NOT first_seen_at — U2 made
+# that a date that can be months old), so plain INSERT paths need no freshness write. The upsert
 # paths, however, cover two cases the trigger does NOT fire for:
 #   * an existing OPEN listing re-scraped (ON CONFLICT DO UPDATE) — advance its
 #     last_seen_at and clear misses, and
@@ -504,7 +504,7 @@ def upsert_job(conn: Connection, job: JobListing) -> bool:
     was_inserted = result['inserted'] if result else True
 
     # Keep the sidecar fresh in the same transaction. For a brand-new insert the
-    # AFTER INSERT trigger already created the freshness row (from first_seen_at);
+    # AFTER INSERT trigger already created the freshness row (from now(), per U2);
     # this upsert then advances it to the scrape's last_seen_at. For a re-seen /
     # reactivated row the trigger does not fire, so this is the only freshness write.
     _upsert_freshness(cursor, [job])

@@ -66,9 +66,9 @@ export function RecentJobsFilters() {
       renamed = true;
       return { ...company, name: displayName };
     });
-    // Returning `rosterCompanies` BY IDENTITY when no label moved keeps the
-    // three memos below (and the dropdown they feed) from recomputing on every
-    // tick for the overwhelmingly common all-public case.
+    // Returning `rosterCompanies` BY IDENTITY when no label moved keeps the four
+    // hooks below that key on it (two memos, two callbacks) from recomputing on
+    // every tick for the overwhelmingly common all-public case.
     if (!renamed) return rosterCompanies;
     // Re-sort: the selector sorted by the old labels, and a renamed company is
     // almost never still in the right place alphabetically.

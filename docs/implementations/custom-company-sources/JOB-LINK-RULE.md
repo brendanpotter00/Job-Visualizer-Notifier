@@ -100,9 +100,10 @@ spec = the selector's field_map["url"]
      fetch the rendered URL for TWO different jobs and require
        · both < 400, and
        · each page carries its OWN job's title and not the other's,
-         OR the two pages differ materially (≥ 200 chars and ≥ 2 %).
-     Candidates in order: the repaired template, then the selector's original.
-     First one that proves wins. At most 4 GETs, once, per board.
+         OR the two pages differ materially (≥ 120 chars and ≥ 2 %).
+     Candidates in order: derived from the page's anchors, then from the board's
+     own code, then the repaired template, then the selector's original.
+     First one that proves wins. At most 4 candidates tried, up to 8 GETs, per board.
 
 4. NOTHING PROVED — do not ship a link we cannot stand behind.
      Fall back to the board's own listing page, with the job id as a fragment.
@@ -276,7 +277,7 @@ the rule fails a test rather than a board.
 
 ## Cost
 
-Four GETs, once, per discovered board — and only on the third of boards that need a
+Up to eight GETs, once, per discovered board — and only on the third of boards that need a
 template at all. Ten of the thirteen corpus boards fetch nothing. Against a discovery
 that already spends 27–75 s in a real browser, this is not a number worth optimising.
 

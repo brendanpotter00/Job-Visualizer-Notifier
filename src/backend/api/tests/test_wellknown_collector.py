@@ -187,9 +187,9 @@ def test_an_index_of_indexes_is_not_followed_a_second_level() -> None:
 # --- the caps ----------------------------------------------------------------
 
 def test_the_collector_never_makes_more_than_seven_requests() -> None:
-    """Four sitemap documents + robots leaves two of the three speculative probes
-    unmade, which is the right thing to cut: rows 1-3 have measured evidence behind them
-    and row 4 has none."""
+    """Four sitemap documents + robots leaves budget for only two of the three
+    speculative probes, which is the right thing to cut: rows 1-3 have measured evidence
+    behind them and row 4 has none."""
     seen: list[str] = []
     children = [f"{_ORIGIN}/sitemap-jobs-{i}.xml" for i in range(6)]
     pages: dict[str, str] = {

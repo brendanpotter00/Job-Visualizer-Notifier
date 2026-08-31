@@ -19,6 +19,7 @@ from __future__ import annotations
 import boards
 from conftest import db, find_company, require_reachable
 
+from api.routers.user_companies import _DISPLAY_NAME_MAX_LENGTH  # noqa: E402
 from e2e.shared.auth.mint import PRIMARY_USER
 
 CISCO_URL = boards.CISCO.url
@@ -82,7 +83,8 @@ class TestRenamePersists:
         assert resp.json()["reason"] == "name_empty", resp.text
 
         too_long = http.patch(
-            f"/api/users/companies/{company_id}", json={"displayName": "x" * 101}
+            f"/api/users/companies/{company_id}",
+            json={"displayName": "x" * (_DISPLAY_NAME_MAX_LENGTH + 1)},
         )
         assert too_long.status_code == 422, too_long.text
         assert too_long.json()["reason"] == "name_too_long", too_long.text

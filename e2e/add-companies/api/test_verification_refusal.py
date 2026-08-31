@@ -39,6 +39,7 @@ from api.services.harvest_verification import (  # noqa: E402
     UNVERIFIED,
     VERIFIED,
     GateResult,
+    _DELTA_HARD_LOW_RATIO,
     verify_harvest,
 )
 
@@ -257,7 +258,9 @@ class TestTheRuleIsNotVacuous:
         }
         try:
             baseline = compute_baseline(db_conn, company_id)
-            assert 140 >= 0.5 * baseline.median_records, "the old floor admitted it"
+            assert 140 >= _DELTA_HARD_LOW_RATIO * baseline.median_records, (
+                "the old floor admitted it"
+            )
             v = verify_harvest(
                 "none", _gate(140),
                 HarvestEvidence.single_shot(declared_total=None), baseline,

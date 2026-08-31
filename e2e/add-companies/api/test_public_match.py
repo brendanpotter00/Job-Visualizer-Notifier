@@ -41,6 +41,9 @@ from conftest import db, poll_until, require_reachable
 # sys.path via conftest.py) — so AC-06a exercises the REAL production
 # matcher, not a reimplementation of it.
 from api.services.published_board_match import (  # noqa: E402
+    MIN_SHARED_TITLES,
+    MIN_TITLE_SET,
+    OVERLAP_THRESHOLD,
     find_published_match,
     suggest_published_board,
 )
@@ -124,8 +127,8 @@ class TestPublicBoardMatchLive:
         candidate_titles = public_match["candidate_titles"]
         matched_titles = public_match.get("matched_titles", candidate_titles)
         ratio = shared / max(candidate_titles, matched_titles)
-        assert shared >= 20, f"expected shared >= 20, got {shared}"
-        assert ratio >= 0.70, f"expected ratio >= 0.70, got {ratio:.3f}"
+        assert shared >= MIN_SHARED_TITLES, f"expected shared >= {MIN_SHARED_TITLES}, got {shared}"
+        assert ratio >= OVERLAP_THRESHOLD, f"expected ratio >= {OVERLAP_THRESHOLD}, got {ratio:.3f}"
 
         # Assertion 3: the PUBLIC spotify row's job_listings are byte-identical
         # before and after — nothing merged, nothing written to the public side.
@@ -149,9 +152,9 @@ class TestPublicBoardMatchHermetic:
 
     def test_ac06a_copy_of_spotify_titles_qualifies(self, db_conn):
         _, spotify_titles = _spotify_open_titles_snapshot(db_conn)
-        assert len(spotify_titles) >= 20, (
-            "fixture precondition: the public spotify row needs >=20 distinct OPEN "
-            f"titles to exercise the matcher; found {len(spotify_titles)}"
+        assert len(spotify_titles) >= MIN_TITLE_SET, (
+            f"fixture precondition: the public spotify row needs >={MIN_TITLE_SET} "
+            f"distinct OPEN titles to exercise the matcher; found {len(spotify_titles)}"
         )
 
         fixture_id = f"u-e2ehermetic{uuid.uuid4().hex[:8]}"
@@ -164,8 +167,8 @@ class TestPublicBoardMatchHermetic:
                 "is what AC-06 (live) is red for TRIGGERING, not for computing"
             )
             assert match.company_id == "spotify"
-            assert match.shared >= 20
-            assert match.ratio >= 0.70
+            assert match.shared >= MIN_SHARED_TITLES
+            assert match.ratio >= OVERLAP_THRESHOLD
 
             stored = suggest_published_board(db_conn, fixture_id)
             assert stored is not None

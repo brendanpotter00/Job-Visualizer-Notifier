@@ -243,9 +243,9 @@ def test_rename_writes_no_add_attempt_and_spends_no_quota(
     """A rename is not a URL we acted on, so it must not touch the monthly spend guard.
 
     ``company_add_attempts`` is the quota's ONLY input
-    (``add_quota._QUOTA_COUNTED_PREDICATE``), so "writes no row there" and "costs no
-    slot" are the same assertion — and it is the one that stops fixing a typo from
-    costing one of twenty browser sessions.
+    (``custom_companies_service._QUOTA_COUNTED_PREDICATE``), so "writes no row there"
+    and "costs no slot" are the same assertion — and it is the one that stops fixing a
+    typo from costing one of twenty browser sessions.
     """
     _login(client, "auth0|A", "a@example.com")
     company_id = _add_ats_company(client, monkeypatch)

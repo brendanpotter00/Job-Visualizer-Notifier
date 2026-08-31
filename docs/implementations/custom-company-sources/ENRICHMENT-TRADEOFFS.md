@@ -53,7 +53,7 @@ Mapping them costs **zero extra requests**. `DESCRIPTION_SQL` already reads `det
 | | Decision | Call | Rationale |
 |---|---|---|---|
 | **Δ1** | Fairness mechanism for the claim query | **Option B — reserved share.** C and E **rejected**. | *"if we add E then it never will backfill everything."* C's reason was not recalled at the time; the reconstruction is in §9.2 and is still **awaiting confirmation**. |
-| **Δ2** | `department` in the canonical recipe field set | **Dropped, then REVERSED** — the set now carries both it and `description`. | *"I don't think we need a department."* Traced every reader; cost was one hint field in the enricher payload. **The premise expired the same night** — see §3. |
+| **Δ2** | `department` in the canonical recipe field set | **Dropped, then REVERSED, then dropped again for good.** The canonical field set (`request_selector.py`'s `_FieldMap`) carries `description` but not `department` — the Department filter Δ2's reversal was restoring a reader for was itself later removed from the product. | *"I don't think we need a department."* Traced every reader; cost was one hint field in the enricher payload. **The premise expired the same night** — see §3. |
 | **Δ3** | Is title-only classification accurate enough to ship? | **Yes.** Agreement experiment **not** run. | *"I'm gonna say yes to this."* Closed by decision, not measurement — see the cost note below. |
 | **Δ4** | The bugs found in passing | **Fold into this workstream**, not separate tickets. | *"Fold these fixes into your work."* They are units 6–9. |
 | **Δ5** | Turn `enrichment_claim_without_description` on locally? | **No — deliberately not done.** | Nothing would change. No enricher points at the local DB; the flag only means anything in prod, where it is already on. |
@@ -175,9 +175,11 @@ Every claimed reader was traced, not assumed:
 
 The table above is the whole argument, and row 2 is the load-bearing one: the Department filter **did not read this field**, so dropping it cost nothing a user could see. That row was true when it was written and false by the end of the same night.
 
-Fixing the bug it names ("and it is a bug in its own right") is what changed the answer. The transformer was repointed at the real department, which exposed a second layer — `/api/jobs` builds `details` from denormalized columns only, so the key never reached the browser at all, `selectAvailableDepartments` returned `[]`, and the control hid itself. The fix denormalized a `job_listings.department` column (**migration `c1539fa03b23`**), fed from `details['department']` by the one job-write path. Prod: 20,671 of 32,014 open rows carry a real department across 120 companies.
+Fixing the bug it names ("and it is a bug in its own right") is what changed the answer, that same night: the transformer was repointed at the real department, which exposed a second layer — `/api/jobs` builds `details` from denormalized columns only, so the key never reached the browser at all, `selectAvailableDepartments` returned `[]`, and the control hid itself. The fix that was tried denormalized a `job_listings.department` column (migration `c1539fa03b23`), backfilling ~78k rows in a single `ACCESS EXCLUSIVE` transaction.
 
-So the reader row now reads **"a user-facing filter"**, and a recipe that maps no department writes NULL into that column on every upsert (`_UPSERT_ON_CONFLICT`: `department = EXCLUDED.department`). Measured on the dev DB after the first re-capture under the six-key set:
+**That fix did not stick.** Measured cardinality made the Department filter itself worthless — Stripe 46 jobs / 39 departments, Anduril 377 / 195, roughly one job per option, a list rather than a filter — so the owner removed the Department filter from the product entirely, `c1539fa03b23` was deleted outright rather than reversed (never having reached prod), and `department` came back out of the canonical recipe field set for good: `request_selector.py`'s `_FieldMap` carries `description` but not `department`, and `_UPSERT_ON_CONFLICT` has no `department` column to write. Full account in `ROLLOUT.md`.
+
+Measured on the dev DB after the re-capture under the (`+description`, `−department`) field set — this is the cost that was accepted, not a table of what shipped:
 
 | board | rows with `department`, before → after |
 |---|---|
@@ -186,7 +188,7 @@ So the reader row now reads **"a user-facing filter"**, and a recipe that maps n
 | Jane Street | 235 → 4 |
 | Spotify | 86 → 9 |
 
-The set now carries **both**. This is not a revert of the `+description` half — that stands, and `description` is still the field that wins any conflict over the `details` byte budget (`fetch_custom_company._DEPARTMENT_MAX_BYTES` bounds the cheap one so it can never shrink the expensive one).
+The `+description` half is the one that stands: `description` is the field that wins any conflict over the `details` byte budget (`fetch_custom_company._DESCRIPTION_MAX_BYTES` = 6 KiB of the 8 KiB `_DETAILS_MAX_BYTES`, so the expensive field is the one guaranteed room).
 
 ### 4. Deduplication — two problems wearing one name
 
@@ -282,11 +284,14 @@ The `custom-company-enrichment.html` review artifact was removed from the repo (
 review surface is not repo content). Everything below existed only there. Two of its
 recorded decisions have since been **overturned and must not be read as live**:
 
-- **Δ2 "drop `department`" was REVERSED.** The Department filter was found silently dead
-  hours later and fixed with a denormalized `job_listings.department` column
-  (migration `c1539fa03b23`). See §3a. Cost measured before the re-capture:
-  Microsoft 2,217 → 139 rows with a department, Atlassian 244 → 13, Jane Street 235 → 4,
-  Spotify 86 → 9.
+- **Δ2 "drop `department`" was reversed, then the reversal itself did not stick.** The
+  Department filter was found silently dead hours later; the fix that was tried denormalized
+  a `job_listings.department` column (migration `c1539fa03b23`), but the filter it fed turned
+  out to be worthless (~1 job per option) and was removed from the product outright — the
+  migration was deleted rather than reversed and never reached prod, and `department` is out
+  of the canonical field set for good. See §3a and `ROLLOUT.md`. Cost measured before the
+  re-capture: Microsoft 2,217 → 139 rows with a department, Atlassian 244 → 13, Jane Street
+  235 → 4, Spotify 86 → 9.
 - **D5 "orphan-and-keep" was OVERRULED** by Δ7 in `IMPLEMENTATION-PLAN.md`, which says
   **DELETE**. P2 dedupe has also since shipped (`services/published_board_match.py`,
   `AlreadyPublicNotice.tsx`, `outcome='already_public'`).

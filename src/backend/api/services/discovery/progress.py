@@ -112,12 +112,6 @@ _OUTCOMES = frozenset({
 # lands, and a bigger blob here would bloat every row of the polled list response.
 MAX_PREVIEW_JOBS = 5
 
-# The preview fields we are willing to echo back. Anything else the board returned
-# (ids, salary bands, raw HTML descriptions) is dropped — this blob is rendered, and
-# echoing arbitrary captured fields into the DOM is how a scraped payload becomes a
-# rendering surface.
-_PREVIEW_FIELDS = ("title", "location", "url")
-
 # Result/detail strings come from board data and exception messages; cap them so one
 # pathological error cannot make every list response enormous.
 _MAX_TEXT_CHARS = 400
@@ -361,7 +355,13 @@ def payload_sample(record: Any) -> str | None:
 def _clean_preview(rows: Iterable[Mapping[str, Any]]) -> list[dict[str, str]]:
     """The first :data:`MAX_PREVIEW_JOBS` rows reduced to a renderable {title, location,
     url}. A row with no title is dropped — a preview entry the user cannot read is worse
-    than a shorter preview."""
+    than a shorter preview.
+
+    Only these three fields are ever echoed back. Anything else the board returned (ids,
+    salary bands, raw HTML descriptions) is dropped — this blob is rendered, and echoing
+    arbitrary captured fields into the DOM is how a scraped payload becomes a rendering
+    surface.
+    """
     out: list[dict[str, str]] = []
     for row in rows:
         if len(out) >= MAX_PREVIEW_JOBS:

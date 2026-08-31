@@ -56,9 +56,10 @@ const POLL_INTERVAL_MS = 15_000;
  * anything is still running behind it.
  *
  * A row only leaves `discovering` when the task persists an outcome, and that task is
- * `retry=1`. Three documented paths leave it there for good: the discovery flag flipped
- * off between enqueue and execution, no worker draining the `custom_discovery` queue, and
- * the SIGKILL/OOM "WEDGED-ROW CAVEAT" the task itself carries a TODO for. Without a bound,
+ * `retry=1`. Two paths still leave it there for a while: no worker draining the
+ * `custom_discovery` queue, and a hard SIGKILL/OOM kill — the "WEDGED-ROW CAVEAT"
+ * `discover_custom_company` documents, which `reconcile_discovering` now sweeps back to
+ * `refused` within 30 minutes rather than leaving it wedged forever. Without a bound,
  * such a row would poll every 4s for as long as the tab stays open — ~900 requests/hour,
  * each running a per-row `count(*)` — while the user watches a checklist frozen mid-step.
  * Past this window the row falls back to the ordinary 15s settling cadence, so a wedged

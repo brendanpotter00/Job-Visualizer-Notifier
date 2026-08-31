@@ -420,7 +420,7 @@ revert-only.
 
 Stated plainly so nobody is surprised:
 
-- The seven migrations run regardless — including `fe69ff596030`, which adds the
+- The eight migrations run regardless — including `fe69ff596030`, which adds the
   `user_display_name` column even though the rename endpoint that writes it is behind
   `CUSTOM_COMPANY_SOURCES_ENABLED`.
 - Every change in §1 is live regardless.

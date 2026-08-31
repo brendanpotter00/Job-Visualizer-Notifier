@@ -37,7 +37,7 @@ Verified by reading the code, with commits named. If a planning doc asks for one
 - **Δ7 (last owner deletes) needs no code.** `remove_owned_company` already purges on the last owner and already returns `'unlinked'` when others remain (`custom_companies_service.py:887-1035`), with named tests at `test_user_companies_router.py:334,381,404,429`. The decision **confirms today's behaviour**; the only work it creates is unit 5.
 - **"Last checked" → "Last fetched" (7.6 D6) shipped** as `3d70ae2`, mid-write of this plan (`companyHealth.ts:249` `describeLastFetched`, `MyCompaniesList.tsx:191`). Done, not a plan item.
 
-**Also retired, and a stale note to correct:** `BROWSER_AGENT_ENABLED` no longer exists — it went with Stagehand, and `test_recipe_runner_import_guard.py:240` asserts the package is gone. `custom_company_discovery_enabled` is now the single discovery gate (`config.py:105`). Any note claiming discovery needs *two* flags is out of date.
+**Also retired, and a stale note to correct:** `BROWSER_AGENT_ENABLED` no longer exists — it went with Stagehand, and `test_recipe_runner_import_guard.py:240` asserts the package is gone. `custom_company_discovery_enabled` is now the single discovery gate (`config.py:155`). Any note claiming discovery needs *two* flags is out of date.
 
 ---
 

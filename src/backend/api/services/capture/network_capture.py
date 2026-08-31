@@ -59,7 +59,7 @@ from ...config import settings
 logger = logging.getLogger(__name__)
 
 # Subprocess wall-clock cap. It MUST stay strictly BELOW the discovery task's own
-# ``_TASK_TIMEOUT_S`` (240s) for the same reason ``browser_fetch`` keeps 90 < 120: if
+# ``_TASK_TIMEOUT_S`` (240s) for the same reason ``browser_fetch`` keeps 90 < 900: if
 # the task's guard fires first it CANCELS this coroutine, a ``CancelledError`` is not
 # an ``asyncio.TimeoutError``, and the timeout branch below — the only place that kills
 # the child — would never run. The ``finally`` in :func:`_subprocess_run` reaps on the

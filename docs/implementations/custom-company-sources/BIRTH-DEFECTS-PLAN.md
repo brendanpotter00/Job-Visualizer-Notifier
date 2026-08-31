@@ -177,10 +177,10 @@ would throw away boards we read correctly today. Evidence beats shape.
 `_MAX_SELECTION_ROUNDS = 2` fires on acceptance failure as well as schema failure, but
 the loop **drops the failed candidate and `break`s when none is left** — so a *single-feed*
 board (Jane Street, Atlassian) gets no round two at all. That is exactly the case that
-needs one. `select_request` also had no way to say *why* the last answer was rejected, so
+needs one. `select_candidates` also had no way to say *why* the last answer was rejected, so
 round two on a multi-feed board was a blind re-roll.
 
-* `select_request(candidates, *, feedback=...)` and `build_message_params(candidates,
+* `select_candidates(candidates, *, feedback=...)` and `build_message_params(candidates,
   feedback=...)` append the evidence to the user turn.
 * A failed candidate is dropped **only when another candidate remains**. A sole candidate
   is re-asked with the evidence attached.

@@ -41,7 +41,7 @@ rename at all.
 `users.display_name` and `feedback.display_name` are different tables; the ~30 Alembic
 seed migrations write `visibility='public'` rows, which this endpoint refuses to touch.
 `record_discovery_progress`, `record_first_scan`, `record_discovery_refusal`,
-`published_board_match.store_suggestion`/`mark_checked` and
+`published_board_match.store_suggestion`/`_mark_compared` and
 `claim_custom_companies.push_next_run_at` all UPDATE `companies` but none of them names
 `display_name`.)
 

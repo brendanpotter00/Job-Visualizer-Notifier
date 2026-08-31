@@ -1,9 +1,11 @@
 """Procrastinate task: harvest ONE custom (user-added, private) company — E7.
 
 Per-company unit of work for the ``custom_ats_fetch`` claim task. It runs the
-stored script (a one-primitive ``ats_client`` script — the existing ATS client
-IS script primitive #1), runs the harvest gate, and asks ``verify_harvest`` for
-a verdict.
+stored script — dispatched by its ``transport``: ``ats_client`` (the existing
+ATS client, one primitive), ``http_json``/``http_html`` (a deterministic
+multi-primitive recipe replayed agent-free), or ``browser_fetch`` (the
+captured request replayed inside our own Chromium) — runs the harvest gate,
+and asks ``verify_harvest`` for a verdict.
 
 The load-bearing safety property is unchanged from Phase 1: *a job is never
 closed by a run that could not prove it saw the whole board*. What Phase 2

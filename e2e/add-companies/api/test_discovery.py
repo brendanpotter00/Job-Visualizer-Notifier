@@ -17,7 +17,6 @@ proved boards CAN verify would be proving half a design.
 from __future__ import annotations
 
 import sys
-from urllib.parse import urlsplit
 
 import boards
 import httpx
@@ -262,12 +261,15 @@ _LINK_CHECK_TIMEOUT_S = 30.0
 # prover reads the DECLARED title and says yes; the copy read only bytes and said no.
 #
 # A duplicated rule that can disagree with the rule it is checking is worse than no
-# check, so the duplication is gone. What stays local is the SPLIT — a published link
-# is never page-compared (Atlassian's iCIMS iframe serves 478,872 / 478,860 / 478,906
-# chars for three different jobs) and the path check runs on every row (Nintendo).
+# check, so the duplication is gone. The path check (Nintendo) is the same rule
+# ``request_selector._names_a_page`` gates rung 1 with, imported for the same reason.
+# What stays local is the SPLIT — WHEN each rule applies: a published link is never
+# page-compared (Atlassian's iCIMS iframe serves 478,872 / 478,860 / 478,906 chars for
+# three different jobs), and the path check runs on every row regardless.
 _declared_title = _discover._declared_title
 _page_text = _discover._page_text
 _pages_differ = _discover._pages_differ
+_names_a_page = sys.modules["api.services.capture.request_selector"]._names_a_page
 
 
 def _harvested_rows(conn, source_id: str) -> list[dict]:
@@ -341,7 +343,7 @@ def _assert_two_job_links_resolve(
     """
     for row in rows:
         url = row.get("url")
-        assert isinstance(url, str) and urlsplit(url).path.strip("/"), (
+        assert _names_a_page(url), (
             f"{board.case_id}: the stored job link {url!r} has no path segments — all "
             f"its identity is in the query string. Measured on Nintendo: such a URL "
             f"answers 200 and serves the board's listing page to every job."

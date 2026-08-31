@@ -57,7 +57,6 @@ def _poll_until_settled(http, company_id: str, *, timeout_s: int = 240, interval
 def _assert_already_public(http, db_conn, url: str, expected_company_id: str, expected_display_name: str):
     before_user = db.visibility_count(db_conn, "user")
     before_attempts = db.add_attempts_count(db_conn)
-    before_uc = db.visibility_count(db_conn, "user")  # placeholder, real check below
     before_discovery_jobs = db.procrastinate_job_count(db_conn, queue_name="custom_discovery")
 
     resp = http.post("/api/users/companies", json={"url": url})

@@ -55,7 +55,7 @@ FUTURE_SKEW_ALLOWANCE = timedelta(days=7)
 # the year 5138, so nothing that is genuinely seconds can reach it, and anything
 # in real millisecond range (1.7e12 today) clears it easily. Mirrors the guard
 # ``eightfold_client._parse_eightfold_epoch`` has carried since it shipped
-# (``eightfold_client.py:536-539``) — same constant, same reasoning, one place.
+# (``eightfold_client.py:549-552``) — same constant, same reasoning, one place.
 _EPOCH_MS_THRESHOLD = 1e11
 
 

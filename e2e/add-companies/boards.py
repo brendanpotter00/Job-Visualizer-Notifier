@@ -94,9 +94,6 @@ ALL_BOARDS: tuple[Board, ...] = (
     SPOTIFY,
 )
 
-ALL_URLS: tuple[str, ...] = tuple(b.url for b in ALL_BOARDS)
-
-
 if __name__ == "__main__":
     # `python -m` (from the add-companies dir, or via boards.py's own path) with
     # `--json` dumps the board table so the UI tier (Playwright/TypeScript) can

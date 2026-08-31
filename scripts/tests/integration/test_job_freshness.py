@@ -6,8 +6,9 @@ trigger on ``job_listings`` that materialises the matching freshness row for
 every new listing. These tests assert the drift-prevention invariants hold under
 the *real* insert paths (``insert_job`` / ``upsert_jobs_batch`` /
 ``insert_jobs_batch``): every listing has exactly one freshness row, the trigger
-seeds it from ``first_seen_at`` + ``0`` misses, deletes cascade, and neither
-anti-join ever finds a stray row.
+seeds it from ``now()`` (not ``first_seen_at`` — see U2, migration
+``7a4c1e93b6d8``) + ``0`` misses, deletes cascade, and neither anti-join ever
+finds a stray row.
 
 The trigger is installed in the test schema by the ``create_all`` DDL events in
 ``api/db_models.py`` (the conftest fixtures stamp Alembic head rather than run

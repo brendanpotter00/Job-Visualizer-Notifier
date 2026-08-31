@@ -177,7 +177,7 @@ class TestTimezoneHandling:
 
 
 class TestEpochInput:
-    """``>1e11 -> /1000``, mirroring eightfold_client.py:536-539."""
+    """``>1e11 -> /1000``, mirroring eightfold_client.py:549-552."""
 
     def test_epoch_seconds_land_in_2026(self):
         assert parse_posted_date(EPOCH_S_2026, now=NOW).year == 2026

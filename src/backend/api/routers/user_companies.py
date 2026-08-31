@@ -828,7 +828,7 @@ async def add_company(
                 #
                 # It costs exactly what a first add costs and is charged the same: the
                 # ``discovery_pending`` audit row the reset writes is counted by
-                # ``add_quota._QUOTA_COUNTED_PREDICATE``, so a retry spends one of the
+                # ``svc._QUOTA_COUNTED_PREDICATE``, so a retry spends one of the
                 # twenty monthly slots — and the queueing lock below collapses rapid
                 # re-presses into one browser session instead of three.
                 if existing is not None and existing.get("health_state") == "refused":
@@ -1224,7 +1224,7 @@ async def rename_company(
     discovery, so it does not touch the 10/60s add burst limiter and it does not spend
     one of the twenty monthly slots (nothing is written to ``company_add_attempts`` —
     a rename is not a URL we acted on, and counting it would make the audit's row count
-    stop meaning what ``add_quota._QUOTA_COUNTED_PREDICATE`` says it means). It gets its
+    stop meaning what ``svc._QUOTA_COUNTED_PREDICATE`` says it means). It gets its
     own, much looser bucket instead.
 
     An empty or whitespace-only name is REJECTED, not treated as "go back to the

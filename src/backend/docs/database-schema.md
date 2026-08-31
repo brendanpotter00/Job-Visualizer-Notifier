@@ -200,7 +200,8 @@ name is reserved against this index.
 
 ### `companies`
 The tracked-company catalogue. `ats` names the provider (greenhouse, ashby, lever, gem,
-eightfold, workday). `provider_config` JSONB carries per-ATS settings (Eightfold:
+eightfold, workday, script — `script` covers the five Python-scraped boards: Amazon, Apple,
+Google, Microsoft, TikTok). `provider_config` JSONB carries per-ATS settings (Eightfold:
 `{tenant_host, domain}`; Workday: `{base_url, tenant_slug, career_site_slug, default_facets?}`).
 `created_at` is what the auto-enroll watermark compares against.
 `enabled = FALSE` is the soft-deactivation switch: the row and all of its historical
