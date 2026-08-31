@@ -57,8 +57,8 @@ commits carry `Co-Authored-By: Claude Fable 5`, which the owner does not want in
 
 ## 3. Migrations
 
-Production is stamped `1d2d6c17acfc`. Merging the full stack runs **six**, none of which
-locks a table:
+Production is stamped `1d2d6c17acfc` (re-checked against prod 2026-08-30). Merging the
+full stack runs **seven**, none of which locks a table:
 
 | # | Revision | What | Risk |
 |---|---|---|---|
@@ -68,6 +68,7 @@ locks a table:
 | 4 | `2633dd6348e4` | Empty merge revision | none |
 | 5 | `7a4c1e93b6d8` | `job_freshness` trigger seeds `now()` | `CREATE OR REPLACE FUNCTION`. Verified byte-identical against the live function |
 | 6 | `b4d17c2a9e51` | `lane` column on `worker_heartbeats` | trivial |
+| 7 | `fe69ff596030` | `user_display_name` on `companies` (the owner rename) | Nullable `TEXT`, **no server default** → catalog-only, no rewrite. Every existing row is NULL = "never renamed", so it cannot change a name that renders today |
 
 **No migration in this deploy takes a lock.** There used to be one — `c1539fa03b23` added a
 denormalized `department` column and backfilled 78k rows in a single transaction, ~5–15 s of
@@ -279,7 +280,7 @@ not fired yet is unproven no matter how long you waited.
 
 | Change | Fires on | Earliest proof | Gate |
 |---|---|---|---|
-| Migrations | container boot | first `/health` 200 | `alembic_version` = `b4d17c2a9e51`, exactly one head. **No `department` check** — the column does not exist; see §5.4 |
+| Migrations | container boot | first `/health` 200 | `alembic_version` = `fe69ff596030`, exactly one head. **No `department` check** — the column does not exist; see §5.4 |
 | Worker lane split | immediately | first `/health/worker` | `status: ok`, `stale_lanes: []`, **both** `lanes.bulk` and `lanes.interactive` present and fresh |
 | Vercel proxy allowlists | immediately | one curl | the `..%2Finternal%2F…` probe 404s; the five legitimate paths still 200; `/api/jobs` still re-emits `x-next-cursor` |
 | `first_seen_at` **not** moved on existing rows | every tick's UPSERT | **one tick, ≤ 30 min** | a known row's `first_seen_at` byte-identical after a tick that re-saw it |
@@ -381,7 +382,9 @@ revert-only.
 
 Stated plainly so nobody is surprised:
 
-- The six migrations run regardless.
+- The seven migrations run regardless — including `fe69ff596030`, which adds the
+  `user_display_name` column even though the rename endpoint that writes it is behind
+  `CUSTOM_COMPANY_SOURCES_ENABLED`.
 - Every change in §1 is live regardless.
 - **`CUSTOM_COMPANY_MONTHLY_ADD_LIMIT=0` means zero regardless — see §4c.** No flag gates
   it, and an environment sitting on `0` goes from unlimited to fully blocked on deploy.
