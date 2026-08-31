@@ -9,12 +9,11 @@ Two queue-agnostic functions plus a date-parser helper:
   maps each raw Workday posting dict to a
   :class:`scripts.shared.models.JobListing` ready for
   ``upsert_jobs_batch``.
-- ``_parse_workday_date(posted_on, now=None)``: Python port of the
-  frontend ``parseWorkdayDate`` helper in
-  ``src/frontend/src/lib/workdayDateParser.ts``. Inputs are the relative
-  date strings Workday emits (``"Posted Today"`` / ``"Posted Yesterday"``
-  / ``"Posted N Days Ago"`` / ``"Posted N+ Days Ago"``); output is an
-  ISO 8601 UTC string at midnight or ``None`` for unparseable input.
+- ``_parse_workday_date(posted_on, now=None)``: parses the relative date
+  strings Workday emits (``"Posted Today"`` / ``"Posted Yesterday"`` /
+  ``"Posted N Days Ago"``); output is an ISO 8601 UTC string at midnight,
+  or ``None`` for unparseable input **and for the ``"N+ Days Ago"``
+  bucket**, which is a bucket label rather than a date.
 
 Structural notes
 ----------------
@@ -55,17 +54,19 @@ team, employment type, compensation) require a second round-trip per
 job, which the frontend deliberately skipped because the list view
 shows enough to drive the visualization. We mirror that scope:
 ``details`` is populated with the keys other migrated providers emit
-(``experience_level``, ``is_remote_eligible``, ``department``, ``team``,
+(``experience_level``, ``is_remote_eligible``, ``team``,
 ``employment_type``, ``secondary_locations``, ``compensation_summary``,
 ``description_html``, ``tags``), all set to ``None`` / ``[]``. Only
 ``published_at`` (the parsed ``postedOn``) carries data.
 
 Date parsing
 ------------
-``_parse_workday_date`` is a faithful Python port of
-``parseWorkdayDate``. The inputs are inherently low-resolution (Workday
-buckets to "today / yesterday / N days ago / N+ days ago"), so the
-output is always midnight UTC. ``None`` and unparseable strings return
+The inputs are inherently low-resolution (Workday buckets to "today /
+yesterday / N days ago / N+ days ago"), so the output is always midnight
+UTC. **``"N+ Days Ago"`` returns ``None``** — it names an open-ended
+bucket and contains no date to recover; synthesising ``today - (N + 1)``
+from it, as this module used to, fabricated a precise timestamp out of a
+range boundary. ``None`` and unparseable strings likewise return
 ``None`` rather than falling back to ``now()`` — per
 ``feedback_correctness_over_dont_crash.md``, a corrupt source value
 must land as ``NULL`` (not as a fake recent timestamp that would
@@ -86,6 +87,8 @@ from scripts.shared.models import JobListing
 from scripts.shared.utils import get_iso_timestamp
 
 from .harvest_meta import HarvestEvidence
+from .job_details import has_description
+from .posted_date import effective_posted_date
 
 logger = logging.getLogger(__name__)
 
@@ -473,10 +476,18 @@ def _transform_one(
             location = location_raw
 
     posted_on = _parse_workday_date(raw.get("postedOn"))
-    if raw.get("postedOn") and posted_on is None:
+    if (
+        raw.get("postedOn")
+        and posted_on is None
+        and not _is_open_ended_bucket(raw.get("postedOn"))
+    ):
         # ERROR (not WARNING): Railway routes by Python level. A
         # persistently-unparseable postedOn string is a data quality
         # issue the operator should see in @level:error filters.
+        #
+        # "N+ Days Ago" is excluded: it is an expected bucket label that
+        # correctly yields NULL, not a parse failure. Without the guard
+        # this fires on 42.3% of open prod Workday rows every tick.
         logger.error(
             "Workday data quality issue: posting %s for company %s had "
             "unparseable postedOn=%r; storing posted_on as NULL",
@@ -489,7 +500,6 @@ def _transform_one(
     # `locationsText`/`postedOn`/`bulletFields[*]` structurally; the
     # other keys are None / [] because we don't have detail-page data.
     details: dict[str, Any] = {
-        "department": None,
         "team": None,
         "secondary_locations": [],
         "employment_type": None,
@@ -511,10 +521,28 @@ def _transform_one(
         details=details,
         posted_on=posted_on,
         created_at=now,
-        first_seen_at=now,
+        # THE EFFECTIVE POSTED DATE (POSTED-DATE-PLAN.md §2, D9/D10). This is the
+        # client the whole trust story is about, and the two halves meet here:
+        #
+        #   * ``"Posted Today"`` / ``"Yesterday"`` / ``"N Days Ago"`` are real
+        #     dates (57.7% of open Workday rows) and become the sort key.
+        #   * ``"Posted 30+ Days Ago"`` is a BUCKET BOUNDARY, not a date.
+        #     ``_parse_workday_date`` returns None for it (U5a), so those 42.3%
+        #     fall back to first sight. That fallback is the intended outcome —
+        #     nothing downstream can tell a fabricated timestamp from a real one.
+        #
+        # Workday also re-derives its relative strings against today, so a
+        # listing's ``posted_on`` walks forward on every scrape. That slide must
+        # never reach this column, and cannot: ``first_seen_at`` is absent from
+        # ``_UPSERT_ON_CONFLICT`` (scripts/shared/database.py), so this line only
+        # ever decides an INSERT.
+        first_seen_at=effective_posted_date(posted_on, now),
         last_seen_at=now,
         consecutive_misses=0,
-        details_scraped=True,
+        # Truthful, not hard-coded True: this claims we HAVE the job's detail
+        # content. See ``job_details.has_description`` for what that means and
+        # which rows were lying.
+        details_scraped=has_description(details),
         status="OPEN",
         has_matched=False,
         ai_metadata={},
@@ -528,13 +556,60 @@ def _transform_one(
 _GENERIC_LOCATION_COUNT_RE = re.compile(r"^\d+\s+Locations?$", re.IGNORECASE)
 
 
-# Date parsing — port of frontend `parseWorkdayDate` in
-# `src/frontend/src/lib/workdayDateParser.ts`. The semantics MUST match
-# bit-for-bit so a row scraped via the backend lands on the same time
-# bucket as the same row scraped via the (pre-cutover) frontend.
+# Date parsing. Originally a bit-for-bit port of the frontend's
+# `parseWorkdayDate`; that file (`src/frontend/src/lib/workdayDateParser.ts`)
+# no longer exists — the backend is the only Workday parser now, and this is
+# deliberately no longer a mirror of it (see `_parse_workday_date` on the
+# `"N+ Days Ago"` bucket).
 _DAYS_AGO_RE = re.compile(
     r"(\d+)(\+)?\s*days?\s*ago", re.IGNORECASE,
 )
+
+
+def _iso_millis_z(moment: datetime) -> str:
+    """``moment`` as ``YYYY-MM-DDTHH:MM:SS.mmmZ``. UTC, always exactly this shape.
+
+    Replaces ``.isoformat().replace("+00:00", ".000Z")``, which was correct only for the
+    three relative-date branches — their datetimes are midnight, so ``isoformat()`` emits
+    no fractional part and the appended ``.000`` was the whole of it — and produced an
+    INVALID timestamp on the ISO branch. ``datetime.fromisoformat`` keeps microseconds
+    when the board sends them, so ``2026-08-01T12:34:56.789000+00:00`` came back out as
+    ``2026-08-01T12:34:56.789000.000Z``: two fractional parts, which Postgres rejects.
+
+    Why that was not merely an ugly string. ``upsert_jobs_batch`` writes the harvest in
+    ONE statement with no per-row fallback, so a single malformed ``posted_on`` fails the
+    whole batch — every job of that tenant, not the one row that carried it.
+
+    Latent so far only because every Workday tenant we read answers this endpoint with
+    the relative phrasing ("Posted Today", "Posted 5 Days Ago"): all 6,453 open
+    ``workday_api`` rows in production sit exactly at midnight, so nothing has taken the
+    ISO branch yet. One tenant changing format is all it would take, and it would present
+    as a tenant that abruptly stops updating rather than as a date bug.
+
+    ``isoformat(timespec="milliseconds")`` fixes the precision at the source instead of
+    patching the tail, and ``removesuffix`` is anchored where ``replace`` was not — after
+    ``astimezone(timezone.utc)`` the offset is always exactly ``+00:00``.
+    """
+    utc = moment.astimezone(timezone.utc)
+    return utc.isoformat(timespec="milliseconds").removesuffix("+00:00") + "Z"
+
+
+def _is_open_ended_bucket(posted_on: Any) -> bool:
+    """True for Workday's ``"N+ Days Ago"`` open-ended bucket label.
+
+    Shares ``_DAYS_AGO_RE`` with ``_parse_workday_date`` so the two can
+    never disagree about what counts as a bucket.
+
+    This exists purely so the caller can tell "we deliberately have no
+    date" apart from "this string is corrupt". Both store NULL; only the
+    second is worth an ERROR. 42.3% of open prod Workday rows are in this
+    bucket, so logging them would be a per-tick ERROR flood that buries
+    the real data-quality signal.
+    """
+    if not isinstance(posted_on, str):
+        return False
+    m = _DAYS_AGO_RE.search(posted_on.lower())
+    return bool(m and m.group(2))
 
 
 def _parse_workday_date(
@@ -547,16 +622,21 @@ def _parse_workday_date(
       - ``"Posted Today"`` → midnight UTC today.
       - ``"Posted Yesterday"`` → midnight UTC of (today - 1d).
       - ``"Posted N Days Ago"`` → midnight UTC of (today - N days).
-      - ``"Posted N+ Days Ago"`` → midnight UTC of (today - (N + 1) days).
-        The frontend distinguishes "exactly N" from "N or more" by adding
-        a day to the "N+" form; mirror that exactly so the visualization
-        buckets jobs identically.
 
     Returns ``None`` for:
       - ``None`` / empty input.
+      - ``"Posted N+ Days Ago"`` — see below.
       - Strings that don't match any of the patterns AND don't parse as
         ISO 8601. Per ``feedback_correctness_over_dont_crash.md``, a
         corrupt value lands as NULL (not as a fake "now" timestamp).
+
+    **``"N+ Days Ago"`` is not a date.** It is the label of Workday's
+    open-ended oldest bucket. This function used to answer
+    ``today - (N + 1)`` for it, matching a since-deleted frontend parser;
+    that number was invented here, not published by the board. It now
+    returns ``None`` so the caller stores NULL and the row falls back to
+    first sight (see
+    ``docs/implementations/custom-company-sources/POSTED-DATE-PLAN.md`` §3).
 
     ``now`` is an injection seam so tests can pin the wall clock without
     monkeypatching the stdlib.
@@ -581,21 +661,26 @@ def _parse_workday_date(
     # "today" — must match BEFORE "yesterday" since both contain neither
     # the other, but a future Workday phrasing change could overlap.
     if "today" in lowered:
-        return today_midnight.isoformat().replace("+00:00", ".000Z")
+        return _iso_millis_z(today_midnight)
 
     if "yesterday" in lowered:
-        return (today_midnight - timedelta(days=1)).isoformat().replace(
-            "+00:00", ".000Z",
-        )
+        return _iso_millis_z(today_midnight - timedelta(days=1))
 
     m = _DAYS_AGO_RE.search(lowered)
     if m:
-        base_days = int(m.group(1))
-        is_plus_range = bool(m.group(2))
-        days_ago = base_days + 1 if is_plus_range else base_days
-        return (today_midnight - timedelta(days=days_ago)).isoformat().replace(
-            "+00:00", ".000Z",
-        )
+        # "N+ Days Ago" is a BUCKET BOUNDARY, not a date. Workday says
+        # "30+" for everything older than 30 days; there is no date in
+        # that string to recover. We used to answer `today - (N + 1)`,
+        # which fabricated a precise-looking timestamp out of nothing —
+        # on prod that was 42.3% of open Workday rows all claiming to
+        # have been posted exactly 31 days ago, and it slid forward by a
+        # day every day. Return None so the row falls back to first
+        # sight instead. The plain "N Days Ago" form below IS a date and
+        # is kept exactly as-is (the accurate 57.7%).
+        if m.group(2):
+            return None
+        days_ago = int(m.group(1))
+        return _iso_millis_z(today_midnight - timedelta(days=days_ago))
 
     # ISO-8601 fallback. The frontend tried `new Date(postedOn)`; we use
     # `datetime.fromisoformat` which is stricter — most Workday CXS
@@ -608,6 +693,4 @@ def _parse_workday_date(
         return None
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=timezone.utc)
-    return parsed.astimezone(timezone.utc).isoformat().replace(
-        "+00:00", ".000Z",
-    )
+    return _iso_millis_z(parsed)

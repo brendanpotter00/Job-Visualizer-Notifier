@@ -123,13 +123,17 @@ function createMockJobs(count: number, idPrefix = 'job'): Job[] {
     return {
       id: `${idPrefix}-${i}`,
       title: `Software Engineer ${i}`,
-      company: 'test-company',
+      // A REAL first-party id, not a synthetic one. `JobListingCard` resolves an
+      // unrecognized id against the signed-in user's own boards, which needs the
+      // userCompanies RTK Query slice in the store — a dependency this list test
+      // has no reason to take on, and which production never hits here (the
+      // Recent Jobs feed only fans out over `COMPANIES`).
+      company: 'spacex',
       location: 'Remote',
       employmentType: 'Full-time',
       createdAt,
       firstSeenAt: createdAt,
       url: `https://example.com/${idPrefix}-${i}`,
-      department: 'Engineering',
       team: 'Backend',
       tags: [],
       isRemote: true,

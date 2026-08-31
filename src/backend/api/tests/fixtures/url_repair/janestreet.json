@@ -1,0 +1,114 @@
+{
+ "board_host": "www.janestreet.com",
+ "url_spec": "https://www.janestreet.com/join-jane-street/position/{id}/",
+ "expected": "https://www.janestreet.com/join-jane-street/position/{id}/",
+ "why": "the mapped id IS in the board's own links \u2014 untouchable",
+ "captured_urls": [
+  "https://www.janestreet.com/join-jane-street/position/8631912002/",
+  "https://www.janestreet.com/join-jane-street/position/8596771002/",
+  "https://www.janestreet.com/join-jane-street/position/8233259002/",
+  "https://www.janestreet.com/join-jane-street/position/8213653002/",
+  "https://www.janestreet.com/join-jane-street/position/8512072002/",
+  "https://www.janestreet.com/join-jane-street/position/8531243002/",
+  "https://www.janestreet.com/join-jane-street/position/8469230002/",
+  "https://www.janestreet.com/join-jane-street/position/8448713002/"
+ ],
+ "records": [
+  {
+   "id": 8631912002,
+   "position": "Accounting Coordinator",
+   "category": "Finance and Operations",
+   "availability": "Full-Time: Experienced",
+   "city": "NYC",
+   "overview": "<h3>About the Position</h3>\n<p>We are looking for an organized and discreet Accounting Coordinator to manage a variety of daily tasks and projects across our gl",
+   "team": "Accounting",
+   "duration": "Permanent",
+   "min_salary": "100,000",
+   "max_salary": "120,000"
+  },
+  {
+   "id": 8596771002,
+   "position": "\ua4dfachine \ua4e1earning \ua4e3esearcher",
+   "category": "Trading, Research, and Machine Learning",
+   "availability": "Summer Internship",
+   "city": "HKG",
+   "overview": "<p><strong>About the position</strong></p>\n<p>Our goals are to give you a real sense of what it&#39;s like to work at Jane Street as a Machine Learning Research",
+   "team": "Machine Learning",
+   "duration": "May-August",
+   "min_salary": null,
+   "max_salary": null
+  },
+  {
+   "id": 8233259002,
+   "position": "ASIC Engineer",
+   "category": "Technology",
+   "availability": "Full-Time: Experienced",
+   "city": "LDN",
+   "overview": "<h3>About the position</h3>\n<p>We are looking to hire an experienced ASIC Engineer to help us design, test and deploy advanced hardware designs. As part of our ",
+   "team": "Software Engineering",
+   "duration": "Permanent",
+   "min_salary": null,
+   "max_salary": null
+  },
+  {
+   "id": 8213653002,
+   "position": "ASIC Engineer",
+   "category": "Technology",
+   "availability": "Full-Time: Experienced",
+   "city": "NYC",
+   "overview": "<h3>About the Position</h3>\n<p>We are looking to hire an experienced ASIC Engineer to help us design, test and deploy advanced hardware designs. As part of our ",
+   "team": "Software Engineering",
+   "duration": "Permanent",
+   "min_salary": "250,000",
+   "max_salary": "300,000"
+  },
+  {
+   "id": 8512072002,
+   "position": "ASIC Physical Design Engineer",
+   "category": "Technology",
+   "availability": "Full-Time: Experienced",
+   "city": "LDN",
+   "overview": "<h3>About the position</h3>\n<p>We are looking to hire an ASIC Physical Design Engineer to help us design, test and deploy advanced hardware. As part of our Ultr",
+   "team": "Software Engineering",
+   "duration": "Permanent",
+   "min_salary": null,
+   "max_salary": null
+  },
+  {
+   "id": 8531243002,
+   "position": "ASIC Physical Design Engineer",
+   "category": "Technology",
+   "availability": "Full-Time: Experienced",
+   "city": "NYC",
+   "overview": "<h3>About the Position</h3>\n<p>We are looking to hire an ASIC Physical Design Engineer to help us design, test, and deploy advanced hardware. As part of our Ult",
+   "team": "Software Engineering",
+   "duration": "Permanent",
+   "min_salary": "250,000",
+   "max_salary": "300,000"
+  },
+  {
+   "id": 8469230002,
+   "position": "Campus Recruiter",
+   "category": "HR and Recruiting",
+   "availability": "Full-Time: Experienced",
+   "city": "HKG",
+   "overview": "<h3>About the Position</h3>\n<p>We are looking for an experienced Campus Recruiter to help us find and hire outstanding interns to join Jane Street. We\u2019re focuse",
+   "team": "Recruiting",
+   "duration": "Permanent",
+   "min_salary": null,
+   "max_salary": null
+  },
+  {
+   "id": 8448713002,
+   "position": "Campus Recruiter, Early Careers Partnerships & Initiatives",
+   "category": "HR and Recruiting",
+   "availability": "Full-Time: Experienced",
+   "city": "NYC",
+   "overview": "<h3>About the Position</h3>\n<p>We are looking for a strategic thinker and skilled relationship builder to help us spearhead the planning and execution of a rang",
+   "team": "Recruiting",
+   "duration": "Permanent",
+   "min_salary": "200,000",
+   "max_salary": "300,000"
+  }
+ ]
+}

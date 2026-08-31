@@ -1,0 +1,54 @@
+{
+ "origin_url": "https://higher.gs.com/roles",
+ "records_path": "data.roleSearch.items",
+ "field_map": {
+  "id": "roleId",
+  "title": "jobTitle",
+  "url": "https://higher.gs.com/roles/{roleId}"
+ },
+ "kind": "synthesised",
+ "proves": false,
+ "why": "THE GOLDMAN DEFECT: a Next.js SPA answers 200 for /roles/<anything> and serves the same 23-char shell for every job. A status check calls this healthy.",
+ "measured_at": "2026-08-29",
+ "titles_measured_at": "2026-08-30",
+ "pages": {
+  "https://higher.gs.com/roles/183031_GS_MID_CAREER": {
+   "status": 200,
+   "chars": 23,
+   "carries_own_title": false,
+   "carries_other_titles": false,
+   "og_title": "",
+   "title_tag": "Careers | Goldman Sachs"
+  },
+  "https://higher.gs.com/roles/183029_GS_EARLY_CAREER": {
+   "status": 200,
+   "chars": 23,
+   "carries_own_title": false,
+   "carries_other_titles": false,
+   "og_title": "",
+   "title_tag": "Careers | Goldman Sachs"
+  },
+  "https://higher.gs.com/roles/183030_GS_EARLY_CAREER": {
+   "status": 200,
+   "chars": 23,
+   "carries_own_title": false,
+   "carries_other_titles": false,
+   "og_title": "",
+   "title_tag": "Careers | Goldman Sachs"
+  }
+ },
+ "records": [
+  {
+   "jobTitle": "Global Banking & Markets, Supervisory Risk & Controls, New York, Vice President",
+   "roleId": "183031_GS_MID_CAREER"
+  },
+  {
+   "jobTitle": "Global Banking & Markets, Supervisory Risk & Controls, New York-Analyst",
+   "roleId": "183029_GS_EARLY_CAREER"
+  },
+  {
+   "jobTitle": "Global Banking & Markets, Supervisory Risk & Controls, New York, Associate",
+   "roleId": "183030_GS_EARLY_CAREER"
+  }
+ ]
+}

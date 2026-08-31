@@ -83,10 +83,43 @@ describe('transformBackendJob', () => {
     expect(job.firstSeenAt).toBe('2025-01-05T08:00:00Z');
   });
 
-  it('should extract department from experience_level', () => {
-    const job = transformBackendJob(mockBackendJob, 'google');
+  // The `details` object the LIST endpoint actually sends. Not a hand-picked
+  // subset — `api/services/database.py::_LIST_COLUMNS` builds it with
+  // `jsonb_build_object('experience_level', experience_level,
+  // 'is_remote_eligible', is_remote_eligible)`, so it has exactly these two keys
+  // and both of them can be `null`. Every other mock in this file is a
+  // hand-written shape that the server never produces; pinning the real one is
+  // what stops a transformer test from passing against a key the server never
+  // sends.
+  const listEndpointDetails = (
+    experienceLevel: string | null = null,
+    isRemoteEligible: boolean | null = false
+  ) =>
+    JSON.stringify({
+      experience_level: experienceLevel,
+      is_remote_eligible: isRemoteEligible,
+    });
 
-    expect(job.department).toBe('Mid-Senior');
+  it('reads the two-key object the list endpoint sends', () => {
+    const job = transformBackendJob(
+      { ...mockBackendJob, details: listEndpointDetails('Senior', true) },
+      'google'
+    );
+
+    expect(job.tags).toContain('Senior');
+    expect(job.isRemote).toBe(true);
+  });
+
+  it('turns the wire\'s explicit nulls into an empty tag list', () => {
+    // A board that publishes neither value yields `null` for both — the keys are
+    // present. Neither may become a tag.
+    const job = transformBackendJob(
+      { ...mockBackendJob, details: listEndpointDetails(null, null) },
+      'google'
+    );
+
+    expect(job.tags).toEqual([]);
+    expect(job.isRemote).toBeNull();
   });
 
   it('should generate tags from details', () => {
@@ -121,7 +154,6 @@ describe('transformBackendJob', () => {
     const job = transformBackendJob(badDetailsJob, 'google');
 
     expect(job.id).toBe('job-123');
-    expect(job.department).toBeUndefined();
     expect(job.isRemote).toBeUndefined();
     expect(job.tags).toEqual([]);
   });
@@ -134,7 +166,6 @@ describe('transformBackendJob', () => {
 
     const job = transformBackendJob(emptyDetailsJob, 'google');
 
-    expect(job.department).toBeUndefined();
     expect(job.isRemote).toBeUndefined();
     expect(job.tags).toEqual([]);
   });
@@ -215,7 +246,6 @@ describe('transformBackendJob', () => {
 
     const job = transformBackendJob(experienceOnlyJob, 'google');
 
-    expect(job.department).toBe('Senior');
     expect(job.tags).toEqual(['Senior']);
     expect(job.isRemote).toBeUndefined();
   });
@@ -230,7 +260,6 @@ describe('transformBackendJob', () => {
 
     const job = transformBackendJob(remoteOnlyJob, 'google');
 
-    expect(job.department).toBeUndefined();
     expect(job.isRemote).toBe(true);
     expect(job.tags).toEqual(['Remote Eligible']);
   });

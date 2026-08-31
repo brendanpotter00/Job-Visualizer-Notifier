@@ -34,4 +34,30 @@ describe('CUSTOM_COMPANIES_CONFIG', () => {
       expect(CUSTOM_COMPANIES_CONFIG.isEnabled).toBe(false);
     }
   );
+
+  // The discovery-progress checklist gets its own flag so a presentation change can be
+  // rolled back without taking the whole My-Companies page down with it.
+  it('reads the discovery-progress checklist from VITE_DISCOVERY_PROGRESS_ENABLED', async () => {
+    // Pins the EXACT var name: a typo'd `VITE_*` is not an error, it just leaves the
+    // flag at its default forever, which is indistinguishable from "not shipped yet".
+    vi.stubEnv('VITE_DISCOVERY_PROGRESS_ENABLED', 'true');
+    const { CUSTOM_COMPANIES_CONFIG } = await import('../../config/customCompanies');
+    expect(CUSTOM_COMPANIES_CONFIG.isDiscoveryProgressEnabled).toBe(true);
+  });
+
+  it('leaves the discovery-progress checklist OFF by default', async () => {
+    vi.stubEnv('VITE_DISCOVERY_PROGRESS_ENABLED', undefined);
+    const { CUSTOM_COMPANIES_CONFIG } = await import('../../config/customCompanies');
+    expect(CUSTOM_COMPANIES_CONFIG.isDiscoveryProgressEnabled).toBe(false);
+  });
+
+  it('keeps the two flags independent', async () => {
+    // The page can ship without the checklist (that is the rollback path), and the
+    // checklist var alone must never reveal the page.
+    vi.stubEnv('VITE_CUSTOM_COMPANIES_ENABLED', undefined);
+    vi.stubEnv('VITE_DISCOVERY_PROGRESS_ENABLED', 'true');
+    const { CUSTOM_COMPANIES_CONFIG } = await import('../../config/customCompanies');
+    expect(CUSTOM_COMPANIES_CONFIG.isEnabled).toBe(false);
+    expect(CUSTOM_COMPANIES_CONFIG.isDiscoveryProgressEnabled).toBe(true);
+  });
 });

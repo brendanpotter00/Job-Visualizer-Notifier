@@ -15,11 +15,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
+from datetime import datetime
+from urllib.parse import urlparse
 
 import httpx
 import psycopg2
-from fastapi import APIRouter, Depends, HTTPException, Path, Response
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response
 from fastapi.responses import JSONResponse
 from psycopg2.extensions import connection as Connection
 
@@ -32,13 +35,38 @@ from ..config import settings
 from ..dependencies import get_db
 from ..models import (
     AddUserCompanyRequest,
+    AlreadyPublicResponse,
+    DiscoveryProgressResponse,
     JobListingResponse,
+    PublicMatchResponse,
+    RenameUserCompanyRequest,
     UserCompanyListResponse,
     UserCompanyResponse,
 )
+from ..pagination import (
+    MAX_CURSOR_LENGTH,
+    MAX_TIMESTAMP_LENGTH,
+    InvalidCursorError,
+    JobCursor,
+    decode_job_cursor,
+    encode_job_cursor,
+    parse_utc_timestamp,
+)
+# Imported, NOT redeclared: ``main.py`` wires exactly this constant into
+# ``CORSMiddleware(expose_headers=...)``. A second copy of the string here would
+# let the two drift and the header would silently stop reaching the browser.
+from ..routers.jobs import NEXT_CURSOR_HEADER
+from ..services import add_quota
 from ..services import custom_companies_service as svc
-from ..services.ats_discovery import discover_ats, probe_candidate
-from ..services.database import get_user_company_jobs
+from ..services.ats_discovery import REASON_NO_ATS, discover_ats, probe_candidate
+from ..services.company_name_match import directory_tenant
+from ..services.rate_limit import (
+    enforce_user_company_add_rate_limit,
+    enforce_user_company_rename_rate_limit,
+)
+from ..services.discovery.progress import read_progress
+from ..services.published_board_match import read_suggestion
+from ..services.database import get_owned_custom_jobs, get_user_company_jobs
 from ..services.user_service import get_or_create_user, get_user_by_email
 
 logger = logging.getLogger(__name__)
@@ -52,6 +80,13 @@ router = APIRouter()
 _RESOLVE_BUDGET_S = 25.0
 _RESOLVE_GRACE_S = 2.0
 _RESOLVE_CLIENT_TIMEOUT_S = 30.0
+
+# Wall-clock cap on the first-harvest ENQUEUE (not the harvest — that runs on the
+# worker). It is two local statements, an INSERT on the broker and an UPDATE on
+# ``companies``, so this bound is never reached in practice; it exists because the user
+# is synchronously waiting on this response and a sick broker connection must cost them
+# a bounded pause and today's 15-minute-tick behaviour, not an open-ended hang.
+_FIRST_HARVEST_ENQUEUE_BUDGET_S = 5.0
 
 
 def _http_client() -> httpx.AsyncClient:
@@ -72,6 +107,17 @@ def _require_flag() -> None:
 
 
 def _to_response(row: dict) -> UserCompanyResponse:
+    # The discovery checklist rides on the SAME row the list already returns, so the
+    # existing 'still settling' poll surfaces it with no second channel (DECISION D2).
+    # ``read_progress`` is total: an ATS company's provider_config has no 'discovery'
+    # key and yields None, and a blob written by an older deployment is trimmed rather
+    # than raised on — this is the one endpoint the My-Companies page cannot live
+    # without, so it must never 500 over a display-only field.
+    progress = read_progress(row.get("provider_config"))
+    # Same column, same poll, same total-reader contract (E7 unit 10): a row with no
+    # suggestion — every ATS company, and nearly every discovered one — yields None and
+    # renders exactly what it rendered before this shipped.
+    public_match = read_suggestion(row.get("provider_config"))
     return UserCompanyResponse(
         id=row["id"],
         display_name=row["display_name"],
@@ -82,7 +128,30 @@ def _to_response(row: dict) -> UserCompanyResponse:
         open_job_count=int(row.get("open_job_count") or 0),
         last_success_at=row.get("last_success_at"),
         tracking_started_at=row.get("tracking_started_at"),
+        discovery=(
+            DiscoveryProgressResponse.model_validate(progress)
+            if progress is not None
+            else None
+        ),
+        public_match=(
+            PublicMatchResponse.model_validate(public_match)
+            if public_match is not None
+            else None
+        ),
     )
+
+
+def _unreachable_detail(reason: str) -> str:
+    """One honest sentence for a URL we never got far enough to read.
+
+    Deliberately GENERIC and deliberately short. The user-facing wording for each of
+    the eleven url_guard / transport codes already lives in exactly one place — the
+    frontend's ``features/userCompanies/resolveErrors.ts``, keyed by the
+    machine-readable ``reason`` this response carries beside it — and a second,
+    diverging set of sentences here would be the copy that eventually contradicts it.
+    This is what a direct API caller (or an older client) reads.
+    """
+    return f"We couldn't read that URL ({reason}), so there was nothing to add."
 
 
 def _reject(status: int, reason: str, detail: str, final_url: str | None = None) -> JSONResponse:
@@ -90,6 +159,314 @@ def _reject(status: int, reason: str, detail: str, final_url: str | None = None)
     if final_url is not None:
         body["finalUrl"] = final_url
     return JSONResponse(status_code=status, content=body)
+
+
+# ``resolved_ats`` for an audit row the REQUEST writes about a board the caller
+# ALREADY TRACKS. A rung marker in the same family as ``'script'`` and
+# ``'name_guess'`` — not an ATS — and deliberately NOT ``'discovered'``: the monthly
+# quota tells request-written rows from worker-written ones by exactly that value
+# (``_QUOTA_COUNTED_PREDICATE``), so reusing it here would silently stop charging a
+# re-add a slot, against the rule that every URL entered spends one.
+_READD_RESOLVED_ATS = "already_tracked"
+
+_READD_REFUSED_DETAIL = "re-submitted; this board was already refused"
+
+
+def _readd_attempt_fields(existing: dict) -> tuple[str, str, str | None]:
+    """``(outcome, resolved_ats, error_detail)`` for an idempotent discovery re-add.
+
+    THE BUG THIS FIXES. This branch used to write a flat
+    ``outcome='discovery_pending'`` for every re-add — but a pending row is only ever
+    HALF an attempt. One add writes two audit rows: ``discovery_pending`` from the
+    request, then a terminal row minutes later from the worker. The admin dashboard
+    collapses an attempt to its NEWEST row (``custom_companies_admin._ATTEMPTS_CTE``)
+    and calls a ``discovery_pending`` row older than 40 minutes ``stuck``. On the
+    short-circuit path no worker ever runs, so nothing ever wrote the second half —
+    and re-pasting the URL of a board that was tracked and Live twelve hours earlier
+    made the dashboard report it as stuck. It was not stuck; nothing was wrong at all.
+
+    The fix is to MIRROR the state the board is actually in, so the row is terminal
+    whenever the board is:
+
+    ===================  =====================  ==================================
+    existing board       row written            why
+    ===================  =====================  ==================================
+    ``discovering``      ``discovery_pending``  correct as-is — a discovery run IS
+                                                in flight and WILL write the
+                                                terminal half that pairs with this
+    ``refused``          ``refused``            the board is not trackable; calling
+                                                it ``added`` would be a lie
+    anything else        ``added``              the board is tracked, which is
+                                                exactly what the ATS idempotent
+                                                branch already records
+    ===================  =====================  ==================================
+
+    No new outcome value: every one of these is already in the dashboard's closed
+    vocabulary, so the fix costs no frontend chip, no filter option and no migration.
+
+    THE ``refused`` ROW IS NOW ALL BUT UNREACHABLE, which is a fix rather than dead
+    code. Re-adding a refused board RETRIES its discovery
+    (``svc.restart_refused_discovery``): that path writes its own ``discovery_pending``
+    row and never arrives here. Only a re-add that LOSES the race to reset the row
+    falls through, and it must still write the truth about what it found.
+
+    A row is still written on every path, because the monthly cap counts URLs
+    ENTERED, not boards created (``services/add_quota``) — a re-add that creates
+    nothing has still spent a submission, and the ATS branch charges for one too.
+    """
+    health = existing.get("health_state")
+    if health == "discovering":
+        return "discovery_pending", "discovered", None
+    if health == "refused":
+        return "refused", _READD_RESOLVED_ATS, _READD_REFUSED_DETAIL
+    return "added", _READD_RESOLVED_ATS, None
+
+
+# Hosts that carry no company identity — the label has to come from the label BEFORE
+# these, or a board on `jobs.acme.co.uk` would be named "Co".
+_HOST_NOISE_PREFIXES = ("www", "jobs", "careers", "boards", "apply", "talent", "life")
+# Second-level labels that are part of the suffix, not the name (`acme.co.uk`).
+_HOST_SUFFIX_LABELS = ("co", "com", "net", "org", "ac", "gov", "edu")
+
+
+def _title_case_slug(slug: str) -> str:
+    """`wispr-flow` → `Wispr Flow`. Hyphens and underscores are word breaks; a
+    run-together label is capitalised and left alone (see the caller for why)."""
+    name = slug.replace("-", " ").replace("_", " ").strip()
+    return " ".join(word.capitalize() for word in name.split())
+
+
+def _discovery_display_name(final_url: str) -> str:
+    """A human label for a discovered company, derived from its final URL.
+
+    THE PATH IS ASKED FIRST, because on a DIRECTORY host it is the only thing that
+    names the company. ``www.ycombinator.com/companies/raindrop/jobs`` is Raindrop's
+    board; naming it after the host produced a row called "Ycombinator", and every
+    other YC-hosted board a user added would have carried that same label — one name
+    for ~1,500 different companies. ``company_name_match.directory_tenant`` recognises
+    the shape (a declared directory segment, a tenant slug that is not a careers word,
+    and something after it) and returns the slug, or ``None`` for the ordinary
+    single-company careers URL, which then falls through to the host reading below
+    unchanged: Jane Street and Atlassian both take that path.
+
+    Two tenants never shared a ROW — ``discovered_source_key`` has always been the full
+    normalized URL — so this is the label, not the identity. It is still the label the
+    user reads on every job card, in their companies list and in every health sentence.
+
+    The host is what is left when the path says nothing — a discovered board has no name
+    field to read. But the RAW host is what the user then sees, and `www.janestreet.com`
+    reads like a URL someone forgot to clean up rather than a company. So we take the
+    registrable label and title-case it: `Jane Street`.
+
+    Deliberately conservative about WHICH label: stripping only a leading `www.` names
+    `jobs.acme.com` as "Jobs". We drop every leading noise label, then walk back from
+    the TLD past compound suffixes (`.co.uk`) so `careers.acme.co.uk` is "Acme", not
+    "Co". A host that is nothing but noise (or an IP, or empty) falls back to the raw
+    host — a slightly ugly name is much better than a confidently wrong one.
+
+    Hyphens and underscores become spaces so `jane-street.com` reads the same as
+    `janestreet.com`. We do NOT try to split a run-together label into words: there is
+    no reliable way to tell `janestreet` from `mongodb`, and "Mongo Db" is worse than
+    "Janestreet". The user can rename it; we just must not invent.
+    """
+    tenant = directory_tenant(final_url)
+    if tenant:
+        tenant_name = _title_case_slug(tenant)
+        if tenant_name:
+            return tenant_name
+
+    host = urlparse(final_url).netloc.split("@")[-1].split(":")[0].strip().lower()
+    if not host:
+        return final_url
+
+    labels = [label for label in host.split(".") if label]
+    # An IPv4 literal has no registrable name to find — keep it verbatim.
+    if len(labels) < 2 or all(label.isdigit() for label in labels):
+        return host
+
+    # Drop the TLD, then any compound-suffix label sitting in front of it.
+    labels = labels[:-1]
+    if len(labels) > 1 and labels[-1] in _HOST_SUFFIX_LABELS:
+        labels = labels[:-1]
+    # Then drop leading noise, but never the last label — that IS the name.
+    while len(labels) > 1 and labels[0] in _HOST_NOISE_PREFIXES:
+        labels = labels[1:]
+
+    if labels[-1] in _HOST_NOISE_PREFIXES:
+        return host
+    return _title_case_slug(labels[-1]) or host
+
+
+# The owner's own name for a board, capped. NOT a new number: it is the cap
+# ``UserUpdateRequest.display_name`` and ``AccountPage``'s ``maxLength`` already use for
+# the other display name in this product. A second limit for the same kind of field is
+# a thing that drifts, and the card renders both.
+_DISPLAY_NAME_MAX_LENGTH = 100
+
+#: Characters DELETED from a submitted name rather than rejected. Every one of them is
+#: invisible, and none of them is anything a person meant to type into a company name:
+#:
+#: * the non-whitespace C0/C1 controls, and DEL;
+#: * ZERO-WIDTH SPACE and the BOM — a name that renders as nothing but is not empty;
+#: * the bidi marks, embeddings, overrides and isolates (U+200E/200F, U+202A-202E,
+#:   U+2066-2069). An RTL override makes a label render in an order it is not stored
+#:   in, which is the one way an escaped, un-injectable string can still lie about what
+#:   it says.
+#:
+#: WHITESPACE CONTROLS ARE DELIBERATELY NOT IN THIS CLASS — tab, newline, the C0/C1
+#: separators, NEL, U+2028/U+2029. Deleting a tab would turn "Acme\tCorp" into
+#: "AcmeCorp"; leaving it lets ``str.split()`` below treat it as the WORD BREAK it
+#: obviously is and produce "Acme Corp". (It is also why NBSP becomes an ordinary
+#: space rather than surviving as one.)
+#:
+#: ZWJ/ZWNJ (U+200C/U+200D) are not stripped either: they are load-bearing in Persian
+#: and several Indic scripts and inside emoji sequences, so removing them would corrupt
+#: legitimate names to defend against nothing.
+#:
+#: DELETED, NOT REJECTED, because "your name contains an invisible character" is not an
+#: error anyone can act on. What survives is re-checked for emptiness, so a name made
+#: only of these is a clean ``name_empty`` rather than a row called "".
+_INVISIBLE_CHARS = re.compile(
+    "[\x00-\x08\x0e-\x1b\x7f-\x84\x86-\x9f"
+    "\u200b\u200e\u200f\u202a-\u202e\u2066-\u2069\ufeff]"
+)
+
+
+def _clean_display_name(raw: str) -> str:
+    """Normalize a submitted company name: no invisibles, no runs of whitespace.
+
+    ``str.split()`` with no argument splits on every run of Unicode whitespace and
+    drops the leading and trailing runs, so the join both TRIMS and COLLAPSES:
+    ``"  Acme   Corp  "``, ``"Acme<TAB>Corp"`` and ``"Acme<NBSP>Corp"`` all become
+    ``"Acme Corp"``. Callers treat ``""`` as "the user typed nothing usable".
+    """
+    return " ".join(_INVISIBLE_CHARS.sub("", raw).split())
+
+
+async def _defer_discovery(
+    *, user_id: str, submitted_url: str, normalized_url: str, display_name: str
+) -> None:
+    """Enqueue the one-time ``discover_custom_company`` task on its own queue.
+
+    Module-level + lazily importing the task (which pulls in the discovery
+    package) so the router's import graph stays light and tests can monkeypatch this
+    seam without opening a live worker. The queueing lock is keyed PER USER
+    (``discover:{user_id}:{url}``): a single user's double-submit collapses to one
+    run, but two DIFFERENT users adding the SAME non-ATS URL each get their own
+    discovery (a URL-only lock made user B's defer raise AlreadyEnqueued → a 500 and
+    a wedged ``discovering`` row).
+
+    The lock STRING comes from :func:`svc.discovery_queueing_lock`, not from an
+    f-string here, because two other places now have to name the same job: the
+    removal path cancels it, and the wedged-row reconciler asks whether it is still
+    alive. An f-string that drifted from theirs would silently cancel nothing and
+    reap a live run.
+    """
+    from ..tasks.discover_custom_company import discover_custom_company
+
+    await discover_custom_company.configure(
+        queueing_lock=svc.discovery_queueing_lock(user_id, normalized_url),
+    ).defer_async(
+        user_id=user_id,
+        submitted_url=submitted_url,
+        normalized_url=normalized_url,
+        display_name=display_name,
+    )
+
+
+async def _defer_discovery_or_500(
+    *, user_id: str, submitted_url: str, normalized_url: str, display_name: str
+) -> None:
+    """:func:`_defer_discovery`, turning any failure into the 500 the caller owes.
+
+    Both callers — the first add and the retry of a refused board — have already
+    committed a row that says ``discovering``. If the enqueue then fails there is no
+    worker to move it, so answering 202 would hand back a row that narrates a setup
+    nobody is running; the reconciler would eventually refuse it half an hour later.
+    One helper so the two paths cannot disagree about that.
+    """
+    try:
+        await _defer_discovery(
+            user_id=user_id, submitted_url=submitted_url,
+            normalized_url=normalized_url, display_name=display_name,
+        )
+    except Exception:
+        logger.exception("Failed to enqueue discovery for %s", normalized_url)
+        raise HTTPException(status_code=500, detail="Failed to start discovery")
+
+
+def _discovery_pending_response(
+    row: dict, normalized_url: str, detail: str
+) -> JSONResponse:
+    """The 202 ``discovery_pending`` body for a board whose setup is in flight.
+
+    Hand back the row's id. Without it the caller can only find the board it just
+    added by diffing the list, so the "one-time setup" notice could never point at the
+    row now narrating its own progress. ``isDiscoveryPending`` discriminates on
+    ``status``. Hand-cased keys — this is a raw dict, not a Pydantic model, so no
+    ``to_camel`` generator runs over it.
+
+    ``detail`` is the caller's, because the three ways to reach this state are three
+    different sentences: a first setup, a setup already running, and a RETRY of a board
+    we previously refused. They used to be one sentence because two of them did not
+    exist — the retry answered "Now tracking" instead.
+    """
+    return JSONResponse(
+        status_code=202,
+        content={
+            "status": "discovery_pending",
+            "detail": detail,
+            "finalUrl": normalized_url,
+            "id": row["id"],
+            "sourceId": row.get("source_id") or custom(row["id"]),
+        },
+    )
+
+
+async def _start_first_harvest(conn: Connection, company_id: str) -> None:
+    """Read the freshly-added ATS board NOW instead of at the next claim tick.
+
+    THE BUG THIS FIXES: an ATS add commits a row with ``next_run_at = now()`` and then
+    waits for the ``*/15 * * * *`` claim tick, so for up to fifteen minutes the user
+    stares at their new company saying "Successfully tracking · 0 open jobs · Not yet
+    checked" right under a preview that just told them we found 1,200 jobs on it.
+    Discovery already fixed this for discovered boards; this is the same fix for the
+    fast path, through the SAME helper — one enqueue path, one queueing lock, one idea
+    of what "already scheduled" means.
+
+    THREE PROPERTIES THIS SEAM OWNS, all about the fact that ``POST
+    /api/users/companies`` is a request the user is sitting in front of:
+
+    * **It never fails the add.** The company is created and committed before we get
+      here. ``start_first_harvest`` already swallows broker and database trouble, so the
+      blanket ``except`` is for the genuinely unforeseen (an import error, a connector
+      that raises something new); degrading to "the tick runs it within 15 minutes" is
+      the old behaviour and always better than a 500 on a company that IS added.
+    * **It cannot hang the response.** ``wait_for`` bounds a sick broker to
+      ``_FIRST_HARVEST_ENQUEUE_BUDGET_S``. ``CancelledError`` is BaseException and
+      deliberately NOT caught — a disconnected client should still unwind.
+    * **It is lazy-imported**, like ``_defer_discovery`` above: the task package pulls in
+      the worker's import graph, which the request path has no reason to carry, and the
+      indirection is also the seam tests patch instead of opening a live broker.
+    """
+    from ..tasks.claim_custom_companies import start_first_harvest
+
+    try:
+        await asyncio.wait_for(
+            # transport='ats_client' is the literal transport ``add_custom_company``
+            # writes to company_scripts. It matters: the helper skips a
+            # ``browser_fetch`` enqueue while discovery is off, and an ATS board must
+            # never inherit that gate — discovery had no part in creating it.
+            start_first_harvest(
+                conn, company_id=company_id, transport="ats_client"
+            ),
+            timeout=_FIRST_HARVEST_ENQUEUE_BUDGET_S,
+        )
+    except Exception:  # noqa: BLE001
+        logger.warning(
+            "Could not start the first harvest for %s; the claim tick will pick it up "
+            "within 15 minutes", company_id, exc_info=True,
+        )
 
 
 @router.post("", response_model=UserCompanyResponse)
@@ -101,12 +478,51 @@ async def add_company(
 ) -> UserCompanyResponse | JSONResponse:
     """Resolve a pasted careers URL, probe it, and create a private company.
 
+    THIS IS THE WHOLE FLOW. The Add Companies page presses one button and calls this
+    once; it no longer calls ``POST /api/companies/resolve`` for a preview first. That
+    endpoint still exists (it persists nothing and is separately tested) — it just has
+    no frontend caller, because everything it produced was a card the user then had to
+    confirm, about a board this endpoint re-resolves from scratch anyway.
+
     Requires ``job_count > 0``. Idempotent per ``UNIQUE(user_id,
     canonical_source_key)`` — re-adding the same board returns the existing
-    company (200) instead of erroring. A non-ATS / unresolvable URL writes a
-    ``company_add_attempts`` row with ``outcome='unsupported'`` and returns 422
-    (Phase 3 will handle these); a resolvable board that probes 0 jobs or errors
+    company (200) instead of erroring. A resolvable board that probes 0 jobs or errors
     returns 422 with ``outcome='empty'`` / ``'probe_failed'``.
+
+    THE RE-ADD ANSWER MIRRORS THE BOARD'S STATE, and the 200 above is only the
+    tracked case. A discovered board still being set up answers 202
+    ``discovery_pending``, and one we previously REFUSED is RETRIED — a refusal
+    records what our capture pipeline could do that day, not a property of the board,
+    and re-pasting the URL is the only retry the UI offers. Both used to answer 200
+    with the company body, which the frontend renders as "Now tracking …" over a row
+    that is disabled, recipe-less and empty.
+
+    A URL we could not READ — a url_guard refusal or a transport failure — is refused
+    422 with the resolver's own ``reason`` and **records nothing**, so it starts no
+    discovery and spends no monthly slot. A URL we DID read and found no board behind
+    (``no_ats_detected``) is the opposite: that is a verdict, it goes to one-time
+    discovery, and it charges. See the ``unreachable`` branch for why that line is
+    where it is.
+
+    A URL that is a company we ALREADY PUBLISH creates nothing and returns 200 with
+    an ``AlreadyPublicResponse`` (``outcome='already_public'``) naming that public
+    company. THREE checks answer that, in ascending order of cost and descending
+    order of certainty, because a published company can be recognised three ways:
+
+    * the ``(ats, board_token)`` the resolver named — the six ATS providers;
+    * the careers HOST, for the five ``ats='script'`` boards (Amazon, Apple,
+      Google, Microsoft, TikTok) that no URL can ever spell as an ATS pair; and
+    * the company NAME inside the registrable domain — ``lifeatspotify.com``.
+
+    The first two are exact and terminal: they answer ``match_kind='board'`` and
+    the UI offers no way past them, because a resolved board token and a declared
+    host leave no reading where the user meant somebody else. The third is a guess
+    (``match_kind='name'``) and keeps a way out, because its failure mode is a false
+    positive and a guess with no way out would block a legitimate different company.
+
+    See each block for what it does and does not catch. ``trackAnyway: true`` on the
+    request skips all three and adds the private copy anyway — still honoured on
+    every rung, so a replayed request or an old client never 500s.
     """
     _require_flag()
 
@@ -116,6 +532,17 @@ async def add_company(
         raise HTTPException(status_code=401, detail="Token missing required 'sub' claim")
     if not email:
         raise HTTPException(status_code=401, detail="Token missing required 'email' claim")
+
+    # ── Burst limit: 10 adds per 60s per user ────────────────────────────────
+    # AFTER the flag check (a flag-off deployment must answer a clean 503, not a
+    # 429) and BEFORE the users-row lookup, so a burst costs no database work.
+    #
+    # This route, not just ``/resolve``. The UI calls resolve first, which made the
+    # front door look throttled — but a bearer token copied out of DevTools and
+    # replayed straight at THIS endpoint skipped the limiter entirely, and this is
+    # the one that starts a headless Chromium session and an LLM call.
+    enforce_user_company_add_rate_limit(auth0_id)
+
     try:
         user_row = get_or_create_user(
             conn,
@@ -130,6 +557,58 @@ async def add_company(
         raise HTTPException(status_code=500, detail="Failed to load user profile")
     user_id = user_row["id"]
 
+    # ── Monthly cap: 20 URLs per user per UTC calendar month ─────────────────
+    # BEFORE any outbound request. A refused add must cost nothing: no DNS, no
+    # fetch of the pasted page, no probe, no placeholder row, no discovery job.
+    # That is also why this is not enforced inside the resolver — by the time the
+    # resolver has an answer the spend has already happened.
+    #
+    # 422 with a machine-readable ``reason``, not 403: the frontend's
+    # ``asAddFailure`` hard-checks ``status !== 422`` before it will read a
+    # ``reason``, so a 403 would lose the explanation and render generic copy.
+    #
+    # NOTHING IS RECORDED HERE. A refusal at the cap never reached the resolver and
+    # created nothing, so it is not an add attempt; recording it would also let a
+    # replayed token inflate ``used`` without bound and make the audit's row count
+    # stop meaning "URLs we acted on".
+    #
+    # A database error here is a 500, NOT a pass-through. The count is the whole
+    # control, and "we could not read it, so go ahead" would fail open on exactly
+    # the request the cap exists to stop. Rolled back first so the aborted
+    # transaction is not handed to the next statement on this connection.
+    #
+    # ADMINS ARE EXEMPT, and the exemption is resolved inside ``get_quota`` rather
+    # than branched here: that one function is also what the counter on the list
+    # endpoint reads, so enforcement and the number on screen cannot disagree, and a
+    # future caller of it cannot forget the exemption. ``email`` is the key, the same
+    # one ``require_admin`` uses. An exempt caller still falls through to the resolver
+    # and still records an attempt below — exempt from REFUSAL, not from the audit.
+    # Every failure inside that lookup answers "not an admin" and applies the cap.
+    try:
+        quota = add_quota.get_quota(conn, user_id, email=email)
+    except psycopg2.Error:
+        conn.rollback()
+        logger.exception("Failed to read the add quota for user=%s", user_id)
+        raise HTTPException(status_code=500, detail="Failed to check your add limit")
+    if quota.exempt and quota.over_limit:
+        # The only interesting exemption is the one that actually waived a refusal.
+        # Logged so an operator can see spend that the cap did not stop, and so
+        # "why did this admin never hit 20?" has an answer in the log.
+        logger.info(
+            "Monthly add cap WAIVED for admin user=%s (%d/%d)",
+            user_id, quota.used, quota.limit,
+        )
+    if quota.exhausted:
+        logger.info(
+            "Monthly add cap reached for user=%s (%d/%d)",
+            user_id, quota.used, quota.limit,
+        )
+        return _reject(
+            422,
+            add_quota.MONTHLY_LIMIT_REASON,
+            add_quota.limit_reached_detail(quota),
+        )
+
     deadline = time.monotonic() + _RESOLVE_BUDGET_S
     async with _http_client() as http:
         try:
@@ -138,14 +617,316 @@ async def add_company(
                 timeout=_RESOLVE_BUDGET_S + _RESOLVE_GRACE_S,
             )
         except asyncio.TimeoutError:
-            svc.record_add_attempt(
-                conn, user_id=user_id, submitted_url=payload.url,
-                normalized_url=None, outcome="unsupported",
-                error_detail="deadline_exceeded",
-            )
+            # NOTHING RECORDED, so nothing charged. See ``_UNREACHABLE_SPENDS_NOTHING``
+            # below — this is the same refusal, reached through the outer wait_for
+            # instead of through the resolver's own deadline.
             return _reject(422, "deadline_exceeded", "Resolving the URL timed out.")
 
+        unreachable = (
+            result.reason
+            if result.candidate is None and result.reason not in (None, REASON_NO_ATS)
+            else None
+        )
+        if unreachable is not None:
+            # ── We could not even LOOK at the URL ────────────────────────────────
+            # ``_UNREACHABLE_SPENDS_NOTHING``. A url_guard refusal (``http://``,
+            # userinfo in the URL, a non-standard port, a bare IP, a hostname that
+            # resolves inside a private range) or a transport failure (DNS, connection
+            # refused, too many redirects, an encoding we do not accept). No page was
+            # read, so there is no verdict about a BOARD to record, and there is
+            # nothing here for a one-time discovery to work on either.
+            #
+            # THIS GATE WAS THE FRONTEND'S, and it had to move. The Add Companies page
+            # used to call ``POST /api/companies/resolve`` first and only POST here when
+            # the resolver answered ``no_ats_detected`` — every other reason stayed a
+            # plain error that never reached this endpoint. That preview is gone (one
+            # press adds the company), so every typo now arrives here, and the two
+            # things the old client-side gate bought have to be bought server-side:
+            #
+            #  * **No discovery.** The gate below is ``if discovery_enabled and
+            #    result.final_url``, and ``final_url`` falls back to the URL the user
+            #    typed — so WITHOUT this branch ``https://192.168.1.1/careers`` would
+            #    insert a provisional row and enqueue a capture run for an address the
+            #    resolver just refused to fetch. (The capture re-runs the same guard and
+            #    would refuse, so nothing was ever leaked; it still spent a queue job and
+            #    left the user watching a "Setting up…" row that could only end in
+            #    ``refused``.)
+            #  * **No monthly slot.** ``company_add_attempts`` is what the 20-per-month
+            #    cap counts, and the rule is deliberately "URLs entered, not boards
+            #    created" (``services/add_quota``). That rule is about URLs we ACTED on.
+            #    Charging 1/20 for a mistyped scheme — which costs us a DNS lookup at
+            #    most — is not that rule, it is a regression the removed preview used to
+            #    hide.
+            #
+            # ``no_ats_detected`` is deliberately NOT here: we fetched the page, read it,
+            # and found no board. That is a real verdict, it is what one-time discovery
+            # exists for, and starting one spends real money — so it charges.
+            return _reject(
+                422, unreachable, _unreachable_detail(unreachable),
+                final_url=result.final_url,
+            )
+
         if result.candidate is None:
+            # Whether the caller ALREADY owns a private row for this URL. Hoisted out
+            # of the discovery gate below because BOTH no-candidate dedupe rungs (the
+            # careers-host match and the company-name match) need the same answer, for
+            # the same reason unit 9's dedupe sits after its own idempotent branch:
+            # somebody who once sent ``trackAnyway`` — today via the name match's "This
+            # isn't the same company" correction — owns a real private row, and a re-add
+            # of that URL has to keep resolving to THEIR row rather than being sent back
+            # to the public page.
+            owned = (
+                svc.find_owned_company_by_source_key(
+                    conn, user_id, svc.discovered_source_key(result.final_url)
+                )
+                if result.final_url
+                else None
+            )
+
+            # ── The careers-host match: the ats='script' half of the dedupe ──────
+            # Amazon, Apple, Google, Microsoft and TikTok are published to everybody
+            # with ``ats='script'`` — a sentinel the ATS resolver never emits and no
+            # URL ever spells — so unit 9's ``(ats, board_token)`` check above cannot
+            # see them and their careers URLs land HERE, one line from spending a
+            # Claude call and a headless Chromium session on a private duplicate of a
+            # board we have published for years. That is the bug the owner hit with
+            # ``jobs.careers.microsoft.com`` and ``www.amazon.jobs``.
+            #
+            # BEFORE the discovery gate, not inside it, and before the placeholder
+            # insert: on a hit we create NOTHING and enqueue NOTHING. It is also
+            # before the gate because the answer does not depend on it — "we already
+            # publish this board" is true and useful whether or not discovery is on,
+            # and with the flag off the alternative is a 422 that reads as "this
+            # board is unsupported" about a board on our own front page.
+            #
+            # Both URLs are checked: what the user pasted AND what the resolver's
+            # redirect-following settled on. They differ in both directions —
+            # ``careers.tiktok.com`` 302s to ``lifeattiktok.com``, and a company page
+            # that redirects into one of these boards is only recognisable as the
+            # final URL.
+            if owned is None and not payload.track_anyway:
+                published = svc.find_public_company_for_careers_url(
+                    conn, payload.url, result.final_url
+                )
+                if published is not None:
+                    svc.record_add_attempt(
+                        conn, user_id=user_id, submitted_url=payload.url,
+                        normalized_url=result.final_url, outcome="already_public",
+                        # ``script`` is what the public row's ``ats`` actually is, so
+                        # the audit says which half of the dedupe answered without a
+                        # new outcome value that every existing query would miss.
+                        resolved_ats="script", company_id=published["id"],
+                    )
+                    # 200 and the SAME body shape unit 9 returns, so the frontend
+                    # renders the same notice. Nothing failed and there is nothing to
+                    # fix — the company they asked for is already there.
+                    #
+                    # ``match_kind`` defaults to ``'board'``, which is the whole
+                    # difference from the rung below: a declared careers host is exact
+                    # evidence, so the UI renders this TERMINALLY with no way past it. A
+                    # private duplicate of a board we publish re-scrapes the same feed
+                    # for a chart whose history starts today, with the full history one
+                    # click away in this notice. ``trackAnyway`` is still honoured on the
+                    # wire — only the button is gone.
+                    return JSONResponse(
+                        status_code=200,
+                        content=AlreadyPublicResponse(
+                            detail=(
+                                "That URL is the same job board as our public "
+                                f"{published['display_name']} page, so there is nothing "
+                                "to set up — its hiring trend is already there."
+                            ),
+                            company_id=str(published["id"]),
+                            display_name=str(published["display_name"]),
+                            final_url=result.final_url or payload.url,
+                        ).model_dump(by_alias=True),
+                    )
+
+                # ── The company-name match: the third rung, and the only GUESS ──
+                # ``lifeatspotify.com`` is neither an ATS board nor a declared careers
+                # host, so both checks above say nothing about it and it used to spend
+                # a headless Chromium session and a Claude call before unit 10's
+                # job-title overlap could say "this looks like Spotify". The string
+                # ``spotify`` was in the domain the whole time.
+                #
+                # It sits HERE — after the two exact rungs, before the discovery gate
+                # and before the placeholder insert — because that ordering is the
+                # entire point of the unit: on a hit we create NOTHING and enqueue
+                # NOTHING. Before the gate for the same reason the careers-host match
+                # is: "we probably already publish this" is a useful answer whether or
+                # not discovery is switched on, and with the flag off the alternative
+                # is a 422 that reads as "this board is unsupported".
+                #
+                # AFTER the two exact rungs, and it must stay after them. Their ``None``
+                # answers are deliberate (``learn.microsoft.com`` is not Microsoft's job
+                # board), and this rung is not allowed to overrule an exact check — the
+                # five companies with a declared host table are excluded from the name
+                # index for exactly that reason. See ``company_name_match``.
+                #
+                # ``match_kind='name'`` is not decoration. It is what lets the frontend
+                # word this as a likelihood and keep the escape hatch, while the two
+                # rungs above are terminal. A guess with no way out would hard-block
+                # somebody from adding a company that merely shares a string with ours.
+                published = svc.find_public_company_by_name(
+                    conn, payload.url, result.final_url
+                )
+                if published is not None:
+                    svc.record_add_attempt(
+                        conn, user_id=user_id, submitted_url=payload.url,
+                        normalized_url=result.final_url, outcome="already_public",
+                        # A distinct marker rather than the matched company's real ``ats``:
+                        # the audit's job here is to say WHICH rung answered, and this is
+                        # the only one whose hits are worth reviewing for false positives.
+                        resolved_ats="name_guess", company_id=published["id"],
+                    )
+                    return JSONResponse(
+                        status_code=200,
+                        content=AlreadyPublicResponse(
+                            # Hedged on purpose, and every clause is doing work. "looks
+                            # like" because we matched a name, not a board; "we matched
+                            # the name in the web address" because a user who is about to
+                            # be told they are covered deserves to know what that claim
+                            # rests on; and the last sentence exists so the escape hatch
+                            # reads as correcting us rather than opting into a duplicate.
+                            detail=(
+                                f"That web address looks like {published['display_name']}, "
+                                "which we already publish — we matched the name in the web "
+                                "address, not the board itself. If that's right, its hiring "
+                                "trend is already there."
+                            ),
+                            company_id=str(published["id"]),
+                            display_name=str(published["display_name"]),
+                            final_url=result.final_url or payload.url,
+                            match_kind="name",
+                        ).model_dump(by_alias=True),
+                    )
+
+            # Non-ATS URL → one-time capture discovery, gated on the SINGLE
+            # ``custom_company_discovery_enabled`` flag (the parent flag is already
+            # asserted by ``_require_flag``). With it off this stays 422 'unsupported'
+            # — no provisional row, no enqueue, no browser, no LLM spend, no
+            # discovered-endpoint SSRF surface. It is one flag rather than the retired
+            # pair because two gates made "discovery is off" read to the user as "this
+            # board is unsupported", with nothing distinguishing the two.
+            if settings.custom_company_discovery_enabled and result.final_url:
+                normalized_url = result.final_url
+                display_name = _discovery_display_name(normalized_url)
+                existing = owned
+
+                # ── A REFUSAL IS A SNAPSHOT OF US, NOT A VERDICT ON THE BOARD ────
+                # ``health_state='refused'`` records what the capture pipeline could
+                # do on the day it ran. The owner pasted a Y-Combinator-hosted board
+                # before discovery could emit the ``http_html`` transport, got a
+                # refusal that was correct at the time, and re-pasted the same URL
+                # after that transport shipped. The branch below used to short-circuit
+                # on the refused row, re-run nothing, and answer 200 with the company
+                # body — which ``AddCompanyOutcome`` renders as the green "Now
+                # tracking …" card over a row that is ``enabled=FALSE``, has no
+                # ``company_scripts`` recipe and zero jobs. Re-pasting the URL is the
+                # ONLY retry the UI offers (``DiscoveryChecklist.NextActions`` has no
+                # retry button), so it has to actually retry.
+                #
+                # It costs exactly what a first add costs and is charged the same: the
+                # ``discovery_pending`` audit row the reset writes is counted by
+                # ``svc._QUOTA_COUNTED_PREDICATE``, so a retry spends one of the
+                # twenty monthly slots — and the queueing lock below collapses rapid
+                # re-presses into one browser session instead of three.
+                if existing is not None and existing.get("health_state") == "refused":
+                    retried = svc.restart_refused_discovery(
+                        conn, user_id=user_id, submitted_url=payload.url,
+                        normalized_url=normalized_url, display_name=display_name,
+                    )
+                    if retried is not None:
+                        await _defer_discovery_or_500(
+                            user_id=user_id, submitted_url=payload.url,
+                            normalized_url=normalized_url, display_name=display_name,
+                        )
+                        return _discovery_pending_response(
+                            retried, normalized_url,
+                            "We're taking another look at this board — jobs appear "
+                            "after the first scan.",
+                        )
+                    # The reset matched no row: a concurrent re-add moved it first, or
+                    # the user pressed Remove. Answer from whatever state it is in NOW
+                    # rather than from the stale dict we read before the write.
+                    existing = svc.find_owned_company_by_source_key(
+                        conn, user_id, svc.discovered_source_key(normalized_url)
+                    )
+
+                if existing is not None:
+                    # Idempotent re-add of a board this caller already owns: resolve to
+                    # the existing row instead of re-spending on discovery. The audit
+                    # row MIRRORS the board's state — see ``_readd_attempt_fields`` for
+                    # why writing a flat ``discovery_pending`` here was a bug.
+                    outcome, readd_ats, detail = _readd_attempt_fields(existing)
+                    svc.record_add_attempt(
+                        conn, user_id=user_id, submitted_url=payload.url,
+                        normalized_url=normalized_url, outcome=outcome,
+                        error_detail=detail,
+                        resolved_ats=readd_ats, company_id=existing["id"],
+                    )
+                    existing["source_id"] = custom(existing["id"])
+                    existing["open_job_count"] = svc.count_open_jobs(
+                        conn, existing["id"]
+                    )
+                    # AND SO DOES THE RESPONSE. The audit row was taught to mirror the
+                    # board's state; the body handed to the user was not, so a board
+                    # still being set up — and, before the retry above, a board we had
+                    # refused outright — was answered with the tracked-company body and
+                    # rendered as "Now tracking". The success card is reserved for a row
+                    # that is actually tracked.
+                    health = existing.get("health_state")
+                    if health == "discovering":
+                        return _discovery_pending_response(
+                            existing, normalized_url,
+                            "One-time setup is already running for this board; jobs "
+                            "appear after the first scan.",
+                        )
+                    if health == "refused":
+                        # Only reachable if a whole discovery ran and refused between
+                        # the reset's UPDATE and the re-read above. Unreachable in
+                        # practice, and deliberately NOT falling through to the success
+                        # body — an "impossible" branch that reports success is the
+                        # exact class of bug this block exists to remove.
+                        return _reject(
+                            422, "discovery_refused",
+                            "We couldn't work out how to read this board, so there is "
+                            "nothing to track yet.",
+                            final_url=normalized_url,
+                        )
+                    response.status_code = 200
+                    return _to_response(existing)
+
+                # Insert a PROVISIONAL 'discovering' companies row so the list shows
+                # the board as "Setting up…" immediately (§7 — the fix for the "list
+                # stays idle until a hard refresh" bug). This also records the
+                # discovery_pending attempt. The discovery task flips it to tracked or
+                # refused; nothing is scraped in the meantime (enabled=false).
+                try:
+                    placeholder = svc.add_discovering_placeholder(
+                        conn, user_id=user_id, submitted_url=payload.url,
+                        normalized_url=normalized_url,
+                        display_name=display_name,
+                    )
+                except (psycopg2.Error, RuntimeError):
+                    logger.exception(
+                        "Failed to create discovering placeholder for %s", normalized_url
+                    )
+                    raise HTTPException(
+                        status_code=500, detail="Failed to start discovery"
+                    )
+                await _defer_discovery_or_500(
+                    user_id=user_id,
+                    submitted_url=payload.url,
+                    normalized_url=normalized_url,
+                    display_name=display_name,
+                )
+                return _discovery_pending_response(
+                    placeholder, normalized_url,
+                    "One-time setup — we're figuring out how to read this board; "
+                    "jobs appear after the first scan.",
+                )
+
             svc.record_add_attempt(
                 conn, user_id=user_id, submitted_url=payload.url,
                 normalized_url=result.final_url, outcome="unsupported",
@@ -174,6 +955,66 @@ async def add_company(
             existing["open_job_count"] = svc.count_open_jobs(conn, existing["id"])
             response.status_code = 200
             return _to_response(existing)
+
+        # ── The P2 dedupe: a board we ALREADY PUBLISH is not a board to copy ──
+        # One SELECT against the ~130 public rows. On a hit we create NOTHING and
+        # hand back the public company to link to; the audit still gets its row.
+        #
+        # AFTER the idempotent branch above on purpose. Someone who used
+        # ``trackAnyway`` once owns a real private row, and a re-add of that URL has
+        # to keep resolving to THEIR row — otherwise the endpoint stops being
+        # idempotent for exactly the users who opted in.
+        #
+        # BEFORE the probe, so a board we are not going to add costs no outbound
+        # request.
+        #
+        # THE HONEST LIMIT, because the copy must not overstate it: this catches a
+        # pasted Greenhouse / Ashby / Lever / Gem / Workday / Eightfold URL — the
+        # thing the resolver can name. The five ``ats='script'`` boards (Amazon,
+        # Apple, Google, Microsoft, TikTok) are caught by the careers-host match on
+        # the no-candidate path above, which keys on the host instead.
+        #
+        # A company's own careers site fronting a board we publish is caught by
+        # neither: ``lifeatspotify.com`` resolves to no ATS at all (52 KB of its HTML
+        # names none of the hosts the sniffer knows) and is not a declared careers
+        # host. That is the third rung's case — the company-name match on the
+        # no-candidate path above, which reads ``spotify`` out of the domain. What
+        # remains uncaught after all three is a careers site whose domain does not
+        # name the company at all; only the job SET links those, which is what
+        # ``published_board_match`` (unit 10) suggests after the first harvest.
+        if not payload.track_anyway:
+            published = svc.find_public_company_for_candidate(
+                conn,
+                ats=candidate.ats,
+                board_token=candidate.board_token,
+                provider_config=dict(candidate.provider_config),
+            )
+            if published is not None:
+                svc.record_add_attempt(
+                    conn, user_id=user_id, submitted_url=payload.url,
+                    normalized_url=result.final_url, outcome="already_public",
+                    resolved_ats=candidate.ats, board_token=candidate.board_token,
+                    # The PUBLIC company's id. The column records what the attempt
+                    # resolved to, and that is what it resolved to.
+                    company_id=published["id"],
+                )
+                # 200, not a 4xx. Nothing failed and there is nothing for the user
+                # to fix — they asked for a company and it is already there. A
+                # rejection status would render this as an alarm, which is the one
+                # thing this answer is not.
+                return JSONResponse(
+                    status_code=200,
+                    content=AlreadyPublicResponse(
+                        detail=(
+                            "That URL is the same job board as our public "
+                            f"{published['display_name']} page, so there is nothing "
+                            "to set up — its hiring trend is already there."
+                        ),
+                        company_id=str(published["id"]),
+                        display_name=str(published["display_name"]),
+                        final_url=result.final_url or payload.url,
+                    ).model_dump(by_alias=True),
+                )
 
         # New board — probe it. probe_candidate never raises; a failure is data.
         probe = await probe_candidate(candidate, http, deadline=deadline)
@@ -211,6 +1052,14 @@ async def add_company(
         logger.exception("Failed to create custom company for user=%s", user_id)
         raise HTTPException(status_code=500, detail="Failed to add company")
 
+    # ONLY on a row this call actually inserted. A re-add returns 200 from the
+    # idempotent branch far above and never reaches here; the one path that does is
+    # ``add_custom_company``'s UNIQUE race backstop, where a concurrent add created the
+    # company — and started its harvest — microseconds ago. Harvesting on every add of
+    # an existing board would turn this endpoint into a manual scrape button.
+    if created.get("created"):
+        await _start_first_harvest(conn, str(created["id"]))
+
     response.status_code = 201
     return _to_response(created)
 
@@ -220,21 +1069,214 @@ async def list_companies(
     conn: Connection = Depends(get_db),
     user: TokenClaims = Depends(get_current_user),
 ) -> UserCompanyListResponse:
-    """The caller's private companies with health, open-job count, last success."""
+    """The caller's private companies with health, open-job count, last success.
+
+    Also carries ``quota`` — the "N of 20 adds left this month" counter the Add
+    Companies page renders above the form. It rides THIS payload rather than a
+    second endpoint because the page already fetches and polls this one, so the
+    counter costs no extra request, is refreshed by the ``MyCompanies`` tag every
+    add and delete already invalidates, and cannot go stale against the list it
+    sits above.
+
+    ``quota`` is ABSENT for an admin, who is exempt from the cap: the counter and the
+    refusal are decided by the same ``AddQuota`` (``services/add_quota``), so "no cap
+    for you" has to be what the page reads too, or it would count down to zero above
+    a form that is never refused.
+    """
     _require_flag()
     email = user.get("email")
     if not email:
         raise HTTPException(status_code=401, detail="Token missing required 'email' claim")
     row = get_user_by_email(conn, email)
     if row is None:
-        return UserCompanyListResponse(companies=[])
+        # Signed in with no users row yet: nothing owned, and nothing spent either.
+        # The counter must still render — a brand-new user opening this page needs
+        # to see "20 of 20 adds left", not a blank where the allowance goes.
+        empty = add_quota.get_quota_for_new_user()
+        return UserCompanyListResponse(
+            companies=[], quota=add_quota.quota_response(empty)
+        )
     try:
         companies = svc.list_owned_companies(conn, row["id"])
+        quota = add_quota.get_quota(conn, row["id"], email=email)
     except psycopg2.Error:
         conn.rollback()
         logger.exception("Failed to list custom companies for user=%s", row["id"])
         raise HTTPException(status_code=500, detail="Failed to load companies")
-    return UserCompanyListResponse(companies=[_to_response(c) for c in companies])
+    # ``quota_response`` answers None for an admin, which drops the block from the
+    # payload — the frontend's existing "no cap in force" case, which renders no
+    # counter and disables nothing. Enforcement and the counter come from the same
+    # ``AddQuota``, so an admin can never be uncapped while the line still counts down.
+    return UserCompanyListResponse(
+        companies=[_to_response(c) for c in companies],
+        quota=add_quota.quota_response(quota),
+    )
+
+
+@router.get("/jobs", response_model=list[JobListingResponse])
+async def get_all_owned_jobs(
+    response: Response,
+    conn: Connection = Depends(get_db),
+    user: TokenClaims = Depends(get_current_user),
+    status: str | None = Query(default=None, pattern=r"^(OPEN|CLOSED)$"),
+    limit: int = Query(default=1000, ge=1, le=5000),
+    since: str | None = Query(
+        default=None,
+        max_length=MAX_TIMESTAMP_LENGTH,
+        description=(
+            "Recency lower bound, INCLUSIVE — same contract as `GET /api/jobs`. "
+            "Presence switches this endpoint into keyset-paging mode."
+        ),
+    ),
+    cursor: str | None = Query(
+        default=None,
+        max_length=MAX_CURSOR_LENGTH,
+        description="Opaque token echoed back from a previous `X-Next-Cursor`.",
+    ),
+) -> list[JobListingResponse]:
+    """The caller's OWN custom-company jobs, across every board they own.
+
+    This is what puts a user's private boards on the Recent Jobs feed. The public
+    ``GET /api/jobs`` still excludes ``visibility='user'`` UNCONDITIONALLY — that
+    guard is not relaxed and must not be, because a viewer-scoped version of it
+    would turn an unconditional leak into a conditional one. Instead the feed
+    makes a SECOND, authenticated request here and merges the two pages; an
+    anonymous caller cannot make this request at all (401), and a signed-in
+    non-owner gets only their own boards because the company set is derived from
+    ``user_companies``, never from the request.
+
+    Declared BEFORE the ``/{company_id}`` routes: FastAPI matches in declaration
+    order, and a future ``GET /{company_id}`` would otherwise swallow ``/jobs``
+    and answer this with a 404-shaped "company not found".
+
+    Same ``since``/``cursor``/``X-Next-Cursor`` contract as ``GET /api/jobs`` so
+    the frontend's existing keyset walk drives both halves of the feed with one
+    implementation. ``limit`` is capped lower (5000) than the public endpoint's
+    50000: one user's private boards are a handful, not the whole corpus.
+    """
+    _require_flag()
+    email = user.get("email")
+    if not email:
+        raise HTTPException(status_code=401, detail="Token missing required 'email' claim")
+
+    parsed_cursor: JobCursor | None = None
+    if cursor is not None:
+        try:
+            parsed_cursor = decode_job_cursor(cursor)
+        except InvalidCursorError as exc:
+            raise HTTPException(status_code=422, detail=f"Invalid 'cursor': {exc}")
+    parsed_since: datetime | None = None
+    if since is not None:
+        try:
+            parsed_since = parse_utc_timestamp(since, field="'since'")
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=f"Invalid 'since': {exc}")
+
+    row = get_user_by_email(conn, email)
+    if row is None:
+        # Signed in but no users row yet — they cannot own anything. Empty, not an
+        # error: the feed always issues this request, and a 404 here would make
+        # every brand-new user's Recent page render an error banner.
+        return []
+    source_ids = svc.list_owned_source_ids(conn, row["id"])
+    jobs = get_owned_custom_jobs(
+        conn, source_ids, status=status, since=parsed_since,
+        cursor=parsed_cursor, limit=limit,
+    )
+
+    # Mint the next token only in keyset mode off a FULL page — byte-identical
+    # rule to ``GET /api/jobs``. Its ABSENCE is the only end-of-walk signal, so a
+    # short page must not carry one.
+    if (parsed_since is not None or parsed_cursor is not None) and len(jobs) == limit:
+        tail = jobs[-1]
+        response.headers[NEXT_CURSOR_HEADER] = encode_job_cursor(
+            tail["first_seen_at"], tail["source_id"], tail["id"]
+        )
+    return [JobListingResponse(**job) for job in jobs]
+
+
+@router.patch("/{company_id}", response_model=UserCompanyResponse)
+async def rename_company(
+    payload: RenameUserCompanyRequest,
+    company_id: str = Path(max_length=64),
+    conn: Connection = Depends(get_db),
+    user: TokenClaims = Depends(get_current_user),
+) -> UserCompanyResponse | JSONResponse:
+    """Rename one of the caller's own private boards.
+
+    THE NAME WE DERIVED AND THE NAME THE USER CHOSE ARE DIFFERENT COLUMNS. This writes
+    ``companies.user_display_name``; :func:`_discovery_display_name`'s output keeps
+    living in ``companies.display_name``, which discovery is free to keep rewriting.
+    That is what makes a rename survive the two paths that would otherwise undo it —
+    ``_promote_to_tracked`` on any re-discovery, and ``restart_refused_discovery`` on
+    the re-add of a refused board, both of which SET ``display_name`` unconditionally.
+    Neither statement names the column this one writes, so neither can reach it. See
+    ``custom_companies_service.EFFECTIVE_DISPLAY_NAME_SQL``.
+
+    Ownership is enforced inside the UPDATE (``EXISTS`` on ``user_companies`` plus
+    ``visibility = 'user'``), so a board that is not yours — and a PUBLIC company,
+    which nobody may rename — matches no row. All three cases answer **404 Company not
+    found**, the same answer ``DELETE`` gives, which does not disclose whether the id
+    exists. AC-10's rule for this router is 403 on a READ of a known id and 404 on a
+    MUTATION; this is a mutation.
+
+    NEITHER ADD BUDGET IS CHARGED. A rename makes no outbound request and starts no
+    discovery, so it does not touch the 10/60s add burst limiter and it does not spend
+    one of the twenty monthly slots (nothing is written to ``company_add_attempts`` —
+    a rename is not a URL we acted on, and counting it would make the audit's row count
+    stop meaning what ``svc._QUOTA_COUNTED_PREDICATE`` says it means). It gets its
+    own, much looser bucket instead.
+
+    An empty or whitespace-only name is REJECTED, not treated as "go back to the
+    derived one". Clearing the box is far more likely a mistake than a request to be
+    called "Ycombinator" again, and Cancel is the affordance for "never mind". The
+    column supports a revert (``user_display_name = NULL``); it is deliberately not
+    reachable from here.
+    """
+    _require_flag()
+
+    auth0_id = get_normalized_subject(user)
+    email = user.get("email")
+    if not auth0_id:
+        raise HTTPException(status_code=401, detail="Token missing required 'sub' claim")
+    if not email:
+        raise HTTPException(status_code=401, detail="Token missing required 'email' claim")
+
+    # After the flag check so a flag-off deployment answers a clean 503, and before any
+    # database work so a burst costs nothing — same ordering as the add path.
+    enforce_user_company_rename_rate_limit(auth0_id)
+
+    cleaned = _clean_display_name(payload.display_name)
+    if not cleaned:
+        return _reject(
+            422,
+            "name_empty",
+            "A company name can't be blank. Type a name, or press Cancel to keep the "
+            "current one.",
+        )
+    if len(cleaned) > _DISPLAY_NAME_MAX_LENGTH:
+        return _reject(
+            422,
+            "name_too_long",
+            f"That name is {len(cleaned)} characters. Please keep it to "
+            f"{_DISPLAY_NAME_MAX_LENGTH} or fewer.",
+        )
+
+    row = get_user_by_email(conn, email)
+    if row is None:
+        # Signed in with no users row yet: they cannot own anything, so there is
+        # nothing here to rename. Same answer as a board belonging to somebody else.
+        raise HTTPException(status_code=404, detail="Company not found")
+    try:
+        renamed = svc.rename_owned_company(conn, row["id"], company_id, cleaned)
+    except psycopg2.Error:
+        logger.exception(
+            "Failed to rename custom company %s for user=%s", company_id, row["id"]
+        )
+        raise HTTPException(status_code=500, detail="Failed to rename company")
+    if renamed is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    return _to_response(renamed)
 
 
 @router.delete("/{company_id}", status_code=204)
@@ -243,8 +1285,13 @@ async def delete_company(
     conn: Connection = Depends(get_db),
     user: TokenClaims = Depends(get_current_user),
 ) -> Response:
-    """Remove the caller's ownership. If that was the last owner, disable the
-    company (``enabled=false``) — rows are kept, never deleted."""
+    """Remove the caller's ownership and, if that was the last owner, PURGE the
+    company: its ``companies`` row, its ``company_scripts`` recipe, every job in
+    its ``custom:<id>`` namespace (plus the freshness/location/tag/enrichment rows
+    hanging off them), its harvests and its scrape runs — one transaction. Only
+    the append-only ``company_add_attempts`` audit survives. "Remove" means gone,
+    not hidden: a disabled-but-present row was invisible to the user and
+    unreachable by a re-add, so it could only ever accumulate."""
     _require_flag()
     email = user.get("email")
     if not email:
@@ -253,7 +1300,7 @@ async def delete_company(
     if row is None:
         raise HTTPException(status_code=404, detail="Company not found")
     try:
-        outcome = svc.delete_ownership(conn, row["id"], company_id)
+        outcome = svc.remove_owned_company(conn, row["id"], company_id)
     except psycopg2.Error:
         logger.exception("Failed to delete custom company %s for user=%s", company_id, row["id"])
         raise HTTPException(status_code=500, detail="Failed to remove company")

@@ -1,0 +1,63 @@
+{
+ "origin_url": "https://higher.gs.com/roles",
+ "records_path": "data.roleSearch.items",
+ "field_map": {
+  "id": "roleId",
+  "title": "jobTitle",
+  "url": "https://higher.gs.com/roles/{externalSource.sourceId}"
+ },
+ "kind": "synthesised",
+ "proves": true,
+ "why": "SYNTHESISED and PROVED: the board's own route key. 4,003 / 3,383 / 4,713 chars, each page carrying its own job's title.",
+ "measured_at": "2026-08-29",
+ "titles_measured_at": "2026-08-30",
+ "pages": {
+  "https://higher.gs.com/roles/183031": {
+   "status": 200,
+   "chars": 4003,
+   "carries_own_title": true,
+   "carries_other_titles": false,
+   "og_title": "",
+   "title_tag": "Global Banking & Markets, Supervisory Risk & Controls, New York, Vice President<!-- --> | Goldman Sachs"
+  },
+  "https://higher.gs.com/roles/183029": {
+   "status": 200,
+   "chars": 3383,
+   "carries_own_title": true,
+   "carries_other_titles": false,
+   "og_title": "",
+   "title_tag": "Global Banking & Markets, Supervisory Risk & Controls, New York-Analyst<!-- --> | Goldman Sachs"
+  },
+  "https://higher.gs.com/roles/183030": {
+   "status": 200,
+   "chars": 4713,
+   "carries_own_title": true,
+   "carries_other_titles": false,
+   "og_title": "",
+   "title_tag": "Global Banking & Markets, Supervisory Risk & Controls, New York, Associate<!-- --> | Goldman Sachs"
+  }
+ },
+ "records": [
+  {
+   "externalSource": {
+    "sourceId": "183031"
+   },
+   "jobTitle": "Global Banking & Markets, Supervisory Risk & Controls, New York, Vice President",
+   "roleId": "183031_GS_MID_CAREER"
+  },
+  {
+   "externalSource": {
+    "sourceId": "183029"
+   },
+   "jobTitle": "Global Banking & Markets, Supervisory Risk & Controls, New York-Analyst",
+   "roleId": "183029_GS_EARLY_CAREER"
+  },
+  {
+   "externalSource": {
+    "sourceId": "183030"
+   },
+   "jobTitle": "Global Banking & Markets, Supervisory Risk & Controls, New York, Associate",
+   "roleId": "183030_GS_EARLY_CAREER"
+  }
+ ]
+}

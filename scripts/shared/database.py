@@ -77,11 +77,15 @@ _JOBS_TABLE = "job_listings"
 _RUNS_TABLE = "scrape_runs"
 
 # Column list for job_listings table (used in INSERT statements)
-# NOTE: experience_level / is_remote_eligible are denormalized copies of the two
-# details JSONB sub-fields the API list path serves — written here so that path
-# never has to detoast `details` (see the 2026-07-13 /api/jobs outage and
-# db_models.JobListing). Keep this list, the _build_job_values tuple, and the
-# VALUES (%s, …) placeholder strings in insert_job/upsert_job in lockstep.
+# NOTE: experience_level / is_remote_eligible are denormalized
+# copies of the two details JSONB sub-fields the API list path serves — written
+# here so that path never has to detoast `details` (see the 2026-07-13
+# /api/jobs outage and db_models.JobListing). This is the ONE write path for
+# job_listings: every scraper and every backend fetch task funnels through
+# insert_job / upsert_job / *_batch below, so a sub-field added here reaches all
+# of them. Keep this list and the _build_job_values tuple in lockstep — the
+# VALUES (%s, …) placeholders are derived from this list by _JOB_PLACEHOLDERS,
+# so they cannot drift.
 # There is deliberately no last_seen_at / consecutive_misses here: the Unit 4
 # contract migration (18fe9c20a8fd) dropped both from job_listings. Freshness is
 # written to the job_freshness sidecar — by the AFTER INSERT trigger for plain
@@ -93,6 +97,12 @@ _JOB_COLUMNS = """
     first_seen_at, details_scraped,
     experience_level, is_remote_eligible
 """.strip()
+
+# "%s, %s, …" with exactly one placeholder per column in _JOB_COLUMNS. Derived
+# rather than written out: the two single-row INSERTs below used a hand-counted
+# literal, which silently becomes a runtime "INSERT has more target columns than
+# expressions" the moment a column is added and one of them is missed.
+_JOB_PLACEHOLDERS = ", ".join(["%s"] * len(_JOB_COLUMNS.split(",")))
 
 # ON CONFLICT clause for upsert operations.
 #
@@ -122,8 +132,8 @@ _UPSERT_ON_CONFLICT = """
 # Sidecar (job_freshness) table + its re-seen upsert.
 #
 # The AFTER INSERT trigger on job_listings already materializes a freshness row
-# for every *genuinely new* listing (seeded from first_seen_at), so plain INSERT
-# paths (insert_job / insert_jobs_batch) need no freshness write. The upsert
+# for every *genuinely new* listing (seeded from now(), NOT first_seen_at — U2 made
+# that a date that can be months old), so plain INSERT paths need no freshness write. The upsert
 # paths, however, cover two cases the trigger does NOT fire for:
 #   * an existing OPEN listing re-scraped (ON CONFLICT DO UPDATE) — advance its
 #     last_seen_at and clear misses, and
@@ -455,7 +465,7 @@ def insert_job(conn: Connection, job: JobListing) -> None:
     cursor = conn.cursor()
 
     cursor.execute(
-        f"INSERT INTO {_JOBS_TABLE} ({_JOB_COLUMNS}) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+        f"INSERT INTO {_JOBS_TABLE} ({_JOB_COLUMNS}) VALUES ({_JOB_PLACEHOLDERS})",
         _build_job_values(job)
     )
 
@@ -483,7 +493,7 @@ def upsert_job(conn: Connection, job: JobListing) -> bool:
     cursor.execute(
         f"""
         INSERT INTO {_JOBS_TABLE} ({_JOB_COLUMNS})
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        VALUES ({_JOB_PLACEHOLDERS})
         {_UPSERT_ON_CONFLICT}
         RETURNING (xmax = 0) AS inserted
         """,
@@ -494,7 +504,7 @@ def upsert_job(conn: Connection, job: JobListing) -> bool:
     was_inserted = result['inserted'] if result else True
 
     # Keep the sidecar fresh in the same transaction. For a brand-new insert the
-    # AFTER INSERT trigger already created the freshness row (from first_seen_at);
+    # AFTER INSERT trigger already created the freshness row (from now(), per U2);
     # this upsert then advances it to the scrape's last_seen_at. For a re-seen /
     # reactivated row the trigger does not fire, so this is the only freshness write.
     _upsert_freshness(cursor, [job])

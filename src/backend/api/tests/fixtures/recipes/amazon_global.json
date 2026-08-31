@@ -1,0 +1,46 @@
+{
+  "script_version": 1,
+  "transport": "http_json",
+  "expected_min_jobs": 500,
+  "steps": [
+    {
+      "op": "fetch",
+      "method": "GET",
+      "url": "https://www.amazon.jobs/en/search.json?sort=recent&facets[]=is_intern",
+      "headers": {}
+    },
+    {
+      "op": "paginate_facet",
+      "facet_param": "normalized_country_code_facet[]",
+      "facet_values": ["USA", "IND", "GBR", "CAN", "DEU", "IRL", "JPN", "AUS", "LUX", "MEX"],
+      "page_size": 100,
+      "max_pages_per_facet": 100,
+      "window_cap": 10000
+    },
+    {
+      "op": "extract_json_path",
+      "records_path": "jobs",
+      "fields": {
+        "id": "id_icims",
+        "title": "title",
+        "url": "https://www.amazon.jobs{job_path}",
+        "location": "normalized_location",
+        "posted_at": "posted_date",
+        "department": "job_category",
+        "company": "company_name"
+      }
+    },
+    { "op": "parse_date", "field": "posted_at", "mode": "strptime", "format": "%B %d, %Y" },
+    { "op": "dedupe_key", "field": "id" },
+    { "op": "assert_cap_not_hit", "window_cap": 10000 },
+    { "op": "assert_page_advances" },
+    { "op": "assert_unique", "field": "id" }
+  ],
+  "oracle": {
+    "kind": "facet_sum",
+    "facet_path": "facets.is_intern",
+    "single_valued": true,
+    "window_cap": 10000,
+    "total_path": "hits"
+  }
+}

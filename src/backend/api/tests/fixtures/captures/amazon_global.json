@@ -1,0 +1,351 @@
+{
+ "error": null,
+ "hits": 10000,
+ "facets": {
+  "is_intern": [
+   {
+    "0": 21981
+   },
+   {
+    "1": 210
+   }
+  ],
+  "is_manager": [
+   {
+    "0": 18814
+   },
+   {
+    "1": 3377
+   }
+  ]
+ },
+ "jobs": [
+  {
+   "id": "14ad5a5b-9f83-4799-8b92-a7680992a2c2",
+   "id_icims": "10496519",
+   "title": "Brand Specialist",
+   "job_path": "/en/jobs/10496519/brand-specialist",
+   "normalized_location": "Bengaluru, Karnataka, IND",
+   "posted_date": "August  9, 2026",
+   "job_category": "Sales, Advertising, & Account Management",
+   "company_name": "ADCI - Karnataka - A66",
+   "city": "Bengaluru",
+   "state": "KA",
+   "country_code": "IND"
+  },
+  {
+   "id": "db0dff6b-a9a6-4fbc-8610-5c3495294250",
+   "id_icims": "10496517",
+   "title": "Brand Specialist, Spanish, Strategic Account Services ",
+   "job_path": "/en/jobs/10496517/brand-specialist-spanish-strategic-account-services",
+   "normalized_location": "Uttar Pradesh, IND",
+   "posted_date": "August  9, 2026",
+   "job_category": "Sales, Advertising, & Account Management",
+   "company_name": "ADCI - Uttar Pradesh - F26",
+   "city": "Uttar Pradesh - Virtual",
+   "state": "UP",
+   "country_code": "IND"
+  },
+  {
+   "id": "751b34ea-f354-4cfa-b6be-2842d63a7ca1",
+   "id_icims": "10496508",
+   "title": "DFT Engineer",
+   "job_path": "/en/jobs/10496508/dft-engineer",
+   "normalized_location": "Tel Aviv-Yafo, Tel Aviv, ISR",
+   "posted_date": "August  9, 2026",
+   "job_category": "Software Development",
+   "company_name": "Annapurna Labs Ltd.",
+   "city": "Tel Aviv",
+   "state": null,
+   "country_code": "ISR"
+  },
+  {
+   "id": "68dd4cd4-c88e-4764-aa36-9358dd93ac42",
+   "id_icims": "10496502",
+   "title": "Sr Manager Enterprise Systems Architecture, Amazon Leo",
+   "job_path": "/en/jobs/10496502/sr-manager-enterprise-systems-architecture-amazon-leo",
+   "normalized_location": "Arlington, Virginia, USA",
+   "posted_date": "August  8, 2026",
+   "job_category": "Project/Program/Product Management--Technical",
+   "company_name": "Amazon Kuiper Manufacturing Enterprises LLC",
+   "city": "Arlington",
+   "state": "VA",
+   "country_code": "USA"
+  },
+  {
+   "id": "da0f7d82-001b-4dcc-b68b-860a49b319b5",
+   "id_icims": "10496484",
+   "title": "Patient AR Collections , Healthcare Finance",
+   "job_path": "/en/jobs/10496484/patient-ar-collections-healthcare-finance",
+   "normalized_location": "Pasay City, National Capital Region, PHL",
+   "posted_date": "August  8, 2026",
+   "job_category": "Finance & Accounting",
+   "company_name": "AOSP - Manila",
+   "city": "Pasay City",
+   "state": null,
+   "country_code": "PHL"
+  },
+  {
+   "id": "f2c890e4-7fd2-4feb-bc07-614df1be7931",
+   "id_icims": "10496449",
+   "title": "Software Development Engineer, Conversational Ads Experience",
+   "job_path": "/en/jobs/10496449/software-development-engineer-conversational-ads-experience",
+   "normalized_location": "Seattle, Washington, USA",
+   "posted_date": "August  8, 2026",
+   "job_category": "Software Development",
+   "company_name": "Amazon.com Services LLC",
+   "city": "Seattle",
+   "state": "WA",
+   "country_code": "USA"
+  },
+  {
+   "id": "117c7862-e2d5-458d-b327-5e67990d25f1",
+   "id_icims": "10496417",
+   "title": "Robotics/AI Motor Control Scientist, Fauna",
+   "job_path": "/en/jobs/10496417/robotics-ai-motor-control-scientist-fauna",
+   "normalized_location": "New York, New York, USA",
+   "posted_date": "August  7, 2026",
+   "job_category": "Research Science",
+   "company_name": "Amazon.com Services LLC",
+   "city": "New York",
+   "state": "NY",
+   "country_code": "USA"
+  },
+  {
+   "id": "dc17f60d-1316-49d7-9922-c910e9108318",
+   "id_icims": "10496411",
+   "title": "Data Center Logistics Specialist ",
+   "job_path": "/en/jobs/10496411/data-center-logistics-specialist",
+   "normalized_location": "Fairless Hills, Pennsylvania, USA",
+   "posted_date": "August  7, 2026",
+   "job_category": "Operations, IT, & Support Engineering",
+   "company_name": "Amazon Data Services, Inc.",
+   "city": "Fairless Hills",
+   "state": "PA",
+   "country_code": "USA"
+  },
+  {
+   "id": "d919a2d7-26a2-411c-95b1-c99dd0f637c4",
+   "id_icims": "10496415",
+   "title": "Data Center Logistics Specialist ",
+   "job_path": "/en/jobs/10496415/data-center-logistics-specialist",
+   "normalized_location": "Fairless Hills, Pennsylvania, USA",
+   "posted_date": "August  7, 2026",
+   "job_category": "Operations, IT, & Support Engineering",
+   "company_name": "Amazon Data Services, Inc.",
+   "city": "Fairless Hills",
+   "state": "PA",
+   "country_code": "USA"
+  },
+  {
+   "id": "134b3df6-e614-4b98-b003-77ef4d7a4c77",
+   "id_icims": "10496420",
+   "title": "Data Center Logistics Specialist ",
+   "job_path": "/en/jobs/10496420/data-center-logistics-specialist",
+   "normalized_location": "Fairless Hills, Pennsylvania, USA",
+   "posted_date": "August  7, 2026",
+   "job_category": "Operations, IT, & Support Engineering",
+   "company_name": "Amazon Data Services, Inc.",
+   "city": "Fairless Hills",
+   "state": "PA",
+   "country_code": "USA"
+  },
+  {
+   "id": "651c404b-7af8-410f-9543-1c8c5fdbcf7a",
+   "id_icims": "10496408",
+   "title": "Data Center Logistics Specialist ",
+   "job_path": "/en/jobs/10496408/data-center-logistics-specialist",
+   "normalized_location": "Fairless Hills, Pennsylvania, USA",
+   "posted_date": "August  7, 2026",
+   "job_category": "Administrative Support",
+   "company_name": "Amazon Data Services, Inc.",
+   "city": "Fairless Hills",
+   "state": "PA",
+   "country_code": "USA"
+  },
+  {
+   "id": "a072d460-a99b-4641-bd9e-b0a29cd082e2",
+   "id_icims": "10496428",
+   "title": "Data Center Logistics Specialist ",
+   "job_path": "/en/jobs/10496428/data-center-logistics-specialist",
+   "normalized_location": "Fairless Hills, Pennsylvania, USA",
+   "posted_date": "August  7, 2026",
+   "job_category": "Administrative Support",
+   "company_name": "Amazon Data Services, Inc.",
+   "city": "Fairless Hills",
+   "state": "PA",
+   "country_code": "USA"
+  },
+  {
+   "id": "aa62614c-2c63-4ea6-a64d-3e73e3e885ab",
+   "id_icims": "10496362",
+   "title": "Email Marketing Manager, Events, AWS Integrated Demand Center",
+   "job_path": "/en/jobs/10496362/email-marketing-manager-events-aws-integrated-demand-center",
+   "normalized_location": "Seattle, Washington, USA",
+   "posted_date": "August  7, 2026",
+   "job_category": "Marketing & PR",
+   "company_name": "Amazon Web Services, Inc.",
+   "city": "Seattle",
+   "state": "WA",
+   "country_code": "USA"
+  },
+  {
+   "id": "9b7119c0-55e5-482e-927b-2fa5c20db7d7",
+   "id_icims": "10496353",
+   "title": "Area Manager",
+   "job_path": "/en/jobs/10496353/area-manager",
+   "normalized_location": "Greece, New York, USA",
+   "posted_date": "August  7, 2026",
+   "job_category": "Fulfillment & Operations Management",
+   "company_name": "Amazon.com Services LLC",
+   "city": "Greece",
+   "state": "NY",
+   "country_code": "USA"
+  },
+  {
+   "id": "32f56beb-51da-4c27-ba58-b2097c4db3d9",
+   "id_icims": "10496349",
+   "title": "Area Manager",
+   "job_path": "/en/jobs/10496349/area-manager",
+   "normalized_location": "Greece, New York, USA",
+   "posted_date": "August  7, 2026",
+   "job_category": "Fulfillment & Operations Management",
+   "company_name": "Amazon.com Services LLC",
+   "city": "Greece",
+   "state": "NY",
+   "country_code": "USA"
+  },
+  {
+   "id": "c39dcc97-1303-40ee-9205-0d4ca936f494",
+   "id_icims": "10496431",
+   "title": "Data Center Logistics Specialist ",
+   "job_path": "/en/jobs/10496431/data-center-logistics-specialist",
+   "normalized_location": "Fairless Hills, Pennsylvania, USA",
+   "posted_date": "August  7, 2026",
+   "job_category": "Operations, IT, & Support Engineering",
+   "company_name": "Amazon Data Services, Inc.",
+   "city": "Fairless Hills",
+   "state": "PA",
+   "country_code": "USA"
+  },
+  {
+   "id": "794b7870-efea-498a-a696-7f66e76e0e9b",
+   "id_icims": "10496328",
+   "title": "Project Design Mechanical Engineer, Fleet Remediation Engineering",
+   "job_path": "/en/jobs/10496328/project-design-mechanical-engineer-fleet-remediation-engineering",
+   "normalized_location": "Herndon, Virginia, USA",
+   "posted_date": "August  7, 2026",
+   "job_category": "Operations, IT, & Support Engineering",
+   "company_name": "Amazon Data Services, Inc.",
+   "city": "Herndon",
+   "state": "VA",
+   "country_code": "USA"
+  },
+  {
+   "id": "074541a6-d940-415c-8ed2-0866171379e5",
+   "id_icims": "10496370",
+   "title": "Infra Delivery Install Technician, Southeast Region, Military & Veterans Encouraged, DCC Communities ",
+   "job_path": "/en/jobs/10496370/infra-delivery-install-technician-southeast-region-military-veterans-encouraged-dcc-communities",
+   "normalized_location": "Sterling, Virginia, USA",
+   "posted_date": "August  7, 2026",
+   "job_category": "Operations, IT, & Support Engineering",
+   "company_name": "Amazon Data Services, Inc.",
+   "city": "Sterling",
+   "state": "VA",
+   "country_code": "USA"
+  },
+  {
+   "id": "3cd012e5-6d90-471b-bb6c-acbc9f3a6c44",
+   "id_icims": "10496308",
+   "title": "Area Manager",
+   "job_path": "/en/jobs/10496308/area-manager",
+   "normalized_location": "Glastonbury, Connecticut, USA",
+   "posted_date": "August  7, 2026",
+   "job_category": "Fulfillment & Operations Management",
+   "company_name": "Amazon.com Services LLC",
+   "city": "Glastonbury",
+   "state": "CT",
+   "country_code": "USA"
+  },
+  {
+   "id": "a8fcd9f2-2b0c-4949-865e-94f83ad93525",
+   "id_icims": "10496306",
+   "title": "Area Manager",
+   "job_path": "/en/jobs/10496306/area-manager",
+   "normalized_location": "Glastonbury, Connecticut, USA",
+   "posted_date": "August  7, 2026",
+   "job_category": "Fulfillment & Operations Management",
+   "company_name": "Amazon.com Services LLC",
+   "city": "Glastonbury",
+   "state": "CT",
+   "country_code": "USA"
+  },
+  {
+   "id": "535d02bc-4c5e-43e9-bfdd-e087576870ab",
+   "id_icims": "10496435",
+   "title": "Data Center Logistics Specialist ",
+   "job_path": "/en/jobs/10496435/data-center-logistics-specialist",
+   "normalized_location": "Fairless Hills, Pennsylvania, USA",
+   "posted_date": "August  7, 2026",
+   "job_category": "Operations, IT, & Support Engineering",
+   "company_name": "Amazon Data Services, Inc.",
+   "city": "Fairless Hills",
+   "state": "PA",
+   "country_code": "USA"
+  },
+  {
+   "id": "68ec9eaa-cc69-4381-8e38-08eb6916c348",
+   "id_icims": "10496301",
+   "title": "Investigation Specialist II-JP, Flex I&O",
+   "job_path": "/en/jobs/10496301/investigation-specialist-ii-jp-flex-i-o",
+   "normalized_location": "Tempe, Arizona, USA",
+   "posted_date": "August  7, 2026",
+   "job_category": "Project/Program/Product Management--Non-Tech",
+   "company_name": "Amazon.com Services LLC - A57",
+   "city": "Tempe",
+   "state": "AZ",
+   "country_code": "USA"
+  },
+  {
+   "id": "cd55b683-9459-4c2e-ad57-d2b6e80495e1",
+   "id_icims": "10496276",
+   "title": "Accounting Manager, Leo Revenue Accounting",
+   "job_path": "/en/jobs/10496276/accounting-manager-leo-revenue-accounting",
+   "normalized_location": "Seattle, Washington, USA",
+   "posted_date": "August  7, 2026",
+   "job_category": "Finance & Accounting",
+   "company_name": "Amazon.com Services LLC",
+   "city": "Seattle",
+   "state": "WA",
+   "country_code": "USA"
+  },
+  {
+   "id": "d69bfea3-0047-43c2-9bbe-fa0225922361",
+   "id_icims": "10496236",
+   "title": "Area Manager",
+   "job_path": "/en/jobs/10496236/area-manager",
+   "normalized_location": "Revere, Massachusetts, USA",
+   "posted_date": "August  7, 2026",
+   "job_category": "Fulfillment & Operations Management",
+   "company_name": "Amazon.com Services LLC",
+   "city": "Revere",
+   "state": "MA",
+   "country_code": "USA"
+  },
+  {
+   "id": "fcc08c21-b7ed-410f-8f68-c0609ae13256",
+   "id_icims": "10496219",
+   "title": "Data Center Engineering Operations Technician ",
+   "job_path": "/en/jobs/10496219/data-center-engineering-operations-technician",
+   "normalized_location": "Sterling, Virginia, USA",
+   "posted_date": "August  7, 2026",
+   "job_category": "Operations, IT, & Support Engineering",
+   "company_name": "Amazon Data Services, Inc.",
+   "city": "Sterling",
+   "state": "VA",
+   "country_code": "USA"
+  }
+ ],
+ "job_posting_search_request": "{\"note\":\"trimmed global-board capture; jobs sliced to 25, descriptions dropped\"}",
+ "_fixture_note": "Captured live from amazon.jobs global search.json 2026-08-09 via a $0 httpx GET (result_limit=100, facets[]=is_intern,is_manager). hits caps at 10000 (ES window); single-valued facets pinned to the canonical BUILD-PLAN section 9 total 22,191. jobs trimmed to 25 records with descriptions removed for fixture size."
+}

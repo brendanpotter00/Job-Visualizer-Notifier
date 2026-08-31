@@ -20,10 +20,48 @@ describe('CompanyLogo', () => {
     expect(img).toHaveAttribute('src', '/logos/icons/stripe.png');
   });
 
-  it('falls back to the company id for alt text when no name is given', () => {
-    render(<CompanyLogo companyId="reducto" />);
-    const img = screen.getByRole('img', { name: 'reducto' });
-    expect(img).toHaveAttribute('src', '/logos/icons/reducto.png');
+  it('never announces the raw company id when no name is given', () => {
+    // The caller omits displayName when it could not resolve a human name. The
+    // only other string available is the id, and for a user-added board that is
+    // an opaque handle (`u-ajhs85a7y0`), so it must not reach the alt text.
+    render(<CompanyLogo companyId="u-ajhs85a7y0" />);
+    const img = screen.getByRole('img', { name: 'Company' });
+    expect(img).toHaveAttribute('src', '/logos/icons/u-ajhs85a7y0.png');
+    expect(screen.queryByRole('img', { name: 'u-ajhs85a7y0' })).not.toBeInTheDocument();
+  });
+
+  it('falls back to a neutral glyph — never an id-derived initial — when unnamed art fails', () => {
+    // The reported bug: an opaque `u-…` id fell through to the label and the
+    // tile rendered a literal "U" on every card of a user-added company.
+    const { container } = render(<CompanyLogo companyId="u-ajhs85a7y0" />);
+    fireEvent.error(container.querySelector('img')!);
+    expect(container.querySelector('img')).toBeNull();
+    expect(screen.queryByText('U')).not.toBeInTheDocument();
+    expect(screen.queryByText(/u-ajhs85a7y0/i)).not.toBeInTheDocument();
+    // The generic company mark renders as an inline SVG icon, not text.
+    expect(container.querySelector('svg')).not.toBeNull();
+  });
+
+  it('skips the request entirely for a company we hold no art for', () => {
+    // A user-added board has a readable name but no committed icon, so an
+    // initials tile would show an arbitrary letter and the <img> would 404.
+    const { container } = render(
+      <CompanyLogo companyId="u-ajhs85a7y0" displayName="www.janestreet.com" hasBrandArt={false} />
+    );
+    expect(container.querySelector('img')).toBeNull();
+    expect(container.querySelector('svg')).not.toBeNull();
+    expect(screen.queryByText('W')).not.toBeInTheDocument();
+    // The name is still the accessible name of the tile.
+    expect(screen.getByRole('img', { name: 'www.janestreet.com' })).toBeInTheDocument();
+  });
+
+  it('treats a blank display name as no name at all', () => {
+    // A whitespace-only `display_name` is a data gap; trimming it to "" would
+    // leave an empty tile with an empty accessible name.
+    const { container } = render(<CompanyLogo companyId="reducto" displayName="   " />);
+    fireEvent.error(container.querySelector('img')!);
+    expect(container.querySelector('svg')).not.toBeNull();
+    expect(screen.getByRole('img', { name: 'Company' })).toBeInTheDocument();
   });
 
   it('lazy-loads the icon so large grids do not fetch every logo upfront', () => {

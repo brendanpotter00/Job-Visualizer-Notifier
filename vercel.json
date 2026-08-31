@@ -95,7 +95,19 @@
       "destination": "/index.html"
     },
     {
+      "source": "/add-companies",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/add-companies/:path(.*)",
+      "destination": "/index.html"
+    },
+    {
       "source": "/my-companies",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/my-companies/:path(.*)",
       "destination": "/index.html"
     },
     {

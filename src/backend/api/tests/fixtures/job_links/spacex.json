@@ -1,0 +1,57 @@
+{
+ "origin_url": "https://www.spacex.com/careers/jobs/",
+ "records_path": "jobs",
+ "field_map": {
+  "id": "id",
+  "title": "title",
+  "url": "absolute_url"
+ },
+ "kind": "published",
+ "proves": true,
+ "why": "PUBLISHED (Greenhouse absolute_url). A second control that would pass a probe.",
+ "measured_at": "2026-08-29",
+ "titles_measured_at": "2026-08-30",
+ "pages": {
+  "https://boards.greenhouse.io/spacex/jobs/8663938002?gh_jid=8663938002": {
+   "status": 200,
+   "chars": 12473,
+   "carries_own_title": true,
+   "carries_other_titles": true,
+   "og_title": "Accountant, Revenue",
+   "title_tag": "Job Application for Accountant, Revenue at SpaceX"
+  },
+  "https://boards.greenhouse.io/spacex/jobs/8523414002?gh_jid=8523414002": {
+   "status": 200,
+   "chars": 11996,
+   "carries_own_title": true,
+   "carries_other_titles": true,
+   "og_title": "Accountant, Revenue",
+   "title_tag": "page_title"
+  },
+  "https://boards.greenhouse.io/spacex/jobs/8577633002?gh_jid=8577633002": {
+   "status": 200,
+   "chars": 12180,
+   "carries_own_title": true,
+   "carries_other_titles": true,
+   "og_title": "Accountant, Revenue",
+   "title_tag": "Job Application for Accountant, Revenue at SpaceX"
+  }
+ },
+ "records": [
+  {
+   "title": "Accountant, Revenue",
+   "absolute_url": "https://boards.greenhouse.io/spacex/jobs/8663938002?gh_jid=8663938002",
+   "id": 8663938002
+  },
+  {
+   "title": "Accountant, Revenue   ",
+   "absolute_url": "https://boards.greenhouse.io/spacex/jobs/8523414002?gh_jid=8523414002",
+   "id": 8523414002
+  },
+  {
+   "title": "Accountant, Revenue   ",
+   "absolute_url": "https://boards.greenhouse.io/spacex/jobs/8577633002?gh_jid=8577633002",
+   "id": 8577633002
+  }
+ ]
+}

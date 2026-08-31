@@ -627,7 +627,6 @@ class TestPending:
             "id": "p-claim", "status": "OPEN", "details_scraped": True,
             "details": json.dumps({
                 "description_html": "<h1>Role</h1>",
-                "department": "Engineering",
                 "experience_level": "Senior",
             }),
         }))
@@ -646,8 +645,8 @@ class TestPending:
 
         job = body["jobs"][0]
         assert job["description_html"] == "<h1>Role</h1>"
-        # details is the trimmed jsonb projection (department + experience_level).
-        assert job["details"]["department"] == "Engineering"
+        # details is the trimmed jsonb projection (experience_level only).
+        assert job["details"] == {"experience_level": "Senior"}
 
         # The claimed row is now marked 'claimed' with a claim timestamp.
         facets = _fetch_listing_facets(db_conn, "p-claim")
@@ -2026,6 +2025,53 @@ class TestResultsFeedback:
         cur.execute("SELECT enrichment_category, enrichment_level FROM job_listings WHERE id='fb-1'")
         row = cur.fetchone()
         assert row["enrichment_category"] is None and row["enrichment_level"] == "mid"
+
+    def test_legacy_category_is_kept_but_warned(self, enrichment_client, db_conn):
+        """The taxonomy drifted between the two repos and nothing said so.
+
+        JVN accepts 7 categories; the enricher's SKILL.md taxonomy v6 defines 6,
+        without ``project_manager`` — and prod has 21,933 enriched rows across exactly
+        6 categories and zero of this one. So a ``project_manager`` label can only come
+        from a build whose taxonomy no longer matches ours. It is still WRITTEN (nulling
+        it would discard a real label, and the seeded dimension plus the frontend
+        dropdown both still know the slug) but it now rides the same warnings[] channel
+        an invalid facet does, because "both sides look fine and disagree anyway" is the
+        exact failure that channel exists to make visible.
+        """
+        self._seed_job(db_conn)
+        resp = enrichment_client.post(
+            "/api/internal/enrichment/results",
+            json={"results": [{
+                "job_listing_id": "fb-1", "source_id": "src-a",
+                "category": "project_manager", "level": "mid",
+            }]},
+        )
+        body = resp.json()
+        assert body["written"] == 1
+        assert any(
+            "legacy" in msg and "project_manager" in msg
+            for msg in body["warnings"][0]["warnings"]
+        )
+        cur = db_conn.cursor()
+        cur.execute("SELECT enrichment_category FROM job_listings WHERE id='fb-1'")
+        assert cur.fetchone()["enrichment_category"] == "project_manager", (
+            "a legacy slug is reported, never silently dropped"
+        )
+
+    def test_an_in_taxonomy_category_warns_about_nothing(self, enrichment_client, db_conn):
+        """The tripwire must stay quiet on the 6 categories actually in use, or the
+        warnings channel becomes noise and stops being read."""
+        self._seed_job(db_conn)
+        resp = enrichment_client.post(
+            "/api/internal/enrichment/results",
+            json={"results": [{
+                "job_listing_id": "fb-1", "source_id": "src-a",
+                "category": "software_engineering", "level": "mid",
+            }]},
+        )
+        body = resp.json()
+        assert body["written"] == 1
+        assert body["warnings"] == []
 
     def test_failed_rows_carry_source_id(self, enrichment_client, db_conn):
         resp = enrichment_client.post(

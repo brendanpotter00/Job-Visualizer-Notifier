@@ -116,10 +116,21 @@ class Settings(BaseSettings):
     # so description-less rows aren't classified at full confidence in the gap.
     enrichment_claim_without_description: bool = False
     # Share of each /pending batch RESERVED for custom (user-added) companies.
-    # The claim orders first_seen_at DESC, so a freshly-added custom board's rows
-    # are the NEWEST in the table and sort to the FRONT of the queue — one user
-    # pasting one 47k-job careers URL would otherwise hold ~100% of the claim for
-    # years while every published company waits. 10% is deliberately the smallest
+    # The claim orders first_seen_at DESC. That used to mean a freshly-added custom
+    # board's rows were unconditionally the NEWEST in the table and sorted to the
+    # FRONT of the queue. It no longer does: first_seen_at is now seeded from the
+    # board's own POSTED DATE when it publishes one, so a board carrying real
+    # posting dates inserts rows dated months back and those sort to the BACK.
+    #
+    # The reservation is worth strictly MORE after that change, not less, because
+    # both directions are now possible and both are bad. A dateless board (or one
+    # posting today) still front-runs every published company exactly as before —
+    # one user pasting one 47k-job careers URL holding ~100% of the claim for years.
+    # A board with real dates has the opposite problem: its rows land behind a
+    # 16,201-row published backlog that (at one local ollama worker) does not drain,
+    # so without a reserved slice they would never be claimed at all. A floor that
+    # is also a ceiling is what makes neither of those depend on what dates the
+    # board happens to publish. 10% is deliberately the smallest
     # number that is visibly not zero: the pipeline (one local ollama worker) is
     # saturated, so every point above this comes straight out of a published
     # backlog that already never drains. 0 disables custom claiming entirely
@@ -143,6 +154,37 @@ class Settings(BaseSettings):
     # ``api/tests/test_companies_resolve_endpoint.py``.
     custom_company_sources_enabled: bool = False
 
+    # Custom company DISCOVERY (E7 — the capture pivot; THE single discovery flag).
+    # Distinct from ``custom_company_sources_enabled`` above: the (free) ATS add path
+    # can ship while the one-time browser+LLM capture stays dark. A non-ATS URL only
+    # enqueues a ``discover_custom_company`` task (one Chromium session + ONE Claude
+    # Haiku call, well under a cent per add) when BOTH this and the parent flag are on;
+    # with this off the non-ATS branch keeps returning today's 422 ``unsupported``.
+    #
+    # It is deliberately the ONLY discovery gate. The retired Stagehand tier had a
+    # second per-transport switch (``browser_agent_enabled``) and the pair was a trap:
+    # one flag alone produced a misleading "No supported ATS board" 422 with no hint
+    # that the other was off. Enforced in three places that MUST move together — the
+    # add-flow router, this task's defence-in-depth re-check, and the nightly
+    # ``browser_fetch`` replay branch — which also makes it the fleet-wide stop for the
+    # whole own-Chromium/SSRF surface. Default OFF so spend cannot happen until it is
+    # deliberately flipped on.
+    custom_company_discovery_enabled: bool = False
+
+    # Browserbase (E7 capture pivot) — an OPTIONAL discovery-time upgrade, never the
+    # default and never used for the nightly replay. Discovery captures with OUR OWN
+    # headless Chromium because Browserbase bills per browser-hour; the two things it
+    # buys are stealth/residential IPs for a bot-walled board and the hosted live-view
+    # URL the discovery-progress UI embeds. Credentials read from BROWSERBASE_API_KEY /
+    # BROWSERBASE_PROJECT_ID; the LLM tokens bill to ``anthropic_api_key`` (our key).
+    browserbase_api_key: str | None = None
+    browserbase_project_id: str | None = None
+    # The opt-in. With this OFF (default) — or with either credential unset —
+    # ``network_capture`` launches our own Chromium and never touches Browserbase.
+    # Turning it on cannot make discovery fail: a session-create error degrades back to
+    # our own browser rather than refusing a board we could have read for free.
+    capture_use_browserbase: bool = False
+
     # PostHog analytics
     posthog_project_token: str | None = None
     posthog_host: str = "https://us.i.posthog.com"
@@ -164,6 +206,58 @@ class Settings(BaseSettings):
     # one-URL-and-look-at-it flow needs.
     resolve_rate_limit_max: int = Field(default=10, gt=0)
     resolve_rate_limit_window_seconds: int = Field(default=60, gt=0)
+
+    # POST /api/users/companies BURST limit (per authenticated user, sliding
+    # window) — deliberately the same 10/60s shape as the resolve pair above.
+    #
+    # THIS ENDPOINT, not just resolve. The UI happens to call resolve first, so
+    # the front door looked throttled; a bearer token replayed straight at the
+    # add endpoint skipped it entirely. This is the route that starts a headless
+    # Chromium session and an LLM call, so it is the one that had to be bounded.
+    #
+    # In-memory and per-process (see services/rate_limit.py), which is fine here
+    # BECAUSE it is only a burst smoother: the real spend guard is the monthly cap
+    # below, which lives in Postgres and survives a deploy.
+    user_company_add_rate_limit_max: int = Field(default=10, gt=0)
+    user_company_add_rate_limit_window_seconds: int = Field(default=60, gt=0)
+
+    # PATCH /api/users/companies/{id} — the rename. A SEPARATE, much looser limit,
+    # and deliberately not the add pair above.
+    #
+    # A rename is one UPDATE. It opens no browser, makes no outbound request and
+    # spends no LLM call, so charging it against either of the add path's budgets
+    # would be wrong twice over: the 10/60s burst limiter exists to bound Chromium
+    # sessions, and the monthly cap is a SPEND guard defined as "URLs we acted on" —
+    # making a user pay one of their twenty adds to fix a typo would be absurd.
+    #
+    # It is still an authenticated write, so it is not unbounded. 30/60s is an order
+    # of magnitude above any human's editing rate (a user correcting one name presses
+    # save once) while bounding a replayed token to a harmless trickle.
+    user_company_rename_rate_limit_max: int = Field(default=30, gt=0)
+    user_company_rename_rate_limit_window_seconds: int = Field(default=60, gt=0)
+
+    # How many URLs one user may submit to POST /api/users/companies per CALENDAR
+    # MONTH (UTC — resets at midnight on the 1st). Every submission counts: a
+    # success, a refusal, and a board that turns out to be one we already publish.
+    # Deleting a company does NOT give a slot back, which is what makes the cap a
+    # real spend guard rather than a cap on how many boards you hold at once.
+    #
+    # THE NUMBER IS THE NUMBER OF ADDS ALLOWED. 0 allows NONE — there is no sentinel
+    # here, because you should not have to understand the business context to know
+    # what zero means. ``ge=0`` stays so 0 remains legal and meaningful: it is a
+    # genuine per-user kill switch, one env var that stops every add without a deploy.
+    #
+    # EVERY MISCONFIGURATION FAILS CLOSED, and that is the point.
+    # ``Settings.model_config`` sets ``extra="ignore"``, so a typo'd env var NAME is
+    # silently dropped and this compiled-in 20 stands — the limit stays ON, whereas an
+    # ``..._ENABLED=false``-shaped flag would fail OPEN on the same typo. And a typo'd
+    # VALUE that lands on 0 (a bad template, an empty string coerced to an int) now
+    # blocks adds; it used to grant every signed-in user unbounded browser + LLM spend.
+    #
+    # Local dev gets its freedom from a large number (CUSTOM_COMPANY_MONTHLY_ADD_LIMIT
+    # =10000 in .env.local), never from 0. The default is pinned by a test, and a boot
+    # at 0 logs a startup WARNING (``services/add_quota.warn_if_adds_disabled``).
+    custom_company_monthly_add_limit: int = Field(default=20, ge=0)
 
     # Server
     port: int = 8080

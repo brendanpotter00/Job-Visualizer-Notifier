@@ -2,14 +2,36 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { getBackendUrl } from './utils/backendUrl';
 import { forwardResponse } from './utils/forwardResponse';
 import { getInternalKeyHeader } from './utils/internalKey';
+import { PROXY_REJECTION, resolveProxyPath } from './utils/proxyPath';
 
 const METHODS_WITH_BODY = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+
+/**
+ * Every backend route reachable under `/api/feedback`, and nothing else. See
+ * `api/utils/proxyPath.ts` for why this is an allowlist and not a `..` filter.
+ *
+ * The backend `feedback` router declares exactly ONE route — `POST ""` — and
+ * `features/feedback/feedbackApi.ts` spells its url as the empty string. So the
+ * legitimate surface here is a single bare path with no sub-paths at all.
+ *
+ * This is the proxy the production bypass was demonstrated against, and the
+ * reason is precisely that it never had a sub-path to justify forwarding one:
+ * `/api/feedback/:path(.*)` existed in vercel.json purely as boilerplate.
+ */
+const PROXIED_ROUTES = [
+  '', // POST /api/feedback — the only route
+] as const;
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const { path, ...queryParams } = req.query;
 
-  const pathParts = Array.isArray(path) ? path : [path].filter(Boolean);
-  const targetPath = pathParts.join('/');
+  // Canonical form only; the upstream URL below is built from THIS value, so
+  // the raw client-supplied path never reaches the upstream request.
+  const targetPath = resolveProxyPath(path, PROXIED_ROUTES);
+  if (targetPath === null) {
+    res.status(PROXY_REJECTION.status).json(PROXY_REJECTION.body);
+    return;
+  }
 
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(queryParams)) {
@@ -47,6 +69,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const fetchOptions: RequestInit = {
     method: req.method,
     headers,
+    // Never follow a redirect — Node's fetch preserves headers (including the
+    // injected X-Internal-Key) across a same-origin 3xx. See api/jobs-qa.ts.
+    redirect: 'manual',
   };
 
   // Forward the request body for any mutating method that carries one.

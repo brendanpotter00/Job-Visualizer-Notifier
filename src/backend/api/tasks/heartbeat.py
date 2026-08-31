@@ -38,13 +38,24 @@ from .procrastinate_app import procrastinate_app
 
 logger = logging.getLogger(__name__)
 
+# Lane tags written into `worker_heartbeats.lane`. One per Procrastinate worker
+# started by `api.main`'s lifespan. A lane's heartbeat task rides that lane's
+# OWN queue, so a fresh row is proof that THAT worker is dequeuing — not merely
+# that some worker somewhere is alive.
+LANE_BULK = "bulk"
+LANE_INTERACTIVE = "interactive"
 
-def _insert_heartbeat_sync(database_url: str) -> None:
+
+def _insert_heartbeat_sync(database_url: str, lane: str = LANE_BULK) -> None:
     """Open a fresh sync psycopg2 conn, INSERT one heartbeat row, close.
 
     Uses path-specific application_name so connection leaks here can be
     attributed in pg_stat_activity. statement_timeout=10s — heartbeat
     write should be instant; a hang here is itself a hang signal.
+
+    ``lane`` tags the row with the worker that wrote it. The row is only ever
+    written by the task that ran ON that lane's queue, so its presence proves
+    that specific worker is still dequeuing.
     """
     conn: Connection = db.get_connection(
         database_url,
@@ -53,7 +64,10 @@ def _insert_heartbeat_sync(database_url: str) -> None:
     )
     try:
         with conn.cursor() as cur:
-            cur.execute("INSERT INTO worker_heartbeats (at) VALUES (now())")
+            cur.execute(
+                "INSERT INTO worker_heartbeats (at, lane) VALUES (now(), %s)",
+                (lane,),
+            )
         conn.commit()
     except Exception:
         # End the aborted transaction explicitly so close() doesn't have
@@ -116,11 +130,13 @@ def _cleanup_heartbeats_sync(database_url: str) -> int:
 @procrastinate_app.periodic(cron="*/5 * * * *", periodic_id="heartbeat")
 @procrastinate_app.task(queue="heartbeat", name="worker_heartbeat", priority=9)
 async def worker_heartbeat(timestamp: int) -> None:
-    """Insert one row into ``worker_heartbeats``. No retries — if a tick
-    misses (connector blip, etc.) the next */5 tick will catch up; a
+    """Insert one ``lane='bulk'`` row into ``worker_heartbeats``. No retries —
+    if a tick misses (connector blip, etc.) the next */5 tick will catch up; a
     persistent freshness gap is what /health/worker is supposed to detect.
     """
     try:
+        # Positional-arg-free on purpose: LANE_BULK is `_insert_heartbeat_sync`'s
+        # default, so this call is byte-identical to the pre-lane one.
         await asyncio.to_thread(_insert_heartbeat_sync, settings.database_url)
     except (psycopg2.Error, OSError) as e:
         # Narrow: programmer errors must propagate so Procrastinate marks
@@ -128,6 +144,32 @@ async def worker_heartbeat(timestamp: int) -> None:
         # because the heartbeat is the canary — a noisy stack trace every
         # 5 minutes would drown out real worker errors.
         logger.error("worker_heartbeat insert failed: %s", e, exc_info=True)
+
+
+@procrastinate_app.periodic(cron="*/5 * * * *", periodic_id="interactive_heartbeat")
+@procrastinate_app.task(queue="interactive_heartbeat", name="interactive_worker_heartbeat")
+async def interactive_worker_heartbeat(timestamp: int) -> None:
+    """The same tick, for the RESERVED INTERACTIVE LANE.
+
+    A separate task on a separate queue, not a parameter on the bulk one, and
+    that is the entire point: this row can only be written by a worker that
+    drains ``interactive_heartbeat``. If the interactive worker dies, the bulk
+    worker's periodic deferrer still defers this job (Procrastinate's deferrer
+    walks the whole app registry, not just its own queues) — it simply piles up
+    unexecuted, the lane's freshness gap grows, and /health/worker goes 503.
+
+    Without this, a dead interactive lane would be completely invisible: the
+    bulk worker would keep the single old heartbeat stream fresh and the probe
+    would report a healthy worker while nobody's pasted URL ever got discovered.
+    """
+    try:
+        await asyncio.to_thread(
+            _insert_heartbeat_sync, settings.database_url, LANE_INTERACTIVE
+        )
+    except (psycopg2.Error, OSError) as e:
+        logger.error(
+            "interactive_worker_heartbeat insert failed: %s", e, exc_info=True
+        )
 
 
 @procrastinate_app.periodic(cron="17 */6 * * *", periodic_id="heartbeat_cleanup")

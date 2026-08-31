@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import handler from '../../../../../../api/jobs-qa';
+import { runProxyAllowlistGuard } from './proxyAllowlistGuard';
 
 function mockJsonResponse(status: number, body: unknown) {
   const serialized = JSON.stringify(body);
@@ -324,4 +325,31 @@ describe('/api/jobs-qa serverless function', () => {
     expect(fetchOptions.method).toBe('PATCH');
     expect(fetchOptions.body).toBe(JSON.stringify({ mode: 'detail' }));
   });
+});
+
+/**
+ * The shared corpus, run against jobs-qa too.
+ *
+ * jobs-qa was hardened first and independently; it now shares
+ * `api/utils/proxyPath.ts` with the other six proxies. Running the common
+ * vectors here is what proves that hoisting did not regress the allowlist that
+ * was already guarding this file, and it extends jobs-qa's coverage to the
+ * spellings discovered later (backslash separators, tab-stuffed dot segments,
+ * `%2e%2e`, absolute upstream URLs).
+ *
+ * `headers` is set because this proxy — alone among the seven — keeps a cheap
+ * anonymous 401 pre-filter AFTER the allowlist. Rejections are still asserted
+ * both anonymous and credentialed.
+ */
+runProxyAllowlistGuard({
+  name: 'jobs-qa',
+  prefix: '/api/jobs-qa',
+  handler,
+  legitimate: [
+    ['scrape-runs', '/api/jobs-qa/scrape-runs'],
+    ['trigger-scrape', '/api/jobs-qa/trigger-scrape'],
+  ],
+  normalizes: ['/scrape-runs//', '/api/jobs-qa/scrape-runs'],
+  methods: ['GET', 'POST', 'PATCH'],
+  headers: { authorization: 'Bearer admin-token' },
 });

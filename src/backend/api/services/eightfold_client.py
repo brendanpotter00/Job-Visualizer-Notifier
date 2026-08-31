@@ -55,6 +55,8 @@ from scripts.shared.models import JobListing
 from scripts.shared.utils import get_iso_timestamp
 
 from .harvest_meta import HarvestEvidence
+from .job_details import has_description
+from .posted_date import effective_posted_date
 
 logger = logging.getLogger(__name__)
 
@@ -383,7 +385,10 @@ async def fetch_jobs(
         - ``tenant_host`` is not on the SSRF allowlist (raised before any
           outbound HTTP call — the load-bearing check that replaced
           ``api/eightfold.ts``).
-        - Any page is missing ``positions`` (non-list) or ``count`` (non-int).
+        - Any page is missing ``positions`` (non-list). A missing or non-int
+          ``count`` does NOT raise: it logs a warning and falls back to
+          partial-page detection, because Eightfold's ``count`` is evidence
+          rather than an oracle and losing it is not losing the board.
     httpx.HTTPStatusError
         Non-2xx on any page aborts the whole fetch.
     """
@@ -527,6 +532,17 @@ def _parse_eightfold_epoch(value: Any) -> Optional[str]:
     """
     if value is None:
         return None
+    # BOOL BEFORE THE FLOAT. ``isinstance(True, int)`` is True and ``float(True)``
+    # is ``1.0``, so ``t_create=true`` — a flag that leaked into a date field, or a
+    # tenant answering the key with a presence boolean — parsed cleanly as epoch 1
+    # and became ``1970-01-01``. That is not a rejected value the caller can log; it
+    # is a confident wrong date riding ``effective_posted_date`` into
+    # ``first_seen_at``, which is the column the product sorts by. The shared parser
+    # (``scripts/shared/posted_date._to_datetime``) refuses bools for exactly this
+    # reason and never sees this one: by the time it is called this function has
+    # already turned it into a valid ISO STRING. The guard has to be here.
+    if isinstance(value, bool):
+        return None
     try:
         numeric = float(value)
     except (TypeError, ValueError):
@@ -568,7 +584,22 @@ def _transform_one(
         return None
 
     location = _extract_location(raw)
-    posted_on = _parse_eightfold_epoch(raw.get("t_create"))
+    t_create_raw = raw.get("t_create")
+    posted_on = _parse_eightfold_epoch(t_create_raw)
+    if t_create_raw is not None and posted_on is None:
+        # We had a value and could not turn it into a date. Storing NULL is
+        # correct (never a fake "now"), but doing it silently was this
+        # client's one gap versus Greenhouse — a source-format change would
+        # have quietly zeroed our posted dates with nothing in the logs.
+        # ERROR so Railway surfaces it as @level:error. Per-row only: this
+        # runs in the same task as the close sweep, so it must never raise.
+        logger.error(
+            "Eightfold data quality issue: job %s for company %s had "
+            "unparseable t_create=%r; storing as NULL",
+            job_id,
+            company_id,
+            t_create_raw,
+        )
 
     # ``experience_level``: Eightfold's API sometimes exposes a string here,
     # sometimes nothing. Pass through whatever's there (frontend reads it
@@ -588,7 +619,6 @@ def _transform_one(
     details = {
         "experience_level": experience_level,
         "is_remote_eligible": is_remote_eligible,
-        "department": raw.get("department"),
         "team": raw.get("team"),
         "canonical_position_url": url,
         # Preserve original ``locations`` array for debugging — distinct from
@@ -609,10 +639,22 @@ def _transform_one(
         details=details,
         posted_on=posted_on,
         created_at=now,
-        first_seen_at=now,
+        # THE EFFECTIVE POSTED DATE (POSTED-DATE-PLAN.md §2, D9/D10): Eightfold's
+        # ``t_create`` epoch when it parses, first sight otherwise.
+        # ``_parse_eightfold_epoch`` already returns None (and logs one ERROR)
+        # for a value it cannot read, so the helper's fallback covers exactly the
+        # rows this client already refused to date.
+        #
+        # Safe with no first-run predicate because ``first_seen_at`` is absent
+        # from ``_UPSERT_ON_CONFLICT`` (scripts/shared/database.py) — this line
+        # only ever decides an INSERT and can never rewrite an existing row.
+        first_seen_at=effective_posted_date(posted_on, now),
         last_seen_at=now,
         consecutive_misses=0,
-        details_scraped=True,
+        # Truthful, not hard-coded True: this claims we HAVE the job's detail
+        # content. See ``job_details.has_description`` for what that means and
+        # which rows were lying.
+        details_scraped=has_description(details),
         status="OPEN",
         has_matched=False,
         ai_metadata={},

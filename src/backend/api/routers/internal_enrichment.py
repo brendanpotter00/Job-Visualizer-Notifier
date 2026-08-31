@@ -73,7 +73,6 @@ _JOB_PROJECTION = (
     # local arrival and buries freshly-posted jobs behind its backlog.
     "first_seen_at, "
     "jsonb_build_object("
-    "  'department', details->'department', "
     "  'experience_level', details->'experience_level'"
     ") AS details"
 )
@@ -299,19 +298,38 @@ def pending(
         # An entry-level SWE role (e.g. "Software Engineer Intern") lands in tier 0
         # because tier 0 is tested first — exactly "entry-level before all else".
         #
-        # Within each tier we ORDER BY first_seen_at DESC — the date the scraper
-        # FIRST saw this listing, our reliable recency signal. Why first_seen_at
-        # and not the alternatives (see docs/database-schema.md "recency fields",
-        # which this MUST stay in sync with):
-        #   - posted_on is the ATS-supplied posting date and is UNRELIABLE: companies
-        #     reuse/repost old listings, so ~8.6% of OPEN rows carry a posted_on >180d
-        #     (some >16y) before we ever saw them. Ordering by it buries freshly
-        #     re-listed jobs — the exact opposite of the goal.
+        # Within each tier we ORDER BY first_seen_at DESC. Two of the three reasons
+        # this column was chosen still hold; the third has been overtaken and the
+        # ordering is being KEPT anyway. Stated plainly so the next reader is not
+        # misled by the argument that used to justify it:
+        #
         #   - last_seen_at is bumped to now() on every scrape a job is still OPEN, so
         #     it clusters at ~now across the whole active backlog and cannot rank a
-        #     job posted today above one open for months.
-        # first_seen_at is set once at discovery and preserved across close/reopen,
-        # so DESC cleanly floats the newest arrivals to the front of each tier.
+        #     job posted today above one open for months. (Still true.)
+        #   - first_seen_at is written once at INSERT and never moves, not even
+        #     across close/reopen, so a row cannot change position mid-drain.
+        #     (Still true, and it is also why keyset pagination sorts on it.)
+        #   - The third reason SAID: "posted_on is the ATS-supplied posting date and
+        #     is UNRELIABLE — ~8.6% of OPEN rows carry a posted_on >180d — so
+        #     ordering by it buries freshly re-listed jobs." That distinction is
+        #     GONE. first_seen_at is now seeded FROM the board's posted date when the
+        #     board publishes a real one, so ordering by first_seen_at IS ordering by
+        #     posted_on for every row that has one. There is no longer a version of
+        #     this query that avoids the burial by sorting on a different column.
+        #
+        # What that costs, measured on prod: of the rows inserted in the last 30 days,
+        # 2.08% (308 of 14,841) carry a posting date more than 180 days old, and those
+        # now enter the queue dated months back — i.e. BEHIND a 16,201-row unenriched
+        # OPEN backlog which, at one local ollama worker, does not drain. Those rows
+        # are not delayed; in practice they are never claimed.
+        #
+        # This is a deliberate, owner-made trade and it STANDS: first_seen_at is the
+        # column every user-visible surface and the keyset walk already sort by, and
+        # having the enricher disagree with them would be a second, invisible notion of
+        # recency. Do not "fix" this by switching the ORDER BY. If the buried tail
+        # matters later, the shape of the answer is a separate small slice for old-dated
+        # arrivals — the same move ``enrichment_custom_share_pct`` already makes for
+        # custom companies — not a change to this sort.
         #
         # Index note: the partial index idx_job_listings_enrichment_claim still
         # serves the WHERE predicate; the tier CASE makes Postgres sort the matched
@@ -333,12 +351,21 @@ def pending(
         #
         # ---- The fairness brake -------------------------------------------
         # Ordering by first_seen_at DESC has a nasty interaction with custom
-        # (user-added) companies: a board added TODAY produces the NEWEST rows in
-        # the table, so it sorts to the FRONT of the queue, not the back. With no
-        # source_id filter (and with enrichment_claim_without_description ON in
-        # prod, so the description guard no longer accidentally excludes them),
-        # one user pasting one 47k-job careers URL would hold ~100% of the claim
-        # for years while every published company waits. So the batch is split:
+        # (user-added) companies, and since the posted-date seeding it has TWO,
+        # pointing opposite ways — which is why the brake is a reservation (a floor
+        # AND a ceiling) rather than a cap:
+        #   - a board added today whose jobs are dateless, or dated today, produces
+        #     the NEWEST rows in the table and sorts to the FRONT of the queue. With
+        #     no source_id filter (and with enrichment_claim_without_description ON
+        #     in prod, so the description guard no longer accidentally excludes
+        #     them), one user pasting one 47k-job careers URL would hold ~100% of
+        #     the claim for years while every published company waits.
+        #   - a board that publishes REAL posting dates now inserts rows dated
+        #     months back, which sort to the BACK — behind a 16,201-row published
+        #     backlog that does not drain. Without the reserved slice those rows
+        #     would simply never be claimed.
+        # Which of the two a board hits is decided by what dates it happens to
+        # publish, i.e. by nothing we control. So the batch is split:
         #
         #   1. custom slice   — at most enrichment_custom_share_pct of `limit`,
         #                       round-robin across custom companies (_claim_custom)

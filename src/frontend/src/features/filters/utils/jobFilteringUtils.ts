@@ -45,7 +45,7 @@ export function matchesSearchTags(job: Job, searchTags: SearchTag[] | undefined)
     return true;
   }
 
-  const searchableText = [job.title, job.department, job.team, job.location, ...(job.tags || [])]
+  const searchableText = [job.title, job.team, job.location, ...(job.tags || [])]
     .filter(Boolean)
     .join(' ')
     .toLowerCase();
@@ -299,17 +299,6 @@ export function matchesLocation(
 }
 
 /**
- * Check if a job matches department filter (multi-select with OR logic)
- */
-export function matchesDepartment(job: Job, departments: string[] | undefined): boolean {
-  if (!departments || departments.length === 0) {
-    return true;
-  }
-
-  return departments.some((filterDept) => job.department === filterDept);
-}
-
-/**
  * Check if a job matches employment type filter
  */
 export function matchesEmploymentType(job: Job, employmentType: string | undefined): boolean {
@@ -398,12 +387,6 @@ export function filterJobsByFilters(
 
     // Location filter (multi-select with OR logic, hierarchical containment)
     if (!matchesLocation(job, filters.location, locationIndex)) {
-      return false;
-    }
-
-    // Department filter (multi-select with OR logic)
-    // Only check if department exists on filters (GraphFilters/ListFilters only)
-    if ('department' in filters && !matchesDepartment(job, filters.department)) {
       return false;
     }
 

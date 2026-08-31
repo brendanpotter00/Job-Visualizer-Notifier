@@ -8,9 +8,53 @@ job information from the search results page.
 import re
 import logging
 from typing import List, Dict, Any, Optional
+
+import dateutil.parser
 from playwright.async_api import Page
 
 logger = logging.getLogger(__name__)
+
+
+def parse_card_posted_date(value: Optional[str]) -> Optional[str]:
+    """Normalise a list-card posted date ("Jan 15, 2026") to ``YYYY-MM-DD``.
+
+    Normalising HERE, at the one place that produces the odd format, rather than
+    teaching the shared parser to read human dates. Precedent:
+    ``amazon_jobs_scraper.api_client.parse_posted_date`` does exactly this for
+    Amazon's "August  8, 2026". The shared ``shared/posted_date.py`` stays strict
+    on purpose — widening it to accept human formats would hand every future
+    caller a genuine ambiguity (``03/04/2026`` is two different days depending on
+    locale), and its strictness is what makes it trustworthy in the write path.
+
+    Half-normalising is worse than not doing it. Before this existed the raw
+    string still stored fine (``posted_on`` is a TIMESTAMPTZ and Postgres reads
+    "Jan 15, 2026") while ``effective_posted_date`` rejected it, so the card's
+    date reached ``posted_on`` and silently did NOT reach ``first_seen_at`` — a
+    date visible in diagnostics but absent from the sort key users actually see.
+
+    Called from ``scraper.transform_to_job_model``, not from the card extractor
+    below, so it sits on the one boundary that derives both of those fields.
+
+    There is no locale ambiguity to inherit: the card regex above is
+    ``[A-Z][a-z]{2}\\s+\\d{1,2},\\s+\\d{4}``, so this only ever sees an English
+    three-letter month with an unambiguous day and a four-digit year.
+
+    Date-only in, date-only out: Apple's card carries no time and no timezone,
+    and ``posted_on`` being a TIMESTAMPTZ means Postgres will read this as UTC
+    midnight. That is the honest encoding of a date-only source, the same call
+    the Amazon client documents at length.
+
+    A parse failure warns and returns None rather than passing through a string
+    that would then mean one thing to the column and another to the sort key.
+    """
+    if not value:
+        return None
+    try:
+        parsed = dateutil.parser.parse(value)
+    except (ValueError, TypeError, OverflowError):
+        logger.warning("apple: could not parse card posted date %r", value)
+        return None
+    return parsed.date().isoformat()
 
 
 class JobCardExtractionError(Exception):
@@ -158,6 +202,12 @@ async def _parse_job_element(element) -> Optional[Dict[str, Any]]:
             "job_url": job_url,
             "team": job_data.get("team"),
             "location": job_data.get("location"),
+            # Raw, as scraped. Normalised by ``parse_card_posted_date`` at the
+            # one boundary that matters — ``scraper.transform_to_job_model``,
+            # which derives BOTH ``posted_on`` and ``first_seen_at`` from it.
+            # Normalising here instead would leave that boundary reachable with
+            # a raw string by any other caller, which is exactly how the two
+            # ended up disagreeing.
             "posted_date": job_data.get("postedDate"),
             "company": "apple",
         }

@@ -13,12 +13,19 @@ export const ROUTES = {
   // Flag-gated (VITE_CUSTOM_COMPANIES_ENABLED). The path constant always
   // exists — App.tsx decides whether to register a route for it, and
   // PRIMARY_NAV_ITEMS decides whether to link to it.
-  MY_COMPANIES: '/my-companies',
+  MY_COMPANIES: '/add-companies',
   // Private per-company trend page for a user-added company. Flag-gated exactly
   // like MY_COMPANIES; `:id` is a RUNTIME `u-…` id, never a compile-time
   // `COMPANY_IDS` member — the page fetches by id instead of the companies-page
   // selector chain. Build a concrete path with `buildMyCompanyDetailPath`.
-  MY_COMPANY_DETAIL: '/my-companies/:id',
+  MY_COMPANY_DETAIL: '/add-companies/:id',
+  // The pre-rename path, kept ONLY so links and open tabs from before the
+  // "My Companies" → "Add Companies" rename keep working. App.tsx registers a
+  // splat route on it that redirects to MY_COMPANIES, sub-path and query
+  // included — the failure this prevents is a bookmarked
+  // `/my-companies/u-abc123` turning into a blank 404 rather than that
+  // company's trend page. Nothing links here; do not add a nav entry.
+  MY_COMPANIES_LEGACY: '/my-companies',
   WHY: '/why',
   QA: '/qa',
   ACCOUNT: '/account',
@@ -30,6 +37,11 @@ export const ROUTES = {
   // ADMIN_NAV_ITEMS; everyone else reaches it from the Changelog card.
   LOCATION_PIPELINE: '/location-pipeline',
   ADMIN_ENRICHMENT: '/admin/enrichment',
+  // Read-only oversight for user-added boards (E7). Behind `AdminRoute` only —
+  // deliberately NOT gated on VITE_CUSTOM_COMPANIES_ENABLED, because the moment
+  // you most want to inspect the feature is an environment where the
+  // user-facing flag is off.
+  ADMIN_CUSTOM_COMPANIES: '/admin/custom-companies',
   ADMIN_FEEDBACK: '/admin/feedback',
 } as const;
 
@@ -39,7 +51,7 @@ export const ROUTES = {
  * with the route pattern.
  */
 export function buildMyCompanyDetailPath(id: string): string {
-  return `/my-companies/${id}`;
+  return `/add-companies/${id}`;
 }
 
 /**
@@ -67,7 +79,8 @@ export type NavIconName =
   | 'AutoAwesome'
   | 'Feedback'
   | 'FilterListAlt'
-  | 'AddBusiness';
+  | 'AddBusiness'
+  | 'Construction';
 
 /**
  * Shape of a sidebar entry.
@@ -110,7 +123,10 @@ const PRIMARY_NAV_BASE = [
  */
 const MY_COMPANIES_NAV_ITEM = {
   path: ROUTES.MY_COMPANIES,
-  label: 'My Companies',
+  // No beta marker here — the sidebar row is plain text. The "Add Companies"
+  // page itself still carries a `BetaBadge` in its `<h1>`; only the nav
+  // occurrence was removed.
+  label: 'Add Companies',
   icon: 'AddBusiness',
 } as const;
 
@@ -175,6 +191,13 @@ export const ADMIN_NAV_ITEMS = [
     path: ROUTES.QA,
     label: 'Scraper Runs',
     icon: 'BugReport',
+  },
+  // Scraper-adjacent, so it sits with the scraper entry rather than with the
+  // user-facing ones.
+  {
+    path: ROUTES.ADMIN_CUSTOM_COMPANIES,
+    label: 'Custom Companies',
+    icon: 'Construction',
   },
   {
     path: ROUTES.ADMIN_FEEDBACK,

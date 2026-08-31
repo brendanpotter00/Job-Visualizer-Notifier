@@ -21,7 +21,11 @@ import { bucketJobsByTime } from '../../lib/timeBucketing';
 import { extractErrorMessage } from '../../lib/errors';
 import { logger } from '../../lib/logger';
 import type { Job, TimeWindow } from '../../types';
-import { useGetUserCompanyJobsQuery } from '../../features/userCompanies/userCompaniesApi';
+import {
+  useGetUserCompaniesQuery,
+  useGetUserCompanyJobsQuery,
+} from '../../features/userCompanies/userCompaniesApi';
+import { sourceBoardLabel, sourceBoardUrl } from '../../components/my-companies/companyHealth';
 
 /**
  * Default window for a freshly-added board. On day 0 every job shares roughly
@@ -55,8 +59,12 @@ function countSeedJobs(jobs: Job[]): number {
 
 /** Reads the `:id` param and treats a 403 (owner-scoped) as its own state. */
 function is403(error: unknown): boolean {
-  return typeof error === 'object' && error !== null && 'status' in error &&
-    (error as { status: unknown }).status === 403;
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'status' in error &&
+    (error as { status: unknown }).status === 403
+  );
 }
 
 /**
@@ -82,11 +90,29 @@ export function MyCompanyTrendPage() {
     error,
   } = useGetUserCompanyJobsQuery(id ? { id } : { id: '' }, { skip: !id || !isAuthenticated });
 
+  // THE ROW ITSELF, for the one thing this page has never been able to say: which board
+  // it is a trend OF. The page is deliberately jobs-only (see the docstring above), and
+  // that is still right for the CHART — but "Hiring trend" over a graph, with no name and
+  // no source, is a page you can arrive at and not know what you are looking at. This is
+  // the same list the Add Companies page already holds in the RTK Query cache, and the
+  // same lookup-by-id `CompanyJobHeader` does; arriving here on a deep link costs one
+  // request, and a failure costs nothing because every use of it is optional.
+  const { data: userCompanies } = useGetUserCompaniesQuery(undefined, {
+    skip: !isAuthenticated,
+  });
+  // `?.companies?.` and not `?.companies.` — the second `?` is load-bearing. This is an
+  // optional garnish on a page whose real payload is the jobs array, so a response that
+  // is not the envelope we expect must cost the heading its name, never the chart. With
+  // one `?` a body that parses but is not `{ companies }` reads `.find` off `undefined`
+  // and takes the whole page down with a TypeError.
+  const company = userCompanies?.companies?.find((row) => row.id === id);
+  const boardUrl = company ? sourceBoardUrl(company) : null;
+  // Both or neither — a link whose text is not derived from its own destination is a
+  // link that can lie. See `sourceBoardLabel`.
+  const boardLabel = boardUrl ? sourceBoardLabel(boardUrl) : null;
+
   const sortedJobs = useMemo(() => sortByFirstSeenDesc(jobs ?? []), [jobs]);
-  const buckets = useMemo(
-    () => bucketJobsByTime(jobs ?? [], timeWindow),
-    [jobs, timeWindow]
-  );
+  const buckets = useMemo(() => bucketJobsByTime(jobs ?? [], timeWindow), [jobs, timeWindow]);
   const seedCount = useMemo(() => countSeedJobs(jobs ?? []), [jobs]);
 
   if (authLoading) {
@@ -113,7 +139,7 @@ export function MyCompanyTrendPage() {
 
   const backLink = (
     <Link component={RouterLink} to={ROUTES.MY_COMPANIES} variant="body2">
-      ← Back to My Companies
+      ← Back to Add Companies
     </Link>
   );
 
@@ -128,9 +154,33 @@ export function MyCompanyTrendPage() {
           justifyContent="space-between"
           alignItems={{ xs: 'flex-start', sm: 'center' }}
         >
-          <Typography variant="h4" component="h1">
-            Hiring trend
-          </Typography>
+          <Box sx={{ minWidth: 0 }}>
+            <Typography variant="h4" component="h1">
+              {/* The company's own name when we have it, because "Hiring trend" over a
+                  graph with no name is a page you can land on and not know what you are
+                  looking at. Falls back to the bare heading rather than a spinner or a
+                  placeholder: the chart below is the page, and it does not need the row. */}
+              {company ? `${company.displayName} hiring trend` : 'Hiring trend'}
+            </Typography>
+            {/* AND WHERE IT CAME FROM — the board we actually read to build this, which
+                is the question you are asking when a job link turns out to be dead. Only
+                when we can name an honest destination; see `sourceBoardUrl`. */}
+            {boardUrl && boardLabel ? (
+              <Link
+                href={boardUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                variant="body2"
+                color="text.secondary"
+                underline="hover"
+                title={boardUrl}
+                data-testid="my-company-board-link"
+                sx={{ display: 'inline-block', mt: 0.5, overflowWrap: 'anywhere' }}
+              >
+                {boardLabel} ↗
+              </Link>
+            ) : null}
+          </Box>
           <TimeWindowSelect value={timeWindow} onChange={setTimeWindow} />
         </Stack>
 
@@ -156,9 +206,9 @@ export function MyCompanyTrendPage() {
             {seedCount > 0 && (
               <Alert severity="info" data-testid="day-zero-caption">
                 <AlertTitle>Tracking just started</AlertTitle>
-                {seedCount.toLocaleString()}{' '}
-                {seedCount === 1 ? 'opening was' : 'openings were'} already live when tracking
-                began. New postings from here will show as fresh activity on the chart.
+                {seedCount.toLocaleString()} {seedCount === 1 ? 'opening was' : 'openings were'}{' '}
+                already live when tracking began. New postings from here will show as fresh activity
+                on the chart.
               </Alert>
             )}
 

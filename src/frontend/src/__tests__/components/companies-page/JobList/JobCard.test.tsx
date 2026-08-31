@@ -24,7 +24,6 @@ describe('JobListingCard', () => {
     source: 'backend-scraper',
     company: 'spacex',
     title: 'Senior Frontend Engineer',
-    department: 'Engineering',
     location: 'San Francisco, CA',
     isRemote: true,
     employmentType: 'Full-time',
@@ -92,15 +91,6 @@ describe('JobListingCard', () => {
     render(<JobListingCard job={repostedJob} />);
     expect(screen.getByText(/about 1 hour ago/i)).toBeInTheDocument();
     expect(screen.queryByText(/months ago/i)).not.toBeInTheDocument();
-  });
-
-  it('does NOT display the ATS-provided department chip', () => {
-    // The department chip was removed from the card: it mostly restated the
-    // enrichment category/level chips (e.g. department "Senior" beside level
-    // "Senior"). The field still exists on the Job and still drives the
-    // company-page department filter — it just isn't rendered here.
-    render(<JobListingCard job={mockJob} />);
-    expect(screen.queryByText('Engineering')).not.toBeInTheDocument();
   });
 
   it('displays location chip', () => {

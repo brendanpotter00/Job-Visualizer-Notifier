@@ -1,0 +1,42 @@
+{
+  "script_version": 1,
+  "transport": "browser_fetch",
+  "origin_url": "https://lifeattiktok.com/",
+  "expected_min_jobs": 10,
+  "steps": [
+    {
+      "op": "fetch",
+      "method": "POST",
+      "url": "https://api.lifeattiktok.com/api/v1/public/supplier/search/job/posts",
+      "headers": {
+        "content-type": "application/json",
+        "website-path": "tiktok"
+      },
+      "body": {
+        "limit": 10,
+        "offset": 0,
+        "keyword": "",
+        "recruitment_id_list": [],
+        "job_category_id_list": [],
+        "subject_id_list": [],
+        "location_code_list": []
+      }
+    },
+    { "op": "paginate_offset", "param": "offset", "page_size": 10, "max_pages": 2 },
+    {
+      "op": "extract_json_path",
+      "records_path": "data.job_post_list",
+      "fields": {
+        "id": "id",
+        "title": "title",
+        "url": "https://lifeattiktok.com/search/{id}",
+        "location": "city_info.en_name",
+        "department": "job_category.en_name"
+      }
+    },
+    { "op": "assert_no_inband_error", "error_keys": ["code"] },
+    { "op": "dedupe_key", "field": "id" },
+    { "op": "assert_unique", "field": "id" }
+  ],
+  "oracle": { "kind": "declared_probed", "total_path": "data.count" }
+}

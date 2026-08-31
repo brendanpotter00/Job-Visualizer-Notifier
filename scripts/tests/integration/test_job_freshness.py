@@ -6,8 +6,9 @@ trigger on ``job_listings`` that materialises the matching freshness row for
 every new listing. These tests assert the drift-prevention invariants hold under
 the *real* insert paths (``insert_job`` / ``upsert_jobs_batch`` /
 ``insert_jobs_batch``): every listing has exactly one freshness row, the trigger
-seeds it from ``first_seen_at`` + ``0`` misses, deletes cascade, and neither
-anti-join ever finds a stray row.
+seeds it from ``now()`` (not ``first_seen_at`` — see U2, migration
+``7a4c1e93b6d8``) + ``0`` misses, deletes cascade, and neither anti-join ever
+finds a stray row.
 
 The trigger is installed in the test schema by the ``create_all`` DDL events in
 ``api/db_models.py`` (the conftest fixtures stamp Alembic head rather than run
@@ -56,6 +57,18 @@ def _freshness_row(conn, source_id: str, job_id: str):
         return cur.fetchone()
 
 
+def _seconds_from_db_now(conn, moment: datetime) -> float:
+    """|moment - the DATABASE's clock|, in seconds.
+
+    Compared against Postgres' own ``now()`` rather than the test process's, so a
+    container/host clock offset can't make an honest ``now()`` seed look wrong.
+    """
+    with conn.cursor() as cur:
+        cur.execute("SELECT now() AS db_now")
+        db_now = cur.fetchone()["db_now"]
+    return abs((moment - db_now).total_seconds())
+
+
 def _listings_missing_freshness(conn) -> int:
     """Anti-join: listings with no freshness row (the drift the trigger prevents)."""
     with conn.cursor() as cur:
@@ -97,13 +110,20 @@ def _listings_freshness_columns(conn) -> set:
 
 
 class TestFreshnessTrigger:
-    def test_trigger_seeds_from_first_seen_at_not_last_seen(self, in_memory_db):
-        """The trigger seeds last_seen_at from NEW.first_seen_at and misses from 0.
+    def test_trigger_seeds_now_not_the_backdated_first_seen_at(self, in_memory_db):
+        """The trigger seeds last_seen_at from now() and misses from 0.
 
-        Uses a listing whose model-level last_seen_at (2024-06-01) and
-        consecutive_misses (9) differ from first_seen_at (2024-01-15) / 0, so this
-        pins the exact seed contract — the one that had to keep working once the
-        Unit 4 contract migration dropped those columns from job_listings.
+        POSTED-DATE-PLAN.md §5/U2 inverted this test. ``first_seen_at`` is now the
+        EFFECTIVE POSTED DATE, so a perfectly healthy row can be inserted with a
+        ``first_seen_at`` months in the past — the board's posting date. Seeding
+        freshness from it would assert we last saw the job in January when in fact
+        we saw it a millisecond ago.
+
+        The listing is built so all three candidate sources are distinguishable:
+        ``first_seen_at`` 2024-01-15 (the backdated posting date), model-level
+        ``last_seen_at`` 2024-06-01 and ``consecutive_misses`` 9 (both dropped
+        from job_listings by the Unit 4 contract migration, so the trigger cannot
+        see them). Only ``now()`` can produce the assertion below.
         """
         job = _make_job(
             "seed-1",
@@ -116,7 +136,34 @@ class TestFreshnessTrigger:
         row = _freshness_row(in_memory_db, SourceId.GOOGLE, "seed-1")
         assert row is not None, "trigger did not create a freshness row"
         assert row["consecutive_misses"] == 0
-        assert row["last_seen_at"] == datetime(2024, 1, 15, 10, 30, tzinfo=timezone.utc)
+        assert row["last_seen_at"] != datetime(2024, 1, 15, 10, 30, tzinfo=timezone.utc), (
+            "trigger still seeds last_seen_at from NEW.first_seen_at — a backdated "
+            "posting date is now being reported as when we last saw the job"
+        )
+        assert _seconds_from_db_now(in_memory_db, row["last_seen_at"]) < 60, (
+            f"trigger seeded last_seen_at={row['last_seen_at']}, which is not now()"
+        )
+
+    def test_trigger_seed_never_moves_a_freshness_row_backwards(self, in_memory_db):
+        """A backdated posting date can only make the seed NEWER, never older.
+
+        The never-wrong-close reading of U2, pinned rather than argued. The close
+        sweep is ``consecutive_misses``-based (shared/database.py:783-790) so no
+        seed value can wrong-close anything — but the optional ``min_seen_age_hours``
+        floor does read ``last_seen_at``, and a floor only ever refuses to close.
+        ``now()`` >= any ``first_seen_at`` a scraper can supply, so this change
+        moves the seed strictly forward: strictly harder to close, never easier.
+        """
+        job = _make_job(
+            "fwd-1",
+            first_seen="2020-03-01T00:00:00Z",
+            last_seen="2020-03-01T00:00:00Z",
+            misses=0,
+        )
+        db.insert_job(in_memory_db, job)
+
+        row = _freshness_row(in_memory_db, SourceId.GOOGLE, "fwd-1")
+        assert row["last_seen_at"] > datetime(2020, 3, 1, tzinfo=timezone.utc)
 
     def test_reupsert_advances_freshness_to_scrape_time(self, in_memory_db):
         """Unit 2: re-upserting an existing listing advances its sidecar
@@ -187,8 +234,8 @@ class TestFreshnessTrigger:
                     "https://example.com/bare-1", SourceId.GOOGLE, "{}",
                     "2024-03-04T12:00:00Z", "OPEN", False, "{}",
                     # The INSERT supplies no freshness at all — post-Unit-4 it
-                    # cannot. The seed contract (first_seen_at / 0) is the only
-                    # thing that can produce the assertions below.
+                    # cannot. The seed contract (now() / 0) is the only thing
+                    # that can produce the assertions below.
                     "2024-03-04T12:00:00Z", True,
                 ),
             )
@@ -200,7 +247,9 @@ class TestFreshnessTrigger:
             "the sidecar's existence guarantee has regressed to depending on "
             "application code"
         )
-        assert row["last_seen_at"] == datetime(2024, 3, 4, 12, 0, tzinfo=timezone.utc)
+        # Seeded from now() (U2), so it is NOT the row's backdated first_seen_at.
+        assert _seconds_from_db_now(in_memory_db, row["last_seen_at"]) < 60
+        assert row["last_seen_at"] != datetime(2024, 3, 4, 12, 0, tzinfo=timezone.utc)
         assert row["consecutive_misses"] == 0
         assert _listings_missing_freshness(in_memory_db) == 0
         assert _orphan_freshness(in_memory_db) == 0

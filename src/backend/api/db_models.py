@@ -71,16 +71,15 @@ class JobListing(Base):
     details_scraped = Column(Boolean, server_default=text("false"))
     normalization_status = Column(Text, nullable=True)  # NULL (never attempted) | 'done' | 'failed'
 
-    # Denormalized copies of the only two ``details`` JSONB sub-fields the API
-    # list path serves (frontend ``job.department`` + "Remote" chip). Reading
+    # Denormalized copies of the two ``details`` JSONB sub-fields the API list
+    # path serves (the seniority tag and the "Remote" chip). Reading
     # ``details->'…'`` forces Postgres to detoast the full ~10 KB ``details``
     # value per row; on the batched ``/api/jobs`` list query (~12k rows) that
     # ~100 MB of TOAST reads blew past the 30 s statement timeout (2026-07-13
-    # outage). These columns let the list query read the two values WITHOUT
-    # touching ``details``/TOAST. Nullable, no backfill — populated by the upsert
-    # write path on the next scrape (mirrors the enrichment-column precedent
-    # below so the migration stays metadata-only; see the 2026-04-18 volume
-    # incident). The single-row detail path still returns the full ``details``.
+    # outage). These columns let the list query read both values WITHOUT
+    # touching ``details``/TOAST. All nullable, no default, so each ADD COLUMN
+    # stays metadata-only (see the 2026-04-18 volume incident). The single-row
+    # detail path still returns the full ``details``.
     experience_level = Column(Text, nullable=True)
     is_remote_eligible = Column(Boolean, nullable=True)
 
@@ -272,8 +271,15 @@ class JobFreshness(Base):
 # References are intentionally unqualified so they resolve through the caller's
 # search_path — correct in prod (public) and in the per-worker ``test_<hex>``
 # schema (search_path pinned by the conftest fixtures). Seeds last_seen_at from
-# NEW.first_seen_at and a literal 0 (never NEW.last_seen_at/consecutive_misses)
-# so it keeps working after the Unit 4 contract migration drops those columns.
+# now() and a literal 0 (never NEW.last_seen_at/consecutive_misses) so it keeps
+# working after the Unit 4 contract migration drops those columns.
+#
+# ``now()``, NOT ``NEW.first_seen_at`` (changed by 7a4c1e93b6d8, POSTED-DATE-PLAN
+# §5/U2). ``first_seen_at`` is now the EFFECTIVE POSTED DATE and can be months old
+# at INSERT time; ``last_seen_at`` means "when did a scrape last observe this",
+# and an INSERT is an observation. This is also what ``_upsert_freshness``
+# already writes two statements later on every upsert path. Cannot affect closes:
+# the sweep is purely consecutive_misses-based (shared/database.py:783-790).
 # Physical tuning (fillfactor/autovacuum) stays migration-only — it has no
 # behavioral effect, so create_all test DBs don't need it.
 _JOB_FRESHNESS_SYNC_FUNCTION = DDL(
@@ -282,7 +288,7 @@ _JOB_FRESHNESS_SYNC_FUNCTION = DDL(
     LANGUAGE plpgsql AS $$
     BEGIN
         INSERT INTO job_freshness (source_id, id, last_seen_at, consecutive_misses)
-        VALUES (NEW.source_id, NEW.id, NEW.first_seen_at, 0)
+        VALUES (NEW.source_id, NEW.id, now(), 0)
         ON CONFLICT (source_id, id) DO NOTHING;
         RETURN NULL;  -- AFTER trigger: return value is ignored
     END;
@@ -700,6 +706,24 @@ class Company(Base):
     consecutive_failures = Column(
         Integer, nullable=False, server_default=text("0")
     )
+    # THE OWNER'S OWN NAME FOR THEIR PRIVATE BOARD — NULL means "we never renamed
+    # it", which is every row that exists today and every public row forever.
+    #
+    # It is a SECOND column rather than a flag on ``display_name`` for one reason:
+    # ``display_name`` is written by more than one thing. Discovery derives it from
+    # the URL on the add, ``_promote_to_tracked`` rewrites it every time discovery
+    # ACCEPTS the board, and ``restart_refused_discovery`` rewrites it on the retry
+    # of a refused board. A boolean would mean every one of those (and every one
+    # written later) has to remember a ``CASE WHEN`` guard, and the first one that
+    # forgets silently reverts a user's rename. Nothing can clobber a name it does
+    # not write, so the guard is structural instead of remembered.
+    #
+    # Readers resolve ``COALESCE(user_display_name, display_name)`` — spelled once,
+    # as ``custom_companies_service.EFFECTIVE_DISPLAY_NAME_SQL``. Keeping the
+    # derived name alive also means re-discovery keeps refreshing it underneath,
+    # so clearing an override would yield the CURRENT derivation rather than the
+    # one from the day the board was added.
+    user_display_name = Column(Text, nullable=True)
 
     __table_args__ = (
         Index("ix_companies_ats_enabled", "ats", "enabled"),
@@ -866,6 +890,14 @@ class WorkerHeartbeat(Base):
     at = Column(
         TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
     )
+    # Which worker lane wrote this tick: 'bulk' or 'interactive'. There are two
+    # workers (see `_BULK_QUEUES` / `_INTERACTIVE_QUEUES` in api.main), and one
+    # can die while the other stays healthy. With a single undifferentiated
+    # stream, /health/worker would have stayed green on the survivor's ticks and
+    # the dead lane would have gone unnoticed — which is precisely how a dead
+    # worker went unnoticed for 14 hours on 2026-08-26. Server default 'bulk' so
+    # rows written by an older deploy mid-rollout are attributed correctly.
+    lane = Column(Text, nullable=False, server_default="bulk")
 
     __table_args__ = (
         # Plain ASC btree — Postgres' planner uses it for both
@@ -873,6 +905,9 @@ class WorkerHeartbeat(Base):
         # `at < now() - interval '24h'` (the cleanup task) with a
         # forward or backward scan. No DESC needed.
         Index("idx_worker_heartbeats_at", "at"),
+        # Per-lane freshness for /health/worker's
+        # `MAX(at) FILTER (WHERE lane = ...)`.
+        Index("idx_worker_heartbeats_lane_at", "lane", "at"),
     )
 
 

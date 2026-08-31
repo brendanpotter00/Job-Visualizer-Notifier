@@ -37,6 +37,12 @@ logger = logging.getLogger(__name__)
 # key whose VALUE is JSON null (->> maps it to SQL NULL, falling through).
 # Without the COALESCE only ~17% of OPEN prod rows were claimable; missing
 # content_html/about_the_job left gem_api + google_scraper permanently invisible.
+#
+# The WRITE side of the same question is ``job_details.has_description``, which is what
+# the ATS clients now set ``details_scraped`` from. Kept as a literal here rather than
+# generated from ``DESCRIPTION_KEYS`` (this string is the claim predicate for the whole
+# enrichment pipeline and is not worth making computed);
+# ``test_details_scraped_truthfulness.py`` fails if the two key sets drift apart.
 DESCRIPTION_SQL = (
     "COALESCE(details->>'description_html', details->>'content', "
     "details->>'content_html', details->>'description', "

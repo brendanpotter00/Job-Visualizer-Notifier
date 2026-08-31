@@ -19,39 +19,15 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
-    id: 'linkedin-outreach-link-audit',
-    title: 'Every job card now links straight to that company’s hiring posts',
+    id: 'custom-company-sources',
+    title: 'Add Your Own Companies by Deploying a Custom Web Scraper',
     description:
-      'The link on each job card used to read “Find recruiter and hiring manager posts on LinkedIn”. It now reads “DM the hiring team on LinkedIn”, which says the same thing in a quarter of the space. More importantly, every one of those links was audited against LinkedIn. Fourteen companies were not actually filtered to themselves — eight had no link at all, and six (including Google, Robinhood, Squarespace, Zoox, Applied Intuition and Base Power) pointed at a generic “hiring software engineer” search that returned posts from every company on LinkedIn rather than that one. TikTok’s link pointed at a dead company page that returns nothing. All fifteen are fixed, and all 133 tracked companies now carry a link scoped to their own LinkedIn page.',
-    tags: ['improvement'],
-    date: '2026-08-20',
+      "Paste the link to any company's careers page and it gets tracked for you, refreshed hourly like every other company. The companies you add are private to you, and they show up in Recent Job Postings and on the hiring graph with all the same filters. You can watch yours being built, live. This is beta, so some boards will not work yet.",
+    tags: ['feature'],
+    date: '2026-08-31',
     link: {
-      to: ROUTES.RECENT_JOBS,
-      label: 'Browse recent postings',
-    },
-  },
-  {
-    id: 'recent-default-all-time',
-    title: 'Recent Job Postings now opens to all time',
-    description:
-      "If you don't have a saved time window — whether you're signed out or just haven't set your own default — the Recent Job Postings page now opens on all time instead of the last 90 days, so the first thing you see is everything tracked rather than a slice of it. Narrow it back down whenever you like; the time-window picker is unchanged and every other window still works exactly as before. Your saved default, if you've set one, still takes precedence. Company Hiring Trends is unaffected and still opens on a 90-day window, since a trend chart needs a bounded span to be readable.",
-    tags: ['improvement'],
-    date: '2026-08-19',
-    link: {
-      to: ROUTES.RECENT_JOBS,
-      label: 'See every tracked posting',
-    },
-  },
-  {
-    id: 'retire-poke-2026-08',
-    title: 'Poke is retired — acquired by Cognition',
-    description:
-      'Poke, the proactive AI assistant from The Interaction Company of California, has been acquired by Cognition (the team behind Devin), and its job board was taken down this morning — its careers page now redirects to Cognition. There is no Poke board left to read, so rather than keep showing nine listings that no longer exist, Poke has been retired from the company list. If you had Poke saved in your preferences, you can safely leave it there; nothing else is affected. The automated scraper-health watchdog caught this within hours of the board going dark.',
-    tags: ['improvement'],
-    date: '2026-08-16',
-    link: {
-      to: ROUTES.SAVED_FILTERS,
-      label: 'Review your saved companies',
+      to: ROUTES.MY_COMPANIES,
+      label: 'Add your first company',
     },
   },
   {

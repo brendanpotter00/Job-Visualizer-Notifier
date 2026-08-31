@@ -83,10 +83,22 @@ function rawJob(id: string, firstSeenAt: string): BackendJobListing {
 function renderTrendPage(id = 'u-abc1234567') {
   return renderWithProviders(
     <Routes>
-      <Route path="/my-companies/:id" element={<MyCompanyTrendPage />} />
+      <Route path="/add-companies/:id" element={<MyCompanyTrendPage />} />
     </Routes>,
-    { initialEntries: [`/my-companies/${id}`] }
+    { initialEntries: [`/add-companies/${id}`] }
   );
+}
+
+/**
+ * A fetch mock that answers every call with its OWN `Response`.
+ *
+ * `mockResolvedValue(jsonResponse(...))` hands the same object to every caller, and this
+ * page now runs two queries — the jobs and the tracked-companies row. RTK Query clones
+ * each response to read it, so the second one dies on "Body has already been consumed"
+ * and the query fails for a reason that has nothing to do with the test.
+ */
+function mockJson(body: unknown, status = 200) {
+  fetchMock.mockImplementation(() => Promise.resolve(jsonResponse(body, status)));
 }
 
 let fetchMock: ReturnType<typeof vi.fn>;
@@ -105,12 +117,7 @@ afterEach(() => {
 describe('MyCompanyTrendPage', () => {
   it('feeds bucketed data to the chart and firstSeenAt-desc jobs to the list', async () => {
     // Two jobs, older then newer, returned server-order oldest-first.
-    fetchMock.mockResolvedValue(
-      jsonResponse([
-        rawJob('older', '2026-08-01T00:00:00Z'),
-        rawJob('newer', '2026-08-08T00:00:00Z'),
-      ])
-    );
+    mockJson([rawJob('older', '2026-08-01T00:00:00Z'), rawJob('newer', '2026-08-08T00:00:00Z')]);
 
     renderTrendPage();
 
@@ -126,13 +133,66 @@ describe('MyCompanyTrendPage', () => {
     expect(chart).toHaveAttribute('data-window', '30d');
   });
 
-  it('labels the day-0 seed batch rather than showing a fake spike', async () => {
-    fetchMock.mockResolvedValue(
-      jsonResponse([
-        rawJob('a', '2026-08-05T12:00:00Z'),
-        rawJob('b', '2026-08-05T12:20:00Z'),
-      ])
+  it('names the company and links to the board it was built from', async () => {
+    // THE ASK: "I can't find the initial Jane Street job link that we actually used to
+    // create this job scraper." This page is where you land from the list, and it showed
+    // a graph under the words "Hiring trend" — no name, no source, nothing that said
+    // which board it was a trend OF. Both come from the tracked-companies row, which the
+    // page now looks up by the runtime id in its own route.
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input instanceof Request ? input.url : input);
+      if (url.includes('/api/users/companies') && !url.includes('/jobs')) {
+        return Promise.resolve(
+          jsonResponse({
+            companies: [
+              {
+                id: 'u-abc1234567',
+                displayName: 'Jane Street',
+                ats: 'discovered',
+                boardToken: 'https://www.janestreet.com/join-jane-street/open-roles/',
+                sourceId: 'custom:u-abc1234567',
+                healthState: 'unverified',
+                openJobCount: 1,
+                lastSuccessAt: null,
+                trackingStartedAt: null,
+              },
+            ],
+          })
+        );
+      }
+      return Promise.resolve(jsonResponse([rawJob('a', '2026-08-05T12:00:00Z')]));
+    });
+
+    renderTrendPage();
+
+    // The link first: the heading exists from the first frame (as the bare "Hiring
+    // trend"), so asserting on it before the row lands would pass or fail on timing.
+    const boardLink = await screen.findByTestId('my-company-board-link');
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Jane Street hiring trend');
+    expect(boardLink).toHaveAttribute(
+      'href',
+      'https://www.janestreet.com/join-jane-street/open-roles/'
     );
+    expect(boardLink).toHaveAttribute('target', '_blank');
+    expect(boardLink).toHaveTextContent('janestreet.com');
+  });
+
+  it('still renders the trend when the company row is unavailable', async () => {
+    // The row is a garnish on this page and the chart is the page: a list fetch that
+    // fails, or a row that is simply not in the payload, must cost the heading its name
+    // and nothing else. (Every other test in this file returns jobs for BOTH calls, so
+    // they already exercise this path.)
+    mockJson([rawJob('a', '2026-08-05T12:00:00Z')]);
+
+    renderTrendPage();
+
+    expect(await screen.findByTestId('joblist')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Hiring trend');
+    expect(screen.queryByTestId('my-company-board-link')).not.toBeInTheDocument();
+  });
+
+  it('labels the day-0 seed batch rather than showing a fake spike', async () => {
+    mockJson([rawJob('a', '2026-08-05T12:00:00Z'), rawJob('b', '2026-08-05T12:20:00Z')]);
 
     renderTrendPage();
 
@@ -142,7 +202,7 @@ describe('MyCompanyTrendPage', () => {
   });
 
   it('renders the empty state when the board has no history yet', async () => {
-    fetchMock.mockResolvedValue(jsonResponse([]));
+    mockJson([]);
     renderTrendPage();
 
     expect(await screen.findByText(/tracking started — no history yet/i)).toBeInTheDocument();
@@ -150,7 +210,7 @@ describe('MyCompanyTrendPage', () => {
   });
 
   it('renders a not-owner state on a 403', async () => {
-    fetchMock.mockResolvedValue(jsonResponse({ detail: 'Forbidden' }, 403));
+    mockJson({ detail: 'Forbidden' }, 403);
     renderTrendPage();
 
     expect(await screen.findByText(/not your company/i)).toBeInTheDocument();

@@ -17,7 +17,6 @@ describe('MetricsDashboard', () => {
     source: 'backend-scraper',
     company: 'spacex',
     title: 'Senior Frontend Engineer',
-    department: 'Engineering',
     location: 'San Francisco, CA',
     employmentType: 'Full-time',
     createdAt: new Date(MOCK_NOW - 6 * 60 * 60 * 1000).toISOString(), // 6 hours ago
@@ -31,7 +30,6 @@ describe('MetricsDashboard', () => {
     source: 'backend-scraper',
     company: 'spacex',
     title: 'Backend Engineer',
-    department: 'Engineering',
     location: 'Remote',
     employmentType: 'Full-time',
     createdAt: new Date(MOCK_NOW - 18 * 60 * 60 * 1000).toISOString(), // 18 hours ago
@@ -45,7 +43,6 @@ describe('MetricsDashboard', () => {
     source: 'backend-scraper',
     company: 'spacex',
     title: 'DevOps Engineer',
-    department: 'Engineering',
     location: 'Austin, TX',
     employmentType: 'Full-time',
     createdAt: new Date(MOCK_NOW - 30 * 60 * 60 * 1000).toISOString(), // 30 hours ago (outside 24h window)
@@ -59,7 +56,6 @@ describe('MetricsDashboard', () => {
     source: 'backend-scraper',
     company: 'spacex',
     title: 'Platform Engineer',
-    department: 'Engineering',
     location: 'Seattle, WA',
     employmentType: 'Full-time',
     createdAt: new Date(MOCK_NOW - 2 * 24 * 60 * 60 * 1000).toISOString(), // 2 days ago (within 3 days)
@@ -73,7 +69,6 @@ describe('MetricsDashboard', () => {
     source: 'backend-scraper',
     company: 'spacex',
     title: 'Security Engineer',
-    department: 'Security',
     location: 'Remote',
     employmentType: 'Full-time',
     createdAt: new Date(MOCK_NOW - 4 * 24 * 60 * 60 * 1000).toISOString(), // 4 days ago (outside 3 days)

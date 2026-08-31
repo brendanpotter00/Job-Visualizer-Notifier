@@ -26,6 +26,7 @@ import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import FeedbackIcon from '@mui/icons-material/Feedback';
 import FilterListAltIcon from '@mui/icons-material/FilterListAlt';
 import AddBusinessIcon from '@mui/icons-material/AddBusiness';
+import ConstructionIcon from '@mui/icons-material/Construction';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
   ADMIN_NAV_ITEMS,
@@ -118,6 +119,7 @@ const iconMap: Record<IconName, React.ComponentType> = {
   Feedback: FeedbackIcon,
   FilterListAlt: FilterListAltIcon,
   AddBusiness: AddBusinessIcon,
+  Construction: ConstructionIcon,
 };
 
 export function NavigationDrawer({

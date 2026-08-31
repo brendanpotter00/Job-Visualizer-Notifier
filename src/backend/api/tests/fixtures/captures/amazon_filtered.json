@@ -1,0 +1,522 @@
+{
+ "error": null,
+ "hits": 76,
+ "facets": {
+  "is_intern": [
+   {
+    "0": 75
+   },
+   {
+    "1": 1
+   }
+  ],
+  "normalized_state_name_facet": [
+   {
+    "Texas": 76
+   },
+   {
+    "California": 18
+   },
+   {
+    "Washington": 14
+   },
+   {
+    "Virginia": 9
+   },
+   {
+    "Massachusetts": 6
+   },
+   {
+    "New York": 4
+   },
+   {
+    "Ohio": 2
+   },
+   {
+    "Tennessee": 2
+   },
+   {
+    "Wisconsin": 2
+   },
+   {
+    "Georgia": 1
+   },
+   {
+    "Minnesota": 1
+   }
+  ],
+  "employee_class_facet": [
+   {
+    "Regular Full Time": 75
+   },
+   {
+    "Intern": 1
+   }
+  ],
+  "normalized_country_code_facet": [
+   {
+    "USA": 76
+   }
+  ],
+  "normalized_location_facet": [
+   {
+    "Austin, Texas, USA": 76
+   },
+   {
+    "Seattle, Washington, USA": 12
+   },
+   {
+    "Cupertino, California, USA": 10
+   },
+   {
+    "Arlington, Virginia, USA": 7
+   },
+   {
+    "Sunnyvale, California, USA": 5
+   },
+   {
+    "Bellevue, Washington, USA": 4
+   },
+   {
+    "New York, New York, USA": 4
+   },
+   {
+    "North Reading, Massachusetts, USA": 3
+   },
+   {
+    "Boston, Massachusetts, USA": 2
+   },
+   {
+    "Columbus, Ohio, USA": 2
+   },
+   {
+    "Herndon, Virginia, USA": 2
+   },
+   {
+    "Nashville, Tennessee, USA": 2
+   },
+   {
+    "Redmond, Washington, USA": 2
+   },
+   {
+    "San Francisco, California, USA": 2
+   },
+   {
+    "Santa Clara, California, USA": 2
+   },
+   {
+    "Westboro, Wisconsin, USA": 2
+   },
+   {
+    "Atlanta, Georgia, USA": 1
+   },
+   {
+    "Bee Cave, Texas, USA": 1
+   },
+   {
+    "Houston, Texas, USA": 1
+   },
+   {
+    "Hudson, Massachusetts, USA": 1
+   },
+   {
+    "Irving, Texas, USA": 1
+   },
+   {
+    "Minneapolis, Minnesota, USA": 1
+   },
+   {
+    "Northridge, California, USA": 1
+   },
+   {
+    "Plymouth, Minnesota, USA": 1
+   },
+   {
+    "San Diego, California, USA": 1
+   },
+   {
+    "Santa Monica, California, USA": 1
+   },
+   {
+    "Westborough, Massachusetts, USA": 1
+   }
+  ],
+  "normalized_city_name_facet": [
+   {
+    "Austin": 76
+   },
+   {
+    "Seattle": 12
+   },
+   {
+    "Cupertino": 10
+   },
+   {
+    "Arlington": 7
+   },
+   {
+    "Sunnyvale": 5
+   },
+   {
+    "Bellevue": 4
+   },
+   {
+    "New York": 4
+   },
+   {
+    "North Reading": 3
+   },
+   {
+    "Boston": 2
+   },
+   {
+    "Columbus": 2
+   },
+   {
+    "Herndon": 2
+   },
+   {
+    "Nashville": 2
+   },
+   {
+    "Redmond": 2
+   },
+   {
+    "San Francisco": 2
+   },
+   {
+    "Santa Clara": 2
+   },
+   {
+    "Westboro": 2
+   },
+   {
+    "Atlanta": 1
+   },
+   {
+    "Bee Cave": 1
+   },
+   {
+    "Houston": 1
+   },
+   {
+    "Hudson": 1
+   },
+   {
+    "Irving": 1
+   },
+   {
+    "Minneapolis": 1
+   },
+   {
+    "Northridge": 1
+   },
+   {
+    "Plymouth": 1
+   },
+   {
+    "San Diego": 1
+   },
+   {
+    "Santa Monica": 1
+   },
+   {
+    "Westborough": 1
+   }
+  ],
+  "business_category_facet": [
+   {
+    "aws": 42
+   },
+   {
+    "amazon-security": 8
+   },
+   {
+    "subsidiaries": 7
+   },
+   {
+    "advertising": 5
+   },
+   {
+    "no-business-category": 5
+   },
+   {
+    "entertainment": 2
+   },
+   {
+    "transportation-and-logistics": 2
+   },
+   {
+    "alexa-and-amazon-devices": 1
+   },
+   {
+    "amazon-artificial-general-intelligence": 1
+   },
+   {
+    "ecp": 1
+   },
+   {
+    "operations": 1
+   },
+   {
+    "studentprograms": 1
+   }
+  ],
+  "category_facet": [
+   {
+    "Software Development": 67
+   },
+   {
+    "Corporate Operations": 5
+   },
+   {
+    "Systems, Quality, & Security Engineering": 3
+   },
+   {
+    "Project/Program/Product Management--Technical": 1
+   }
+  ],
+  "schedule_type_id_facet": [
+   {
+    "Full-Time": 76
+   }
+  ],
+  "is_manager": [
+   {
+    "0": 76
+   }
+  ],
+  "location_facet": [
+   {
+    "US, TX, Austin": 76
+   },
+   {
+    "US, WA, Seattle": 12
+   },
+   {
+    "US, CA, Cupertino": 10
+   },
+   {
+    "US, VA, Arlington": 7
+   },
+   {
+    "US, CA, Sunnyvale": 5
+   },
+   {
+    "US, WA, Bellevue": 4
+   },
+   {
+    "US, MA, North Reading": 3
+   },
+   {
+    "US, CA, San Francisco": 2
+   },
+   {
+    "US, CA, Santa Clara": 2
+   },
+   {
+    "US, MA, Boston": 2
+   },
+   {
+    "US, MA, Westboro": 2
+   },
+   {
+    "US, NY, New York": 2
+   },
+   {
+    "US, NY, New York City": 2
+   },
+   {
+    "US, OH, COLUMBUS": 2
+   },
+   {
+    "US, TN, Nashville": 2
+   },
+   {
+    "US, VA, Herndon": 2
+   },
+   {
+    "US, WA, Redmond": 2
+   },
+   {
+    "US, CA, Northridge": 1
+   },
+   {
+    "US, CA, San Diego": 1
+   },
+   {
+    "US, CA, Santa Monica": 1
+   },
+   {
+    "US, GA, Atlanta": 1
+   },
+   {
+    "US, MA, Hudson": 1
+   },
+   {
+    "US, MA, N.reading": 1
+   },
+   {
+    "US, MA, Westborough": 1
+   },
+   {
+    "US, MN, Minneapolis": 1
+   },
+   {
+    "US, MN, Plymouth": 1
+   },
+   {
+    "US, TX, Bee Cave": 1
+   },
+   {
+    "US, TX, Houston": 1
+   },
+   {
+    "US, TX, Irving": 1
+   }
+  ],
+  "job_function_id_facet": [
+   {
+    "job_function_corporate_80rdb4": 76
+   }
+  ]
+ },
+ "content": {
+  "sidebar": {},
+  "search_results": {}
+ },
+ "jobs": [
+  {
+   "id": "90c85870-b7ea-4165-bb09-552b3f360a35",
+   "id_icims": "10490514",
+   "title": "Software Development Engineer, AWS OpenSearch Service",
+   "job_path": "/en/jobs/10490514/software-development-engineer-aws-opensearch-service",
+   "normalized_location": "Austin, Texas, USA",
+   "posted_date": "August  3, 2026",
+   "job_category": "Software Development",
+   "company_name": "Amazon Development Center U.S., Inc.",
+   "city": "Austin",
+   "state": "TX",
+   "country_code": "USA"
+  },
+  {
+   "id": "7584dec8-28cc-4419-bb77-3da165179aa7",
+   "id_icims": "10487354",
+   "title": "IT App Dev Engr II - AMZ10061220",
+   "job_path": "/en/jobs/10487354/it-app-dev-engr-ii-amz10061220",
+   "normalized_location": "Austin, Texas, USA",
+   "posted_date": "July 29, 2026",
+   "job_category": "Corporate Operations",
+   "company_name": "Amazon.com Services LLC - A57",
+   "city": "Austin",
+   "state": "TX",
+   "country_code": "USA"
+  },
+  {
+   "id": "41976e5f-88e1-436f-bbd2-0e8254979587",
+   "id_icims": "10486082",
+   "title": "IT App Dev Engr II - AMZ27485.1",
+   "job_path": "/en/jobs/10486082/it-app-dev-engr-ii-amz27485-1",
+   "normalized_location": "Austin, Texas, USA",
+   "posted_date": "July 28, 2026",
+   "job_category": "Corporate Operations",
+   "company_name": "Amazon.com Services LLC - A57",
+   "city": "Austin",
+   "state": "TX",
+   "country_code": "USA"
+  },
+  {
+   "id": "0ecf4be7-c39d-4839-87ab-44eb66b1190c",
+   "id_icims": "10483953",
+   "title": "Software Development Engineer - Silicon Development Infrastructure",
+   "job_path": "/en/jobs/10483953/software-development-engineer-silicon-development-infrastructure",
+   "normalized_location": "Austin, Texas, USA",
+   "posted_date": "July 24, 2026",
+   "job_category": "Software Development",
+   "company_name": "Annapurna Labs (U.S.) Inc.",
+   "city": "Austin",
+   "state": "TX",
+   "country_code": "USA"
+  },
+  {
+   "id": "0a61f340-f453-4ae2-8a03-ac7571a50f83",
+   "id_icims": "10490706",
+   "title": "Software Development Engineer II, Network Configuration Lifecycle Management",
+   "job_path": "/en/jobs/10490706/software-development-engineer-ii-network-configuration-lifecycle-management",
+   "normalized_location": "Austin, Texas, USA",
+   "posted_date": "August  3, 2026",
+   "job_category": "Software Development",
+   "company_name": "Amazon.com Services LLC",
+   "city": "Austin",
+   "state": "TX",
+   "country_code": "USA"
+  },
+  {
+   "id": "0bb735d6-00a8-4f7b-a913-dce71f778219",
+   "id_icims": "10483895",
+   "title": "Software Engineer, Graviton Software, Annapurna Labs",
+   "job_path": "/en/jobs/10483895/software-engineer-graviton-software-annapurna-labs",
+   "normalized_location": "Austin, Texas, USA",
+   "posted_date": "July 24, 2026",
+   "job_category": "Software Development",
+   "company_name": "Annapurna Labs (U.S.) Inc.",
+   "city": "Austin",
+   "state": "TX",
+   "country_code": "USA"
+  },
+  {
+   "id": "0282521a-bb72-4a96-8989-ab6ff0ccecc5",
+   "id_icims": "10484131",
+   "title": "Software Development Engineer, Measurement, Ad Tech, and Data Science",
+   "job_path": "/en/jobs/10484131/software-development-engineer-measurement-ad-tech-and-data-science",
+   "normalized_location": "Austin, Texas, USA",
+   "posted_date": "July 26, 2026",
+   "job_category": "Software Development",
+   "company_name": "Amazon.com Services LLC",
+   "city": "Austin",
+   "state": "TX",
+   "country_code": "USA"
+  },
+  {
+   "id": "83294b6f-55e0-4a58-bb2e-42ab018cd3d2",
+   "id_icims": "10485323",
+   "title": "Machine Learning Engineer, OIS-Core Engine",
+   "job_path": "/en/jobs/10485323/machine-learning-engineer-ois-core-engine",
+   "normalized_location": "Austin, Texas, USA",
+   "posted_date": "July 27, 2026",
+   "job_category": "Software Development",
+   "company_name": "Amazon.com Services LLC",
+   "city": "Austin",
+   "state": "TX",
+   "country_code": "USA"
+  },
+  {
+   "id": "cd128715-0415-4974-be3e-eb3762741d65",
+   "id_icims": "10480882",
+   "title": "Software Development Engineer, Privacy",
+   "job_path": "/en/jobs/10480882/software-development-engineer-privacy",
+   "normalized_location": "Austin, Texas, USA",
+   "posted_date": "July 21, 2026",
+   "job_category": "Software Development",
+   "company_name": "Amazon.com Services LLC",
+   "city": "Austin",
+   "state": "TX",
+   "country_code": "USA"
+  },
+  {
+   "id": "1d0bf634-9838-422d-a9bd-02a1cec098ae",
+   "id_icims": "10477971",
+   "title": "Software Development Engineer, AWS OpenSearch Service",
+   "job_path": "/en/jobs/10477971/software-development-engineer-aws-opensearch-service",
+   "normalized_location": "Austin, Texas, USA",
+   "posted_date": "July 17, 2026",
+   "job_category": "Software Development",
+   "company_name": "Amazon Development Center U.S., Inc.",
+   "city": "Austin",
+   "state": "TX",
+   "country_code": "USA"
+  }
+ ],
+ "job_posting_search_request": "{\"jobPostingSearchRequest\":{\"query\":\"software engineer\",\"excludeFacets\":[{\"name\":\"businessCategory\",\"values\":[{\"name\":\"a-confidential-job\"}]},{\"name\":\"isPostedExternally\",\"values\":[{\"name\":\"0\"}]},{\"name\":\"isUnsearchable\",\"values\":[{\"name\":\"1\"}]}],\"filterFacets\":[],\"start\":\"0\",\"size\":\"10\",\"sort\":{\"sortOrder\":\"DESCENDING\",\"sortType\":\"CREATED_DATE\"},\"location\":{\"lowerCoordinate\":{\"latitude\":30.48342688729389,\"longitude\":-97.99344592378432},\"upperCoordinate\":{\"latitude\":30.05175311270611,\"longitude\":-97.49253407621569},\"userCoordinate\":{\"latitude\":30.26759,\"longitude\":-97.74299}},\"accessLevel\":\"EXTERNAL\",\"includeFacets\":[],\"locationFacets\":[[{\"name\":\"normalizedCityName\",\"values\":[{\"name\":\"Austin\"}]},{\"name\":\"normalizedCountyName\",\"values\":[{\"name\":\"Travis\"}]},{\"name\":\"normalizedStateName\",\"values\":[{\"name\":\"Texas\"}]},{\"name\":\"normalizedCountryCode\",\"values\":[{\"name\":\"USA\"}]}]],\"jobTypeFacets\":[],\"contentFilterFacets\":[],\"treatment\":\"OM\"}}",
+ "_fixture_note": "Filtered Austin 'software engineer' amazon.jobs capture (spike captures/amazon/raw/000.json), job descriptions trimmed for fixture size. hits=76 (under the 10k ES cap); the country facet is single-valued (sum 76 == hits) and the state facet is multi-valued (sum 135 > hits, multi-location jobs double-counted) \u2014 the GM 1,042-vs-835 shape."
+}

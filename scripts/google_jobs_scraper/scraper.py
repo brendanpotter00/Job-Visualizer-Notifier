@@ -13,6 +13,7 @@ from playwright.async_api import Page
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from shared.base_scraper import BaseScraper
 from shared.constants import SourceId
+from shared.posted_date import effective_posted_date
 
 from .config import (
     BASE_URL,
@@ -235,7 +236,11 @@ class GoogleJobsScraper(BaseScraper):
             has_matched=False,
             ai_metadata={},
             # Incremental tracking fields (will be set by caller if using DB mode)
-            first_seen_at=created_at,
+            # THE EFFECTIVE POSTED DATE (POSTED-DATE-PLAN.md §2, D9/D10) — which
+            # for Google is always first sight, because it publishes no post date
+            # (``posted_on=None`` above). Routed through the shared helper anyway
+            # so this scraper states the rule rather than coinciding with it.
+            first_seen_at=effective_posted_date(None, created_at),
             last_seen_at=created_at,
             consecutive_misses=0,
             details_scraped=False,

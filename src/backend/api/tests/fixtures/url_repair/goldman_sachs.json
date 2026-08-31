@@ -1,0 +1,236 @@
+{
+ "board_host": "higher.gs.com",
+ "url_spec": "https://higher.gs.com/roles/{roleId}",
+ "expected": "https://higher.gs.com/roles/{externalSource.sourceId}",
+ "why": "roleId is not the route key; externalSource.sourceId is, and the capture's own /_next/data/<build>/roles/<id>.json calls prove it",
+ "captured_urls": [
+  "https://graphql.contentful.com/content/v1/spaces/9mvtzqjujsdv/environments/master/?access_token=\u2026",
+  "https://graphql.contentful.com/content/v1/spaces/9mvtzqjujsdv/environments/master/?access_token=\u2026",
+  "https://api-higher.gs.com/gateway/api/v1/graphql",
+  "https://graphql.contentful.com/content/v1/spaces/9mvtzqjujsdv/environments/master/?access_token=\u2026",
+  "https://browser-intake-datadoghq.com/api/v2/rum?ddsource=\u2026&ddtags=\u2026&dd-api-key=\u2026&dd-evp-origin-version=\u2026&dd-evp-origin=\u2026&dd-request-id=\u2026&batch_time=\u2026",
+  "https://api-higher.gs.com/gateway/api/v1/graphql",
+  "https://api-higher.gs.com/gateway/api/v1/graphql",
+  "https://graphql.contentful.com/content/v1/spaces/9mvtzqjujsdv/environments/master/?access_token=\u2026",
+  "https://browser-intake-datadoghq.com/api/v2/rum?ddsource=\u2026&ddtags=\u2026&dd-api-key=\u2026&dd-evp-origin-version=\u2026&dd-evp-origin=\u2026&dd-request-id=\u2026&batch_time=\u2026",
+  "https://api-higher.gs.com/gateway/api/v1/graphql",
+  "https://graphql.contentful.com/content/v1/spaces/9mvtzqjujsdv/environments/master/?access_token=\u2026",
+  "https://graphql.contentful.com/content/v1/spaces/9mvtzqjujsdv/environments/master/?access_token=\u2026",
+  "https://higher.gs.com/_next/data/6f65452344dd9f355cb3cddd145e7748561ee384/roles/180399.json?roleId=\u2026",
+  "https://higher.gs.com/_next/data/6f65452344dd9f355cb3cddd145e7748561ee384/roles/181782.json?roleId=\u2026",
+  "https://higher.gs.com/_next/data/6f65452344dd9f355cb3cddd145e7748561ee384/roles/154832.json?roleId=\u2026",
+  "https://higher.gs.com/_next/data/6f65452344dd9f355cb3cddd145e7748561ee384/roles/182888.json?roleId=\u2026",
+  "https://higher.gs.com/_next/data/6f65452344dd9f355cb3cddd145e7748561ee384/roles/182484.json?roleId=\u2026",
+  "https://higher.gs.com/_next/data/6f65452344dd9f355cb3cddd145e7748561ee384/roles/169136.json?roleId=\u2026",
+  "https://higher.gs.com/_next/data/6f65452344dd9f355cb3cddd145e7748561ee384/roles/182608.json?roleId=\u2026",
+  "https://higher.gs.com/_next/data/6f65452344dd9f355cb3cddd145e7748561ee384/roles/180199.json?roleId=\u2026",
+  "https://higher.gs.com/_next/data/6f65452344dd9f355cb3cddd145e7748561ee384/roles/182979.json?roleId=\u2026",
+  "https://higher.gs.com/_next/data/6f65452344dd9f355cb3cddd145e7748561ee384/roles/182478.json?roleId=\u2026",
+  "https://higher.gs.com/_next/data/6f65452344dd9f355cb3cddd145e7748561ee384/roles/181992.json?roleId=\u2026",
+  "https://browser-intake-datadoghq.com/api/v2/rum?ddsource=\u2026&ddtags=\u2026&dd-api-key=\u2026&dd-evp-origin-version=\u2026&dd-evp-origin=\u2026&dd-request-id=\u2026&batch_time=\u2026",
+  "https://higher.gs.com/_next/data/6f65452344dd9f355cb3cddd145e7748561ee384/roles/181556.json?roleId=\u2026",
+  "https://higher.gs.com/_next/data/6f65452344dd9f355cb3cddd145e7748561ee384/roles/182980.json?roleId=\u2026",
+  "https://higher.gs.com/_next/data/6f65452344dd9f355cb3cddd145e7748561ee384/roles/181783.json?roleId=\u2026",
+  "https://higher.gs.com/_next/data/6f65452344dd9f355cb3cddd145e7748561ee384/roles/141770.json?roleId=\u2026",
+  "https://higher.gs.com/_next/data/6f65452344dd9f355cb3cddd145e7748561ee384/roles/180330.json?roleId=\u2026",
+  "https://higher.gs.com/_next/data/6f65452344dd9f355cb3cddd145e7748561ee384/roles/154323.json?roleId=\u2026",
+  "https://higher.gs.com/_next/data/6f65452344dd9f355cb3cddd145e7748561ee384/roles/181799.json?roleId=\u2026",
+  "https://higher.gs.com/_next/data/6f65452344dd9f355cb3cddd145e7748561ee384/roles/166591.json?roleId=\u2026",
+  "https://higher.gs.com/_next/data/6f65452344dd9f355cb3cddd145e7748561ee384/roles/166395.json?roleId=\u2026",
+  "https://browser-intake-datadoghq.com/api/v2/rum?ddsource=\u2026&ddtags=\u2026&dd-api-key=\u2026&dd-evp-origin-version=\u2026&dd-evp-origin=\u2026&dd-request-id=\u2026&batch_time=\u2026"
+ ],
+ "records": [
+  {
+   "roleId": "181783_GS_NOTICE_OF_FILING_LCA",
+   "corporateTitle": "Associate",
+   "jobTitle": "Engineering Division- New York- Associate, Risk Governance- 10427706",
+   "jobFunction": "",
+   "locations": [
+    {
+     "primary": true,
+     "state": "NY",
+     "country": "United States",
+     "city": "New York",
+     "__typename": "RoleLocationGraphQlDTO"
+    }
+   ],
+   "status": "POSTED",
+   "division": "Engineering Division",
+   "skills": [],
+   "jobType": null,
+   "externalSource": {
+    "sourceId": "181783",
+    "__typename": "ExternalSourceGraphQlDTO"
+   },
+   "__typename": "ExternalRoleGraphQlDTO"
+  },
+  {
+   "roleId": "181782_GS_NOTICE_OF_FILING_LCA",
+   "corporateTitle": "Associate",
+   "jobTitle": "Controllers-Jersey City-Associate, Data Governance & Stewardship-10419015",
+   "jobFunction": "",
+   "locations": [
+    {
+     "primary": true,
+     "state": "NJ",
+     "country": "United States",
+     "city": "Jersey City",
+     "__typename": "RoleLocationGraphQlDTO"
+    }
+   ],
+   "status": "POSTED",
+   "division": "Controllers",
+   "skills": [],
+   "jobType": null,
+   "externalSource": {
+    "sourceId": "181782",
+    "__typename": "ExternalSourceGraphQlDTO"
+   },
+   "__typename": "ExternalRoleGraphQlDTO"
+  },
+  {
+   "roleId": "180399_GS_MID_CAREER",
+   "corporateTitle": "Analyst",
+   "jobTitle": "Asset & Wealth Management - PWM WSS- Analyst- Bengaluru",
+   "jobFunction": "Sales Support",
+   "locations": [
+    {
+     "primary": true,
+     "state": "Karnataka",
+     "country": "India",
+     "city": "Bengaluru",
+     "__typename": "RoleLocationGraphQlDTO"
+    }
+   ],
+   "status": "POSTED",
+   "division": "Asset & Wealth Management",
+   "skills": [],
+   "jobType": null,
+   "externalSource": {
+    "sourceId": "180399",
+    "__typename": "ExternalSourceGraphQlDTO"
+   },
+   "__typename": "ExternalRoleGraphQlDTO"
+  },
+  {
+   "roleId": "182484_GS_MID_CAREER",
+   "corporateTitle": "Vice President",
+   "jobTitle": "Compliance-Control Room-Vice President- Bengaluru",
+   "jobFunction": "Control Room",
+   "locations": [
+    {
+     "primary": true,
+     "state": "Karnataka",
+     "country": "India",
+     "city": "Bengaluru",
+     "__typename": "RoleLocationGraphQlDTO"
+    }
+   ],
+   "status": "POSTED",
+   "division": "Compliance Division",
+   "skills": [],
+   "jobType": null,
+   "externalSource": {
+    "sourceId": "182484",
+    "__typename": "ExternalSourceGraphQlDTO"
+   },
+   "__typename": "ExternalRoleGraphQlDTO"
+  },
+  {
+   "roleId": "169136_GS_MID_CAREER",
+   "corporateTitle": "Vice President",
+   "jobTitle": "Senior Software Engineer, Global Banking & Markets, Front Office Technology",
+   "jobFunction": "",
+   "locations": [
+    {
+     "primary": true,
+     "state": "TX",
+     "country": "United States",
+     "city": "Dallas",
+     "__typename": "RoleLocationGraphQlDTO"
+    }
+   ],
+   "status": "POSTED",
+   "division": "Global Banking & Markets",
+   "skills": [],
+   "jobType": null,
+   "externalSource": {
+    "sourceId": "169136",
+    "__typename": "ExternalSourceGraphQlDTO"
+   },
+   "__typename": "ExternalRoleGraphQlDTO"
+  },
+  {
+   "roleId": "180199_GS_MID_CAREER",
+   "corporateTitle": "Senior Analyst",
+   "jobTitle": "Controllers Operations-Ledger Validation-Analyst-Bengaluru",
+   "jobFunction": "Ledger Validation",
+   "locations": [
+    {
+     "primary": true,
+     "state": "Karnataka",
+     "country": "India",
+     "city": "Bengaluru",
+     "__typename": "RoleLocationGraphQlDTO"
+    }
+   ],
+   "status": "POSTED",
+   "division": "Controllers",
+   "skills": [],
+   "jobType": null,
+   "externalSource": {
+    "sourceId": "180199",
+    "__typename": "ExternalSourceGraphQlDTO"
+   },
+   "__typename": "ExternalRoleGraphQlDTO"
+  },
+  {
+   "roleId": "154832_GS_MID_CAREER",
+   "corporateTitle": "Analyst",
+   "jobTitle": "Controllers - CA Freshers May 2026 - Analyst - Bengaluru/Hyderabad",
+   "jobFunction": "",
+   "locations": [
+    {
+     "primary": true,
+     "state": null,
+     "country": "India",
+     "city": null,
+     "__typename": "RoleLocationGraphQlDTO"
+    }
+   ],
+   "status": "POSTED",
+   "division": "Controllers",
+   "skills": [],
+   "jobType": null,
+   "externalSource": {
+    "sourceId": "154832",
+    "__typename": "ExternalSourceGraphQlDTO"
+   },
+   "__typename": "ExternalRoleGraphQlDTO"
+  },
+  {
+   "roleId": "182608_GS_MID_CAREER",
+   "corporateTitle": "Vice President",
+   "jobTitle": "Internal Audit, Corporate Controllers & Tax Audit, Vice President, London",
+   "jobFunction": "Business Audit",
+   "locations": [
+    {
+     "primary": true,
+     "state": "Greater London, England",
+     "country": "United Kingdom",
+     "city": "London",
+     "__typename": "RoleLocationGraphQlDTO"
+    }
+   ],
+   "status": "POSTED",
+   "division": "Internal Audit",
+   "skills": [],
+   "jobType": null,
+   "externalSource": {
+    "sourceId": "182608",
+    "__typename": "ExternalSourceGraphQlDTO"
+   },
+   "__typename": "ExternalRoleGraphQlDTO"
+  }
+ ]
+}

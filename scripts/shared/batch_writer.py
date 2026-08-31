@@ -7,12 +7,13 @@ is saved if scraping is interrupted.
 """
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import List, Dict, Any, Protocol
 
 from .models import JobListing
 from .database import Connection
 from . import database as db
+from .posted_date import effective_posted_date
 
 
 class ScraperProtocol(Protocol):
@@ -86,11 +87,28 @@ class BatchWriter:
 
         Args:
             job_data: Raw job dictionary from scraper
-            timestamp: ISO timestamp for first_seen_at/last_seen_at
+            timestamp: ISO timestamp for this run — ``last_seen_at`` always, and
+                ``first_seen_at`` only when the board published no usable date
         """
         try:
             job = self.scraper.transform_to_job_model(job_data)
-            job.first_seen_at = timestamp
+            # first_seen_at is THE EFFECTIVE POSTED DATE (POSTED-DATE-PLAN.md §2,
+            # D9/D10): the board's own posting date when it gives us a real one,
+            # our first sight otherwise. It is the recency sort key, so what a
+            # user sees as "just posted" is the company's answer, not ours.
+            #
+            # Safe without any first-run predicate BECAUSE ``first_seen_at`` is
+            # absent from ``_UPSERT_ON_CONFLICT``'s SET list
+            # (``database.py:108-120``): this line only ever decides the value of
+            # an INSERT, and can never rewrite a row that already exists. Adding
+            # first_seen_at to that SET list would compile, pass most tests, and
+            # silently import Workday's daily date slide into the product while
+            # destroying the reopen guarantee.
+            #
+            # last_seen_at stays the run timestamp, untouched. It is freshness,
+            # not recency — the close sweep and the miss counter read it, and
+            # backdating it is how a healthy job gets wrong-closed.
+            job.first_seen_at = effective_posted_date(job.posted_on, timestamp)
             job.last_seen_at = timestamp
             job.details_scraped = self.detail_scrape
 

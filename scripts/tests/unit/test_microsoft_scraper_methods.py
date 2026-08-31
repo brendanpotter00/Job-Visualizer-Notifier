@@ -4,6 +4,7 @@ Unit tests for MicrosoftJobsScraper helper methods
 Tests _normalize_posted_date(), _random_delay(), and other utility methods.
 """
 
+import logging
 import pytest
 import sys
 from pathlib import Path
@@ -67,18 +68,178 @@ class TestNormalizePostedDate:
         assert "2024-01-15" in result
 
     def test_normalize_millisecond_timestamp(self):
-        """Large timestamp (milliseconds) handling"""
-        scraper = MicrosoftJobsScraper(headless=True, detail_scrape=False)
-        # Millisecond timestamp (13 digits) - this would be far in the future
-        # The current implementation doesn't specifically handle ms vs s
-        # so this tests the actual behavior
-        timestamp = 1705320000  # seconds
+        """A 13-digit millisecond timestamp lands in the right year.
 
-        result = scraper._normalize_posted_date(timestamp)
+        This test was named for milliseconds but passed 1705320000 —
+        SECONDS, 10 digits. It therefore asserted nothing about the ms
+        path and stayed green while `_normalize_posted_date` read
+        milliseconds as seconds and produced year-58,000 dates. Pass
+        actual milliseconds and assert the resulting year.
+        """
+        scraper = MicrosoftJobsScraper(headless=True, detail_scrape=False)
+        # 1705320000000 ms == 1705320000 s == 2024-01-15 12:00:00 UTC.
+        result = scraper._normalize_posted_date(1705320000000)
 
         assert result is not None
-        # Should produce a valid date string
-        assert isinstance(result, str)
+        assert result.startswith("2024-01-15"), result
+
+    def test_epoch_seconds_and_milliseconds_agree(self):
+        """The live prod value from the plan: `1787617881` (2026). Both
+        scales must land on the same instant — not 1970, not year 58,000.
+        """
+        scraper = MicrosoftJobsScraper(headless=True, detail_scrape=False)
+
+        seconds = scraper._normalize_posted_date(1787617881)
+        millis = scraper._normalize_posted_date(1787617881000)
+
+        assert seconds is not None and millis is not None
+        assert seconds.startswith("2026-"), seconds
+        assert millis.startswith("2026-"), millis
+        assert seconds == millis
+
+    def test_empty_string_returns_none(self):
+        """`_get_first_of` defaults to `""`, not None, so `""` is the
+        normal shape for "Microsoft published no date". It used to be
+        `str()`-ed through into a TIMESTAMPTZ, which failed the INSERT —
+        the batch then retried row-by-row and dropped exactly those rows.
+        NULL is the only safe answer.
+        """
+        scraper = MicrosoftJobsScraper(headless=True, detail_scrape=False)
+
+        assert scraper._normalize_posted_date("") is None
+        assert scraper._normalize_posted_date("   ") is None
+
+    def test_humanized_string_returns_none(self):
+        """A relative bucket is not a date (POSTED-DATE-PLAN.md §3), and
+        Postgres cannot store it either. NULL, never a synthesized date.
+        """
+        scraper = MicrosoftJobsScraper(headless=True, detail_scrape=False)
+
+        for humanized in ("2 days ago", "Posted 30+ Days Ago", "about 12 hours"):
+            assert scraper._normalize_posted_date(humanized) is None, humanized
+
+    def test_bad_value_never_becomes_now(self):
+        """The invariant that matters: a failed parse degrades this row to
+        NULL. It must never fall back to the current time, which would put
+        a stale job on today's bar in the graph.
+        """
+        scraper = MicrosoftJobsScraper(headless=True, detail_scrape=False)
+
+        assert scraper._normalize_posted_date("garbage") is None
+        assert scraper._normalize_posted_date({"not": "a date"}) is None
+        assert scraper._normalize_posted_date([]) is None
+
+    def test_transform_stores_null_rather_than_failing_the_batch(self):
+        """End-to-end through `transform_to_job_model`: the real shape a
+        dateless Microsoft row arrives in is `posted_date == ""`.
+        """
+        scraper = MicrosoftJobsScraper(headless=True, detail_scrape=False)
+
+        job = scraper.transform_to_job_model({
+            "id": "1970393556642428",
+            "title": "Software Engineer",
+            "job_url": "https://jobs.careers.microsoft.com/global/en/job/1970393556642428",
+            "posted_on": "",
+            "posted_date": "",
+        })
+
+        assert job.posted_on is None
+
+    def test_transform_stores_a_real_epoch_date(self):
+        scraper = MicrosoftJobsScraper(headless=True, detail_scrape=False)
+
+        job = scraper.transform_to_job_model({
+            "id": "1970393556642428",
+            "title": "Software Engineer",
+            "job_url": "https://jobs.careers.microsoft.com/global/en/job/1970393556642428",
+            "posted_on": "",
+            "posted_date": 1787617881,
+        })
+
+        assert job.posted_on is not None
+        assert job.posted_on.startswith("2026-"), job.posted_on
+
+
+class TestNormalizePostedDateIsLoud:
+    """A date we HAD and could not read must not vanish silently.
+
+    This is the whole point of the normalizer being allowed to return None:
+    NULL is safe for the row, but silence is not safe for the board. With
+    `first_seen_at` seeded from the posted date, a Microsoft feed format change
+    reads as "every job posted today" on a run that records a clean success —
+    and before this, nothing in the logs, nothing in `error_count`, said
+    otherwise. Every sibling source already logs this (ashby/lever/gem/
+    greenhouse/workday/eightfold clients, and the Apple + Amazon scrapers);
+    Microsoft was the only silent one.
+    """
+
+    LOGGER = "microsoft_jobs_scraper.scraper"
+
+    def _warnings(self, caplog):
+        return [r for r in caplog.records if r.levelname == "WARNING"]
+
+    def test_unparseable_string_warns(self, caplog):
+        scraper = MicrosoftJobsScraper(headless=True, detail_scrape=False)
+
+        with caplog.at_level(logging.WARNING, logger=self.LOGGER):
+            assert scraper._normalize_posted_date("garbage") is None
+
+        warnings = self._warnings(caplog)
+        assert len(warnings) == 1, warnings
+        assert "garbage" in warnings[0].getMessage()
+
+    def test_humanized_bucket_warns(self, caplog):
+        """"2 days ago" is the shape a card-scraped value arrives in, and it is
+        exactly the format change worth hearing about — a board that stopped
+        emitting `postedTs` and started emitting prose."""
+        scraper = MicrosoftJobsScraper(headless=True, detail_scrape=False)
+
+        with caplog.at_level(logging.WARNING, logger=self.LOGGER):
+            assert scraper._normalize_posted_date("2 days ago") is None
+
+        assert len(self._warnings(caplog)) == 1
+
+    def test_non_date_type_warns(self, caplog):
+        """A dict/list in the date field is a schema change, not a missing date."""
+        scraper = MicrosoftJobsScraper(headless=True, detail_scrape=False)
+
+        with caplog.at_level(logging.WARNING, logger=self.LOGGER):
+            assert scraper._normalize_posted_date({"not": "a date"}) is None
+            assert scraper._normalize_posted_date([]) is None
+
+        assert len(self._warnings(caplog)) == 2
+
+    def test_out_of_range_epoch_warns(self, caplog):
+        """`fromtimestamp` raises on this; the row still degrades to NULL, but
+        the number that did it has to be recoverable from the logs."""
+        scraper = MicrosoftJobsScraper(headless=True, detail_scrape=False)
+
+        with caplog.at_level(logging.WARNING, logger=self.LOGGER):
+            assert scraper._normalize_posted_date(1e30) is None
+
+        assert len(self._warnings(caplog)) == 1
+
+    def test_absent_date_is_silent(self, caplog):
+        """The other half of the contract. `_get_first_of` defaults to `""`, so
+        "Microsoft published no date" is the NORMAL case — warning on it would
+        fire on every dateless row and bury the alarm above."""
+        scraper = MicrosoftJobsScraper(headless=True, detail_scrape=False)
+
+        with caplog.at_level(logging.WARNING, logger=self.LOGGER):
+            assert scraper._normalize_posted_date(None) is None
+            assert scraper._normalize_posted_date("") is None
+            assert scraper._normalize_posted_date("   ") is None
+
+        assert self._warnings(caplog) == []
+
+    def test_good_date_is_silent(self, caplog):
+        scraper = MicrosoftJobsScraper(headless=True, detail_scrape=False)
+
+        with caplog.at_level(logging.WARNING, logger=self.LOGGER):
+            assert scraper._normalize_posted_date("2026-01-15T10:30:00Z") is not None
+            assert scraper._normalize_posted_date(1787617881) is not None
+
+        assert self._warnings(caplog) == []
 
 
 class TestRandomDelay:

@@ -1295,6 +1295,223 @@ class AddUserCompanyRequest(BaseModel):
     )
 
     url: str = Field(min_length=1, max_length=2048)
+    # The one-line override for the P2 dedupe. Default False, so the FIRST add of a
+    # board we already publish always stops and links to the public page; a caller
+    # who wants a private copy anyway re-sends the same URL with this set. It is
+    # deliberately not sticky and not stored — the check is cheap enough to re-run,
+    # and a persisted "ignore" would be a piece of state nothing ever clears.
+    track_anyway: bool = False
+
+
+class RenameUserCompanyRequest(BaseModel):
+    """Body for PATCH /api/users/companies/{id} — the owner's name for their board.
+
+    The REAL limits (trim, control-character stripping, the 100-character cap) live in
+    ``routers/user_companies._clean_display_name`` and are enforced there, NOT here.
+    That is deliberate: a Pydantic ``Field`` violation returns Pydantic's own 422 shape
+    (``detail`` as a list of error objects, no ``reason``), and the frontend's
+    ``asAddFailure`` requires a 422 carrying a string ``reason`` before it will render
+    specific copy — so a name rejected by a ``Field`` constraint would surface as
+    generic "something went wrong" text instead of "that name is too long".
+
+    ``max_length`` here is only a payload ceiling, an order of magnitude above the real
+    cap, so a megabyte of text is refused before it is ever normalized. A client that
+    trips it is broken or hostile, and the generic 422 is the right answer for both.
+    """
+
+    model_config = ConfigDict(
+        alias_generator=to_camel, populate_by_name=True, extra="forbid"
+    )
+
+    display_name: str = Field(min_length=1, max_length=1000)
+
+
+class AlreadyPublicResponse(BaseModel):
+    """200 body when a pasted URL is a board we already publish (the P2 dedupe).
+
+    Nothing was created — no ``companies`` row, no ``user_companies`` row, no
+    scraper, no capture — so there is no ``UserCompany`` to return and this is not
+    a failure either. ``status`` is the discriminant the frontend narrows on, the
+    same way it narrows the 202 ``discovery_pending`` body.
+
+    ``company_id`` / ``display_name`` are the PUBLIC company's, and both are
+    already served unauthenticated by ``GET /api/companies``. ``final_url`` is the
+    URL the resolver settled on, echoed back so a caller that decides to track a
+    private copy anyway can re-send exactly what we resolved.
+
+    ``match_kind`` is HOW SURE WE ARE, and it exists because the same body is now
+    produced by evidence of two very different strengths:
+
+    * ``'board'`` — we matched a BOARD. Either the ``(ats, board_token)`` pair the
+      resolver named, or a careers host in our own declared table. There is no
+      plausible reading where the user meant a different company, so the frontend
+      renders this terminally: "We already track X", and no escape hatch.
+    * ``'name'`` — we matched a STRING IN A DOMAIN against the names of companies we
+      publish (``lifeatspotify.com`` → Spotify). No board was resolved and no job set
+      was compared. It is a good guess and it is still a guess, so the frontend must
+      hedge the wording AND keep a way out; a wrong guess with no way out would
+      hard-block somebody from adding a legitimately different company.
+
+    Defaulted to ``'board'`` so the two exact rungs need say nothing, and so a client
+    built before this field existed keeps reading the stricter, older meaning.
+    """
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    status: Literal["already_public"] = "already_public"
+    detail: str
+    company_id: str
+    display_name: str
+    final_url: str
+    match_kind: Literal["board", "name"] = "board"
+
+
+class DiscoveryStepResponse(BaseModel):
+    """One rung of the 4-step discovery checklist (E7 capture pivot).
+
+    ``key`` is one of ``open_page | find_feed | verify_read | ready`` and ``status`` one
+    of ``pending | active | done | failed``; both are bare ``str`` on the wire because
+    the server owns the vocabulary, and the frontend maps them through a closed union so
+    an unknown value is caught there rather than blanking a row.
+
+    ``result`` is the SPECIFIC thing this step found ("found 3 candidate feeds", "read
+    90 jobs") or — on the failed step — why it stopped. A generic tick is a spinner with
+    extra steps, which is what this replaced.
+    """
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    key: str
+    status: str
+    result: str | None = None
+
+
+class DiscoveryJobPreviewResponse(BaseModel):
+    """One job from the acceptance replay, shown so a user can recognise their board.
+
+    The rows the REPLAY returned, not the capture's — the same bytes the nightly
+    harvest will read. ``url`` is present only when it is an http(s) link (the blob is
+    rendered, and a scraped ``javascript:`` href would be a stored-XSS vector).
+    """
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    title: str
+    location: str | None = None
+    url: str | None = None
+
+
+class DiscoveryRequestResponse(BaseModel):
+    """One response the capture browser recorded — a row of the network log.
+
+    THE EVIDENCE BEHIND THE VERDICT. Discovery's commonest refusal is "none of the 14
+    JSON requests this page made returned a list of job postings", which is a conclusion
+    with nothing attached; these rows are the fourteen requests, so a user can see for
+    themselves whether we opened the wrong page.
+
+    WHAT IS DELIBERATELY ABSENT is the point: no request headers, no cookies, no POST
+    body, and no query VALUES. ``url`` has already been through
+    ``discovery.progress.display_url`` — userinfo and port stripped, every query value
+    replaced by an ellipsis — because a board that signs its URLs puts the signature in
+    the query and this blob is rendered in a browser.
+
+    ``records`` is ``null`` until the pre-filter has looked at the response, then the
+    number of job-shaped records found in it (``0`` for the analytics and config traffic
+    every careers page fires). ``state`` is ``recorded | oversize | blocked | chosen``.
+    """
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    method: str
+    url: str
+    status: int
+    bytes: int
+    records: int | None = None
+    state: str = "recorded"
+    note: str | None = None
+
+
+class DiscoveryPayloadSampleResponse(BaseModel):
+    """One record from the request we picked, pretty-printed — "show me the JSON".
+
+    ``text`` is a SAMPLE and not the body: a captured body can be 4 MB, and the question
+    it answers ("is this actually my board?") is settled by one record. Credential-shaped
+    keys are redacted and long strings clipped before it is stored.
+    """
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    path: str = ""
+    records: int = 0
+    text: str
+
+
+class DiscoveryNetworkResponse(BaseModel):
+    """What the capture browser saw, and which of it we chose.
+
+    ``recorded`` is how many responses the capture recorded, which can exceed
+    ``len(requests)`` when the stored blob was clipped to its size budget — the heading
+    stays truthful about what we saw even when the list under it is shorter.
+    """
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    requests: list[DiscoveryRequestResponse] = Field(default_factory=list)
+    recorded: int = 0
+    sample: DiscoveryPayloadSampleResponse | None = None
+
+
+class DiscoveryProgressResponse(BaseModel):
+    """The discovery checklist attached to a user company, if it has one.
+
+    Stored in ``companies.provider_config['discovery']`` (no migration — see
+    ``api.services.discovery.progress``) and read back by the SAME poll the list already
+    runs, so no second polling channel exists (DECISION D2).
+
+    ``liveViewUrl`` is the hosted, iframe-embeddable view of the capture session. It
+    exists ONLY for a Browserbase run and our default is our own Chromium, so it is
+    absent on nearly every discovery and the UI must never block on it (DECISION D4).
+    """
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    steps: list[DiscoveryStepResponse] = Field(default_factory=list)
+    # 'running' | 'tracking' | 'refused'
+    outcome: str = "running"
+    live_view_url: str | None = None
+    updated_at: str | None = None
+    job_preview: list[DiscoveryJobPreviewResponse] = Field(default_factory=list)
+    # The network log behind the checklist. Always present (``read_progress`` fills an
+    # empty one), so the frontend never has to distinguish "no evidence" from "a blob
+    # written before this existed" — both are an empty list, and both render nothing.
+    network: DiscoveryNetworkResponse = Field(default_factory=DiscoveryNetworkResponse)
+
+
+class PublicMatchResponse(BaseModel):
+    """"This looks like Spotify, which we already track" — a SUGGESTION (E7 unit 10).
+
+    Stored in ``companies.provider_config['public_match']`` (no migration — same sidecar
+    the discovery checklist uses) and read back by the SAME poll the list already runs.
+
+    It means the board's OPEN job titles overlap a published company's by at least 70%,
+    on sets of at least 20 titles each. It does NOT mean anything was merged, moved or
+    changed: nothing on this path writes a ``job_listings`` row or touches a company's
+    identity. The user decides — the banner offers the public page and a dismiss, and
+    dismissing is a normal outcome, not a failure.
+
+    ``companyId`` is a PUBLIC company id (``spotify``), never a ``u-…`` runtime id.
+    """
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    company_id: str
+    display_name: str
+    #: How many normalized titles the two boards share, out of ``candidateTitles`` on
+    #: this board. The banner renders them as "70 of 81 roles match", so both are
+    #: required — a count with no denominator is not a sentence.
+    shared: int = Field(ge=0)
+    candidate_titles: int = Field(ge=0)
+    detected_at: str | None = None
 
 
 class UserCompanyResponse(BaseModel):
@@ -1320,9 +1537,229 @@ class UserCompanyResponse(BaseModel):
     # graduates. Served ahead of any consumer: the trend page's "already live
     # when tracking began" line is still derived from first_seen_at, not this.
     tracking_started_at: datetime | None = None
+    # The 4-step discovery checklist, present only for an ``ats='discovered'`` row that
+    # has one. NULL for every ATS company and for anything discovered before this
+    # shipped — the UI renders the badge-only row it always did.
+    discovery: DiscoveryProgressResponse | None = None
+    # The published-board suggestion, present only once a first VERIFIED harvest found
+    # one. NULL is the overwhelmingly common case and renders nothing.
+    public_match: PublicMatchResponse | None = None
+
+
+class AddQuotaResponse(BaseModel):
+    """How many company adds the caller has left this calendar month.
+
+    Rides the ``GET /api/users/companies`` envelope rather than getting its own
+    endpoint: the Add Companies page already fetches (and polls) that list, so the
+    counter arrives with data the page was loading anyway, is invalidated by the same
+    ``MyCompanies`` tag every add and delete already invalidates, and can never be
+    stale relative to the list it sits above.
+
+    ``limit`` is the CONFIGURED cap and means exactly what it says: the number of adds
+    allowed this month. ``0`` allows none (the kill switch), and the UI renders
+    "0 of 0 adds left this month" — it is NOT an "unlimited" sentinel. The UI renders
+    no counter only when this whole object is absent, which is a different thing: a
+    server that predates the counter. ``remaining`` is deliberately NOT on the wire:
+    ``max(limit - used, 0)`` is display arithmetic, it has exactly one definition
+    (``addsRemaining`` in ``userCompaniesApi.ts``), and a second copy travelling over
+    the wire would be a second thing that can disagree with the number on screen.
+    """
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    used: int = Field(ge=0)
+    limit: int = Field(ge=0)
+    # Start of the next UTC calendar month — when ``used`` goes back to 0.
+    resets_at: datetime
 
 
 class UserCompanyListResponse(BaseModel):
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
 
     companies: list[UserCompanyResponse]
+    # Optional so a client built before the counter existed keeps parsing this
+    # payload unchanged. The server always sends it.
+    quota: AddQuotaResponse | None = None
+
+
+# ---------------------------------------------------------------------------
+# Admin · Custom Companies (E7 oversight page) — read-only
+# ---------------------------------------------------------------------------
+
+
+class AdminCustomCompanyRow(BaseModel):
+    """One user-added board on the admin Custom Companies page.
+
+    ``live_status`` is derived server-side from ONE SQL ``CASE`` (never re-derived
+    on the client) so the table chips and the headline tile can never disagree.
+    Precedence is top-down: ``orphan`` beats everything, because a board with no
+    ``user_companies`` row is a data-integrity problem whether or not it harvests.
+    """
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    id: str
+    display_name: str
+    ats: str
+    board_token: str
+    enabled: bool
+    health_state: str | None = None
+    cadence_hours: int | None = None
+    created_at: datetime
+    last_success_at: datetime | None = None
+    consecutive_failures: int = Field(ge=0)
+
+    # Owner — LEFT JOIN. ``owner_count == 0`` is a real, present state: deleting a
+    # user's last link leaves the board behind (an "orphan").
+    owner_user_id: str | None = None
+    owner_email: str | None = None
+    owner_display_name: str | None = None
+    owner_count: int = Field(ge=0)
+
+    # company_scripts — LEFT JOIN; all null before the first script is written.
+    transport: str | None = None
+    oracle_kind: str | None = None
+    script_version: int | None = None
+
+    # Newest company_harvests row — LEFT JOIN; all null when never harvested.
+    last_harvest_at: datetime | None = None
+    last_harvest_age_s: int | None = None
+    verdict: str | None = None
+    verdict_reason: str | None = None
+    records_harvested: int | None = None
+    declared_total: int | None = None
+    oracle_total: int | None = None
+    cap_hit: bool | None = None
+
+    # 'orphan' | 'never_harvested' | 'failing' | 'stale' | 'live'
+    live_status: str
+    # Short human reason the row is not live. null IFF live_status == 'live'.
+    live_reason: str | None = None
+
+
+class AdminCustomCompaniesSummary(BaseModel):
+    """Headline counts for the four StatTiles. Always over the WHOLE table —
+    never narrowed by the page's filters, so the tiles stay a stable reference
+    point while the admin drills into the table below them."""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    tracked_count: int = Field(ge=0)
+    live_count: int = Field(ge=0)
+    by_live_status: dict[str, int] = Field(default_factory=dict)
+    # health_state -> count. Key '' means NULL health_state.
+    by_health_state: dict[str, int] = Field(default_factory=dict)
+    attempt_count: int = Field(ge=0)
+    user_count: int = Field(ge=0)
+    failed_count: int = Field(ge=0)
+    refused_count: int = Field(ge=0)
+    stuck_count: int = Field(ge=0)
+
+
+class AdminCustomCompaniesResponse(BaseModel):
+    """GET /api/admin/custom-companies."""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    companies: list[AdminCustomCompanyRow] = Field(default_factory=list)
+    # Rows matching the filters, BEFORE limit/offset. Drives the pager.
+    total: int = Field(ge=0)
+    summary: AdminCustomCompaniesSummary
+    # false when this database has no E7 tables (production today). Everything
+    # else is zeroed/empty and the page renders its EmptyState instead of erroring.
+    schema_present: bool = True
+
+
+class AdminCustomCompanyAttemptRow(BaseModel):
+    """One ADD ATTEMPT (not one audit row) on the admin Custom Companies page.
+
+    A single user submission of a non-ATS URL writes TWO ``company_add_attempts``
+    rows — an interim ``discovery_pending`` from the request path, then a terminal
+    one from the worker. This model is the collapsed view: the newest row per
+    attempt, plus the span metadata (``first_seen_at`` / ``audit_row_count`` /
+    ``decided_in_s``) recovered from the rows it swallowed.
+    """
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    id: int
+    # Stable key: ``company_id`` when set, else ``attempt#<id>``. NOT just
+    # company_id — the column is nullable (unsupported/empty/probe_failed write
+    # none), and collapsing on it alone would fold every NULL into one phantom row.
+    attempt_key: str
+    created_at: datetime
+    first_seen_at: datetime
+    audit_row_count: int = Field(ge=1)
+    # Seconds from the immediately-preceding discovery_pending row to the terminal
+    # row. null when the previous row was not a pending (an idempotent re-add, or
+    # a single-row ATS attempt).
+    decided_in_s: int | None = None
+
+    user_id: str
+    user_email: str | None = None
+    user_display_name: str | None = None
+
+    submitted_url: str
+    normalized_url: str | None = None
+    resolved_ats: str | None = None
+    board_token: str | None = None
+
+    # The DERIVED outcome — 'pending'/'stuck' in place of the raw
+    # 'discovery_pending', split on the stall grace period.
+    outcome: str
+    raw_outcome: str
+    error_detail: str | None = None
+    # error_detail split on the FIRST ": " — the engine's step name, then the reason.
+    failed_step: str | None = None
+    failure_reason: str | None = None
+
+    company_id: str | None = None
+    # false = the companies row was HARD-DELETED. The UI degrades to the URL.
+    company_exists: bool = False
+    company_display_name: str | None = None
+    company_visibility: str | None = None
+    company_health_state: str | None = None
+    # null when company_exists is false or visibility <> 'user'. Same SQL CASE
+    # as AdminCustomCompanyRow.live_status, so the two can never drift.
+    company_live_status: str | None = None
+    # provider_config->'discovery'->'steps' only. NEVER ->'network' (the full
+    # request log plus a payload sample — kilobytes per row, unbounded in general).
+    discovery_steps: list[DiscoveryStepResponse] | None = None
+
+
+class AdminCustomCompanyUserRow(BaseModel):
+    """One submitter's lifetime rollup. ``owns_now`` differs from ``added``
+    because deleting a custom company hard-deletes the ``companies`` row."""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    user_id: str
+    email: str | None = None
+    display_name: str | None = None
+    attempts: int = Field(ge=0)
+    added: int = Field(ge=0)
+    refused: int = Field(ge=0)
+    stuck: int = Field(ge=0)
+    pending: int = Field(ge=0)
+    already_public: int = Field(ge=0)
+    other_failed: int = Field(ge=0)
+    owns_now: int = Field(ge=0)
+    first_attempt_at: datetime
+    last_attempt_at: datetime
+
+
+class AdminCustomCompanyAttemptsResponse(BaseModel):
+    """GET /api/admin/custom-companies/attempts — attempts page + full rollup."""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    attempts: list[AdminCustomCompanyAttemptRow] = Field(default_factory=list)
+    # Attempts matching the filters, BEFORE limit/offset. Drives the pager.
+    total: int = Field(ge=0)
+    # ALWAYS over ALL attempts, ignoring filters — drives the table subtitle.
+    by_outcome: dict[str, int] = Field(default_factory=dict)
+    # ALWAYS over ALL attempts, ignoring filters. Also feeds the User dropdown.
+    users: list[AdminCustomCompanyUserRow] = Field(default_factory=list)
+    # true when the rollup hit its 200-row cap (mirrors AdminUserVisitsResponse).
+    users_truncated: bool = False
+    schema_present: bool = True

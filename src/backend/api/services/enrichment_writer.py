@@ -39,6 +39,25 @@ CATEGORY_SLUGS = frozenset(
 )
 LEVEL_SLUGS = frozenset({"intern", "new_grad", "entry", "mid", "senior", "senior_plus", "manager"})
 
+# Slugs THIS repo still accepts that the enricher's current taxonomy no longer defines.
+# The two live in different repos and are documented as needing to match exactly; they
+# do not. JVN carries 7 categories (here, in the seeded ``job_categories`` dimension,
+# and in the frontend's enrichment constants); the enricher's SKILL.md taxonomy v6
+# carries 6, without ``project_manager``. Prod confirms the direction — 21,933 enriched
+# rows across 6 distinct categories and zero ``project_manager``.
+#
+# Accepted rather than dropped: nulling it would discard a real label the moment an
+# older enricher build sends one, and the seeded dimension + the frontend dropdown both
+# still know the slug. But it rides the SAME ``warnings[]`` channel as an invalid facet,
+# because the failure mode here is identical to the one that channel exists for — a
+# taxonomy disagreement that is invisible for weeks. ``_valid`` already covers the other
+# direction (a slug we do not know is nulled AND warned); this is the direction where
+# both sides look fine individually and disagree anyway.
+#
+# Emptying this set is the correct fix once the two taxonomies are reconciled — either
+# the enricher regains ``project_manager`` or JVN retires it in a migration.
+LEGACY_CATEGORY_SLUGS = frozenset({"project_manager"})
+
 # Bounds on what one /results item may persist into the public read path
 # (job_tags feeds every /api/jobs row via the tags subquery). Extras are
 # truncated with a warning — degraded, never a dropped batch, mirroring the
@@ -53,6 +72,15 @@ def _valid(
     if value is None:
         return None
     if value in allowed:
+        if facet == "category" and value in LEGACY_CATEGORY_SLUGS:
+            logger.warning(
+                "enrichment: accepted legacy %s=%r for job %s — not in the enricher's "
+                "current taxonomy", facet, value, job_id,
+            )
+            warnings.append(
+                f"legacy {facet} {value!r} accepted (not in the enricher's current "
+                "taxonomy — the two allowlists have drifted)"
+            )
         return str(value)
     logger.warning("enrichment: dropping invalid %s=%r for job %s", facet, value, job_id)
     # Also surfaced in the /results response so the enricher SEES the

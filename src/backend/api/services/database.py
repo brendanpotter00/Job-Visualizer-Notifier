@@ -281,13 +281,13 @@ _LOCATIONS_SUBQUERY = sql.SQL(
 # cutting per-row size from ~10 KB to ~500 bytes.
 # Must be updated if the schema changes.
 #
-# The two sub-fields are read from the denormalized ``experience_level`` /
+# Both sub-fields are read from the denormalized ``experience_level`` /
 # ``is_remote_eligible`` columns, NOT from ``details->'…'``: a JSONB key access
 # detoasts the full ~10 KB ``details`` value per row, and on the batched list
 # query (~12k rows) that ~100 MB of TOAST reads timed out (2026-07-13 outage).
-# This SELECT therefore never touches ``details``/TOAST. Keep the output shape
-# ({experience_level, is_remote_eligible}) identical so the frontend contract
-# is unchanged.
+# This SELECT therefore never touches ``details``/TOAST. Anything added here
+# must come from a real column for the same reason — a ``details->>'…'`` in this
+# projection re-creates that outage.
 # Free-form enrichment tags for a job, as a JSON array of strings. Correlated on
 # the FULL composite identity (source_id, id): job_tags is keyed by
 # (source_id, job_listing_id, tag) — `id` is NOT globally unique, so a job must
@@ -460,6 +460,68 @@ def get_user_company_jobs(
             _LIST_COLUMNS, _JOBS_TABLE, _FRESHNESS_JOIN, _KEYSET_ORDER_BY,
         )
         db_cursor.execute(query, [company_id, source_id, limit])
+        return [_row_to_job_dict(row) for row in db_cursor.fetchall()]
+
+
+def get_owned_custom_jobs(
+    conn: Connection,
+    source_ids: list[str],
+    *,
+    status: str | None = None,
+    since: datetime | None = None,
+    cursor: JobCursor | None = None,
+    limit: int = 1000,
+) -> list[dict]:
+    """Owner-scoped read across ALL of one user's private companies at once (E7).
+
+    The Recent Jobs feed's counterpart to :func:`get_user_company_jobs`, which is
+    per-company and therefore only ever reachable from a company's own trend
+    page. Without this, a user's custom boards were invisible on the page they
+    actually read jobs on.
+
+    AUTHORIZATION IS BY CONSTRUCTION, and that is the whole design. ``source_ids``
+    is never taken from the request — the router derives it from the caller's
+    ``user_companies`` rows — so there is no company-id parameter for a caller to
+    tamper with, no ownership check that a future edit could drop, and an
+    anonymous caller never reaches here at all (``get_current_user`` 401s first).
+    A user with no custom companies passes ``[]`` and gets ``[]`` back, which is
+    exactly the correct answer rather than a special case. This deliberately does
+    NOT relax :data:`_USER_COMPANY_PREDICATE` on ``/api/jobs``: that guard stays
+    unconditional, and private jobs keep being served only by authed,
+    owner-derived paths.
+
+    Same columns / freshness join / row shape as :func:`get_jobs`, and the same
+    immutable keyset ordering + ``since``/``cursor`` predicates, so a page from
+    here is mergeable with a page from ``/api/jobs`` by the client's existing
+    keyset walk instead of needing a second, bespoke paging protocol.
+    """
+    if not source_ids:
+        # Short-circuit: ``= ANY('{}')`` is a legal query that always returns zero
+        # rows, but skipping the round trip keeps the common signed-in-user-with-
+        # no-custom-boards case free.
+        return []
+    conditions: list[sql.Composable] = [sql.SQL("job_listings.source_id = ANY(%s::text[])")]
+    params: list = [source_ids]
+    if status:
+        conditions.append(sql.SQL("status = %s"))
+        params.append(status)
+    if since is not None:
+        conditions.append(_SINCE_PREDICATE)
+        params.append(since)
+    if cursor is not None:
+        conditions.append(_CURSOR_PREDICATE)
+        params.extend([cursor.first_seen_at, cursor.source_id, cursor.job_id])
+    params.append(limit)
+
+    with conn.cursor() as db_cursor:
+        query = sql.SQL("SELECT {} FROM {}{} WHERE {} {} LIMIT %s").format(
+            _LIST_COLUMNS,
+            _JOBS_TABLE,
+            _FRESHNESS_JOIN,
+            sql.SQL(" AND ").join(conditions),
+            _KEYSET_ORDER_BY,
+        )
+        db_cursor.execute(query, params)
         return [_row_to_job_dict(row) for row in db_cursor.fetchall()]
 
 

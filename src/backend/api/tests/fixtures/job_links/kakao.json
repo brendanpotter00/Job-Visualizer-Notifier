@@ -1,0 +1,54 @@
+{
+ "origin_url": "https://careers.kakao.com/jobs",
+ "records_path": "jobList",
+ "field_map": {
+  "id": "jobOfferId",
+  "title": "jobOfferTitle",
+  "url": "https://careers.kakao.com/jobs/{jobOfferId}"
+ },
+ "kind": "synthesised",
+ "proves": false,
+ "why": "Every path on careers.kakao.com returns the same 60-char shell, so no HTTP-only probe can ever prove a link here. Refusing is the correct answer.",
+ "measured_at": "2026-08-29",
+ "titles_measured_at": "2026-08-30",
+ "pages": {
+  "https://careers.kakao.com/jobs/14472": {
+   "status": 200,
+   "chars": 60,
+   "carries_own_title": false,
+   "carries_other_titles": false,
+   "og_title": "",
+   "title_tag": "카카오 영입"
+  },
+  "https://careers.kakao.com/jobs/14276": {
+   "status": 200,
+   "chars": 60,
+   "carries_own_title": false,
+   "carries_other_titles": false,
+   "og_title": "",
+   "title_tag": "카카오 영입"
+  },
+  "https://careers.kakao.com/jobs/14519": {
+   "status": 200,
+   "chars": 60,
+   "carries_own_title": false,
+   "carries_other_titles": false,
+   "og_title": "",
+   "title_tag": "카카오 영입"
+  }
+ },
+ "records": [
+  {
+   "jobOfferId": 14472,
+   "jobOfferTitle": "AI 추론/학습 효율화 Engineer (경력)"
+  },
+  {
+   "jobOfferId": 14276,
+   "jobOfferTitle": "Data Analytics Engineer (경력)"
+  },
+  {
+   "jobOfferId": 14519,
+   "jobOfferTitle": "AI Research Engineer (Search & Agent) (경력)"
+  }
+ ]
+}

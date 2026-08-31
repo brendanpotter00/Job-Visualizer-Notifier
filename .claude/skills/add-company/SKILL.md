@@ -46,8 +46,9 @@ lowercase `id` (the slug, e.g. `reducto`, `spacex`, `happyrobot.ai`):
 
 Every company added this way flows through the backend `/api/jobs` endpoint: a
 backend Procrastinate worker fetches its jobs on a ~30-min cron once the
-`companies` row exists. (The only exceptions are Google/Apple/Microsoft, which
-use `ats='script'` Python scrapers — **not** added with this skill.)
+`companies` row exists. (The exceptions are Amazon, Apple, Google, Microsoft and
+TikTok, which use `ats='script'` Python scrapers — mostly **not** added with this
+skill, but see **Step 7** for the one step a new script company still owes.)
 
 ## Inputs you need first
 
@@ -82,6 +83,28 @@ The helper scripts in `scripts/` are **stdlib-only** — run them with plain
 The token can differ from `id` (e.g. Greenhouse `optiver` → `optiverprivate`,
 `drw` → `drweng`). If unsure which client/endpoint applies, read the matching
 `src/backend/api/services/<ats>_client.py`. Use WebFetch to hit the URL.
+
+---
+
+## Step 0.5 — Note what the board publishes as a posting date
+
+While you still have the Step 0 URL open, look at the date field in the payload.
+**Informational only — there is nothing to configure.** It tells you which date this
+company's jobs will show, and it is the cheapest moment to notice a board whose dates
+are junk.
+
+| What the board gives you | Example | What lands in `first_seen_at` |
+|---|---|---|
+| A real timestamp | `"2026-08-19T14:02:11Z"`, `1787617881` | the board's date |
+| Relative but pinned to a day | `"Posted Today"`, `"Posted 3 Days Ago"` | the board's date |
+| **A bucket** | `"Posted 30+ Days Ago"` | **first sight** — a bucket is not a date |
+| Nothing / `null` | — | first sight |
+
+`first_seen_at` is the **effective posted date** — the field every recency surface sorts
+by (**`scripts/CLAUDE.md` § Job Lifecycle**). If a board's dates are wrong, the fix belongs
+in `src/backend/api/services/<ats>_client.py`, or in the recipe for a custom company —
+**never a per-company config toggle.** There is no date-policy column and there is not
+going to be one: every company on the same ATS gets the same rule.
 
 ---
 
@@ -217,22 +240,93 @@ npm test                                                            # incl. comp
 Checklist before declaring done:
 - [ ] `companies.ts` entry + `COMPANY_IDS` member (alphabetical), `sourceAts` set
 - [ ] seed migration present, `down_revision` == current head, **single head**
+- [ ] confirmed what the board's posted date actually is (step 0.5)
 - [ ] `changelog.ts` top entry (recent achievement / reason, today's date)
 - [ ] `icons/<id>.png` + `wordmarks/<id>.png` committed (logo skill)
 - [ ] `npm run type-check` + `npm test` green
+- [ ] **script-scraped company only:** careers hosts registered (step 7)
+
+---
+
+## Step 7 — Script-scraped companies only: register the careers hosts
+
+**Skip this for every ATS company.** It applies to the `ats='script'` five —
+Amazon, Apple, Google, Microsoft, TikTok — and to any sixth bespoke scraper.
+
+A script company has no `(ats, board_token)` pair a URL can spell, so the Add
+Companies page cannot recognise its careers URL the way it recognises
+`boards.greenhouse.io/<token>`. Without an entry here, a user who pastes your new
+company's careers page gets a **one-time discovery** — a Claude call and a headless
+Chromium session — that builds a private duplicate of the board you just published.
+That is a real bug that shipped once; this step is what stops it recurring.
+
+Add the company to **`SCRIPT_COMPANY_CAREERS_HOSTS`** in
+`scripts/shared/constants.py`, immediately below the `SourceId` member you are
+already adding:
+
+```python
+SCRIPT_COMPANY_CAREERS_HOSTS = {
+    ...
+    "<id>": (
+        ("<careers-host>", ""),          # a host that IS the board
+        ("<vanity-host>", ""),           # anything that redirects to it
+        ("<host>", "/path/prefix"),      # only if the board is a PATH, like google.com
+    ),
+}
+```
+
+Rules, all enforced by `src/backend/api/tests/test_careers_host_match.py`:
+
+- **Normalized form only** — lowercase, **no `www.`**, no port, no trailing dot.
+  `www.amazon.jobs` is written `amazon.jobs`; the matcher strips the `www.` label.
+- **Exact hosts, never a registrable domain.** List `jobs.careers.microsoft.com`,
+  not `microsoft.com` — a domain-level rule answers "we already track Microsoft"
+  for `learn.microsoft.com`. Use the path-prefix form when the board is a path on
+  a domain that is mostly something else (`google.com` + `/about/careers`).
+- **Include every host that redirects into the board**, not just the one your
+  scraper calls. Check with
+  `curl -s -o /dev/null -w '%{http_code} %{redirect_url}\n' <url>` and record what
+  you saw in the comment, with the date — the existing entries do.
+- **A host may be claimed by exactly one company.**
+
+There is a guard test that fails if a `*_scraper` `SourceId` exists with no entry
+here, so forgetting this step breaks the build rather than silently shipping the
+bug. Verify with:
+
+```bash
+PYTHONPATH=src/backend:. pytest src/backend/api/tests/test_careers_host_match.py
+```
+
+### The name check needs no registration — but read this if your company's name is short or common
+
+A third dedupe rung (`src/backend/api/services/company_name_match.py`) reads the company
+name out of the pasted URL's registrable domain — `lifeatspotify.com` → Spotify. It builds
+its index from the `companies` table on every add, so **your new company joins it the
+moment its seed migration lands. There is nothing to register.**
+
+Two consequences worth knowing when you pick an `id` and `display_name`:
+
+- **A name of 4 characters or fewer matches only as the WHOLE domain label.** `gm.com` is
+  General Motors; `lifeatgm.com` is not. That line is what stops `dropbox` from being read
+  as `box`, and it is not negotiable — but it does mean a short-named company is caught
+  less often. Nothing to do about it; just know the rung is quieter for them.
+- **The five `ats='script'` companies above are excluded from this index entirely**,
+  because the exact host table you just edited already answers for them and its refusals
+  (`learn.microsoft.com` is not a job board) must not be second-guessed by a name guess.
+  So for a script company, the table above really is the whole dedupe.
 
 ---
 
 ## Per-ATS reference
 
-| ATS | `ats` column | `provider_config` | board_token notes |
-|-----|--------------|-------------------|-------------------|
-| greenhouse | `greenhouse` | — | often `id`; can differ (optiver→optiverprivate) |
-| ashby | `ashby` | — | lowercase, case-sensitive |
-| lever | `lever` | — | company slug |
-| gem | `gem` | — | company slug |
-| eightfold | `eightfold` | `{tenant_host, domain}` | tenant_host on SSRF allowlist (`eightfold_client.py`) |
-| workday | `workday` | `{base_url, tenant_slug, career_site_slug, default_facets?}` | slug under base_url |
+| ATS | `ats` column | `provider_config` | board_token notes | Posted date (step 0.5) |
+|-----|--------------|-------------------|-------------------|------------------------|
+| greenhouse | `greenhouse` | — | often `id`; can differ (optiver→optiverprivate) | `first_published` ‖ `updated_at` |
+| ashby | `ashby` | — | lowercase, case-sensitive | `publishedAt` |
+| lever | `lever` | — | company slug | `createdAt` (unix ms); never refreshed when a job is re-listed |
+| gem | `gem` | — | company slug | `first_published_at` ‖ `created_at` |
+| eightfold | `eightfold` | `{tenant_host, domain}` | tenant_host on SSRF allowlist (`eightfold_client.py`) | `t_create` (unix s) |
+| workday | `workday` | `{base_url, tenant_slug, career_site_slug, default_facets?}` | slug under base_url | `postedOn` — **relative English; the `30+` bucket is not a date** |
 
 ## Bundled scripts (`.claude/skills/add-company/scripts/`)
 
@@ -251,6 +345,11 @@ Checklist before declaring done:
   crash-loop on boot.
 - **Verify `board_token` live first** (step 0). A wrong/cased token = a company
   that silently fetches zero jobs.
+- **A bucket is not a posting date.** A board that publishes a relative date it
+  cannot pin to a day — `"Posted 30+ Days Ago"`, `"about 12 hours"` — has not
+  published a posting date. **Do not synthesise one**; the row correctly falls
+  back to first sight. (`"Posted Today"` / `"Posted 3 Days Ago"` do pin to a day
+  and are kept.)
 - **`id` is forever.** It's the PK, every filename, and the logo key. Choose it
   carefully; renaming later touches the DB, frontend, and assets.
 - **Logos are CI-gated** — generate them with `fetch-company-logo` or `npm test`

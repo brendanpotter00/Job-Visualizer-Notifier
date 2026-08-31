@@ -1,0 +1,48 @@
+{
+ "final_url": "https://www.amazon.jobs/en/search",
+ "page_title": "Amazon.jobs",
+ "responses": [
+  {
+   "url": "https://metrics.example-cdn.com/collect",
+   "method": "POST",
+   "status": 200,
+   "content_type": "application/json",
+   "request_headers": {
+    "content-type": "application/json"
+   },
+   "post_data": "{\"e\":\"pageview\"}",
+   "body": "{\"events\": [{\"name\": \"pageview\", \"ts\": 1}], \"ok\": true}",
+   "truncated": false
+  },
+  {
+   "url": "https://www.amazon.jobs/config/locales.json",
+   "method": "GET",
+   "status": 200,
+   "content_type": "application/json",
+   "request_headers": {
+    "accept": "application/json",
+    "accept-language": "en-US,en;q=0.9"
+   },
+   "post_data": null,
+   "body": "{\"locales\": [{\"code\": \"en\", \"label\": \"English\"}, {\"code\": \"de\", \"label\": \"Deutsch\"}]}",
+   "truncated": false
+  },
+  {
+   "url": "https://www.amazon.jobs/en/search.json?sort=recent&offset=0&result_limit=10",
+   "method": "GET",
+   "status": 200,
+   "content_type": "application/json; charset=utf-8",
+   "request_headers": {
+    "accept": "application/json",
+    "accept-language": "en-US,en;q=0.9",
+    "x-requested-with": "XMLHttpRequest",
+    "authorization": "Bearer eyJhbGciOi-not-a-real-token",
+    "x-csrf-token": "8f3c1d",
+    "cookie": "session=abc123"
+   },
+   "post_data": null,
+   "body": "{\"error\": null, \"hits\": 76, \"jobs\": [{\"id\": \"14ad5a5b-9f83-4799-8b92-a76809900000\", \"id_icims\": \"10496500\", \"title\": \"Software Development Engineer 0\", \"job_path\": \"/en/jobs/10496500/software-development-engineer-0\", \"normalized_location\": \"Seattle, Washington, USA\", \"posted_date\": \"August  9, 2026\", \"job_category\": \"Software Development\", \"company_name\": \"Amazon.com Services LLC\", \"city\": \"Seattle\", \"state\": \"WA\", \"country_code\": \"USA\"}, {\"id\": \"14ad5a5b-9f83-4799-8b92-a76809900001\", \"id_icims\": \"10496501\", \"title\": \"Software Development Engineer 1\", \"job_path\": \"/en/jobs/10496501/software-development-engineer-1\", \"normalized_location\": \"Seattle, Washington, USA\", \"posted_date\": \"August  9, 2026\", \"job_category\": \"Software Development\", \"company_name\": \"Amazon.com Services LLC\", \"city\": \"Seattle\", \"state\": \"WA\", \"country_code\": \"USA\"}, {\"id\": \"14ad5a5b-9f83-4799-8b92-a76809900002\", \"id_icims\": \"10496502\", \"title\": \"Software Development Engineer 2\", \"job_path\": \"/en/jobs/10496502/software-development-engineer-2\", \"normalized_location\": \"Seattle, Washington, USA\", \"posted_date\": \"August  9, 2026\", \"job_category\": \"Software Development\", \"company_name\": \"Amazon.com Services LLC\", \"city\": \"Seattle\", \"state\": \"WA\", \"country_code\": \"USA\"}, {\"id\": \"14ad5a5b-9f83-4799-8b92-a76809900003\", \"id_icims\": \"10496503\", \"title\": \"Software Development Engineer 3\", \"job_path\": \"/en/jobs/10496503/software-development-engineer-3\", \"normalized_location\": \"Seattle, Washington, USA\", \"posted_date\": \"August  9, 2026\", \"job_category\": \"Software Development\", \"company_name\": \"Amazon.com Services LLC\", \"city\": \"Seattle\", \"state\": \"WA\", \"country_code\": \"USA\"}, {\"id\": \"14ad5a5b-9f83-4799-8b92-a76809900004\", \"id_icims\": \"10496504\", \"title\": \"Software Development Engineer 4\", \"job_path\": \"/en/jobs/10496504/software-development-engineer-4\", \"normalized_location\": \"Seattle, Washington, USA\", \"posted_date\": \"August  9, 2026\", \"job_category\": \"Software Development\", \"company_name\": \"Amazon.com Services LLC\", \"city\": \"Seattle\", \"state\": \"WA\", \"country_code\": \"USA\"}, {\"id\": \"14ad5a5b-9f83-4799-8b92-a76809900005\", \"id_icims\": \"10496505\", \"title\": \"Software Development Engineer 5\", \"job_path\": \"/en/jobs/10496505/software-development-engineer-5\", \"normalized_location\": \"Seattle, Washington, USA\", \"posted_date\": \"August  9, 2026\", \"job_category\": \"Software Development\", \"company_name\": \"Amazon.com Services LLC\", \"city\": \"Seattle\", \"state\": \"WA\", \"country_code\": \"USA\"}, {\"id\": \"14ad5a5b-9f83-4799-8b92-a76809900006\", \"id_icims\": \"10496506\", \"title\": \"Software Development Engineer 6\", \"job_path\": \"/en/jobs/10496506/software-development-engineer-6\", \"normalized_location\": \"Seattle, Washington, USA\", \"posted_date\": \"August  9, 2026\", \"job_category\": \"Software Development\", \"company_name\": \"Amazon.com Services LLC\", \"city\": \"Seattle\", \"state\": \"WA\", \"country_code\": \"USA\"}, {\"id\": \"14ad5a5b-9f83-4799-8b92-a76809900007\", \"id_icims\": \"10496507\", \"title\": \"Software Development Engineer 7\", \"job_path\": \"/en/jobs/10496507/software-development-engineer-7\", \"normalized_location\": \"Seattle, Washington, USA\", \"posted_date\": \"August  9, 2026\", \"job_category\": \"Software Development\", \"company_name\": \"Amazon.com Services LLC\", \"city\": \"Seattle\", \"state\": \"WA\", \"country_code\": \"USA\"}, {\"id\": \"14ad5a5b-9f83-4799-8b92-a76809900008\", \"id_icims\": \"10496508\", \"title\": \"Software Development Engineer 8\", \"job_path\": \"/en/jobs/10496508/software-development-engineer-8\", \"normalized_location\": \"Seattle, Washington, USA\", \"posted_date\": \"August  9, 2026\", \"job_category\": \"Software Development\", \"company_name\": \"Amazon.com Services LLC\", \"city\": \"Seattle\", \"state\": \"WA\", \"country_code\": \"USA\"}, {\"id\": \"14ad5a5b-9f83-4799-8b92-a76809900009\", \"id_icims\": \"10496509\", \"title\": \"Software Development Engineer 9\", \"job_path\": \"/en/jobs/10496509/software-development-engineer-9\", \"normalized_location\": \"Seattle, Washington, USA\", \"posted_date\": \"August  9, 2026\", \"job_category\": \"Software Development\", \"company_name\": \"Amazon.com Services LLC\", \"city\": \"Seattle\", \"state\": \"WA\", \"country_code\": \"USA\"}], \"facets\": {\"normalized_state_name_facet\": [{\"Washington\": 40}, {\"Texas\": 36}]}}",
+   "truncated": false
+  }
+ ]
+}

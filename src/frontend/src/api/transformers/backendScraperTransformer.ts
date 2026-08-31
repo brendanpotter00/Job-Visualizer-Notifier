@@ -33,7 +33,6 @@ export function transformBackendJob(raw: BackendJobListing, companyId: string): 
     source: 'backend-scraper' as const,
     company: companyId,
     title: raw.title,
-    department: details.experience_level,
     location: raw.location || undefined,
     locations: raw.locations ?? [],
     isRemote: details.is_remote_eligible,

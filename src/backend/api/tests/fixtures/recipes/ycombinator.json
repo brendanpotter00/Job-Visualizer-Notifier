@@ -1,0 +1,33 @@
+{
+  "script_version": 1,
+  "transport": "http_html",
+  "expected_min_jobs": 3,
+  "base_url": "https://www.ycombinator.com",
+  "steps": [
+    {
+      "op": "fetch",
+      "method": "GET",
+      "url": "https://www.ycombinator.com/companies/raindrop/jobs",
+      "headers": {}
+    },
+    {
+      "op": "extract_embedded_island",
+      "selector": "div[data-page]",
+      "source": "attribute",
+      "attribute": "data-page",
+      "records_path": "props.jobPostings",
+      "fields": {
+        "id": "id",
+        "title": "title",
+        "url": "url",
+        "location": "location",
+        "posted_at": "createdAt",
+        "department": "prettyRole"
+      }
+    },
+    { "op": "parse_date", "field": "posted_at", "mode": "humanized" },
+    { "op": "dedupe_key", "field": "id" },
+    { "op": "assert_unique", "field": "id" }
+  ],
+  "oracle": { "kind": "self_consistent" }
+}

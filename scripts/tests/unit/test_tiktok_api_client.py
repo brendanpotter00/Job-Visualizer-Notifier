@@ -25,7 +25,6 @@ from tiktok_jobs_scraper.api_client import (
     combine_description,
     fetch_search_results,
     flatten_location,
-    format_department,
     get_job_url,
     get_search_url,
 )
@@ -105,23 +104,6 @@ class TestFlattenLocation:
         assert flatten_location("San Jose") is None
 
 
-class TestFormatDepartment:
-    def test_nested(self, tiktok_raw_job):
-        assert format_department(tiktok_raw_job["job_category"]) == "R&D / Backend"
-
-    def test_flat(self):
-        assert format_department({"en_name": "Operations", "parent": None}) == "Operations"
-
-    def test_blank_parent_falls_back_to_child(self):
-        assert format_department({"en_name": "Design", "parent": {"en_name": "  "}}) == "Design"
-
-    def test_blank_child(self):
-        assert format_department({"en_name": "  ", "parent": None}) is None
-
-    def test_non_dict(self):
-        assert format_department(None) is None
-
-
 class TestCombineDescription:
     def test_joins_both_blocks(self, tiktok_raw_job):
         out = combine_description(tiktok_raw_job)
@@ -198,7 +180,6 @@ class TestParseJobFromSearch:
         assert card["id"] == "7613184212766607621"
         assert card["job_url"] == "https://lifeattiktok.com/search/7613184212766607621"
         assert card["location"] == "San Jose, California, United States of America"
-        assert card["department"] == "R&D / Backend"
         assert card["recruit_type"] == "Regular"
         assert card["job_code"] == "A07200"
 

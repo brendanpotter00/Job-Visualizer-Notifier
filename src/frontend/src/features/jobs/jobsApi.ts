@@ -8,6 +8,7 @@ import { calculateJobDateRange } from '../../lib/date';
 import { updateCompanyProgress } from './progressHelpers';
 import { logger } from '../../lib/logger';
 import {
+  CUSTOM_JOBS_CHUNK_KEY,
   RECENT_JOBS_DEFAULT_WINDOW,
   RECENT_JOBS_PAGE_SIZE,
   chunkKey,
@@ -17,6 +18,9 @@ import {
   sinceForWindow,
 } from './keysetWalk';
 import type { JobsWindowKey } from './keysetWalk';
+import { CUSTOM_COMPANIES_CONFIG } from '../../config/customCompanies';
+import { fetchMyCustomJobsPage } from '../userCompanies/customJobsClient';
+import type { CustomJobsPage } from '../userCompanies/customJobsClient';
 
 export {
   RECENT_JOBS_DEFAULT_WINDOW,
@@ -47,6 +51,100 @@ export type { JobsWindowKey } from './keysetWalk';
 /** Ids of every company served by the batched backend-scraper endpoint. */
 function backendScraperCompanyIds(): string[] {
   return COMPANIES.filter((c) => c.ats === 'backend-scraper').map((c) => c.id);
+}
+
+/** The store's thunk `extraArgument`, as far as this module needs it. */
+interface JobsApiExtra {
+  getTokenOrNull?: () => Promise<string | null>;
+}
+
+/**
+ * The caller's bearer token, or `null` when there is no signed-in user.
+ *
+ * This is THE gate on the private half of the feed: no token means the
+ * custom-jobs request is never issued at all. That is deliberately stronger
+ * than "issue it and tolerate the 401" — an anonymous visitor must see exactly
+ * what they see today, with no extra round trip and no 401 in their console.
+ *
+ * `getTokenOrNull` already resolves to `null` (never throws) on the signed-out
+ * path; it swallows `NotAuthenticatedError` precisely so anonymous page loads
+ * stay quiet. The `typeof` guard covers a store configured without the thunk
+ * `extraArgument` — every existing `jobsApi` unit-test store is one, and they
+ * must keep testing only the public walk.
+ */
+async function tokenFromExtra(extra: unknown): Promise<string | null> {
+  const getToken = (extra as JobsApiExtra | undefined)?.getTokenOrNull;
+  if (typeof getToken !== 'function') return null;
+  return getToken();
+}
+
+/**
+ * One page of the caller's own custom-company jobs, or `null` when there is
+ * nothing to merge.
+ *
+ * `null` covers four cases the feed must survive identically — the feature being
+ * flagged off, signed out, no private boards, and the request having FAILED. A
+ * private-companies failure is swallowed here rather than propagated because the
+ * public feed is the page: letting a 500 / expired token / dropped connection on
+ * this second request reject would blank the whole Recent list (in
+ * `fetchNextJobsPage` it would also latch the paging error and stop the public
+ * walk). It is logged, not silent.
+ */
+async function fetchCustomJobsPageOrNull(
+  extra: unknown,
+  options: { since: string; cursor?: string; signal?: AbortSignal }
+): Promise<CustomJobsPage | null> {
+  // Flag-off contract (`src/frontend/CLAUDE.md`): with
+  // `VITE_CUSTOM_COMPANIES_ENABLED` off this feature does not exist and the app
+  // makes NO network calls for it. It also protects the common half-off
+  // deployment — the backend owns a separate flag and answers 503 while it is
+  // off, which would otherwise be a 503 on every signed-in page load.
+  if (!CUSTOM_COMPANIES_CONFIG.isEnabled) return null;
+  const token = await tokenFromExtra(extra);
+  if (!token) return null;
+  try {
+    return await fetchMyCustomJobsPage(token, {
+      ...options,
+      limit: RECENT_JOBS_PAGE_SIZE,
+    });
+  } catch (error) {
+    logger.warn(
+      '[getAllJobs] custom-company jobs page failed; the Recent feed keeps its public rows:',
+      error
+    );
+    return null;
+  }
+}
+
+/**
+ * Merge one custom-jobs page into the cache draft: its rows, its cursor and its
+ * floor.
+ *
+ * Rows land in the same `byCompanyId` map as the public ones — under their
+ * `u-<id>` company ids — which is what makes them interleave by date instead of
+ * arriving as a lump: the Recent selectors flatten that map and sort the whole
+ * set by `firstSeenAt`, so a custom row's position is decided by its timestamp
+ * and nothing else.
+ *
+ * Deliberately does NOT touch `draft.progress`. That is the public fan-out's
+ * progress bar, sized from the compile-time `COMPANIES` roster and filtered by
+ * the user's enabled set; adding runtime `u-<id>` entries would move its total
+ * and show chips for companies the roster has never heard of.
+ *
+ * @returns how many rows were genuinely new
+ */
+function mergeCustomPageIntoDraft(draft: AllJobsQueryResult, page: CustomJobsPage): number {
+  let added = 0;
+  for (const [companyId, jobs] of Object.entries(page.byCompanyId)) {
+    added += mergeCompanyJobsIntoDraft(draft, companyId, jobs);
+  }
+  if (page.nextCursor) {
+    draft.cursors[CUSTOM_JOBS_CHUNK_KEY] = page.nextCursor;
+  } else {
+    delete draft.cursors[CUSTOM_JOBS_CHUNK_KEY];
+  }
+  extendChunkFloor(draft, CUSTOM_JOBS_CHUNK_KEY, oldestFirstSeenAt(page.jobs));
+  return added;
 }
 
 /** Outcome of one `fetchNextJobsPage` advance. */
@@ -236,7 +334,7 @@ export const jobsApi = createApi({
 
       async onCacheEntryAdded(
         _arg,
-        { updateCachedData, cacheDataLoaded, cacheEntryRemoved, dispatch }
+        { updateCachedData, cacheDataLoaded, cacheEntryRemoved, dispatch, extra }
       ) {
         // Apply one company's successful fetch to both caches.
         const applyCompanySuccess = (company: Company, result: FetchJobsResult) => {
@@ -388,6 +486,35 @@ export const jobsApi = createApi({
             }
           })();
 
+          // Page 1 of the PRIVATE half of the feed, running beside the public
+          // chunks. It is a separate request because `/api/jobs` is anonymous
+          // and excludes `visibility='user'` companies unconditionally — see
+          // `customJobsClient.ts`. Signed out, it never leaves the browser.
+          const customFetch = (async () => {
+            const page = await fetchCustomJobsPageOrNull(extra, { since });
+            // Nothing to merge (signed out / no private boards / the request
+            // failed) => do not touch the cache entry at all. Skipping the
+            // update, rather than applying an empty one, is what keeps the
+            // Recent selectors returning their existing array BY IDENTITY, so
+            // an anonymous visitor's page does not re-render for a feature they
+            // are not using.
+            if (!page || (page.jobs.length === 0 && !page.nextCursor)) return;
+
+            updateCachedData((draft) => {
+              // Same in-flight rule as the public chunks: a widen may have
+              // landed while this was airborne, and a cursor/floor minted under
+              // the old window would page the wrong window and claim a horizon
+              // the new one has not reached.
+              if (draft.windowKey !== requestWindowKey) {
+                logger.debug(
+                  `[getAllJobs] dropping custom-jobs page minted under superseded window ${requestWindowKey} (entry is now ${draft.windowKey})`
+                );
+                return;
+              }
+              mergeCustomPageIntoDraft(draft, page);
+            });
+          })();
+
           const otherFetches = otherCompanies.map(async (company) => {
             const client = getClientForATS(company.ats);
             try {
@@ -402,7 +529,7 @@ export const jobsApi = createApi({
             }
           });
 
-          await Promise.allSettled([batchedFetch, ...otherFetches]);
+          await Promise.allSettled([batchedFetch, customFetch, ...otherFetches]);
 
           // Mark streaming as complete
           updateCachedData((draft) => {
@@ -439,6 +566,13 @@ export const jobsApi = createApi({
      * company, id)`, so a concurrent re-scrape that reshuffles a page cannot
      * drop rows already on screen.
      *
+     * The signed-in caller's OWN custom companies are one more walk advanced
+     * alongside the public chunks, under the reserved `CUSTOM_JOBS_CHUNK_KEY`.
+     * It is a second request because `/api/jobs` is anonymous and excludes
+     * private companies unconditionally; signed out it is never issued, and a
+     * failure of it can never fail this mutation (see
+     * `fetchCustomJobsPageOrNull`).
+     *
      * Optional `window` re-bounds the walk. It is a **logical key**, not a
      * timestamp, on purpose: the walk restarts only when the key changes, so a
      * caller that recomputes "90 days ago" on every scroll tick keeps paging
@@ -453,7 +587,7 @@ export const jobsApi = createApi({
       FetchNextJobsPageResult,
       { window?: JobsWindowKey } | void
     >({
-      async queryFn(arg, { dispatch, getState, signal }) {
+      async queryFn(arg, { dispatch, getState, signal, extra }) {
         try {
           const selectAllJobs = jobsApi.endpoints.getAllJobs.select();
           const cached = selectAllJobs(
@@ -476,14 +610,27 @@ export const jobsApi = createApi({
           // A window change invalidates every outstanding cursor -> plan a fresh
           // walk over the full chunk partition. Otherwise resume only the chunks
           // that still have somewhere to go.
+          //
+          // `CUSTOM_JOBS_CHUNK_KEY` is filtered out because it is a reserved key,
+          // not a comma-joined list of company ids: feeding it to
+          // `parseChunkKey` + `fetchJobsPage` would request a company literally
+          // named "custom:jobs" from the public endpoint.
           const plan: { ids: string[]; cursor?: string }[] = widenedWindow
             ? chunkCompanyIds(backendScraperCompanyIds()).map((ids) => ({ ids }))
-            : Object.entries(cached.cursors).map(([key, cursor]) => ({
-                ids: parseChunkKey(key),
-                cursor,
-              }));
+            : Object.entries(cached.cursors)
+                .filter(([key]) => key !== CUSTOM_JOBS_CHUNK_KEY)
+                .map(([key, cursor]) => ({
+                  ids: parseChunkKey(key),
+                  cursor,
+                }));
 
-          if (plan.length === 0) {
+          // The private half advances under the same two rules as a public
+          // chunk: a widen restarts it from page 1 under the new bound, and
+          // otherwise it advances only while it still holds a cursor.
+          const customCursor = widenedWindow ? undefined : cached.cursors[CUSTOM_JOBS_CHUNK_KEY];
+          const walkCustom = Boolean(widenedWindow) || customCursor !== undefined;
+
+          if (plan.length === 0 && !walkCustom) {
             return { data: { added: 0, hasMore: false } };
           }
 
@@ -501,18 +648,34 @@ export const jobsApi = createApi({
             );
           }
 
+          // Both halves advance together so one logical "next page" is one
+          // round trip's worth of latency, and so their floors land in the same
+          // cache update (a horizon computed from half-applied floors would
+          // clamp rows away for a frame).
           let pages: Awaited<ReturnType<typeof fetchJobsPage>>[];
+          let customPage: CustomJobsPage | null;
           try {
-            pages = await Promise.all(
-              plan.map((p) =>
-                fetchJobsPage(p.ids, {
-                  since,
-                  cursor: p.cursor,
-                  limit: RECENT_JOBS_PAGE_SIZE,
-                  signal,
-                })
-              )
-            );
+            [pages, customPage] = await Promise.all([
+              Promise.all(
+                plan.map((p) =>
+                  fetchJobsPage(p.ids, {
+                    since,
+                    cursor: p.cursor,
+                    limit: RECENT_JOBS_PAGE_SIZE,
+                    signal,
+                  })
+                )
+              ),
+              // Inside the try, but it can never reach the catch:
+              // `fetchCustomJobsPageOrNull` resolves `null` on every failure
+              // and never rejects (its own token lookup is total too). The
+              // rollback below therefore stays a public-walk concern, and a
+              // private-jobs failure still fails soft — it cannot roll back a
+              // widen the public half completed, nor fail this mutation.
+              walkCustom
+                ? fetchCustomJobsPageOrNull(extra, { since, cursor: customCursor, signal })
+                : Promise.resolve(null),
+            ]);
           } catch (error) {
             // The widen path CLAIMED the new window (cursors/floors cleared)
             // before this await. A failure here must not strand that claim:
@@ -572,6 +735,15 @@ export const jobsApi = createApi({
                   });
                 }
               });
+
+              // `null` means flagged off, signed out, no private boards, or a
+              // failed request. All four leave the public walk as it was —
+              // the private half must never be able to stall or blank the feed.
+              // The custom cursor is deliberately LEFT in place on a failure so
+              // a transient one (502, a token refresh mid-flight) heals on the
+              // next page; a permanently failing one is bounded by the list's
+              // `MAX_EMPTY_AUTO_FETCHES` stop, exactly like an empty page.
+              if (customPage) added += mergeCustomPageIntoDraft(draft, customPage);
 
               hasMore = Object.keys(draft.cursors).length > 0;
             })

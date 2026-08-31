@@ -1,0 +1,232 @@
+{
+ "final_url": "https://higher.gs.com/results",
+ "page_title": "Goldman Sachs Careers",
+ "responses": [
+  {
+   "url": "https://graphql.contentful.com/content/v1/spaces/9mvtzqjujsdv/environments/master/",
+   "method": "POST",
+   "status": 200,
+   "content_type": "application/json",
+   "request_headers": {
+    "content-type": "application/json"
+   },
+   "post_data": "{\"query\":\"{ pageCopy }\"}",
+   "truncated": false,
+   "body": "{\"data\": {\"pageCopy\": {\"heading\": \"Careers\"}}}"
+  },
+  {
+   "url": "https://api-higher.gs.com/gateway/api/v1/graphql",
+   "method": "POST",
+   "status": 200,
+   "content_type": "application/json",
+   "request_headers": {
+    "accept": "*/*",
+    "origin": "https://higher.gs.com",
+    "content-type": "application/json"
+   },
+   "post_data": "{\"query\": \"query GetRoles($searchQueryInput: RoleSearchQueryInput!) {\\n  roleSearch(searchQueryInput: $searchQueryInput) {\\n    totalCount\\n    items {\\n      roleId\\n      corporateTitle\\n      jobTitle\\n      jobFunction\\n      locations {\\n        primary\\n        state\\n        country\\n        city\\n        __typename\\n      }\\n      status\\n      division\\n      skills\\n      jobType {\\n        code\\n        description\\n        __typename\\n      }\\n      externalSource {\\n        sourceId\\n        __typename\\n      }\\n      __typename\\n    }\\n    __typename\\n  }\\n}\", \"variables\": {\"searchQueryInput\": {\"page\": {\"pageSize\": 20, \"pageNumber\": 0}, \"sort\": {\"sortOrder\": \"DESC\", \"sortStrategy\": \"RELEVANCE\"}, \"filters\": [], \"searchTerm\": \"\", \"experiences\": [\"EARLY_CAREER\", \"PROFESSIONAL\"]}}, \"operationName\": \"GetRoles\"}",
+   "truncated": false,
+   "body": "{\"data\": {\"roleSearch\": {\"totalCount\": 1033, \"items\": [{\"roleId\": \"180399_GS_MID_CAREER\", \"corporateTitle\": \"Analyst\", \"jobTitle\": \"Asset & Wealth Management - PWM WSS- Analyst- Bengaluru\", \"jobFunction\": \"Sales Support\", \"locations\": [{\"primary\": true, \"state\": \"Karnataka\", \"country\": \"India\", \"city\": \"Bengaluru\", \"__typename\": \"RoleLocationGraphQlDTO\"}], \"status\": \"POSTED\", \"division\": \"Asset & Wealth Management\", \"skills\": [], \"jobType\": null, \"externalSource\": {\"sourceId\": \"180399\", \"__typename\": \"ExternalSourceGraphQlDTO\"}, \"__typename\": \"ExternalRoleGraphQlDTO\"}, {\"roleId\": \"181782_GS_NOTICE_OF_FILING_LCA\", \"corporateTitle\": \"Associate\", \"jobTitle\": \"Controllers-Jersey City-Associate, Data Governance & Stewardship-10419015\", \"jobFunction\": \"\", \"locations\": [{\"primary\": true, \"state\": \"NJ\", \"country\": \"United States\", \"city\": \"Jersey City\", \"__typename\": \"RoleLocationGraphQlDTO\"}], \"status\": \"POSTED\", \"division\": \"Controllers\", \"skills\": [], \"jobType\": null, \"externalSource\": {\"sourceId\": \"181782\", \"__typename\": \"ExternalSourceGraphQlDTO\"}, \"__typename\": \"ExternalRoleGraphQlDTO\"}, {\"roleId\": \"154832_GS_MID_CAREER\", \"corporateTitle\": \"Analyst\", \"jobTitle\": \"Controllers - CA Freshers May 2026 - Analyst - Bengaluru/Hyderabad\", \"jobFunction\": \"\", \"locations\": [{\"primary\": true, \"state\": null, \"country\": \"India\", \"city\": null, \"__typename\": \"RoleLocationGraphQlDTO\"}], \"status\": \"POSTED\", \"division\": \"Controllers\", \"skills\": [], \"jobType\": null, \"externalSource\": {\"sourceId\": \"154832\", \"__typename\": \"ExternalSourceGraphQlDTO\"}, \"__typename\": \"ExternalRoleGraphQlDTO\"}, {\"roleId\": \"182888_GS_MID_CAREER\", \"corporateTitle\": \"Vice President\", \"jobTitle\": \"Global Banking & Markets, Synthetic Trading, Vice President, Bengaluru\", \"jobFunction\": \"Trading\", \"locations\": [{\"primary\": true, \"state\": \"Karnataka\", \"country\": \"India\", \"city\": \"Bengaluru\", \"__typename\": \"RoleLocationGraphQlDTO\"}], \"status\": \"POSTED\", \"division\": \"Global Banking & Markets\", \"skills\": [], \"jobType\": null, \"externalSource\": {\"sourceId\": \"182888\", \"__typename\": \"ExternalSourceGraphQlDTO\"}, \"__typename\": \"ExternalRoleGraphQlDTO\"}, {\"roleId\": \"182484_GS_MID_CAREER\", \"corporateTitle\": \"Vice President\", \"jobTitle\": \"Compliance-Control Room-Vice President- Bengaluru\", \"jobFunction\": \"Control Room\", \"locations\": [{\"primary\": true, \"state\": \"Karnataka\", \"country\": \"India\", \"city\": \"Bengaluru\", \"__typename\": \"RoleLocationGraphQlDTO\"}], \"status\": \"POSTED\", \"division\": \"Compliance Division\", \"skills\": [], \"jobType\": null, \"externalSource\": {\"sourceId\": \"182484\", \"__typename\": \"ExternalSourceGraphQlDTO\"}, \"__typename\": \"ExternalRoleGraphQlDTO\"}, {\"roleId\": \"169136_GS_MID_CAREER\", \"corporateTitle\": \"Vice President\", \"jobTitle\": \"Senior Software Engineer, Global Banking & Markets, Front Office Technology\", \"jobFunction\": \"\", \"locations\": [{\"primary\": true, \"state\": \"TX\", \"country\": \"United States\", \"city\": \"Dallas\", \"__typename\": \"RoleLocationGraphQlDTO\"}], \"status\": \"POSTED\", \"division\": \"Global Banking & Markets\", \"skills\": [], \"jobType\": null, \"externalSource\": {\"sourceId\": \"169136\", \"__typename\": \"ExternalSourceGraphQlDTO\"}, \"__typename\": \"ExternalRoleGraphQlDTO\"}, {\"roleId\": \"182608_GS_MID_CAREER\", \"corporateTitle\": \"Vice President\", \"jobTitle\": \"Internal Audit, Corporate Controllers & Tax Audit, Vice President, London\", \"jobFunction\": \"Business Audit\", \"locations\": [{\"primary\": true, \"state\": \"Greater London, England\", \"country\": \"United Kingdom\", \"city\": \"London\", \"__typename\": \"RoleLocationGraphQlDTO\"}], \"status\": \"POSTED\", \"division\": \"Internal Audit\", \"skills\": [], \"jobType\": null, \"externalSource\": {\"sourceId\": \"182608\", \"__typename\": \"ExternalSourceGraphQlDTO\"}, \"__typename\": \"ExternalRoleGraphQlDTO\"}, {\"roleId\": \"180199_GS_MID_CAREER\", \"corporateTitle\": \"Senior Analyst\", \"jobTitle\": \"Controllers Operations-Ledger Validation-Analyst-Bengaluru\", \"jobFunction\": \"Ledger Validation\", \"locations\": [{\"primary\": true, \"state\": \"Karnataka\", \"country\": \"India\", \"city\": \"Bengaluru\", \"__typename\": \"RoleLocationGraphQlDTO\"}], \"status\": \"POSTED\", \"division\": \"Controllers\", \"skills\": [], \"jobType\": null, \"externalSource\": {\"sourceId\": \"180199\", \"__typename\": \"ExternalSourceGraphQlDTO\"}, \"__typename\": \"ExternalRoleGraphQlDTO\"}, {\"roleId\": \"182979_GS_MID_CAREER\", \"corporateTitle\": \"Associate\", \"jobTitle\": \"The Core Engineering-L2-Bengaluru-Associate-Software Engineering\", \"jobFunction\": \"Software Engineering\", \"locations\": [{\"primary\": true, \"state\": \"Karnataka\", \"country\": \"India\", \"city\": \"Bengaluru\", \"__typename\": \"RoleLocationGraphQlDTO\"}], \"status\": \"POSTED\", \"division\": \"The Core Engineering\", \"skills\": [], \"jobType\": null, \"externalSource\": {\"sourceId\": \"182979\", \"__typename\": \"ExternalSourceGraphQlDTO\"}, \"__typename\": \"ExternalRoleGraphQlDTO\"}, {\"roleId\": \"182478_GS_MID_CAREER\", \"corporateTitle\": \"Analyst\", \"jobTitle\": \"Global Banking & Markets Operations - Private Lending Operations - Analyst-Bengaluru\", \"jobFunction\": \"Portfolio Lifecycle Management\", \"locations\": [{\"primary\": true, \"state\": \"Karnataka\", \"country\": \"India\", \"city\": \"Bengaluru\", \"__typename\": \"RoleLocationGraphQlDTO\"}], \"status\": \"POSTED\", \"division\": \"Global Banking & Markets\", \"skills\": [], \"jobType\": null, \"externalSource\": {\"sourceId\": \"182478\", \"__typename\": \"ExternalSourceGraphQlDTO\"}, \"__typename\": \"ExternalRoleGraphQlDTO\"}, {\"roleId\": \"181992_GS_MID_CAREER\", \"corporateTitle\": \"Associate\", \"jobTitle\": \"Asset & Wealth Management - Global Data & Reporting - Associate - Bengaluru\", \"jobFunction\": \"Asset Management\", \"locations\": [{\"primary\": true, \"state\": \"Karnataka\", \"country\": \"India\", \"city\": \"Bengaluru\", \"__typename\": \"RoleLocationGraphQlDTO\"}], \"status\": \"POSTED\", \"division\": \"Asset & Wealth Management\", \"skills\": [], \"jobType\": null, \"externalSource\": {\"sourceId\": \"181992\", \"__typename\": \"ExternalSourceGraphQlDTO\"}, \"__typename\": \"ExternalRoleGraphQlDTO\"}, {\"roleId\": \"181556_GS_MID_CAREER\", \"corporateTitle\": \"Associate\", \"jobTitle\": \"AWM Management - Change Management - Associate - Bengaluru\", \"jobFunction\": \"Project Management\", \"locations\": [{\"primary\": true, \"state\": \"Karnataka\", \"country\": \"India\", \"city\": \"Bengaluru\", \"__typename\": \"RoleLocationGraphQlDTO\"}], \"status\": \"POSTED\", \"division\": \"Asset & Wealth Management\", \"skills\": [], \"jobType\": null, \"externalSource\": {\"sourceId\": \"181556\", \"__typename\": \"ExternalSourceGraphQlDTO\"}, \"__typename\": \"ExternalRoleGraphQlDTO\"}, {\"roleId\": \"182980_GS_MID_CAREER\", \"corporateTitle\": \"Vice President\", \"jobTitle\": \"The Core Engineering-L2-Bengaluru-Vice President-Software Engineering\", \"jobFunction\": \"Software Engineering\", \"locations\": [{\"primary\": true, \"state\": \"Karnataka\", \"country\": \"India\", \"city\": \"Bengaluru\", \"__typename\": \"RoleLocationGraphQlDTO\"}], \"status\": \"POSTED\", \"division\": \"The Core Engineering\", \"skills\": [], \"jobType\": null, \"externalSource\": {\"sourceId\": \"182980\", \"__typename\": \"ExternalSourceGraphQlDTO\"}, \"__typename\": \"ExternalRoleGraphQlDTO\"}, {\"roleId\": \"181783_GS_NOTICE_OF_FILING_LCA\", \"corporateTitle\": \"Associate\", \"jobTitle\": \"Engineering Division- New York- Associate, Risk Governance- 10427706\", \"jobFunction\": \"\", \"locations\": [{\"primary\": true, \"state\": \"NY\", \"country\": \"United States\", \"city\": \"New York\", \"__typename\": \"RoleLocationGraphQlDTO\"}], \"status\": \"POSTED\", \"division\": \"Engineering Division\", \"skills\": [], \"jobType\": null, \"externalSource\": {\"sourceId\": \"181783\", \"__typename\": \"ExternalSourceGraphQlDTO\"}, \"__typename\": \"ExternalRoleGraphQlDTO\"}, {\"roleId\": \"141770_GS_MID_CAREER\", \"corporateTitle\": \"Vice President\", \"jobTitle\": \"Global Banking & Markets Operations - Exotic Trade Review - Vice President - Bengaluru\", \"jobFunction\": \"Trade Processing\", \"locations\": [{\"primary\": true, \"state\": \"Karnataka\", \"country\": \"India\", \"city\": \"Bengaluru\", \"__typename\": \"RoleLocationGraphQlDTO\"}], \"status\": \"POSTED\", \"division\": \"Global Banking & Markets\", \"skills\": [], \"jobType\": null, \"externalSource\": {\"sourceId\": \"141770\", \"__typename\": \"ExternalSourceGraphQlDTO\"}, \"__typename\": \"ExternalRoleGraphQlDTO\"}, {\"roleId\": \"180330_GS_MID_CAREER\", \"corporateTitle\": \"Support\", \"jobTitle\": \"Global Banking & Markets, FICC, Admin Assistant, Singapore\", \"jobFunction\": \"Administrative Assistants - Non MC\", \"locations\": [{\"primary\": true, \"state\": \"Singapore\", \"country\": \"Singapore\", \"city\": \"Singapore\", \"__typename\": \"RoleLocationGraphQlDTO\"}], \"status\": \"POSTED\", \"division\": \"Global Banking & Markets\", \"skills\": [], \"jobType\": null, \"externalSource\": {\"sourceId\": \"180330\", \"__typename\": \"ExternalSourceGraphQlDTO\"}, \"__typename\": \"ExternalRoleGraphQlDTO\"}, {\"roleId\": \"154323_GS_MID_CAREER\", \"corporateTitle\": \"Associate\", \"jobTitle\": \"Global Banking & Markets, Equities Electronic Trading Engineering (Trading Controls), Associate/ Vice President, Hong Ko\", \"jobFunction\": \"\", \"locations\": [{\"primary\": true, \"state\": \"Hong Kong\", \"country\": \"Hong Kong\", \"city\": null, \"__typename\": \"RoleLocationGraphQlDTO\"}], \"status\": \"POSTED\", \"division\": \"Global Banking & Markets\", \"skills\": [], \"jobType\": null, \"externalSource\": {\"sourceId\": \"154323\", \"__typename\": \"ExternalSourceGraphQlDTO\"}, \"__typename\": \"ExternalRoleGraphQlDTO\"}, {\"roleId\": \"181799_GS_NOTICE_OF_FILING_LCA\", \"corporateTitle\": \"Associate\", \"jobTitle\": \"Engineering-New York-Associate, Talent Development-10427728\", \"jobFunction\": \"\", \"locations\": [{\"primary\": true, \"state\": \"NY\", \"country\": \"United States\", \"city\": \"New York\", \"__typename\": \"RoleLocationGraphQlDTO\"}], \"status\": \"POSTED\", \"division\": \"Engineering Division\", \"skills\": [], \"jobType\": null, \"externalSource\": {\"sourceId\": \"181799\", \"__typename\": \"ExternalSourceGraphQlDTO\"}, \"__typename\": \"ExternalRoleGraphQlDTO\"}, {\"roleId\": \"166591_GS_MID_CAREER\", \"corporateTitle\": \"Associate\", \"jobTitle\": \"GBM, Investment Banking Associate, Healthcare \\u2013 Los Angeles\", \"jobFunction\": \"Banker - Industry/Country Coverage\", \"locations\": [{\"primary\": true, \"state\": \"CA\", \"country\": \"United States\", \"city\": \"Los Angeles\", \"__typename\": \"RoleLocationGraphQlDTO\"}], \"status\": \"POSTED\", \"division\": \"Global Banking & Markets\", \"skills\": [], \"jobType\": null, \"externalSource\": {\"sourceId\": \"166591\", \"__typename\": \"ExternalSourceGraphQlDTO\"}, \"__typename\": \"ExternalRoleGraphQlDTO\"}, {\"roleId\": \"166395_GS_MID_CAREER\", \"corporateTitle\": \"Vice President\", \"jobTitle\": \"Engineering Division - Tech Risk Advisory -Vice President- Hyderabad\", \"jobFunction\": \"Security Engineering\", \"locations\": [{\"primary\": true, \"state\": \"Karnataka\", \"country\": \"India\", \"city\": \"Bengaluru\", \"__typename\": \"RoleLocationGraphQlDTO\"}], \"status\": \"POSTED\", \"division\": \"Engineering Division\", \"skills\": [], \"jobType\": null, \"externalSource\": {\"sourceId\": \"166395\", \"__typename\": \"ExternalSourceGraphQlDTO\"}, \"__typename\": \"ExternalRoleGraphQlDTO\"}], \"__typename\": \"RoleSearchGraphQlDTO\"}}}"
+  },
+  {
+   "url": "https://higher.gs.com/_next/data/6f65452344dd9f355cb3cddd145e7748561ee384/roles/180399.json?roleId=180399",
+   "method": "GET",
+   "status": 200,
+   "content_type": "application/json",
+   "request_headers": {},
+   "post_data": null,
+   "truncated": false,
+   "body": "{\"pageProps\": {\"roleId\": \"180399\"}}"
+  },
+  {
+   "url": "https://higher.gs.com/_next/data/6f65452344dd9f355cb3cddd145e7748561ee384/roles/181782.json?roleId=181782",
+   "method": "GET",
+   "status": 200,
+   "content_type": "application/json",
+   "request_headers": {},
+   "post_data": null,
+   "truncated": false,
+   "body": "{\"pageProps\": {\"roleId\": \"181782\"}}"
+  },
+  {
+   "url": "https://higher.gs.com/_next/data/6f65452344dd9f355cb3cddd145e7748561ee384/roles/154832.json?roleId=154832",
+   "method": "GET",
+   "status": 200,
+   "content_type": "application/json",
+   "request_headers": {},
+   "post_data": null,
+   "truncated": false,
+   "body": "{\"pageProps\": {\"roleId\": \"154832\"}}"
+  },
+  {
+   "url": "https://higher.gs.com/_next/data/6f65452344dd9f355cb3cddd145e7748561ee384/roles/182888.json?roleId=182888",
+   "method": "GET",
+   "status": 200,
+   "content_type": "application/json",
+   "request_headers": {},
+   "post_data": null,
+   "truncated": false,
+   "body": "{\"pageProps\": {\"roleId\": \"182888\"}}"
+  },
+  {
+   "url": "https://higher.gs.com/_next/data/6f65452344dd9f355cb3cddd145e7748561ee384/roles/182484.json?roleId=182484",
+   "method": "GET",
+   "status": 200,
+   "content_type": "application/json",
+   "request_headers": {},
+   "post_data": null,
+   "truncated": false,
+   "body": "{\"pageProps\": {\"roleId\": \"182484\"}}"
+  },
+  {
+   "url": "https://higher.gs.com/_next/data/6f65452344dd9f355cb3cddd145e7748561ee384/roles/169136.json?roleId=169136",
+   "method": "GET",
+   "status": 200,
+   "content_type": "application/json",
+   "request_headers": {},
+   "post_data": null,
+   "truncated": false,
+   "body": "{\"pageProps\": {\"roleId\": \"169136\"}}"
+  },
+  {
+   "url": "https://higher.gs.com/_next/data/6f65452344dd9f355cb3cddd145e7748561ee384/roles/182608.json?roleId=182608",
+   "method": "GET",
+   "status": 200,
+   "content_type": "application/json",
+   "request_headers": {},
+   "post_data": null,
+   "truncated": false,
+   "body": "{\"pageProps\": {\"roleId\": \"182608\"}}"
+  },
+  {
+   "url": "https://higher.gs.com/_next/data/6f65452344dd9f355cb3cddd145e7748561ee384/roles/180199.json?roleId=180199",
+   "method": "GET",
+   "status": 200,
+   "content_type": "application/json",
+   "request_headers": {},
+   "post_data": null,
+   "truncated": false,
+   "body": "{\"pageProps\": {\"roleId\": \"180199\"}}"
+  },
+  {
+   "url": "https://higher.gs.com/_next/data/6f65452344dd9f355cb3cddd145e7748561ee384/roles/182979.json?roleId=182979",
+   "method": "GET",
+   "status": 200,
+   "content_type": "application/json",
+   "request_headers": {},
+   "post_data": null,
+   "truncated": false,
+   "body": "{\"pageProps\": {\"roleId\": \"182979\"}}"
+  },
+  {
+   "url": "https://higher.gs.com/_next/data/6f65452344dd9f355cb3cddd145e7748561ee384/roles/182478.json?roleId=182478",
+   "method": "GET",
+   "status": 200,
+   "content_type": "application/json",
+   "request_headers": {},
+   "post_data": null,
+   "truncated": false,
+   "body": "{\"pageProps\": {\"roleId\": \"182478\"}}"
+  },
+  {
+   "url": "https://higher.gs.com/_next/data/6f65452344dd9f355cb3cddd145e7748561ee384/roles/181992.json?roleId=181992",
+   "method": "GET",
+   "status": 200,
+   "content_type": "application/json",
+   "request_headers": {},
+   "post_data": null,
+   "truncated": false,
+   "body": "{\"pageProps\": {\"roleId\": \"181992\"}}"
+  },
+  {
+   "url": "https://higher.gs.com/_next/data/6f65452344dd9f355cb3cddd145e7748561ee384/roles/181556.json?roleId=181556",
+   "method": "GET",
+   "status": 200,
+   "content_type": "application/json",
+   "request_headers": {},
+   "post_data": null,
+   "truncated": false,
+   "body": "{\"pageProps\": {\"roleId\": \"181556\"}}"
+  },
+  {
+   "url": "https://higher.gs.com/_next/data/6f65452344dd9f355cb3cddd145e7748561ee384/roles/182980.json?roleId=182980",
+   "method": "GET",
+   "status": 200,
+   "content_type": "application/json",
+   "request_headers": {},
+   "post_data": null,
+   "truncated": false,
+   "body": "{\"pageProps\": {\"roleId\": \"182980\"}}"
+  },
+  {
+   "url": "https://higher.gs.com/_next/data/6f65452344dd9f355cb3cddd145e7748561ee384/roles/181783.json?roleId=181783",
+   "method": "GET",
+   "status": 200,
+   "content_type": "application/json",
+   "request_headers": {},
+   "post_data": null,
+   "truncated": false,
+   "body": "{\"pageProps\": {\"roleId\": \"181783\"}}"
+  },
+  {
+   "url": "https://higher.gs.com/_next/data/6f65452344dd9f355cb3cddd145e7748561ee384/roles/141770.json?roleId=141770",
+   "method": "GET",
+   "status": 200,
+   "content_type": "application/json",
+   "request_headers": {},
+   "post_data": null,
+   "truncated": false,
+   "body": "{\"pageProps\": {\"roleId\": \"141770\"}}"
+  },
+  {
+   "url": "https://higher.gs.com/_next/data/6f65452344dd9f355cb3cddd145e7748561ee384/roles/180330.json?roleId=180330",
+   "method": "GET",
+   "status": 200,
+   "content_type": "application/json",
+   "request_headers": {},
+   "post_data": null,
+   "truncated": false,
+   "body": "{\"pageProps\": {\"roleId\": \"180330\"}}"
+  },
+  {
+   "url": "https://higher.gs.com/_next/data/6f65452344dd9f355cb3cddd145e7748561ee384/roles/154323.json?roleId=154323",
+   "method": "GET",
+   "status": 200,
+   "content_type": "application/json",
+   "request_headers": {},
+   "post_data": null,
+   "truncated": false,
+   "body": "{\"pageProps\": {\"roleId\": \"154323\"}}"
+  },
+  {
+   "url": "https://higher.gs.com/_next/data/6f65452344dd9f355cb3cddd145e7748561ee384/roles/181799.json?roleId=181799",
+   "method": "GET",
+   "status": 200,
+   "content_type": "application/json",
+   "request_headers": {},
+   "post_data": null,
+   "truncated": false,
+   "body": "{\"pageProps\": {\"roleId\": \"181799\"}}"
+  },
+  {
+   "url": "https://higher.gs.com/_next/data/6f65452344dd9f355cb3cddd145e7748561ee384/roles/166591.json?roleId=166591",
+   "method": "GET",
+   "status": 200,
+   "content_type": "application/json",
+   "request_headers": {},
+   "post_data": null,
+   "truncated": false,
+   "body": "{\"pageProps\": {\"roleId\": \"166591\"}}"
+  },
+  {
+   "url": "https://higher.gs.com/_next/data/6f65452344dd9f355cb3cddd145e7748561ee384/roles/166395.json?roleId=166395",
+   "method": "GET",
+   "status": 200,
+   "content_type": "application/json",
+   "request_headers": {},
+   "post_data": null,
+   "truncated": false,
+   "body": "{\"pageProps\": {\"roleId\": \"166395\"}}"
+  }
+ ]
+}

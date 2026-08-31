@@ -1,0 +1,57 @@
+{
+ "origin_url": "https://www.amazon.jobs/en/search",
+ "records_path": "jobs",
+ "field_map": {
+  "id": "id",
+  "title": "title",
+  "url": "job_path"
+ },
+ "kind": "published",
+ "proves": true,
+ "why": "PUBLISHED as a leading-slash path the board fills in; base_url resolves it.",
+ "measured_at": "2026-08-29",
+ "titles_measured_at": "2026-08-30",
+ "pages": {
+  "https://www.amazon.jobs/en/jobs/10521202/senior-networking-sa-aws-security-networking-north-america": {
+   "status": 200,
+   "chars": 9097,
+   "carries_own_title": true,
+   "carries_other_titles": false,
+   "og_title": "Senior Networking SA, AWS Security &amp; Networking - North America",
+   "title_tag": "Senior Networking SA, AWS Security & Networking - North America - Job ID: 10521202 | Amazon.jobs"
+  },
+  "https://www.amazon.jobs/en/jobs/10521258/data-engineer-pxt-central-science": {
+   "status": 200,
+   "chars": 7860,
+   "carries_own_title": true,
+   "carries_other_titles": false,
+   "og_title": "Data Engineer, PXT Central Science",
+   "title_tag": "Data Engineer, PXT Central Science - Job ID: 10521258 | Amazon.jobs"
+  },
+  "https://www.amazon.jobs/en/jobs/10520766/account-executive-ii-pubsec-gov-state-local-amazon-business": {
+   "status": 200,
+   "chars": 5875,
+   "carries_own_title": true,
+   "carries_other_titles": false,
+   "og_title": "Account Executive II, PubSec GOV - State &amp; Local, Amazon Business",
+   "title_tag": "Account Executive II, PubSec GOV - State & Local, Amazon Business - Job ID: 10520766 | Amazon.jobs"
+  }
+ },
+ "records": [
+  {
+   "title": "Senior Networking SA, AWS Security & Networking - North America",
+   "id": "1f8f3336-bd53-492d-9005-619f208c0bf7",
+   "job_path": "/en/jobs/10521202/senior-networking-sa-aws-security-networking-north-america"
+  },
+  {
+   "title": "Data Engineer, PXT Central Science",
+   "id": "d8f73115-5a4e-46cb-b2e7-c74910692bd4",
+   "job_path": "/en/jobs/10521258/data-engineer-pxt-central-science"
+  },
+  {
+   "title": "Account Executive II, PubSec GOV - State & Local, Amazon Business",
+   "id": "91bb5c83-53d4-457a-9e84-6011ac676bac",
+   "job_path": "/en/jobs/10520766/account-executive-ii-pubsec-gov-state-local-amazon-business"
+  }
+ ]
+}

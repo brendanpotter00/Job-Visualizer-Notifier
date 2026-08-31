@@ -141,38 +141,330 @@ own eventual signup. Event taxonomy (custom events live in `features/analytics/e
 - `VITE_POSTHOG_KEY` — PostHog project key (optional; analytics off when unset)
 - `VITE_POSTHOG_HOST` — ingestion host (optional; defaults to `/ingest`)
 
-## Custom company sources (My Companies)
+## Custom company sources (Add Companies)
 
-Flag-gated, currently a **resolve-only preview**: the `/my-companies` page takes a pasted
-careers URL, asks the backend whether a supported job board sits behind it, and shows what it
-found. Nothing is persisted — no company is added, no scraping is scheduled. The "save it"
-half needs backend endpoints that do not exist yet.
+Flag-gated. The `/add-companies` page takes a pasted careers URL and tracks the company
+behind it — **one press, one outcome**:
 
+**The page was renamed** from "My Companies" / `/my-companies`. The old path is still
+registered (behind the same flag) as a splat route that redirects onto `/add-companies`,
+sub-path and query preserved, so a bookmarked `/my-companies/u-abc123` still lands on that
+company's trend page. `ROUTES.MY_COMPANIES` / `MyCompaniesPage` / `components/my-companies/`
+kept their old *internal* names on purpose — renaming files and symbols would have churned
+every import for zero user-visible gain.
+
+- **ONE CALL: `POST /api/users/companies`.** Pressing **Add company** adds the company, or
+  fails and says why. There is no preview and no confirm. The page used to call
+  `POST /api/companies/resolve` first and render a card ("Found 663 open jobs on Workday",
+  plus a Job board / How we found it / Final URL grid) behind a second **Track this company**
+  button — but the add endpoint re-resolves the raw pasted URL from scratch, probes it,
+  applies both limits, runs all three already-published checks and routes a non-ATS URL into
+  discovery, so the second press decided nothing. The resolve endpoint still exists, still
+  persists nothing, and keeps its own backend tests; **the frontend simply has no caller for
+  it**, and re-adding one would re-add the step.
+- **Four outcomes, all rendered by `components/my-companies/AddCompanyOutcome.tsx`** (the old
+  `AddCompanyCTA`, minus its button): `201`/`200` a tracked `UserCompany` → the success card;
+  `202` → the one-time-setup notice; `200 already_public` → the link to the public page; a
+  `422`/`4xx`/`5xx` → one alert. `DiscoveryStatus` renders the middle two and nothing else —
+  its error branch and its "starting…" placeholder went with the resolve→discovery handoff
+  they narrated.
+- **The failure alert speaks two vocabularies.** The add endpoint's own six reason codes
+  (`unsupported`, `probe_failed`, `empty`, `deadline_exceeded`, `no_ats_detected`,
+  `monthly_limit_reached`) get `ADD_REASON_TITLES`; **everything else falls through to
+  `describeResolveError`**. That fallback is load-bearing, not tidiness: a URL-shaped refusal
+  (`scheme_not_https`, `resolves_to_private_address`, a 429, a 503) used to be answered by the
+  resolve call and rendered by `ResolveErrorDisplay`, and without the fallback a mistyped
+  scheme would now render "we couldn't add that company (code: scheme_not_https)".
+- **A typo costs nothing, and that is enforced on the SERVER now.** The old client-side gate
+  ("only POST the add endpoint when the resolver said `no_ats_detected`") was what stopped a
+  malformed URL from starting a paid discovery. With one call there is no such gate, so
+  `routers/user_companies` refuses any resolver reason other than `no_ats_detected` **before**
+  the discovery gate and **without writing a `company_add_attempts` row** — so it starts
+  nothing and spends none of the 20 monthly adds. `no_ats_detected` is the opposite: we read
+  the page, found no board, and that goes to discovery and charges.
+- **The sentence under the button IS the consent, and it may not promise a confirm.** It
+  lives in `ResolveUrlForm`, directly under **Add company**: *"If this board is new to us,
+  Add company starts a one-time setup right away, about a minute."* It used to be a blue
+  info alert above the whole form saying the same thing at greater length; the alert was
+  cut ("the consent alert can be completely removed") and this replaced it, because a line
+  under the button is read by someone about to press it and a banner above the field is
+  read on the way past. It may never move behind a click, and it may never shrink back to
+  promising a read-only check — that is what the deleted "nothing is tracked until you
+  press Track this company" did, and the button it named is gone.
+- **The field helper is the last statement of the aggregator rule.** *"Paste the link to
+  the company's own careers page, not LinkedIn or Indeed."* The clause naming the
+  aggregators is there ONLY because the how-to video that was going to say it does not
+  exist yet (`HOW_IT_WORKS_VIDEO_SRC` is `null`), and nothing in the product enforces it:
+  `_NEVER_MATCH_DOMAINS` is a denylist read on the wrong rung, and it misses `dice.com`,
+  `monster.com` and `hiring.cafe`. An aggregator URL therefore resolves, finds no board,
+  reaches `no_ats_detected`, and that is precisely the branch that spends a discovery run
+  and one of the user's monthly adds. Delete the clause when the video ships; not before.
+- **The how-to IS the empty state** (`AddCompanyHowTo`). A user tracking nothing sees three
+  numbered steps where "No companies yet" used to be, and the state is still named for a
+  screen reader by a `visuallyHidden` line. One company later the list replaces it and a
+  persistent **How it works** link under the spend sentence re-opens the same component —
+  one component, two triggers, so the two renders cannot drift. The **video slot is empty
+  and draws nothing**: set `HOW_IT_WORKS_VIDEO_SRC` and the video appears under the same
+  steps, which is the whole change.
+- **The card is one click target.** The company name carries a stretched `::after`, so
+  pressing anywhere on the card opens that company; the pencil and the X are its SIBLINGS,
+  raised to `z-index: 2`, never its children (a `<button>` inside an `<a>` is invalid, and
+  the icons would end up navigating). DOM order is name, edit, remove, board link, which is
+  also the tab order. The board link, the discovery checklist and the match banner are
+  raised too — each is a deliberate hole in the click target. While a rename is open the
+  name link is unmounted, so the card is not clickable at all.
+- **Discovery has its own server flag.** With `CUSTOM_COMPANY_DISCOVERY_ENABLED` off the add
+  endpoint returns `422 no_ats_detected` instead of starting anything, and the failure alert
+  renders that verdict plus the boards we read without setup — never an endless spinner.
+- **A company we already publish is not added — it is linked.** Before creating anything —
+  and before any discovery is enqueued — the add endpoint runs **three** checks against the
+  ~135 public companies, in descending order of certainty:
+  1. the resolved **`(ats, board_token)`** pair, for the six ATS providers;
+  2. the **careers host**, for the five `ats='script'` boards (Amazon, Apple, Google,
+     Microsoft, TikTok) that no URL can ever spell as an ATS pair. The host table lives
+     in `scripts/shared/constants.py` (`SCRIPT_COMPANY_CAREERS_HOSTS`) and the matcher in
+     `api/services/careers_host_match.py`. Match is **exact host** after normalization
+     (case, `www.`, port, trailing dot, userinfo), plus a path prefix where the board is a
+     path rather than a host (`google.com/about/careers`) — never a registrable-domain
+     match, which would claim `learn.microsoft.com`; and
+  3. the **company name inside the registrable domain** — `lifeatspotify.com` → Spotify.
+     Matcher in `api/services/company_name_match.py` (pure), DB half in
+     `custom_companies_service.find_public_company_by_name`. **Not containment**: the
+     domain label must BE a published name or be that name wearing one *declared* careers
+     affix (`lifeat`, `join`, `weare`, `get`, `careers`, `jobs`, …). Measured against the
+     real fleet, plain containment produces 2,294 false hits over an English dictionary
+     and answers "General Motors" for `figma.com` (`gm` ⊂ `figma`); the affix rule
+     produces 1. Names ≤4 chars match only as the whole label, ATS/aggregator domains
+     never match, and the five companies from check 2 are excluded so a guess can never
+     overturn an exact refusal.
+
+  Any hit writes **nothing** (no company, no scraper, no jobs, no discovery job) and
+  answers `200 {status: 'already_public', companyId, displayName, finalUrl, matchKind}`.
+  The user owns nothing afterwards — a public company is already in everyone's list, and
+  putting a `user_companies` row on one would point the private jobs feed and the
+  purge-on-last-owner delete at a public board. Info severity, terminal, not dismissible.
+
+- **`matchKind` decides whether there is a way past the notice, and certainty decides
+  `matchKind`.** This is a rule, not a style choice.
+
+  | `matchKind` | Which check | Headline | Way out |
+  |---|---|---|---|
+  | `'board'` | 1 or 2 | "We already track Spotify" | **none** |
+  | `'name'` | 3 | "This looks like Spotify, which we already track" | `TrackAnywayAction` |
+
+  Checks 1 and 2 are exact identifiers, so there is no plausible reading where the user
+  meant a different company — and a private duplicate re-scrapes the same feed for a chart
+  whose history starts today while the full one is one click away. Offering that was a trap
+  dressed as a choice, so those branches are terminal.
+
+  Check 3 is a guess, and its failure mode is a false positive. With no way out, a wrong
+  guess **hard-blocks** somebody from adding a legitimately different company that merely
+  shares a string with one of ours, with no way to tell us we are wrong — a worse
+  anti-pattern. So that branch keeps `TrackAnywayAction`, worded **"This isn't the same
+  company"** (correcting us) rather than "Track it separately anyway" (opting into a
+  duplicate). It re-sends the same URL with `trackAnyway: true`.
+
+  **The server still honours `trackAnyway: true` on every check.** Only the UI affordance
+  was removed from the certain ones, so a bookmark or a replayed request never 500s.
+
+  **One component renders all three**: `AddCompanyOutcome` hands any `already_public` body
+  to `DiscoveryStatus`, which renders `TrackAnywayAction` **only** when
+  `matchKind === 'name'` (`isNameGuessMatch`). The `matchKind` on the wire is the whole
+  rule — which check answered is no longer visible in the component tree, and must not be
+  re-derived from one.
+
+  **What NONE of the three catches**, and the copy must never imply otherwise: a careers
+  site whose domain does not name the company at all. Only the job set links those — see
+  `published_board_match`, which *suggests* the link after the first harvest.
 - **Two independent flags.** `VITE_CUSTOM_COMPANIES_ENABLED` only reveals the page; the
   backend has its own `CUSTOM_COMPANY_SOURCES_ENABLED` setting and answers **503** while it
   is off. Both must be on for the flow to work. With the frontend flag off there is no nav
   entry, no route (`App.tsx` skips registering it), and no network calls.
-- **One endpoint:** `POST /api/companies/resolve` (Bearer auth, 10 requests/60s per user).
-  It reaches the backend through the existing `api/companies.ts` Vercel proxy — no new proxy.
-- **Two different 422 bodies.** The resolver's own failure is *flat*
-  (`{reason, finalUrl, hops}`); FastAPI request-validation failure is
+- **One endpoint: `POST /api/users/companies`** (Bearer auth, 10 requests/60s per user, 20
+  adds per user per UTC month — **admins are exempt from the monthly cap only**, and
+  the server tells the page so by sending no `quota` block at all, which
+  `addsRemaining` already renders as no counter and nothing disabled). It reaches the
+  backend through the existing `api/users.ts`
+  Vercel proxy — no new proxy, and `api/companies.ts` is no longer used by this page at all.
+  The burst limiter on this route is what bounds how fast discoveries can be started; it used
+  to be the resolve endpoint's limiter doing that indirectly, which a replayed bearer token
+  skipped entirely.
+- **A user can RENAME a board they track**, inline on the card (`PATCH
+  /api/users/companies/{id}`, its own 30/60s bucket, charging neither add budget). The
+  non-obvious half is in the backend and is the reason the feature is not a trap:
+  `companies.display_name` is DERIVED from the URL and re-derived by more than one path
+  (`_promote_to_tracked` on every discovery accept, `restart_refused_discovery` on the
+  retry of a refused board — which is the only retry the UI offers). A rename stored in
+  that column would be silently reverted by an ordinary re-add, so it lands in a separate
+  `companies.user_display_name` and readers COALESCE the two. Nothing can clobber a column
+  it does not write. Full reasoning:
+  `docs/implementations/custom-company-sources/RENAME-PLAN.md`.
+  - The editor holds a **pending state, never an optimistic patch** — a rename that
+    appears to succeed and then reverts is the exact failure this is designed against.
+  - Its 422 codes (`name_empty`, `name_too_long`) live in `userCompaniesApi.ts` beside
+    `describeRenameError`, keyed by a closed union for the same reason the add codes are.
+  - `api/users.ts` needed no change: its allowlist is per PATH, and `companies/:id` was
+    already listed for DELETE.
+- **Two different 422 bodies.** The endpoint's own failure is *flat*
+  (`{reason, detail, finalUrl}`); FastAPI request-validation failure is
   `{detail: [...]}` with no `reason`. `features/userCompanies/resolveErrors.ts` is the single
-  place that tells them apart and owns all user-facing copy — add new `reason` codes there
-  (the `Record<ResolveFailureReason, …>` map makes a missing one a compile error).
-- **200 does not mean success.** `probe.ok === false` is a real 200 response: the board was
-  identified but reading it failed. It renders as its own state, not as "0 open jobs".
+  place that tells them apart and owns all user-facing copy for the resolver's codes — add new
+  `reason` codes there (the `Record<ResolveFailureReason, …>` map makes a missing one a
+  compile error). The add endpoint's own six codes live in `AddCompanyOutcome.tsx`, keyed by
+  a closed union for the same reason.
 
 **Key files** (relative to `src/frontend/src/`):
 - `config/customCompanies.ts` — the flag (`VITE_CUSTOM_COMPANIES_ENABLED === 'true'`)
 - `features/userCompanies/userCompaniesApi.ts` — RTK Query slice; `baseUrl: '/api'` on
-  purpose, so follow-up `users/companies` endpoints can join it
-- `features/userCompanies/resolveErrors.ts` — error-code → copy mapping
-- `components/my-companies/` — form, result, and error displays
+  purpose, so endpoints under more than one path prefix can share it
+- `features/userCompanies/resolveErrors.ts` — resolver-code → copy mapping
+- `components/my-companies/ResolveUrlForm.tsx` — the input, the only button, the helper
+  carrying the aggregator rule, and the spend sentence under the button
+- `components/my-companies/AddCompanyHowTo.tsx` — the three steps and the video slot;
+  `HOW_IT_WORKS_VIDEO_SRC` at the top is the one line to change when a video exists
+- `components/my-companies/AddCompanyOutcome.tsx` — every outcome one press can land on
 - `pages/MyCompaniesPage/` — the page (signed-out gate + form + results)
 
+**Discovery-progress checklist** (`VITE_DISCOVERY_PROGRESS_ENABLED`, its own flag, default
+off): a non-ATS URL is handed to a one-time backend capture, and the row it creates
+narrates five named steps — *Opening the page → Reading jobs → Building web scraper →
+Ready to track → Fetching all current jobs*. The first four are ticked by discovery; the
+fifth is opened by discovery and closed by the **first harvest**, which is a different
+run. A refusal names the step that stopped, carries the reason on it, and offers the ONE
+thing that changes the answer (paste the URL of the actual listings) — never a bare retry,
+because discovery is deterministic and re-running the same URL reproduces the same answer.
+
+- **It is an accordion.** OPEN while something is happening (`discovering`, an accepted
+  board whose first harvest hasn't landed) or something went wrong (`refused`); CLOSED
+  once the row settles, i.e. `lastSuccessAt` is set. `shouldExpandDiscovery` is the whole
+  rule, read once on mount so a landing harvest can't snap the panel shut under a reader.
+  `Collapse` + `unmountOnExit`, so a closed row is one line and *zero* extra DOM.
+- **The evidence is now permanent on every tracked row**, not just partial ones. It used
+  to disappear the moment `lastSuccessAt` was set (a permanent setup receipt is clutter —
+  true while the panel was always expanded). Folded, it costs one line, and the record of
+  *how* we read a board stops looking deleted. Still hidden on `quarantined` (a success
+  receipt under a "Tracking paused" badge contradicts the badge) and on any unknown
+  `healthState`.
+- **A ✓'s `result` is never rendered.** It is engine telemetry ("recorded 14 JSON
+  request(s)"), and one under every rung doubled the length of a list whose job is being
+  scannable. Exactly three rungs carry a line: a ✕ (the reason), a ○ that already tried
+  (`first_scan` failed — see below), and a ◐ (the board's own numbers).
+
+- The step state rides the **existing** `getUserCompanies` payload (`company.discovery`),
+  polled by the list that already polls; there is no second channel. The cadence drops to
+  4s while a row is `discovering` (four steps of a few seconds each read as a spinner at 15s)
+  — but only while `discovery.updatedAt` is recent. A row can be stranded in `discovering`
+  forever (flag flipped off mid-flight, undrained queue, the task's SIGKILL "wedged-row"
+  caveat), and an unbounded 4s poll would hammer the list endpoint for as long as the tab
+  stays open; past the staleness window it falls back to the ordinary 15s cadence.
+- A failed poll is **non-destructive**: RTK Query keeps the last good `data` while marking
+  the entry rejected, so the list renders on with an inline "couldn't refresh" warning and
+  the poller stays mounted. Only a load with nothing cached becomes the full error card.
+- **Flag OFF must render byte-for-byte what shipped before** — the gate lives in
+  `MyCompaniesList`, and `MyCompaniesList.test.tsx` pins it against an identical payload.
+- The live-view iframe is optional and absent by default: only a Browserbase capture has a
+  hosted view and the backend runs its own Chromium. When present it opens **expanded**
+  (the session lasts ~30s — a run that ends before the user notices a "Watch live" button
+  showed them nothing) behind a toggle that can put it away, and `pointer-events: none`
+  either way. Never infer browser liveness from step state, which is always at least one
+  write behind.
+- **The backend's null is structurally too late, and that used to be the bug.** The
+  browser dies inside the capture child (`_capture_main.py`'s `await browser.close()` is
+  its last act); the parent only writes `live_view_url: null` after that child exits, and
+  a poll then has to carry it — by which time Browserbase's frame has already painted
+  *"Debugging connection was closed. Reason: WebSocket disconnected"* into our layout. No
+  poll can win that race. So `liveViewUrl` is treated as a **claim with an expiry**, and
+  `DiscoveryChecklist`'s `LiveView` retires the frame on whichever of four comes first:
+  the frame's own `browserbase-disconnected` postMessage (the only one that beats the
+  paint — origin-pinned to the frame we mounted, exact-payload matched, and *not*
+  authoritative: it is undocumented and sent with `targetOrigin: "*"`); the server's null;
+  the **trust lease** (`LIVE_VIEW_TRUST_MS` = one poll interval + a round trip, renewed by
+  every fulfilled payload, which is what closes the *unbounded* cases — a failing poll
+  keeps serving the last good payload, banner and all); and the session ceiling
+  (`_BROWSERBASE_SESSION_TTL_S`, 300s, for a row a SIGKILLed worker will never retract).
+  Retirement is always recorded as *the URL it refers to*, so no verdict outlives its
+  session. `receivedAt` (`fulfilledTimeStamp`) is a **required** prop for exactly this
+  reason — a caller that forgets it would get a frame that outlives its session.
+- **It says goodbye rather than vanishing.** Mid-run the frame unmounts immediately (DOM
+  removal, never `display: none` — while mounted it is Browserbase's page and free to
+  paint their error), the toggle is replaced by *"Live view ended — still setting up"*,
+  the 16:10 box slides shut under it, and then the line goes too. Same 260ms fade+rise as
+  `DiscoveryNetworkLog`'s `ROW_ANIMATION`. On a run that ended there is **no** note — the
+  checklist directly above has just said how it turned out.
+- **Every tracked row links to the board it was built from** (`sourceBoardUrl` /
+  `sourceBoardLabel` in `companyHealth.ts`), on the list row and in the
+  `MyCompanyTrendPage` header. A discovered board's `boardToken` *is* the normalized URL
+  the user pasted; Greenhouse/Ashby/Lever/Gem are built from the slug. **Workday and
+  Eightfold get no link** — their `boardToken` is a cosmetic tenant label and the real
+  host lives in `provider_config`, which the list payload does not carry, so a link would
+  be a confident 404. The label is the host so the row answers the question without a
+  click; the exact URL is on `title`.
+- **The network log** (`DiscoveryNetworkLog.tsx`) is the evidence under the checklist:
+  every JSON request the capture browser recorded, which one we picked, and a sample of
+  the JSON it returned. **Open by default, and it NARROWS** (one decision, not two):
+  rows landing three and four at a time is the only part of a one-time setup a person can
+  watch, and that was happening inside a closed box — but the moment a request is picked
+  the list becomes that one row plus its JSON, with the discarded ones one caption-sized
+  "Show the other 13 requests" away. Its heading keeps counting them (`11 requests so far`
+  → `14 requests · 1 picked`). A refusal has no winner, so nothing narrows and the whole
+  list stays — that case is why the panel exists. It renders nothing when nothing was
+  recorded. Backed by `discovery.network` on the same
+  poll; the backend streams rows as the capture sees them, throttled to at most 12 extra
+  writes per run (`capture/discover.py`'s `_MAX_REQUEST_PUBLISHES`).
+- **Nothing secret is published.** No request headers, no cookies, no POST bodies, and
+  no query *values* — `discovery/progress.py::display_url` strips userinfo and port and
+  replaces every query value with `…`, on write AND again on read.
+- Copy + state helpers are pure and live in `components/my-companies/companyHealth.ts`
+  (`DISCOVERY_STEP_LABELS` is a `Record` over a CLOSED union, so a backend rename is a
+  compile error here); the components are `DiscoveryChecklist.tsx` and
+  `DiscoveryNetworkLog.tsx`.
+
+**Row chips: alarm colour is only for states the reader can act on.** This is a rule, not
+a palette preference — an amber chip promises "this needs you", and spending it on
+something with no available action teaches people to ignore amber everywhere else.
+
+| Row state | Chip | Why |
+| --- | --- | --- |
+| `discovering` | blue `Setting up…` | one-time capture in flight |
+| `unverified`, no `lastSuccessAt` | blue `Fetching all current jobs…` | first harvest hasn't landed; applies to **ATS rows too**, which have no checklist at all |
+| ...and `first_scan` is `failed` | blue `Couldn't fetch yet — retrying` | the scheduler retries tonight; nothing for the reader to do |
+| tracked, whole board | **filled** green `Successfully tracking` | |
+| tracked, `outcome: partial` | **outlined** green `Tracking part of this board` | the board's own API refuses to go further (Amazon hard-refuses `offset + limit > 10000`). Same hue, hollow, different words — separable at a glance without claiming anything is broken |
+| `quarantined` | amber `Tracking paused` | tracking has genuinely stopped; amber is right here |
+| `refused` | red `Not trackable` | |
+
+- A **partial** board is a success — every job it can see is refreshed daily and none is
+  ever closed. It used to be amber, sitting directly above five green ticks, and the row
+  read as a malfunction. The fix is two-sided: the chip stops shouting, AND the last rung
+  stops claiming it fetched everything (`◐` + `describePartialScope`, which lifts the
+  board's own count out of `verify_read`'s prose and pairs it with `openJobCount`). The
+  chip now corroborates the list instead of contradicting it.
+- **A row mid-fetch must never claim partiality.** The verdict is decided at discovery
+  time and the harvest runs afterwards, so `outcome: 'partial'` genuinely exists over a
+  count that is still climbing — asserting the end of a story mid-sentence, right above
+  the number a reader would check it against.
+- **The freshness line says "Last fetched", never "Last checked".** It renders
+  `lastSuccessAt`, which the backend stamps only on a run that did NOT fail
+  (`mark_last_success`), so "checked" claimed nobody had looked at a board we look at
+  nightly and fail on nightly — it read as merely quiet instead of broken. "Fetched"
+  survives that case (a failed fetch fetched nothing) and reframes the line as a fact
+  about the count beside it. Not **"Last full scrape"** either: the same stamp is written
+  by a knowingly-partial read, so "full" swaps this lie for a completeness claim we cannot
+  back. Relative (`2 hours ago`, `Not fetched yet`), because the fact behind it is a
+  nightly harvest and seconds-level precision was noise; the exact instant stays on the
+  element's `title`. All of it lives in `describeLastFetched`.
+- **Known gap:** an ATS row has no signal on the wire distinguishing "added ten seconds
+  ago" from "has failed every night this week" (no created-at, no last-attempt, no
+  last-failure). A discovered row does (`first_scan: failed`). This is what stops the
+  freshness line from ever reporting an *attempt* — it can only be honest about the last
+  success. The backstop is the backend's own — repeated failures quarantine the row.
+
 **Env vars** (go in `src/frontend/.env.local` — see Gotcha #2):
-- `VITE_CUSTOM_COMPANIES_ENABLED` — set to exactly `true` to show the My Companies page
+- `VITE_CUSTOM_COMPANIES_ENABLED` — set to exactly `true` to show the Add Companies page
   (optional; **defaults to off**, and any other value keeps it off)
+- `VITE_DISCOVERY_PROGRESS_ENABLED` — set to exactly `true` for the discovery checklist,
+  job preview and live view (optional; **defaults to off**; nested under the flag above —
+  it reveals nothing on its own)
 
 ## Frontend Foundations
 

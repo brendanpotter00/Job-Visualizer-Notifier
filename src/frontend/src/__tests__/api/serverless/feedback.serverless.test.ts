@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import handler from '../../../../../../api/feedback';
+import { runProxyAllowlistGuard } from './proxyAllowlistGuard';
 
 function mockJsonResponse(status: number, body: unknown) {
   const serialized = JSON.stringify(body);
@@ -98,4 +99,22 @@ describe('/api/feedback serverless function', () => {
     await handler(mockReq as VercelRequest, mockRes as VercelResponse);
     expect(mockRes.status).toHaveBeenCalledWith(502);
   });
+});
+
+/**
+ * The allowlist that closed the production `?path=` traversal.
+ *
+ * This is the proxy the bypass was demonstrated against, and its legitimate
+ * surface is a single bare POST — the backend `feedback` router declares
+ * exactly one route and `features/feedback/feedbackApi.ts` spells its url as
+ * the empty string. `/api/feedback/:path(.*)` existed in vercel.json as
+ * boilerplate, never because a sub-path was needed.
+ */
+runProxyAllowlistGuard({
+  name: 'feedback',
+  prefix: '/api/feedback',
+  handler,
+  legitimate: [['', '/api/feedback']],
+  normalizes: [['', ''], '/api/feedback'],
+  methods: ['GET', 'POST'],
 });

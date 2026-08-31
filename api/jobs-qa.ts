@@ -2,6 +2,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { getBackendUrl } from './utils/backendUrl';
 import { forwardResponse } from './utils/forwardResponse';
 import { getInternalKeyHeader } from './utils/internalKey';
+import { PROXY_REJECTION, resolveProxyPath } from './utils/proxyPath';
 
 const METHODS_WITH_BODY = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
@@ -61,53 +62,20 @@ const METHODS_WITH_BODY = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
  * exists and carries `require_admin`, and (b) every route lacking
  * `require_admin` is absent from this list.
  */
-const PROXIED_PATHS = new Set(['scrape-runs', 'trigger-scrape']);
+const PROXIED_PATHS = ['scrape-runs', 'trigger-scrape'] as const;
 
 /**
- * Reduce the raw `?path=` capture to the single canonical spelling used
- * for the allowlist comparison, or `null` if it cannot be trusted.
+ * Historical note: this file used to carry its own copy of
+ * `canonicalizeProxyPath`. It now shares one implementation with the other six
+ * proxies (`api/utils/proxyPath.ts`), because the same `?path=` hole was later
+ * found live in production on `api/users|companies|feedback|features|admin`,
+ * and seven divergent copies of a security control is how that happens again.
  *
- * Normalization is required even with an allowlist: without it,
- * `scrape-runs/` would fail the lookup and 404 a legitimate caller, and
- * with a denylist it silently opened the hole documented above. Doing it
- * once, here, means the comparison and the forwarded URL agree by
- * construction.
- *
- * Steps, each earning its place:
- *  - array form: Vercel yields `string[]` when `path` repeats, and
- *    `?path=scrape-runs&path=` joined naively becomes `scrape-runs/`.
- *  - percent-decode: Starlette decodes before routing, so `scraper%2Dhealth`
- *    forwarded verbatim arrives as `scraper-health`. We must compare what
- *    the BACKEND will see, not what the client typed. Malformed encoding
- *    (`%`, `%zz`) throws — treated as untrusted.
- *  - NUL rejection: a `%00` truncation trick should never reach upstream.
- *  - drop empty segments: collapses leading, trailing and duplicated
- *    slashes in one pass.
- *  - reject `.` / `..`: no traversal games; `./scrape-runs` is not a
- *    spelling we accept, and `..` could otherwise walk out of /api/jobs-qa.
- *
- * Comparison stays case-sensitive — the backend routes are lowercase and
- * FastAPI matching is case-sensitive, so folding case here would accept
- * spellings the backend would 404 anyway.
+ * The shared version is a strict superset of what lived here: same decode /
+ * split / reject-dot-segments logic, plus rejection of the URL-restructuring
+ * characters (backslash, TAB/LF/CR, `?`, `#`) that this file's literal-only
+ * allowlist happened to be immune to but a dynamic segment would not be.
  */
-function canonicalizeProxyPath(raw: string | string[] | undefined): string | null {
-  const parts = Array.isArray(raw) ? raw : [raw];
-  const joined = parts.filter((part) => part != null).join('/');
-
-  let decoded: string;
-  try {
-    decoded = decodeURIComponent(joined);
-  } catch {
-    return null; // malformed percent-encoding
-  }
-
-  if (decoded.includes('\0')) return null;
-
-  const segments = decoded.split('/').filter((segment) => segment.length > 0);
-  if (segments.some((segment) => segment === '.' || segment === '..')) return null;
-
-  return segments.join('/');
-}
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const { path, ...queryParams } = req.query;
@@ -116,9 +84,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // THIS value, which the allowlist check has already constrained to one
   // of two literals. The raw client-supplied path never reaches the
   // upstream request.
-  const targetPath = canonicalizeProxyPath(path);
-  if (targetPath === null || !PROXIED_PATHS.has(targetPath)) {
-    res.status(404).json({ detail: 'Not Found' });
+  const targetPath = resolveProxyPath(path, PROXIED_PATHS);
+  if (targetPath === null) {
+    res.status(PROXY_REJECTION.status).json(PROXY_REJECTION.body);
     return;
   }
 

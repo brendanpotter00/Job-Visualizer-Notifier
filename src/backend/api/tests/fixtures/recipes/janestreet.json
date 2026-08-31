@@ -1,0 +1,27 @@
+{
+  "script_version": 1,
+  "transport": "http_json",
+  "expected_min_jobs": 100,
+  "steps": [
+    {
+      "op": "fetch",
+      "method": "GET",
+      "url": "https://www.janestreet.com/jobs/main.json",
+      "headers": {}
+    },
+    {
+      "op": "extract_json_path",
+      "records_path": "",
+      "fields": {
+        "id": "id",
+        "title": "position",
+        "url": "https://www.janestreet.com/join-jane-street/position/{id}/",
+        "location": "city",
+        "department": "category"
+      }
+    },
+    { "op": "dedupe_key", "field": "id" },
+    { "op": "assert_unique", "field": "id" }
+  ],
+  "oracle": { "kind": "self_consistent" }
+}

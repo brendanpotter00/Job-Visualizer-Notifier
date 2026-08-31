@@ -1,0 +1,217 @@
+{
+ "board_host": "www.lifeatspotify.com",
+ "url_spec": "https://www.lifeatspotify.com/jobs/{id}",
+ "expected": "https://www.lifeatspotify.com/jobs/{id}",
+ "why": "the mapped id IS in the board's own links \u2014 untouchable",
+ "captured_urls": [
+  "https://www.lifeatspotify.com/jobs/senior-product-designer-platform-and-partner-experience",
+  "https://www.lifeatspotify.com/jobs/artist-label-partnerships-contractor-vietnam",
+  "https://www.lifeatspotify.com/jobs/senior-revenue-accountant-advertising",
+  "https://www.lifeatspotify.com/jobs/automation-programmatic-lead-london",
+  "https://www.lifeatspotify.com/jobs/senior-backend-engineer-subscriptions",
+  "https://www.lifeatspotify.com/jobs/senior-backend-engineer-podcast",
+  "https://www.lifeatspotify.com/jobs/senior-data-engineer-data-platform",
+  "https://www.lifeatspotify.com/jobs/associate-ad-review-specialist-contractor-6-month-contract"
+ ],
+ "records": [
+  {
+   "id": "senior-product-designer-platform-and-partner-experience",
+   "text": "Senior Product Designer, Platform and Partner Experience",
+   "main_category": {
+    "name": "Design",
+    "slug": "design"
+   },
+   "sub_category": {
+    "name": "Product Design",
+    "slug": "product-design"
+   },
+   "locations": [
+    {
+     "location": "London",
+     "slug": "london",
+     "num_jobs": 31
+    },
+    {
+     "location": "Stockholm",
+     "slug": "stockholm",
+     "num_jobs": 24
+    }
+   ],
+   "job_type": {
+    "name": "Permanent",
+    "slug": "permanent"
+   }
+  },
+  {
+   "id": "artist-label-partnerships-contractor-vietnam",
+   "text": "Artist &amp; Label Partnerships Contractor, Vietnam",
+   "main_category": {
+    "name": "Content",
+    "slug": "content"
+   },
+   "sub_category": {
+    "name": "Editorial",
+    "slug": "editorial"
+   },
+   "locations": [
+    {
+     "location": "Ho Chi Minh",
+     "slug": "ho-chi-minh",
+     "num_jobs": 1
+    }
+   ],
+   "job_type": {
+    "name": "Short Term",
+    "slug": "short-term"
+   }
+  },
+  {
+   "id": "senior-revenue-accountant-advertising",
+   "text": "Senior Revenue Accountant, Advertising",
+   "main_category": {
+    "name": "Finance",
+    "slug": "finance"
+   },
+   "sub_category": {
+    "name": "Accounting",
+    "slug": "accounting"
+   },
+   "locations": [
+    {
+     "location": "New York",
+     "slug": "new-york",
+     "num_jobs": 29
+    }
+   ],
+   "job_type": {
+    "name": "Permanent",
+    "slug": "permanent"
+   }
+  },
+  {
+   "id": "automation-programmatic-lead-london",
+   "text": "Automation (Programmatic) Lead, London",
+   "main_category": {
+    "name": "Sales",
+    "slug": "sales"
+   },
+   "sub_category": {
+    "name": "Ad Sales",
+    "slug": "ad-sales"
+   },
+   "locations": [
+    {
+     "location": "London",
+     "slug": "london",
+     "num_jobs": 31
+    }
+   ],
+   "job_type": {
+    "name": "Permanent",
+    "slug": "permanent"
+   }
+  },
+  {
+   "id": "senior-backend-engineer-subscriptions",
+   "text": "Senior Backend Engineer, Subscriptions",
+   "main_category": {
+    "name": "Engineering",
+    "slug": "engineering"
+   },
+   "sub_category": {
+    "name": "Backend",
+    "slug": "backend"
+   },
+   "locations": [
+    {
+     "location": "London",
+     "slug": "london",
+     "num_jobs": 31
+    },
+    {
+     "location": "Stockholm",
+     "slug": "stockholm",
+     "num_jobs": 24
+    }
+   ],
+   "job_type": {
+    "name": "Permanent",
+    "slug": "permanent"
+   }
+  },
+  {
+   "id": "senior-backend-engineer-podcast",
+   "text": "Senior Backend Engineer, Podcast",
+   "main_category": {
+    "name": "Engineering",
+    "slug": "engineering"
+   },
+   "sub_category": {
+    "name": "Backend",
+    "slug": "backend"
+   },
+   "locations": [
+    {
+     "location": "New York",
+     "slug": "new-york",
+     "num_jobs": 29
+    }
+   ],
+   "job_type": {
+    "name": "Permanent",
+    "slug": "permanent"
+   }
+  },
+  {
+   "id": "senior-data-engineer-data-platform",
+   "text": "Senior Data Engineer, Data Platform",
+   "main_category": {
+    "name": "Engineering",
+    "slug": "engineering"
+   },
+   "sub_category": {
+    "name": "Data",
+    "slug": "data"
+   },
+   "locations": [
+    {
+     "location": "London",
+     "slug": "london",
+     "num_jobs": 31
+    }
+   ],
+   "job_type": {
+    "name": "Permanent",
+    "slug": "permanent"
+   }
+  },
+  {
+   "id": "associate-ad-review-specialist-contractor-6-month-contract",
+   "text": "Associate Ad Review Specialist Contractor (6 month Contract)",
+   "main_category": {
+    "name": "Public Affairs",
+    "slug": "public-affairs"
+   },
+   "sub_category": {
+    "name": "Trust & Safety",
+    "slug": "trust-safety-global-affairs"
+   },
+   "locations": [
+    {
+     "location": "Singapore",
+     "slug": "singapore",
+     "num_jobs": 2
+    },
+    {
+     "location": "Singapore",
+     "slug": "singapore-singapore-singapore-c",
+     "num_jobs": 2
+    }
+   ],
+   "job_type": {
+    "name": "Short Term",
+    "slug": "short-term"
+   }
+  }
+ ]
+}

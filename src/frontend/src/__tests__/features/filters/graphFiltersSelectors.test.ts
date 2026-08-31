@@ -20,7 +20,6 @@ const jobs: Job[] = [
     firstSeenAt: '2026-02-01T00:00:00Z',
     url: 'https://example.com/j-feb',
     location: 'Hawthorne, CA',
-    department: 'Engineering',
     raw: {},
   },
   {
@@ -32,7 +31,6 @@ const jobs: Job[] = [
     firstSeenAt: '2026-01-01T00:00:00Z',
     url: 'https://example.com/j-jan',
     location: 'Hawthorne, CA',
-    department: 'Engineering',
     raw: {},
   },
   {
@@ -44,7 +42,6 @@ const jobs: Job[] = [
     firstSeenAt: '2026-03-01T00:00:00Z',
     url: 'https://example.com/j-mar',
     location: 'Remote',
-    department: 'People',
     raw: {},
   },
 ];
@@ -124,7 +121,6 @@ describe('selectGraphFilteredJobsSorted', () => {
         firstSeenAt: '2026-02-01T00:00:00Z',
         url: 'https://example.com/j-mid',
         location: 'Hawthorne, CA',
-        department: 'Engineering',
         raw: {},
       },
       {
@@ -136,7 +132,6 @@ describe('selectGraphFilteredJobsSorted', () => {
         firstSeenAt: '2026-03-15T00:00:00Z', // newest discovery — sorts first
         url: 'https://example.com/j-newest-seen',
         location: 'Remote',
-        department: 'Engineering',
         raw: {},
       },
       {
@@ -148,7 +143,6 @@ describe('selectGraphFilteredJobsSorted', () => {
         firstSeenAt: '2026-01-01T00:00:00Z',
         url: 'https://example.com/j-earliest-seen',
         location: 'Hawthorne, CA',
-        department: 'Engineering',
         raw: {},
       },
     ];

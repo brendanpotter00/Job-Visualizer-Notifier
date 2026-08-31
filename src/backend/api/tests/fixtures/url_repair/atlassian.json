@@ -1,0 +1,187 @@
+{
+ "board_host": "www.atlassian.com",
+ "url_spec": "portalJobPost.portalUrl",
+ "expected": "portalJobPost.portalUrl",
+ "why": "a bare dotted path is not a template \u2014 never repaired",
+ "captured_urls": [
+  "https://globalcareers-atlassian.icims.com/jobs/25583/account-executive---japanese-speaking/job",
+  "https://globalcareers-atlassian.icims.com/jobs/25480/account-executive%2c-mid-market/job",
+  "https://careers-apac-atlassian.icims.com/jobs/25493/account-executive%2c-mid-market-%28filipino-speaking%29/job",
+  "https://careers-apac-atlassian.icims.com/jobs/25488/account-executive%2c-mid-market-%28sea%29/job",
+  "https://careers-apac-atlassian.icims.com/jobs/25491/account-executive%2c-mid-market-%28korean-speaking%29/job",
+  "https://careers-apac-atlassian.icims.com/jobs/25720/account-executive%2c-mid-market-%28mandarin-speaking%29/job",
+  "https://careers-apac-atlassian.icims.com/jobs/25834/account-executive%2c-mid-market-%28thailand%29/job",
+  "https://careers-apac-atlassian.icims.com/jobs/25498/account-manager%2c-strategic/job"
+ ],
+ "records": [
+  {
+   "portalJobPost": {
+    "portalId": 17,
+    "portalUrl": "https://globalcareers-atlassian.icims.com/jobs/25583/account-executive---japanese-speaking/job",
+    "id": 25583,
+    "updatedDate": "2026-08-18 08:11 AM"
+   },
+   "id": 25583,
+   "portalId": 17,
+   "title": "Account Executive - Japanese Speaking",
+   "locations": [
+    "Remote - Japan - Remote",
+    "Remote - Remote"
+   ],
+   "category": "Sales",
+   "overview": "<p><strong>Working at Atlassian</strong></p><p>Atlassians can choose where they work \u2013 whether in an office, from home, or a combination of the two. That way, A",
+   "responsibilities": "<p><strong>Responsibilities</strong></p><ul><li><p>Develop and implement named Account or Territory plans geared at both maximising expansion opportunities acro",
+   "qualifications": "<p><strong>Qualifications</strong></p><ul><li><p>5+ years of experience managing important customer relationships and closing strategic sales opportunities</p><",
+   "applyUrl": "https://globalcareers-atlassian.icims.com/jobs/25583/account-executive---japanese-speaking/job?mode=apply",
+   "compensation": "<p data-compensation='true'>At Atlassian, we strive to design equitable, explainable, and competitive compensation programs. We follow consistent hiring practic"
+  },
+  {
+   "portalJobPost": {
+    "portalId": 17,
+    "portalUrl": "https://globalcareers-atlassian.icims.com/jobs/25480/account-executive%2c-mid-market/job",
+    "id": 25480,
+    "updatedDate": "2026-07-02 04:59 AM"
+   },
+   "id": 25480,
+   "portalId": 17,
+   "title": "Account Executive, Mid Market",
+   "type": "Full-Time",
+   "locations": [
+    "Bengaluru - India -   Bengaluru,  560071 India",
+    "Remote - India - Remote",
+    "Remote - Remote"
+   ],
+   "category": "Sales",
+   "overview": "<p><strong>Working at Atlassian</strong></p><p>Atlassians can choose where they work \u2013 whether in an office, from home, or a combination of the two. That way, A",
+   "responsibilities": "<ul><li><p>Develop and implement named Account or Territory (India) plans geared at both maximising expansion opportunities across a wide portfolio of products ",
+   "qualifications": "<ul><li><p>8+ years of Enterprise Software Sales Experience</p></li><li><p>Experience growing mid-market accounts with India-based customers</p></li><li><p>Expe",
+   "applyUrl": "https://globalcareers-atlassian.icims.com/jobs/25480/account-executive%2c-mid-market/job?mode=apply"
+  },
+  {
+   "portalJobPost": {
+    "portalId": 242,
+    "portalUrl": "https://careers-apac-atlassian.icims.com/jobs/25493/account-executive%2c-mid-market-%28filipino-speaking%29/job",
+    "id": 25493,
+    "updatedDate": "2026-08-27 02:08 AM"
+   },
+   "id": 25493,
+   "portalId": 242,
+   "title": "Account Executive, Mid Market (Filipino Speaking)",
+   "type": "Full-Time",
+   "locations": [
+    "Manila - Philippines -   Manila,  1634 Philippines",
+    "Remote - Remote"
+   ],
+   "category": "Sales",
+   "overview": "<p><strong>Working at Atlassian</strong></p><p>Atlassians can choose where they work \u2013 whether in an office, from home, or a combination of the two. That way, A",
+   "responsibilities": "<p><strong>Responsibilities</strong></p><ul><li><p>Develop and implement named account or territory plans geared at both maximising expansion opportunities acro",
+   "qualifications": "<p><strong>Qualifications</strong></p><ul><li><p>8+ years of experience in a quota-carrying B2B software sales role focused on the SEA region</p></li><li><p>Exp",
+   "applyUrl": "https://careers-apac-atlassian.icims.com/jobs/25493/account-executive%2c-mid-market-%28filipino-speaking%29/job?mode=apply"
+  },
+  {
+   "portalJobPost": {
+    "portalId": 242,
+    "portalUrl": "https://careers-apac-atlassian.icims.com/jobs/25488/account-executive%2c-mid-market-%28sea%29/job",
+    "id": 25488,
+    "updatedDate": "2026-08-06 10:23 PM"
+   },
+   "id": 25488,
+   "portalId": 242,
+   "title": "Account Executive, Mid Market (SEA)",
+   "type": "Full-Time",
+   "locations": [
+    "Singapore - Singapore -   Central Singapore  Singapore",
+    "Remote - Remote"
+   ],
+   "category": "Sales",
+   "overview": "<p><strong>Working at Atlassian</strong></p><p>Atlassians can choose where they work \u2013 whether in an office, from home, or a combination of the two. That way, A",
+   "responsibilities": "<p><strong>Responsibilities</strong></p><ul><li><p>Develop and implement named account or territory plans geared at both maximising expansion opportunities acro",
+   "qualifications": "<ul><li><p>5+ years of experience in a quota-carrying B2B software sales role focused on the SEA region</p></li><li><p>Experience growing mid-market or enterpri",
+   "applyUrl": "https://careers-apac-atlassian.icims.com/jobs/25488/account-executive%2c-mid-market-%28sea%29/job?mode=apply"
+  },
+  {
+   "portalJobPost": {
+    "portalId": 242,
+    "portalUrl": "https://careers-apac-atlassian.icims.com/jobs/25491/account-executive%2c-mid-market-%28korean-speaking%29/job",
+    "id": 25491,
+    "updatedDate": "2026-08-10 08:51 AM"
+   },
+   "id": 25491,
+   "portalId": 242,
+   "title": "Account Executive, Mid-Market (Korean speaking)",
+   "type": "Full-Time",
+   "locations": [
+    "Seoul - South Korea -     Korea, South",
+    "Remote - Remote"
+   ],
+   "category": "Sales",
+   "overview": "<p>Atlassians can choose where they work \u2013 whether in an office, from home, or a combination of the two. That way, Atlassians have more control over supporting ",
+   "responsibilities": "<p>Atlassian unleashes the potential of every team. Our agile &amp; DevOps, IT service management and work management software helps teams organize, discuss, an",
+   "qualifications": "<ul><li><p>5+ years of quota-carrying Enterprise Software Sales Experience</p></li><li><p>Experience growing mid-market accounts</p></li><li><p>Experience creat",
+   "applyUrl": "https://careers-apac-atlassian.icims.com/jobs/25491/account-executive%2c-mid-market-%28korean-speaking%29/job?mode=apply"
+  },
+  {
+   "portalJobPost": {
+    "portalId": 242,
+    "portalUrl": "https://careers-apac-atlassian.icims.com/jobs/25720/account-executive%2c-mid-market-%28mandarin-speaking%29/job",
+    "id": 25720,
+    "updatedDate": "2026-08-10 08:41 AM"
+   },
+   "id": 25720,
+   "portalId": 242,
+   "title": "Account Executive, Mid-Market (Mandarin speaking)",
+   "locations": [
+    "Sydney - Australia -   Sydney,  2000 Australia",
+    "Remote - Remote"
+   ],
+   "category": "Sales",
+   "overview": "<p><strong>Working at Atlassian</strong></p><p>Atlassians can choose where they work \u2013 whether in an office, from home, or a combination of the two. That way, A",
+   "responsibilities": "<p><strong>Responsibilities</strong></p><ul><li><p>Develop and implement named account or territory plans geared at both maximising expansion opportunities acro",
+   "qualifications": "<p><strong>Qualifications</strong></p><ul><li><p>5+ years of experience in a quota-carrying B2B software sales role focused on the Greater China region</p></li>",
+   "applyUrl": "https://careers-apac-atlassian.icims.com/jobs/25720/account-executive%2c-mid-market-%28mandarin-speaking%29/job?mode=apply",
+   "compensation": "<p data-compensation='true'>At Atlassian, we strive to design equitable, explainable, and competitive compensation programs. We follow consistent hiring practic"
+  },
+  {
+   "portalJobPost": {
+    "portalId": 242,
+    "portalUrl": "https://careers-apac-atlassian.icims.com/jobs/25834/account-executive%2c-mid-market-%28thailand%29/job",
+    "id": 25834,
+    "updatedDate": "2026-08-06 10:24 PM"
+   },
+   "id": 25834,
+   "portalId": 242,
+   "title": "Account Executive, Mid-Market (Thailand)",
+   "type": "Full-Time",
+   "locations": [
+    "Singapore - Singapore -   Central Singapore  Singapore",
+    "Remote - Remote"
+   ],
+   "category": "Sales",
+   "overview": "<p><strong>Working at Atlassian</strong></p><p>Atlassians can choose where they work \u2013 whether in an office, from home, or a combination of the two. That way, A",
+   "responsibilities": "<p><strong>Responsibilities</strong></p><ul><li><p>Develop and implement named account or territory plans geared at both maximising expansion opportunities acro",
+   "qualifications": "<p><strong>Qualifications</strong></p><ul><li><p>10 years of experience in a quota-carrying B2B software sales role focused on the SEA region</p></li><li><p>Exp",
+   "applyUrl": "https://careers-apac-atlassian.icims.com/jobs/25834/account-executive%2c-mid-market-%28thailand%29/job?mode=apply"
+  },
+  {
+   "portalJobPost": {
+    "portalId": 242,
+    "portalUrl": "https://careers-apac-atlassian.icims.com/jobs/25498/account-manager%2c-strategic/job",
+    "id": 25498,
+    "updatedDate": "2026-08-26 07:09 AM"
+   },
+   "id": 25498,
+   "portalId": 242,
+   "title": "Account Manager, Strategic",
+   "type": "Full-Time",
+   "locations": [
+    "Bengaluru - India -   Bengaluru,  560071 India",
+    "Remote - Remote"
+   ],
+   "category": "Sales",
+   "overview": "<p><strong>Working at Atlassian</strong><br/>Atlassians can choose where they work \u2013 whether in an office, from home, or a combination of the two. That way, Atl",
+   "responsibilities": "<p><strong>What You Will Do:</strong></p><ul><li><p>You will accelerate growth by using existing customer footprints to maximize expansion through a tops-down, ",
+   "qualifications": "<p><strong>Your background</strong></p><ul><li><p>Generally, 7+ years experience in account management, inside sales, customer success or other relevant busines",
+   "applyUrl": "https://careers-apac-atlassian.icims.com/jobs/25498/account-manager%2c-strategic/job?mode=apply"
+  }
+ ]
+}

@@ -33,6 +33,32 @@ logger = logging.getLogger(__name__)
 # wrapper (see `_TASK_TIMEOUT_S` in `tasks/fetch_*_company.py`), not this GUC.
 _WORKER_STATEMENT_TIMEOUT_MS = 60_000
 
+# EXPLICIT pool sizing, because the default is a trap once there is more than
+# one worker. ``psycopg_pool.AsyncConnectionPool`` defaults to ``min_size=4``
+# and ``max_size=None``, and ``_check_size`` turns ``None`` into ``min_size``
+# — four connections, total, for the whole app. Each ``run_worker_async``
+# instance pins ONE of them permanently for its LISTEN/NOTIFY listener, so the
+# two lanes started by ``api.main``'s lifespan (bulk + interactive) would leave
+# just two connections to serve every fetch_job/finish_job across 7 concurrent
+# job slots. That is a pool-exhaustion hang waiting to happen, and it would
+# present as "the worker stopped draining" — indistinguishable, from the
+# outside, from the signal-handler bug this sizing was added alongside.
+#
+# 12 = 2 listeners + 7 job slots (5 bulk + 2 interactive) + 3 slack for the
+# periodic deferrers and the API's own defer_async calls.
+_CONNECTOR_POOL_MIN_SIZE = 4
+_CONNECTOR_POOL_MAX_SIZE = 12
+
+# The add-time FIRST harvest of a just-tracked custom company rides this queue
+# instead of ``custom_ats_fetch``. Same task (``fetch_custom_company``), same
+# per-company queueing lock — only the queue differs, chosen by the deferrer in
+# ``tasks.claim_custom_companies.start_first_harvest``. It lives HERE, not in
+# ``api.main`` next to the lane lists, because a task module importing
+# ``api.main`` would be circular (main imports the task modules). ``api.main``
+# imports it into ``_INTERACTIVE_QUEUES`` so the deferrer and the worker that
+# drains it can never drift apart.
+CUSTOM_ATS_FIRST_FETCH_QUEUE = "custom_ats_first_fetch"
+
 # Single source of truth for the worker app. Other task modules attach
 # themselves to this instance.
 procrastinate_app: App = App(
@@ -42,6 +68,8 @@ procrastinate_app: App = App(
             application_name="procrastinate_worker",
             statement_timeout_ms=_WORKER_STATEMENT_TIMEOUT_MS,
         ),
+        min_size=_CONNECTOR_POOL_MIN_SIZE,
+        max_size=_CONNECTOR_POOL_MAX_SIZE,
     ),
 )
 
