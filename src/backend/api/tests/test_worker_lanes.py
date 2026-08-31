@@ -22,6 +22,7 @@ notices has stopped.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import os
 import signal
@@ -461,6 +462,45 @@ async def _delete_lanetest_jobs() -> None:
     )
 
 
+@contextlib.contextmanager
+def _no_periodic_deferrer():
+    """Empty the periodic registry while a REAL Procrastinate worker runs.
+
+    Not tidiness — without it this test hangs forever, and the hang is in
+    teardown, not in anything the test asserts.
+
+    `Worker.run` always starts a `periodic_deferrer` side-coroutine, and on a
+    freshly-opened app that deferrer immediately backfills every cron tick
+    inside the last 10 minutes (`MAX_DELAY=600` in procrastinate 2.15.1), so
+    it is doing real DB round-trips at exactly the moment this test cancels
+    the workers. `utils.run_tasks` cancels the side coroutines — and if the
+    deferrer is inside `pool.connection()` when that cancel lands, psycopg_pool
+    swallows it: `_getconn_with_check_loop` catches `CLIENT_EXCEPTIONS`, which
+    on the async pool is `(Exception, asyncio.CancelledError)`, returns the
+    connection and loops. The deferrer never dies, so `run_tasks` never
+    finishes awaiting it, so `Worker.run` never returns — and
+    `App.run_worker_async` *shields* that task, cancelling only into an
+    unbounded `worker.stop(); await task`. The `asyncio.gather` in this test's
+    `finally` then blocks until pytest-timeout kills the whole test at 120s.
+    Observed as a genuine race: roughly one run in three, which is why it
+    looks like load sensitivity rather than what it is. The six
+    `test_fetch_*_company.py` drains already suspend the registry the same
+    way, for a different reason (a fan-out that double-counts misses); this
+    is a second reason to do it around any real worker.
+
+    Nothing here is under test: this test asserts lane reservation, and
+    suppressing the periodics also keeps `worker_heartbeat` / `scan_unnormalized`
+    jobs from competing for the very bulk slots whose saturation it checks.
+    """
+    registry = procrastinate_app.periodic_registry
+    saved = registry.periodic_tasks
+    registry.periodic_tasks = {}
+    try:
+        yield
+    finally:
+        registry.periodic_tasks = saved
+
+
 @pytest.mark.asyncio
 async def test_a_discovery_job_runs_while_the_bulk_lane_is_saturated(
     procrastinate_open,
@@ -492,29 +532,31 @@ async def test_a_discovery_job_runs_while_the_bulk_lane_is_saturated(
     for _ in range(_BULK_WORKER_CONCURRENCY + 2):
         await _lanetest_slow_bulk.configure(priority=100).defer_async()
 
-    tasks = start_worker_lanes()
-    try:
-        # Saturation is a CHECKED PRECONDITION, not an assumption. Without it
-        # the test could pass vacuously on a bulk lane that had a free slot.
-        await asyncio.wait_for(_bulk_saturated.wait(), timeout=30)
-        assert _bulk_running >= _BULK_WORKER_CONCURRENCY
+    with _no_periodic_deferrer():
+        tasks = start_worker_lanes()
+        try:
+            # Saturation is a CHECKED PRECONDITION, not an assumption. Without
+            # it the test could pass vacuously on a bulk lane that had a free
+            # slot.
+            await asyncio.wait_for(_bulk_saturated.wait(), timeout=30)
+            assert _bulk_running >= _BULK_WORKER_CONCURRENCY
 
-        await _lanetest_interactive.configure(priority=100).defer_async()
-        await asyncio.wait_for(_interactive_ran.wait(), timeout=30)
+            await _lanetest_interactive.configure(priority=100).defer_async()
+            await asyncio.wait_for(_interactive_ran.wait(), timeout=30)
 
-        # ...and it ran while the bulk lane was STILL full. If the blockers had
-        # drained, a bulk slot came free and this run would not demonstrate a
-        # reserved lane at all.
-        assert _bulk_running >= _BULK_WORKER_CONCURRENCY, (
-            f"the bulk lane drained to {_bulk_running} busy slots before the "
-            "interactive job ran — this run does not prove the reservation"
-        )
-    finally:
-        _release_bulk.set()
-        for task in tasks:
-            task.cancel()
-        await asyncio.gather(*tasks, return_exceptions=True)
-        await _delete_lanetest_jobs()
+            # ...and it ran while the bulk lane was STILL full. If the blockers
+            # had drained, a bulk slot came free and this run would not
+            # demonstrate a reserved lane at all.
+            assert _bulk_running >= _BULK_WORKER_CONCURRENCY, (
+                f"the bulk lane drained to {_bulk_running} busy slots before the "
+                "interactive job ran — this run does not prove the reservation"
+            )
+        finally:
+            _release_bulk.set()
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            await _delete_lanetest_jobs()
 
     assert _interactive_ran.is_set()
 
