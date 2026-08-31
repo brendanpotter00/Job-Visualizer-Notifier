@@ -292,6 +292,16 @@ Everything above, plus:
 5. **Both worker lanes are ticking.** `/health/worker` reports `lanes.bulk` and
    `lanes.interactive` separately. A single stale lane now 503s the probe by design —
    that tag is the thing that stopped a 14-hour silent worker death going unnoticed.
+
+   ⚠️ **Detection is per-lane; AUTO-RESTART is not.** `main` gained a worker watchdog in
+   #268 (the 2026-08-29 61-hour wedge) that `os._exit`s on a stale heartbeat so Railway
+   brings up a fresh container. It reads `MAX(worker_heartbeats.at)` across **all** lanes,
+   so after this merge it only fires when **both** lanes are dead. One dead lane keeps
+   `MAX(at)` fresh from its survivor: the probe goes 503 and says which lane, and nothing
+   restarts. That is a monitoring gap, not a regression — before the lane split there was
+   one lane and the watchdog covered it. **So after #248, treat a 503 naming a single
+   stale lane as something YOU restart**, not something the box heals. Closing it means
+   grouping the watchdog query by `lane`, which is deliberately not part of this merge.
 6. **The proxy fix is live**: `GET /api/feedback?path=..%2Finternal%2Fenrichment%2Fhealth`
    must return **404**, and the legitimate paths must still work
    (`/api/companies`, `/api/features`, `/api/jobs`, `/api/jobs/facets`, `/api/locations/search`).
