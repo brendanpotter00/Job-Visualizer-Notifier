@@ -34,6 +34,7 @@ from .tasks import procrastinate_app
 from .tasks.procrastinate_app import ensure_schema_async
 from .migrations import apply_alembic_migrations_with_retry
 from .services.db_watchdog import DbWatchdog
+from .services.worker_watchdog import WorkerWatchdog
 from .services.posthog_client import init_posthog, shutdown_posthog
 
 
@@ -72,6 +73,16 @@ _WORKER_QUEUES: tuple[str, ...] = (
     "heartbeat",
     "normalize",
 )
+
+
+# Bound on how long shutdown waits for the cancelled worker task to unwind
+# before closing the connector and moving on. A wedged worker (2026-08-29:
+# run_worker_async hung inside "Waiting for job to finish" and swallowed the
+# cancellation) would otherwise block the whole lifespan shutdown until Railway
+# SIGKILLs the container mid-work. 15s is comfortably inside Railway's
+# SIGTERM->SIGKILL grace, and the worker_watchdog is the backstop if the worker
+# is wedged in a way even this can't unstick.
+_WORKER_SHUTDOWN_TIMEOUT_S = 15.0
 
 
 # Railway derives its `@level` field from which OS stream a log line came out
@@ -279,16 +290,56 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         list(_WORKER_QUEUES),
     )
 
+    # Worker watchdog (services/worker_watchdog.py): the supervisor above only
+    # restarts the worker when run_worker_async RETURNS or RAISES. It cannot
+    # see a HUNG worker — one whose main coroutine wedged mid-drain and never
+    # returns (2026-08-29 incident: 61h silent outage, executor dead while
+    # uvicorn + the periodic deferrer stayed alive). This watchdog reads the
+    # heartbeat the worker can only advance by executing, and exits the process
+    # if it goes stale with the DB reachable, so ON_FAILURE restarts a fresh
+    # container. Started after the worker so startup_grace clocks the new
+    # worker's time-to-first-beat.
+    worker_watchdog: WorkerWatchdog | None = None
+    if settings.worker_watchdog_enabled:
+        worker_watchdog = WorkerWatchdog(
+            settings.database_url,
+            probe_interval_s=settings.worker_watchdog_probe_interval_seconds,
+            stale_after_s=settings.worker_watchdog_stale_after_seconds,
+            failure_window_s=settings.worker_watchdog_failure_window_seconds,
+            startup_grace_s=settings.worker_watchdog_startup_grace_seconds,
+        )
+        worker_watchdog.start()
+
     yield
 
-    # Shutdown
-    if db_watchdog is not None:
-        db_watchdog.stop()
+    # Shutdown. Stop the liveness watchdogs first so neither can os._exit
+    # mid-shutdown, and stop them concurrently off the event loop so their
+    # worst-case joins don't stack ahead of the bounded worker await below
+    # (each stop() only sets a flag plus a short best-effort join).
+    watchdog_stops = [
+        asyncio.to_thread(wd.stop)
+        for wd in (db_watchdog, worker_watchdog)
+        if wd is not None
+    ]
+    if watchdog_stops:
+        await asyncio.gather(*watchdog_stops)
     worker_task.cancel()
     try:
-        await worker_task
+        # Bounded, not a bare `await worker_task`: a wedged worker can swallow
+        # the cancellation (psycopg_pool consumes CancelledError on the async
+        # pool), so an unbounded await would hang the whole shutdown until
+        # Railway SIGKILLs the container mid-work. Time-box it and proceed to
+        # close the connector regardless, so close_async / close_pool /
+        # shutdown_posthog below are always reached.
+        await asyncio.wait_for(worker_task, timeout=_WORKER_SHUTDOWN_TIMEOUT_S)
     except asyncio.CancelledError:
         pass
+    except asyncio.TimeoutError:
+        logger.error(
+            "Procrastinate worker did not stop within %.0fs of cancellation; "
+            "proceeding with connector close (worker likely wedged)",
+            _WORKER_SHUTDOWN_TIMEOUT_S,
+        )
     try:
         await procrastinate_app.close_async()
     except Exception:
