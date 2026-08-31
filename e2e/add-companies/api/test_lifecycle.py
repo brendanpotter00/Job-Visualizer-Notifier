@@ -371,6 +371,87 @@ class TestPerUserAddLimits:
 
         db.clear_add_attempts(db_conn, user_id=user_id)
 
+    def test_ac14a_an_admin_is_exempt_from_the_monthly_cap(
+        self, primary_token: str, db_conn
+    ):
+        """AC-14a — the cap does not apply to an admin, and the counter says so.
+
+        The cap is a SPEND control and the person paying for the spend was being
+        blocked by it. An admin grant is a row in `admins` — the same one
+        `require_admin` reads — and this case drives BOTH directions through the real
+        endpoint with a replayed bearer token, on the same user, one grant apart:
+
+        * at the cap with no grant → `422 monthly_limit_reached`, counter reads 3 of 3;
+        * at the cap WITH a grant  → the cap does not answer at all, and the counter
+          block is absent, which is the wire's way of saying "no cap in force".
+
+        It costs nothing to run. The cap is checked BEFORE the resolver, so an
+        unresolvable `.invalid` host is enough to tell the two apart: whichever refusal
+        comes back names which guard answered first. No board, no network, no LLM.
+        """
+        user_id = db.user_id_for_email(db_conn, PRIMARY_EMAIL)
+        assert user_id, f"expected a users row for {PRIMARY_EMAIL}"
+        db.clear_add_attempts(db_conn, user_id=user_id)
+
+        with _flagged_backend(
+            8202,
+            {
+                "CUSTOM_COMPANY_SOURCES_ENABLED": "true",
+                "CUSTOM_COMPANY_DISCOVERY_ENABLED": "false",
+                "CUSTOM_COMPANY_MONTHLY_ADD_LIMIT": "3",
+                "USER_COMPANY_ADD_RATE_LIMIT_MAX": "100",
+            },
+        ) as base:
+            client = httpx.Client(
+                base_url=base, headers={"Authorization": f"Bearer {primary_token}"}, timeout=30.0
+            )
+            try:
+                db.seed_add_attempts(db_conn, user_id=user_id, n=3)
+
+                # ── No grant: the cap answers first, and the counter agrees ──────
+                capped = client.post(
+                    "/api/users/companies", json={"url": _UNRESOLVABLE.format(n=10)}
+                )
+                assert capped.status_code == 422, f"{capped.status_code} {capped.text}"
+                assert capped.json()["reason"] == "monthly_limit_reached", capped.text
+                quota = client.get("/api/users/companies").json()["quota"]
+                assert quota["used"] == 3 and quota["limit"] == 3, quota
+
+                # ── Same user, same month, one row in `admins` ───────────────────
+                db.grant_admin(db_conn, user_id=user_id)
+                try:
+                    exempt = client.post(
+                        "/api/users/companies", json={"url": _UNRESOLVABLE.format(n=11)}
+                    )
+                    assert exempt.status_code == 422, f"{exempt.status_code} {exempt.text}"
+                    assert exempt.json()["reason"] != "monthly_limit_reached", (
+                        "an admin over the cap must be refused for the URL, not the "
+                        f"cap: {exempt.text}"
+                    )
+
+                    # THE AGREEMENT. An admin who is never refused must not be reading
+                    # a counter that says 0 left — the payload omits the block, which
+                    # `addsRemaining` already renders as no counter and no disabled
+                    # submit. Absence, deliberately, not `limit: 0` (which is the
+                    # opposite: a cap in force that allows nothing).
+                    body = client.get("/api/users/companies").json()
+                    assert body.get("quota") is None, (
+                        f"an exempt caller must carry no counter: {body.get('quota')!r}"
+                    )
+                finally:
+                    db.revoke_admin(db_conn, user_id=user_id)
+
+                # ── And the exemption is the grant, not the user ─────────────────
+                back = client.post(
+                    "/api/users/companies", json={"url": _UNRESOLVABLE.format(n=12)}
+                )
+                assert back.json()["reason"] == "monthly_limit_reached", back.text
+                assert client.get("/api/users/companies").json()["quota"] is not None
+            finally:
+                client.close()
+
+        db.clear_add_attempts(db_conn, user_id=user_id)
+
     def test_ac14_the_burst_limiter_refuses_and_says_how_long_to_wait_in_the_body(
         self, primary_token: str, db_conn
     ):

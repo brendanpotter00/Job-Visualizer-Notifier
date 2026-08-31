@@ -33,6 +33,7 @@ suite. They are thin (forward + re-emit headers) and are a known gap, not an ove
 | AC-13 | Spotify (lifeatspotify.com) | API + UI | fast (one resolve, no LLM) | 🟢 GREEN | the company-name dedupe: answers `already_public`/`matchKind='name'` with **no discovery job**, and keeps the correction |
 | AC-13a | the real published fleet | API | fast, hermetic | 🟢 GREEN | no network; runs the real matcher against the e2e DB's clone of prod's ~133 public rows. Pins `dropbox`≠`box` and `figma`≠`gm` |
 | AC-14 | per-user add limits | API | fast (no network — `.invalid` hosts, no LLM) | 🟢 GREEN | the 20/month cap and the 10/60s burst limiter, on the real endpoint with a replayed bearer token. Two short-lived backends on :8202 with their own limits (same trick as AC-09); the main stack runs uncapped because `company_add_attempts` is append-only and survives every sweep. **Rewritten with the one-press flow** — see "What a refused add costs" below |
+| AC-14a | per-user add limits (admin) | API | fast (no network — `.invalid` hosts, no LLM) | 🟢 GREEN | **the monthly cap does not apply to an admin.** Same user, same month, one row in `admins` apart: at the cap with no grant the endpoint answers `422 monthly_limit_reached` and the counter reads 3 of 3; WITH the grant the cap does not answer at all and the `quota` block is **absent**, which is how the wire says "no cap in force". Then the grant is removed and the refusal comes back, so the exemption is proven to be the grant rather than the user. Costs nothing: the cap is checked before the resolver, so an unresolvable host is enough to tell which guard answered first |
 | AC-15 | seeded harvest histories (Goldman + Walmart shapes) | API | fast, hermetic | ⚪ NEW — not yet in a suite run | the REFUSING half of verification, and the mirror of AC-04/AC-05. No network: seeds `company_harvests` rows and drives the real `compute_baseline` + `verify_harvest` against them. Pins that a 20-of-1,074 short read and a page-one-of-N board can never verify however long their history — and, as the control, that a whole-catalogue board with the SAME history does |
 | AC-16 | Meta — the real `metacareers.com/graphql` response as a fixture | API | fast, hermetic | 🟢 GREEN | **BOARD-FAILURE-TRIAGE.md category A.** Meta answers its jobs GraphQL POST with `content-type: text/html` over 186,957 B of pure JSON (877 records); the recorder's `"json" in content-type` test dropped it and discovery blamed the board for loading its jobs without any JSON request. Recorded went **0 → 4** on the live board. The case also pins the HONEST end state: Meta still refuses, because its POST body is form-encoded and a bare-`httpx` replay 400s — the triage doc's "recovers Meta outright" is wrong |
 | AC-17 | Uber — the real `jobs.uber.com/en/jobs/` served document | API | fast, hermetic | 🟢 GREEN | **BOARD-FAILURE-TRIAGE.md category B.** `_anchor_rows` grouped on `path.rsplit("/", 1)[0] + "/"`, so a board whose job hrefs end in a slash (`/en/jobs/300235/`) put every posting in its own group of one, every group fell under `_MIN_HTML_RECORDS = 8`, and no anchor candidate was produced. A/B'd live on that one character: **10 groups of 1 → one group of 10**. YC (no trailing slash) is the control. **Correction to the triage doc**: it names Citadel as the outright recovery, but that board now answers our host-pin fetch with a Cloudflare interstitial and renders no job links at all — Uber is the board with the evidence |
@@ -81,6 +82,16 @@ have inserted a provisional row and queued a capture run for an address the reso
 just refused to fetch. (The capture re-runs the same guard, so nothing could leak; it still
 burnt a queue job and a monthly slot and left the user watching a "Setting up…" row that
 could only end `refused`.)
+
+**Admins are exempt from the monthly cap (AC-14a), and from nothing else.** The
+10/60s burst limiter still applies to them — it is an abuse guard, not a budget, and an
+admin hammering the endpoint is still hammering somebody's live board. Their adds are
+still written to `company_add_attempts`, so the audit and the admin dashboard stay
+complete; `used` simply stops being compared against `limit`. The exemption is resolved
+inside `add_quota.get_quota`, which is also what the counter reads, so "no cap for you"
+and "never refused" cannot drift apart — that agreement is half of what AC-14a asserts.
+The lookup fails CLOSED: if reading `admins` errors, the caller is a non-admin and the
+cap applies.
 
 **AC-14's monthly-cap case was rewritten, not deleted.** It used to assert "three refused
 `.invalid` adds still spend the month" — defensible while a URL only reached this endpoint

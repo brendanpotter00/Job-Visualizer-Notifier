@@ -235,6 +235,38 @@ def user_id_for_email(conn: Any, email: str) -> str | None:
         return str(row["id"]) if row else None
 
 
+def grant_admin(conn: Any, *, user_id: str) -> None:
+    """Give one user an admin grant. TEST FIXTURE ONLY, and always paired with
+    :func:`revoke_admin` in a ``finally``.
+
+    The product's own grant lives behind ``POST /api/admin/users/{id}/admin``, which
+    requires an existing admin to call it — a chicken-and-egg this suite has no way to
+    start. So AC-14a writes the row directly, exactly the way ``seed_add_attempts``
+    reaches past the API for the same reason.
+
+    ``ON CONFLICT DO NOTHING`` mirrors ``admin_service.grant_admin``: a re-grant is a
+    no-op, so a case that failed halfway through a previous run cannot wedge the next.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO admins (user_id) VALUES (%s) ON CONFLICT (user_id) DO NOTHING",
+            (user_id,),
+        )
+    conn.commit()
+
+
+def revoke_admin(conn: Any, *, user_id: str) -> None:
+    """Remove an admin grant written by :func:`grant_admin`.
+
+    Deliberately a plain DELETE with no last-admin guard — that guard belongs to the
+    product (``admin_service.revoke_admin``, which a 409 protects), and this is a
+    fixture undoing its own row. Idempotent, so a ``finally`` can always call it.
+    """
+    with conn.cursor() as cur:
+        cur.execute("DELETE FROM admins WHERE user_id = %s", (user_id,))
+    conn.commit()
+
+
 def ownerless_count(base_url: str) -> int:
     """`ownerlessCount` off /api/jobs-qa/custom-company-integrity.
 

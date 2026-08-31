@@ -158,6 +158,32 @@ Two things that make the new state visible rather than silent:
 so `0` is still legal — it is now a genuine per-user kill switch, one env var that stops
 every add without a deploy.
 
+### Admins are exempt from this limit — no config, nothing to set
+
+**Not flag-gated, no migration, no env var.** An admin (a row in `admins`, the same grant
+`require_admin` reads — grant it at `/admin/users`) is never refused for the monthly cap.
+Nothing else about the add path changes for them.
+
+| | Non-admin | Admin |
+|---|---|---|
+| 20/month cap | enforced | **never refused** |
+| 10/60s burst limiter | enforced | **enforced** — it is an abuse guard, not a budget |
+| `company_add_attempts` row per add | written | **written** (the audit and the admin dashboard stay complete) |
+| `quota` on `GET /api/users/companies` | `{used, limit, resetsAt}` | **absent** |
+| The counter above the form | "17 of 20 adds left this month" | **no counter, submit never disabled** |
+
+The exemption lives in `services/add_quota.get_quota`, not at the call site, because that
+one function is also what the counter reads — an exemption applied only at the refusal
+would leave an admin counting down to "0 of 20 adds left" above a form that never refuses.
+"No cap for you" is sent as an **absent** `quota` block, which is the frontend's existing
+"no cap in force" case (`addsRemaining` answers `null` → no counter, nothing disabled). It
+is deliberately not `limit: 0`, which means the opposite.
+
+**It fails CLOSED.** The admin lookup is a database read; if it raises, the caller is
+treated as a non-admin and the cap applies (logged as an exception). A database error must
+never become an exemption on a spend guard — that is the same fail-open shape `0`-means-
+unlimited had, which is what the section above removed.
+
 ---
 
 ## 4b. Custom-company cadence — 24 h → 1 h, and what that does to closes

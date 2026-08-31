@@ -261,9 +261,12 @@ export interface UserCompany {
  * sentinel. There is no `remaining` on the wire, by design: see {@link addsRemaining},
  * the single definition of that arithmetic anywhere.
  *
- * Optional on {@link GetUserCompaniesResponse} because a server that predates the
- * counter simply omits it; the UI renders nothing rather than guessing. THAT absence
- * is the only "no cap in force" case, and it is a different thing from `limit: 0`.
+ * Optional on {@link GetUserCompaniesResponse} because the server omits it in two
+ * cases, and both mean "no cap in force": the caller is an **admin**, who is exempt
+ * from the cap entirely (`add_quota.quota_response`), or the server predates the
+ * counter. The UI renders nothing and disables nothing for either — it never guesses a
+ * number. Absence is a different thing from `limit: 0`, which is a cap that IS in
+ * force and allows none.
  */
 export interface AddQuota {
   /** Submissions recorded this UTC calendar month. */
@@ -275,11 +278,13 @@ export interface AddQuota {
 }
 
 /**
- * Slots left, floored at 0. Returns `null` in EXACTLY ONE case: there is no quota on
- * the payload at all — a server that predates the counter. That means "we don't know",
- * so the caller renders no counter and disables nothing; the server still refuses over
- * quota regardless of what the button does. Locking a user out of the whole feature on
- * a missing field would be the worst possible reading of it.
+ * Slots left, floored at 0. Returns `null` for exactly one INPUT: no quota on the
+ * payload at all. The server sends none to an admin (exempt from the cap) and none
+ * from a build that predates the counter — "no cap in force" and "we don't know" want
+ * the same rendering, which is why one absence covers both. The caller renders no
+ * counter and disables nothing; the server still refuses over quota regardless of what
+ * the button does. Locking a user out of the whole feature on a missing field would be
+ * the worst possible reading of it.
  *
  * `null` and `0` ARE NOT THE SAME THING and must never be collapsed. `limit: 0` is a
  * cap that is in force and fully spent, so it returns `0` — the counter renders and the

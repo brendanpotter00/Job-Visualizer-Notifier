@@ -665,12 +665,28 @@ describe('MyCompaniesPage', () => {
     });
 
     it('renders no counter, and still lets the user add, when the server sends no quota', async () => {
-      // A server older than this feature — and now the ONLY case that renders nothing.
-      // "We don't know" must never be read as "you have none left": locking someone out
-      // of the whole feature on a missing field is the worst possible reading of it,
-      // and the server refuses over quota regardless of what this button does. This is
-      // deliberately NOT the same case as `limit: 0` above.
+      // A server older than this feature. "We don't know" must never be read as "you
+      // have none left": locking someone out of the whole feature on a missing field is
+      // the worst possible reading of it, and the server refuses over quota regardless
+      // of what this button does. This is deliberately NOT the same case as `limit: 0`
+      // above.
       listBody = { companies: [] };
+      const user = userEvent.setup();
+      renderWithProviders(<MyCompaniesPage />);
+
+      await user.type(screen.getByLabelText(/job board link/i), 'https://intel.com/careers');
+      expect(screen.queryByTestId('add-quota-counter')).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /add company/i })).toBeEnabled();
+    });
+
+    it('renders no counter for an admin, whose quota the server sends as null', async () => {
+      // WHAT AN ADMIN SEES. Admins are exempt from the monthly cap, and the server says
+      // so by sending no quota block — the same "no cap in force" case as the test
+      // above, arriving as an explicit `null` rather than an absent key (the FastAPI
+      // response model serialises the optional field). Both must render the same thing:
+      // no counter, nothing disabled. If this ever showed a countdown it would be
+      // counting toward a refusal that never comes.
+      listBody = { companies: [], quota: null };
       const user = userEvent.setup();
       renderWithProviders(<MyCompaniesPage />);
 

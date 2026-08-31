@@ -590,11 +590,11 @@ def test_a_rename_does_not_consume_the_monthly_cap(client, db_conn, monkeypatch)
         (company_id,),
     )
     user_id = str(cur.fetchone()["user_id"])
-    before = add_quota.get_quota(db_conn, user_id).used
+    before = add_quota.get_quota(db_conn, user_id, email="a@example.com").used
 
     for i in range(3):
         client.patch(
             f"/api/users/companies/{company_id}", json={"displayName": f"N{i}"}
         )
 
-    assert add_quota.get_quota(db_conn, user_id).used == before
+    assert add_quota.get_quota(db_conn, user_id, email="a@example.com").used == before

@@ -17,9 +17,10 @@ interface AddQuotaCounterProps {
  * the submit is disabled — those two together are the whole explanation, which is
  * why there is no extra copy for the exhausted state.
  *
- * Renders NOTHING in exactly one case: no quota on the payload at all, i.e. a server
- * older than this feature. "We don't know" is not a number, so there is nothing
- * honest to put on the line.
+ * Renders NOTHING when there is no quota on the payload at all — the server sends none
+ * to an admin (who is exempt from the cap) and none from a build older than this
+ * feature. Neither "there is no cap for you" nor "we don't know" is a number, so there
+ * is nothing honest to put on the line.
  *
  * `limit === 0` is NOT that case. Zero is a cap that is in force and allows no adds,
  * so this reads "0 of 0 adds left this month" in the error colour and the submit is

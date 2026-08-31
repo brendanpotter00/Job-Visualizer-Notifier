@@ -255,7 +255,10 @@ every import for zero user-visible gain.
   is off. Both must be on for the flow to work. With the frontend flag off there is no nav
   entry, no route (`App.tsx` skips registering it), and no network calls.
 - **One endpoint: `POST /api/users/companies`** (Bearer auth, 10 requests/60s per user, 20
-  adds per user per UTC month). It reaches the backend through the existing `api/users.ts`
+  adds per user per UTC month — **admins are exempt from the monthly cap only**, and
+  the server tells the page so by sending no `quota` block at all, which
+  `addsRemaining` already renders as no counter and nothing disabled). It reaches the
+  backend through the existing `api/users.ts`
   Vercel proxy — no new proxy, and `api/companies.ts` is no longer used by this page at all.
   The burst limiter on this route is what bounds how fast discoveries can be started; it used
   to be the resolve endpoint's limiter doing that indirectly, which a replayed bearer token

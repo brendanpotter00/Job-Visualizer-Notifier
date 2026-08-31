@@ -25,6 +25,8 @@ from api.services.rate_limit import user_company_add_rate_limiter
 from api.services.user_service import get_or_create_user
 from scripts.shared.constants import custom
 
+from .conftest import _insert_admin
+
 GREENHOUSE_URL = "https://boards.greenhouse.io/duolingo"
 
 
@@ -3487,3 +3489,208 @@ def test_neither_limit_is_checked_before_the_feature_flag(client, monkeypatch):
             "/api/users/companies", json={"url": "https://boards.greenhouse.io/flagoff"}
         )
         assert resp.status_code == 503, resp.text
+
+
+# --- The admin exemption: the cap does not apply to an admin --------------------
+#
+# The cap is a SPEND control, and the person paying for the spend is the one being
+# blocked by it while testing. An admin grant is a row in ``admins`` — the same
+# concept ``require_admin`` reads — and the exemption is resolved inside
+# ``add_quota.get_quota``, the ONE function behind both the refusal and the counter.
+# Both directions are asserted below, because a guard on money that silently stops
+# applying to everybody is a worse bug than the one being fixed here.
+
+
+def _make_admin(client, db_conn, sub: str, email: str) -> str:
+    """Sign in as ``email`` and give that users row an admin grant. Returns its id."""
+    _login(client, sub, email)
+    user_id = _user_id(db_conn, email)
+    _insert_admin(db_conn, user_id)
+    return user_id
+
+
+def test_an_admin_at_the_cap_is_not_refused(client, db_conn, monkeypatch):
+    """THE BUG. An admin sitting on a full month adds anyway, and keeps adding."""
+    monkeypatch.setattr(settings, "custom_company_monthly_add_limit", 3)
+    user_id = _make_admin(client, db_conn, "auth0|ADMINCAP", "admincap@example.com")
+    _seed_attempts(db_conn, user_id, 3)
+    _install_greenhouse_any(monkeypatch)
+
+    codes = [
+        client.post(
+            "/api/users/companies", json={"url": f"https://boards.greenhouse.io/ac{i}"}
+        ).status_code
+        for i in range(3)
+    ]
+    assert codes == [201, 201, 201], codes
+
+
+def test_an_admin_is_not_refused_even_at_the_kill_switch(client, db_conn, monkeypatch):
+    """``0`` is the per-user kill switch and it is still a cap, so the exemption has to
+    cover it too — otherwise the one person who can turn adds back on is the one person
+    locked out while they investigate."""
+    monkeypatch.setattr(settings, "custom_company_monthly_add_limit", 0)
+    _make_admin(client, db_conn, "auth0|ADMINZERO", "adminzero@example.com")
+    _install_greenhouse_any(monkeypatch)
+
+    resp = client.post(
+        "/api/users/companies", json={"url": "https://boards.greenhouse.io/adminzero"}
+    )
+    assert resp.status_code == 201, resp.text
+
+
+def test_an_admins_adds_are_still_recorded(client, db_conn, monkeypatch):
+    """EXEMPT FROM REFUSAL, NOT FROM THE AUDIT. ``company_add_attempts`` is what the
+    admin dashboard and the audit trail read, and it is also what ``used`` counts — so
+    an admin's ``used`` keeps climbing past ``limit``, it is simply never compared
+    against it. An exemption that skipped the write would put a hole in the audit and
+    make the count stop meaning "URLs we acted on"."""
+    monkeypatch.setattr(settings, "custom_company_monthly_add_limit", 2)
+    user_id = _make_admin(client, db_conn, "auth0|ADMINREC", "adminrec@example.com")
+    _seed_attempts(db_conn, user_id, 2)
+    _install_greenhouse_any(monkeypatch)
+    before = _count(db_conn, "company_add_attempts", "WHERE user_id = %s", (user_id,))
+
+    for i in range(3):
+        resp = client.post(
+            "/api/users/companies", json={"url": f"https://boards.greenhouse.io/ar{i}"}
+        )
+        assert resp.status_code == 201, resp.text
+
+    after = _count(db_conn, "company_add_attempts", "WHERE user_id = %s", (user_id,))
+    assert after == before + 3, f"{before} -> {after}"
+
+
+def test_a_non_admin_at_the_cap_is_still_refused_with_the_same_reason(
+    client, db_conn, monkeypatch
+):
+    """The other direction, with an admin PRESENT in the table. The exemption is per
+    caller — "somebody is an admin" must not uncap everybody, which is what a lookup
+    keyed on the wrong thing (or a global ``EXISTS``) would do."""
+    monkeypatch.setattr(settings, "custom_company_monthly_add_limit", 2)
+    _make_admin(client, db_conn, "auth0|THEADMIN", "theadmin@example.com")
+
+    _login(client, "auth0|PLAIN", "plain@example.com")
+    plain_id = _user_id(db_conn, "plain@example.com")
+    _seed_attempts(db_conn, plain_id, 2)
+    _install_greenhouse_any(monkeypatch)
+
+    resp = client.post(
+        "/api/users/companies", json={"url": "https://boards.greenhouse.io/plain"}
+    )
+    assert resp.status_code == 422, resp.text
+    assert resp.json()["reason"] == "monthly_limit_reached", resp.text
+    assert "all 2 of your company adds" in resp.json()["detail"], resp.text
+
+
+def test_the_counter_says_the_same_thing_the_server_enforces(
+    client, db_conn, monkeypatch
+):
+    """THE AGREEMENT TEST, and the reason the exemption lives in ``get_quota``.
+
+    An admin who is never refused must not be reading "3 of 20 adds left" — the
+    counter and the refusal come from one ``AddQuota``, so "no cap for you" has to be
+    what the payload says. It says it by OMITTING the block, which is the frontend's
+    existing "no cap in force" case (``addsRemaining`` answers null → no counter, no
+    disabled button). A non-admin in the same month still gets real numbers.
+    """
+    monkeypatch.setattr(settings, "custom_company_monthly_add_limit", 5)
+
+    admin_id = _make_admin(client, db_conn, "auth0|ADMINQ", "adminq@example.com")
+    _seed_attempts(db_conn, admin_id, 5)
+    body = client.get("/api/users/companies").json()
+    assert body["quota"] is None, (
+        f"an exempt caller must carry no counter, got {body['quota']!r}"
+    )
+
+    _login(client, "auth0|PLAINQ", "plainq@example.com")
+    plain_id = _user_id(db_conn, "plainq@example.com")
+    _seed_attempts(db_conn, plain_id, 5)
+    quota = client.get("/api/users/companies").json()["quota"]
+    assert quota is not None and quota["used"] == 5 and quota["limit"] == 5, quota
+
+
+def test_an_admin_lookup_failure_fails_CLOSED(client, db_conn, monkeypatch):
+    """A DATABASE ERROR MUST NEVER BE AN EXEMPTION.
+
+    The admin lookup is a read, and a read can fail. If it does, the caller is an
+    ordinary user and the cap applies — an outage that silently uncapped every add
+    would be the same fail-open shape ``0``-means-unlimited used to be, and worse than
+    the bug this exemption fixes. The caller below is a REAL admin, and is refused.
+    """
+    monkeypatch.setattr(settings, "custom_company_monthly_add_limit", 1)
+    user_id = _make_admin(client, db_conn, "auth0|ADMINBOOM", "adminboom@example.com")
+    _seed_attempts(db_conn, user_id, 1)
+    requested = _install_recording_transport(monkeypatch)
+
+    def _boom(*_args, **_kwargs):
+        raise psycopg2.OperationalError("injected admin-lookup failure")
+
+    monkeypatch.setattr("api.services.add_quota.is_admin_by_email", _boom)
+
+    resp = client.post(
+        "/api/users/companies", json={"url": "https://boards.greenhouse.io/adminboom"}
+    )
+
+    assert resp.status_code == 422, resp.text
+    assert resp.json()["reason"] == "monthly_limit_reached", resp.text
+    assert requested == [], "a refused add must still make no outbound request"
+    # And the counter agrees with the refusal it just made — the block is present,
+    # because as far as these requests could tell the caller was not an admin.
+    assert client.get("/api/users/companies").json()["quota"] is not None
+
+
+def test_an_admin_is_still_subject_to_the_burst_limiter(client, db_conn, monkeypatch):
+    """A DECIDED TRADE-OFF, asserted so it cannot drift. The 10/60s limiter is an abuse
+    guard, not a budget: an admin hammering this endpoint is still hammering somebody
+    else's live job board, and 10 a minute has never been what blocks real work. The
+    monthly cap is the money control, and it is the only one the exemption touches."""
+    monkeypatch.setattr(settings, "custom_company_monthly_add_limit", 1_000_000)
+    monkeypatch.setattr(user_company_add_rate_limiter, "_max", 2)
+    user_company_add_rate_limiter.reset()
+    _make_admin(client, db_conn, "auth0|ADMINBURST", "adminburst@example.com")
+    _install_greenhouse_any(monkeypatch)
+
+    codes = [
+        client.post(
+            "/api/users/companies", json={"url": f"https://boards.greenhouse.io/ab{i}"}
+        ).status_code
+        for i in range(3)
+    ]
+    assert codes[:2] == [201, 201], codes
+    assert codes[2] == 429, codes
+
+
+def test_the_exemption_changes_exhausted_and_nothing_else() -> None:
+    """Pure. ``used`` and ``limit`` stay real for an exempt caller — an operator
+    reading a log line or the admin dashboard sees the actual numbers, not a hole —
+    and only the one question the server asks changes its answer."""
+    from datetime import datetime, timezone
+
+    from api.services.add_quota import AddQuota, quota_response
+
+    resets = datetime(2026, 9, 1, tzinfo=timezone.utc)
+    capped = AddQuota(used=20, limit=20, resets_at=resets)
+    exempt = AddQuota(used=20, limit=20, resets_at=resets, exempt=True)
+
+    assert capped.over_limit and exempt.over_limit
+    assert capped.exhausted is True
+    assert exempt.exhausted is False
+    assert exempt.used == 20 and exempt.limit == 20
+
+    # ...and the counter half, from the same value.
+    assert quota_response(exempt) is None
+    body = quota_response(capped)
+    assert body is not None and body.used == 20 and body.limit == 20
+
+
+def test_a_caller_with_no_users_row_is_never_exempt(client, monkeypatch) -> None:
+    """``admins.user_id`` is a foreign key to ``users.id``, so a caller with no users
+    row cannot hold a grant — which is why ``get_quota_for_new_user`` needs no lookup
+    to answer "not exempt". Pinned because the counter would otherwise vanish for every
+    brand-new visitor if that default ever flipped."""
+    monkeypatch.setattr(settings, "custom_company_monthly_add_limit", 20)
+    _login(client, "auth0|NOROW", "no-row-yet@example.com")
+
+    quota = client.get("/api/users/companies").json()["quota"]
+    assert quota is not None and quota["used"] == 0 and quota["limit"] == 20, quota

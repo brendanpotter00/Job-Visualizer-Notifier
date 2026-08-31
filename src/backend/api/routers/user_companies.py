@@ -34,7 +34,6 @@ from ..auth.jwt import get_normalized_subject
 from ..config import settings
 from ..dependencies import get_db
 from ..models import (
-    AddQuotaResponse,
     AddUserCompanyRequest,
     AlreadyPublicResponse,
     DiscoveryProgressResponse,
@@ -577,12 +576,28 @@ async def add_company(
     # control, and "we could not read it, so go ahead" would fail open on exactly
     # the request the cap exists to stop. Rolled back first so the aborted
     # transaction is not handed to the next statement on this connection.
+    #
+    # ADMINS ARE EXEMPT, and the exemption is resolved inside ``get_quota`` rather
+    # than branched here: that one function is also what the counter on the list
+    # endpoint reads, so enforcement and the number on screen cannot disagree, and a
+    # future caller of it cannot forget the exemption. ``email`` is the key, the same
+    # one ``require_admin`` uses. An exempt caller still falls through to the resolver
+    # and still records an attempt below — exempt from REFUSAL, not from the audit.
+    # Every failure inside that lookup answers "not an admin" and applies the cap.
     try:
-        quota = add_quota.get_quota(conn, user_id)
+        quota = add_quota.get_quota(conn, user_id, email=email)
     except psycopg2.Error:
         conn.rollback()
         logger.exception("Failed to read the add quota for user=%s", user_id)
         raise HTTPException(status_code=500, detail="Failed to check your add limit")
+    if quota.exempt and quota.over_limit:
+        # The only interesting exemption is the one that actually waived a refusal.
+        # Logged so an operator can see spend that the cap did not stop, and so
+        # "why did this admin never hit 20?" has an answer in the log.
+        logger.info(
+            "Monthly add cap WAIVED for admin user=%s (%d/%d)",
+            user_id, quota.used, quota.limit,
+        )
     if quota.exhausted:
         logger.info(
             "Monthly add cap reached for user=%s (%d/%d)",
@@ -1062,6 +1077,11 @@ async def list_companies(
     counter costs no extra request, is refreshed by the ``MyCompanies`` tag every
     add and delete already invalidates, and cannot go stale against the list it
     sits above.
+
+    ``quota`` is ABSENT for an admin, who is exempt from the cap: the counter and the
+    refusal are decided by the same ``AddQuota`` (``services/add_quota``), so "no cap
+    for you" has to be what the page reads too, or it would count down to zero above
+    a form that is never refused.
     """
     _require_flag()
     email = user.get("email")
@@ -1074,23 +1094,22 @@ async def list_companies(
         # to see "20 of 20 adds left", not a blank where the allowance goes.
         empty = add_quota.get_quota_for_new_user()
         return UserCompanyListResponse(
-            companies=[],
-            quota=AddQuotaResponse(
-                used=empty.used, limit=empty.limit, resets_at=empty.resets_at
-            ),
+            companies=[], quota=add_quota.quota_response(empty)
         )
     try:
         companies = svc.list_owned_companies(conn, row["id"])
-        quota = add_quota.get_quota(conn, row["id"])
+        quota = add_quota.get_quota(conn, row["id"], email=email)
     except psycopg2.Error:
         conn.rollback()
         logger.exception("Failed to list custom companies for user=%s", row["id"])
         raise HTTPException(status_code=500, detail="Failed to load companies")
+    # ``quota_response`` answers None for an admin, which drops the block from the
+    # payload — the frontend's existing "no cap in force" case, which renders no
+    # counter and disables nothing. Enforcement and the counter come from the same
+    # ``AddQuota``, so an admin can never be uncapped while the line still counts down.
     return UserCompanyListResponse(
         companies=[_to_response(c) for c in companies],
-        quota=AddQuotaResponse(
-            used=quota.used, limit=quota.limit, resets_at=quota.resets_at
-        ),
+        quota=add_quota.quota_response(quota),
     )
 
 
