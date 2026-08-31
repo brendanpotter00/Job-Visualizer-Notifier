@@ -133,6 +133,22 @@ def test_a_body_that_is_not_xml_is_simply_not_a_sitemap() -> None:
     assert parse_sitemap("https://x/s.xml", "<!doctype html><html>Not found</html>") is None
 
 
+def test_a_sitemap_declaring_entities_is_not_parsed_at_all() -> None:
+    """Billion laughs. ``xml.etree`` is expat-backed and expands internal general
+    entities, so a body small enough to look harmless on the wire inflates to gigabytes
+    inside the parser. Discovery reads this host BECAUSE a user pasted its URL, so the
+    document is attacker-influenced by construction. A sitemap never legitimately
+    carries a doctype, which makes refusing the whole class free.
+    """
+    bomb = (
+        '<?xml version="1.0"?>'
+        '<!DOCTYPE urlset [<!ENTITY a "aaaaaaaaaa">'
+        '<!ENTITY b "&a;&a;&a;&a;&a;&a;&a;&a;&a;&a;">]>'
+        '<urlset><url><loc>https://x/a&b;</loc></url></urlset>'
+    )
+    assert parse_sitemap("https://x/s.xml", bomb) is None
+
+
 def test_a_sitemapindex_is_followed_exactly_one_level_and_jobs_first() -> None:
     """One level, out of the SAME four-document budget the index came from — so an
     index can never multiply the cost — and job-shaped children first, so the budget is

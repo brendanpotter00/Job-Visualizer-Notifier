@@ -25,6 +25,7 @@ from api.services.harvest_verification import (
     GateResult,
     verify_harvest,
 )
+from api.services import recipe_runner
 from api.services.recipe_runner import (
     RecipeExecutionError,
     _oracle_header,
@@ -231,6 +232,58 @@ def test_sitemap_oracle_counts_matching_locs() -> None:
 def test_sitemap_oracle_verifies_on_exact_match() -> None:
     v = verify_harvest("sitemap", _gate_of(5), _ev(5), Baseline(None, 0, 0.5))
     assert v.verdict == VERIFIED
+
+
+def test_a_sitemap_declaring_a_doctype_is_refused_before_the_parser_sees_it() -> None:
+    """Billion laughs. ``xml.etree`` is expat-backed and expands internal general
+    entities, so a body small enough to pass any wire-size check inflates to gigabytes
+    inside the parser. The sitemap host is USER-SUPPLIED — a pasted careers URL — so
+    this runs against a server we do not control on every replay. A sitemap never
+    legitimately carries a doctype, so refusing the whole class is free.
+    """
+    bomb = (
+        '<?xml version="1.0"?>'
+        '<!DOCTYPE urlset [<!ENTITY a "aaaaaaaaaa">'
+        '<!ENTITY b "&a;&a;&a;&a;&a;&a;&a;&a;&a;&a;">]>'
+        '<urlset><url><loc>https://x/job/1&b;</loc></url></urlset>'
+    )
+    body = {"jobs": [{"id": "1", "title": "t", "url": "https://x/job/1"}]}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("sitemap.xml"):
+            return httpx.Response(200, text=bomb, headers={"content-type": "application/xml"})
+        return httpx.Response(200, json=body)
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as http:
+        with pytest.raises(RecipeExecutionError, match="doctype"):
+            run_recipe(_sitemap_script(), http)
+
+
+def test_a_sitemap_past_the_byte_ceiling_is_refused_rather_than_buffered(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The ceiling is counted as the bytes ARRIVE, not measured after the fact.
+
+    ``http.get()`` reads and decompresses the whole response before returning it, so a
+    size check on the finished object measures a body already paid for. Refusing beats
+    truncating: this oracle compares at tolerance 0, so half a sitemap is an undercount
+    that could coincidentally equal tonight's harvest and VERIFY a board we never
+    finished reading.
+    """
+    monkeypatch.setattr(recipe_runner, "_MAX_SITEMAP_BYTES", 512)
+    fat = '<?xml version="1.0"?><urlset>' + (
+        "<url><loc>https://x/job/1</loc></url>" * 200
+    ) + "</urlset>"
+    body = {"jobs": [{"id": "1", "title": "t", "url": "https://x/job/1"}]}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("sitemap.xml"):
+            return httpx.Response(200, text=fat, headers={"content-type": "application/xml"})
+        return httpx.Response(200, json=body)
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as http:
+        with pytest.raises(RecipeExecutionError, match="byte ceiling"):
+            run_recipe(_sitemap_script(), http)
 
 
 def test_sitemap_oracle_empty_raises() -> None:

@@ -218,7 +218,7 @@ export interface UserCompany {
   /** `u-<10 base36>` runtime id. NOT a compile-time `COMPANY_IDS` member. */
   id: string;
   displayName: string;
-  /** Bare `str` on the wire (see `AtsProvider` note above). */
+  /** Bare `str` on the wire — backend-owned, so a new provider is not a type error. */
   ats: string;
   boardToken: string;
   /** `custom:<id>` — per-company job namespace. */

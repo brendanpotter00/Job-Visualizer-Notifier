@@ -385,7 +385,10 @@ async def fetch_jobs(
         - ``tenant_host`` is not on the SSRF allowlist (raised before any
           outbound HTTP call — the load-bearing check that replaced
           ``api/eightfold.ts``).
-        - Any page is missing ``positions`` (non-list) or ``count`` (non-int).
+        - Any page is missing ``positions`` (non-list). A missing or non-int
+          ``count`` does NOT raise: it logs a warning and falls back to
+          partial-page detection, because Eightfold's ``count`` is evidence
+          rather than an oracle and losing it is not losing the board.
     httpx.HTTPStatusError
         Non-2xx on any page aborts the whole fetch.
     """

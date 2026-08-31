@@ -714,6 +714,22 @@ class _HarvestState:
     budget_exhausted: bool = False
 
 
+def _effective_window_cap(pg: dict[str, Any], plan: RecipePlan) -> int | None:
+    """The tightest window cap this script declares, from either place it may say it.
+
+    A cap can arrive on the pagination step (``window_cap``) or as its own
+    ``assert_cap_not_hit`` step, which :func:`_parse_steps` folds into
+    ``RecipePlan.window_cap``. Nothing used to read the plan-level value, so a script
+    whose ONLY cap was ``assert_cap_not_hit`` ran entirely uncapped while advertising
+    the opposite — the schema accepts the op, so a discovery-authored script can reach
+    that state. Taking the MINIMUM rather than a precedence order is deliberate: a cap
+    is a safety bound, and when a script states two the honest one to obey is the
+    tighter.
+    """
+    caps = [c for c in (pg.get("window_cap"), plan.window_cap) if c is not None]
+    return min(caps) if caps else None
+
+
 def _sweep_offset_page(
     http: httpx.Client,
     plan: RecipePlan,
@@ -770,10 +786,21 @@ def _sweep_offset_page(
                     MAX_HARVEST_RECORDS, state.pages_fetched, plan.fetch.get("url"),
                 )
                 break
-        # Cap check BEFORE the request: offset + page_size must stay <= window_cap.
-        if style == "offset" and window_cap is not None and cursor + page_size > window_cap:
-            state.cap_hit = True
-            break
+        # Cap check BEFORE the request: rows-consumed + page_size must stay <=
+        # window_cap. BOTH styles, because the cap is a statement about the board's
+        # result window (how many rows it will serve at all), not about how we happen
+        # to ask for them. A ``paginate_page`` script may declare ``window_cap`` —
+        # ``recipe_schema`` accepts it on every pagination op — and enforcing it only
+        # for ``offset`` left those boards uncapped: the sweep pages past the window,
+        # the board serves a short page at the boundary, and a truncated read reports
+        # ``cap_hit=False`` + ``terminated_cleanly=True`` — VERIFIED, which closes
+        # every job past the window. ``cursor`` is the offset for ``offset`` and a
+        # page number for ``page``, hence the conversion.
+        if window_cap is not None:
+            consumed = cursor if style == "offset" else (cursor - start_page) * page_size
+            if consumed + page_size > window_cap:
+                state.cap_hit = True
+                break
         params = {**extra_params, param: cursor}
         response = _request(http, plan.fetch, params)
         payload = _parse_json(response)
@@ -845,7 +872,7 @@ def _run_http_json(http: httpx.Client, plan: RecipePlan) -> _HarvestState:
         facet_param = pg["facet_param"]
         page_size = pg["page_size"]
         max_pages = pg["max_pages_per_facet"]
-        window_cap = pg.get("window_cap")
+        window_cap = _effective_window_cap(pg, plan)
         for value in facet_values:
             _sweep_offset_page(
                 http, plan, state, {facet_param: value}, "offset", "offset",
@@ -863,7 +890,7 @@ def _run_http_json(http: httpx.Client, plan: RecipePlan) -> _HarvestState:
         page_size = pg["page_size"]
         max_pages = pg["max_pages"]
         start_page = int(pg.get("start_page", 1))
-        window_cap = pg.get("window_cap")
+        window_cap = _effective_window_cap(pg, plan)
         _sweep_offset_page(
             http, plan, state, {}, style, param, page_size, max_pages,
             start_page, window_cap, records_path, fields, deadline=deadline,
@@ -1381,6 +1408,50 @@ def _oracle_header(headers: dict[str, str], oracle: dict[str, Any]) -> int:
 _SITEMAP_INDEX_MAX_CHILDREN = 4
 
 
+# A sitemap is a text index of URLs: the biggest real one measured here is a few MB.
+# The cap exists because the HOST IS USER-SUPPLIED — a user pastes a careers URL and
+# discovery may author a sitemap oracle against that origin, so this fetch runs on
+# every replay against a server we do not control. Without a bound, one board serving
+# an endless body buffers the whole thing into the worker.
+_MAX_SITEMAP_BYTES = 16 * 1024 * 1024
+
+# How much of a sitemap's head is scanned for a doctype. A well-formed prolog is
+# far shorter than this, and a doctype anywhere later is not a doctype at all.
+_XML_PROLOG_SCAN_CHARS = 8192
+
+
+def _fetch_sitemap(http: httpx.Client, url: str) -> str:
+    """GET one sitemap, refusing a body past :data:`_MAX_SITEMAP_BYTES`.
+
+    STREAMED, not buffered-then-measured. ``http.get()`` reads and decompresses the
+    complete response before returning it, so checking the size afterwards measures a
+    body we have already paid for. Counting bytes as they arrive is the only version
+    of this check that can actually stop.
+
+    Raising is the right answer rather than truncating: this oracle is compared at
+    tolerance 0, and half a sitemap is an undercount that could coincidentally equal
+    tonight's harvest and VERIFY a board we never finished reading. A FAILED oracle
+    closes nothing.
+    """
+    chunks: list[bytes] = []
+    total = 0
+    with http.stream("GET", url, headers={"User-Agent": USER_AGENT}) as response:
+        if response.status_code >= 400:
+            raise RecipeExecutionError(
+                f"HTTP {response.status_code} from {url} (sitemap oracle)"
+            )
+        for chunk in response.iter_bytes():
+            total += len(chunk)
+            if total > _MAX_SITEMAP_BYTES:
+                raise RecipeExecutionError(
+                    f"sitemap {url!r} is larger than the {_MAX_SITEMAP_BYTES}-byte "
+                    "ceiling — refusing to buffer it; FAILED"
+                )
+            chunks.append(chunk)
+        encoding = response.charset_encoding or "utf-8"
+    return b"".join(chunks).decode(encoding, "replace")
+
+
 def _sitemap_locs(body: str, sitemap_url: str) -> tuple[list[str], bool]:
     """``(<loc> texts, is_index)`` for one sitemap document.
 
@@ -1391,6 +1462,16 @@ def _sitemap_locs(body: str, sitemap_url: str) -> tuple[list[str], bool]:
     pages is a wrong total that a tolerance-0 oracle would then compare a real harvest
     against.
     """
+    # NO DTD, CHECKED BEFORE THE PARSER SEES IT. ``xml.etree`` is expat-backed and
+    # expands internal general entities, so a 1 KB document declaring nested entities
+    # ("billion laughs") inflates to gigabytes inside the parser — a ceiling on the
+    # WIRE bytes cannot see that coming. A sitemap never legitimately carries a
+    # doctype, and the prolog is the only place a well-formed one may appear, so
+    # scanning the head is both sufficient and cheap.
+    if "<!DOCTYPE" in body[:_XML_PROLOG_SCAN_CHARS].upper():
+        raise RecipeExecutionError(
+            f"sitemap {sitemap_url!r} declares a doctype — refusing to parse it; FAILED"
+        )
     try:
         root = ElementTree.fromstring(body)
     except ElementTree.ParseError as exc:
@@ -1423,8 +1504,7 @@ def _oracle_sitemap(http: httpx.Client, oracle: dict[str, Any]) -> int:
     """
     pattern = oracle["url_pattern"]
     sitemap_url = oracle["sitemap_url"]
-    response = _request(http, {"method": "GET", "url": sitemap_url, "headers": {}}, None)
-    locs, is_index = _sitemap_locs(response.text, sitemap_url)
+    locs, is_index = _sitemap_locs(_fetch_sitemap(http, sitemap_url), sitemap_url)
 
     if is_index:
         if len(locs) > _SITEMAP_INDEX_MAX_CHILDREN:
@@ -1435,10 +1515,9 @@ def _oracle_sitemap(http: httpx.Client, oracle: dict[str, Any]) -> int:
             )
         child_locs: list[str] = []
         for child_url in locs:
-            child = _request(
-                http, {"method": "GET", "url": child_url, "headers": {}}, None
+            nested, nested_is_index = _sitemap_locs(
+                _fetch_sitemap(http, child_url), child_url
             )
-            nested, nested_is_index = _sitemap_locs(child.text, child_url)
             if nested_is_index:
                 # ONE level. A second is where an enormous site would spend the whole
                 # harvest clock, and there is no honest partial answer to give.

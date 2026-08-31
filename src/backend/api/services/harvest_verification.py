@@ -542,7 +542,7 @@ def verify_harvest(
 
     # Check 11 — zero-proof chain (only for a 0-row harvest).
     if harvest.is_zero:
-        return _zero_proof(evidence)
+        return _zero_proof(evidence, oracle_kind)
 
     n = harvest.records_harvested
 
@@ -819,11 +819,21 @@ def _verify_history_delta(
     )
 
 
-def _zero_proof(evidence: HarvestEvidence) -> HarvestVerdict:
+def _zero_proof(evidence: HarvestEvidence, oracle_kind: str) -> HarvestVerdict:
     """Check 11 — can a 0-row harvest be *proven* genuinely empty?
 
-    * ``declared_total == 0`` on a live 200 (a trusted ATS declaring zero) →
-      VERIFIED ``zero_proven``. It still closes nothing this run: the leaf task's
+    ONLY ``declared_probed`` CAN PROVE A ZERO, which is the whole reason this takes
+    ``oracle_kind``. ``declared_total`` is populated for every oracle, but it is a
+    TRUSTED total for exactly one of them. Under ``self_consistent`` it is the board's
+    own self-report — Eightfold's ``count``, which this module documents as free to
+    over- and under-report and states is never the oracle. Trusting it here made a
+    0-row Eightfold harvest whose ``count`` happened to be 0 come back VERIFIED
+    ``zero_proven``, i.e. the one oracle we refuse to believe about N deciding the
+    N == 0 case. The close was already blocked by ``empty_scrape``, so what this fixes
+    is the VERDICT, not a wrong close — but a verdict is what moves ``health_state``.
+
+    * ``declared_total == 0`` on a live 200 under ``declared_probed`` (a trusted ATS
+      declaring zero) → VERIFIED ``zero_proven``. It still closes nothing this run: the leaf task's
       ``empty_scrape`` safety guard trips on ``jobs_seen=0``, matching the
       2026-03-29 lesson that a board→0 on a single run is indistinguishable from
       a scraper outage.
@@ -838,7 +848,11 @@ def _zero_proof(evidence: HarvestEvidence) -> HarvestVerdict:
     Phase 3: add canonical_backlink + brand signals to this chain (the leaf
     caller and verdict shape do not change).
     """
-    if evidence.declared_total == 0 and evidence.transport_ok:
+    if (
+        oracle_kind == "declared_probed"
+        and evidence.declared_total == 0
+        and evidence.transport_ok
+    ):
         return HarvestVerdict(
             VERIFIED, "zero_proven", oracle_total=0, declared_total=0,
         )

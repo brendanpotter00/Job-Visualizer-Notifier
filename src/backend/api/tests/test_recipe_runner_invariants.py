@@ -275,6 +275,86 @@ def test_inv_cap_hit_is_recorded_in_evidence() -> None:
     assert len(rows) == 4
 
 
+def _page_script(window_cap: int | None = None) -> dict:
+    """The ``paginate_page`` twin of :func:`_json_script` — page numbers, not offsets."""
+    step: dict = {"op": "paginate_page", "param": "page", "page_size": 2, "max_pages": 20}
+    if window_cap is not None:
+        step["window_cap"] = window_cap
+    return {
+        "script_version": 1,
+        "transport": "http_json",
+        "expected_min_jobs": 1,
+        "steps": [
+            {"op": "fetch", "method": "GET", "url": "https://ex.com/api", "headers": {}},
+            step,
+            {"op": "extract_json_path", "records_path": "jobs",
+             "fields": {"id": "id", "title": "title", "url": "url"}},
+            {"op": "dedupe_key", "field": "id"},
+        ],
+        "oracle": {"kind": "self_consistent"},
+    }
+
+
+def _page_dataset_handler(n: int):
+    data = [{"id": i, "title": f"t{i}", "url": f"https://ex.com/{i}"} for i in range(n)]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        page = int(request.url.params.get("page", "1"))
+        start = (page - 1) * 2
+        return httpx.Response(200, json={"jobs": data[start:start + 2], "total": n})
+    return handler
+
+
+def test_inv_window_cap_stops_a_page_style_sweep_too() -> None:
+    """A ``window_cap`` on ``paginate_page`` must stop the sweep exactly like it does
+    on ``paginate_offset``.
+
+    THE REGRESSION THIS PINS. The cap check used to be written ``if style ==
+    "offset" and ...``, so a page-numbered script declaring ``window_cap`` — which
+    ``recipe_schema`` accepts — ran with no cap at all. That is not a missing
+    optimisation: the sweep pages past the board's result window, the board serves a
+    short page at the boundary, and the run reports ``cap_hit=False`` +
+    ``terminated_cleanly=True``. That pair is a COMPLETE read, it VERIFIES, and the
+    destructive tail then closes every job past the window.
+    """
+    script = _page_script(window_cap=4)  # page_size 2 → pages 1 and 2, then stop
+    with _client(_page_dataset_handler(50)) as http:
+        rows, ev = run_recipe(script, http)
+    assert ev.cap_hit is True
+    assert ev.terminated_cleanly is False
+    assert len(rows) == 4
+
+
+def test_inv_assert_cap_not_hit_actually_caps_the_sweep() -> None:
+    """``assert_cap_not_hit`` is an executable bound, not a comment.
+
+    Its ``window_cap`` is folded onto ``RecipePlan.window_cap`` by ``_parse_steps``, and
+    nothing used to read that field — so a script whose ONLY declaration of the board's
+    window was this op ran completely uncapped while the schema advertised the op as
+    supported. A discovery-authored script can reach exactly that state.
+    """
+    script = _json_script(expected_min_jobs=1, oracle={"kind": "self_consistent"})
+    assert "window_cap" not in script["steps"][1]  # the cap comes ONLY from the assert
+    script["steps"].append({"op": "assert_cap_not_hit", "window_cap": 4})
+    validate_recipe(script)
+    with _client(_dataset_handler(50)) as http:
+        rows, ev = run_recipe(script, http)
+    assert ev.cap_hit is True
+    assert len(rows) == 4
+
+
+def test_inv_the_tighter_of_two_declared_caps_wins() -> None:
+    """Two caps in one script: obey the smaller. A cap is a safety bound, so when a
+    script states two the honest one is the one that stops sooner."""
+    script = _json_script(expected_min_jobs=1, oracle={"kind": "self_consistent"})
+    script["steps"][1]["window_cap"] = 10
+    script["steps"].append({"op": "assert_cap_not_hit", "window_cap": 4})
+    with _client(_dataset_handler(50)) as http:
+        rows, ev = run_recipe(script, http)
+    assert ev.cap_hit is True
+    assert len(rows) == 4
+
+
 def test_inv_offset_wrap_sets_page_advance_false() -> None:
     """A board that re-serves the same page on every offset (offset-wrap, the Intel
     shape) must surface page_advance_ok=False, not silently union duplicates away."""

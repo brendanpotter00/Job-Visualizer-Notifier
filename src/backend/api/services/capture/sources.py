@@ -227,6 +227,9 @@ def robots_sitemap_urls(body: str, origin: str) -> list[str]:
     return out
 
 
+_XML_PROLOG_SCAN_CHARS = 8192
+
+
 def parse_sitemap(url: str, body: str) -> SitemapDocument | None:
     """One sitemap document, or ``None`` when it is not XML we can read.
 
@@ -237,6 +240,14 @@ def parse_sitemap(url: str, body: str) -> SitemapDocument | None:
     "0 <loc> matching", are both wrong; knowing which document you are holding is what
     makes the difference expressible.
     """
+    # NO DTD, CHECKED BEFORE THE PARSER SEES IT. ``xml.etree`` is expat-backed and
+    # expands internal general entities, so a 1 KB document declaring nested entities
+    # ("billion laughs") inflates to gigabytes inside the parser — a ceiling on the
+    # WIRE bytes cannot see that coming. A sitemap never legitimately carries a
+    # doctype, and the prolog is the only place a well-formed one may appear, so
+    # scanning the head is both sufficient and cheap.
+    if "<!DOCTYPE" in body[:_XML_PROLOG_SCAN_CHARS].upper():
+        return None
     try:
         root = ElementTree.fromstring(body)
     except ElementTree.ParseError:

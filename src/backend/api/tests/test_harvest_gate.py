@@ -172,6 +172,25 @@ def test_zero_with_declared_zero_is_zero_proven():
     assert v.reason == "zero_proven"
 
 
+def test_a_self_consistent_zero_is_never_proven_by_the_boards_own_count():
+    """Eightfold's ``count`` is documented as free to over- and under-report, and this
+    module states it is never the oracle. The zero-proof chain used to trust
+    ``declared_total == 0`` for EVERY oracle, so a 0-row Eightfold harvest whose
+    ``count`` happened to be 0 came back VERIFIED ``zero_proven`` — the one number we
+    refuse to believe about N deciding the N == 0 case.
+
+    The close was already blocked by the leaf task's ``empty_scrape`` guard, so what
+    this pins is the VERDICT. That still matters: a verdict is what moves
+    ``health_state``, and ``self_consistent`` boards close on a VERIFIED streak.
+    """
+    ev = HarvestEvidence.single_shot(declared_total=0)
+    gate = run_gate([], ev, oracle_kind="self_consistent")
+    assert gate.is_zero is True
+    v = verify_harvest("self_consistent", gate, ev, _baseline(None))
+    assert v.verdict == UNVERIFIED
+    assert v.reason == "zero_unproven"
+
+
 def test_zero_with_no_declared_total_is_zero_unproven():
     """Marcus & Millichap: a Lever ``200 []`` — the zero cannot be proven."""
     ev = HarvestEvidence.single_shot(declared_total=None)
