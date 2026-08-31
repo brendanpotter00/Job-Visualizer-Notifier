@@ -299,10 +299,12 @@ anti-join invariants the `/api/jobs` INNER JOIN depends on — runbook in
 - **Database**: Connection pool managed by `dependencies.py`; table naming reused from `scripts/shared/database.py`
 - **Response serialization**: Pydantic models with `alias_generator=to_camel` produce camelCase JSON matching frontend expectations
 - **Background workers**: Two workers run in the FastAPI lifespan context:
-  1. **Procrastinate worker** (`tasks/procrastinate_app.py`) — drains the Procrastinate job queue; handles Greenhouse, Ashby, Lever, Gem, Eightfold, and Workday ATS companies via fan-out + per-company fetch tasks. Supervised with auto-restart on crash.
-  2. **Auto-scraper loop** (`services/auto_scraper.py`) — asyncio task that periodically spawns subprocesses for the script-ats scrapers (Google, Apple, Microsoft, Amazon, TikTok).
+  1. **Procrastinate worker** (`tasks/procrastinate_app.py`) — drains the Procrastinate job queue; handles Greenhouse, Ashby, Lever, Gem, Eightfold, and Workday ATS companies via fan-out + per-company fetch tasks. Supervised by `_supervised_worker` with auto-restart when `run_worker_async` **returns or raises** — but that supervisor cannot see a worker that **hangs** (never returns), which is what the worker watchdog below is for.
+  2. **Auto-scraper loop** (`services/auto_scraper.py`) — asyncio task that periodically spawns subprocesses for the script-ats scrapers (Google, Apple, Microsoft, Amazon, TikTok). Independent of Procrastinate — it kept running for the full 61h of the 2026-08-29 worker wedge.
 - **Scraper subprocess**: Runs `scripts/run_scraper.py` via `asyncio.create_subprocess_exec`
-- **DB watchdog** (`services/db_watchdog.py`): daemon thread probing the DB on fresh connections with hard wall-clock deadlines; exits the process after ~5-6 sustained minutes of unreachability so Railway restarts the container (see `railway.toml` and the 2026-08-10 incident doc).
+- **Two liveness watchdogs, partitioning the failure space** (both daemon threads that `os._exit` so Railway `ON_FAILURE` restarts the container; `/health/worker` is Railway's `healthcheckPath` but gates deploy cutover only and never restarts a live container):
+  - **DB watchdog** (`services/db_watchdog.py`, exit 70): probes the DB on fresh connections with hard wall-clock deadlines; exits after ~5-6 sustained minutes of **DB unreachability** (see the 2026-08-10 incident doc).
+  - **Worker watchdog** (`services/worker_watchdog.py`, exit 75): reads `MAX(worker_heartbeats.at)` and exits when the worker heartbeat is stale past ~15 min **while the DB is reachable** — i.e. the executor is **wedged** but the DB is fine (the 2026-08-29 incident: `run_worker_async` hung mid-drain after a transient DB blip and never returned; nothing restarted it for 61h). Keys on `worker_heartbeats`, NOT `procrastinate_events`, because the periodic deferrer keeps writing events even with a dead executor. An unreachable DB is inconclusive here and left to the DB watchdog. Tunable via `WORKER_WATCHDOG_*` env vars; disabled under pytest by a conftest fixture.
 
 ### Schema migrations
 
