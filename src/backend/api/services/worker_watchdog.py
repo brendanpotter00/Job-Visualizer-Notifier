@@ -143,13 +143,17 @@ class WorkerWatchdog:
         self._thread.start()
 
     def stop(self) -> None:
-        # Setting the event is what matters: the loop checks it and will not
-        # os._exit after stop() is called. The join is a short best-effort
-        # cleanup — it is NOT sized to the read deadline, because on a
-        # shutdown path a read that is mid-hang (a freezing DB) must not make
-        # stop() block for ~15s and push the whole shutdown past Railway's
-        # SIGTERM->SIGKILL grace. The thread is a daemon and dies with the
-        # process regardless.
+        # Setting the event is what matters: the loop re-checks it at the top
+        # of each iteration, so after stop() it makes at most one more sample
+        # and exits. (A sample already in flight when stop() fires can still
+        # reach os._exit for that one iteration — benign: it only happens if
+        # the worker is wedged-to-fatal at the instant shutdown begins, and
+        # exit-75 vs a clean teardown exit is immaterial.) The join is a short
+        # best-effort cleanup — deliberately NOT sized to the read deadline,
+        # because on a shutdown path a read that is mid-hang (a freezing DB)
+        # must not make stop() block ~15s and push the whole shutdown past
+        # Railway's SIGTERM->SIGKILL grace. The thread is a daemon and dies
+        # with the process regardless.
         self._stop_event.set()
         if self._thread is not None:
             self._thread.join(timeout=self._STOP_JOIN_TIMEOUT_S)
