@@ -20,9 +20,9 @@ export interface ChangelogEntry {
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
     id: 'custom-company-sources',
-    title: 'Add Your Own Companies',
+    title: 'Add Your Own Companies by Deploying a Custom Web Scraper',
     description:
-      "Paste the link to any company's careers page and it becomes your own custom web scraper, refreshed hourly like every other company. The companies you add are private to you, and they show up in Recent Job Postings and on the hiring graph with all the same filters. You can watch yours being built, live. This is beta, so some boards will not work yet.",
+      "Paste the link to any company's careers page and it gets tracked for you, refreshed hourly like every other company. The companies you add are private to you, and they show up in Recent Job Postings and on the hiring graph with all the same filters. You can watch yours being built, live. This is beta, so some boards will not work yet.",
     tags: ['feature'],
     date: '2026-08-31',
     link: {
