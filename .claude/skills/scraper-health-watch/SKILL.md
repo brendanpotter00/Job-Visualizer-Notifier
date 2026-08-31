@@ -1,11 +1,13 @@
 ---
 name: scraper-health-watch
 description: |
-  Daily scraper-health watchdog. Detects dead/stale scrape sources (silent-zero
-  + staleness), mass job closures, and worker-heartbeat death against prod;
-  researches where a moved job board went (subagent); opens a fix PR (NEVER
-  merges); texts Brendan only when something is wrong, plus one weekly
-  all-clear. Runs headless daily via launchd, or invoke it interactively.
+  Scraper-health watchdog (runs every 3h via launchd). Detects dead/stale scrape
+  sources (silent-zero + staleness), a fleet-wide coverage collapse, mass job
+  closures, and worker-heartbeat death against prod; researches where a moved job
+  board went (subagent); opens a fix PR (NEVER merges); texts Brendan when
+  something is wrong — CRITICAL outages re-alert every run until fixed (no 72h
+  suppression) — plus one weekly all-clear. Headless via launchd, or invoke
+  interactively.
 trigger_phrases:
   - check scraper health
   - run the health watchdog
@@ -26,8 +28,12 @@ mode: read-write   # repo writes + PR only; prod is strictly read-only
 # Scraper Health Watch
 
 One run answers: **is any company we track silently returning nothing, mass-closing,
-or unscraped?** If yes: research where the board moved, open a fix PR, text Brendan
-the link. If no: stay silent (heartbeat log only; weekly all-clear text).
+or unscraped — or has the whole fleet's scrape coverage collapsed?** If yes: research
+where the board moved, open a fix PR, text Brendan. A live outage (worker dead,
+coverage collapse, mass closure) re-alerts on **every** run until it clears — a single
+missed text must never again mean a silent multi-day outage (2026-08-29: one text, then
+72h of self-suppression while prod stayed down 61h). If no: stay silent (heartbeat log
+only; weekly all-clear text).
 
 Ops runbook (launchd install, logs, pause): `scripts/health_watch/README.md`.
 Headless entry point: `.claude/commands/health-watch-once.md` → this file, `daily` mode.
@@ -60,8 +66,9 @@ timestamps per alert key + `last_allclear`).
 
 ## §1 Modes
 
-- **`daily`** — headless, launched by the LaunchAgent wrapper. Full procedure, no
-  narration beyond the final status block.
+- **`daily`** — headless, launched by the LaunchAgent wrapper (the mode name is
+  historical; the agent now fires **every 3h**, not once a day — see the plist).
+  Full procedure, no narration beyond the final status block.
 - **`interactive`** (default when invoked via the Skill tool) — same procedure;
   you may narrate and pause for the user.
 - **`drill <scenario>`** — test the alert path without real findings. Scenarios:
@@ -85,6 +92,7 @@ Tunable constants (change here, nowhere else):
 | `MASS_CLOSE_GLOBAL` | 1000 | global 24h closed_jobs alarm |
 | `HEARTBEAT_DEAD_MINUTES` | 15 | task writes every 5 min (`heartbeat.py:106`); app's own threshold is 10 min (`main.py:53`) |
 | `WARM_UP_HOURS` | 6 | reuses the staleness window — a company seeded less than one window ago has not had time to tick; see A1's warm-up guard |
+| `COVERAGE_MIN_FRACTION` | 0.5 | Check D floor — alert if fewer than half of enabled companies had a successful scrape in 24h. On the 2026-08-29 outage this read 5/133 (3.8%); anything under ~50% is a fleet-level failure, not per-company drift |
 
 > **A1 and A2 filter on `c.enabled` only — they do NOT filter on `c.visibility`**, so private
 > custom companies (E7, `visibility='user'`) are in scope. That is fine at the current cadence
@@ -192,15 +200,45 @@ FROM worker_heartbeats;
 
 Alert if `last_beat` is NULL or `minutes_ago > 15`.
 
+**Check D — coverage collapse** (the single unmissable number: how many tracked
+companies actually produced a successful scrape in the last day). Independent of
+Check C — it fires even if the heartbeat mechanism itself is lying, and it is the
+signal that would have screamed on 2026-08-29 when only the 5 standalone Python
+scrapers kept running while all 128 worker-driven companies went dark:
+
+```sql
+SELECT
+  count(*) FILTER (WHERE c.enabled) AS enabled,
+  count(*) FILTER (WHERE c.enabled AND f.company IS NOT NULL) AS scraped_ok_24h
+FROM companies c
+LEFT JOIN (
+  SELECT DISTINCT company
+  FROM scrape_runs
+  WHERE started_at::timestamptz > now() - interval '24 hours'
+    AND jobs_seen > 0
+) f ON f.company = c.id;
+```
+
+Alert **CRITICAL** (key `coverage_collapse`) if `scraped_ok_24h <
+COVERAGE_MIN_FRACTION * enabled`. Carry the raw ratio into the text
+(`only 5/133 scraped in 24h`) — that one line is the whole point: a per-company
+staleness list (Check A) can bury a total collapse; this number cannot.
+
 ## §3 Phase 2 — Classify
 
-- **OK** — A/B/C all clean.
-- **DEGRADED** — one or more findings; carry the per-company list (id, ats,
-  board_token, hours dark, signals) plus any B/C findings.
-- **UNKNOWN** — any check errored or returned something unparseable. UNKNOWN is
-  alertable; never downgrade it to OK.
+Severity — highest wins, and it decides the alert cadence (§4):
 
-## §4 Phase 3 — Dedupe gate (no spam, ever)
+- **CRITICAL** — an active outage: worker heartbeat dead (C), coverage collapse
+  (D), or a mass closure (B). These **re-alert on every run until resolved** —
+  never suppressed by the 72h window (§4.2).
+- **DEGRADED** — per-company staleness / silent-zero (A) with the fleet still
+  broadly healthy; carry the per-company list (id, ats, board_token, hours dark,
+  signals). PR-able board moves dedupe on the open PR (§4.1).
+- **UNKNOWN** — any check errored or returned something unparseable. Treated as
+  CRITICAL for alerting (`unknown_prod`); never downgrade to OK.
+- **OK** — A/B/C/D all clean.
+
+## §4 Phase 3 — Dedupe gate (dedupe drift, NEVER an active outage)
 
 1. **Board-move incidents** (PR-able): run
    `gh pr list --state open --label scraper-health --json number,url,body`.
@@ -209,13 +247,24 @@ Alert if `last_beat` is NULL or `minutes_ago > 15`.
    **suppressed** — no new PR, no text for it. (The open PR is the incident
    record; merging it fixes the scraper and the SQL goes green. A PR closed
    without merging naturally re-alerts on the next run.)
-2. **Non-PR-able alerts** (heartbeat dead, UNKNOWN, mass closure, research found
-   nothing): read `state.json`; suppress the text if the same alert key was
-   texted within **72h**. Keys: `heartbeat_dead`, `unknown_prod`,
-   `mass_closure:global`, `mass_closure:<company>`, `notfound:<company>`,
-   `drill:<scenario>`. Still record the finding in the heartbeat line every run.
-3. If everything found is suppressed: append the heartbeat line with
-   `suppressed=<ids/keys>` and end (weekly all-clear still applies, §9).
+2. **CRITICAL alerts re-text on EVERY run — no 72h suppression.** Keys
+   `heartbeat_dead`, `coverage_collapse`, `mass_closure:global`,
+   `mass_closure:<company>`, `unknown_prod`. **Why this is not "spam":** the
+   2026-08-29 incident — `heartbeat_dead` was texted once, then this gate
+   suppressed it for 72h; that single text was missed and prod stayed dark 61h.
+   An ongoing, actionable outage MUST keep alerting until it clears. Re-send every
+   run and make each message escalate (§9) — carry the elapsed duration/day-count
+   so a repeat reads as "still down, and longer," never as an identical dupe.
+   `state.json` still records `last_texted` + a `first_texted` per critical key
+   (for the heartbeat line and the escalation math), but it does **not** gate the
+   send.
+3. **Informational alerts keep the 72h cooldown** — these are known needs-human
+   items, not live outages, so nagging adds nothing: keys `notfound:<company>`,
+   `drill:<scenario>`. Suppress the text if the same key was texted within 72h;
+   still record the finding in the heartbeat line.
+4. If everything found is a §4.1/§4.3 suppression (no CRITICAL active): append the
+   heartbeat line with `suppressed=<ids/keys>` and end (weekly all-clear still
+   applies, §9).
 
 ## §5 Phase 4 — Upstream probes (trivial research path)
 
@@ -369,12 +418,22 @@ Fix PR: <url>
 - One line per company: `id: dark Nd (<old evidence> -> <destination or verdict>)`.
 - Non-PR findings get their own line (`worker heartbeat DEAD 47m`,
   `could not determine prod health (MCP error)`, `board not found — needs a human`).
+- **CRITICAL escalation (§4.2):** when a CRITICAL key is still active on a repeat
+  run, lead with the elapsed duration and a day counter so each send is visibly
+  worse and can never be mistaken for a prior text, e.g.
+  `JVN health CRITICAL day 3: worker DEAD 61h — only 5/133 scraping. Restart Railway.`
+  Derive elapsed from the finding itself (heartbeat `minutes_ago`, or
+  `now - state.json.first_texted[key]`).
 - `[DRILL]` prefix in drill mode.
 - **Weekly all-clear:** if verdict is OK and `state.json.last_allclear` is
   missing or older than **6.5 days**, send
   `JVN health: all clear (<N> sources healthy). Watchdog alive.`
-- After ANY successful send (exit 0), update `state.json`: the alert keys just
-  texted (ISO timestamp) and `last_allclear = now` (every text proves liveness).
+- After ANY successful send (exit 0), update `state.json`: set `last_texted` for
+  each alert key just sent (ISO timestamp); for a CRITICAL key, set `first_texted`
+  only if not already present (so escalation can measure how long it's been down);
+  and set `last_allclear = now` (every text proves liveness). When a CRITICAL key
+  comes back clean on a later run, clear its `first_texted`/`last_texted` so the
+  next occurrence starts a fresh escalation.
 - On send failure: `ALERT-SEND FAILED` to stderr, do not retry-loop; the
   heartbeat line still records what should have been sent.
 
@@ -384,10 +443,13 @@ Append exactly one line to `~/Library/Application Support/jvn-health-watch/heart
 (create the directory if needed):
 
 ```
-2026-08-05T16:03Z verdict=DEGRADED checked=133 stale=fireworksai,thinkingmachines mass_closure=none heartbeat_min=3 pr=https://github.com/.../pull/NNN texted=1 suppressed=none
+2026-08-05T16:03Z verdict=DEGRADED severity=degraded checked=133 coverage=131/133 stale=fireworksai,thinkingmachines mass_closure=none heartbeat_min=3 pr=https://github.com/.../pull/NNN texted=1 suppressed=none
 ```
 
-(`verdict=OK ... stale=none ... pr=none texted=0` on the quiet path.) The
+Always include `severity=` (ok|degraded|critical|unknown) and `coverage=<scraped_ok_24h>/<enabled>`
+(Check D) — a collapse then reads at a glance in the log, e.g. a worker-death run is
+`verdict=CRITICAL severity=critical checked=133 coverage=5/133 heartbeat_min=3648 ... texted=1 suppressed=none`.
+(`verdict=OK ... coverage=133/133 ... pr=none texted=0` on the quiet path.) The
 launchd wrapper checks this file's mtime advanced — skipping this line makes the
 wrapper report the run as failed. Print the same line as the final status block,
 then end the turn immediately (headless: no further tool calls).
