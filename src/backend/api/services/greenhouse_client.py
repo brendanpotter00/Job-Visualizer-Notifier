@@ -34,6 +34,8 @@ from scripts.shared.constants import SourceId
 from scripts.shared.models import JobListing
 from scripts.shared.utils import get_iso_timestamp
 
+from .harvest_meta import HarvestEvidence
+
 logger = logging.getLogger(__name__)
 
 GREENHOUSE_BASE_URL = "https://boards-api.greenhouse.io/v1/boards"
@@ -41,20 +43,21 @@ DEFAULT_TIMEOUT_SECONDS = 30.0
 SOURCE_ID = SourceId.GREENHOUSE
 
 
-async def fetch_jobs(board_token: str, http: httpx.AsyncClient) -> list[dict]:
-    """Fetch all open jobs for a Greenhouse board.
+async def fetch_jobs_with_meta(
+    board_token: str, http: httpx.AsyncClient
+) -> tuple[list[dict], HarvestEvidence]:
+    """Fetch a Greenhouse board AND the completeness evidence around it (E7).
 
-    GETs ``{GREENHOUSE_BASE_URL}/{board_token}/jobs?content=true``. The
-    ``content=true`` param asks Greenhouse to include the job body HTML in
-    the response - needed by future enrichment but not by this unit.
+    Same single GET as :func:`fetch_jobs` (``?content=true``) but ALSO captures
+    ``payload["meta"]["total"]`` — Greenhouse's own trusted, independent count,
+    which the public path discards. That total is the ``declared_probed`` oracle:
+    the gate verifies iff ``len(deduped) == meta.total`` exactly.
 
-    Raises ``httpx.HTTPStatusError`` on non-2xx and ``ValueError`` if the
-    response JSON is missing the ``jobs`` key. The caller (Unit 4) treats
-    both as a failed run and lets Procrastinate retry.
-
-    The timeout is enforced **per call** so a long-lived shared
-    ``httpx.AsyncClient`` (preferred at the caller layer) keeps its default
-    timeout for other use. 30s is the PLAN-mandated value.
+    ``meta.total`` missing or non-int → ``declared_total=None`` (defensive; never
+    raises on a missing total — an absent trusted total simply means the zero /
+    count checks fall back to "cannot prove", never a crash). Greenhouse is a
+    single GET so this is always ``HarvestEvidence.single_shot`` (no cap, no
+    pagination to advance).
     """
     url = f"{GREENHOUSE_BASE_URL}/{board_token}/jobs"
     logger.info("Fetching Greenhouse jobs for board %s", board_token)
@@ -76,7 +79,30 @@ async def fetch_jobs(board_token: str, http: httpx.AsyncClient) -> list[dict]:
             f"Greenhouse 'jobs' for {board_token!r} is not a list: "
             f"got {type(jobs).__name__}"
         )
-    logger.info("Greenhouse returned %d jobs for %s", len(jobs), board_token)
+
+    meta = payload.get("meta")
+    raw_total = meta.get("total") if isinstance(meta, dict) else None
+    declared_total = raw_total if isinstance(raw_total, int) and raw_total >= 0 else None
+
+    logger.info(
+        "Greenhouse returned %d jobs for %s (meta.total=%r)",
+        len(jobs), board_token, declared_total,
+    )
+    return jobs, HarvestEvidence.single_shot(declared_total=declared_total)
+
+
+async def fetch_jobs(board_token: str, http: httpx.AsyncClient) -> list[dict]:
+    """Fetch all open jobs for a Greenhouse board.
+
+    Thin delegator over :func:`fetch_jobs_with_meta` that discards the evidence,
+    so the six PUBLIC ATS crons keep byte-identical behavior (same GET, same
+    return type). Only the custom path reads the meta.
+
+    Raises ``httpx.HTTPStatusError`` on non-2xx and ``ValueError`` if the
+    response JSON is missing the ``jobs`` key. The caller treats both as a failed
+    run and lets Procrastinate retry.
+    """
+    jobs, _ = await fetch_jobs_with_meta(board_token, http)
     return jobs
 
 

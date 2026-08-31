@@ -95,6 +95,13 @@ export interface UserCompany {
   openJobCount: number;
   /** ISO-8601 of the last successful harvest, or null before the first run. */
   lastSuccessAt: string | null;
+  /**
+   * ISO-8601 of the first VERIFIED harvest (E7 Phase 2), or null until the
+   * company graduates. Carried on the wire ahead of any consumer: the trend
+   * page's "already live when tracking began" line is still derived from the
+   * `firstSeenAt` seed-window heuristic, not from this field.
+   */
+  trackingStartedAt: string | null;
 }
 
 /** `GET /api/users/companies` envelope — newest first. */

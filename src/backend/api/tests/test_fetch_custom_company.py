@@ -1,16 +1,20 @@
-"""E7 Phase 1 never-close regression — fetch_custom_company runs UNVERIFIED.
+"""E7 Phase 2 leaf-task behavior — the graduated verdicts + shared test helpers.
 
-The whole safety property of Phase 1 in one test: run the custom leaf task twice
-against a fake ATS client; on the second run the board drops a job. Because no
-oracle exists (``oracle_kind='none'``) every harvest is UNVERIFIED, so NOTHING
-is ever closed and NO miss is ever counted — the dropped job stays OPEN with
-zero misses. Each run writes one ``company_harvests`` row and one ``scrape_runs``
-row (``source_id=custom:<id>``, ``guard_reason='unverified_harvest'``).
+Phase 1 landed every custom harvest UNVERIFIED (no oracle). Phase 2 wires the
+provider-derived oracle (DECISION D2): a Greenhouse company is ``declared_probed``
+even though its ``company_scripts.oracle_kind`` was seeded ``'none'`` in Phase 1 —
+so it graduates with no backfill. This module keeps the small seeding/monkeypatch
+helpers the broader close-path suite (``test_fetch_custom_company_close.py``)
+imports, and pins two leaf-task behaviors directly:
 
-The task is called directly (``await fetch_custom_company(...)``) rather than
-through the Procrastinate worker, so it does not depend on the worker's
-event loop / connector — it opens its OWN connection from
-``settings.database_url``, which the test points at the per-worker test schema.
+* a Greenhouse board that VERIFIES but whose dropped job does NOT close within the
+  miss threshold + 36h floor, and
+* a Greenhouse board that goes to a *declared* zero — VERIFIED ``zero_proven``,
+  yet the ``empty_scrape`` safety guard still blocks any close (belt-and-braces).
+
+The task is called directly (``await fetch_custom_company(...)``) so it opens its
+OWN connection from ``settings.database_url``, which the test points at the
+per-worker test schema.
 """
 
 from __future__ import annotations
@@ -25,28 +29,39 @@ from psycopg2 import sql
 import api.tasks.fetch_custom_company as task_mod
 from api.config import settings
 from api.services import greenhouse_client
+from api.services.harvest_meta import HarvestEvidence
 from api.tasks.fetch_custom_company import fetch_custom_company
 from scripts.shared.constants import custom
 
 pytestmark = pytest.mark.asyncio
 
 
-def _seed_custom_company(db_conn, company_id: str, token: str) -> None:
+def _seed_custom_company(
+    db_conn, company_id: str, token: str, *, ats: str = "greenhouse",
+    provider_config: dict | None = None, oracle_kind: str = "none",
+) -> None:
+    """Seed a custom company + its Phase-1 script row.
+
+    ``oracle_kind`` defaults to ``'none'`` on PURPOSE — Phase-1 rows carry that,
+    and DECISION D2 says the gate derives the real oracle from the ATS provider
+    anyway, so seeding 'none' proves a Phase-1 row graduates without a backfill.
+    """
     cur = db_conn.cursor()
     cur.execute(
         sql.SQL(
             "INSERT INTO {} (id, display_name, ats, board_token, enabled, "
             "provider_config, visibility, cadence_hours, next_run_at, health_state) "
-            "VALUES (%s, %s, 'greenhouse', %s, TRUE, '{{}}'::jsonb, 'user', 24, now(), 'unverified')"
+            "VALUES (%s, %s, %s, %s, TRUE, %s::jsonb, 'user', 24, now(), 'unverified')"
         ).format(sql.Identifier("companies")),
-        (company_id, company_id, token),
+        (company_id, company_id, ats, token, json.dumps(provider_config or {})),
     )
     cur.execute(
         sql.SQL(
             "INSERT INTO {} (company_id, script, script_version, transport, oracle_kind) "
-            "VALUES (%s, %s::jsonb, 1, 'ats_client', 'none')"
+            "VALUES (%s, %s::jsonb, 1, 'ats_client', %s)"
         ).format(sql.Identifier("company_scripts")),
-        (company_id, json.dumps({"kind": "ats_client", "provider": "greenhouse", "token": token})),
+        (company_id, json.dumps({"kind": "ats_client", "provider": ats, "token": token}),
+         oracle_kind),
     )
     db_conn.commit()
 
@@ -59,6 +74,14 @@ def _raw_job(i: int) -> dict:
         "first_published": "2025-01-01T00:00:00Z",
         "updated_at": "2025-01-01T00:00:00Z", "content": "<p>d</p>",
     }
+
+
+def patch_greenhouse_meta(monkeypatch, raw_jobs: list[dict], declared_total: int | None):
+    """Monkeypatch ``greenhouse_client.fetch_jobs_with_meta`` (the Phase-2 entry
+    the leaf task now calls) to return controlled rows + single-shot evidence."""
+    async def _fetch(board_token, http):
+        return list(raw_jobs), HarvestEvidence.single_shot(declared_total=declared_total)
+    monkeypatch.setattr(greenhouse_client, "fetch_jobs_with_meta", _fetch)
 
 
 def _patch_env(monkeypatch):
@@ -76,7 +99,9 @@ def _patch_env(monkeypatch):
 def _rows(db_conn, table: str, company_id: str) -> list[dict]:
     cur = db_conn.cursor()
     cur.execute(
-        sql.SQL("SELECT * FROM {} WHERE company_id = %s").format(sql.Identifier(table)),
+        sql.SQL("SELECT * FROM {} WHERE company_id = %s ORDER BY started_at").format(
+            sql.Identifier(table)
+        ),
         (company_id,),
     )
     return list(cur.fetchall())
@@ -105,7 +130,7 @@ def _scrape_runs(db_conn, company_id: str) -> list[dict]:
     return list(cur.fetchall())
 
 
-def _job_status(db_conn, company_id: str) -> dict[str, str]:
+def _job_status(db_conn, company_id: str) -> dict[str, dict]:
     cur = db_conn.cursor()
     cur.execute(
         sql.SQL(
@@ -118,18 +143,31 @@ def _job_status(db_conn, company_id: str) -> dict[str, str]:
     return {r["id"]: r for r in cur.fetchall()}
 
 
-async def test_two_runs_dropping_a_job_never_closes(db_conn, monkeypatch):
-    company_id = "u-nevrclose1"
+def backdate_last_seen(db_conn, company_id: str, job_id: str, hours: float) -> None:
+    """Push a job's ``job_freshness.last_seen_at`` back by ``hours`` so the 36h
+    close floor can be satisfied in a test without waiting."""
+    cur = db_conn.cursor()
+    cur.execute(
+        "UPDATE job_freshness SET last_seen_at = now() - (%s * interval '1 hour') "
+        "WHERE source_id = %s AND id = %s",
+        (hours, custom(company_id), job_id),
+    )
+    db_conn.commit()
+
+
+async def test_two_runs_dropping_a_job_verifies_but_does_not_close_early(db_conn, monkeypatch):
+    """A Greenhouse custom company graduates to VERIFIED (D2 — derived from the
+    provider even though ``oracle_kind='none'`` was seeded), but a job dropped on
+    the 2nd run does NOT close: the first run closes nothing, and one miss is
+    below the threshold + 36h floor."""
+    company_id = "u-ghverify01"
     _seed_custom_company(db_conn, company_id, "duolingo")
     _patch_env(monkeypatch)
 
-    # --- Run 1: three jobs on the board ---
-    async def fetch_three(board_token, http):
-        return [_raw_job(1), _raw_job(2), _raw_job(3)]
-
-    monkeypatch.setattr(greenhouse_client, "fetch_jobs", fetch_three)
+    # --- Run 1: three jobs, declared total matches → VERIFIED (declared_exact) ---
+    patch_greenhouse_meta(monkeypatch, [_raw_job(1), _raw_job(2), _raw_job(3)], 3)
     await fetch_custom_company(company_id=company_id)
-    db_conn.rollback()  # fresh snapshot — the task committed on its own conn
+    db_conn.rollback()
 
     jobs = _job_status(db_conn, company_id)
     assert set(jobs) == {"1", "2", "3"}
@@ -138,76 +176,75 @@ async def test_two_runs_dropping_a_job_never_closes(db_conn, monkeypatch):
 
     harvests = _rows(db_conn, "company_harvests", company_id)
     assert len(harvests) == 1
-    assert harvests[0]["verdict"] == "UNVERIFIED"
-    assert harvests[0]["oracle_kind"] == "none"
-    assert harvests[0]["records_harvested"] == 3
+    assert harvests[0]["verdict"] == "VERIFIED"
+    assert harvests[0]["verdict_reason"] == "declared_exact"
+    # D2: recorded oracle is the provider-derived one, NOT the seeded 'none'.
+    assert harvests[0]["oracle_kind"] == "declared_probed"
+    assert harvests[0]["declared_total"] == 3
+    assert harvests[0]["oracle_total"] == 3
 
     runs = _scrape_runs(db_conn, company_id)
     assert len(runs) == 1
-    assert runs[0]["source_id"] == custom(company_id)
-    assert runs[0]["guard_reason"] == "unverified_harvest"
     assert runs[0]["closed_jobs"] == 0
     assert runs[0]["success"] is True
-
-    # A successful (UNVERIFIED, executed) run stamps last_success_at so the UI
-    # stops reading "Not yet checked". health_state stays 'unverified' (no oracle
-    # in Phase 1) and tracking_started_at stays NULL (first VERIFIED harvest only).
+    # First VERIFIED run closes nothing and stamps tracking + healthy.
+    assert runs[0]["guard_reason"] == "first_verified_run"
     company = _company_row(db_conn, company_id)
     assert company["last_success_at"] is not None
-    assert company["health_state"] == "unverified"
-    assert company["tracking_started_at"] is None
+    assert company["health_state"] == "healthy"
+    assert company["tracking_started_at"] is not None
 
-    # --- Run 2: the board drops job "3" ---
-    async def fetch_two(board_token, http):
-        return [_raw_job(1), _raw_job(2)]
-
-    monkeypatch.setattr(greenhouse_client, "fetch_jobs", fetch_two)
+    # --- Run 2: the board drops job "3" (declared total drops to 2 → VERIFIED) ---
+    patch_greenhouse_meta(monkeypatch, [_raw_job(1), _raw_job(2)], 2)
     await fetch_custom_company(company_id=company_id)
     db_conn.rollback()
 
     jobs = _job_status(db_conn, company_id)
-    # The dropped job "3" is STILL OPEN — UNVERIFIED never closes.
+    # Job 3 is missing this run → one miss, but NOT closed (threshold 2 + 36h).
     assert jobs["3"]["status"] == "OPEN"
+    assert jobs["3"]["consecutive_misses"] == 1
     assert all(j["status"] == "OPEN" for j in jobs.values())
-    # No miss was ever counted against anything.
-    assert max(j["consecutive_misses"] for j in jobs.values()) == 0
 
     harvests = _rows(db_conn, "company_harvests", company_id)
     assert len(harvests) == 2
-    assert all(h["verdict"] == "UNVERIFIED" for h in harvests)
+    assert all(h["verdict"] == "VERIFIED" for h in harvests)
 
     runs = _scrape_runs(db_conn, company_id)
     assert len(runs) == 2
     assert all(r["closed_jobs"] == 0 for r in runs)
-    assert all(r["guard_reason"] == "unverified_harvest" for r in runs)
-    assert all(r["source_id"] == custom(company_id) for r in runs)
+    # Run 2 is a clean close-eligible VERIFIED run (no block) → guard_reason NULL.
+    assert runs[1]["guard_reason"] is None
 
 
-async def test_empty_harvest_raises_and_closes_nothing(db_conn, monkeypatch):
-    """An empty harvest is a FAILED run (check 2 raises) — it writes no jobs and
-    is not a miss. It still records a harvest + scrape_runs row for evidence."""
-    company_id = "u-emptybrd01"
-    _seed_custom_company(db_conn, company_id, "emptyco")
+async def test_greenhouse_zero_board_verifies_but_guard_blocks_close(db_conn, monkeypatch):
+    """A Greenhouse board that goes to a DECLARED zero (meta.total=0) is VERIFIED
+    ``zero_proven`` — yet the ``empty_scrape`` safety guard still blocks the close,
+    so pre-existing jobs stay OPEN (the 2026-03-29 belt-and-braces: a board→0 on a
+    single run is indistinguishable from a scraper outage)."""
+    company_id = "u-ghzero0001"
+    _seed_custom_company(db_conn, company_id, "duolingo")
     _patch_env(monkeypatch)
 
-    async def fetch_none(board_token, http):
-        return []
+    # Run 1 seeds three OPEN jobs (VERIFIED).
+    patch_greenhouse_meta(monkeypatch, [_raw_job(1), _raw_job(2), _raw_job(3)], 3)
+    await fetch_custom_company(company_id=company_id)
+    db_conn.rollback()
+    assert set(_job_status(db_conn, company_id)) == {"1", "2", "3"}
 
-    monkeypatch.setattr(greenhouse_client, "fetch_jobs", fetch_none)
-    with pytest.raises(Exception):
-        # The gate raises HarvestGateError; the task records the run then
-        # re-raises so Procrastinate retries.
-        await fetch_custom_company(company_id=company_id)
+    # Run 2: the board returns [] with a trusted declared total of 0.
+    patch_greenhouse_meta(monkeypatch, [], 0)
+    await fetch_custom_company(company_id=company_id)
     db_conn.rollback()
 
-    assert _job_status(db_conn, company_id) == {}
-    harvests = _rows(db_conn, "company_harvests", company_id)
-    assert len(harvests) == 1
-    assert harvests[0]["verdict"] == "FAILED"
-    runs = _scrape_runs(db_conn, company_id)
-    assert len(runs) == 1
-    assert runs[0]["closed_jobs"] == 0
-    assert runs[0]["success"] is False
+    jobs = _job_status(db_conn, company_id)
+    assert all(j["status"] == "OPEN" for j in jobs.values())  # nothing closed
 
-    # A FAILED run must NOT stamp last_success_at — it stays NULL.
-    assert _company_row(db_conn, company_id)["last_success_at"] is None
+    harvests = _rows(db_conn, "company_harvests", company_id)
+    assert harvests[1]["verdict"] == "VERIFIED"
+    assert harvests[1]["verdict_reason"] == "zero_proven"
+
+    runs = _scrape_runs(db_conn, company_id)
+    # The empty_scrape safety guard wins the close-precedence and blocks any close.
+    assert runs[1]["guard_reason"] == "empty_scrape"
+    assert runs[1]["closed_jobs"] == 0
+    assert runs[1]["success"] is True

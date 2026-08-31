@@ -37,6 +37,7 @@ const COMPANY_A: UserCompany = {
   healthState: 'unverified',
   openJobCount: 0,
   lastSuccessAt: null,
+  trackingStartedAt: null,
 };
 
 const COMPANY_B: UserCompany = {
@@ -48,6 +49,7 @@ const COMPANY_B: UserCompany = {
   healthState: 'unverified',
   openJobCount: 42,
   lastSuccessAt: '2026-08-09T10:00:00Z',
+  trackingStartedAt: null,
 };
 
 let fetchMock: ReturnType<typeof vi.fn>;

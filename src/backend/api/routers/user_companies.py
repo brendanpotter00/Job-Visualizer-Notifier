@@ -81,6 +81,7 @@ def _to_response(row: dict) -> UserCompanyResponse:
         health_state=row.get("health_state"),
         open_job_count=int(row.get("open_job_count") or 0),
         last_success_at=row.get("last_success_at"),
+        tracking_started_at=row.get("tracking_started_at"),
     )
 
 

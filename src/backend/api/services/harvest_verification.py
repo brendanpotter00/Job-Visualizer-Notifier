@@ -1,94 +1,177 @@
 """The verification gate + verdict for custom-company harvests (E7).
 
-This is the module Phase 2 extends. In Phase 1 it ships only the *minimal* gate
-— checks 1, 2, 7-dedup, and 8 from BUILD-PLAN §3 — plus the load-bearing rule
-that a harvest with ``oracle_kind='none'`` is always **UNVERIFIED**.
+Phase 2 grows the Phase-1 *minimal* gate into the BUILD-PLAN §3 check set, wiring
+the only two oracles the ATS clients can feed:
+
+* ``declared_probed`` — the ATS API's own trusted independent total, compared
+  EXACTLY (tolerance 0) against the post-dedup unique-id count. Greenhouse
+  (``meta.total``) and Workday (``total``).
+* ``self_consistent`` — for ATSs with no trustworthy total (Ashby, Lever, Gem,
+  Eightfold): a run is complete iff it terminated cleanly (not a cap), pages
+  advanced with disjoint id-sets, and the count sits within the delta band of the
+  trailing-run median. Passing makes the *run* VERIFIED; CLOSING additionally
+  needs a 3-consecutive-VERIFIED streak, enforced in the leaf task.
+
+The two functions split by what each may do:
+
+* :func:`run_gate` — the *structural* pass (checks 2 zero-aware, 3, 7-dedupe, 8).
+  Raises :class:`HarvestGateError` (→ FAILED) ONLY on a genuinely broken run.
+* :func:`verify_harvest` — the *verdict* pass (checks 5, 6, 7-vs-total, 9, 10, 11,
+  12). Returns VERIFIED | UNVERIFIED and NEVER raises.
 
 The verdict ladder (BUILD-PLAN §1.1):
 
-* ``FAILED``     — transport/parse error, or a gate check raised. The leaf task
-                   writes nothing destructive, records the run, and re-raises so
-                   Procrastinate retries. A FAILED (non-executed) run is NOT a
-                   miss.
-* ``UNVERIFIED`` — rows were harvested but completeness could not be proven (no
-                   oracle exists yet). The leaf task upserts + refreshes
-                   last_seen ONLY. It NEVER increments misses and NEVER closes.
-* ``VERIFIED``   — every applicable gate check passed exactly. Phase 2+ only;
-                   unreachable in Phase 1 because no oracle is wired.
+* ``FAILED``     — a gate check raised. The leaf task writes nothing destructive,
+                   records the run, and re-raises so Procrastinate retries. A
+                   FAILED (non-executed) run is NOT a miss.
+* ``UNVERIFIED`` — rows were harvested but completeness could not be proven. The
+                   leaf task upserts + refreshes last_seen ONLY; it NEVER
+                   increments misses and NEVER closes.
+* ``VERIFIED``   — every applicable gate check passed. Only a VERIFIED run may
+                   ever close a job (and only then ANDed with every safety guard).
 
-Why UNVERIFIED still upserts: the ``ON CONFLICT`` clause is purely protective
-(``status='OPEN'``, ``closed_on=NULL``, ``consecutive_misses=0``). Writing the
-rows we *did* get can only move jobs away from closure — we distrust the
-*absence* of the rest, not the presence of these.
+The load-bearing invariant, unchanged from Phase 1: *a job is never closed by a
+run that could not prove it saw the whole board.*
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Mapping
+from typing import TYPE_CHECKING
 
 from scripts.shared.models import JobListing
+
+from .harvest_meta import HarvestEvidence
+
+if TYPE_CHECKING:  # avoid any import cycle; only the type is needed here
+    from .custom_baseline import Baseline
 
 # --- Verdicts ----------------------------------------------------------------
 VERIFIED = "VERIFIED"
 UNVERIFIED = "UNVERIFIED"
 FAILED = "FAILED"
 
-# The floor for check 2. A custom company is only created after its add-time
-# probe returned job_count > 0, so a harvest that comes back empty is a
-# transport/board anomaly, not a legitimately empty board (proving a board is
-# genuinely at zero is the Phase-2 "zero-proof chain", check 11). Raising here
-# lands the run FAILED — it writes nothing destructive and is not a miss —
-# rather than letting an empty list reach the destructive path.
+# The floor for check 2's non-empty path (used only when jobs are present but
+# below the floor — a Phase-3 seam). A 0-row harvest is NOT force-raised here; it
+# routes to the zero-proof chain (check 11) in verify_harvest.
 DEFAULT_EXPECTED_MIN_JOBS = 1
+
+# --- Effective oracle mapping (DECISION D2) ---------------------------------
+# The gate derives the oracle from the ATS PROVIDER at gate time, NOT from the
+# stored ``company_scripts.oracle_kind``. This lets Phase-1 rows seeded with
+# ``oracle_kind='none'`` graduate with no backfill/migration: a Greenhouse
+# company is ``declared_probed`` because it *is* Greenhouse, full stop.
+_DECLARED_PROBED_PROVIDERS = frozenset({"greenhouse", "workday"})
+_SELF_CONSISTENT_PROVIDERS = frozenset({"ashby", "lever", "gem", "eightfold"})
+
+# --- self_consistent delta band (check 12) ----------------------------------
+# A self_consistent run is a delta anomaly if its record count falls outside
+# [median * LOW, median * HIGH] of the trailing-run median. Symmetric-ish band:
+# a board halving or doubling in a single run is the "wrong data, not missing
+# data" signal the self-consistency oracle exists to catch. Only applied once a
+# median exists (>= 1 prior VERIFIED run); the very first run skips it (and can
+# only VERIFY, never close, because closing also needs the 3-run streak).
+_SELF_CONSISTENT_DELTA_LOW_RATIO = 0.5
+_SELF_CONSISTENT_DELTA_HIGH_RATIO = 2.0
+
+# Phase-3 oracles — declared here so a mis-seeded oracle raises loudly at the
+# dispatch seam rather than silently passing.
+_PHASE_3_ORACLES = frozenset({"facet_sum", "header", "sitemap"})
 
 
 class HarvestGateError(ValueError):
-    """A hard minimal-gate failure (empty harvest, below floor, or dup ids).
-
-    Subclasses ``ValueError`` so the leaf task's narrow ``except`` tuple records
-    it as a failed run and lets Procrastinate retry. Per the ladder a FAILED run
-    performs NO destructive writes and is explicitly NOT counted as a miss.
+    """A hard structural-gate failure (dup ids, or a declared>0 vs 0-rows
+    contradiction). Subclasses ``ValueError`` so the leaf task's narrow
+    ``except`` records it as a FAILED run and lets Procrastinate retry. A FAILED
+    run performs NO destructive writes and is explicitly NOT a miss.
     """
 
 
 @dataclass(frozen=True)
 class GateResult:
-    """What the minimal gate produced from a raw harvest.
+    """What the structural gate produced from a raw harvest.
 
     ``jobs`` is the post-dedup list actually written; ``records_harvested`` is
     ``len(jobs)``; ``id_dedup_dropped`` is how many duplicate-id rows check 7
-    removed (recorded on ``company_harvests`` so a noisy source is visible).
+    removed; ``is_zero`` is True for a legitimately-empty harvest that routed to
+    the zero-proof chain (check 11) instead of raising.
     """
 
     jobs: list[JobListing]
     records_harvested: int
     id_dedup_dropped: int
+    is_zero: bool = False
 
 
-def run_minimal_gate(
+@dataclass(frozen=True)
+class HarvestVerdict:
+    """The gate's decision, its machine-readable reason, and the evidence the
+    decision was computed from (mapped straight onto ``company_harvests``)."""
+
+    verdict: str
+    reason: str
+    tolerance_used: float = 0.0
+    oracle_total: int | None = None
+    declared_total: int | None = None
+    cap_hit: bool = False
+    page_advance_ok: bool | None = None
+
+
+def effective_oracle_kind(provider: str) -> str:
+    """The oracle the gate uses for an ATS ``provider`` (DECISION D2).
+
+    ``declared_probed`` for Greenhouse/Workday (trusted total); ``self_consistent``
+    for Ashby/Lever/Gem/Eightfold (no trusted total). An unrecognized provider
+    maps to ``'none'`` → UNVERIFIED, the safe default (it can never verify, so it
+    can never close).
+    """
+    p = (provider or "").lower()
+    if p in _DECLARED_PROBED_PROVIDERS:
+        return "declared_probed"
+    if p in _SELF_CONSISTENT_PROVIDERS:
+        return "self_consistent"
+    return "none"
+
+
+def run_gate(
     jobs: list[JobListing],
+    evidence: HarvestEvidence,
     *,
+    oracle_kind: str,
+    error_keys: tuple[str, ...] = ("error", "errors"),
     expected_min_jobs: int = DEFAULT_EXPECTED_MIN_JOBS,
 ) -> GateResult:
-    """Checks 1, 2, 7-dedup and 8 — every step fatal (raises, never returns []).
+    """Structural pass — checks 2 (zero-aware), 3, 7-dedupe, 8. FAILED-only.
 
-    * **Check 1 (transport)** is implicit: reaching this function means the ATS
-      client returned without raising, i.e. the HTTP/transport status was in the
-      allowed set. A transport failure raised earlier and is a FAILED run.
-    * **Check 2 (non-empty + floor)**: ``len(jobs) < expected_min_jobs`` RAISES.
-      Never returns ``[]`` — an empty/short harvest must not reach the write
-      path where (in later phases) it could drive closures.
-    * **Check 7 (dedupe)**: drop later rows sharing an ``id`` (keep first seen).
-    * **Check 8 (unique key)**: assert the post-dedup ``id`` set is unique — a
-      defensive backstop; after check 7 it can only fail on a logic error.
+    Raises :class:`HarvestGateError` (→ FAILED) ONLY on:
+
+    * **Check 2/10 (zero contradiction)**: 0 rows harvested while the ATS's
+      trusted total says jobs exist (``declared_total > 0``). Rows and total
+      disagree in a way that means a transport/parse anomaly — retry.
+    * **Check 8 (unique key)**: the post-dedup ``id`` set is not unique — only
+      reachable on a logic error after check 7.
+
+    A 0-row harvest whose total is 0 or unknown is NOT raised: it routes to the
+    zero-proof chain (check 11) in :func:`verify_harvest` via ``is_zero=True``.
+
+    ``error_keys`` is a Phase-3 seam (check 3 — a fatal ``error``/``errors`` key
+    in a 200 body): the rows reaching here are already-transformed ``JobListing``
+    objects with no error channel, so the check is a documented no-op until Phase
+    3 scripts feed raw payloads through a richer gate. ``expected_min_jobs`` is
+    likewise reserved (the only floor exercised in Phase 2 is the zero split).
     """
-    if len(jobs) < expected_min_jobs:
-        raise HarvestGateError(
-            f"harvest returned {len(jobs)} row(s), below the expected minimum "
-            f"of {expected_min_jobs}; refusing to treat an empty/short harvest "
-            f"as a completed run"
-        )
+    # Check 2 (zero-aware) + check 10 (contradiction is fatal in both directions).
+    if len(jobs) == 0:
+        declared = evidence.declared_total
+        if declared is not None and declared > 0:
+            raise HarvestGateError(
+                f"harvest returned 0 rows but the ATS declared {declared} "
+                f"job(s) exist (check 2/10 contradiction) — transport/parse "
+                f"anomaly, refusing to treat as a completed run"
+            )
+        # Zero is potentially provable (declared 0, or no trusted total). Hand it
+        # to the zero-proof chain; do NOT raise.
+        return GateResult(jobs=[], records_harvested=0, id_dedup_dropped=0, is_zero=True)
 
     # Check 7 — dedupe by id, keeping first occurrence (document order).
     seen: set[str] = set()
@@ -100,7 +183,7 @@ def run_minimal_gate(
         deduped.append(job)
     id_dedup_dropped = len(jobs) - len(deduped)
 
-    # Check 8 — assert the key field is unique post-dedup.
+    # Check 8 — assert the key field is unique post-dedup (defensive backstop).
     ids = [job.id for job in deduped]
     if len(ids) != len(set(ids)):
         raise HarvestGateError(
@@ -114,35 +197,157 @@ def run_minimal_gate(
     )
 
 
-@dataclass(frozen=True)
-class HarvestVerdict:
-    """The gate's decision plus a machine-readable reason."""
-
-    verdict: str
-    reason: str
-
-
 def verify_harvest(
-    script: Mapping[str, object],
+    oracle_kind: str,
     harvest: GateResult,
-    baseline: object | None = None,
+    evidence: HarvestEvidence,
+    baseline: "Baseline",
 ) -> HarvestVerdict:
-    """Decide VERIFIED / UNVERIFIED / FAILED for a harvest that passed the gate.
+    """Verdict pass — checks 5, 6, 7-vs-total, 9, 10, 11, 12. Never raises.
 
-    Phase 1: a company's ``oracle_kind`` is always ``'none'`` (a one-primitive
-    ATS-client script cannot prove completeness), so this always returns
-    UNVERIFIED. ``baseline`` (trailing-run stats, per-company learned ratios) is
-    reserved for the Phase-2 oracles and self-consistency checks; it is unused
-    here and accepted so the signature is stable across phases.
-
-    ``script`` is the ``company_scripts`` row as a mapping (it carries
-    ``oracle_kind``). Anything other than a recognized, wired oracle stays
-    UNVERIFIED — the safe default is to never claim completeness we cannot prove.
+    ``oracle_kind`` is the EFFECTIVE oracle (see :func:`effective_oracle_kind`),
+    derived by the caller from the ATS provider. Returns VERIFIED or UNVERIFIED;
+    the only exception path is the explicit Phase-3 ``NotImplementedError`` seam
+    so a mis-seeded ``facet_sum``/``header``/``sitemap`` cannot silently pass.
     """
-    oracle_kind = str(script.get("oracle_kind") or "none")
-    if oracle_kind == "none":
+    if oracle_kind in _PHASE_3_ORACLES:
+        raise NotImplementedError(
+            f"oracle_kind={oracle_kind!r} is a Phase-3 oracle "
+            f"(facet_sum/header/sitemap) — not wired in Phase 2"
+        )
+    if oracle_kind not in ("declared_probed", "self_consistent"):
+        # Unknown/unwired oracle (e.g. an unrecognized provider): never claim
+        # completeness we cannot prove.
         return HarvestVerdict(UNVERIFIED, "no_oracle")
-    # Phase 2 wires the real oracles (facet_sum / header / sitemap /
-    # self_consistent). Until then, an unrecognized/unwired oracle is UNVERIFIED
-    # — never VERIFIED by default.
-    return HarvestVerdict(UNVERIFIED, "oracle_not_wired")
+
+    # Check 11 — zero-proof chain (only for a 0-row harvest).
+    if harvest.is_zero:
+        return _zero_proof(evidence)
+
+    n = harvest.records_harvested
+
+    # Check 5 — a pagination cap means completeness is unproven. This is exactly
+    # where Target lands: declared 11,960, harvested 2,000, cap_hit=True.
+    if evidence.cap_hit:
+        return HarvestVerdict(
+            UNVERIFIED, "cap_hit",
+            declared_total=evidence.declared_total,
+            cap_hit=True,
+            page_advance_ok=evidence.page_advance_ok,
+        )
+
+    # Check 6 — a page that re-served prior ids (offset-wrap) is unproven. Keep
+    # the rows (UNVERIFIED, not FAILED — FAILED would discard a valid partial).
+    if evidence.page_advance_ok is False:
+        return HarvestVerdict(
+            UNVERIFIED, "page_advance_failed",
+            declared_total=evidence.declared_total,
+            page_advance_ok=False,
+        )
+
+    if oracle_kind == "declared_probed":
+        return _verify_declared_probed(n, evidence)
+    return _verify_self_consistent(n, evidence, baseline)
+
+
+def _verify_declared_probed(n: int, evidence: HarvestEvidence) -> HarvestVerdict:
+    """Check 9 for ``declared_probed`` — EXACT match against the trusted total.
+
+    Pass iff a trusted total exists AND ``len(deduped) == declared_total``
+    (tolerance 0), with no cap and no advance failure (both already checked).
+    Under-count → ``count_mismatch`` (check 7/10); over-count → ``over_harvest``
+    (check 10 — a widened filter; the upsert is still safe, approximation may
+    only add).
+
+    NOTE (review Finding 4 — intentional, documented): unlike ``self_consistent``,
+    ``declared_probed`` has NO trailing-median delta band — it VERIFIES on an
+    exact ``n == declared_total`` regardless of how far the total moved from prior
+    runs. A collapsing authoritative total (a Greenhouse board that legitimately
+    reports 1000→50 in one night, matched exactly) is therefore caught NOT here
+    but by the per-company safety guard (``min_ratio``) in the leaf task, which
+    blocks the close when the board shrinks too fast. The oracle proves the run
+    saw the whole board; the guard decides whether the shrink is trustworthy.
+    """
+    declared = evidence.declared_total
+    if declared is None:
+        # A declared_probed ATS with no trusted total on this run cannot prove
+        # completeness — treat as a count mismatch (we have rows but no oracle).
+        return HarvestVerdict(UNVERIFIED, "count_mismatch")
+    if n < declared:
+        return HarvestVerdict(
+            UNVERIFIED, "count_mismatch",
+            oracle_total=declared, declared_total=declared,
+        )
+    if n > declared:
+        return HarvestVerdict(
+            UNVERIFIED, "over_harvest",
+            oracle_total=declared, declared_total=declared,
+        )
+    return HarvestVerdict(
+        VERIFIED, "declared_exact",
+        oracle_total=declared, declared_total=declared,
+    )
+
+
+def _verify_self_consistent(
+    n: int, evidence: HarvestEvidence, baseline: "Baseline"
+) -> HarvestVerdict:
+    """Check 9 + 12 for ``self_consistent`` — no trusted total, so completeness
+    is the self-consistency conjunction plus the trailing-median delta band.
+
+    ``cap_hit`` and ``page_advance_ok is False`` are already handled by the
+    caller (checks 5, 6). Here: the loop must have terminated cleanly, and the
+    count must sit within the delta band of the trailing-run median (when one
+    exists). ``oracle_total`` stays None (there is no oracle count); Eightfold's
+    ``count`` is carried as ``declared_total`` for the record but never trusted.
+    """
+    if not evidence.terminated_cleanly:
+        return HarvestVerdict(
+            UNVERIFIED, "not_terminated_cleanly",
+            declared_total=evidence.declared_total,
+            page_advance_ok=evidence.page_advance_ok,
+        )
+
+    # Check 12 — delta vs trailing-run median (only when a median exists).
+    median = baseline.median_records
+    if median is not None and median > 0:
+        low = median * _SELF_CONSISTENT_DELTA_LOW_RATIO
+        high = median * _SELF_CONSISTENT_DELTA_HIGH_RATIO
+        if not (low <= n <= high):
+            return HarvestVerdict(
+                UNVERIFIED, "delta_anomaly",
+                declared_total=evidence.declared_total,
+                page_advance_ok=evidence.page_advance_ok,
+            )
+
+    return HarvestVerdict(
+        VERIFIED, "self_consistent_ok",
+        declared_total=evidence.declared_total,
+        page_advance_ok=evidence.page_advance_ok,
+    )
+
+
+def _zero_proof(evidence: HarvestEvidence) -> HarvestVerdict:
+    """Check 11 — can a 0-row harvest be *proven* genuinely empty?
+
+    * ``declared_total == 0`` on a live 200 (a trusted ATS declaring zero) →
+      VERIFIED ``zero_proven``. It still closes nothing this run: the leaf task's
+      ``empty_scrape`` safety guard trips on ``jobs_seen=0``, matching the
+      2026-03-29 lesson that a board→0 on a single run is indistinguishable from
+      a scraper outage.
+    * ``declared_total is None`` (Ashby/Lever/Gem/Eightfold — Marcus & Millichap
+      is a Lever ``200 []``) → the zero cannot be proven from the payload. The
+      canonical-backlink / brand-present signals that COULD prove it are Phase-3
+      DOM checks. So UNVERIFIED ``zero_unproven`` → never closes.
+
+    The ``declared_total > 0`` contradiction never reaches here — ``run_gate``
+    raised it as FAILED.
+
+    Phase 3: add canonical_backlink + brand signals to this chain (the leaf
+    caller and verdict shape do not change).
+    """
+    if evidence.declared_total == 0 and evidence.transport_ok:
+        return HarvestVerdict(
+            VERIFIED, "zero_proven", oracle_total=0, declared_total=0,
+        )
+    return HarvestVerdict(UNVERIFIED, "zero_unproven")

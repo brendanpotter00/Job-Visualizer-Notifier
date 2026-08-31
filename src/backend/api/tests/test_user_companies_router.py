@@ -121,7 +121,9 @@ def test_add_creates_all_four_rows(client, db_conn, monkeypatch):
     row = cur.fetchone()
     assert row["script"] == {"kind": "ats_client", "provider": "greenhouse", "token": "duolingo"}
     assert row["transport"] == "ats_client"
-    assert row["oracle_kind"] == "none"
+    # E7 Phase 2 (DECISION D2): a new add stores the real provider-derived oracle
+    # — Greenhouse is declared_probed (its meta.total is the trusted total).
+    assert row["oracle_kind"] == "declared_probed"
     assert row["script_version"] == 1
 
 

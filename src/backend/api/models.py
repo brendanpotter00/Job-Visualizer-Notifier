@@ -1300,9 +1300,10 @@ class AddUserCompanyRequest(BaseModel):
 class UserCompanyResponse(BaseModel):
     """One private custom company the caller owns.
 
-    ``sourceId`` is the ``custom:<id>`` namespace; ``healthState`` is
-    'unverified' for a Phase-1 company (no oracle yet, so its harvests can never
-    be proven complete). ``openJobCount`` and ``lastSuccessAt`` render the list.
+    ``sourceId`` is the ``custom:<id>`` namespace; ``healthState`` starts at
+    'unverified' (no harvest has yet been proven complete) and graduates to
+    'healthy' on the first VERIFIED harvest, once an oracle can prove the whole
+    board was seen. ``openJobCount`` and ``lastSuccessAt`` render the list.
     """
 
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
@@ -1315,6 +1316,10 @@ class UserCompanyResponse(BaseModel):
     health_state: str | None = None
     open_job_count: int = Field(ge=0)
     last_success_at: datetime | None = None
+    # Set on the first VERIFIED harvest (E7 Phase 2). NULL until a company
+    # graduates. Served ahead of any consumer: the trend page's "already live
+    # when tracking began" line is still derived from first_seen_at, not this.
+    tracking_started_at: datetime | None = None
 
 
 class UserCompanyListResponse(BaseModel):
