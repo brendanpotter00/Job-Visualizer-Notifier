@@ -1175,3 +1175,28 @@ def test_a_child_that_reports_no_links_degrades_to_todays_behaviour() -> None:
     assert result.board_links == () and result.board_scripts == ()
     assert nc._string_list(None) == ()
     assert nc._string_list(["/a", 7, "", None, "/b"]) == ("/a", "/b")
+
+# --- the Docker-layout path bug (production, 2026-08-31) --------------------
+# Discovery crashed on EVERY production run with `IndexError: 1` before the page was
+# even opened, while every test here passed, because the tests run from a dev checkout
+# deep enough for `backend_root.parents[1]` to resolve. The image is flat: WORKDIR /app
+# holds both api/ and scripts/, so /app's only parent is / and the second hop indexed
+# past the root. Expectations are `.resolve()`d so macOS firmlinks (/home ->
+# /System/Volumes/Data/home) do not make this a platform-dependent test.
+
+def test_child_roots_handles_the_flat_docker_layout() -> None:
+    """/app has ONE parent, and it already holds scripts/ — so it IS the repo root."""
+    backend_root, repo_root = nc._child_roots(
+        "/app/api/services/capture/network_capture.py"
+    )
+    assert backend_root == Path("/app").resolve()
+    assert repo_root == Path("/app").resolve()
+
+
+def test_child_roots_handles_a_dev_checkout() -> None:
+    """A checkout keeps the old meaning: scripts/ lives two levels above src/backend."""
+    backend_root, repo_root = nc._child_roots(
+        "/srv/jvn/src/backend/api/services/capture/network_capture.py"
+    )
+    assert backend_root == Path("/srv/jvn/src/backend").resolve()
+    assert repo_root == Path("/srv/jvn").resolve()

@@ -292,3 +292,30 @@ async def test_count_mismatch_is_unverified_and_closes_nothing(db_conn, monkeypa
     assert _open_count(db_conn, company_id) == 6
     assert _job_status(db_conn, company_id, 90) == "OPEN"
     assert _max_misses(db_conn, company_id) == 0
+
+from api.services.browser_fetch import runner
+
+# --- the Docker-layout path bug (production, 2026-08-31) --------------------
+# Discovery crashed on EVERY production run with `IndexError: 1` before the page was
+# even opened, while every test here passed, because the tests run from a dev checkout
+# deep enough for `backend_root.parents[1]` to resolve. The image is flat: WORKDIR /app
+# holds both api/ and scripts/, so /app's only parent is / and the second hop indexed
+# past the root. Expectations are `.resolve()`d so macOS firmlinks (/home ->
+# /System/Volumes/Data/home) do not make this a platform-dependent test.
+
+def test_child_roots_handles_the_flat_docker_layout() -> None:
+    """/app has ONE parent, and it already holds scripts/ — so it IS the repo root."""
+    backend_root, repo_root = runner._child_roots(
+        "/app/api/services/browser_fetch/runner.py"
+    )
+    assert backend_root == Path("/app").resolve()
+    assert repo_root == Path("/app").resolve()
+
+
+def test_child_roots_handles_a_dev_checkout() -> None:
+    """A checkout keeps the old meaning: scripts/ lives two levels above src/backend."""
+    backend_root, repo_root = runner._child_roots(
+        "/srv/jvn/src/backend/api/services/browser_fetch/runner.py"
+    )
+    assert backend_root == Path("/srv/jvn/src/backend").resolve()
+    assert repo_root == Path("/srv/jvn").resolve()

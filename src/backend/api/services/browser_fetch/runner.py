@@ -261,6 +261,28 @@ async def _reap(proc: Any) -> None:
         logger.warning("browser_fetch subprocess did not exit after SIGKILL")
 
 
+def _child_roots(module_file: str | Path) -> tuple["Path", "Path"]:
+    """``(backend_root, repo_root)`` for the child's PYTHONPATH, in BOTH layouts.
+
+    THE BUG THIS EXISTS TO PREVENT (production, 2026-08-31). A dev checkout puts this
+    file at ``<repo>/src/backend/api/services/.../x.py``, so ``parents[3]`` is
+    ``src/backend`` and the repo root that holds ``scripts/`` is two levels above it.
+    The Docker image is FLAT — ``WORKDIR /app`` with ``COPY src/backend/api/ ./api/``
+    and ``COPY scripts/ ./scripts/`` — so ``parents[3]`` is ``/app``, whose ONLY parent
+    is ``/``. The old unconditional ``backend_root.parents[1]`` therefore raised
+    ``IndexError: 1`` on every run in production while every local test passed, because
+    the tests run in a checkout deep enough for the arithmetic to work.
+
+    In Docker ``backend_root`` already holds ``scripts/``, so it IS the repo root.
+    Mirrors the dev/docker split ``api.migrations`` has always made.
+    """
+    backend_root = Path(module_file).resolve().parents[3]
+    repo_root = (
+        backend_root.parents[1] if len(backend_root.parents) > 1 else backend_root
+    )
+    return backend_root, repo_root
+
+
 async def _subprocess_run(subprocess_plan: dict[str, Any]) -> dict[str, Any]:
     """Spawn ``_browser_fetch_main`` and return its parsed JSON report.
 
@@ -270,8 +292,7 @@ async def _subprocess_run(subprocess_plan: dict[str, Any]) -> dict[str, Any]:
     :func:`_child_env` is what makes that true. The child imports ``playwright``;
     THIS parent never does — the boundary that keeps the replay worker agent-free.
     """
-    backend_root = Path(__file__).resolve().parents[3]  # src/backend
-    repo_root = backend_root.parents[1]                 # repo root (holds scripts/)
+    backend_root, repo_root = _child_roots(__file__)
     env = _child_env()
     prior = os.environ.get("PYTHONPATH", "")
     env["PYTHONPATH"] = os.pathsep.join(

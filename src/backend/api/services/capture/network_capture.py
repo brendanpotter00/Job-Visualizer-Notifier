@@ -326,6 +326,28 @@ async def _dispatch_event(line: bytes, on_event: EventFn | None) -> None:
         logger.warning("capture progress event dropped (continuing)", exc_info=True)
 
 
+def _child_roots(module_file: str | Path) -> tuple["Path", "Path"]:
+    """``(backend_root, repo_root)`` for the child's PYTHONPATH, in BOTH layouts.
+
+    THE BUG THIS EXISTS TO PREVENT (production, 2026-08-31). A dev checkout puts this
+    file at ``<repo>/src/backend/api/services/.../x.py``, so ``parents[3]`` is
+    ``src/backend`` and the repo root that holds ``scripts/`` is two levels above it.
+    The Docker image is FLAT — ``WORKDIR /app`` with ``COPY src/backend/api/ ./api/``
+    and ``COPY scripts/ ./scripts/`` — so ``parents[3]`` is ``/app``, whose ONLY parent
+    is ``/``. The old unconditional ``backend_root.parents[1]`` therefore raised
+    ``IndexError: 1`` on every run in production while every local test passed, because
+    the tests run in a checkout deep enough for the arithmetic to work.
+
+    In Docker ``backend_root`` already holds ``scripts/``, so it IS the repo root.
+    Mirrors the dev/docker split ``api.migrations`` has always made.
+    """
+    backend_root = Path(module_file).resolve().parents[3]
+    repo_root = (
+        backend_root.parents[1] if len(backend_root.parents) > 1 else backend_root
+    )
+    return backend_root, repo_root
+
+
 async def _subprocess_run(
     plan: dict[str, Any], *, on_event: EventFn | None = None
 ) -> dict[str, Any]:
@@ -339,8 +361,7 @@ async def _subprocess_run(
     as it is printed. It is optional and it is cosmetic: a run with no callback behaves
     exactly as this did before streaming existed.
     """
-    backend_root = Path(__file__).resolve().parents[3]  # src/backend
-    repo_root = backend_root.parents[1]                 # repo root (holds scripts/)
+    backend_root, repo_root = _child_roots(__file__)
     env = _child_env()
     prior = os.environ.get("PYTHONPATH", "")
     env["PYTHONPATH"] = os.pathsep.join(
