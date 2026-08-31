@@ -1,6 +1,8 @@
-import Alert from '@mui/material/Alert';
+import { useState } from 'react';
+import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Container from '@mui/material/Container';
+import Link from '@mui/material/Link';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
@@ -15,9 +17,13 @@ import {
 } from '../../features/userCompanies/userCompaniesApi';
 import { AddQuotaCounter } from '../../components/my-companies/AddQuotaCounter';
 import Divider from '@mui/material/Divider';
+import { AddCompanyHowTo } from '../../components/my-companies/AddCompanyHowTo';
 import { ResolveUrlForm } from '../../components/my-companies/ResolveUrlForm';
 import { AddCompanyOutcome } from '../../components/my-companies/AddCompanyOutcome';
 import { MyCompaniesList } from '../../components/my-companies/MyCompaniesList';
+
+/** Ties the "How it works" link to the block it opens (`aria-controls`). */
+const HOW_IT_WORKS_ID = 'add-company-how-it-works';
 
 /**
  * "Add Companies" — paste a careers URL, get the company tracked.
@@ -48,10 +54,18 @@ export function MyCompaniesPage() {
   // for the same reason the list is: the endpoint is authed, and an anonymous
   // visitor would get a guaranteed 401. Declared above the auth ladder's early
   // returns so the hook count stays stable across renders.
-  const { data: userCompanies } = useGetUserCompaniesQuery(undefined, {
+  const { data: userCompanies, isSuccess: companiesLoaded } = useGetUserCompaniesQuery(undefined, {
     skip: !isAuthenticated,
   });
   const quota = userCompanies?.quota;
+  // Offer the way back to the how-to only to a user who has companies — anyone tracking
+  // nothing is already looking at the how-to below, where it IS the empty state.
+  //
+  // Gated on the SETTLED query, and the direction matters: while the list is loading we
+  // do not know which user this is, and a link that appears late is better than one that
+  // is drawn and then taken away under the reader's eyes.
+  const canReopenHowTo = companiesLoaded && (userCompanies?.companies.length ?? 0) > 0;
+  const [showHowTo, setShowHowTo] = useState(false);
   // `null` means the payload carried no quota: the caller is an admin (exempt from
   // the cap) or the server predates the counter. Either way it must NOT disable the
   // form — an absent quota is "no cap in force", and locking a user out of the feature
@@ -159,20 +173,11 @@ export function MyCompaniesPage() {
       <AddQuotaCounter quota={quota} />
 
       <Stack spacing={3}>
-        {/* THIS COPY IS THE CONSENT, and it had to be rewritten rather than trimmed.
-            It used to promise "nothing is tracked until you press Track this company".
-            That button is gone, so the sentence became a lie about spending — the one
-            kind of copy this page cannot carry, because the submit can start a headless
-            browser session and an LLM call on the user's behalf without asking twice.
-            Three facts, in the order they matter: the press adds it; an unknown board
-            starts paid work immediately; none of it is public. */}
-        <Alert severity="info">
-          Paste a job board link and press <strong>Add company</strong> — that adds it.
-          If it isn&apos;t a board we already read, we start a{' '}
-          <strong>one-time setup</strong> that teaches us to read it, and that begins
-          immediately. Everything here is <strong>private to you</strong>.
-        </Alert>
-
+        {/* THE CONSENT MOVED, it did not go. A blue info alert used to sit here saying
+            what the press does; it is now one body-size sentence directly under the
+            button, inside `ResolveUrlForm`, where the control it describes is. An alert
+            above the form is a thing to dismiss with your eyes on the way to the field;
+            a line under the button is read by anyone about to press it. */}
         <Paper sx={{ p: RESPONSIVE.spacing.paperPaddingLg }}>
           <ResolveUrlForm
             onSubmit={handleSubmit}
@@ -182,6 +187,40 @@ export function MyCompaniesPage() {
             // refuses over quota with a 422 whatever the button does.
             disabled={exhausted}
           />
+
+          {/* THE WAY BACK TO THE EXPLANATION. The how-to is the empty state, so it
+              disappears the moment the user tracks one company — a user who adds a board
+              on day one and comes back on day thirty holding a LinkedIn URL would
+              otherwise have no way back to it. This is that way back, and deliberately a
+              text link rather than an accordion: a shut accordion is a permanent 63px of
+              summary row, caret and rule on every visit forever, and this is 29px that
+              only a reader who wants it ever spends attention on.
+
+              One component, two triggers: this renders the SAME `AddCompanyHowTo` the
+              empty state does, so the two can never drift apart. */}
+          {canReopenHowTo ? (
+            <>
+              <Box sx={{ mt: 1 }}>
+                <Link
+                  component="button"
+                  type="button"
+                  variant="body2"
+                  color="text.primary"
+                  onClick={() => setShowHowTo((open) => !open)}
+                  // It changes the page, it does not navigate — so a screen-reader user
+                  // is told whether the block is open BEFORE they decide to press it.
+                  aria-expanded={showHowTo}
+                  aria-controls={HOW_IT_WORKS_ID}
+                  data-testid="how-it-works-toggle"
+                >
+                  How it works
+                </Link>
+              </Box>
+              {/* The container is always present so `aria-controls` always resolves; the
+                  content is conditional so nothing invisible is ever in the tab order. */}
+              <Box id={HOW_IT_WORKS_ID}>{showHowTo ? <AddCompanyHowTo /> : null}</Box>
+            </>
+          ) : null}
         </Paper>
 
         {/* One spinner for the one call. No `!adding` guard on the outcome below it:
@@ -190,11 +229,7 @@ export function MyCompaniesPage() {
             previous URL's answer can never sit under the spinner for the next one. */}
         {adding && <LoadingState minHeight={120} caption="Adding this company…" />}
 
-        <AddCompanyOutcome
-          result={result}
-          error={error}
-          onTrackAnyway={handleTrackAnyway}
-        />
+        <AddCompanyOutcome result={result} error={error} onTrackAnyway={handleTrackAnyway} />
 
         <Divider />
 

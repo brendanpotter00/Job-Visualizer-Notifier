@@ -5,6 +5,7 @@ import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
 import Dialog from '@mui/material/Dialog';
+import IconButton from '@mui/material/IconButton';
 import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
 import DialogContentText from '@mui/material/DialogContentText';
@@ -14,9 +15,10 @@ import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
-import EditIcon from '@mui/icons-material/Edit';
+import CloseIcon from '@mui/icons-material/Close';
+import RenameIcon from '@mui/icons-material/DriveFileRenameOutlineOutlined';
 import { LoadingState } from '../shared/LoadingIndicator';
-import { ErrorState, EmptyState } from '../shared/ErrorDisplay';
+import { ErrorState } from '../shared/ErrorDisplay';
 import { extractErrorMessage } from '../../lib/errors';
 import { buildMyCompanyDetailPath } from '../../config/routes';
 import { CUSTOM_COMPANIES_CONFIG } from '../../config/customCompanies';
@@ -36,6 +38,7 @@ import {
   sourceBoardLabel,
   sourceBoardUrl,
 } from './companyHealth';
+import { AddCompanyHowTo } from './AddCompanyHowTo';
 import { DiscoveryChecklist } from './DiscoveryChecklist';
 import { PublicBoardMatchBanner } from './PublicBoardMatchBanner';
 
@@ -241,7 +244,33 @@ function CompanyNameEditor({
   );
 }
 
-/** One company row: name → trend page, health badge, count, last-fetched, remove. */
+/**
+ * One company row: name → trend page, health badge, count, last-fetched, remove.
+ *
+ * THE WHOLE CARD OPENS THE COMPANY, and that is what makes the two icons in it a trap
+ * rather than a detail. A card wrapped in a `CardActionArea` (or in an `<a>`) with a
+ * pencil and an X inside it is NESTED INTERACTIVE CONTENT: a `<button>` inside an
+ * `<a>` is invalid HTML, screen readers disagree about what to announce, and in
+ * practice the icons end up navigating instead of doing their job.
+ *
+ * So this uses a STRETCHED LINK instead. The card is `position: relative`, the company
+ * name stays an ordinary link, and its `::after` is stretched to `inset: 0` so the
+ * whole card is that one link's hit area. The pencil and the X are SIBLINGS of the
+ * name, raised to `z-index: 2`, so a press on either never reaches the overlay
+ * underneath. The DOM has no button inside a link and no link inside a button.
+ *
+ * KEYBOARD ORDER IS NAME, EDIT, REMOVE, because that is the DOM order — which is also
+ * why the two icons sit on the name's row rather than in a column of their own beside
+ * the metadata. The board link is last, after them, for the same reason.
+ *
+ * TWO COSTS, both real and neither stylable away. (1) The overlay sits over the card's
+ * own text, so the name, the count and the freshness line can no longer be selected
+ * with the mouse, and the exact-instant `title` tooltip on the freshness line no longer
+ * opens on hover (the attribute is still there, and the phrase beside it is what the
+ * list is scanned for). (2) Anything raised ABOVE the overlay punches a hole in the
+ * click target — that is the board link, the checklist and the match banner, each of
+ * which is interactive in its own right and each of which is commented where it sits.
+ */
 function CompanyRow({
   company,
   onRemove,
@@ -273,28 +302,38 @@ function CompanyRow({
   const showChecklist =
     CUSTOM_COMPANIES_CONFIG.isDiscoveryProgressEnabled && shouldShowDiscovery(company);
   return (
-    <Paper variant="outlined" sx={{ p: 2 }} data-testid="my-company-row">
-      <Stack
-        direction={{ xs: 'column', sm: 'row' }}
-        spacing={1.5}
-        // TOP-aligned on sm+, where it used to be centred. The left column is two lines
-        // (name + metadata) and the actions are one, so centring floated the buttons
-        // against the gap between them and lined them up with nothing. Level with the
-        // name is the line a reader is already on when they decide to act.
-        alignItems="flex-start"
-        justifyContent="space-between"
+    <Paper
+      variant="outlined"
+      // `position: relative` is not decoration: it is what the name link's stretched
+      // `::after` resolves against, and therefore what makes the card the click target.
+      sx={{ p: 2, position: 'relative' }}
+      data-testid="my-company-row"
+    >
+      {/* THE NAME ROW: name, then the two actions. One flex row, not a two-column
+          layout, so the DOM order and the reading order and the tab order are the same
+          order. The pencil sits beside the name (it acts on the name); the X is pushed
+          to the far edge, away from it, because the two are not a pair. */}
+      <Box
+        sx={{
+          display: 'flex',
+          // While the editor is open the row is two stacked controls against one icon,
+          // so the X lines up with the top of the field rather than floating against
+          // the middle of it.
+          alignItems: isRenaming ? 'flex-start' : 'center',
+          gap: 0.5,
+          minWidth: 0,
+        }}
       >
-        {/* `flexGrow` is what makes `minWidth: 0` do anything: without it the column is
-            sized by its content, so a long name pushed the buttons off the card instead
-            of wrapping inside it. */}
-        <Box sx={{ minWidth: 0, flexGrow: 1, width: '100%' }}>
-          {isRenaming ? (
+        {isRenaming ? (
+          <Box sx={{ flex: '1 1 auto', minWidth: 0 }}>
             <CompanyNameEditor
               company={company}
               onClose={() => setIsRenaming(false)}
               returnFocusTo={renameButtonRef}
             />
-          ) : (
+          </Box>
+        ) : (
+          <>
             <Link
               component={RouterLink}
               to={buildMyCompanyDetailPath(company.id)}
@@ -304,32 +343,104 @@ function CompanyRow({
               // now type the name, so "a name with no spaces in it" stopped being
               // hypothetical — and the house choice here is to wrap, never to ellipsise
               // a thing the reader cannot then hover to read in full.
-              sx={{ display: 'inline-block', minWidth: 0, overflowWrap: 'anywhere' }}
+              sx={{
+                display: 'inline-block',
+                minWidth: 0,
+                overflowWrap: 'anywhere',
+                // THE STRETCHED LINK. This transparent overlay — a pseudo-element of the
+                // link, so it needs no extra DOM and cannot nest anything — is what makes
+                // the whole card open this company. It is UNMOUNTED WITH THE LINK while a
+                // rename is open, which is a free correctness win: you cannot fat-finger
+                // your way onto another page while you are typing a name.
+                '&::after': {
+                  content: '""',
+                  position: 'absolute',
+                  inset: 0,
+                  borderRadius: 1,
+                  zIndex: 1,
+                },
+              }}
             >
               {company.displayName}
             </Link>
-          )}
-          <Stack
-            direction="row"
-            alignItems="center"
-            flexWrap="wrap"
-            useFlexGap
-            // A wider COLUMN gap and a tighter ROW gap, replacing one uniform 8px. The
-            // facts on this line wrap onto two lines at narrow widths, and at 8px each
-            // way the second line sat close enough to the first to read as part of it.
-            sx={{ mt: 0.75, columnGap: 1.5, rowGap: 0.25 }}
-          >
-            {/* `variant` carries the one qualifier colour is not allowed to carry: a
+            {/* NOT THE FILLED PENCIL, which the owner rejected on sight. This is the
+                rename glyph (a nib over the line it is writing on), outlined rather than
+                solid so it sits at the weight of the metadata instead of competing with
+                the name beside it, and it says "rename this text" rather than the pencil's
+                broader "edit this thing" — the only thing this control changes is the
+                display name. Both icons are drawn in `text.secondary` and only take a
+                colour under the pointer, which is the actual fix for "these buttons are
+                pretty nasty": what was two filled controls is now two grey marks.
+
+                HIDDEN WHILE EDITING, not disabled — a deliberate deviation from the text
+                button this replaced. An unlabelled icon sitting greyed out beside an open
+                text field is clutter, and the open field is already the clearest possible
+                statement that renaming is in progress. */}
+            <IconButton
+              ref={renameButtonRef}
+              onClick={() => setIsRenaming(true)}
+              // The row's own name is in the label because a screen-reader user listing
+              // the page's buttons otherwise hears "Rename" once per board — and with no
+              // visible text on the control, this label is now the ONLY name it has.
+              aria-label={`Rename ${company.displayName}`}
+              data-testid="my-company-rename"
+              // Raised above the stretched overlay so the press acts instead of navigating.
+              sx={{
+                position: 'relative',
+                zIndex: 2,
+                flexShrink: 0,
+                color: 'text.secondary',
+                '&:hover': { color: 'text.primary' },
+              }}
+            >
+              <RenameIcon fontSize="small" />
+            </IconButton>
+          </>
+        )}
+        {/* The X stays put during a rename: abandoning a rename by removing the company
+            is a thing people genuinely try. It opens the confirmation below — this is
+            still the last screen between the user and an irreversible delete. */}
+        <IconButton
+          onClick={() => onRemove(company)}
+          aria-label={`Remove ${company.displayName}`}
+          data-testid="my-company-remove"
+          sx={{
+            position: 'relative',
+            zIndex: 2,
+            flexShrink: 0,
+            ml: 'auto',
+            color: 'text.secondary',
+            '&:hover': { color: 'error.main' },
+          }}
+        >
+          <CloseIcon fontSize="small" />
+        </IconButton>
+      </Box>
+
+      {/* THE METADATA LINE, below the name row and under the stretched overlay: the
+          facts about this board, none of which is a control except the board link at
+          the end of it. */}
+      <Stack
+        direction="row"
+        alignItems="center"
+        flexWrap="wrap"
+        useFlexGap
+        // A wider COLUMN gap and a tighter ROW gap, replacing one uniform 8px. The
+        // facts on this line wrap onto two lines at narrow widths, and at 8px each
+        // way the second line sat close enough to the first to read as part of it.
+        sx={{ mt: 0.75, columnGap: 1.5, rowGap: 0.25 }}
+      >
+        {/* `variant` carries the one qualifier colour is not allowed to carry: a
                 hollow green chip is a board we track incompletely, and it must not
                 borrow the amber that means "something needs you" for a permanent
                 property of someone else's API. See `describeCompanyHealth`. */}
-            <Chip
-              size="small"
-              color={badge.color}
-              variant={badge.variant ?? 'filled'}
-              label={badge.label}
-            />
-            {/* THE COUNT IS THE NUMBER PEOPLE SCAN THIS LIST FOR, and it used to be one
+        <Chip
+          size="small"
+          color={badge.color}
+          variant={badge.variant ?? 'filled'}
+          label={badge.label}
+        />
+        {/* THE COUNT IS THE NUMBER PEOPLE SCAN THIS LIST FOR, and it used to be one
                 of four same-weight secondary phrases — so finding it meant reading the
                 whole line. Primary colour and a half-step of weight lift it out of the
                 metadata without making it shout.
@@ -340,23 +451,19 @@ function CompanyRow({
                 two elements and every `getByText(/12 open jobs/)` in the suite stops
                 matching. A styling choice is not worth rewriting assertions about what
                 the user reads. */}
-            <Typography variant="body2" color="text.primary" sx={{ fontWeight: 500 }}>
-              {company.openJobCount.toLocaleString()}{' '}
-              {company.openJobCount === 1 ? 'open job' : 'open jobs'}
-            </Typography>
-            {/* "Last fetched", never "Last checked": the timestamp behind it only moves
+        <Typography variant="body2" color="text.primary" sx={{ fontWeight: 500 }}>
+          {company.openJobCount.toLocaleString()}{' '}
+          {company.openJobCount === 1 ? 'open job' : 'open jobs'}
+        </Typography>
+        {/* "Last fetched", never "Last checked": the timestamp behind it only moves
                 on a run that did NOT fail, so a board failing nightly wore a stamp that
                 said nobody had looked. The exact instant moves to `title` — the phrase
                 is for scanning the list, the tooltip is for the one row you care about.
                 See `describeLastFetched`. */}
-            <Typography
-              variant="body2"
-              color="text.secondary"
-              title={lastFetched.exactAt ?? undefined}
-            >
-              {lastFetched.label}
-            </Typography>
-            {/* THE BOARD WE BUILT THIS FROM. The row said what we found and how fresh it
+        <Typography variant="body2" color="text.secondary" title={lastFetched.exactAt ?? undefined}>
+          {lastFetched.label}
+        </Typography>
+        {/* THE BOARD WE BUILT THIS FROM. The row said what we found and how fresh it
                 is and never once said where it came from, so a board that started
                 serving dead job links could only be checked from the database.
                 It sits at the END of the metadata line, after the facts about the data,
@@ -366,65 +473,46 @@ function CompanyRow({
                 nothing at all when we cannot build an HONEST url (Workday and Eightfold
                 keep their real host in `provider_config`, which this payload does not
                 carry) — a confident link to a 404 would be worse than the gap. */}
-            {boardLink ? (
-              <Link
-                href={boardLink.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                variant="body2"
-                color="text.secondary"
-                underline="hover"
-                title={boardLink.url}
-                data-testid="my-company-board-link"
-                sx={{ minWidth: 0, overflowWrap: 'anywhere' }}
-              >
-                {boardLink.label} ↗
-              </Link>
-            ) : null}
-          </Stack>
-        </Box>
-
-        {/* The two row actions, grouped and pinned. `flexShrink: 0` is what keeps a long
-            company name from squeezing them; before there was one button and nothing to
-            squeeze it against. Rename is a plain button and Remove keeps `color="error"`,
-            so the destructive one is still the only coloured thing here. */}
-        <Stack direction="row" spacing={0.5} sx={{ flexShrink: 0 }}>
-          <Button
-            ref={renameButtonRef}
-            size="small"
-            startIcon={<EditIcon />}
-            onClick={() => setIsRenaming(true)}
-            disabled={isRenaming}
-            // The row's own name is in the label because a screen-reader user listing
-            // the page's buttons otherwise hears "Rename" once per board.
-            aria-label={`Rename ${company.displayName}`}
-            data-testid="my-company-rename"
+        {boardLink ? (
+          <Link
+            href={boardLink.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            variant="body2"
+            color="text.secondary"
+            underline="hover"
+            title={boardLink.url}
+            data-testid="my-company-board-link"
+            // RAISED, and it is the one hole in the click target worth paying for.
+            // It is the only way to look at a board that has started serving dead
+            // job links, which is the reason it is on the row at all — deleting it
+            // to make the card a tidier target would trade a diagnostic for a
+            // geometry. The cost is honest: a user aiming at "open this company"
+            // can land on the ATS's own site instead.
+            sx={{ position: 'relative', zIndex: 2, minWidth: 0, overflowWrap: 'anywhere' }}
           >
-            Rename
-          </Button>
-          <Button
-            color="error"
-            size="small"
-            onClick={() => onRemove(company)}
-            aria-label={`Remove ${company.displayName}`}
-            data-testid="my-company-remove"
-          >
-            Remove
-          </Button>
-        </Stack>
+            {boardLink.label} ↗
+          </Link>
+        ) : null}
       </Stack>
 
-      {/* `receivedAt` is not decoration here: the live view treats `liveViewUrl` as a
-          claim that EXPIRES, and this is the only thing that renews it. See
-          `DiscoveryChecklist`'s `LIVE_VIEW_TRUST_MS`. */}
-      {showChecklist && <DiscoveryChecklist company={company} receivedAt={receivedAt} />}
+      {/* Everything below is interactive in its own right — an expander, and an alert
+          with its own buttons — so it is raised above the stretched overlay as a block.
+          Without this the card's click target would swallow the checklist's own
+          controls. `position: relative` is what makes `zIndex` apply at all. */}
+      <Box sx={{ position: 'relative', zIndex: 2 }}>
+        {/* `receivedAt` is not decoration here: the live view treats `liveViewUrl` as a
+            claim that EXPIRES, and this is the only thing that renews it. See
+            `DiscoveryChecklist`'s `LIVE_VIEW_TRUST_MS`. */}
+        {showChecklist && <DiscoveryChecklist company={company} receivedAt={receivedAt} />}
 
-      {/* "This looks like Spotify, which we already track." Renders only when the backend
-          actually found an overlap, which is almost never — and the component owns its own
-          dismissal, so the row needs no state for it. `onRemove` is the SAME handler the
-          row's Remove button uses, so the banner's remove goes through the ordinary
-          confirmation dialog rather than inventing a shortcut. */}
-      <PublicBoardMatchBanner company={company} onRemove={onRemove} />
+        {/* "This looks like Spotify, which we already track." Renders only when the
+            backend actually found an overlap, which is almost never — and the component
+            owns its own dismissal, so the row needs no state for it. `onRemove` is the
+            SAME handler the row's X uses, so the banner's remove goes through the
+            ordinary confirmation dialog rather than inventing a shortcut. */}
+        <PublicBoardMatchBanner company={company} onRemove={onRemove} />
+      </Box>
     </Paper>
   );
 }
@@ -505,7 +593,7 @@ export function MyCompaniesList() {
             </Button>
           }
         >
-          We couldn&apos;t refresh just now — showing what we last loaded.
+          We couldn&apos;t refresh just now. This is what we last loaded.
         </Alert>
       ) : null}
 
@@ -513,14 +601,18 @@ export function MyCompaniesList() {
         Companies you&apos;re tracking
       </Typography>
 
+      {/* THE HOW-TO IS THE EMPTY STATE. There is no separate "no companies yet" screen
+          and no separate how-to section: they are the same block. A user with nothing
+          tracked sees the explanation where an icon and two grey lines used to sit, and
+          the moment they have one company their list is there instead and the
+          explanation is one text link away (`MyCompaniesPage`, "How it works").
+
+          `rows.length === 0` is safe as the gate ONLY because the `isLoading` branch
+          above already returned: on a first load the query is not settled and this
+          would otherwise be briefly true for every returning user, who would watch a
+          three-step tutorial flash on screen and vanish. */}
       {rows.length === 0 ? (
-        <EmptyState
-          title="No companies yet"
-          // Names the ONE action, not the branch it might take. The old copy told the
-          // user to press "Track this company" — a button that never appears on the
-          // discovery path, which is the path anything not on a supported board takes.
-          message="Paste a careers URL above to start tracking a company."
-        />
+        <AddCompanyHowTo srOnlyLine="No companies yet" />
       ) : (
         <Stack spacing={1.5} data-testid="my-companies-list">
           {rows.map((company) => (
@@ -555,11 +647,11 @@ export function MyCompaniesList() {
         <DialogContent>
           <DialogContentText>
             {pendingRemoval
-              ? `Removing “${pendingRemoval.displayName}” deletes every job collected for it—${
+              ? `Removing “${pendingRemoval.displayName}” deletes every job collected for it: ${
                   pendingRemoval.openJobCount > 0
                     ? `the ${pendingRemoval.openJobCount.toLocaleString()} open now, plus the closed ones behind its hiring chart`
                     : 'both the open ones and the closed ones behind its hiring chart'
-                }. This is a delete, not a pause: nothing is kept, and adding the board again starts the chart over from zero.`
+                }. This is a delete, not a pause. Nothing is kept, and adding the board again starts the chart over from zero.`
               : ''}
           </DialogContentText>
         </DialogContent>

@@ -161,12 +161,30 @@ describe('MyCompaniesList', () => {
     expect(within(row).getByText('Blue Origin')).toBeInTheDocument();
   });
 
-  it('shows an empty state when the user tracks nothing', async () => {
+  it('shows the how-to, not an empty state, when the user tracks nothing', async () => {
+    // "What if instead of the no-companies-yet screen we have the how-to there?" The
+    // block that used to be an icon over two grey lines is now the three steps, in the
+    // same place, on the same condition.
     fetchMock.mockResolvedValue(jsonResponse({ companies: [] }));
     renderWithProviders(<MyCompaniesList />);
 
-    expect(await screen.findByText(/no companies yet/i)).toBeInTheDocument();
+    expect(await screen.findByTestId('add-company-how-to')).toBeInTheDocument();
+    expect(screen.getByText('Open their careers page')).toBeInTheDocument();
+    expect(screen.getByText('Paste it in the box above')).toBeInTheDocument();
     expect(screen.queryByTestId('my-company-row')).not.toBeInTheDocument();
+    // The old copy is gone from the screen, and the state is still NAMED for a screen
+    // reader — see `AddCompanyHowTo`'s `srOnlyLine`.
+    expect(screen.queryByText(/paste a careers url above/i)).not.toBeInTheDocument();
+    expect(screen.getByText('No companies yet')).toBeInTheDocument();
+  });
+
+  it('shows the how-to only while the list is empty', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ companies: [COMPANY_A] }));
+    renderWithProviders(<MyCompaniesList />);
+
+    await screen.findByTestId('my-company-row');
+    expect(screen.queryByTestId('add-company-how-to')).not.toBeInTheDocument();
+    expect(screen.queryByText('No companies yet')).not.toBeInTheDocument();
   });
 
   it('removes a company via the confirm dialog', async () => {
@@ -196,19 +214,35 @@ describe('MyCompaniesList', () => {
     });
   });
 
-  it('does not fire the delete when the dialog is cancelled', async () => {
+  it('does not fire the delete when the dialog is cancelled, and keeps the row', async () => {
+    // THE X IS A TRIGGER, NOT A DELETE. The confirmation is the last screen between the
+    // user and an irreversible delete of every job the board ever collected, and the icon
+    // that opens it is smaller and less deliberate than the text button it replaced — so
+    // "opened, then cancelled" has to leave the row exactly where it was.
     fetchMock.mockResolvedValue(jsonResponse({ companies: [COMPANY_A] }));
     const user = userEvent.setup();
     renderWithProviders(<MyCompaniesList />);
 
     await screen.findByTestId('my-company-row');
     await user.click(screen.getByTestId('my-company-remove'));
-    await user.click(screen.getByRole('button', { name: /cancel/i }));
+
+    const dialog = await screen.findByRole('dialog');
+    expect(
+      within(dialog).getByText(/delete this company and its job history\?/i)
+    ).toBeInTheDocument();
+    // The copy names the destruction rather than calling it a pause — and carries no
+    // em dash, which is a standing rule for user-facing copy here.
+    expect(dialog.textContent).toContain('This is a delete, not a pause.');
+    expect(dialog.textContent).not.toMatch(/[—–]/);
+
+    await user.click(within(dialog).getByRole('button', { name: /cancel/i }));
 
     const deleteCall = fetchMock.mock.calls.find(
       ([input]) => (input as Request).method === 'DELETE'
     );
     expect(deleteCall).toBeUndefined();
+    expect(screen.getByTestId('my-company-row')).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
   });
 
   it('renders a provisional discovering row as a "Setting up…" badge (E7 capture pivot)', async () => {
@@ -720,5 +754,152 @@ describe('MyCompaniesList discovery checklist', () => {
 
     expect(await screen.findByRole('button', { name: /retry/i })).toBeInTheDocument();
     expect(screen.queryByTestId('my-company-row')).not.toBeInTheDocument();
+  });
+});
+
+// ── the card is the click target ──────────────────────────────────────────────
+//
+// "Can't you just have an edit icon next to the name? Pressing the whole card takes you
+// to the hiring page. The remove button, can't it be just an X, and then a modal saying
+// are you sure?" — which turns a row with two text buttons into a row that is one big
+// link with two buttons inside it. That shape is NESTED INTERACTIVE CONTENT: a <button>
+// inside an <a> is invalid, screen readers disagree about what to announce, and in
+// practice the icons end up navigating instead of doing their job.
+//
+// The shipped answer is a stretched link: the company name's `::after` is stretched over
+// the card, and the icons are its SIBLINGS raised above it. These tests pin both halves —
+// that the overlay exists and hangs off the NAME (jsdom has no layout, so the rule itself
+// is the only observable), and that nothing nests, nothing else navigates, and the
+// keyboard order is name, edit, remove.
+
+/** The `::after` rule Emotion generated for this element, if it wrote one. */
+function afterRuleFor(element: Element): string | null {
+  const selectors = Array.from(element.classList).map((name) => `.${name}::after`);
+  for (const sheet of Array.from(document.styleSheets)) {
+    let rules: CSSRule[];
+    try {
+      rules = Array.from(sheet.cssRules);
+    } catch {
+      continue;
+    }
+    for (const rule of rules) {
+      if (selectors.some((selector) => rule.cssText.startsWith(selector))) return rule.cssText;
+    }
+  }
+  return null;
+}
+
+describe('the card is the click target', () => {
+  beforeEach(() => {
+    // `renderWithProviders` mounts a real BrowserRouter, so a navigation in one test
+    // would otherwise be the starting URL of the next one.
+    window.history.pushState({}, '', '/');
+  });
+
+  it('stretches the company name over the whole card, so the card opens the company', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ companies: [COMPANY_B] }));
+    renderWithProviders(<MyCompaniesList />);
+
+    const row = await screen.findByTestId('my-company-row');
+    // The card is the positioned ancestor the overlay resolves against. Without it the
+    // overlay would stretch to whatever is positioned further up the page.
+    expect(row).toHaveStyle({ position: 'relative' });
+
+    const rule = afterRuleFor(screen.getByTestId('my-company-link'));
+    expect(rule).toBeTruthy();
+    expect(rule).toContain('position: absolute');
+    expect(rule).toContain('inset: 0');
+  });
+
+  it('has no button inside a link and no link inside a button', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ companies: [COMPANY_A, COMPANY_B] }));
+    renderWithProviders(<MyCompaniesList />);
+
+    await screen.findAllByTestId('my-company-row');
+    expect(document.querySelectorAll('a button')).toHaveLength(0);
+    expect(document.querySelectorAll('button a')).toHaveLength(0);
+  });
+
+  it('navigates to the trend page when the company name is pressed', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ companies: [COMPANY_B] }));
+    const user = userEvent.setup();
+    renderWithProviders(<MyCompaniesList />);
+
+    await screen.findByTestId('my-company-row');
+    await user.click(screen.getByTestId('my-company-link'));
+
+    expect(window.location.pathname).toBe('/add-companies/u-bbbbbbbbbb');
+  });
+
+  it('does NOT navigate when the edit icon is pressed: it opens the rename', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ companies: [COMPANY_B] }));
+    const user = userEvent.setup();
+    renderWithProviders(<MyCompaniesList />);
+
+    await screen.findByTestId('my-company-row');
+    await user.click(screen.getByTestId('my-company-rename'));
+
+    expect(await screen.findByLabelText('Company name')).toBeInTheDocument();
+    expect(window.location.pathname).toBe('/');
+  });
+
+  it('does NOT navigate when the X is pressed: it opens the confirmation', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ companies: [COMPANY_B] }));
+    const user = userEvent.setup();
+    renderWithProviders(<MyCompaniesList />);
+
+    await screen.findByTestId('my-company-row');
+    await user.click(screen.getByTestId('my-company-remove'));
+
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+    expect(window.location.pathname).toBe('/');
+  });
+
+  it('orders the card name, edit, remove, then the board link', async () => {
+    // DOM order IS tab order here, which is the only reason the icons sit on the name's
+    // row rather than in a column beside the metadata.
+    fetchMock.mockResolvedValue(jsonResponse({ companies: [COMPANY_B] }));
+    renderWithProviders(<MyCompaniesList />);
+
+    const row = await screen.findByTestId('my-company-row');
+    const stops = Array.from(row.querySelectorAll('a, button')).map(
+      (element) => element.getAttribute('data-testid') ?? element.tagName
+    );
+    expect(stops).toEqual([
+      'my-company-link',
+      'my-company-rename',
+      'my-company-remove',
+      'my-company-board-link',
+    ]);
+  });
+
+  it('labels both icons with the row they act on, since neither has visible text', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ companies: [COMPANY_B] }));
+    renderWithProviders(<MyCompaniesList />);
+
+    await screen.findByTestId('my-company-row');
+    // The text buttons this replaced read out as "Rename" once per board. With no visible
+    // text at all, the label is now the control's ONLY name and cannot be dropped.
+    expect(screen.getByRole('button', { name: 'Rename Ramp' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Remove Ramp' })).toBeInTheDocument();
+    expect(screen.getByTestId('my-company-rename')).toHaveTextContent('');
+    expect(screen.getByTestId('my-company-remove')).toHaveTextContent('');
+  });
+
+  it('stops being a click target while a rename is open, and hides the pencil', async () => {
+    // The overlay is a pseudo-element of the name link, so it is unmounted with it. That
+    // is a free correctness win: you cannot fat-finger onto another page mid-rename. The
+    // X stays, because abandoning a rename by removing the company is a real intent.
+    fetchMock.mockResolvedValue(jsonResponse({ companies: [COMPANY_B] }));
+    const user = userEvent.setup();
+    renderWithProviders(<MyCompaniesList />);
+
+    await screen.findByTestId('my-company-row');
+    await user.click(screen.getByTestId('my-company-rename'));
+
+    expect(await screen.findByLabelText('Company name')).toBeInTheDocument();
+    expect(screen.queryByTestId('my-company-link')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('my-company-rename')).not.toBeInTheDocument();
+    expect(screen.getByTestId('my-company-remove')).toBeInTheDocument();
   });
 });

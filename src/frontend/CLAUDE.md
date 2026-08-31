@@ -182,11 +182,37 @@ every import for zero user-visible gain.
   the discovery gate and **without writing a `company_add_attempts` row** — so it starts
   nothing and spends none of the 20 monthly adds. `no_ats_detected` is the opposite: we read
   the page, found no board, and that goes to discovery and charges.
-- **The intro alert IS the consent, and it may not promise a confirm.** It used to say
-  "nothing is tracked until you press Track this company"; that button is gone, so the
-  sentence became a lie about spending. It now says the press adds it, that an unknown board
-  starts a one-time setup immediately, and that everything is private. The button label may
-  change; what it may never do is shrink back to promising a read-only check.
+- **The sentence under the button IS the consent, and it may not promise a confirm.** It
+  lives in `ResolveUrlForm`, directly under **Add company**: *"If this board is new to us,
+  Add company starts a one-time setup right away, about a minute."* It used to be a blue
+  info alert above the whole form saying the same thing at greater length; the alert was
+  cut ("the consent alert can be completely removed") and this replaced it, because a line
+  under the button is read by someone about to press it and a banner above the field is
+  read on the way past. It may never move behind a click, and it may never shrink back to
+  promising a read-only check — that is what the deleted "nothing is tracked until you
+  press Track this company" did, and the button it named is gone.
+- **The field helper is the last statement of the aggregator rule.** *"Paste the link to
+  the company's own careers page, not LinkedIn or Indeed."* The clause naming the
+  aggregators is there ONLY because the how-to video that was going to say it does not
+  exist yet (`HOW_IT_WORKS_VIDEO_SRC` is `null`), and nothing in the product enforces it:
+  `_NEVER_MATCH_DOMAINS` is a denylist read on the wrong rung, and it misses `dice.com`,
+  `monster.com` and `hiring.cafe`. An aggregator URL therefore resolves, finds no board,
+  reaches `no_ats_detected`, and that is precisely the branch that spends a discovery run
+  and one of the user's monthly adds. Delete the clause when the video ships; not before.
+- **The how-to IS the empty state** (`AddCompanyHowTo`). A user tracking nothing sees three
+  numbered steps where "No companies yet" used to be, and the state is still named for a
+  screen reader by a `visuallyHidden` line. One company later the list replaces it and a
+  persistent **How it works** link under the spend sentence re-opens the same component —
+  one component, two triggers, so the two renders cannot drift. The **video slot is empty
+  and draws nothing**: set `HOW_IT_WORKS_VIDEO_SRC` and the video appears under the same
+  steps, which is the whole change.
+- **The card is one click target.** The company name carries a stretched `::after`, so
+  pressing anywhere on the card opens that company; the pencil and the X are its SIBLINGS,
+  raised to `z-index: 2`, never its children (a `<button>` inside an `<a>` is invalid, and
+  the icons would end up navigating). DOM order is name, edit, remove, board link, which is
+  also the tab order. The board link, the discovery checklist and the match banner are
+  raised too — each is a deliberate hole in the click target. While a rename is open the
+  name link is unmounted, so the card is not clickable at all.
 - **Discovery has its own server flag.** With `CUSTOM_COMPANY_DISCOVERY_ENABLED` off the add
   endpoint returns `422 no_ats_detected` instead of starting anything, and the failure alert
   renders that verdict plus the boards we read without setup — never an endless spinner.
@@ -292,7 +318,10 @@ every import for zero user-visible gain.
 - `features/userCompanies/userCompaniesApi.ts` — RTK Query slice; `baseUrl: '/api'` on
   purpose, so endpoints under more than one path prefix can share it
 - `features/userCompanies/resolveErrors.ts` — resolver-code → copy mapping
-- `components/my-companies/ResolveUrlForm.tsx` — the input and the only button
+- `components/my-companies/ResolveUrlForm.tsx` — the input, the only button, the helper
+  carrying the aggregator rule, and the spend sentence under the button
+- `components/my-companies/AddCompanyHowTo.tsx` — the three steps and the video slot;
+  `HOW_IT_WORKS_VIDEO_SRC` at the top is the one line to change when a video exists
 - `components/my-companies/AddCompanyOutcome.tsx` — every outcome one press can land on
 - `pages/MyCompaniesPage/` — the page (signed-out gate + form + results)
 

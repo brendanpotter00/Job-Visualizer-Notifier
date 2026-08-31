@@ -102,6 +102,32 @@ at the cap and drive the real `monthly_limit_reached` refusal. Seeding is necess
 after the change there is no cheap way to spend a slot through the API — every real one
 costs a live board, a harvest, or an LLM call.
 
+## The card and the empty state changed under AC-08
+
+Three UI changes land on the two things AC-08 drives, so its locators moved with them.
+
+| What changed | Old | New |
+|---|---|---|
+| The field | `getByLabel('Job board link')` | `getByLabel('Careers page link')` — also in AC-01/02 (`already-public.spec.ts`) and AC-06's UI half (`checklist.spec.ts`) |
+| The row's actions | text buttons `Rename` / `Remove` | icons: a pencil beside the name, an X at the far edge. **`data-testid` is unchanged** (`my-company-rename`, `my-company-remove`), so only the *name* assertions moved |
+| The empty list | a `No companies yet` card | the how-to: three numbered steps (`add-company-how-to`) |
+
+**The X is a trigger, not a delete, and AC-08 now proves that twice.** The confirmation
+dialog is the one that already shipped — the icon is simply its new trigger — but the
+target got smaller and less deliberate, so the case opens the dialog, **cancels**, and
+asserts the row is still there before doing the real removal. That is the regression an
+icon-sized destructive control invites.
+
+**`No companies yet` survives as a screen-reader-only line, so the old assertion would
+have kept passing while proving nothing.** `toBeVisible()` is true of a `visuallyHidden`
+element (a 1px box is a non-empty bounding box), so the case asserts what is actually
+drawn — the three step labels — instead.
+
+**Also asserted: `a button, button a` has zero matches on the page.** The card is now one
+click target with two icon buttons and a board link on it, which is exactly the shape that
+ships as nested interactive content if it is built with a wrapper link. The stretched-link
+construction has no nesting, and this is the cheap check that it stays that way.
+
 ## The escape hatch: who still gets one, and why
 
 Certainty decides. It is not a style choice, and the two halves are asserted separately.

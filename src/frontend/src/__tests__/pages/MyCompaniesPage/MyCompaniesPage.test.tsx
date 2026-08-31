@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '../../../test/testUtils';
 import { MyCompaniesPage } from '../../../pages/MyCompaniesPage';
@@ -120,7 +120,7 @@ function addCalls(): Request[] {
 
 async function submitUrl(url = 'https://intel.com/careers') {
   const user = userEvent.setup();
-  await user.type(screen.getByLabelText(/job board link/i), url);
+  await user.type(screen.getByLabelText(/careers page link/i), url);
   await user.click(screen.getByRole('button', { name: /add company/i }));
   return user;
 }
@@ -134,7 +134,7 @@ describe('MyCompaniesPage', () => {
 
     expect(screen.getByRole('progressbar')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /sign in/i })).not.toBeInTheDocument();
-    expect(screen.queryByLabelText(/job board link/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/careers page link/i)).not.toBeInTheDocument();
   });
 
   // The page is named "Add Companies" in the sidebar, so it has to be named that here
@@ -164,7 +164,7 @@ describe('MyCompaniesPage', () => {
       renderWithProviders(<MyCompaniesPage />);
 
       expect(screen.getByRole('button', { name: /sign in/i })).toBeInTheDocument();
-      expect(screen.queryByLabelText(/job board link/i)).not.toBeInTheDocument();
+      expect(screen.queryByLabelText(/careers page link/i)).not.toBeInTheDocument();
     });
 
     it('calls login() when the prompt button is clicked', async () => {
@@ -184,27 +184,42 @@ describe('MyCompaniesPage', () => {
   });
 
   describe('signed in', () => {
-    it('says the press adds the company, and names the spend, before anything is pasted', () => {
+    it('names the spend under the button, before anything is pasted', () => {
       renderWithProviders(<MyCompaniesPage />);
-      const alert = screen.getByRole('alert');
 
-      // THE CONSENT. It used to promise "nothing is tracked until you press Track this
-      // company" — a button that no longer exists. Leaving that sentence would have
-      // been a lie about spending on a page whose submit can start a headless browser
-      // session and an LLM call.
-      expect(alert).toHaveTextContent(/press add company — that adds it/i);
-      expect(alert).not.toHaveTextContent(/nothing is tracked until/i);
-      expect(alert).not.toHaveTextContent(/track this company/i);
-      // …and it still names the paid branch and when it starts.
-      expect(alert).toHaveTextContent(/one-time setup/i);
-      expect(alert).toHaveTextContent(/begins immediately/i);
-      expect(alert).toHaveTextContent(/private to you/i);
+      // THE CONSENT, and it moved rather than went. It used to be a blue info alert
+      // above the whole form; it is now one body-size sentence directly under the
+      // button, which is the control it describes. It must still name the paid branch
+      // and say that it starts at once — the submit can begin a headless browser
+      // session and an LLM call on the user's behalf.
+      const spend = screen.getByText(/if this board is new to us/i);
+      expect(spend).toHaveTextContent(/one-time setup/i);
+      expect(spend).toHaveTextContent(/right away/i);
+      // …and it may never shrink back into promising a read-only check, which is what
+      // the removed "nothing is tracked until you press Track this company" did.
+      expect(spend).not.toHaveTextContent(/nothing is tracked until/i);
+      expect(spend).not.toHaveTextContent(/track this company/i);
+      // No alert above the form any more: one disclosure, not two.
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
 
-      // The ALERT is where all of that lives, alone. The field's helper text used to
-      // repeat the whole branch, which made it three clauses long under a one-line
-      // input — a length people skip, and skipped consent is not consent.
-      const helper = screen.getByText(/paste the exact job board link/i);
+      // The field's helper says WHAT TO PASTE and nothing about spending — two jobs,
+      // two lines. It used to carry the whole branch, which made it three clauses long
+      // under a one-line input: a length people skip, and skipped consent is not consent.
+      const helper = screen.getByText(/paste the link to the company’s own careers page/i);
       expect(helper).not.toHaveTextContent(/one-time setup/i);
+    });
+
+    it('states the aggregator rule on the field, since no video says it yet', () => {
+      // THE RULE WITH NOWHERE ELSE TO LIVE. `_NEVER_MATCH_DOMAINS` is a denylist read on
+      // the wrong rung and misses dice.com/monster.com/hiring.cafe, so nothing in the
+      // product refuses an aggregator URL at submit time — it resolves, finds no board,
+      // and spends a discovery run and one of the user's monthly adds. The how-to video
+      // was going to say this; there is no video. This assertion is what stops the last
+      // statement of the rule being deleted by accident.
+      renderWithProviders(<MyCompaniesPage />);
+      expect(
+        screen.getByText(/not linkedin or indeed/i)
+      ).toBeInTheDocument();
     });
 
     it('labels the button for what it actually does, not just a read-only check', () => {
@@ -220,7 +235,7 @@ describe('MyCompaniesPage', () => {
       const button = screen.getByRole('button', { name: /add company/i });
       expect(button).toBeDisabled();
 
-      await user.type(screen.getByLabelText(/job board link/i), 'https://intel.com');
+      await user.type(screen.getByLabelText(/careers page link/i), 'https://intel.com');
       expect(button).toBeEnabled();
     });
 
@@ -228,7 +243,7 @@ describe('MyCompaniesPage', () => {
       const user = userEvent.setup();
       renderWithProviders(<MyCompaniesPage />);
 
-      await user.type(screen.getByLabelText(/job board link/i), '   ');
+      await user.type(screen.getByLabelText(/careers page link/i), '   ');
       expect(screen.getByRole('button', { name: /add company/i })).toBeDisabled();
     });
 
@@ -249,7 +264,7 @@ describe('MyCompaniesPage', () => {
       const user = userEvent.setup();
       renderWithProviders(<MyCompaniesPage />);
 
-      await user.type(screen.getByLabelText(/job board link/i), 'https://intel.com{Enter}');
+      await user.type(screen.getByLabelText(/careers page link/i), 'https://intel.com{Enter}');
 
       await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     });
@@ -603,10 +618,83 @@ describe('MyCompaniesPage', () => {
       await submitUrl('https://acme.example/carrers');
 
       await screen.findByTestId('add-company-error');
-      expect(screen.getByLabelText(/job board link/i)).toBeEnabled();
-      expect(screen.getByLabelText(/job board link/i)).toHaveValue(
+      expect(screen.getByLabelText(/careers page link/i)).toBeEnabled();
+      expect(screen.getByLabelText(/careers page link/i)).toHaveValue(
         'https://acme.example/carrers'
       );
+    });
+  });
+
+  // The how-to IS the empty state, which means it disappears the moment the user tracks
+  // one company — a user who adds a board on day one and comes back on day thirty holding
+  // a LinkedIn URL would have no way back to the explanation. This link is that way back,
+  // and it re-opens the SAME component the empty state renders.
+  describe('the "How it works" link', () => {
+    const TRACKED = {
+      id: 'u-ramp000001',
+      displayName: 'Ramp',
+      ats: 'ashby',
+      boardToken: 'ramp',
+      sourceId: 'custom:u-ramp000001',
+      healthState: 'healthy',
+      openJobCount: 128,
+      lastSuccessAt: '2026-08-30T10:00:00Z',
+      trackingStartedAt: '2026-08-01T00:00:00Z',
+    };
+
+    it('is offered to a user who already tracks something', async () => {
+      listBody = { companies: [TRACKED] } as unknown as typeof listBody;
+      renderWithProviders(<MyCompaniesPage />);
+
+      const link = await screen.findByTestId('how-it-works-toggle');
+      // A button, not an anchor: it changes the page, it does not navigate — and it says
+      // whether the block is open before a screen-reader user decides to press it.
+      expect(link.tagName).toBe('BUTTON');
+      expect(link).toHaveAttribute('aria-expanded', 'false');
+      expect(screen.queryByTestId('add-company-how-to')).not.toBeInTheDocument();
+    });
+
+    it('opens the same how-to block, and closes it again', async () => {
+      listBody = { companies: [TRACKED] } as unknown as typeof listBody;
+      const user = userEvent.setup();
+      renderWithProviders(<MyCompaniesPage />);
+
+      const link = await screen.findByTestId('how-it-works-toggle');
+      await user.click(link);
+
+      const block = await screen.findByTestId('add-company-how-to');
+      expect(within(block).getByText('Open their careers page')).toBeInTheDocument();
+      expect(link).toHaveAttribute('aria-expanded', 'true');
+      // `aria-controls` resolves in both states: the container is always in the DOM, only
+      // its contents are conditional, so nothing invisible is ever in the tab order.
+      expect(document.getElementById(link.getAttribute('aria-controls')!)).toBe(
+        block.parentElement
+      );
+
+      await user.click(link);
+      expect(screen.queryByTestId('add-company-how-to')).not.toBeInTheDocument();
+    });
+
+    it('is NOT offered while the how-to is already the empty state', async () => {
+      // Nothing tracked: the explanation is already on screen below the divider, so a
+      // link to it would be a second copy of the same thing.
+      listBody = { companies: [] };
+      renderWithProviders(<MyCompaniesPage />);
+
+      await screen.findByTestId('my-companies-list-stub');
+      await waitFor(() =>
+        expect(screen.queryByTestId('how-it-works-toggle')).not.toBeInTheDocument()
+      );
+    });
+
+    it('does not flash the link while the list is still loading', async () => {
+      // `companies` is undefined until the query settles, so a bare length check would
+      // show the link for a frame to every returning user.
+      listBody = { companies: [TRACKED] } as unknown as typeof listBody;
+      renderWithProviders(<MyCompaniesPage />);
+
+      expect(screen.queryByTestId('how-it-works-toggle')).not.toBeInTheDocument();
+      expect(await screen.findByTestId('how-it-works-toggle')).toBeInTheDocument();
     });
   });
 
@@ -643,7 +731,7 @@ describe('MyCompaniesPage', () => {
       );
       // The FIELD stays usable — someone can still paste a URL they are queuing up
       // for next month, and a dead input reads as a broken page.
-      await user.type(screen.getByLabelText(/job board link/i), 'https://intel.com/careers');
+      await user.type(screen.getByLabelText(/careers page link/i), 'https://intel.com/careers');
       expect(screen.getByRole('button', { name: /add company/i })).toBeDisabled();
       expect(fetchMock).not.toHaveBeenCalled();
     });
@@ -659,7 +747,7 @@ describe('MyCompaniesPage', () => {
       expect(await screen.findByTestId('add-quota-counter')).toHaveTextContent(
         '0 of 0 adds left this month'
       );
-      await user.type(screen.getByLabelText(/job board link/i), 'https://intel.com/careers');
+      await user.type(screen.getByLabelText(/careers page link/i), 'https://intel.com/careers');
       expect(screen.getByRole('button', { name: /add company/i })).toBeDisabled();
       expect(fetchMock).not.toHaveBeenCalled();
     });
@@ -674,7 +762,7 @@ describe('MyCompaniesPage', () => {
       const user = userEvent.setup();
       renderWithProviders(<MyCompaniesPage />);
 
-      await user.type(screen.getByLabelText(/job board link/i), 'https://intel.com/careers');
+      await user.type(screen.getByLabelText(/careers page link/i), 'https://intel.com/careers');
       expect(screen.queryByTestId('add-quota-counter')).not.toBeInTheDocument();
       expect(screen.getByRole('button', { name: /add company/i })).toBeEnabled();
     });
@@ -690,7 +778,7 @@ describe('MyCompaniesPage', () => {
       const user = userEvent.setup();
       renderWithProviders(<MyCompaniesPage />);
 
-      await user.type(screen.getByLabelText(/job board link/i), 'https://intel.com/careers');
+      await user.type(screen.getByLabelText(/careers page link/i), 'https://intel.com/careers');
       expect(screen.queryByTestId('add-quota-counter')).not.toBeInTheDocument();
       expect(screen.getByRole('button', { name: /add company/i })).toBeEnabled();
     });

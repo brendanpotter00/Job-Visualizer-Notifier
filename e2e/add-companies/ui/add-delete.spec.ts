@@ -17,7 +17,7 @@ test.describe('AC-08 add -> remove, end to end', () => {
     // grid) and the add only happened on a second press of "Track this company". The
     // owner's objection was that the middle step decided nothing — the add endpoint
     // re-resolves the raw URL from scratch either way.
-    await page.getByLabel('Job board link').fill(CISCO.url);
+    await page.getByLabel('Careers page link').fill(CISCO.url);
     await page.getByRole('button', { name: 'Add company' }).click();
 
     await expect(page.getByTestId('add-company-success')).toBeVisible({ timeout: 30_000 });
@@ -45,8 +45,30 @@ test.describe('AC-08 add -> remove, end to end', () => {
     // No `\b` anchor: the row's text has no separators ("tracking1,230 open jobs").
     await expect(row).toContainText(/[1-9][\d,]* open jobs?/);
 
+    // THE CARD IS NOW ONE CLICK TARGET, and the two row actions are icons on it. Neither
+    // has visible text any more, so the aria-label is its whole accessible name — and the
+    // X is still a trigger, not a delete: it opens the confirmation the text button used
+    // to open.
+    await expect(row.getByTestId('my-company-rename')).toHaveAttribute(
+      'aria-label',
+      /^Rename .+/
+    );
+    const remove = row.getByTestId('my-company-remove');
+    await expect(remove).toHaveAttribute('aria-label', /^Remove .+/);
+    // Nothing nests: no button inside a link, no link inside a button.
+    await expect(page.locator('a button, button a')).toHaveCount(0);
+
+    // Cancel first: an icon is a smaller, less deliberate target than the text button it
+    // replaced, so "opened it by accident" has to be survivable.
+    await remove.click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole('button', { name: 'Cancel' }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect(row).toBeVisible();
+
     // Remove -> the dialog names the destruction, not a pause (AC-07 UI).
-    await row.getByTestId('my-company-remove').click();
+    await remove.click();
     await expect(page.getByRole('dialog')).toBeVisible();
     await expect(page.getByRole('heading', {
       name: 'Delete this company and its job history?',
@@ -60,7 +82,13 @@ test.describe('AC-08 add -> remove, end to end', () => {
     await page.getByTestId('my-company-remove-confirm').click();
     await waitForRowGone(page, CISCO.label, { timeoutMs: 30_000 });
 
-    // …and the list reads "No companies yet".
-    await expect(page.getByText('No companies yet')).toBeVisible();
+    // …and the empty list is the how-to now, not a "No companies yet" card. The words
+    // survive as a screen-reader-only line, so this asserts what is DRAWN: the three
+    // steps. (`toBeVisible` on the sr-only line would pass on its 1px box and prove
+    // nothing about what a sighted user sees.)
+    const howTo = page.getByTestId('add-company-how-to');
+    await expect(howTo).toBeVisible();
+    await expect(howTo).toContainText('Open their careers page');
+    await expect(howTo).toContainText('Paste it in the box above');
   });
 });

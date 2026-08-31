@@ -4,6 +4,7 @@ import Button from '@mui/material/Button';
 import CircularProgress from '@mui/material/CircularProgress';
 import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
+import Typography from '@mui/material/Typography';
 
 interface ResolveUrlFormProps {
   /** Called with the trimmed URL. Never called while busy or with an empty value. */
@@ -57,12 +58,15 @@ interface ResolveUrlFormProps {
  * carry the whole branch ("if it's a board we already read you'll see what we found
  * before anything is tracked; if it isn't, we start a one-time setup to learn how to
  * read it") — three clauses under a one-line input, which is a length people skip, and
- * skipped help is worse than none. The page's intro alert already states what pressing
- * this does and IS the consent; this line only has to say what to paste. So: the label
- * names the thing ("Job board link"), the placeholder repeats the instruction where an
- * empty box is already looking at you, and the helper adds the one qualifier that
- * actually changes what a user pastes — EXACT, and from the company. Whatever this
- * becomes, it must not grow back into a second copy of the alert.
+ * skipped help is worse than none. So the helper says only WHAT TO PASTE, and the spend
+ * sentence under the button says WHAT PRESSING IT COSTS. Two jobs, two lines; they must
+ * not merge back into one paragraph.
+ *
+ * THE SPEND SENTENCE LIVES HERE, glued to the button, and it replaced a blue consent
+ * alert that used to sit above the whole form ("the consent alert can be completely
+ * removed"). It is the only place the page says that pressing Add company can start
+ * paid work on the user's behalf, so it is never behind a click, never inside the
+ * how-to block, and never in a component the button could be lifted out of.
  */
 export function ResolveUrlForm({ onSubmit, busy, disabled = false }: ResolveUrlFormProps) {
   const [value, setValue] = useState('');
@@ -81,13 +85,26 @@ export function ResolveUrlForm({ onSubmit, busy, disabled = false }: ResolveUrlF
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems="flex-start">
         <TextField
           fullWidth
-          label="Job board link"
-          placeholder="Paste the company’s job board"
+          label="Careers page link"
+          placeholder="e.g. stripe.com/jobs"
           value={value}
           onChange={(event) => setValue(event.target.value)}
           disabled={busy}
-          helperText="Paste the exact job board link, directly from the company."
-          slotProps={{ htmlInput: { 'aria-label': 'Job board link', maxLength: 2048 } }}
+          // THE ONE RULE THE PRODUCT CANNOT YET ENFORCE, so it has to be written down.
+          // `_NEVER_MATCH_DOMAINS` (company_name_match.py) does hold linkedin.com and
+          // indeed.com, but it is a DENYLIST consulted on the wrong rung — it is the "is
+          // this already a public company" guess, not a submit-time refusal — and it
+          // misses dice.com, monster.com and hiring.cafe anyway. So an aggregator URL
+          // resolves, finds no board, reaches `no_ats_detected`, and `no_ats_detected` is
+          // precisely the reason the add endpoint routes into PAID discovery: a headless
+          // browser session, an LLM call, and one of the user's monthly adds.
+          //
+          // "not LinkedIn or Indeed" is here ONLY because the how-to video that was going
+          // to say it does not exist yet. Delete that clause the day
+          // `HOW_IT_WORKS_VIDEO_SRC` (AddCompanyHowTo.tsx) stops being null, and not
+          // before: it is currently the last statement of this rule anywhere in the app.
+          helperText="Paste the link to the company’s own careers page, not LinkedIn or Indeed. Any page of their job list works."
+          slotProps={{ htmlInput: { 'aria-label': 'Careers page link', maxLength: 2048 } }}
         />
         <Button
           type="submit"
@@ -99,6 +116,16 @@ export function ResolveUrlForm({ onSubmit, busy, disabled = false }: ResolveUrlF
           {busy ? 'Adding…' : 'Add company'}
         </Button>
       </Stack>
+
+      {/* UNDER THE BUTTON, in both the empty and the populated state, never behind a
+          disclosure. See the docstring: this sentence is the whole consent. */}
+      <Typography variant="body2" color="text.secondary" sx={{ mt: 1.75 }}>
+        If this board is new to us,{' '}
+        <Box component="strong" sx={{ color: 'text.primary' }}>
+          Add company
+        </Box>{' '}
+        starts a one-time setup right away, about a minute.
+      </Typography>
     </Box>
   );
 }

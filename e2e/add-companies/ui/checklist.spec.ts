@@ -15,7 +15,7 @@ test.describe('AC-06 discovery checklist + public-board-match banner', () => {
   }) => {
     await gotoAddCompanies(page);
 
-    await page.getByLabel('Job board link').fill(SPOTIFY.url);
+    await page.getByLabel('Careers page link').fill(SPOTIFY.url);
     await page.getByRole('button', { name: 'Add company' }).click();
 
     // NEW FIRST STEP, and it is the company-name dedupe (AC-13) working: this URL no
