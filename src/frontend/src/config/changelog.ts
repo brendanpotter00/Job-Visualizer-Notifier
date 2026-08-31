@@ -22,7 +22,7 @@ export const CHANGELOG: readonly ChangelogEntry[] = [
     id: 'custom-company-sources',
     title: 'Beta: add any company yourself by pasting its careers page',
     description:
-      "Paste the link to any company's careers page and this site builds a scraper for that board, then refreshes it hourly like every other company. It works on the standard job boards and on custom careers sites that have no board behind them. Companies you add are private to you, and they show up in Recent Job Postings and the hiring graph with every filter working, including the AI-enriched ones. While it works a board out you can watch a real browser drive the page, live. That happens once. After that the scraper it wrote replays on its own, with no AI and no browser. Beta, so expect some boards to be refused rather than half-tracked.",
+      "Paste the link to any company's careers page and it gets tracked for you, refreshed hourly like every other company. The companies you add are private to you, and they show up in Recent Job Postings and on the hiring graph with all the same filters. You can watch yours being set up, live. This is beta, so some boards will not work yet.",
     tags: ['feature'],
     date: '2026-08-31',
     link: {
