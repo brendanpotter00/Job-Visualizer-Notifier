@@ -126,9 +126,26 @@ degrade, it fails the boot. Confirm `alembic heads` returns exactly one before e
 ⚠️ **The frontend flag is the stronger gate** — with it off the page does not exist, so nothing
 can reach the backend even if the backend flag is on. Flip the backend first, frontend second.
 
-⚠️ **Reading Railway variables is blocked** by the permission classifier (values return in
-plaintext and may contain secrets). Setting them is possible. So **verify flag state by
-behaviour, not by reading config** — see §6.
+✅ **Flag state IS verifiable from an agent — read the NAMES, not the values.** This section
+used to say reading Railway variables was blocked, and that is wrong for the path that
+matters. The **claude.ai Railway integration** (OAuth) answers `list-variables` with
+`valuesRedacted: true` and returns **variable names only** — no secret ever crosses the
+wire, and "is this flag set?" is a name question, not a value question. The CLI-backed
+`railway` MCP is the one that returns plaintext, and it is separately gated behind
+`railway login`.
+
+Verified this way on 2026-08-31 against `onesecondswe` → `Job-Visualizer-Notifier` →
+`production`: **all four E7 flags are ABSENT**, so every one of them sits on its compiled
+default — sources off, discovery off, Browserbase off, add limit 20. That is the intended
+pre-merge state and it is now a checked fact rather than an assumption.
+
+Two caveats that keep the old advice alive in part:
+
+- **Absent ≠ knowing the value of a var that IS present.** If a flag ever shows up in the
+  name list, this method proves only that it is set, not to what. Then fall back to
+  behaviour (§6) or read it in the dashboard.
+- **Setting** a variable is still a write to production config, and the OAuth app is not
+  the tool for it — do it in the dashboard, or with the CLI after `railway login`.
 
 ---
 
