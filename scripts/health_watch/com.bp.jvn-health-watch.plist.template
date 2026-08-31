@@ -4,9 +4,13 @@
      scripts/health_watch/install_launch_agent.sh.
 
      StartCalendarInterval (not StartInterval): wall-clock anchored, fires once
-     on wake if the Mac slept through 09:00. A fully-off Mac skips the day —
-     accepted trade-off, see README. The wrapper carries its own 90-min timeout
-     so a wedged run can never block the next day's fire. -->
+     on wake if the Mac slept through a slot. Fires EVERY 3h (8 slots/day) so an
+     outage is caught within ~3h, and — with the skill's re-alert-every-run policy
+     for CRITICAL faults (SKILL.md §4.2) — a text lands up to 8x/day until it
+     clears, instead of the old once-a-day single alert that went missed for 61h
+     on 2026-08-29. A fully-off Mac skips those slots — accepted trade-off, see
+     README. The wrapper's 90-min timeout + single-flight lock keep overlapping or
+     wedged runs from stacking. -->
 <plist version="1.0">
 <dict>
     <key>Label</key>
@@ -19,12 +23,16 @@
     <key>WorkingDirectory</key>
     <string>/Users/bpotter/developer/personal/Job-Visualizer-Notifier</string>
     <key>StartCalendarInterval</key>
-    <dict>
-        <key>Hour</key>
-        <integer>9</integer>
-        <key>Minute</key>
-        <integer>0</integer>
-    </dict>
+    <array>
+        <dict><key>Hour</key><integer>0</integer><key>Minute</key><integer>0</integer></dict>
+        <dict><key>Hour</key><integer>3</integer><key>Minute</key><integer>0</integer></dict>
+        <dict><key>Hour</key><integer>6</integer><key>Minute</key><integer>0</integer></dict>
+        <dict><key>Hour</key><integer>9</integer><key>Minute</key><integer>0</integer></dict>
+        <dict><key>Hour</key><integer>12</integer><key>Minute</key><integer>0</integer></dict>
+        <dict><key>Hour</key><integer>15</integer><key>Minute</key><integer>0</integer></dict>
+        <dict><key>Hour</key><integer>18</integer><key>Minute</key><integer>0</integer></dict>
+        <dict><key>Hour</key><integer>21</integer><key>Minute</key><integer>0</integer></dict>
+    </array>
     <key>RunAtLoad</key>
     <false/>
     <key>StandardOutPath</key>
