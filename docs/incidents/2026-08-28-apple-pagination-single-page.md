@@ -1,7 +1,7 @@
 # Incident: Apple scraper single-paged for 3.5 days (pagination selector broke)
 
 **Date:** 2026-08-28 (failure began), 2026-08-31 (root cause identified & fixed)
-**Severity:** High (not Urgent — no data was lost; the safety guard held)
+**Severity:** High (not Urgent — no existing rows were falsely closed or deleted; the safety guard held)
 **Impact:** From 2026-08-28 the Apple scraper returned **15–17 jobs per run instead
 of ~3,350**, on ~21 runs/day. Every run tripped the `empty_scrape` safety guard
 (`skipped_update=true`, `guard_reason='empty_scrape'`, `error_count=1`), so no
@@ -9,6 +9,12 @@ Apple data was ingested, refreshed, or closed for 3.8 days. Apple's 3,357 OPEN
 rows in `job_listings` went **stale, not falsely closed** — `max(first_seen_at)`
 for an OPEN Apple row froze at `2026-08-27T23:15:48Z`. The guard did exactly its
 job; the failure is that nothing alarmed while it did.
+
+**The precise data-loss boundary:** no existing `job_listings` row was falsely
+closed or deleted. But roles that were both **posted and taken down entirely
+within** the 3.8-day blind window were never scraped past page 1, so they never
+entered the DB; if Apple has since removed them they are not backfillable. The
+strong claim is "no existing rows were harmed," not "nothing was missed."
 
 ## Summary
 
@@ -136,14 +142,24 @@ so presence (`is None`), not truthiness, is the correct test. Verified live:
 returns `True` on page 1 (keeps paginating) and `False` on page 226 (loop
 terminates — no walk to `MAX_PAGES`).
 
-### 2. Make a truncated walk loud (`parser.get_total_pages` + `scraper.scrape_query`)
+### 2. Raise on a truncated walk (`parser.get_total_pages` + `scraper.scrape_query`)
 
 The scraper now reads Apple's own advertised page count
-(`.rc-pagination-total-pages` → 226) once on page 1 and logs a distinct
-`SCRAPER TRUNCATION (apple)` **error** when the walk ends far short of it. A
-one-page result on a 226-page board is no longer indistinguishable from a genuine
-one-page board — the indistinguishability that let this run 3.5 days. `MAX_PAGES`
-250 → 300 for headroom; hitting the cap is now covered by the same loud check.
+(`.rc-pagination-total-pages` → 226) once on page 1 and **raises
+`JobSearchError`** when the walk ends far short of it (whatever ended it — a
+broken next-page probe, exhausted nav retries, or the `MAX_PAGES` cap). Raising,
+rather than returning the short list, is the same contract `tiktok`/`amazon`
+already use: a truncated list is indistinguishable from "these jobs are gone", so
+returning it would let the close phase reap the missing jobs the moment the
+truncation is mild enough (>85% of the board) to slip past the `partial_scrape`
+guard. `incremental.run_incremental_scrape` catches it, records an errored
+`scrape_runs` row (`error_count=1`, `closed_jobs=0`, no close phase), and
+re-raises — the subprocess exits non-zero and `auto_scraper` logs and moves on.
+A one-page result on a 226-page board is no longer indistinguishable from a
+genuine one-page board — the indistinguishability that let this run 3.5 days.
+`MAX_PAGES` 250 → 300 for headroom; hitting the cap is now covered by the same
+raise. (If `get_total_pages` can't read the count, the run falls back to the
+incremental guard + Check A3 rather than raising.)
 
 ### 3. Pin the markup in tests
 

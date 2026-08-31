@@ -185,7 +185,9 @@ WITH lastN AS (
 )
 SELECT l.company, c.ats,
        count(*) FILTER (WHERE l.skipped_update)  AS skipped_of_last4,
-       max(l.guard_reason)                       AS guard_reason,
+       -- all distinct reasons across the latched runs (not max(), which would
+       -- report only the lexicographically-largest of a mixed empty/partial latch)
+       string_agg(DISTINCT l.guard_reason, ',')  AS guard_reasons,
        min(l.jobs_seen) AS min_seen, max(l.jobs_seen) AS max_seen
 FROM lastN l
 JOIN companies c ON c.id = l.company

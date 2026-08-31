@@ -184,8 +184,10 @@ A text-content selector (`button:has-text("Next Page")`) matches nothing and
 silently single-pages the whole board — the 2026-08-28 incident
 (`docs/incidents/2026-08-28-apple-pagination-single-page.md`). `scrape_query`
 also reads Apple's advertised page count (`parser.get_total_pages` ←
-`.rc-pagination-total-pages`) and logs a loud `SCRAPER TRUNCATION` error if the
-walk ends far short of it, so a future repeat is greppable, not silent. The
+`.rc-pagination-total-pages`) and **raises `JobSearchError`** if the walk ends far
+short of it (the tiktok/amazon "an incomplete run raises, it never returns short"
+contract — a truncated list returned as success can be reaped by the close phase
+once it slips past the partial_scrape guard). The
 markup is pinned by `tests/unit/test_apple_pagination_markup.py` (per-PR) and
 `tests/e2e/test_apple_pagination_markup_e2e.py` (real DOM, `-m e2e`).
 

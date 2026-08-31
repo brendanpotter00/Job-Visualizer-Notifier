@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from apple_jobs_scraper.scraper import AppleJobsScraper
 from apple_jobs_scraper.parser import JobCardExtractionError
+from apple_jobs_scraper.api_client import JobSearchError
 
 
 @pytest.fixture
@@ -302,3 +303,88 @@ class TestRandomDelay:
             # Verify delay is within expected range (2-5 seconds from config)
             delay = mock_sleep.call_args[0][0]
             assert 2.0 <= delay <= 5.0
+
+
+class TestScrapeQueryTruncationRaises:
+    """scrape_query RAISES on a truncated walk (2026-08-28 pagination incident).
+
+    When Apple advertises a page count (get_total_pages) and the walk ends far
+    short of it, the run must raise rather than return a short list that the
+    incremental close phase could reap. Mirrors tiktok/amazon's JobSearchError
+    contract; verified upstream to record an errored run without mass-closing.
+    """
+
+    @pytest.mark.asyncio
+    async def test_raises_when_walk_truncated_below_advertised_pages(
+        self, mock_context, mock_page, sample_job_cards
+    ):
+        """total-pages says 226, walk stops after page 1 -> JobSearchError."""
+        scraper = AppleJobsScraper(headless=True, detail_scrape=False)
+        scraper.context = mock_context
+        scraper.navigate_to_page = AsyncMock()
+        scraper._random_delay = AsyncMock()
+
+        with patch(
+            "apple_jobs_scraper.scraper.extract_job_cards_from_list",
+            AsyncMock(return_value=sample_job_cards),
+        ), patch(
+            "apple_jobs_scraper.scraper.get_total_pages",
+            AsyncMock(return_value=226),
+        ), patch(
+            "apple_jobs_scraper.scraper.check_has_next_page",
+            AsyncMock(return_value=False),  # the bug: stops after page 1
+        ):
+            with pytest.raises(JobSearchError, match="TRUNCATION"):
+                await scraper.scrape_query("", max_jobs=None)
+
+    @pytest.mark.asyncio
+    async def test_no_raise_when_total_pages_unknown(
+        self, mock_context, mock_page, sample_job_cards
+    ):
+        """No advertised page count -> cannot assert truncation -> return, no raise.
+
+        Pins the documented fallback: without the oracle we defer to the
+        incremental guard + health-watch A3, not a false alarm.
+        """
+        scraper = AppleJobsScraper(headless=True, detail_scrape=False)
+        scraper.context = mock_context
+        scraper.navigate_to_page = AsyncMock()
+        scraper._random_delay = AsyncMock()
+
+        with patch(
+            "apple_jobs_scraper.scraper.extract_job_cards_from_list",
+            AsyncMock(return_value=sample_job_cards),
+        ), patch(
+            "apple_jobs_scraper.scraper.get_total_pages",
+            AsyncMock(return_value=None),
+        ), patch(
+            "apple_jobs_scraper.scraper.check_has_next_page",
+            AsyncMock(return_value=False),
+        ):
+            result = await scraper.scrape_query("", max_jobs=None)
+
+        assert len(result) == 2
+
+    @pytest.mark.asyncio
+    async def test_max_jobs_stop_does_not_raise(
+        self, mock_context, mock_page, sample_job_cards
+    ):
+        """A deliberate max_jobs stop on a large board is not a truncation."""
+        scraper = AppleJobsScraper(headless=True, detail_scrape=False)
+        scraper.context = mock_context
+        scraper.navigate_to_page = AsyncMock()
+        scraper._random_delay = AsyncMock()
+
+        with patch(
+            "apple_jobs_scraper.scraper.extract_job_cards_from_list",
+            AsyncMock(return_value=sample_job_cards * 5),  # 10 jobs on page 1
+        ), patch(
+            "apple_jobs_scraper.scraper.get_total_pages",
+            AsyncMock(return_value=226),
+        ), patch(
+            "apple_jobs_scraper.scraper.check_has_next_page",
+            AsyncMock(return_value=True),
+        ):
+            result = await scraper.scrape_query("", max_jobs=3)
+
+        assert len(result) == 3

@@ -49,7 +49,12 @@ from .parser import (
     parse_card_posted_date,
     JobCardExtractionError,
 )
-from .api_client import fetch_job_details, get_apply_url, JobDetailsFetchError
+from .api_client import (
+    fetch_job_details,
+    get_apply_url,
+    JobDetailsFetchError,
+    JobSearchError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -346,27 +351,34 @@ class AppleJobsScraper(BaseScraper):
         finally:
             await page.close()
 
-        # LOUD TRUNCATION CHECK. If Apple told us the board is N pages and we
-        # walked far fewer — and we did not deliberately stop for max_jobs — the
-        # pagination walk was truncated. This is the signal that was missing on
-        # 2026-08-28: a stop-after-page-1 produced a clean-looking 17-job result
-        # that the safety guard blocked silently for 3.5 days. An ERROR here is
-        # greppable (Railway @level:error) and distinct from a genuine one-page
-        # board. It does NOT raise: the incremental guard remains the backstop
-        # that prevents mass closure; this only makes the failure visible.
+        # TRUNCATION GUARD. If Apple told us the board is N pages and we walked
+        # far fewer — and we did not deliberately stop for max_jobs — the
+        # pagination walk was truncated, whatever ended it (a broken next-page
+        # probe, exhausted nav retries, or the MAX_PAGES cap). RAISE rather than
+        # return the short list: a truncated list is indistinguishable from
+        # "these jobs are gone", so returning it lets the incremental close phase
+        # reap the missing jobs the moment the truncation is mild enough (>85% of
+        # the board) to slip past the partial_scrape guard. Raising routes the run
+        # through run_incremental_scrape's handler, which records an errored
+        # scrape_runs row (error_count=1, closed_jobs=0) and re-raises WITHOUT the
+        # destructive phases — the same contract tiktok/amazon use, and the signal
+        # that was missing on 2026-08-28.
+        #
+        # This fires only when Apple advertised a page count (get_total_pages).
+        # If that element is unreadable, expected_total_pages is None and we fall
+        # back to the incremental guard (empty_scrape/partial_scrape) + the
+        # health-watch A3 latch check as the backstops.
         if (
             expected_total_pages is not None
             and not stopped_for_max_jobs
             and expected_total_pages - pages_scraped > _TRUNCATION_PAGE_SLACK
         ):
-            logger.error(
-                "SCRAPER TRUNCATION (apple): walked %d of %d advertised pages "
-                "(%d jobs collected). A large board that stops early is the "
-                "2026-08-28 single-page failure signature — verify "
-                "check_has_next_page against Apple's live pagination markup.",
-                pages_scraped,
-                expected_total_pages,
-                len(all_jobs),
+            raise JobSearchError(
+                f"SCRAPER TRUNCATION (apple): walked {pages_scraped} of "
+                f"{expected_total_pages} advertised pages "
+                f"({len(all_jobs)} jobs collected). A large board that stops "
+                f"early is the 2026-08-28 single-page failure signature — verify "
+                f"check_has_next_page against Apple's live pagination markup."
             )
 
         logger.info(f"Completed Apple scrape: {len(all_jobs)} jobs collected")
