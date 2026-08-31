@@ -5,9 +5,9 @@
 # history behind every choice here: the 44h unbounded-fetch wedge, the
 # end-anchored StartInterval gotcha, and the process-group kill rationale).
 #
-# This agent uses StartCalendarInterval (daily 09:00), which is wall-clock
-# anchored and fires once on wake if the Mac slept through it — but a run that
-# never exits still blocks the NEXT day's fire, so the cap stays load-bearing.
+# This agent uses StartCalendarInterval (every 3h), which is wall-clock anchored
+# and fires once on wake if the Mac slept through a slot — but a run that never
+# exits still blocks the NEXT slot's fire, so the cap stays load-bearing.
 #
 # Healthy path: ~3-5 min (SQL checks + heartbeat). Incident path adds a research
 # subagent (~10 min), an `npm ci` in a throwaway worktree, and a PR — 90 min is
@@ -30,7 +30,10 @@ LOCK_DIR="$STATE_DIR/.run.lock"
 FAIL_TEXT_STAMP="$STATE_DIR/wrapper-fail-last-text"
 
 TOTAL_TIMEOUT_SECS="${JVN_HEALTH_TIMEOUT_SECS:-5400}"   # 90 min hard cap
-FAIL_TEXT_COOLDOWN_SECS=259200                          # 72h between wrapper-failure texts
+# A watchdog that can't even RUN is itself a critical, must-not-miss failure, so
+# re-alert every ~6h (2 fires) rather than the old once-per-72h. Matches the
+# skill's re-alert-every-run policy for CRITICAL faults (SKILL.md §4.2).
+FAIL_TEXT_COOLDOWN_SECS=21600                           # 6h between wrapper-failure texts
 
 log()     { echo "[wrapper] $(date -u +%FT%TZ) $*"; }
 log_err() { echo "[wrapper] $(date -u +%FT%TZ) $*" >&2; }
@@ -138,7 +141,7 @@ fi
 
 if [ "$STATUS" -ne 0 ]; then
   log_err "health-watch FAILED exit=$STATUS"
-  # Text at most once per 72h about the watchdog itself being broken. If send
+  # Text at most once per 6h about the watchdog itself being broken. If send
   # ALSO fails, the watchdog is fully dark — logs are the only trace, which is
   # exactly why the weekly all-clear text exists (its absence is the signal).
   if cooldown_expired "$FAIL_TEXT_STAMP" "$FAIL_TEXT_COOLDOWN_SECS"; then
@@ -148,7 +151,7 @@ if [ "$STATUS" -ne 0 ]; then
       log_err "send.sh ALSO failed — watchdog is dark"
     fi
   else
-    log "failure text suppressed (72h cooldown)"
+    log "failure text suppressed (6h cooldown)"
   fi
 fi
 
