@@ -2,8 +2,7 @@ import { Stack, Typography } from '@mui/material';
 import { RESPONSIVE } from '../../config/responsive';
 import { CompanySelector } from '../../components/companies-page/CompanySelector/CompanySelector';
 import { useAppSelector } from '../../app/hooks';
-import { getCompanyById } from '../../config/companies';
-import { getCompanySourceLabel } from '../../config/atsSource';
+import { selectEffectiveCompanyById } from '../../features/userCompanies/effectiveCompanies';
 
 /**
  * Companies page header component
@@ -15,9 +14,14 @@ import { getCompanySourceLabel } from '../../config/atsSource';
  */
 export function CompaniesPageHeader() {
   const selectedCompanyId = useAppSelector((state) => state.app.selectedCompanyId);
-  const company = getCompanyById(selectedCompanyId);
+  // Resolves curated companies AND the viewer's own boards. For a custom board
+  // the name is `UserCompany.displayName` — already the effective name
+  // server-side (`COALESCE(user_display_name, display_name)`), so a rename wins
+  // here with nothing to merge — and the source line is the board's host rather
+  // than the "Unknown Source" an unrecognized id used to get.
+  const company = useAppSelector((state) => selectEffectiveCompanyById(state, selectedCompanyId));
   const companyNameHeaderTitle = company?.name || 'Job Posting Analytics';
-  const companyATSSource = company ? getCompanySourceLabel(company) : 'Unknown Source';
+  const companyATSSource = company?.sourceLabel ?? 'Unknown Source';
   return (
     <Stack
       direction={{ xs: 'column', sm: 'row' }}

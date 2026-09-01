@@ -28,6 +28,7 @@ from scripts.shared.database import (
 from api.services.user_preferences_service import (
     list_enabled_companies as list_user_enabled_companies,
 )
+from api.services.database import get_job_by_id, get_jobs, get_user_company_jobs
 
 
 def _insert_company(
@@ -130,6 +131,43 @@ def test_public_job_detail_of_public_company_still_works(client, db_conn):
     resp = client.get("/api/jobs/greenhouse_api/88")
     assert resp.status_code == 200
     assert resp.json()["id"] == "88"
+
+
+def test_service_layer_read_paths_never_return_a_user_company_job(db_conn):
+    """The same guard as the two HTTP cases above, one layer down.
+
+    Those go through the router; this asserts the property where it is actually
+    implemented (``_USER_COMPANY_PREDICATE``, applied unconditionally by
+    ``_build_where`` and ``get_job_by_id``). It therefore still fails if someone
+    rewires the router, adds a second public router, or gives either reader a
+    viewer argument — which is the exact "conditional leak that passes review"
+    the predicate's own comment warns about.
+    """
+    _insert_company(db_conn, "svc-pub", visibility="public")
+    _insert_company(db_conn, "u-svcpriv01", visibility="user")
+    _insert_job(db_conn, "svc-1", "svc-pub", "greenhouse_api")
+    _insert_job(db_conn, "svc-2", "u-svcpriv01", custom("u-svcpriv01"))
+
+    # Unfiltered list.
+    companies = {j["company"] for j in get_jobs(db_conn)}
+    assert "svc-pub" in companies
+    assert "u-svcpriv01" not in companies
+
+    # Explicitly asking for the private company by name.
+    assert get_jobs(db_conn, company="u-svcpriv01") == []
+    assert get_jobs(db_conn, companies=["u-svcpriv01", "svc-pub"]) != []
+    assert {j["company"] for j in get_jobs(db_conn, companies=["u-svcpriv01", "svc-pub"])} == {
+        "svc-pub"
+    }
+
+    # Single-job detail, by its exact composite key.
+    assert get_job_by_id(db_conn, custom("u-svcpriv01"), "svc-2") is None
+    assert get_job_by_id(db_conn, "greenhouse_api", "svc-1") is not None
+
+    # ...and the row genuinely exists — the owner-scoped reader, which is the
+    # ONLY path allowed to see it, returns it.
+    owned = get_user_company_jobs(db_conn, "u-svcpriv01", custom("u-svcpriv01"))
+    assert {j["id"] for j in owned} == {"svc-2"}
 
 
 # --- Leak 3: auto-enroll UNION -----------------------------------------------

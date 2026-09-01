@@ -25,6 +25,10 @@ import { logger } from '../../lib/logger';
 
 const CUSTOM_JOBS_URL = '/api/users/companies/jobs';
 
+/** Owner-scoped jobs for ONE board: `/api/users/companies/{id}/jobs`. */
+const MY_COMPANY_JOBS_URL = (companyId: string) =>
+  `/api/users/companies/${encodeURIComponent(companyId)}/jobs`;
+
 /** `X-Next-Cursor`; header names are case-insensitive per `Headers.get`. */
 const NEXT_CURSOR_HEADER = 'X-Next-Cursor';
 
@@ -179,4 +183,70 @@ export async function fetchMyCustomJobsPage(
   );
 
   return { jobs, byCompanyId, nextCursor };
+}
+
+/**
+ * EVERY OPEN job on ONE of the caller's own boards, for the Company Hiring
+ * Trends page (`/companies?company=u-<id>`).
+ *
+ * Sibling of `fetchMyCustomJobsPage` above, and here for the same reason: the
+ * private URL and the `Authorization` header live in exactly one file. The two
+ * are deliberately different requests — the Recent feed walks EVERY board the
+ * caller owns under one keyset cursor, while the trend page wants one board
+ * whole and has no pagination to merge into.
+ *
+ * `token` is a REQUIRED non-null string, so "signed out means no request" is a
+ * type error rather than a runtime check a later edit could drop. The endpoint
+ * checks ownership BEFORE it reads anything and answers 403 to a non-owner, so
+ * authorization does not depend on this client behaving.
+ *
+ * **Status parity with the public path.** `backendScraperClient` asks
+ * `/api/jobs` for `status=OPEN`; this endpoint takes no `status` parameter and
+ * returns every status by design (its other consumer, the private trend page,
+ * wants closed rows too). Filtering here keeps the two halves of the companies
+ * page counting the same thing. It is a no-op today — nothing closes a custom
+ * job yet — which is exactly why it must be explicit rather than implicit.
+ */
+export async function fetchMyCompanyJobs(
+  token: string,
+  companyId: string,
+  options: { signal?: AbortSignal } = {}
+): Promise<Job[]> {
+  const url = MY_COMPANY_JOBS_URL(companyId);
+
+  let rows: BackendJobListing[];
+  try {
+    const response = await fetch(url, {
+      signal: options.signal,
+      headers: {
+        Accept: 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
+    if (!response.ok) {
+      const retryable = response.status >= 500 || response.status === 429;
+      throw new APIError(
+        `Custom company jobs API error: ${response.statusText || response.status}`,
+        response.status,
+        'backend-scraper',
+        retryable
+      );
+    }
+
+    rows = await response.json();
+  } catch (error) {
+    logger.error('[Custom Jobs Client] Company jobs fetch error:', error);
+    if (error instanceof APIError) throw error;
+    throw new APIError(
+      `Failed to fetch custom company jobs: ${(error as Error).message}`,
+      undefined,
+      'backend-scraper',
+      true
+    );
+  }
+
+  return rows
+    .filter((row) => row.status === 'OPEN')
+    .map((row) => transformBackendJob(row, companyId));
 }

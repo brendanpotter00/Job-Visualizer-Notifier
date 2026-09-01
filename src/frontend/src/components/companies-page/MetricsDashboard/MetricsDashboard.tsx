@@ -1,12 +1,11 @@
 import { Paper, Divider } from '@mui/material';
-import { useMemo } from 'react';
 import { RESPONSIVE } from '../../../config/responsive';
 import { useAppSelector } from '../../../app/hooks';
 import {
   selectCurrentCompanyMetadataRtk,
   selectCurrentCompanyJobsRtk,
 } from '../../../features/jobs/jobsSelectors';
-import { getCompanyById } from '../../../config/companies';
+import { selectEffectiveCompanyById } from '../../../features/userCompanies/effectiveCompanies';
 import { useTimeBasedJobCounts } from './hooks/useTimeBasedJobCounts';
 import { MetricsRow } from './MetricsRow';
 import { LinksRow } from './LinksRow';
@@ -19,8 +18,11 @@ export function MetricsDashboard() {
   const allJobs = useAppSelector(selectCurrentCompanyJobsRtk);
   const selectedCompanyId = useAppSelector((state) => state.app.selectedCompanyId);
 
-  // Memoize company lookup
-  const company = useMemo(() => getCompanyById(selectedCompanyId), [selectedCompanyId]);
+  // Curated companies AND the viewer's own boards. For a custom board `jobsUrl`
+  // is the board we actually read (`sourceBoardUrl`) and there is deliberately
+  // no recruiter link. Already referentially stable — the option object comes
+  // out of a memoized array — so no `useMemo` is needed around the lookup.
+  const company = useAppSelector((state) => selectEffectiveCompanyById(state, selectedCompanyId));
 
   // Get time-based job counts using custom hook
   // Calculations are deterministic based on job.firstSeenAt timestamps

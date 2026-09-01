@@ -19,8 +19,13 @@ import {
 } from './keysetWalk';
 import type { JobsWindowKey } from './keysetWalk';
 import { CUSTOM_COMPANIES_CONFIG } from '../../config/customCompanies';
-import { fetchMyCustomJobsPage } from '../userCompanies/customJobsClient';
+import {
+  fetchMyCompanyJobs,
+  fetchMyCustomJobsPage,
+  isCustomCompanyId,
+} from '../userCompanies/customJobsClient';
 import type { CustomJobsPage } from '../userCompanies/customJobsClient';
+import { APIError } from '../../api/types';
 
 export {
   RECENT_JOBS_DEFAULT_WINDOW,
@@ -113,6 +118,67 @@ async function fetchCustomJobsPageOrNull(
       error
     );
     return null;
+  }
+}
+
+/**
+ * The whole of ONE user-added board, for the Company Hiring Trends page.
+ *
+ * This is the entire integration: `getJobsForCompany` is the single cache entry
+ * the whole `/companies` chain reads (`selectCurrentCompanyJobsRtk` →
+ * `selectGraphFilteredJobs*` → chart, list, metrics, bucket modal), so
+ * branching here delivers filters, graph, list and metrics for a custom board
+ * with no change to any of them.
+ *
+ * Three refusals, in order, each of which must stay exactly this shape:
+ *
+ * - **Flag off → the same 404 the page has always answered for an unknown id.**
+ *   With `VITE_CUSTOM_COMPANIES_ENABLED` off the feature does not exist, and a
+ *   `u-<id>` is simply a company we do not have. No request is constructed.
+ * - **No token → 401, without a request.** An anonymous visitor cannot see a
+ *   private board and must not pay a round trip to be told so; the page renders
+ *   a sign-in prompt instead.
+ * - **A real failure keeps its HTTP status**, unlike the public branch's blanket
+ *   `CUSTOM_ERROR`, because the page distinguishes them: 403 is "not yours"
+ *   (the endpoint checks ownership before reading anything) and 503 is the
+ *   backend's own flag being off, which must render an error, never a blank chart.
+ */
+async function fetchCustomCompanyJobs(
+  companyId: string,
+  extra: unknown,
+  signal: AbortSignal
+): Promise<
+  { data: JobsQueryResult; error?: undefined } | { error: { status: unknown; data: string } }
+> {
+  if (!CUSTOM_COMPANIES_CONFIG.isEnabled) {
+    return { error: { status: 404, data: `Company not found: ${companyId}` } };
+  }
+  const token = await tokenFromExtra(extra);
+  if (!token) {
+    return { error: { status: 401, data: 'Sign in to view companies you track.' } };
+  }
+  try {
+    const jobs = await fetchMyCompanyJobs(token, companyId, { signal });
+    return {
+      data: {
+        jobs,
+        metadata: {
+          totalCount: jobs.length,
+          fetchedAt: new Date().toISOString(),
+          ...calculateJobDateRange(jobs),
+        },
+      },
+    };
+  } catch (error) {
+    if (error instanceof APIError && error.statusCode !== undefined) {
+      return { error: { status: error.statusCode, data: error.message } };
+    }
+    return {
+      error: {
+        status: 'CUSTOM_ERROR',
+        data: error instanceof Error ? error.message : 'Unknown error',
+      },
+    };
   }
 }
 
@@ -266,7 +332,16 @@ export const jobsApi = createApi({
   endpoints: (builder) => ({
     // Individual company endpoint
     getJobsForCompany: builder.query<JobsQueryResult, { companyId: string }>({
-      async queryFn({ companyId }, { signal }) {
+      async queryFn({ companyId }, { signal, extra }) {
+        // A user-added board is the ONE case that does not go through
+        // `getClientForATS`. It has no `Company` entry, so it has no `ats` to
+        // dispatch on — and that is deliberate: the public backend-scraper
+        // client asks `/api/jobs`, which excludes `visibility='user'` rows
+        // unconditionally, so routing a `u-<id>` there would be both a wrong
+        // request and a silently empty page. See `fetchCustomCompanyJobs`.
+        if (isCustomCompanyId(companyId)) {
+          return fetchCustomCompanyJobs(companyId, extra, signal);
+        }
         try {
           const company = getCompanyById(companyId);
 
@@ -761,6 +836,75 @@ export const jobsApi = createApi({
             },
           };
         }
+      },
+    }),
+
+    /**
+     * Keep the Recent feed honest after the user adds or removes a board.
+     *
+     * WHY THIS IS NOT `invalidateTags(['Jobs'])`. `getAllJobs` is not an
+     * ordinary query: its cache entry is filled by `onCacheEntryAdded`, which
+     * RTK Query runs **once per cache entry**, not per fetch. Invalidating it
+     * re-runs only `queryFn` — which returns the empty skeleton — and the
+     * streaming lifecycle never runs again, so the whole Recent feed goes blank
+     * for the rest of the session and stays that way. (That is exactly what the
+     * regression test in `jobsFeedCacheCoherence.test.ts` catches.) The feed has
+     * to be corrected in place instead.
+     *
+     * Two corrections, both narrow enough that they cannot break the walk:
+     *
+     * - `removedCompanyId` — delete exactly that board's rows and metadata. No
+     *   network and no guessing: the user just told the server to stop tracking
+     *   it, and its jobs must not sit in the feed for the rest of the session.
+     * - Then top up from the private half's first page, so a board that already
+     *   has jobs when it is added shows up without a reload.
+     *
+     * Cursors and chunk floors are deliberately untouched. This is an
+     * out-of-band top-up, not a step of the keyset walk — moving a cursor here
+     * would make the next `fetchNextJobsPage` skip a page. The merge appends and
+     * de-duplicates, so it can only ever add rows.
+     */
+    syncCustomJobsIntoFeed: builder.mutation<
+      { added: number },
+      { removedCompanyId?: string } | void
+    >({
+      async queryFn(arg, { dispatch, getState, signal, extra }) {
+        const selectAllJobs = jobsApi.endpoints.getAllJobs.select();
+        const cached = selectAllJobs(getState() as Parameters<typeof selectAllJobs>[0]).data;
+        // No feed loaded in this session — nothing to correct, and the next load
+        // reads the server's current answer anyway.
+        if (!cached) return { data: { added: 0 } };
+
+        const removedCompanyId = arg?.removedCompanyId;
+        if (removedCompanyId) {
+          dispatch(
+            jobsApi.util.updateQueryData('getAllJobs', undefined, (draft) => {
+              delete draft.byCompanyId[removedCompanyId];
+              delete draft.metadata[removedCompanyId];
+            })
+          );
+          // The per-company trend cache for that board is stale too. A
+          // COMPANY-SCOPED tag, never the bare `Jobs` type — the bare type is
+          // what `getAllJobs` provides, and invalidating it is the blanking bug
+          // described above.
+          dispatch(jobsApi.util.invalidateTags([{ type: 'Jobs' as const, id: removedCompanyId }]));
+        }
+
+        const page = await fetchCustomJobsPageOrNull(extra, { since: cached.since, signal });
+        if (!page) return { data: { added: 0 } };
+
+        let added = 0;
+        dispatch(
+          jobsApi.util.updateQueryData('getAllJobs', undefined, (draft) => {
+            for (const [companyId, jobs] of Object.entries(page.byCompanyId)) {
+              // A page served before the delete committed must not resurrect the
+              // board the user just removed.
+              if (companyId === removedCompanyId) continue;
+              added += mergeCompanyJobsIntoDraft(draft, companyId, jobs);
+            }
+          })
+        );
+        return { data: { added } };
       },
     }),
 
