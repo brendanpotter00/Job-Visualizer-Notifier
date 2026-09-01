@@ -3,8 +3,10 @@ import type { RootState } from '../../../app/store.ts';
 import { selectCurrentCompanyJobsRtk } from '../../jobs/jobsSelectors.ts';
 import { bucketJobsByTime } from '../../../lib/timeBucketing.ts';
 import { isSoftwareOnlyEnabled } from '../../../constants/tags.ts';
-import { filterJobsByFilters } from '../utils/jobFilteringUtils';
+import { filterJobsByFilters, matchesCategory, matchesLevel } from '../utils/jobFilteringUtils';
 import { selectLocationCatalog } from '../../locations/locationCatalogSlice.ts';
+import { CUSTOM_COMPANIES_CONFIG } from '../../../config/customCompanies.ts';
+import { isCustomCompanyId } from '../../userCompanies/customJobsClient.ts';
 
 /**
  * Select graph filters
@@ -40,6 +42,106 @@ export const selectGraphFilteredJobs = createSelector(
  */
 export const selectGraphFilteredJobsSorted = createSelector([selectGraphFilteredJobs], (jobs) =>
   [...jobs].sort((a, b) => new Date(b.firstSeenAt).getTime() - new Date(a.firstSeenAt).getTime())
+);
+
+/** How many jobs the enrichment-dependent filters are hiding, and out of how many. */
+export interface PendingEnrichmentCount {
+  /** Jobs that pass every OTHER filter and are hidden only for want of enrichment. */
+  hidden: number;
+  /** Jobs that pass every other filter — the denominator the note reads against. */
+  total: number;
+  /** Which filter(s) are doing the hiding, so the copy can name the right control. */
+  blockedBy: 'category' | 'level' | 'both';
+}
+
+/** Returned by identity when there is nothing to say, so subscribers never re-render. */
+const NO_PENDING_ENRICHMENT: PendingEnrichmentCount = Object.freeze({
+  hidden: 0,
+  total: 0,
+  blockedBy: 'category' as const,
+});
+
+/**
+ * Why a user-added board can look completely empty the day it is added.
+ *
+ * A category or level filter requires a job to CARRY that facet, so an
+ * unenriched job (`category`/`level` null) is hidden — correctly; see
+ * `matchesCategory`. The trouble is that enrichment lags a new board badly
+ * (measured in production: 1,246 of one board's 1,250 jobs had no enrichment row
+ * at all), so a user with a saved category filter adds a company, opens its
+ * trend page, and is shown an empty chart with no hint that the jobs exist and
+ * the filter is what is hiding them.
+ *
+ * This counts exactly that population — jobs that pass every other filter and
+ * fail ONLY because they are not enriched yet — so the page can say so. It does
+ * NOT change what is filtered; the filter is right and stays right.
+ *
+ * Scoped to custom boards for now (and to the flag): every curated company is
+ * long since enriched, so for them this is permanently zero and the extra
+ * `filterJobsByFilters` pass would be pure cost. `createSelector` means it runs
+ * only when the jobs, the filters or the selected company actually change.
+ */
+export const selectPendingEnrichmentHidden = createSelector(
+  [
+    selectCurrentCompanyJobsRtk,
+    selectGraphFilters,
+    selectLocationCatalog,
+    (state: RootState) => state.app.selectedCompanyId,
+  ],
+  (jobs, filters, locationCatalog, companyId): PendingEnrichmentCount => {
+    if (!CUSTOM_COMPANIES_CONFIG.isEnabled || !isCustomCompanyId(companyId)) {
+      return NO_PENDING_ENRICHMENT;
+    }
+    const categoryActive = (filters.category?.length ?? 0) > 0;
+    const levelActive = (filters.level?.length ?? 0) > 0;
+    if (!categoryActive && !levelActive) return NO_PENDING_ENRICHMENT;
+
+    // Everything the user asked for EXCEPT the two enrichment facets, so the
+    // count is about enrichment alone and never blames it for a time window or
+    // a location that would have excluded the job anyway.
+    const withoutEnrichmentFilters = { ...filters, category: undefined, level: undefined };
+    const passesEverythingElse = filterJobsByFilters(
+      jobs,
+      withoutEnrichmentFilters,
+      locationCatalog
+    );
+    // A job counts only when pending enrichment is the WHOLE reason it is
+    // hidden: at least one active facet is still null, AND every active facet it
+    // already carries matches. A job with `category: null`, `level: 'junior'`
+    // and a `level: ['senior']` filter is hidden by BOTH — enrichment finishing
+    // would not reveal it, so counting it would make the note a promise the page
+    // cannot keep.
+    //
+    // The per-facet tallies are what `blockedBy` reads, so the copy names only
+    // the control actually withholding these jobs: with both filters set but
+    // every level already enriched, that is `'category'` alone.
+    let hidden = 0;
+    let categoryPending = 0;
+    let levelPending = 0;
+    for (const job of passesEverythingElse) {
+      const categoryMissing = categoryActive && job.category == null;
+      const levelMissing = levelActive && job.level == null;
+      if (!categoryMissing && !levelMissing) continue;
+      if (categoryActive && !categoryMissing && !matchesCategory(job, filters.category)) continue;
+      if (levelActive && !levelMissing && !matchesLevel(job, filters.level)) continue;
+      // Once each, however many of its facets are pending.
+      hidden += 1;
+      if (categoryMissing) categoryPending += 1;
+      if (levelMissing) levelPending += 1;
+    }
+
+    if (hidden === 0) return NO_PENDING_ENRICHMENT;
+    return {
+      hidden,
+      total: passesEverythingElse.length,
+      blockedBy:
+        categoryPending > 0 && levelPending > 0
+          ? 'both'
+          : categoryPending > 0
+            ? 'category'
+            : 'level',
+    };
+  }
 );
 
 /**

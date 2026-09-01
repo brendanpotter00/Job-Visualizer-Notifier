@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { Provider } from 'react-redux';
 
 /**
@@ -86,11 +87,26 @@ async function renderAppAt(path: string, flagEnabled: boolean) {
     import('../../test/testUtils'),
   ]);
 
-  return render(
-    <Provider store={createTestStore()}>
-      <App />
-    </Provider>
-  );
+  const store = createTestStore();
+  return {
+    ...render(
+      <Provider store={store}>
+        <App />
+      </Provider>
+    ),
+    store,
+  };
+}
+
+/** Every URL the app asked for during a render, as bare paths. */
+function pathsHit(): string[] {
+  return vi
+    .mocked(globalThis.fetch)
+    .mock.calls.map(([input]) => {
+      const href =
+        typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+      return href.replace(/^https?:\/\/[^/]+/, '').split('?')[0];
+    });
 }
 
 /**
@@ -178,6 +194,36 @@ describe('custom company sources — feature flag gate', () => {
       expect(screen.getAllByText('Recent Job Postings').length).toBeGreaterThan(0);
       expect(screen.getAllByText('Company Hiring Trends').length).toBeGreaterThan(0);
       expect(screen.getAllByText('Saved Filters').length).toBeGreaterThan(0);
+    }, FULL_APP_RENDER_TIMEOUT_MS);
+
+    // T4 — the Company Hiring Trends page gained a custom-company branch. With
+    // the flag off it must behave as though that branch does not exist: a `u-`
+    // deep link is just an unknown company id, exactly as before.
+    it('treats /companies?company=u-… as an unknown id and falls back to the default', async () => {
+      const { store } = await renderAppAt('/companies?company=u-abc123', false);
+      await findShell();
+
+      expect(store.getState().app.selectedCompanyId).toBe('spacex');
+      // Not one authed request — the whole point of the gate.
+      expect(pathsHit().some((p) => p.startsWith('/api/users'))).toBe(false);
+    }, FULL_APP_RENDER_TIMEOUT_MS);
+
+    it('offers exactly the curated roster in the company dropdown', async () => {
+      await renderAppAt('/companies', false);
+      await findShell();
+
+      const { COMPANIES } = await import('../../config/companies');
+      // Named, not bare: once the chart content loads, the graph filters add
+      // several more comboboxes to the page.
+      const selector = await screen.findByRole('combobox', { name: /company/i });
+      await userEvent.click(selector);
+
+      const optionNames = screen.getAllByRole('option').map((o) => o.textContent);
+      expect(optionNames).toEqual(
+        [...COMPANIES].sort((a, b) => a.name.localeCompare(b.name)).map((c) => c.name)
+      );
+      // No group headings: with nothing custom to separate, the list is flat.
+      expect(screen.queryByText('Your companies')).not.toBeInTheDocument();
     }, FULL_APP_RENDER_TIMEOUT_MS);
 
     it('omits /add-companies from the exported nav config', async () => {

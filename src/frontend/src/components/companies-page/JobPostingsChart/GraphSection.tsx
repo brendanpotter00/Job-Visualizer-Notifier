@@ -4,6 +4,7 @@ import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import { useAppDispatch, useAppSelector } from '../../../app/hooks';
 import { JobPostingsChart } from './JobPostingsChart';
 import { GraphFilters } from '../GraphFilters.tsx';
+import { PendingEnrichmentNote } from '../PendingEnrichmentNote';
 import { selectGraphBucketData } from '../../../features/filters/selectors/graphFiltersSelectors.ts';
 import {
   selectCurrentCompanyLoadingRtk,
@@ -121,6 +122,10 @@ export function GraphSection() {
       </Box>
 
       <GraphFilters />
+
+      {/* Directly under the controls it is about, and above BOTH the chart and
+          the list — one note for the one filter pair that can empty them. */}
+      <PendingEnrichmentNote />
 
       <Collapse in={!collapsed} timeout="auto" unmountOnExit>
         <Box id={CHART_REGION_ID}>
