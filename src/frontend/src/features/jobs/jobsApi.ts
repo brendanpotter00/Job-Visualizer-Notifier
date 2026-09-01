@@ -26,6 +26,7 @@ import {
 } from '../userCompanies/customJobsClient';
 import type { CustomJobsPage } from '../userCompanies/customJobsClient';
 import { APIError } from '../../api/types';
+import { extractErrorMessage } from '../../lib/errors';
 
 export {
   RECENT_JOBS_DEFAULT_WINDOW,
@@ -176,7 +177,7 @@ async function fetchCustomCompanyJobs(
     return {
       error: {
         status: 'CUSTOM_ERROR',
-        data: error instanceof Error ? error.message : 'Unknown error',
+        data: extractErrorMessage(error, 'Unknown error'),
       },
     };
   }

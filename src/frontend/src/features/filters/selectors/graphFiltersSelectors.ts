@@ -3,7 +3,7 @@ import type { RootState } from '../../../app/store.ts';
 import { selectCurrentCompanyJobsRtk } from '../../jobs/jobsSelectors.ts';
 import { bucketJobsByTime } from '../../../lib/timeBucketing.ts';
 import { isSoftwareOnlyEnabled } from '../../../constants/tags.ts';
-import { filterJobsByFilters } from '../utils/jobFilteringUtils';
+import { filterJobsByFilters, matchesCategory, matchesLevel } from '../utils/jobFilteringUtils';
 import { selectLocationCatalog } from '../../locations/locationCatalogSlice.ts';
 import { CUSTOM_COMPANIES_CONFIG } from '../../../config/customCompanies.ts';
 import { isCustomCompanyId } from '../../userCompanies/customJobsClient.ts';
@@ -105,14 +105,41 @@ export const selectPendingEnrichmentHidden = createSelector(
       withoutEnrichmentFilters,
       locationCatalog
     );
-    const hidden = passesEverythingElse.filter(
-      (job) => (categoryActive && job.category == null) || (levelActive && job.level == null)
-    ).length;
+    // A job counts only when pending enrichment is the WHOLE reason it is
+    // hidden: at least one active facet is still null, AND every active facet it
+    // already carries matches. A job with `category: null`, `level: 'junior'`
+    // and a `level: ['senior']` filter is hidden by BOTH — enrichment finishing
+    // would not reveal it, so counting it would make the note a promise the page
+    // cannot keep.
+    //
+    // The per-facet tallies are what `blockedBy` reads, so the copy names only
+    // the control actually withholding these jobs: with both filters set but
+    // every level already enriched, that is `'category'` alone.
+    let hidden = 0;
+    let categoryPending = 0;
+    let levelPending = 0;
+    for (const job of passesEverythingElse) {
+      const categoryMissing = categoryActive && job.category == null;
+      const levelMissing = levelActive && job.level == null;
+      if (!categoryMissing && !levelMissing) continue;
+      if (categoryActive && !categoryMissing && !matchesCategory(job, filters.category)) continue;
+      if (levelActive && !levelMissing && !matchesLevel(job, filters.level)) continue;
+      // Once each, however many of its facets are pending.
+      hidden += 1;
+      if (categoryMissing) categoryPending += 1;
+      if (levelMissing) levelPending += 1;
+    }
+
     if (hidden === 0) return NO_PENDING_ENRICHMENT;
     return {
       hidden,
       total: passesEverythingElse.length,
-      blockedBy: categoryActive && levelActive ? 'both' : categoryActive ? 'category' : 'level',
+      blockedBy:
+        categoryPending > 0 && levelPending > 0
+          ? 'both'
+          : categoryPending > 0
+            ? 'category'
+            : 'level',
     };
   }
 );

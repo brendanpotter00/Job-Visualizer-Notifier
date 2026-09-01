@@ -7,8 +7,10 @@ companies' own marketing puts a branded careers site in front of Google, and tha
 site is very often *not* the ATS host, even when a working ATS board sits one hop away.
 
 **What happened today.** The owner pasted `careers.cisco.com/global/en/job/...`. Discovery
-burned a browser session and a model call, then correctly refused — the page embeds no ATS
-URL string anywhere (confirmed: 0 hits for `myworkdayjobs` across 177 KB of rendered HTML).
+burned a browser session and a model call, then correctly refused — the rendered page never
+names Cisco's Workday board (confirmed: 0 hits for `myworkdayjobs` across 177 KB of rendered
+HTML). Only that one host string was searched, so this is evidence about Workday, not proof
+that no provider's URL appears anywhere; the six-pattern check below is what settles that.
 Cisco's real board, `cisco.wd5.myworkdayjobs.com/Cisco_Careers`, was already sitting in
 `companies` (id `u-jw8iz8sqvy`) and resolves instantly, free, **1,248 jobs**. This doc is the
 list of which other well-known companies do the same thing, verified rather than guessed.
@@ -256,8 +258,10 @@ there genuinely is no ATS to find, and Discovery is doing exactly the job it exi
 `myworkdayjobs`, `greenhouse.io`, `ashbyhq.com`, `lever.co`, `jobs.gem.com`, `eightfold.ai`.
 Present anywhere (even in a buried "existing applicant login" link) → our resolver's
 embedded scan already finds it, paste the branded URL and it just works. Absent everywhere
-→ it's a trap; find the ATS host yourself (Google `<company> workday jobs` /
-`<company> greenhouse jobs`, or use the Part 1 prompt) and paste **that** URL instead.
+→ the question is still open, not answered: go look for the ATS host yourself (Google
+`<company> workday jobs` / `<company> greenhouse jobs`, or use the Part 1 prompt). Find one
+and paste **that** URL instead — that was the trap. Confirm there genuinely isn't one
+(Spotify, Walmart, Raindrop) and Discovery is the right tool, so paste the branded URL.
 
 **The rule of thumb:** always paste the ATS URL if you know it or can find it in under a
 minute — instant, free, no browser, no model call. Only let a pasted URL go to Discovery

@@ -28,20 +28,29 @@ import type { Job } from '../../../types';
 
 const CUSTOM_ID = 'u-jw8iz8sqvy';
 
-function job(id: string, facets: { category?: string | null; level?: string | null } = {}): Job {
+function job(
+  id: string,
+  facets: { category?: string | null; level?: string | null; firstSeenAt?: string } = {}
+): Job {
+  const firstSeenAt = facets.firstSeenAt ?? new Date().toISOString();
   return {
     id,
     source: 'backend-scraper',
     company: CUSTOM_ID,
     title: `Role ${id}`,
     location: 'Remote',
-    createdAt: new Date().toISOString(),
-    firstSeenAt: new Date().toISOString(),
+    createdAt: firstSeenAt,
+    firstSeenAt,
     url: `https://example.com/${id}`,
     category: facets.category ?? null,
     level: facets.level ?? null,
     raw: {},
   };
+}
+
+/** `days` ago, for the time-window case below. */
+function daysAgo(days: number): string {
+  return new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
 }
 
 interface Options {
@@ -115,6 +124,47 @@ describe('PendingEnrichmentNote', () => {
 
     expect(screen.getByTestId('pending-enrichment-note')).toHaveTextContent(
       'category and level filters are hiding them'
+    );
+  });
+
+  // The note promises "these appear once enrichment catches up". A job that
+  // ALSO fails a facet it already carries would still be hidden afterwards, so
+  // counting it would make that promise false.
+  it('does not blame enrichment for a facet the job already carries and fails', async () => {
+    await renderNote(
+      [
+        // Category pending, but the populated level loses to the level filter —
+        // enrichment finishing would not reveal this one.
+        job('a', { level: 'mid' }),
+        // Category pending, level already matches — genuinely enrichment-only.
+        job('b', { level: 'senior' }),
+      ],
+      { category: ['software_engineering'], level: ['senior'] }
+    );
+
+    const note = screen.getByTestId('pending-enrichment-note');
+    expect(note).toHaveTextContent('1 of 2 jobs are still being categorized');
+    // ...and it names ONLY the filter actually withholding that job. Both
+    // filters are set, but every level here is already enriched.
+    expect(note).toHaveTextContent('category filter is hiding it');
+    expect(note).not.toHaveTextContent('category and level filters');
+  });
+
+  it('never counts a job a NON-enrichment filter already excluded', async () => {
+    await renderNote(
+      [
+        // Unenriched, but outside the 90-day window the store is set to — the
+        // time filter excludes it, and enrichment is not why it is missing.
+        job('old', { firstSeenAt: daysAgo(200) }),
+        job('new'),
+      ],
+      { category: ['software_engineering'] }
+    );
+
+    // 1 of 1: the out-of-window job is in neither the numerator nor the
+    // denominator.
+    expect(screen.getByTestId('pending-enrichment-note')).toHaveTextContent(
+      '1 of 1 job is still being categorized'
     );
   });
 
