@@ -58,7 +58,10 @@ export function CompanyCandidateList({
   if (candidates.length === 0) return null;
 
   return (
-    <Stack spacing={1.5}>
+    // The list appears asynchronously, after a search the user cannot see the
+    // progress of. Without a live region a screen-reader user gets no signal that
+    // the answer arrived — the page simply, silently, grew a question.
+    <Stack spacing={1.5} role="region" aria-live="polite" aria-label="Job boards found">
       <Typography variant="subtitle1" component="h2">
         {candidates.length === 1
           ? `Is this the board for “${query}”?`
@@ -110,6 +113,13 @@ export function CompanyCandidateList({
                 size="small"
                 disabled={busy}
                 onClick={() => onPick(sourceUrl)}
+                // EVERY ROW'S BUTTON READS "Track this one", so without this they
+                // share one accessible name and a screen-reader user choosing
+                // between boards hears the same label for all of them — on the
+                // one screen whose entire job is telling boards apart. The
+                // visible label stays short; the announced one carries the
+                // identity. Matches `MyCompaniesList`'s `Rename ${name}` pattern.
+                aria-label={`Track ${boardToken} on ${ats}`}
                 sx={{ flexShrink: 0 }}
               >
                 Track this one

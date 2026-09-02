@@ -81,8 +81,13 @@ _DISCOVERY_TIMEOUT_S: float = 8.0
 _MAX_REDIRECT_HOPS = 5
 # Raised 4 → 8 for the walk-up in ``_sniff_urls``. It is a cap on GUESSES, not the
 # real bound: the ladder stops at the first page that yields a candidate, and
-# ``deadline`` still ends the whole thing on time. A shallow paste dedupes back
-# down to the original 4, so only the deep pastes that fail today pay for this.
+# ``deadline`` still ends the whole thing on time.
+#
+# Only a BARE-ROOT paste dedupes back down to the original 4 — measured, a
+# one-segment path like ``/careers`` yields 6 and a three-segment one yields the
+# full 8. Every extra target is a page that would otherwise have gone to paid
+# discovery, and none of them is reached on a URL that already resolves, but the
+# worst-case outbound burst for one ``/resolve`` call grows with it.
 _MAX_SNIFF_URLS = 8
 # 512 KiB truncated Retool's page at byte 524,288 — its ``jobs.gem.com/retool``
 # link sits at byte 575,143, so the board was cut off mid-document and L2 reported

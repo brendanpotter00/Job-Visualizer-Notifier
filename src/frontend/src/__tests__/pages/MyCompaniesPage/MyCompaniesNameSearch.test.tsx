@@ -231,11 +231,107 @@ describe('MyCompaniesPage — typed company name', () => {
     expect(await screen.findByText(/which board is/i)).toBeInTheDocument();
     expect(callsTo('/users/companies')).toHaveLength(0);
 
-    // Picking one is what adds it.
-    await user.click(screen.getAllByRole('button', { name: /track this one/i })[1]);
+    // Picking one is what adds it. Queried by the row's OWN accessible name —
+    // the aria-label carries the board identity, the visible label does not.
+    await user.click(screen.getByRole('button', { name: /track cisco-meraki on greenhouse/i }));
     await waitFor(() => expect(callsTo('/users/companies').length).toBe(1));
     const body = await callsTo('/users/companies')[0].clone().json();
     expect(body.url).toBe('https://boards.greenhouse.io/cisco-meraki');
+  });
+
+  it('drops a previous name\'s candidates when a URL is submitted', async () => {
+    // THE REGRESSION THIS FILE EXISTS FOR. The list renders on
+    // `candidates && !adding`, so a list left over from an earlier name used to
+    // survive a URL submit and come BACK once the add finished — a live "Track
+    // this one" for Guidehouse sitting under the success card for the company
+    // you actually added. One press away from tracking the wrong company.
+    const wrong = candidate({
+      candidate: {
+        ats: 'workday',
+        boardToken: 'guidehouse',
+        providerConfig: {},
+        sourceUrl: 'https://guidehouse.wd1.myworkdayjobs.com/External',
+      },
+      probe: { ok: true, jobCount: 794, error: null },
+      sourceUrl: 'https://guidehouse.wd1.myworkdayjobs.com/External',
+      autoAddable: false,
+    });
+    fetchMock.mockImplementation((req: Request) =>
+      Promise.resolve(
+        req.url.includes('search-by-name')
+          ? jsonResponse({ query: 'Databricks', candidates: [wrong], careersUrl: null })
+          : jsonResponse(CREATED, 201)
+      )
+    );
+    renderWithProviders(<MyCompaniesPage />);
+
+    const user = await submit('Databricks');
+    expect(await screen.findByText('guidehouse')).toBeInTheDocument();
+
+    // Now paste an unrelated URL and add it.
+    const field = screen.getByLabelText(/company name or careers page link/i);
+    await user.clear(field);
+    await user.type(field, 'https://boards.greenhouse.io/stripe');
+    await user.click(screen.getByRole('button', { name: /add company/i }));
+
+    await waitFor(() => expect(callsTo('/users/companies').length).toBe(1));
+    // The stale question must be gone — before AND after the add settles.
+    await waitFor(() => expect(screen.queryByText('guidehouse')).not.toBeInTheDocument());
+    expect(screen.queryByRole('button', { name: /track guidehouse/i })).not.toBeInTheDocument();
+  });
+
+  it('does not show a stale search failure beside a later success', async () => {
+    let failSearch = true;
+    fetchMock.mockImplementation((req: Request) =>
+      Promise.resolve(
+        req.url.includes('search-by-name') && failSearch
+          ? jsonResponse({ detail: 'unavailable' }, 503)
+          : jsonResponse(CREATED, 201)
+      )
+    );
+    renderWithProviders(<MyCompaniesPage />);
+
+    const user = await submit('Cisco');
+    expect(await screen.findByText(/paste the link to their careers page/i)).toBeInTheDocument();
+
+    failSearch = false;
+    const field = screen.getByLabelText(/company name or careers page link/i);
+    await user.clear(field);
+    await user.type(field, 'https://boards.greenhouse.io/stripe');
+    await user.click(screen.getByRole('button', { name: /add company/i }));
+
+    await waitFor(() => expect(callsTo('/users/companies').length).toBe(1));
+    await waitFor(() =>
+      expect(screen.queryByText(/paste the link to their careers page/i)).not.toBeInTheDocument()
+    );
+  });
+
+  it('gives each candidate button its own accessible name', async () => {
+    // Every row's visible label is "Track this one", so without an aria-label a
+    // screen-reader user hears one identical name for every board — on the one
+    // screen whose whole job is telling boards apart.
+    const second = candidate({
+      candidate: {
+        ats: 'greenhouse',
+        boardToken: 'cisco-meraki',
+        providerConfig: {},
+        sourceUrl: 'https://boards.greenhouse.io/cisco-meraki',
+      },
+      sourceUrl: 'https://boards.greenhouse.io/cisco-meraki',
+      rank: 2,
+    });
+    fetchMock.mockImplementation((req: Request) =>
+      Promise.resolve(
+        req.url.includes('search-by-name')
+          ? jsonResponse({ query: 'Cisco', candidates: [candidate(), second], careersUrl: null })
+          : jsonResponse(CREATED, 201)
+      )
+    );
+    renderWithProviders(<MyCompaniesPage />);
+    await submit('Cisco');
+
+    expect(await screen.findByRole('button', { name: /track cisco on workday/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /track cisco-meraki on greenhouse/i })).toBeInTheDocument();
   });
 
   it('explains a failed search instead of silently clearing the spinner', async () => {

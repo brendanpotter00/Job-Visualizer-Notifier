@@ -170,6 +170,56 @@ async def test_a_non_object_result_row_is_skipped_not_fatal() -> None:
     assert [c.candidate.board_token for c in candidates] == ["figma"]
 
 
+@pytest.mark.parametrize(
+    "typed, token, expected",
+    [
+        # THE REVERSE DIRECTION MUST LAND ON A WORD BOUNDARY. A bare prefix
+        # auto-adds Meta's board for a Metabase search and Apple's for Applebee's
+        # — the exact wrong-company failure this gate exists to stop.
+        ("Metabase", "meta", False),
+        ("Applebee's", "apple", False),
+        ("Snapdragon", "snap", False),
+        # ...while the case the reverse direction exists for still works.
+        ("Cisco Systems", "cisco", True),
+        ("Ramp Network", "ramp", True),
+    ],
+)
+def test_the_typed_name_may_only_extend_a_token_at_a_word_boundary(
+    typed: str, token: str, expected: bool
+) -> None:
+    candidate = AtsCandidate(
+        ats="greenhouse", board_token=token, provider_config={}, source_url="https://x"
+    )
+    assert cns._names_match(typed, candidate) is expected
+
+
+@pytest.mark.parametrize("slug", ["Global", "External", "Careers", "Campus"])
+def test_a_generic_career_site_slug_never_establishes_identity(slug: str) -> None:
+    """`career_site_slug` is routinely an ordinary English word on real tenants.
+    Letting one match means typing "Global Payments" auto-adds ANY unrelated
+    company whose Workday site happens to be called `…/Global`."""
+    candidate = AtsCandidate(
+        ats="workday",
+        board_token="someoneelse",
+        provider_config={
+            "base_url": "https://someoneelse.wd1.myworkdayjobs.com",
+            "tenant_slug": "someoneelse",
+            "career_site_slug": slug,
+        },
+        source_url="https://someoneelse.wd1.myworkdayjobs.com/" + slug,
+    )
+    assert cns._names_match(f"{slug} Payments", candidate) is False
+
+
+def test_a_board_token_may_still_be_an_ordinary_word() -> None:
+    """The generic-slug rule is scoped to provider_config. A company really can
+    be called `global`, and its own board token is its identity."""
+    candidate = AtsCandidate(
+        ats="greenhouse", board_token="global", provider_config={}, source_url="https://x"
+    )
+    assert cns._names_match("Global", candidate) is True
+
+
 def test_name_gate_reads_the_workday_career_site_slug_too() -> None:
     """Slack's board is `salesforce.wd12…/Slack` — the brand is only in the slug."""
     candidate = AtsCandidate(
@@ -264,6 +314,27 @@ async def test_the_fallback_prefers_the_companys_own_domain() -> None:
     assert careers[0] == "https://www.databricks.com/company/careers/open-positions"
 
 
+@pytest.mark.parametrize(
+    "company, url, expected",
+    [
+        ("Databricks", "https://www.databricks.com/careers", True),
+        # Same substring flaw the name gate refuses: `gm` is inside `figma`.
+        ("GM", "https://www.figma.com/careers", False),
+        ("Apple", "https://pineapple.io/jobs", False),
+        ("Cisco", "https://careers.cisco.com/", True),
+    ],
+)
+def test_fallback_ownership_is_per_host_label(
+    company: str, url: str, expected: bool
+) -> None:
+    # The candidate goes SECOND so it can only reach the front by actually
+    # winning the ownership test — the sort is stable, so a first-placed URL
+    # would stay first either way and the assertion would prove nothing.
+    other = "https://unrelated.example/x"
+    ranked = cns._rank_careers_urls(company, [other, url])
+    assert (ranked[0] == url) is expected
+
+
 @pytest.mark.asyncio
 async def test_the_fallback_keeps_search_rank_between_equal_hosts() -> None:
     payload = _results(
@@ -280,6 +351,33 @@ def test_is_aggregator_does_not_match_a_lookalike_domain() -> None:
     assert is_aggregator("https://www.linkedin.com/jobs") is True
     # A company whose own domain merely CONTAINS an aggregator name is not one.
     assert is_aggregator("https://notlinkedin.example/careers") is False
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        # `x.com` is on the list, and a substring test deleted EVERY company whose
+        # domain ends with it. Measured live: this dropped all eight real Nutanix
+        # careers results, so the fallback offered was an aggregator instead — and
+        # the fallback is what a user hands to a PAID discovery run.
+        "https://careers.nutanix.com/jobs",
+        "https://jobs.wix.com/",
+        "https://careers.citrix.com/",
+        "https://jobs.equinix.com/",
+        "https://app.eightfold.ai/careers?domain=netflix.com",
+        # A lookalike that merely ENDS with an aggregator name as a bare string.
+        "https://linkedin.com.attacker.example/jobs",
+    ],
+)
+def test_a_real_careers_host_is_never_mistaken_for_an_aggregator(url: str) -> None:
+    assert is_aggregator(url) is False
+
+
+@pytest.mark.parametrize(
+    "url", ["https://www.linkedin.com/jobs", "https://uk.indeed.com/cmp/x"]
+)
+def test_aggregator_subdomains_still_match(url: str) -> None:
+    assert is_aggregator(url) is True
 
 
 @pytest.mark.asyncio

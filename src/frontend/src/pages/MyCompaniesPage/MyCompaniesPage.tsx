@@ -131,7 +131,7 @@ export function MyCompaniesPage() {
   // with no local bookkeeping. The two-phase `busy` flag this page used to hold is
   // gone with the second network call it existed to span.
   const { isLoading: adding, data: result, error } = addState;
-  const { isLoading: searching, error: searchError } = searchState;
+  const { isLoading: searching, error: searchError, reset: resetSearch } = searchState;
 
   // The correction under a GUESSED "we already publish this" notice — the one where the
   // backend matched the company name inside the domain (`matchKind: 'name'`) rather than
@@ -156,15 +156,31 @@ export function MyCompaniesPage() {
   };
 
   const handleSubmit = (input: string) => {
+    // CLEAR THE PREVIOUS QUESTION BEFORE ASKING ANYTHING ELSE, and this line is
+    // load-bearing rather than tidiness. The candidate list renders on
+    // `candidates && !adding`, so without this a list left over from an earlier
+    // name survives a URL submit and comes BACK once the add finishes — a live
+    // "Track this one" for a different company sitting under a success card for
+    // the one you just added. That is precisely the wrong-company failure the
+    // list exists to prevent, so every submit starts from a blank slate.
+    setCandidates(null);
+    resetSearch();
+
+    // FLAG OFF MUST BE BYTE-FOR-BYTE THE OLD BEHAVIOUR, which means not even
+    // classifying the input. `classifyCompanyInput` normalizes a bare domain to
+    // `https://cisco.com`, and doing that with the flag off would change what the
+    // server records as `submitted_url` and turn a previously-erroring input into
+    // a success — a behaviour change from a feature that is supposed to be dark.
+    if (!CUSTOM_COMPANIES_CONFIG.isNameSearchEnabled) {
+      void addUserCompany({ url: input.trim() });
+      return;
+    }
+
     // URL-FIRST. A pasted URL is exact and free to resolve, so it takes the same
     // path it always has and never spends a search call. Only an input that
     // cannot be read as a URL becomes a name.
     const classified = classifyCompanyInput(input);
-
-    // With the flag off the box never promised to take a name, so a value that is
-    // not a URL still goes to the add endpoint and gets the same guard error it
-    // got before this feature existed. Flag-off must behave exactly as before.
-    if (classified.kind === 'name' && CUSTOM_COMPANIES_CONFIG.isNameSearchEnabled) {
+    if (classified.kind === 'name') {
       void handleNameSearch(classified.name);
       return;
     }
@@ -177,7 +193,7 @@ export function MyCompaniesPage() {
     // `submitted_url`, so handing it the original keeps the server-side audit trail
     // matching what was pasted. The one exception is a bare domain, which
     // `classifyCompanyInput` gives the `https://` the guard requires.
-    void addUserCompany({ url: classified.kind === 'url' ? classified.url : input.trim() });
+    void addUserCompany({ url: classified.url });
   };
 
   /**
@@ -217,6 +233,10 @@ export function MyCompaniesPage() {
   const handlePickCandidate = (url: string) => {
     if (adding) return;
     setCandidates(null);
+    // The search is over the moment a choice is made. Without this, a warning
+    // from an EARLIER failed search would re-render beside this add's success
+    // card the instant `adding` goes false.
+    resetSearch();
     void addUserCompany({ url });
   };
 

@@ -39,6 +39,20 @@ vi.mock('../../../components/my-companies/MyCompaniesList', () => ({
   MyCompaniesList: () => <div data-testid="my-companies-list-stub" />,
 }));
 
+// PINNED, not inherited. This file describes the URL-only page — the copy it
+// asserts and the "a non-URL still reaches the add endpoint" case are both
+// flag-OFF behaviour. Left to read the ambient env it passed only by accident of
+// `VITE_COMPANY_NAME_SEARCH_ENABLED` being unset, and went red the moment the
+// flag was switched on locally. Flag-ON behaviour is pinned separately, in
+// `MyCompaniesNameSearch.test.tsx`.
+vi.mock('../../../config/customCompanies', () => ({
+  CUSTOM_COMPANIES_CONFIG: {
+    isEnabled: true,
+    isDiscoveryProgressEnabled: false,
+    isNameSearchEnabled: false,
+  },
+}));
+
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,

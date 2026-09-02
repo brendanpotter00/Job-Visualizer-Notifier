@@ -272,6 +272,55 @@ def test_an_overlong_name_is_422_before_any_spend(
     assert seen == []
 
 
+def test_the_burst_limiter_is_actually_applied(
+    client, db_conn, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """THE SPEND CONTROL. Every call is a paid third-party search plus up to five
+    outbound ATS probes, and the limiter is the only thing bounding how fast one
+    account can spend. Without this test the `enforce_resolve_rate_limit` line
+    could be deleted and all the other cases here would still pass."""
+    # Patch the LIMITER, not `settings`: the instance is constructed at import
+    # time from the settings values, so a later settings change never reaches it.
+    monkeypatch.setattr(resolve_rate_limiter, "_max", 2)
+    resolve_rate_limiter.reset()
+    _install_transport(monkeypatch, _handler([CISCO_BOARD], {CISCO_JOBS: 5}))
+
+    codes = [
+        client.post(SEARCH, json={"name": "Cisco"}).status_code for _ in range(4)
+    ]
+
+    assert codes[:2] == [200, 200]
+    assert 429 in codes[2:]
+
+
+def test_probes_are_capped_regardless_of_how_many_boards_come_back(
+    client, db_conn, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Probing all 25 results would turn one user action into 25 outbound ATS
+    calls. Only the handful we intend to SHOW may be probed."""
+    boards = [f"https://boards.greenhouse.io/acme{n}" for n in range(20)]
+    seen = _install_transport(monkeypatch, _handler(boards, {}))
+
+    body = client.post(SEARCH, json={"name": "Acme"}).json()
+
+    assert len(body["candidates"]) == 5
+    probe_calls = [r for r in seen if "boards-api.greenhouse.io" in str(r.url)]
+    assert len(probe_calls) == 5
+
+
+def test_requires_a_bearer_token(db_conn) -> None:
+    """The route spends money, so it must never be reachable unauthenticated."""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from api.routers import companies as companies_router
+
+    app = FastAPI()
+    app.include_router(companies_router.router, prefix="/api/companies")
+    with TestClient(app) as bare:
+        assert bare.post(SEARCH, json={"name": "Cisco"}).status_code == 401
+
+
 def test_unknown_body_field_is_rejected(client, db_conn) -> None:
     resp = client.post(SEARCH, json={"name": "Cisco", "nmae": "typo"})
     assert resp.status_code == 422

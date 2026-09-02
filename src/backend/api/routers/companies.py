@@ -68,8 +68,9 @@ router = APIRouter()
 _RESOLVE_CLIENT_TIMEOUT_S = 30.0
 
 # The actual aggregate bound, and the reason one is needed. Worst case without it
-# is ~36 outbound requests for a single call (L1 HEAD chain + GET retry, then 4
-# sniff targets, each up to _MAX_REDIRECT_HOPS hops) at _DISCOVERY_TIMEOUT_S
+# is ~50 outbound requests for a single call (L1 HEAD chain + GET retry, then up
+# to _MAX_SNIFF_URLS = 8 sniff targets since the walk-up landed — it was 4, and
+# ~36 requests, before that — each up to _MAX_REDIRECT_HOPS hops) at _DISCOVERY_TIMEOUT_S
 # each — minutes, at a third-party host, with Vercel 504-ing the user long before
 # the backend stopped working. The monotonic deadline is threaded into every
 # ``guarded_get`` so the burst *stops*; the ``asyncio.wait_for`` below is the hard
@@ -331,9 +332,21 @@ async def search_company_by_name(
     deadline = time.monotonic() + _SEARCH_BUDGET_S
     async with _http_client() as http:
         try:
-            candidates, careers_urls = await search_ats_candidates(payload.name, http)
+            # The hard backstop, matching /resolve and the add path. The deadline
+            # below bounds only the PROBES; without this a slow search would eat
+            # the whole budget and leave the probes 0 seconds, silently reporting
+            # every candidate as unreadable — a wrong answer rather than a slow one.
+            candidates, careers_urls = await asyncio.wait_for(
+                search_ats_candidates(payload.name, http),
+                timeout=_SEARCH_BUDGET_S + _RESOLVE_GRACE_S,
+            )
         except NameSearchUnavailable as exc:
             logger.warning("Name search unavailable for %r: %s", payload.name, exc)
+            raise HTTPException(
+                status_code=503, detail="Company search is temporarily unavailable"
+            ) from exc
+        except asyncio.TimeoutError as exc:
+            logger.warning("Name search for %r exceeded its budget", payload.name)
             raise HTTPException(
                 status_code=503, detail="Company search is temporarily unavailable"
             ) from exc

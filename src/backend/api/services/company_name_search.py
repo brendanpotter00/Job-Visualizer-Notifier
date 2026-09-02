@@ -98,6 +98,18 @@ _NON_ALNUM = re.compile(r"[^a-z0-9]+")
 # real collision risk, and one- or two-character prefixes match almost anything.
 _MIN_PREFIX_CHARS = 4
 
+# Career-site slugs that are ordinary words rather than anybody's identity. All of
+# these are real values seen on live Workday tenants, and any of them matching a
+# typed name would auto-add a company nobody asked for.
+_GENERIC_SLUGS = frozenset(
+    {
+        "careers", "career", "jobs", "job", "search", "external", "internal",
+        "global", "campus", "corporate", "professional", "experienced",
+        "students", "student", "university", "main", "default", "public",
+        "site", "home", "apply", "talent", "recruiting", "hiring", "en", "us",
+    }
+)
+
 
 @dataclass(frozen=True)
 class NameCandidate:
@@ -152,15 +164,27 @@ def _names_match(typed: str, candidate: AtsCandidate) -> bool:
     typed_norm = normalize_name(typed)
     if not typed_norm:
         return False
-    tokens = [candidate.board_token]
+    words = [w for w in (normalize_name(part) for part in typed.split()) if w]
+    first_word = words[0] if words else ""
+
+    tokens = [(True, candidate.board_token)]
     tokens.extend(
-        str(value)
+        (False, str(value))
         for key, value in candidate.provider_config.items()
         if key in ("tenant_slug", "career_site_slug", "domain")
     )
-    for token in tokens:
+    for is_board_token, token in tokens:
         token_norm = normalize_name(token)
         if not token_norm:
+            continue
+        # A GENERIC SLUG NAMES NOBODY. `career_site_slug` is routinely an ordinary
+        # English word — real prod values include `External`, `Careers` and
+        # `Global` — so letting one establish identity means typing "Global
+        # Payments" auto-matches ANY unrelated tenant whose site is called
+        # `…/Global`. That is the Guidehouse failure reached through the slug
+        # instead of the token. `board_token` is exempt: it is the company's own
+        # identifier, and a company really can be called `global`.
+        if not is_board_token and token_norm in _GENERIC_SLUGS:
             continue
         if token_norm == typed_norm:
             return True
@@ -171,15 +195,46 @@ def _names_match(typed: str, candidate: AtsCandidate) -> bool:
         # counts, so "GM" still matches the token `gm` and matches nothing else.
         if min(len(token_norm), len(typed_norm)) < _MIN_PREFIX_CHARS:
             continue
-        if token_norm.startswith(typed_norm) or typed_norm.startswith(token_norm):
+        # FORWARD: the token elaborates on the whole typed name — "Ramp" against
+        # the board `ramp-payments`. Safe, because the user's entire input has to
+        # be the start of the token.
+        if token_norm.startswith(typed_norm):
+            return True
+        # REVERSE: the typed name elaborates on the token — "Cisco Systems"
+        # against the board `cisco`. This one must land on a WORD BOUNDARY, not
+        # any prefix, and that distinction is load-bearing: a bare prefix accepts
+        # "Metabase" for Meta's board and "Applebee's" for Apple's, which is
+        # exactly the auto-add-the-wrong-company failure this gate exists to stop.
+        if token_norm == first_word:
             return True
     return False
 
 
 def is_aggregator(url: str) -> bool:
-    """A job aggregator or social host — a real result, never a readable board."""
-    lowered = url.lower()
-    return any(f"{host}/" in lowered or lowered.endswith(host) for host in _AGGREGATOR_HOSTS)
+    """A job aggregator or social host — a real result, never a readable board.
+
+    MATCHES THE PARSED HOST, never a substring of the URL, and that is the whole
+    point of this function's shape. The substring version silently deleted every
+    company whose domain merely *ends with* a listed one: ``x.com`` is in the list,
+    so ``careers.nutanix.com``, ``jobs.wix.com``, ``careers.citrix.com`` and
+    Netflix's ``…/careers?domain=netflix.com`` were all classified as aggregators
+    and dropped. Measured live: searching Nutanix dropped all eight real careers
+    hits and returned an aggregator as the fallback — which the user would then
+    hand to a paid one-time discovery.
+
+    A host matches only if it IS the listed domain or is a subdomain of it, so
+    ``linkedin.com.attacker.example`` is correctly not LinkedIn.
+    """
+    try:
+        host = (urlsplit(url).hostname or "").lower().rstrip(".")
+    except ValueError:
+        return False
+    if not host:
+        return False
+    return any(
+        host == aggregator or host.endswith(f".{aggregator}")
+        for aggregator in _AGGREGATOR_HOSTS
+    )
 
 
 def build_query(company: str) -> str:
@@ -214,11 +269,18 @@ def _rank_careers_urls(company: str, urls: list[str]) -> list[str]:
         return urls
 
     def owns_host(url: str) -> bool:
+        # PER LABEL, not "anywhere in the host". The substring form had the same
+        # flaw `_names_match` explicitly refuses: `figma.com` would "own" the host
+        # for a search for GM (`gm` ⊂ `figma`), and `pineapple.io` for Apple.
         try:
-            host = urlsplit(url).hostname or ""
+            host = (urlsplit(url).hostname or "").lower()
         except ValueError:
             return False
-        return normalized in normalize_name(host)
+        return any(
+            normalize_name(label).startswith(normalized)
+            for label in host.split(".")
+            if label
+        )
 
     return sorted(urls, key=lambda url: not owns_host(url))
 
