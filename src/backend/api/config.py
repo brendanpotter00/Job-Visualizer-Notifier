@@ -185,6 +185,15 @@ class Settings(BaseSettings):
     # our own browser rather than refusing a board we could have read for free.
     capture_use_browserbase: bool = False
 
+    # Type a company NAME instead of pasting a URL. One Browserbase Search call
+    # per attempt (~$0.007, and the plan includes 1,000 free), then our own free
+    # deterministic scoring — no model call, no browser. Independent of
+    # ``capture_use_browserbase``: this uses the Search API, discovery uses
+    # Browsers, and they are separately priced products. Default OFF so no spend
+    # can happen until it is deliberately flipped on; with it off the add box is
+    # exactly as URL-only as it was before.
+    company_name_search_enabled: bool = False
+
     # PostHog analytics
     posthog_project_token: str | None = None
     posthog_host: str = "https://us.i.posthog.com"

@@ -22,6 +22,7 @@ const METHODS_WITH_BODY = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 const PROXIED_ROUTES = [
   '', // GET /api/companies — curated directory
   'resolve', // POST — careers-URL resolver
+  'search-by-name', // POST — typed-company-name search
 ] as const;
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {

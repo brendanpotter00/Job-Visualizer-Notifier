@@ -1283,6 +1283,63 @@ class ResolveUrlResponse(BaseModel):
     final_url: str
 
 
+class SearchCompanyRequest(BaseModel):
+    """Body for POST /api/companies/search-by-name — a typed company name.
+
+    The 60-character ceiling is not cosmetic. Browserbase Search caps ``query``
+    at 200 characters, and the query we build spends most of that budget naming
+    the six ATS hosts — which is the entire reason the strategy scores 76%
+    instead of 41%. A longer name would push those hosts off the end.
+    """
+
+    model_config = ConfigDict(
+        alias_generator=to_camel, populate_by_name=True, extra="forbid"
+    )
+
+    name: str = Field(min_length=1, max_length=60)
+
+
+class NameCandidateResponse(BaseModel):
+    """One board a name search turned up, with everything needed to judge it.
+
+    ``job_count`` and ``display_name`` exist for the human, and they are the
+    whole mitigation for the wrong-company failure: searching "Databricks"
+    returned Guidehouse's live Workday board at rank 1 with 794 real jobs, which
+    every automated check we own accepts. "Guidehouse · 794 jobs" on screen is
+    what a person rejects instantly.
+
+    ``auto_addable`` is the machine's opinion — the board token names the
+    company — and it is advisory to the client, never a substitute for the
+    server's own re-check when the add is actually submitted.
+    """
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    candidate: AtsCandidateResponse
+    probe: ProbeResultResponse
+    source_url: str
+    title: str = ""
+    rank: int = Field(ge=1)
+    auto_addable: bool
+
+
+class SearchCompanyResponse(BaseModel):
+    """200 body for POST /api/companies/search-by-name. Persists nothing.
+
+    An empty ``candidates`` list is a real, successful answer meaning "we looked
+    and found no board" — distinct from the 503 that means search itself could
+    not run. ``careers_url`` is the best non-aggregator page we saw, offered so
+    the client can fall back to the ordinary paste-a-URL path (and, from there,
+    one-time discovery) rather than dead-ending.
+    """
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    query: str
+    candidates: list[NameCandidateResponse] = Field(default_factory=list)
+    careers_url: str | None = None
+
+
 class AddUserCompanyRequest(BaseModel):
     """Body for POST /api/users/companies — the careers URL to add.
 

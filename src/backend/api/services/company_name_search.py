@@ -1,0 +1,270 @@
+"""Turn a typed COMPANY NAME into ATS board candidates (rung A of the name ladder).
+
+The add box has always been URL-only, and strictly so: ``url_guard`` rejects even
+``cisco.com`` for having no scheme. This module is the other front door — you type
+``Cisco``, we find the board. A pasted URL never reaches this code; it still enters
+at ``resolve_ats_url`` (L0) exactly as before, because L0 is exact, free and
+instant and nothing should be allowed to get in front of it.
+
+What this module is, precisely: **one Browserbase Search call, then our own free
+deterministic scoring of every result it returns.** The search engine is used only
+to enumerate URLs a human might have pasted. Deciding which of them is a real board
+is done by ``resolve_ats_url``, which is pure and costs nothing, so we can afford to
+score all 25 rather than trusting the ranking.
+
+Measured 2026-09-01 over a 30-company ground-truth set (see
+``docs/implementations/custom-company-sources/COMPANY-NAME-SEARCH-EVALUATION.md``):
+
+======================================  ======  ==========
+strategy                                calls   correct
+======================================  ======  ==========
+bare name (``Cisco``)                        1      7%
+naive (``Cisco careers job board``)          1     48%
+the 174-char instruction prompt              1     41%
+**host-shaped, scoring all 25**              1    **76%**
+======================================  ======  ==========
+
+Two findings from that sweep are load-bearing here and are why the code looks the
+way it does rather than simpler.
+
+**An instruction prompt is WORSE than a naive one (41% vs 48%).** Browserbase Search
+is Exa-backed retrieval, not an agent: it has no ability to "go look behind the
+careers page". Telling it to prefer an ATS spends characters of a 200-char budget on
+words that only dilute the query. Naming the ATS HOSTS instead plays to what an index
+is actually good at, and that is the entire difference between 41% and 76%. Do not
+"improve" ``_QUERY_TEMPLATE`` back into a sentence.
+
+**The dangerous failure is a live board owned by someone else.** Searching
+``Databricks`` returned Guidehouse's Workday board at rank 1 — 794 real jobs. It
+passes every automated check we own, because it *is* a real board that *does* return
+jobs; only a human reading the name catches it. Hence ``_names_match``: a candidate
+is only ever eligible for a silent auto-add when the board token names the company.
+Everything else is a question for the user, never an answer.
+"""
+
+from __future__ import annotations
+
+import logging
+import re
+from dataclasses import dataclass
+
+import httpx
+
+from ..config import settings
+from .ats_link_resolver import AtsCandidate, resolve_ats_url
+
+logger = logging.getLogger(__name__)
+
+_SEARCH_API = "https://api.browserbase.com/v1/search"
+
+# Browserbase caps ``query`` at 200 characters. The hosts are the payload; the two
+# English words are there only to bias away from marketing pages. Substituting a
+# company name leaves room for one up to 62 characters, which covers every real one.
+_QUERY_TEMPLATE = (
+    "{company} jobs myworkdayjobs.com greenhouse.io ashbyhq.com "
+    "lever.co jobs.gem.com eightfold.ai"
+)
+_QUERY_MAX_CHARS = 200
+
+# The API's own ceiling. Scoring is free, so there is no reason to ask for fewer:
+# measured, the correct board is the FIRST result only 11 times out of 22 hits, so
+# looking at just the top result would halve the feature.
+_NUM_RESULTS = 25
+
+_SEARCH_TIMEOUT_S = 12.0
+
+# Typed names are capped well below the query budget. Anything longer is not a
+# company name, and letting it through would silently truncate the ATS hosts off
+# the end of the query — turning the 76% strategy back into the 7% one.
+_MAX_NAME_CHARS = 60
+
+# Hosts that are real search hits and never a board we can read. Without this the
+# careers-page fallback happily hands back a LinkedIn or Indeed listing, which is
+# not something discovery can ever turn into a recipe.
+_AGGREGATOR_HOSTS = (
+    "linkedin.com", "indeed.com", "glassdoor.com", "ziprecruiter.com",
+    "monster.com", "simplyhired.com", "dice.com", "wellfound.com",
+    "angel.co", "builtin.com", "levels.fyi", "teamblind.com",
+    "youtube.com", "facebook.com", "x.com", "twitter.com", "reddit.com",
+    "wikipedia.org", "bloomberg.com", "crunchbase.com",
+)
+
+_NON_ALNUM = re.compile(r"[^a-z0-9]+")
+
+
+@dataclass(frozen=True)
+class NameCandidate:
+    """One scored search result.
+
+    ``auto_addable`` is the only field with teeth: it is the difference between
+    adding a company silently and asking the user to confirm one. It is True only
+    when the board token names the company (see ``_names_match``).
+    """
+
+    candidate: AtsCandidate
+    source_url: str
+    title: str
+    rank: int
+    auto_addable: bool
+
+
+def normalize_name(value: str) -> str:
+    """Casefold and strip every non-alphanumeric character.
+
+    ``Jane Street`` -> ``janestreet``, so it can be compared against the board
+    token ``janestreet``. Suffixes like "Inc" are deliberately NOT stripped: a
+    company that really is called ``Nominal Inc`` should not be silently matched
+    against a board token ``nominal`` owned by someone else.
+    """
+    return _NON_ALNUM.sub("", value.strip().lower())
+
+
+def _names_match(typed: str, candidate: AtsCandidate) -> bool:
+    """Does the board token name the company the user typed?
+
+    PREFIX MATCH, either direction, and deliberately no edit distance and no
+    substring search. Both of the looser rules were tried and both let a real
+    wrong-company board through:
+
+    * *Edit distance 1* accepts ``poki`` — a Dutch games site with 2 live jobs —
+      for a search for ``Poke``.
+    * *Substring, either direction* accepts ``river`` for ``Hudson River
+      Trading``, because "river" really is inside "hudsonrivertrading". That is
+      ``jobs.ashbyhq.com/river``, a bitcoin company.
+
+    A prefix still covers the cases that matter, because the distinctive part of
+    a company name is its head: someone typing ``Cisco Systems`` should match the
+    board token ``cisco``, and ``Ramp`` should match ``ramp-payments``. A word
+    from the MIDDLE of the typed name matching a whole token is the near-miss
+    this gate exists to refuse.
+
+    Both the Workday tenant and the career-site slug count, because for Workday
+    the brand can live in either half — ``salesforce.wd12…/Slack`` names Slack
+    only in the slug.
+    """
+    typed_norm = normalize_name(typed)
+    if not typed_norm:
+        return False
+    tokens = [candidate.board_token]
+    tokens.extend(
+        str(value)
+        for key, value in candidate.provider_config.items()
+        if key in ("tenant_slug", "career_site_slug", "domain")
+    )
+    for token in tokens:
+        token_norm = normalize_name(token)
+        if not token_norm:
+            continue
+        if token_norm.startswith(typed_norm) or typed_norm.startswith(token_norm):
+            return True
+    return False
+
+
+def is_aggregator(url: str) -> bool:
+    """A job aggregator or social host — a real result, never a readable board."""
+    lowered = url.lower()
+    return any(f"{host}/" in lowered or lowered.endswith(host) for host in _AGGREGATOR_HOSTS)
+
+
+def build_query(company: str) -> str:
+    """The host-shaped query, guaranteed to fit Browserbase's 200-char cap."""
+    query = _QUERY_TEMPLATE.format(company=company.strip())
+    if len(query) > _QUERY_MAX_CHARS:  # pragma: no cover - _MAX_NAME_CHARS prevents it
+        raise ValueError(f"query is {len(query)} chars, over the {_QUERY_MAX_CHARS} cap")
+    return query
+
+
+class NameSearchUnavailable(RuntimeError):
+    """Search could not run — no credentials, or Browserbase refused/failed.
+
+    Distinct from "we searched and found nothing", which is an empty result list.
+    The caller turns this into a different HTTP status because the two mean
+    different things to a user: one is "try again", the other is "type a URL".
+    """
+
+
+async def search_ats_candidates(
+    company: str, http: httpx.AsyncClient
+) -> tuple[list[NameCandidate], list[str]]:
+    """One search call, then score every result. Returns (candidates, careers_urls).
+
+    ``careers_urls`` are the non-aggregator results that resolved to no board, in
+    rank order — rung B feeds the best of them to the existing
+    ``ats_discovery.discover_ats``, which is free and recovers ~3 more companies
+    in 29, Cisco among them.
+
+    Candidates are deduplicated on board identity and returned in rank order.
+    """
+    name = company.strip()
+    if not name:
+        return [], []
+    if len(name) > _MAX_NAME_CHARS:
+        raise NameSearchUnavailable(
+            f"company name is {len(name)} characters, over the {_MAX_NAME_CHARS} limit"
+        )
+    if not settings.browserbase_api_key:
+        raise NameSearchUnavailable("BROWSERBASE_API_KEY is not configured")
+
+    try:
+        response = await http.post(
+            _SEARCH_API,
+            headers={
+                "X-BB-API-Key": settings.browserbase_api_key,
+                "Content-Type": "application/json",
+            },
+            json={"query": build_query(name), "numResults": _NUM_RESULTS},
+            timeout=_SEARCH_TIMEOUT_S,
+        )
+    except httpx.HTTPError as exc:
+        raise NameSearchUnavailable(f"search request failed: {exc}") from exc
+
+    if response.status_code != 200:
+        # 429 is the documented rate-limit code (120/min per project). Everything
+        # here is "search is unavailable", never "this company has no board" —
+        # conflating the two would tell a user their employer is untrackable
+        # because we hit a quota.
+        raise NameSearchUnavailable(f"search returned HTTP {response.status_code}")
+
+    try:
+        results = response.json().get("results") or []
+    except ValueError as exc:
+        raise NameSearchUnavailable("search returned a non-JSON body") from exc
+
+    candidates: list[NameCandidate] = []
+    careers_urls: list[str] = []
+    seen: set[tuple[str, str, tuple[tuple[str, str], ...]]] = set()
+
+    for rank, result in enumerate(results, start=1):
+        url = (result or {}).get("url")
+        if not isinstance(url, str) or not url:
+            continue
+        if is_aggregator(url):
+            continue
+        resolved = resolve_ats_url(url)
+        if resolved is None:
+            careers_urls.append(url)
+            continue
+        key = (
+            resolved.ats,
+            resolved.board_token,
+            tuple(sorted((k, str(v)) for k, v in resolved.provider_config.items())),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        candidates.append(
+            NameCandidate(
+                candidate=resolved,
+                source_url=url,
+                title=str((result or {}).get("title") or ""),
+                rank=rank,
+                auto_addable=_names_match(name, resolved),
+            )
+        )
+
+    logger.info(
+        "Name search for %r: %d result(s) -> %d board candidate(s), %d auto-addable",
+        name, len(results), len(candidates),
+        sum(1 for c in candidates if c.auto_addable),
+    )
+    return candidates, careers_urls
