@@ -25,6 +25,19 @@ export interface CustomCompaniesConfig {
    * UI ignores is free, and it means flipping this on is a frontend-only deploy.
    */
   isDiscoveryProgressEnabled: boolean;
+  /**
+   * Accept a typed company NAME in the add box, not only a URL. Its own flag,
+   * nested under `isEnabled`, and it must match the backend's
+   * `COMPANY_NAME_SEARCH_ENABLED` — with the server flag off,
+   * `POST /api/companies/search-by-name` answers 503.
+   *
+   * The flag's real job is the COPY. The field is labelled "Careers page link"
+   * and the helper says to paste a link; if this were on while the server was
+   * off, the box would invite a name and then fail on it. So the label and the
+   * helper text both key off this flag, and OFF renders exactly the URL-only
+   * wording that shipped before.
+   */
+  isNameSearchEnabled: boolean;
 }
 
 export const CUSTOM_COMPANIES_CONFIG: CustomCompaniesConfig = {
@@ -32,4 +45,5 @@ export const CUSTOM_COMPANIES_CONFIG: CustomCompaniesConfig = {
   // accidentally-set-but-empty var can never switch the feature on.
   isEnabled: import.meta.env.VITE_CUSTOM_COMPANIES_ENABLED === 'true',
   isDiscoveryProgressEnabled: import.meta.env.VITE_DISCOVERY_PROGRESS_ENABLED === 'true',
+  isNameSearchEnabled: import.meta.env.VITE_COMPANY_NAME_SEARCH_ENABLED === 'true',
 };

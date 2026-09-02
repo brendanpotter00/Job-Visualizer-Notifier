@@ -619,6 +619,49 @@ async function syncFeedOnSuccess(
   }
 }
 
+/** The board identity a candidate resolved to, as the backend clients consume it. */
+export interface SearchAtsCandidate {
+  ats: string;
+  boardToken: string;
+  providerConfig: Record<string, string>;
+  sourceUrl: string;
+}
+
+/**
+ * One board a name search turned up.
+ *
+ * `probe.jobCount` and the board token are not decoration — they are the ONLY
+ * defence against the feature's worst failure. Searching "Databricks" really did
+ * return Guidehouse's live Workday board at rank 1 with 794 real jobs; it passes
+ * every automated check there is, because it is a real board that does return
+ * jobs. A person reading "Guidehouse · 794 jobs" rejects it instantly. So any UI
+ * that renders a candidate MUST render its name and its count.
+ *
+ * `autoAddable` means the board token names the company AND the board is
+ * non-empty. It is the server's opinion, and the server re-checks on the add.
+ */
+export interface SearchCompanyCandidate {
+  candidate: SearchAtsCandidate;
+  probe: { ok: boolean; jobCount: number; error: string | null };
+  sourceUrl: string;
+  title: string;
+  rank: number;
+  autoAddable: boolean;
+}
+
+/**
+ * The 200 body of `POST /api/companies/search-by-name`.
+ *
+ * An empty `candidates` with a non-null `careersUrl` is a real, useful answer:
+ * we found no board we can read for free, but we did find the company's careers
+ * page, which is exactly what the ordinary paste-a-URL path takes.
+ */
+export interface SearchCompanyResponse {
+  query: string;
+  candidates: SearchCompanyCandidate[];
+  careersUrl: string | null;
+}
+
 export const userCompaniesApi = createApi({
   reducerPath: 'userCompaniesApi',
   baseQuery: fetchBaseQuery({
@@ -726,6 +769,26 @@ export const userCompaniesApi = createApi({
         rows.map((row) => transformBackendJob(row, id)),
       providesTags: (_result, _error, { id }) => [{ type: 'MyCompanies', id }],
     }),
+
+    /**
+     * Find boards for a typed company NAME. Reads only — nothing is created.
+     *
+     * A MUTATION rather than a query, and not because it writes. It costs a paid
+     * third-party search call, so it must fire when the user presses the button
+     * and at no other time; a query would be re-fetched on remount, refocus and
+     * cache expiry, spending money each time for a result nobody asked for again.
+     *
+     * `503` is "we could not look" (flag off, or search unavailable) and is a
+     * different sentence from an empty `candidates` array, which is "we looked and
+     * there is no board". Never collapse the two in the UI.
+     */
+    searchCompanyByName: builder.mutation<SearchCompanyResponse, string>({
+      query: (name) => ({
+        url: 'companies/search-by-name',
+        method: 'POST',
+        body: { name },
+      }),
+    }),
   }),
 });
 
@@ -735,4 +798,5 @@ export const {
   useRenameUserCompanyMutation,
   useRemoveUserCompanyMutation,
   useGetUserCompanyJobsQuery,
+  useSearchCompanyByNameMutation,
 } = userCompaniesApi;

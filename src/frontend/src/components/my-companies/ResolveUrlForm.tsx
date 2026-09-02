@@ -35,6 +35,17 @@ interface ResolveUrlFormProps {
    * of what this button does — see the 422 `monthly_limit_reached`.
    */
   disabled?: boolean;
+  /**
+   * Accept a typed company NAME as well as a URL — label, placeholder and helper
+   * text all change with it.
+   *
+   * A prop rather than reading the flag here, so this component stays a dumb
+   * input and the page owns which of the two submit paths a value takes. OFF
+   * renders exactly the URL-only wording that shipped before, which matters
+   * because the wording is a promise: with the server flag off a typed name is
+   * a 503, so the box must not invite one.
+   */
+  allowName?: boolean;
 }
 
 /**
@@ -68,7 +79,12 @@ interface ResolveUrlFormProps {
  * paid work on the user's behalf, so it is never behind a click, never inside the
  * how-to block, and never in a component the button could be lifted out of.
  */
-export function ResolveUrlForm({ onSubmit, busy, disabled = false }: ResolveUrlFormProps) {
+export function ResolveUrlForm({
+  onSubmit,
+  busy,
+  disabled = false,
+  allowName = false,
+}: ResolveUrlFormProps) {
   const [value, setValue] = useState('');
 
   const trimmed = value.trim();
@@ -85,8 +101,8 @@ export function ResolveUrlForm({ onSubmit, busy, disabled = false }: ResolveUrlF
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems="flex-start">
         <TextField
           fullWidth
-          label="Careers page link"
-          placeholder="e.g. stripe.com/jobs"
+          label={allowName ? 'Company name or careers page link' : 'Careers page link'}
+          placeholder={allowName ? 'e.g. Stripe, or stripe.com/jobs' : 'e.g. stripe.com/jobs'}
           value={value}
           onChange={(event) => setValue(event.target.value)}
           disabled={busy}
@@ -103,8 +119,19 @@ export function ResolveUrlForm({ onSubmit, busy, disabled = false }: ResolveUrlF
           // to say it does not exist yet. Delete that clause the day
           // `HOW_IT_WORKS_VIDEO_SRC` (AddCompanyHowTo.tsx) stops being null, and not
           // before: it is currently the last statement of this rule anywhere in the app.
-          helperText="Paste the link to the company’s own careers page, not LinkedIn or Indeed. Any page of their job list works."
-          slotProps={{ htmlInput: { 'aria-label': 'Careers page link', maxLength: 2048 } }}
+          helperText={
+            allowName
+              ? 'Type the company’s name, or paste the link to their own careers page — not LinkedIn or Indeed. Any page of their job list works.'
+              : 'Paste the link to the company’s own careers page, not LinkedIn or Indeed. Any page of their job list works.'
+          }
+          slotProps={{
+            htmlInput: {
+              'aria-label': allowName
+                ? 'Company name or careers page link'
+                : 'Careers page link',
+              maxLength: 2048,
+            },
+          }}
         />
         <Button
           type="submit"
