@@ -4,7 +4,20 @@ import Chip from '@mui/material/Chip';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
+import { RESPONSIVE } from '../../config/responsive';
 import type { SearchCompanyCandidate } from '../../features/userCompanies/userCompaniesApi';
+
+/**
+ * Hard ceiling on rendered rows.
+ *
+ * The server already caps its response at five (`_MAX_SHOWN_CANDIDATES`) because
+ * it probes each one live, so this can only bite if that cap changes or a
+ * response is hand-crafted. It is here anyway: the repo rule is that no list
+ * renders unbounded, and a cap that depends on a constant in another service is
+ * not a cap. Also the reason to bound it is human, not just technical — past a
+ * handful, "which of these is my employer?" stops being a question anyone reads.
+ */
+const MAX_RENDERED = 5;
 
 interface CompanyCandidateListProps {
   /** What the user typed, echoed so the question names its own subject. */
@@ -56,10 +69,14 @@ export function CompanyCandidateList({
         return a real board that belongs to a different company.
       </Typography>
 
-      {candidates.map((found) => {
+      {candidates.slice(0, MAX_RENDERED).map((found) => {
         const { ats, boardToken, sourceUrl } = found.candidate;
         return (
-          <Paper key={`${ats}:${boardToken}:${sourceUrl}`} variant="outlined" sx={{ p: 2 }}>
+          <Paper
+            key={`${ats}:${boardToken}:${sourceUrl}`}
+            variant="outlined"
+            sx={{ p: RESPONSIVE.spacing.paperPadding }}
+          >
             <Stack
               direction={{ xs: 'column', sm: 'row' }}
               spacing={1.5}

@@ -114,7 +114,7 @@ degrade, it fails the boot. Confirm `alembic heads` returns exactly one before e
 | `CUSTOM_COMPANY_SOURCES_ENABLED` | `False` | Every `/api/users/companies` route returns **503** |
 | `CUSTOM_COMPANY_DISCOVERY_ENABLED` | `False` | Free ATS path works; a non-ATS URL returns **422**, spends nothing |
 | `CAPTURE_USE_BROWSERBASE` | `False` | Discovery uses our own Chromium. **Costs money when on** |
-| `COMPANY_NAME_SEARCH_ENABLED` | `False` | `/api/companies/search-by-name` returns **503**; the add box stays URL-only. **Costs money when on** (~$0.007/name, 1,000 free searches on the plan). Needs `BROWSERBASE_API_KEY`. INDEPENDENT of `CAPTURE_USE_BROWSERBASE` — that one buys Browsers for discovery, this one buys the Search API; different products, priced separately |
+| `COMPANY_NAME_SEARCH_ENABLED` | `False` | `/api/companies/search-by-name` returns **503**. NOTE this alone does *not* make the box URL-only — the box's copy is the frontend flag's job, and with that one on while this is off the UI still invites a name and gets a 503. **Costs money when on** (~$0.007/name, 1,000 free searches on the plan). Needs `BROWSERBASE_API_KEY`. INDEPENDENT of `CAPTURE_USE_BROWSERBASE` — that one buys Browsers for discovery, this one buys the Search API; different products, priced separately |
 | `CUSTOM_COMPANY_MONTHLY_ADD_LIMIT` | `20` | Adds allowed per user per month. **`0` allows NONE** — a kill switch, not "unlimited" (see §4c). **Fail-closed both ways:** a typo'd *name* keeps the default 20, and a typo'd *value* landing on `0` blocks adds |
 
 **Frontend (Vercel, `VITE_*`). BUILD-TIME — a change requires a REDEPLOY, not just an env edit.**

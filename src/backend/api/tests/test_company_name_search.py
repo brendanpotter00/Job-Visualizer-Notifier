@@ -117,6 +117,59 @@ def test_name_gate_is_containment_never_fuzzy(
     assert cns._names_match(typed, candidate) is expected
 
 
+@pytest.mark.parametrize(
+    "typed, token, expected",
+    [
+        # A one- or two-character prefix matches almost anything, and the request
+        # model allows a one-character name — so "A" would prefix-match `acme`,
+        # probe non-empty, and be AUTO-ADDED. Below the floor, exact only.
+        ("A", "acme", False),
+        ("Ac", "acme", False),
+        ("IBM", "ibmcareers", False),
+        # Exact still wins at any length, so short real names keep working.
+        ("GM", "gm", True),
+        ("IBM", "ibm", True),
+        # At or above the floor the prefix rule applies as normal.
+        ("Acme", "acmecorp", True),
+    ],
+)
+def test_short_names_require_an_exact_match(
+    typed: str, token: str, expected: bool
+) -> None:
+    candidate = AtsCandidate(
+        ats="greenhouse", board_token=token, provider_config={}, source_url="https://x"
+    )
+    assert cns._names_match(typed, candidate) is expected
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("body", [[], "nope", 42, {"results": "not-a-list"}])
+async def test_a_malformed_response_is_unavailable_not_a_500(body: object) -> None:
+    """A bare `[]` body would make `.get` raise AttributeError, escaping
+    NameSearchUnavailable and turning an honest 503 into a 500 — "search
+    misbehaved" would reach the user as "your employer cannot be tracked"."""
+    async with _client(body) as http:  # type: ignore[arg-type]
+        with pytest.raises(NameSearchUnavailable):
+            await search_ats_candidates("Cisco", http)
+
+
+@pytest.mark.asyncio
+async def test_a_non_object_result_row_is_skipped_not_fatal() -> None:
+    payload = {
+        "requestId": "t",
+        "query": "t",
+        "results": [
+            "a bare string",
+            None,
+            {"id": "x", "url": "https://boards.greenhouse.io/figma", "title": "Figma"},
+        ],
+    }
+    async with _client(payload) as http:
+        candidates, _ = await search_ats_candidates("Figma", http)
+
+    assert [c.candidate.board_token for c in candidates] == ["figma"]
+
+
 def test_name_gate_reads_the_workday_career_site_slug_too() -> None:
     """Slack's board is `salesforce.wd12…/Slack` — the brand is only in the slug."""
     candidate = AtsCandidate(

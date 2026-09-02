@@ -66,7 +66,15 @@ describe('classifyCompanyInput', () => {
     expect(classifyCompanyInput('ftp://files.example.com').kind).toBe('url');
   });
 
-  it('does not mistake an IPv4 literal for a hostname', () => {
-    expect(classifyCompanyInput('10.0.0.1').kind).toBe('name');
-  });
+  it.each(['10.0.0.1', '169.254.169.254', '[::1]'])(
+    'sends the IP literal %s to the URL path so the SSRF guard refuses it',
+    (literal) => {
+      // NOT a name. Calling it one would spend a paid search call on an address
+      // AND skip the guard that exists to refuse exactly this input.
+      expect(classifyCompanyInput(literal)).toEqual({
+        kind: 'url',
+        url: `https://${literal}`,
+      });
+    }
+  );
 });

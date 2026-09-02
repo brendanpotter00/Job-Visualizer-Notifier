@@ -92,6 +92,12 @@ _AGGREGATOR_HOSTS = (
 
 _NON_ALNUM = re.compile(r"[^a-z0-9]+")
 
+# Shortest normalized string that may be matched by PREFIX rather than exactly.
+# Four, because three-letter tokens are common enough as whole company names
+# (`ibm`, `sap`) that treating them as prefixes of longer unrelated tokens is a
+# real collision risk, and one- or two-character prefixes match almost anything.
+_MIN_PREFIX_CHARS = 4
+
 
 @dataclass(frozen=True)
 class NameCandidate:
@@ -155,6 +161,15 @@ def _names_match(typed: str, candidate: AtsCandidate) -> bool:
     for token in tokens:
         token_norm = normalize_name(token)
         if not token_norm:
+            continue
+        if token_norm == typed_norm:
+            return True
+        # A PREFIX IS ONLY MEANINGFUL WHEN IT IS LONG ENOUGH TO IDENTIFY ANYONE.
+        # The request model allows a one-character name, and without this floor
+        # typing "A" prefix-matches the board token "acme" — which then probes
+        # non-empty and gets auto-added. Below the floor, only an exact match
+        # counts, so "GM" still matches the token `gm` and matches nothing else.
+        if min(len(token_norm), len(typed_norm)) < _MIN_PREFIX_CHARS:
             continue
         if token_norm.startswith(typed_norm) or typed_norm.startswith(token_norm):
             return True
@@ -259,17 +274,33 @@ async def search_ats_candidates(
         # because we hit a quota.
         raise NameSearchUnavailable(f"search returned HTTP {response.status_code}")
 
+    # EVERY shape that is not "an object with a list of results" is an
+    # unavailability, not an empty answer. A bare `[]` body would make
+    # `.get` raise AttributeError, which escapes NameSearchUnavailable and turns
+    # the route's honest 503 into a 500 — i.e. "your employer cannot be tracked"
+    # becomes "the site is broken". Neither is true; the search just misbehaved.
     try:
-        results = response.json().get("results") or []
+        payload = response.json()
     except ValueError as exc:
         raise NameSearchUnavailable("search returned a non-JSON body") from exc
+    if not isinstance(payload, dict):
+        raise NameSearchUnavailable(
+            f"search returned a {type(payload).__name__}, not an object"
+        )
+    results = payload.get("results") or []
+    if not isinstance(results, list):
+        raise NameSearchUnavailable("search returned a non-list `results`")
 
     candidates: list[NameCandidate] = []
     careers_urls: list[str] = []
     seen: set[tuple[str, str, tuple[tuple[str, str], ...]]] = set()
 
     for rank, result in enumerate(results, start=1):
-        url = (result or {}).get("url")
+        # A non-object item is skipped rather than fatal: one malformed row in an
+        # otherwise good response should cost that row, not the whole search.
+        if not isinstance(result, dict):
+            continue
+        url = result.get("url")
         if not isinstance(url, str) or not url:
             continue
         if is_aggregator(url):
@@ -290,7 +321,7 @@ async def search_ats_candidates(
             NameCandidate(
                 candidate=resolved,
                 source_url=url,
-                title=str((result or {}).get("title") or ""),
+                title=str(result.get("title") or ""),
                 rank=rank,
                 auto_addable=_names_match(name, resolved),
             )

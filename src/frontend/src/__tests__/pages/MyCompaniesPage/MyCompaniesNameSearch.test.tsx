@@ -238,6 +238,25 @@ describe('MyCompaniesPage — typed company name', () => {
     expect(body.url).toBe('https://boards.greenhouse.io/cisco-meraki');
   });
 
+  it('explains a failed search instead of silently clearing the spinner', async () => {
+    // A 503 (flag off, Browserbase down, network dropped) used to render
+    // nothing at all: the spinner cleared and the page looked like the button
+    // was broken rather than the search being unavailable.
+    fetchMock.mockImplementation((req: Request) =>
+      Promise.resolve(
+        req.url.includes('search-by-name')
+          ? jsonResponse({ detail: 'Company search is temporarily unavailable' }, 503)
+          : jsonResponse(CREATED, 201)
+      )
+    );
+    renderWithProviders(<MyCompaniesPage />);
+
+    await submit('Cisco');
+
+    expect(await screen.findByText(/paste the link to their careers page/i)).toBeInTheDocument();
+    expect(callsTo('/users/companies')).toHaveLength(0);
+  });
+
   it('offers the careers page when no board was found', async () => {
     // "We looked and found nothing" is a real answer, and the careers page is
     // exactly what the paste-a-URL path takes.

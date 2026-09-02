@@ -24,6 +24,18 @@ const ANY_SCHEME = /^[a-z][a-z0-9+.-]*:/i;
  */
 const BARE_HOST = /^[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,}(?::\d+)?(?:[/?#]|$)/i;
 
+/**
+ * A bare IP literal — `10.0.0.1`, `[::1]`, `169.254.169.254`.
+ *
+ * These are NOT hostnames (`BARE_HOST` requires an alphabetic TLD), and left to
+ * fall through they would be classified as a company NAME and spend a paid
+ * search call on an address. Worse, routing them to the name path skips the
+ * server's SSRF guard entirely — and an IP literal is precisely the input that
+ * guard exists to refuse. So they are classified as URLs, and the guard gets to
+ * say no with its own reason code.
+ */
+const IP_LITERAL = /^(?:\d{1,3}(?:\.\d{1,3}){3}|\[[0-9a-f:]+\])(?::\d+)?(?:[/?#]|$)/i;
+
 export type CompanyInputKind =
   | { kind: 'url'; url: string }
   | { kind: 'name'; name: string };
@@ -52,7 +64,7 @@ export function classifyCompanyInput(raw: string): CompanyInputKind {
   }
   // A name can contain spaces; a host cannot. Checking this before the host
   // pattern keeps "Acme Corp. Ltd" a name rather than a hostname with a dot.
-  if (!/\s/.test(trimmed) && BARE_HOST.test(trimmed)) {
+  if (!/\s/.test(trimmed) && (BARE_HOST.test(trimmed) || IP_LITERAL.test(trimmed))) {
     return { kind: 'url', url: `https://${trimmed}` };
   }
   return { kind: 'name', name: trimmed };

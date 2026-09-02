@@ -266,7 +266,11 @@ async def _probe_shown(
         return_exceptions=True,
     )
     out: list[NameCandidateResponse] = []
-    for found, probe in zip(shown, probes):
+    # `strict=True` states the invariant `asyncio.gather` already guarantees —
+    # one result per input, in order. If that ever stops holding, a silent
+    # truncation would pair a candidate with another candidate's job count,
+    # which is the one number the user is being asked to judge.
+    for found, probe in zip(shown, probes, strict=True):
         if isinstance(probe, BaseException):
             logger.warning(
                 "Probe of %s/%s raised during name search",

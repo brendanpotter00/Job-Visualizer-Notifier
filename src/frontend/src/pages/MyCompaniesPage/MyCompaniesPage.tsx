@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Container from '@mui/material/Container';
@@ -19,6 +20,7 @@ import {
 } from '../../features/userCompanies/userCompaniesApi';
 import { classifyCompanyInput } from '../../features/userCompanies/companyInput';
 import { CUSTOM_COMPANIES_CONFIG } from '../../config/customCompanies';
+import { extractErrorMessage } from '../../lib/errors';
 import { CompanyCandidateList } from '../../components/my-companies/CompanyCandidateList';
 import { AddQuotaCounter } from '../../components/my-companies/AddQuotaCounter';
 import Divider from '@mui/material/Divider';
@@ -129,7 +131,7 @@ export function MyCompaniesPage() {
   // with no local bookkeeping. The two-phase `busy` flag this page used to hold is
   // gone with the second network call it existed to span.
   const { isLoading: adding, data: result, error } = addState;
-  const { isLoading: searching } = searchState;
+  const { isLoading: searching, error: searchError } = searchState;
 
   // The correction under a GUESSED "we already publish this" notice — the one where the
   // backend matched the company name inside the domain (`matchKind: 'name'`) rather than
@@ -194,6 +196,11 @@ export function MyCompaniesPage() {
   const handleNameSearch = async (name: string) => {
     setCandidates(null);
     const result = await searchCompanyByName(name);
+    // A failed search must SAY so. `AddCompanyOutcome` only ever sees the add
+    // mutation's error, so returning quietly here would clear the spinner and
+    // leave nothing on screen — a 503 from the flag being off, a Browserbase
+    // outage and a dropped connection would all look like the button did
+    // nothing at all.
     if (!('data' in result) || !result.data) return;
 
     const { candidates: found } = result.data;
@@ -292,6 +299,16 @@ export function MyCompaniesPage() {
         {adding && <LoadingState minHeight={120} caption="Adding this company…" />}
         {searching && <LoadingState minHeight={120} caption="Looking for their job board…" />}
 
+        {/* A search that FAILED, which is not the same as one that found nothing.
+            Without this the spinner would clear and leave an empty page — the
+            button would look broken rather than the search looking unavailable. */}
+        {searchError && !searching && !adding ? (
+          <Alert severity="warning">
+            {extractErrorMessage(searchError, 'Could not search for that company.')} You
+            can still paste the link to their careers page.
+          </Alert>
+        ) : null}
+
         {/* The question, when a name did not resolve to exactly one confident
             board. Hidden while an add is running so it cannot sit beside its own
             answer. */}
@@ -309,7 +326,7 @@ export function MyCompaniesPage() {
             company's careers page we hand it over, because that is exactly what
             the paste-a-URL path takes and where one-time discovery starts. */}
         {candidates && candidates.candidates.length === 0 && !adding ? (
-          <Paper variant="outlined" sx={{ p: 2 }}>
+          <Paper variant="outlined" sx={{ p: RESPONSIVE.spacing.paperPadding }}>
             <Typography variant="body2">
               No job board found for “{candidates.query}”.{' '}
               {candidates.careersUrl
