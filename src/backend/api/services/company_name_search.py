@@ -268,6 +268,20 @@ def _rank_careers_urls(company: str, urls: list[str]) -> list[str]:
     if not normalized:
         return urls
 
+    # A MULTIWORD NAME MUST STILL OWN ITS OWN DOMAIN. `normalize_name` strips
+    # spaces, so "Cisco Systems" becomes `ciscosystems`, which no label of
+    # `cisco.com` starts with — the company's real careers page then loses to
+    # whatever unrelated URL happened to rank above it, and that URL is what gets
+    # offered for a PAID discovery run. So the first word counts too, under the
+    # same length floor `_names_match` uses: "GM Financial" does not get to match
+    # on a two-character `gm`.
+    identities = {normalized}
+    first_word = next(
+        (w for w in (normalize_name(part) for part in company.split()) if w), ""
+    )
+    if len(first_word) >= _MIN_PREFIX_CHARS:
+        identities.add(first_word)
+
     def owns_host(url: str) -> bool:
         # PER LABEL, not "anywhere in the host". The substring form had the same
         # flaw `_names_match` explicitly refuses: `figma.com` would "own" the host
@@ -276,10 +290,9 @@ def _rank_careers_urls(company: str, urls: list[str]) -> list[str]:
             host = (urlsplit(url).hostname or "").lower()
         except ValueError:
             return False
+        labels = [normalize_name(label) for label in host.split(".") if label]
         return any(
-            normalize_name(label).startswith(normalized)
-            for label in host.split(".")
-            if label
+            label.startswith(identity) for label in labels for identity in identities
         )
 
     return sorted(urls, key=lambda url: not owns_host(url))

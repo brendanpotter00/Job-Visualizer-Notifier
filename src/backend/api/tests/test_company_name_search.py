@@ -318,6 +318,15 @@ async def test_the_fallback_prefers_the_companys_own_domain() -> None:
     "company, url, expected",
     [
         ("Databricks", "https://www.databricks.com/careers", True),
+        # A multiword name still owns its own domain. `normalize_name` strips the
+        # space, so "ciscosystems" matches no label of `cisco.com` — and the real
+        # careers page would lose to whatever ranked above it, which is the URL
+        # then offered for a PAID discovery run.
+        ("Cisco Systems", "https://cisco.com/careers", True),
+        ("Jane Street Capital", "https://www.janestreet.com/join", True),
+        # ...but the first word only counts above the length floor, so a
+        # two-character one cannot claim an unrelated host.
+        ("GM Financial", "https://www.figma.com/careers", False),
         # Same substring flaw the name gate refuses: `gm` is inside `figma`.
         ("GM", "https://www.figma.com/careers", False),
         ("Apple", "https://pineapple.io/jobs", False),
