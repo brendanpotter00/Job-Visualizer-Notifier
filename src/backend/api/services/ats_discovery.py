@@ -79,14 +79,33 @@ _DISCOVERY_TIMEOUT_S: float = 8.0
 # "fetch at most 5 URLs per chain", i.e. up to 4 redirects followed. Intel's real
 # chain is 3 and Cisco's is 3.
 _MAX_REDIRECT_HOPS = 5
-_MAX_SNIFF_URLS = 4
-_SNIFF_MAX_BYTES = 512 * 1024
+# Raised 4 → 8 for the walk-up in ``_sniff_urls``. It is a cap on GUESSES, not the
+# real bound: the ladder stops at the first page that yields a candidate, and
+# ``deadline`` still ends the whole thing on time. A shallow paste dedupes back
+# down to the original 4, so only the deep pastes that fail today pay for this.
+_MAX_SNIFF_URLS = 8
+# 512 KiB truncated Retool's page at byte 524,288 — its ``jobs.gem.com/retool``
+# link sits at byte 575,143, so the board was cut off mid-document and L2 reported
+# "no ATS" for a company that has one. The cap exists to bound memory, and one
+# extra MiB across at most ``_MAX_SNIFF_URLS`` sequential reads is affordable.
+_SNIFF_MAX_BYTES = 1024 * 1024
 
 # Sub-paths appended to the landing page when the landing page itself carries no
 # ATS link. Cisco's ``/global/en`` has zero occurrences; its
 # ``/global/en/search-results`` has ten. Same host, path-only variations, each
 # individually guard-validated before it is fetched.
 _SNIFF_SUBPATHS: tuple[str, ...] = ("search-results", "careers", "jobs")
+
+# The pasted page plus its own sub-paths — the set that existed before the walk-up.
+# ``_sniff_urls`` emits these FIRST and its dedupe only ever drops later entries, so
+# "index >= this" is exactly "this is a walk-up guess" and nothing else.
+_BASE_SNIFF_URLS = 1 + len(_SNIFF_SUBPATHS)
+
+# A walk-up guess is only worth issuing if a whole request could still finish inside
+# the budget. Below this we stop, so the walk-up can never be the thing that turns a
+# clean ``no_ats_detected`` into ``deadline`` — a distinction the one-time-discovery
+# gate keys on, and which decides whether a user gets billed for a browser session.
+_WALK_UP_MIN_BUDGET_S: float = _DISCOVERY_TIMEOUT_S + 1.0
 
 # "We fetched the page and there is no board we support behind it." PUBLIC, because it
 # is the one no-candidate reason that means we actually READ something — every other
@@ -279,10 +298,42 @@ def _sniff_urls(url: str) -> list[str]:
     parts = _split_or_reject(url)
     base_path = parts.path.rstrip("/")
     urls = [url]
-    for suffix in _SNIFF_SUBPATHS:
-        variant = urlunsplit((parts.scheme, parts.netloc, f"{base_path}/{suffix}", "", ""))
+
+    def _add(path: str) -> None:
+        variant = urlunsplit((parts.scheme, parts.netloc, path, "", ""))
         if variant not in urls:
             urls.append(variant)
+
+    # THE WALK-UP, and it is the whole reason this function is not a one-liner.
+    # The sub-paths are appended to the path the user PASTED, so a deep link probes
+    # deeper still: someone who browses to a job and copies the address bar gives us
+    # ``careers.cisco.com/global/en/home``, and we ask for ``…/home/search-results``.
+    # Measured 2026-09-01: that misses and falls through to a PAID Discovery run,
+    # while ``careers.cisco.com/global/en/search-results`` resolves free in ~2s to
+    # ``cisco.wd5.myworkdayjobs.com/Cisco_Careers``. The board was always reachable;
+    # we were looking one level too deep.
+    #
+    # ONE LEVEL AT A TIME, not a jump to the host root, and that distinction is the
+    # whole fix. Cisco's careers site is an SPA that answers EVERY path with the
+    # same 176,896-byte shell, and ``/`` redirects to ``/global/en`` — so probing
+    # ``/search-results`` from the root lands back on the shell and finds nothing.
+    # Only ``/global/en/search-results``, the parent's suffix, carries the board.
+    #
+    # The pasted path's own variants stay FIRST and in their original order, so no
+    # URL that resolves today can be reordered or regressed; ancestors are strictly
+    # extra attempts for inputs that currently fail outright. The bare ancestor page
+    # is deliberately not probed — entry 0 already showed us what a bare page here
+    # looks like, and the suffix is the higher-yield guess per request spent.
+    ancestors = [base_path]
+    parent = base_path
+    while parent:
+        parent = parent.rsplit("/", 1)[0]
+        ancestors.append(parent)
+
+    for path in ancestors:
+        for suffix in _SNIFF_SUBPATHS:
+            _add(f"{path}/{suffix}")
+
     return urls[:_MAX_SNIFF_URLS]
 
 
@@ -359,6 +410,20 @@ async def sniff_embedded_ats(
         )
 
     for index, target in enumerate(targets):
+        if index >= _BASE_SNIFF_URLS and deadline is not None:
+            # A walk-up guess is a BONUS attempt on an input that would otherwise
+            # already have failed, so it may only spend budget that is genuinely
+            # spare. Stopping here (rather than letting ``guarded_get`` raise
+            # REASON_DEADLINE) is what keeps the miss reason describing the site
+            # instead of the clock: ``scanned_any`` is already True by now, so the
+            # verdict stays ``no_ats_detected``, exactly as it was before the
+            # walk-up existed.
+            if deadline - time.monotonic() < _WALK_UP_MIN_BUDGET_S:
+                logger.debug(
+                    "Walk-up sniff of %s skipped: %.1fs left, need %.1fs",
+                    target, deadline - time.monotonic(), _WALK_UP_MIN_BUDGET_S,
+                )
+                break
         try:
             response, hops = await guarded_get(
                 target,
