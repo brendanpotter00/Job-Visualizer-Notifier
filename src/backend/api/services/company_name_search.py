@@ -47,6 +47,7 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -174,6 +175,39 @@ def build_query(company: str) -> str:
     return query
 
 
+def _rank_careers_urls(company: str, urls: list[str]) -> list[str]:
+    """Put careers pages on the company's OWN domain first, preserving rank within.
+
+    The fallback URL is offered to the user as "no board found, try their careers
+    page" — and whatever they accept goes to the add endpoint, where a non-ATS URL
+    starts a PAID one-time discovery. So handing back the wrong site is not a
+    cosmetic miss, it spends money and one of the user's monthly adds.
+
+    Measured 2026-09-01: searching ``Databricks`` found no board, and the
+    top-ranked non-board result was ``scoutify.com/companies/databricks/`` — a job
+    aggregator, and one that ``_AGGREGATOR_HOSTS`` does not list. Extending that
+    denylist is whack-a-mole (``tryjeremy.com``, ``workway.dev``, ``standout.work``
+    and ``digitalhire.com`` all showed up in the same sweep). Preferring a host
+    that NAMES the company is the general form of the same idea, and it is the
+    same containment test the board-token gate uses: ``databricks.com`` wins,
+    ``scoutify.com`` does not, no list required.
+
+    A stable sort, so search rank still decides between two equally-good hosts.
+    """
+    normalized = normalize_name(company)
+    if not normalized:
+        return urls
+
+    def owns_host(url: str) -> bool:
+        try:
+            host = urlsplit(url).hostname or ""
+        except ValueError:
+            return False
+        return normalized in normalize_name(host)
+
+    return sorted(urls, key=lambda url: not owns_host(url))
+
+
 class NameSearchUnavailable(RuntimeError):
     """Search could not run — no credentials, or Browserbase refused/failed.
 
@@ -267,4 +301,4 @@ async def search_ats_candidates(
         name, len(results), len(candidates),
         sum(1 for c in candidates if c.auto_addable),
     )
-    return candidates, careers_urls
+    return candidates, _rank_careers_urls(name, careers_urls)

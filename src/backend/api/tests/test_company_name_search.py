@@ -194,6 +194,35 @@ async def test_aggregators_are_dropped_from_both_lists() -> None:
     assert careers == ["https://careers.cisco.com/"]
 
 
+@pytest.mark.asyncio
+async def test_the_fallback_prefers_the_companys_own_domain() -> None:
+    """The fallback URL is what a user accepts to start a PAID discovery, so
+    handing back an aggregator spends money and one of their monthly adds.
+    Measured: `Databricks` really returned `scoutify.com/companies/databricks/`
+    ahead of anything on databricks.com, and scoutify is not on any denylist."""
+    payload = _results(
+        "https://scoutify.com/companies/databricks/",
+        "https://tryjeremy.com/companies/databricks",
+        "https://www.databricks.com/company/careers/open-positions",
+    )
+    async with _client(payload) as http:
+        _, careers = await search_ats_candidates("Databricks", http)
+
+    assert careers[0] == "https://www.databricks.com/company/careers/open-positions"
+
+
+@pytest.mark.asyncio
+async def test_the_fallback_keeps_search_rank_between_equal_hosts() -> None:
+    payload = _results(
+        "https://careers.example.com/a",
+        "https://careers.example.com/b",
+    )
+    async with _client(payload) as http:
+        _, careers = await search_ats_candidates("Nobody", http)
+
+    assert careers == ["https://careers.example.com/a", "https://careers.example.com/b"]
+
+
 def test_is_aggregator_does_not_match_a_lookalike_domain() -> None:
     assert is_aggregator("https://www.linkedin.com/jobs") is True
     # A company whose own domain merely CONTAINS an aggregator name is not one.
