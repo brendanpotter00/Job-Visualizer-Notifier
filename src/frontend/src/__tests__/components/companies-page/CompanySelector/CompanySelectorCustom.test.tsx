@@ -79,12 +79,18 @@ describe('CompanySelector — the viewer’s own boards', () => {
 
   it('sorts a custom board into the curated list by NAME, not into a block at the end', async () => {
     const user = userEvent.setup();
-    // "Cisco" must land among the Cs. The whole point of the change is that a
-    // company is where its name says it is.
-    await renderSelector([board('u-abc123', 'Cisco')]);
+    // "Meridian Labs" must land among the Ms. The whole point of the change is
+    // that a company sits where its name says it does.
+    //
+    // A DELIBERATELY FICTIONAL name, and it has to stay fictional. This first
+    // used "Cisco", which broke the moment Cisco was added to the curated
+    // roster — the dropdown then held two options matching /Cisco/ and the
+    // query became ambiguous. Any real company name is a landmine here, because
+    // the roster is exactly the thing that grows.
+    await renderSelector([board('u-abc123', 'Meridian Labs')]);
 
     await user.click(screen.getByRole('combobox'));
-    await screen.findByRole('option', { name: /Cisco/ });
+    await screen.findByRole('option', { name: /Meridian Labs/ });
 
     const names = screen
       .getAllByRole('option')
@@ -92,7 +98,7 @@ describe('CompanySelector — the viewer’s own boards', () => {
     const sorted = [...names].sort((a, b) => a.localeCompare(b));
     expect(names).toEqual(sorted);
     // ...and it is genuinely interleaved, not first or last.
-    const index = names.indexOf('Cisco');
+    const index = names.indexOf('Meridian Labs');
     expect(index).toBeGreaterThan(0);
     expect(index).toBeLessThan(names.length - 1);
   });
