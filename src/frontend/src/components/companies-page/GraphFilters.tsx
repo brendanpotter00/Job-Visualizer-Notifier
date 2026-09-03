@@ -70,7 +70,7 @@ export function GraphFilters() {
           />
 
           {/*
-            The label reads "Job category" and the data model underneath is
+            The label reads "Job Category" and the data model underneath is
             "category" all the way down — the `filters.category` slice field, the
             `setGraphCategory` action, the API param, and the DB column are all
             "category". It previously read "Job title", which was wrong on its
@@ -79,7 +79,7 @@ export function GraphFilters() {
             categories, not titles. Rename the copy only — never the data model.
           */}
           <FacetMultiSelect
-            label="Job category"
+            label="Job Category"
             options={categoryOptions}
             value={filters.category}
             onChange={(slugs) => dispatch(setGraphCategory(slugs))}

@@ -111,16 +111,16 @@ describe('RecentJobsFilters', () => {
   });
 
   /**
-   * Pins the "Job title" -> "Job category" rename. The old label was wrong on
+   * Pins the "Job title" -> "Job Category" rename. The old label was wrong on
    * its face and gets worse as these values subdivide; the data model stays
    * `category` everywhere underneath, so nothing but this assertion catches a
    * silent revert of the copy.
    */
-  it('labels the category facet "Job category", not "Job title"', async () => {
+  it('labels the category facet "Job Category", not "Job title"', async () => {
     const store = await seedRecentStore();
     renderWithProviders(<RecentJobsFilters />, { store });
 
-    expect(screen.getByRole('combobox', { name: 'Job category' })).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Job Category' })).toBeInTheDocument();
     expect(screen.queryByRole('combobox', { name: 'Job title' })).not.toBeInTheDocument();
   });
 
