@@ -108,8 +108,10 @@ def upgrade() -> None:
                 'display_name': row['display_name'],
                 'ats': row['ats'],
                 'board_token': row['board_token'],
-                # None -> SQL NULL (CAST(NULL AS JSONB)); a dict -> JSON text.
-                'provider_config': json.dumps(pc) if pc is not None else None,
+                # provider_config is NOT NULL DEFAULT '{}'::jsonb, so the
+                # non-workday rows insert an empty object, matching every other
+                # ATS company; the workday row carries its real config.
+                'provider_config': json.dumps(pc) if pc is not None else '{}',
             },
         )
 
