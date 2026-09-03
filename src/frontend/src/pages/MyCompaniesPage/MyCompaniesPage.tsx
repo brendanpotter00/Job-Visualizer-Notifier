@@ -22,6 +22,7 @@ import { classifyCompanyInput } from '../../features/userCompanies/companyInput'
 import { CUSTOM_COMPANIES_CONFIG } from '../../config/customCompanies';
 import { extractErrorMessage } from '../../lib/errors';
 import { CompanyCandidateList } from '../../components/my-companies/CompanyCandidateList';
+import { NameSearchProgress } from '../../components/my-companies/NameSearchProgress';
 import { AddQuotaCounter } from '../../components/my-companies/AddQuotaCounter';
 import Divider from '@mui/material/Divider';
 import { AddCompanyHowTo } from '../../components/my-companies/AddCompanyHowTo';
@@ -62,6 +63,12 @@ export function MyCompaniesPage() {
   // because it must be CLEARED the moment a choice is made — leaving the list up
   // beside the outcome would show a question that has already been answered.
   const [candidates, setCandidates] = useState<SearchCompanyResponse | null>(null);
+  // The name a search is currently ABOUT, which is not the same thing as
+  // `candidates.query`: this exists from the moment the request goes out, so the
+  // narration above the list can name its subject while the answer is still in
+  // flight. Null whenever no name search is in play — which is always, with the
+  // flag off — and cleared by every path that ends one.
+  const [searchedName, setSearchedName] = useState<string | null>(null);
   // The SAME cache entry `MyCompaniesList` below subscribes to, so this adds no
   // second request — RTK Query merges the two subscribers. Skipped while signed out
   // for the same reason the list is: the endpoint is authed, and an anonymous
@@ -164,6 +171,7 @@ export function MyCompaniesPage() {
     // the one you just added. That is precisely the wrong-company failure the
     // list exists to prevent, so every submit starts from a blank slate.
     setCandidates(null);
+    setSearchedName(null);
     resetSearch();
 
     // FLAG OFF MUST BE BYTE-FOR-BYTE THE OLD BEHAVIOUR, which means not even
@@ -211,6 +219,9 @@ export function MyCompaniesPage() {
    */
   const handleNameSearch = async (name: string) => {
     setCandidates(null);
+    // Set BEFORE the await, so the narration's one honest in-flight step is on
+    // screen for the whole ~2s the request is actually out.
+    setSearchedName(name);
     const result = await searchCompanyByName(name);
     // A failed search must SAY so. `AddCompanyOutcome` only ever sees the add
     // mutation's error, so returning quietly here would clear the spinner and
@@ -233,6 +244,9 @@ export function MyCompaniesPage() {
   const handlePickCandidate = (url: string) => {
     if (adding) return;
     setCandidates(null);
+    // The narration goes with the question it explains. Left up, it would be a
+    // second answer beside a question that has already been settled.
+    setSearchedName(null);
     // The search is over the moment a choice is made. Without this, a warning
     // from an EARLIER failed search would re-render beside this add's success
     // card the instant `adding` goes false.
@@ -317,7 +331,22 @@ export function MyCompaniesPage() {
             outcome renders nothing on its own while a request is in flight — the
             previous URL's answer can never sit under the spinner for the next one. */}
         {adding && <LoadingState minHeight={120} caption="Adding this company…" />}
-        {searching && <LoadingState minHeight={120} caption="Looking for their job board…" />}
+
+        {/* THE SEARCH, NARRATED — and it REPLACES the spinner that used to sit here
+            rather than joining it. "Looking for their job board…" over a bare
+            CircularProgress said nothing the button press had not already said. These
+            steps say what we asked the web, how many results came back, and how many
+            of them our own matcher turned into real boards — which is the entire
+            argument for typing a name instead of hunting for a URL.
+
+            Hidden while an add runs, and that is what keeps the auto-add path honest:
+            a single confident result is added immediately without a list ever
+            appearing, and flashing four lines of narration on the way past would be
+            motion for something nobody is being asked to read. `NameSearchProgress`
+            has the rest — in particular why its only spinner is the request itself. */}
+        {!adding ? (
+          <NameSearchProgress query={searchedName} searching={searching} result={candidates} />
+        ) : null}
 
         {/* A search that FAILED, which is not the same as one that found nothing.
             Without this the spinner would clear and leave an empty page — the

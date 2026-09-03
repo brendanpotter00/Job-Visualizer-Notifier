@@ -39,6 +39,7 @@ from ..models import (
     ResolveUrlResponse,
     SearchCompanyRequest,
     SearchCompanyResponse,
+    SearchTraceResponse,
 )
 from ..services.ats_discovery import (
     DiscoveryResult,
@@ -336,7 +337,7 @@ async def search_company_by_name(
             # below bounds only the PROBES; without this a slow search would eat
             # the whole budget and leave the probes 0 seconds, silently reporting
             # every candidate as unreadable — a wrong answer rather than a slow one.
-            candidates, careers_urls = await asyncio.wait_for(
+            candidates, careers_urls, trace = await asyncio.wait_for(
                 search_ats_candidates(payload.name, http),
                 timeout=_SEARCH_BUDGET_S + _RESOLVE_GRACE_S,
             )
@@ -362,4 +363,15 @@ async def search_company_by_name(
         query=payload.name,
         candidates=shown,
         careers_url=careers_urls[0] if careers_urls else None,
+        # Passed straight through from the service, not recomputed here: `shown`
+        # is already capped at `_MAX_SHOWN_CANDIDATES`, so a count taken from it
+        # would under-report how many boards the scoring actually found — and
+        # "we found 8, checked the top 5" is exactly the sentence the client is
+        # trying to say.
+        trace=SearchTraceResponse(
+            query=trace.query,
+            results=trace.results,
+            filtered=trace.filtered,
+            boards=trace.boards,
+        ),
     )

@@ -165,7 +165,7 @@ async def test_a_non_object_result_row_is_skipped_not_fatal() -> None:
         ],
     }
     async with _client(payload) as http:
-        candidates, _ = await search_ats_candidates("Figma", http)
+        candidates, _, _ = await search_ats_candidates("Figma", http)
 
     assert [c.candidate.board_token for c in candidates] == ["figma"]
 
@@ -247,7 +247,7 @@ async def test_the_correct_board_is_found_and_auto_addable() -> None:
         "https://cisco.wd5.myworkdayjobs.com/Cisco_Careers",
     )
     async with _client(payload) as http:
-        candidates, careers = await search_ats_candidates("Cisco", http)
+        candidates, careers, _ = await search_ats_candidates("Cisco", http)
 
     assert len(candidates) == 1
     assert candidates[0].candidate.ats == "workday"
@@ -263,7 +263,7 @@ async def test_a_live_board_owned_by_someone_else_is_gated_not_dropped() -> None
     as a candidate the user can see and reject, but must never be auto-added."""
     payload = _results("https://guidehouse.wd1.myworkdayjobs.com/External")
     async with _client(payload) as http:
-        candidates, _ = await search_ats_candidates("Databricks", http)
+        candidates, _, _ = await search_ats_candidates("Databricks", http)
 
     assert len(candidates) == 1
     assert candidates[0].auto_addable is False
@@ -277,7 +277,7 @@ async def test_scoring_looks_past_the_first_result() -> None:
         "https://jobs.ashbyhq.com/raindrop",
     )
     async with _client(payload) as http:
-        candidates, _ = await search_ats_candidates("Raindrop", http)
+        candidates, _, _ = await search_ats_candidates("Raindrop", http)
 
     assert [c.candidate.board_token for c in candidates] == ["raindrop"]
     assert candidates[0].rank == 21
@@ -291,10 +291,49 @@ async def test_aggregators_are_dropped_from_both_lists() -> None:
         "https://careers.cisco.com/",
     )
     async with _client(payload) as http:
-        candidates, careers = await search_ats_candidates("Cisco", http)
+        candidates, careers, _ = await search_ats_candidates("Cisco", http)
 
     assert candidates == []
     assert careers == ["https://careers.cisco.com/"]
+
+
+@pytest.mark.asyncio
+async def test_the_trace_counts_what_actually_happened() -> None:
+    """The add page narrates a search as steps, and every step names a number
+    from here. So the arithmetic has to hold: `results - filtered` is what got
+    scored, and `boards` is how many of those resolved."""
+    payload = _results(
+        "https://www.linkedin.com/jobs/cisco",
+        "https://careers.cisco.com/",
+        "https://cisco.wd5.myworkdayjobs.com/Cisco_Careers",
+        "https://boards.greenhouse.io/cisco-meraki",
+    )
+    async with _client(payload) as http:
+        candidates, _, trace = await search_ats_candidates("Cisco", http)
+
+    assert trace.query == build_query("Cisco")
+    assert trace.results == 4
+    assert trace.filtered == 1  # LinkedIn, and nothing else
+    assert trace.results - trace.filtered == 3  # what scoring actually saw
+    assert trace.boards == len(candidates) == 2
+
+
+@pytest.mark.asyncio
+async def test_the_traced_query_is_the_one_that_was_sent() -> None:
+    """Reported verbatim rather than rebuilt: a trace that disagreed with the
+    wire would be the page confidently showing a query nobody ran."""
+    sent: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        import json
+
+        sent.append(json.loads(request.content)["query"])
+        return httpx.Response(200, json=_results())
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        _, _, trace = await search_ats_candidates("Jane Street", http)
+
+    assert sent == [trace.query]
 
 
 @pytest.mark.asyncio
@@ -309,7 +348,7 @@ async def test_the_fallback_prefers_the_companys_own_domain() -> None:
         "https://www.databricks.com/company/careers/open-positions",
     )
     async with _client(payload) as http:
-        _, careers = await search_ats_candidates("Databricks", http)
+        _, careers, _ = await search_ats_candidates("Databricks", http)
 
     assert careers[0] == "https://www.databricks.com/company/careers/open-positions"
 
@@ -351,7 +390,7 @@ async def test_the_fallback_keeps_search_rank_between_equal_hosts() -> None:
         "https://careers.example.com/b",
     )
     async with _client(payload) as http:
-        _, careers = await search_ats_candidates("Nobody", http)
+        _, careers, _ = await search_ats_candidates("Nobody", http)
 
     assert careers == ["https://careers.example.com/a", "https://careers.example.com/b"]
 
@@ -396,7 +435,7 @@ async def test_duplicate_board_identities_collapse() -> None:
         "https://job-boards.greenhouse.io/figma",
     )
     async with _client(payload) as http:
-        candidates, _ = await search_ats_candidates("Figma", http)
+        candidates, _, _ = await search_ats_candidates("Figma", http)
 
     assert len(candidates) == 1
 
@@ -444,5 +483,9 @@ async def test_an_empty_name_is_a_no_op_not_a_search() -> None:
         return httpx.Response(200, json={})
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
-        assert await search_ats_candidates("   ", http) == ([], [])
+        candidates, careers, trace = await search_ats_candidates("   ", http)
+    assert (candidates, careers) == ([], [])
+    # An empty trace, not a missing one: the response model always carries the
+    # block, and a name that never reached the API genuinely searched for nothing.
+    assert (trace.query, trace.results, trace.filtered, trace.boards) == ("", 0, 0, 0)
     assert called is False

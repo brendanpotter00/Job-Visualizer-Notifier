@@ -4,7 +4,6 @@ import Button from '@mui/material/Button';
 import CircularProgress from '@mui/material/CircularProgress';
 import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
-import Typography from '@mui/material/Typography';
 
 interface ResolveUrlFormProps {
   /** Called with the trimmed URL. Never called while busy or with an empty value. */
@@ -69,15 +68,25 @@ interface ResolveUrlFormProps {
  * carry the whole branch ("if it's a board we already read you'll see what we found
  * before anything is tracked; if it isn't, we start a one-time setup to learn how to
  * read it") — three clauses under a one-line input, which is a length people skip, and
- * skipped help is worse than none. So the helper says only WHAT TO PASTE, and the spend
- * sentence under the button says WHAT PRESSING IT COSTS. Two jobs, two lines; they must
- * not merge back into one paragraph.
+ * skipped help is worse than none. So the helper says only WHAT TO PASTE. It must not
+ * grow back into the spend explanation now that the sentence which carried that job is
+ * gone (see below) — a helper nobody finishes reading is not a disclosure.
  *
- * THE SPEND SENTENCE LIVES HERE, glued to the button, and it replaced a blue consent
- * alert that used to sit above the whole form ("the consent alert can be completely
- * removed"). It is the only place the page says that pressing Add company can start
- * paid work on the user's behalf, so it is never behind a click, never inside the
- * how-to block, and never in a component the button could be lifted out of.
+ * THE SPEND SENTENCE IS GONE, removed at the owner's request on 2026-09-02, and this
+ * note is here so nobody re-derives it from first principles and puts it back by
+ * accident. It read "If this board is new to us, Add company starts a one-time setup
+ * right away, about a minute", sat glued under the button, and had itself replaced an
+ * earlier blue consent alert above the form.
+ *
+ * What its removal costs, stated plainly because it is a real trade: nothing on this
+ * page now says that pressing **Add company** on a board we do not already read can
+ * start paid work — a headless browser session and a model call — on the user's
+ * behalf. The spend is still bounded server-side (20 adds per UTC month, a 10/60s
+ * burst limit, and `CUSTOM_COMPANY_DISCOVERY_ENABLED`), so the exposure is capped;
+ * what is missing is the disclosure, not the cap.
+ *
+ * If it ever comes back it belongs HERE — under the button, in both the empty and the
+ * populated state, never behind a click and never inside the how-to block.
  */
 export function ResolveUrlForm({
   onSubmit,
@@ -144,15 +153,6 @@ export function ResolveUrlForm({
         </Button>
       </Stack>
 
-      {/* UNDER THE BUTTON, in both the empty and the populated state, never behind a
-          disclosure. See the docstring: this sentence is the whole consent. */}
-      <Typography variant="body2" color="text.secondary" sx={{ mt: 1.75 }}>
-        If this board is new to us,{' '}
-        <Box component="strong" sx={{ color: 'text.primary' }}>
-          Add company
-        </Box>{' '}
-        starts a one-time setup right away, about a minute.
-      </Typography>
     </Box>
   );
 }

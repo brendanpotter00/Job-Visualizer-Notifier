@@ -1323,6 +1323,34 @@ class NameCandidateResponse(BaseModel):
     auto_addable: bool
 
 
+class SearchTraceResponse(BaseModel):
+    """What the search actually DID — the numbers behind the answer above it.
+
+    This block exists for one reason: the add page narrates a name search as a
+    short list of steps, and a step is only allowed on screen if there is a real
+    number behind it. Everything here is measured on the call that produced this
+    response; nothing is averaged, estimated or carried over.
+
+    It is also the only honest source for two of the four: ``query`` is assembled
+    from ``_QUERY_TEMPLATE`` server-side (rebuilding it in the client would be a
+    second place that has to stay right about the 76%-vs-41% host-shaped query),
+    and ``results`` is the raw count before any of our own filtering, which never
+    otherwise leaves the service.
+
+    The three counts are meant to add up on screen —
+    ``results - filtered = scored``, of which ``boards`` resolved — so
+    ``filtered`` deliberately counts aggregator/social hosts ONLY, never a
+    malformed row.
+    """
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    query: str
+    results: int = Field(ge=0)
+    filtered: int = Field(ge=0)
+    boards: int = Field(ge=0)
+
+
 class SearchCompanyResponse(BaseModel):
     """200 body for POST /api/companies/search-by-name. Persists nothing.
 
@@ -1331,6 +1359,10 @@ class SearchCompanyResponse(BaseModel):
     not run. ``careers_url`` is the best non-aggregator page we saw, offered so
     the client can fall back to the ordinary paste-a-URL path (and, from there,
     one-time discovery) rather than dead-ending.
+
+    ``trace`` is always sent. The client still treats it as optional, because the
+    frontend (Vercel) and this API (Railway) deploy separately and a new client
+    routinely talks to the previous backend for a few minutes.
     """
 
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
@@ -1338,6 +1370,7 @@ class SearchCompanyResponse(BaseModel):
     query: str
     candidates: list[NameCandidateResponse] = Field(default_factory=list)
     careers_url: str | None = None
+    trace: SearchTraceResponse
 
 
 class AddUserCompanyRequest(BaseModel):
@@ -1586,6 +1619,21 @@ class UserCompanyResponse(BaseModel):
     display_name: str
     ats: str
     board_token: str
+    # THE BOARD WE ACTUALLY READ, as a URL a person can open — the row's
+    # provenance, and the only answer to "which Cisco is this?" for a company the
+    # user found by NAME rather than by pasting a link.
+    #
+    # Computed here rather than in the browser (``services.board_url``) because the
+    # data is here: Workday's real host lives in ``provider_config.base_url`` and
+    # Eightfold's in ``provider_config.tenant_host``, and that column is not on the
+    # wire. The frontend's own derivation could only ever cover the four providers
+    # whose ``board_token`` IS their board slug, so those two rendered no link at
+    # all — a company added by name, on Workday, showed nothing.
+    #
+    # NULL when we cannot name an HONEST destination (an ATS we do not recognise, a
+    # config that fails ``board_url``'s shape checks). The UI renders nothing for
+    # it; a confident link to a 404 is worse than the gap.
+    board_url: str | None = None
     source_id: str
     health_state: str | None = None
     open_job_count: int = Field(ge=0)

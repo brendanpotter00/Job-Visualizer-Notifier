@@ -484,6 +484,12 @@ def add_custom_company(
                 "display_name": display_name,
                 "ats": ats,
                 "board_token": board_token,
+                # Echoed back verbatim (it is what we just INSERTed) so the router's
+                # ``_to_response`` can build this row's board URL from the SAME
+                # source it uses for a row read back out of the table. Without it
+                # the 201 body would be the one response missing the link that every
+                # subsequent list of the same company carries.
+                "provider_config": dict(provider_config),
                 "health_state": "unverified",
                 "last_success_at": None,
                 "tracking_started_at": None,

@@ -163,8 +163,12 @@ export function MyCompanyTrendPage() {
               {company ? `${company.displayName} hiring trend` : 'Hiring trend'}
             </Typography>
             {/* AND WHERE IT CAME FROM — the board we actually read to build this, which
-                is the question you are asking when a job link turns out to be dead. Only
-                when we can name an honest destination; see `sourceBoardUrl`. */}
+                is the question you are asking when a job link turns out to be dead, and
+                the only way to check we picked the right company when you added it by
+                NAME rather than by pasting a link. The url is the server's (`boardUrl`),
+                so a Workday or Eightfold row — whose real host is in `provider_config`
+                and never reached the browser — finally has one. Rendered only when we can
+                name an honest destination; see `sourceBoardUrl`. */}
             {boardUrl && boardLabel ? (
               <Link
                 href={boardUrl}

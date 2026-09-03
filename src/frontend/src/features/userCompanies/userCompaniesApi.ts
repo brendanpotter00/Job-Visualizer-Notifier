@@ -223,6 +223,24 @@ export interface UserCompany {
   /** Bare `str` on the wire — backend-owned, so a new provider is not a type error. */
   ats: string;
   boardToken: string;
+  /**
+   * THE BOARD WE ACTUALLY READ, as a URL a person can open — computed by the server
+   * (`api/services/board_url.py`), which is the only place the parts exist.
+   *
+   * Workday's real host is `provider_config.base_url` and Eightfold's is
+   * `provider_config.tenant_host`, and that column is not on the wire; `boardToken` for
+   * both is a cosmetic tenant label (`blueorigin`, `netflix`) that names no host. So
+   * the derivation this replaced could only ever cover the four providers whose token
+   * IS their board slug, and those two rows showed no source at all — which is exactly
+   * what a company added by NAME, on Workday, looked like.
+   *
+   * Optional AND nullable, and the two mean different things. **Absent** is a server
+   * that predates the field, and {@link sourceBoardUrl} still derives what it safely
+   * can — a frontend deploy that lands ahead of the backend one must not blank the
+   * links that already work. **Null** is the server saying it cannot name an honest
+   * destination for this row, and the UI renders nothing.
+   */
+  boardUrl?: string | null;
   /** `custom:<id>` — per-company job namespace. */
   sourceId: string;
   /** See `UserCompanyHealthState`; typed wide because the server owns the list. */
@@ -650,16 +668,47 @@ export interface SearchCompanyCandidate {
 }
 
 /**
+ * What the search actually DID — the numbers behind the candidates above.
+ *
+ * This is the entire supply for `NameSearchProgress`, and the reason it is on
+ * the wire rather than reconstructed: `query` is assembled server-side from one
+ * template (rebuilding it here would be a second place that has to stay right
+ * about a query worth 76% instead of 41%), `results` and `filtered` never
+ * otherwise leave the service, and `boards` is counted BEFORE the five-candidate
+ * display cap — so it is the only field that can say "found 8, checked 5".
+ *
+ * The three counts are meant to add up on screen: `results - filtered` is what
+ * got scored, of which `boards` resolved.
+ */
+export interface SearchTrace {
+  /** The host-shaped query we sent, verbatim. */
+  query: string;
+  /** Results the search engine returned (at most 25). */
+  results: number;
+  /** Aggregator / social hosts dropped before any scoring. */
+  filtered: number;
+  /** Scored results that resolved to a board we can read, before the display cap. */
+  boards: number;
+}
+
+/**
  * The 200 body of `POST /api/companies/search-by-name`.
  *
  * An empty `candidates` with a non-null `careersUrl` is a real, useful answer:
  * we found no board we can read for free, but we did find the company's careers
  * page, which is exactly what the ordinary paste-a-URL path takes.
+ *
+ * `trace` is OPTIONAL here and required server-side, and that asymmetry is
+ * deliberate rather than sloppy: this app and its API deploy separately (Vercel
+ * and Railway), so a freshly-shipped client routinely talks to the previous
+ * backend for a few minutes. `NameSearchProgress` narrates fewer steps when it
+ * is missing rather than inventing the numbers it would have carried.
  */
 export interface SearchCompanyResponse {
   query: string;
   candidates: SearchCompanyCandidate[];
   careersUrl: string | null;
+  trace?: SearchTrace;
 }
 
 export const userCompaniesApi = createApi({

@@ -59,6 +59,7 @@ from ..routers.jobs import NEXT_CURSOR_HEADER
 from ..services import add_quota
 from ..services import custom_companies_service as svc
 from ..services.ats_discovery import REASON_NO_ATS, discover_ats, probe_candidate
+from ..services.board_url import board_url
 from ..services.company_name_match import directory_tenant
 from ..services.rate_limit import (
     enforce_user_company_add_rate_limit,
@@ -123,6 +124,15 @@ def _to_response(row: dict) -> UserCompanyResponse:
         display_name=row["display_name"],
         ats=row["ats"],
         board_token=row["board_token"],
+        # Same column, third reader, same total contract: WHERE we read this board.
+        # It is derived rather than stored because ``provider_config`` already holds
+        # every part of it (Workday's ``base_url`` + ``career_site_slug``,
+        # Eightfold's ``tenant_host`` + ``domain``), so every row that exists today
+        # gets its link with no migration and no backfill. ``None`` for anything we
+        # cannot build honestly — see ``services.board_url``.
+        board_url=board_url(
+            row.get("ats"), row.get("board_token"), row.get("provider_config")
+        ),
         source_id=row.get("source_id") or custom(row["id"]),
         health_state=row.get("health_state"),
         open_job_count=int(row.get("open_job_count") or 0),

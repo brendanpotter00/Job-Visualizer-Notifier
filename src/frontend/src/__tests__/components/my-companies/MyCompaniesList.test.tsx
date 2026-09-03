@@ -110,22 +110,27 @@ describe('MyCompaniesList', () => {
     // said WHERE IT CAME FROM. When a board started serving dead job links there was no
     // way to go and look at it without opening the database.
     //
-    // Discovered boards are the case it was asked for — their `boardToken` is the URL the
-    // user pasted — but an ATS row raises the same question, so it gets the same link
-    // built from its slug.
+    // The url is the SERVER's (`boardUrl`) — see the Workday case below for why that
+    // matters. Discovered boards are the case it was originally asked for, but an ATS row
+    // raises the same question and gets the same link.
+    const atsRow: UserCompany = {
+      ...COMPANY_A,
+      boardUrl: 'https://job-boards.greenhouse.io/duolingo',
+    };
     const discovered: UserCompany = {
       ...COMPANY_A,
       id: 'u-cccccccccc',
       displayName: 'Jane Street',
       ats: 'discovered',
       boardToken: 'https://www.janestreet.com/join-jane-street/open-roles/',
+      boardUrl: 'https://www.janestreet.com/join-jane-street/open-roles/',
     };
-    fetchMock.mockResolvedValue(jsonResponse({ companies: [COMPANY_A, discovered] }));
+    fetchMock.mockResolvedValue(jsonResponse({ companies: [atsRow, discovered] }));
     renderWithProviders(<MyCompaniesList />);
 
     const rows = await screen.findAllByTestId('my-company-row');
 
-    // The ATS row: built from the slug, at the host Greenhouse actually serves.
+    // The ATS row: the host Greenhouse actually serves the board on.
     const atsLink = within(rows[0]).getByTestId('my-company-board-link');
     expect(atsLink).toHaveAttribute('href', 'https://job-boards.greenhouse.io/duolingo');
     expect(atsLink).toHaveAttribute('target', '_blank');
@@ -140,17 +145,57 @@ describe('MyCompaniesList', () => {
     expect(boardLink).toHaveTextContent('janestreet.com');
   });
 
-  it('shows NO board link rather than a guessed one when the host is not derivable', async () => {
-    // Workday and Eightfold keep their real board host in `provider_config`, which this
-    // payload does not carry; `boardToken` is a cosmetic tenant label. A confident link
-    // to a 404 is worse than the gap — the row is missing information either way, and
-    // only one of the two lies about it.
+  it('links a Workday row to its real board, which used to render nothing at all', async () => {
+    // THE REPORTED BUG. `boardToken` for Workday and Eightfold is a cosmetic tenant label
+    // that names no host — the real board is in `provider_config`, which this payload has
+    // never carried — so the row refused to guess and showed no source at all. That is
+    // exactly what a company added by NAME looks like: "Cisco" resolves to Workday.
+    // The server sends the assembled url now, so both providers have a link.
+    const workday: UserCompany = {
+      ...COMPANY_A,
+      id: 'u-dddddddddd',
+      displayName: 'Cisco',
+      ats: 'workday',
+      boardToken: 'cisco',
+      boardUrl: 'https://cisco.wd5.myworkdayjobs.com/Cisco_Careers',
+    };
+    const eightfold: UserCompany = {
+      ...COMPANY_A,
+      id: 'u-eeeeeeeeee',
+      displayName: 'Netflix',
+      ats: 'eightfold',
+      boardToken: 'netflix',
+      boardUrl: 'https://explore.jobs.netflix.net/careers?domain=netflix.com',
+    };
+    fetchMock.mockResolvedValue(jsonResponse({ companies: [workday, eightfold] }));
+    renderWithProviders(<MyCompaniesList />);
+
+    const rows = await screen.findAllByTestId('my-company-row');
+
+    const workdayLink = within(rows[0]).getByTestId('my-company-board-link');
+    expect(workdayLink).toHaveAttribute('href', workday.boardUrl);
+    // The label is the host, so the row answers "which Cisco?" without a click; the exact
+    // url — query string and all — stays on `title`.
+    expect(workdayLink).toHaveTextContent('cisco.wd5.myworkdayjobs.com');
+    expect(workdayLink).toHaveAttribute('title', workday.boardUrl);
+
+    const eightfoldLink = within(rows[1]).getByTestId('my-company-board-link');
+    expect(eightfoldLink).toHaveAttribute('href', eightfold.boardUrl);
+    expect(eightfoldLink).toHaveTextContent('explore.jobs.netflix.net');
+  });
+
+  it('shows NO board link when the server cannot name an honest destination', async () => {
+    // `null` is the server's considered answer, not a missing field: it looked at the
+    // config and could not build a url it can stand behind. A confident link to a 404 is
+    // worse than the gap — the row is missing information either way, and only one of the
+    // two lies about it.
     const workday: UserCompany = {
       ...COMPANY_A,
       id: 'u-dddddddddd',
       displayName: 'Blue Origin',
       ats: 'workday',
       boardToken: 'blueorigin',
+      boardUrl: null,
     };
     fetchMock.mockResolvedValue(jsonResponse({ companies: [workday] }));
     renderWithProviders(<MyCompaniesList />);
@@ -159,6 +204,30 @@ describe('MyCompaniesList', () => {
     expect(within(row).queryByTestId('my-company-board-link')).not.toBeInTheDocument();
     // ...and the rest of the row is untouched — no gap, no placeholder.
     expect(within(row).getByText('Blue Origin')).toBeInTheDocument();
+  });
+
+  it('still derives what it safely can from a payload with no boardUrl field', async () => {
+    // Deploy skew: the frontend ships on Vercel and the backend on Railway, so a build
+    // that knows about `boardUrl` can be live against a server that does not send it.
+    // Every link that works today has to keep working through that window — and Workday
+    // still gets nothing, because a guess is what this refuses to make.
+    const legacyAts: UserCompany = { ...COMPANY_A };
+    const legacyWorkday: UserCompany = {
+      ...COMPANY_A,
+      id: 'u-ffffffffff',
+      displayName: 'Blue Origin',
+      ats: 'workday',
+      boardToken: 'blueorigin',
+    };
+    fetchMock.mockResolvedValue(jsonResponse({ companies: [legacyAts, legacyWorkday] }));
+    renderWithProviders(<MyCompaniesList />);
+
+    const rows = await screen.findAllByTestId('my-company-row');
+    expect(within(rows[0]).getByTestId('my-company-board-link')).toHaveAttribute(
+      'href',
+      'https://job-boards.greenhouse.io/duolingo'
+    );
+    expect(within(rows[1]).queryByTestId('my-company-board-link')).not.toBeInTheDocument();
   });
 
   it('shows the how-to, not an empty state, when the user tracks nothing', async () => {

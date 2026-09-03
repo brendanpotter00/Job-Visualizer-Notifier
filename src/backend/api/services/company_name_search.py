@@ -67,9 +67,24 @@ _QUERY_TEMPLATE = (
 )
 _QUERY_MAX_CHARS = 200
 
-# The API's own ceiling. Scoring is free, so there is no reason to ask for fewer:
-# measured, the correct board is the FIRST result only 11 times out of 22 hits, so
-# looking at just the top result would halve the feature.
+# The API's own ceiling. 25 BECAUSE IT IS FREE, not because it is worth much —
+# and the difference matters if the vendor ever changes.
+#
+# Measured over the 29-company ground-truth set, the correct board is found in:
+#
+#     the top 1 result   11/29 · 38%
+#     the top 5 results  21/29 · 72%
+#     all 25 results     22/29 · 76%
+#
+# So the cliff is between 1 and 5, not between 5 and 25 — going to the ceiling buys
+# exactly ONE company out of 29 over asking for five. We ask for it anyway because
+# Browserbase bills a flat rate per CALL regardless of result count, and scoring is
+# a pure local function, so those twenty extra results cost nothing at all.
+#
+# EXA, which is what Browserbase Search is built on, bills per RESULT: $7/1k requests
+# covering the first 10, then $1/1k beyond. Under that model 25 results is $0.022
+# against $0.007 — so if this ever moves to Exa directly, drop this to 10 and accept
+# the one company. Verified against exa.ai/docs/reference/pricing, 2026-09-02.
 _NUM_RESULTS = 25
 
 _SEARCH_TIMEOUT_S = 12.0
@@ -109,6 +124,32 @@ _GENERIC_SLUGS = frozenset(
         "site", "home", "apply", "talent", "recruiting", "hiring", "en", "us",
     }
 )
+
+
+@dataclass(frozen=True)
+class NameSearchTrace:
+    """What one search actually did, in numbers, for a client that narrates it.
+
+    Every field is something that really happened on this call — there is nothing
+    derived, estimated or averaged in here. It exists because the add page shows
+    the run as a short list of steps, and a step is only allowed on screen if we
+    can point at the number behind it.
+
+    ``filtered`` counts results dropped by ``is_aggregator`` ONLY. A malformed row
+    (no URL, not an object) is not filtering, it is a broken result, and lumping
+    the two together would let the displayed arithmetic
+    (``results - filtered = scored``) quietly stop adding up.
+    """
+
+    #: The host-shaped query we sent, verbatim. Sent rather than rebuilt client-side
+    #: so ``_QUERY_TEMPLATE`` stays the one place that decides it.
+    query: str
+    #: How many results the search engine returned (<= ``_NUM_RESULTS``).
+    results: int
+    #: Aggregator / social hosts dropped before any scoring.
+    filtered: int
+    #: How many of the scored results resolved to a board we can read.
+    boards: int
 
 
 @dataclass(frozen=True)
@@ -309,19 +350,27 @@ class NameSearchUnavailable(RuntimeError):
 
 async def search_ats_candidates(
     company: str, http: httpx.AsyncClient
-) -> tuple[list[NameCandidate], list[str]]:
-    """One search call, then score every result. Returns (candidates, careers_urls).
+) -> tuple[list[NameCandidate], list[str], NameSearchTrace]:
+    """One search call, then score every result.
+
+    Returns ``(candidates, careers_urls, trace)``.
 
     ``careers_urls`` are the non-aggregator results that resolved to no board, in
     rank order — rung B feeds the best of them to the existing
     ``ats_discovery.discover_ats``, which is free and recovers ~3 more companies
     in 29, Cisco among them.
 
+    ``trace`` is the run's own counts (see ``NameSearchTrace``). It is a THIRD
+    RETURN VALUE rather than something the caller recomputes because two of its
+    four fields — the query we sent and how many results came back — exist only
+    inside this function; a caller that guessed at them would be narrating a run
+    it never saw.
+
     Candidates are deduplicated on board identity and returned in rank order.
     """
     name = company.strip()
     if not name:
-        return [], []
+        return [], [], NameSearchTrace(query="", results=0, filtered=0, boards=0)
     if len(name) > _MAX_NAME_CHARS:
         raise NameSearchUnavailable(
             f"company name is {len(name)} characters, over the {_MAX_NAME_CHARS} limit"
@@ -329,6 +378,10 @@ async def search_ats_candidates(
     if not settings.browserbase_api_key:
         raise NameSearchUnavailable("BROWSERBASE_API_KEY is not configured")
 
+    # Built ONCE and kept, because the trace reports the query verbatim and
+    # rebuilding it for the report would be a second chance to report something
+    # other than what was sent.
+    query = build_query(name)
     try:
         response = await http.post(
             _SEARCH_API,
@@ -336,7 +389,7 @@ async def search_ats_candidates(
                 "X-BB-API-Key": settings.browserbase_api_key,
                 "Content-Type": "application/json",
             },
-            json={"query": build_query(name), "numResults": _NUM_RESULTS},
+            json={"query": query, "numResults": _NUM_RESULTS},
             timeout=_SEARCH_TIMEOUT_S,
         )
     except httpx.HTTPError as exc:
@@ -368,6 +421,7 @@ async def search_ats_candidates(
 
     candidates: list[NameCandidate] = []
     careers_urls: list[str] = []
+    filtered = 0
     seen: set[tuple[str, str, tuple[tuple[str, str], ...]]] = set()
 
     for rank, result in enumerate(results, start=1):
@@ -379,6 +433,7 @@ async def search_ats_candidates(
         if not isinstance(url, str) or not url:
             continue
         if is_aggregator(url):
+            filtered += 1
             continue
         resolved = resolve_ats_url(url)
         if resolved is None:
@@ -403,8 +458,21 @@ async def search_ats_candidates(
         )
 
     logger.info(
-        "Name search for %r: %d result(s) -> %d board candidate(s), %d auto-addable",
-        name, len(results), len(candidates),
+        "Name search for %r: %d result(s), %d aggregator(s) dropped -> "
+        "%d board candidate(s), %d auto-addable",
+        name, len(results), filtered, len(candidates),
         sum(1 for c in candidates if c.auto_addable),
     )
-    return candidates, _rank_careers_urls(name, careers_urls)
+    return (
+        candidates,
+        _rank_careers_urls(name, careers_urls),
+        NameSearchTrace(
+            query=query,
+            results=len(results),
+            filtered=filtered,
+            # The DEDUPLICATED count, which is what the user is about to be shown
+            # a slice of. Counting pre-dedupe hits would promise boards that are
+            # the same board twice.
+            boards=len(candidates),
+        ),
+    )

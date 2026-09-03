@@ -198,27 +198,28 @@ describe('MyCompaniesPage', () => {
   });
 
   describe('signed in', () => {
-    it('names the spend under the button, before anything is pasted', () => {
+    it('carries NO spend sentence under the button', () => {
       renderWithProviders(<MyCompaniesPage />);
 
-      // THE CONSENT, and it moved rather than went. It used to be a blue info alert
-      // above the whole form; it is now one body-size sentence directly under the
-      // button, which is the control it describes. It must still name the paid branch
-      // and say that it starts at once — the submit can begin a headless browser
-      // session and an LLM call on the user's behalf.
-      const spend = screen.getByText(/if this board is new to us/i);
-      expect(spend).toHaveTextContent(/one-time setup/i);
-      expect(spend).toHaveTextContent(/right away/i);
-      // …and it may never shrink back into promising a read-only check, which is what
-      // the removed "nothing is tracked until you press Track this company" did.
-      expect(spend).not.toHaveTextContent(/nothing is tracked until/i);
-      expect(spend).not.toHaveTextContent(/track this company/i);
-      // No alert above the form any more: one disclosure, not two.
+      // REMOVED at the owner's request, 2026-09-02. This test used to assert the
+      // sentence was present; it now asserts the opposite, so the removal is a
+      // decision on the record rather than something a later reader restores by
+      // reasoning from first principles.
+      //
+      // What went with it: the only place the page said that pressing **Add
+      // company** on a board we do not already read can start paid work — a
+      // headless browser session and a model call — on the user's behalf. The
+      // spend is still capped server-side (20 adds per UTC month, a 10/60s burst
+      // limit, `CUSTOM_COMPANY_DISCOVERY_ENABLED`); it is the disclosure that is
+      // gone, not the cap.
+      expect(screen.queryByText(/if this board is new to us/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/one-time setup right away/i)).not.toBeInTheDocument();
+      // And it did not come back as an alert above the form, which is the shape it
+      // had before it was a sentence.
       expect(screen.queryByRole('alert')).not.toBeInTheDocument();
 
-      // The field's helper says WHAT TO PASTE and nothing about spending — two jobs,
-      // two lines. It used to carry the whole branch, which made it three clauses long
-      // under a one-line input: a length people skip, and skipped consent is not consent.
+      // The field's helper still says WHAT TO PASTE, and still says nothing about
+      // spending — that division is unchanged.
       const helper = screen.getByText(/paste the link to the company’s own careers page/i);
       expect(helper).not.toHaveTextContent(/one-time setup/i);
     });

@@ -182,15 +182,21 @@ every import for zero user-visible gain.
   the discovery gate and **without writing a `company_add_attempts` row** — so it starts
   nothing and spends none of the 20 monthly adds. `no_ats_detected` is the opposite: we read
   the page, found no board, and that goes to discovery and charges.
-- **The sentence under the button IS the consent, and it may not promise a confirm.** It
-  lives in `ResolveUrlForm`, directly under **Add company**: *"If this board is new to us,
-  Add company starts a one-time setup right away, about a minute."* It used to be a blue
-  info alert above the whole form saying the same thing at greater length; the alert was
-  cut ("the consent alert can be completely removed") and this replaced it, because a line
-  under the button is read by someone about to press it and a banner above the field is
-  read on the way past. It may never move behind a click, and it may never shrink back to
-  promising a read-only check — that is what the deleted "nothing is tracked until you
-  press Track this company" did, and the button it named is gone.
+- **There is no spend sentence under the button, and that is deliberate.** One used to
+  live in `ResolveUrlForm` directly under **Add company** — *"If this board is new to us,
+  Add company starts a one-time setup right away, about a minute"* — itself the
+  replacement for an earlier blue consent alert above the whole form. **Both were removed
+  at the owner's request (2026-09-02.)** Recorded here because it is the kind of thing a
+  later reader re-derives and puts back: the reasoning that produced it ("a line under the
+  button is read by someone about to press it") is still sound, it was simply overruled.
+  **What the removal costs:** nothing on the page now tells the user that pressing **Add
+  company** on a board we do not already read can start paid work — a headless browser
+  session and a model call — on their behalf. The spend itself is still bounded
+  server-side (20 adds per UTC month off `company_add_attempts`, a 10/60s burst limit, and
+  `CUSTOM_COMPANY_DISCOVERY_ENABLED`), so what is missing is the disclosure, not the cap.
+  `MyCompaniesPage.test.tsx` asserts the sentence's ABSENCE, so restoring it is a
+  deliberate act rather than an accident. If it ever returns it belongs under the button,
+  in both the empty and populated states, never behind a click.
 - **The field helper is the last statement of the aggregator rule.** *"Paste the link to
   the company's own careers page, not LinkedIn or Indeed."* The clause naming the
   aggregators is there ONLY because the how-to video that was going to say it does not
@@ -202,7 +208,7 @@ every import for zero user-visible gain.
 - **The how-to IS the empty state** (`AddCompanyHowTo`). A user tracking nothing sees three
   numbered steps where "No companies yet" used to be, and the state is still named for a
   screen reader by a `visuallyHidden` line. One company later the list replaces it and a
-  persistent **How it works** link under the spend sentence re-opens the same component —
+  persistent **How it works** link under the form re-opens the same component —
   one component, two triggers, so the two renders cannot drift. The **video slot is empty
   and draws nothing**: set `HOW_IT_WORKS_VIDEO_SRC` and the video appears under the same
   steps, which is the whole change.
@@ -319,7 +325,7 @@ every import for zero user-visible gain.
   purpose, so endpoints under more than one path prefix can share it
 - `features/userCompanies/resolveErrors.ts` — resolver-code → copy mapping
 - `components/my-companies/ResolveUrlForm.tsx` — the input, the only button, the helper
-  carrying the aggregator rule, and the spend sentence under the button
+  carrying the aggregator rule (the spend sentence that used to sit under the button was removed 2026-09-02)
 - `components/my-companies/AddCompanyHowTo.tsx` — the three steps and the video slot;
   `HOW_IT_WORKS_VIDEO_SRC` at the top is the one line to change when a video exists
 - `components/my-companies/AddCompanyOutcome.tsx` — every outcome one press can land on
@@ -391,14 +397,31 @@ because discovery is deterministic and re-running the same URL reproduces the sa
   the 16:10 box slides shut under it, and then the line goes too. Same 260ms fade+rise as
   `DiscoveryNetworkLog`'s `ROW_ANIMATION`. On a run that ended there is **no** note — the
   checklist directly above has just said how it turned out.
-- **Every tracked row links to the board it was built from** (`sourceBoardUrl` /
-  `sourceBoardLabel` in `companyHealth.ts`), on the list row and in the
-  `MyCompanyTrendPage` header. A discovered board's `boardToken` *is* the normalized URL
-  the user pasted; Greenhouse/Ashby/Lever/Gem are built from the slug. **Workday and
-  Eightfold get no link** — their `boardToken` is a cosmetic tenant label and the real
-  host lives in `provider_config`, which the list payload does not carry, so a link would
-  be a confident 404. The label is the host so the row answers the question without a
-  click; the exact URL is on `title`.
+- **Every tracked row links to the board it was built from**, on the list row and in the
+  `MyCompanyTrendPage` header. **The URL is the server's** — `boardUrl` on the
+  `UserCompany` payload, computed in `api/services/board_url.py`. The label is the host
+  so the row answers the question without a click; the exact URL is on `title`
+  (`sourceBoardUrl` / `sourceBoardLabel` in `companyHealth.ts`).
+  - **It moved to the server because `provider_config` is there and not here.** Workday's
+    real board is `{base_url}/{career_site_slug}` and Eightfold's is
+    `https://{tenant_host}/careers?domain={domain}`; both live in that column, which the
+    list payload does not carry, and `boardToken` for both is a cosmetic tenant label
+    (`blueorigin`, `netflix`) naming no host. So **those two rows used to render no link
+    at all** — and that is precisely what a company added by NAME looks like, since
+    "Cisco" resolves to Workday. Teaching the browser those shapes would mean putting
+    `provider_config` on the wire plus a second copy of every provider's URL grammar.
+  - **`null` and absent are different, and the difference is load-bearing.** `null` is the
+    server's considered answer (it saw the config and could not build an honest URL) and
+    the UI renders nothing. **Absent** is a server that predates the field — Vercel and
+    Railway deploy separately, so a frontend build can be live against one — and
+    `sourceBoardUrl` falls back to the old local derivation: the pasted URL for a
+    discovered board, host + slug for Greenhouse/Ashby/Lever/Gem. That fallback still
+    refuses to guess Workday or Eightfold, because the only version of them it could build
+    is a guess.
+  - Every shape `board_url.py` emits is one the backend already depends on, and each is
+    re-validated before it becomes an `href`: the Workday host against
+    `WORKDAY_HOST_PATTERN`, the Eightfold host against the same SSRF allowlist the fetch
+    uses, and everything against `http(s)` on both sides of the wire.
 - **The network log** (`DiscoveryNetworkLog.tsx`) is the evidence under the checklist:
   every JSON request the capture browser recorded, which one we picked, and a sample of
   the JSON it returned. **Open by default, and it NARROWS** (one decision, not two):

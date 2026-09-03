@@ -138,6 +138,13 @@ def test_a_typed_name_returns_the_board_with_a_live_job_count(
     assert found["autoAddable"] is True
     # The careers page we did NOT pick is still offered as the fallback.
     assert body["careersUrl"] == "https://careers.cisco.com/global/en/home"
+    # ...and the trace the add page narrates the run from. `boards` is counted
+    # BEFORE the five-candidate display cap, which is the whole reason it is on
+    # the wire rather than derived from `candidates`.
+    assert body["trace"]["results"] == 2
+    assert body["trace"]["filtered"] == 0
+    assert body["trace"]["boards"] == 1
+    assert "myworkdayjobs.com" in body["trace"]["query"]
     assert _company_count(db_conn) == before
 
 
@@ -306,6 +313,9 @@ def test_probes_are_capped_regardless_of_how_many_boards_come_back(
     assert len(body["candidates"]) == 5
     probe_calls = [r for r in seen if "boards-api.greenhouse.io" in str(r.url)]
     assert len(probe_calls) == 5
+    # The trace still reports all 20, which is what lets the page say "found 20,
+    # checked the top 5" instead of silently claiming it only ever found five.
+    assert body["trace"]["boards"] == 20
 
 
 def test_requires_a_bearer_token(db_conn) -> None:

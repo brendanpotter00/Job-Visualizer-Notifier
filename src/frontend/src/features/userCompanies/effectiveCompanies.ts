@@ -121,10 +121,16 @@ export const selectEffectiveCompanies = createSelector(
   [selectOwnedUserCompanies],
   (companies): readonly CompanyOption[] => {
     if (!companies || companies.length === 0) return PUBLIC_COMPANY_OPTIONS;
-    const custom = [...companies]
-      .sort((a, b) => a.displayName.localeCompare(b.displayName))
-      .map(toCustomOption);
-    return [...PUBLIC_COMPANY_OPTIONS, ...custom];
+    // ONE ALPHABETICAL LIST, custom boards interleaved rather than appended.
+    // They used to be a second block under a "Your companies" heading, which
+    // meant that finding a company you track required knowing which of the two
+    // lists it was in first — and the person looking for "Cisco" is looking for
+    // Cisco, not for the category we happen to file it under. The `isCustom`
+    // flag survives on each option and the dropdown marks those rows with a
+    // badge, so the distinction is still visible where it is cheap to read.
+    return [...PUBLIC_COMPANY_OPTIONS, ...companies.map(toCustomOption)].sort((a, b) =>
+      a.name.localeCompare(b.name)
+    );
   }
 );
 
