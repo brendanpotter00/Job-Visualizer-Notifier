@@ -136,7 +136,12 @@ describe('/api/jobs serverless function', () => {
       await handler(mockReq as VercelRequest, mockRes as VercelResponse);
 
       expect(mockRes.status).toHaveBeenCalledWith(404);
-      expect(mockRes.json).toHaveBeenCalledWith({ error: 'Not found' });
+      // The SHARED rejection body (`PROXY_REJECTION` in api/utils/proxyPath.ts),
+      // not this proxy's old hand-rolled `{ error: 'Not found' }`. Adopting
+      // `resolveProxyPath` here put /api/jobs behind the same control as the
+      // other seven proxies — which is the point, and it means the shape is
+      // theirs: `proxyAllowlistGuard.ts` and jobs-qa already assert this one.
+      expect(mockRes.json).toHaveBeenCalledWith({ detail: 'Not Found' });
       // Forwarding and letting the backend decide is exactly the hole the
       // allowlist closes — the proxy holds the shared secret.
       expect(fetchMock).not.toHaveBeenCalled();
