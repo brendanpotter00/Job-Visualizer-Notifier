@@ -93,10 +93,12 @@ describe('hasEscapedArena', () => {
     expect(hasEscapedArena(-0.5)).toBe(false);
     expect(hasEscapedArena(-5)).toBe(false);
     expect(hasEscapedArena(ARENA_ESCAPE_Y + 0.01)).toBe(false);
+    // The threshold itself is still in-bounds — strictly below it escapes.
+    expect(hasEscapedArena(ARENA_ESCAPE_Y)).toBe(false);
   });
 
   it('catches a tile that tunnelled out and is now falling forever', () => {
-    expect(hasEscapedArena(ARENA_ESCAPE_Y)).toBe(true);
+    expect(hasEscapedArena(ARENA_ESCAPE_Y - 0.01)).toBe(true);
     expect(hasEscapedArena(-21)).toBe(true);
     // The measured escape that motivated the guard.
     expect(hasEscapedArena(-2765.09)).toBe(true);
