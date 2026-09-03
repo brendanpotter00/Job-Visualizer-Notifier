@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '../../../test/testUtils';
 import { MyCompaniesPage } from '../../../pages/MyCompaniesPage';
@@ -192,14 +192,24 @@ describe('MyCompaniesPage — typed company name', () => {
     );
     renderWithProviders(<MyCompaniesPage />);
 
-    await submit('Databricks');
+    const user = await submit('Databricks');
 
     await waitFor(() => expect(callsTo('search-by-name').length).toBe(1));
     // Nothing was added...
     expect(callsTo('/users/companies')).toHaveLength(0);
-    // ...and the user is shown the identity that makes it obviously wrong.
-    expect(await screen.findByText('guidehouse')).toBeInTheDocument();
-    expect(screen.getByText(/794 open jobs/)).toBeInTheDocument();
+    // ...and nothing offers to add it in one press either: the gate rejected this
+    // board, so it is folded away rather than sitting there wearing the same
+    // button the right answer would wear.
+    expect(screen.queryByRole('button', { name: /track guidehouse/i })).not.toBeInTheDocument();
+    // The identity is still one press away, at full size — unfolding must never
+    // shrink the thing a person uses to catch the wrong company.
+    await user.click(await screen.findByRole('button', { name: /show 1 other board we found/i }));
+    // Scoped to the fold: the narration above also names every board it checked
+    // (it folds them away on screen; nothing animates in a test, so both are in the
+    // DOM). This assertion is about the ANSWER surface.
+    const fold = await screen.findByTestId('unconfirmed-boards');
+    expect(within(fold).getByText('guidehouse')).toBeInTheDocument();
+    expect(within(fold).getByText(/794 open jobs/)).toBeInTheDocument();
   });
 
   it('asks which board when a name returns more than one', async () => {
@@ -266,7 +276,8 @@ describe('MyCompaniesPage — typed company name', () => {
     renderWithProviders(<MyCompaniesPage />);
 
     const user = await submit('Databricks');
-    expect(await screen.findByText('guidehouse')).toBeInTheDocument();
+    // The rejected board is folded, so the fold itself is what has to disappear.
+    expect(await screen.findByTestId('unconfirmed-boards')).toBeInTheDocument();
 
     // Now paste an unrelated URL and add it.
     const field = screen.getByLabelText(/company name or careers page link/i);
@@ -276,7 +287,8 @@ describe('MyCompaniesPage — typed company name', () => {
 
     await waitFor(() => expect(callsTo('/users/companies').length).toBe(1));
     // The stale question must be gone — before AND after the add settles.
-    await waitFor(() => expect(screen.queryByText('guidehouse')).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByTestId('unconfirmed-boards')).not.toBeInTheDocument());
+    expect(screen.queryByText('guidehouse')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /track guidehouse/i })).not.toBeInTheDocument();
   });
 
@@ -384,11 +396,17 @@ describe('MyCompaniesPage — typed company name', () => {
     renderWithProviders(<MyCompaniesPage />);
     const user = await submit('IBM');
 
-    // Both are on screen.
+    // The careers page is the answer and it leads; the stranger's board is still
+    // reachable, one press down, under a summary that says it was not confirmed.
+    // Scoped to the answer block: the narration above ends on the same URL, which
+    // is the row the morph leaves standing.
+    const answer = await screen.findByTestId('careers-page-answer');
+    expect(within(answer).getByText('https://www.ibm.com/careers')).toBeInTheDocument();
+    const fold = screen.getByRole('button', { name: /show 1 other board we found/i });
+    await user.click(fold);
     expect(await screen.findByText('harvey')).toBeInTheDocument();
-    expect(screen.getByText('https://www.ibm.com/careers')).toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: /use this/i }));
+    await user.click(screen.getByRole('button', { name: /use this careers page/i }));
     await waitFor(() => expect(callsTo('/users/companies').length).toBe(1));
     const body = await callsTo('/users/companies')[0].clone().json();
     expect(body.url).toBe('https://www.ibm.com/careers');

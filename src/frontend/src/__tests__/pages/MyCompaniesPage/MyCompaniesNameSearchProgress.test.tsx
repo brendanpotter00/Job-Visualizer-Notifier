@@ -140,8 +140,9 @@ describe('MyCompaniesPage — the narrated name search', () => {
     const step = await screen.findByTestId('name-search-step-search');
     expect(step).toHaveTextContent('Searching the web for “Cisco”');
     expect(screen.getAllByLabelText('in progress')).toHaveLength(1);
-    // Nothing that has not happened is on screen yet.
+    // Nothing that has not happened is on screen yet — no numbers, and no rows.
     expect(screen.queryByTestId('name-search-step-results')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('name-search-rows')).not.toBeInTheDocument();
 
     release(jsonResponse({ query: 'Cisco', candidates: [], careersUrl: null }));
   });
@@ -157,6 +158,7 @@ describe('MyCompaniesPage — the narrated name search', () => {
       probe: { ok: true, jobCount: 12, error: null },
       sourceUrl: 'https://boards.greenhouse.io/cisco-meraki',
       rank: 2,
+      autoAddable: false,
     });
     fetchMock.mockImplementation((req: Request) =>
       Promise.resolve(
@@ -165,7 +167,16 @@ describe('MyCompaniesPage — the narrated name search', () => {
               query: 'Cisco',
               candidates: [candidate(), second],
               careersUrl: null,
-              trace: { query: TRACE_QUERY, results: 25, filtered: 6, boards: 2 },
+              trace: {
+                query: TRACE_QUERY,
+                results: 25,
+                filtered: 6,
+                boards: 2,
+                nonBoards: [
+                  { url: 'https://www.linkedin.com/jobs/cisco', rank: 3, aggregator: true },
+                ],
+                nonBoardsOmitted: 16,
+              },
             })
           : jsonResponse(CREATED, 201)
       )
@@ -181,12 +192,28 @@ describe('MyCompaniesPage — the narrated name search', () => {
     expect(screen.getByTestId('name-search-step-results')).toHaveTextContent(
       '25 results came back'
     );
-    expect(screen.getByTestId('name-search-step-scored')).toHaveTextContent(
-      'Scored all 19 against the six job boards we can read'
+    // The three old ticks — scored / boards / probed — merged into one sentence.
+    expect(screen.getByTestId('name-search-step-boards')).toHaveTextContent(
+      '2 of the 19 results we scored are real job boards'
     );
-    expect(screen.getByTestId('name-search-step-probed')).toHaveTextContent(
+    expect(screen.getByTestId('name-search-step-boards')).toHaveTextContent(
       'Checked all 2 for open jobs'
     );
+
+    // ...and the rows are the results themselves, never a row per count. One real
+    // aggregator URL, one row standing for the sixteen we were not sent, and the two
+    // boards with their tokens and live counts.
+    const rows = screen.getAllByTestId('name-search-row');
+    expect(rows.map((row) => row.dataset.kind)).toEqual([
+      'discarded',
+      'discarded',
+      'answer',
+      'rejected',
+    ]);
+    expect(rows[0]).toHaveTextContent('https://www.linkedin.com/jobs/cisco');
+    expect(rows[1]).toHaveTextContent('…and 16 more results');
+    expect(rows[3]).toHaveTextContent('greenhouse · cisco-meraki · 12 open jobs');
+
     // ...and the answer surface is right there with it, never held back by it.
     expect(screen.getByText(/which board is/i)).toBeInTheDocument();
   });
@@ -287,6 +314,11 @@ describe('MyCompaniesPage — the narrated name search', () => {
     );
     expect(screen.queryByTestId('name-search-detail-search')).not.toBeInTheDocument();
     expect(screen.queryByTestId('name-search-step-results')).not.toBeInTheDocument();
-    expect(screen.getByTestId('name-search-step-probed')).toBeInTheDocument();
+    expect(screen.getByTestId('name-search-step-boards')).toHaveTextContent(
+      'Checked it for open jobs'
+    );
+    // The board it DID send still gets a row. The results it did not name do not:
+    // there is no path from "25 results" to twenty-five rows.
+    expect(screen.getAllByTestId('name-search-row')).toHaveLength(1);
   });
 });

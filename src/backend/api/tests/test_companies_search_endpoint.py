@@ -184,6 +184,14 @@ def test_a_typed_name_returns_the_board_with_a_live_job_count(
     assert body["trace"]["filtered"] == 0
     assert body["trace"]["boards"] == 1
     assert "myworkdayjobs.com" in body["trace"]["query"]
+    # The rows the add page's morphing list folds away, on the wire because it may
+    # only draw results that really came back. The BOARD is not among them — it is
+    # already a candidate above, with a token and a live count.
+    assert [row["url"] for row in body["trace"]["nonBoards"]] == [
+        "https://careers.cisco.com/global/en/home"
+    ]
+    assert body["trace"]["nonBoards"][0]["aggregator"] is False
+    assert body["trace"]["nonBoardsOmitted"] == 0
     assert _company_count(db_conn) == before
 
 

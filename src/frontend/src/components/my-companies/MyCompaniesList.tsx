@@ -608,8 +608,11 @@ export function MyCompaniesList() {
       {/* THE HOW-TO IS THE EMPTY STATE. There is no separate "no companies yet" screen
           and no separate how-to section: they are the same block. A user with nothing
           tracked sees the explanation where an icon and two grey lines used to sit, and
-          the moment they have one company their list is there instead and the
-          explanation is one text link away (`MyCompaniesPage`, "How it works").
+          the moment they have one company their list is there instead — and the
+          explanation is GONE, with no way back to it. `MyCompaniesPage` used to carry a
+          persistent "How it works" link for exactly that reader; it was removed at the
+          owner's request (2026-09-02), so this block is now the only place the how-to
+          is ever rendered.
 
           `rows.length === 0` is safe as the gate ONLY because the `isLoading` branch
           above already returned: on a first load the query is not settled and this

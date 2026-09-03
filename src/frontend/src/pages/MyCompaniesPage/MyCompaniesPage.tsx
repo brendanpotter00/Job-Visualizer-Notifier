@@ -1,9 +1,7 @@
 import { useState } from 'react';
 import Alert from '@mui/material/Alert';
-import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Container from '@mui/material/Container';
-import Link from '@mui/material/Link';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
@@ -22,16 +20,13 @@ import { classifyCompanyInput } from '../../features/userCompanies/companyInput'
 import { CUSTOM_COMPANIES_CONFIG } from '../../config/customCompanies';
 import { extractErrorMessage } from '../../lib/errors';
 import { CompanyCandidateList } from '../../components/my-companies/CompanyCandidateList';
+import { CareersPageAnswer } from '../../components/my-companies/CareersPageAnswer';
 import { NameSearchProgress } from '../../components/my-companies/NameSearchProgress';
 import { AddQuotaCounter } from '../../components/my-companies/AddQuotaCounter';
 import Divider from '@mui/material/Divider';
-import { AddCompanyHowTo } from '../../components/my-companies/AddCompanyHowTo';
 import { ResolveUrlForm } from '../../components/my-companies/ResolveUrlForm';
 import { AddCompanyOutcome } from '../../components/my-companies/AddCompanyOutcome';
 import { MyCompaniesList } from '../../components/my-companies/MyCompaniesList';
-
-/** Ties the "How it works" link to the block it opens (`aria-controls`). */
-const HOW_IT_WORKS_ID = 'add-company-how-it-works';
 
 /**
  * "Add Companies" — paste a careers URL, get the company tracked.
@@ -74,18 +69,10 @@ export function MyCompaniesPage() {
   // for the same reason the list is: the endpoint is authed, and an anonymous
   // visitor would get a guaranteed 401. Declared above the auth ladder's early
   // returns so the hook count stays stable across renders.
-  const { data: userCompanies, isSuccess: companiesLoaded } = useGetUserCompaniesQuery(undefined, {
+  const { data: userCompanies } = useGetUserCompaniesQuery(undefined, {
     skip: !isAuthenticated,
   });
   const quota = userCompanies?.quota;
-  // Offer the way back to the how-to only to a user who has companies — anyone tracking
-  // nothing is already looking at the how-to below, where it IS the empty state.
-  //
-  // Gated on the SETTLED query, and the direction matters: while the list is loading we
-  // do not know which user this is, and a link that appears late is better than one that
-  // is drawn and then taken away under the reader's eyes.
-  const canReopenHowTo = companiesLoaded && (userCompanies?.companies.length ?? 0) > 0;
-  const [showHowTo, setShowHowTo] = useState(false);
   // `null` means the payload carried no quota: the caller is an admin (exempt from
   // the cap) or the server predates the counter. Either way it must NOT disable the
   // form — an absent quota is "no cap in force", and locking a user out of the feature
@@ -139,6 +126,15 @@ export function MyCompaniesPage() {
   // gone with the second network call it existed to span.
   const { isLoading: adding, data: result, error } = addState;
   const { isLoading: searching, error: searchError, reset: resetSearch } = searchState;
+
+  // WHICH OF THE TWO ANSWER LAYOUTS BELOW WE ARE IN, and `autoAddable` is the whole
+  // rule. One candidate the server was willing to accept makes the list a genuine
+  // question worth leading with; none makes every row on screen a board the name gate
+  // already threw out, and then the careers page is the answer and the rows are not.
+  // Deliberately `.some()` over the whole list rather than the first row — the server
+  // orders by search rank, not by confidence.
+  const boardsAreTheQuestion =
+    candidates !== null && candidates.candidates.some((found) => found.autoAddable);
 
   // The correction under a GUESSED "we already publish this" notice — the one where the
   // backend matched the company name inside the domain (`matchKind: 'name'`) rather than
@@ -291,39 +287,14 @@ export function MyCompaniesPage() {
             disabled={exhausted}
           />
 
-          {/* THE WAY BACK TO THE EXPLANATION. The how-to is the empty state, so it
-              disappears the moment the user tracks one company — a user who adds a board
-              on day one and comes back on day thirty holding a LinkedIn URL would
-              otherwise have no way back to it. This is that way back, and deliberately a
-              text link rather than an accordion: a shut accordion is a permanent 63px of
-              summary row, caret and rule on every visit forever, and this is 29px that
-              only a reader who wants it ever spends attention on.
-
-              One component, two triggers: this renders the SAME `AddCompanyHowTo` the
-              empty state does, so the two can never drift apart. */}
-          {canReopenHowTo ? (
-            <>
-              <Box sx={{ mt: 1 }}>
-                <Link
-                  component="button"
-                  type="button"
-                  variant="body2"
-                  color="text.primary"
-                  onClick={() => setShowHowTo((open) => !open)}
-                  // It changes the page, it does not navigate — so a screen-reader user
-                  // is told whether the block is open BEFORE they decide to press it.
-                  aria-expanded={showHowTo}
-                  aria-controls={HOW_IT_WORKS_ID}
-                  data-testid="how-it-works-toggle"
-                >
-                  How it works
-                </Link>
-              </Box>
-              {/* The container is always present so `aria-controls` always resolves; the
-                  content is conditional so nothing invisible is ever in the tab order. */}
-              <Box id={HOW_IT_WORKS_ID}>{showHowTo ? <AddCompanyHowTo /> : null}</Box>
-            </>
-          ) : null}
+          {/* NO PERSISTENT "How it works" LINK. One used to sit here for anyone
+              already tracking a company, re-opening the same `AddCompanyHowTo` the
+              empty state renders. Removed at the owner's request (2026-09-02): "it's
+              just unnecessary noise. It should only be there when there's an empty
+              state, showing how to do it." The how-to still IS the empty state —
+              `MyCompaniesList` renders it for a user tracking nothing — so the
+              explanation has not gone, only the way back to it. See
+              `src/frontend/CLAUDE.md` for what that costs. */}
         </Paper>
 
         {/* One spinner for the one call. No `!adding` guard on the outcome below it:
@@ -358,60 +329,64 @@ export function MyCompaniesPage() {
           </Alert>
         ) : null}
 
-        {/* The question, when a name did not resolve to exactly one confident
-            board. Hidden while an add is running so it cannot sit beside its own
-            answer. */}
+        {/* THE ANSWER, AND THE ORDER IS THE POINT. Two states, and they must not
+            look alike:
+
+            A — at least one candidate is `autoAddable`. A real question between
+            plausible boards, so the list leads with "Which board is …?" and keeps
+            its prominent per-row buttons; the careers page (which the server does
+            not normally send in this case) is the footnote beside it.
+
+            B — NOTHING was `autoAddable`. Every board on screen is one the name
+            gate already REJECTED, so the careers page goes FIRST and carries the
+            weight, and the boards fold away underneath. This is the "meta" bug:
+            five other companies' AI boards rendered as five black "Track this one"
+            buttons, with `metacareers.com` — the right answer — in caption-grey at
+            the bottom. The server was right the whole time; the page was inverted.
+
+            The careers block still renders when there are no candidates at all,
+            which is state B with an empty fold: "we looked and found no board" is a
+            real answer, and NOT the same as the 503 that means we could not look. A
+            null `careersUrl` means something too — no result's host named the
+            company, so we offer nothing rather than a guess that would cost a paid
+            discovery run and one of their monthly adds. */}
         {candidates && !adding ? (
-          <CompanyCandidateList
-            query={candidates.query}
-            candidates={candidates.candidates}
-            onPick={handlePickCandidate}
-            busy={adding}
-          />
-        ) : null}
-
-        {/* "We looked and found no board" — a real answer, and NOT the same as
-            the 503 that means we could not look. When search turned up the
-            company's careers page we hand it over, because that is exactly what
-            the paste-a-URL path takes and where one-time discovery starts.
-
-            IT RENDERS BESIDE THE CANDIDATE LIST, not only instead of it, and that
-            is the fix this block carries. The server only sends a `careersUrl`
-            when nothing it found was something you could just accept — so when
-            searching "IBM" turns up Harvey's live Ashby board, the board is shown
-            (a user may recognise it) AND the careers page is still offered. It
-            used to be suppressed by the mere existence of a stranger's board,
-            which left the user with three wrong boards and no way forward.
-
-            A null `careersUrl` now means something too: no result's host named the
-            company, so we are offering nothing rather than a guess that would cost
-            a paid discovery run and one of their monthly adds. */}
-        {candidates && !adding && (candidates.candidates.length === 0 || candidates.careersUrl) ? (
-          <Paper variant="outlined" sx={{ p: RESPONSIVE.spacing.paperPadding }}>
-            <Typography variant="body2">
-              {candidates.candidates.length === 0
-                ? `No job board found for “${candidates.query}”. `
-                : `None of those is a board we can confirm belongs to “${candidates.query}”. `}
-              {candidates.careersUrl
-                ? 'You can try their careers page instead:'
-                : 'Try pasting the URL of their careers page.'}
-            </Typography>
-            {candidates.careersUrl ? (
-              <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 1 }}>
-                <Typography variant="caption" sx={{ wordBreak: 'break-all' }}>
-                  {candidates.careersUrl}
-                </Typography>
-                <Button
-                  size="small"
-                  variant="outlined"
-                  disabled={adding}
-                  onClick={() => handlePickCandidate(candidates.careersUrl as string)}
-                >
-                  Use this
-                </Button>
-              </Stack>
-            ) : null}
-          </Paper>
+          boardsAreTheQuestion ? (
+            <>
+              <CompanyCandidateList
+                query={candidates.query}
+                candidates={candidates.candidates}
+                onPick={handlePickCandidate}
+                busy={adding}
+              />
+              <CareersPageAnswer
+                query={candidates.query}
+                careersUrl={candidates.careersUrl}
+                unconfirmedCount={candidates.candidates.length}
+                lead={false}
+                onUse={handlePickCandidate}
+                busy={adding}
+              />
+            </>
+          ) : (
+            <>
+              <CareersPageAnswer
+                query={candidates.query}
+                careersUrl={candidates.careersUrl}
+                unconfirmedCount={candidates.candidates.length}
+                lead
+                onUse={handlePickCandidate}
+                busy={adding}
+              />
+              <CompanyCandidateList
+                query={candidates.query}
+                candidates={candidates.candidates}
+                onPick={handlePickCandidate}
+                busy={adding}
+                demoted
+              />
+            </>
+          )
         ) : null}
 
         <AddCompanyOutcome result={result} error={error} onTrackAnyway={handleTrackAnyway} />

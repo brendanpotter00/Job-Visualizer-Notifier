@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { screen, waitFor, within } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '../../../test/testUtils';
 import { MyCompaniesPage } from '../../../pages/MyCompaniesPage';
@@ -640,10 +640,12 @@ describe('MyCompaniesPage', () => {
     });
   });
 
-  // The how-to IS the empty state, which means it disappears the moment the user tracks
-  // one company — a user who adds a board on day one and comes back on day thirty holding
-  // a LinkedIn URL would have no way back to the explanation. This link is that way back,
-  // and it re-opens the SAME component the empty state renders.
+  // There is NO persistent "How it works" link under the form. One used to be offered to
+  // any user already tracking a company; it was removed at the owner's request
+  // (2026-09-02) — "it's just unnecessary noise. It should only be there when there's an
+  // empty state." Its absence is asserted here, and in both directions, so restoring it
+  // is a deliberate act rather than an accident. `src/frontend/CLAUDE.md` records what
+  // the removal costs.
   describe('the "How it works" link', () => {
     const TRACKED = {
       id: 'u-ramp000001',
@@ -657,42 +659,23 @@ describe('MyCompaniesPage', () => {
       trackingStartedAt: '2026-08-01T00:00:00Z',
     };
 
-    it('is offered to a user who already tracks something', async () => {
+    it('is not offered to a user who already tracks something', async () => {
       listBody = { companies: [TRACKED] } as unknown as typeof listBody;
       renderWithProviders(<MyCompaniesPage />);
 
-      const link = await screen.findByTestId('how-it-works-toggle');
-      // A button, not an anchor: it changes the page, it does not navigate — and it says
-      // whether the block is open before a screen-reader user decides to press it.
-      expect(link.tagName).toBe('BUTTON');
-      expect(link).toHaveAttribute('aria-expanded', 'false');
-      expect(screen.queryByTestId('add-company-how-to')).not.toBeInTheDocument();
-    });
-
-    it('opens the same how-to block, and closes it again', async () => {
-      listBody = { companies: [TRACKED] } as unknown as typeof listBody;
-      const user = userEvent.setup();
-      renderWithProviders(<MyCompaniesPage />);
-
-      const link = await screen.findByTestId('how-it-works-toggle');
-      await user.click(link);
-
-      const block = await screen.findByTestId('add-company-how-to');
-      expect(within(block).getByText('Open their careers page')).toBeInTheDocument();
-      expect(link).toHaveAttribute('aria-expanded', 'true');
-      // `aria-controls` resolves in both states: the container is always in the DOM, only
-      // its contents are conditional, so nothing invisible is ever in the tab order.
-      expect(document.getElementById(link.getAttribute('aria-controls')!)).toBe(
-        block.parentElement
+      await screen.findByTestId('my-companies-list-stub');
+      await waitFor(() =>
+        expect(screen.queryByTestId('how-it-works-toggle')).not.toBeInTheDocument()
       );
-
-      await user.click(link);
+      expect(screen.queryByText('How it works')).not.toBeInTheDocument();
+      // ...and nothing re-opened the block either. The how-to lives in the list's empty
+      // state now, and only there.
       expect(screen.queryByTestId('add-company-how-to')).not.toBeInTheDocument();
     });
 
-    it('is NOT offered while the how-to is already the empty state', async () => {
-      // Nothing tracked: the explanation is already on screen below the divider, so a
-      // link to it would be a second copy of the same thing.
+    it('is not offered to a user tracking nothing either', async () => {
+      // The empty state IS the how-to (`MyCompaniesList`), so a link to it would have
+      // been a second copy of the same thing even before the removal.
       listBody = { companies: [] };
       renderWithProviders(<MyCompaniesPage />);
 
@@ -700,16 +683,6 @@ describe('MyCompaniesPage', () => {
       await waitFor(() =>
         expect(screen.queryByTestId('how-it-works-toggle')).not.toBeInTheDocument()
       );
-    });
-
-    it('does not flash the link while the list is still loading', async () => {
-      // `companies` is undefined until the query settles, so a bare length check would
-      // show the link for a frame to every returning user.
-      listBody = { companies: [TRACKED] } as unknown as typeof listBody;
-      renderWithProviders(<MyCompaniesPage />);
-
-      expect(screen.queryByTestId('how-it-works-toggle')).not.toBeInTheDocument();
-      expect(await screen.findByTestId('how-it-works-toggle')).toBeInTheDocument();
     });
   });
 

@@ -689,6 +689,36 @@ export interface SearchTrace {
   filtered: number;
   /** Scored results that resolved to a board we can read, before the display cap. */
   boards: number;
+  /**
+   * The results that resolved to NO board, in rank order, capped server-side.
+   *
+   * They are on the wire because `NameSearchProgress` DRAWS them: the panel is one
+   * list that narrows to its answer, and a row is only allowed on it if it stands
+   * for a result that really came back. Absent from a backend that predates the
+   * field, which makes the list shorter — never invented.
+   *
+   * The BOARDS are deliberately not here. They are already `candidates` above,
+   * carrying a token, a probe and a live job count, and one result described in
+   * two places is one result that can be described two ways.
+   */
+  nonBoards?: SearchResultRow[];
+  /** Non-board results the server's cap left out — one "…and N more" row. */
+  nonBoardsOmitted?: number;
+}
+
+/**
+ * One search result that produced no board — a row the narration folds away.
+ *
+ * `url` is sanitized server-side by the same rule the discovery network log uses
+ * (`display_url`): userinfo and port gone, every query VALUE replaced with an
+ * ellipsis, the whole thing clipped. It is something to RENDER, never to fetch.
+ */
+export interface SearchResultRow {
+  url: string;
+  /** Its 1-based place in the search engine's own ranking. */
+  rank: number;
+  /** Dropped as an aggregator/social host, rather than merely not being a board. */
+  aggregator: boolean;
 }
 
 /**

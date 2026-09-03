@@ -194,6 +194,25 @@ class Settings(BaseSettings):
     # exactly as URL-only as it was before.
     company_name_search_enabled: bool = False
 
+    # LOCAL DEVELOPMENT ONLY — the destructive custom-company reset
+    # (``POST /api/users/dev-reset``, ``services/dev_reset.py``). It deletes every
+    # ``visibility='user'`` company the caller owns, their jobs, and their
+    # ``company_add_attempts`` audit — which is also the monthly-quota counter, so a
+    # reset gives the adds back. That is the whole point: without it the add flow
+    # cannot be re-tested, because "you already track this" changes the behaviour on
+    # every attempt after the first.
+    #
+    # OFF means the router is NOT REGISTERED (``main.py`` skips ``include_router``),
+    # so the path 404s exactly like a path that does not exist — never a 403, which
+    # would advertise that the endpoint is there and merely refusing.
+    #
+    # THIS FLAG IS NOT THE REAL GUARD. A flag is one env var away from being wrong on
+    # the wrong machine, so the endpoint ALSO re-derives, at call time and independent
+    # of this setting, that ``database_url`` points at a loopback host
+    # (``dev_reset.assert_local_database``) and refuses otherwise. Two independent
+    # mistakes are required to delete anything that is not on someone's laptop.
+    dev_reset_enabled: bool = False
+
     # PostHog analytics
     posthog_project_token: str | None = None
     posthog_host: str = "https://us.i.posthog.com"

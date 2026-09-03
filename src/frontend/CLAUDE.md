@@ -205,13 +205,28 @@ every import for zero user-visible gain.
   `monster.com` and `hiring.cafe`. An aggregator URL therefore resolves, finds no board,
   reaches `no_ats_detected`, and that is precisely the branch that spends a discovery run
   and one of the user's monthly adds. Delete the clause when the video ships; not before.
-- **The how-to IS the empty state** (`AddCompanyHowTo`). A user tracking nothing sees three
-  numbered steps where "No companies yet" used to be, and the state is still named for a
-  screen reader by a `visuallyHidden` line. One company later the list replaces it and a
-  persistent **How it works** link under the form re-opens the same component —
-  one component, two triggers, so the two renders cannot drift. The **video slot is empty
-  and draws nothing**: set `HOW_IT_WORKS_VIDEO_SRC` and the video appears under the same
-  steps, which is the whole change.
+- **The how-to IS the empty state, and it is now the ONLY place it appears**
+  (`AddCompanyHowTo`). A user tracking nothing sees three numbered steps where "No
+  companies yet" used to be, and the state is still named for a screen reader by a
+  `visuallyHidden` line. One company later the list replaces it and the explanation is
+  gone. The **video slot is empty and draws nothing**: set `HOW_IT_WORKS_VIDEO_SRC` and
+  the video appears under the same steps, which is the whole change.
+- **There is no persistent "How it works" link under the form, and that is deliberate.**
+  One used to sit in `MyCompaniesPage` for any user already tracking a company
+  (`canReopenHowTo`), re-opening the very same `AddCompanyHowTo` the empty state renders
+  — one component, two triggers, so the two could not drift. **Removed at the owner's
+  request (2026-09-02):** *"remove the How it works text under the input, it's just
+  unnecessary noise. It should only be there when there's an empty state, showing how to
+  do it."* Recorded here for the same reason the spend sentence above is: the reasoning
+  that produced it is still sound, it was simply overruled, and a later reader will
+  otherwise re-derive it and put it back. **What the removal costs:** a user who adds a
+  board on day one and comes back on day thirty holding a LinkedIn URL now has **no route
+  back to the explanation at all** — the empty state is behind them forever, and nothing
+  else on the page says what a careers page is or why an aggregator link will not do. The
+  field helper is the last statement of the aggregator rule (above), and it is now the
+  only one. If it ever returns it belongs where it was, under the form, as a text link
+  rather than an accordion — a shut accordion is a permanent 63px of summary row on every
+  visit, the link was 29px only a reader who wanted it ever spent attention on.
 - **The card is one click target.** The company name carries a stretched `::after`, so
   pressing anywhere on the card opens that company; the pencil and the X are its SIBLINGS,
   raised to `z-index: 2`, never its children (a `<button>` inside an `<a>` is invalid, and
@@ -319,6 +334,52 @@ every import for zero user-visible gain.
   compile error). The add endpoint's own six codes live in `AddCompanyOutcome.tsx`, keyed by
   a closed union for the same reason.
 
+### Typing a NAME: two answer states, and they must not look alike
+
+Behind `VITE_COMPANY_NAME_SEARCH_ENABLED` (its own flag; with it off the page does not even
+*classify* the input — `MyCompaniesNameSearchFlagOff.test.tsx` pins that). A pasted URL still
+takes the URL path and never spends a search. A name goes to `POST
+/api/companies/search-by-name`, which returns probed `candidates[]` (each with an
+`autoAddable` verdict) plus a `careersUrl`. **`candidates[].autoAddable` picks the layout,
+and that one field is the whole rule** — `boardsAreTheQuestion` in `MyCompaniesPage`.
+
+| | State A — something is `autoAddable` | State B — nothing is |
+|---|---|---|
+| Leads | `CompanyCandidateList` | `CareersPageAnswer` |
+| Heading | "Which board is “X”?" | "No board we can confirm belongs to “X”" |
+| Primary action | per-row **contained** "Track this one" | **contained** "Use this careers page" |
+| The other block | careers page as a footnote below (caption + outlined "Use this") | boards folded below, **outlined** "Track this one anyway" |
+| Live region | the list (`aria-live="polite"`) | the careers block; the list keeps `role="region"` but gives up `aria-live` so only one polite region speaks |
+
+- **State B is the fix for a real failure.** Typing "meta" returned five live boards —
+  anthropic (582 jobs), cohere (144), gleanwork (111), headway (83), gc-ai (27) — because
+  Browserbase Search is Exa, i.e. *semantic*: the host-shaped query reads as "AI company job
+  board". The server did everything right (all five `autoAddable: false`, nothing added, a
+  second query found `metacareers.com`); the page rendered the five rejects as large cards
+  with black buttons and the right answer as caption-grey text under a small outlined button.
+  **The boards we had already rejected outweighed the answer.** Nothing about the search, the
+  gate, or the fallback changed — only the presentation.
+- **A rejected board must never wear a one-press "Track this one" as a peer of the answer.**
+  That is the rule to preserve; the fold and the outlined variant are how it is kept.
+- **The rejects are folded, not dropped**, because the gate is occasionally too strict —
+  measured, it suppressed exactly one correct answer across the whole evaluation (Poke, whose
+  board token is `interaction`). Two presses recover it, and the fold's summary refuses to
+  imply an answer: *"Show 5 other boards we found (none confirmed as “meta”)"*. The count is
+  what will actually be RENDERED (`MAX_RENDERED` = 5), never what came back.
+- **`Collapse` + `unmountOnExit`**, so an unopened fold is zero focusable buttons, with
+  `timeout={0}` under `prefers-reduced-motion` — Collapse writes its duration as an inline
+  style, which no `@media` rule can outrank.
+- **Identity display is unchanged in both states**, and that is deliberate: the board token
+  and its live job count at full readable size are the ONLY thing that catches a stranger's
+  board ("Guidehouse · 794 jobs" under a search for Databricks). Folding the list is not
+  shrinking a row — see the header comment in `CompanyCandidateList` before touching it.
+- **A null `careersUrl` still says something.** No result's host named the company, so we
+  offer nothing rather than a guess that would cost a paid discovery run and one of their
+  monthly adds — the block keeps the honest headline and says to paste the careers URL.
+- `MyCompaniesNameSearchAnswerOrder.test.tsx` asserts **document order** (`compareDocumentPosition`)
+  and the button variants for both states. Presence assertions cannot catch this bug: every
+  element in the broken screenshot was present.
+
 **Key files** (relative to `src/frontend/src/`):
 - `config/customCompanies.ts` — the flag (`VITE_CUSTOM_COMPANIES_ENABLED === 'true'`)
 - `features/userCompanies/userCompaniesApi.ts` — RTK Query slice; `baseUrl: '/api'` on
@@ -329,7 +390,25 @@ every import for zero user-visible gain.
 - `components/my-companies/AddCompanyHowTo.tsx` — the three steps and the video slot;
   `HOW_IT_WORKS_VIDEO_SRC` at the top is the one line to change when a video exists
 - `components/my-companies/AddCompanyOutcome.tsx` — every outcome one press can land on
-- `pages/MyCompaniesPage/` — the page (signed-out gate + form + results)
+- `components/my-companies/CompanyCandidateList.tsx` — the boards a name search found;
+  `demoted` is state B (folded, secondary, no live region)
+- `components/my-companies/CareersPageAnswer.tsx` — the careers page, as the answer
+  (`lead`) or as the footnote beside a confirmed board
+- `components/my-companies/NameSearchProgress.tsx` + `nameSearchNarration.ts` — the search,
+  narrated after the fact (never a faked live feed) as **one list that narrows to its
+  answer**: the results land as rows, everything that was not a board folds away, then the
+  boards whose token does not name the company, and what survives is the answer. One status
+  line morphs alongside it. The rows come from `trace.nonBoards` (the real, server-redacted
+  result URLs), `candidates` and `careersUrl` — **there is no path that draws a row from a
+  count**, so an older backend gets a shorter list, never an invented one. Replaced a stack
+  of seven ✓ ticks, rejected as *"all these steps, it's really confusing… it should be this
+  morphing list"* (2026-09-02); the seven sentences were merged to at most five, not dropped.
+  Same row vocabulary and the same 260ms fade+rise as `DiscoveryNetworkLog`, on purpose —
+  one language for "here is what we saw", not two. All `animation-delay`, no timers and no
+  state, and `prefers-reduced-motion` gets the **end state** (the answer) rather than every
+  row at once.
+- `pages/MyCompaniesPage/` — the page (signed-out gate + form + results), and the one place
+  that decides which of the two answer layouts is on screen
 
 **Discovery-progress checklist** (`VITE_DISCOVERY_PROGRESS_ENABLED`, its own flag, default
 off): a non-ATS URL is handed to a one-time backend capture, and the row it creates

@@ -39,6 +39,43 @@ Ctrl-C terminals 2 and 3, then:
 docker compose stop postgres    # or `docker compose down` to remove the container (the postgres_data volume is kept)
 ```
 
+## Re-testing the add-a-company flow (local only)
+
+The add flow only runs its real code path **once per board**: after that,
+`POST /api/users/companies` answers *"you already track this"* / *"we already
+publish this"*, and the 20-per-month add quota has spent a slot. To test it again
+you have to put the database back to before the board was added.
+
+**Turn it on** — `.env.local`, then restart the backend:
+
+```bash
+DEV_RESET_ENABLED=true
+```
+
+Two ways to use it, both doing exactly the same thing (one service, one delete order):
+
+| | |
+|---|---|
+| **Button** | `/qa` → **Danger zone — local development only**. Pick a scope, click *Clear custom companies*, confirm. It prints the per-table counts it deleted and the published rows it left alone. The panel does not render unless the backend says the reset is available. |
+| **CLI** | `python scripts/one_off/dev_reset_custom_companies.py --email you@example.com` — **dry run** by default (runs the real deletes, prints the real counts, then rolls back). Add `--apply` to commit, `--all` instead of `--email` for every user, `--yes` to skip the prompt. |
+
+**What it clears:** the `visibility='user'` `companies` rows, their `user_companies`
+ownership rows, `company_add_attempts` (which is the quota counter — so your adds
+come back), `company_scripts`, discovery progress (it lives in the company row's
+`provider_config`), `company_harvests`, `scrape_runs`, and every `custom:<id>` job
+with its freshness / location / tag / enrichment sidecars.
+
+**What it never touches:** published companies and their jobs. Every delete is
+scoped to `visibility='user'`.
+
+**Why it cannot escape your laptop:** with `DEV_RESET_ENABLED` off the route is not
+registered at all (404, not 403). With it *on*, the endpoint still refuses unless
+`DATABASE_URL` parses to a loopback host — checked on every call, independently of
+the flag. And it is deliberately **not** in any `api/*.ts` proxy allowlist, so the
+button calls `http://localhost:8000` directly rather than going through a Vercel
+function. If your backend is not on `:8000` (per-worktree ports), set
+`VITE_DEV_RESET_BACKEND_URL` in `src/frontend/.env.local` to match.
+
 ## Daily gotchas
 
 - **`-w src/frontend` is required.** `dev:vercel` is defined only in `src/frontend/package.json`; `npm run dev:vercel` from the root fails with `Missing script: "dev:vercel"`.

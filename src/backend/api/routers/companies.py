@@ -40,6 +40,7 @@ from ..models import (
     ResolveUrlResponse,
     SearchCompanyRequest,
     SearchCompanyResponse,
+    SearchResultRowResponse,
     SearchTraceResponse,
 )
 from ..services.ats_discovery import (
@@ -450,6 +451,16 @@ async def search_company_by_name(
             results=trace.results,
             filtered=trace.filtered,
             boards=trace.boards,
+            # The rows the add page's morphing list folds away. Already sanitized
+            # by the service (`display_url`), so this is a straight mapping and
+            # not a second place that could forget to redact one.
+            non_boards=[
+                SearchResultRowResponse(
+                    url=row.url, rank=row.rank, aggregator=row.aggregator
+                )
+                for row in trace.non_boards
+            ],
+            non_boards_omitted=trace.non_boards_omitted,
         ),
         # None unless a second search really happened. The add page narrates the
         # run from these numbers, and a panel that described two calls when one

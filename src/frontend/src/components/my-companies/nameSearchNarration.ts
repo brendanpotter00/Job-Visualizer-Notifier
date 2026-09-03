@@ -1,48 +1,99 @@
 import type { SearchCompanyResponse } from '../../features/userCompanies/userCompaniesApi';
 
 /**
- * The copy for `NameSearchProgress`, kept pure and kept here.
+ * The copy AND the row list for `NameSearchProgress`, kept pure and kept here.
  *
- * Same split as `companyHealth.ts` next door: the sentences a panel says are the part
- * worth testing without a DOM, and the thing actually worth testing about these is that
- * NO LINE EVER CLAIMS MORE THAN THE PAYLOAD SUPPORTS. Every label carries a number, and
- * every number is one the server measured on this call.
+ * Same split as `companyHealth.ts` next door: what a panel says is the part worth
+ * testing without a DOM, and the thing actually worth testing about these is that
+ * NO LINE AND NO ROW EVER CLAIMS MORE THAN THE PAYLOAD SUPPORTS. Every sentence
+ * carries a number the server measured on this call, and every row stands for a
+ * result that really came back — `trace.nonBoards` for the ones that were not
+ * boards, `candidates` for the ones that were, `careersUrl` for the answer.
  *
- * See `NameSearchProgress.tsx` for why the steps are revealed after the fact rather
- * than streamed, and why that is honest.
+ * There is no code path here that produces a row from a count. If the backend did
+ * not send the URLs, the list is shorter; it is never filled in.
+ *
+ * See `NameSearchProgress.tsx` for why this is a reveal of data that has already
+ * arrived rather than a stream, and why that is honest.
  */
 
-/** One narrated stage. */
+/**
+ * One state of the status line — it shows ONE of these at a time, in order.
+ *
+ * It used to show all of them at once, as a stack of seven ticks, and that was the
+ * thing the owner rejected ("I don't like how you have all these steps, it's really
+ * confusing"). So the sentences were MERGED as well as stacked differently: what
+ * were separate "Scored all 19…", "5 turned out to be real job boards" and
+ * "Checked the top 5 for open jobs" ticks are now one sentence with the probe
+ * counts as its caption. Nothing was dropped — the numbers all still appear.
+ */
 export interface NameSearchStep {
   key: string;
   /** The sentence. Always a fact, always with the number in it. */
   label: string;
   /** The one line it may carry under that, or undefined for the usual silence. */
   detail?: string;
-  /** Render the detail as machine input — only ever the query we literally sent. */
+  /** Render the detail as machine input — only ever a query we literally sent. */
   mono?: boolean;
   /** This step is genuinely happening now. At most one, and only ever the request. */
   active?: boolean;
 }
 
-/** Plural `s`, because every line here counts something. */
+/**
+ * What a row is FOR, which is the same thing as when it leaves.
+ *
+ * - `discarded` — a result that resolved to no board. Folds away in the first pass.
+ * - `rejected`  — a real board whose token does not name the company. Gets its
+ *                 verdict late, then folds away in the second pass.
+ * - `answer`    — what survives: a board the server confirmed, or the company's own
+ *                 careers page.
+ */
+export type NameSearchRowKind = 'discarded' | 'rejected' | 'answer';
+
+/** One row of the morphing list. Every one of them is a real search result. */
+export interface NameSearchRow {
+  key: string;
+  /** The search engine's own rank, or `—` where the row stands for several. */
+  rank: string;
+  /** The line the reader recognises the result by. Set in a monospace face. */
+  url: string;
+  /**
+   * A board's identity — `greenhouse · anthropic · 582 open jobs`.
+   *
+   * Never omitted for a board row, and that is a rule rather than a style: the
+   * name-path's worst failure is tracking a stranger's live board, and the token
+   * plus the count is the only thing a person can catch it with.
+   */
+  meta: string | null;
+  /** The right-hand verdict: `aggregator`, `not “meta”`, `their own site`. */
+  status: string;
+  kind: NameSearchRowKind;
+  /**
+   * This row arrived from the SECOND search, so it lands after the first list has
+   * narrowed rather than with it. Only ever the careers page.
+   */
+  late?: boolean;
+}
+
+/** Plural `s`, because most lines here count something. */
 function s(n: number): string {
   return n === 1 ? '' : 's';
 }
 
 /**
- * Turn a search into the steps that describe it.
+ * Turn a search into the status line's states, in order.
  *
- * `result === null` means the request is still out. That is the ONLY state that gets a
- * spinner, and it gets exactly one step, because one step is all we know: the page
- * makes a single HTTP call and there are no intermediate landmarks to report. The
- * SERVER may spend two searches inside it — see `careersSteps` — but we learn that
- * only when the answer lands, so it is narrated after the fact like everything else.
+ * `result === null` means the request is still out. That is the ONLY state that
+ * gets a spinner, and it gets exactly one line, because one line is all we know:
+ * the page makes a single HTTP call and there are no intermediate landmarks to
+ * report. The SERVER may spend two searches inside it — see `careersSteps` — but we
+ * learn that only when the answer lands, so it is narrated after the fact like
+ * everything else.
  *
- * A missing `trace` is not an error. This app deploys on Vercel and its API on Railway,
- * so a freshly-shipped client talks to the previous backend for a few minutes after
- * every ship. The narration then gets SHORTER — the stages whose numbers are gone are
- * not estimated, they are not shown.
+ * A missing `trace` is not an error. This app deploys on Vercel and its API on
+ * Railway, so a freshly-shipped client talks to the previous backend for a few
+ * minutes after every ship. The narration then gets SHORTER — the states whose
+ * numbers are gone are not estimated, they are not shown.
  */
 export function narrateNameSearch(
   query: string,
@@ -58,19 +109,15 @@ export function narrateNameSearch(
     {
       key: 'search',
       label: `Asked the web for ${named}`,
-      // THE QUERY IS THE POINT, and this is the one place this file breaks
-      // `DiscoveryChecklist`'s rule that a ✓ never shows its `result`. That rule is
-      // about engine telemetry ("recorded 14 JSON request(s)") — internals a reader
-      // cannot act on, one under every rung, doubling a list built to be scanned.
-      // Here the detail lines ARE the evidence: naming the six ATS hosts instead of
-      // writing the search a sentence is the difference between 41% and 76%, and the
-      // query is short, human-readable, and the whole reason this feature works.
+      // THE QUERY IS THE POINT. Naming the six ATS hosts instead of writing the
+      // search a sentence is the difference between 41% and 76%, and the query is
+      // short, human-readable, and the whole reason this feature works.
       detail: trace?.query,
       mono: true,
     },
   ];
   if (!trace) {
-    return [...steps, ...probeStep(result, null), ...careersSteps(result)];
+    return [...steps, ...boardsStep(result, null, null), ...careersSteps(result)];
   }
 
   steps.push({
@@ -85,49 +132,137 @@ export function narrateNameSearch(
         : undefined,
   });
   // Nothing came back, so there is nothing that could have been scored, resolved or
-  // probed. Three more rungs all reading "0" say less than the one line above them.
-  // The second search still gets its lines, because it is a real call that was made
-  // after this one and its numbers are its own.
+  // probed. A second line reading "0" says less than the one above it. The second
+  // search still gets its states, because it is a real call made after this one.
   if (trace.results === 0) {
     return [...steps, ...careersSteps(result)];
   }
 
-  const scored = trace.results - trace.filtered;
-  if (scored > 0) {
-    steps.push({
-      key: 'scored',
-      label: `Scored ${
-        scored === 1 ? 'it' : `all ${scored}`
-      } against the six job boards we can read`,
-      detail:
-        'Our own matcher, not the search ranking — the right board is first about half the time.',
-    });
-  }
-  steps.push({
-    key: 'boards',
-    label:
-      trace.boards === 0
-        ? 'None of them was a board we can read'
-        : `${trace.boards} turned out to be ${
-            trace.boards === 1 ? 'a real job board' : 'real job boards'
-          }`,
-  });
+  return [
+    ...steps,
+    ...boardsStep(result, trace.boards, trace.results - trace.filtered),
+    ...careersSteps(result),
+  ];
+}
 
-  return [...steps, ...probeStep(result, trace.boards), ...careersSteps(result)];
+/**
+ * The verdict on the boards — what we found, and what checking them cost.
+ *
+ * THREE OLD TICKS IN ONE LINE. "Scored all 19 against the six job boards we can
+ * read", "5 turned out to be real job boards" and "Checked the top 5 for open jobs"
+ * were three rungs of a stack saying one thing between them; the merge is the point
+ * of this rewrite, and no number went missing in it.
+ *
+ * `boards` is counted BEFORE the five-candidate display cap, so it is the only
+ * field that can say "found 8, checked the top 5". `null` means we were not told
+ * (no trace), and then the claim is not made in either direction — the line falls
+ * back to the one number we own, which is how many we probed ourselves.
+ */
+function boardsStep(
+  result: SearchCompanyResponse,
+  boards: number | null,
+  scored: number | null
+): NameSearchStep[] {
+  const probed = result.candidates.length;
+  if (boards === null || scored === null) {
+    if (probed === 0) {
+      return [];
+    }
+    return [
+      {
+        key: 'boards',
+        label: `Checked ${probed === 1 ? 'it' : `all ${probed}`} for open jobs`,
+        detail: probeDetail(result) ?? undefined,
+      },
+    ];
+  }
+
+  // Every result was an aggregator, so nothing reached the matcher at all. The line
+  // above ("6 results came back · 6 aggregator or social results dropped") is the
+  // whole story, and "None of the 0 results we scored" would be a sentence about
+  // work that did not happen.
+  if (scored === 0) {
+    return [];
+  }
+  if (boards === 0) {
+    return [
+      {
+        key: 'boards',
+        label:
+          scored === 1
+            ? 'The one result we scored was not a board we can read'
+            : `None of the ${scored} results we scored was a board we can read`,
+        // The feature's own argument, and the only place left to say it now that
+        // the "Scored all 19…" rung is gone: the search engine only enumerates
+        // URLs, and deciding which is a board is our own free pure function over
+        // every result — the right board is ranked first about half the time.
+        detail: 'Our own matcher, not the search ranking — we score every result.',
+      },
+    ];
+  }
+  const counted = `${boards} of the ${scored} result${s(scored)} we scored`;
+  return [
+    {
+      key: 'boards',
+      label:
+        boards === 1
+          ? `${counted} is a real job board`
+          : `${counted} are real job boards`,
+      detail:
+        [
+          boards > probed
+            ? `Checked the top ${probed} for open jobs`
+            : `Checked ${probed === 1 ? 'it' : `all ${probed}`} for open jobs`,
+          probeDetail(result),
+        ]
+          .filter((part): part is string => part !== null)
+          .join(' · ') || undefined,
+    },
+  ];
+}
+
+/**
+ * What the live probes found, summed — the only stage that cost an outbound
+ * request per candidate.
+ *
+ * "N jobs in total" and NOT "N open jobs": the rows below say "582 open jobs" per
+ * board, and this is a different claim — the sum across everything we checked,
+ * including boards that are not the one the user will pick. Two numbers a few
+ * pixels apart reading identically would invite exactly that misreading.
+ *
+ * A board that answered with zero jobs really did answer, so "0 jobs in total" is
+ * the truth and stays — it is also the cheapest signal that we picked the wrong one.
+ */
+function probeDetail(result: SearchCompanyResponse): string | null {
+  const probed = result.candidates.length;
+  if (probed === 0) {
+    return null;
+  }
+  const answered = result.candidates.filter((found) => found.probe.ok);
+  const unread = probed - answered.length;
+  const jobs = answered.reduce((total, found) => total + found.probe.jobCount, 0);
+  return (
+    [
+      answered.length > 0 ? `${jobs.toLocaleString()} job${s(jobs)} in total` : null,
+      unread > 0 ? `${unread} could not be read` : null,
+    ]
+      .filter((part): part is string => part !== null)
+      .join(' · ') || null
+  );
 }
 
 /**
  * The SECOND search, narrated — and narrated only when it really happened.
  *
- * The server escalates to a plain `"{name} careers"` query when nothing it found was
- * something the user could just accept. That is a second paid call and a second set
- * of numbers, so the panel has to say so: describing one call when two were made is
- * the same lie as inventing progress, just quieter.
+ * The server escalates to a plain `"{name} careers"` query when nothing it found
+ * was something the user could just accept. That is a second paid call and a second
+ * set of numbers, so the panel has to say so: describing one call when two were
+ * made is the same lie as inventing progress, just quieter.
  *
- * Gated on `careersSearch` being present, never on `careersUrl`. A URL can also come
- * from the FIRST search's own results (the belt-and-braces path when the second call
- * fails), and claiming a second search on the strength of a URL would narrate a call
- * that never left the building.
+ * Gated on `careersSearch` being present, never on `careersUrl`. A URL can also
+ * come from the FIRST search's own results (the belt-and-braces path when the
+ * second call fails), and claiming a second search on the strength of a URL would
+ * narrate a call that never left the building.
  */
 function careersSteps(result: SearchCompanyResponse): NameSearchStep[] {
   const careers = result.careersSearch;
@@ -166,43 +301,77 @@ function careersSteps(result: SearchCompanyResponse): NameSearchStep[] {
 }
 
 /**
- * The live probe — the only stage that cost an outbound request per candidate, and the
- * only one whose numbers the user is about to be asked to judge.
+ * The rows the list narrows through — every one of them a result that came back.
  *
- * `boards` is passed in separately because it is counted BEFORE the five-candidate
- * display cap, and the gap between the two is a real thing to say: "found 8, checked the
- * top 5" is honest, and "checked all 5" when we found 8 is not. `null` means we were not
- * told (no trace), so the claim is not made either way.
+ * ORDER IS THE NARRATION. The results we could not use first, then the boards we
+ * could read, then the answer; the first group folds away, then the second, and
+ * what is left standing is what the page is about to ask the user to accept.
+ *
+ * THE ONE ROW THAT DOES NOT STAND FOR ITSELF is the "…and N more results" row, and
+ * it says so in its own text. The server caps how many result URLs it sends, and
+ * this is the honest way to spend the remainder — a count we were given, not rows
+ * we made up. With no cap hit there is no such row.
  */
-function probeStep(result: SearchCompanyResponse, boards: number | null): NameSearchStep[] {
-  const probed = result.candidates.length;
-  if (probed === 0) {
-    return [];
+export function buildNameSearchRows(result: SearchCompanyResponse): NameSearchRow[] {
+  const rows: NameSearchRow[] = [];
+  const named = `“${result.query}”`;
+
+  for (const row of result.trace?.nonBoards ?? []) {
+    rows.push({
+      key: `result-${row.rank}`,
+      rank: String(row.rank),
+      url: row.url,
+      meta: null,
+      // Two different facts about a result, kept apart: an aggregator was thrown
+      // out by a host denylist before anything looked at it, and everything else
+      // simply did not resolve to a board.
+      status: row.aggregator ? 'aggregator' : 'not a board',
+      kind: 'discarded',
+    });
   }
-  const answered = result.candidates.filter((found) => found.probe.ok);
-  const unread = probed - answered.length;
-  const jobs = answered.reduce((total, found) => total + found.probe.jobCount, 0);
-  // "N jobs in total" and NOT "N open jobs": the rows below say "794 open jobs" per
-  // board, and this line is a different claim — the sum across everything we checked,
-  // including boards that are not the one the user will pick. Two lines a few pixels
-  // apart reading identically would invite exactly that misreading.
-  //
-  // A board that answered with zero jobs really did answer, so "0 jobs in total" is the
-  // truth and stays — it is also the cheapest signal that we picked the wrong board.
-  const detail = [
-    answered.length > 0 ? `${jobs.toLocaleString()} job${s(jobs)} in total` : null,
-    unread > 0 ? `${unread} could not be read` : null,
-  ]
-    .filter((part): part is string => part !== null)
-    .join(' · ');
-  return [
-    {
-      key: 'probed',
-      label:
-        boards !== null && boards > probed
-          ? `Checked the top ${probed} for open jobs`
-          : `Checked ${probed === 1 ? 'it' : `all ${probed}`} for open jobs`,
-      detail: detail || undefined,
-    },
-  ];
+
+  const omitted = result.trace?.nonBoardsOmitted ?? 0;
+  if (omitted > 0) {
+    rows.push({
+      key: 'result-overflow',
+      rank: '—',
+      url: `…and ${omitted} more result${s(omitted)}`,
+      meta: null,
+      status: 'not a board',
+      kind: 'discarded',
+    });
+  }
+
+  for (const found of result.candidates) {
+    const { ats, boardToken } = found.candidate;
+    rows.push({
+      key: `board-${ats}:${boardToken}:${found.sourceUrl}`,
+      rank: String(found.rank),
+      url: found.sourceUrl,
+      // The identity and the live count, always — see `NameSearchRow.meta`.
+      meta: `${ats} · ${boardToken} · ${
+        found.probe.ok
+          ? `${found.probe.jobCount.toLocaleString()} open job${s(found.probe.jobCount)}`
+          : 'could not read this board'
+      }`,
+      status: found.autoAddable ? `matches ${named}` : `not ${named}`,
+      kind: found.autoAddable ? 'answer' : 'rejected',
+    });
+  }
+
+  if (result.careersUrl !== null) {
+    rows.push({
+      key: 'careers',
+      // Not a rank: this came from a different search, and giving it a number from
+      // the first one's ranking would be a small, pointless lie.
+      rank: '✓',
+      url: result.careersUrl,
+      meta: null,
+      status: 'their own site',
+      kind: 'answer',
+      late: true,
+    });
+  }
+
+  return rows;
 }

@@ -1323,6 +1323,37 @@ class NameCandidateResponse(BaseModel):
     auto_addable: bool
 
 
+class SearchResultRowResponse(BaseModel):
+    """One search result that did NOT resolve to a board, as much of it as we render.
+
+    THE ROWS THE ADD PAGE FOLDS AWAY. The page narrates a name search as one list
+    that narrows to its answer: results land, the ones we cannot use fold away, and
+    what survives is the answer. That only works if the rows are REAL — the panel's
+    contract is that everything on it is something that really happened, so the
+    URLs have to come from here rather than be invented client-side.
+
+    Only the non-boards ride here. The boards are already on the response as
+    ``candidates`` with their token, their probe and their job count, and sending
+    them twice would be two records of one result that could disagree.
+
+    ``url`` is run through :func:`api.services.discovery.progress.display_url`
+    before it is put on the wire — userinfo and port stripped, every query VALUE
+    replaced with an ellipsis, the whole thing clipped. These are public search
+    results and there is no secret in them, but a search result can carry a signed
+    URL like any other and the network log's rule is the right one to reuse.
+    """
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    url: str
+    #: Its 1-based place in the search engine's own ranking.
+    rank: int = Field(ge=1)
+    #: Dropped by ``is_aggregator`` (LinkedIn, Indeed, Reddit…) rather than merely
+    #: failing to resolve. The page labels the two differently because they are
+    #: different facts about the result.
+    aggregator: bool
+
+
 class SearchTraceResponse(BaseModel):
     """What the search actually DID — the numbers behind the answer above it.
 
@@ -1349,6 +1380,14 @@ class SearchTraceResponse(BaseModel):
     results: int = Field(ge=0)
     filtered: int = Field(ge=0)
     boards: int = Field(ge=0)
+    #: The non-board results, in rank order, capped server-side. Empty from a
+    #: backend that predates the field, which makes the page's list SHORTER — it
+    #: never draws a row it was not sent.
+    non_boards: list[SearchResultRowResponse] = Field(default_factory=list)
+    #: How many more non-board results there were than the cap let through. The
+    #: page draws one "…and N more results" row for them, which is the only row on
+    #: it that stands for something other than itself — and it says so.
+    non_boards_omitted: int = Field(default=0, ge=0)
 
 
 class CareersSearchTraceResponse(BaseModel):

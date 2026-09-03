@@ -21,6 +21,7 @@ from .dependencies import get_db, init_pool, close_pool, pool_is_healthy
 from .routers import (
     admin,
     companies,
+    dev_reset,
     feedback,
     features,
     internal_enrichment,
@@ -526,6 +527,23 @@ app.include_router(jobs.router, prefix="/api/jobs", tags=["jobs"])
 app.include_router(jobs_qa.router, prefix="/api/jobs-qa", tags=["jobs-qa"])
 app.include_router(locations.router, prefix="/api/locations", tags=["locations"])
 app.include_router(users.router, prefix="/api/users", tags=["users"])
+# LOCAL DEVELOPMENT ONLY, and NOT REGISTERED unless the flag is on — that is the
+# guard, not a 403 inside the handler. An unregistered route 404s exactly like a
+# path that does not exist, so a prober cannot tell that a "delete every company
+# this user added" endpoint lives here. Deliberately mounted one segment ABOVE
+# /api/users/companies: the api/users.ts allowlist entry ``companies/:id`` matches
+# ANY single segment, so a sibling of the rename/delete routes would be publicly
+# reachable through the proxy. Nothing in that allowlist matches ``dev-reset``, and
+# api/tests/test_proxy_path_allowlists.py pins that it never will.
+if settings.dev_reset_enabled:
+    logger.warning(
+        "DEV_RESET_ENABLED is on: POST /api/users/dev-reset can delete every "
+        "user-added company. It still refuses unless database_url is a loopback "
+        "host. Never set this outside local development."
+    )
+    app.include_router(
+        dev_reset.router, prefix="/api/users/dev-reset", tags=["dev-reset"]
+    )
 app.include_router(
     saved_filters.router, prefix="/api/users/saved-filters", tags=["saved-filters"]
 )

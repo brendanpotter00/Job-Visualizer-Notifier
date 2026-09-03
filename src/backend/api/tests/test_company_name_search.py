@@ -322,6 +322,50 @@ async def test_the_trace_counts_what_actually_happened() -> None:
 
 
 @pytest.mark.asyncio
+async def test_the_trace_carries_the_non_board_results_it_will_be_asked_to_draw() -> None:
+    """The add page folds the non-boards away on screen, so it needs their URLs.
+
+    Boards are deliberately NOT here: they already ride the response as
+    candidates, and one result described twice is one result that can be
+    described two ways."""
+    payload = _results(
+        "https://www.linkedin.com/jobs/cisco",
+        "https://cisco.wd5.myworkdayjobs.com/Cisco_Careers",
+        "https://medium.com/@dev/how-to-find-ats-boards",
+    )
+    async with _client(payload) as http:
+        _, _, trace = await search_ats_candidates("Cisco", http)
+
+    assert [(row.rank, row.aggregator) for row in trace.non_boards] == [
+        (1, True),  # LinkedIn — dropped as an aggregator
+        (3, False),  # Medium — simply not a board
+    ]
+    assert trace.non_boards[0].url == "https://www.linkedin.com/jobs/cisco"
+    assert trace.non_boards_omitted == 0
+
+
+@pytest.mark.asyncio
+async def test_the_traced_rows_are_redacted_and_capped() -> None:
+    """Same rule as the discovery network log: a rendered URL keeps its shape and
+    loses its query VALUES, because a search result can be signed like any other.
+
+    And the list is capped — the page draws one "…and N more" row from the count
+    rather than 25 rows nobody reads."""
+    payload = _results(
+        "https://jobs.example.com/search?token=deadbeef&page=2",
+        *[f"https://blog{n}.example.com/ats" for n in range(10)],
+    )
+    async with _client(payload) as http:
+        _, _, trace = await search_ats_candidates("Cisco", http)
+
+    assert trace.non_boards[0].url == "https://jobs.example.com/search?token=…&page=…"
+    # Six rows sent, and the count of the ones left out is exact: 11 results, none
+    # of them a board.
+    assert len(trace.non_boards) == 6
+    assert trace.non_boards_omitted == 5
+
+
+@pytest.mark.asyncio
 async def test_the_traced_query_is_the_one_that_was_sent() -> None:
     """Reported verbatim rather than rebuilt: a trace that disagreed with the
     wire would be the page confidently showing a query nobody ran."""

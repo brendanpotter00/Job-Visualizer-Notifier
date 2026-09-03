@@ -72,6 +72,7 @@ import httpx
 
 from ..config import settings
 from .ats_link_resolver import AtsCandidate, resolve_ats_url
+from .discovery.progress import display_url
 
 logger = logging.getLogger(__name__)
 
@@ -126,6 +127,16 @@ _NUM_RESULTS = 25
 # a $0.04-0.08 discovery run PLUS one of the user's 20 monthly adds.
 _CAREERS_QUERY_TEMPLATE = "{company} careers"
 
+# How many of the NON-BOARD results we are willing to put on the wire for the add
+# page to draw as rows.
+#
+# The page's morphing list is only honest if every row is a result that really came
+# back, so the rows have to be sent rather than invented — but all 25 would be a
+# ~4 KB list nobody reads, on a response whose useful half is five candidates. Six is
+# what the fold reads well at (they land, they go), and the count of the ones left
+# out is sent alongside so the page can say "…and 18 more" without guessing.
+_MAX_TRACE_ROWS = 6
+
 _SEARCH_TIMEOUT_S = 12.0
 
 # Typed names are capped well below the query budget. Anything longer is not a
@@ -166,6 +177,27 @@ _GENERIC_SLUGS = frozenset(
 
 
 @dataclass(frozen=True)
+class SearchResultRow:
+    """One result that resolved to no board, kept only so it can be RENDERED.
+
+    The add page narrates a search as a list that narrows: the results land, the
+    ones we cannot use fold away, and the answer is what survives. Those rows must
+    be real results, which means they have to travel — there is nothing else on the
+    response that names them.
+
+    ``url`` is already sanitized (``display_url``) when this is built, so nothing
+    downstream has to remember to do it.
+    """
+
+    #: Display-safe: no userinfo, no port, query values replaced, clipped.
+    url: str
+    #: 1-based place in the search engine's own ranking.
+    rank: int
+    #: Dropped as an aggregator/social host, rather than simply not being a board.
+    aggregator: bool
+
+
+@dataclass(frozen=True)
 class NameSearchTrace:
     """What one search actually did, in numbers, for a client that narrates it.
 
@@ -189,6 +221,14 @@ class NameSearchTrace:
     filtered: int
     #: How many of the scored results resolved to a board we can read.
     boards: int
+    #: The non-board results, in rank order, capped at ``_MAX_TRACE_ROWS``. The
+    #: BOARDS are deliberately absent: the caller already returns them as
+    #: candidates, with a token, a probe and a job count, and one result described
+    #: twice on one response is one result that can be described two ways.
+    non_boards: tuple[SearchResultRow, ...] = ()
+    #: Non-board results the cap left out. ``len(non_boards) + this`` is every
+    #: result that was not a board.
+    non_boards_omitted: int = 0
 
 
 @dataclass(frozen=True)
@@ -619,7 +659,23 @@ async def search_ats_candidates(
     candidates: list[NameCandidate] = []
     careers_urls: list[str] = []
     filtered = 0
+    # The rows the page folds away, and how many more there were than we send.
+    # Collected HERE rather than derived by the caller because this is the only
+    # place that still has the raw result list and its ranking.
+    non_boards: list[SearchResultRow] = []
+    non_boards_seen = 0
     seen: set[tuple[str, str, tuple[tuple[str, str], ...]]] = set()
+
+    def keep_non_board(url: str, rank: int, aggregator: bool) -> None:
+        """Record a result that produced no board, up to the display cap."""
+        nonlocal non_boards_seen
+        non_boards_seen += 1
+        if len(non_boards) < _MAX_TRACE_ROWS:
+            non_boards.append(
+                SearchResultRow(
+                    url=display_url(url), rank=rank, aggregator=aggregator
+                )
+            )
 
     for rank, result in enumerate(results, start=1):
         # A non-object item is skipped rather than fatal: one malformed row in an
@@ -631,10 +687,12 @@ async def search_ats_candidates(
             continue
         if is_aggregator(url):
             filtered += 1
+            keep_non_board(url, rank, aggregator=True)
             continue
         resolved = resolve_ats_url(url)
         if resolved is None:
             careers_urls.append(url)
+            keep_non_board(url, rank, aggregator=False)
             continue
         key = (
             resolved.ats,
@@ -671,5 +729,7 @@ async def search_ats_candidates(
             # a slice of. Counting pre-dedupe hits would promise boards that are
             # the same board twice.
             boards=len(candidates),
+            non_boards=tuple(non_boards),
+            non_boards_omitted=non_boards_seen - len(non_boards),
         ),
     )
