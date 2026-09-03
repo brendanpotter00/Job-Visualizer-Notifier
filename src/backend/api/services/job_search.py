@@ -46,6 +46,7 @@ from .database import (
     _LEVEL_FILTER_EXPANSION,
     _LIST_COLUMNS,
     _SINCE_PREDICATE,
+    _USER_COMPANY_PREDICATE,
     _row_to_job_dict,
 )
 
@@ -108,13 +109,20 @@ def _like_pattern(term: str) -> str:
 # The frontend haystack is ``[title, department, team, location, ...tags]`` joined
 # with spaces and lower-cased, and this reproduces it field by field:
 #
-# * ``department`` is ``details.experience_level`` on the frontend
-#   (``backendScraperTransformer.ts``), and that value is mirrored into the
-#   denormalized ``experience_level`` COLUMN — the same column ``_LIST_COLUMNS``
-#   already selects. So it is matched here directly, with no JSONB read and no
-#   TOAST cost. (An earlier version of this comment claimed the opposite and
-#   dropped the field; that was wrong, and it silently narrowed terms like
-#   "intern" or "senior" that users actually type.)
+# * ``department`` is NOT matched, and the history here is worth keeping because
+#   it reversed twice. It used to be ``details.experience_level`` on the frontend
+#   (``backendScraperTransformer.ts``), mirrored into the denormalized
+#   ``experience_level`` column, so an earlier revision matched that column to
+#   preserve parity — dropping it back then genuinely narrowed terms like
+#   "intern" or "senior" that users type. E7 Phase 3 (#248) then deleted the
+#   field from the frontend model outright: ``Job.department`` is gone and
+#   ``matchesSearchTags`` now builds its haystack from
+#   ``[title, team, location, ...tags]``. So as of that commit the CLIENT no
+#   longer matches it, and keeping the clause would make this endpoint WIDER
+#   than the page it replaces rather than equal to it — typing "senior" would
+#   return jobs whose title says nothing about seniority, which is exactly the
+#   ATS-assigned noise #260 removed from the job card. Matching the deployed
+#   client is the whole contract of this predicate, so the column is dropped.
 # * ``team`` is never populated by any transformer, so it contributes nothing.
 # * ``company`` IS searched, which the frontend does not do. Typing "stripe" into
 #   a keyword box and getting Stripe's jobs is what users expect.
@@ -124,10 +132,10 @@ def _like_pattern(term: str) -> str:
 # title plus the head of the location) no longer matches. That was accidental
 # behaviour, not a feature.
 #
-# ``COALESCE(..., '')`` on the nullable columns is load-bearing and NOT defensive
-# noise. Without it, a row whose ``location``/``experience_level`` is NULL and
-# which matches none of the other fields makes this whole OR-chain evaluate to
-# NULL rather than false — and on the exclude path ``AND NOT (NULL)`` is NULL,
+# ``COALESCE(..., '')`` on ``location`` (the one nullable column left in this
+# chain) is load-bearing and NOT defensive noise. Without it, a row whose
+# ``location`` is NULL and which matches none of the other fields makes this
+# whole OR-chain evaluate to NULL rather than false — and on the exclude path ``AND NOT (NULL)`` is NULL,
 # which drops the row from the result set. A negative keyword would then silently
 # hide every location-less job. ``title`` and ``company`` are NOT NULL.
 #
@@ -137,7 +145,6 @@ _KEYWORD_PREDICATE = sql.SQL(
     "("
     " job_listings.title ILIKE %s ESCAPE '\\'"
     " OR COALESCE(job_listings.location, '') ILIKE %s ESCAPE '\\'"
-    " OR COALESCE(job_listings.experience_level, '') ILIKE %s ESCAPE '\\'"
     " OR job_listings.company ILIKE %s ESCAPE '\\'"
     " OR EXISTS ("
     "   SELECT 1 FROM job_tags t"
@@ -147,7 +154,7 @@ _KEYWORD_PREDICATE = sql.SQL(
     ")"
 )
 
-_KEYWORD_PARAM_COUNT = 5
+_KEYWORD_PARAM_COUNT = 4
 
 
 def _keyword_condition(term: str) -> tuple[sql.Composable, list[str]]:
@@ -482,6 +489,21 @@ def build_search_where(
     # asked for — same public-read-path guard as ``/api/jobs``.
     conditions.append(_HIDDEN_COMPANY_PREDICATE)
 
+    # ...and so do PRIVATE companies. This endpoint is unauthenticated
+    # (``routers/jobs_search.search`` takes only ``Depends(get_db)``) and is
+    # allow-listed through the public Vercel proxy, so it is a public read path
+    # in exactly the sense :data:`_USER_COMPANY_PREDICATE` means. It was written
+    # before ``visibility`` existed and mirrored only the OTHER guard, which left
+    # one user's private board readable by anyone the moment E7 landed — rows,
+    # ``filtered_total`` and both recency tiles alike.
+    #
+    # UNCONDITIONAL, never viewer-scoped, for the reason the predicate's own
+    # docstring gives: a "hide private companies unless YOU own them" variant
+    # turns an unconditional leak into a conditional one. A signed-in reader's
+    # own boards are served only by the authed, owner-scoped
+    # ``GET /api/users/companies/{id}/jobs``.
+    conditions.append(_USER_COMPANY_PREDICATE)
+
     if since is not None:
         conditions.append(_SINCE_PREDICATE)
         params.append(since)
@@ -584,6 +606,11 @@ def _header_counts_where(companies: list[str] | None) -> tuple[sql.Composable, l
         sql.SQL("job_listings.status = 'OPEN'"),
         sql.SQL("job_listings.first_seen_at >= now() - interval '24 hours'"),
         _HIDDEN_COMPANY_PREDICATE,
+        # Same unconditional private-company guard as ``build_search_where``.
+        # Without it the tiles COUNT rows the list cannot show, so the two
+        # numbers disagree with the feed beneath them and leak the size of
+        # someone else's private board.
+        _USER_COMPANY_PREDICATE,
     ]
     params: list = []
     if companies:
@@ -596,7 +623,7 @@ def _header_counts_where(companies: list[str] | None) -> tuple[sql.Composable, l
 #
 # They used to be two statements on the same pooled connection, and page 1 of a
 # search already holds that connection for the row query (plus a location resolve
-# when a location filter is active). Prod runs ``DB_POOL_MAX=15`` with a 5s
+# when a location filter is active). Prod runs ``DB_POOL_MAX=30`` with a 5s
 # checkout timeout and has logged bursts of "Timed out waiting for a database
 # connection", so the number of statements per checkout is a budget, not an
 # implementation detail. The two counts have DIFFERENT predicates — the total
