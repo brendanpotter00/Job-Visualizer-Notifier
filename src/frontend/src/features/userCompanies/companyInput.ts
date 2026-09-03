@@ -41,6 +41,18 @@ export type CompanyInputKind =
   | { kind: 'name'; name: string };
 
 /**
+ * The longest string we will send as a company NAME. Mirrors `_MAX_NAME_CHARS` in
+ * `company_name_search.py`, and the server is still the real enforcement — this copy
+ * exists only so an input we can already tell is invalid never costs a paid search.
+ *
+ * The number is not cosmetic. Browserbase caps a query at 200 characters and ours
+ * spends most of that budget naming the six ATS hosts, which is the whole reason the
+ * strategy scores 76% instead of 41%; a longer name would push those hosts off the
+ * end. A URL has no such constraint and keeps the field's own 2048-character ceiling.
+ */
+export const COMPANY_NAME_MAX_CHARS = 60;
+
+/**
  * Classify a submitted string.
  *
  * `cisco.com` is classified as a URL and given the `https://` it is missing.

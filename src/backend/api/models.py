@@ -1351,14 +1351,46 @@ class SearchTraceResponse(BaseModel):
     boards: int = Field(ge=0)
 
 
+class CareersSearchTraceResponse(BaseModel):
+    """What the SECOND search did, present only when a second search happened.
+
+    ``null`` is the honest default and carries meaning: the client narrates the run
+    from these numbers, so a missing block must make the panel say nothing about a
+    second search rather than imply one.
+
+    Deliberately NOT ``SearchTraceResponse``: this query is never scored for boards
+    (measured over 1,125 results, zero resolved), so it has no ``boards`` count to
+    report. ``trusted`` takes its place — how many results sat on a host that names
+    the company, which is the number that decides whether anything is offered.
+    """
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    query: str
+    results: int = Field(ge=0)
+    filtered: int = Field(ge=0)
+    trusted: int = Field(ge=0)
+
+
 class SearchCompanyResponse(BaseModel):
     """200 body for POST /api/companies/search-by-name. Persists nothing.
 
     An empty ``candidates`` list is a real, successful answer meaning "we looked
     and found no board" — distinct from the 503 that means search itself could
-    not run. ``careers_url`` is the best non-aggregator page we saw, offered so
-    the client can fall back to the ordinary paste-a-URL path (and, from there,
-    one-time discovery) rather than dead-ending.
+    not run.
+
+    ``careers_url`` is offered so the client can fall back to the ordinary
+    paste-a-URL path (and, from there, one-time discovery) rather than dead-ending.
+    It is present ONLY when no candidate came back auto-addable, and only when some
+    result's host actually NAMES the company — never the best of a bad set, because
+    accepting one costs a paid discovery run plus one of the user's monthly adds.
+    ``null`` therefore means "we have nothing you can use", and the UI says so.
+
+    It may be non-null ALONGSIDE a non-empty ``candidates`` list, and that
+    combination is the point of the wider trigger: searching "IBM" resolves
+    Harvey's live Ashby board, which is a real board, is not IBM's, and used to
+    suppress the careers page and leave the user with no way forward. Both are
+    shown now; the boards are information, the careers page is the action.
 
     ``trace`` is always sent. The client still treats it as optional, because the
     frontend (Vercel) and this API (Railway) deploy separately and a new client
@@ -1371,6 +1403,7 @@ class SearchCompanyResponse(BaseModel):
     candidates: list[NameCandidateResponse] = Field(default_factory=list)
     careers_url: str | None = None
     trace: SearchTraceResponse
+    careers_search: CareersSearchTraceResponse | None = None
 
 
 class AddUserCompanyRequest(BaseModel):

@@ -31,6 +31,7 @@ from ..config import settings
 from ..dependencies import get_db
 from ..models import (
     AtsCandidateResponse,
+    CareersSearchTraceResponse,
     CompanyListResponse,
     CompanyProfileResponse,
     NameCandidateResponse,
@@ -48,9 +49,12 @@ from ..services.ats_discovery import (
     probe_candidate,
 )
 from ..services.company_name_search import (
+    CareersSearchTrace,
     NameCandidate,
     NameSearchUnavailable,
     search_ats_candidates,
+    search_careers_page,
+    trusted_careers_urls,
 )
 from ..services.companies_service import list_enabled_companies_with_profiles
 from ..services.rate_limit import enforce_resolve_rate_limit
@@ -302,6 +306,58 @@ async def _probe_shown(
     return out
 
 
+async def _careers_fallback(
+    name: str,
+    first_search_urls: list[str],
+    http: httpx.AsyncClient,
+    deadline: float,
+) -> tuple[str | None, CareersSearchTrace | None]:
+    """The company's own careers page, or nothing. Called ONLY on a miss.
+
+    THE TRIGGER IS ``auto_addable``, NOT "no candidates at all", and that widening
+    is most of the value here. Searching "IBM" resolves Harvey's live Ashby board —
+    a real board with 334 real jobs, belonging to a legal-AI company — and a
+    non-empty ``candidates`` list used to suppress the fallback entirely, leaving
+    the user with three strangers' boards and no way forward. Measured over 22
+    companies, the wider trigger takes "we offered nothing at all" from 6 to 0.
+
+    Two sources, in order, and neither may return an untrusted host:
+
+    1. A second search, ``"{name} careers"`` — a plain query, because the ATS
+       hostnames in the first one are what make its results SEO content *about*
+       applicant tracking systems for a company with no board. This is where
+       Oracle's `resumeadapter.com/ats/workday/companies` becomes
+       `oracle.com/careers/`.
+    2. Failing that, the trusted remains of the FIRST search's careers list.
+       Measured never to be needed (the second query succeeded 15/15); it is here
+       so that a second search we could not run is not automatically a dead end.
+
+    A second search that fails or runs out of budget is NOT an error for this
+    request. We already have a real answer above it, and turning a working search
+    into a 503 because its optional follow-up timed out would trade the whole
+    result for the footnote.
+    """
+    fallback = trusted_careers_urls(name, first_search_urls)
+    first_trusted = fallback[0] if fallback else None
+
+    # The probes above already ate part of the budget, and this call is the
+    # optional part of the request. It gets what is left and no extension.
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        logger.warning("No budget left for the careers fallback search for %r", name)
+        return first_trusted, None
+
+    try:
+        trusted, trace = await asyncio.wait_for(
+            search_careers_page(name, http), timeout=remaining
+        )
+    except (NameSearchUnavailable, asyncio.TimeoutError) as exc:
+        logger.warning("Careers fallback search failed for %r: %s", name, exc)
+        return first_trusted, None
+
+    return (trusted[0] if trusted else first_trusted), trace
+
+
 @router.post("/search-by-name", response_model=SearchCompanyResponse)
 async def search_company_by_name(
     payload: SearchCompanyRequest,
@@ -312,6 +368,10 @@ async def search_company_by_name(
     One Browserbase Search call, then every result scored by the free pure
     ``resolve_ats_url``. This route exists ONLY for names — a pasted URL still
     goes to ``/resolve`` and enters at L0, which is exact, free and instant.
+
+    A SECOND search happens only on a miss — see ``_careers_fallback``. A name that
+    resolves an auto-addable board spends exactly one search and gets a
+    byte-identical answer to the one it got before that escalation existed.
 
     503 (not an empty 200) when the flag is off or search is unavailable, because
     "we could not look" and "we looked and there is no board" must never reach a
@@ -354,15 +414,32 @@ async def search_company_by_name(
 
         shown = await _probe_shown(candidates, http, deadline)
 
+        # THE ESCALATION, and its trigger is the whole design. Not "we found no
+        # boards" — "we found nothing the user can just accept". A board that
+        # resolves but is somebody else's, or is theirs and is dead (Walmart's own
+        # Workday tenant answers HTTP 422), leaves the user exactly as stuck as no
+        # board at all, and until now it also silently suppressed the careers page.
+        #
+        # Read from `shown`, not from `candidates`, because `auto_addable` only
+        # becomes final after the probe: `_probe_shown` ANDs the name gate with
+        # "the board answered and has jobs", which is the half that catches Walmart.
+        careers_url: str | None = None
+        careers_trace: CareersSearchTrace | None = None
+        if not any(found.auto_addable for found in shown):
+            careers_url, careers_trace = await _careers_fallback(
+                payload.name, careers_urls, http, deadline
+            )
+
     logger.info(
-        "Name search for %r: %d candidate(s), %d shown, %d auto-addable",
+        "Name search for %r: %d candidate(s), %d shown, %d auto-addable, "
+        "careers fallback %s",
         payload.name, len(candidates), len(shown),
-        sum(1 for c in shown if c.auto_addable),
+        sum(1 for c in shown if c.auto_addable), careers_url or "none",
     )
     return SearchCompanyResponse(
         query=payload.name,
         candidates=shown,
-        careers_url=careers_urls[0] if careers_urls else None,
+        careers_url=careers_url,
         # Passed straight through from the service, not recomputed here: `shown`
         # is already capped at `_MAX_SHOWN_CANDIDATES`, so a count taken from it
         # would under-report how many boards the scoring actually found — and
@@ -373,5 +450,18 @@ async def search_company_by_name(
             results=trace.results,
             filtered=trace.filtered,
             boards=trace.boards,
+        ),
+        # None unless a second search really happened. The add page narrates the
+        # run from these numbers, and a panel that described two calls when one
+        # was made would be the one thing that panel exists not to do.
+        careers_search=(
+            None
+            if careers_trace is None
+            else CareersSearchTraceResponse(
+                query=careers_trace.query,
+                results=careers_trace.results,
+                filtered=careers_trace.filtered,
+                trusted=careers_trace.trusted,
+            )
         ),
     )

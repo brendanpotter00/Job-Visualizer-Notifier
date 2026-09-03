@@ -16,10 +16,13 @@ from api.services import company_name_search as cns
 from api.services.ats_link_resolver import AtsCandidate
 from api.services.company_name_search import (
     NameSearchUnavailable,
+    build_careers_query,
     build_query,
     is_aggregator,
     normalize_name,
     search_ats_candidates,
+    search_careers_page,
+    trusted_careers_urls,
 )
 
 
@@ -497,3 +500,103 @@ async def test_an_empty_name_is_a_no_op_not_a_search() -> None:
     # block, and a name that never reached the API genuinely searched for nothing.
     assert (trace.query, trace.results, trace.filtered, trace.boards) == ("", 0, 0, 0)
     assert called is False
+
+
+# ---------------------------------------------------------------------------
+# The second query — the careers-page fallback
+#
+# Measured live 2026-09-02, 15 escalating companies
+# (docs/implementations/custom-company-sources/CAREERS-FALLBACK-POC.md).
+# ---------------------------------------------------------------------------
+
+
+def test_the_second_query_is_plain_and_names_no_hosts() -> None:
+    """The ATS hostnames are why the FIRST query works and why it cannot find a
+    careers page: for a company with no board they turn the result set into SEO
+    content about applicant tracking systems. Two words, measured best of three."""
+    assert build_careers_query("Oracle") == "Oracle careers"
+    for host in ("myworkdayjobs.com", "greenhouse.io", "ashbyhq.com", "lever.co"):
+        assert host not in build_careers_query("Oracle")
+
+
+@pytest.mark.parametrize(
+    "company,url,trusted",
+    [
+        ("Oracle", "https://www.oracle.com/careers/", True),
+        # THE ORACLE FAILURE. Ranked first by the shipped sort because nothing
+        # better existed; accepting it spends a paid discovery run on a stranger.
+        ("Oracle", "https://resumeadapter.com/ats/workday/companies", False),
+        ("Tesla", "https://findmejobs.co/companies/tesla", False),
+        # A vendor domain carrying the company's name is theirs — this really is
+        # King Arthur's recruiting site.
+        ("King Arthur Baking", "https://kingarthurbaking.hrmdirect.com/", True),
+        # The short-identity floor from `a80fd2e7` still applies here.
+        ("GM", "https://gmail.com/careers", False),
+        ("GM", "https://gm.com/careers", True),
+    ],
+)
+def test_only_a_host_that_names_the_company_is_trusted(
+    company: str, url: str, trusted: bool
+) -> None:
+    assert trusted_careers_urls(company, [url]) == ([url] if trusted else [])
+
+
+def test_the_trust_filter_keeps_search_rank_among_the_urls_it_keeps() -> None:
+    urls = [
+        "https://scoutify.com/companies/databricks/",
+        "https://www.databricks.com/company/careers",
+        "https://databricks.com/careers/open-positions",
+    ]
+    assert trusted_careers_urls("Databricks", urls) == urls[1:]
+
+
+@pytest.mark.asyncio
+async def test_the_careers_search_offers_only_the_companys_own_pages() -> None:
+    payload = _results(
+        "https://openjobradar.com/c/oracle",
+        "https://www.oracle.com/careers/",
+        "https://www.linkedin.com/company/oracle/jobs",
+    )
+    async with _client(payload) as http:
+        trusted, trace = await search_careers_page("Oracle", http)
+
+    assert trusted == ["https://www.oracle.com/careers/"]
+    assert trace.query == "Oracle careers"
+    assert (trace.results, trace.filtered, trace.trusted) == (3, 1, 1)
+
+
+@pytest.mark.asyncio
+async def test_the_careers_search_offers_nothing_rather_than_a_stranger() -> None:
+    """No trusted host means NONE, never the best of a bad set. The UI already
+    knows how to say "paste the URL of their careers page"."""
+    payload = _results(
+        "https://findmejobs.co/companies/tesla",
+        "https://jobs.weekday.works/tesla",
+    )
+    async with _client(payload) as http:
+        trusted, trace = await search_careers_page("Zzyzx Industries", http)
+
+    assert trusted == []
+    assert trace.trusted == 0
+
+
+@pytest.mark.asyncio
+async def test_the_careers_search_never_hands_back_a_board() -> None:
+    """Measured over 1,125 results this never fires — a plain careers query
+    returns careers pages. Kept so that if it ever does, the board is dropped
+    rather than offered as a "careers page" for a paid discovery run."""
+    payload = _results(
+        "https://boards.greenhouse.io/cisco",
+        "https://careers.cisco.com/global/en",
+    )
+    async with _client(payload) as http:
+        trusted, _ = await search_careers_page("Cisco", http)
+
+    assert trusted == ["https://careers.cisco.com/global/en"]
+
+
+@pytest.mark.asyncio
+async def test_the_careers_search_refuses_an_overlong_name_before_spending() -> None:
+    async with _client(_results()) as http:
+        with pytest.raises(NameSearchUnavailable):
+            await search_careers_page("z" * 61, http)

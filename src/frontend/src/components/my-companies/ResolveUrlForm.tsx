@@ -4,6 +4,19 @@ import Button from '@mui/material/Button';
 import CircularProgress from '@mui/material/CircularProgress';
 import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
+import {
+  classifyCompanyInput,
+  COMPANY_NAME_MAX_CHARS,
+} from '../../features/userCompanies/companyInput';
+
+/**
+ * What a value over the cap is told, and it has to be an INSTRUCTION rather than a
+ * measurement. The server's own refusal is a raw Pydantic 422 reading "String should
+ * have at most 60 characters", which is true, arrives after a round-trip, and tells
+ * nobody what to do next. The thing to do next is paste a link.
+ */
+const TOO_LONG_FOR_A_NAME =
+  'That’s too long to be a company name — paste the link to their careers page instead.';
 
 interface ResolveUrlFormProps {
   /** Called with the trimmed URL. Never called while busy or with an empty value. */
@@ -95,13 +108,42 @@ export function ResolveUrlForm({
   allowName = false,
 }: ResolveUrlFormProps) {
   const [value, setValue] = useState('');
+  const [tooLong, setTooLong] = useState(false);
 
   const trimmed = value.trim();
   const canSubmit = trimmed.length > 0 && !busy && !disabled;
 
+  /**
+   * THE LIMIT FOLLOWS THE CLASSIFICATION, NOT THE FIELD.
+   *
+   * One box takes two kinds of value with two different ceilings: a URL may be 2048
+   * characters and a name may be 60, and the field cannot know which it is holding
+   * until the press. So the `maxLength` stays at the URL's ceiling — truncating a
+   * pasted link at 60 would be far worse than any error message — and the name's cap
+   * is checked HERE, at submit, on the value we have just classified.
+   *
+   * Before the request, deliberately. Sending it would spend a paid Browserbase
+   * search on an input we can already tell is invalid, and buy back a raw Pydantic
+   * 422 the user cannot act on. The server keeps its own cap; that is the real
+   * enforcement and this is only the part that is kind about it.
+   *
+   * Gated on `allowName`, because with the flag off nothing is a name — every value
+   * goes to the URL path exactly as it did before the name box existed.
+   */
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!canSubmit) return;
+    if (allowName) {
+      const classified = classifyCompanyInput(trimmed);
+      if (
+        classified.kind === 'name' &&
+        classified.name.length > COMPANY_NAME_MAX_CHARS
+      ) {
+        setTooLong(true);
+        return;
+      }
+    }
+    setTooLong(false);
     onSubmit(trimmed);
   };
 
@@ -113,8 +155,14 @@ export function ResolveUrlForm({
           label={allowName ? 'Company name or careers page link' : 'Careers page link'}
           placeholder={allowName ? 'e.g. Stripe, or stripe.com/jobs' : 'e.g. stripe.com/jobs'}
           value={value}
-          onChange={(event) => setValue(event.target.value)}
+          onChange={(event) => {
+            setValue(event.target.value);
+            // The complaint is about a value that no longer exists the moment it is
+            // edited. Left up, it would sit under a field the user has already fixed.
+            setTooLong(false);
+          }}
           disabled={busy}
+          error={tooLong}
           // THE ONE RULE THE PRODUCT CANNOT YET ENFORCE, so it has to be written down.
           // `_NEVER_MATCH_DOMAINS` (company_name_match.py) does hold linkedin.com and
           // indeed.com, but it is a DENYLIST consulted on the wrong rung — it is the "is
@@ -129,15 +177,21 @@ export function ResolveUrlForm({
           // `HOW_IT_WORKS_VIDEO_SRC` (AddCompanyHowTo.tsx) stops being null, and not
           // before: it is currently the last statement of this rule anywhere in the app.
           helperText={
-            allowName
-              ? 'Type the company’s name, or paste the link to their own careers page — not LinkedIn or Indeed. Any page of their job list works.'
-              : 'Paste the link to the company’s own careers page, not LinkedIn or Indeed. Any page of their job list works.'
+            tooLong
+              ? TOO_LONG_FOR_A_NAME
+              : allowName
+                ? 'Type the company’s name, or paste the link to their own careers page — not LinkedIn or Indeed. Any page of their job list works.'
+                : 'Paste the link to the company’s own careers page, not LinkedIn or Indeed. Any page of their job list works.'
           }
           slotProps={{
             htmlInput: {
               'aria-label': allowName
                 ? 'Company name or careers page link'
                 : 'Careers page link',
+              // The URL ceiling, and it stays that for every value. A name over its
+              // own (much shorter) cap is REFUSED at submit rather than truncated
+              // here — see `handleSubmit`. Truncating would silently search for
+              // something the user did not type.
               maxLength: 2048,
             },
           }}

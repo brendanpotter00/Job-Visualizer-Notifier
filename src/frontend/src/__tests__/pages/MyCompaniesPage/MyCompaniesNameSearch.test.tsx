@@ -353,6 +353,97 @@ describe('MyCompaniesPage — typed company name', () => {
     expect(callsTo('/users/companies')).toHaveLength(0);
   });
 
+  it('offers the careers page even when a STRANGER’S board came back', async () => {
+    // THE IBM CASE. Searching IBM resolves Harvey's live Ashby board — a legal-AI
+    // company with 334 real jobs — and a non-empty candidate list used to suppress
+    // the careers page entirely, leaving the user with a stranger's board and no way
+    // forward. The board is still shown (a user may recognise it) and the careers
+    // page is shown beside it. The server only sends one when nothing was addable.
+    const harvey = candidate({
+      candidate: {
+        ats: 'ashby',
+        boardToken: 'harvey',
+        providerConfig: {},
+        sourceUrl: 'https://jobs.ashbyhq.com/harvey',
+      },
+      probe: { ok: true, jobCount: 334, error: null },
+      sourceUrl: 'https://jobs.ashbyhq.com/harvey',
+      autoAddable: false,
+    });
+    fetchMock.mockImplementation((req: Request) =>
+      Promise.resolve(
+        req.url.includes('search-by-name')
+          ? jsonResponse({
+              query: 'IBM',
+              candidates: [harvey],
+              careersUrl: 'https://www.ibm.com/careers',
+            })
+          : jsonResponse(CREATED, 201)
+      )
+    );
+    renderWithProviders(<MyCompaniesPage />);
+    const user = await submit('IBM');
+
+    // Both are on screen.
+    expect(await screen.findByText('harvey')).toBeInTheDocument();
+    expect(screen.getByText('https://www.ibm.com/careers')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /use this/i }));
+    await waitFor(() => expect(callsTo('/users/companies').length).toBe(1));
+    const body = await callsTo('/users/companies')[0].clone().json();
+    expect(body.url).toBe('https://www.ibm.com/careers');
+  });
+
+  it('offers NOTHING rather than a stranger’s site when nothing named them', async () => {
+    // A null `careersUrl` is now a decision, not an absence: no result's host named
+    // the company, and offering the top-ranked stranger would spend a paid discovery
+    // run and one of the user's monthly adds on somebody else's website.
+    fetchMock.mockImplementation((req: Request) =>
+      Promise.resolve(
+        req.url.includes('search-by-name')
+          ? jsonResponse({ query: 'Zzyzx Industries', candidates: [], careersUrl: null })
+          : jsonResponse(CREATED, 201)
+      )
+    );
+    renderWithProviders(<MyCompaniesPage />);
+    await submit('Zzyzx Industries');
+
+    expect(
+      await screen.findByText(/try pasting the url of their careers page/i)
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /use this/i })).not.toBeInTheDocument();
+  });
+
+  it('refuses an overlong NAME before it costs a search', async () => {
+    // The server caps a name at 60 characters and answers a longer one with a raw
+    // Pydantic 422 nobody can act on. We can tell before the round-trip, so we do —
+    // and a paid Browserbase search is not spent on an input we already know is bad.
+    fetchMock.mockResolvedValue(jsonResponse(CREATED, 201));
+    renderWithProviders(<MyCompaniesPage />);
+
+    await submit('z'.repeat(61));
+
+    expect(
+      await screen.findByText(/too long to be a company name/i)
+    ).toBeInTheDocument();
+    expect(callsTo('search-by-name')).toHaveLength(0);
+    expect(callsTo('/users/companies')).toHaveLength(0);
+  });
+
+  it('lets a long URL through untouched — the cap is the name’s, not the field’s', async () => {
+    // The two kinds of value have different ceilings (2048 vs 60), so the limit has
+    // to follow the classification. A long link must not be caught by the name rule.
+    fetchMock.mockResolvedValue(jsonResponse(CREATED, 201));
+    const long = `https://careers.example.com/${'a'.repeat(200)}`;
+    renderWithProviders(<MyCompaniesPage />);
+
+    await submit(long);
+
+    await waitFor(() => expect(callsTo('/users/companies').length).toBe(1));
+    const body = await callsTo('/users/companies')[0].clone().json();
+    expect(body.url).toBe(long);
+  });
+
   it('offers the careers page when no board was found', async () => {
     // "We looked and found nothing" is a real answer, and the careers page is
     // exactly what the paste-a-URL path takes.

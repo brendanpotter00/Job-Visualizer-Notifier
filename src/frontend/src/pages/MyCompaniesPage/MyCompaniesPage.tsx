@@ -373,11 +373,25 @@ export function MyCompaniesPage() {
         {/* "We looked and found no board" — a real answer, and NOT the same as
             the 503 that means we could not look. When search turned up the
             company's careers page we hand it over, because that is exactly what
-            the paste-a-URL path takes and where one-time discovery starts. */}
-        {candidates && candidates.candidates.length === 0 && !adding ? (
+            the paste-a-URL path takes and where one-time discovery starts.
+
+            IT RENDERS BESIDE THE CANDIDATE LIST, not only instead of it, and that
+            is the fix this block carries. The server only sends a `careersUrl`
+            when nothing it found was something you could just accept — so when
+            searching "IBM" turns up Harvey's live Ashby board, the board is shown
+            (a user may recognise it) AND the careers page is still offered. It
+            used to be suppressed by the mere existence of a stranger's board,
+            which left the user with three wrong boards and no way forward.
+
+            A null `careersUrl` now means something too: no result's host named the
+            company, so we are offering nothing rather than a guess that would cost
+            a paid discovery run and one of their monthly adds. */}
+        {candidates && !adding && (candidates.candidates.length === 0 || candidates.careersUrl) ? (
           <Paper variant="outlined" sx={{ p: RESPONSIVE.spacing.paperPadding }}>
             <Typography variant="body2">
-              No job board found for “{candidates.query}”.{' '}
+              {candidates.candidates.length === 0
+                ? `No job board found for “${candidates.query}”. `
+                : `None of those is a board we can confirm belongs to “${candidates.query}”. `}
               {candidates.careersUrl
                 ? 'You can try their careers page instead:'
                 : 'Try pasting the URL of their careers page.'}

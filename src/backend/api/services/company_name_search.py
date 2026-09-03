@@ -40,12 +40,31 @@ passes every automated check we own, because it *is* a real board that *does* re
 jobs; only a human reading the name catches it. Hence ``_names_match``: a candidate
 is only ever eligible for a silent auto-add when the board token names the company.
 Everything else is a question for the user, never an answer.
+
+**A miss escalates to a SECOND, plain query — and only a miss.** The ATS hostnames
+that make the query above good at finding BOARDS actively poison it for finding a
+CAREERS PAGE: for a company with no board on any of the six, the whole result set
+becomes SEO content *about* applicant tracking systems. Searching ``Oracle`` really
+did offer ``resumeadapter.com/ats/workday/companies`` as Oracle's careers page. So
+when no candidate survives its probe as auto-addable, ``search_careers_page`` asks the
+plain question instead — ``Oracle careers`` — which returns ``oracle.com/careers/`` at
+rank 1. Measured 2026-09-02 over 15 escalating companies
+(``docs/implementations/custom-company-sources/CAREERS-FALLBACK-POC.md``): the offered
+fallback lands on the company's own domain **14/15, up from 7/15**, and "we offered
+nothing at all" goes from 6 companies to **0**.
+
+**A fallback we do not trust is not offered at all.** ``owns_host`` is a FILTER here,
+not only a sort key: when no result's host names the company we return ``None`` and
+the UI falls back to "paste the URL of their careers page". Handing over the
+top-ranked stranger is not a cosmetic miss — accepting it spends a paid discovery run
+and one of the user's twenty monthly adds on somebody else's website.
 """
 
 from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from urllib.parse import urlsplit
 
@@ -86,6 +105,26 @@ _QUERY_MAX_CHARS = 200
 # against $0.007 — so if this ever moves to Exa directly, drop this to 10 and accept
 # the one company. Verified against exa.ai/docs/reference/pricing, 2026-09-02.
 _NUM_RESULTS = 25
+
+# THE SECOND QUERY, and the whole of it. Plain words, no hosts: naming the ATS hosts
+# is what makes `_QUERY_TEMPLATE` good at finding boards and is exactly what stops it
+# finding a careers page (see the module docstring). Same `_NUM_RESULTS`, same flat
+# per-call price.
+#
+# Measured 2026-09-02, 15 escalating companies, three wordings (CAREERS-FALLBACK-POC
+# §Q3). All three put an own-domain result at rank 1 for 15/15, so the two longer ones
+# buy nothing and both cost something: `{company} careers jobs` lands on a single job
+# posting 5 times in 15, and `{company} official careers site` pulls 20% more
+# aggregator results. The short one ships.
+#
+# WHAT IT COSTS. It fires ONLY on a miss — when no probed candidate came back
+# auto-addable — so every company whose board resolves spends exactly ONE search and
+# gets a byte-identical answer. At Browserbase's flat $0.007 per call that is roughly
+# **24 extra searches and $0.17 per 100 name-adds** on a realistic mix; 68% on the POC's
+# deliberately adversarial corpus, 41% on the narrower "no board at all" trigger. It
+# pays for itself against a single prevented junk fallback, because accepting one costs
+# a $0.04-0.08 discovery run PLUS one of the user's 20 monthly adds.
+_CAREERS_QUERY_TEMPLATE = "{company} careers"
 
 _SEARCH_TIMEOUT_S = 12.0
 
@@ -150,6 +189,32 @@ class NameSearchTrace:
     filtered: int
     #: How many of the scored results resolved to a board we can read.
     boards: int
+
+
+@dataclass(frozen=True)
+class CareersSearchTrace:
+    """What the SECOND search did — present only when a second search happened.
+
+    A separate type from ``NameSearchTrace`` rather than a reuse of it, because two
+    of its four numbers would be lies here: the second query is not scored against
+    the six job boards (measured over 1,125 results, ``resolve_ats_url`` matched
+    zero times), so there is no ``boards`` count to report. What there is instead is
+    ``trusted`` — how many results sat on a host that names the company, which is the
+    only number that decides whether anything is offered at all.
+
+    Its existence is itself the fact the client narrates: if this is ``None`` the
+    panel must not say a second search happened.
+    """
+
+    #: The plain query we sent, verbatim (``"Oracle careers"``).
+    query: str
+    #: How many results the search engine returned (<= ``_NUM_RESULTS``).
+    results: int
+    #: Aggregator / social hosts dropped before anything else.
+    filtered: int
+    #: Of the rest, how many sat on a host that names the company. Zero means we
+    #: offered nothing, which is the point of the rule.
+    trusted: int
 
 
 @dataclass(frozen=True)
@@ -286,36 +351,24 @@ def build_query(company: str) -> str:
     return query
 
 
-def _rank_careers_urls(company: str, urls: list[str]) -> list[str]:
-    """Put careers pages on the company's OWN domain first, preserving rank within.
+def _host_owner(company: str) -> Callable[[str], bool]:
+    """Build the "does this URL's host NAME the company?" test for one typed name.
 
-    The fallback URL is offered to the user as "no board found, try their careers
-    page" — and whatever they accept goes to the add endpoint, where a non-ATS URL
-    starts a PAID one-time discovery. So handing back the wrong site is not a
-    cosmetic miss, it spends money and one of the user's monthly adds.
+    A closure over the identities rather than a bare function, because the
+    identities are derived once and asked of up to fifty URLs across two searches.
 
-    Measured 2026-09-01: searching ``Databricks`` found no board, and the
-    top-ranked non-board result was ``scoutify.com/companies/databricks/`` — a job
-    aggregator, and one that ``_AGGREGATOR_HOSTS`` does not list. Extending that
-    denylist is whack-a-mole (``tryjeremy.com``, ``workway.dev``, ``standout.work``
-    and ``digitalhire.com`` all showed up in the same sweep). Preferring a host
-    that NAMES the company is the general form of the same idea, and it is the
-    same containment test the board-token gate uses: ``databricks.com`` wins,
-    ``scoutify.com`` does not, no list required.
-
-    A stable sort, so search rank still decides between two equally-good hosts.
+    A MULTIWORD NAME MUST STILL OWN ITS OWN DOMAIN. ``normalize_name`` strips
+    spaces, so "Cisco Systems" becomes ``ciscosystems``, which no label of
+    ``cisco.com`` starts with — the company's real careers page would then lose to
+    whatever unrelated URL happened to rank above it, and that URL is what gets
+    offered for a PAID discovery run. So the first word counts too, under the same
+    length floor ``_names_match`` uses: "GM Financial" does not get to match on a
+    two-character ``gm``.
     """
     normalized = normalize_name(company)
     if not normalized:
-        return urls
+        return lambda _url: False
 
-    # A MULTIWORD NAME MUST STILL OWN ITS OWN DOMAIN. `normalize_name` strips
-    # spaces, so "Cisco Systems" becomes `ciscosystems`, which no label of
-    # `cisco.com` starts with — the company's real careers page then loses to
-    # whatever unrelated URL happened to rank above it, and that URL is what gets
-    # offered for a PAID discovery run. So the first word counts too, under the
-    # same length floor `_names_match` uses: "GM Financial" does not get to match
-    # on a two-character `gm`.
     identities = {normalized}
     first_word = next(
         (w for w in (normalize_name(part) for part in company.split()) if w), ""
@@ -344,7 +397,55 @@ def _rank_careers_urls(company: str, urls: list[str]) -> list[str]:
                     return True
         return False
 
+    return owns_host
+
+
+def _rank_careers_urls(company: str, urls: list[str]) -> list[str]:
+    """Put careers pages on the company's OWN domain first, preserving rank within.
+
+    The fallback URL is offered to the user as "no board found, try their careers
+    page" — and whatever they accept goes to the add endpoint, where a non-ATS URL
+    starts a PAID one-time discovery. So handing back the wrong site is not a
+    cosmetic miss, it spends money and one of the user's monthly adds.
+
+    Measured 2026-09-01: searching ``Databricks`` found no board, and the
+    top-ranked non-board result was ``scoutify.com/companies/databricks/`` — a job
+    aggregator, and one that ``_AGGREGATOR_HOSTS`` does not list. Extending that
+    denylist is whack-a-mole (``tryjeremy.com``, ``workway.dev``, ``standout.work``
+    and ``digitalhire.com`` all showed up in the same sweep). Preferring a host
+    that NAMES the company is the general form of the same idea, and it is the
+    same containment test the board-token gate uses: ``databricks.com`` wins,
+    ``scoutify.com`` does not, no list required.
+
+    SORTING IS NOT THE DECISION. This orders the list; ``trusted_careers_urls``
+    is what decides whether anything in it may be offered. Ranking alone was the
+    Oracle failure: not one of the 23 results was on oracle.com, so the sort left
+    ``resumeadapter.com/ats/workday/companies`` on top and we handed it over.
+
+    A stable sort, so search rank still decides between two equally-good hosts.
+    """
+    if not normalize_name(company):
+        return urls
+    owns_host = _host_owner(company)
     return sorted(urls, key=lambda url: not owns_host(url))
+
+
+def trusted_careers_urls(company: str, urls: Iterable[str]) -> list[str]:
+    """Only the URLs whose host NAMES the company, in the order they arrived.
+
+    The same ``owns_host`` rule ``_rank_careers_urls`` sorts by, used to REJECT
+    rather than to demote — which is the entire change. An untrusted host the user
+    accepts is a paid discovery run plus one of their twenty monthly adds, spent on
+    a stranger's website, so "we found nothing you can use" is the better answer and
+    the UI already knows how to say it.
+
+    Measured over all 22 companies of the 2026-09-02 corpus, 76 accepted URLs: 72 on
+    the company's own registrable domain, 4 on a vendor domain carrying the company's
+    name (``kingarthurbaking.hrmdirect.com`` is King Arthur's real recruiting site),
+    and **0** belonging to a different company.
+    """
+    owns_host = _host_owner(company)
+    return [url for url in urls if owns_host(url)]
 
 
 class NameSearchUnavailable(RuntimeError):
@@ -356,29 +457,13 @@ class NameSearchUnavailable(RuntimeError):
     """
 
 
-async def search_ats_candidates(
-    company: str, http: httpx.AsyncClient
-) -> tuple[list[NameCandidate], list[str], NameSearchTrace]:
-    """One search call, then score every result.
+def _check_searchable(name: str) -> None:
+    """Refuse a search we already know is wrong, before it costs anything.
 
-    Returns ``(candidates, careers_urls, trace)``.
-
-    ``careers_urls`` are the non-aggregator results that resolved to no board, in
-    rank order — rung B feeds the best of them to the existing
-    ``ats_discovery.discover_ats``, which is free and recovers ~3 more companies
-    in 29, Cisco among them.
-
-    ``trace`` is the run's own counts (see ``NameSearchTrace``). It is a THIRD
-    RETURN VALUE rather than something the caller recomputes because two of its
-    four fields — the query we sent and how many results came back — exist only
-    inside this function; a caller that guessed at them would be narrating a run
-    it never saw.
-
-    Candidates are deduplicated on board identity and returned in rank order.
+    Shared by both queries so neither can drift: the 60-character cap protects the
+    200-character query budget the ATS hosts live in, and a missing key is an
+    unavailability rather than an empty answer.
     """
-    name = company.strip()
-    if not name:
-        return [], [], NameSearchTrace(query="", results=0, filtered=0, boards=0)
     if len(name) > _MAX_NAME_CHARS:
         raise NameSearchUnavailable(
             f"company name is {len(name)} characters, over the {_MAX_NAME_CHARS} limit"
@@ -386,15 +471,18 @@ async def search_ats_candidates(
     if not settings.browserbase_api_key:
         raise NameSearchUnavailable("BROWSERBASE_API_KEY is not configured")
 
-    # Built ONCE and kept, because the trace reports the query verbatim and
-    # rebuilding it for the report would be a second chance to report something
-    # other than what was sent.
-    query = build_query(name)
+
+async def _run_search(query: str, http: httpx.AsyncClient) -> list[object]:
+    """One Browserbase Search call. Returns the raw result rows, unfiltered.
+
+    Every failure mode here is ``NameSearchUnavailable`` — "we could not look" —
+    and never an empty result list, which means "we looked and found nothing".
+    """
     try:
         response = await http.post(
             _SEARCH_API,
             headers={
-                "X-BB-API-Key": settings.browserbase_api_key,
+                "X-BB-API-Key": settings.browserbase_api_key or "",
                 "Content-Type": "application/json",
             },
             json={"query": query, "numResults": _NUM_RESULTS},
@@ -426,6 +514,107 @@ async def search_ats_candidates(
     results = payload.get("results") or []
     if not isinstance(results, list):
         raise NameSearchUnavailable("search returned a non-list `results`")
+    return results
+
+
+def build_careers_query(company: str) -> str:
+    """The plain second query — ``"Oracle careers"``, and nothing else."""
+    return _CAREERS_QUERY_TEMPLATE.format(company=company.strip())
+
+
+async def search_careers_page(
+    company: str, http: httpx.AsyncClient
+) -> tuple[list[str], CareersSearchTrace]:
+    """The SECOND search: find the company's own careers page. Miss path only.
+
+    Returns ``(trusted_urls, trace)`` — the results whose host names the company,
+    in rank order, and what the call did. An empty list is a real answer meaning
+    "nothing here is theirs", and the caller must offer nothing rather than the
+    best of a bad set.
+
+    Callers must only reach this when the first search produced no auto-addable
+    candidate. It cannot help otherwise, and it is a paid call: measured over
+    1,125 results from this query shape, ``resolve_ats_url`` matched **zero**
+    times, so a plain careers query can neither find a board the host-shaped query
+    missed nor smuggle a stranger's board in. That is what makes it safe, and it is
+    also its ceiling.
+    """
+    name = company.strip()
+    if not name:
+        return [], CareersSearchTrace(query="", results=0, filtered=0, trusted=0)
+    _check_searchable(name)
+
+    query = build_careers_query(name)
+    results = await _run_search(query, http)
+
+    urls: list[str] = []
+    filtered = 0
+    for result in results:
+        if not isinstance(result, dict):
+            continue
+        url = result.get("url")
+        if not isinstance(url, str) or not url:
+            continue
+        if is_aggregator(url):
+            filtered += 1
+            continue
+        # A board here would be a board the host-shaped query missed, and this is
+        # not the rung that adds boards — `careers_url` feeds the paste-a-URL path.
+        # Measured never to fire; kept so that if it ever does, the URL is dropped
+        # rather than offered as a "careers page" the user is asked to trust.
+        if resolve_ats_url(url) is not None:
+            continue
+        urls.append(url)
+
+    trusted = trusted_careers_urls(name, urls)
+    logger.info(
+        "Careers fallback for %r: %d result(s), %d aggregator(s) dropped -> "
+        "%d on a host that names them",
+        name, len(results), filtered, len(trusted),
+    )
+    return trusted, CareersSearchTrace(
+        query=query,
+        results=len(results),
+        filtered=filtered,
+        trusted=len(trusted),
+    )
+
+
+async def search_ats_candidates(
+    company: str, http: httpx.AsyncClient
+) -> tuple[list[NameCandidate], list[str], NameSearchTrace]:
+    """One search call, then score every result.
+
+    Returns ``(candidates, careers_urls, trace)``.
+
+    ``careers_urls`` are the non-aggregator results that resolved to no board,
+    ranked so the ones on the company's own domain come first — rung B feeds the
+    best of them to the existing ``ats_discovery.discover_ats``, which is free and
+    recovers ~3 more companies in 29, Cisco among them.
+
+    RANKED, NOT FILTERED, on purpose: this list is raw material, and the caller
+    decides what it is for. Anything about to be OFFERED to the user must go
+    through ``trusted_careers_urls`` first, because accepting an untrusted one
+    spends a paid discovery run on a stranger's site.
+
+    ``trace`` is the run's own counts (see ``NameSearchTrace``). It is a THIRD
+    RETURN VALUE rather than something the caller recomputes because two of its
+    four fields — the query we sent and how many results came back — exist only
+    inside this function; a caller that guessed at them would be narrating a run
+    it never saw.
+
+    Candidates are deduplicated on board identity and returned in rank order.
+    """
+    name = company.strip()
+    if not name:
+        return [], [], NameSearchTrace(query="", results=0, filtered=0, boards=0)
+    _check_searchable(name)
+
+    # Built ONCE and kept, because the trace reports the query verbatim and
+    # rebuilding it for the report would be a second chance to report something
+    # other than what was sent.
+    query = build_query(name)
+    results = await _run_search(query, http)
 
     candidates: list[NameCandidate] = []
     careers_urls: list[str] = []

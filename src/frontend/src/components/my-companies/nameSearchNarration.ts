@@ -34,8 +34,10 @@ function s(n: number): string {
  * Turn a search into the steps that describe it.
  *
  * `result === null` means the request is still out. That is the ONLY state that gets a
- * spinner, and it gets exactly one step, because one step is all we know: a search is a
- * single HTTP call and there are no intermediate landmarks to report.
+ * spinner, and it gets exactly one step, because one step is all we know: the page
+ * makes a single HTTP call and there are no intermediate landmarks to report. The
+ * SERVER may spend two searches inside it — see `careersSteps` — but we learn that
+ * only when the answer lands, so it is narrated after the fact like everything else.
  *
  * A missing `trace` is not an error. This app deploys on Vercel and its API on Railway,
  * so a freshly-shipped client talks to the previous backend for a few minutes after
@@ -68,7 +70,7 @@ export function narrateNameSearch(
     },
   ];
   if (!trace) {
-    return [...steps, ...probeStep(result, null)];
+    return [...steps, ...probeStep(result, null), ...careersSteps(result)];
   }
 
   steps.push({
@@ -84,8 +86,10 @@ export function narrateNameSearch(
   });
   // Nothing came back, so there is nothing that could have been scored, resolved or
   // probed. Three more rungs all reading "0" say less than the one line above them.
+  // The second search still gets its lines, because it is a real call that was made
+  // after this one and its numbers are its own.
   if (trace.results === 0) {
-    return steps;
+    return [...steps, ...careersSteps(result)];
   }
 
   const scored = trace.results - trace.filtered;
@@ -109,7 +113,56 @@ export function narrateNameSearch(
           }`,
   });
 
-  return [...steps, ...probeStep(result, trace.boards)];
+  return [...steps, ...probeStep(result, trace.boards), ...careersSteps(result)];
+}
+
+/**
+ * The SECOND search, narrated — and narrated only when it really happened.
+ *
+ * The server escalates to a plain `"{name} careers"` query when nothing it found was
+ * something the user could just accept. That is a second paid call and a second set
+ * of numbers, so the panel has to say so: describing one call when two were made is
+ * the same lie as inventing progress, just quieter.
+ *
+ * Gated on `careersSearch` being present, never on `careersUrl`. A URL can also come
+ * from the FIRST search's own results (the belt-and-braces path when the second call
+ * fails), and claiming a second search on the strength of a URL would narrate a call
+ * that never left the building.
+ */
+function careersSteps(result: SearchCompanyResponse): NameSearchStep[] {
+  const careers = result.careersSearch;
+  if (!careers) {
+    return [];
+  }
+  const steps: NameSearchStep[] = [
+    {
+      key: 'careers-search',
+      label: 'No board we could add, so we asked again in plain words',
+      // Same reason the first query is shown: the query IS the evidence. Dropping
+      // the ATS hostnames is the whole difference between being handed
+      // `resumeadapter.com` and being handed `oracle.com/careers`.
+      detail: careers.query,
+      mono: true,
+    },
+  ];
+  if (careers.results === 0) {
+    steps.push({ key: 'careers-results', label: 'Nothing came back' });
+    return steps;
+  }
+  steps.push({
+    key: 'careers-results',
+    label:
+      careers.trusted === 0
+        ? `None of the ${careers.results} result${s(careers.results)} was on their own site`
+        : `${careers.trusted} of ${careers.results} ${
+            careers.trusted === 1 ? 'was' : 'were'
+          } on their own site`,
+    detail:
+      careers.filtered > 0
+        ? `${careers.filtered} aggregator or social result${s(careers.filtered)} dropped`
+        : undefined,
+  });
+  return steps;
 }
 
 /**

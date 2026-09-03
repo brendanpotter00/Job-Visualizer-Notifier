@@ -14,6 +14,13 @@ import { narrateNameSearch, type NameSearchStep } from './nameSearchNarration';
  * because that is genuinely when the news arrives. A name search is ONE HTTP REQUEST
  * THAT RETURNS IN ABOUT TWO SECONDS. There is no progress to watch.
  *
+ * The server may spend a SECOND search inside that one request — a plain
+ * `"{name} careers"` query, when nothing the first one found was something the user
+ * could just accept. That does not change the shape of this panel, because the client
+ * still learns about it only when the answer lands; it changes what the panel must
+ * SAY. Two more steps appear, and only when `careersSearch` is on the payload, so the
+ * lines on screen always match the number of calls that were really made.
+ *
  * So this fakes nothing. There is exactly one moment it can honestly call in-flight —
  * the request — and it draws exactly one spinner for it, on the one step that is really
  * happening ("Searching the web for “Cisco”"). Everything after that is already in the

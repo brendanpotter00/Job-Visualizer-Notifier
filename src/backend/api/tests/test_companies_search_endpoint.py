@@ -11,6 +11,7 @@ only to keep those apart.
 
 from __future__ import annotations
 
+import json
 import socket
 
 import httpx
@@ -105,6 +106,41 @@ def _handler(search_urls: list[str], job_counts: dict[str, int]):
     return handler
 
 
+def _sent_queries(seen: list[httpx.Request]) -> list[str]:
+    """Every search query this request actually paid for, in order."""
+    return [
+        json.loads(r.content)["query"] for r in seen if str(r.url) == SEARCH_API
+    ]
+
+
+def _two_query_handler(
+    host_shaped: list[str], plain: list[str], job_counts: dict[str, int]
+):
+    """Answer the two searches DIFFERENTLY, which is the whole point of them.
+
+    The host-shaped query finds boards and SEO content about applicant tracking
+    systems; the plain ``"{name} careers"`` query finds careers pages. A fixture
+    that served one payload to both could not tell the escalation apart from the
+    first search simply being repeated.
+    """
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+        if url == SEARCH_API:
+            query = json.loads(request.content)["query"]
+            second = query.endswith(" careers")
+            return httpx.Response(
+                200, json=_search_payload(*(plain if second else host_shaped))
+            )
+        if url in job_counts:
+            return httpx.Response(
+                200, json={"total": job_counts[url], "jobPostings": [{"title": "SWE"}]}
+            )
+        return httpx.Response(404)
+
+    return handler
+
+
 # ----------------------------------------------------------------------------
 # The happy path
 # ----------------------------------------------------------------------------
@@ -136,8 +172,11 @@ def test_a_typed_name_returns_the_board_with_a_live_job_count(
     assert found["candidate"]["providerConfig"]["career_site_slug"] == "Cisco_Careers"
     assert found["probe"]["jobCount"] == 1248
     assert found["autoAddable"] is True
-    # The careers page we did NOT pick is still offered as the fallback.
-    assert body["careersUrl"] == "https://careers.cisco.com/global/en/home"
+    # NO FALLBACK when the answer is already good. `careers.cisco.com` was offered
+    # here until 2026-09-02, beside a board we were about to add automatically —
+    # a second, weaker action next to the right one.
+    assert body["careersUrl"] is None
+    assert body["careersSearch"] is None
     # ...and the trace the add page narrates the run from. `boards` is counted
     # BEFORE the five-candidate display cap, which is the whole reason it is on
     # the wire rather than derived from `candidates`.
@@ -211,14 +250,183 @@ def test_no_board_found_is_an_empty_200_not_an_error(
     client, db_conn, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _install_transport(
-        monkeypatch, _handler(["https://www.example.com/careers"], {})
+        monkeypatch,
+        _two_query_handler(
+            ["https://www.example.com/careers"],
+            ["https://www.nobody.com/careers"],
+            {},
+        ),
     )
 
     resp = client.post(SEARCH, json={"name": "Nobody"})
 
     assert resp.status_code == 200
     assert resp.json()["candidates"] == []
-    assert resp.json()["careersUrl"] == "https://www.example.com/careers"
+    assert resp.json()["careersUrl"] == "https://www.nobody.com/careers"
+
+
+# ----------------------------------------------------------------------------
+# The careers-page fallback — a second query, and only on a miss
+#
+# Measured live 2026-09-02 over 22 companies
+# (docs/implementations/custom-company-sources/CAREERS-FALLBACK-POC.md). Each case
+# below is one of the real failures from that sweep, with the real URLs.
+# ----------------------------------------------------------------------------
+
+
+def test_a_junk_fallback_becomes_the_companys_own_careers_page(
+    client, db_conn, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """THE ORACLE CASE. Not one of the 23 host-shaped results was on oracle.com —
+    with the ATS hostnames in the query, a company with no board on any of the six
+    returns SEO content *about* applicant tracking systems. So we offered
+    `resumeadapter.com/ats/workday/companies` as Oracle's careers page, and
+    accepting it would have spent a paid discovery run and a monthly add on a
+    stranger. `Oracle careers` returns `oracle.com/careers/` at rank 1."""
+    seen = _install_transport(
+        monkeypatch,
+        _two_query_handler(
+            ["https://resumeadapter.com/ats/workday/companies"],
+            ["https://www.oracle.com/careers/"],
+            {},
+        ),
+    )
+
+    body = client.post(SEARCH, json={"name": "Oracle"}).json()
+
+    assert body["candidates"] == []
+    assert body["careersUrl"] == "https://www.oracle.com/careers/"
+    # The panel narrates the run, so the second call has to be reported as one.
+    assert body["careersSearch"]["query"] == "Oracle careers"
+    assert body["careersSearch"]["trusted"] == 1
+    assert _sent_queries(seen)[1] == "Oracle careers"
+
+
+def test_a_strangers_board_no_longer_suppresses_the_careers_page(
+    client, db_conn, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """THE IBM CASE, and the reason the trigger is `auto_addable` rather than
+    "no candidates at all". Searching IBM resolved `jobs.ashbyhq.com/Harvey` at
+    rank 23 — a legal-AI company with 334 live jobs. It is a real board, so
+    `candidates` was non-empty, so the fallback was suppressed and the user was
+    left with a stranger's board and NO way forward. Both must appear now: the
+    board is information, the careers page is the action."""
+    # The resolver lower-cases the board token, so the probe is `/harvey`.
+    harvey_jobs = "https://api.ashbyhq.com/posting-api/job-board/harvey"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+        if url == SEARCH_API:
+            second = json.loads(request.content)["query"].endswith(" careers")
+            return httpx.Response(
+                200,
+                json=_search_payload(
+                    *(
+                        ["https://www.ibm.com/careers"]
+                        if second
+                        else ["https://jobs.ashbyhq.com/Harvey"]
+                    )
+                ),
+            )
+        if url.startswith(harvey_jobs):
+            return httpx.Response(200, json={"jobs": [{"title": "Counsel"}] * 334})
+        return httpx.Response(404)
+
+    _install_transport(monkeypatch, handler)
+
+    body = client.post(SEARCH, json={"name": "IBM"}).json()
+
+    # The stranger's board is still shown — a user may recognise it — and it is
+    # still never auto-addable.
+    assert len(body["candidates"]) == 1
+    assert body["candidates"][0]["candidate"]["boardToken"] == "harvey"
+    assert body["candidates"][0]["probe"]["jobCount"] == 334
+    assert body["candidates"][0]["autoAddable"] is False
+    # ...and it no longer costs the user their careers page.
+    assert body["careersUrl"] == "https://www.ibm.com/careers"
+
+
+def test_nothing_that_names_the_company_means_nothing_is_offered(
+    client, db_conn, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`owns_host` is a FILTER, not just a sort key. When no result's host names
+    the company we hand back NOTHING and the UI says "paste the URL of their
+    careers page" — because the top-ranked stranger is not a weaker answer, it is
+    a paid discovery run plus one of the user's twenty monthly adds spent on
+    somebody else's website."""
+    _install_transport(
+        monkeypatch,
+        _two_query_handler(
+            ["https://findmejobs.co/companies/nomatch"],
+            ["https://openjobradar.com/c/nomatch", "https://dreamworkhq.com/nomatch"],
+            {},
+        ),
+    )
+
+    body = client.post(SEARCH, json={"name": "Zzyzx Industries"}).json()
+
+    assert body["candidates"] == []
+    assert body["careersUrl"] is None
+    # We DID look, and the trace says so — two results, none of them theirs.
+    assert body["careersSearch"]["results"] == 2
+    assert body["careersSearch"]["trusted"] == 0
+
+
+def test_an_auto_addable_board_spends_exactly_one_search(
+    client, db_conn, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """NO REGRESSION, and this is the test that keeps the second query honest. A
+    name that resolves a live board naming the company must cost exactly what it
+    cost before the escalation existed: one search, one answer."""
+    seen = _install_transport(
+        monkeypatch,
+        _two_query_handler(
+            ["https://careers.cisco.com/global/en/home", CISCO_BOARD],
+            ["https://www.cisco.com/careers"],
+            {CISCO_JOBS: 1248},
+        ),
+    )
+
+    body = client.post(SEARCH, json={"name": "Cisco"}).json()
+
+    assert body["candidates"][0]["autoAddable"] is True
+    assert _sent_queries(seen) == [
+        "Cisco jobs myworkdayjobs.com greenhouse.io ashbyhq.com lever.co "
+        "jobs.gem.com eightfold.ai"
+    ]
+    assert body["careersUrl"] is None
+    assert body["careersSearch"] is None
+
+
+def test_a_second_search_that_fails_is_not_the_whole_request_failing(
+    client, db_conn, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The escalation is the footnote, not the answer. A 429 on the second call
+    must not turn a working search into "we could not look" — we still have the
+    first search's boards, and the first search's own trusted careers page."""
+    calls: list[int] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if str(request.url) == SEARCH_API:
+            calls.append(1)
+            if len(calls) > 1:
+                return httpx.Response(429, json={"error": "slow down"})
+            return httpx.Response(
+                200, json=_search_payload("https://careers.tesla.com/")
+            )
+        return httpx.Response(404)
+
+    _install_transport(monkeypatch, handler)
+
+    resp = client.post(SEARCH, json={"name": "Tesla"})
+
+    assert resp.status_code == 200
+    body = resp.json()
+    # Belt and braces: the first search's own trusted result, measured never to be
+    # needed (the second query succeeded 15/15) and kept for exactly this case.
+    assert body["careersUrl"] == "https://careers.tesla.com/"
+    # Nothing narrated about a second search, because none of it happened.
+    assert body["careersSearch"] is None
 
 
 def test_a_search_rate_limit_is_503_not_an_empty_result(

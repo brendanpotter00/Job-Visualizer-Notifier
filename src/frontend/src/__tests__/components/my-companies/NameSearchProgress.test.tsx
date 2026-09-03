@@ -134,6 +134,66 @@ describe('narrateNameSearch', () => {
     expect(steps[1].label).toBe('Nothing came back');
   });
 
+  it('says a SECOND search happened, when a second search happened', () => {
+    // The server escalates to a plain query when nothing it found was addable. That
+    // is a second paid call with its own numbers, so describing one call would be
+    // the same lie as inventing progress — just quieter.
+    const steps = narrateNameSearch(
+      'Oracle',
+      response({
+        candidates: [],
+        trace: { query: QUERY, results: 23, filtered: 2, boards: 0 },
+        careersUrl: 'https://www.oracle.com/careers/',
+        careersSearch: { query: 'Oracle careers', results: 25, filtered: 4, trusted: 3 },
+      })
+    );
+    const step = steps.find((s) => s.key === 'careers-search');
+    expect(step?.label).toBe('No board we could add, so we asked again in plain words');
+    // The query is shown for the same reason the first one is: dropping the ATS
+    // hostnames IS the fix, and it is legible in one glance.
+    expect(step?.detail).toBe('Oracle careers');
+    expect(step?.mono).toBe(true);
+    expect(steps.find((s) => s.key === 'careers-results')?.label).toBe(
+      '3 of 25 were on their own site'
+    );
+    expect(steps.find((s) => s.key === 'careers-results')?.detail).toBe(
+      '4 aggregator or social results dropped'
+    );
+  });
+
+  it('says so plainly when the second search found nothing of theirs', () => {
+    // Zero trusted results is why nothing is offered, so it is the one number that
+    // explains the "paste the URL of their careers page" the user is about to read.
+    const steps = narrateNameSearch(
+      'Zzyzx',
+      response({
+        candidates: [],
+        trace: { query: QUERY, results: 4, filtered: 0, boards: 0 },
+        careersUrl: null,
+        careersSearch: { query: 'Zzyzx careers', results: 25, filtered: 0, trusted: 0 },
+      })
+    );
+    expect(steps.find((s) => s.key === 'careers-results')?.label).toBe(
+      'None of the 25 results was on their own site'
+    );
+  });
+
+  it('never mentions a second search that did not happen', () => {
+    // THE HONESTY RULE, in the direction that matters. `careersUrl` can also come
+    // from the FIRST search's own results, so a URL is not evidence of a second call
+    // — only `careersSearch` is.
+    const steps = narrateNameSearch(
+      'Tesla',
+      response({
+        candidates: [],
+        trace: { query: QUERY, results: 22, filtered: 0, boards: 0 },
+        careersUrl: 'https://www.tesla.com/careers',
+      })
+    );
+    expect(steps.map((s) => s.key)).not.toContain('careers-search');
+    expect(steps.map((s) => s.key)).not.toContain('careers-results');
+  });
+
   it('gets SHORTER, never invented, when the backend sent no trace', () => {
     // Vercel and Railway deploy separately, so a new client talks to the previous
     // backend for a few minutes after every ship. The stages whose numbers are gone

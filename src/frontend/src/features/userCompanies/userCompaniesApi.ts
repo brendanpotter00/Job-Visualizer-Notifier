@@ -692,11 +692,42 @@ export interface SearchTrace {
 }
 
 /**
+ * What the SECOND search did — present only when a second search happened.
+ *
+ * The server escalates to a plain `"{name} careers"` query when nothing the first
+ * search found was auto-addable, because the ATS hostnames that make the first query
+ * good at finding boards are exactly what stop it finding a careers page. Its
+ * presence is the fact `NameSearchProgress` narrates: absent means one call was
+ * made, and the panel must not describe two.
+ *
+ * No `boards` count, unlike `SearchTrace`: the second query is never scored for
+ * boards. `trusted` takes its place — how many results sat on a host that names the
+ * company, which is the number that decides whether anything is offered at all.
+ */
+export interface CareersSearchTrace {
+  /** The plain query we sent, verbatim (`"Oracle careers"`). */
+  query: string;
+  /** Results the search engine returned (at most 25). */
+  results: number;
+  /** Aggregator / social hosts dropped before anything else. */
+  filtered: number;
+  /** Of the rest, how many sat on a host that names the company. */
+  trusted: number;
+}
+
+/**
  * The 200 body of `POST /api/companies/search-by-name`.
  *
  * An empty `candidates` with a non-null `careersUrl` is a real, useful answer:
  * we found no board we can read for free, but we did find the company's careers
  * page, which is exactly what the ordinary paste-a-URL path takes.
+ *
+ * `careersUrl` may ALSO be non-null beside a non-empty `candidates` list, and that
+ * combination has to stay visible: searching "IBM" resolves Harvey's live Ashby
+ * board, which is a real board, is not IBM's, and used to suppress the careers page
+ * and leave the user stuck. The boards are information; the careers page is the
+ * action. It is null whenever no result's host named the company, which means "we
+ * have nothing you can use" — never a stranger's site offered as a guess.
  *
  * `trace` is OPTIONAL here and required server-side, and that asymmetry is
  * deliberate rather than sloppy: this app and its API deploy separately (Vercel
@@ -709,6 +740,8 @@ export interface SearchCompanyResponse {
   candidates: SearchCompanyCandidate[];
   careersUrl: string | null;
   trace?: SearchTrace;
+  /** Null or absent when only one search ran, which is the common case. */
+  careersSearch?: CareersSearchTrace | null;
 }
 
 export const userCompaniesApi = createApi({
