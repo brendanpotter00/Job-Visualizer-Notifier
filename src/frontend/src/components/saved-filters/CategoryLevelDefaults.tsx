@@ -30,7 +30,7 @@ export interface CategoryLevelDefaultsProps {
  * constants cover the pre-fetch frame and an endpoint outage, exactly as the
  * live filter bars do. An empty selection means "no filter" on that page.
  *
- * NAMING: the "category" facet is surfaced to users as "Job category"
+ * NAMING: the "category" facet is surfaced to users as "Job Category"
  * (heading, label, save button). It previously read "Job title", which was
  * wrong on its face: these values subdivide (e.g. "Software Engineering" →
  * "Frontend" / "Backend"), so they read as categories, not titles. The data
@@ -73,7 +73,7 @@ export function CategoryLevelDefaults({
 
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={3}>
           <FacetMultiSelect
-            label="Job category"
+            label="Job Category"
             options={categoryOptions}
             value={category}
             onChange={onChangeCategory}

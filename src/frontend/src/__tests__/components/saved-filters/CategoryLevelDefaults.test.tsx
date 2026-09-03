@@ -16,7 +16,7 @@ const baseProps = {
 };
 
 /**
- * This section had no test file before the "Job title" -> "Job category"
+ * This section had no test file before the "Job title" -> "Job Category"
  * rename, so all four of its copy strings were unpinned. Two things are worth
  * pinning permanently:
  *
@@ -28,10 +28,10 @@ const baseProps = {
  *    the fix; this assertion is what stops it coming back.
  */
 describe('CategoryLevelDefaults', () => {
-  it('labels the category facet "Job category", not "Job title"', () => {
+  it('labels the category facet "Job Category", not "Job title"', () => {
     renderWithProviders(<CategoryLevelDefaults {...baseProps} />);
 
-    expect(screen.getByRole('combobox', { name: 'Job category' })).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Job Category' })).toBeInTheDocument();
     expect(screen.queryByRole('combobox', { name: 'Job title' })).not.toBeInTheDocument();
     expect(screen.getByText('Default job category & level')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Save job category & level' })).toBeInTheDocument();

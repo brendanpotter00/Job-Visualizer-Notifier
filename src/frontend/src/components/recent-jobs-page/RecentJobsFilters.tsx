@@ -129,7 +129,7 @@ export function RecentJobsFilters() {
           />
 
           {/*
-            The label reads "Job category" and the data model underneath is
+            The label reads "Job Category" and the data model underneath is
             "category" all the way down — the `filters.category` slice field, the
             `setRecentJobsCategory` action, the API param, and the DB column are
             all "category". It previously read "Job title", which was wrong on its
@@ -138,7 +138,7 @@ export function RecentJobsFilters() {
             categories, not titles. Rename the copy only — never the data model.
           */}
           <FacetMultiSelect
-            label="Job category"
+            label="Job Category"
             options={categoryOptions}
             value={filters.category}
             onChange={(slugs) => dispatch(setRecentJobsCategory(slugs))}
