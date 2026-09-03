@@ -676,6 +676,82 @@ class TestApplySubcategories:
         audit = _fetch_job_enrichment(db_conn, "v6-coexist")
         assert audit["subcategory_confidence"] == 0.77
 
+    def test_a_FRESH_row_with_a_confidence_and_NO_array_stores_no_confidence(
+        self, db_conn
+    ):
+        """⚠ `_UNSET` IS TRUTHY, AND THE PLAIN-INSERT ARM HAS NO `CASE` GUARD.
+
+        `subcategory_confidence = None if not subcategories else ...` lets the
+        sentinel straight through, because `object()` is truthy. The ON CONFLICT
+        arm is protected by `CASE WHEN <subcategories is not _UNSET>`; the
+        first-time INSERT is not. So a payload carrying `subcategoryConfidence`
+        with no `subcategories` key seeded a brand-new row with a score beside a
+        NULL array — the pairing §1.2 forbids, with no error anywhere.
+
+        Deliberately NO `_seed(..., confidence=...)`: this row must have no
+        `job_enrichment` row at all, or the upsert takes the UPDATE arm and the
+        bug hides.
+        """
+        self._seed(db_conn, "sub-fresh-conf")
+        apply_result(
+            db_conn,
+            self._base("sub-fresh-conf", subcategory_confidence=0.73),
+            require_judge_pass=False,
+        )
+        db_conn.commit()
+
+        facets = _fetch_listing_facets(db_conn, "sub-fresh-conf")
+        assert facets["enrichment_subcategories"] is None
+        assert _fetch_job_enrichment(db_conn, "sub-fresh-conf")[
+            "subcategory_confidence"
+        ] is None
+
+    def test_a_v6_RECLASSIFY_AWAY_from_swe_clears_the_stale_array(self, db_conn):
+        """⚠ THE PARENT CHECK RUNS FIRST, AHEAD OF THE `_UNSET` CHECK.
+
+        §1's SCHEMA-3 step words it "resolved category ≠ software_engineering →
+        None + warn, UNCONDITIONAL AND FIRST". Check `_UNSET` first instead and
+        a v6 tick that RECLASSIFIES a job away from `software_engineering` sets
+        the new category and leaves the old array behind: a non-SWE row carrying
+        subcategories, no DB constraint to catch it, no warning, `written: 1`.
+
+        It is not exotic — the epic's own deploy order has the bulk drain
+        writing arrays while the classify tick is still v6 and sends no key.
+        """
+        self._seed(db_conn, "sub-reclass", subcats=["backend"], source="backfill",
+                   confidence=0.81)
+        # A v6-shaped payload: NO `subcategories` key, new non-SWE category.
+        apply_result(
+            db_conn,
+            self._base("sub-reclass", category="growth"),
+            require_judge_pass=False,
+        )
+        db_conn.commit()
+
+        facets = _fetch_listing_facets(db_conn, "sub-reclass")
+        assert facets["enrichment_category"] == "growth"
+        assert facets["enrichment_subcategories"] is None, (
+            "a non-SWE row kept subcategories the parent rule forbids"
+        )
+        assert facets["enrichment_subcategory_source"] is None
+        assert _fetch_job_enrichment(db_conn, "sub-reclass")[
+            "subcategory_confidence"
+        ] is None
+
+    def test_a_v6_reclassify_away_from_swe_emits_NO_spurious_warning(self, db_conn):
+        """The parent branch must not fire its "dropped" warning on a payload
+        that sent nothing to drop — `_UNSET` is truthy, so a bare `if value:`
+        would put that line in the /results echo for every non-SWE row of every
+        ordinary tick."""
+        self._seed(db_conn, "sub-reclass-quiet")
+        warnings = apply_result(
+            db_conn,
+            self._base("sub-reclass-quiet", category="growth"),
+            require_judge_pass=False,
+        )
+        db_conn.commit()
+        assert not any("subcategories dropped" in w for w in warnings), warnings
+
     def test_explicit_null_clears_the_column_and_its_source(self, db_conn):
         self._seed(db_conn, "sub-null", subcats=["backend"], source="classify")
         apply_result(

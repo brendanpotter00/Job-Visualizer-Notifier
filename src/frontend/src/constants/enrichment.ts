@@ -20,13 +20,51 @@ export const LEVEL_FILTER_EXPANSION: Record<string, string[]> = {
   entry: ['entry', 'new_grad'],
 };
 
+declare const EXPANSION_EDGE: unique symbol;
+
+/**
+ * A facet whose `parentSlug` is an **EXPANSION** edge, branded so it is
+ * NOMINALLY distinct from a plain `FacetOption`.
+ *
+ * ⚠ THE PROJECT HAS TWO INCOMPATIBLE MEANINGS FOR `parentSlug`, AND THEY ARE
+ * STRUCTURALLY IDENTICAL:
+ *
+ * | dimension     | `parentSlug` means | selecting the parent...                |
+ * |---------------|--------------------|----------------------------------------|
+ * | levels        | EXPANSION          | must ALSO match every child (new_grad ⊂ entry) |
+ * | subcategories | GROUPING           | must match NOTHING extra — the parent is a category, the children are specialties within it |
+ *
+ * `facets.subcategories` is a `FacetOption[]` whose every entry carries
+ * `parentSlug: 'software_engineering'`. Handed to the expansion builder it
+ * type-checks perfectly and turns one Software Engineering selection into a
+ * fifteen-slug OR — silently widening every user's filter. The brand is what
+ * stops that from being a plain assignment; reaching for
+ * {@link asExpansionFacets} makes it a NAMED, greppable claim instead.
+ */
+export type ExpansionFacetOption = FacetOption & {
+  readonly [EXPANSION_EDGE]: 'expansion';
+};
+
+/**
+ * Assert that these facets carry EXPANSION edges (see
+ * {@link ExpansionFacetOption}). Type-only — nothing to strip at runtime.
+ *
+ * ⚠ Legitimate for `facets.levels` and `FALLBACK_LEVELS`. NEVER for
+ * `facets.subcategories`: those edges group, they do not expand.
+ */
+export function asExpansionFacets(options: FacetOption[]): ExpansionFacetOption[] {
+  return options as ExpansionFacetOption[];
+}
+
 /**
  * Derive the expansion map from the live facets (parentSlug edges), so a
  * taxonomy migration that adds a hierarchy level doesn't need a frontend
  * change. Falls back to LEVEL_FILTER_EXPANSION semantics: parent -> itself +
  * all children.
  */
-export function buildLevelExpansion(levels: FacetOption[]): Record<string, string[]> {
+export function buildLevelExpansion(
+  levels: ExpansionFacetOption[],
+): Record<string, string[]> {
   const expansion: Record<string, string[]> = {};
   for (const level of levels) {
     if (level.parentSlug) {

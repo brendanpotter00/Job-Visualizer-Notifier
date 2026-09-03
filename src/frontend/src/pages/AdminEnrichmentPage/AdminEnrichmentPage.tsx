@@ -304,9 +304,18 @@ export function AdminEnrichmentPage() {
                 label="Show the subcategory filter to users"
               />
               <Typography variant="caption" color="text.secondary" display="block">
-                Users' browsers pick the change up within about a minute.
-                {/* ⚠ This sentence is the flag query's TTL restated in prose.
-                    If that TTL moves, this line moves with it. */}
+                Saved, but nothing user-facing reads it yet — the subcategory
+                filter ships in a later PR.
+                {/* ⚠ SAY WHAT ACTUALLY HAPPENS TODAY. This switch persists the
+                    flag and GET /api/jobs/settings serves it, but NO frontend
+                    query consumes that endpoint yet and there is no public
+                    subcategory filter to reveal, so flipping it has zero
+                    observable user effect. The previous copy ("users' browsers
+                    pick the change up within about a minute") described the
+                    finished rollout and would have had an admin believe a
+                    reveal had gone live. When PR-F wires the filter, replace
+                    this with the flag query's TTL restated in prose — and move
+                    this line whenever that TTL moves. */}
               </Typography>
               {settingError && (
                 <Alert severity="error" onClose={() => setSettingError(null)} sx={{ mt: 1 }}>
