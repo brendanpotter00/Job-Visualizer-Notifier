@@ -80,7 +80,7 @@ class TestParseListJob:
             {
                 "id": 42,
                 "title": "Software Engineer, Infra",
-                "locations": ["Menlo Park, CA, United States"],
+                "locations": ["Menlo Park, CA"],
                 "teams": [{"title": "Infrastructure"}],
                 "sub_teams": [{"title": "Data Platform"}],
             }
@@ -88,7 +88,7 @@ class TestParseListJob:
         assert card is not None
         assert card["id"] == "42"  # coerced to str
         assert card["title"] == "Software Engineer, Infra"
-        assert card["location"] == "Menlo Park, CA, United States"
+        assert card["location"] == "Menlo Park, CA"
         assert card["department"] == "Infrastructure — Data Platform"
         assert card["job_url"] == "https://www.metacareers.com/profile/job_details/42"
         assert card["company"] == "meta"

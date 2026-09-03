@@ -66,12 +66,71 @@ POLL_INTERVAL_S = 0.1
 DRAIN_MAX_S = 3.0
 DRAIN_STABLE_S = 0.5
 
-# --- Client-side US + title filters (mirror TikTok) ---------------------------
-# metacareers.com/jobsearch returns a broad set, so we narrow to US software /
-# data roles client-side, identical to the TikTok scraper. The completeness
-# guard runs against Meta's own ``job_count`` on the FULL parsed set BEFORE this
-# filter, so a legitimately narrow kept count never false-trips it.
-LOCATION_FILTER = "United States"
+# --- Client-side US + title filters -------------------------------------------
+# metacareers.com/jobsearch returns the whole global catalogue, so we narrow to
+# US software / data roles client-side. The completeness guard runs against
+# Meta's own ``job_count`` on the FULL parsed set BEFORE this filter, so a
+# legitimately narrow kept count never false-trips it.
+#
+# **Why not a ``"United States"`` substring (the TikTok approach).** TikTok's API
+# returns location strings that literally contain ``"United States"``; Meta's do
+# NOT. Meta encodes each location as ``City, ST`` (``Menlo Park, CA``,
+# ``New York, NY``), joins multiple locations with ``, ``
+# (``Menlo Park, CA, New York, NY``), marks US remote as ``Remote, US``, and
+# spells non-US countries out in full (``London, UK``, ``Singapore``,
+# ``Dublin, Ireland``, ``Sao Paulo, Brazil``). A literal ``"United States"``
+# matches NONE of the ~890 live rows, which silently dropped every US job. So we
+# tokenise on commas and keep a row when ANY token is a US state/territory code,
+# a spelled-out US state, or a US country token -- see ``filter_location``.
+#
+# Set False to disable the US-only narrowing (keep every location).
+FILTER_US_ONLY = True
+
+# The 50 states + DC + the five inhabited territories, as their USPS two-letter
+# codes (lower-cased for comparison). This is the strong signal: Meta tags every
+# US location with one of these (``Menlo Park, CA``, ``Lebanon, IN``,
+# ``Washington, DC``). Foreign countries are spelled out in full rather than
+# abbreviated, so none of these codes collides with a non-US location -- India is
+# ``India``, never ``IN``; the UK is ``UK`` (not a US code); Canada is
+# ``Canada``, never a province code.
+US_STATE_CODES = frozenset(
+    {
+        "al", "ak", "az", "ar", "ca", "co", "ct", "de", "fl", "ga",
+        "hi", "id", "il", "in", "ia", "ks", "ky", "la", "me", "md",
+        "ma", "mi", "mn", "ms", "mo", "mt", "ne", "nv", "nh", "nj",
+        "nm", "ny", "nc", "nd", "oh", "ok", "or", "pa", "ri", "sc",
+        "sd", "tn", "tx", "ut", "vt", "va", "wa", "wv", "wi", "wy",
+        "dc", "pr", "vi", "gu", "as", "mp",
+    }
+)
+
+# Spelled-out US state names (lower-cased), for resilience to the occasional row
+# that writes ``Menlo Park, Florida`` instead of ``Menlo Park, FL``. "Georgia"
+# is deliberately ABSENT: as a full word it is also the country, and the US
+# state is already covered by its ``ga`` code above -- including the spelled-out
+# form would misclassify a Tbilisi role as US.
+US_STATE_NAMES = frozenset(
+    {
+        "alabama", "alaska", "arizona", "arkansas", "california", "colorado",
+        "connecticut", "delaware", "florida", "hawaii", "idaho", "illinois",
+        "indiana", "iowa", "kansas", "kentucky", "louisiana", "maine",
+        "maryland", "massachusetts", "michigan", "minnesota", "mississippi",
+        "missouri", "montana", "nebraska", "nevada", "new hampshire",
+        "new jersey", "new mexico", "new york", "north carolina",
+        "north dakota", "ohio", "oklahoma", "oregon", "pennsylvania",
+        "rhode island", "south carolina", "south dakota", "tennessee",
+        "texas", "utah", "vermont", "virginia", "washington",
+        "west virginia", "wisconsin", "wyoming", "district of columbia",
+        "puerto rico",
+    }
+)
+
+# Country tokens that name the US outright, including ``Remote, US`` and the
+# ``..., United States`` form TikTok emits. Kept as a superset so this filter also
+# accepts anything the old ``"United States"`` check would have.
+US_COUNTRY_TOKENS = frozenset(
+    {"us", "usa", "u.s.", "u.s.a.", "united states", "united states of america"}
+)
 
 # Title keywords to include (case-insensitive substring match).
 INCLUDE_TITLE_KEYWORDS = [

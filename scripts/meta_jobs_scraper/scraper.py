@@ -43,12 +43,15 @@ from .config import (
     EXCLUDE_TITLE_KEYWORDS,
     GRAPHQL_URL_SUBSTRING,
     INCLUDE_TITLE_KEYWORDS,
+    FILTER_US_ONLY,
     LIST_URL,
-    LOCATION_FILTER,
     NEW_PAGE_TIMEOUT_S,
     PAGE_TIMEOUT_MS,
     POLL_INTERVAL_S,
     RESPONSE_WAIT_S,
+    US_COUNTRY_TOKENS,
+    US_STATE_CODES,
+    US_STATE_NAMES,
 )
 from .parser import (
     MetaCaptureError,
@@ -134,12 +137,35 @@ class MetaJobsScraper(BaseScraper):
         return any(kw in title_lower for kw in _INCLUDE_KEYWORDS_LOWER)
 
     def filter_location(self, location: Optional[str]) -> bool:
-        """Keep only jobs in the configured country (client-side substring)."""
-        if not LOCATION_FILTER:
+        """Keep only US jobs.
+
+        Meta encodes each location as ``City, ST`` (``Menlo Park, CA``), joins
+        multiple locations with ``, `` (``Menlo Park, CA, New York, NY``) and
+        marks US remote as ``Remote, US``; non-US roles end in a spelled-out
+        country (``London, UK``, ``Singapore``, ``Dublin, Ireland``). So we
+        tokenise on commas and keep the row when ANY token is a US
+        state/territory code, a spelled-out US state, or a US country token. A
+        role listed across both US and non-US locations therefore counts as US.
+
+        A plain ``"United States"`` substring (the TikTok approach) matches none
+        of Meta's rows and silently zeroes the board -- the whole reason this
+        method has to tokenise. See config.py.
+        """
+        if not FILTER_US_ONLY:
             return True
         if not location:
             return False
-        return LOCATION_FILTER.lower() in location.lower()
+        for raw in location.split(","):
+            token = raw.strip().lower()
+            if not token:
+                continue
+            if (
+                token in US_STATE_CODES
+                or token in US_STATE_NAMES
+                or token in US_COUNTRY_TOKENS
+            ):
+                return True
+        return False
 
     # ---- The GraphQL-sniff capture --------------------------------------
 
@@ -265,6 +291,24 @@ class MetaJobsScraper(BaseScraper):
             len(cards),
             len(kept),
         )
+
+        # A healthy fetch that keeps ZERO jobs means the FILTER is broken, not
+        # that Meta's board is empty. ``_finalize_capture`` already raised on an
+        # empty or truncated capture, so reaching here means ``cards`` is a
+        # complete catalogue -- and Meta always has open US tech roles. Returning
+        # ``[]`` here would be indistinguishable from "every Meta job is gone",
+        # and the incremental lifecycle would close the whole board after
+        # MISSED_RUN_THRESHOLD misses (the 2026-03-29 mass-closure class of bug).
+        # So raise, exactly as an empty capture does: the run records a failure,
+        # skips the destructive close phase, and the health watchdog surfaces it.
+        if not kept:
+            raise MetaCaptureError(
+                f"Meta scrape parsed {len(cards)} jobs but 0 survived the "
+                f"US/title filter -- Meta always has open US tech roles, so this "
+                f"means the filter is broken (check FILTER_US_ONLY / "
+                f"filter_location / filter_job), not that the board is empty; "
+                f"refusing to report an empty board"
+            )
 
         if max_jobs and len(kept) >= max_jobs:
             return kept[:max_jobs]

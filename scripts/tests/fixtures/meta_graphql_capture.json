@@ -6,45 +6,45 @@
           {
             "id": "j1",
             "title": "Software Engineer, Infrastructure",
-            "locations": ["Menlo Park, CA, United States"],
+            "locations": ["Menlo Park, CA", "Remote, US"],
             "teams": [{ "title": "Infrastructure" }],
             "sub_teams": [{ "title": "Data Platform" }]
           },
           {
             "id": "j2",
             "title": "Data Scientist, Ads",
-            "locations": [{ "title": "New York, NY, United States" }],
+            "locations": [{ "title": "New York, NY" }],
             "teams": ["Ads"],
             "sub_teams": []
           },
           {
             "id": "j3",
-            "title": "Product Designer",
-            "locations": ["London, United Kingdom"],
-            "teams": [{ "title": "Design" }]
+            "title": "Software Engineer, Payments",
+            "locations": ["London, UK"],
+            "teams": [{ "title": "Payments" }]
           },
           {
             "id": "j4-no-title",
-            "locations": ["Menlo Park, CA, United States"],
+            "locations": ["Menlo Park, CA"],
             "teams": [{ "title": "Infrastructure" }]
           },
           {
             "title": "Ghost Job, Missing Id",
-            "locations": ["Seattle, WA, United States"]
+            "locations": ["Seattle, WA"]
           }
         ],
         "featured_jobs": [
           {
             "id": "j1",
             "title": "Software Engineer, Infrastructure",
-            "locations": ["Menlo Park, CA, United States"],
+            "locations": ["Menlo Park, CA", "Remote, US"],
             "teams": [{ "title": "Infrastructure" }],
             "sub_teams": [{ "title": "Data Platform" }]
           },
           {
             "id": "j5",
             "title": "Machine Learning Engineer, AI Research",
-            "locations": ["Seattle, WA, United States"],
+            "locations": ["Seattle, WA"],
             "teams": [{ "title": "AI Research" }],
             "sub_teams": [{ "title": "GenAI" }]
           }

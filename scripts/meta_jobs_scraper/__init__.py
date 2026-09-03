@@ -19,7 +19,7 @@ from .config import (
     JOB_COUNT_SUFFIX,
     JOB_DETAIL_URL_TEMPLATE,
     LIST_URL,
-    LOCATION_FILTER,
+    FILTER_US_ONLY,
     MIN_COMPLETENESS_RATIO,
 )
 from .parser import (
@@ -42,7 +42,7 @@ __all__ = [
     "JOB_COUNT_SUFFIX",
     "JOB_DETAIL_URL_TEMPLATE",
     "LIST_URL",
-    "LOCATION_FILTER",
+    "FILTER_US_ONLY",
     "MIN_COMPLETENESS_RATIO",
     # parser
     "MetaCaptureError",

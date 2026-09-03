@@ -101,9 +101,12 @@ class TestFullCapture:
 
         cards = await scraper.scrape_query("all")
 
-        # j1, j2, j5 are US software/data; j3 is non-US (dropped by location)
+        # j1, j2, j5 are US software/data; j3 is a tech role in "London, UK", so
+        # the US location filter drops it (the title filter would keep it). This
+        # is the regression: the old "United States" substring dropped ALL of
+        # j1/j2/j5 too, because Meta writes "Menlo Park, CA", never "…, US".
         assert {c["id"] for c in cards} == {"j1", "j2", "j5"}
-        assert all("United States" in c["location"] for c in cards)
+        assert all(scraper.filter_location(c["location"]) for c in cards)
         assert page.closed is True
 
     async def test_max_jobs_slices(self, meta_graphql_capture):
@@ -151,7 +154,7 @@ class TestRaiseInvariant:
         payloads = [
             {"data": {"w": {"all_jobs": [
                 {"id": "j1", "title": "Software Engineer",
-                 "locations": ["Menlo Park, CA, United States"]}
+                 "locations": ["Menlo Park, CA"]}
             ]}}},
             {"data": {"filters": {"job_count": 100}}},
         ]
@@ -160,6 +163,31 @@ class TestRaiseInvariant:
         with pytest.raises(MetaCaptureError) as exc:
             await scraper.scrape_query("all")
         assert "100" in str(exc.value)
+        assert page.closed is True
+
+    async def test_healthy_fetch_all_filtered_out_raises(self):
+        """A COMPLETE fetch whose every job is non-US must RAISE, not return [].
+
+        The completeness guard passes (parsed == advertised job_count) so the
+        fetch is healthy, but the US filter keeps nothing. Meta always has open
+        US tech roles, so 0 kept means the FILTER broke — returning [] here would
+        read to the incremental lifecycle as "every Meta job is gone" and close
+        the whole board. This is exactly the bug that shipped: a healthy 891-job
+        fetch kept 0 and returned [] silently. The guard now raises instead.
+        """
+        payloads = [
+            {"data": {"w": {"all_jobs": [
+                {"id": "n1", "title": "Software Engineer, Payments",
+                 "locations": ["London, UK"]},
+                {"id": "n2", "title": "Data Engineer, Growth",
+                 "locations": ["Singapore"]},
+            ]}}},
+            {"data": {"filters": {"job_count": 2}}},
+        ]
+        page = FakePage(_responses_from_payloads(payloads))
+        scraper = _make_scraper(page)
+        with pytest.raises(MetaCaptureError, match="0 survived"):
+            await scraper.scrape_query("all")
         assert page.closed is True
 
 

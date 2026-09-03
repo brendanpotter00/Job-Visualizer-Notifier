@@ -16,7 +16,7 @@ from meta_jobs_scraper.config import LIST_URL
 from meta_jobs_scraper.scraper import MetaJobsScraper
 
 
-def _card(job_id="j1", title="Software Engineer, Infra", location="Menlo Park, CA, United States"):
+def _card(job_id="j1", title="Software Engineer, Infra", location="Menlo Park, CA"):
     return {
         "id": job_id,
         "title": title,
@@ -58,7 +58,7 @@ class TestTransformToJobModel:
         assert job.id == "j1"
         assert job.title == "Software Engineer, Infra"
         assert job.company == "meta"
-        assert job.location == "Menlo Park, CA, United States"
+        assert job.location == "Menlo Park, CA"
         assert job.url == "https://www.metacareers.com/profile/job_details/j1"
         assert job.source_id == SourceId.META
         assert job.status == "OPEN"
@@ -144,13 +144,36 @@ class TestFilterJob:
 
 
 class TestFilterLocation:
-    def test_keeps_us(self, meta_scraper):
-        assert meta_scraper.filter_location("Menlo Park, CA, United States") is True
+    """The US filter against Meta's REAL ``City, ST`` location format.
+
+    Meta writes ``Menlo Park, CA`` (never ``…, United States``), joins multiple
+    locations with ``, ``, marks US remote as ``Remote, US``, and spells non-US
+    countries out in full. The old ``"United States"`` substring matched none of
+    these and silently dropped every job — these cases pin the real format.
+    """
 
     @pytest.mark.parametrize("loc", [
-        "London, United Kingdom",
+        "Menlo Park, CA",                       # single City, ST
+        "New York, NY",
+        "Washington, DC",                       # DC
+        "Lebanon, IN",                          # Indiana (a 2-letter that is also a word)
+        "Remote, US",                           # US remote
+        "Menlo Park, CA, New York, NY",         # multiple US locations joined
+        "London, UK, Menlo Park, CA",           # mixed US + non-US counts as US
+        "Menlo Park, Florida",                  # spelled-out state name
+        "Austin, TX, United States",            # superset: still accepts the old form
+    ])
+    def test_keeps_us(self, meta_scraper, loc):
+        assert meta_scraper.filter_location(loc) is True
+
+    @pytest.mark.parametrize("loc", [
+        "London, UK",
         "Singapore",
-        "Tel Aviv, Israel",
+        "Dublin, Ireland",
+        "Bangalore, India",                     # India spelled out, NOT the code IN
+        "Sao Paulo, Brazil",
+        "Remote, UK",                           # non-US remote is dropped
+        "Tbilisi, Georgia",                     # the COUNTRY Georgia, not the US state
     ])
     def test_drops_non_us(self, meta_scraper, loc):
         assert meta_scraper.filter_location(loc) is False
@@ -160,4 +183,5 @@ class TestFilterLocation:
         assert meta_scraper.filter_location("") is False
 
     def test_case_insensitive(self, meta_scraper):
-        assert meta_scraper.filter_location("Austin, TX, UNITED STATES") is True
+        assert meta_scraper.filter_location("AUSTIN, TX") is True
+        assert meta_scraper.filter_location("menlo park, ca") is True
