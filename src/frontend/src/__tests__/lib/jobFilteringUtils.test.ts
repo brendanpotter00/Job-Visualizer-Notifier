@@ -4,7 +4,6 @@ import {
   isJobWithinTimeWindow,
   matchesSearchTags,
   matchesLocation,
-  matchesDepartment,
   matchesEmploymentType,
   filterJobsByFilters,
   buildLocationIndex,
@@ -28,7 +27,6 @@ const createMockJob = (overrides: Partial<Job> = {}): Job => {
     source: 'backend-scraper',
     company: 'test-company',
     title: 'Software Engineer',
-    department: 'Engineering',
     team: 'Backend',
     location: 'San Francisco',
     employmentType: 'Full-time',
@@ -114,13 +112,6 @@ describe('jobFilteringUtils', () => {
     it('should match include tags (OR logic)', () => {
       const job = createMockJob({ title: 'Senior Software Engineer' });
       const tags: SearchTag[] = [{ text: 'software', mode: 'include' }];
-
-      expect(matchesSearchTags(job, tags)).toBe(true);
-    });
-
-    it('should match include tags in department', () => {
-      const job = createMockJob({ department: 'Engineering' });
-      const tags: SearchTag[] = [{ text: 'engineering', mode: 'include' }];
 
       expect(matchesSearchTags(job, tags)).toBe(true);
     });
@@ -426,33 +417,6 @@ describe('jobFilteringUtils', () => {
     });
   });
 
-  describe('matchesDepartment', () => {
-    it('should return true when no department filter provided', () => {
-      const job = createMockJob();
-
-      expect(matchesDepartment(job, undefined)).toBe(true);
-      expect(matchesDepartment(job, [])).toBe(true);
-    });
-
-    it('should match exact department', () => {
-      const job = createMockJob({ department: 'Engineering' });
-
-      expect(matchesDepartment(job, ['Engineering'])).toBe(true);
-    });
-
-    it('should match any department (OR logic)', () => {
-      const job = createMockJob({ department: 'Product' });
-
-      expect(matchesDepartment(job, ['Engineering', 'Product'])).toBe(true);
-    });
-
-    it('should fail when department does not match', () => {
-      const job = createMockJob({ department: 'Sales' });
-
-      expect(matchesDepartment(job, ['Engineering', 'Product'])).toBe(false);
-    });
-  });
-
   describe('matchesEmploymentType', () => {
     it('should return true when no employment type filter provided', () => {
       const job = createMockJob();
@@ -482,7 +446,6 @@ describe('jobFilteringUtils', () => {
         createMockJob({
           id: '1',
           title: 'Senior Software Engineer',
-          department: 'Engineering',
           location: 'San Francisco',
           employmentType: 'Full-time',
           createdAt: new Date(now - 5 * 24 * 60 * 60 * 1000).toISOString(), // 5 days ago
@@ -490,7 +453,6 @@ describe('jobFilteringUtils', () => {
         createMockJob({
           id: '2',
           title: 'Frontend Developer',
-          department: 'Engineering',
           location: 'New York',
           employmentType: 'Full-time',
           createdAt: new Date(now - 10 * 24 * 60 * 60 * 1000).toISOString(), // 10 days ago
@@ -498,7 +460,6 @@ describe('jobFilteringUtils', () => {
         createMockJob({
           id: '3',
           title: 'Product Manager',
-          department: 'Product',
           location: 'Remote',
           employmentType: 'Full-time',
           createdAt: new Date(now - 2 * 24 * 60 * 60 * 1000).toISOString(), // 2 days ago
@@ -506,7 +467,6 @@ describe('jobFilteringUtils', () => {
         createMockJob({
           id: '4',
           title: 'Data Engineer',
-          department: 'Data',
           location: 'Austin, TX',
           employmentType: 'Contract',
           createdAt: new Date(now - 40 * 24 * 60 * 60 * 1000).toISOString(), // 40 days ago
@@ -568,20 +528,6 @@ describe('jobFilteringUtils', () => {
       expect(result[0].id).toBe('1');
     });
 
-    it('should filter by department', () => {
-      const filters: GraphFilters = {
-        timeWindow: '30d',
-        searchTags: undefined,
-        department: ['Engineering'],
-        softwareOnly: false,
-      };
-
-      const result = filterJobsByFilters(jobs, filters);
-
-      expect(result).toHaveLength(2); // Jobs 1 and 2
-      expect(result.map((j) => j.id).sort()).toEqual(['1', '2']);
-    });
-
     it('should filter by employment type', () => {
       // Note: Job 4 is 40 days old, so use 30d window which will filter it out by time
       // Need to adjust the test data - let's use a closer time range job
@@ -610,7 +556,6 @@ describe('jobFilteringUtils', () => {
       const filters: GraphFilters = {
         timeWindow: '30d',
         searchTags: [{ text: 'engineer', mode: 'include' }],
-        department: ['Engineering'],
         location: ['San Francisco'],
         softwareOnly: false,
       };

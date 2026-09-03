@@ -77,11 +77,15 @@ _JOBS_TABLE = "job_listings"
 _RUNS_TABLE = "scrape_runs"
 
 # Column list for job_listings table (used in INSERT statements)
-# NOTE: experience_level / is_remote_eligible are denormalized copies of the two
-# details JSONB sub-fields the API list path serves — written here so that path
-# never has to detoast `details` (see the 2026-07-13 /api/jobs outage and
-# db_models.JobListing). Keep this list, the _build_job_values tuple, and the
-# VALUES (%s, …) placeholder strings in insert_job/upsert_job in lockstep.
+# NOTE: experience_level / is_remote_eligible are denormalized
+# copies of the two details JSONB sub-fields the API list path serves — written
+# here so that path never has to detoast `details` (see the 2026-07-13
+# /api/jobs outage and db_models.JobListing). This is the ONE write path for
+# job_listings: every scraper and every backend fetch task funnels through
+# insert_job / upsert_job / *_batch below, so a sub-field added here reaches all
+# of them. Keep this list and the _build_job_values tuple in lockstep — the
+# VALUES (%s, …) placeholders are derived from this list by _JOB_PLACEHOLDERS,
+# so they cannot drift.
 # There is deliberately no last_seen_at / consecutive_misses here: the Unit 4
 # contract migration (18fe9c20a8fd) dropped both from job_listings. Freshness is
 # written to the job_freshness sidecar — by the AFTER INSERT trigger for plain
@@ -93,6 +97,12 @@ _JOB_COLUMNS = """
     first_seen_at, details_scraped,
     experience_level, is_remote_eligible
 """.strip()
+
+# "%s, %s, …" with exactly one placeholder per column in _JOB_COLUMNS. Derived
+# rather than written out: the two single-row INSERTs below used a hand-counted
+# literal, which silently becomes a runtime "INSERT has more target columns than
+# expressions" the moment a column is added and one of them is missed.
+_JOB_PLACEHOLDERS = ", ".join(["%s"] * len(_JOB_COLUMNS.split(",")))
 
 # ON CONFLICT clause for upsert operations.
 #
@@ -122,8 +132,8 @@ _UPSERT_ON_CONFLICT = """
 # Sidecar (job_freshness) table + its re-seen upsert.
 #
 # The AFTER INSERT trigger on job_listings already materializes a freshness row
-# for every *genuinely new* listing (seeded from first_seen_at), so plain INSERT
-# paths (insert_job / insert_jobs_batch) need no freshness write. The upsert
+# for every *genuinely new* listing (seeded from now(), NOT first_seen_at — U2 made
+# that a date that can be months old), so plain INSERT paths need no freshness write. The upsert
 # paths, however, cover two cases the trigger does NOT fire for:
 #   * an existing OPEN listing re-scraped (ON CONFLICT DO UPDATE) — advance its
 #     last_seen_at and clear misses, and
@@ -361,7 +371,12 @@ def list_enabled_companies(conn: Connection, ats: str) -> List[Dict[str, Any]]:
 
     cursor.execute(
         "SELECT id, board_token, provider_config FROM companies "
-        "WHERE ats = %s AND enabled = true "
+        # Custom-source leak fix (E7): the six public ATS fan-outs must only pick
+        # up curated ``visibility='public'`` companies. A private custom company
+        # (visibility='user') shares the same ``ats`` value as a public one, so
+        # without this filter it would ride the public greenhouse/workday/... cron
+        # instead of its own dedicated custom_ats_fetch queue.
+        "WHERE ats = %s AND enabled = true AND visibility = 'public' "
         "ORDER BY id",
         (ats,),
     )
@@ -390,7 +405,9 @@ def list_enabled_eightfold_companies(conn: Connection) -> List[Dict[str, Any]]:
     cursor = conn.cursor()
     cursor.execute(
         "SELECT id, board_token, provider_config FROM companies "
-        "WHERE ats = 'eightfold' AND enabled = true "
+        # E7 leak fix, same reasoning as list_enabled_companies: the public
+        # Eightfold fan-out must skip private custom companies.
+        "WHERE ats = 'eightfold' AND enabled = true AND visibility = 'public' "
         "ORDER BY id"
     )
     return [dict(row) for row in cursor.fetchall()]
@@ -448,7 +465,7 @@ def insert_job(conn: Connection, job: JobListing) -> None:
     cursor = conn.cursor()
 
     cursor.execute(
-        f"INSERT INTO {_JOBS_TABLE} ({_JOB_COLUMNS}) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+        f"INSERT INTO {_JOBS_TABLE} ({_JOB_COLUMNS}) VALUES ({_JOB_PLACEHOLDERS})",
         _build_job_values(job)
     )
 
@@ -476,7 +493,7 @@ def upsert_job(conn: Connection, job: JobListing) -> bool:
     cursor.execute(
         f"""
         INSERT INTO {_JOBS_TABLE} ({_JOB_COLUMNS})
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        VALUES ({_JOB_PLACEHOLDERS})
         {_UPSERT_ON_CONFLICT}
         RETURNING (xmax = 0) AS inserted
         """,
@@ -487,7 +504,7 @@ def upsert_job(conn: Connection, job: JobListing) -> bool:
     was_inserted = result['inserted'] if result else True
 
     # Keep the sidecar fresh in the same transaction. For a brand-new insert the
-    # AFTER INSERT trigger already created the freshness row (from first_seen_at);
+    # AFTER INSERT trigger already created the freshness row (from now(), per U2);
     # this upsert then advances it to the scrape's last_seen_at. For a re-seen /
     # reactivated row the trigger does not fire, so this is the only freshness write.
     _upsert_freshness(cursor, [job])
@@ -754,7 +771,12 @@ def mark_jobs_closed(
 
 
 def get_jobs_exceeding_miss_threshold(
-    conn: Connection, source_id: str, job_ids: List[str], threshold: int
+    conn: Connection,
+    source_id: str,
+    job_ids: List[str],
+    threshold: int,
+    *,
+    min_seen_age_hours: Optional[float] = None,
 ) -> Set[str]:
     """
     Get job IDs where consecutive_misses >= threshold in a single query.
@@ -766,9 +788,17 @@ def get_jobs_exceeding_miss_threshold(
             an empty set and skip the close phase.
         job_ids: List of job IDs to check
         threshold: Minimum consecutive_misses value
+        min_seen_age_hours: OPTIONAL wall-clock floor (E7 §4.2). When set, a job
+            only qualifies if its ``last_seen_at`` is older than
+            ``now() - <min_seen_age_hours> hours`` — a hard 36h-style floor that
+            a scheduler double-fire or manual rerun cannot shortcut, because it
+            is on the timestamp, not the miss counter. ``None`` (the default, and
+            what all six public crons pass) omits the clause → byte-identical to
+            the pre-E7 query.
 
     Returns:
-        Set of job IDs that have consecutive_misses >= threshold
+        Set of job IDs that have consecutive_misses >= threshold (and, when
+        ``min_seen_age_hours`` is set, whose ``last_seen_at`` is older than that).
     """
     if not source_id:
         raise ValueError(
@@ -783,12 +813,20 @@ def get_jobs_exceeding_miss_threshold(
     # consecutive_misses is read from the job_freshness sidecar now. Every
     # listing has a freshness row (trigger + FK), so this sees the same ids the
     # old job_listings read did.
-    cursor.execute(
+    query = (
         f"SELECT id FROM {_FRESHNESS_TABLE} "
         f"WHERE source_id = %s AND id IN ({placeholders}) "
-        f"AND consecutive_misses >= %s",
-        [source_id] + job_ids + [threshold]
+        f"AND consecutive_misses >= %s"
     )
+    params: List[object] = [source_id] + list(job_ids) + [threshold]
+    if min_seen_age_hours is not None:
+        # last_seen_at is timestamptz. Multiply the hour interval by the (possibly
+        # fractional) age so any cadence works; parenthesized so it binds before
+        # the subtraction.
+        query += " AND last_seen_at < now() - (%s * interval '1 hour')"
+        params.append(min_seen_age_hours)
+
+    cursor.execute(query, params)
 
     return {row['id'] for row in cursor.fetchall()}
 
@@ -871,14 +909,14 @@ def record_scrape_run(conn: Connection, run_data: ScrapeRun) -> None:
         INSERT INTO {_RUNS_TABLE} (
             run_id, company, started_at, completed_at, mode,
             jobs_seen, new_jobs, closed_jobs, details_fetched, error_count,
-            skipped_update, guard_reason
-        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            skipped_update, guard_reason, source_id, success
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """,
         (
             run_data.run_id, run_data.company, run_data.started_at, run_data.completed_at,
             run_data.mode, run_data.jobs_seen, run_data.new_jobs, run_data.closed_jobs,
             run_data.details_fetched, run_data.error_count, run_data.skipped_update,
-            run_data.guard_reason
+            run_data.guard_reason, run_data.source_id, run_data.success,
         )
     )
 

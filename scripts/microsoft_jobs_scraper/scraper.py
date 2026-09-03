@@ -21,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from shared.base_scraper import BaseScraper
 from shared.constants import SourceId
 from shared.models import JobListing
+from shared.posted_date import effective_posted_date
 from shared.utils import get_iso_timestamp
 
 from .config import (
@@ -41,7 +42,6 @@ from .parser import (
     extract_job_cards_from_list,
     extract_position_id_from_url,
     check_has_next_page,
-    JobCardExtractionError,
 )
 from .api_client import (
     fetch_search_results,
@@ -256,13 +256,92 @@ class MicrosoftJobsScraper(BaseScraper):
         return [job async for job in self.scrape_job_details_streaming(job_cards)]
 
     def _normalize_posted_date(self, posted_on: Any) -> Optional[str]:
-        """Convert posted date to ISO string format."""
+        """Convert a raw posted date to an ISO 8601 string, or ``None``.
+
+        ``posted_on`` reaches here from ``_get_first_of(pos, "postedTs",
+        "postedDate", "createdTs")``, so it can be an epoch, a date string,
+        a humanized string scraped off a card, or ``""``.
+
+        The result is written straight into a TIMESTAMPTZ column, so anything
+        Postgres would reject has to become ``None`` here — a bad value must
+        degrade its own row, never fail the batch (a failed batch retries
+        row-by-row and drops exactly those rows).
+
+        Three things this used to get wrong:
+
+        - **Milliseconds.** ``1787617881000`` was read as seconds and landed
+          in year 58,000. Same ``> 1e11`` guard as
+          ``eightfold_client._parse_eightfold_epoch``.
+        - **Empty string.** ``_get_first_of`` defaults to ``""``, not
+          ``None``; ``str("")`` sent ``""`` into TIMESTAMPTZ and failed the
+          insert.
+        - **Non-dates.** ``str()`` passed anything through, including
+          humanized strings like ``"2 days ago"``. A relative bucket is not a
+          date — store NULL rather than a value the column cannot hold.
+
+        **A value we had and could not read is LOGGED.** Returning ``None``
+        quietly was the one gap Microsoft had versus every other source
+        (``ashby_client``, ``lever_client``, ``gem_client``,
+        ``greenhouse_client``, ``workday_client``, ``eightfold_client``, and the
+        Apple/Amazon scrapers all log this): with ``first_seen_at`` now seeded
+        from the posted date, a Microsoft feed format change would land 100% of
+        rows on "posted today" while the run recorded a clean success. Same
+        WARNING level and ``"microsoft: ..."`` shape the sibling *scrapers*
+        use (``apple_jobs_scraper.parser.parse_card_posted_date``,
+        ``amazon_jobs_scraper.api_client.parse_posted_date``); the backend ATS
+        clients use ERROR because Railway derives ``@level`` from it and they
+        run in the deployed worker, which this does not.
+
+        A legitimately ABSENT date — ``None``, or the ``""`` that
+        ``_get_first_of`` defaults to — is silent. It is the normal shape for
+        "Microsoft published no date", not a failure, and warning on it would
+        bury the format-change alarm this exists to raise. A total format
+        change fires ~470 warnings per run (the live board size) across ~16
+        runs a day: loud on purpose, and the intended alarm.
+        """
+        from datetime import datetime, timezone
+
         if posted_on is None:
             return None
+
         if isinstance(posted_on, (int, float)):
-            from datetime import datetime, timezone
-            return datetime.fromtimestamp(posted_on, tz=timezone.utc).isoformat()
-        return str(posted_on)
+            numeric = float(posted_on)
+            # Epoch milliseconds, not seconds. 1e11 seconds is year 5138, so
+            # nothing legitimate is above it.
+            if numeric > 1e11:
+                numeric = numeric / 1000.0
+            try:
+                return datetime.fromtimestamp(numeric, tz=timezone.utc).isoformat()
+            except (OverflowError, OSError, ValueError):
+                logger.warning(
+                    "microsoft: could not read posted date epoch %r; storing NULL",
+                    posted_on,
+                )
+                return None
+
+        if isinstance(posted_on, str):
+            candidate = posted_on.strip()
+            if not candidate:
+                return None
+            try:
+                datetime.fromisoformat(candidate.replace("Z", "+00:00"))
+            except ValueError:
+                # Not a date Postgres would accept either. NULL, not a guess.
+                logger.warning(
+                    "microsoft: could not parse posted date %r; storing NULL",
+                    posted_on,
+                )
+                return None
+            # Parseable — hand back the original string unchanged so the
+            # stored value stays exactly what the board published.
+            return posted_on
+
+        logger.warning(
+            "microsoft: posted date %r is a %s, not a date; storing NULL",
+            posted_on,
+            type(posted_on).__name__,
+        )
+        return None
 
     def transform_to_job_model(self, job_data: Dict[str, Any]) -> JobListing:
         """Transform scraped data to JobListing model (database schema)."""
@@ -304,7 +383,11 @@ class MicrosoftJobsScraper(BaseScraper):
             status="OPEN",
             has_matched=False,
             ai_metadata={},
-            first_seen_at=created_at,
+            # THE EFFECTIVE POSTED DATE, not literally "when we first saw it"
+            # (POSTED-DATE-PLAN.md §2, D9/D10). Same rule BatchWriter.add_job
+            # applies on the way to the DB — kept in step here so the model a
+            # caller inspects says the same thing as the row that gets written.
+            first_seen_at=effective_posted_date(posted_on, created_at),
             last_seen_at=created_at,
             consecutive_misses=0,
             details_scraped=False,

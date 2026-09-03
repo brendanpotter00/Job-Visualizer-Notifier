@@ -4,7 +4,6 @@ import type { RecentJobsFilters } from '../../../types';
 /**
  * Initial filter state for Recent Jobs page
  * Default time window is all time
- * No department or roleCategory filters
  */
 const initialFilters: RecentJobsFilters = {
   // Default window for anyone WITHOUT a saved filter (logged-out visitors, and
@@ -26,13 +25,12 @@ const initialFilters: RecentJobsFilters = {
 
 /**
  * Recent Jobs filter slice created via factory pattern
- * Generates 25 action creators automatically
+ * Generates 22 action creators automatically
  */
 const recentJobsFiltersSlice = createFilterSlice('recentJobs', initialFilters);
 
 /**
- * Export only the actions we want to use
- * (Department and roleCategory actions are generated but not exported)
+ * Export the generated actions.
  *
  * Type Assertion Rationale:
  * The `as any` cast is necessary here due to TypeScript's limitations with computed property names.

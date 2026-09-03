@@ -1,0 +1,36 @@
+{
+  "script_version": 1,
+  "transport": "http_json",
+  "expected_min_jobs": 500,
+  "steps": [
+    {
+      "op": "fetch",
+      "method": "POST",
+      "url": "https://www.metacareers.com/graphql?doc_id=27129360303422352&fb_api_req_friendly_name=CareersJobSearchResultsV2DataQuery",
+      "headers": {
+        "sec-ch-ua": "\"Chromium\";v=\"120\"",
+        "Origin": "https://www.metacareers.com",
+        "x-fb-friendly-name": "CareersJobSearchResultsV2DataQuery"
+      }
+    },
+    {
+      "op": "extract_json_path",
+      "records_path": "data.job_search_with_featured_jobs_v2.all_jobs",
+      "fields": {
+        "id": "id",
+        "title": "title",
+        "url": "https://www.metacareers.com/jobs/{id}",
+        "location": "locations.0",
+        "department": "teams.0"
+      }
+    },
+    {
+      "op": "assert_pinned_operation",
+      "doc_id": "27129360303422352",
+      "response_shape_path": "data.job_search_with_featured_jobs_v2.all_jobs"
+    },
+    { "op": "dedupe_key", "field": "id" },
+    { "op": "assert_unique", "field": "id" }
+  ],
+  "oracle": { "kind": "self_consistent" }
+}

@@ -25,12 +25,15 @@ import AccountTreeIcon from '@mui/icons-material/AccountTree';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import FeedbackIcon from '@mui/icons-material/Feedback';
 import FilterListAltIcon from '@mui/icons-material/FilterListAlt';
+import AddBusinessIcon from '@mui/icons-material/AddBusiness';
+import ConstructionIcon from '@mui/icons-material/Construction';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
   ADMIN_NAV_ITEMS,
   INFO_NAV_ITEMS,
   PRIMARY_NAV_ITEMS,
   ROUTES,
+  type NavIconName,
 } from '../../config/routes.ts';
 import { useAuth } from '../../features/auth/useAuth';
 import { useCurrentUser } from '../../features/auth/useCurrentUser';
@@ -98,20 +101,9 @@ const PermanentDrawer = styled(MuiDrawer, {
   }),
 }));
 
-type IconName =
-  | 'Schedule'
-  | 'Info'
-  | 'BugReport'
-  | 'AccountCircle'
-  | 'ThumbUp'
-  | 'TrendingUp'
-  | 'Business'
-  | 'People'
-  | 'Place'
-  | 'AccountTree'
-  | 'AutoAwesome'
-  | 'Feedback'
-  | 'FilterListAlt';
+// The union is owned by config/routes.ts so nav items and this map are checked
+// against one list; `Record` below still forces every name to have a component.
+type IconName = NavIconName;
 const iconMap: Record<IconName, React.ComponentType> = {
   Schedule: ScheduleIcon,
   Info: InfoIcon,
@@ -126,6 +118,8 @@ const iconMap: Record<IconName, React.ComponentType> = {
   AutoAwesome: AutoAwesomeIcon,
   Feedback: FeedbackIcon,
   FilterListAlt: FilterListAltIcon,
+  AddBusiness: AddBusinessIcon,
+  Construction: ConstructionIcon,
 };
 
 export function NavigationDrawer({

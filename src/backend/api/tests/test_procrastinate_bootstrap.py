@@ -73,24 +73,46 @@ async def _drain_one_job(timeout: float = 10.0) -> None:
     tells the worker to exit once the queue is empty rather than blocking
     on LISTEN/NOTIFY forever. That's the documented test idiom for 2.x.
     Wrap with a wall-clock timeout so a stuck worker can't hang CI.
+
+    The periodic registry is emptied for the duration, the same way the six
+    ``test_fetch_*_company.py`` drains do it — and here it is what keeps this
+    test from hanging at all. ``Worker.run`` always starts a
+    ``periodic_deferrer`` side-coroutine; ``wait=False`` makes the main
+    coroutines finish almost immediately, so ``utils.run_tasks`` cancels that
+    deferrer while it is still backfilling cron ticks against the database. If
+    the cancel lands inside ``pool.connection()``, psycopg_pool swallows it —
+    ``_getconn_with_check_loop`` catches ``CLIENT_EXCEPTIONS``, which on the
+    async pool includes ``asyncio.CancelledError`` — and retries in a loop, so
+    the deferrer never dies and ``Worker.run`` never returns. The
+    ``wait_for`` below then times out, ``worker_task.cancel()`` does nothing
+    (``run_worker_async`` shields the worker and only re-enters an unbounded
+    ``await task``), and the test hangs until pytest-timeout kills it at 120s.
+    With no periodic tasks registered the deferrer returns before touching the
+    database, and ``wait=False`` means there is no listener either, so the
+    worker has no side coroutines left to wedge on.
     """
-    worker_task = asyncio.create_task(
-        procrastinate_app.run_worker_async(
-            queues=["greenhouse_fetch"],
-            concurrency=1,
-            wait=False,
-            install_signal_handlers=False,
-        )
-    )
+    saved_periodics = procrastinate_app.periodic_registry.periodic_tasks
+    procrastinate_app.periodic_registry.periodic_tasks = {}
     try:
-        await asyncio.wait_for(worker_task, timeout=timeout)
-    except asyncio.TimeoutError:
-        worker_task.cancel()
+        worker_task = asyncio.create_task(
+            procrastinate_app.run_worker_async(
+                queues=["greenhouse_fetch"],
+                concurrency=1,
+                wait=False,
+                install_signal_handlers=False,
+            )
+        )
         try:
-            await worker_task
-        except asyncio.CancelledError:
-            pass
-        raise
+            await asyncio.wait_for(worker_task, timeout=timeout)
+        except asyncio.TimeoutError:
+            worker_task.cancel()
+            try:
+                await worker_task
+            except asyncio.CancelledError:
+                pass
+            raise
+    finally:
+        procrastinate_app.periodic_registry.periodic_tasks = saved_periodics
 
 
 class TestProcrastinateBootstrap:

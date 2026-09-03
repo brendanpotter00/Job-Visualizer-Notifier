@@ -41,6 +41,11 @@ def list_enabled_companies(conn: Connection, user_id: str) -> list[str]:
         WHERE u.id = %(uid)s
           AND u.auto_enroll_new_companies
           AND c.enabled
+          -- Custom-source leak fix (E7): auto-enroll must never pull a private
+          -- ``visibility='user'`` company into another user's feed. Without
+          -- this, every user whose watermark predates a freshly-added private
+          -- company would silently start seeing it.
+          AND c.visibility = 'public'
           AND c.created_at > u.company_enroll_watermark
           AND EXISTS (
             SELECT 1 FROM user_enabled_companies x WHERE x.user_id = %(uid)s

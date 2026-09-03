@@ -705,14 +705,22 @@ class TestSourceScopedHelpersCrossSource:
 
     def test_update_last_seen_does_not_touch_other_source(self, in_memory_db):
         self._seed_pair(in_memory_db)
+        # Read B's seeded value rather than assuming it. The AFTER INSERT trigger
+        # seeds last_seen_at from now() (7a4c1e93b6d8), not from the model's
+        # first_seen_at, so the literal it used to be compared against is no
+        # longer the seed. What this test is about is that B does not MOVE.
+        b_before = db.get_job_by_id(in_memory_db, "source_b", self.SHARED_ID)[
+            "last_seen_at"
+        ]
         new_ts = "2024-02-01T10:00:00Z"
         db.update_last_seen(in_memory_db, "source_a", [self.SHARED_ID], new_ts)
 
         a = db.get_job_by_id(in_memory_db, "source_a", self.SHARED_ID)
         b = db.get_job_by_id(in_memory_db, "source_b", self.SHARED_ID)
         assert _parse_ts(a["last_seen_at"]) == _parse_ts(new_ts)
-        # Source B unchanged.
-        assert _parse_ts(b["last_seen_at"]) == _parse_ts("2024-01-15T10:00:00Z")
+        # Source B unchanged — and demonstrably not the value A was moved to.
+        assert _parse_ts(b["last_seen_at"]) == _parse_ts(b_before)
+        assert _parse_ts(b["last_seen_at"]) != _parse_ts(new_ts)
 
     def test_increment_consecutive_misses_does_not_touch_other_source(
         self, in_memory_db
@@ -1023,3 +1031,81 @@ class TestListEnabledEightfoldCompanies:
     def test_no_eightfold_rows_returns_empty(self, in_memory_db):
         self._seed_company(in_memory_db, "ashby_only", ats="ashby")
         assert db.list_enabled_eightfold_companies(in_memory_db) == []
+
+class TestDenormalizedDetailsColumns:
+    """The two ``details`` sub-fields the ``/api/jobs`` list path serves are
+    written as real columns, not read back out of the JSONB.
+
+    This is the write half of a two-part contract: ``api/services/database.py``'s
+    ``_LIST_COLUMNS`` builds the response's ``details`` object from
+    ``experience_level`` / ``is_remote_eligible`` *columns* so it never detoasts
+    the ~10 KB ``details`` value (2026-07-13 outage). If the write path stops
+    filling a column, the read path serves a silent NULL.
+
+    Neither column has any other writer: every scraper and every backend ATS
+    fetch task funnels through ``upsert_jobs_batch`` / ``upsert_job`` /
+    ``insert_job``, so these cases cover all of them.
+    """
+
+    @staticmethod
+    def _columns(conn, job):
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT experience_level, is_remote_eligible"
+            " FROM job_listings WHERE source_id = %s AND id = %s",
+            (job.source_id, job.id),
+        )
+        return cursor.fetchone()
+
+    @staticmethod
+    def _with_level(job, experience_level):
+        moved = job.model_copy(deep=True)
+        moved.details = {**job.details, "experience_level": experience_level}
+        return moved
+
+    def test_insert_job_denormalizes_the_sub_fields(self, in_memory_db, sample_job_listing):
+        db.insert_job(in_memory_db, sample_job_listing)
+
+        row = self._columns(in_memory_db, sample_job_listing)
+        assert row["experience_level"] == "Mid-level"
+        assert row["is_remote_eligible"] is False
+
+    def test_upsert_jobs_batch_denormalizes_the_sub_fields(self, in_memory_db, sample_job_listing):
+        job = self._with_level(sample_job_listing, "Senior")
+
+        db.upsert_jobs_batch(in_memory_db, [job])
+
+        assert self._columns(in_memory_db, job)["experience_level"] == "Senior"
+
+    def test_upsert_job_denormalizes_the_sub_fields(self, in_memory_db, sample_job_listing):
+        job = self._with_level(sample_job_listing, "Staff")
+
+        db.upsert_job(in_memory_db, job)
+
+        assert self._columns(in_memory_db, job)["experience_level"] == "Staff"
+
+    def test_upsert_refreshes_the_sub_fields_when_the_board_moves_a_role(
+        self, in_memory_db, sample_job_listing
+    ):
+        """A re-scrape must carry a changed value through, not leave the first one
+        frozen — ``experience_level`` is in the ON CONFLICT SET list for the same
+        reason ``title`` and ``location`` are."""
+        db.upsert_jobs_batch(in_memory_db, [self._with_level(sample_job_listing, "Senior")])
+
+        moved = self._with_level(sample_job_listing, "Staff")
+        db.upsert_jobs_batch(in_memory_db, [moved])
+
+        assert self._columns(in_memory_db, moved)["experience_level"] == "Staff"
+
+    def test_a_board_with_no_experience_level_writes_null_not_empty_string(
+        self, in_memory_db, sample_job_listing
+    ):
+        """A board that publishes no seniority must land NULL, not ''."""
+        stripped = sample_job_listing.model_copy(deep=True)
+        stripped.details = {
+            k: v for k, v in sample_job_listing.details.items() if k != "experience_level"
+        }
+
+        db.upsert_jobs_batch(in_memory_db, [stripped])
+
+        assert self._columns(in_memory_db, stripped)["experience_level"] is None

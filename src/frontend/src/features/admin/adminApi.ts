@@ -1,5 +1,12 @@
 import { createApi, fetchBaseQuery } from '@reduxjs/toolkit/query/react';
 
+// The admin Custom Companies page renders the SAME 5-rung discovery checklist
+// the user-facing My Companies page does, off the same
+// `provider_config->'discovery'->'steps'` blob. Reusing the type (rather than
+// declaring a second wire-identical one) is what makes a backend rename a
+// compile error in both places at once.
+import type { DiscoveryStep } from '../userCompanies/userCompaniesApi';
+
 export type SignupProvider = 'google' | 'email' | 'other';
 
 /**
@@ -92,6 +99,262 @@ export interface AdminFeedbackPageArgs {
   page: number;
   rowsPerPage: number;
   sortDir: 'asc' | 'desc';
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Custom Companies (E7) — admin oversight types
+//
+// Two GET endpoints back one read-only page: `/custom-companies` (the boards
+// users added themselves + the four headline counts) and
+// `/custom-companies/attempts` (one row per ADD ATTEMPT, plus the per-user
+// rollup). Both are server-paginated like `listAdminFeedback` — `limit` /
+// `offset` in, `total` out — because `company_add_attempts` is append-only and
+// is the one table here that grows with every user submission.
+//
+// The aggregates (`summary`, `byOutcome`, `users`) are ALWAYS computed over the
+// whole table, never the filtered page: the User dropdown is fed from the
+// rollup, so it must not shrink as you filter by user.
+// ───────────────────────────────────────────────────────────────────────────
+
+/**
+ * Is this custom scraper actually harvesting? Derived server-side from ONE SQL
+ * CASE (never re-derived on the client) so the page and the StatTile can never
+ * disagree. Precedence is top-down: `orphan` beats everything, because a board
+ * with no owner row is a data-integrity problem whether or not it harvests.
+ */
+export type CustomCompanyLiveStatus =
+  /** No `user_companies` row at all. */
+  | 'orphan'
+  /** No `company_harvests` row at all. */
+  | 'never_harvested'
+  /** enabled=false, OR newest verdict FAILED, OR 0 records harvested. */
+  | 'failing'
+  /** Newest harvest older than 2 x cadence_hours. */
+  | 'stale'
+  /** Enabled, non-FAILED, >0 records, inside 2 x cadence. */
+  | 'live';
+
+/** One user-added board (`companies.visibility = 'user'`). */
+export interface AdminCustomCompanyRow {
+  /** `companies.id`, e.g. 'u-pxfm7e08i4'. */
+  id: string;
+  displayName: string;
+  /** 'discovered' | 'workday' | … */
+  ats: string;
+  boardToken: string;
+  enabled: boolean;
+  /** discovering | unverified | healthy | quarantined | refused. */
+  healthState: string | null;
+  cadenceHours: number | null;
+  createdAt: string;
+  lastSuccessAt: string | null;
+  consecutiveFailures: number;
+
+  // Owner — LEFT JOIN. ``ownerCount === 0`` is a real, present state (an
+  // orphaned board), not a serialization bug.
+  ownerUserId: string | null;
+  ownerEmail: string | null;
+  ownerDisplayName: string | null;
+  /** > 1 means a shared board. */
+  ownerCount: number;
+
+  // company_scripts — LEFT JOIN; all null before the first script is written.
+  /** 'http_json' | 'browser_fetch'. */
+  transport: string | null;
+  oracleKind: string | null;
+  scriptVersion: number | null;
+
+  // Newest company_harvests row — LEFT JOIN; all null when never harvested.
+  /** ISO (= `company_harvests.started_at`). */
+  lastHarvestAt: string | null;
+  /** Server-computed seconds; render with `formatAge()`. */
+  lastHarvestAgeS: number | null;
+  /** 'VERIFIED' | 'UNVERIFIED' | 'FAILED'. */
+  verdict: string | null;
+  verdictReason: string | null;
+  recordsHarvested: number | null;
+  declaredTotal: number | null;
+  oracleTotal: number | null;
+  capHit: boolean | null;
+
+  liveStatus: CustomCompanyLiveStatus;
+  /** Short human reason the row is not live. null IFF liveStatus === 'live'. */
+  liveReason: string | null;
+}
+
+/** The four headline counts, always over the WHOLE table (never the page). */
+export interface AdminCustomCompaniesSummary {
+  /** Every `visibility='user'` row. */
+  trackedCount: number;
+  liveCount: number;
+  byLiveStatus: Partial<Record<CustomCompanyLiveStatus, number>>;
+  /** health_state -> count. Key '' means a NULL health_state. */
+  byHealthState: Record<string, number>;
+
+  /** Distinct attempts, ALL TIME (not a 30-day window). */
+  attemptCount: number;
+  /** Distinct `user_id` that has ever submitted. */
+  userCount: number;
+  /** refused + unsupported + empty + probe_failed + stuck. */
+  failedCount: number;
+  refusedCount: number;
+  stuckCount: number;
+}
+
+export interface AdminCustomCompaniesResponse {
+  companies: AdminCustomCompanyRow[];
+  /** Rows matching the filters, BEFORE limit/offset. Drives the pager. */
+  total: number;
+  summary: AdminCustomCompaniesSummary;
+  /**
+   * false when this database has no E7 tables (production today). Everything
+   * else is zeroed/empty and the page renders its EmptyState — NOT an error.
+   */
+  schemaPresent: boolean;
+}
+
+/**
+ * One attempt's terminal state. SEVEN of these are literal `outcome` column
+ * values; `discovery_pending` is SPLIT server-side into two, because a
+ * submission ten seconds old is legitimately in flight and calling it "stuck"
+ * is a false alarm:
+ *   - `pending` — newest row is discovery_pending and younger than the grace
+ *   - `stuck`   — newest row is discovery_pending and older than the grace
+ * Past that grace the reconcile sweeper SHOULD have refused the row and did
+ * not — which is exactly the thing an admin wants to see.
+ */
+export type AttemptOutcome =
+  | 'added'
+  | 'already_public'
+  | 'refused'
+  | 'unsupported'
+  | 'empty'
+  | 'probe_failed'
+  | 'pending'
+  | 'stuck';
+
+/**
+ * One ADD ATTEMPT — not one audit row.
+ *
+ * A single submission of a non-ATS URL writes TWO `company_add_attempts` rows
+ * (an interim `discovery_pending` from the request path, then a terminal one
+ * from the worker). The backend collapses them to the newest row and carries
+ * the span metadata (`firstSeenAt` / `auditRowCount` / `decidedInS`) forward
+ * from the rows it swallowed.
+ */
+export interface AdminCustomCompanyAttemptRow {
+  /** `company_add_attempts.id` of the TERMINAL (newest) row of this attempt. */
+  id: number;
+  /**
+   * Stable React key. `company_id` when set, else `attempt#<id>` — NOT just
+   * company_id, because the column is nullable (unsupported / empty /
+   * probe_failed write none) and every NULL would collapse into one row.
+   */
+  attemptKey: string;
+
+  /** ISO — the terminal row. */
+  createdAt: string;
+  /** ISO — the earliest audit row for this attempt. */
+  firstSeenAt: string;
+  /** How many `company_add_attempts` rows collapsed into this one. */
+  auditRowCount: number;
+  /**
+   * Seconds from the immediately-preceding `discovery_pending` row to the
+   * terminal row. null when the previous row was not a pending (an idempotent
+   * re-add, or a single-row ATS attempt).
+   */
+  decidedInS: number | null;
+
+  /** Soft link — there is deliberately NO foreign key, so the audit survives. */
+  userId: string;
+  /** LEFT JOIN users; null when the user row is gone. Fall back to `userId`. */
+  userEmail: string | null;
+  userDisplayName: string | null;
+
+  submittedUrl: string;
+  normalizedUrl: string | null;
+  /** 'discovered' | 'workday' | 'script' | … | null. */
+  resolvedAts: string | null;
+  boardToken: string | null;
+
+  /** The DERIVED outcome (pending / stuck instead of discovery_pending). */
+  outcome: AttemptOutcome;
+  /** The literal column value, kept for diagnosis. */
+  rawOutcome: string;
+  /** Verbatim, stored as "<step>: <reason>". */
+  errorDetail: string | null;
+  /** Text before the FIRST ": " in errorDetail. null when errorDetail is null. */
+  failedStep: string | null;
+  /** Everything after the first ": ". Falls back to the whole string. */
+  failureReason: string | null;
+
+  companyId: string | null;
+  /** false = the `companies` row was HARD-DELETED. The UI degrades to the URL. */
+  companyExists: boolean;
+  companyDisplayName: string | null;
+  /** 'user' | 'public' — `already_public` points at a public id. */
+  companyVisibility: string | null;
+  companyHealthState: string | null;
+  /** null when companyExists is false or visibility <> 'user'. */
+  companyLiveStatus: CustomCompanyLiveStatus | null;
+  /**
+   * `provider_config->'discovery'->'steps'` — the 5-rung checklist, or null
+   * once the company row is gone (the expansion then falls back to
+   * `errorDetail` alone). NEVER carries `->'network'`: that blob is the full
+   * request log plus a payload sample and would ride every page.
+   */
+  discoverySteps: DiscoveryStep[] | null;
+}
+
+/** One row of the per-user rollup (Table 3). Always unfiltered. */
+export interface AdminCustomCompanyUserRow {
+  userId: string;
+  email: string | null;
+  displayName: string | null;
+  attempts: number;
+  added: number;
+  refused: number;
+  stuck: number;
+  pending: number;
+  /** `already_public` — the table's "Linked" column. */
+  alreadyPublic: number;
+  /** unsupported + empty + probe_failed. */
+  otherFailed: number;
+  /** Custom companies they own RIGHT NOW. != added, because deletes hard-delete. */
+  ownsNow: number;
+  /** ISO — over ALL audit rows, so this is the real first submit. */
+  firstAttemptAt: string;
+  lastAttemptAt: string;
+}
+
+export interface AdminCustomCompanyAttemptsResponse {
+  attempts: AdminCustomCompanyAttemptRow[];
+  /** Attempts matching the filters, BEFORE limit/offset. Drives the pager. */
+  total: number;
+  /** ALWAYS over ALL attempts, ignoring filters. Drives the Table-2 subtitle. */
+  byOutcome: Partial<Record<AttemptOutcome, number>>;
+  /** ALWAYS over ALL attempts, ignoring filters. Also feeds the User dropdown. */
+  users: AdminCustomCompanyUserRow[];
+  /** true when the rollup hit its server-side cap. */
+  usersTruncated: boolean;
+  schemaPresent: boolean;
+}
+
+/** One page request for the custom-companies list (server-side pagination). */
+export interface AdminCustomCompaniesArgs {
+  page: number;
+  rowsPerPage: number;
+  health?: string;
+  search?: string;
+}
+
+/** One page request for the add-attempts list (server-side pagination). */
+export interface AdminCustomCompanyAttemptsArgs {
+  page: number;
+  rowsPerPage: number;
+  outcome?: AttemptOutcome;
+  userId?: string;
+  search?: string;
 }
 
 interface AdminApiExtra {
@@ -462,6 +725,8 @@ export const adminApi = createApi({
     'EnrichmentNeedsHuman',
     'EnrichmentTicks',
     'EnrichmentRecent',
+    'AdminCustomCompanies',
+    'AdminCustomCompanyAttempts',
   ],
   endpoints: (builder) => ({
     listAdminFeedback: builder.query<AdminFeedbackListResponse, AdminFeedbackPageArgs>({
@@ -1276,6 +1541,107 @@ export const adminApi = createApi({
       }),
       invalidatesTags: ['EnrichmentNeedsHuman', 'EnrichmentHealth', 'EnrichmentRecent'],
     }),
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Custom Companies (E7) oversight — two read-only GETs behind AdminRoute.
+    // ─────────────────────────────────────────────────────────────────────────
+
+    getAdminCustomCompanies: builder.query<AdminCustomCompaniesResponse, AdminCustomCompaniesArgs>({
+      query: ({ page, rowsPerPage, health, search }) => ({
+        url: '/custom-companies',
+        params: {
+          limit: rowsPerPage,
+          offset: page * rowsPerPage,
+          ...(health ? { health } : {}),
+          ...(search ? { search } : {}),
+        },
+      }),
+      transformResponse: (res: unknown): AdminCustomCompaniesResponse => {
+        // Runtime guard — same reasoning as listAdminFeedback: a 2xx body with
+        // the wrong shape (CDN error page, serializer regression) would
+        // otherwise render an empty table and four zeroed StatTiles with no
+        // error signal at all, which is the exact failure this page exists to
+        // catch elsewhere.
+        if (
+          !isRecord(res) ||
+          !Array.isArray(res.companies) ||
+          typeof res.total !== 'number' ||
+          !isRecord(res.summary) ||
+          typeof res.summary.trackedCount !== 'number'
+        ) {
+          throw new Error('Invalid /api/admin/custom-companies response');
+        }
+        for (const row of res.companies) {
+          // ``id`` is the React key and ``liveStatus`` keys the chip map; a
+          // missing/renamed one is a blank chip or a duplicate-key warning
+          // rather than a visible failure.
+          if (!isRecord(row) || typeof row.id !== 'string' || typeof row.liveStatus !== 'string') {
+            throw new Error('Invalid /api/admin/custom-companies response: malformed row');
+          }
+        }
+        return res as unknown as AdminCustomCompaniesResponse;
+      },
+      providesTags: ['AdminCustomCompanies'],
+    }),
+
+    getAdminCustomCompanyAttempts: builder.query<
+      AdminCustomCompanyAttemptsResponse,
+      AdminCustomCompanyAttemptsArgs
+    >({
+      query: ({ page, rowsPerPage, outcome, userId, search }) => ({
+        url: '/custom-companies/attempts',
+        params: {
+          limit: rowsPerPage,
+          offset: page * rowsPerPage,
+          ...(outcome ? { outcome } : {}),
+          // snake_case on purpose — it is the backend's Query parameter name,
+          // and the Vercel proxy forwards query params verbatim.
+          ...(userId ? { user_id: userId } : {}),
+          ...(search ? { search } : {}),
+        },
+      }),
+      transformResponse: (res: unknown): AdminCustomCompanyAttemptsResponse => {
+        if (
+          !isRecord(res) ||
+          !Array.isArray(res.attempts) ||
+          typeof res.total !== 'number' ||
+          !isRecord(res.byOutcome) ||
+          !Array.isArray(res.users)
+        ) {
+          throw new Error('Invalid /api/admin/custom-companies/attempts response');
+        }
+        for (const row of res.attempts) {
+          if (
+            !isRecord(row) ||
+            typeof row.attemptKey !== 'string' ||
+            typeof row.outcome !== 'string' ||
+            typeof row.submittedUrl !== 'string'
+          ) {
+            throw new Error(
+              'Invalid /api/admin/custom-companies/attempts response: malformed attempt'
+            );
+          }
+          // ``discoverySteps`` is null for the common case (the company row was
+          // hard-deleted) and an array otherwise. Anything else reaches a
+          // ``.map()`` in the expansion and crashes the render — and the only
+          // ErrorBoundary is app-root, so that blanks the whole SPA.
+          if (row.discoverySteps != null && !Array.isArray(row.discoverySteps)) {
+            throw new Error(
+              'Invalid /api/admin/custom-companies/attempts response: discoverySteps must be an array or null'
+            );
+          }
+        }
+        for (const user of res.users) {
+          if (!isRecord(user) || typeof user.userId !== 'string') {
+            throw new Error(
+              'Invalid /api/admin/custom-companies/attempts response: malformed user rollup row'
+            );
+          }
+        }
+        return res as unknown as AdminCustomCompanyAttemptsResponse;
+      },
+      providesTags: ['AdminCustomCompanyAttempts'],
+    }),
   }),
 });
 
@@ -1301,4 +1667,6 @@ export const {
   useCorrectEnrichmentMutation,
   useConfirmEnrichmentMutation,
   useReenrichEnrichmentJobMutation,
+  useGetAdminCustomCompaniesQuery,
+  useGetAdminCustomCompanyAttemptsQuery,
 } = adminApi;

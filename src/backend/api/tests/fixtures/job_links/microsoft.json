@@ -1,0 +1,57 @@
+{
+ "origin_url": "https://apply.careers.microsoft.com/careers",
+ "records_path": "data.positions",
+ "field_map": {
+  "id": "id",
+  "title": "name",
+  "url": "https://apply.careers.microsoft.com{positionUrl}"
+ },
+ "kind": "published",
+ "proves": true,
+ "why": "PUBLISHED, AND THE NAMED REGRESSION. The placeholder renders /careers/job/197... — a PATH the board authored, not an id we pasted into a path we invented. Same predicate that keeps repair_url_template off it.",
+ "measured_at": "2026-08-29",
+ "titles_measured_at": "2026-08-30",
+ "pages": {
+  "https://apply.careers.microsoft.com/careers/job/1970393556983225": {
+   "status": 200,
+   "chars": 489546,
+   "carries_own_title": true,
+   "carries_other_titles": false,
+   "og_title": "Senior Security Operations Engineer | Microsoft Careers",
+   "title_tag": "Senior Security Operations Engineer | Microsoft Careers"
+  },
+  "https://apply.careers.microsoft.com/careers/job/1970393556983224": {
+   "status": 200,
+   "chars": 489549,
+   "carries_own_title": true,
+   "carries_other_titles": false,
+   "og_title": "Principal Security Operations Engineer | Microsoft Careers",
+   "title_tag": "Principal Security Operations Engineer | Microsoft Careers"
+  },
+  "https://apply.careers.microsoft.com/careers/job/1970393556981170": {
+   "status": 200,
+   "chars": 489550,
+   "carries_own_title": true,
+   "carries_other_titles": false,
+   "og_title": "Strategic Account Technology Strategist | Microsoft Careers",
+   "title_tag": "Strategic Account Technology Strategist | Microsoft Careers"
+  }
+ },
+ "records": [
+  {
+   "name": "Senior Security Operations Engineer",
+   "id": 1970393556983225,
+   "positionUrl": "/careers/job/1970393556983225"
+  },
+  {
+   "name": "Principal Security Operations Engineer",
+   "id": 1970393556983224,
+   "positionUrl": "/careers/job/1970393556983224"
+  },
+  {
+   "name": "Strategic Account Technology Strategist",
+   "id": 1970393556981170,
+   "positionUrl": "/careers/job/1970393556981170"
+  }
+ ]
+}

@@ -157,7 +157,10 @@ def _make_job(overrides: dict | None = None) -> dict:
     # endpoint reads these two denormalized columns, NOT details->..., to avoid
     # detoasting the wide `details` JSONB (2026-07-13 /api/jobs outage). Derive
     # them from `details` unless a test set them explicitly, so any job seeded
-    # with details.experience_level/is_remote_eligible behaves like a real upsert.
+    # with details.experience_level/is_remote_eligible behaves like a real
+    # upsert. Deriving matters more than it looks: a fixture that hand-set
+    # `details` only is how a missing denormalized column can stay invisible to
+    # the whole test suite while production serves nothing.
     _details = base["details"]
     if isinstance(_details, str):
         _details = json.loads(_details)
@@ -252,7 +255,9 @@ def _insert_user(conn, user: dict) -> None:
 def _clear_tables(conn) -> None:
     """Truncate test tables between tests."""
     cursor = conn.cursor()
-    cursor.execute(sql.SQL("TRUNCATE {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {} CASCADE").format(
+    cursor.execute(sql.SQL(
+        "TRUNCATE {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {} CASCADE"
+    ).format(
         sql.Identifier("feature_upvotes"),
         sql.Identifier("features"),
         # feedback FKs users with ON DELETE SET NULL, so a users CASCADE would
@@ -262,6 +267,12 @@ def _clear_tables(conn) -> None:
         # user_visits FKs users with ON DELETE CASCADE, so a users CASCADE would
         # already clear it; list it explicitly for clarity / future-proofing.
         sql.Identifier("user_visits"),
+        # E7 custom-company tables. user_companies FKs users (CASCADE), the
+        # other three are soft-linked (no FK) so they need explicit truncation.
+        sql.Identifier("user_companies"),
+        sql.Identifier("company_scripts"),
+        sql.Identifier("company_harvests"),
+        sql.Identifier("company_add_attempts"),
         sql.Identifier("job_listings"),
         sql.Identifier("scrape_runs"),
         sql.Identifier("admins"),
@@ -302,24 +313,29 @@ def clean_tables(db_conn):
 
 @pytest.fixture(autouse=True)
 def disable_db_watchdog():
-    """Keep lifespan-driven tests from starting a real DbWatchdog.
+    """Keep lifespan-driven tests from starting real watchdogs.
 
-    Its default on_fatal is os._exit(70) against settings.database_url (not
-    TEST_DATABASE_URL) — with aggressive .env-supplied intervals it could
-    hard-kill the pytest process.
+    Both default on_fatal hooks call os._exit against settings.database_url
+    (db_watchdog: exit 70; worker_watchdog: exit 75) — with aggressive
+    .env-supplied intervals either could hard-kill the pytest process.
     """
     from api.config import settings
 
-    prev = settings.db_watchdog_enabled
+    prev_db = settings.db_watchdog_enabled
+    prev_worker = settings.worker_watchdog_enabled
     settings.db_watchdog_enabled = False
+    settings.worker_watchdog_enabled = False
     yield
-    settings.db_watchdog_enabled = prev
+    settings.db_watchdog_enabled = prev_db
+    settings.worker_watchdog_enabled = prev_worker
 
 
 @pytest.fixture(scope="module")
 def test_app(db_conn):
     """FastAPI test app with database connection wired up (no auto-scraper)."""
-    from api.routers import admin, companies, feedback, features, jobs, jobs_qa, users
+    from api.routers import (
+        admin, companies, feedback, features, jobs, jobs_qa, user_companies, users,
+    )
     from api.dependencies import get_db
     from api.auth.dependencies import (
         get_current_user,
@@ -331,6 +347,7 @@ def test_app(db_conn):
     app.include_router(jobs.router, prefix="/api/jobs")
     app.include_router(jobs_qa.router, prefix="/api/jobs-qa")
     app.include_router(users.router, prefix="/api/users")
+    app.include_router(user_companies.router, prefix="/api/users/companies")
     app.include_router(features.router, prefix="/api/features")
     app.include_router(companies.router, prefix="/api/companies")
     app.include_router(feedback.router, prefix="/api/feedback")
@@ -382,3 +399,43 @@ def test_app(db_conn):
 def client(test_app):
     """FastAPI TestClient."""
     return TestClient(test_app)
+
+
+@pytest.fixture
+def procrastinate_schema(db_conn):
+    """Materialize Procrastinate's own tables inside the per-module test schema.
+
+    Applied from the installed package's ``schema.sql`` with plain psycopg2 rather
+    than through ``procrastinate_app`` — DELIBERATELY. That app's connector is built
+    at IMPORT time from ``settings.database_url``, so anything that touches it reads
+    and writes the developer's REAL local database no matter what ``TEST_DATABASE_URL``
+    says (the trap ``test_worker_lanes.py`` documents). Tests that only need the
+    ``procrastinate_jobs`` / ``procrastinate_events`` TABLES — the queued-job cancel
+    and the wedged-row reconciler — must never open the broker at all, so they get the
+    schema this way and stay entirely inside ``db_conn``.
+
+    THE EXISTENCE PROBE IS SCHEMA-QUALIFIED, and that is load-bearing.
+    ``to_regclass('procrastinate_jobs')`` resolves through the whole search_path, and
+    ``test_procrastinate_bootstrap`` leaves a copy of Procrastinate's schema in
+    ``public`` (its ``PGOPTIONS`` search_path pin does not reach the connector's pool).
+    An unqualified probe therefore says "already installed" and this fixture creates
+    nothing — so the test then reads and WRITES the shared ``public`` tables that other
+    modules depend on. Asking about ``"<schema>".procrastinate_jobs`` keeps every job
+    row this fixture's tests create inside the schema that gets dropped at teardown.
+
+    ``search_path`` is already pinned with the test schema FIRST, so every CREATE lands
+    there and the fixture's teardown is the module fixture's ``DROP SCHEMA … CASCADE``.
+    """
+    import pathlib
+
+    import procrastinate as _procrastinate
+
+    schema = os.environ["PYTEST_SCHEMA"]
+    cur = db_conn.cursor()
+    cur.execute("SELECT to_regclass(%s) AS t", (f'"{schema}".procrastinate_jobs',))
+    row = cur.fetchone()
+    if (row["t"] if row else None) is None:
+        sql_path = pathlib.Path(_procrastinate.__file__).parent / "sql" / "schema.sql"
+        cur.execute(sql_path.read_text())
+    db_conn.commit()
+    return db_conn

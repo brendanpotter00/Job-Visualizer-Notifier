@@ -1,0 +1,49 @@
+{
+ "steps": [
+  {
+   "op": "fetch",
+   "url": "https://apply.careers.microsoft.com/api/pcsx/search?domain=microsoft.com&query=&location=&start=0&",
+   "method": "GET",
+   "headers": {
+    "accept": "application/json, text/plain, */*",
+    "accept-language": "en-US",
+    "x-browser-request-time": "1787630032.583"
+   }
+  },
+  {
+   "op": "paginate_offset",
+   "param": "start",
+   "max_pages": 214,
+   "page_size": 10
+  },
+  {
+   "op": "extract_json_path",
+   "fields": {
+    "id": "id",
+    "url": "https://apply.careers.microsoft.com{positionUrl}",
+    "title": "name",
+    "posted_at": "postedTs",
+    "department": "department"
+   },
+   "records_path": "data.positions"
+  },
+  {
+   "op": "dedupe_key",
+   "field": "id"
+  },
+  {
+   "op": "assert_unique",
+   "field": "id"
+  }
+ ],
+ "oracle": {
+  "kind": "declared_probed",
+  "total_path": "data.count"
+ },
+ "base_url": "https://apply.careers.microsoft.com",
+ "transport": "http_json",
+ "discovered_at": "2026-08-25T03:54:19.251007+00:00",
+ "discovered_by": "capture/http_json",
+ "script_version": 1,
+ "expected_min_jobs": 1
+}

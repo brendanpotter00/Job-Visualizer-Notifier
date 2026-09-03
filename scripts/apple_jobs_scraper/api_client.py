@@ -46,6 +46,23 @@ class JobDetailsFetchError(Exception):
     pass
 
 
+class JobSearchError(Exception):
+    """Raised when the list/search scrape is INCOMPLETE and must not be treated
+    as a full board.
+
+    Mirrors ``tiktok``/``amazon``'s ``JobSearchError``: an incomplete list is
+    indistinguishable from "these jobs are gone", so returning it short would let
+    the incremental lifecycle's close phase reap the missing jobs — the moment a
+    truncation is mild enough (>85% of the board) to slip past the
+    ``partial_scrape`` guard. Raising instead routes the run through
+    ``incremental.run_incremental_scrape``'s handler, which records an errored
+    ``scrape_runs`` row (``error_count=1``, ``closed_jobs=0``) and re-raises
+    WITHOUT running the destructive phases. See
+    ``docs/incidents/2026-08-28-apple-pagination-single-page.md``.
+    """
+    pass
+
+
 async def fetch_job_details(page: Page, job_id: str) -> Dict[str, Any]:
     """
     Fetch job details from Apple's API

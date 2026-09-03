@@ -39,6 +39,10 @@
       "destination": "/api/locations?path=:path"
     },
     {
+      "source": "/api/companies/:path(.*)",
+      "destination": "/api/companies?path=:path"
+    },
+    {
       "source": "/api/users",
       "destination": "/api/users"
     },
@@ -88,6 +92,22 @@
     },
     {
       "source": "/curated-companies",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/add-companies",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/add-companies/:path(.*)",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/my-companies",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/my-companies/:path(.*)",
       "destination": "/index.html"
     },
     {

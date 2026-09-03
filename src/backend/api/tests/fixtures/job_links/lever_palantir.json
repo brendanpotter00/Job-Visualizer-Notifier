@@ -1,0 +1,57 @@
+{
+ "origin_url": "https://jobs.lever.co/palantir",
+ "records_path": "",
+ "field_map": {
+  "id": "id",
+  "title": "text",
+  "url": "hostedUrl"
+ },
+ "kind": "published",
+ "proves": true,
+ "why": "PUBLISHED (Lever hostedUrl). Included as a control: it would also pass a probe, so it shows branch 1 is skipped on principle and not because probing always fails.",
+ "measured_at": "2026-08-29",
+ "titles_measured_at": "2026-08-30",
+ "pages": {
+  "https://jobs.lever.co/palantir/ac978161-6f46-4f6b-ad9e-a258e642751c": {
+   "status": 200,
+   "chars": 4764,
+   "carries_own_title": true,
+   "carries_other_titles": false,
+   "og_title": "Palantir Technologies - Administrative Business Partner",
+   "title_tag": "Palantir Technologies - Administrative Business Partner"
+  },
+  "https://jobs.lever.co/palantir/a237973c-cb29-41fe-9c80-416e6f42e087": {
+   "status": 200,
+   "chars": 8268,
+   "carries_own_title": true,
+   "carries_other_titles": true,
+   "og_title": "Palantir Technologies - Administrative Business Partner - ShipOS",
+   "title_tag": "Palantir Technologies - Administrative Business Partner - ShipOS"
+  },
+  "https://jobs.lever.co/palantir/a5f93bb6-4f13-4451-80a4-f63090830269": {
+   "status": 200,
+   "chars": 8264,
+   "carries_own_title": true,
+   "carries_other_titles": true,
+   "og_title": "Palantir Technologies - Administrative Business Partner - ShipOS",
+   "title_tag": "Palantir Technologies - Administrative Business Partner - ShipOS"
+  }
+ },
+ "records": [
+  {
+   "text": "Administrative Business Partner",
+   "id": "ac978161-6f46-4f6b-ad9e-a258e642751c",
+   "hostedUrl": "https://jobs.lever.co/palantir/ac978161-6f46-4f6b-ad9e-a258e642751c"
+  },
+  {
+   "text": "Administrative Business Partner - ShipOS",
+   "id": "a237973c-cb29-41fe-9c80-416e6f42e087",
+   "hostedUrl": "https://jobs.lever.co/palantir/a237973c-cb29-41fe-9c80-416e6f42e087"
+  },
+  {
+   "text": "Administrative Business Partner - ShipOS",
+   "id": "a5f93bb6-4f13-4451-80a4-f63090830269",
+   "hostedUrl": "https://jobs.lever.co/palantir/a5f93bb6-4f13-4451-80a4-f63090830269"
+  }
+ ]
+}

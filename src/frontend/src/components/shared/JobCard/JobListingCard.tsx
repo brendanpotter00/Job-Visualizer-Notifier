@@ -1,10 +1,10 @@
-import { Card, CardContent, Typography, Chip, Stack, Link, Box, Button } from '@mui/material';
+import { Card, CardContent, Typography, Chip, Stack, Link, Button } from '@mui/material';
 import { OpenInNew } from '@mui/icons-material';
 import type { Job } from '../../../types';
 import { useJobMetadata } from './useJobMetadata.ts';
 import { JobChipsSection } from './JobChipsSection.tsx';
+import { CompanyJobHeader } from './CompanyJobHeader.tsx';
 import { CARD_HOVER_SX, CARD_VARIANT } from './jobCardStyles.ts';
-import { CompanyLogo } from '../CompanyLogo/CompanyLogo.tsx';
 import { getCompanyById } from '../../../config/companies.ts';
 import { RESPONSIVE } from '../../../config/responsive';
 import { useIsMobile } from '../../../hooks/useIsMobile';
@@ -21,8 +21,13 @@ interface JobListingCardProps {
  * header block on the left, with a black rounded "Apply" button in the top
  * right. The whole card is clickable (opens the posting in a new tab); the
  * Apply button and the LinkedIn recruiter link stop propagation so they don't
- * double-trigger the card click. Company name and the recruiter LinkedIn URL
- * are resolved from the company config via `job.company`.
+ * double-trigger the card click.
+ *
+ * The logo + name half of the header lives in `CompanyJobHeader`, which resolves
+ * `job.company` across BOTH id namespaces (the compile-time list and the
+ * signed-in user's own boards). The recruiter LinkedIn URL stays a static-list
+ * lookup: it is hand-curated per first-party company and a user-added board
+ * never has one.
  */
 export function JobListingCard({ job }: JobListingCardProps) {
   // "Posted X ago" is keyed off `firstSeenAt` (when WE first saw the listing), so
@@ -32,9 +37,7 @@ export function JobListingCard({ job }: JobListingCardProps) {
   // whose postedOn is stale — inconsistent with why they rank first.
   const { postedAgo } = useJobMetadata(job.firstSeenAt);
   const isMobile = useIsMobile();
-  const company = getCompanyById(job.company);
-  const companyName = company?.name ?? job.company;
-  const recruiterLinkedInUrl = company?.recruiterLinkedInUrl;
+  const recruiterLinkedInUrl = getCompanyById(job.company)?.recruiterLinkedInUrl;
 
   const openJob = () => {
     window.open(job.url, '_blank', 'noopener,noreferrer');
@@ -77,22 +80,11 @@ export function JobListingCard({ job }: JobListingCardProps) {
             justifyContent="space-between"
             alignItems="flex-start"
           >
-            <Stack direction="row" spacing={1.5} alignItems="center" sx={{ minWidth: 0 }}>
-              <CompanyLogo
-                companyId={job.company}
-                displayName={companyName}
-                size={isMobile ? RESPONSIVE.logoSize.compact : RESPONSIVE.logoSize.default}
-                decorative
-              />
-              <Box sx={{ minWidth: 0 }}>
-                <Typography variant="subtitle2" color="text.secondary" fontWeight="bold">
-                  {companyName}
-                </Typography>
-                <Typography variant="h6" component="h3" sx={{ fontSize: RESPONSIVE.fontSize.cardTitle }}>
-                  {job.title}
-                </Typography>
-              </Box>
-            </Stack>
+            <CompanyJobHeader
+              companyId={job.company}
+              title={job.title}
+              logoSize={isMobile ? RESPONSIVE.logoSize.compact : RESPONSIVE.logoSize.default}
+            />
             <Button
               component="a"
               href={job.url}
@@ -160,7 +152,7 @@ export function JobListingCard({ job }: JobListingCardProps) {
                 cursor: 'pointer',
               }}
             >
-              Find recruiter and hiring manager posts on LinkedIn
+              DM the hiring team on LinkedIn
               <OpenInNew sx={{ fontSize: '0.875rem' }} />
             </Link>
           )}

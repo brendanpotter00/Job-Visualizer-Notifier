@@ -1,0 +1,19 @@
+# Throwaway spike artifacts — evidence, not source.
+.venv/
+captures/*/raw/
+captures/*/page.html
+captures/*/embedded_*.json
+
+# Never commit session state harvested while probing anti-bot defenses:
+# browser profiles are tens of MB of junk, and cookie dumps are credentials.
+captures/*/chrome_profile*/
+captures/*/*cookies*.json
+captures/*/browserbase/
+
+# Replay output and raw capture evidence are regenerable scratch.
+results/
+captures/*/report.json
+
+# scripts/.gitignore blanket-ignores *.json, which would silently drop this
+# spike's actual deliverable. Re-include it.
+!recipes/*.json

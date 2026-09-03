@@ -26,7 +26,6 @@ from .api_client import (
     combine_description,
     fetch_search_results,
     flatten_location,
-    format_department,
     get_job_url,
     get_search_url,
 )
@@ -59,7 +58,6 @@ __all__ = [
     "combine_description",
     "fetch_search_results",
     "flatten_location",
-    "format_department",
     "get_job_url",
     "get_search_url",
     # parser

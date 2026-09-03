@@ -1,0 +1,78 @@
+{
+ "steps": [
+  {
+   "op": "fetch",
+   "url": "https://api-higher.gs.com/gateway/api/v1/graphql",
+   "body": {
+    "query": "query GetRoles($searchQueryInput: RoleSearchQueryInput!) {\n  roleSearch(searchQueryInput: $searchQueryInput) {\n    totalCount\n    items {\n      roleId\n      corporateTitle\n      jobTitle\n      jobFunction\n      locations {\n        primary\n        state\n        country\n        city\n        __typename\n      }\n      status\n      division\n      skills\n      jobType {\n        code\n        description\n        __typename\n      }\n      externalSource {\n        sourceId\n        __typename\n      }\n      __typename\n    }\n    __typename\n  }\n}",
+    "variables": {
+     "searchQueryInput": {
+      "page": {
+       "pageSize": 20,
+       "pageNumber": 0
+      },
+      "sort": {
+       "sortOrder": "DESC",
+       "sortStrategy": "RELEVANCE"
+      },
+      "filters": [],
+      "searchTerm": "",
+      "experiences": [
+       "EARLY_CAREER",
+       "PROFESSIONAL"
+      ]
+     }
+    },
+    "operationName": "GetRoles"
+   },
+   "method": "POST",
+   "headers": {
+    "accept": "*/*",
+    "origin": "https://higher.gs.com",
+    "traceparent": "00-00000000000000006c955090fa753fbc-1d2c67b66a41c633-01",
+    "content-type": "application/json",
+    "x-datadog-origin": "rum",
+    "x-datadog-trace-id": "7824248511233605564",
+    "x-datadog-parent-id": "2102169159239583283",
+    "x-higher-request-id": "72d18020-36da-4e76-bd2b-3fdb7145ad31",
+    "x-datadog-sampling-priority": "1"
+   }
+  },
+  {
+   "op": "paginate_page",
+   "param": "pageNumber",
+   "max_pages": 56,
+   "page_size": 20,
+   "start_page": 0
+  },
+  {
+   "op": "extract_json_path",
+   "fields": {
+    "id": "roleId",
+    "url": "https://higher.gs.com/roles/{externalSource.sourceId}",
+    "title": "jobTitle",
+    "location": "locations[0].city",
+    "department": "division"
+   },
+   "records_path": "data.roleSearch.items"
+  },
+  {
+   "op": "dedupe_key",
+   "field": "id"
+  },
+  {
+   "op": "assert_unique",
+   "field": "id"
+  }
+ ],
+ "oracle": {
+  "kind": "declared_probed",
+  "total_path": "data.roleSearch.totalCount"
+ },
+ "base_url": "https://higher.gs.com",
+ "transport": "http_json",
+ "discovered_at": "2026-08-28T13:44:08.115278+00:00",
+ "discovered_by": "capture/http_json",
+ "script_version": 1,
+ "expected_min_jobs": 1
+}

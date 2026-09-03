@@ -40,6 +40,9 @@ from scripts.shared.constants import SourceId
 from scripts.shared.models import JobListing
 from scripts.shared.utils import get_iso_timestamp
 
+from .job_details import has_description
+from .posted_date import effective_posted_date
+
 logger = logging.getLogger(__name__)
 
 LEVER_BASE_URL = "https://api.lever.co/v0/postings"
@@ -137,7 +140,6 @@ def _transform_one(
         )
 
     details = {
-        "department": cats.get("department"),
         "team": cats.get("team"),
         # Lever's postings endpoint doesn't expose secondary location lists;
         # populate the key with an empty list so the JSONB shape stays
@@ -169,10 +171,25 @@ def _transform_one(
         details=details,
         posted_on=posted_on,
         created_at=now,
-        first_seen_at=now,
+        # THE EFFECTIVE POSTED DATE (POSTED-DATE-PLAN.md §2, D9/D10): Lever's
+        # ``createdAt`` when it parses, first sight otherwise.
+        #
+        # Lever never refreshes these dates, so a board that re-lists an old
+        # posting passes an old date straight through. That is accepted by D12 —
+        # Palantir is the measured case (41% of its post-onboarding rows are >1y
+        # stale) and Zoox on the same ATS is clean. It is their data being wrong,
+        # and it needs no code here.
+        #
+        # Safe with no first-run predicate because ``first_seen_at`` is absent
+        # from ``_UPSERT_ON_CONFLICT`` (scripts/shared/database.py) — this line
+        # only ever decides an INSERT and can never rewrite an existing row.
+        first_seen_at=effective_posted_date(posted_on, now),
         last_seen_at=now,
         consecutive_misses=0,
-        details_scraped=True,
+        # Truthful, not hard-coded True: this claims we HAVE the job's detail
+        # content. See ``job_details.has_description`` for what that means and
+        # which rows were lying.
+        details_scraped=has_description(details),
         status="OPEN",
         has_matched=False,
         ai_metadata={},
@@ -183,9 +200,9 @@ def _transform_one(
 def _ms_to_iso8601(value: Any) -> Optional[str]:
     """Convert an epoch-milliseconds value to an ISO 8601 UTC string.
 
-    Returns ``None`` for ``None``, non-numeric types, or values that overflow
-    Python's ``datetime`` range. The caller logs and stores ``None`` so a
-    corrupt source value never silently lands in ``job_listings``
+    Returns ``None`` for ``None``, non-numeric types, non-positive epochs, or
+    values that overflow Python's ``datetime`` range. The caller logs and stores
+    ``None`` so a corrupt source value never silently lands in ``job_listings``
     (per feedback_correctness_over_dont_crash). The row itself is preserved.
     """
     if value is None:
@@ -194,6 +211,16 @@ def _ms_to_iso8601(value: Any) -> Optional[str]:
     # Defensively accept both int and float — boolean is a subclass of int
     # in Python, so explicitly reject bools to avoid silent coercion.
     if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    # NON-POSITIVE IS NOT A DATE. ``0`` is the zero value of an int column, a
+    # cleared field, a JSON default — and ``datetime.fromtimestamp(0)`` answers
+    # ``1970-01-01`` for it without complaint, which then rides
+    # ``effective_posted_date`` into ``first_seen_at`` as a real posting date
+    # 56 years old. The shared parser (``scripts/shared/posted_date._from_epoch``)
+    # already refuses this, but it never gets the chance: this function hands it a
+    # finished ISO STRING, and a string that parses is a string it believes. The
+    # guard has to run here, on the number, or it does not run at all.
+    if value <= 0:
         return None
     try:
         return datetime.fromtimestamp(value / 1000.0, tz=timezone.utc).isoformat()

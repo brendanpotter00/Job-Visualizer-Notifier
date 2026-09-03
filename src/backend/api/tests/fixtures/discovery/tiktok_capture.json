@@ -1,0 +1,43 @@
+{
+ "final_url": "https://lifeattiktok.com/search",
+ "page_title": "Life at TikTok",
+ "responses": [
+  {
+   "url": "https://api.lifeattiktok.com/api/v1/public/supplier/job/filters",
+   "method": "GET",
+   "status": 200,
+   "content_type": "application/json",
+   "request_headers": {
+    "website-path": "tiktok"
+   },
+   "post_data": null,
+   "body": "{\"code\": 0, \"data\": {\"job_category_list\": [{\"id\": \"1\", \"en_name\": \"Engineering\", \"job_category_id\": \"1\"}, {\"id\": \"2\", \"en_name\": \"Design\", \"job_category_id\": \"2\"}]}}",
+   "truncated": false
+  },
+  {
+   "url": "https://api.lifeattiktok.com/api/v1/public/supplier/search/job/posts",
+   "method": "POST",
+   "status": 200,
+   "content_type": "application/json",
+   "request_headers": {
+    "content-type": "application/json",
+    "website-path": "tiktok"
+   },
+   "post_data": "{\"limit\": 10, \"offset\": 0, \"keyword\": \"\", \"recruitment_id_list\": [], \"job_category_id_list\": [], \"subject_id_list\": [], \"location_code_list\": []}",
+   "body": "{\"code\": 0, \"message\": \"ok\", \"data\": {\"count\": 4026, \"job_post_list\": [{\"id\": \"7675440171819960600\", \"title\": \"Machine Learning Engineer 0\", \"city_info\": {\"en_name\": \"San Jose\"}, \"job_category\": {\"en_name\": \"Engineering\"}, \"job_function\": {\"en_name\": \"R&D\"}}, {\"id\": \"7675440171819960601\", \"title\": \"Machine Learning Engineer 1\", \"city_info\": {\"en_name\": \"San Jose\"}, \"job_category\": {\"en_name\": \"Engineering\"}, \"job_function\": {\"en_name\": \"R&D\"}}, {\"id\": \"7675440171819960602\", \"title\": \"Machine Learning Engineer 2\", \"city_info\": {\"en_name\": \"San Jose\"}, \"job_category\": {\"en_name\": \"Engineering\"}, \"job_function\": {\"en_name\": \"R&D\"}}, {\"id\": \"7675440171819960603\", \"title\": \"Machine Learning Engineer 3\", \"city_info\": {\"en_name\": \"San Jose\"}, \"job_category\": {\"en_name\": \"Engineering\"}, \"job_function\": {\"en_name\": \"R&D\"}}, {\"id\": \"7675440171819960604\", \"title\": \"Machine Learning Engineer 4\", \"city_info\": {\"en_name\": \"San Jose\"}, \"job_category\": {\"en_name\": \"Engineering\"}, \"job_function\": {\"en_name\": \"R&D\"}}, {\"id\": \"7675440171819960605\", \"title\": \"Machine Learning Engineer 5\", \"city_info\": {\"en_name\": \"San Jose\"}, \"job_category\": {\"en_name\": \"Engineering\"}, \"job_function\": {\"en_name\": \"R&D\"}}, {\"id\": \"7675440171819960606\", \"title\": \"Machine Learning Engineer 6\", \"city_info\": {\"en_name\": \"San Jose\"}, \"job_category\": {\"en_name\": \"Engineering\"}, \"job_function\": {\"en_name\": \"R&D\"}}, {\"id\": \"7675440171819960607\", \"title\": \"Machine Learning Engineer 7\", \"city_info\": {\"en_name\": \"San Jose\"}, \"job_category\": {\"en_name\": \"Engineering\"}, \"job_function\": {\"en_name\": \"R&D\"}}, {\"id\": \"7675440171819960608\", \"title\": \"Machine Learning Engineer 8\", \"city_info\": {\"en_name\": \"San Jose\"}, \"job_category\": {\"en_name\": \"Engineering\"}, \"job_function\": {\"en_name\": \"R&D\"}}, {\"id\": \"7675440171819960609\", \"title\": \"Machine Learning Engineer 9\", \"city_info\": {\"en_name\": \"San Jose\"}, \"job_category\": {\"en_name\": \"Engineering\"}, \"job_function\": {\"en_name\": \"R&D\"}}]}}",
+   "truncated": false
+  },
+  {
+   "url": "https://metrics.example-cdn.com/collect",
+   "method": "POST",
+   "status": 200,
+   "content_type": "application/json",
+   "request_headers": {
+    "content-type": "application/json"
+   },
+   "post_data": "{\"e\":\"pageview\"}",
+   "body": "{\"events\": [{\"name\": \"pageview\", \"ts\": 1}], \"ok\": true}",
+   "truncated": false
+  }
+ ]
+}

@@ -24,7 +24,6 @@ describe('JobListingCard', () => {
     source: 'backend-scraper',
     company: 'spacex',
     title: 'Senior Frontend Engineer',
-    department: 'Engineering',
     location: 'San Francisco, CA',
     isRemote: true,
     employmentType: 'Full-time',
@@ -48,6 +47,19 @@ describe('JobListingCard', () => {
     expect(apply).toHaveAttribute('href', 'https://example.com/job/1');
     expect(apply).toHaveAttribute('target', '_blank');
     expect(apply).toHaveAttribute('rel', 'noopener noreferrer');
+  });
+
+  it('renders the LinkedIn outreach link for the resolved company', () => {
+    // The link points at a company-scoped LinkedIn content search, so it must
+    // carry that company's authorCompany facet — a bare keyword search would
+    // show hiring posts from every company instead of this one.
+    render(<JobListingCard job={mockJob} />);
+    const linkedIn = screen.getByRole('link', {
+      name: 'DM the hiring team on LinkedIn',
+    });
+    expect(linkedIn).toHaveAttribute('target', '_blank');
+    expect(linkedIn).toHaveAttribute('rel', 'noopener noreferrer');
+    expect(linkedIn.getAttribute('href')).toContain('authorCompany=');
   });
 
   it('renders the company logo (resolved from job.company)', () => {
@@ -79,15 +91,6 @@ describe('JobListingCard', () => {
     render(<JobListingCard job={repostedJob} />);
     expect(screen.getByText(/about 1 hour ago/i)).toBeInTheDocument();
     expect(screen.queryByText(/months ago/i)).not.toBeInTheDocument();
-  });
-
-  it('does NOT display the ATS-provided department chip', () => {
-    // The department chip was removed from the card: it mostly restated the
-    // enrichment category/level chips (e.g. department "Senior" beside level
-    // "Senior"). The field still exists on the Job and still drives the
-    // company-page department filter — it just isn't rendered here.
-    render(<JobListingCard job={mockJob} />);
-    expect(screen.queryByText('Engineering')).not.toBeInTheDocument();
   });
 
   it('displays location chip', () => {

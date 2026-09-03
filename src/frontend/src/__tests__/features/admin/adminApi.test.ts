@@ -1667,4 +1667,251 @@ describe('adminApi', () => {
       expect(getAuthHeader(call)).toBe('Bearer test-admin-token');
     });
   });
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // Custom Companies (E7) oversight endpoints
+  //
+  // The param names are pinned deliberately: `api/admin.ts` forwards query
+  // params verbatim and the backend declares `limit` / `offset` / `health` /
+  // `search` / `outcome` / `user_id`. A rename on either side silently DROPS
+  // the filter (an unknown param is ignored, not rejected), so the page would
+  // quietly render unfiltered data. This test is the only thing that notices.
+  // ───────────────────────────────────────────────────────────────────────────
+
+  describe('custom companies endpoints', () => {
+    function makeCompaniesBody(overrides: Record<string, unknown> = {}) {
+      return {
+        companies: [
+          {
+            id: 'u-abc',
+            displayName: 'Atlassian',
+            ats: 'discovered',
+            boardToken: 'https://example.com/jobs',
+            enabled: true,
+            healthState: 'unverified',
+            cadenceHours: 24,
+            createdAt: '2026-08-25T03:00:00Z',
+            lastSuccessAt: null,
+            consecutiveFailures: 0,
+            ownerUserId: 'u1',
+            ownerEmail: 'a@example.com',
+            ownerDisplayName: null,
+            ownerCount: 1,
+            transport: 'http_json',
+            oracleKind: null,
+            scriptVersion: 1,
+            lastHarvestAt: '2026-08-28T01:10:00Z',
+            lastHarvestAgeS: 60,
+            verdict: 'UNVERIFIED',
+            verdictReason: 'no_oracle',
+            recordsHarvested: 232,
+            declaredTotal: 232,
+            oracleTotal: null,
+            capHit: false,
+            liveStatus: 'live',
+            liveReason: null,
+          },
+        ],
+        total: 1,
+        summary: {
+          trackedCount: 1,
+          liveCount: 1,
+          byLiveStatus: { live: 1 },
+          byHealthState: { unverified: 1 },
+          attemptCount: 1,
+          userCount: 1,
+          failedCount: 0,
+          refusedCount: 0,
+          stuckCount: 0,
+        },
+        schemaPresent: true,
+        ...overrides,
+      };
+    }
+
+    function makeAttemptsBody(overrides: Record<string, unknown> = {}) {
+      return {
+        attempts: [
+          {
+            id: 1,
+            attemptKey: 'attempt#1',
+            createdAt: '2026-08-25T03:13:53Z',
+            firstSeenAt: '2026-08-25T03:13:09Z',
+            auditRowCount: 2,
+            decidedInS: 44,
+            userId: 'u1',
+            userEmail: 'a@example.com',
+            userDisplayName: null,
+            submittedUrl: 'https://jobs.example.com/vanta',
+            normalizedUrl: null,
+            resolvedAts: 'discovered',
+            boardToken: null,
+            outcome: 'refused',
+            rawOutcome: 'refused',
+            errorDetail: 'Building web scraper: HTTP 412',
+            failedStep: 'Building web scraper',
+            failureReason: 'HTTP 412',
+            companyId: 'u-gone',
+            companyExists: false,
+            companyDisplayName: null,
+            companyVisibility: null,
+            companyHealthState: null,
+            companyLiveStatus: null,
+            discoverySteps: null,
+          },
+        ],
+        total: 1,
+        byOutcome: { refused: 1 },
+        users: [
+          {
+            userId: 'u1',
+            email: 'a@example.com',
+            displayName: null,
+            attempts: 1,
+            added: 0,
+            refused: 1,
+            stuck: 0,
+            pending: 0,
+            alreadyPublic: 0,
+            otherFailed: 0,
+            ownsNow: 0,
+            firstAttemptAt: '2026-08-20T10:00:00Z',
+            lastAttemptAt: '2026-08-25T03:13:53Z',
+          },
+        ],
+        usersTruncated: false,
+        schemaPresent: true,
+        ...overrides,
+      };
+    }
+
+    it('GETs /custom-companies with limit/offset/health/search + Authorization', async () => {
+      fetchMock.mockResolvedValue(jsonResponse(makeCompaniesBody()));
+      const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+      const result = await store.dispatch(
+        adminApi.endpoints.getAdminCustomCompanies.initiate({
+          page: 2,
+          rowsPerPage: 50,
+          health: 'unverified',
+          search: 'atlas',
+        })
+      );
+
+      const call = fetchMock.mock.calls[0] as [unknown, unknown];
+      const url = urlFromInput(call[0]);
+      expect(url).toMatch(/\/api\/admin\/custom-companies\?/);
+      expect(url).toContain('limit=50');
+      expect(url).toContain('offset=100'); // page 2 * 50
+      expect(url).toContain('health=unverified');
+      expect(url).toContain('search=atlas');
+      expect(getAuthHeader(call)).toBe('Bearer test-admin-token');
+      expect(result.data?.summary.liveCount).toBe(1);
+    });
+
+    it('omits the optional filters entirely when they are unset', async () => {
+      fetchMock.mockResolvedValue(jsonResponse(makeCompaniesBody()));
+      const store = makeStore(() => Promise.resolve('t'));
+
+      await store.dispatch(
+        adminApi.endpoints.getAdminCustomCompanies.initiate({ page: 0, rowsPerPage: 25 })
+      );
+
+      const url = urlFromInput((fetchMock.mock.calls[0] as [unknown, unknown])[0]);
+      expect(url).not.toContain('health=');
+      expect(url).not.toContain('search=');
+    });
+
+    it('surfaces an error when the /custom-companies body is missing its summary', async () => {
+      fetchMock.mockResolvedValue(jsonResponse({ companies: [], total: 0 }));
+      const store = makeStore(() => Promise.resolve('t'));
+
+      const result = await store.dispatch(
+        adminApi.endpoints.getAdminCustomCompanies.initiate({ page: 0, rowsPerPage: 25 })
+      );
+
+      expect(result.data).toBeUndefined();
+      expect(result.error).toBeDefined();
+    });
+
+    it('surfaces an error when a company row has no liveStatus', async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse(makeCompaniesBody({ companies: [{ id: 'u-abc' }] }))
+      );
+      const store = makeStore(() => Promise.resolve('t'));
+
+      const result = await store.dispatch(
+        adminApi.endpoints.getAdminCustomCompanies.initiate({ page: 0, rowsPerPage: 25 })
+      );
+
+      expect(result.data).toBeUndefined();
+      expect(result.error).toBeDefined();
+    });
+
+    it('GETs /custom-companies/attempts with outcome/user_id/search (snake_case user_id)', async () => {
+      fetchMock.mockResolvedValue(jsonResponse(makeAttemptsBody()));
+      const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+      const result = await store.dispatch(
+        adminApi.endpoints.getAdminCustomCompanyAttempts.initiate({
+          page: 1,
+          rowsPerPage: 25,
+          outcome: 'refused',
+          userId: 'u1',
+          search: 'vanta',
+        })
+      );
+
+      const call = fetchMock.mock.calls[0] as [unknown, unknown];
+      const url = urlFromInput(call[0]);
+      expect(url).toMatch(/\/api\/admin\/custom-companies\/attempts\?/);
+      expect(url).toContain('limit=25');
+      expect(url).toContain('offset=25');
+      expect(url).toContain('outcome=refused');
+      // The backend's Query parameter is `user_id`; `userId` would be dropped.
+      expect(url).toContain('user_id=u1');
+      expect(url).toContain('search=vanta');
+      expect(getAuthHeader(call)).toBe('Bearer test-admin-token');
+      expect(result.data?.users[0].ownsNow).toBe(0);
+    });
+
+    it('accepts a null discoverySteps — the common case for a deleted board', async () => {
+      fetchMock.mockResolvedValue(jsonResponse(makeAttemptsBody()));
+      const store = makeStore(() => Promise.resolve('t'));
+
+      const result = await store.dispatch(
+        adminApi.endpoints.getAdminCustomCompanyAttempts.initiate({ page: 0, rowsPerPage: 25 })
+      );
+
+      expect(result.error).toBeUndefined();
+      expect(result.data?.attempts[0].discoverySteps).toBeNull();
+    });
+
+    it('surfaces an error when discoverySteps is neither an array nor null', async () => {
+      const body = makeAttemptsBody();
+      const attempts = body.attempts as Record<string, unknown>[];
+      attempts[0].discoverySteps = 'steps';
+      fetchMock.mockResolvedValue(jsonResponse(body));
+      const store = makeStore(() => Promise.resolve('t'));
+
+      const result = await store.dispatch(
+        adminApi.endpoints.getAdminCustomCompanyAttempts.initiate({ page: 0, rowsPerPage: 25 })
+      );
+
+      expect(result.data).toBeUndefined();
+      expect(result.error).toBeDefined();
+    });
+
+    it('surfaces an error when the attempts envelope is missing byOutcome or users', async () => {
+      fetchMock.mockResolvedValue(jsonResponse({ attempts: [], total: 0 }));
+      const store = makeStore(() => Promise.resolve('t'));
+
+      const result = await store.dispatch(
+        adminApi.endpoints.getAdminCustomCompanyAttempts.initiate({ page: 0, rowsPerPage: 25 })
+      );
+
+      expect(result.data).toBeUndefined();
+      expect(result.error).toBeDefined();
+    });
+  });
 });

@@ -23,6 +23,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from shared.base_scraper import BaseScraper
 from shared.constants import SourceId
 from shared.models import JobListing
+from shared.posted_date import effective_posted_date
 from shared.utils import get_iso_timestamp
 
 from .config import (
@@ -434,6 +435,8 @@ class AmazonJobsScraper(BaseScraper):
         created_at = get_iso_timestamp()
         title = job_data.get("title", "")
         description = job_data.get("description")
+        # Already normalised to YYYY-MM-DD by api_client.parse_posted_date.
+        posted_on = job_data.get("posted_date")
 
         details = {
             # Read by the backend enrichment monitor via details->>'description'
@@ -441,7 +444,6 @@ class AmazonJobsScraper(BaseScraper):
             # Denormalised into real columns by shared/database.py
             "experience_level": self.derive_experience_level(title, job_data),
             "is_remote_eligible": self.derive_is_remote_eligible(title, description),
-            "department": job_data.get("department"),
             "team": job_data.get("team"),
             "job_family": job_data.get("job_family"),
             "business_category": job_data.get("business_category"),
@@ -461,14 +463,17 @@ class AmazonJobsScraper(BaseScraper):
             url=job_url,
             source_id=SourceId.AMAZON,
             details=details,
-            # Already normalised to YYYY-MM-DD by api_client.parse_posted_date
-            posted_on=job_data.get("posted_date"),
+            posted_on=posted_on,
             created_at=created_at,
             closed_on=None,
             status="OPEN",
             has_matched=False,
             ai_metadata={},
-            first_seen_at=created_at,
+            # THE EFFECTIVE POSTED DATE, not literally "when we first saw it"
+            # (POSTED-DATE-PLAN.md §2, D9/D10). Same rule BatchWriter.add_job
+            # applies on the way to the DB — kept in step here so the model a
+            # caller inspects says the same thing as the row that gets written.
+            first_seen_at=effective_posted_date(posted_on, created_at),
             last_seen_at=created_at,
             consecutive_misses=0,
             details_scraped=False,

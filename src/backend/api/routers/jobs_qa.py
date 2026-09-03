@@ -12,6 +12,10 @@ from psycopg2.extensions import connection as Connection
 from ..auth.dependencies import TokenClaims, require_admin
 from ..dependencies import get_db
 from ..models import COMPANY_PATTERN, JobsStatsResponse, CompanyCountResponse, ScrapeRunResponse
+from ..services.custom_company_integrity import (
+    ORPHAN_LIST_CAP,
+    get_ownerless_custom_companies,
+)
 from ..services.database import get_stats, get_scrape_runs
 from ..services.scraper_health import get_stale_companies
 from ..services.scraper_lock import scraper_lock
@@ -87,6 +91,30 @@ def scraper_health(
     reporting signal into an outage.
     """
     return get_stale_companies(conn, threshold_hours=threshold_hours)
+
+
+@router.get("/custom-company-integrity")
+def custom_company_integrity(
+    conn: Connection = Depends(get_db),
+    limit: int = Query(default=ORPHAN_LIST_CAP, ge=1, le=ORPHAN_LIST_CAP),
+) -> dict[str, Any]:
+    """Report private companies that own jobs but belong to no user.
+
+    Same auth posture and same reason as ``/scraper-health`` above: the consumer is a
+    scheduled job holding one static header, not a browser session with an admin JWT.
+    It therefore also stays OUT of ``PROXIED_PATHS`` in ``api/jobs-qa.ts`` — that
+    allowlist forwards only routes carrying ``require_admin``, and
+    ``TestProxyAllowlistInvariant`` fails the build if this one appears there.
+
+    Always 200, including when the state IS broken. The endpoint reports; the caller
+    decides red/green — and a green-looking 200 with ``ownerlessCount > 0`` is exactly
+    what a ``jq -e '.ownerlessCount == 0'`` gate is for.
+
+    Read-only: this NAMES the rows, it does not reap them. A reaper is a delete path,
+    and it has to reuse ``remove_owned_company``'s purge ordering rather than invent a
+    second one.
+    """
+    return get_ownerless_custom_companies(conn, limit=limit)
 
 
 @router.post("/trigger-scrape")

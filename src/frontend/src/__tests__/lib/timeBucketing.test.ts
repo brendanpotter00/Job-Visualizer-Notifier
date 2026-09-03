@@ -175,6 +175,78 @@ describe('timeBucketing', () => {
       const totalJobs = buckets.reduce((sum, b) => sum + b.count, 0);
       expect(totalJobs).toBe(3);
     });
+
+    // ---- 'all time' bucket-count ceiling (backdated firstSeenAt) --------------
+    //
+    // `firstSeenAt` is the board's own posted date when it publishes one, with no
+    // lower bound by design. Palantir republishes listings stamped 2012, so a
+    // company whose real activity is entirely in the last month still has an
+    // 'all time' span measured in years. The flat 30-day ceiling drew ~167 buckets
+    // for that span. These pin coarser buckets — NOT fewer jobs.
+    const DAY_MS = 24 * 60 * 60 * 1000;
+    const NOW_MS = new Date('2025-11-20T12:00:00Z').getTime();
+    const jobDaysAgo = (id: string, days: number): Job =>
+      createMockJob(id, new Date(NOW_MS - days * DAY_MS).toISOString());
+    const bucketWidthMs = (buckets: ReturnType<typeof bucketJobsByTime>) =>
+      new Date(buckets[0].bucketEnd).getTime() - new Date(buckets[0].bucketStart).getTime();
+
+    it('draws a 14-year "all" span in yearly buckets, keeping every job', () => {
+      const jobs = [
+        jobDaysAgo('ancient', 14 * 365), // one 2012-style backdated repost
+        jobDaysAgo('recent-a', 3),
+        jobDaysAgo('recent-b', 1),
+      ];
+
+      const buckets = bucketJobsByTime(jobs, 'all');
+
+      expect(bucketWidthMs(buckets)).toBe(365 * DAY_MS);
+      // 14 or 15, depending on where the epoch-aligned bucket boundary lands.
+      expect(buckets.length).toBeLessThanOrEqual(16);
+      expect(buckets.length).toBeGreaterThanOrEqual(14);
+      // Nothing is dropped: the ancient job is still on the chart.
+      expect(buckets.reduce((sum, b) => sum + b.count, 0)).toBe(3);
+      expect(buckets.flatMap((b) => b.jobIds)).toContain('ancient');
+    });
+
+    it('draws a 4-year "all" span in 30-day buckets', () => {
+      const jobs = [jobDaysAgo('old', 4 * 365), jobDaysAgo('new', 2)];
+
+      const buckets = bucketJobsByTime(jobs, 'all');
+
+      expect(bucketWidthMs(buckets)).toBe(30 * DAY_MS);
+      expect(buckets.length).toBeLessThanOrEqual(50);
+      expect(buckets.length).toBeGreaterThanOrEqual(49);
+      expect(buckets.reduce((sum, b) => sum + b.count, 0)).toBe(2);
+    });
+
+    it('leaves a 6-month "all" span on its original weekly buckets', () => {
+      const jobs = [jobDaysAgo('old', 180), jobDaysAgo('new', 2)];
+
+      const buckets = bucketJobsByTime(jobs, 'all');
+
+      expect(bucketWidthMs(buckets)).toBe(7 * DAY_MS);
+      expect(buckets.length).toBeLessThanOrEqual(27);
+      expect(buckets.length).toBeGreaterThanOrEqual(26);
+      expect(buckets.reduce((sum, b) => sum + b.count, 0)).toBe(2);
+    });
+
+    it('never exceeds the bucket ceiling, at any span, and never drops a job', () => {
+      // The invariant the whole ladder exists to hold. Spans run from a week to
+      // 126 years — the last two are garbage dates (a bad ATS parse, a zeroed
+      // timestamp), not real postings, and are exactly what an unbounded ladder
+      // would render as a 126-point hairline.
+      const spansInDays = [7, 45, 200, 900, 1500, 4997, 5110, 20412, 46000];
+
+      for (const spanDays of spansInDays) {
+        const jobs = [jobDaysAgo(`old-${spanDays}`, spanDays), jobDaysAgo(`new-${spanDays}`, 1)];
+
+        const buckets = bucketJobsByTime(jobs, 'all');
+
+        expect(buckets.length, `span ${spanDays}d`).toBeLessThanOrEqual(64);
+        expect(buckets.length, `span ${spanDays}d`).toBeGreaterThan(0);
+        expect(buckets.reduce((sum, b) => sum + b.count, 0), `span ${spanDays}d`).toBe(2);
+      }
+    });
   });
 
   describe('getCumulativeCounts', () => {

@@ -1,0 +1,54 @@
+{
+ "origin_url": "https://www.lifeatspotify.com/jobs",
+ "records_path": "result",
+ "field_map": {
+  "id": "id",
+  "title": "text",
+  "url": "https://www.lifeatspotify.com/jobs/{id}"
+ },
+ "kind": "synthesised",
+ "proves": true,
+ "why": "SYNTHESISED and PROVED on the weak form — a slug id that really does route (6,113 / 4,682 / 5,531 chars). The first page does not carry its own title, so the lengths are what settle it.",
+ "measured_at": "2026-08-29",
+ "titles_measured_at": "2026-08-30",
+ "pages": {
+  "https://www.lifeatspotify.com/jobs/senior-product-designer-platform-and-partner-experience": {
+   "status": 200,
+   "chars": 6113,
+   "carries_own_title": false,
+   "carries_other_titles": false,
+   "og_title": "Senior Product Designer - Platform and Partner Experience | Life at Spotify",
+   "title_tag": "Senior Product Designer - Platform and Partner Experience | Life at Spotify"
+  },
+  "https://www.lifeatspotify.com/jobs/artist-label-partnerships-contractor-vietnam": {
+   "status": 200,
+   "chars": 4682,
+   "carries_own_title": true,
+   "carries_other_titles": false,
+   "og_title": "Artist & Label Partnerships Contractor, Vietnam | Life at Spotify",
+   "title_tag": "Artist & Label Partnerships Contractor, Vietnam | Life at Spotify"
+  },
+  "https://www.lifeatspotify.com/jobs/senior-revenue-accountant-advertising": {
+   "status": 200,
+   "chars": 5531,
+   "carries_own_title": true,
+   "carries_other_titles": false,
+   "og_title": "Senior Revenue Accountant, Advertising | Life at Spotify",
+   "title_tag": "Senior Revenue Accountant, Advertising | Life at Spotify"
+  }
+ },
+ "records": [
+  {
+   "text": "Senior Product Designer, Platform and Partner Experience",
+   "id": "senior-product-designer-platform-and-partner-experience"
+  },
+  {
+   "text": "Artist &amp; Label Partnerships Contractor, Vietnam",
+   "id": "artist-label-partnerships-contractor-vietnam"
+  },
+  {
+   "text": "Senior Revenue Accountant, Advertising",
+   "id": "senior-revenue-accountant-advertising"
+  }
+ ]
+}

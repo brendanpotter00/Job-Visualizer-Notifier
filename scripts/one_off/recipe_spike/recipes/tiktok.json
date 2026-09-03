@@ -1,0 +1,51 @@
+{
+  "recipe_version": 1,
+  "target": "tiktok",
+  "kind": "http_json",
+  "entrypoint": {
+    "method": "POST",
+    "url": "https://api.lifeattiktok.com/api/v1/public/supplier/search/job/posts",
+    "headers": {
+      "website-path": "tiktok"
+    },
+    "body": {
+      "recruitment_id_list": [],
+      "job_category_id_list": [],
+      "subject_id_list": [],
+      "location_code_list": [],
+      "keyword": "",
+      "limit": 1000
+    }
+  },
+  "pagination": {
+    "style": "offset",
+    "param": "offset",
+    "page_size": 1000,
+    "max_pages": 10
+  },
+  "records_path": "data.job_post_list",
+  "total_path": "data.count",
+  "completeness_tolerance": 0.05,
+  "fields": {
+    "id": "id",
+    "title": "title",
+    "url": "https://lifeattiktok.com/search/{id}",
+    "location": "city_info.en_name",
+    "department": "job_category.en_name",
+    "recruit_type": "recruit_type.en_name",
+    "subject": "job_subject.en_name",
+    "req_code": "code"
+  },
+  "expected_min_jobs": 2000,
+  "discovered_at": "2026-08-05T00:00:00Z",
+  "discovered_by": "claude-fable-5 + local playwright (capture.py) + httpx header-ablation probes",
+  "notes": [
+    "lifeattiktok.com/search is a Next.js SPA; job data comes from POST api.lifeattiktok.com/api/v1/public/supplier/search/job/posts (JSON body), NOT from HTML or embedded JSON.",
+    "The ONLY load-bearing header is 'website-path: tiktok' — without it the API returns HTTP 400 'invalid request'; with it alone (no UA/Origin/Referer) it returns 200. Ablation-tested one header at a time on 2026-08-05.",
+    "Pagination: 'offset'/'limit' in the POST body; replay.py merges the offset param into the JSON body for POST entrypoints. limit up to at least 2000 is honored; 1000 chosen for ~4.6MB responses and headroom. Past-the-end offsets return a short page, which terminates the loop.",
+    "data.count is the site's own total (3799 at discovery); expected_min_jobs=2000 (~53% of that) so a silent geo-filter, pagination regression, or portal split fails loudly instead of half-scraping — the exact failure mode of the 3,582-job false-closure incident.",
+    "Records carry no posting/created timestamp (job_post_info.expiry_time exists but was null everywhere sampled) — freshness must be inferred by diffing runs.",
+    "Job detail page URL is https://lifeattiktok.com/search/<id> (confirmed via the site's own RSC prefetches); the API does not return a URL field, so fields.url is a template.",
+    "Playwright could not see the POST body (post_data=null, streamed); body was reconstructed from the 132-byte content-length + ByteDance careers API conventions and verified byte-exact via httpx (identical response: 12 jobs, count 3799)."
+  ]
+}

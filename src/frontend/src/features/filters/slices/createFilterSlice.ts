@@ -16,10 +16,6 @@ import {
   addLocationToFilters,
   removeLocationFromFilters,
   clearLocations as clearLocationsUtil,
-  setDepartments,
-  addDepartmentToFilters,
-  removeDepartmentFromFilters,
-  clearDepartments as clearDepartmentsUtil,
   toggleSoftwareOnlyInFilters,
   setSoftwareOnlyInFilters,
 } from '../utils/filterReducerUtils';
@@ -35,33 +31,10 @@ export type FilterSliceName = 'graph' | 'list' | 'recentJobs';
 export type Filters = GraphFilters | ListFilters | RecentJobsFilters;
 
 /**
- * Subset of `Filters` that owns a `department?: string[]` field.
- * Matches `GraphFilters` and `ListFilters`; excludes `RecentJobsFilters`.
- */
-type FiltersWithDepartments = GraphFilters | ListFilters;
-
-/**
  * Subset of `Filters` that owns a `company?: string[]` field.
  * Matches `RecentJobsFilters`; excludes the graph/list variants.
  */
 type FiltersWithCompany = RecentJobsFilters;
-
-/**
- * Slice-name-based guard: narrows a `Filters` (or draft thereof) to a
- * variant that carries a `department` field. The runtime decision is based
- * on the slice's `name` (captured in closure at factory-instantiation
- * time), which maps 1:1 to the concrete filter shape: `graph` and `list`
- * own `department`, `recentJobs` does not. The structural alternative
- * (`'department' in filters`) would false-negative on literal initial-state
- * objects that omit the optional key, so we key off `name` instead.
- */
-function hasDepartmentField<T extends Filters>(
-  name: FilterSliceName,
-  filters: T
-): filters is T & FiltersWithDepartments {
-  void filters;
-  return name === 'graph' || name === 'list';
-}
 
 /**
  * Slice-name-based guard: narrows a `Filters` (or draft thereof) to a
@@ -177,28 +150,6 @@ export function createFilterSlice<T extends Filters>(name: FilterSliceName, init
         clearLocationsUtil(state.filters);
       },
 
-      // Department (4 actions)
-      [`add${capitalizedName}Department`]: (state, action: PayloadAction<string>) => {
-        if (hasDepartmentField(name, state.filters)) {
-          addDepartmentToFilters(state.filters, action.payload);
-        }
-      },
-      [`remove${capitalizedName}Department`]: (state, action: PayloadAction<string>) => {
-        if (hasDepartmentField(name, state.filters)) {
-          removeDepartmentFromFilters(state.filters, action.payload);
-        }
-      },
-      [`clear${capitalizedName}Departments`]: (state) => {
-        if (hasDepartmentField(name, state.filters)) {
-          clearDepartmentsUtil(state.filters);
-        }
-      },
-      [`set${capitalizedName}Department`]: (state, action: PayloadAction<string[] | undefined>) => {
-        if (hasDepartmentField(name, state.filters)) {
-          setDepartments(state.filters, action.payload);
-        }
-      },
-
       // Employment type (1 action)
       [`set${capitalizedName}EmploymentType`]: (
         state,
@@ -211,7 +162,7 @@ export function createFilterSlice<T extends Filters>(name: FilterSliceName, init
       // selection normalizes to `undefined` (the "All" state), mirroring how
       // `remove${Name}Company` collapses an emptied array. Every filter shape
       // owns both fields, so no slice-name guard is needed (unlike
-      // department/company).
+      // `company`).
       [`set${capitalizedName}Category`]: (state, action: PayloadAction<string[] | undefined>) => {
         state.filters.category = action.payload?.length ? action.payload : undefined;
       },

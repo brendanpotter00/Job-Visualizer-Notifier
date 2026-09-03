@@ -46,6 +46,9 @@ from scripts.shared.constants import SourceId
 from scripts.shared.models import JobListing
 from scripts.shared.utils import get_iso_timestamp
 
+from .job_details import has_description
+from .posted_date import effective_posted_date
+
 logger = logging.getLogger(__name__)
 
 GEM_BASE_URL = "https://api.gem.com/job_board/v0"
@@ -160,11 +163,6 @@ def _transform_one(
         if isinstance(o, dict) and o.get("name")
     ]
 
-    departments = raw.get("departments") or []
-    department_name: Optional[str] = None
-    if departments and isinstance(departments[0], dict):
-        department_name = departments[0].get("name")
-
     # ``first_published_at`` is the canonical "posted on" anchor for
     # Gem boards. It can be null for very-new postings; fall back to
     # ``created_at`` so we always have a usable timestamp.
@@ -184,7 +182,6 @@ def _transform_one(
         )
 
     details = {
-        "department": department_name,
         "office": primary_office_name,
         "secondary_offices": secondary_offices,
         "employment_type": _normalize_employment_type(raw.get("employment_type")),
@@ -204,10 +201,22 @@ def _transform_one(
         details=details,
         posted_on=posted_on,
         created_at=now,
-        first_seen_at=now,
+        # THE EFFECTIVE POSTED DATE (POSTED-DATE-PLAN.md §2, D9/D10): Gem's
+        # ``first_published_at`` (or ``created_at``) when it parses, first sight
+        # otherwise. ``posted_on`` is already NULL-on-failure above, so the
+        # helper's fallback covers exactly the rows this client already refused
+        # to date.
+        #
+        # Safe with no first-run predicate because ``first_seen_at`` is absent
+        # from ``_UPSERT_ON_CONFLICT`` (scripts/shared/database.py) — this line
+        # only ever decides an INSERT and can never rewrite an existing row.
+        first_seen_at=effective_posted_date(posted_on, now),
         last_seen_at=now,
         consecutive_misses=0,
-        details_scraped=True,
+        # Truthful, not hard-coded True: this claims we HAVE the job's detail
+        # content. See ``job_details.has_description`` for what that means and
+        # which rows were lying.
+        details_scraped=has_description(details),
         status="OPEN",
         has_matched=False,
         ai_metadata={},

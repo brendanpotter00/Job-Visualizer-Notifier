@@ -66,9 +66,41 @@ class ScrapeRun(BaseModel):
     # Defaults to False here (the writer always knows); the DB column is
     # nullable so pre-existing rows stay honestly NULL = "unknown".
     skipped_update: bool = False
-    # WHICH rule tripped: None | "empty_scrape" | "partial_scrape".
-    # ``skipped_update`` alone cannot answer that — both rules set it — and
-    # the bounded auto-release must count ONLY partial_scrape, or a total
-    # outage (rule (a), explicitly never released) would supply the
-    # repetition evidence that releases the next truncated run.
-    guard_reason: Optional[Literal["empty_scrape", "partial_scrape"]] = None
+    # WHICH rule tripped: None | "empty_scrape" | "partial_scrape" |
+    # "unverified_harvest".
+    # ``skipped_update`` alone cannot answer that — both safety-guard rules set
+    # it — and the bounded auto-release must count ONLY partial_scrape, or a total
+    # outage (rule (a), explicitly never released) would supply the repetition
+    # evidence that releases the next truncated run.
+    #
+    # The E7 members are a DIFFERENT axis: each names why a custom-company
+    # harvest's destructive close phase was skipped even though the upsert ran
+    # ("unverified_harvest" = not proven complete; "approximate_no_close" =
+    # tolerance>0; "fleet_breaker" = >20% of the night's custom runs failed;
+    # "first_verified_run"/"script_changed" = a first/post-change run closes
+    # nothing; "streak_too_short" = a self_consistent company below its 3-run
+    # streak; "id_churn_suspected" = a self_consistent board whose id set churned
+    # >50% in one run with no total to corroborate the drop). None of them count
+    # toward the partial_scrape auto-release — ``count_consecutive_partial_skips``
+    # filters on 'partial_scrape' specifically. This Literal MUST stay in lockstep
+    # with ``incremental.GuardReason``, the source these strings are assigned from.
+    guard_reason: Optional[
+        Literal[
+            "empty_scrape",
+            "partial_scrape",
+            "unverified_harvest",
+            "approximate_no_close",
+            "fleet_breaker",
+            "first_verified_run",
+            "script_changed",
+            "streak_too_short",
+            "id_churn_suspected",
+        ]
+    ] = None
+    # --- Custom company sources (E7) -----------------------------------------
+    # Per-company ``custom:<id>`` namespace for a custom company's runs (None for
+    # the six public ATS crons). ``success`` is the run's boolean outcome as the
+    # custom leaf task sees it (None for the six ATS tasks, which encode outcome
+    # via error_count / skipped_update / guard_reason instead).
+    source_id: Optional[str] = None
+    success: Optional[bool] = None

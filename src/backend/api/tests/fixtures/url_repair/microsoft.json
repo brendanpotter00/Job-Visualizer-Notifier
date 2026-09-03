@@ -1,0 +1,197 @@
+{
+ "board_host": "apply.careers.microsoft.com",
+ "url_spec": "https://apply.careers.microsoft.com{positionUrl}",
+ "expected": "https://apply.careers.microsoft.com{positionUrl}",
+ "why": "positionUrl renders a whole PATH, not an id token \u2014 the guard that stops the repair rewriting these links to .../microsoft.com1970393556982379",
+ "captured_urls": [
+  "https://apply.careers.microsoft.com/careers/job/1970393556983225",
+  "https://apply.careers.microsoft.com/careers/job/1970393556983224",
+  "https://apply.careers.microsoft.com/careers/job/1970393556981170",
+  "https://apply.careers.microsoft.com/careers/job/1970393556979683",
+  "https://apply.careers.microsoft.com/careers/job/1970393556957458",
+  "https://apply.careers.microsoft.com/careers/job/1970393556982771",
+  "https://apply.careers.microsoft.com/careers/job/1970393556982324",
+  "https://apply.careers.microsoft.com/careers/job/1970393556983279",
+  "https://apply.careers.microsoft.com/careers/search"
+ ],
+ "records": [
+  {
+   "id": 1970393556983225,
+   "displayJobId": "200052629",
+   "name": "Senior Security Operations Engineer",
+   "locations": [
+    "United States, Washington, Redmond"
+   ],
+   "standardizedLocations": [
+    "Redmond, WA, US"
+   ],
+   "postedTs": 1788020724,
+   "solrScore": null,
+   "stars": 0,
+   "department": "Security Operations Engineering",
+   "creationTs": 1787942246,
+   "isHot": 0,
+   "workLocationOption": "onsite",
+   "locationFlexibility": null,
+   "atsJobId": "200052629",
+   "positionUrl": "/careers/job/1970393556983225"
+  },
+  {
+   "id": 1970393556983224,
+   "displayJobId": "200052627",
+   "name": "Principal Security Operations Engineer",
+   "locations": [
+    "United States, Washington, Redmond"
+   ],
+   "standardizedLocations": [
+    "Redmond, WA, US"
+   ],
+   "postedTs": 1788019599,
+   "solrScore": null,
+   "stars": 0,
+   "department": "Security Operations Engineering",
+   "creationTs": 1787941755,
+   "isHot": 0,
+   "workLocationOption": "onsite",
+   "locationFlexibility": null,
+   "atsJobId": "200052627",
+   "positionUrl": "/careers/job/1970393556983224"
+  },
+  {
+   "id": 1970393556981170,
+   "displayJobId": "200051461",
+   "name": "Strategic Account Technology Strategist",
+   "locations": [
+    "United States, Illinois, Chicago",
+    "United States, Indiana, Indianapolis",
+    "United States, Missouri, St. Louis"
+   ],
+   "standardizedLocations": [
+    "Chicago, IL, US",
+    "Indianapolis, IN, US",
+    "St. Louis, MO, US"
+   ],
+   "postedTs": 1788013850,
+   "solrScore": null,
+   "stars": 0,
+   "department": "Strategic Account Technology",
+   "creationTs": 1787683236,
+   "isHot": 0,
+   "workLocationOption": "onsite",
+   "locationFlexibility": null,
+   "atsJobId": "200051461",
+   "positionUrl": "/careers/job/1970393556981170"
+  },
+  {
+   "id": 1970393556979683,
+   "displayJobId": "200050524",
+   "name": "Cloud and AI Platforms (CAIP) Specialist",
+   "locations": [
+    "Switzerland, Z\u00fcrich, Z\u00fcrich"
+   ],
+   "standardizedLocations": [
+    "Z\u00fcrich, ZH, CH"
+   ],
+   "postedTs": 1788012425,
+   "solrScore": null,
+   "stars": 0,
+   "department": "Solution Area Specialists",
+   "creationTs": 1787585782,
+   "isHot": 0,
+   "workLocationOption": "onsite",
+   "locationFlexibility": null,
+   "atsJobId": "200050524",
+   "positionUrl": "/careers/job/1970393556979683"
+  },
+  {
+   "id": 1970393556957458,
+   "displayJobId": "200047176",
+   "name": "Global Partner Development Specialist",
+   "locations": [
+    "United States, Multiple Locations, Multiple Locations"
+   ],
+   "standardizedLocations": [
+    "US"
+   ],
+   "postedTs": 1787967976,
+   "solrScore": null,
+   "stars": 0,
+   "department": "Partner Development Management",
+   "creationTs": 1785948522,
+   "isHot": 0,
+   "workLocationOption": "onsite",
+   "locationFlexibility": null,
+   "atsJobId": "200047176",
+   "positionUrl": "/careers/job/1970393556957458"
+  },
+  {
+   "id": 1970393556982771,
+   "displayJobId": "200052386",
+   "name": "GitHub Business Strategy",
+   "locations": [
+    "United States, Washington, Redmond",
+    "United States, California, San Diego",
+    "United States, Multiple Locations, Multiple Locations"
+   ],
+   "standardizedLocations": [
+    "Redmond, WA, US",
+    "San Diego, CA, US",
+    "US"
+   ],
+   "postedTs": 1787964500,
+   "solrScore": null,
+   "stars": 0,
+   "department": "Sales Strategy Enablement",
+   "creationTs": 1787872385,
+   "isHot": 0,
+   "workLocationOption": "onsite",
+   "locationFlexibility": null,
+   "atsJobId": "200052386",
+   "positionUrl": "/careers/job/1970393556982771"
+  },
+  {
+   "id": 1970393556982324,
+   "displayJobId": "200052156",
+   "name": "Director, Sales Strategy Enablement",
+   "locations": [
+    "United States, Washington, Redmond",
+    "United States, Multiple Locations, Multiple Locations"
+   ],
+   "standardizedLocations": [
+    "Redmond, WA, US",
+    "US"
+   ],
+   "postedTs": 1787964517,
+   "solrScore": null,
+   "stars": 0,
+   "department": "Sales Strategy Enablement",
+   "creationTs": 1787816416,
+   "isHot": 0,
+   "workLocationOption": "onsite",
+   "locationFlexibility": null,
+   "atsJobId": "200052156",
+   "positionUrl": "/careers/job/1970393556982324"
+  },
+  {
+   "id": 1970393556983279,
+   "displayJobId": "200052658",
+   "name": "Product Management",
+   "locations": [
+    "United States, Washington, Redmond"
+   ],
+   "standardizedLocations": [
+    "Redmond, WA, US"
+   ],
+   "postedTs": 1787964326,
+   "solrScore": null,
+   "stars": 0,
+   "department": "Product Management",
+   "creationTs": 1787948080,
+   "isHot": 0,
+   "workLocationOption": "onsite",
+   "locationFlexibility": null,
+   "atsJobId": "200052658",
+   "positionUrl": "/careers/job/1970393556983279"
+  }
+ ]
+}

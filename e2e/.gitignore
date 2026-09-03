@@ -1,0 +1,8 @@
+add-companies/artifacts/
+shared/stack/.pids/
+shared/auth/keys.local/
+add-companies/artifacts/keys/
+node_modules/
+__pycache__/
+*.pyc
+.pytest_cache/

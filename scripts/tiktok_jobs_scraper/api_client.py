@@ -135,21 +135,6 @@ def flatten_location(city_info: Any) -> Optional[str]:
     return ", ".join(parts) if parts else None
 
 
-def format_department(job_category: Any) -> Optional[str]:
-    """Render ``job_category`` as "Parent / Child" when nested, else "Child"."""
-    if not isinstance(job_category, dict):
-        return None
-    name = job_category.get("en_name")
-    if not isinstance(name, str) or not name.strip():
-        return None
-    parent = job_category.get("parent")
-    if isinstance(parent, dict):
-        parent_name = parent.get("en_name")
-        if isinstance(parent_name, str) and parent_name.strip():
-            return f"{parent_name.strip()} / {name.strip()}"
-    return name.strip()
-
-
 def combine_description(job: Dict[str, Any]) -> Optional[str]:
     """Join the plain-text ``description`` and ``requirement`` blocks.
 
@@ -197,7 +182,6 @@ def _parse_job_from_search(job: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         "location": flatten_location(job.get("city_info")),
         # TikTok's payload carries NO posted/created/published date anywhere.
         "posted_date": None,
-        "department": format_department(job.get("job_category")),
         "description": combine_description(job),
         "job_code": job.get("code"),
         "recruit_type": recruit_name,

@@ -199,7 +199,7 @@ def _parse_position_from_search(pos: Dict[str, Any]) -> Optional[Dict[str, Any]]
     Parse a single position from search results.
 
     Microsoft Eightfold API returns positions with fields like:
-    id, displayJobId, name, locations, postedTs, department.
+    id, displayJobId, name, locations, postedTs.
 
     Args:
         pos: Position data from search API
@@ -223,7 +223,6 @@ def _parse_position_from_search(pos: Dict[str, Any]) -> Optional[Dict[str, Any]]
             "title": _get_first_of(pos, "name", "title"),
             "location": _format_location(pos.get("locations") or pos.get("location")),
             "posted_date": _get_first_of(pos, "postedTs", "postedDate", "createdTs"),
-            "department": pos.get("department", ""),
             "job_url": f"{BASE_URL}/careers/apply?pid={position_id}",
             "company": "microsoft",
         }

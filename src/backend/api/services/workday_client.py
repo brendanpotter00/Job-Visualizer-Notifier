@@ -9,12 +9,11 @@ Two queue-agnostic functions plus a date-parser helper:
   maps each raw Workday posting dict to a
   :class:`scripts.shared.models.JobListing` ready for
   ``upsert_jobs_batch``.
-- ``_parse_workday_date(posted_on, now=None)``: Python port of the
-  frontend ``parseWorkdayDate`` helper in
-  ``src/frontend/src/lib/workdayDateParser.ts``. Inputs are the relative
-  date strings Workday emits (``"Posted Today"`` / ``"Posted Yesterday"``
-  / ``"Posted N Days Ago"`` / ``"Posted N+ Days Ago"``); output is an
-  ISO 8601 UTC string at midnight or ``None`` for unparseable input.
+- ``_parse_workday_date(posted_on, now=None)``: parses the relative date
+  strings Workday emits (``"Posted Today"`` / ``"Posted Yesterday"`` /
+  ``"Posted N Days Ago"``); output is an ISO 8601 UTC string at midnight,
+  or ``None`` for unparseable input **and for the ``"N+ Days Ago"``
+  bucket**, which is a bucket label rather than a date.
 
 Structural notes
 ----------------
@@ -55,17 +54,19 @@ team, employment type, compensation) require a second round-trip per
 job, which the frontend deliberately skipped because the list view
 shows enough to drive the visualization. We mirror that scope:
 ``details`` is populated with the keys other migrated providers emit
-(``experience_level``, ``is_remote_eligible``, ``department``, ``team``,
+(``experience_level``, ``is_remote_eligible``, ``team``,
 ``employment_type``, ``secondary_locations``, ``compensation_summary``,
 ``description_html``, ``tags``), all set to ``None`` / ``[]``. Only
 ``published_at`` (the parsed ``postedOn``) carries data.
 
 Date parsing
 ------------
-``_parse_workday_date`` is a faithful Python port of
-``parseWorkdayDate``. The inputs are inherently low-resolution (Workday
-buckets to "today / yesterday / N days ago / N+ days ago"), so the
-output is always midnight UTC. ``None`` and unparseable strings return
+The inputs are inherently low-resolution (Workday buckets to "today /
+yesterday / N days ago / N+ days ago"), so the output is always midnight
+UTC. **``"N+ Days Ago"`` returns ``None``** — it names an open-ended
+bucket and contains no date to recover; synthesising ``today - (N + 1)``
+from it, as this module used to, fabricated a precise timestamp out of a
+range boundary. ``None`` and unparseable strings likewise return
 ``None`` rather than falling back to ``now()`` — per
 ``feedback_correctness_over_dont_crash.md``, a corrupt source value
 must land as ``NULL`` (not as a fake recent timestamp that would
@@ -84,6 +85,10 @@ import httpx
 from scripts.shared.constants import SourceId
 from scripts.shared.models import JobListing
 from scripts.shared.utils import get_iso_timestamp
+
+from .harvest_meta import HarvestEvidence
+from .job_details import has_description
+from .posted_date import effective_posted_date
 
 logger = logging.getLogger(__name__)
 
@@ -130,36 +135,47 @@ def _validate_provider_config(provider_config: dict) -> None:
         )
 
 
-async def fetch_jobs(
+def _posting_key(raw: object) -> Optional[str]:
+    """A stable per-posting identity for page-advance disjointness (check 6).
+
+    Mirrors the id derivation in ``_transform_one``: prefer the requisition id
+    (``bulletFields[0]``), fall back to ``externalPath``. Returns ``None`` for a
+    posting from which neither can be read (it simply does not participate in the
+    overlap test). Used only to detect Intel-style offset-wrap, where paging past
+    ``total`` wraps to page 1 and re-serves ids already seen.
+    """
+    if not isinstance(raw, dict):
+        return None
+    bullet_fields = raw.get("bulletFields")
+    if isinstance(bullet_fields, list) and bullet_fields:
+        first = bullet_fields[0]
+        if isinstance(first, str) and first:
+            return first
+    external_path = raw.get("externalPath")
+    if isinstance(external_path, str) and external_path:
+        return external_path
+    return None
+
+
+async def fetch_jobs_with_meta(
     provider_config: dict,
     http: httpx.AsyncClient,
-) -> list[dict]:
-    """Fetch all postings from a Workday career site, paginating offset.
+) -> tuple[list[dict], HarvestEvidence]:
+    """Fetch a Workday site AND the completeness evidence around it (E7).
 
-    POSTs to ``{base_url}/wday/cxs/{tenant_slug}/{career_site_slug}/jobs``
-    with a body of ``{"appliedFacets": <facets>, "limit": 20, "offset": N,
-    "searchText": ""}``. ``<facets>`` is ``provider_config.get
-    ("default_facets") or {}`` — NVIDIA and Adobe use this to narrow the
-    population; everyone else gets the empty object.
+    Same offset-paginated POST loop as the public path, but ALSO surfaces the
+    three completeness signals the ``declared_probed`` gate needs:
 
-    Returns the aggregated ``jobPostings`` list across all pages. Empty
-    list is a valid return value (a career site with zero open reqs).
+    * ``declared_total`` = Workday's page-1 ``total`` (its own trusted count).
+    * ``cap_hit`` = we stopped on ``WORKDAY_MAX_PAGES`` without reaching ``total``
+      — the exact silent-partial condition behind the Target 11,960-vs-2,000
+      trap. The gate maps ``cap_hit`` → UNVERIFIED (it does NOT raise, so the
+      2,000 rows we *did* get are kept and never mislabeled a transport error).
+    * ``page_advance_ok`` = every page's id-set was disjoint from the union so
+      far. An Intel-style offset-wrap (page 2 repeats page 1) sets this ``False``.
 
-    Raises:
-      - ``ValueError`` for malformed `provider_config` or response shape.
-      - ``httpx.HTTPStatusError`` for non-2xx responses.
-
-    Both are treated as a failed run by the caller (Unit 4) — Procrastinate
-    retries, ``scrape_runs`` records ``error_count=1``.
-
-    The pagination cap (``WORKDAY_MAX_PAGES``) is enforced as a soft
-    backstop: if we hit it, we ERROR-log and return what we have so far.
-    The caller still upserts that partial result (so the visualization
-    has SOME data) and records the run with ``error_count=0`` — the cap
-    breach is *not* an error in the usual sense, just a "more pages
-    than expected" signal that the operator should look at the log for.
-    The hard exit conditions are: ``offset >= total``, empty page,
-    or no advance from previous offset.
+    Empty list is a valid return (a site with zero open reqs) — evidence then
+    carries ``declared_total=total`` (0) so the zero-proof chain can act on it.
     """
     _validate_provider_config(provider_config)
 
@@ -176,6 +192,8 @@ async def fetch_jobs(
     offset = 0
     total: Optional[int] = None
     page_idx = 0
+    seen_page_keys: set[str] = set()
+    page_advance_ok = True
 
     logger.info(
         "Fetching Workday postings for %s/%s",
@@ -232,6 +250,14 @@ async def fetch_jobs(
                 )
             total = raw_total
 
+        # Check 6 — this page's ids must be disjoint from every prior page.
+        # An offset that wraps past `total` back to page 1 re-serves the same
+        # ids; the intersection is then non-empty and completeness is unproven.
+        page_keys = {k for k in (_posting_key(p) for p in page) if k is not None}
+        if page_keys & seen_page_keys:
+            page_advance_ok = False
+        seen_page_keys |= page_keys
+
         all_postings.extend(page)
 
         # Stop conditions, in priority order:
@@ -244,7 +270,10 @@ async def fetch_jobs(
             break
         offset += WORKDAY_PAGE_SIZE
 
-    if page_idx >= WORKDAY_MAX_PAGES and (total is None or len(all_postings) < total):
+    cap_hit = page_idx >= WORKDAY_MAX_PAGES and (
+        total is None or len(all_postings) < total
+    )
+    if cap_hit:
         # ERROR (not WARNING): Railway @level routing — see _configure_logging
         # in main.py. A persistent cap-trip indicates either a runaway
         # listing (multi-thousand-req tenant) or a pagination bug, both
@@ -257,10 +286,44 @@ async def fetch_jobs(
         )
 
     logger.info(
-        "Workday returned %d postings for %s/%s (total=%r, pages=%d)",
-        len(all_postings), tenant_slug, career_site_slug, total, page_idx,
+        "Workday returned %d postings for %s/%s (total=%r, pages=%d, cap_hit=%s)",
+        len(all_postings), tenant_slug, career_site_slug, total, page_idx, cap_hit,
     )
-    return all_postings
+    evidence = HarvestEvidence(
+        declared_total=total,
+        cap_hit=cap_hit,
+        terminated_cleanly=not cap_hit,
+        # A single-page fetch has no page N to compare, so advance is vacuously
+        # ok; the flag only ever flips False on a real multi-page overlap.
+        page_advance_ok=page_advance_ok,
+        pages_fetched=page_idx,
+    )
+    return all_postings, evidence
+
+
+async def fetch_jobs(
+    provider_config: dict,
+    http: httpx.AsyncClient,
+) -> list[dict]:
+    """Fetch all postings from a Workday career site, paginating offset.
+
+    Thin delegator over :func:`fetch_jobs_with_meta` that discards the evidence,
+    so the PUBLIC Workday cron keeps byte-identical behavior — including the
+    "cap hit → ERROR-log and return the partial 2,000" backstop, which lives in
+    ``fetch_jobs_with_meta`` and therefore still fires here. Only the custom path
+    reads ``cap_hit`` and acts on it (UNVERIFIED).
+
+    POSTs to ``{base_url}/wday/cxs/{tenant_slug}/{career_site_slug}/jobs``
+    with a body of ``{"appliedFacets": <facets>, "limit": 20, "offset": N,
+    "searchText": ""}``. Returns the aggregated ``jobPostings`` list across all
+    pages. Empty list is a valid return value (a career site with zero reqs).
+
+    Raises:
+      - ``ValueError`` for malformed `provider_config` or response shape.
+      - ``httpx.HTTPStatusError`` for non-2xx responses.
+    """
+    postings, _ = await fetch_jobs_with_meta(provider_config, http)
+    return postings
 
 
 def transform_to_job_listings(
@@ -413,10 +476,18 @@ def _transform_one(
             location = location_raw
 
     posted_on = _parse_workday_date(raw.get("postedOn"))
-    if raw.get("postedOn") and posted_on is None:
+    if (
+        raw.get("postedOn")
+        and posted_on is None
+        and not _is_open_ended_bucket(raw.get("postedOn"))
+    ):
         # ERROR (not WARNING): Railway routes by Python level. A
         # persistently-unparseable postedOn string is a data quality
         # issue the operator should see in @level:error filters.
+        #
+        # "N+ Days Ago" is excluded: it is an expected bucket label that
+        # correctly yields NULL, not a parse failure. Without the guard
+        # this fires on 42.3% of open prod Workday rows every tick.
         logger.error(
             "Workday data quality issue: posting %s for company %s had "
             "unparseable postedOn=%r; storing posted_on as NULL",
@@ -429,7 +500,6 @@ def _transform_one(
     # `locationsText`/`postedOn`/`bulletFields[*]` structurally; the
     # other keys are None / [] because we don't have detail-page data.
     details: dict[str, Any] = {
-        "department": None,
         "team": None,
         "secondary_locations": [],
         "employment_type": None,
@@ -451,10 +521,28 @@ def _transform_one(
         details=details,
         posted_on=posted_on,
         created_at=now,
-        first_seen_at=now,
+        # THE EFFECTIVE POSTED DATE (POSTED-DATE-PLAN.md §2, D9/D10). This is the
+        # client the whole trust story is about, and the two halves meet here:
+        #
+        #   * ``"Posted Today"`` / ``"Yesterday"`` / ``"N Days Ago"`` are real
+        #     dates (57.7% of open Workday rows) and become the sort key.
+        #   * ``"Posted 30+ Days Ago"`` is a BUCKET BOUNDARY, not a date.
+        #     ``_parse_workday_date`` returns None for it (U5a), so those 42.3%
+        #     fall back to first sight. That fallback is the intended outcome —
+        #     nothing downstream can tell a fabricated timestamp from a real one.
+        #
+        # Workday also re-derives its relative strings against today, so a
+        # listing's ``posted_on`` walks forward on every scrape. That slide must
+        # never reach this column, and cannot: ``first_seen_at`` is absent from
+        # ``_UPSERT_ON_CONFLICT`` (scripts/shared/database.py), so this line only
+        # ever decides an INSERT.
+        first_seen_at=effective_posted_date(posted_on, now),
         last_seen_at=now,
         consecutive_misses=0,
-        details_scraped=True,
+        # Truthful, not hard-coded True: this claims we HAVE the job's detail
+        # content. See ``job_details.has_description`` for what that means and
+        # which rows were lying.
+        details_scraped=has_description(details),
         status="OPEN",
         has_matched=False,
         ai_metadata={},
@@ -468,13 +556,60 @@ def _transform_one(
 _GENERIC_LOCATION_COUNT_RE = re.compile(r"^\d+\s+Locations?$", re.IGNORECASE)
 
 
-# Date parsing — port of frontend `parseWorkdayDate` in
-# `src/frontend/src/lib/workdayDateParser.ts`. The semantics MUST match
-# bit-for-bit so a row scraped via the backend lands on the same time
-# bucket as the same row scraped via the (pre-cutover) frontend.
+# Date parsing. Originally a bit-for-bit port of the frontend's
+# `parseWorkdayDate`; that file (`src/frontend/src/lib/workdayDateParser.ts`)
+# no longer exists — the backend is the only Workday parser now, and this is
+# deliberately no longer a mirror of it (see `_parse_workday_date` on the
+# `"N+ Days Ago"` bucket).
 _DAYS_AGO_RE = re.compile(
     r"(\d+)(\+)?\s*days?\s*ago", re.IGNORECASE,
 )
+
+
+def _iso_millis_z(moment: datetime) -> str:
+    """``moment`` as ``YYYY-MM-DDTHH:MM:SS.mmmZ``. UTC, always exactly this shape.
+
+    Replaces ``.isoformat().replace("+00:00", ".000Z")``, which was correct only for the
+    three relative-date branches — their datetimes are midnight, so ``isoformat()`` emits
+    no fractional part and the appended ``.000`` was the whole of it — and produced an
+    INVALID timestamp on the ISO branch. ``datetime.fromisoformat`` keeps microseconds
+    when the board sends them, so ``2026-08-01T12:34:56.789000+00:00`` came back out as
+    ``2026-08-01T12:34:56.789000.000Z``: two fractional parts, which Postgres rejects.
+
+    Why that was not merely an ugly string. ``upsert_jobs_batch`` writes the harvest in
+    ONE statement with no per-row fallback, so a single malformed ``posted_on`` fails the
+    whole batch — every job of that tenant, not the one row that carried it.
+
+    Latent so far only because every Workday tenant we read answers this endpoint with
+    the relative phrasing ("Posted Today", "Posted 5 Days Ago"): all 6,453 open
+    ``workday_api`` rows in production sit exactly at midnight, so nothing has taken the
+    ISO branch yet. One tenant changing format is all it would take, and it would present
+    as a tenant that abruptly stops updating rather than as a date bug.
+
+    ``isoformat(timespec="milliseconds")`` fixes the precision at the source instead of
+    patching the tail, and ``removesuffix`` is anchored where ``replace`` was not — after
+    ``astimezone(timezone.utc)`` the offset is always exactly ``+00:00``.
+    """
+    utc = moment.astimezone(timezone.utc)
+    return utc.isoformat(timespec="milliseconds").removesuffix("+00:00") + "Z"
+
+
+def _is_open_ended_bucket(posted_on: Any) -> bool:
+    """True for Workday's ``"N+ Days Ago"`` open-ended bucket label.
+
+    Shares ``_DAYS_AGO_RE`` with ``_parse_workday_date`` so the two can
+    never disagree about what counts as a bucket.
+
+    This exists purely so the caller can tell "we deliberately have no
+    date" apart from "this string is corrupt". Both store NULL; only the
+    second is worth an ERROR. 42.3% of open prod Workday rows are in this
+    bucket, so logging them would be a per-tick ERROR flood that buries
+    the real data-quality signal.
+    """
+    if not isinstance(posted_on, str):
+        return False
+    m = _DAYS_AGO_RE.search(posted_on.lower())
+    return bool(m and m.group(2))
 
 
 def _parse_workday_date(
@@ -487,16 +622,21 @@ def _parse_workday_date(
       - ``"Posted Today"`` → midnight UTC today.
       - ``"Posted Yesterday"`` → midnight UTC of (today - 1d).
       - ``"Posted N Days Ago"`` → midnight UTC of (today - N days).
-      - ``"Posted N+ Days Ago"`` → midnight UTC of (today - (N + 1) days).
-        The frontend distinguishes "exactly N" from "N or more" by adding
-        a day to the "N+" form; mirror that exactly so the visualization
-        buckets jobs identically.
 
     Returns ``None`` for:
       - ``None`` / empty input.
+      - ``"Posted N+ Days Ago"`` — see below.
       - Strings that don't match any of the patterns AND don't parse as
         ISO 8601. Per ``feedback_correctness_over_dont_crash.md``, a
         corrupt value lands as NULL (not as a fake "now" timestamp).
+
+    **``"N+ Days Ago"`` is not a date.** It is the label of Workday's
+    open-ended oldest bucket. This function used to answer
+    ``today - (N + 1)`` for it, matching a since-deleted frontend parser;
+    that number was invented here, not published by the board. It now
+    returns ``None`` so the caller stores NULL and the row falls back to
+    first sight (see
+    ``docs/implementations/custom-company-sources/POSTED-DATE-PLAN.md`` §3).
 
     ``now`` is an injection seam so tests can pin the wall clock without
     monkeypatching the stdlib.
@@ -521,21 +661,26 @@ def _parse_workday_date(
     # "today" — must match BEFORE "yesterday" since both contain neither
     # the other, but a future Workday phrasing change could overlap.
     if "today" in lowered:
-        return today_midnight.isoformat().replace("+00:00", ".000Z")
+        return _iso_millis_z(today_midnight)
 
     if "yesterday" in lowered:
-        return (today_midnight - timedelta(days=1)).isoformat().replace(
-            "+00:00", ".000Z",
-        )
+        return _iso_millis_z(today_midnight - timedelta(days=1))
 
     m = _DAYS_AGO_RE.search(lowered)
     if m:
-        base_days = int(m.group(1))
-        is_plus_range = bool(m.group(2))
-        days_ago = base_days + 1 if is_plus_range else base_days
-        return (today_midnight - timedelta(days=days_ago)).isoformat().replace(
-            "+00:00", ".000Z",
-        )
+        # "N+ Days Ago" is a BUCKET BOUNDARY, not a date. Workday says
+        # "30+" for everything older than 30 days; there is no date in
+        # that string to recover. We used to answer `today - (N + 1)`,
+        # which fabricated a precise-looking timestamp out of nothing —
+        # on prod that was 42.3% of open Workday rows all claiming to
+        # have been posted exactly 31 days ago, and it slid forward by a
+        # day every day. Return None so the row falls back to first
+        # sight instead. The plain "N Days Ago" form below IS a date and
+        # is kept exactly as-is (the accurate 57.7%).
+        if m.group(2):
+            return None
+        days_ago = int(m.group(1))
+        return _iso_millis_z(today_midnight - timedelta(days=days_ago))
 
     # ISO-8601 fallback. The frontend tried `new Date(postedOn)`; we use
     # `datetime.fromisoformat` which is stricter — most Workday CXS
@@ -548,6 +693,4 @@ def _parse_workday_date(
         return None
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=timezone.utc)
-    return parsed.astimezone(timezone.utc).isoformat().replace(
-        "+00:00", ".000Z",
-    )
+    return _iso_millis_z(parsed)

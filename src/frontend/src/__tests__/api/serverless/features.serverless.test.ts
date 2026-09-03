@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import handler from '../../../../../../api/features';
+import { runProxyAllowlistGuard } from './proxyAllowlistGuard';
 import { getBackendUrl } from '../../../../../../api/utils/backendUrl';
 
 function mockJsonResponse(status: number, body: unknown) {
@@ -67,14 +68,15 @@ describe('/api/features serverless function', () => {
       );
     });
 
-    it('should handle single path segment', async () => {
+    it('404s a bare feature id — not a backend route', async () => {
+      // Was "should handle single path segment", asserting the proxy forwarded
+      // `/api/features/resume-match-ai`. The backend has no such route; the
+      // only sub-path it declares is `{feature_id}/upvote`. Forwarding a
+      // shape the backend does not serve is what the allowlist removes.
       mockReq.query = { path: 'resume-match-ai' };
-      fetchMock.mockResolvedValue(mockJsonResponse(200, {}));
       await handler(mockReq as VercelRequest, mockRes as VercelResponse);
-      expect(fetchMock).toHaveBeenCalledWith(
-        'http://localhost:8000/api/features/resume-match-ai',
-        expect.any(Object)
-      );
+      expect(mockRes.status).toHaveBeenCalledWith(404);
+      expect(fetchMock).not.toHaveBeenCalled();
     });
 
     it('should handle multiple path segments as array', async () => {
@@ -88,7 +90,7 @@ describe('/api/features serverless function', () => {
     });
 
     it('should forward query parameters', async () => {
-      mockReq.query = { path: 'resume-match-ai', foo: 'bar' };
+      mockReq.query = { path: ['resume-match-ai', 'upvote'], foo: 'bar' };
       fetchMock.mockResolvedValue(mockJsonResponse(200, {}));
       await handler(mockReq as VercelRequest, mockRes as VercelResponse);
       const calledUrl = fetchMock.mock.calls[0][0] as string;
@@ -97,11 +99,11 @@ describe('/api/features serverless function', () => {
     });
 
     it('should not append query string when no extra params exist', async () => {
-      mockReq.query = { path: 'resume-match-ai' };
+      mockReq.query = {};
       fetchMock.mockResolvedValue(mockJsonResponse(200, {}));
       await handler(mockReq as VercelRequest, mockRes as VercelResponse);
       expect(fetchMock).toHaveBeenCalledWith(
-        'http://localhost:8000/api/features/resume-match-ai',
+        'http://localhost:8000/api/features',
         expect.any(Object)
       );
     });
@@ -213,7 +215,7 @@ describe('/api/features serverless function', () => {
       // future PATCH or DELETE endpoint with a body doesn't silently
       // drop the body upstream.
       mockReq.method = 'PATCH';
-      mockReq.query = { path: ['some-feature'] };
+      mockReq.query = { path: ['some-feature', 'upvote'] };
       mockReq.body = { vote: 'up' };
       fetchMock.mockResolvedValue(mockJsonResponse(200, {}));
       await handler(mockReq as VercelRequest, mockRes as VercelResponse);
@@ -461,4 +463,25 @@ describe('/api/features serverless function', () => {
       expect(mockRes.json).toHaveBeenCalledWith(removeResponse);
     });
   });
+});
+
+/**
+ * The allowlist that closed the production `?path=` traversal.
+ *
+ * The backend `features` router declares `GET ""` and
+ * `POST|DELETE "/{feature_id}/upvote"`; `features/features/featuresApi.ts`
+ * calls exactly those two. A bare feature id is NOT a route and is not
+ * allowlisted, even though the old proxy forwarded it.
+ */
+runProxyAllowlistGuard({
+  name: 'features',
+  prefix: '/api/features',
+  handler,
+  legitimate: [
+    ['', '/api/features'],
+    ['resume-match-ai/upvote', '/api/features/resume-match-ai/upvote'],
+    [['resume-match-ai', 'upvote'], '/api/features/resume-match-ai/upvote'],
+  ],
+  normalizes: ['/resume-match-ai//upvote/', '/api/features/resume-match-ai/upvote'],
+  methods: ['GET', 'POST', 'DELETE'],
 });

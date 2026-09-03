@@ -254,9 +254,8 @@ class TestTransformToJobListings:
             == "<p>Join Notion to build the future of work.</p>"
         )
 
-    def test_department_and_team_passthrough(self):
+    def test_team_passthrough(self):
         result = transform_to_job_listings("notion", ONE_JOB_FIXTURE["jobs"])
-        assert result[0].details["department"] == "Engineering"
         assert result[0].details["team"] == "Platform"
 
     def test_published_at_preserved_in_details(self):
@@ -320,8 +319,39 @@ class TestTransformToJobListings:
         with pytest.raises(ValueError, match="missing 'id'"):
             transform_to_job_listings("notion", [bad])
 
-    def test_first_and_last_seen_set_to_same_iso_string(self):
-        result = transform_to_job_listings("notion", ONE_JOB_FIXTURE["jobs"])
-        job = result[0]
-        assert job.first_seen_at == job.last_seen_at == job.created_at
+    def test_first_seen_at_is_the_board_date_and_diverges_from_the_run_clock(self):
+        """``first_seen_at`` is the EFFECTIVE POSTED DATE (POSTED-DATE-PLAN §2).
+
+        Previously this asserted first_seen == last_seen == created_at. Under D9
+        the three now mean three different things, and the fixture's
+        ``publishedAt`` (2026-01-15T14:30-05:00) is nowhere near the run clock,
+        so the divergence is pinned to an exact value rather than merely to
+        "different".
+        """
+        job = transform_to_job_listings("notion", ONE_JOB_FIXTURE["jobs"])[0]
+
+        assert job.first_seen_at == "2026-01-15T19:30:00+00:00"
+        assert job.posted_on == job.first_seen_at
+        # last_seen_at and created_at are still the run clock, and still equal.
+        assert job.last_seen_at == job.created_at
         assert job.created_at.endswith("Z")
+        assert job.first_seen_at != job.created_at
+
+    def test_first_seen_at_falls_back_to_the_run_clock_without_a_board_date(self):
+        """A board that publishes no date gets first sight — never a synthesized
+        one, and never NULL (the column is NOT NULL and is the keyset sort key)."""
+        raw = {k: v for k, v in ONE_JOB_FIXTURE["jobs"][0].items()}
+        raw.pop("publishedAt", None)
+
+        job = transform_to_job_listings("notion", [raw])[0]
+
+        assert job.posted_on is None
+        assert job.first_seen_at == job.created_at == job.last_seen_at
+
+    def test_unparseable_board_date_falls_back_to_the_run_clock(self):
+        raw = {**ONE_JOB_FIXTURE["jobs"][0], "publishedAt": "not-a-real-date"}
+
+        job = transform_to_job_listings("notion", [raw])[0]
+
+        assert job.posted_on is None
+        assert job.first_seen_at == job.created_at

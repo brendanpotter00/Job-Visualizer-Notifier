@@ -120,7 +120,6 @@ graph LR
     GFilters --> GTimeWindow[timeWindow]
     GFilters --> GSearchTags[searchTags]
     GFilters --> GLocations[locations]
-    GFilters --> GDepartments[departments]
 
     ListFilters --> LFilters[filters: ListFilters]
     LFilters --> LTimeWindow[timeWindow]
@@ -158,7 +157,6 @@ graph LR
     timeWindow: TimeWindow,
     searchTags?: SearchTag[],
     locations: string[],
-    departments: string[],
     employmentType?: EmploymentType
   }
 }
@@ -241,7 +239,6 @@ graph TB
         Reducers --> TimeWindow[setGraphTimeWindow / setListTimeWindow]
         Reducers --> SearchTags[5 search tag actions]
         Reducers --> Locations[4 location actions]
-        Reducers --> Departments[4 department actions]
         Reducers --> Employment[employment type actions]
         Reducers --> Reset[reset filters]
         Reducers --> Sync[sync from other slice]
@@ -262,7 +259,7 @@ graph TB
     Dispatch --> ListActions
 ```
 
-Factory eliminates 158 lines of duplication. Both graph and list slices dynamically generate 21 action creators each: search tags (5), locations/departments (4 each), time window, employment type, reset, and sync actions.
+Factory eliminates 158 lines of duplication. Both graph and list slices dynamically generate 17 action creators each: search tags (5), locations (4), time window, employment type, reset, and sync actions.
 
 ---
 
@@ -284,12 +281,11 @@ graph TB
 
     MetricsDash --> JobCountCards[3 JobCountCard Components<br/>3 days / 24 hours / 12 hours]
 
-    GraphSection --> GraphFilters[GraphFilters<br/>Time/Location/Dept/Software]
+    GraphSection --> GraphFilters[GraphFilters<br/>Time/Location/Software]
     GraphSection --> JobPostingsChart[JobPostingsChart<br/>Recharts Line Graph]
 
     GraphFilters --> TimeWindowSelect[Time Window Selector]
     GraphFilters --> LocationFilter[Location Multi-Select]
-    GraphFilters --> DeptFilter[Department Multi-Select]
     GraphFilters --> SoftwareToggle[Software Only Toggle]
 
     JobPostingsChart --> ChartTooltip[ChartTooltip<br/>Custom Tooltip]
@@ -306,7 +302,7 @@ graph TB
     JobList --> JobCards[JobCard Components<br/>Individual Job Display]
 
     JobCards --> JobTitle[Title + Link]
-    JobCards --> JobMeta[Metadata Chips<br/>Location/Dept/Type/Category]
+    JobCards --> JobMeta[Metadata Chips<br/>Location/Type/Category]
     JobCards --> JobDesc[Description Preview]
     JobCards --> JobTimestamp[Created Date]
 

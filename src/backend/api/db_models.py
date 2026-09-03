@@ -71,16 +71,15 @@ class JobListing(Base):
     details_scraped = Column(Boolean, server_default=text("false"))
     normalization_status = Column(Text, nullable=True)  # NULL (never attempted) | 'done' | 'failed'
 
-    # Denormalized copies of the only two ``details`` JSONB sub-fields the API
-    # list path serves (frontend ``job.department`` + "Remote" chip). Reading
+    # Denormalized copies of the two ``details`` JSONB sub-fields the API list
+    # path serves (the seniority tag and the "Remote" chip). Reading
     # ``details->'…'`` forces Postgres to detoast the full ~10 KB ``details``
     # value per row; on the batched ``/api/jobs`` list query (~12k rows) that
     # ~100 MB of TOAST reads blew past the 30 s statement timeout (2026-07-13
-    # outage). These columns let the list query read the two values WITHOUT
-    # touching ``details``/TOAST. Nullable, no backfill — populated by the upsert
-    # write path on the next scrape (mirrors the enrichment-column precedent
-    # below so the migration stays metadata-only; see the 2026-04-18 volume
-    # incident). The single-row detail path still returns the full ``details``.
+    # outage). These columns let the list query read both values WITHOUT
+    # touching ``details``/TOAST. All nullable, no default, so each ADD COLUMN
+    # stays metadata-only (see the 2026-04-18 volume incident). The single-row
+    # detail path still returns the full ``details``.
     experience_level = Column(Text, nullable=True)
     is_remote_eligible = Column(Boolean, nullable=True)
 
@@ -272,8 +271,15 @@ class JobFreshness(Base):
 # References are intentionally unqualified so they resolve through the caller's
 # search_path — correct in prod (public) and in the per-worker ``test_<hex>``
 # schema (search_path pinned by the conftest fixtures). Seeds last_seen_at from
-# NEW.first_seen_at and a literal 0 (never NEW.last_seen_at/consecutive_misses)
-# so it keeps working after the Unit 4 contract migration drops those columns.
+# now() and a literal 0 (never NEW.last_seen_at/consecutive_misses) so it keeps
+# working after the Unit 4 contract migration drops those columns.
+#
+# ``now()``, NOT ``NEW.first_seen_at`` (changed by 7a4c1e93b6d8, POSTED-DATE-PLAN
+# §5/U2). ``first_seen_at`` is now the EFFECTIVE POSTED DATE and can be months old
+# at INSERT time; ``last_seen_at`` means "when did a scrape last observe this",
+# and an INSERT is an observation. This is also what ``_upsert_freshness``
+# already writes two statements later on every upsert path. Cannot affect closes:
+# the sweep is purely consecutive_misses-based (shared/database.py:783-790).
 # Physical tuning (fillfactor/autovacuum) stays migration-only — it has no
 # behavioral effect, so create_all test DBs don't need it.
 _JOB_FRESHNESS_SYNC_FUNCTION = DDL(
@@ -282,7 +288,7 @@ _JOB_FRESHNESS_SYNC_FUNCTION = DDL(
     LANGUAGE plpgsql AS $$
     BEGIN
         INSERT INTO job_freshness (source_id, id, last_seen_at, consecutive_misses)
-        VALUES (NEW.source_id, NEW.id, NEW.first_seen_at, 0)
+        VALUES (NEW.source_id, NEW.id, now(), 0)
         ON CONFLICT (source_id, id) DO NOTHING;
         RETURN NULL;  -- AFTER trigger: return value is ignored
     END;
@@ -358,6 +364,16 @@ class ScrapeRun(Base):
     # Nullable, no server default, no backfill — same catalog-only shape as
     # skipped_update above.
     guard_reason = Column(Text, nullable=True)
+    # --- Custom company sources (E7) -------------------------------------
+    # ``source_id`` is the per-company ``custom:<id>`` namespace for a custom
+    # company's runs (NULL for the six public ATS crons, which record only the
+    # company id). ``success`` is the run's boolean outcome as the custom leaf
+    # task sees it (the six ATS tasks leave it NULL — they encode outcome via
+    # error_count / skipped_update / guard_reason instead). Both nullable with no
+    # server default, matching the skipped_update / guard_reason catalog-only
+    # shape so the ALTER TABLE never rewrites this ~455k-row table.
+    source_id = Column(Text, nullable=True)
+    success = Column(Boolean, nullable=True)
 
     __table_args__ = (
         # Drives count_consecutive_partial_skips' "most recent N runs for
@@ -659,8 +675,203 @@ class Company(Base):
         TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
     )
 
+    # --- Custom company sources (E7) -------------------------------------
+    # Every column here is nullable-or-defaulted so the ALTER TABLE stays
+    # catalog-only and never rewrites this table (2026-04-18 volume incident).
+    #
+    # ``visibility`` partitions the row into the public curated directory
+    # ('public', the server default so every existing row is unaffected) or a
+    # single user's private board ('user'). It is the load-bearing predicate for
+    # the three visibility leaks — the public /api/jobs read, the /api/companies
+    # directory, and the auto-enroll UNION all exclude 'user' rows, and the six
+    # ATS fan-outs only pick up 'public' rows.
+    visibility = Column(
+        Text, nullable=False, server_default=text("'public'")
+    )  # 'public' | 'user'
+    # Nightly cadence for a custom company (hours). NULL = legacy 30-min ATS cron
+    # company (the six public fan-outs), which do not read this column.
+    cadence_hours = Column(Integer, nullable=True)
+    # When the custom-company claim task should next defer a fetch. NULL for
+    # legacy cron companies. The */15 claimer selects rows whose next_run_at has
+    # passed with FOR UPDATE SKIP LOCKED.
+    next_run_at = Column(TIMESTAMP(timezone=True), nullable=True)
+    # Set on the first VERIFIED harvest (Phase 2+); used to shade the pre-tracking
+    # seed bucket on the trend page. NULL until then.
+    tracking_started_at = Column(TIMESTAMP(timezone=True), nullable=True)
+    # 'healthy' | 'unverified' | 'quarantined' | 'refused'. NULL for legacy
+    # cron companies. A Phase-1 custom company is created 'unverified' (no oracle
+    # exists yet, so nothing it harvests can ever be proven complete).
+    health_state = Column(Text, nullable=True)
+    last_success_at = Column(TIMESTAMP(timezone=True), nullable=True)
+    consecutive_failures = Column(
+        Integer, nullable=False, server_default=text("0")
+    )
+    # THE OWNER'S OWN NAME FOR THEIR PRIVATE BOARD — NULL means "we never renamed
+    # it", which is every row that exists today and every public row forever.
+    #
+    # It is a SECOND column rather than a flag on ``display_name`` for one reason:
+    # ``display_name`` is written by more than one thing. Discovery derives it from
+    # the URL on the add, ``_promote_to_tracked`` rewrites it every time discovery
+    # ACCEPTS the board, and ``restart_refused_discovery`` rewrites it on the retry
+    # of a refused board. A boolean would mean every one of those (and every one
+    # written later) has to remember a ``CASE WHEN`` guard, and the first one that
+    # forgets silently reverts a user's rename. Nothing can clobber a name it does
+    # not write, so the guard is structural instead of remembered.
+    #
+    # Readers resolve ``COALESCE(user_display_name, display_name)`` — spelled once,
+    # as ``custom_companies_service.EFFECTIVE_DISPLAY_NAME_SQL``. Keeping the
+    # derived name alive also means re-discovery keeps refreshing it underneath,
+    # so clearing an override would yield the CURRENT derivation rather than the
+    # one from the day the board was added.
+    user_display_name = Column(Text, nullable=True)
+
     __table_args__ = (
         Index("ix_companies_ats_enabled", "ats", "enabled"),
+        # Partial index: only the handful of private 'user' rows are indexed, so
+        # the leak-guard NOT EXISTS probes (and the custom-company claimer's
+        # visibility filter) stay cheap without carrying every 'public' row.
+        Index(
+            "ix_companies_visibility",
+            "visibility",
+            postgresql_where=text("visibility <> 'public'"),
+        ),
+    )
+
+
+class UserCompany(Base):
+    """Ownership link: which user privately tracks which custom company.
+
+    Deliberately NOT ``user_enabled_companies``. That table is a soft
+    allow-list where ZERO rows means "see everything"; reusing it for private
+    ownership would make a user with no explicit selections an owner of every
+    custom company. This table is the opposite — a row is an explicit,
+    per-(user, company) grant, and its absence is "not yours".
+
+    ``canonical_source_key`` (``f"{ats}:{token}"``) makes re-adding the same
+    board idempotent per user via the UNIQUE constraint: two different users who
+    add the same board get two DISTINCT company rows (and two ``custom:<id>``
+    source_ids), but one user re-adding it resolves to their existing row.
+    """
+
+    __tablename__ = "user_companies"
+
+    user_id = Column(
+        Text,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    # Soft link (house style — no FK): companies is truncated freely in tests and
+    # the ownership row's lifecycle is managed explicitly by the delete endpoint.
+    company_id = Column(Text, nullable=False)
+    canonical_source_key = Column(Text, nullable=False)  # f"{ats}:{token}"
+    created_at = Column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (
+        PrimaryKeyConstraint("user_id", "company_id"),
+        # Idempotent re-adds: one user cannot own the same board twice.
+        UniqueConstraint(
+            "user_id", "canonical_source_key", name="uq_user_companies_source_key"
+        ),
+        Index("idx_user_companies_company_id", "company_id"),
+    )
+
+
+class CompanyScript(Base):
+    """The stored replay script for a company — DATA, validated on write & read.
+
+    Phase 1 stores a single-primitive script:
+    ``{"kind": "ats_client", "provider": <ats>, "token": <board_token>}`` with
+    ``transport='ats_client'`` and ``oracle_kind='none'``. Later phases store the
+    closed-vocabulary primitive lists (fetch/paginate/extract/assert/oracle …);
+    the columns here are the frozen contract those phases extend.
+
+    ``oracle_kind='none'`` is what makes every Phase-1 harvest UNVERIFIED: with
+    no completeness oracle, no run can prove it saw the whole board, so nothing
+    ever closes. That is the safe default, not a gap.
+    """
+
+    __tablename__ = "company_scripts"
+
+    company_id = Column(Text, primary_key=True)
+    script = Column(JSONB, nullable=False)
+    script_version = Column(Integer, nullable=False)
+    transport = Column(Text, nullable=False)   # 'ats_client' | 'page_fetch' | ...
+    oracle_kind = Column(Text, nullable=False)  # 'none' (P1) | 'facet_sum' | ...
+    created_at = Column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at = Column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class CompanyHarvest(Base):
+    """Per-run evidence for a custom-company harvest.
+
+    One row per leaf-task run. Makes a wrong board match — or a run that landed
+    UNVERIFIED — diagnosable weeks later without replaying anything: the verdict,
+    the reason, how many records came back, and (Phase 2+) the oracle totals and
+    completeness signals that the verdict was computed from.
+    """
+
+    __tablename__ = "company_harvests"
+
+    id = Column(BigInteger, primary_key=True)
+    company_id = Column(Text, nullable=False)
+    run_id = Column(Text, nullable=False)
+    started_at = Column(TIMESTAMP(timezone=True), nullable=False)
+    completed_at = Column(TIMESTAMP(timezone=True), nullable=True)
+    verdict = Column(Text, nullable=False)       # 'VERIFIED'|'UNVERIFIED'|'FAILED'
+    verdict_reason = Column(Text, nullable=True)
+    records_harvested = Column(Integer, nullable=False, server_default=text("0"))
+    declared_total = Column(Integer, nullable=True)
+    oracle_total = Column(Integer, nullable=True)
+    oracle_kind = Column(Text, nullable=False)
+    cap_hit = Column(Boolean, nullable=False, server_default=text("false"))
+    page_advance_ok = Column(Boolean, nullable=True)
+    id_dedup_dropped = Column(Integer, nullable=False, server_default=text("0"))
+    tolerance_used = Column(Float, nullable=False, server_default=text("0"))
+
+    __table_args__ = (
+        # Plain ASC composite btree — Postgres serves the "most recent N harvests
+        # for this company" probe (ORDER BY started_at DESC LIMIT n) with a
+        # backward scan, so no DESC index is needed and autogenerate round-trips
+        # the definition exactly (mirrors idx_scrape_runs_company_started_at).
+        Index(
+            "idx_company_harvests_company_started_at", "company_id", "started_at"
+        ),
+    )
+
+
+class CompanyAddAttempt(Base):
+    """Audit of every add attempt, including refusals (owner decision D4).
+
+    Append-only. Records the URL a user pasted, what it resolved to (or why it
+    did not), and the terminal outcome ('added' | 'unsupported' | 'empty' |
+    'probe_failed'). ``user_id`` is a soft link (no FK) so the audit trail
+    survives a user deletion — an add attempt is a fact about what happened, not
+    a piece of the user's profile.
+    """
+
+    __tablename__ = "company_add_attempts"
+
+    id = Column(BigInteger, primary_key=True)
+    user_id = Column(Text, nullable=False)
+    submitted_url = Column(Text, nullable=False)
+    normalized_url = Column(Text, nullable=True)
+    outcome = Column(Text, nullable=False)
+    error_detail = Column(Text, nullable=True)
+    resolved_ats = Column(Text, nullable=True)
+    board_token = Column(Text, nullable=True)
+    company_id = Column(Text, nullable=True)
+    created_at = Column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (
+        Index("idx_company_add_attempts_user_id", "user_id"),
     )
 
 
@@ -679,6 +890,14 @@ class WorkerHeartbeat(Base):
     at = Column(
         TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
     )
+    # Which worker lane wrote this tick: 'bulk' or 'interactive'. There are two
+    # workers (see `_BULK_QUEUES` / `_INTERACTIVE_QUEUES` in api.main), and one
+    # can die while the other stays healthy. With a single undifferentiated
+    # stream, /health/worker would have stayed green on the survivor's ticks and
+    # the dead lane would have gone unnoticed — which is precisely how a dead
+    # worker went unnoticed for 14 hours on 2026-08-26. Server default 'bulk' so
+    # rows written by an older deploy mid-rollout are attributed correctly.
+    lane = Column(Text, nullable=False, server_default="bulk")
 
     __table_args__ = (
         # Plain ASC btree — Postgres' planner uses it for both
@@ -686,6 +905,9 @@ class WorkerHeartbeat(Base):
         # `at < now() - interval '24h'` (the cleanup task) with a
         # forward or backward scan. No DESC needed.
         Index("idx_worker_heartbeats_at", "at"),
+        # Per-lane freshness for /health/worker's
+        # `MAX(at) FILTER (WHERE lane = ...)`.
+        Index("idx_worker_heartbeats_lane_at", "lane", "at"),
     )
 
 

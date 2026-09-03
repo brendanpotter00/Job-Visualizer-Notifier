@@ -340,6 +340,36 @@ class TestEvaluateSafetyGuard:
         assert evaluate_safety_guard(36, 50) is None
 
 
+class TestPerCompanyMinRatio:
+    """E7 §4.5 — the keyword-only ``min_ratio`` override for custom companies.
+
+    ``min_ratio=None`` (every public cron) MUST reproduce the global 0.85; a
+    supplied ratio moves rule (b)'s knee for that company only. Rule (a)
+    ``empty_scrape`` (10%) is a hard floor unaffected by the override.
+    """
+
+    def test_none_reproduces_the_global_085_behaviour(self):
+        # 84/100 trips at 0.85; the None default must match the bare call.
+        assert evaluate_safety_guard(84, 100, min_ratio=None) == "partial_scrape"
+        assert evaluate_safety_guard(85, 100, min_ratio=None) is None
+
+    def test_lower_ratio_tolerates_a_bigger_drop(self):
+        """At the 0.5 floor, 60/100 (a 40% drop) no longer trips, whereas the
+        global 0.85 would have flagged it as partial."""
+        assert evaluate_safety_guard(60, 100) == "partial_scrape"          # global 0.85
+        assert evaluate_safety_guard(60, 100, min_ratio=0.5) is None       # per-company 0.5
+
+    def test_the_05_knee_is_a_strict_less_than(self):
+        # 49/100 breaches 0.5 (drop 51 >= 15) → trips; 50/100 sits exactly on
+        # the knee → does NOT trip (strict `<`).
+        assert evaluate_safety_guard(49, 100, min_ratio=0.5) == "partial_scrape"
+        assert evaluate_safety_guard(50, 100, min_ratio=0.5) is None
+
+    def test_empty_scrape_floor_ignores_min_ratio(self):
+        # 5/100 is below 10% → empty_scrape regardless of a loose min_ratio.
+        assert evaluate_safety_guard(5, 100, min_ratio=0.5) == "empty_scrape"
+
+
 class TestBoundedAutoRelease:
     """Tests for the auto-release that stops a PERMANENT board shrink from
     latching a company out forever.

@@ -56,7 +56,7 @@ All configuration via environment variables:
 |---------|-------------|---------|
 | `DATABASE_URL` | PostgreSQL connection URL | `postgresql://postgres:postgres@localhost:5432/jobscraper` |
 | `SCRAPER_INTERVAL_HOURS` | Hours between auto-scrape cycles | `1` |
-| `SCRAPER_COMPANIES` | Comma-separated company list | `apple,google,microsoft,amazon` |
+| `SCRAPER_COMPANIES` | Comma-separated company list | `apple,google,microsoft,amazon,tiktok` |
 | `SCRAPER_DETAIL_SCRAPE` | Fetch job detail pages | `true` |
 | `SCRAPER_TIMEOUT_MINUTES` | Max time per scrape | `90` |
 | `SCRAPER_SCRIPTS_PATH` | Path to Python scripts | `../../scripts` (local) / `/app/scripts` (Docker) |
@@ -75,10 +75,16 @@ All configuration via environment variables:
 | `ENRICHMENT_CLAIM_TTL_MINUTES` | Stale-claim reclaim window in minutes (must exceed a full enricher tick round-trip) | `240` |
 | `ENRICHMENT_REQUIRE_JUDGE_PASS` | If true, hold judge-flagged rows as `needs_human` instead of publishing `done` | `false` |
 | `ENRICHMENT_CLAIM_WITHOUT_DESCRIPTION` | If true, allow claiming description-less rows (e.g. Workday/Eightfold) | `false` |
+| `ENRICHMENT_CUSTOM_SHARE_PCT` | Share of each `/pending` batch reserved for custom (user-added) companies; `0` disables custom claiming | `10` |
+| `ENRICHMENT_CUSTOM_PER_COMPANY_CAP` | Per-custom-company eligibility window: only a company's newest N *unclaimed* OPEN rows compete for the custom slice | `500` |
 | `POSTHOG_PROJECT_TOKEN` | PostHog analytics API key — if unset, all analytics is disabled (`get_posthog()` returns `None`) | *(optional)* |
 | `POSTHOG_HOST` | PostHog ingestion host (US cloud endpoint) | `https://us.i.posthog.com` |
 | `FEEDBACK_RATE_LIMIT_MAX` | Max feedback submissions per client IP per window | `5` |
 | `FEEDBACK_RATE_LIMIT_WINDOW_SECONDS` | Rate-limit sliding window duration (seconds) | `60` |
+| `RESOLVE_RATE_LIMIT_MAX` / `..._WINDOW_SECONDS` | Burst limit on `POST /api/companies/resolve`, per authenticated user | `10` / `60` |
+| `USER_COMPANY_ADD_RATE_LIMIT_MAX` / `..._WINDOW_SECONDS` | Burst limit on `POST /api/users/companies`, per authenticated user. In-memory, so it resets on deploy — a burst smoother, not the spend guard | `10` / `60` |
+| `USER_COMPANY_RENAME_RATE_LIMIT_MAX` / `..._WINDOW_SECONDS` | Burst limit on `PATCH /api/users/companies/{id}` (the rename), per authenticated user. Its OWN bucket, an order of magnitude looser than the add pair: a rename is one UPDATE — no browser, no outbound request, no LLM — so it charges neither the add burst limiter nor the monthly cap (fixing a typo must not cost one of twenty adds) | `30` / `60` |
+| `CUSTOM_COMPANY_MONTHLY_ADD_LIMIT` | **The spend guard.** URLs one user may submit to `POST /api/users/companies` per UTC calendar month (resets on the 1st). Every submission counts — success, refusal, already-published — and deleting a company does **not** refund a slot. Counted off the append-only `company_add_attempts` audit (`services/add_quota.py`), which is what makes "no refund" real. **The number is the number of adds allowed — `0` allows NONE** (a per-user kill switch; it is not an "unlimited" sentinel, and it boots with a WARNING). **Fail-closed both ways**: a typo'd env var NAME is dropped by `extra="ignore"` and this 20 stands, and a typo'd VALUE landing on `0` blocks adds instead of granting unbounded spend. Local dev uses a large number (10000), never 0. **Admins are exempt** — the cap never refuses a caller with a row in `admins` (the same grant `require_admin` reads), their adds are still recorded, the 10/60s burst limiter still applies, and `GET /api/users/companies` omits the `quota` block so the counter agrees with what is enforced. The lookup fails CLOSED: an error means "not an admin" and the cap applies | `20` |
 
 **Table names are env-agnostic.** All environments share bare names (`job_listings`, `scrape_runs`, `users`, `user_enabled_companies`). Test isolation uses per-worker Postgres **schemas** via `PYTEST_SCHEMA=test_<hex>` + `SET search_path`; inside the schema the table names are the same as prod. See `docs/implementations/envAgnosticTables/PLAN.md`.
 
@@ -161,7 +167,7 @@ All configuration via environment variables:
 
 **Jobs facets:** `GET /api/jobs/facets` - enrichment dropdown catalog (categories + levels with labels/order/parent) from the seeded dimensions.
 
-**Internal Enrichment Router (`/api/internal/enrichment`, X-Internal-Key):** `GET /pending` (claim batch; title-priority order — entry-level/intern, then software-engineering, then everything else, newest `first_seen_at` within each tier), `POST /results` (idempotent write-back; returns `written`/`failed[]`(+`source_id`)/`warnings[]`), `GET /sample`, `GET /health`, `POST /metrics` (per-tick push → `enrichment_ticks`, idempotent on `tick_uuid`), `GET /corrections` (human-correction feed for the enricher's golden-merge).
+**Internal Enrichment Router (`/api/internal/enrichment`, X-Internal-Key):** `GET /pending` (claim batch; title-priority order — entry-level/intern, then software-engineering, then everything else, newest `first_seen_at` within each tier; the batch is **split** — `ENRICHMENT_CUSTOM_SHARE_PCT` of it is reserved for custom companies, dealt round-robin across them, and each slice absorbs the other's unused budget so the reservation never idles the enricher), `POST /results` (idempotent write-back; returns `written`/`failed[]`(+`source_id`)/`warnings[]`), `GET /sample`, `GET /health`, `POST /metrics` (per-tick push → `enrichment_ticks`, idempotent on `tick_uuid`), `GET /corrections` (human-correction feed for the enricher's golden-merge).
 
 **Admin Enrichment (`/api/admin/enrichment/*`, requires admin):** `GET /health`, `GET /needs-human` (paginated triage queue), `GET /ticks`, `GET /recent`, `POST /jobs/{source_id}/{job_id}/correct` (publish human labels + lock row; sets `human_decision='corrected'`), `POST /jobs/{source_id}/{job_id}/confirm` (one-click validate the proposal as-is + lock row; sets `human_decision='confirmed_correct'`; 409 if the row has no proposed labels), `POST /jobs/{source_id}/{job_id}/reenrich` (reset + unlock; clears `human_decision`). Backing SQL in `services/enrichment_monitor.py`. `job_enrichment.human_decision` (`NULL` | `corrected` | `confirmed_correct`) is the human verdict — distinct from the judge's `judged`/`judge_passed` — and rides the `/api/internal/enrichment/corrections` feed as `decision` so the enricher can tell a fix from a validated raise.
 
@@ -198,7 +204,7 @@ All configuration via environment variables:
 
 **Health:**
 - `GET /health` - Health check (returns "OK" 200, or "UNAVAILABLE" 503 if pool is down)
-- `GET /health/worker` - Procrastinate worker liveness probe; checks `procrastinate_events` and `worker_heartbeats` freshness windows; returns 200 OK or 503; used as Railway's `healthcheckPath`
+- `GET /health/worker` - Procrastinate worker liveness probe; checks `procrastinate_events` freshness, combined `worker_heartbeats` freshness, **and each lane's own heartbeat freshness** (`lanes` + `stale_lanes` in the payload name which worker is dead); returns 200 OK or 503; used as Railway's `healthcheckPath`
 
 ## Key Files
 
@@ -249,7 +255,9 @@ src/backend/api/
 │   ├── rate_limit.py        # Per-key async rate limiter (used by ATS clients)
 │   ├── scraper_lock.py  # asyncio.Lock singleton shared by runner + auto-scraper
 │   ├── scraper_runner.py # Async subprocess runner for scrapers
-│   ├── auto_scraper.py  # Background scheduled scraping (Google/Apple/Microsoft/Amazon)
+│   ├── scraper_health.py    # Stale-scraper report query (used by GET /api/jobs-qa/scraper-health)
+│   ├── auto_scraper.py  # Background scheduled scraping (Google/Apple/Microsoft/Amazon/TikTok)
+│   ├── db_watchdog.py   # Daemon thread probing the DB; exits process after ~5-6 min unreachability so Railway restarts
 │   ├── ashby_client.py      # Ashby ATS HTTP client
 │   ├── eightfold_client.py  # Eightfold ATS HTTP client (SSRF allowlist lives here)
 │   ├── gem_client.py        # Gem ATS HTTP client
@@ -257,8 +265,8 @@ src/backend/api/
 │   ├── lever_client.py      # Lever ATS HTTP client
 │   └── workday_client.py    # Workday ATS HTTP client
 └── tasks/
-    ├── procrastinate_app.py         # Procrastinate App instance + schema setup
-    ├── heartbeat.py                 # Heartbeat task (liveness probe for /health/worker)
+    ├── procrastinate_app.py         # Procrastinate App instance (explicit pool sizing — two workers each pin a LISTEN connection) + schema setup + CUSTOM_ATS_FIRST_FETCH_QUEUE
+    ├── heartbeat.py                 # Per-lane heartbeat tasks (bulk + interactive) backing /health/worker
     ├── enqueue_*_fan_out.py (×6)    # Fan-out tasks: enqueue per-company fetch for each ATS
     ├── fetch_*_company.py (×6)      # Leaf tasks: fetch + upsert one company's jobs
     ├── normalize_location.py        # Leaf task: normalize one job's free-text location via Claude Haiku
@@ -296,11 +304,22 @@ anti-join invariants the `/api/jobs` INNER JOIN depends on — runbook in
 
 - **Database**: Connection pool managed by `dependencies.py`; table naming reused from `scripts/shared/database.py`
 - **Response serialization**: Pydantic models with `alias_generator=to_camel` produce camelCase JSON matching frontend expectations
-- **Background workers**: Two workers run in the FastAPI lifespan context:
-  1. **Procrastinate worker** (`tasks/procrastinate_app.py`) — drains the Procrastinate job queue; handles Greenhouse, Ashby, Lever, Gem, Eightfold, and Workday ATS companies via fan-out + per-company fetch tasks. Supervised with auto-restart on crash.
-  2. **Auto-scraper loop** (`services/auto_scraper.py`) — asyncio task that periodically spawns subprocesses for the script-ats scrapers (Google, Apple, Microsoft, Amazon, TikTok).
+- **Background workers**: Three tasks run in the FastAPI lifespan context — **two Procrastinate workers on disjoint queue sets**, plus the auto-scraper:
+  1. **Bulk Procrastinate worker** (`_BULK_QUEUES` in `main.py`, concurrency 5) — the six public ATS fan-outs + per-company fetches, the `*/15` custom-company claim tick and the recurring custom re-harvests it defers (`custom_ats_fetch`, one per board per `companies.cadence_hours` — **1 h**, matching the `*/30` public crons as closely as the INTEGER column allows; it was 24 h while a harvest still meant a browser session), `heartbeat`, `normalize`. Scheduled, unattended, tens of thousands of jobs.
+  2. **Interactive Procrastinate worker** (`_INTERACTIVE_QUEUES`, concurrency 2) — a **reserved lane** for work a human is watching a spinner for: `custom_discovery` (a pasted URL + its five-step checklist), `custom_ats_first_fetch` (the add-time first harvest, which closes the checklist's last step), and `interactive_heartbeat`. It exists because these used to share one worker with the bulk queues, so a fan-out tick holding all five slots left a user's discovery job sitting in `todo` (2026-08-26). Splitting by queue rather than by `priority` is deliberate — priority only decides who goes next when a slot frees, and the problem was that no slot ever freed.
+  - Both are supervised with auto-restart, and both pass **`install_signal_handlers=False`**. This is load-bearing: Procrastinate's default installs `loop.add_signal_handler(SIGTERM, worker.stop)`, which clobbers the `signal.signal(SIGTERM, server.handle_exit)` uvicorn set in `Server.capture_signals()`. One SIGTERM then stops only the worker — `run_worker_async` returns *normally*, so nothing is logged — and uvicorn keeps serving with no worker while still holding the port. That is exactly what happened on 2026-08-26 (14h of no jobs drained; the operator's replacement uvicorn died on "address already in use"). A normal return from `run_worker_async` is now logged as an error and restarted, never returned from.
+  - **Observability:** each lane has its own heartbeat queue, so `worker_heartbeats.lane` tells you *which* worker died and `/health/worker` 503s on either lane going stale. A single undifferentiated heartbeat would let one dead lane hide behind the survivor's ticks.
+  3. **Auto-scraper loop** (`services/auto_scraper.py`) — asyncio task that periodically spawns subprocesses for the script-ats scrapers (Google, Apple, Microsoft, Amazon, TikTok).
 - **Scraper subprocess**: Runs `scripts/run_scraper.py` via `asyncio.create_subprocess_exec`
-- **DB watchdog** (`services/db_watchdog.py`): daemon thread probing the DB on fresh connections with hard wall-clock deadlines; exits the process after ~5-6 sustained minutes of unreachability so Railway restarts the container (see `railway.toml` and the 2026-08-10 incident doc).
+- **Job lifecycle (first seen → missed → closed → reopened)**: every `fetch_*_company.py` leaf task writes through `scripts/shared/database.py`, so the lifecycle rules are shared with the script scrapers and documented once in **`scripts/CLAUDE.md` § Job Lifecycle**. Read it before assuming anything about `first_seen_at`, `closed_on` or `consecutive_misses` — in particular, `first_seen_at` is stamped once at INSERT and is **never** updated when a closed job reopens, which is what makes it a safe keyset sort key (`api/pagination.py`). **What it now holds is the effective posted date, not "when we first saw it"** — seeded at INSERT from the board's own posting date when the board publishes a real one, from first sight otherwise; `created_at` is the true insert time and `posted_on` the raw board value. A board that publishes a bucket (`"Posted 30+ Days Ago"`) has published no date, and we never synthesise one.
+- **Two liveness watchdogs, partitioning the failure space** (both daemon threads that `os._exit` so Railway `ON_FAILURE` restarts the container; `/health/worker` is Railway's `healthcheckPath` but gates deploy cutover only and never restarts a live container):
+  - **DB watchdog** (`services/db_watchdog.py`, exit 70): probes the DB on fresh connections with hard wall-clock deadlines; exits after ~5-6 sustained minutes of **DB unreachability** (see the 2026-08-10 incident doc).
+  - **Worker watchdog** (`services/worker_watchdog.py`, exit 75): reads `MAX(worker_heartbeats.at)` and exits when the worker heartbeat is stale past ~15 min **while the DB is reachable** — i.e. the executor is **wedged** but the DB is fine (the 2026-08-29 incident: `run_worker_async` hung mid-drain after a transient DB blip and never returned; nothing restarted it for 61h). Keys on `worker_heartbeats`, NOT `procrastinate_events`, because the periodic deferrer keeps writing events even with a dead executor. An unreachable DB is inconclusive here and left to the DB watchdog. Tunable via `WORKER_WATCHDOG_*` env vars; disabled under pytest by a conftest fixture.
+    ⚠️ **It reads `MAX(at)` across ALL lanes, so it restarts on BOTH lanes dying, not one.**
+    A single dead lane keeps `MAX(at)` fresh from its survivor and this watchdog stays
+    quiet — `/health/worker` still 503s on it (that probe is per-lane), but nothing
+    auto-restarts. Making the restart per-lane means grouping by `lane`, which is a
+    deliberate follow-up rather than part of the lane split.
 
 ### Schema migrations
 

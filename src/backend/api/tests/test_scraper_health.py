@@ -58,10 +58,20 @@ def _seed_job(
     """Seed one job row "last seen" at the given time.
 
     ``job_listings`` has carried no freshness columns since ``18fe9c20a8fd``
-    (#239) — the timestamp is routed through ``first_seen_at``, which the
-    ``job_freshness_sync`` AFTER INSERT trigger copies into the sidecar's
-    ``last_seen_at``. Tests that need last-seen to diverge from first-seen
-    UPDATE ``job_freshness`` directly afterwards.
+    (#239), so last-seen lives only in the ``job_freshness`` sidecar and this
+    helper writes it there explicitly.
+
+    It used to route the timestamp through ``first_seen_at`` and let the
+    ``job_freshness_sync`` AFTER INSERT trigger copy it across. That shortcut
+    died with ``7a4c1e93b6d8``: the trigger now seeds ``now()``, because
+    ``first_seen_at`` is the board's posted date and can be a year old — under
+    the old copy a brand-new job would have been born stale.
+
+    Production never depended on the copy either. ``upsert_job`` and
+    ``upsert_jobs_batch`` both call ``_upsert_freshness`` in the same
+    transaction (``scripts/shared/database.py:510,589``), which stamps
+    last-seen from the run timestamp. The trigger's value only survives for a
+    row written by neither — and "we saw it just now" is the right answer there.
     """
     job_id = f"job-{uuid.uuid4().hex[:8]}"
     cur = conn.cursor()
@@ -81,6 +91,12 @@ def _seed_job(
             last_seen_at,
             status,
         ),
+    )
+    cur.execute(
+        sql.SQL("UPDATE {} SET last_seen_at = %s WHERE source_id = %s AND id = %s").format(
+            sql.Identifier("job_freshness")
+        ),
+        (last_seen_at, "test_scraper", job_id),
     )
     conn.commit()
     return job_id
@@ -106,6 +122,38 @@ class TestGetStaleCompanies:
         assert result["stale"] == []
         assert result["thresholdHours"] == 24
         assert result["checkedAt"]
+
+    def test_private_custom_company_never_appears_stale(self, db_conn):
+        """A ``visibility='user'`` custom company (E7) is one USER's private board.
+        Its health is that user's concern — surfaced through its own
+        ``health_state`` and the admin board's per-company live/stale status — not
+        the fleet-wide dead-scraper report that pages the owner about mass closures.
+        It must be excluded outright — even with ZERO job rows, the most-stale
+        state there is, which would otherwise always flag.
+
+        (The original reason recorded here was that custom companies ran on a 24 h
+        cadence and would flap against the 24 h threshold. They run hourly since
+        2026-08-29 and would no longer flap; the exclusion stands on ownership.)"""
+        _seed_company(db_conn, "u-privatestale")
+        db_conn.cursor().execute(
+            sql.SQL("UPDATE {} SET visibility = 'user' WHERE id = %s").format(
+                sql.Identifier("companies")
+            ),
+            ("u-privatestale",),
+        )
+        db_conn.commit()
+        # A genuinely-dead PUBLIC company, to prove the query still reports those.
+        _seed_company(db_conn, "deadpublic", ats="lever")
+        _seed_job(db_conn, "deadpublic", last_seen_at=_hours_ago(48))
+
+        result = get_stale_companies(db_conn, threshold_hours=24)
+
+        assert _entry(result, "u-privatestale") is None, (
+            "a private custom company must never appear in the stale report"
+        )
+        assert _entry(result, "deadpublic") is not None, (
+            "a dead public company must still be reported"
+        )
 
     def test_company_past_threshold_is_stale_with_correct_hours(self, db_conn):
         """A 30h-old last_seen_at against a 24h threshold. ``hoursStale`` is
@@ -400,7 +448,15 @@ class TestProxyAllowlistInvariant:
 
     def _proxy_allowlist(self) -> set[str]:
         src = self.PROXY.read_text()
-        match = re.search(r"const PROXIED_PATHS = new Set\(\[(.*?)\]\)", src, re.S)
+        # Accepts both spellings of the allowlist literal: the original
+        # ``new Set([...])`` and the ``[...] as const`` array the proxy moved to
+        # when the canonicalize-and-match logic was hoisted into the shared
+        # ``api/utils/proxyPath.ts`` (so all seven internal-key proxies use one
+        # implementation). Only the SHAPE is flexible — the invariant this
+        # class enforces is unchanged, and a denylist still fails the assert.
+        match = re.search(
+            r"const PROXIED_PATHS = (?:new Set\()?\[(.*?)\]", src, re.S
+        )
         assert match, (
             "PROXIED_PATHS is missing from api/jobs-qa.ts. If it was replaced "
             "by a denylist, read the class docstring first — that shape was "
@@ -492,9 +548,30 @@ class TestProxyAllowlistInvariant:
         allowlist too — which fails CLOSED, so it is not a vulnerability —
         but ``scrape-runs/`` would then 404 a legitimate caller. The
         canonicalizer is what makes both directions correct.
+
+        The canonicalizer now lives in ``api/utils/proxyPath.ts``, shared with
+        the six other internal-key proxies (``users``, ``companies``,
+        ``feedback``, ``features``, ``admin``, ``jobs``) after the same
+        ``?path=`` traversal was found live on five of them. This test follows
+        it there and additionally pins the guards that were added when it
+        became shared — a dynamic ``:id`` segment is not immune to the
+        URL-restructuring characters the way two fixed literals were.
         """
-        src = self.PROXY.read_text()
+        assert (
+            "from './utils/proxyPath'" in self.PROXY.read_text()
+        ), "api/jobs-qa.ts must use the shared canonicalizer, not a private copy"
+
+        shared = self.PROXY.parent / "utils" / "proxyPath.ts"
+        assert shared.exists(), shared
+        src = shared.read_text()
         assert "function canonicalizeProxyPath" in src
         assert "decodeURIComponent" in src
-        for guard in ("'..'", "'.'", "\\0"):
-            assert guard in src, f"canonicalizeProxyPath is missing {guard}"
+        for guard in (
+            "'..'",  # traversal
+            "'.'",  # './scrape-runs' is not a spelling we accept
+            "STRUCTURAL_HAZARDS",  # the character-class gate itself
+            r"[\\?#",  # backslash separator, query injection, fragment truncation
+            r"\u0000-\u001F",  # NUL truncation and every other C0 control
+            r"\u007F",  # DEL
+        ):
+            assert guard in src, f"the shared canonicalizer is missing {guard}"

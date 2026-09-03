@@ -1,0 +1,61 @@
+{
+ "steps": [
+  {
+   "op": "fetch",
+   "url": "https://www.amazon.jobs/en/search.json?radius=24km&facets%5B%5D=normalized_country_code&facets%5B%5D=normalized_state_name&facets%5B%5D=normalized_city_name&facets%5B%5D=location&facets%5B%5D=business_category&facets%5B%5D=category&facets%5B%5D=schedule_type_id&facets%5B%5D=employee_class&facets%5B%5D=normalized_location&facets%5B%5D=job_function_id&facets%5B%5D=is_manager&facets%5B%5D=is_intern&offset=0&result_limit=100&sort=relevant&latitude=&longitude=&loc_group_id=&loc_query=&base_query=&city=&country=&region=&county=&query_options=",
+   "method": "GET",
+   "headers": {
+    "accept": "application/json, text/plain, */*"
+   }
+  },
+  {
+   "op": "paginate_offset",
+   "param": "offset",
+   "max_pages": 102,
+   "page_size": 100,
+   "window_cap": 10000
+  },
+  {
+   "op": "extract_json_path",
+   "fields": {
+    "id": "id",
+    "url": "job_path",
+    "title": "title",
+    "location": "location",
+    "posted_at": "posted_date",
+    "department": "department_cost_center",
+    "description": "description"
+   },
+   "records_path": "jobs"
+  },
+  {
+   "op": "parse_date",
+   "mode": "strptime",
+   "field": "posted_at",
+   "format": "%B %d, %Y"
+  },
+  {
+   "op": "assert_no_inband_error",
+   "error_keys": [
+    "error"
+   ]
+  },
+  {
+   "op": "dedupe_key",
+   "field": "id"
+  },
+  {
+   "op": "assert_unique",
+   "field": "id"
+  }
+ ],
+ "oracle": {
+  "kind": "self_consistent"
+ },
+ "base_url": "https://www.amazon.jobs",
+ "transport": "http_json",
+ "discovered_at": "2026-08-28T01:07:11.052580+00:00",
+ "discovered_by": "capture/http_json",
+ "script_version": 1,
+ "expected_min_jobs": 1
+}

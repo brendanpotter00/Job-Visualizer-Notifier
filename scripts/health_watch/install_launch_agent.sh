@@ -1,5 +1,5 @@
 #!/bin/sh
-# Install (or reinstall) the daily scraper-health-watch LaunchAgent.
+# Install (or reinstall) the scraper-health-watch LaunchAgent (fires every 3h).
 # Idempotent: safe to re-run after editing the plist template or wrapper.
 set -eu
 
@@ -19,7 +19,7 @@ launchctl bootout "gui/$UID_N/$LABEL" 2>/dev/null || true
 launchctl bootstrap "gui/$UID_N" "$DEST"
 
 echo "installed: $DEST"
-echo "next fire (see 'events' below — StartCalendarInterval 09:00 daily):"
+echo "next fire (see 'events' below — StartCalendarInterval, every 3h):"
 launchctl print "gui/$UID_N/$LABEL" | grep -A 6 "events = " || true
 echo
 echo "manual fire now:   launchctl kickstart gui/$UID_N/$LABEL"

@@ -1,11 +1,13 @@
 ---
 name: scraper-health-watch
 description: |
-  Daily scraper-health watchdog. Detects dead/stale scrape sources (silent-zero
-  + staleness), mass job closures, and worker-heartbeat death against prod;
-  researches where a moved job board went (subagent); opens a fix PR (NEVER
-  merges); texts Brendan only when something is wrong, plus one weekly
-  all-clear. Runs headless daily via launchd, or invoke it interactively.
+  Scraper-health watchdog (runs every 3h via launchd). Detects dead/stale scrape
+  sources (silent-zero + staleness), a fleet-wide coverage collapse, mass job
+  closures, and worker-heartbeat death against prod; researches where a moved job
+  board went (subagent); opens a fix PR (NEVER merges); texts Brendan when
+  something is wrong — CRITICAL outages re-alert every run until fixed (no 72h
+  suppression) — plus one weekly all-clear. Headless via launchd, or invoke
+  interactively.
 trigger_phrases:
   - check scraper health
   - run the health watchdog
@@ -26,8 +28,12 @@ mode: read-write   # repo writes + PR only; prod is strictly read-only
 # Scraper Health Watch
 
 One run answers: **is any company we track silently returning nothing, mass-closing,
-or unscraped?** If yes: research where the board moved, open a fix PR, text Brendan
-the link. If no: stay silent (heartbeat log only; weekly all-clear text).
+or unscraped — or has the whole fleet's scrape coverage collapsed?** If yes: research
+where the board moved, open a fix PR, text Brendan. A live outage (worker dead,
+coverage collapse, mass closure) re-alerts on **every** run until it clears — a single
+missed text must never again mean a silent multi-day outage (2026-08-29: one text, then
+72h of self-suppression while prod stayed down 61h). If no: stay silent (heartbeat log
+only; weekly all-clear text).
 
 Ops runbook (launchd install, logs, pause): `scripts/health_watch/README.md`.
 Headless entry point: `.claude/commands/health-watch-once.md` → this file, `daily` mode.
@@ -60,8 +66,9 @@ timestamps per alert key + `last_allclear`).
 
 ## §1 Modes
 
-- **`daily`** — headless, launched by the LaunchAgent wrapper. Full procedure, no
-  narration beyond the final status block.
+- **`daily`** — headless, launched by the LaunchAgent wrapper (the mode name is
+  historical; the agent now fires **every 3h**, not once a day — see the plist).
+  Full procedure, no narration beyond the final status block.
 - **`interactive`** (default when invoked via the Skill tool) — same procedure;
   you may narrate and pause for the user.
 - **`drill <scenario>`** — test the alert path without real findings. Scenarios:
@@ -84,13 +91,34 @@ Tunable constants (change here, nowhere else):
 | `MASS_CLOSE_COMPANY_MIN` | 50 | per-company 24h closed_jobs floor |
 | `MASS_CLOSE_GLOBAL` | 1000 | global 24h closed_jobs alarm |
 | `HEARTBEAT_DEAD_MINUTES` | 15 | task writes every 5 min (`heartbeat.py:106`); app's own threshold is 10 min (`main.py:53`) |
+| `WARM_UP_HOURS` | 6 | reuses the staleness window — a company seeded less than one window ago has not had time to tick; see A1's warm-up guard |
+| `COVERAGE_MIN_FRACTION` | 0.5 | Check D floor — alert if fewer than half of enabled companies had a successful scrape in 24h. On the 2026-08-29 outage this read 5/133 (3.8%); anything under ~50% is a fleet-level failure, not per-company drift |
+| `GUARD_LATCH_MIN_RUNS` | 4 | Check A3 floor — the last N runs ALL guard-skipped (`skipped_update`) marks a latched-dark company. 4 = `SCRAPER_GUARD_MAX_CONSECUTIVE_SKIPS`(3, `incremental.py`) + 1, so a normally auto-releasing `partial_scrape` (which releases by the 3rd skip) can never reach it — only a non-releasing `empty_scrape` latch or a partial whose released run also fails. Validated on prod 2026-08-31: fires on apple (81 consecutive `empty_scrape` skips), zero other companies |
 
-**Check A1 — staleness** (companies whose last non-zero scrape is old or absent):
+> **A1 and A2 filter on `c.enabled` only — they do NOT filter on `c.visibility`**, so private
+> custom companies (E7, `visibility='user'`) are in scope. That is fine at the current cadence
+> and was **not** fine before: custom boards ran on a 24 h cadence until 2026-08-29, so
+> `last_ok` was older than the 6 h window for most of every day and every one of them would
+> have tripped A1 permanently the moment the feature flag flipped. They now harvest hourly
+> (`companies.cadence_hours = 1`), comfortably inside the window, so a custom board appearing
+> in A1 is a real signal. If the cadence is ever slowed past `STALE_AFTER_HOURS` again, add
+> `AND c.visibility = 'public'` here or raise the window — do not just mute the noise.
+
+**Check A1 — staleness** (companies whose last scrape that actually *wrote* is old or absent):
 
 ```sql
 WITH per_company AS (
-  SELECT c.id AS company, c.ats, c.board_token,
-         max(sr.started_at::timestamptz) FILTER (WHERE sr.jobs_seen > 0) AS last_ok,
+  SELECT c.id AS company, c.ats, c.board_token, c.created_at,
+         -- `last_ok` = the last run that both returned jobs AND wrote to
+         -- job_listings. A guard-tripped run (skipped_update=true) returned
+         -- rows but ingested NOTHING, so it is not an "ok" run — excluding it
+         -- is what makes A1 catch a company that keeps returning a small
+         -- non-zero count and is guard-blocked every run (the 2026-08-28 Apple
+         -- empty_scrape latch: jobs_seen=17>0 kept last_ok fresh, hiding a
+         -- 3.5-day outage). Check A3 below is the fast primary alarm for that
+         -- shape; this one-clause change makes A1 itself a backstop for it.
+         max(sr.started_at::timestamptz)
+           FILTER (WHERE sr.jobs_seen > 0 AND sr.skipped_update IS NOT TRUE) AS last_ok,
          max(sr.started_at::timestamptz) AS last_run,
          count(*) FILTER (WHERE sr.started_at::timestamptz > now() - interval '24 hours') AS runs_24h,
          count(*) FILTER (WHERE sr.started_at::timestamptz > now() - interval '24 hours'
@@ -98,13 +126,18 @@ WITH per_company AS (
   FROM companies c
   LEFT JOIN scrape_runs sr ON sr.company = c.id
   WHERE c.enabled
-  GROUP BY c.id, c.ats, c.board_token
+  GROUP BY c.id, c.ats, c.board_token, c.created_at
 )
 SELECT company, ats, board_token, last_ok, last_run, runs_24h, err_24h,
        round(((EXTRACT(EPOCH FROM now())::bigint
              - EXTRACT(EPOCH FROM last_ok)::bigint)/3600.0)::numeric, 1) AS hours_since_ok
 FROM per_company
-WHERE last_ok IS NULL OR last_ok < now() - interval '6 hours'
+WHERE (last_ok IS NULL OR last_ok < now() - interval '6 hours')
+  -- WARM-UP GUARD. A company whose seed migration just deployed has never run,
+  -- so last_ok IS NULL sorts it to the TOP (NULLS FIRST) of the degraded list,
+  -- and a repoint PR against a perfectly healthy new company is the result.
+  -- Give it one staleness window to produce its first non-zero run.
+  AND created_at < now() - interval '6 hours'
 ORDER BY hours_since_ok DESC NULLS FIRST;
 ```
 
@@ -126,9 +159,62 @@ ORDER BY c.id;
 ```
 
 A company is **degraded** if it appears in A1 or A2; record which signal(s) tripped.
+**A2 is what keeps the warm-up guard honest:** a brand-new company with a wrong
+`board_token` still trips A2 (its runs are all zero) on its very first tick, so
+suppressing "never ran yet" in A1 blinds nothing. A company younger than
+`WARM_UP_HOURS` with no `scrape_runs` rows at all is warming up, not dead.
 (Both queries returned exactly the same true positives with zero false positives
 across 133 companies on 2026-07-25 and 2026-08-05. A 404-storm source writes ~6
 rows per tick, so A2's "last 3" can span minutes, not 90 — that is why A1 exists.)
+
+**Check A3 — latched guard** (a company whose recent runs ALL got guard-skipped —
+it runs, returns a non-zero count, and writes **nothing** to `job_listings`).
+This is the check that was missing on 2026-08-28: the Apple scraper collapsed to
+17 jobs/run, tripped the `empty_scrape` guard every run, and stayed invisible to
+A1 (jobs_seen=17>0 kept `last_ok` fresh), A2 (17≠0), and D (counted as scraped-ok)
+for 3.5 days. Every prior check asks "did anything come back?"; this asks "did the
+run actually **do** anything?". See
+`docs/incidents/2026-08-28-apple-pagination-single-page.md`.
+
+```sql
+WITH lastN AS (
+  SELECT company, jobs_seen, skipped_update, guard_reason, started_at,
+         row_number() OVER (PARTITION BY company
+                            ORDER BY started_at::timestamptz DESC) AS rn
+  FROM scrape_runs
+)
+SELECT l.company, c.ats,
+       count(*) FILTER (WHERE l.skipped_update)  AS skipped_of_last4,
+       -- all distinct reasons across the latched runs (not max(), which would
+       -- report only the lexicographically-largest of a mixed empty/partial latch)
+       string_agg(DISTINCT l.guard_reason, ',')  AS guard_reasons,
+       min(l.jobs_seen) AS min_seen, max(l.jobs_seen) AS max_seen
+FROM lastN l
+JOIN companies c ON c.id = l.company
+WHERE c.enabled AND l.rn <= 4          -- GUARD_LATCH_MIN_RUNS (see below)
+GROUP BY l.company, c.ats
+HAVING count(*) = 4                     -- GUARD_LATCH_MIN_RUNS
+   AND count(*) FILTER (WHERE l.skipped_update) = 4   -- GUARD_LATCH_MIN_RUNS
+ORDER BY l.company;
+```
+
+> **Keep the three `4`s above in step with `GUARD_LATCH_MIN_RUNS`.** This is a
+> SQL-in-Markdown check with no runtime binding, so the literal is inlined the
+> same way every other check inlines its tunable (A1 hardcodes `interval '6
+> hours'` for `STALE_AFTER_HOURS`, etc.). If you retune `GUARD_LATCH_MIN_RUNS`,
+> change all three occurrences here (the `rn <= N` bound, the `count(*) = N`
+> floor, and the all-skipped `= N`). They MUST match: `rn <= N` selects at most N
+> rows, `count(*) = N` requires a full window of N, and the FILTER `= N` requires
+> all N skipped.
+
+Alert **CRITICAL** (key `guard_latched:<company>`) on **any** row — a company that
+has run ≥4 times and written nothing to `job_listings` is dark regardless of what
+`jobs_seen` says, and (for `empty_scrape`) will NOT self-heal:
+`resolve_safety_guard`'s bounded auto-release counts `partial_scrape` only
+(`incremental.py:count_consecutive_partial_skips`), so `empty_scrape` latches
+forever until code is fixed. The 4-run floor (`GUARD_LATCH_MIN_RUNS`) is why a
+normally auto-releasing `partial_scrape` can never trip this: it releases by the
+3rd consecutive skip, so 4 consecutive skips means a non-releasing latch.
 
 **Check B — mass closures** (the 2026-03-29 incident closed 3,582 Apple jobs in
 ~6 minutes; see `docs/incidents/2026-03-29-mass-job-closure.md`):
@@ -173,15 +259,50 @@ FROM worker_heartbeats;
 
 Alert if `last_beat` is NULL or `minutes_ago > 15`.
 
+**Check D — coverage collapse** (the single unmissable number: how many tracked
+companies actually produced a successful scrape in the last day). Independent of
+Check C — it fires even if the heartbeat mechanism itself is lying, and it is the
+signal that would have screamed on 2026-08-29 when only the 5 standalone Python
+scrapers kept running while all 128 worker-driven companies went dark:
+
+```sql
+SELECT
+  count(*) FILTER (WHERE c.enabled) AS enabled,
+  count(*) FILTER (WHERE c.enabled AND f.company IS NOT NULL) AS scraped_ok_24h
+FROM companies c
+LEFT JOIN (
+  SELECT DISTINCT company
+  FROM scrape_runs
+  WHERE started_at::timestamptz > now() - interval '24 hours'
+    AND jobs_seen > 0
+    -- A guard-skipped run returned rows but wrote nothing, so it is not a
+    -- "successful scrape" for coverage purposes (same reasoning as A1/A3).
+    AND skipped_update IS NOT TRUE
+) f ON f.company = c.id;
+```
+
+Alert **CRITICAL** (key `coverage_collapse`) if `scraped_ok_24h <
+COVERAGE_MIN_FRACTION * enabled`. Carry the raw ratio into the text
+(`only 5/133 scraped in 24h`) — that one line is the whole point: a per-company
+staleness list (Check A) can bury a total collapse; this number cannot.
+
 ## §3 Phase 2 — Classify
 
-- **OK** — A/B/C all clean.
-- **DEGRADED** — one or more findings; carry the per-company list (id, ats,
-  board_token, hours dark, signals) plus any B/C findings.
-- **UNKNOWN** — any check errored or returned something unparseable. UNKNOWN is
-  alertable; never downgrade it to OK.
+Severity — highest wins, and it decides the alert cadence (§4):
 
-## §4 Phase 3 — Dedupe gate (no spam, ever)
+- **CRITICAL** — an active outage: worker heartbeat dead (C), coverage collapse
+  (D), a mass closure (B), or a latched guard (A3 — a company that runs but writes
+  nothing). These **re-alert on every run until resolved** — never suppressed by
+  the 72h window (§4.2). A3 is text-only (no PR): a latched guard is a scraper
+  code bug a human must fix, not a board move the watchdog can repoint.
+- **DEGRADED** — per-company staleness / silent-zero (A) with the fleet still
+  broadly healthy; carry the per-company list (id, ats, board_token, hours dark,
+  signals). PR-able board moves dedupe on the open PR (§4.1).
+- **UNKNOWN** — any check errored or returned something unparseable. Treated as
+  CRITICAL for alerting (`unknown_prod`); never downgrade to OK.
+- **OK** — A/B/C/D all clean.
+
+## §4 Phase 3 — Dedupe gate (dedupe drift, NEVER an active outage)
 
 1. **Board-move incidents** (PR-able): run
    `gh pr list --state open --label scraper-health --json number,url,body`.
@@ -190,13 +311,24 @@ Alert if `last_beat` is NULL or `minutes_ago > 15`.
    **suppressed** — no new PR, no text for it. (The open PR is the incident
    record; merging it fixes the scraper and the SQL goes green. A PR closed
    without merging naturally re-alerts on the next run.)
-2. **Non-PR-able alerts** (heartbeat dead, UNKNOWN, mass closure, research found
-   nothing): read `state.json`; suppress the text if the same alert key was
-   texted within **72h**. Keys: `heartbeat_dead`, `unknown_prod`,
-   `mass_closure:global`, `mass_closure:<company>`, `notfound:<company>`,
-   `drill:<scenario>`. Still record the finding in the heartbeat line every run.
-3. If everything found is suppressed: append the heartbeat line with
-   `suppressed=<ids/keys>` and end (weekly all-clear still applies, §9).
+2. **CRITICAL alerts re-text on EVERY run — no 72h suppression.** Keys
+   `heartbeat_dead`, `coverage_collapse`, `mass_closure:global`,
+   `mass_closure:<company>`, `guard_latched:<company>`, `unknown_prod`. **Why this is not "spam":** the
+   2026-08-29 incident — `heartbeat_dead` was texted once, then this gate
+   suppressed it for 72h; that single text was missed and prod stayed dark 61h.
+   An ongoing, actionable outage MUST keep alerting until it clears. Re-send every
+   run and make each message escalate (§9) — carry the elapsed duration/day-count
+   so a repeat reads as "still down, and longer," never as an identical dupe.
+   `state.json` still records `last_texted` + a `first_texted` per critical key
+   (for the heartbeat line and the escalation math), but it does **not** gate the
+   send.
+3. **Informational alerts keep the 72h cooldown** — these are known needs-human
+   items, not live outages, so nagging adds nothing: keys `notfound:<company>`,
+   `drill:<scenario>`. Suppress the text if the same key was texted within 72h;
+   still record the finding in the heartbeat line.
+4. If everything found is a §4.1/§4.3 suppression (no CRITICAL active): append the
+   heartbeat line with `suppressed=<ids/keys>` and end (weekly all-clear still
+   applies, §9).
 
 ## §5 Phase 4 — Upstream probes (trivial research path)
 
@@ -349,13 +481,24 @@ Fix PR: <url>
 
 - One line per company: `id: dark Nd (<old evidence> -> <destination or verdict>)`.
 - Non-PR findings get their own line (`worker heartbeat DEAD 47m`,
+  `apple: guard-latched, 4/4 runs skipped (empty_scrape, 17 jobs) — scraper writing nothing`,
   `could not determine prod health (MCP error)`, `board not found — needs a human`).
+- **CRITICAL escalation (§4.2):** when a CRITICAL key is still active on a repeat
+  run, lead with the elapsed duration and a day counter so each send is visibly
+  worse and can never be mistaken for a prior text, e.g.
+  `JVN health CRITICAL day 3: worker DEAD 61h — only 5/133 scraping. Restart Railway.`
+  Derive elapsed from the finding itself (heartbeat `minutes_ago`, or
+  `now - state.json.first_texted[key]`).
 - `[DRILL]` prefix in drill mode.
 - **Weekly all-clear:** if verdict is OK and `state.json.last_allclear` is
   missing or older than **6.5 days**, send
   `JVN health: all clear (<N> sources healthy). Watchdog alive.`
-- After ANY successful send (exit 0), update `state.json`: the alert keys just
-  texted (ISO timestamp) and `last_allclear = now` (every text proves liveness).
+- After ANY successful send (exit 0), update `state.json`: set `last_texted` for
+  each alert key just sent (ISO timestamp); for a CRITICAL key, set `first_texted`
+  only if not already present (so escalation can measure how long it's been down);
+  and set `last_allclear = now` (every text proves liveness). When a CRITICAL key
+  comes back clean on a later run, clear its `first_texted`/`last_texted` so the
+  next occurrence starts a fresh escalation.
 - On send failure: `ALERT-SEND FAILED` to stderr, do not retry-loop; the
   heartbeat line still records what should have been sent.
 
@@ -365,10 +508,17 @@ Append exactly one line to `~/Library/Application Support/jvn-health-watch/heart
 (create the directory if needed):
 
 ```
-2026-08-05T16:03Z verdict=DEGRADED checked=133 stale=fireworksai,thinkingmachines mass_closure=none heartbeat_min=3 pr=https://github.com/.../pull/NNN texted=1 suppressed=none
+2026-08-05T16:03Z verdict=DEGRADED severity=degraded checked=133 coverage=131/133 stale=fireworksai,thinkingmachines guard_latched=none mass_closure=none heartbeat_min=3 pr=https://github.com/.../pull/NNN texted=1 suppressed=none
 ```
 
-(`verdict=OK ... stale=none ... pr=none texted=0` on the quiet path.) The
+`guard_latched=` lists any Check A3 companies (comma-separated ids, or `none`) —
+a run where `guard_latched=apple` but `coverage` and `stale` look fine is exactly
+the 2026-08-28 blind spot reading correctly at last.
+
+Always include `severity=` (ok|degraded|critical|unknown) and `coverage=<scraped_ok_24h>/<enabled>`
+(Check D) — a collapse then reads at a glance in the log, e.g. a worker-death run is
+`verdict=CRITICAL severity=critical checked=133 coverage=5/133 heartbeat_min=3648 ... texted=1 suppressed=none`.
+(`verdict=OK ... coverage=133/133 ... pr=none texted=0` on the quiet path.) The
 launchd wrapper checks this file's mtime advanced — skipping this line makes the
 wrapper report the run as failed. Print the same line as the final status block,
 then end the turn immediately (headless: no further tool calls).
@@ -379,6 +529,7 @@ then end the turn immediately (headless: no further tool calls).
 |---|---|
 | Board moved to an ATS with no client in this repo (`unsupported`, affirmative evidence) | Soft-disable PR (`enabled = FALSE`, listings untouched — unity3d precedent); text names the ATS it moved to |
 | Research inconclusive | Text-only (`notfound:<company>`), NO code change |
+| Company seeded <`WARM_UP_HOURS` ago, no runs yet | Not degraded — A1's warm-up guard drops it. It re-enters A1 automatically once it ages past the window; A2 already covers a bad `board_token` |
 | Current board self-healed by probe time | Drop from work list, note `self_healed` in heartbeat |
 | Prod MCP unreachable / query error | verdict UNKNOWN, text (key `unknown_prod`), no PR |
 | Alembic head moved between reading it and committing | Re-read head, re-parent the new migration, retry once |

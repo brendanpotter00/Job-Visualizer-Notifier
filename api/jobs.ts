@@ -2,6 +2,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { getBackendUrl } from './utils/backendUrl';
 import { forwardResponse } from './utils/forwardResponse';
 import { getInternalKeyHeader } from './utils/internalKey';
+import { PROXY_REJECTION, resolveProxyPath } from './utils/proxyPath';
 
 /**
  * Opaque keyset-pagination token minted by the backend's `GET /api/jobs`.
@@ -21,9 +22,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // Sub-path routing (vercel.json rewrites /api/jobs/:path -> ?path=...).
   // Only the facets catalog is exposed; the internal enrichment routes must
   // never be reachable through this public proxy.
-  const sub = Array.isArray(path) ? path.join('/') : path;
-  if (sub && sub !== 'facets') {
-    res.status(404).json({ error: 'Not found' });
+  //
+  // The allowlist was always right here — a single literal comparison can't be
+  // traversed. What it lacked was NORMALIZATION: `?path=facets/` and the array
+  // form `?path=facets&path=` both 404'd a legitimate caller. Sharing
+  // `resolveProxyPath` with the other seven proxies fixes that and keeps one
+  // implementation of the control instead of eight.
+  //
+  // NOT allowlisted, deliberately: `GET /api/jobs/{source_id}/{job_id}` exists
+  // on the backend but no frontend caller uses it, and widening a public
+  // key-injecting proxy is a decision, not a cleanup. Add it here (with a test)
+  // when something actually needs it.
+  const sub = resolveProxyPath(path, ['', 'facets']);
+  if (sub === null) {
+    res.status(PROXY_REJECTION.status).json(PROXY_REJECTION.body);
     return;
   }
 
@@ -55,7 +67,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const url = `${backendUrl}/api/jobs${sub ? `/${sub}` : ''}${queryString}`;
 
   try {
-    const response = await fetch(url, { headers: getInternalKeyHeader() });
+    const response = await fetch(url, {
+      headers: getInternalKeyHeader(),
+      // Never follow a redirect — Node's fetch preserves headers (including the
+      // injected X-Internal-Key) across a same-origin 3xx. See api/jobs-qa.ts.
+      redirect: 'manual',
+    });
     // Must be set BEFORE forwardResponse — that helper ends the response.
     // Absent on the last page and on the legacy (no since/cursor) path, which is
     // the contract's "end of results" signal, so only copy it when present.

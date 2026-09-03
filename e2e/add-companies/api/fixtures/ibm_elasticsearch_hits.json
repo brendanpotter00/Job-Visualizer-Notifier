@@ -1,0 +1,618 @@
+{
+ "url": "https://www-api.ibm.com/search/api/v2",
+ "method": "POST",
+ "status": 200,
+ "content_type": "application/json; charset=utf-8",
+ "post_data": "{\"appId\":\"careers\",\"scopes\":[\"careers2\"],\"query\":{\"bool\":{\"must\":[]}},\"aggs\":{\"field_keyword_172\":{\"filter\":{\"match_all\":{}},\"aggs\":{\"field_keyword_17\":{\"terms\":{\"field\":\"field_keyword_17\",\"size\":6}},\"field_keyword_17_count\":{\"cardinality\":{\"field\":\"field_keyword_17\"}}}},\"field_keyword_083\":{\"filter\":{\"match_all\":{}},\"aggs\":{\"field_keyword_08\":{\"terms\":{\"field\":\"field_keyword_08\",\"size\":6}},\"field_keyword_08_count\":{\"cardinality\":{\"field\":\"field_keyword_08\"}}}},\"field_keyword_184\":{\"filter\":{\"match_all\":{}},\"aggs\":{\"field_keyword_18\":{\"terms\":{\"field\":\"field_keyword_18\",\"size\":6}},\"field_keyword_18_count\":{\"cardinality\":{\"field\":\"field_keyword_18\"}}}},\"field_keyword_055\":{\"filter\":{\"match_all\":{}},\"aggs\":{\"field_keyword_05\":{\"terms\":{\"field\":\"field_keyword_05\",\"size\":1000}},\"field_keyword_05_count\":{\"cardinality\":{\"field\":\"field_keyword_05\"}}}}},\"size\":30,\"sort\":[{\"_score\":\"desc\"},{\"pageviews\":\"desc\"}],\"lang\":\"zz\",\"localeSelector\":{},\"sm\":{\"query\":\"\",\"lang\":\"zz\"},\"_source\":[\"_id\",\"title\",\"url\",\"description\",\"language\",\"entitled\",\"field_keyword_17\",\"field_keyword_08\",\"field_keyword_18\",\"field_keyword_19\"]}",
+ "page_title": "Search jobs | IBM Careers",
+ "body": {
+  "hits": {
+   "total": {
+    "value": 1806,
+    "relation": "eq"
+   },
+   "hits": [
+    {
+     "_index": "genesis-prod-1786834823886",
+     "_id": "0f4831b26e3dd9abad68616071fe498630390e8f5f1090e589c68e94ee552972",
+     "_score": 0,
+     "_source": {
+      "language": "en",
+      "url": "https://careers.ibm.com/careers/JobDetail?jobId=129622",
+      "title": "Client Engineering",
+      "description": "The IBM Sales Accelerator Program within Client Engineering is designed for early career professionals who want to combine technology expertise with client engagement. In this role, you will learn how to work at the intersection of technology and...",
+      "entitled": "",
+      "field_keyword_08": "Sales",
+      "field_keyword_17": "Hybrid",
+      "field_keyword_18": "Entry Level",
+      "field_keyword_19": "Zurich, CH"
+     },
+     "sort": [
+      0,
+      0
+     ]
+    },
+    {
+     "_index": "genesis-prod-1786834823886",
+     "_id": "529f2fca60ce5d60005a98474bd510ddfef120eba8be602feae2ce53f6c88f6c",
+     "_score": 0,
+     "_source": {
+      "language": "en",
+      "url": "https://careers.ibm.com/careers/JobDetail?jobId=58347",
+      "title": "IBM Consulting Interns",
+      "description": "A career in IBM Consulting is rooted in long-term relationships and close collaboration with clients across the globe. \u00a0 You'll work with visionaries across multiple industries to improve the hybrid cloud and AI journey for the most innovative and...",
+      "entitled": "",
+      "field_keyword_08": "Software Engineering",
+      "field_keyword_17": "Hybrid",
+      "field_keyword_18": "Internship",
+      "field_keyword_19": "QUEZON CITY, PH"
+     },
+     "sort": [
+      0,
+      0
+     ]
+    },
+    {
+     "_index": "genesis-prod-1786834823886",
+     "_id": "af95b65035005bc3c5fb02470d464c5e427a136f5448183148a515ef44950311",
+     "_score": 0,
+     "_source": {
+      "language": "en",
+      "url": "https://careers.ibm.com/careers/JobDetail?jobId=110298",
+      "title": "Senior Java Developer - eSC/eDV Required",
+      "description": "At IBM Consulting UK FutureNow, you\u2019ll build a career at the forefront of hybrid cloud and AI, working with leading clients across the public and private sectors. You\u2019ll collaborate with top industry professionals, gain hands on experience with cutting...",
+      "entitled": "",
+      "field_keyword_08": "Software Engineering",
+      "field_keyword_17": "Hybrid",
+      "field_keyword_18": "Professional",
+      "field_keyword_19": "Multiple Cities"
+     },
+     "sort": [
+      0,
+      0
+     ]
+    },
+    {
+     "_index": "genesis-prod-1786834823886",
+     "_id": "6638e089ae4ff1066d8d88977fb39a3ffb2d47062b078f144c133e5d4b873bc0",
+     "_score": 0,
+     "_source": {
+      "language": "en",
+      "url": "https://careers.ibm.com/careers/JobDetail?jobId=108502",
+      "title": "Package Consultant-SAP HANA SCM EWM",
+      "description": "A career in IBM Consulting is built on long-term client relationships and close collaboration worldwide. You\u2019ll work with leading companies across industries, helping them shape their hybrid cloud and AI journeys. With support from our strategic...",
+      "entitled": "",
+      "field_keyword_08": "Consulting",
+      "field_keyword_17": "Hybrid",
+      "field_keyword_18": "Professional",
+      "field_keyword_19": "Hyderabad, IN"
+     },
+     "sort": [
+      0,
+      0
+     ]
+    },
+    {
+     "_index": "genesis-prod-1786834823886",
+     "_id": "f709599b6aa2acb88efd862c17f4205bad6b613320c1b8eb9851d994b4d55b45",
+     "_score": 0,
+     "_source": {
+      "language": "en",
+      "url": "https://careers.ibm.com/careers/JobDetail?jobId=121343",
+      "title": "Oracle Cloud OTL Functional Consultant",
+      "description": "At IBM Consulting UK FutureNow, you\u2019ll build a career at the forefront of hybrid cloud and AI, working with leading clients across the public and private sectors. You\u2019ll collaborate with top industry professionals, gain hands on experience with cutting...",
+      "entitled": "",
+      "field_keyword_08": "Infrastructure & Technology",
+      "field_keyword_17": "Hybrid",
+      "field_keyword_18": "Professional",
+      "field_keyword_19": "Multiple Cities"
+     },
+     "sort": [
+      0,
+      0
+     ]
+    },
+    {
+     "_index": "genesis-prod-1786834823886",
+     "_id": "88f5566eed736267b88b387f6fe02bf6ff7d9e9da17637936b92f417ec843747",
+     "_score": 0,
+     "_source": {
+      "language": "en",
+      "url": "https://careers.ibm.com/careers/JobDetail?jobId=122592",
+      "title": "Attorney",
+      "description": "At IBM, work is more than a job - it's a calling: To build. To design. To code. To consult. To think along with clients and sell. To make markets. To invent. To collaborate. Not just to do something better, but to attempt things you've never thought...",
+      "entitled": "",
+      "field_keyword_08": "Enterprise Operations",
+      "field_keyword_17": "Hybrid",
+      "field_keyword_18": "Professional",
+      "field_keyword_19": "Bangalore, IN"
+     },
+     "sort": [
+      0,
+      0
+     ]
+    },
+    {
+     "_index": "genesis-prod-1786834823886",
+     "_id": "642181d4ee579207d588e82da772b999497742e7c1112d86475e8016bd8ccac9",
+     "_score": 0,
+     "_source": {
+      "language": "en",
+      "url": "https://careers.ibm.com/careers/JobDetail?jobId=122360",
+      "title": "Entry level Technical Storage Seller - Belgium",
+      "description": "Kick-start your career in technology sales with the IBM Sales Accelerator Program \u2014 a unique opportunity designed for ambitious early-career professionals looking to grow into future IBM sales leaders.\u00a0 See what your peers are saying about it on this...",
+      "entitled": "",
+      "field_keyword_08": "Sales",
+      "field_keyword_17": "Hybrid",
+      "field_keyword_18": "Entry Level",
+      "field_keyword_19": "BRUSSELS, BE"
+     },
+     "sort": [
+      0,
+      0
+     ]
+    },
+    {
+     "_index": "genesis-prod-1786834823886",
+     "_id": "2ac3c6de1bc7ddd50613c483cb3c7cc887838818e0a060556c310c559969dcda",
+     "_score": 0,
+     "_source": {
+      "language": "en",
+      "url": "https://careers.ibm.com/careers/JobDetail?jobId=120562",
+      "title": "Quantum algorithm developer",
+      "description": "At IBM Research, we are the innovation engine of IBM. Exploring what\u2019s next in computing and shaping the technologies the world will rely on tomorrow. From advancing AI and hybrid cloud to pioneering practical quantum computing, we anticipate challenges...",
+      "entitled": "",
+      "field_keyword_08": "Infrastructure & Technology",
+      "field_keyword_17": "Hybrid",
+      "field_keyword_18": "Professional",
+      "field_keyword_19": "Cambridge, US"
+     },
+     "sort": [
+      0,
+      0
+     ]
+    },
+    {
+     "_index": "genesis-prod-1786834823886",
+     "_id": "dd381db3596a22c886698b09043688dc7ee96ebc21c7a672c654992daa3d64af",
+     "_score": 0,
+     "_source": {
+      "language": "en",
+      "url": "https://careers.ibm.com/careers/JobDetail?jobId=126665",
+      "title": "PROCESS DELIVERY SPECIALIST-PROCURE TO PAY",
+      "description": "A career in IBM Consulting embraces long-term relationships and close collaboration with clients across the globe. In this role, you will work for IBM BPO, part of Consulting that, accelerates digital transformation using agile methodologies, process...",
+      "entitled": "",
+      "field_keyword_08": "Enterprise Operations",
+      "field_keyword_17": "",
+      "field_keyword_18": "Professional",
+      "field_keyword_19": "Bangalore, IN"
+     },
+     "sort": [
+      0,
+      0
+     ]
+    },
+    {
+     "_index": "genesis-prod-1786834823886",
+     "_id": "1c47c40cb07b5fc8553480598bb753ea39aa6f1c2575a6705811ddf17d27f9ce",
+     "_score": 0,
+     "_source": {
+      "language": "en",
+      "url": "https://careers.ibm.com/careers/JobDetail?jobId=125384",
+      "title": "Senior Software Developer - Confluent Flink",
+      "description": "At IBM Software, we transform client challenges into solutions. Building the world\u2019s leading AI-powered, cloud-native products that shape the future of business and society. Our legacy of innovation creates endless opportunities for IBMers to learn,...",
+      "entitled": "",
+      "field_keyword_08": "Software Engineering",
+      "field_keyword_17": "Remote",
+      "field_keyword_18": "Professional",
+      "field_keyword_19": "Ehningen, DE"
+     },
+     "sort": [
+      0,
+      0
+     ]
+    },
+    {
+     "_index": "genesis-prod-1786834823886",
+     "_id": "5c31a1e7c92a075b95005549e8eaeca91bb74d41fa8d1141e343a09b4ef11add",
+     "_score": 0,
+     "_source": {
+      "language": "en",
+      "url": "https://careers.ibm.com/careers/JobDetail?jobId=124028",
+      "title": "Senior Software Engineer II - Confluent Traffic Team",
+      "description": "At IBM Software, we transform client challenges into solutions. Building the world\u2019s leading AI-powered, cloud-native products that shape the future of business and society. Our legacy of innovation creates endless opportunities for IBMers to learn,...",
+      "entitled": "",
+      "field_keyword_08": "Software Engineering",
+      "field_keyword_17": "Remote",
+      "field_keyword_18": "Professional",
+      "field_keyword_19": "Multiple Cities"
+     },
+     "sort": [
+      0,
+      0
+     ]
+    },
+    {
+     "_index": "genesis-prod-1786834823886",
+     "_id": "cb78d3d3e4eaeb8d05198105fe5e4967c4dfee7359efe051163616ccc42467f5",
+     "_score": 0,
+     "_source": {
+      "language": "en",
+      "url": "https://careers.ibm.com/careers/JobDetail?jobId=126855",
+      "title": "Scheduling & Reporting Analyst",
+      "description": "A career in IBM Consulting is built on long-term client relationships and close collaboration worldwide. You\u2019ll work with leading companies across industries, helping them shape their hybrid cloud and AI journeys. With support from our strategic...",
+      "entitled": "",
+      "field_keyword_08": "Enterprise Operations",
+      "field_keyword_17": "",
+      "field_keyword_18": "Professional",
+      "field_keyword_19": "QUEZON CITY, PH"
+     },
+     "sort": [
+      0,
+      0
+     ]
+    },
+    {
+     "_index": "genesis-prod-1786834823886",
+     "_id": "0ea028bae3f1166804c715efd895ae9d4de9329a24d6450d027df94fd9c834e0",
+     "_score": 0,
+     "_source": {
+      "language": "en",
+      "url": "https://careers.ibm.com/careers/JobDetail?jobId=126739",
+      "title": "PROCESS DELIVERY SPECIALIST-PROCURE TO PAY",
+      "description": "A career in IBM Consulting embraces long-term relationships and close collaboration with clients across the globe. In this role, you will work for IBM BPO, part of Consulting that, accelerates digital transformation using agile methodologies, process...",
+      "entitled": "",
+      "field_keyword_08": "Enterprise Operations",
+      "field_keyword_17": "",
+      "field_keyword_18": "Professional",
+      "field_keyword_19": "Bangalore, IN"
+     },
+     "sort": [
+      0,
+      0
+     ]
+    },
+    {
+     "_index": "genesis-prod-1786834823886",
+     "_id": "49075531675706aa16e96d6a881f801db1b93d8873b7dd50d2f4eb248ca5e32b",
+     "_score": 0,
+     "_source": {
+      "language": "en",
+      "url": "https://careers.ibm.com/careers/JobDetail?jobId=127476",
+      "title": "Technology Sales Support",
+      "description": "\u30c6\u30af\u30ce\u30ed\u30b8\u30fc\u4e8b\u696d\u672c\u90e8 This is a Japanese-speaking role located in Japan. For job details, please see the Japanese description below. \u25c6\u25c6\u25c6 \u696d\u52d9\u5185\u5bb9 \u25c6\u25c6\u25c6 \u65e5\u672cIBM\u30c6\u30af\u30ce\u30ed\u30b8\u30fc\u4e8b\u696d\u672c\u90e8\u306b\u6240\u5c5e\u3057\u3066\u3001\u5404\u7a2e\u306e\u30bb\u30fc\u30eb\u30b9\u306e\u88dc\u52a9\u696d\u52d9\u3092\u3054\u62c5\u5f53\u3044\u305f\u3060\u304d\u307e\u3059\u3002 \uff08\u4ed5\u4e8b\u5185\u5bb9\u306f\u969c\u304c\u3044\u306e\u72b6\u6cc1\u306b\u3088\u308a\u76f8\u8ac7\u306b\u5fdc\u3058\u307e\u3059\uff09 \u2022AI\u3092\u6d3b\u7528\u3057\u305f\u7ffb\u8a33\u696d\u52d9 \u2022\u30bb\u30df\u30ca\u30fc\u306a\u3069\u306e\u958b\u50ac\u30b5\u30dd\u30fc\u30c8\uff08\u30aa\u30f3\u30b5\u30a4\u30c8\u30b5\u30dd\u30fc\u30c8 \u542b\u3080\uff09...",
+      "entitled": "",
+      "field_keyword_08": "Infrastructure & Technology",
+      "field_keyword_17": "Hybrid",
+      "field_keyword_18": "Professional",
+      "field_keyword_19": "Tokyo, JP"
+     },
+     "sort": [
+      0,
+      0
+     ]
+    },
+    {
+     "_index": "genesis-prod-1786834823886",
+     "_id": "4ae5e8205c7a5811815d24cc2ee9ea1dde133e3f1b3df33bf09b1adc90923a5a",
+     "_score": 0,
+     "_source": {
+      "language": "en",
+      "url": "https://careers.ibm.com/careers/JobDetail?jobId=128513",
+      "title": "Site Reliability Engineer Intern 2027",
+      "description": "At IBM Software, we transform client challenges into solutions. Building the world\u2019s leading AI-powered, cloud-native products that shape the future of business and society. Our legacy of innovation creates endless opportunities for IBMers to learn,...",
+      "entitled": "",
+      "field_keyword_08": "Infrastructure & Technology",
+      "field_keyword_17": "Hybrid",
+      "field_keyword_18": "Internship",
+      "field_keyword_19": "Multiple Cities"
+     },
+     "sort": [
+      0,
+      0
+     ]
+    },
+    {
+     "_index": "genesis-prod-1786834823886",
+     "_id": "0ae5cba9e6d24e799e80d144e10fa5b6a90bbf614043dcf96af59af961564ef1",
+     "_score": 0,
+     "_source": {
+      "language": "en",
+      "url": "https://careers.ibm.com/careers/JobDetail?jobId=128524",
+      "title": "Intern Security Consultant - Cyber Strategy & Risk 2027",
+      "description": "About IBM Cybersecurity IBM Cybersecurity brings together security consultants, engineers, analysts, responders, and technical specialists who help organizations strengthen resilience against evolving cyber threats. We are looking for early-career...",
+      "entitled": "",
+      "field_keyword_08": "Consulting",
+      "field_keyword_17": "",
+      "field_keyword_18": "Internship",
+      "field_keyword_19": "Dallas, US"
+     },
+     "sort": [
+      0,
+      0
+     ]
+    },
+    {
+     "_index": "genesis-prod-1786834823886",
+     "_id": "052819f40cd1b0b990b7230723d080d823e4e50532319ac708a692012702ffe4",
+     "_score": 0,
+     "_source": {
+      "language": "en",
+      "url": "https://careers.ibm.com/careers/JobDetail?jobId=128537",
+      "title": "Associate Data Scientist 2027 - AI & Data Analytics",
+      "description": "Come forge the future like an\u00a0IBMer. Ready to think boldly, work with some of the world's most recognized brands, and kick-start your career? Welcome to IBM's Associate Program for university hires. From day one, you will collaborate with global clients...",
+      "entitled": "",
+      "field_keyword_08": "Data & Analytics",
+      "field_keyword_17": "",
+      "field_keyword_18": "Entry Level",
+      "field_keyword_19": "San Francisco, US"
+     },
+     "sort": [
+      0,
+      0
+     ]
+    },
+    {
+     "_index": "genesis-prod-1786834823886",
+     "_id": "99aba8fda9fbc06c1db5f6d191667c7d60ebfd84c97256585c4df3824f2f4165",
+     "_score": 0,
+     "_source": {
+      "language": "en",
+      "url": "https://careers.ibm.com/careers/JobDetail?jobId=129468",
+      "title": "Application Consultant-AWS Cloud",
+      "description": "A career in IBM Consulting is built on long-term client relationships and close collaboration worldwide. You\u2019ll work with leading companies across industries, helping them shape their hybrid cloud and AI journeys. With support from our strategic...",
+      "entitled": "",
+      "field_keyword_08": "Consulting",
+      "field_keyword_17": "Hybrid",
+      "field_keyword_18": "Professional",
+      "field_keyword_19": "Hyderabad, IN"
+     },
+     "sort": [
+      0,
+      0
+     ]
+    },
+    {
+     "_index": "genesis-prod-1786834823886",
+     "_id": "eca87e1f06539132c3d440ee892f387e71228ae0eeab813192c7c5eefef02eb6",
+     "_score": 0,
+     "_source": {
+      "language": "en",
+      "url": "https://careers.ibm.com/careers/JobDetail?jobId=130324",
+      "title": "Delivery Project Executive - Order to Cash (f/m/x)",
+      "description": "In this role, you\u2019ll work in one of our IBM Consulting Client Innovation Centers (Delivery Centers), where we deliver deep technical and industry expertise to a wide range of public and private sector clients the around world. Our delivery centers offer...",
+      "entitled": "",
+      "field_keyword_08": "Project Management",
+      "field_keyword_17": "Hybrid",
+      "field_keyword_18": "Professional",
+      "field_keyword_19": "Prilly, CH"
+     },
+     "sort": [
+      0,
+      0
+     ]
+    },
+    {
+     "_index": "genesis-prod-1786834823886",
+     "_id": "eb449f843adecc3ba5d71ea2fe55c03ae2fb748f74234751f05f21cab50a8418",
+     "_score": 0,
+     "_source": {
+      "language": "en",
+      "url": "https://careers.ibm.com/careers/JobDetail?jobId=129927",
+      "title": "IBM Z Engineering System Test QA/Test Developer Intern - Poughkeepsie, NY - 2027",
+      "description": "As a QA/Test Engineer intern at IBM, you\u2019ll get to work on the systems that are driving the future of computing. Join our team of creators \u2013 the people who help move IBM forward by using their imagination to envision solutions, curiosity to experiment...",
+      "entitled": "",
+      "field_keyword_08": "Infrastructure & Technology",
+      "field_keyword_17": "Hybrid",
+      "field_keyword_18": "Internship",
+      "field_keyword_19": "POUGHKEEPSIE, US"
+     },
+     "sort": [
+      0,
+      0
+     ]
+    },
+    {
+     "_index": "genesis-prod-1786834823886",
+     "_id": "6c6381620beb75897dcdad006e1cc87db52405e7aaf4be9c0548172bca76d439",
+     "_score": 0,
+     "_source": {
+      "language": "en",
+      "url": "https://careers.ibm.com/careers/JobDetail?jobId=130231",
+      "title": "Application Developer-Cloud FullStack",
+      "description": "A career in IBM Consulting is built on long-term client relationships and close collaboration worldwide. You\u2019ll work with leading companies across industries, helping them shape their hybrid cloud and AI journeys. With support from our strategic...",
+      "entitled": "",
+      "field_keyword_08": "Software Engineering",
+      "field_keyword_17": "Hybrid",
+      "field_keyword_18": "Professional",
+      "field_keyword_19": "Bangalore, IN"
+     },
+     "sort": [
+      0,
+      0
+     ]
+    },
+    {
+     "_index": "genesis-prod-1786834823886",
+     "_id": "9c7814e7cd2263c9a9b6a84f4b9725b4bf5b91e89e701e941a7fd6c36fca263e",
+     "_score": 0,
+     "_source": {
+      "language": "en",
+      "url": "https://careers.ibm.com/careers/JobDetail?jobId=130593",
+      "title": "Technical Consultant-AI Integration",
+      "description": "A career in IBM Consulting is built on long-term client relationships and close collaboration worldwide. You\u2019ll work with leading companies across industries, helping them shape their hybrid cloud and AI journeys. With support from our strategic...",
+      "entitled": "",
+      "field_keyword_08": "Consulting",
+      "field_keyword_17": "Hybrid",
+      "field_keyword_18": "Professional",
+      "field_keyword_19": "Bangalore, IN"
+     },
+     "sort": [
+      0,
+      0
+     ]
+    },
+    {
+     "_index": "genesis-prod-1786834823886",
+     "_id": "90af0dbf35f3c485deae3860914ff0d7483e20056392b9cdd4b369224d913897",
+     "_score": 0,
+     "_source": {
+      "language": "en",
+      "url": "https://careers.ibm.com/careers/JobDetail?jobId=130584",
+      "title": "Entry level Brand Technical Specialist (incl. Assignment in Valencia) (f/m/x)",
+      "description": "Kick-start your career in technology sales with the IBM Sales Accelerator Program \u2014 a unique opportunity designed for ambitious early-career professionals looking to grow into future IBM sales leaders. \u00a0See what your peers are saying about it on this...",
+      "entitled": "",
+      "field_keyword_08": "Sales",
+      "field_keyword_17": "Hybrid",
+      "field_keyword_18": "Entry Level",
+      "field_keyword_19": "WIEN, AT"
+     },
+     "sort": [
+      0,
+      0
+     ]
+    },
+    {
+     "_index": "genesis-prod-1786834823886",
+     "_id": "c5d6c60e73260b877d41d64ff3c333578305a9c9a4815591685bd0b8ea104edd",
+     "_score": 0,
+     "_source": {
+      "language": "en",
+      "url": "https://careers.ibm.com/careers/JobDetail?jobId=130569",
+      "title": "Technical Consultant-Application Security",
+      "description": "A career in IBM Consulting is built on long-term client relationships and close collaboration worldwide. You\u2019ll work with leading companies across industries, helping them shape their hybrid cloud and AI journeys. With support from our strategic...",
+      "entitled": "",
+      "field_keyword_08": "Consulting",
+      "field_keyword_17": "Hybrid",
+      "field_keyword_18": "Professional",
+      "field_keyword_19": "Bangalore, IN"
+     },
+     "sort": [
+      0,
+      0
+     ]
+    },
+    {
+     "_index": "genesis-prod-1786834823886",
+     "_id": "306772786be4115855234643df18a01fa3713e61136c986c786c9404469c710c",
+     "_score": 0,
+     "_source": {
+      "language": "en",
+      "url": "https://careers.ibm.com/careers/JobDetail?jobId=130571",
+      "title": "Technical Consultant-Application Security",
+      "description": "A career in IBM Consulting is built on long-term client relationships and close collaboration worldwide. You\u2019ll work with leading companies across industries, helping them shape their hybrid cloud and AI journeys. With support from our strategic...",
+      "entitled": "",
+      "field_keyword_08": "Consulting",
+      "field_keyword_17": "Hybrid",
+      "field_keyword_18": "Professional",
+      "field_keyword_19": "Pune, IN"
+     },
+     "sort": [
+      0,
+      0
+     ]
+    },
+    {
+     "_index": "genesis-prod-1786834823886",
+     "_id": "6705577aacdcb049ec4a6aae216280b46be50348852b97ad0bd9326a15776719",
+     "_score": 0,
+     "_source": {
+      "language": "en",
+      "url": "https://careers.ibm.com/careers/JobDetail?jobId=130797",
+      "title": "Technology Seller - Entry Level Sales Program 2027",
+      "description": "IBM Technology Sales is transforming client engagement by combining digital selling, technical expertise, and AI-driven innovation. As an Entry-Level Technology Seller, you will create demand, identify opportunities, and help organizations evaluate and...",
+      "entitled": "",
+      "field_keyword_08": "Sales",
+      "field_keyword_17": "Hybrid",
+      "field_keyword_18": "Entry Level",
+      "field_keyword_19": "Markham, CA"
+     },
+     "sort": [
+      0,
+      0
+     ]
+    },
+    {
+     "_index": "genesis-prod-1786834823886",
+     "_id": "cee628720bfb416637e9f24befe117e7c2b94ad0633f45c0278a9b82da9badaf",
+     "_score": 0,
+     "_source": {
+      "language": "en",
+      "url": "https://careers.ibm.com/careers/JobDetail?jobId=130795",
+      "title": "Technical Engineering Seller  -  Entry Level Sales Program 2027",
+      "description": "At IBM, technology creates value when it solves real business challenges. As an Entry-Level Technical Engineering Seller, you will work with clients and IBM technical experts to design, demonstrate, and deliver solutions across AI, hybrid cloud,...",
+      "entitled": "",
+      "field_keyword_08": "Sales",
+      "field_keyword_17": "Hybrid",
+      "field_keyword_18": "Entry Level",
+      "field_keyword_19": "Multiple Cities"
+     },
+     "sort": [
+      0,
+      0
+     ]
+    },
+    {
+     "_index": "genesis-prod-1786834823886",
+     "_id": "cdc0a1e0087414ec77fe823e7c39eb699611426541b43bba3931bf4297330c45",
+     "_score": 0,
+     "_source": {
+      "language": "en",
+      "url": "https://careers.ibm.com/careers/JobDetail?jobId=130953",
+      "title": "Operations Buyer",
+      "description": "At IBM Finance & Operations, we are the backbone of IBM\u2019s transformation driving efficiency, transparency, and smart decision-making across the business. Our teams provide the insight and discipline that guide strategy, ensure financial strength, and...",
+      "entitled": "",
+      "field_keyword_08": "Enterprise Operations",
+      "field_keyword_17": "Hybrid",
+      "field_keyword_18": "Professional",
+      "field_keyword_19": "Bangalore, IN"
+     },
+     "sort": [
+      0,
+      0
+     ]
+    },
+    {
+     "_index": "genesis-prod-1786834823886",
+     "_id": "d25d6896630958a0ff9892e48c596d91dcfc3166060acaf4d69ab30a0ab5adb5",
+     "_score": 0,
+     "_source": {
+      "language": "en",
+      "url": "https://careers.ibm.com/careers/JobDetail?jobId=130670",
+      "title": "Process Analyst Human Resource Operations - EDM",
+      "description": "A career in IBM Consulting embraces long-term relationships and close collaboration with clients across the globe. In this role, you will work for IBM BPO, part of Consulting that, accelerates digital transformation using agile methodologies, process...",
+      "entitled": "",
+      "field_keyword_08": "Enterprise Operations",
+      "field_keyword_17": "",
+      "field_keyword_18": "Professional",
+      "field_keyword_19": "Bangalore, IN"
+     },
+     "sort": [
+      0,
+      0
+     ]
+    },
+    {
+     "_index": "genesis-prod-1786834823886",
+     "_id": "01924c8a49ee8b9afbe04b844158da8bb7cdd8a3c10c0ac8bd7fdcee2f5cb55f",
+     "_score": 0,
+     "_source": {
+      "language": "en",
+      "url": "https://careers.ibm.com/careers/JobDetail?jobId=130819",
+      "title": "Assistant Manager- HR Operations- EDM",
+      "description": "A career in IBM Consulting embraces long-term relationships and close collaboration with clients across the globe. In this role, you will work for IBM BPO, part of Consulting that, accelerates digital transformation using agile methodologies, process...",
+      "entitled": "",
+      "field_keyword_08": "Enterprise Operations",
+      "field_keyword_17": "",
+      "field_keyword_18": "Professional",
+      "field_keyword_19": "Bangalore, IN"
+     },
+     "sort": [
+      0,
+      0
+     ]
+    }
+   ]
+  }
+ }
+}

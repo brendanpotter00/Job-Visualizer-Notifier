@@ -27,6 +27,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from shared.base_scraper import BaseScraper
 from shared.constants import SourceId
 from shared.models import JobListing
+from shared.posted_date import effective_posted_date, parse_posted_date
 from shared.utils import get_iso_timestamp
 
 from .config import (
@@ -44,11 +45,91 @@ from .parser import (
     extract_job_cards_from_list,
     extract_job_id_from_url,
     check_has_next_page,
+    get_total_pages,
+    parse_card_posted_date,
     JobCardExtractionError,
 )
-from .api_client import fetch_job_details, get_apply_url, JobDetailsFetchError
+from .api_client import (
+    fetch_job_details,
+    get_apply_url,
+    JobDetailsFetchError,
+    JobSearchError,
+)
 
 logger = logging.getLogger(__name__)
+
+# The key ``api_client.parse_job_details`` writes ``postDateInGMT`` into. Named
+# because ``_detail_posted_date`` keys the whole list-vs-detail decision on its
+# PRESENCE, not on its truthiness — see there.
+_DETAIL_POSTED_KEY = "posted_on"
+
+# Loud-truncation slack. ``scrape_query`` reads Apple's own advertised total
+# page count once (``get_total_pages``) and, if the walk ends more than this
+# many pages short of it, logs an ERROR. The slack absorbs the board
+# legitimately drifting by a page or two during a ~20-minute walk; a real
+# pagination break (stop after page 1 of ~226) overshoots it by two orders of
+# magnitude. See docs/incidents/2026-08-28-apple-pagination-single-page.md.
+_TRUNCATION_PAGE_SLACK = 2
+
+
+def _detail_posted_date(job_data: Dict[str, Any], job_id: str) -> Optional[str]:
+    """Apple's detail-mode ``postDateInGMT``, but only if it is really a date.
+
+    The list half of this pair has been normalised and logged since
+    ``parse_card_posted_date`` shipped; the detail half was passed through raw —
+    never validated, never logged. That is the exact failure that function's own
+    docstring describes, just on the other feed: the raw string stores fine in
+    ``posted_on`` (a TIMESTAMPTZ Postgres will read generously) while the shared
+    ``effective_posted_date`` rejects it, so the date lands in diagnostics and
+    silently does NOT land in ``first_seen_at`` — the key users are sorted by.
+    Prod is ISO today (9,949 of 9,990 rows carry a real ``postDateInGMT``), so
+    nothing is broken; nothing would have reported it if that changed.
+
+    Validated against the SHARED parser, not dateutil, because the shared parser
+    is precisely what ``effective_posted_date`` will run next: agreeing with it
+    is the whole point, and agreeing with anything else re-opens the gap.
+
+    **Presence, not truthiness, decides which feed we are on.** ``x or y`` read
+    an empty detail value as "no detail feed" and fell through to the card, so a
+    board that started emitting ``""`` for every job was indistinguishable from
+    a plain list-mode row: no warning anywhere, every date NULL, and
+    ``first_seen_at`` quietly back to "posted today" board-wide. The three cases
+    are now separate and only one of them is silent.
+
+    Returns ``None`` for every failure — the caller still falls back to the
+    card's date, which is the behaviour the old ``or`` chain had and is worth
+    keeping (a detail fetch that failed still leaves a usable card date).
+    """
+    if _DETAIL_POSTED_KEY not in job_data:
+        # LIST MODE, or a detail fetch that raised and yielded
+        # ``{**job_card, "_detail_fetch_failed": True}``. There is no detail
+        # value to judge, which is not the same thing as a detail value that
+        # came back empty. Silent: this is the normal shape of a list run.
+        return None
+
+    raw = job_data[_DETAIL_POSTED_KEY]
+    if raw is None or (isinstance(raw, str) and not raw.strip()):
+        # DETAIL MODE, and the payload carried no date. INFO, not WARNING: one
+        # dateless posting is Apple's data rather than a fault, and a board-wide
+        # format change shows up here as volume (~10k rows a run) either way.
+        logger.info(
+            "apple: job %s came back from the detail API with no posted date", job_id
+        )
+        return None
+
+    parsed = parse_posted_date(raw)
+    if parsed is None:
+        logger.warning(
+            "apple: could not parse detail posted date %r for job %s; storing NULL",
+            raw,
+            job_id,
+        )
+        return None
+    # Hand back Apple's own string when it is one, so the stored value stays
+    # exactly what the board published (the rule the Microsoft normalizer
+    # documents). A non-string that parses — an epoch, if Apple ever switches —
+    # cannot go into a TIMESTAMPTZ as-is, so that gets the parsed ISO instead.
+    return raw if isinstance(raw, str) else parsed.isoformat()
 
 
 class AppleJobsScraper(BaseScraper):
@@ -165,6 +246,14 @@ class AppleJobsScraper(BaseScraper):
         consecutive_errors = 0
         max_consecutive_errors = 3
 
+        # Loud-truncation cross-check (see _TRUNCATION_PAGE_SLACK). Apple's own
+        # advertised page count, read once on page 1; the number of pages we
+        # actually collected from; and whether we stopped because we hit the
+        # caller's max_jobs cap (a deliberate short walk, not a truncation).
+        expected_total_pages: Optional[int] = None
+        pages_scraped = 0
+        stopped_for_max_jobs = False
+
         page = await self.context.new_page()
 
         try:
@@ -213,6 +302,17 @@ class AppleJobsScraper(BaseScraper):
 
                 logger.info(f"Found {len(job_cards)} jobs on page {page_num}")
 
+                # Read Apple's advertised total-page count once, on page 1, as a
+                # board-size oracle for the post-loop truncation check.
+                if page_num == 1:
+                    expected_total_pages = await get_total_pages(page)
+                    if expected_total_pages is not None:
+                        logger.info(
+                            f"Apple board advertises {expected_total_pages} result pages"
+                        )
+
+                pages_scraped += 1
+
                 # Filter jobs by title keywords
                 filtered_jobs = [
                     job
@@ -230,6 +330,7 @@ class AppleJobsScraper(BaseScraper):
                 if max_jobs and len(all_jobs) >= max_jobs:
                     logger.info(f"Reached max jobs limit: {max_jobs}")
                     all_jobs = all_jobs[:max_jobs]
+                    stopped_for_max_jobs = True
                     break
 
                 # Check for next page
@@ -249,6 +350,36 @@ class AppleJobsScraper(BaseScraper):
 
         finally:
             await page.close()
+
+        # TRUNCATION GUARD. If Apple told us the board is N pages and we walked
+        # far fewer — and we did not deliberately stop for max_jobs — the
+        # pagination walk was truncated, whatever ended it (a broken next-page
+        # probe, exhausted nav retries, or the MAX_PAGES cap). RAISE rather than
+        # return the short list: a truncated list is indistinguishable from
+        # "these jobs are gone", so returning it lets the incremental close phase
+        # reap the missing jobs the moment the truncation is mild enough (>85% of
+        # the board) to slip past the partial_scrape guard. Raising routes the run
+        # through run_incremental_scrape's handler, which records an errored
+        # scrape_runs row (error_count=1, closed_jobs=0) and re-raises WITHOUT the
+        # destructive phases — the same contract tiktok/amazon use, and the signal
+        # that was missing on 2026-08-28.
+        #
+        # This fires only when Apple advertised a page count (get_total_pages).
+        # If that element is unreadable, expected_total_pages is None and we fall
+        # back to the incremental guard (empty_scrape/partial_scrape) + the
+        # health-watch A3 latch check as the backstops.
+        if (
+            expected_total_pages is not None
+            and not stopped_for_max_jobs
+            and expected_total_pages - pages_scraped > _TRUNCATION_PAGE_SLACK
+        ):
+            raise JobSearchError(
+                f"SCRAPER TRUNCATION (apple): walked {pages_scraped} of "
+                f"{expected_total_pages} advertised pages "
+                f"({len(all_jobs)} jobs collected). A large board that stops "
+                f"early is the 2026-08-28 single-page failure signature — verify "
+                f"check_has_next_page against Apple's live pagination markup."
+            )
 
         logger.info(f"Completed Apple scrape: {len(all_jobs)} jobs collected")
         return all_jobs
@@ -324,8 +455,25 @@ class AppleJobsScraper(BaseScraper):
 
         created_at = get_iso_timestamp()
 
-        # Get posted date from API response
-        posted_on = job_data.get("posted_on")
+        # Get posted date. Detail mode (api_client) supplies `posted_on` from
+        # `postDateInGMT`; list mode (parser) supplies `posted_date` scraped off
+        # the card. Reading only `posted_on` silently dropped every list-mode
+        # date. Same shape as the Microsoft scraper.
+        #
+        # BOTH halves are validated, and both say so when they fail. They are
+        # validated DIFFERENTLY because the two feeds are different: the card is
+        # human ("Jan 15, 2026") and needs `parse_card_posted_date`'s dateutil
+        # normalisation, while `postDateInGMT` is already ISO and only needs
+        # checking against the shared parser. What must NOT differ is whether a
+        # present-but-unreadable value is allowed through — half-validating is
+        # worse than none, because a string the TIMESTAMPTZ accepts and the
+        # shared parser rejects reaches diagnostics and silently misses
+        # `first_seen_at`, the key users are actually sorted by. See
+        # `_detail_posted_date`, which also explains why the old `or` chain
+        # could not tell an empty detail value from a list-mode row.
+        posted_on = _detail_posted_date(job_data, job_id)
+        if posted_on is None:
+            posted_on = parse_card_posted_date(job_data.get("posted_date"))
 
         # Build details JSONB with all extended job information
         details = {
@@ -360,7 +508,19 @@ class AppleJobsScraper(BaseScraper):
             has_matched=False,
             ai_metadata={},
             # Incremental tracking fields (will be set by caller if using DB mode)
-            first_seen_at=created_at,
+            # THE EFFECTIVE POSTED DATE, not literally "when we first saw it"
+            # (POSTED-DATE-PLAN.md §2, D9/D10). Same rule BatchWriter.add_job
+            # applies on the way to the DB — kept in step here so the model a
+            # caller inspects says the same thing as the row that gets written.
+            #
+            # Both feeds arrive VALIDATED: detail mode's ``postDateInGMT`` is
+            # checked against this same shared parser by ``_detail_posted_date``,
+            # list mode's ``posted_date`` is normalised to YYYY-MM-DD by
+            # ``parser.parse_card_posted_date``. That is load-bearing on both
+            # sides — a value the TIMESTAMPTZ ``posted_on`` accepts but the
+            # shared parser rejects would land the date in diagnostics and not
+            # in the sort key. Whichever half fails, it fails LOUDLY.
+            first_seen_at=effective_posted_date(posted_on, created_at),
             last_seen_at=created_at,
             consecutive_misses=0,
             details_scraped=False,

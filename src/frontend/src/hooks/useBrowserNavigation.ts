@@ -4,6 +4,7 @@ import { useAppDispatch, useAppSelector } from '../app/hooks';
 import { setSelectedCompanyId } from '../features/app/appSlice';
 import { getCompanyFromURL } from '../lib/url';
 import { ROUTES } from '../config/routes';
+import { selectUserCompanyIdSet } from '../features/userCompanies/effectiveCompanies';
 
 /**
  * Custom hook for handling browser back/forward navigation
@@ -23,6 +24,11 @@ export function useBrowserNavigation() {
   const location = useLocation();
   const dispatch = useAppDispatch();
   const selectedCompanyId = useAppSelector((state) => state.app.selectedCompanyId);
+  // Back/forward onto a `?company=u-…` entry is only reachable once the user has
+  // already selected that board, so the set is populated by then — no gate is
+  // needed here, unlike the cold load in `useCompanyLoader`. Empty by identity
+  // for a signed-out or flag-off visitor, so this is a no-op for them.
+  const userCompanyIds = useAppSelector(selectUserCompanyIdSet);
 
   // Only run on Companies page
   const isCompaniesPage = location.pathname === ROUTES.COMPANIES;
@@ -31,7 +37,7 @@ export function useBrowserNavigation() {
     if (!isCompaniesPage) return;
 
     const handlePopState = () => {
-      const companyFromURL = getCompanyFromURL();
+      const companyFromURL = getCompanyFromURL(userCompanyIds);
       if (companyFromURL && companyFromURL !== selectedCompanyId) {
         dispatch(setSelectedCompanyId(companyFromURL));
       }
@@ -39,5 +45,5 @@ export function useBrowserNavigation() {
 
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
-  }, [dispatch, selectedCompanyId, isCompaniesPage]);
+  }, [dispatch, selectedCompanyId, isCompaniesPage, userCompanyIds]);
 }

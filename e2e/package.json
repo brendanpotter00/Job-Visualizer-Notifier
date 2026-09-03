@@ -1,0 +1,12 @@
+{
+  "name": "jvn-e2e-gate",
+  "private": true,
+  "version": "1.0.0",
+  "description": "E2E regression gate suites (PLAN.md). Self-contained — not an npm workspace member of the repo root.",
+  "scripts": {
+    "test:add-companies": "playwright test --config=add-companies/playwright.config.ts"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.57.0"
+  }
+}

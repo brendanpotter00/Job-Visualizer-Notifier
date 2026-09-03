@@ -55,10 +55,6 @@ describe('createFilterSlice', () => {
         'addGraphLocation',
         'removeGraphLocation',
         'clearGraphLocations',
-        'addGraphDepartment',
-        'removeGraphDepartment',
-        'clearGraphDepartments',
-        'setGraphDepartment',
         'setGraphEmploymentType',
         'setGraphCategory',
         'setGraphLevel',
@@ -73,9 +69,9 @@ describe('createFilterSlice', () => {
         expect(actionNames).toContain(actionName);
       });
 
-      // 22 prior actions + hydrate{Name}Filters + set{Name}Hydrated
+      // 18 prior actions + hydrate{Name}Filters + set{Name}Hydrated
       // + set{Name}Category + set{Name}Level (enrichment facets)
-      expect(actionNames).toHaveLength(26);
+      expect(actionNames).toHaveLength(22);
     });
   });
 
@@ -368,82 +364,6 @@ describe('createFilterSlice', () => {
     });
   });
 
-  describe('Department Actions', () => {
-    it('should add department to filters', () => {
-      const initialFilters: GraphFilters = {
-        timeWindow: '30d',
-        searchTags: undefined,
-        softwareOnly: false,
-      };
-
-      const slice = createFilterSlice('graph', initialFilters);
-      const initialState = { filters: initialFilters, hydrated: false, userModified: false };
-
-      const newState = slice.reducer(initialState, {
-        type: 'graphFilters/addGraphDepartment',
-        payload: 'Engineering',
-      });
-
-      expect(newState.filters.department).toContain('Engineering');
-    });
-
-    it('should remove department from filters', () => {
-      const initialFilters: GraphFilters = {
-        timeWindow: '30d',
-        searchTags: undefined,
-        softwareOnly: false,
-        department: ['Engineering', 'Design'],
-      };
-
-      const slice = createFilterSlice('graph', initialFilters);
-      const initialState = { filters: initialFilters, hydrated: false, userModified: false };
-
-      const newState = slice.reducer(initialState, {
-        type: 'graphFilters/removeGraphDepartment',
-        payload: 'Engineering',
-      });
-
-      expect(newState.filters.department).toEqual(['Design']);
-    });
-
-    it('should clear all departments', () => {
-      const initialFilters: GraphFilters = {
-        timeWindow: '30d',
-        searchTags: undefined,
-        softwareOnly: false,
-        department: ['Engineering', 'Design'],
-      };
-
-      const slice = createFilterSlice('graph', initialFilters);
-      const initialState = { filters: initialFilters, hydrated: false, userModified: false };
-
-      const newState = slice.reducer(initialState, {
-        type: 'graphFilters/clearGraphDepartments',
-        payload: undefined,
-      });
-
-      expect(newState.filters.department).toBeUndefined();
-    });
-
-    it('should set entire department array', () => {
-      const initialFilters: GraphFilters = {
-        timeWindow: '30d',
-        searchTags: undefined,
-        softwareOnly: false,
-      };
-
-      const slice = createFilterSlice('graph', initialFilters);
-      const initialState = { filters: initialFilters, hydrated: false, userModified: false };
-
-      const newState = slice.reducer(initialState, {
-        type: 'graphFilters/setGraphDepartment',
-        payload: ['Product', 'Sales'],
-      });
-
-      expect(newState.filters.department).toEqual(['Product', 'Sales']);
-    });
-  });
-
   describe('Software Only Actions', () => {
     it('should toggle software only (add/remove SE tags)', () => {
       const initialFilters: GraphFilters = {
@@ -653,8 +573,9 @@ describe('createFilterSlice', () => {
       name: FilterSliceName;
       // Build the slice's initial filters with the correct shape for this name.
       makeSlice: () => ReturnType<typeof createFilterSlice>;
-      // Two representative EDIT actions, including a no-op-guarded one
-      // (add{Name}Department for graph/list; add{Name}Company for recentJobs).
+      // Two representative EDIT actions. `recentJobs` uses the one no-op-guarded
+      // action left in the factory (add{Name}Company); graph/list have none, so
+      // they use a plain multi-select edit
       editActions: { type: string; payload: unknown }[];
     };
 
@@ -681,8 +602,7 @@ describe('createFilterSlice', () => {
         makeSlice: () => createFilterSlice('graph', graphInitial),
         editActions: [
           { type: 'graphFilters/setGraphTimeWindow', payload: '30d' as TimeWindow },
-          // No-op-guarded edit: graph owns `department`, so this mutates.
-          { type: 'graphFilters/addGraphDepartment', payload: 'Engineering' },
+          { type: 'graphFilters/addGraphLocation', payload: 'Austin, TX' },
         ],
       },
       {
@@ -690,8 +610,7 @@ describe('createFilterSlice', () => {
         makeSlice: () => createFilterSlice('list', listInitial),
         editActions: [
           { type: 'listFilters/setListTimeWindow', payload: '30d' as TimeWindow },
-          // No-op-guarded edit: list owns `department`, so this mutates.
-          { type: 'listFilters/addListDepartment', payload: 'Engineering' },
+          { type: 'listFilters/addListLocation', payload: 'Austin, TX' },
         ],
       },
       {
@@ -699,8 +618,7 @@ describe('createFilterSlice', () => {
         makeSlice: () => createFilterSlice('recentJobs', recentJobsInitial),
         editActions: [
           { type: 'recentJobsFilters/setRecentJobsTimeWindow', payload: '24h' as TimeWindow },
-          // recentJobs has no `department`; it owns `company` instead. This is
-          // the no-op-guarded edit for this slice shape.
+          // Only `recentJobs` owns `company`, so this is the no-op-guarded edit.
           { type: 'recentJobsFilters/addRecentJobsCompany', payload: 'netflix' },
         ],
       },

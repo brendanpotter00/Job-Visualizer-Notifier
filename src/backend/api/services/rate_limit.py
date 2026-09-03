@@ -98,6 +98,45 @@ feedback_rate_limiter = SlidingWindowRateLimiter(
     window_seconds=settings.feedback_rate_limit_window_seconds,
 )
 
+# ...and for POST /api/companies/resolve, keyed on the authenticated user id
+# rather than an IP (the route requires a Bearer token, so there is a real
+# identity to key on and no reason to accept a spoofable one).
+resolve_rate_limiter = SlidingWindowRateLimiter(
+    max_requests=settings.resolve_rate_limit_max,
+    window_seconds=settings.resolve_rate_limit_window_seconds,
+)
+
+# ...and for POST /api/users/companies — the route that actually SPENDS. One call
+# can start a headless Chromium session and an LLM call, and until this existed it
+# had no rate limit at all: the UI calls ``/resolve`` first, so the front door was
+# throttled by accident while a bearer token replayed straight at the add endpoint
+# skipped the limiter entirely.
+#
+# A SEPARATE limiter, not the resolve one reused. The two routes cost different
+# things, the UI hits resolve on every submit, and one shared bucket would let a
+# page of ordinary previews starve the adds — as well as make the resolve limit's
+# tuning silently change how many boards a user may add per minute.
+#
+# It is only a BURST smoother. It is in-memory and per-process, so it resets on
+# every deploy; the real spend guard is the monthly cap in ``add_quota.py``, which
+# is a row count in Postgres and survives restarts.
+user_company_add_rate_limiter = SlidingWindowRateLimiter(
+    max_requests=settings.user_company_add_rate_limit_max,
+    window_seconds=settings.user_company_add_rate_limit_window_seconds,
+)
+
+# ...and for PATCH /api/users/companies/{id} — the rename.
+#
+# ITS OWN BUCKET, an order of magnitude looser. A rename costs one UPDATE: no browser,
+# no outbound request, no LLM call. Sharing the add limiter would make correcting a
+# typo eat a slot the add path needs, and it would tie a cheap write's ceiling to an
+# expensive one's tuning. The monthly cap is not consulted at all here — that one is
+# the spend guard, and a rename spends nothing.
+user_company_rename_rate_limiter = SlidingWindowRateLimiter(
+    max_requests=settings.user_company_rename_rate_limit_max,
+    window_seconds=settings.user_company_rename_rate_limit_window_seconds,
+)
+
 
 def client_ip_from_request(request: Request) -> str:
     """Best-effort client IP for rate-limit keying.
@@ -120,6 +159,78 @@ def client_ip_from_request(request: Request) -> str:
     if request.client and request.client.host:
         return request.client.host
     return "unknown"
+
+
+def enforce_resolve_rate_limit(user_key: str) -> None:
+    """429 when ``user_key`` has exceeded the resolve rate limit.
+
+    A plain function rather than a FastAPI dependency: the key is the
+    authenticated subject, and importing ``auth.dependencies`` here would point
+    a services module at the auth layer for no gain. ``routers/companies.py``
+    already resolves the user and calls this first thing in the handler.
+    """
+    retry_after = resolve_rate_limiter.check(user_key)
+    if retry_after is not None:
+        logger.info("Rate-limited resolve request from %s", user_key)
+        raise HTTPException(
+            status_code=429,
+            detail=(
+                "You're resolving careers URLs too quickly. Please wait a "
+                "moment and try again."
+            ),
+            headers={"Retry-After": str(int(retry_after) + 1)},
+        )
+
+
+def enforce_user_company_add_rate_limit(user_key: str) -> None:
+    """429 when ``user_key`` is adding companies faster than the burst limit.
+
+    Same plain-function shape, and the same reasoning, as
+    :func:`enforce_resolve_rate_limit`. ``routers/user_companies.py`` calls it
+    immediately after the feature-flag check, so a flag-off deployment still
+    answers a clean 503 rather than a 429.
+
+    THE WAIT TIME IS IN THE BODY, not only in the header. ``api/users.ts`` forwards
+    through ``forwardResponse``, which copies status + body ONLY — the same reason
+    ``X-Next-Cursor`` needs its own explicit line in that proxy. A ``Retry-After``
+    header therefore never reaches the browser, so a message relying on it would
+    read as "too quickly" with no number attached. The header is still sent, because
+    direct API callers (curl, the e2e suite) do see it.
+    """
+    retry_after = user_company_add_rate_limiter.check(user_key)
+    if retry_after is not None:
+        wait_seconds = int(retry_after) + 1
+        logger.info("Rate-limited company add from %s", user_key)
+        raise HTTPException(
+            status_code=429,
+            detail=(
+                "You're adding companies too quickly. Please wait about "
+                f"{wait_seconds} seconds and try again."
+            ),
+            headers={"Retry-After": str(wait_seconds)},
+        )
+
+
+def enforce_user_company_rename_rate_limit(user_key: str) -> None:
+    """429 when ``user_key`` is renaming companies faster than the burst limit.
+
+    Same plain-function shape as its two neighbours. The wait time is in the BODY as
+    well as the header for the reason spelled out in
+    :func:`enforce_user_company_add_rate_limit`: ``api/users.ts`` forwards status and
+    body only, so a ``Retry-After`` header never reaches the browser.
+    """
+    retry_after = user_company_rename_rate_limiter.check(user_key)
+    if retry_after is not None:
+        wait_seconds = int(retry_after) + 1
+        logger.info("Rate-limited company rename from %s", user_key)
+        raise HTTPException(
+            status_code=429,
+            detail=(
+                "You're renaming companies too quickly. Please wait about "
+                f"{wait_seconds} seconds and try again."
+            ),
+            headers={"Retry-After": str(wait_seconds)},
+        )
 
 
 def enforce_feedback_rate_limit(request: Request) -> None:
