@@ -357,6 +357,44 @@ and that one field is the whole rule** — `boardsAreTheQuestion` in `MyCompanie
 | The other block | careers page as a footnote below (caption + outlined "Use this") | boards folded below, **outlined** "Track this one anyway" |
 | Live region | the list (`aria-live="polite"`) | the careers block; the list keeps `role="region"` but gives up `aria-live` so only one polite region speaks |
 
+**STATE B HAS A SHORT CIRCUIT, AND IT SPENDS MONEY: no board at all + exactly one
+trusted careers URL is ADDED WITHOUT A SECOND PRESS.** Owner, 2026-09-03: *"When there
+is no [board], it should automatically just use that careers website. The idea is to
+have fewer clicks."* The card it replaces — *"No job board found for “X” — their
+careers page is the way in"* over a filled **Use this careers page** — asked a question
+with one answer, which is the same thing the deleted preview step did.
+
+The branch lives in `handleNameSearch` (`MyCompaniesPage`) beside the existing
+single-confident-board auto-add, and **all three conditions are load-bearing**:
+
+| Condition | Why dropping it is wrong |
+|---|---|
+| `candidates.length === 0` | Any board that came back, even one the name gate rejected, is an alternative a person might recognise — the IBM case, Harvey's live Ashby board beside `ibm.com/careers`. It keeps its click. |
+| `careersUrl !== null` | The server picked exactly one and vouched for it (`services/careers_page_pick.py` collapses the trusted results to a single URL). Null means no result's host named the company — nothing to take. |
+| no `alreadyPublic` | Enforced by the early return above it. That answer is "we already track this", which is never an add. |
+
+**What it costs, and it is real.** Accepting a careers page is precisely what starts
+**paid work** — a headless browser session plus a model call — and spends one of the 20
+monthly adds. The disclosure that used to sit under the button was removed on
+2026-09-02 (see "There is no spend sentence under the button" above), so a single press
+now goes from keystroke to paid discovery with nothing on screen saying so. The owner's
+call; the spend is still bounded server-side, so what is missing is the disclosure, not
+the cap. The full reasoning is written on the branch itself rather than left to be
+re-derived.
+
+**One auto-add per press, guarded by a ref** (`autoAddedRef`), reset only in
+`handleSubmit`. Both auto-add paths fire from an async continuation, so `adding` is
+stale there and guards nothing; a ref survives re-renders and is per component instance.
+A double fire would spend a second monthly add and could start a second discovery, so
+`MyCompaniesNameSearch.test.tsx` pins it under `StrictMode` **and** pins that a second
+press still re-arms.
+
+**A CONSEQUENCE:** `CareersPageAnswer`'s leading form with a non-null URL and zero
+unconfirmed boards is now **unreachable from this page**. The component still renders it
+and is deliberately left alone — one server change (a `careersUrl` beside a confirmed
+board) away from mattering again. What still reaches it: boards came back but none was
+confirmed (with or without a URL), and zero boards with a null `careersUrl`.
+
 **A THIRD STATE SITS ABOVE BOTH, and it is a replacement rather than an addition:
 `alreadyPublic`.** Typing `databricks` used to render State B — *"No job board found for
 “databricks” — their careers page is the way in"* over a filled **Use this careers page** —
@@ -376,10 +414,12 @@ The search endpoint now runs the same three checks — **the same code path**, `
   read `databricks` out of `databricks.com`), so it keeps its escape hatch — the page holds
   that notice in its own state, so `handleSearchTrackAnyway` clears it before adding or it
   returns beside the success card.
-- **A published match also suppresses the auto-add.** A name whose own board we publish
+- **A published match suppresses BOTH auto-adds.** A name whose own board we publish
   resolves exactly one auto-addable candidate — the page's auto-add shape — so without the
   guard in `handleNameSearch` we would spend the add call and a monthly slot to have the
-  server hand back the answer we were already holding.
+  server hand back the answer we were already holding. The same early return is what keeps
+  the careers-page short circuit above from firing on a published company: `databricks`
+  returns zero boards and one trusted careers URL, which is the auto-add shape exactly.
 - **Only name-gated candidates are asked about**, and that gate is the safety property.
   Browserbase Search is semantic, so "meta" really returns Anthropic's and Cohere's live
   boards; without it, the first published one would answer "we already track Anthropic" —
@@ -434,7 +474,10 @@ The search endpoint now runs the same three checks — **the same code path**, `
 - `components/my-companies/CompanyCandidateList.tsx` — the boards a name search found;
   `demoted` is state B (folded, secondary, no live region)
 - `components/my-companies/CareersPageAnswer.tsx` — the careers page, as the answer
-  (`lead`) or as the footnote beside a confirmed board
+  (`lead`) or as the footnote beside a confirmed board. **Its leading form WITH a URL is
+  now only reached when boards came back and none was confirmed** — zero boards plus one
+  trusted URL is auto-added instead, so that combination never renders. Left intact on
+  purpose; see the branch comment in `MyCompaniesPage`
 - `components/my-companies/NameSearchProgress.tsx` + `nameSearchNarration.ts` — the search,
   narrated after the fact (never a faked live feed) as **one list that narrows to its
   answer**: the results land as rows, everything that was not a board folds away, then the

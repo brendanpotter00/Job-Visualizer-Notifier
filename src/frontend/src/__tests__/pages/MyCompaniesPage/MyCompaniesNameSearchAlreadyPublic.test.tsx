@@ -215,7 +215,13 @@ describe('MyCompaniesPage — a name we already publish', () => {
     renderWithProviders(<MyCompaniesPage />);
     const user = await submit('databricks');
 
-    await user.click(await screen.findByTestId('track-anyway-button'));
+    // NOT AUTO-ADDED, and this is the shape that would otherwise be: zero boards and
+    // one trusted careers URL is exactly the auto-add case, so `alreadyPublic` has to
+    // win over it. The answer here is "we already track this", never an add.
+    const trackAnyway = await screen.findByTestId('track-anyway-button');
+    expect(callsTo('/users/companies')).toHaveLength(0);
+
+    await user.click(trackAnyway);
 
     await waitFor(() => expect(callsTo('/users/companies').length).toBe(1));
     const body = await callsTo('/users/companies')[0].clone().json();
@@ -259,9 +265,10 @@ describe('MyCompaniesPage — a name we already publish', () => {
     expect(screen.queryByRole('button', { name: /track this one/i })).not.toBeInTheDocument();
   });
 
-  it('leaves a company we do NOT publish completely unchanged', async () => {
-    // The whole feature stays where it was for everybody else: the careers page is
-    // still the answer and still carries the filled button.
+  it('takes the careers page for a company we do NOT publish', async () => {
+    // The mirror of the guard above: with no published match the same shape (no board,
+    // one trusted careers URL) IS the auto-add case, and `alreadyPublic: null` must
+    // not block it.
     serve({
       query: 'oracle',
       candidates: [],
@@ -270,22 +277,18 @@ describe('MyCompaniesPage — a name we already publish', () => {
     });
     renderWithProviders(<MyCompaniesPage />);
 
-    const user = await submit('oracle');
-
-    expect(await screen.findByText(/no job board found for/i)).toBeInTheDocument();
-    expect(screen.queryByTestId('already-public')).not.toBeInTheDocument();
-    const useIt = screen.getByRole('button', { name: /use this careers page/i });
-    await user.click(useIt);
+    await submit('oracle');
 
     await waitFor(() => expect(callsTo('/users/companies').length).toBe(1));
     const body = await callsTo('/users/companies')[0].clone().json();
     expect(body.url).toBe('https://www.oracle.com/careers/');
+    expect(screen.queryByTestId('already-public')).not.toBeInTheDocument();
   });
 
   it('reads an older backend, which simply omits the field, as no match', async () => {
     // Vercel and Railway deploy separately, so a fresh client talks to the previous
     // API for a few minutes after every ship. Absent must mean "no match", never a
-    // blank notice.
+    // blank notice -- and never a suppressed add.
     serve({
       query: 'oracle',
       candidates: [],
@@ -295,7 +298,7 @@ describe('MyCompaniesPage — a name we already publish', () => {
 
     await submit('oracle');
 
-    expect(await screen.findByText(/no job board found for/i)).toBeInTheDocument();
+    await waitFor(() => expect(callsTo('/users/companies').length).toBe(1));
     expect(screen.queryByTestId('already-public')).not.toBeInTheDocument();
   });
 });

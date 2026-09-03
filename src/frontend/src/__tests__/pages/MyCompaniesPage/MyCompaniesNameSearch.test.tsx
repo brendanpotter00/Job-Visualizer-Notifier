@@ -1,3 +1,4 @@
+import { StrictMode } from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -402,6 +403,10 @@ describe('MyCompaniesPage — typed company name', () => {
     // is the row the morph leaves standing.
     const answer = await screen.findByTestId('careers-page-answer');
     expect(within(answer).getByText('https://www.ibm.com/careers')).toBeInTheDocument();
+    // AND IT IS STILL A CHOICE. A careers page is only taken automatically when NO
+    // board came back at all; Harvey's board is exactly the alternative a person
+    // might recognise, so the press stays theirs to make.
+    expect(callsTo('/users/companies')).toHaveLength(0);
     const fold = screen.getByRole('button', { name: /show 1 other board we found/i });
     await user.click(fold);
     expect(await screen.findByText('harvey')).toBeInTheDocument();
@@ -430,6 +435,9 @@ describe('MyCompaniesPage — typed company name', () => {
       await screen.findByText(/try pasting the url of their careers page/i)
     ).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /use this/i })).not.toBeInTheDocument();
+    // Nothing offered means nothing taken: a null `careersUrl` must never be read as
+    // "auto-add whatever we have", because there is nothing we would be adding.
+    expect(callsTo('/users/companies')).toHaveLength(0);
   });
 
   it('refuses an overlong NAME before it costs a search', async () => {
@@ -462,9 +470,71 @@ describe('MyCompaniesPage — typed company name', () => {
     expect(body.url).toBe(long);
   });
 
-  it('offers the careers page when no board was found', async () => {
-    // "We looked and found nothing" is a real answer, and the careers page is
-    // exactly what the paste-a-URL path takes.
+  it('USES the careers page itself when no board came back', async () => {
+    // FEWER CLICKS. No board and exactly one trusted careers URL is a question with
+    // one answer, so the card and its "Use this careers page" button are gone and the
+    // page takes it. Note what that press was: it starts a paid discovery run and
+    // spends one of the 20 monthly adds -- see the comment on the branch itself.
+    fetchMock.mockImplementation((req: Request) =>
+      Promise.resolve(
+        req.url.includes('search-by-name')
+          ? jsonResponse({
+              query: 'Obscure Co',
+              candidates: [],
+              careersUrl: 'https://obscure.example/careers',
+            })
+          : jsonResponse(CREATED, 201)
+      )
+    );
+    renderWithProviders(<MyCompaniesPage />);
+    await submit('Obscure Co');
+
+    await waitFor(() => expect(callsTo('/users/companies').length).toBe(1));
+    const body = await callsTo('/users/companies')[0].clone().json();
+    expect(body.url).toBe('https://obscure.example/careers');
+    // Nothing was asked. The card that used to carry the question is not rendered
+    // on the way past either.
+    expect(await screen.findByTestId('add-company-success')).toBeInTheDocument();
+    expect(screen.queryByTestId('careers-page-answer')).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: /use this careers page/i })
+    ).not.toBeInTheDocument();
+  });
+
+  it('spends exactly ONE add on that careers page, StrictMode included', async () => {
+    // A double fire is not cosmetic: each one POSTs the add endpoint, spends another
+    // of the user's 20 monthly adds and can start a second paid discovery run.
+    // StrictMode is here to catch the obvious wrong implementation -- an effect keyed
+    // on the search result, which React deliberately double-invokes in development.
+    fetchMock.mockImplementation((req: Request) =>
+      Promise.resolve(
+        req.url.includes('search-by-name')
+          ? jsonResponse({
+              query: 'Obscure Co',
+              candidates: [],
+              careersUrl: 'https://obscure.example/careers',
+            })
+          : jsonResponse(CREATED, 201)
+      )
+    );
+    renderWithProviders(
+      <StrictMode>
+        <MyCompaniesPage />
+      </StrictMode>
+    );
+
+    await submit('Obscure Co');
+
+    await waitFor(() => expect(callsTo('/users/companies').length).toBe(1));
+    // ...and it is still one after the outcome lands and re-renders the whole page.
+    expect(await screen.findByTestId('add-company-success')).toBeInTheDocument();
+    expect(callsTo('/users/companies')).toHaveLength(1);
+  });
+
+  it('re-arms for the NEXT press, and only for the next press', async () => {
+    // The other half of the guard. One auto-add per press means a second search must
+    // still be able to spend a second add -- a guard that never resets would silently
+    // break the feature after the first company of the session.
     fetchMock.mockImplementation((req: Request) =>
       Promise.resolve(
         req.url.includes('search-by-name')
@@ -478,12 +548,16 @@ describe('MyCompaniesPage — typed company name', () => {
     );
     renderWithProviders(<MyCompaniesPage />);
     const user = await submit('Obscure Co');
-
-    expect(await screen.findByText(/no job board found/i)).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: /use this/i }));
-
     await waitFor(() => expect(callsTo('/users/companies').length).toBe(1));
-    const body = await callsTo('/users/companies')[0].clone().json();
-    expect(body.url).toBe('https://obscure.example/careers');
+
+    const field = screen.getByLabelText(/company name or careers page link/i);
+    await user.clear(field);
+    await user.type(field, 'Another Co');
+    await user.click(screen.getByRole('button', { name: /add company/i }));
+
+    await waitFor(() => expect(callsTo('/users/companies').length).toBe(2));
+    // Two presses, two adds -- never three.
+    expect(await screen.findByTestId('add-company-success')).toBeInTheDocument();
+    expect(callsTo('/users/companies')).toHaveLength(2);
   });
 });

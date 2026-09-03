@@ -272,7 +272,11 @@ describe('MyCompaniesPage — which answer leads', () => {
     expect(footnote).toHaveClass('MuiButton-outlined');
   });
 
-  it('leads with the careers page when the search found no board at all', async () => {
+  it('draws NO answer at all when the search found no board — it just uses the page', async () => {
+    // There is no third layout to order. With zero boards and one trusted careers URL
+    // there is nothing to choose between, so the page takes it rather than rendering a
+    // lead block whose only control decides nothing. `MyCompaniesNameSearch.test.tsx`
+    // owns the add itself; what is pinned here is that neither answer block appears.
     answerWith({
       query: 'Obscure Co',
       candidates: [],
@@ -281,12 +285,12 @@ describe('MyCompaniesPage — which answer leads', () => {
     renderWithProviders(<MyCompaniesPage />);
     await submit('Obscure Co');
 
-    expect(await screen.findByText('No job board found for “Obscure Co”')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /use this careers page/i })).toHaveClass(
-      'MuiButton-contained'
-    );
-    // Nothing to fold, so no fold is drawn.
+    await waitFor(() => expect(callsTo('/users/companies').length).toBe(1));
+    expect(screen.queryByTestId('careers-page-answer')).not.toBeInTheDocument();
     expect(screen.queryByTestId('unconfirmed-boards')).not.toBeInTheDocument();
+    expect(
+      screen.queryByText('No job board found for “Obscure Co”')
+    ).not.toBeInTheDocument();
   });
 
   it('still says what to do next when there is no careers page either', async () => {

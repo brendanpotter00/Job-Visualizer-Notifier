@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
 import Container from '@mui/material/Container';
@@ -73,6 +73,21 @@ export function MyCompaniesPage() {
   const { data: userCompanies } = useGetUserCompaniesQuery(undefined, {
     skip: !isAuthenticated,
   });
+  /**
+   * ONE AUTO-ADD PER PRESS. This ref is the whole enforcement, and it is about money
+   * rather than tidiness: every fire POSTs `/api/users/companies`, spends one of the
+   * user's 20 monthly adds, and can start a paid discovery run.
+   *
+   * A ref and not the `adding` flag, because both auto-add paths fire from an async
+   * continuation — `adding` is whatever it was at the render that handled the press,
+   * which is always `false`, so reading it there would guard nothing. A ref survives
+   * every re-render, is per component instance (a StrictMode double-mount gets its
+   * own, and cannot share a fired one), and is reset by `handleSubmit` — the single
+   * entry point for a new press — so the next search is free to auto-add again.
+   *
+   * Declared above the auth ladder's early returns so the hook count stays stable.
+   */
+  const autoAddedRef = useRef(false);
   const quota = userCompanies?.quota;
   // `null` means the payload carried no quota: the caller is an admin (exempt from
   // the cap) or the server predates the counter. Either way it must NOT disable the
@@ -159,6 +174,21 @@ export function MyCompaniesPage() {
     void addUserCompany({ url, trackAnyway: true });
   };
 
+  /**
+   * Add a URL the PAGE chose, rather than one the user pressed for — at most once per
+   * press. See `autoAddedRef` for why the guard is a ref.
+   *
+   * The two callers below are the only places the page ever spends an add without a
+   * click on the thing being added; every other path (`handlePickCandidate`,
+   * `handleTrackAnyway`, `handleSearchTrackAnyway`) is a real press and guards on
+   * `adding` instead, which is honest there because those run inside a render.
+   */
+  const autoAdd = (url: string) => {
+    if (autoAddedRef.current) return;
+    autoAddedRef.current = true;
+    void addUserCompany({ url });
+  };
+
   const handleSubmit = (input: string) => {
     // CLEAR THE PREVIOUS QUESTION BEFORE ASKING ANYTHING ELSE, and this line is
     // load-bearing rather than tidiness. The candidate list renders on
@@ -170,6 +200,9 @@ export function MyCompaniesPage() {
     setCandidates(null);
     setSearchedName(null);
     resetSearch();
+    // A new press is a new budget. Reset here and nowhere else: this is the only
+    // entry point that can legitimately spend another add.
+    autoAddedRef.current = false;
 
     // FLAG OFF MUST BE BYTE-FOR-BYTE THE OLD BEHAVIOUR, which means not even
     // classifying the input. `classifyCompanyInput` normalizes a bare domain to
@@ -227,7 +260,7 @@ export function MyCompaniesPage() {
     // nothing at all.
     if (!('data' in result) || !result.data) return;
 
-    const { candidates: found } = result.data;
+    const { candidates: found, careersUrl } = result.data;
     const autoAddable = found.filter((c) => c.autoAddable);
 
     // A COMPANY WE ALREADY PUBLISH IS NEVER AUTO-ADDED, and this guard is why the
@@ -243,9 +276,59 @@ export function MyCompaniesPage() {
     }
 
     if (found.length === 1 && autoAddable.length === 1) {
-      void addUserCompany({ url: autoAddable[0].candidate.sourceUrl });
+      autoAdd(autoAddable[0].candidate.sourceUrl);
       return;
     }
+
+    /**
+     * NO BOARD AND ONE CAREERS PAGE — take it, instead of asking a question that has
+     * one answer.
+     *
+     * What this replaces: a card reading "No job board found for “X” — their careers
+     * page is the way in", the URL under it, and a filled **Use this careers page**
+     * button. With nothing else on offer that press decided nothing the first one had
+     * not already decided, which is the same reasoning that deleted the preview step
+     * (this file's header, and `ResolveUrlForm`'s). Owner, 2026-09-03: *"When there is
+     * no [board], it should automatically just use that careers website. The idea is
+     * to have fewer clicks."*
+     *
+     * ALL THREE CONDITIONS ARE LOAD-BEARING, and dropping any one takes a real choice
+     * away from the user:
+     *
+     *   - `found.length === 0` — ANY board that came back, even one the name gate
+     *     rejected, is an alternative a person might recognise, so it keeps its click.
+     *     This is the IBM case: Harvey's live Ashby board sitting beside
+     *     `ibm.com/careers`, where only a human can say which one is IBM.
+     *   - `careersUrl !== null` — the server picked exactly one and vouched for it
+     *     (`services/careers_page_pick.py` collapses the trusted results to a single
+     *     URL). Null is a decision, not an absence: no result's host named the company,
+     *     so there is nothing here to take.
+     *   - not `alreadyPublic` — enforced by the early return above. That answer is "we
+     *     already track this", which is never an add.
+     *
+     * WHAT THIS COSTS, written here because it is a genuine trade and the sentence that
+     * used to carry it is gone. Accepting a careers page is exactly what STARTS PAID
+     * WORK: a headless browser session and a model call, plus one of the user's 20
+     * monthly adds. The disclosure that used to sit under the button — "If this board is
+     * new to us, Add company starts a one-time setup right away, about a minute" — was
+     * removed at the owner's request on 2026-09-02 (see `ResolveUrlForm` and
+     * `src/frontend/CLAUDE.md`). So from here a single press goes from keystroke to paid
+     * discovery with NOTHING on screen saying so. That is the owner's call and the spend
+     * is still bounded server-side (20 adds per UTC month, a 10/60s burst limit,
+     * `CUSTOM_COMPANY_DISCOVERY_ENABLED`) — what is missing is the disclosure, not the
+     * cap. Recorded rather than left to be re-derived, the same way the two removals it
+     * follows were.
+     *
+     * A CONSEQUENCE TO KNOW ABOUT: `CareersPageAnswer`'s leading form with a non-null
+     * URL and zero unconfirmed boards is now unreachable FROM THIS PAGE. The component
+     * still renders it correctly and is left alone — it is one server change (a
+     * `careersUrl` beside a confirmed board) away from mattering again.
+     */
+    if (found.length === 0 && careersUrl !== null) {
+      autoAdd(careersUrl);
+      return;
+    }
+
     setCandidates(result.data);
   };
 
