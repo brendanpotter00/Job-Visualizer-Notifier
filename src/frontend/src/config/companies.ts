@@ -307,6 +307,15 @@ export const COMPANIES: Company[] = [
     sourceAts: 'greenhouse',
   }),
 
+  // Batch add 2 (2026-09-02) — Okta and Box (Greenhouse). Box's board_token is
+  // `boxinc`, NOT `box` (which 404s) — the real token lives in the seed migration.
+  createBackendScraperCompany('okta', 'Okta', 'https://www.okta.com/company/careers/', {
+    sourceAts: 'greenhouse',
+  }),
+  createBackendScraperCompany('box', 'Box', 'https://careers.box.com', {
+    sourceAts: 'greenhouse',
+  }),
+
   // Lever companies (migrated to backend-scraper)
   createBackendScraperCompany('palantir', 'Palantir', 'https://jobs.lever.co/palantir', {
     sourceAts: 'lever',
@@ -841,6 +850,42 @@ export const COMPANIES: Company[] = [
     }
   ),
 
+  // Batch add 2 (2026-09-02) — Salesforce, CrowdStrike, Zoom, Intel (Workday).
+  // Each carries a provider_config in the seed migration; the wdN pod is
+  // load-bearing (wd12 / wd5 / wd5 / wd1 respectively — a wrong pod fetches 0).
+  createBackendScraperCompany(
+    'salesforce',
+    'Salesforce',
+    'https://salesforce.wd12.myworkdayjobs.com/External_Career_Site',
+    {
+      sourceAts: 'workday',
+    }
+  ),
+  createBackendScraperCompany(
+    'crowdstrike',
+    'CrowdStrike',
+    'https://crowdstrike.wd5.myworkdayjobs.com/crowdstrikecareers',
+    {
+      sourceAts: 'workday',
+    }
+  ),
+  createBackendScraperCompany(
+    'zoom',
+    'Zoom',
+    'https://careers.zoom.us',
+    {
+      sourceAts: 'workday',
+    }
+  ),
+  createBackendScraperCompany(
+    'intel',
+    'Intel',
+    'https://intel.wd1.myworkdayjobs.com/External',
+    {
+      sourceAts: 'workday',
+    }
+  ),
+
   // Backend scraper companies (formerly Eightfold)
   createBackendScraperCompany('netflix', 'Netflix', 'https://explore.jobs.netflix.net/', {
     sourceAts: 'eightfold',
@@ -888,6 +933,7 @@ export const enum COMPANY_IDS {
   Baseten = 'baseten',
   BasePower = 'base-power',
   Block = 'block',
+  Box = 'box',
   BlueOrigin = 'blueorigin',
   Brex = 'brex',
   Braintrust = 'braintrust',
@@ -904,6 +950,7 @@ export const enum COMPANY_IDS {
   Cohere = 'cohere',
   Coinbase = 'coinbase',
   Console = 'console',
+  CrowdStrike = 'crowdstrike',
   Crunchyroll = 'crunchyroll',
   Crusoe = 'crusoe',
   Cursor = 'cursor',
@@ -937,6 +984,7 @@ export const enum COMPANY_IDS {
   Happyrobot = 'happyrobot.ai',
   Hightouch = 'hightouch',
   Instacart = 'instacart',
+  Intel = 'intel',
   JaneStreet = 'janestreet',
   JudgmentLabs = 'judgmentlabs',
   Krea = 'krea',
@@ -956,6 +1004,7 @@ export const enum COMPANY_IDS {
   Notion = 'notion',
   Nuro = 'nuro',
   Nvidia = 'nvidia',
+  Okta = 'okta',
   OpenAI = 'openai',
   OpenEvidence = 'openevidence',
   Pallet = 'pallet',
@@ -978,6 +1027,7 @@ export const enum COMPANY_IDS {
   Roadrunner = 'roadrunner',
   Robinhood = 'robinhood',
   Roblox = 'roblox',
+  Salesforce = 'salesforce',
   Salient = 'salient',
   Saronic = 'saronic',
   Scaleai = 'scaleai',
@@ -1013,6 +1063,7 @@ export const enum COMPANY_IDS {
   WorkOS = 'workos',
   Workweave = 'workweave',
   Xai = 'xai',
+  Zoom = 'zoom',
   Zoox = 'zoox',
 }
 
