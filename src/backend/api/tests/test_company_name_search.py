@@ -256,7 +256,7 @@ async def test_the_correct_board_is_found_and_auto_addable() -> None:
     assert candidates[0].candidate.ats == "workday"
     assert candidates[0].auto_addable is True
     assert candidates[0].rank == 2
-    assert careers == ["https://careers.cisco.com/global/en/home"]
+    assert [r.url for r in careers] == ["https://careers.cisco.com/global/en/home"]
 
 
 @pytest.mark.asyncio
@@ -297,7 +297,7 @@ async def test_aggregators_are_dropped_from_both_lists() -> None:
         candidates, careers, _ = await search_ats_candidates("Cisco", http)
 
     assert candidates == []
-    assert careers == ["https://careers.cisco.com/"]
+    assert [r.url for r in careers] == ["https://careers.cisco.com/"]
 
 
 @pytest.mark.asyncio
@@ -397,7 +397,7 @@ async def test_the_fallback_prefers_the_companys_own_domain() -> None:
     async with _client(payload) as http:
         _, careers, _ = await search_ats_candidates("Databricks", http)
 
-    assert careers[0] == "https://www.databricks.com/company/careers/open-positions"
+    assert careers[0].url == "https://www.databricks.com/company/careers/open-positions"
 
 
 @pytest.mark.parametrize(
@@ -434,8 +434,12 @@ def test_fallback_ownership_is_per_host_label(
     # winning the ownership test — the sort is stable, so a first-placed URL
     # would stay first either way and the assertion would prove nothing.
     other = "https://unrelated.example/x"
-    ranked = cns._rank_careers_urls(company, [other, url])
-    assert (ranked[0] == url) is expected
+    rows = [
+        cns.CareersResult(url=other, title="", rank=1),
+        cns.CareersResult(url=url, title="", rank=2),
+    ]
+    ranked = cns._rank_careers_results(company, rows)
+    assert (ranked[0].url == url) is expected
 
 
 @pytest.mark.asyncio
@@ -447,7 +451,10 @@ async def test_the_fallback_keeps_search_rank_between_equal_hosts() -> None:
     async with _client(payload) as http:
         _, careers, _ = await search_ats_candidates("Nobody", http)
 
-    assert careers == ["https://careers.example.com/a", "https://careers.example.com/b"]
+    assert [r.url for r in careers] == [
+        "https://careers.example.com/a",
+        "https://careers.example.com/b",
+    ]
 
 
 def test_is_aggregator_does_not_match_a_lookalike_domain() -> None:
@@ -604,7 +611,7 @@ async def test_the_careers_search_offers_only_the_companys_own_pages() -> None:
     async with _client(payload) as http:
         trusted, trace = await search_careers_page("Oracle", http)
 
-    assert trusted == ["https://www.oracle.com/careers/"]
+    assert [r.url for r in trusted] == ["https://www.oracle.com/careers/"]
     assert trace.query == "Oracle careers"
     assert (trace.results, trace.filtered, trace.trusted) == (3, 1, 1)
 
@@ -636,7 +643,7 @@ async def test_the_careers_search_never_hands_back_a_board() -> None:
     async with _client(payload) as http:
         trusted, _ = await search_careers_page("Cisco", http)
 
-    assert trusted == ["https://careers.cisco.com/global/en"]
+    assert [r.url for r in trusted] == ["https://careers.cisco.com/global/en"]
 
 
 @pytest.mark.asyncio
@@ -644,3 +651,30 @@ async def test_the_careers_search_refuses_an_overlong_name_before_spending() -> 
     async with _client(_results()) as http:
         with pytest.raises(NameSearchUnavailable):
             await search_careers_page("z" * 61, http)
+
+
+@pytest.mark.asyncio
+async def test_the_careers_results_carry_the_title_and_the_rank() -> None:
+    """The title is half of what picks WHICH careers page we offer, and it used to
+    be dropped here — the service returned bare URLs, so the picker had only the
+    path to go on. See `careers_page_pick`."""
+    payload = {
+        "results": [
+            {"url": "https://careers.cisco.com/global/en", "title": "Careers at Cisco"},
+            {
+                "url": "https://careers.cisco.com/global/en/search-results",
+                "title": "Job Openings - Cisco Careers",
+            },
+        ]
+    }
+    async with _client(payload) as http:
+        trusted, _ = await search_careers_page("Cisco", http)
+
+    assert [(r.url, r.title, r.rank) for r in trusted] == [
+        ("https://careers.cisco.com/global/en", "Careers at Cisco", 1),
+        (
+            "https://careers.cisco.com/global/en/search-results",
+            "Job Openings - Cisco Careers",
+            2,
+        ),
+    ]

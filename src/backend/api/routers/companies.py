@@ -50,12 +50,18 @@ from ..services.ats_discovery import (
     discover_ats,
     probe_candidate,
 )
+from ..services.careers_page_pick import (
+    CareersResult,
+    pick_careers_url,
+    rank_careers_results,
+)
 from ..services.company_name_search import (
     CareersSearchTrace,
     NameCandidate,
     NameSearchUnavailable,
     search_ats_candidates,
     search_careers_page,
+    trusted_careers_results,
     trusted_careers_urls,
 )
 from ..services.companies_service import list_enabled_companies_with_profiles
@@ -309,9 +315,20 @@ async def _probe_shown(
     return out
 
 
+def _best_without_fetching(rows: list[CareersResult]) -> str | None:
+    """The best trusted row by title and path alone — no network, no derivation.
+
+    The half of ``pick_careers_url`` that costs nothing. It serves the FALLBACK
+    source, where a fetch would either be this request's second or have no budget
+    left to run in.
+    """
+    ranked = rank_careers_results(rows)
+    return ranked[0].url if ranked else None
+
+
 async def _careers_fallback(
     name: str,
-    first_search_urls: list[str],
+    first_search_results: list[CareersResult],
     http: httpx.AsyncClient,
     deadline: float,
 ) -> tuple[str | None, CareersSearchTrace | None]:
@@ -335,20 +352,31 @@ async def _careers_fallback(
        Measured never to be needed (the second query succeeded 15/15); it is here
        so that a second search we could not run is not automatically a dead end.
 
+    WHICH of a source's trusted rows we offer is ``pick_careers_url``: derive the
+    job list from any job-detail URLs and prove it with one fetch, else rank on
+    title and path. Taking ``trusted[0]`` — the first by search rank, which is what
+    this did — landed on the company's real job list 3 times in 28; this lands on it
+    16 times in 28.
+
+    AT MOST ONE FETCH per request, and only on the second search's rows. If those
+    produce nothing offerable, source 2 is picked over without fetching again: a
+    dead end is not worth a second outbound request, and the case is measured never
+    to arise.
+
     A second search that fails or runs out of budget is NOT an error for this
     request. We already have a real answer above it, and turning a working search
     into a 503 because its optional follow-up timed out would trade the whole
-    result for the footnote.
+    result for the footnote. The same is true of the verification fetch — it fails
+    open into the ranker, so a 403 costs us the derivation and nothing else.
     """
-    fallback = trusted_careers_urls(name, first_search_urls)
-    first_trusted = fallback[0] if fallback else None
+    first_trusted = trusted_careers_results(name, first_search_results)
 
     # The probes above already ate part of the budget, and this call is the
     # optional part of the request. It gets what is left and no extension.
     remaining = deadline - time.monotonic()
     if remaining <= 0:
         logger.warning("No budget left for the careers fallback search for %r", name)
-        return first_trusted, None
+        return _best_without_fetching(first_trusted), None
 
     try:
         trusted, trace = await asyncio.wait_for(
@@ -356,9 +384,20 @@ async def _careers_fallback(
         )
     except (NameSearchUnavailable, asyncio.TimeoutError) as exc:
         logger.warning("Careers fallback search failed for %r: %s", name, exc)
-        return first_trusted, None
+        return _best_without_fetching(first_trusted), None
 
-    return (trusted[0] if trusted else first_trusted), trace
+    chosen = await pick_careers_url(
+        trusted,
+        http,
+        # The DERIVED url is new, so it faces the same host filter every row here
+        # already passed — asked before the fetch, so a host we would never offer
+        # is never contacted either.
+        is_trusted=lambda url: bool(trusted_careers_urls(name, [url])),
+        deadline=deadline,
+    )
+    if chosen is None:
+        chosen = _best_without_fetching(first_trusted)
+    return chosen, trace
 
 
 def _already_public(match: svc.PublishedMatch, final_url: str) -> AlreadyPublicResponse:
@@ -495,7 +534,7 @@ async def search_company_by_name(
             # below bounds only the PROBES; without this a slow search would eat
             # the whole budget and leave the probes 0 seconds, silently reporting
             # every candidate as unreadable — a wrong answer rather than a slow one.
-            candidates, careers_urls, trace = await asyncio.wait_for(
+            candidates, careers_results, trace = await asyncio.wait_for(
                 search_ats_candidates(payload.name, http),
                 timeout=_SEARCH_BUDGET_S + _RESOLVE_GRACE_S,
             )
@@ -541,7 +580,7 @@ async def search_company_by_name(
         careers_trace: CareersSearchTrace | None = None
         if already_public is None and not any(found.auto_addable for found in shown):
             careers_url, careers_trace = await _careers_fallback(
-                payload.name, careers_urls, http, deadline
+                payload.name, careers_results, http, deadline
             )
             # Rungs 2 and 3, against the URL we are about to put a button on. The
             # careers HOST table first (Amazon, Apple, Google, Microsoft, TikTok —

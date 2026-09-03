@@ -779,3 +779,82 @@ def test_a_disabled_public_row_is_not_offered_as_the_answer(
 
     assert body["alreadyPublic"] is None
     assert body["careersUrl"] == DATABRICKS_CAREERS
+
+
+# ----------------------------------------------------------------------------
+# WHICH careers page — the job list, not the landing page
+#
+# The trusted set was always right; the row we picked out of it was the first by
+# search rank, and search rank prefers the page people link to. Measured over 28
+# companies, that lands on the real job list 3 times; deriving it from the job
+# URLs and ranking on the title lands on it 16 times.
+# ----------------------------------------------------------------------------
+
+# Airbnb's real 2026-09-03 results. `careers.airbnb.com/positions` — the job list —
+# is not among them at ANY rank, so no amount of ranking can reach it. The
+# postings are the only evidence it exists.
+AIRBNB_RESULTS = [
+    ("https://careers.airbnb.com/", "Home - Careers at Airbnb"),
+    ("https://careers.airbnb.com/positions/8078019/", "Staff Backend Engineer"),
+    ("https://careers.airbnb.com/positions/8077995/", "Staff Software Engineer"),
+    ("https://careers.airbnb.com/positions/7948314/", "Lead, Advanced Analytics"),
+]
+AIRBNB_LIST = "https://careers.airbnb.com/positions"
+
+
+def _airbnb_handler(verification: httpx.Response):
+    """The two searches, then whatever the verification fetch is told to answer."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+        if url == SEARCH_API:
+            second = json.loads(request.content)["query"].endswith(" careers")
+            return httpx.Response(
+                200,
+                json={
+                    "requestId": "t",
+                    "query": "t",
+                    "results": (
+                        [{"id": u, "url": u, "title": t} for u, t in AIRBNB_RESULTS]
+                        if second
+                        else []
+                    ),
+                },
+            )
+        if url == AIRBNB_LIST:
+            return verification
+        return httpx.Response(404)
+
+    return handler
+
+
+def test_the_offered_careers_page_is_the_job_list(
+    client, db_conn, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Derived from the postings, then proved with ONE fetch."""
+    seen = _install_transport(
+        monkeypatch, _airbnb_handler(httpx.Response(200, text="<html>positions</html>"))
+    )
+
+    body = client.post(SEARCH, json={"name": "Airbnb"}).json()
+
+    assert body["careersUrl"] == AIRBNB_LIST
+    # Two searches and exactly one verification fetch — the postings themselves
+    # are never fetched, and neither is the landing page.
+    assert [str(r.url) for r in seen if str(r.url) != SEARCH_API] == [AIRBNB_LIST]
+
+
+def test_a_derived_list_we_cannot_verify_falls_back_to_the_ranker(
+    client, db_conn, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """FAILING OPEN, end to end. Tesla, Citadel, Epic Games and Dell all 403 us;
+    treating that as "reject" would leave the user with nothing on every
+    Cloudflare-fronted careers site."""
+    _install_transport(monkeypatch, _airbnb_handler(httpx.Response(403, text="no")))
+
+    body = client.post(SEARCH, json={"name": "Airbnb"}).json()
+
+    # The landing page again — the old answer, which is the right one to fall
+    # back to and never worse than what we offered before.
+    assert body["careersUrl"] == "https://careers.airbnb.com/"
+    assert body["careersSearch"]["trusted"] == 4

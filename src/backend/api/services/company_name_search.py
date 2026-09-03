@@ -58,6 +58,13 @@ not only a sort key: when no result's host names the company we return ``None`` 
 the UI falls back to "paste the URL of their careers page". Handing over the
 top-ranked stranger is not a cosmetic miss — accepting it spends a paid discovery run
 and one of the user's twenty monthly adds on somebody else's website.
+
+**WHICH trusted result to offer is decided in ``careers_page_pick``, not here.** This
+module says which URLs are theirs; that one says which of them is the job list rather
+than the brochure about working there. Taking the first trusted result in search rank
+order — what this used to hand back — lands on the real job list 3 times in 28,
+because search rank prefers the page people link to. Hence ``CareersResult``: every
+non-board result keeps its title and rank so the picker has something to score.
 """
 
 from __future__ import annotations
@@ -72,6 +79,7 @@ import httpx
 
 from ..config import settings
 from .ats_link_resolver import AtsCandidate, resolve_ats_url
+from .careers_page_pick import CareersResult
 from .discovery.progress import display_url
 
 logger = logging.getLogger(__name__)
@@ -440,7 +448,9 @@ def _host_owner(company: str) -> Callable[[str], bool]:
     return owns_host
 
 
-def _rank_careers_urls(company: str, urls: list[str]) -> list[str]:
+def _rank_careers_results(
+    company: str, rows: list[CareersResult]
+) -> list[CareersResult]:
     """Put careers pages on the company's OWN domain first, preserving rank within.
 
     The fallback URL is offered to the user as "no board found, try their careers
@@ -463,17 +473,19 @@ def _rank_careers_urls(company: str, urls: list[str]) -> list[str]:
     ``resumeadapter.com/ats/workday/companies`` on top and we handed it over.
 
     A stable sort, so search rank still decides between two equally-good hosts.
+    WHICH of the own-domain pages is the job list rather than the brochure is not
+    decided here at all — that is ``careers_page_pick``, over the rows this leaves.
     """
     if not normalize_name(company):
-        return urls
+        return rows
     owns_host = _host_owner(company)
-    return sorted(urls, key=lambda url: not owns_host(url))
+    return sorted(rows, key=lambda row: not owns_host(row.url))
 
 
 def trusted_careers_urls(company: str, urls: Iterable[str]) -> list[str]:
     """Only the URLs whose host NAMES the company, in the order they arrived.
 
-    The same ``owns_host`` rule ``_rank_careers_urls`` sorts by, used to REJECT
+    The same ``owns_host`` rule ``_rank_careers_results`` sorts by, used to REJECT
     rather than to demote — which is the entire change. An untrusted host the user
     accepts is a paid discovery run plus one of their twenty monthly adds, spent on
     a stranger's website, so "we found nothing you can use" is the better answer and
@@ -486,6 +498,20 @@ def trusted_careers_urls(company: str, urls: Iterable[str]) -> list[str]:
     """
     owns_host = _host_owner(company)
     return [url for url in urls if owns_host(url)]
+
+
+def trusted_careers_results(
+    company: str, rows: Iterable[CareersResult]
+) -> list[CareersResult]:
+    """``trusted_careers_urls``, keeping the title and rank attached.
+
+    A thin wrapper and deliberately not a second implementation: it asks the same
+    function the same question, so there is still exactly one rule for "may we
+    offer this host at all". Everything that ranks or derives runs after this.
+    """
+    rows = list(rows)
+    trusted = set(trusted_careers_urls(company, [row.url for row in rows]))
+    return [row for row in rows if row.url in trusted]
 
 
 class NameSearchUnavailable(RuntimeError):
@@ -564,13 +590,19 @@ def build_careers_query(company: str) -> str:
 
 async def search_careers_page(
     company: str, http: httpx.AsyncClient
-) -> tuple[list[str], CareersSearchTrace]:
+) -> tuple[list[CareersResult], CareersSearchTrace]:
     """The SECOND search: find the company's own careers page. Miss path only.
 
-    Returns ``(trusted_urls, trace)`` — the results whose host names the company,
+    Returns ``(trusted_rows, trace)`` — the results whose host names the company,
     in rank order, and what the call did. An empty list is a real answer meaning
     "nothing here is theirs", and the caller must offer nothing rather than the
     best of a bad set.
+
+    RANK ORDER IS NOT THE ANSWER, it is just the order they arrived in. Which of
+    these rows to offer is ``careers_page_pick``'s job, which is why the search
+    engine's TITLE rides along on every row instead of being dropped here: taking
+    ``trusted[0]`` lands on the company's real job list 3 times in 28, because
+    search rank prefers the marketing landing page.
 
     Callers must only reach this when the first search produced no auto-addable
     candidate. It cannot help otherwise, and it is a paid call: measured over
@@ -587,9 +619,9 @@ async def search_careers_page(
     query = build_careers_query(name)
     results = await _run_search(query, http)
 
-    urls: list[str] = []
+    rows: list[CareersResult] = []
     filtered = 0
-    for result in results:
+    for rank, result in enumerate(results, start=1):
         if not isinstance(result, dict):
             continue
         url = result.get("url")
@@ -604,9 +636,11 @@ async def search_careers_page(
         # rather than offered as a "careers page" the user is asked to trust.
         if resolve_ats_url(url) is not None:
             continue
-        urls.append(url)
+        rows.append(
+            CareersResult(url=url, title=str(result.get("title") or ""), rank=rank)
+        )
 
-    trusted = trusted_careers_urls(name, urls)
+    trusted = trusted_careers_results(name, rows)
     logger.info(
         "Careers fallback for %r: %d result(s), %d aggregator(s) dropped -> "
         "%d on a host that names them",
@@ -622,15 +656,16 @@ async def search_careers_page(
 
 async def search_ats_candidates(
     company: str, http: httpx.AsyncClient
-) -> tuple[list[NameCandidate], list[str], NameSearchTrace]:
+) -> tuple[list[NameCandidate], list[CareersResult], NameSearchTrace]:
     """One search call, then score every result.
 
-    Returns ``(candidates, careers_urls, trace)``.
+    Returns ``(candidates, careers_results, trace)``.
 
-    ``careers_urls`` are the non-aggregator results that resolved to no board,
+    ``careers_results`` are the non-aggregator results that resolved to no board,
     ranked so the ones on the company's own domain come first — rung B feeds the
     best of them to the existing ``ats_discovery.discover_ats``, which is free and
-    recovers ~3 more companies in 29, Cisco among them.
+    recovers ~3 more companies in 29, Cisco among them. They carry the search
+    engine's title because ``careers_page_pick`` scores on it.
 
     RANKED, NOT FILTERED, on purpose: this list is raw material, and the caller
     decides what it is for. Anything about to be OFFERED to the user must go
@@ -657,7 +692,7 @@ async def search_ats_candidates(
     results = await _run_search(query, http)
 
     candidates: list[NameCandidate] = []
-    careers_urls: list[str] = []
+    careers_results: list[CareersResult] = []
     filtered = 0
     # The rows the page folds away, and how many more there were than we send.
     # Collected HERE rather than derived by the caller because this is the only
@@ -689,9 +724,10 @@ async def search_ats_candidates(
             filtered += 1
             keep_non_board(url, rank, aggregator=True)
             continue
+        title = str(result.get("title") or "")
         resolved = resolve_ats_url(url)
         if resolved is None:
-            careers_urls.append(url)
+            careers_results.append(CareersResult(url=url, title=title, rank=rank))
             keep_non_board(url, rank, aggregator=False)
             continue
         key = (
@@ -706,7 +742,7 @@ async def search_ats_candidates(
             NameCandidate(
                 candidate=resolved,
                 source_url=url,
-                title=str(result.get("title") or ""),
+                title=title,
                 rank=rank,
                 auto_addable=_names_match(name, resolved),
             )
@@ -720,7 +756,7 @@ async def search_ats_candidates(
     )
     return (
         candidates,
-        _rank_careers_urls(name, careers_urls),
+        _rank_careers_results(name, careers_results),
         NameSearchTrace(
             query=query,
             results=len(results),
