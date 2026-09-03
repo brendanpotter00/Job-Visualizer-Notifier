@@ -19,6 +19,18 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    id: 'add-meta',
+    title: 'Added Meta',
+    description:
+      "Meta — the company behind Facebook, Instagram, WhatsApp, and Messenger, plus its Reality Labs and AI efforts — is now tracked. Its careers site has no standard job board behind it, so this needed a purpose-built scraper rather than the usual ATS integration, joining Google, Apple, Microsoft, Amazon, and TikTok in the Custom Web Scrapers group. Coverage is US software and data roles, currently around 430 open postings out of a ~890-role global catalogue, refreshed hourly like everything else. One quirk worth knowing: Meta's listings carry no posted date, so their timeline reflects when this site first saw them.",
+    tags: ['new-companies'],
+    date: '2026-09-03',
+    link: {
+      to: ROUTES.ACCOUNT,
+      label: 'Add Meta to your company preferences',
+    },
+  },
+  {
     id: 'add-companies-2026-09-batch',
     title: 'Added a bunch of new companies',
     description:

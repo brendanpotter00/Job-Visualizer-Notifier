@@ -1,6 +1,8 @@
 # Output files
 output/
 *.json
+# ...but committed test fixtures are not scraper output.
+!tests/fixtures/*.json
 
 # Python cache
 __pycache__/

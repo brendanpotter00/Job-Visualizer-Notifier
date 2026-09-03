@@ -27,6 +27,7 @@ from scripts.apple_jobs_scraper.scraper import AppleJobsScraper
 from scripts.microsoft_jobs_scraper.scraper import MicrosoftJobsScraper
 from scripts.amazon_jobs_scraper.scraper import AmazonJobsScraper
 from scripts.tiktok_jobs_scraper.scraper import TikTokJobsScraper
+from scripts.meta_jobs_scraper.scraper import MetaJobsScraper
 from scripts.google_jobs_scraper.config import (
     DEFAULT_OUTPUT_DIR,
     DEFAULT_OUTPUT_FILE,
@@ -70,6 +71,7 @@ SCRAPER_CLASSES = {
     "microsoft": MicrosoftJobsScraper,
     "amazon": AmazonJobsScraper,
     "tiktok": TikTokJobsScraper,
+    "meta": MetaJobsScraper,
 }
 
 
@@ -369,7 +371,7 @@ Examples:
     # New flags for database mode
     parser.add_argument(
         "--company",
-        choices=["google", "apple", "microsoft", "amazon", "tiktok", "all"],
+        choices=["google", "apple", "microsoft", "amazon", "tiktok", "meta", "all"],
         default="google",
         help="Which company scraper to run (default: google)",
     )
