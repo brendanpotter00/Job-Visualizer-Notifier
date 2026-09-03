@@ -1,5 +1,6 @@
 import { Box } from '@mui/material';
 import { RESPONSIVE } from '../../../../config/responsive';
+import { getCompanyById } from '../../../../config/companies';
 import { useIsMobile } from '../../../../hooks/useIsMobile';
 import type { LogoRosterEntry } from './logoRoster';
 
@@ -22,6 +23,10 @@ export function LogoGridFallback({ roster }: LogoGridFallbackProps) {
 
   return (
     <Box
+      // role="group" makes the aria-label real: on a bare div assistive tech
+      // ignores the attribute entirely (this is the reduced-motion/no-WebGL
+      // tier, so it IS the accessibility path).
+      role="group"
       aria-label="Companies tracked by onesecondswe"
       sx={{
         display: 'grid',
@@ -44,7 +49,7 @@ export function LogoGridFallback({ roster }: LogoGridFallbackProps) {
         <img
           key={entry.companyId}
           src={entry.logoUrl}
-          alt={entry.companyId}
+          alt={getCompanyById(entry.companyId)?.name ?? entry.companyId}
           loading="lazy"
           onError={(event) => {
             // Logo files are committed per registry id but not guaranteed

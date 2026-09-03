@@ -294,9 +294,8 @@ export const RESPONSIVE = {
     /**
      * Section vertical padding (theme units). Adjacent sections each apply it,
      * so the visible gap between two sections is DOUBLE this — 80px on a phone,
-     * 160px on desktop. Deliberately generous: the landing prototypes read as
-     * one dense block otherwise (Notion-style "every block floats in its own
-     * air"). Shared by Gravity/Signal/Board/Drift so the four keep one rhythm.
+     * 160px on desktop. Deliberately generous: the landing page reads as one
+     * dense block otherwise (Notion-style "every block floats in its own air").
      */
     sectionPaddingY: { xs: 5, sm: 10 },
     /**

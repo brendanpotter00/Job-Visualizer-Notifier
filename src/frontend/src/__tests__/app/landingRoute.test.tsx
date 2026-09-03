@@ -22,9 +22,12 @@ import { ROUTES } from '../../config/routes';
 // Stand-in for the real page: this file gates routing, not page internals, and
 // the marker makes "did the route match?" unambiguous. Mocking here also keeps
 // the lazy three/rapier scene entirely out of this test process.
-vi.mock('../../pages/LandingPage/LandingPage', () => ({
-  LandingPage: () => <div data-testid="landing-page">Landing page body</div>,
-}));
+vi.mock('../../pages/LandingPage/LandingPage', () => {
+  const LandingPage = () => <div data-testid="landing-page">Landing page body</div>;
+  // Named export for direct imports, default for the React.lazy boundary in
+  // App.tsx — the route suspends forever if the default is missing.
+  return { LandingPage, default: LandingPage };
+});
 
 vi.mock('../../features/auth/useAuth', () => ({
   useAuth: () => ({

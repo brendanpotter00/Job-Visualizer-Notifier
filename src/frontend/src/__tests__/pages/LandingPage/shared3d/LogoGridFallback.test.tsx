@@ -1,6 +1,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import { RESPONSIVE } from '../../../../config/responsive';
+import { getCompanyById } from '../../../../config/companies';
 import { LogoGridFallback } from '../../../../pages/LandingPage/prototypes/shared3d/LogoGridFallback';
 import type { LogoRosterEntry } from '../../../../pages/LandingPage/prototypes/shared3d/logoRoster';
 
@@ -18,7 +19,7 @@ describe('LogoGridFallback', () => {
     expect(images).toHaveLength(ROSTER.length);
     ROSTER.forEach((entry, index) => {
       expect(images[index]).toHaveAttribute('src', entry.logoUrl);
-      expect(images[index]).toHaveAttribute('alt', entry.companyId);
+      expect(images[index]).toHaveAttribute('alt', getCompanyById(entry.companyId)?.name ?? entry.companyId);
     });
   });
 

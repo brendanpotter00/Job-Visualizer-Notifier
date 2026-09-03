@@ -64,3 +64,5 @@ export function LandingPage() {
     </Box>
   );
 }
+
+export default LandingPage;

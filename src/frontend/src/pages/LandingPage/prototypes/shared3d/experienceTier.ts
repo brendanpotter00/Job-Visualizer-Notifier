@@ -3,8 +3,8 @@
  * governor. Every branch lives here (not in the scene JSX) so the full matrix
  * is unit-testable in jsdom without ever touching three.js.
  *
- * Ladder (PLAN.md "Tabs 3+4 — 3D"):
- *   full desktop → full constrained (fewer bodies, lower DPR, no shadows)
+ * Ladder (PLAN.md "Degradation ladder"):
+ *   full desktop → full constrained (fewer bodies, lower DPR)
  *   → fallback (reduced-motion or no WebGL: DOM-only, scene chunk never loads).
  */
 
@@ -54,7 +54,7 @@ export function resolveExperienceTier(input: ExperienceTierInput): ExperienceTie
 }
 
 export interface FrameloopInput {
-  /** Gravity only: every rapier body is asleep. Drift passes false. */
+  /** Every rapier body is asleep (the Gravity scene's settle signal). */
   allAsleep: boolean;
   /** Hero region intersects the viewport (IntersectionObserver). */
   heroInView: boolean;

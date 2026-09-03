@@ -21,7 +21,15 @@ import { AdminEnrichmentPage } from '../pages/AdminEnrichmentPage/AdminEnrichmen
 import { AdminLocationPipelinePage } from '../pages/AdminLocationPipelinePage/AdminLocationPipelinePage.tsx';
 import { AdminCustomCompaniesPage } from '../pages/AdminCustomCompaniesPage/AdminCustomCompaniesPage.tsx';
 import { AdminFeedbackPage } from '../pages/AdminFeedbackPage/AdminFeedbackPage.tsx';
-import { LandingPage } from '../pages/LandingPage/LandingPage.tsx';
+import { lazy, Suspense } from 'react';
+import { LoadingState } from '../components/shared/LoadingIndicator';
+
+/**
+ * Lazy at the ROUTE, not just the 3D scene: the landing page's copy config and
+ * mock-job fixtures would otherwise ride the main bundle onto every page and
+ * build 28 fabricated jobs at app boot for a page most visitors never open.
+ */
+const LandingPage = lazy(() => import('../pages/LandingPage/LandingPage.tsx'));
 import { AdminRoute } from '../components/auth/AdminRoute.tsx';
 import { useEnabledCompanies } from '../features/preferences/useEnabledCompanies';
 import { useHydrateSavedFilters } from '../features/savedFilters/useHydrateSavedFilters';
@@ -181,7 +189,14 @@ function AppContent() {
             by direct URL only — no nav entry, no changelog card — so reviewers
             can open it without signing in. Mock data only; nothing here touches
             real APIs. */}
-        <Route path={ROUTES.LANDING} element={<LandingPage />} />
+        <Route
+          path={ROUTES.LANDING}
+          element={
+            <Suspense fallback={<LoadingState fullPage />}>
+              <LandingPage />
+            </Suspense>
+          }
+        />
         {/* The pre-consolidation path, still routable so links already sent out
             keep working now that the four-prototype workspace is one page. */}
         <Route path={ROUTES.LANDING_LEGACY} element={<LegacyLandingRedirect />} />

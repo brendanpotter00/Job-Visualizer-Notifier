@@ -24,7 +24,7 @@ const DROP_STEP_Y = 0.55;
 const DROP_JITTER_Y = 0.4;
 /** Keep spawns clear of the side walls (tile half-diagonal ≈ 0.71). */
 const WALL_MARGIN = 0.9;
-/** Depth jitter; walls at z=±0.75 (0.5 thick) leave ±0.5 of clear interior. */
+/** Depth jitter; the z walls' inner faces sit at ±0.5, so spawns stay inside. */
 const DEPTH_JITTER = 0.3;
 /** Gentle x/y tumble; z spins the logo face, so it gets the full circle. */
 const TILT_RANGE = 0.4;
