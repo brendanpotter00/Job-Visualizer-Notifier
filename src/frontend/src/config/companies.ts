@@ -916,6 +916,10 @@ export const COMPANIES: Company[] = [
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2233246798%22%5D',
   }),
+  createBackendScraperCompany('meta', 'Meta', 'https://www.metacareers.com/jobs', {
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2210667%22%5D',
+  }),
 ];
 
 export const enum COMPANY_IDS {
@@ -993,6 +997,7 @@ export const enum COMPANY_IDS {
   Linear = 'linear',
   Lyft = 'lyft',
   Merge = 'merge',
+  Meta = 'meta',
   Microsoft = 'microsoft',
   Mintlify = 'mintlify',
   MistralAI = 'mistral-ai',

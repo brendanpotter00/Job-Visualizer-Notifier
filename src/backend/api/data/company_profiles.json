@@ -289,6 +289,10 @@
     "accomplishment": "Merge is one of the most widely adopted unified API platforms, letting B2B software teams ship many third-party integrations through one normalized interface.",
     "blurb": "Merge provides a single unified API that lets software products add hundreds of integrations across HR, payroll, accounting, CRM, and ticketing."
   },
+  "meta": {
+    "accomplishment": "Meta built Facebook, Instagram, WhatsApp, and Messenger into a family of apps used by billions of people, and is now one of the largest investors in AI and virtual/augmented reality.",
+    "blurb": "Meta operates the world's largest social platforms — Facebook, Instagram, WhatsApp, and Messenger — alongside its Reality Labs hardware and a major AI research and infrastructure effort."
+  },
   "microsoft": {
     "accomplishment": "Microsoft's Windows is among the most widely used desktop operating systems in the world, and its Azure platform is a leading cloud computing service.",
     "ats": "script",

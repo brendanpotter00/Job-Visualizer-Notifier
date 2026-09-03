@@ -1,0 +1,62 @@
+[
+  {
+    "data": {
+      "job_search_with_featured_jobs_v2": {
+        "all_jobs": [
+          {
+            "id": "j1",
+            "title": "Software Engineer, Infrastructure",
+            "locations": ["Menlo Park, CA, United States"],
+            "teams": [{ "title": "Infrastructure" }],
+            "sub_teams": [{ "title": "Data Platform" }]
+          },
+          {
+            "id": "j2",
+            "title": "Data Scientist, Ads",
+            "locations": [{ "title": "New York, NY, United States" }],
+            "teams": ["Ads"],
+            "sub_teams": []
+          },
+          {
+            "id": "j3",
+            "title": "Product Designer",
+            "locations": ["London, United Kingdom"],
+            "teams": [{ "title": "Design" }]
+          },
+          {
+            "id": "j4-no-title",
+            "locations": ["Menlo Park, CA, United States"],
+            "teams": [{ "title": "Infrastructure" }]
+          },
+          {
+            "title": "Ghost Job, Missing Id",
+            "locations": ["Seattle, WA, United States"]
+          }
+        ],
+        "featured_jobs": [
+          {
+            "id": "j1",
+            "title": "Software Engineer, Infrastructure",
+            "locations": ["Menlo Park, CA, United States"],
+            "teams": [{ "title": "Infrastructure" }],
+            "sub_teams": [{ "title": "Data Platform" }]
+          },
+          {
+            "id": "j5",
+            "title": "Machine Learning Engineer, AI Research",
+            "locations": ["Seattle, WA, United States"],
+            "teams": [{ "title": "AI Research" }],
+            "sub_teams": [{ "title": "GenAI" }]
+          }
+        ]
+      }
+    }
+  },
+  {
+    "data": {
+      "job_search_filters": {
+        "job_count": 4
+      }
+    }
+  }
+]

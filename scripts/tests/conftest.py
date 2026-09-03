@@ -561,3 +561,30 @@ def sample_tiktok_job_data() -> Dict[str, Any]:
         "vacancies": 1,
         "company": "tiktok",
     }
+
+
+# ============================================================================
+# Meta Scraper Fixtures
+# ============================================================================
+
+@pytest.fixture
+def meta_scraper():
+    """MetaJobsScraper instance for transformation tests."""
+    from scripts.meta_jobs_scraper.scraper import MetaJobsScraper
+    return MetaJobsScraper(headless=True, detail_scrape=False)
+
+
+@pytest.fixture
+def meta_graphql_capture() -> list:
+    """The decoded ``captured`` list from a realistic metacareers GraphQL run.
+
+    Loaded from ``fixtures/meta_graphql_capture.json``. Shaped like the live
+    response: a versioned wrapper key holding ``all_jobs`` + ``featured_jobs``
+    (one featured job duplicates an all_jobs id), one job missing ``title`` and
+    one missing ``id`` (both dropped), a non-US and a US location, teams +
+    sub_teams on one job, and a sibling ``job_count`` scalar equal to the count
+    of distinct valid jobs.
+    """
+    import json
+    fixture_path = Path(__file__).parent / "fixtures" / "meta_graphql_capture.json"
+    return json.loads(fixture_path.read_text())

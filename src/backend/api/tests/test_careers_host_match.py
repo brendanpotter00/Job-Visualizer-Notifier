@@ -26,10 +26,12 @@ from scripts.shared.constants import SCRIPT_COMPANY_CAREERS_HOSTS, SourceId
         # The two URLs from the report that opened this unit.
         ("https://jobs.careers.microsoft.com/global/en/search", "microsoft"),
         ("https://www.amazon.jobs/en/search", "amazon"),
-        # ...and the rest of the five.
+        # ...and the rest of the six.
         ("https://jobs.apple.com/en-us/search", "apple"),
         ("https://careers.google.com/", "google"),
         ("https://lifeattiktok.com/search", "tiktok"),
+        ("https://www.metacareers.com/jobsearch", "meta"),
+        ("https://metacareers.com/", "meta"),
     ],
 )
 def test_each_script_boards_careers_url_names_its_company(url, expected):
@@ -81,6 +83,11 @@ def test_every_spelling_of_one_board_still_names_it(url):
         "https://www.amazon.com/jobs",
         "https://aws.amazon.com/careers/",
         "https://www.tiktok.com/about",
+        # Meta's corporate / product domains are NOT the metacareers.com board.
+        # No redirect to it was confirmed, and a careers-host hit is terminal.
+        "https://www.meta.com/",
+        "https://about.meta.com/",
+        "https://www.facebook.com/careers",
     ],
 )
 def test_a_sibling_subdomain_is_not_the_job_board(url):
@@ -106,6 +113,8 @@ def test_a_sibling_subdomain_is_not_the_job_board(url):
         "https://myjobs.apple.com/en-us/search",
         "https://xgoogle.com/about/careers/applications/",
         "https://fakelifeattiktok.com/search",
+        # notmetacareers.com endswith metacareers.com — the endswith trap.
+        "https://notmetacareers.com/jobsearch",
     ],
 )
 def test_a_host_that_merely_ends_with_a_board_host_is_not_that_board(url):
@@ -258,7 +267,7 @@ def test_every_script_scraper_has_its_careers_hosts_registered():
         if not name.startswith("_") and isinstance(value, str)
         and value.endswith("_scraper")
     }
-    assert expected == {"google", "apple", "microsoft", "amazon", "tiktok"}, (
+    assert expected == {"google", "apple", "microsoft", "amazon", "tiktok", "meta"}, (
         "a script scraper was added or removed — update the careers-host table too"
     )
     assert set(SCRIPT_COMPANY_CAREERS_HOSTS) == expected
