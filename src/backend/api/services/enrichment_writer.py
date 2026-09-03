@@ -194,14 +194,27 @@ def _valid_subcategories(
 
     The order of the branches is the contract:
 
-    1. **The parent check runs FIRST and UNCONDITIONALLY.** A job whose resolved
-       category is not `software_engineering` cannot carry subcategories at all.
-       This is the constraint an array column has no FK to express, so it is
-       enforced here or nowhere.
-    2. `_UNSET` when the key is absent. This is what lets a v6 enricher keep
-       posting ordinary ticks without NULLing the column on every row — which in
-       turn makes the enricher's subcategory knob a REVERSIBLE DEPLOY ORDER
-       rather than a code push.
+    1. **The parent check runs FIRST and UNCONDITIONALLY** — ahead of the
+       key-absent check, exactly as §1's SCHEMA-3 step words it ("resolved
+       category ≠ software_engineering → None + warn, UNCONDITIONAL AND FIRST").
+       A job whose resolved category is not `software_engineering` cannot carry
+       subcategories at all. This is the constraint an array column has no FK to
+       express, so it is enforced here or nowhere.
+
+       ⚠ THE ORDER IS THE WHOLE POINT, and the case that needs it is not
+       exotic: the epic's own deploy order has the bulk drain writing arrays
+       while the classify tick is still v6 and sends NO key. Check `_UNSET`
+       first and a v6 tick that RECLASSIFIES a job away from
+       `software_engineering` sets the new category and leaves the old array
+       behind — a non-SWE row carrying subcategories, with no DB constraint to
+       catch it, no warning, and `written: 1`. Checking the parent first NULLs
+       the stale array as part of the same write.
+    2. `_UNSET` when the key is absent **on a row that is still SWE**. This is
+       what lets a v6 enricher keep posting ordinary ticks without NULLing the
+       column on every row — which in turn makes the enricher's subcategory knob
+       a REVERSIBLE DEPLOY ORDER rather than a code push. It is scoped to the
+       parent category by (1): "leave the column alone" is only ever a safe
+       answer while the column is allowed to hold something.
     3. A scalar is promoted to a one-element list with a warning rather than
        rejected — the item must never route to `failed[]` over this field.
     4. A list is stripped/lowered, non-strings and unknown slugs are dropped with
@@ -213,15 +226,18 @@ def _valid_subcategories(
        usefully also tagged one of its halves, and the read-side expansion
        already makes the Frontend filter match it.
     """
-    if value is _UNSET:
-        return _UNSET
     if category != SUBCATEGORY_PARENT:
-        if value:
+        # Warn only when the payload actually SENT something to drop. `_UNSET`
+        # is truthy, so a bare `if value:` would fire this on every non-SWE row
+        # of every v6 tick — pure noise in the /results warnings echo.
+        if value is not _UNSET and value:
             warnings.append(
                 f"subcategories dropped: category {category!r} is not "
                 f"{SUBCATEGORY_PARENT!r}"
             )
         return None
+    if value is _UNSET:
+        return _UNSET
     if value is None:
         return None
     if not isinstance(value, list):
@@ -393,8 +409,17 @@ def apply_result(
         if subcategories is _UNSET or subcategories is None
         else _valid_source(result.get("subcategory_source"), job_id, warnings)
     )
+    # ⚠ `is _UNSET` FIRST — `_UNSET` is a plain object() sentinel and therefore
+    # TRUTHY, so a bare `not subcategories` lets it through. Without this guard
+    # the plain-INSERT arm below (which has no `CASE WHEN` protecting it, unlike
+    # the ON CONFLICT arm) writes a confidence beside a NULL array on a
+    # first-time-enriched row whose payload carried `subcategoryConfidence` and
+    # no `subcategories` key. The value here is only ever USED when the array is
+    # actually being written, so making it None on `_UNSET` costs nothing.
     subcategory_confidence = (
-        None if not subcategories else result.get("subcategory_confidence")
+        None
+        if subcategories is _UNSET or not subcategories
+        else result.get("subcategory_confidence")
     )
 
     cur = conn.cursor()

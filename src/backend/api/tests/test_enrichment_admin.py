@@ -287,6 +287,45 @@ class TestAdminSubcategoryReset:
         assert resp.json()["applied"] == 1
         assert self._count(db_conn, "human") == 0
 
+    def _confidence(self, db_conn, job_id, source_id="src-a"):
+        cur = db_conn.cursor()
+        cur.execute(
+            "SELECT subcategory_confidence AS c FROM job_enrichment "
+            "WHERE source_id=%s AND job_listing_id=%s",
+            (source_id, job_id),
+        )
+        return cur.fetchone()["c"]
+
+    def test_apply_also_clears_the_audit_confidence(self, client, db_conn):
+        """The array and the confidence describe the SAME decision.
+
+        Withdrawing the label while leaving its score behind strands a
+        confidence beside a NULL array — the disagreement §1.2 forbids, and one
+        the NeedsHuman/Recent admin tables actually render.
+        """
+        _seed_flagged_job(db_conn, job_id="rc-hit", category="software_engineering",
+                          subcategories=["backend"], subcategory_source="backfill",
+                          subcategory_confidence=0.91)
+        # An unmatched source must keep BOTH halves — the reset stays scoped.
+        _seed_flagged_job(db_conn, job_id="rc-miss", category="software_engineering",
+                          subcategories=["frontend"], subcategory_source="human",
+                          subcategory_confidence=0.42)
+
+        resp = client.post(self.RESET_URL, json={"source": "backfill", "dryRun": False})
+        assert resp.status_code == 200, resp.text
+        assert self._confidence(db_conn, "rc-hit") is None
+        assert self._confidence(db_conn, "rc-miss") == 0.42
+
+    def test_a_dry_run_does_not_clear_the_confidence_either(self, client, db_conn):
+        """The audit UPDATE runs inside the same `if not dry_run` — a preview
+        that silently wiped confidences would be the worst kind of surprise."""
+        _seed_flagged_job(db_conn, job_id="rc-hit", category="software_engineering",
+                          subcategories=["backend"], subcategory_source="backfill",
+                          subcategory_confidence=0.91)
+        resp = client.post(self.RESET_URL, json={"source": "backfill"})
+        assert resp.status_code == 200, resp.text
+        assert self._confidence(db_conn, "rc-hit") == 0.91
+
     def test_invalid_source_400s(self, client, db_conn):
         resp = client.post(self.RESET_URL, json={"source": "backfill_failed"})
         assert resp.status_code == 400
@@ -550,6 +589,67 @@ class TestAdminEnrichmentCorrect:
         assert row["source"] == "human"
         assert resp.json()["subcategories"] == []
 
+    def _confidence(self, db_conn, source_id="src-a", job_id="q-1"):
+        cur = db_conn.cursor()
+        cur.execute(
+            "SELECT subcategory_confidence AS c FROM job_enrichment "
+            "WHERE source_id=%s AND job_listing_id=%s",
+            (source_id, job_id),
+        )
+        return cur.fetchone()["c"]
+
+    def test_an_explicit_requeue_clears_the_stale_model_confidence(
+        self, client, db_conn
+    ):
+        """§1.2: confidence MUST be null when the array is `[]` or null.
+
+        A surviving score describes a producer's guess that no longer exists,
+        and `enrichment_monitor`'s NeedsHuman/Recent queries select it straight
+        into the admin tables — so the admin sees `subcategories: null` beside
+        a confident-looking number.
+        """
+        _seed_flagged_job(db_conn, subcategories=["backend"],
+                          subcategory_source="classify", subcategory_confidence=0.88)
+        resp = client.post(
+            "/api/admin/enrichment/jobs/src-a/q-1/correct",
+            json={"category": "software_engineering", "subcategories": None},
+        )
+        assert resp.status_code == 200, resp.text
+        assert self._subcats(db_conn)["subcats"] is None
+        assert self._confidence(db_conn) is None
+
+    def test_recategorising_away_from_swe_clears_the_confidence_too(
+        self, client, db_conn
+    ):
+        """The forced `'{}'` path. `[]` is terminal, so the score beside it has
+        nothing left to score."""
+        _seed_flagged_job(db_conn, subcategories=["backend"],
+                          subcategory_source="classify", subcategory_confidence=0.88)
+        resp = client.post(
+            "/api/admin/enrichment/jobs/src-a/q-1/correct",
+            json={"category": "growth", "level": "mid"},
+        )
+        assert resp.status_code == 200, resp.text
+        assert self._subcats(db_conn)["subcats"] == []
+        assert self._confidence(db_conn) is None
+
+    def test_a_LEVEL_ONLY_correction_leaves_the_confidence_alone(
+        self, client, db_conn
+    ):
+        """The mirror of the UNTOUCHED array rule. If the correction says
+        nothing about subcategories, it must say nothing about their score
+        either — clearing it would silently degrade the sort the admin queue
+        offers on `subcategory_confidence`."""
+        _seed_flagged_job(db_conn, subcategories=["backend"],
+                          subcategory_source="classify", subcategory_confidence=0.88)
+        resp = client.post(
+            "/api/admin/enrichment/jobs/src-a/q-1/correct",
+            json={"category": "software_engineering", "level": "senior"},
+        )
+        assert resp.status_code == 200, resp.text
+        assert self._subcats(db_conn)["subcats"] == ["backend"]
+        assert self._confidence(db_conn) == 0.88
+
     def test_subcategories_provided_is_false_for_absent_key(self):
         """Pin the _UNSET mechanism itself.
 
@@ -682,6 +782,58 @@ class TestAdminEnrichmentCorrect:
         cur.execute("SELECT count(*) AS n FROM job_tags WHERE job_listing_id='q-1'")
         assert cur.fetchone()["n"] == 0
 
+    def test_reenrich_clears_the_WHOLE_subcategory_triple(self, client, db_conn):
+        """⚠ THE ESCAPE HATCH HAS TO ACTUALLY OPEN.
+
+        `request_reenrich` promises the row is "fully reopened" with the
+        human-correction lock LIFTED. Leaving the subcategory triple behind
+        breaks that three ways: (a) a NULL-category row keeps publishing
+        subcategory labels to /api/jobs; (b) a surviving `source='human'` makes
+        `apply_subcategory_result` refuse the row forever with
+        `reason: "human-locked"` — on a row whose lock was just lifted, which
+        is the ONLY way to undo a wrongly-written terminal `'{}'`; and (c) a
+        stale confidence sits beside a NULL array.
+
+        NULLing the array is also what re-enters the backfill queue: a NULL
+        array IS the queue.
+        """
+        _seed_flagged_job(db_conn, category="software_engineering", level="senior",
+                          subcategories=["backend"], subcategory_source="human",
+                          subcategory_confidence=0.66)
+        client.post(
+            "/api/admin/enrichment/jobs/src-a/q-1/correct",
+            json={"category": "software_engineering", "subcategories": ["backend"]},
+        )
+        # Re-score AFTER the correction: the correction legitimately clears the
+        # confidence itself, so seeding it earlier would let this test pass
+        # against a re-enrich that never touches the column. A backfill run
+        # landing on a human-labelled row is exactly how this state arises.
+        cur = db_conn.cursor()
+        cur.execute(
+            "UPDATE job_enrichment SET subcategory_confidence = 0.66 "
+            "WHERE source_id='src-a' AND job_listing_id='q-1'"
+        )
+        db_conn.commit()
+
+        resp = client.post("/api/admin/enrichment/jobs/src-a/q-1/reenrich")
+        assert resp.status_code == 200, resp.text
+        # Reported, not merely defaulted-to-null by the response model.
+        assert resp.json()["subcategories"] is None
+
+        cur = db_conn.cursor()
+        cur.execute(
+            "SELECT enrichment_subcategories AS s, enrichment_subcategory_source AS src "
+            "FROM job_listings WHERE source_id='src-a' AND id='q-1'"
+        )
+        row = cur.fetchone()
+        assert row["s"] is None, "a re-enriched row still carries subcategory labels"
+        assert row["src"] is None, "the human lock survived an explicit re-enrich"
+        cur.execute(
+            "SELECT subcategory_confidence AS c FROM job_enrichment "
+            "WHERE source_id='src-a' AND job_listing_id='q-1'"
+        )
+        assert cur.fetchone()["c"] is None
+
 
 class TestAdminEnrichmentConfirm:
     def test_confirm_validates_and_locks(self, client, db_conn):
@@ -719,6 +871,25 @@ class TestAdminEnrichmentConfirm:
 
         # leaves the needs-human queue
         assert client.get("/api/admin/enrichment/needs-human").json()["total"] == 0
+
+    def test_confirm_reads_subcategories_BACK_FROM_THE_ROW(self, client, db_conn):
+        """A confirmation changes no labels, so it must report the ones the row
+        still holds. `AdminEnrichmentCorrectionResponse.subcategories` defaults
+        to None, so an omitted SELECT column reported `null` on a row carrying
+        real labels — indistinguishable from "never evaluated"."""
+        _seed_flagged_job(db_conn, category="software_engineering", level="senior",
+                          subcategories=["backend", "full_stack"],
+                          subcategory_source="classify")
+        resp = client.post("/api/admin/enrichment/jobs/src-a/q-1/confirm")
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["subcategories"] == ["backend", "full_stack"]
+
+    def test_confirm_reports_null_for_a_never_evaluated_row(self, client, db_conn):
+        """The other half: `null` still has to mean null, not `[]`."""
+        _seed_flagged_job(db_conn, category="software_engineering", level="senior")
+        resp = client.post("/api/admin/enrichment/jobs/src-a/q-1/confirm")
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["subcategories"] is None
 
     def test_confirm_without_proposed_labels_409(self, client, db_conn):
         # A demoted needs_human row has NULL facets — nothing to validate.

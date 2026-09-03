@@ -721,6 +721,17 @@ def apply_correction(
             "CASE WHEN %s::text IS NULL THEN job_enrichment.judge_notes "
             "ELSE COALESCE(job_enrichment.judge_notes || E'\\n', '') || '[human] ' || %s::text END"
         )
+        # `subcategory_confidence` is a MODEL artefact: it scores a producer's
+        # guess. The moment a human writes the array it describes a decision
+        # that no longer exists, so it is cleared alongside — which also
+        # satisfies §1.2's hard invariant ("confidence MUST be null when the
+        # array is `[]` or null") on the two paths that reach it here: an
+        # explicit re-queue (`null`) and the forced `'{}'` of a re-categorise
+        # away from SWE. Guarded on `write_subcategories` for the same reason
+        # the array itself is: a LEVEL-ONLY correction must leave the whole
+        # subcategory triple exactly as it found it.
+        # The INSERT arm needs no equivalent — a row created here has never
+        # carried a confidence, and the column is omitted (so NULL).
         cur.execute(
             "INSERT INTO job_enrichment (source_id, job_listing_id, needs_human, "
             "human_corrected_at, human_corrected_by, human_decision, judge_notes) "
@@ -730,10 +741,12 @@ def apply_correction(
             "ON CONFLICT (source_id, job_listing_id) DO UPDATE SET "
             "needs_human = false, human_corrected_at = now(), human_corrected_by = %s, "
             "human_decision = 'corrected', "
+            "subcategory_confidence = CASE WHEN %s THEN NULL "
+            "  ELSE job_enrichment.subcategory_confidence END, "
             f"judge_notes = {note_sql}",
             (
                 source_id, job_listing_id, admin_email, note, note,
-                admin_email, note, note,
+                admin_email, write_subcategories, note, note,
             ),
         )
         cur.execute(
@@ -793,6 +806,11 @@ def reset_subcategories(
     has, and there is no code path here that can reach the human rows by
     accident.
 
+    ``job_enrichment.subcategory_confidence`` is cleared for the same rows.
+    It scores the very label being withdrawn, so leaving it would strand a
+    confidence beside a NULL array — the disagreement §1.2 forbids, and one the
+    NeedsHuman/Recent admin tables render.
+
     Owns commit/rollback, like the other mutations in this module.
     """
     if source not in SUBCATEGORY_SOURCES:
@@ -811,6 +829,18 @@ def reset_subcategories(
 
         applied = 0
         if not dry_run:
+            # The audit column goes FIRST, because it is selected THROUGH the
+            # source column the next statement clears — reversing these two
+            # leaves every confidence orphaned beside a NULL array, the same
+            # array/confidence disagreement §1.2 forbids. Same transaction, so
+            # the pair is atomic.
+            cur.execute(
+                "UPDATE job_enrichment je SET subcategory_confidence = NULL "
+                "FROM job_listings jl "
+                "WHERE jl.source_id = je.source_id AND jl.id = je.job_listing_id "
+                "AND jl.enrichment_subcategory_source = %s",
+                (source,),
+            )
             # Both columns in ONE SET list: a row whose array is NULL but whose
             # source still names the producer would be a lie the backfill queue
             # would then act on.
@@ -820,6 +850,8 @@ def reset_subcategories(
                 "WHERE enrichment_subcategory_source = %s",
                 (source,),
             )
+            # `applied` counts JOB rows reset — never the audit rows, which are
+            # a subset (a job may have no job_enrichment row at all).
             applied = cur.rowcount
         conn.commit()
         return {"source": source, "matched": matched, "applied": applied}
@@ -883,6 +915,10 @@ def apply_confirmation(
         cur.execute(
             "SELECT jl.enrichment_status, jl.enrichment_category AS category, "
             "jl.enrichment_level AS level, "
+            # Read back like the other facets. A confirmation changes no labels,
+            # so the array it reports is whatever the row still holds — omitting
+            # it made the response say `null` on a row carrying real labels.
+            "jl.enrichment_subcategories AS subcategories, "
             "COALESCE((SELECT json_agg(tag ORDER BY tag) FROM job_tags "
             "  WHERE job_tags.source_id = jl.source_id "
             "  AND job_tags.job_listing_id = jl.id), '[]'::json) AS tags, "
@@ -900,6 +936,7 @@ def apply_confirmation(
             "enrichment_status": row["enrichment_status"],
             "category": row["category"],
             "level": row["level"],
+            "subcategories": row["subcategories"],
             "tags": row["tags"],
             "human_corrected_at": row["human_corrected_at"],
             "human_corrected_by": row["human_corrected_by"],
@@ -919,12 +956,26 @@ def request_reenrich(
     reopens the row: facets/tags cleared, needs_human cleared, and the
     human-correction lock LIFTED (an explicit re-enrich is the one sanctioned
     way to let the agent overwrite a human label). The enricher treats a
-    re-handed already-sent row as a fresh classify (paired store change)."""
+    re-handed already-sent row as a fresh classify (paired store change).
+
+    ⚠ THE SUBCATEGORY TRIPLE IS PART OF "FULLY REOPENS", NOT AN AFTERTHOUGHT.
+    Leaving `enrichment_subcategories` / `enrichment_subcategory_source` /
+    `subcategory_confidence` behind would break the promise in three ways at
+    once: (a) a row with a NULL category would still publish subcategory labels
+    to `/api/jobs` (`database.py::_LIST_COLUMNS` serializes the column
+    regardless of category); (b) a surviving `source='human'` means
+    `apply_subcategory_result` refuses the row forever with
+    `reason: "human-locked"` — on a row whose lock was just explicitly LIFTED,
+    which is the only escape hatch a mis-written terminal `'{}'` has; and
+    (c) a stale confidence would sit beside a NULL array, the invariant §1.2
+    forbids. NULLing the array is also what puts the row back in the backfill
+    queue, since a NULL array IS the queue."""
     cur = conn.cursor()
     try:
         cur.execute(
             "UPDATE job_listings SET enrichment_status = NULL, enrichment_category = NULL, "
-            "enrichment_level = NULL, enrichment_claimed_at = NULL "
+            "enrichment_level = NULL, enrichment_subcategories = NULL, "
+            "enrichment_subcategory_source = NULL, enrichment_claimed_at = NULL "
             "WHERE source_id = %s AND id = %s",
             (source_id, job_listing_id),
         )
@@ -940,7 +991,7 @@ def request_reenrich(
         cur.execute(
             "UPDATE job_enrichment SET needs_human = false, "
             "human_corrected_at = NULL, human_corrected_by = NULL, "
-            "human_decision = NULL "
+            "human_decision = NULL, subcategory_confidence = NULL "
             "WHERE source_id = %s AND job_listing_id = %s",
             (source_id, job_listing_id),
         )
@@ -951,6 +1002,10 @@ def request_reenrich(
             "enrichment_status": None,
             "category": None,
             "level": None,
+            # Not omitted: the response model defaults `subcategories` to None,
+            # so leaving it out reported `null` by ACCIDENT rather than because
+            # the row was cleared. State it, now that it is true.
+            "subcategories": None,
             "tags": [],
             "human_corrected_at": None,
             "human_corrected_by": None,

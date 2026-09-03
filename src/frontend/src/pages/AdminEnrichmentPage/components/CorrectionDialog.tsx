@@ -56,6 +56,26 @@ function CorrectionForm({ row, onClose }: { row: EnrichmentCorrectionTarget; onC
   const [category, setCategory] = useState<string | undefined>(row.category ?? undefined);
   const [level, setLevel] = useState<string | undefined>(row.level ?? undefined);
   const [subcategories, setSubcategories] = useState<string[]>(row.subcategories ?? []);
+  /**
+   * ⚠ WHETHER THE ADMIN ACTUALLY TOUCHED THE PICKER — not whether it rendered.
+   *
+   * `useState(row.subcategories ?? [])` collapses "never evaluated" (`null`)
+   * and "evaluated, nothing applies" (`[]`) into the same local `[]`. Sending
+   * that unconditionally would turn EVERY correction on a never-evaluated SWE
+   * row — a level-only fix, say — into the terminal assertion `'{}'` +
+   * `source='human'`, which permanently ejects the row from the backfill queue
+   * (`apply_subcategory_result` skips `source='human'`, and `apply_result`'s
+   * per-field unlock only fires while the array IS NULL). It would also count
+   * that row as "subcategorized" in the 90%-reveal numerator.
+   *
+   * Phase 1 makes it acute: `job_subcategories` ships EMPTY, so the picker
+   * below has ZERO options and an admin literally cannot express "I looked".
+   *
+   * Only a real interaction with `SubcategoryOrderedSelect` sets this. The
+   * category-change clear below deliberately does NOT — an admin flipping the
+   * category to Growth and back has not decided anything about specialties.
+   */
+  const [subcategoriesTouched, setSubcategoriesTouched] = useState(false);
   const [tags, setTags] = useState<string[]>(row.tags);
   const [note, setNote] = useState('');
 
@@ -75,6 +95,22 @@ function CorrectionForm({ row, onClose }: { row: EnrichmentCorrectionTarget; onC
     if (next !== SUBCATEGORY_PARENT) setSubcategories([]);
   };
 
+  /**
+   * ⚠ THE KEY IS OMITTED UNLESS WE HAVE SOMETHING TO ASSERT.
+   *
+   * Omitting means "leave whatever is stored alone" (the backend's UNTOUCHED
+   * row); sending `[]` is the INSTRUCTION "evaluated, nothing applies", which
+   * is terminal and irreversible except through Re-enrich. So we send only
+   * when one of two things is true:
+   *   - the admin touched the picker — an explicit decision, including
+   *     clearing an existing selection to `[]`; or
+   *   - the row already carried an evaluated array, so re-asserting what is
+   *     on screen loses nothing.
+   * A non-SWE category never sends the key at all — the backend forces `'{}'`
+   * from the category itself.
+   */
+  const sendSubcategories = isSwe && (row.subcategories !== null || subcategoriesTouched);
+
   const handleSave = async () => {
     const result = await correct({
       sourceId: row.sourceId,
@@ -84,11 +120,7 @@ function CorrectionForm({ row, onClose }: { row: EnrichmentCorrectionTarget; onC
         level: level ?? null,
         tags,
         note: note.trim() || null,
-        // ⚠ A non-SWE row OMITS THE KEY ENTIRELY. Sending `[]` would be an
-        // instruction ("evaluated, nothing applies"); omitting it means "leave
-        // whatever is stored alone", which is what the backend's tri-state
-        // needs to hear from a dialog that never showed the control.
-        ...(isSwe ? { subcategories } : {}),
+        ...(sendSubcategories ? { subcategories } : {}),
       },
     });
     if (!('error' in result)) {
@@ -139,7 +171,10 @@ function CorrectionForm({ row, onClose }: { row: EnrichmentCorrectionTarget; onC
           <SubcategoryOrderedSelect
             options={subcategoryOptions}
             value={subcategories}
-            onChange={setSubcategories}
+            onChange={(next) => {
+              setSubcategoriesTouched(true);
+              setSubcategories(next);
+            }}
           />
         )}
         <Autocomplete

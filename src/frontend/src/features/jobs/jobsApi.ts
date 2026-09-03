@@ -420,7 +420,11 @@ export const jobsApi = createApi({
     // only with a migration, and it is also why the rollout FLAG must NOT ride
     // this response: a flag here would be invisible for up to an hour and
     // cannot be tag-invalidated (this endpoint has no `providesTags`). The flag
-    // lives on GET /api/jobs/settings with a 60s TTL instead.
+    // WILL live on GET /api/jobs/settings with a 60s TTL instead — the backend
+    // route exists, but nothing in this file (or anywhere in the SPA) queries
+    // it yet, and there is no public subcategory filter for it to gate. PR-F
+    // adds the query; until then this paragraph describes a design, not
+    // behaviour you can observe.
     getFacets: builder.query<JobFacets, void>({
       async queryFn(_arg, { signal }) {
         try {

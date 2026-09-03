@@ -757,6 +757,116 @@ describe('AdminEnrichmentPage', () => {
     expect(body.subcategories).toEqual(['backend', 'full_stack']);
   });
 
+  // ── The NEVER-EVALUATED SWE row (`subcategories: null`) ──────────────────
+  //
+  // ⚠ THE WORST BUG THIS DIALOG CAN CAUSE. `useState(row.subcategories ?? [])`
+  // collapses `null` (never evaluated) into `[]`, and `[]` on the wire is the
+  // TERMINAL assertion "evaluated, nothing applies" + `source='human'`. That
+  // combination permanently ejects the row from the backfill queue — the
+  // backend's `apply_subcategory_result` skips `source='human'`, and
+  // `apply_result`'s per-field unlock only fires while the array IS NULL. It
+  // also counts the row in `sweSubcategorized`, the numerator the 90% reveal
+  // is read off, so it corrupts the label AND inflates the metric that decides
+  // whether to ship. Phase 1 makes it acute: `job_subcategories` ships EMPTY,
+  // so the picker has ZERO options and an admin fixing a LEVEL cannot even see
+  // a subcategory, yet every save would assert one.
+  const SWE_NULL_RECENT = {
+    ...RECENT_BODY,
+    rows: [{ ...RECENT_BODY.rows[0], subcategories: null, subcategoryConfidence: null }],
+  };
+
+  async function postedCorrectionBody(): Promise<Record<string, unknown>> {
+    let call: [unknown, unknown] | undefined;
+    await waitFor(() => {
+      call = fetchMock.mock.calls.find((c) => {
+        const req = c[0];
+        return (
+          req instanceof Request &&
+          req.url.includes('/enrichment/jobs/greenhouse_api/j-2/correct') &&
+          req.method === 'POST'
+        );
+      }) as [unknown, unknown] | undefined;
+      expect(call).toBeDefined();
+    });
+    return (await (call![0] as Request).clone().json()) as Record<string, unknown>;
+  }
+
+  it('⚠ OMITS the key on a SWE row whose array is null and the picker untouched', async () => {
+    const user = userEvent.setup();
+    fetchMock.mockImplementation(routedFetch({ recentBody: SWE_NULL_RECENT }));
+    renderPage();
+
+    const recentRow = (await screen.findByText('Senior Platform Engineer')).closest(
+      'tr'
+    ) as HTMLElement;
+    await user.click(within(recentRow).getByRole('button', { name: 'Correct' }));
+    await screen.findByText('Correct labels');
+    // The control IS shown (the row is SWE) — showing it is not touching it.
+    expect(screen.getByRole('combobox', { name: /subcategories/i })).toBeInTheDocument();
+
+    // A LEVEL-ONLY correction, the exact case that must not assert anything
+    // about specialties.
+    await user.click(screen.getByRole('combobox', { name: 'Level' }));
+    const listbox = await screen.findByRole('listbox');
+    await user.click(within(listbox).getByRole('option', { name: 'Mid' }));
+
+    await user.click(screen.getByRole('button', { name: 'Save correction' }));
+
+    const body = await postedCorrectionBody();
+    expect(body.level).toBe('mid');
+    expect('subcategories' in body).toBe(false);
+  });
+
+  it('SENDS the key on a null-array SWE row once the picker is touched', async () => {
+    const user = userEvent.setup();
+    fetchMock.mockImplementation(routedFetch({ recentBody: SWE_NULL_RECENT }));
+    renderPage();
+
+    const recentRow = (await screen.findByText('Senior Platform Engineer')).closest(
+      'tr'
+    ) as HTMLElement;
+    await user.click(within(recentRow).getByRole('button', { name: 'Correct' }));
+    await screen.findByText('Correct labels');
+
+    await user.click(screen.getByRole('combobox', { name: /subcategories/i }));
+    const options = await screen.findAllByRole('option');
+    await user.click(options.find((o) => o.textContent === 'Backend')!);
+
+    await user.click(screen.getByRole('button', { name: 'Save correction' }));
+
+    const body = await postedCorrectionBody();
+    expect(body.subcategories).toEqual(['backend']);
+  });
+
+  it('CLEARING an existing selection to [] is an explicit terminal decision', async () => {
+    // The other side of the same rule: `[]` must still be reachable. Emptying
+    // the picker on a row that HAD labels is a real human judgement ("I looked;
+    // none apply") and has to survive as `[]`, not be swallowed as untouched.
+    const user = userEvent.setup();
+    renderPage();
+
+    const recentRow = (await screen.findByText('Senior Platform Engineer')).closest(
+      'tr'
+    ) as HTMLElement;
+    await user.click(within(recentRow).getByRole('button', { name: 'Correct' }));
+    await screen.findByText('Correct labels');
+
+    const combobox = screen.getByRole('combobox', { name: /subcategories/i });
+    await user.click(combobox);
+    const options = await screen.findAllByRole('option');
+    // Untick both pre-filled slugs.
+    await user.click(options.find((o) => o.textContent === 'Backend')!);
+    await user.click(
+      (await screen.findAllByRole('option')).find((o) => o.textContent === 'Full Stack')!
+    );
+    await user.keyboard('{Escape}');
+
+    await user.click(screen.getByRole('button', { name: 'Save correction' }));
+
+    const body = await postedCorrectionBody();
+    expect(body.subcategories).toEqual([]);
+  });
+
   it('expands a recent row to reveal the judge notes and classifier reasoning', async () => {
     const user = userEvent.setup();
     renderPage();

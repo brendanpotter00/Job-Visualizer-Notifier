@@ -289,11 +289,43 @@ def test_subcategories_round_trip_through_results(client, db_conn, seed_taxonomy
     assert detail.json()["subcategories"] == ["backend"]
 
 
-def test_unevaluated_job_serializes_subcategories_as_null_not_empty(client, db_conn):
+def test_all_three_subcategory_states_survive_to_the_SPA(client, db_conn):
     """The tri-state has to survive all the way to the SPA: `null` (never
-    evaluated) is a different fact from `[]` (evaluated, nothing applies)."""
-    _insert_job(db_conn, _make_job({"id": "rt-null", "source_id": "rt-src"}))
+    evaluated) is a different fact from `[]` (evaluated, nothing applies), which
+    is a different fact from a labelled array.
+
+    ⚠ ALL THREE ROWS IN ONE TEST, DELIBERATELY. Asserting only the `null` row is
+    a test that CANNOT FAIL: `JobListingResponse.subcategories` already defaults
+    to `None`, so ripping the alias/rename shim out of
+    `database.py::_row_to_job_dict` — making the route never read the column at
+    all — still leaves a lone null assertion green. The `[]` and `["backend"]`
+    rows are what make this file's copy of the check load-bearing; without them
+    it only pins the Pydantic default.
+
+    `test_database_service.py::TestSubcategorySerialization` is the deeper
+    service-level coverage; this one pins the same contract at the JSON edge.
+    """
+    for job_id, subcats in (
+        ("rt-tri-labelled", ["backend", "ai_engineering"]),
+        ("rt-tri-null", None),
+        ("rt-tri-empty", []),
+    ):
+        _insert_job(
+            db_conn,
+            _make_job(
+                {
+                    "id": job_id,
+                    "source_id": "rt-src",
+                    "enrichment_subcategories": subcats,
+                }
+            ),
+        )
     db_conn.commit()
 
-    body = client.get("/api/jobs/rt-src/rt-null").json()
-    assert body["subcategories"] is None
+    labelled = client.get("/api/jobs/rt-src/rt-tri-labelled").json()
+    never = client.get("/api/jobs/rt-src/rt-tri-null").json()
+    empty = client.get("/api/jobs/rt-src/rt-tri-empty").json()
+
+    assert labelled["subcategories"] == ["backend", "ai_engineering"]
+    assert never["subcategories"] is None
+    assert empty["subcategories"] == []
