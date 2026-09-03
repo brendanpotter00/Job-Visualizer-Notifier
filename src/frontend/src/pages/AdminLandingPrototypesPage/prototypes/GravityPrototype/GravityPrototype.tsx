@@ -13,7 +13,6 @@ import { CompanyCategoriesSection } from '../../sections/CompanyCategoriesSectio
 import { FeatureMatrixSection } from '../../sections/FeatureMatrixSection';
 import { FAQSection } from '../../sections/FAQSection';
 import { FooterLite } from '../../sections/FooterLite';
-import { DESKTOP_BODY_COUNT } from '../shared3d/experienceTier';
 import { useExperienceTier } from '../shared3d/useExperienceTier';
 import { selectLogoRoster } from '../shared3d/logoRoster';
 import { LogoGridFallback } from '../shared3d/LogoGridFallback';
@@ -63,11 +62,7 @@ export function GravityPrototype({ content, jobs, now }: LandingPrototypeProps) 
         {tier.tier === 'full' && (
           <Box aria-hidden sx={{ position: 'absolute', inset: 0 }}>
             <Suspense fallback={null}>
-              <GravityScene
-                roster={roster}
-                maxDpr={tier.maxDpr}
-                showShadows={tier.bodyCount === DESKTOP_BODY_COUNT}
-              />
+              <GravityScene roster={roster} maxDpr={tier.maxDpr} />
             </Suspense>
           </Box>
         )}

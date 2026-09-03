@@ -7,7 +7,6 @@
  */
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
-import { ContactShadows } from '@react-three/drei';
 import {
   BallCollider,
   CuboidCollider,
@@ -139,6 +138,12 @@ function PointerRepelBall({ governor }: { governor: SettleGovernor }) {
   const width = useThree((state) => state.size.width);
   const height = useThree((state) => state.size.height);
   const target = useMemo(() => new Vector3(), []);
+  // Reused every frame: rapier only reads these fields, so one mutable object
+  // keeps the per-frame tracking path allocation-free. A ref, not a useMemo —
+  // this object is written every frame, which is exactly what a ref is for.
+  // The retract paths below keep their own literal: they fire once per
+  // gesture, not per frame.
+  const nextTranslationRef = useRef({ x: 0, y: 0, z: 0 });
   const trackingRef = useRef(false);
   const idleFramesRef = useRef(0);
   const pointerRef = useRef({ x: 0, y: 0 });
@@ -209,7 +214,10 @@ function PointerRepelBall({ governor }: { governor: SettleGovernor }) {
       Math.abs(target.x - current.x) > BALL_TELEPORT_DISTANCE ||
       Math.abs(target.y - current.y) > BALL_TELEPORT_DISTANCE ||
       Math.abs(current.z) > BALL_TELEPORT_DISTANCE;
-    const next = { x: target.x, y: target.y, z: 0 };
+    const next = nextTranslationRef.current;
+    next.x = target.x;
+    next.y = target.y;
+    next.z = 0;
     if (jumped) body.setTranslation(next, true);
     else body.setNextKinematicTranslation(next);
   });
@@ -270,10 +278,9 @@ function GravityPile({
 
 interface GravitySceneContentProps {
   roster: readonly LogoRosterEntry[];
-  showShadows: boolean;
 }
 
-function GravitySceneContent({ roster, showShadows }: GravitySceneContentProps) {
+function GravitySceneContent({ roster }: GravitySceneContentProps) {
   // Reactive: R3F recomputes `viewport` from the measured canvas on every
   // resize / orientation change, so this is the live arena target.
   const viewportWidth = useThree((state) => state.viewport.width);
@@ -311,15 +318,6 @@ function GravitySceneContent({ roster, showShadows }: GravitySceneContentProps) 
           <GravityPile key={arena.generation} roster={roster} arenaWidth={arena.width} />
         </Physics>
       </Suspense>
-      {showShadows && (
-        <ContactShadows
-          position={[0, 0.02, 0]}
-          opacity={0.3}
-          scale={arena.width + 6}
-          blur={2.2}
-          far={2.5}
-        />
-      )}
     </>
   );
 }
@@ -328,8 +326,6 @@ export interface GravitySceneProps {
   roster: readonly LogoRosterEntry[];
   /** Upper bound of the Canvas dpr clamp (from the experience tier). */
   maxDpr: number;
-  /** Desktop tier only — mobile/low-end skips contact shadows entirely. */
-  showShadows: boolean;
 }
 
 /**
@@ -350,10 +346,10 @@ const CAMERA = { position: [0, 3, 9] as const, rotation: [0, 0, 0] as const, fov
  */
 const CANVAS_STYLE = { touchAction: HERO_TOUCH_ACTION } as const;
 
-export function GravityScene({ roster, maxDpr, showShadows }: GravitySceneProps) {
+export function GravityScene({ roster, maxDpr }: GravitySceneProps) {
   return (
     <Canvas dpr={[1, maxDpr]} camera={CAMERA} frameloop="always" style={CANVAS_STYLE}>
-      <GravitySceneContent roster={roster} showShadows={showShadows} />
+      <GravitySceneContent roster={roster} />
     </Canvas>
   );
 }

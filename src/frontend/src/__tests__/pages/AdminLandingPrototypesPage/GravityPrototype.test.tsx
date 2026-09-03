@@ -17,16 +17,11 @@ import { buildMockJobs, MOCK_STATS } from '../../../pages/AdminLandingPrototypes
 vi.mock(
   '../../../pages/AdminLandingPrototypesPage/prototypes/GravityPrototype/GravityScene',
   () => ({
-    default: (props: {
-      roster: readonly { companyId: string }[];
-      maxDpr: number;
-      showShadows: boolean;
-    }) => (
+    default: (props: { roster: readonly { companyId: string }[]; maxDpr: number }) => (
       <div
         data-testid="gravity-scene"
         data-roster-size={props.roster.length}
         data-max-dpr={props.maxDpr}
-        data-show-shadows={String(props.showShadows)}
       />
     ),
   })
@@ -128,26 +123,24 @@ describe('GravityPrototype', () => {
     expect(screen.queryByTestId('gravity-scene')).not.toBeInTheDocument();
   });
 
-  it('full desktop tier: lazy-mounts the scene with the desktop roster and shadows', async () => {
+  it('full desktop tier: lazy-mounts the scene with the desktop roster and full dpr', async () => {
     vi.mocked(detectWebGLSupport).mockReturnValue(true);
     stubCores(12);
     renderGravity();
     const scene = await screen.findByTestId('gravity-scene');
     expect(scene).toHaveAttribute('data-roster-size', String(DESKTOP_BODY_COUNT));
     expect(scene).toHaveAttribute('data-max-dpr', '2');
-    expect(scene).toHaveAttribute('data-show-shadows', 'true');
     // The settled pile IS the logo wall — no DOM grid/marquee duplicate below.
     expect(screen.queryByLabelText(PILE_LABEL)).not.toBeInTheDocument();
   });
 
-  it('constrained hardware keeps the full tier but shrinks the roster and drops shadows', async () => {
+  it('constrained hardware keeps the full tier but shrinks the roster and the dpr cap', async () => {
     vi.mocked(detectWebGLSupport).mockReturnValue(true);
     stubCores(4);
     renderGravity();
     const scene = await screen.findByTestId('gravity-scene');
     expect(scene).toHaveAttribute('data-roster-size', String(CONSTRAINED_BODY_COUNT));
     expect(scene).toHaveAttribute('data-max-dpr', '1.5');
-    expect(scene).toHaveAttribute('data-show-shadows', 'false');
   });
 
   it('prefers-reduced-motion forces the DOM fallback even with WebGL available', () => {
