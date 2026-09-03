@@ -366,6 +366,14 @@ async def test_the_fallback_prefers_the_companys_own_domain() -> None:
         # ...but the first word only counts above the length floor, so a
         # two-character one cannot claim an unrelated host.
         ("GM Financial", "https://www.figma.com/careers", False),
+        # A SHORT identity matches a whole label only. As a prefix "GM" claims
+        # `gmc.com` and "HP" claims `hpe.com` — different companies, and the URL
+        # that wins here is the one offered for a paid discovery run.
+        ("GM", "https://gmc.com/careers", False),
+        ("HP", "https://hpe.com/jobs", False),
+        # The exact label still matches at any length, so the real ones work.
+        ("GM", "https://gm.com/careers", True),
+        ("HP", "https://hp.com/jobs", True),
         # Same substring flaw the name gate refuses: `gm` is inside `figma`.
         ("GM", "https://www.figma.com/careers", False),
         ("Apple", "https://pineapple.io/jobs", False),

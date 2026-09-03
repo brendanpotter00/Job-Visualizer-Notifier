@@ -332,9 +332,17 @@ def _rank_careers_urls(company: str, urls: list[str]) -> list[str]:
         except ValueError:
             return False
         labels = [normalize_name(label) for label in host.split(".") if label]
-        return any(
-            label.startswith(identity) for label in labels for identity in identities
-        )
+        for label in labels:
+            for identity in identities:
+                if label == identity:
+                    return True
+                # SHORT IDENTITIES MATCH WHOLE LABELS ONLY — the same floor
+                # `_names_match` applies, for the same reason. As a prefix, "GM"
+                # claims `gmc.com` and "HP" claims `hpe.com`, and the URL that
+                # wins here is the one offered for a PAID discovery run.
+                if len(identity) >= _MIN_PREFIX_CHARS and label.startswith(identity):
+                    return True
+        return False
 
     return sorted(urls, key=lambda url: not owns_host(url))
 
