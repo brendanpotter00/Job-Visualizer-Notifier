@@ -19,6 +19,18 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    id: 'add-companies-2026-09-batch',
+    title: 'Added a bunch of new companies',
+    description:
+      'We just added 23 new companies — a mix of AI labs, dev tools, fintech, quant, security, enterprise SaaS, and semiconductors — each tracked from its live job board and refreshed hourly like everything else: Box, Cerebras, Cisco, Clay, Coinbase, CrowdStrike, Crusoe, Greptile, Intel, Jane Street, Mistral AI, Okta, OpenEvidence, Physical Intelligence, Railway, Raindrop, Replit, Salesforce, Suno, turbopuffer, Wafer, Warp, and Zoom.',
+    tags: ['new-companies'],
+    date: '2026-09-02',
+    link: {
+      to: ROUTES.ACCOUNT,
+      label: 'Add them to your company preferences',
+    },
+  },
+  {
     id: 'custom-company-sources',
     title: 'Add Your Own Companies by Deploying a Custom Web Scraper',
     description:
