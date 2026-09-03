@@ -186,30 +186,32 @@ def test_a_tag_belonging_to_another_sources_job_of_the_same_id_does_not_match(
     )
 
 
-def test_the_client_department_field_is_searched(client, db_conn):
-    """Parity for the field the client calls ``department``.
+def test_the_client_department_field_is_not_searched(client, db_conn):
+    """Parity for the field the client USED to call ``department``.
 
-    ``Job.department`` on the frontend is ``details.experience_level``
-    (``backendScraperTransformer.ts``), and the upsert mirrors that value into the
-    plain ``experience_level`` COLUMN — the same one the list query already
-    selects. So it costs nothing to search and there is no reason to diverge.
+    This assertion has flipped twice, so the history matters. ``Job.department``
+    was ``details.experience_level`` on the frontend, mirrored into the plain
+    ``experience_level`` COLUMN, and an earlier revision of this endpoint matched
+    that column — correctly at the time, because dropping it made terms people
+    actually type ("intern", "senior") match fewer jobs than the page did before
+    the migration.
 
-    This is a REGRESSION test: an earlier version of the endpoint left the field
-    out on the theory that reading it meant detoasting the ~10 KB ``details``
-    JSONB (the 2026-07-13 outage's access pattern). That reasoning was wrong for
-    this field, and the effect was that common terms people actually type —
-    "intern", "senior" — silently matched fewer jobs than they did before the
-    migration.
+    E7 Phase 3 (#248) then deleted the field from the frontend outright:
+    ``Job.department`` is gone and ``matchesSearchTags`` builds its haystack from
+    ``[title, team, location, ...tags]``. Matching the column now would make the
+    endpoint WIDER than the deployed page it replaces — "senior" would return
+    jobs whose title says nothing about seniority, the same ATS-assigned noise
+    #260 removed from the job card. Parity with the client is the contract, and
+    parity now means NOT matching it.
 
-    The control row is what makes this a real test: the same term is found via a
-    title, so a green result cannot be explained by "the search matches
-    everything".
+    The control row is what makes this a real test: the same term IS found via a
+    title, so a green result cannot be explained by "the search matches nothing".
     """
     _seed_job(db_conn, "in-experience-level", experience_level="Zymurgy")
     _seed_job(db_conn, "in-title", title="Zymurgy Engineer")
     _seed_job(db_conn, "unrelated")
 
-    assert _search(client, include="zymurgy") == {"in-experience-level", "in-title"}
+    assert _search(client, include="zymurgy") == {"in-title"}
 
 
 def test_raw_details_json_keys_are_not_searched(client, db_conn):
@@ -217,9 +219,9 @@ def test_raw_details_json_keys_are_not_searched(client, db_conn):
 
     Touching a JSONB key detoasts the whole value per row, which is what timed
     ``/api/jobs`` out in 2026-07-13. Nothing the client matcher reads is lost by
-    staying off it: ``department`` comes from the denormalized column above, and
-    ``team`` is never populated by any transformer, so it has no client-side
-    meaning to preserve.
+    staying off it: ``department`` is no longer part of the client haystack at
+    all (see the test above), and ``team`` is never populated by any transformer,
+    so it has no client-side meaning to preserve.
     """
     _seed_job(db_conn, "in-details", details=json.dumps({
         "department": "Quixotic", "team": "Quixotic Platform",

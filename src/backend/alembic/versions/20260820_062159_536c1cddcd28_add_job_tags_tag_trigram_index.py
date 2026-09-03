@@ -34,7 +34,7 @@ Worse than it looks. Postgres DE-CORRELATES the ``EXISTS`` into a hashed
 cost **independent of LIMIT**: a 50-row page pays exactly the same tag scans as an
 un-LIMITed count over the whole corpus. And page 1 runs the whole predicate TWICE
 — once for the page query, once for ``get_search_counts``' ``filtered_total``
-subquery — on the SAME pooled connection, against prod's ``DB_POOL_MAX=15`` /
+subquery — on the SAME pooled connection, against prod's ``DB_POOL_MAX=30`` /
 ``DB_POOL_TIMEOUT=5s``.
 
 GIN + ``gin_trgm_ops`` is the only index class Postgres can consult for a

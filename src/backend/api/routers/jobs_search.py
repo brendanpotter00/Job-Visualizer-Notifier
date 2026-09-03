@@ -66,8 +66,9 @@ router = APIRouter()
 # walked in chunks of 50 ids per request, so its cap was unreachable in practice;
 # here the client sends the reader's WHOLE enabled set in one request, and
 # ``auto_enroll_new_companies`` defaults to true — so the default signed-in user
-# sends one id per company on the roster (133 enabled of 135 rows in prod on
-# 2026-08-19). A cap anywhere near the roster is a cliff: the release that pushes
+# sends one id per company on the roster (158 enabled of 160 rows in prod on
+# 2026-09-03 — it was 133/135 three weeks earlier, which is the rate that makes
+# the cliff below worth stating). A cap anywhere near the roster is a cliff: the release that pushes
 # the roster past it turns Recent Jobs into a hard 400 for every "all companies"
 # reader at once. This is a denial-of-service bound, not a product bound, so it
 # sits far above the roster and the correct response to the roster approaching it
@@ -86,7 +87,9 @@ _MAX_LOCATION_LENGTH = 200
 # page pays the same tag work as a count over the whole corpus. And PAGE 1 PAYS IT
 # TWICE — ``get_search_counts``' ``filtered_total`` subquery applies the identical
 # predicate alongside the page query, on the SAME pooled connection, against
-# ``DB_POOL_MAX=15`` / ``DB_POOL_TIMEOUT=5s``. This database already has a
+# ``DB_POOL_MAX=30`` / ``DB_POOL_TIMEOUT=5s`` (the Railway variable overrides the
+# code default of 15 — check the variable, not ``config.py``). This database
+# already has a
 # pool-exhaustion incident
 # (docs/incidents/2026-05-17-recent-jobs-pool-exhaustion.md).
 #
@@ -381,8 +384,7 @@ def search(
         default=None,
         description=(
             "Repeatable keyword. A job matches if ANY include term appears in its "
-            "title, raw location, company, tags, or experience level (the field the "
-            "UI labels 'department') — case-insensitive substring."
+            "title, raw location, company or tags — case-insensitive substring."
         ),
     ),
     exclude: list[str] | None = Query(
@@ -431,10 +433,11 @@ def search(
     Dimensions AND together; values within a dimension OR. An active ``category``
     or ``level`` filter **hides unenriched rows** (NULL category/level) — 65% of
     OPEN rows at the time of writing. Keyword terms match title, raw location,
-    company, tags and ``experience_level`` — the column the UI labels ``department``
-    — while ``team`` is unsearched only because no transformer populates it; see
-    ``services/job_search.py`` for the field-by-field parity argument. A job with no normalized location tags
-    matches no active location filter.
+    company and tags — the same haystack ``matchesSearchTags`` builds on the
+    client. ``department`` is NOT searched (E7 Phase 3 removed the field from the
+    frontend model) and neither is ``team``, which no transformer populates; see
+    ``services/job_search.py`` for the field-by-field parity argument. A job with
+    no normalized location tags matches no active location filter.
     """
     categories = _validate_slugs(category, pattern=_CATEGORY_RE, field="category")
     levels = _validate_slugs(level, pattern=_LEVEL_RE, field="level")
@@ -558,7 +561,7 @@ def search(
             # request's single pooled connection on the row query (and on a location
             # resolve when a location filter is active); splitting the counts back
             # into two statements adds a round trip to the checkout that prod's
-            # DB_POOL_MAX=15 / 5s timeout has already been seen to run out of.
+            # DB_POOL_MAX=30 / 5s timeout has already been seen to run out of.
             counts = get_search_counts(conn, **filters)
             meta = JobSearchMeta(
                 filtered_total=counts["filtered_total"],

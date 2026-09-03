@@ -209,11 +209,11 @@ filter set in SQL and pages the *result*. Router `routers/jobs_search.py`, SQL
 - **Filter semantics** are a port of the frontend matcher this replaced. Dimensions
   AND, values within a dimension OR. An active `category`/`level` filter **hides
   unenriched (NULL) rows** — ~65% of OPEN rows. `entry` expands to
-  `{entry, new_grad}`. Keyword terms match title / raw location / company / tags /
-  `experience_level` — that last column IS what the frontend calls `department`
-  (`backendScraperTransformer.ts` maps `details.experience_level` → `department`), and
-  it is a denormalized COLUMN, so matching it costs no `details` JSONB read and no
-  ~10 KB/row detoast (the 2026-07-13 outage's failure mode). `team` is not searched
+  `{entry, new_grad}`. Keyword terms match title / raw location / company / tags —
+  the same haystack `matchesSearchTags` builds on the client. `department` is NOT
+  searched: E7 Phase 3 (#248) deleted the field from the frontend model, so
+  matching the `experience_level` column it used to map to would make the endpoint
+  WIDER than the page it replaces. `team` is not searched
   because no transformer ever populates it — there is nothing to match.
   Locations resolve hierarchically against the `locations` catalog, including the
   synthesized `United States` and `<State>, US` options that have no catalog row.

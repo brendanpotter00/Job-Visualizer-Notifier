@@ -5,6 +5,9 @@ import type { FetchJobsResult } from '../../api/types';
 import { getClientForATS } from '../../api/utils';
 import { calculateJobDateRange } from '../../lib/date';
 import { transformBackendJob } from '../../api/transformers/backendScraperTransformer';
+import { CUSTOM_COMPANIES_CONFIG } from '../../config/customCompanies';
+import { fetchMyCompanyJobs, isCustomCompanyId } from '../userCompanies/customJobsClient';
+import { APIError } from '../../api/types';
 import { buildSearchJobsQuery } from './searchJobsArgs';
 import { validateSearchJobsResponse } from './validateSearchJobsResponse';
 import type { SearchJobsArgs, SearchJobsPage } from './searchJobsTypes';
@@ -144,6 +147,84 @@ async function readErrorResponse(response: Response): Promise<SearchErrorRespons
     // there is nothing actionable to show them — but the raw text reaches the
     // log, because that is a different bug from any filter they could change.
     return { message: ERROR_MESSAGES.LOAD_JOBS_FAILED, diagnostic };
+  }
+}
+
+/** The store's thunk `extraArgument`, as far as this module needs it. */
+interface JobsApiExtra {
+  getTokenOrNull?: () => Promise<string | null>;
+}
+
+/**
+ * The caller's bearer token, or `null` when there is no signed-in user.
+ *
+ * This is THE gate on the private half of the feed: no token means the
+ * custom-jobs request is never issued at all. That is deliberately stronger
+ * than "issue it and tolerate the 401" — an anonymous visitor must see exactly
+ * what they see today, with no extra round trip and no 401 in their console.
+ *
+ * `getTokenOrNull` already resolves to `null` (never throws) on the signed-out
+ * path; it swallows `NotAuthenticatedError` precisely so anonymous page loads
+ * stay quiet. The `typeof` guard covers a store configured without the thunk
+ * `extraArgument` — every existing `jobsApi` unit-test store is one, and they
+ * must keep testing only the public walk.
+ */
+async function tokenFromExtra(extra: unknown): Promise<string | null> {
+  const getToken = (extra as JobsApiExtra | undefined)?.getTokenOrNull;
+  if (typeof getToken !== 'function') return null;
+  return getToken();
+}
+
+/**
+ * Three refusals, in order, each of which must stay exactly this shape:
+ *
+ * - **Flag off → the same 404 the page has always answered for an unknown id.**
+ *   With `VITE_CUSTOM_COMPANIES_ENABLED` off the feature does not exist, and a
+ *   `u-<id>` is simply a company we do not have. No request is constructed.
+ * - **No token → 401, without a request.** An anonymous visitor cannot see a
+ *   private board and must not pay a round trip to be told so; the page renders
+ *   a sign-in prompt instead.
+ * - **A real failure keeps its HTTP status**, unlike the public branch's blanket
+ *   `CUSTOM_ERROR`, because the page distinguishes them: 403 is "not yours"
+ *   (the endpoint checks ownership before reading anything) and 503 is the
+ *   backend's own flag being off, which must render an error, never a blank chart.
+ */
+async function fetchCustomCompanyJobs(
+  companyId: string,
+  extra: unknown,
+  signal: AbortSignal
+): Promise<
+  { data: JobsQueryResult; error?: undefined } | { error: { status: unknown; data: string } }
+> {
+  if (!CUSTOM_COMPANIES_CONFIG.isEnabled) {
+    return { error: { status: 404, data: `Company not found: ${companyId}` } };
+  }
+  const token = await tokenFromExtra(extra);
+  if (!token) {
+    return { error: { status: 401, data: 'Sign in to view companies you track.' } };
+  }
+  try {
+    const jobs = await fetchMyCompanyJobs(token, companyId, { signal });
+    return {
+      data: {
+        jobs,
+        metadata: {
+          totalCount: jobs.length,
+          fetchedAt: new Date().toISOString(),
+          ...calculateJobDateRange(jobs),
+        },
+      },
+    };
+  } catch (error) {
+    if (error instanceof APIError && error.statusCode !== undefined) {
+      return { error: { status: error.statusCode, data: error.message } };
+    }
+    return {
+      error: {
+        status: 'CUSTOM_ERROR',
+        data: extractErrorMessage(error, 'Unknown error'),
+      },
+    };
   }
 }
 

@@ -396,9 +396,11 @@ class _OracleJob:
     level: str | None
     tags: tuple[str, ...]
     canonical_locations: tuple[str, ...]
-    # The client's ``Job.department``, which the transformer reads from
-    # ``details.experience_level`` — mirrored into a plain column of the same
-    # name, so the server searches it directly.
+    # What the client USED to expose as ``Job.department`` (from
+    # ``details.experience_level``, mirrored into a plain column). E7 Phase 3
+    # deleted the field from the frontend model, so NEITHER tier searches it now
+    # — the fixture keeps the column so the decoy below still has somewhere to
+    # live.
     experience_level: str | None = None
 
 
@@ -407,12 +409,12 @@ def _client_matches(job: _OracleJob, filters: dict) -> bool:
 
     Deliberately written as a chain of early returns in the same order the
     frontend applies them, so a reader can diff it against the TypeScript by eye.
-    The keyword haystack is title + department + raw location + company + tags.
-    ``department`` is the client's name for ``details.experience_level``, which is
-    mirrored into a plain column, so both tiers search it. ``team`` is omitted
-    because no transformer ever populates it. ``company`` is included because the
-    server searches it and the client does not — the one remaining deliberate
-    divergence, documented at ``_KEYWORD_PREDICATE``.
+    The keyword haystack is title + raw location + company + tags, mirroring
+    ``matchesSearchTags`` after E7 Phase 3 removed ``department`` from the
+    frontend model. ``team`` is omitted because no transformer ever populates it.
+    ``company`` is included because the server searches it and the client does
+    not — the one remaining deliberate divergence, documented at
+    ``_KEYWORD_PREDICATE``.
     """
     if job.status != filters.get("status", "OPEN"):
         return False
@@ -444,7 +446,6 @@ def _client_matches(job: _OracleJob, filters: dict) -> bool:
 
     haystack = [
         job.title.lower(),
-        (job.experience_level or "").lower(),
         (job.location or "").lower(),
         job.company.lower(),
         *(tag.lower() for tag in job.tags),
@@ -483,15 +484,15 @@ _ORACLE_TITLES = (
 )
 _ORACLE_RAW_LOCATIONS = ("Austin, TX", None, "Remote - United States")
 _ORACLE_TAG_POOLS = (("python",), ("golang", "kubernetes"), (), ("react", "python"))
-# The client's ``Job.department`` (``details.experience_level``, mirrored into the
-# column of the same name). Values are deliberately tokens that appear NOWHERE
-# else in the corpus — not in a title, company, raw location or tag — so a filter
-# set naming one can only be satisfied by the ``experience_level`` clause of
-# ``_KEYWORD_PREDICATE``. "Senior"/"Staff"/"Intern" would all have been useless
-# here: every one of them already appears in ``_ORACLE_TITLES``.
-# ``None`` is a value, not a gap: without ``COALESCE(experience_level, '')`` the
-# whole OR-chain evaluates to NULL for these rows, and on the EXCLUDE path
-# ``AND NOT (NULL)`` silently drops them from the result set.
+# What used to be the client's ``Job.department`` (``details.experience_level``,
+# mirrored into the column of the same name). Values are deliberately tokens that
+# appear NOWHERE else in the corpus — not in a title, company, raw location or
+# tag. They are now DECOYS rather than matches: since E7 Phase 3 removed the
+# field from the frontend model, neither tier searches it, so a keyword naming
+# one of these must come back empty from BOTH the oracle and the endpoint. That
+# makes the column a live check that the clause stayed dropped.
+# ``None`` is kept in the pool because a NULL column is where a re-added clause
+# would reintroduce the ``AND NOT (NULL)`` exclude-path bug.
 _ORACLE_EXPERIENCE_LEVELS = ("L4", None, "L5", "Apprenticeship")
 # Index 3 is "no normalized location at all" — a job the location filter must
 # never match, and the case the frontend's ``matchesLocation`` returns false on.
@@ -589,15 +590,15 @@ _ORACLE_FILTER_SETS: list[dict] = [
     # ``location`` in the haystack — every other keyword set would still pass
     # without it.
     {"include": ["remote"]},
-    # "l4" lives ONLY in ``experience_level`` — the column the client calls
-    # ``department``. Drop that clause from ``_KEYWORD_PREDICATE`` (an earlier
-    # revision did exactly that, believing the field lived in the ``details``
-    # JSONB) and this set is the only one in the list that notices.
+    # "l4" lives ONLY in ``experience_level``, which NEITHER tier searches since
+    # E7 Phase 3 removed ``department`` from the frontend model. So this set must
+    # come back EMPTY from both — re-add the clause to ``_KEYWORD_PREDICATE`` and
+    # this is the set that notices.
     {"include": ["l4"]},
-    # The same column on the EXCLUDE path, which is the strictly harder one: it
-    # is where a missing ``COALESCE(experience_level, '')`` turns into silent row
-    # loss rather than a visible under-match, because every row whose
-    # ``experience_level`` is NULL evaluates ``AND NOT (NULL)`` and disappears.
+    # The same column on the EXCLUDE path: excluding a term nothing can match
+    # must drop nothing. It is also where a re-added clause would reintroduce the
+    # ``COALESCE`` bug — every row whose ``experience_level`` is NULL would
+    # evaluate ``AND NOT (NULL)`` and silently disappear.
     {"exclude": ["l4"]},
     {"exclude": ["intern"]},
     # Multi-term exclude: a job is dropped if ANY term hits. With a single term
