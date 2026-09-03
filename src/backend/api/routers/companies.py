@@ -30,6 +30,7 @@ from ..auth.jwt import get_normalized_subject
 from ..config import settings
 from ..dependencies import get_db
 from ..models import (
+    AlreadyPublicResponse,
     AtsCandidateResponse,
     CareersSearchTraceResponse,
     CompanyListResponse,
@@ -58,6 +59,7 @@ from ..services.company_name_search import (
     trusted_careers_urls,
 )
 from ..services.companies_service import list_enabled_companies_with_profiles
+from ..services import custom_companies_service as svc
 from ..services.rate_limit import enforce_resolve_rate_limit
 from ..services.url_guard import REASON_DEADLINE, UrlGuardError, normalize_public_url
 
@@ -359,10 +361,95 @@ async def _careers_fallback(
     return (trusted[0] if trusted else first_trusted), trace
 
 
+def _already_public(match: svc.PublishedMatch, final_url: str) -> AlreadyPublicResponse:
+    """The add endpoint's own answer, worded for someone who typed a NAME.
+
+    THE CHECKS ARE SHARED, THE SENTENCE IS NOT, and that split is deliberate. Which
+    rung answered and what ``match_kind`` it earns come from
+    ``custom_companies_service`` so the two endpoints cannot drift; the copy differs
+    because the inputs do. "That URL is the same job board as…" is a true thing to
+    say to someone who pasted a URL and a confusing one to say to someone who typed
+    ``databricks`` and pasted nothing.
+
+    Only the ``'name'`` sentence is ever read: ``AlreadyPublicNotice`` renders the
+    ``'board'`` branch as one flat headline and ignores ``detail`` entirely. It is
+    still written honestly because it is on the wire either way.
+
+    ``final_url`` is what a caller re-sends with ``trackAnyway`` to say we guessed
+    wrong — the board we matched, or the careers page we were about to offer.
+    """
+    if match.match_kind == "board":
+        return AlreadyPublicResponse(
+            detail=(
+                f"That board is our public {match.display_name} page, so there is "
+                "nothing to set up — its hiring trend is already there."
+            ),
+            company_id=match.id,
+            display_name=match.display_name,
+            final_url=final_url,
+        )
+    # Hedged, and every clause earns its place: "looks like" because we matched a
+    # name and not a board, "we matched the name in the web address" because someone
+    # about to be told they are covered deserves to know what that rests on, and the
+    # last sentence so the escape hatch reads as correcting us rather than opting
+    # into a duplicate.
+    return AlreadyPublicResponse(
+        detail=(
+            f"The careers page we found looks like {match.display_name}, which we "
+            "already publish — we matched the name in the web address, not the "
+            "board itself. If that's right, its hiring trend is already there."
+        ),
+        company_id=match.id,
+        display_name=match.display_name,
+        final_url=final_url,
+        match_kind="name",
+    )
+
+
+def _published_candidate(
+    conn: Connection, candidates: list[NameCandidate]
+) -> AlreadyPublicResponse | None:
+    """Rung 1 over the boards this search resolved — "that IS Stripe's board".
+
+    ONLY THE CANDIDATES WHOSE TOKEN NAMES THE COMPANY are asked about, and that gate
+    is the whole safety property. Browserbase Search is semantic, so a search for
+    ``meta`` really does return Anthropic's, Cohere's and Glean's live boards; without
+    the gate, the first of those we happen to publish would answer a search for Meta
+    with "we already track Anthropic" — a confident, wrong, terminal answer, which is
+    strictly worse than the dead end this whole change exists to remove.
+
+    ``NameCandidate.auto_addable`` is the PRE-PROBE name gate (``_names_match``), not
+    the post-probe verdict ``_probe_shown`` computes. Deliberately: a published board
+    that is empty or answering 422 today (Walmart's own Workday tenant does) is still
+    the board we publish, and "we already track them" is still the right answer.
+
+    The whole candidate list, not just the five we show — a name-gated board at rank 8
+    still names the company, and the SELECT is one indexed lookup against ~135 rows.
+    """
+    for found in candidates:
+        if not found.auto_addable:
+            continue
+        match = svc.find_published_company_for_candidate(
+            conn,
+            ats=found.candidate.ats,
+            board_token=found.candidate.board_token,
+            provider_config=dict(found.candidate.provider_config),
+        )
+        if match is not None:
+            return _already_public(match, found.candidate.source_url)
+    return None
+
+
 @router.post("/search-by-name", response_model=SearchCompanyResponse)
 async def search_company_by_name(
     payload: SearchCompanyRequest,
+    # AUTH BEFORE THE CONNECTION, and the order of these two parameters is what
+    # enforces it: FastAPI solves dependencies in declaration order, so an
+    # unauthenticated caller 401s in ``get_current_user`` without ever taking a slot
+    # out of the pool. ``test_requires_a_bearer_token`` pins it — with ``conn`` first
+    # that test 500s instead of 401ing.
     user: TokenClaims = Depends(get_current_user),
+    conn: Connection = Depends(get_db),
 ) -> SearchCompanyResponse:
     """Find ATS boards for a typed company name. Writes nothing.
 
@@ -373,6 +460,16 @@ async def search_company_by_name(
     A SECOND search happens only on a miss — see ``_careers_fallback``. A name that
     resolves an auto-addable board spends exactly one search and gets a
     byte-identical answer to the one it got before that escalation existed.
+
+    A COMPANY WE ALREADY PUBLISH IS SAID SO HERE, not one press later. This route
+    used to have no database access at all, so it was structurally incapable of
+    knowing what we publish: typing ``databricks`` was answered with a careers page
+    under a filled "Use this careers page" button, and only the ADD call behind that
+    button could say "this looks like Databricks, which we already track". Same three
+    checks the add endpoint runs (``custom_companies_service``), run against both the
+    boards this search resolved and the careers URL we are about to offer, and the
+    answer rides back as ``already_public``. The add endpoint still runs its own — a
+    replayed request must hit the same wall — and this changes nothing it does.
 
     503 (not an empty 200) when the flag is off or search is unavailable, because
     "we could not look" and "we looked and there is no board" must never reach a
@@ -415,6 +512,18 @@ async def search_company_by_name(
 
         shown = await _probe_shown(candidates, http, deadline)
 
+        # ── DO WE ALREADY PUBLISH THIS COMPANY? Asked HERE, before anything is
+        # offered, because the answer was always knowable here and used to arrive one
+        # press too late. Typing `databricks` produced a careers page and a filled
+        # "Use this careers page" button; only the add call behind that button said
+        # "this looks like Databricks, which we already track". The owner's verdict:
+        # "There should not be that flow. If we already track it, just say that."
+        #
+        # The add endpoint keeps every one of these checks — this is an earlier,
+        # friendlier answer and never a replacement for server-side enforcement, so a
+        # bookmarked or replayed add still hits the same wall.
+        already_public = _published_candidate(conn, candidates)
+
         # THE ESCALATION, and its trigger is the whole design. Not "we found no
         # boards" — "we found nothing the user can just accept". A board that
         # resolves but is somebody else's, or is theirs and is dead (Walmart's own
@@ -424,18 +533,35 @@ async def search_company_by_name(
         # Read from `shown`, not from `candidates`, because `auto_addable` only
         # becomes final after the probe: `_probe_shown` ANDs the name gate with
         # "the board answered and has jobs", which is the half that catches Walmart.
+        #
+        # A PUBLISHED MATCH ALSO SUPPRESSES IT, and that is a paid search saved on a
+        # question we have already answered: the second query exists to find a careers
+        # page to OFFER, and we are not going to offer one.
         careers_url: str | None = None
         careers_trace: CareersSearchTrace | None = None
-        if not any(found.auto_addable for found in shown):
+        if already_public is None and not any(found.auto_addable for found in shown):
             careers_url, careers_trace = await _careers_fallback(
                 payload.name, careers_urls, http, deadline
             )
+            # Rungs 2 and 3, against the URL we are about to put a button on. The
+            # careers HOST table first (Amazon, Apple, Google, Microsoft, TikTok —
+            # exact, terminal), then the company name inside the registrable domain
+            # (`databricks.com` → Databricks — a guess, and it keeps its way out).
+            # One shared call so the order and the `match_kind` cannot drift from the
+            # add endpoint's; see `find_published_company_for_urls`.
+            if careers_url is not None:
+                match = svc.find_published_company_for_urls(conn, careers_url)
+                if match is not None:
+                    already_public = _already_public(match, careers_url)
 
     logger.info(
         "Name search for %r: %d candidate(s), %d shown, %d auto-addable, "
-        "careers fallback %s",
+        "careers fallback %s, already published %s",
         payload.name, len(candidates), len(shown),
         sum(1 for c in shown if c.auto_addable), careers_url or "none",
+        f"{already_public.company_id} ({already_public.match_kind})"
+        if already_public is not None
+        else "no",
     )
     return SearchCompanyResponse(
         query=payload.name,
@@ -475,4 +601,10 @@ async def search_company_by_name(
                 trusted=careers_trace.trusted,
             )
         ),
+        # THE ANSWER when it is present, and everything above it becomes the evidence
+        # behind it. `careers_url` deliberately still rides along on a `'name'` match:
+        # it is what the escape hatch re-sends, and the narration draws its last row
+        # from it. What must NOT happen is the page drawing both this and the "Use
+        # this careers page" card — see `MyCompaniesPage`.
+        already_public=already_public,
     )

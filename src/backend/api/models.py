@@ -1411,6 +1411,52 @@ class CareersSearchTraceResponse(BaseModel):
     trusted: int = Field(ge=0)
 
 
+class AlreadyPublicResponse(BaseModel):
+    """"We already publish this company" — the P2 dedupe's answer, in two places.
+
+    The ADD endpoint returns it as its whole 200 body when a pasted URL turns out
+    to be a board we publish. The SEARCH endpoint embeds it as
+    ``SearchCompanyResponse.already_public`` when a typed NAME resolves to one, so
+    the same answer arrives before the user has pressed anything. One shape, one
+    ``match_kind`` rule, one set of components on the page.
+
+    Nothing was created — no ``companies`` row, no ``user_companies`` row, no
+    scraper, no capture — so there is no ``UserCompany`` to return and this is not
+    a failure either. ``status`` is the discriminant the frontend narrows on, the
+    same way it narrows the 202 ``discovery_pending`` body.
+
+    ``company_id`` / ``display_name`` are the PUBLIC company's, and both are
+    already served unauthenticated by ``GET /api/companies``. ``final_url`` is the
+    URL the resolver settled on, echoed back so a caller that decides to track a
+    private copy anyway can re-send exactly what we resolved.
+
+    ``match_kind`` is HOW SURE WE ARE, and it exists because the same body is now
+    produced by evidence of two very different strengths:
+
+    * ``'board'`` — we matched a BOARD. Either the ``(ats, board_token)`` pair the
+      resolver named, or a careers host in our own declared table. There is no
+      plausible reading where the user meant a different company, so the frontend
+      renders this terminally: "We already track X", and no escape hatch.
+    * ``'name'`` — we matched a STRING IN A DOMAIN against the names of companies we
+      publish (``lifeatspotify.com`` → Spotify). No board was resolved and no job set
+      was compared. It is a good guess and it is still a guess, so the frontend must
+      hedge the wording AND keep a way out; a wrong guess with no way out would
+      hard-block somebody from adding a legitimately different company.
+
+    Defaulted to ``'board'`` so the two exact rungs need say nothing, and so a client
+    built before this field existed keeps reading the stricter, older meaning.
+    """
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    status: Literal["already_public"] = "already_public"
+    detail: str
+    company_id: str
+    display_name: str
+    final_url: str
+    match_kind: Literal["board", "name"] = "board"
+
+
 class SearchCompanyResponse(BaseModel):
     """200 body for POST /api/companies/search-by-name. Persists nothing.
 
@@ -1434,6 +1480,20 @@ class SearchCompanyResponse(BaseModel):
     ``trace`` is always sent. The client still treats it as optional, because the
     frontend (Vercel) and this API (Railway) deploy separately and a new client
     routinely talks to the previous backend for a few minutes.
+
+    ``already_public`` IS THE ANSWER WHEN IT IS PRESENT, and everything else on the
+    body becomes evidence behind it. It carries the same three already-published
+    checks the add endpoint runs, moved one press earlier: typing ``databricks``
+    used to be answered with a careers page and a filled "Use this careers page"
+    button, and only the press after it said "this looks like Databricks, which we
+    already track". The dead end was knowable before the button was drawn.
+
+    It is the SAME ``AlreadyPublicResponse`` the add endpoint returns, deliberately,
+    so the page renders it with the same components and the same ``match_kind``
+    rule — ``'board'`` is terminal, ``'name'`` keeps its "this isn't the same
+    company" escape hatch. This is an EARLIER answer, never a replacement for the
+    add endpoint's own checks: a bookmarked or replayed add still hits the same
+    wall server-side.
     """
 
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
@@ -1443,6 +1503,10 @@ class SearchCompanyResponse(BaseModel):
     careers_url: str | None = None
     trace: SearchTraceResponse
     careers_search: CareersSearchTraceResponse | None = None
+    #: Null on the ordinary path, which is most searches. Non-null means we
+    #: recognised the company before offering anything, and the client must show
+    #: THIS instead of the careers-page card rather than stacking the two.
+    already_public: AlreadyPublicResponse | None = None
 
 
 class AddUserCompanyRequest(BaseModel):
@@ -1486,46 +1550,6 @@ class RenameUserCompanyRequest(BaseModel):
     )
 
     display_name: str = Field(min_length=1, max_length=1000)
-
-
-class AlreadyPublicResponse(BaseModel):
-    """200 body when a pasted URL is a board we already publish (the P2 dedupe).
-
-    Nothing was created — no ``companies`` row, no ``user_companies`` row, no
-    scraper, no capture — so there is no ``UserCompany`` to return and this is not
-    a failure either. ``status`` is the discriminant the frontend narrows on, the
-    same way it narrows the 202 ``discovery_pending`` body.
-
-    ``company_id`` / ``display_name`` are the PUBLIC company's, and both are
-    already served unauthenticated by ``GET /api/companies``. ``final_url`` is the
-    URL the resolver settled on, echoed back so a caller that decides to track a
-    private copy anyway can re-send exactly what we resolved.
-
-    ``match_kind`` is HOW SURE WE ARE, and it exists because the same body is now
-    produced by evidence of two very different strengths:
-
-    * ``'board'`` — we matched a BOARD. Either the ``(ats, board_token)`` pair the
-      resolver named, or a careers host in our own declared table. There is no
-      plausible reading where the user meant a different company, so the frontend
-      renders this terminally: "We already track X", and no escape hatch.
-    * ``'name'`` — we matched a STRING IN A DOMAIN against the names of companies we
-      publish (``lifeatspotify.com`` → Spotify). No board was resolved and no job set
-      was compared. It is a good guess and it is still a guess, so the frontend must
-      hedge the wording AND keep a way out; a wrong guess with no way out would
-      hard-block somebody from adding a legitimately different company.
-
-    Defaulted to ``'board'`` so the two exact rungs need say nothing, and so a client
-    built before this field existed keeps reading the stricter, older meaning.
-    """
-
-    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
-
-    status: Literal["already_public"] = "already_public"
-    detail: str
-    company_id: str
-    display_name: str
-    final_url: str
-    match_kind: Literal["board", "name"] = "board"
 
 
 class DiscoveryStepResponse(BaseModel):

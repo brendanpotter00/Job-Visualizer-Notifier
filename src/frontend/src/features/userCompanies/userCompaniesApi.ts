@@ -772,6 +772,27 @@ export interface SearchCompanyResponse {
   trace?: SearchTrace;
   /** Null or absent when only one search ran, which is the common case. */
   careersSearch?: CareersSearchTrace | null;
+  /**
+   * WE ALREADY PUBLISH THIS COMPANY — and when this is set it IS the answer, in
+   * place of the careers-page card rather than stacked above it.
+   *
+   * Typing `databricks` used to be answered with their careers page under a filled
+   * "Use this careers page" button, and only the press after it said "this looks
+   * like Databricks, which we already track". The search endpoint had no database
+   * access at all, so the dead end was knowable a whole press before it was
+   * announced. It runs the same three checks the add endpoint runs — against the
+   * boards it resolved AND the careers URL it was about to offer — and this is the
+   * result.
+   *
+   * The SAME body the add endpoint returns, deliberately: `DiscoveryStatus` renders
+   * it with the same components and the same `matchKind` rule, so `'board'` is
+   * terminal and `'name'` keeps its escape hatch. `careersUrl` may be non-null
+   * beside it (it is what the escape hatch re-sends, and the narration draws its
+   * last row from it) — the page is what must not draw both.
+   *
+   * Absent from a backend that predates this, which is simply the old behaviour.
+   */
+  alreadyPublic?: AlreadyPublicResponse | null;
 }
 
 export const userCompaniesApi = createApi({

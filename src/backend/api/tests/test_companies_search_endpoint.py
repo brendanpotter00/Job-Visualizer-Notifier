@@ -554,3 +554,228 @@ def test_unknown_body_field_is_rejected(client, db_conn) -> None:
 
 def test_empty_name_is_rejected(client, db_conn) -> None:
     assert client.post(SEARCH, json={"name": ""}).status_code == 422
+
+
+# ----------------------------------------------------------------------------
+# A company we ALREADY PUBLISH, answered HERE — not one press later
+#
+# The bug, in the owner's words: he typed `databricks`, was handed
+# `https://www.databricks.com/company/careers` under a filled "Use this careers
+# page" button, pressed it, and only THEN was told "this looks like Databricks,
+# which we already track". "There should not be that flow. If we already track
+# it, just say that."
+#
+# The three checks were only ever on the ADD path; this route had no database
+# access at all and was structurally incapable of knowing what we publish. Every
+# test below is about it having one now — and about the `matchKind` distinction,
+# which decides whether the page may still offer a way past the answer.
+# ----------------------------------------------------------------------------
+
+DATABRICKS_CAREERS = "https://www.databricks.com/company/careers"
+AMAZON_CAREERS = "https://www.amazon.jobs/en/search"
+
+
+@pytest.fixture
+def published(db_conn):
+    """Seed ``visibility='public'`` rows for ONE test, then take them away again.
+
+    ``db_conn`` is module-scoped, so a row left behind would silently change the
+    answer for every later test in this file — several of which search for Cisco
+    and expect no published match at all.
+    """
+    seeded: list[str] = []
+
+    def seed(
+        company_id: str,
+        *,
+        ats: str = "greenhouse",
+        board_token: str,
+        display_name: str | None = None,
+        provider_config: str = "{}",
+    ) -> None:
+        cur = db_conn.cursor()
+        cur.execute(
+            sql.SQL(
+                "INSERT INTO {} (id, display_name, ats, board_token, "
+                "provider_config, enabled, visibility) "
+                "VALUES (%s, %s, %s, %s, %s::jsonb, true, 'public')"
+            ).format(sql.Identifier("companies")),
+            (company_id, display_name or company_id, ats, board_token,
+             provider_config),
+        )
+        db_conn.commit()
+        seeded.append(company_id)
+
+    yield seed
+
+    cur = db_conn.cursor()
+    for company_id in seeded:
+        cur.execute(
+            sql.SQL("DELETE FROM {} WHERE id = %s").format(
+                sql.Identifier("companies")
+            ),
+            (company_id,),
+        )
+    db_conn.commit()
+
+
+def test_the_careers_page_we_would_offer_is_a_company_we_publish(
+    client, db_conn, published, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """THE DATABRICKS CASE, answered at search time.
+
+    Nothing the first search found was auto-addable, so the careers fallback ran and
+    came back with `databricks.com` — and `databricks` is a name we publish. That is
+    the third rung, a GUESS from a string in a domain, so it answers
+    `matchKind='name'` and the page keeps the "this isn't the same company" way out.
+    """
+    _install_transport(
+        monkeypatch,
+        _two_query_handler(
+            [GUIDEHOUSE_BOARD], [DATABRICKS_CAREERS], {GUIDEHOUSE_JOBS: 794}
+        ),
+    )
+    published("databricks", board_token="databricks", display_name="Databricks")
+    before = _company_count(db_conn)
+
+    body = client.post(SEARCH, json={"name": "Databricks"}).json()
+
+    match = body["alreadyPublic"]
+    assert match["status"] == "already_public"
+    assert match["companyId"] == "databricks"
+    assert match["displayName"] == "Databricks"
+    # A GUESS, so the escape hatch survives. `finalUrl` is what it re-sends.
+    assert match["matchKind"] == "name"
+    assert match["finalUrl"] == DATABRICKS_CAREERS
+    # The careers URL still rides along: it is what the correction re-sends, and the
+    # narration draws its last row from it. The PAGE is what must not draw both.
+    assert body["careersUrl"] == DATABRICKS_CAREERS
+    # Guidehouse's board is still reported, unchanged — the boards are evidence.
+    assert body["candidates"][0]["autoAddable"] is False
+    assert _company_count(db_conn) == before
+
+
+def test_a_published_careers_host_is_terminal(
+    client, db_conn, published, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The five `ats='script'` boards have no ATS pair for rung 1 to compare, so the
+    declared careers-host table is what catches `amazon.jobs`. That is an EXACT,
+    declared host — `matchKind='board'` — and the page renders it with no way past."""
+    _install_transport(
+        monkeypatch, _two_query_handler([], [AMAZON_CAREERS], {})
+    )
+    published("amazon", ats="script", board_token="amazon", display_name="Amazon")
+
+    body = client.post(SEARCH, json={"name": "Amazon"}).json()
+
+    assert body["alreadyPublic"]["companyId"] == "amazon"
+    assert body["alreadyPublic"]["matchKind"] == "board"
+
+
+def test_a_published_board_answers_before_a_second_search_is_paid_for(
+    client, db_conn, published, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """THE CHEAP WIN. The second search exists to find a careers page to OFFER, and
+    a board we already publish means we are not going to offer one. So it never runs
+    — a paid call saved on a question we could already answer.
+
+    Cisco's board is empty here, so nothing is auto-addable and the fallback WOULD
+    have fired. The pre-probe name gate is what still recognises it: a published
+    board that is empty or unreachable today is still the board we publish."""
+    seen = _install_transport(monkeypatch, _handler([CISCO_BOARD], {CISCO_JOBS: 0}))
+    published(
+        "cisco", ats="workday", board_token="cisco", display_name="Cisco",
+        provider_config=json.dumps(
+            {"tenant_slug": "cisco", "career_site_slug": "Cisco_Careers"}
+        ),
+    )
+
+    body = client.post(SEARCH, json={"name": "Cisco"}).json()
+
+    assert body["alreadyPublic"]["companyId"] == "cisco"
+    assert body["alreadyPublic"]["matchKind"] == "board"
+    assert body["alreadyPublic"]["finalUrl"] == CISCO_BOARD
+    assert body["candidates"][0]["autoAddable"] is False
+    # ONE search paid for, not two, and no careers page offered beside the answer.
+    assert len(_sent_queries(seen)) == 1
+    assert body["careersUrl"] is None
+    assert body["careersSearch"] is None
+
+
+def test_a_strangers_published_board_never_answers_for_the_name_typed(
+    client, db_conn, published, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """THE GUARD ON THE WHOLE FEATURE, and the reason only name-gated candidates are
+    asked about. Browserbase Search is semantic: searching `Databricks` really does
+    return Guidehouse's live Workday board at rank 1. If a published board could
+    answer without its token naming the query, this search would come back "we
+    already track Guidehouse" — confident, wrong, and terminal, which is strictly
+    worse than the dead end this whole change removes."""
+    _install_transport(
+        monkeypatch,
+        _two_query_handler(
+            [GUIDEHOUSE_BOARD], ["https://www.nobody.com/careers"],
+            {GUIDEHOUSE_JOBS: 794},
+        ),
+    )
+    published(
+        "guidehouse", ats="workday", board_token="guidehouse",
+        display_name="Guidehouse",
+        provider_config=json.dumps(
+            {"tenant_slug": "guidehouse", "career_site_slug": "External"}
+        ),
+    )
+
+    body = client.post(SEARCH, json={"name": "Databricks"}).json()
+
+    assert body["alreadyPublic"] is None
+    assert body["candidates"][0]["probe"]["jobCount"] == 794
+
+
+def test_a_company_we_do_not_publish_is_completely_unchanged(
+    client, db_conn, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """THE ORACLE CASE AGAIN, with the dedupe wired in. We publish no Oracle, so the
+    body is byte-for-byte what it was before this existed and the careers page is
+    still the answer."""
+    _install_transport(
+        monkeypatch,
+        _two_query_handler(
+            ["https://resumeadapter.com/ats/workday/companies"],
+            ["https://www.oracle.com/careers/"],
+            {},
+        ),
+    )
+
+    body = client.post(SEARCH, json={"name": "Oracle"}).json()
+
+    assert body["alreadyPublic"] is None
+    assert body["careersUrl"] == "https://www.oracle.com/careers/"
+    assert body["careersSearch"]["trusted"] == 1
+
+
+def test_a_disabled_public_row_is_not_offered_as_the_answer(
+    client, db_conn, published, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A disabled public row is a board we have STOPPED reading. Pointing somebody at
+    a chart that no longer updates is worse than letting them track their own copy,
+    so `enabled` is part of the match on every rung — see
+    `find_public_company_by_name`. Seeded enabled, then disabled, because the fixture
+    only knows how to insert live rows."""
+    _install_transport(
+        monkeypatch,
+        _two_query_handler([], [DATABRICKS_CAREERS], {}),
+    )
+    published("databricks", board_token="databricks", display_name="Databricks")
+    cur = db_conn.cursor()
+    cur.execute(
+        sql.SQL("UPDATE {} SET enabled = false WHERE id = 'databricks'").format(
+            sql.Identifier("companies")
+        )
+    )
+    db_conn.commit()
+
+    body = client.post(SEARCH, json={"name": "Databricks"}).json()
+
+    assert body["alreadyPublic"] is None
+    assert body["careersUrl"] == DATABRICKS_CAREERS

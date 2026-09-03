@@ -288,11 +288,17 @@ every import for zero user-visible gain.
   **The server still honours `trackAnyway: true` on every check.** Only the UI affordance
   was removed from the certain ones, so a bookmark or a replayed request never 500s.
 
-  **One component renders all three**: `AddCompanyOutcome` hands any `already_public` body
-  to `DiscoveryStatus`, which renders `TrackAnywayAction` **only** when
-  `matchKind === 'name'` (`isNameGuessMatch`). The `matchKind` on the wire is the whole
-  rule — which check answered is no longer visible in the component tree, and must not be
-  re-derived from one.
+  **One component renders all three, from either endpoint**: `AddCompanyOutcome` hands the
+  add path's `already_public` body to `DiscoveryStatus`, and `MyCompaniesPage` hands the
+  search path's `alreadyPublic` block to the same component. It renders `TrackAnywayAction`
+  **only** when `matchKind === 'name'` (`isNameGuessMatch`). The `matchKind` on the wire is
+  the whole rule — which check answered is no longer visible in the component tree, and must
+  not be re-derived from one.
+
+  **The checks themselves are one code path too** (`custom_companies_service.find_published_company_for_urls`), climbed by the add endpoint *and* the
+  name-search endpoint. Drift between them is how the search endpoint came to offer a
+  careers page for a company the add endpoint already knew we published — see "A THIRD
+  STATE" under the name-search section below.
 
   **What NONE of the three catches**, and the copy must never imply otherwise: a careers
   site whose domain does not name the company at all. Only the job set links those — see
@@ -350,6 +356,41 @@ and that one field is the whole rule** — `boardsAreTheQuestion` in `MyCompanie
 | Primary action | per-row **contained** "Track this one" | **contained** "Use this careers page" |
 | The other block | careers page as a footnote below (caption + outlined "Use this") | boards folded below, **outlined** "Track this one anyway" |
 | Live region | the list (`aria-live="polite"`) | the careers block; the list keeps `role="region"` but gives up `aria-live` so only one polite region speaks |
+
+**A THIRD STATE SITS ABOVE BOTH, and it is a replacement rather than an addition:
+`alreadyPublic`.** Typing `databricks` used to render State B — *"No job board found for
+“databricks” — their careers page is the way in"* over a filled **Use this careers page** —
+and only the press behind that button answered *"This looks like Databricks, which we
+already track."* The owner's verdict: *"There should not be that flow. If we already track
+it, just say that."* He was right: `search_company_by_name` had **no database access at
+all** (no `conn`, no `Depends(get_db)`), so it was structurally incapable of knowing what we
+publish, and the three checks lived only on the add path.
+
+The search endpoint now runs the same three checks — **the same code path**, `find_published_company_for_candidate` / `find_published_company_for_urls` in `custom_companies_service` — against **both** every name-gated candidate board and the careers URL it is about to offer, and returns the add endpoint's own `AlreadyPublicResponse` as `alreadyPublic`.
+
+- **When it is set, it IS the answer**: `MyCompaniesPage` renders `DiscoveryStatus` **in place
+  of** `CareersPageAnswer` *and* `CompanyCandidateList`, not above them. Everything those two
+  were for was choosing what to add, and there is nothing here to add.
+- **Same `matchKind` rule as the add path**, because it is the same component: `'board'`
+  terminal, `'name'` keeps `TrackAnywayAction`. The Databricks case is a `name` match (rung 3
+  read `databricks` out of `databricks.com`), so it keeps its escape hatch — the page holds
+  that notice in its own state, so `handleSearchTrackAnyway` clears it before adding or it
+  returns beside the success card.
+- **A published match also suppresses the auto-add.** A name whose own board we publish
+  resolves exactly one auto-addable candidate — the page's auto-add shape — so without the
+  guard in `handleNameSearch` we would spend the add call and a monthly slot to have the
+  server hand back the answer we were already holding.
+- **Only name-gated candidates are asked about**, and that gate is the safety property.
+  Browserbase Search is semantic, so "meta" really returns Anthropic's and Cohere's live
+  boards; without it, the first published one would answer "we already track Anthropic" —
+  confident, wrong and terminal, which is worse than the dead end this removed.
+- **It also saves the second paid search**: a candidate match means no careers page will be
+  offered, so the `"{name} careers"` escalation never runs.
+- **The add endpoint keeps every one of its own checks.** This is an earlier, friendlier
+  answer, never a replacement for server-side enforcement — a bookmarked or replayed add
+  still hits the same wall.
+- `MyCompaniesNameSearchAlreadyPublic.test.tsx` covers all of it, including an older backend
+  that omits the field (absent must read as "no match", never a blank notice).
 
 - **State B is the fix for a real failure.** Typing "meta" returned five live boards —
   anthropic (582 jobs), cohere (144), gleanwork (111), headway (83), gc-ai (27) — because

@@ -21,6 +21,7 @@ import { CUSTOM_COMPANIES_CONFIG } from '../../config/customCompanies';
 import { extractErrorMessage } from '../../lib/errors';
 import { CompanyCandidateList } from '../../components/my-companies/CompanyCandidateList';
 import { CareersPageAnswer } from '../../components/my-companies/CareersPageAnswer';
+import { DiscoveryStatus } from '../../components/my-companies/DiscoveryStatus';
 import { NameSearchProgress } from '../../components/my-companies/NameSearchProgress';
 import { AddQuotaCounter } from '../../components/my-companies/AddQuotaCounter';
 import Divider from '@mui/material/Divider';
@@ -229,6 +230,18 @@ export function MyCompaniesPage() {
     const { candidates: found } = result.data;
     const autoAddable = found.filter((c) => c.autoAddable);
 
+    // A COMPANY WE ALREADY PUBLISH IS NEVER AUTO-ADDED, and this guard is why the
+    // check being on the search endpoint is worth anything for the confident case
+    // too. Searching a name whose own board we publish resolves exactly one
+    // auto-addable candidate, so without this we would spend the add call, spend a
+    // monthly slot, and have the SERVER hand back the same "we already publish
+    // this" answer we are already holding — the dead end again, one press later,
+    // just quieter.
+    if (result.data.alreadyPublic) {
+      setCandidates(result.data);
+      return;
+    }
+
     if (found.length === 1 && autoAddable.length === 1) {
       void addUserCompany({ url: autoAddable[0].candidate.sourceUrl });
       return;
@@ -236,18 +249,44 @@ export function MyCompaniesPage() {
     setCandidates(result.data);
   };
 
+  /**
+   * The search is over the moment a choice is made — every path that ANSWERS the
+   * current question clears it first.
+   *
+   * Without this the list, the narration and an earlier search's warning all come
+   * BACK the instant `adding` goes false, beside the outcome card for the thing
+   * that was just added: a live "Track this one" for a different company under a
+   * success card for this one.
+   */
+  const clearSearch = () => {
+    setCandidates(null);
+    setSearchedName(null);
+    resetSearch();
+  };
+
   /** Track a candidate the user chose. Clears the list so the outcome is the answer. */
   const handlePickCandidate = (url: string) => {
     if (adding) return;
-    setCandidates(null);
-    // The narration goes with the question it explains. Left up, it would be a
-    // second answer beside a question that has already been settled.
-    setSearchedName(null);
-    // The search is over the moment a choice is made. Without this, a warning
-    // from an EARLIER failed search would re-render beside this add's success
-    // card the instant `adding` goes false.
-    resetSearch();
+    clearSearch();
     void addUserCompany({ url });
+  };
+
+  /**
+   * "This isn't the same company" — the correction under a GUESSED published match
+   * the SEARCH found, before anything was offered.
+   *
+   * The twin of `handleTrackAnyway`, and it is separate for one reason: that one
+   * answers a notice rendered from the add mutation's own `data`, which the new
+   * mutation clears by itself. This one answers a notice rendered from page state,
+   * so the state has to be cleared here or the notice returns beside the outcome.
+   *
+   * `DiscoveryStatus` only renders the button for `matchKind === 'name'` — the
+   * guess. An exact board or careers-host match is terminal and never calls this.
+   */
+  const handleSearchTrackAnyway = (url: string) => {
+    if (adding) return;
+    clearSearch();
+    void addUserCompany({ url, trackAnyway: true });
   };
 
   return (
@@ -349,9 +388,27 @@ export function MyCompaniesPage() {
             real answer, and NOT the same as the 503 that means we could not look. A
             null `careersUrl` means something too — no result's host named the
             company, so we offer nothing rather than a guess that would cost a paid
-            discovery run and one of their monthly adds. */}
+            discovery run and one of their monthly adds.
+
+            AND A THIRD STATE ABOVE BOTH: the search recognised the company as one we
+            ALREADY PUBLISH. Then that is the answer, IN PLACE OF the careers-page
+            card rather than above it. Typing `databricks` used to render "No job
+            board found for “databricks” — their careers page is the way in" over a
+            filled "Use this careers page" button, and only the press after it said
+            "this looks like Databricks, which we already track". The page invited a
+            commitment to something it could already have known was a dead end. The
+            boards and the careers page go with it: everything they were for was
+            choosing what to add, and there is nothing here to add.
+
+            Same `DiscoveryStatus` the add path uses, so `matchKind` keeps deciding
+            what is on offer — `'board'` terminal, `'name'` with its correction. */}
         {candidates && !adding ? (
-          boardsAreTheQuestion ? (
+          candidates.alreadyPublic ? (
+            <DiscoveryStatus
+              result={candidates.alreadyPublic}
+              onTrackAnyway={handleSearchTrackAnyway}
+            />
+          ) : boardsAreTheQuestion ? (
             <>
               <CompanyCandidateList
                 query={candidates.query}

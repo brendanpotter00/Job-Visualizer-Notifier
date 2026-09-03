@@ -15,7 +15,7 @@ from __future__ import annotations
 import json
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import Any, Optional
+from typing import Any, Literal, NamedTuple, Optional
 
 import psycopg2
 from psycopg2.extensions import connection as Connection
@@ -290,6 +290,83 @@ def find_public_company_by_name(
         if row["id"] == company_id:
             return {"id": row["id"], "display_name": row["display_name"]}
     return None
+
+
+class PublishedMatch(NamedTuple):
+    """A company we publish, plus HOW SURE we are that it is the one meant.
+
+    ``match_kind`` is not decoration and it is not the caller's to choose — it is
+    which rung of the ladder answered, and it decides what any UI is allowed to
+    offer:
+
+    * ``'board'`` — an exact identifier. The ``(ats, board_token)`` pair the
+      resolver named, or a careers host in our own declared table. There is no
+      plausible reading where a different company was meant, so the answer is
+      terminal and nothing offers a way past it.
+    * ``'name'`` — the company name read out of a registrable domain. A good guess
+      and still a guess, so the answer keeps an escape hatch: a false positive with
+      no way out would hard-block somebody adding a legitimately different company
+      that merely shares a string with one of ours.
+
+    See :mod:`api.services.company_name_match` for why rung 3 is the only guess.
+    """
+
+    id: str
+    display_name: str
+    match_kind: Literal["board", "name"]
+
+
+def _as_match(
+    row: Optional[dict[str, Any]], kind: Literal["board", "name"]
+) -> Optional[PublishedMatch]:
+    """One finder's row, wearing the certainty that finder is entitled to."""
+    if row is None:
+        return None
+    return PublishedMatch(str(row["id"]), str(row["display_name"]), kind)
+
+
+def find_published_company_for_candidate(
+    conn: Connection,
+    *,
+    ats: str,
+    board_token: str,
+    provider_config: dict[str, Any],
+) -> Optional[PublishedMatch]:
+    """Rung 1, with its certainty attached — see :func:`find_public_company_for_candidate`.
+
+    A resolved board identifier is exact, so this can only ever answer ``'board'``.
+    """
+    return _as_match(
+        find_public_company_for_candidate(
+            conn, ats=ats, board_token=board_token, provider_config=provider_config
+        ),
+        "board",
+    )
+
+
+def find_published_company_for_urls(
+    conn: Connection, *urls: Optional[str]
+) -> Optional[PublishedMatch]:
+    """Rungs 2 and 3 over a URL, IN ORDER, each with its own certainty.
+
+    THE ORDER IS THE POINT, and it is why both the add endpoint and the name-search
+    endpoint call this rather than the two finders directly. The exact careers-host
+    table answers first; only when it has said nothing does the name guess get to
+    speak. Their ``None`` answers are deliberate — ``learn.microsoft.com`` is not
+    Microsoft's job board — and a guess is never allowed to overturn an exact
+    refusal (:mod:`api.services.company_name_match` excludes the five host-table
+    companies from its index for exactly that reason).
+
+    Two callers ran this ladder in two places and the second one arrived a press too
+    late: the search endpoint had no database access at all, so it offered a careers
+    page for ``databricks`` and let the ADD endpoint discover, one click later, that
+    we already publish Databricks. Any drift between them is that bug again, so
+    there is one ladder and both endpoints climb it.
+    """
+    match = _as_match(find_public_company_for_careers_url(conn, *urls), "board")
+    if match is not None:
+        return match
+    return _as_match(find_public_company_by_name(conn, *urls), "name")
 
 
 def record_add_attempt(
