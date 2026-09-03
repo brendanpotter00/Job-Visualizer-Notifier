@@ -1,8 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import {
+  ARENA_ESCAPE_Y,
   ARENA_REBUILD_MIN_DELTA,
   ARENA_REBUILD_RATIO,
   ARENA_RESIZE_DEBOUNCE_MS,
+  hasEscapedArena,
   MAX_ARENA_WIDTH,
   MIN_ARENA_WIDTH,
   resolveArenaWidth,
@@ -74,5 +76,41 @@ describe('shouldRebuildArena', () => {
   it('debounces long enough to coalesce a drag-resize into one rebuild', () => {
     expect(ARENA_RESIZE_DEBOUNCE_MS).toBeGreaterThanOrEqual(300);
     expect(ARENA_RESIZE_DEBOUNCE_MS).toBeLessThanOrEqual(500);
+  });
+});
+
+describe('hasEscapedArena', () => {
+  it('leaves every tile inside the play volume alone', () => {
+    // Resting on the floor, mid-drop, and at the top of the spawn stack.
+    expect(hasEscapedArena(0)).toBe(false);
+    expect(hasEscapedArena(0.5)).toBe(false);
+    expect(hasEscapedArena(5)).toBe(false);
+    expect(hasEscapedArena(45)).toBe(false);
+  });
+
+  it('tolerates a tile briefly sunk into the floor during penetration recovery', () => {
+    // Well short of the threshold: a shallow overlap must never trigger a re-drop.
+    expect(hasEscapedArena(-0.5)).toBe(false);
+    expect(hasEscapedArena(-5)).toBe(false);
+    expect(hasEscapedArena(ARENA_ESCAPE_Y + 0.01)).toBe(false);
+  });
+
+  it('catches a tile that tunnelled out and is now falling forever', () => {
+    expect(hasEscapedArena(ARENA_ESCAPE_Y)).toBe(true);
+    expect(hasEscapedArena(-21)).toBe(true);
+    // The measured escape that motivated the guard.
+    expect(hasEscapedArena(-2765.09)).toBe(true);
+    expect(hasEscapedArena(Number.NEGATIVE_INFINITY)).toBe(true);
+  });
+
+  it('treats a blown-up (NaN) position as escaped rather than in-bounds', () => {
+    // `NaN < ARENA_ESCAPE_Y` is false, so a naive compare would strand exactly
+    // the body that most needs recovering.
+    expect(hasEscapedArena(Number.NaN)).toBe(true);
+    expect(hasEscapedArena(Number.POSITIVE_INFINITY)).toBe(true);
+  });
+
+  it('sits far below the arena floor so it can only mean "tunnelled out"', () => {
+    expect(ARENA_ESCAPE_Y).toBeLessThan(-10);
   });
 });

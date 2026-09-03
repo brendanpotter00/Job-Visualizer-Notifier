@@ -49,3 +49,30 @@ export function shouldRebuildArena(current: number, next: number): boolean {
   );
   return Math.abs(next - current) >= threshold;
 }
+
+/**
+ * Escape floor (world units). The play volume's floor is y=0 and its thinnest
+ * wall is 2 units thick, so nothing still inside the arena can reach -20;
+ * anything that does has tunnelled out. Deliberately far below the deepest
+ * legitimate position so a tile momentarily sunk into the floor during
+ * penetration recovery is never mistaken for an escapee.
+ */
+export const ARENA_ESCAPE_Y = -20;
+
+/**
+ * True when a body has left the arena for good.
+ *
+ * Nothing below the floor can come back: there is no collider under it, so an
+ * escaped tile falls forever, and a body in free fall never auto-sleeps. That
+ * is a *performance* fact before it is a visual one — the settle governor parks
+ * the frameloop only once every body is asleep, so a single escapee pins the
+ * scene at 60fps indefinitely (measured: one tile at y=-2765 with the frameloop
+ * stuck on 'always'). Callers respawn whatever this returns true for.
+ *
+ * Non-finite reads count as escaped: a NaN position means the solver has blown
+ * up, and `NaN < ARENA_ESCAPE_Y` is false, so the naive comparison would leave
+ * exactly the worst body unrecovered.
+ */
+export function hasEscapedArena(y: number): boolean {
+  return !Number.isFinite(y) || y < ARENA_ESCAPE_Y;
+}

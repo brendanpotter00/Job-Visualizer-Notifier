@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { Box } from '@mui/material';
-import { COMPANIES } from '../../../config/companies';
+import { COMPANIES, getCompanyById } from '../../../config/companies';
 import { CompanyLogo } from '../../../components/shared/CompanyLogo/CompanyLogo';
 import { RESPONSIVE } from '../../../config/responsive';
 import { useIsMobile } from '../../../hooks/useIsMobile';
@@ -46,7 +46,12 @@ export function LogoWall({ companyIds, rows = 2, durationSec = 55, perRow = 18 }
         sx={{ display: 'flex', flexWrap: 'wrap', gap: 1.5, justifyContent: 'center' }}
       >
         {rowIds.flat().map((id) => (
-          <CompanyLogo key={id} companyId={id} size={tileSize} />
+          <CompanyLogo
+            key={id}
+            companyId={id}
+            displayName={getCompanyById(id)?.name ?? id}
+            size={tileSize}
+          />
         ))}
       </Box>
     );
@@ -77,7 +82,13 @@ export function LogoWall({ companyIds, rows = 2, durationSec = 55, perRow = 18 }
             }}
           >
             {[...ids, ...ids].map((id, i) => (
-              <CompanyLogo key={`${id}-${i}`} companyId={id} size={tileSize} decorative={i >= ids.length} />
+              <CompanyLogo
+                key={`${id}-${i}`}
+                companyId={id}
+                displayName={getCompanyById(id)?.name ?? id}
+                size={tileSize}
+                decorative={i >= ids.length}
+              />
             ))}
           </Box>
         </Box>

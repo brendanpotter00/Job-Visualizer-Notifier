@@ -1,9 +1,20 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { useTexture } from '@react-three/drei';
-import { RigidBody } from '@react-three/rapier';
+import {
+  RigidBody,
+  useAfterPhysicsStep,
+  type RapierRigidBody,
+} from '@react-three/rapier';
 import { BoxGeometry, MeshLambertMaterial, SRGBColorSpace, type Texture } from 'three';
+import { hasEscapedArena } from './arenaLayout';
 
 export type TileTone = 'grayscale' | 'brand';
+
+/**
+ * Reused for both velocity resets on the respawn path below — rapier reads the
+ * fields and keeps nothing, so one module-scope literal serves every tile.
+ */
+const ZERO_VELOCITY = { x: 0, y: 0, z: 0 } as const;
 
 /**
  * Shared across every tile — one geometry and one edge material for the whole
@@ -116,8 +127,40 @@ export function LogoTileBody({
   // Two slots, matching the two merged geometry groups (see mergeEdgeGroups).
   const materials = useMemo(() => [EDGE_MATERIAL, faceMaterial], [faceMaterial]);
 
+  const bodyRef = useRef<RapierRigidBody>(null);
+
+  /**
+   * Escape guard. A tile can still be shoved through a wall — the pointer ball
+   * teleports (see BALL_TELEPORT_DISTANCE) and landing it inside a settled pile
+   * makes rapier resolve the penetration explosively — and without CCD nothing
+   * stops the ejected tile. Once out it falls forever, never sleeps, and so pins
+   * the settle governor's tally one short of `bodyCount`: the frameloop can
+   * never park and the hero burns 60fps for the rest of the session. That is
+   * the defect this guard closes; it is a frameloop fix, not a physics tweak.
+   *
+   * The recovery is a re-drop at this tile's own seeded spawn point (`position`
+   * — pure, from buildSpawnPlan, identical every visit), with both velocities
+   * zeroed so a tile that had accelerated to terminal velocity does not re-enter
+   * the arena as a projectile and eject its neighbours. Sleep bookkeeping needs
+   * no special handling and must not get any: an escapee is awake by definition
+   * (it is falling), so it is already absent from the governor's asleep tally,
+   * `setTranslation(..., true)` on an awake body fires no wake event, and the
+   * tile is counted again the ordinary way when it lands and sleeps.
+   *
+   * Per physics step, not per rendered frame, and rapier does not step while the
+   * frameloop is parked — so a settled scene pays nothing at all for this.
+   */
+  useAfterPhysicsStep(() => {
+    const body = bodyRef.current;
+    if (!body || !hasEscapedArena(body.translation().y)) return;
+    body.setLinvel(ZERO_VELOCITY, false);
+    body.setAngvel(ZERO_VELOCITY, false);
+    body.setTranslation({ x: position[0], y: position[1], z: position[2] }, true);
+  });
+
   return (
     <RigidBody
+      ref={bodyRef}
       colliders="cuboid"
       position={position}
       rotation={rotation}

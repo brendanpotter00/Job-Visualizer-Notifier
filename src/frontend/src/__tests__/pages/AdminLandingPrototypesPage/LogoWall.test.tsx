@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { LogoWall } from '../../../pages/AdminLandingPrototypesPage/sections/LogoWall';
+import { getCompanyById } from '../../../config/companies';
 
 // jsdom does not implement matchMedia at all; usePrefersReducedMotion guards
 // that absence (→ false). These tests define it per-case to drive both paths.
@@ -27,7 +28,11 @@ describe('LogoWall', () => {
     // aria-hidden so assistive tech hears each company once.
     const imgs = document.querySelectorAll('img');
     expect(imgs).toHaveLength(8);
-    expect(screen.getAllByAltText('apple')).toHaveLength(1);
+    // Tiles announce the company's display name (CompanyLogo labels unnamed
+    // tiles with a generic "Company" — the wall must never fall back to that).
+    const appleName = getCompanyById('apple')!.name;
+    expect(screen.getAllByAltText(appleName)).toHaveLength(1);
+    expect(screen.queryByAltText('Company')).not.toBeInTheDocument();
   });
 
   it('collapses to a static wrapped grid under prefers-reduced-motion', () => {
