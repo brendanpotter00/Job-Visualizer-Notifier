@@ -294,6 +294,19 @@ export const COMPANIES: Company[] = [
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22730004%22%5D',
   }),
 
+  // Batch add (2026-09-02) — Warp (Greenhouse; distinct from the unrelated Ashby
+  // `warp` board), Coinbase, and the Jane Street quant board. board_token == id
+  // for all three; see the seed migration.
+  createBackendScraperCompany('warp', 'Warp', 'https://www.warp.dev/careers', {
+    sourceAts: 'greenhouse',
+  }),
+  createBackendScraperCompany('coinbase', 'Coinbase', 'https://www.coinbase.com/careers/positions', {
+    sourceAts: 'greenhouse',
+  }),
+  createBackendScraperCompany('janestreet', 'Jane Street', 'https://www.janestreet.com/join-jane-street/open-roles/', {
+    sourceAts: 'greenhouse',
+  }),
+
   // Lever companies (migrated to backend-scraper)
   createBackendScraperCompany('palantir', 'Palantir', 'https://jobs.lever.co/palantir', {
     sourceAts: 'lever',
@@ -627,6 +640,50 @@ export const COMPANIES: Company[] = [
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22105913171%22%5D',
   }),
 
+  // Batch add (2026-09-02) — Ashby boards (every token verified live). Note the
+  // JVN id differs from the ATS board_token for physical-intelligence
+  // (physicalintelligence), mistral-ai (mistral.ai) and clay (claylabs) — the
+  // backend seed migration holds the real tokens.
+  createBackendScraperCompany('suno', 'Suno', 'https://jobs.ashbyhq.com/suno', {
+    sourceAts: 'ashby',
+  }),
+  createBackendScraperCompany('cerebras', 'Cerebras', 'https://www.cerebras.ai/careers', {
+    sourceAts: 'ashby',
+  }),
+  createBackendScraperCompany('physical-intelligence', 'Physical Intelligence', 'https://www.physicalintelligence.company/careers', {
+    sourceAts: 'ashby',
+  }),
+  createBackendScraperCompany('mistral-ai', 'Mistral AI', 'https://jobs.ashbyhq.com/mistral.ai', {
+    sourceAts: 'ashby',
+  }),
+  createBackendScraperCompany('replit', 'Replit', 'https://replit.com/careers', {
+    sourceAts: 'ashby',
+  }),
+  createBackendScraperCompany('railway', 'Railway', 'https://railway.com/careers', {
+    sourceAts: 'ashby',
+  }),
+  createBackendScraperCompany('crusoe', 'Crusoe', 'https://jobs.ashbyhq.com/Crusoe', {
+    sourceAts: 'ashby',
+  }),
+  createBackendScraperCompany('raindrop-ai', 'Raindrop', 'https://jobs.ashbyhq.com/raindrop', {
+    sourceAts: 'ashby',
+  }),
+  createBackendScraperCompany('wafer', 'Wafer', 'https://jobs.ashbyhq.com/wafer', {
+    sourceAts: 'ashby',
+  }),
+  createBackendScraperCompany('clay', 'Clay', 'https://www.clay.com/careers', {
+    sourceAts: 'ashby',
+  }),
+  createBackendScraperCompany('turbopuffer', 'turbopuffer', 'https://turbopuffer.com/jobs', {
+    sourceAts: 'ashby',
+  }),
+  createBackendScraperCompany('openevidence', 'OpenEvidence', 'https://jobs.ashbyhq.com/openevidence', {
+    sourceAts: 'ashby',
+  }),
+  createBackendScraperCompany('greptile', 'Greptile', 'https://www.greptile.com/careers/open', {
+    sourceAts: 'ashby',
+  }),
+
   // Gem (backend-scraper) — backend Procrastinate worker fetches from
   // api.gem.com/job_board/v0/<id>/job_posts/ on a 30-min cron. See
   // docs/implementations/gemBackendMigration/PLAN.md.
@@ -773,6 +830,17 @@ export const COMPANIES: Company[] = [
     }
   ),
 
+  // Batch add (2026-09-02) — Workday. provider_config lives in the backend seed
+  // migration (pod wd5, career-site slug Cisco_Careers).
+  createBackendScraperCompany(
+    'cisco',
+    'Cisco',
+    'https://cisco.wd5.myworkdayjobs.com/Cisco_Careers',
+    {
+      sourceAts: 'workday',
+    }
+  ),
+
   // Backend scraper companies (formerly Eightfold)
   createBackendScraperCompany('netflix', 'Netflix', 'https://explore.jobs.netflix.net/', {
     sourceAts: 'eightfold',
@@ -825,14 +893,19 @@ export const enum COMPANY_IDS {
   Braintrust = 'braintrust',
   Browserbase = 'browserbase',
   CapitalOne = 'capitalone',
+  Cerebras = 'cerebras',
   Chalk = 'chalk',
+  Cisco = 'cisco',
+  Clay = 'clay',
   Clear = 'clear',
   ClickUp = 'clickup',
   Cloudflare = 'cloudflare',
   Cognition = 'cognition',
   Cohere = 'cohere',
+  Coinbase = 'coinbase',
   Console = 'console',
   Crunchyroll = 'crunchyroll',
+  Crusoe = 'crusoe',
   Cursor = 'cursor',
   Databricks = 'databricks',
   Decagon = 'decagon',
@@ -859,10 +932,12 @@ export const enum COMPANY_IDS {
   Glean = 'gleanwork',
   Google = 'google',
   Granola = 'granola',
+  Greptile = 'greptile',
   Harvey = 'harvey',
   Happyrobot = 'happyrobot.ai',
   Hightouch = 'hightouch',
   Instacart = 'instacart',
+  JaneStreet = 'janestreet',
   JudgmentLabs = 'judgmentlabs',
   Krea = 'krea',
   LangChain = 'langchain',
@@ -872,6 +947,7 @@ export const enum COMPANY_IDS {
   Merge = 'merge',
   Microsoft = 'microsoft',
   Mintlify = 'mintlify',
+  MistralAI = 'mistral-ai',
   ModalLabs = 'modal',
   MongoDB = 'mongodb',
   Netflix = 'netflix',
@@ -881,18 +957,23 @@ export const enum COMPANY_IDS {
   Nuro = 'nuro',
   Nvidia = 'nvidia',
   OpenAI = 'openai',
+  OpenEvidence = 'openevidence',
   Pallet = 'pallet',
   Palantir = 'palantir',
   Paraform = 'paraform',
   PayPal = 'paypal',
   Perplexity = 'perplexity',
+  PhysicalIntelligence = 'physical-intelligence',
   PostHog = 'posthog',
   Pylon = 'pylon-labs',
   Pinterest = 'pinterest',
   Plaid = 'plaid',
+  Railway = 'railway',
+  RaindropAI = 'raindrop-ai',
   Ramp = 'ramp',
   Reddit = 'reddit',
   Reducto = 'reducto',
+  Replit = 'replit',
   ResolveAI = 'resolve-ai',
   Roadrunner = 'roadrunner',
   Robinhood = 'robinhood',
@@ -912,17 +993,21 @@ export const enum COMPANY_IDS {
   Squarespace = 'squarespace',
   Stripe = 'stripe',
   Sunday = 'sunday',
+  Suno = 'suno',
   Supabase = 'supabase',
   ThinkingMachines = 'thinkingmachines',
   TikTok = 'tiktok',
   TogetherAI = 'togetherai',
   Trajectory = 'trajectory',
   Traversal = 'traversal',
+  Turbopuffer = 'turbopuffer',
   Twilio = 'twilio',
   Turo = 'turo',
   Twitch = 'twitch',
   Vercel = 'vercel',
   Vizcom = 'vizcom',
+  Wafer = 'wafer',
+  Warp = 'warp',
   Waymo = 'waymo',
   WisprFlow = 'wispr-flow',
   WorkOS = 'workos',
