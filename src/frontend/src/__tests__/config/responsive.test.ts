@@ -70,8 +70,6 @@ const SM_DESKTOP: Record<string, number | string> = {
   'landingProto.categoryGridGap': 3,
   'landingProto.quotableFontSize': '1.25rem',
   'landingProto.rotatingCardMinHeight': 240,
-  'landingProto.tabMinHeight': 40,
-  'landingProto.tabFontSize': '0.8125rem',
   'landingProto.heroSceneHeight': 280,
 };
 

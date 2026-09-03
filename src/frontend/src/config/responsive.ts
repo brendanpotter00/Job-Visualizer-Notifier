@@ -253,8 +253,8 @@ export const RESPONSIVE = {
   /** Raw-pixel sizes for numeric props (e.g. `CompanyLogo` `size`). */
   logoSize: { compact: 32, default: 44 },
   /**
-   * Landing-page prototypes (`AdminLandingPrototypesPage`). These are NEW
-   * surfaces, so each `sm` slot simply IS the desktop design value (there is no
+   * The landing page (`pages/LandingPage/`). This is a NEW
+   * surface, so each `sm` slot simply IS the desktop design value (there is no
    * pre-existing desktop layout to preserve). Mixed shapes: `{ xs, sm }` sx
    * tokens plus two `{ compact, default }` raw props (`CompanyLogo` sizes via
    * `useIsMobile`), so the group cannot carry the `satisfies` guard and relies
@@ -334,10 +334,6 @@ export const RESPONSIVE = {
     /** Reserved height for the rotating single-job card, so the page does not
      *  twitch as cards of slightly different content length swap in (px). */
     rotatingCardMinHeight: { xs: 260, sm: 240 },
-    /** Browser-style tab strip: tab min-height. */
-    tabMinHeight: { xs: 36, sm: 40 },
-    /** Browser-style tab strip: tab label font size. */
-    tabFontSize: { xs: '0.75rem', sm: '0.8125rem' },
     /** Gravity hero: reserved vertical room for the 3D pile (px height). */
     heroSceneHeight: { xs: 200, sm: 280 },
     /** Logo-wall tile edge (raw px via `useIsMobile` → `CompanyLogo size`). */

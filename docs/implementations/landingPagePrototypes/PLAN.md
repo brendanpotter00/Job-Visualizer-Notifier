@@ -1,71 +1,85 @@
 # Landing Page Prototypes — Implementation Plan
 
-> Epic 11 (`wdwb1cbnc7`) kickoff. Admin-gated, frontend-only, mock-data prototypes of 4
-> landing-page directions, switchable via a browser-style tab strip at
-> `/admin/landing-prototypes`. Copy traces to `docs/seo/positioning-brief.md` (11.1).
-> Promotion of a winner to `/` (robots/sitemap/meta/JSON-LD, `signup_funnel_landing`
-> cutover) is 11.2/11.3 — OUT of scope here.
+> Epic 11 (`wdwb1cbnc7`). Started as frontend-only, mock-data prototypes of 4 landing-page
+> directions behind a tab strip; **consolidated on 2026-09-03 to one page — Gravity, at
+> `/landing`** (see Round 6). Copy traces to `docs/seo/positioning-brief.md` (11.1).
+> Promotion to `/` (robots/sitemap/meta/JSON-LD, `signup_funnel_landing` cutover) is
+> 11.2/11.3 — still OUT of scope here.
+>
+> **The bullets below marked ⟨superseded⟩ describe the pre-consolidation design.** They are
+> kept because the reasoning behind the surviving pieces (the lazy boundary, the single-
+> Canvas invariant, the props contract) is recorded there and nowhere else.
 
 ## Architecture
 
-- **Route**: `/admin/landing-prototypes`, registered in `App.tsx` as a **sibling** of the
+- **Route**: `/landing`, registered in `App.tsx` as a **sibling** of the
   `path="/"`/`RootLayout` route → renders full-bleed (no drawer/appbar) while all
-  `main.tsx` providers still wrap it. Gated with `<AdminRoute>` (client-side is sufficient —
-  no privileged data). The existing `/admin/:path(.*)` rewrite in `vercel.json` covers deep
-  links; **no vercel.json changes**.
-- **Tab strip**: MUI `Tabs variant="scrollable" allowScrollButtonsMobile` styled
-  chrome-like via sx (indicator hidden; rounded-top tabs; active tab "raised"); back-to-app
-  IconButton → `ROUTES.RECENT_JOBS`. Tab persists via `?proto=` (+ `?data=sparse` fixture
-  toggle); `setSearchParams(..., { replace: true })`; invalid → first tab.
-- **Only the active tab mounts** (conditional render, never keep-mounted) — single-Canvas
-  invariant for the 3D tabs (GL context leak prevention).
-- **All 4 prototypes lazy** (`React.lazy` + `Suspense` with `LoadingState`) — first lazy
-  boundaries in the codebase. Entry files export named (tests) + default (lazy) — accepted
-  deviation from the named-export convention, confined to the 4 entries.
-- **Shared contract** (`types.ts`):
-  `LandingPrototypeProps { content: LandingContent; jobs: Job[]; stats: LandingStats; sparse: boolean }`.
+  `main.tsx` providers still wrap it. **Unlisted, not admin-gated** (owner decision
+  2026-08-10): no nav entry anywhere, reachable by direct URL, so a reviewer can open it
+  without signing in. `vercel.json` carries a `/landing` → `/index.html` rewrite —
+  ⟨superseded⟩ the original plan needed none, because `/admin/landing-prototypes` was
+  already covered by the `/admin/:path(.*)` catch-all. `ROUTES.LANDING_LEGACY` keeps that
+  old path routable as a query-preserving redirect.
+- ⟨superseded⟩ **Tab strip**: MUI `Tabs variant="scrollable" allowScrollButtonsMobile`
+  styled chrome-like via sx; tab persisted via `?proto=`. Deleted in Round 6 along with
+  the registry. `?data=sparse` survived as the shell's only URL contract.
+- **Only one Canvas ever mounts** — the single-Canvas invariant (GL context leak
+  prevention) that the conditional tab render used to enforce is now structural.
+- **The scene stays lazy** (`React.lazy` + `Suspense` with `LoadingState`). With one design
+  left, this boundary is no longer about choosing between prototypes: it is the only thing
+  keeping three/rapier out of the main bundle, so it must not be flattened. The entry file
+  exports named (tests) + default (lazy) — accepted deviation from the named-export
+  convention, now confined to that one entry.
+- **Props contract** (`types.ts`):
+  `LandingPrototypeProps { content: LandingContent; jobs: Job[]; sparse: boolean; now: number }`.
+  `stats` was dropped in Round 6 with `MiniJobBoard`, its last consumer.
 - **Theme**: monochrome light everywhere (Q5) — app theme as-is; NO nested dark themes.
 
 ## File tree (under `src/frontend/src/`)
 
+Post-consolidation (Round 6, 2026-09-03) — one page, no tabs. The `prototypes/`
+directory kept its name: it still reads as the scene's home, and renaming it
+would have churned every import for no reader gain.
+
 ```
-pages/AdminLandingPrototypesPage/
-├── AdminLandingPrototypesPage.tsx   # shell: 100dvh column, strip, ?proto=/?data=, Suspense
-├── PrototypeTabStrip.tsx
-├── types.ts                         # PrototypeId, LandingPrototypeProps, LandingStats
-├── content.ts                       # LANDING_CONTENT: claims by id, headlineVariants, CTAs, TOP_COMPANY_IDS
+pages/LandingPage/
+├── LandingPage.tsx                  # shell: 100dvh column, ?data=, lazy + Suspense
+├── types.ts                         # LandingPrototypeProps
+├── content.ts                       # LANDING_CONTENT: claims by id, heroVariants, CTAs, TOP_COMPANY_IDS
 ├── mockData.ts                      # buildMockJobs(now) ~18 / buildSparseMockJobs(now) ~6 + constants
+├── companyCategories.ts             # PURE category taxonomy over COMPANY_IDS
+├── usePrefersReducedMotion.ts       # useSyncExternalStore over guarded matchMedia
 ├── prototypes/
-│   ├── registry.ts                  # PROTOTYPES [{id,label,Component:lazy}], isPrototypeId
-│   ├── SignalPrototype/             # tab 1 "Signal" — clean minimal (variant A hero)
-│   ├── BoardPrototype/              # tab 2 "The Board" — jobs-forward (variant B hero)
-│   │   └── MiniJobBoard.tsx         # JobListingCard .map(), category chips, no keyword UI
-│   ├── GravityPrototype/            # tab 3 — falling logos physics
+│   ├── GravityPrototype/            # the page body — falling logos physics
 │   │   ├── GravityPrototype.tsx     # lazy entry: hero copy + sections + tier gate
 │   │   ├── GravityScene.tsx         # nested-lazy: <Canvas><Physics> walls/tiles/shadows
 │   │   ├── LogoTileBody.tsx
+│   │   ├── arenaLayout.ts           # PURE walls/columns + tile-escape guard
+│   │   ├── pointerInput.ts          # PURE NDC pointer mapping + retract rule
 │   │   ├── spawnPlan.ts             # PURE seeded (mulberry32) spawn plan
 │   │   └── useSettleGovernor.ts     # sleep counter + IO + visibility → frameloop always↔never
-│   ├── DriftPrototype/              # tab 4 — particles
-│   │   ├── DriftPrototype.tsx
-│   │   ├── DriftScene.tsx           # nested-lazy: 2× drei Sparkles layers
-│   │   └── particlesConfig.ts       # PURE per-tier counts/sizes
 │   └── shared3d/
 │       ├── experienceTier.ts        # PURE resolveExperienceTier / resolveFrameloop
-│       ├── usePrefersReducedMotion.ts  # useSyncExternalStore over guarded matchMedia
+│       ├── useExperienceTier.ts
 │       ├── detectWebGL.ts           # injectable probe
+│       ├── mulberry32.ts            # PURE seeded PRNG
 │       ├── logoRoster.ts            # PURE selectLogoRoster(COMPANIES, count, seed)
 │       └── LogoGridFallback.tsx     # DOM "pre-settled" logo grid (reduced/no-WebGL tiers)
 └── sections/
-    ├── HeroCopy.tsx                 # variant-aware (source | antiNoise)
+    ├── LandingHeader.tsx            # sticky bar; IO sentinel drives the scrolled state
+    ├── HeroCopy.tsx                 # variant-aware (source | antiNoise); page uses antiNoise
     ├── CTAButtons.tsx               # primary "Browse jobs" → ROUTES.RECENT_JOBS
-    ├── LiveActivityStats.tsx        # event-shaped stats computed from mock jobs (Q7)
-    ├── LogoWall.tsx                 # CSS-keyframe marquee rows, hover-pause, PRM kill switch
-    ├── FreshJobsTicker.tsx          # 48h rail from TOP_COMPANY_IDS; <6 → static 7d fallback
+    ├── HeroTrendline.tsx + trendlinePath.ts   # PURE smoothed path behind the canvas
+    ├── FreshJobsTriptych.tsx + triptychJobs.ts  # PURE 3-slot selection; FlippingCard per slot
+    ├── FlippingCard.tsx             # real JobListingCard on a timed flip, PRM kill switch
+    ├── HowItWorksSection.tsx
+    ├── CompanyCategoriesSection.tsx
+    ├── FeatureMatrixSection.tsx + matrixLayout.ts  # PURE trailing-row span rule
+    ├── FAQSection.tsx
     └── FooterLite.tsx
 ```
 
-Tests mirror under `__tests__/pages/AdminLandingPrototypesPage/`.
+Tests mirror under `__tests__/pages/LandingPage/`.
 
 ## Key specs
 
@@ -248,3 +262,39 @@ Jobs page could deter people; keep the tab but stop investing.
    "Log in" (text) + "Sign up" (contained), auth links mock → /account. Transparent
    over hero, opaque + hairline once scrolled (IO sentinel). Mobile: wordmark +
    Sign up only. Brendan confirmed sticky explicitly.
+
+### Round 6 — 2026-09-03 (consolidation to one shipping page)
+
+Owner decision: the four-prototype workspace has served its purpose and collapses to
+**Gravity only**, served at **`/landing`** — an unlisted page (no nav entry anywhere,
+enforced by a routes test over every nav array) that Brendan iterates on after this
+merges, NOT the homepage. Signal, The Board and Drift are deleted outright, along with
+the `PrototypeTabStrip`, the lazy `registry.ts`, the `?proto=` URL contract, and the
+`PROTOTYPE_IDS` / `isPrototypeId` types that existed only to validate it. Sections that
+died with their only callers went too: `RotatingJobCard` (Signal), `FreshJobsTicker`
+(Board), `tickerJobs.ts` (verified orphan — `triptychJobs` selects its own slots and
+never imported `selectTickerJobs`), and `LogoWall` (Gravity's settled pile has always
+been its logo wall). The `stats` prop and `MOCK_STATS` went with `MiniJobBoard`, their
+last consumer. The shell keeps exactly two things it earned: the `React.lazy` + Suspense
+boundary, which is now the only thing keeping three/rapier out of the main bundle, and
+the `?data=sparse` fixture toggle, because the sparse case is the one that breaks
+layouts. The 100dvh inner scroller stays — `LandingHeader`'s sticky positioning and its
+root-less IntersectionObserver are both written against that scroller, so flattening it
+to a document-level scroll is a real behaviour change and belongs in the iteration pass,
+not in a deletion commit. `/admin/landing-prototypes` redirects to `/landing` with query
+and hash preserved (links were already shared by hand, and `?data=` still means
+something); `vercel.json` gains a `/landing` → `/index.html` rewrite, because the old
+path was only ever served by the `/admin/:path(.*)` catch-all.
+
+Copy changes landed in the same pass, all owner-directed: the header's second nav link
+became **Changelog → `/vote-features`** (that page IS the public changelog) in place of
+"Why", which the footer still carries; two FAQ entries were cut for restating answers
+other entries already gave (a uniqueness assertion replaced the count floor); **"Track
+any company" GRADUATED** out of the grayed coming-soon tier into the live cells now that
+custom company sources shipped on main, leaving 7 live / 2 coming-soon; and the footer
+lost both the "Popular searches" stubs (six links, all pointing at the same board,
+placeholders for 11.3 category pages that do not exist) and the closing proof tagline
+(a fourth restatement of numbers the page had already made). The matrix's old
+fill-both-grids-exactly count invariant could not survive a cell moving tiers, so it was
+replaced by `matrixLayout.ts` — a pure rule that widens a trailing cell only when it
+would otherwise sit alone in its row, at each breakpoint independently.
