@@ -47,6 +47,30 @@ const SM_DESKTOP: Record<string, number | string> = {
   'keywordCard.contentPadding': 2,
   'statTile.padding': 2.5,
   'statTile.gap': 1.5,
+  // Landing prototypes are NEW surfaces: the `sm` slot IS the desktop design
+  // value (no pre-existing layout to preserve); pinned so it can't drift.
+  'landingProto.headerHeight': 64,
+  'landingProto.headerWordmarkFontSize': '1.0625rem',
+  'landingProto.headerGap': 1.5,
+  'landingProto.heroHeadlineFontSize': '3.25rem',
+  'landingProto.heroSubFontSize': '1.25rem',
+  'landingProto.heroPaddingY': 14,
+  'landingProto.sectionTitleFontSize': '1.75rem',
+  'landingProto.blockTitleFontSize': '1.1875rem',
+  'landingProto.bodyFontSize': '1.0625rem',
+  'landingProto.sectionPaddingY': 10,
+  'landingProto.sectionTitleMarginBottom': 5,
+  'landingProto.sectionBlockGapY': 9,
+  'landingProto.stepsGridSpacing': 6,
+  'landingProto.matrixCellPaddingY': 5,
+  'landingProto.matrixCellPaddingRight': 6,
+  'landingProto.matrixTierLabelFontSize': '0.8125rem',
+  'landingProto.faqRowPaddingY': 1.75,
+  'landingProto.categoryCardPadding': 3,
+  'landingProto.categoryGridGap': 3,
+  'landingProto.quotableFontSize': '1.25rem',
+  'landingProto.rotatingCardMinHeight': 240,
+  'landingProto.heroSceneHeight': 280,
 };
 
 // Desktop (`default`) value expected for each `{ compact, default }` token.
@@ -59,6 +83,8 @@ const DEFAULT_DESKTOP: Record<string, number | string> = {
   'keywordCard.chipHeight': 24,
   'keywordCard.chipFontSize': '0.8125rem',
   'logoSize': 44,
+  'landingProto.logoTileSize': 52,
+  'landingProto.tickerLogoSize': 28,
 };
 
 function dig(path: string): Record<string, unknown> {

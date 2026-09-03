@@ -21,6 +21,15 @@ import { AdminEnrichmentPage } from '../pages/AdminEnrichmentPage/AdminEnrichmen
 import { AdminLocationPipelinePage } from '../pages/AdminLocationPipelinePage/AdminLocationPipelinePage.tsx';
 import { AdminCustomCompaniesPage } from '../pages/AdminCustomCompaniesPage/AdminCustomCompaniesPage.tsx';
 import { AdminFeedbackPage } from '../pages/AdminFeedbackPage/AdminFeedbackPage.tsx';
+import { lazy, Suspense } from 'react';
+import { LoadingState } from '../components/shared/LoadingIndicator';
+
+/**
+ * Lazy at the ROUTE, not just the 3D scene: the landing page's copy config and
+ * mock-job fixtures would otherwise ride the main bundle onto every page and
+ * build 28 fabricated jobs at app boot for a page most visitors never open.
+ */
+const LandingPage = lazy(() => import('../pages/LandingPage/LandingPage.tsx'));
 import { AdminRoute } from '../components/auth/AdminRoute.tsx';
 import { useEnabledCompanies } from '../features/preferences/useEnabledCompanies';
 import { useHydrateSavedFilters } from '../features/savedFilters/useHydrateSavedFilters';
@@ -45,6 +54,22 @@ function LegacyMyCompaniesRedirect() {
   const { pathname, search, hash } = useLocation();
   const suffix = pathname.slice(ROUTES.MY_COMPANIES_LEGACY.length);
   return <Navigate to={`${ROUTES.MY_COMPANIES}${suffix}${search}${hash}`} replace />;
+}
+
+/**
+ * Redirects the pre-consolidation `/admin/landing-prototypes` path onto
+ * `/landing`.
+ *
+ * The old path had no sub-paths (the four designs were `?proto=` values, not
+ * segments), so unlike the my-companies redirect there is no suffix to rebuild
+ * — but `search` and `hash` still ride along, because the surviving `?data=`
+ * fixture toggle is a query param and dropping it would silently change what a
+ * shared link renders. `replace` keeps the dead path out of history so Back
+ * doesn't land on it and bounce forward again.
+ */
+function LegacyLandingRedirect() {
+  const { search, hash } = useLocation();
+  return <Navigate to={`${ROUTES.LANDING}${search}${hash}`} replace />;
 }
 
 /**
@@ -157,6 +182,24 @@ function AppContent() {
             <Route path={ROUTES.MY_COMPANY_DETAIL} element={<MyCompanyTrendPage />} />
           )}
         </Route>
+        {/* Sibling of the RootLayout route: renders full-bleed (no drawer/appbar)
+            so the landing page reads like a real standalone page.
+            Deliberately UNLISTED rather than admin-gated (owner decision,
+            2026-08-10, reaffirmed on the 2026-09-03 consolidation): reachable
+            by direct URL only — no nav entry, no changelog card — so reviewers
+            can open it without signing in. Mock data only; nothing here touches
+            real APIs. */}
+        <Route
+          path={ROUTES.LANDING}
+          element={
+            <Suspense fallback={<LoadingState fullPage />}>
+              <LandingPage />
+            </Suspense>
+          }
+        />
+        {/* The pre-consolidation path, still routable so links already sent out
+            keep working now that the four-prototype workspace is one page. */}
+        <Route path={ROUTES.LANDING_LEGACY} element={<LegacyLandingRedirect />} />
         {/* The pre-rename path, still routable so tabs and bookmarks on
             /my-companies survive the rename. Behind the SAME flag as the two
             routes above: with the feature off neither the new path nor the old
