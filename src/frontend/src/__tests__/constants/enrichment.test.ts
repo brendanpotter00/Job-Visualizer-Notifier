@@ -86,11 +86,20 @@ describe('FALLBACK_SUBCATEGORIES', () => {
 });
 
 describe('FALLBACK_CATEGORIES', () => {
-  it('has exactly six entries with contiguous sortOrder', () => {
+  it('has exactly six entries, with a DELIBERATE GAP at sortOrder 3', () => {
     // SIX, not seven: `project_manager` was retired by SCHEMA-11 as live drift
     // used by zero listings.
+    //
+    // The gap is not an oversight and must NOT be closed. The retire migration
+    // DELETEs the dimension row and renumbers nothing — verified: no migration
+    // in the chain issues `UPDATE job_categories`. So the database really does
+    // hold 0,1,2,4,5,6, `src/backend/taxonomy.json` records exactly that, and
+    // `enrichmentFallbackParity.test.ts` pins this list to that file. Making
+    // these contiguous would leave the frontend disagreeing with the DB about
+    // every category after the hole — which is the drift this list's parity
+    // check exists to catch.
     expect(FALLBACK_CATEGORIES).toHaveLength(6);
-    expect(FALLBACK_CATEGORIES.map((o) => o.sortOrder)).toEqual([0, 1, 2, 3, 4, 5]);
+    expect(FALLBACK_CATEGORIES.map((o) => o.sortOrder)).toEqual([0, 1, 2, 4, 5, 6]);
   });
 
   it('no longer offers project_manager', () => {
