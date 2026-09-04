@@ -280,21 +280,23 @@ def test_walk_with_page_size_one_covers_every_filtered_row(client, db_conn, seed
     _assert_exactly_once(seen, expected)
 
 
-def test_filtered_total_on_page_one_agrees_with_the_walk(client, db_conn, seed_taxonomy):
-    """``meta.filteredTotal`` and the pages come from two different SQL statements
-    (the count drops the freshness join). If they disagree, the UI's "N jobs"
-    header describes a set the user can never finish scrolling to — or promises
-    fewer than it delivers."""
+def test_filtered_total_is_deferred_and_the_walk_still_enumerates_the_set(
+    client, db_conn, seed_taxonomy
+):
+    """``meta.filteredTotal`` is deferred (Wave-1 B1 — null), so the page-1 total no
+    longer stands in for the walk. What still has to hold is that the keyset walk
+    enumerates the whole filtered set across several cursor pages, which is what
+    lets the client approximate the total from the rows it accumulates."""
     expected = _seed_corpus(db_conn, 11)
 
     first = client.get(
         SEARCH_URL, params={"status": "OPEN", "category": FILTER_CATEGORY, "limit": 4}
     )
     assert first.status_code == 200, first.text
-    assert first.json()["meta"]["filteredTotal"] == len(expected)
+    assert first.json()["meta"]["filteredTotal"] is None
 
     seen = _walk(client, page_size=4, params={"category": FILTER_CATEGORY})
-    assert len(seen) == first.json()["meta"]["filteredTotal"]
+    assert len(seen) == len(expected)
 
 
 # ---------------------------------------------------------------------------

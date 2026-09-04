@@ -48,6 +48,7 @@ from ..services.job_search import (
     LocationDescriptor,
     SearchFilters,
     get_search_counts,
+    resolve_location_ids,
     resolve_location_selections,
     search_jobs,
 )
@@ -84,13 +85,14 @@ _MAX_LOCATION_LENGTH = 200
 # ``job_tags`` — but Postgres DE-CORRELATES that EXISTS into a hashed ``SubPlan``,
 # so it is not evaluated per candidate row at all. It is executed ONCE
 # (``loops=1``) and then probed, which makes it **independent of LIMIT**: a 50-row
-# page pays the same tag work as a count over the whole corpus. And PAGE 1 PAYS IT
-# TWICE — ``get_search_counts``' ``filtered_total`` subquery applies the identical
-# predicate alongside the page query, on the SAME pooled connection, against
-# ``DB_POOL_MAX=30`` / ``DB_POOL_TIMEOUT=5s`` (the Railway variable overrides the
-# code default of 15 — check the variable, not ``config.py``). This database
-# already has a
-# pool-exhaustion incident
+# page pays the same tag work as a count over the whole corpus. PAGE 1 USED TO PAY
+# IT TWICE — ``get_search_counts``' ``filtered_total`` subquery applied the
+# identical predicate alongside the page query, on the SAME pooled connection —
+# but Wave-1 B1 deferred that count (it returns ``null`` now), so page 1 evaluates
+# the keyword predicate ONCE. The per-checkout statement budget still matters:
+# prod runs ``DB_POOL_MAX=30`` / ``DB_POOL_TIMEOUT=5s`` (the Railway variable
+# overrides the code default of 15 — check the variable, not ``config.py``), and
+# this database already has a pool-exhaustion incident
 # (docs/incidents/2026-05-17-recent-jobs-pool-exhaustion.md).
 #
 # WHAT THAT SUBPLAN COSTS IS NOW BOUNDED BY AN INDEX. Migration ``536c1cddcd28``
@@ -404,11 +406,13 @@ def search(
 
     ``meta`` is computed on page 1 only (no ``cursor``) and is ``null`` afterwards:
     the counts describe the whole filter set, so recomputing them per page is pure
-    waste. ``filteredTotal`` counts the active filters. ``countLast24h`` /
-    ``countLast3h`` honour ``company`` and NOTHING else — they answer "how busy is
-    the market I follow", which is what the Recent page's recency tiles have always
-    shown (client-side they came off the enabled-companies prefilter, before any
-    other filter was applied).
+    waste. ``filteredTotal`` is DEFERRED — it rides as ``null`` (Wave-1 B1, owner
+    decision ①: the exact count was the expensive half of every filtered page-1
+    search, so it is off this path and the client approximates the total from the
+    rows it walks). ``countLast24h`` / ``countLast3h`` honour ``company`` and
+    NOTHING else — they answer "how busy is the market I follow", which is what the
+    Recent page's recency tiles have always shown (client-side they came off the
+    enabled-companies prefilter, before any other filter was applied).
 
     CURSORS ARE FILTER-BOUND
     ------------------------
@@ -477,11 +481,21 @@ def search(
     # one number in the message the old placement could not account for.
     started = time.monotonic()
     try:
-        # Resolved BEFORE the fingerprint, and folded into it — see below. Also
-        # shared by the page query and the count query, so a single request never
-        # resolves the same names twice.
+        # Resolved BEFORE the fingerprint, and folded into it — see below. The
+        # DESCRIPTORS drive the fingerprint (they carry the live duplicate-name
+        # ranking a walk must 409 on if it flips); the id SET they resolve to is
+        # what the WHERE clause actually probes (owner decision ③ — one integer-set
+        # test on ``job_locations`` instead of a per-row ``locations`` join +
+        # ``upper()``). Both come from the ``locations`` catalog, so an active
+        # filter costs two small catalog reads here rather than a cross-table join
+        # on every candidate job row.
         location_descriptors = (
             resolve_location_selections(conn, locations) if locations else {}
+        )
+        location_ids = (
+            resolve_location_ids(conn, locations, location_descriptors)
+            if locations
+            else []
         )
 
         # Fingerprint the EFFECTIVE filter set (post-validation, post-dedupe) so two
@@ -541,7 +555,7 @@ def search(
             "levels": levels,
             "companies": companies,
             "locations": locations,
-            "location_descriptors": location_descriptors,
+            "location_ids": location_ids,
             "include": include_terms,
             "exclude": exclude_terms,
         }
@@ -557,11 +571,13 @@ def search(
 
         meta: JobSearchMeta | None = None
         if parsed_cursor is None:
-            # One statement for all three numbers. Page 1 already spends this
-            # request's single pooled connection on the row query (and on a location
-            # resolve when a location filter is active); splitting the counts back
-            # into two statements adds a round trip to the checkout that prod's
-            # DB_POOL_MAX=30 / 5s timeout has already been seen to run out of.
+            # One statement for the two recency tiles. ``filteredTotal`` rides along
+            # as ``None`` — Wave-1 B1 deferred the exact count off this critical
+            # path (owner decision ①), so page 1 no longer runs the filter predicate
+            # a second time just to count it. Page 1 still spends this request's
+            # single pooled connection on the row query (and on a location resolve
+            # when a location filter is active); the tiles are one cheap windowed
+            # scan on top of that.
             counts = get_search_counts(conn, **filters)
             meta = JobSearchMeta(
                 filtered_total=counts["filtered_total"],

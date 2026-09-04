@@ -40,6 +40,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       // injected X-Internal-Key) across a same-origin 3xx. See api/jobs-qa.ts.
       redirect: "manual",
     });
+    // Edge-cache location autocomplete. Whether a location exists is stable, so
+    // a 10-minute edge TTL (plus an hour of stale-while-revalidate) removes the
+    // ~0.6 s hop for every repeat of a term across all users; the CDN keys per
+    // URL, so each distinct {q,limit,openOnly} caches independently. This proxy
+    // is public + internal-key only and never forwards Authorization, so there
+    // is no per-user response to leak. Browsers still revalidate (max-age=0).
+    // Set BEFORE forwardResponse — that helper ends the response.
+    res.setHeader("Cache-Control", "public, max-age=0, must-revalidate");
+    res.setHeader(
+      "Vercel-CDN-Cache-Control",
+      "public, s-maxage=600, stale-while-revalidate=3600",
+    );
     await forwardResponse(response, res);
   } catch (error) {
     console.error('[api/locations] Upstream fetch failed:', error);

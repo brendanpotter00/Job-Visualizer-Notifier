@@ -115,6 +115,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // the contract's "end of results" signal, so only copy it when present.
     const nextCursor = response.headers.get(NEXT_CURSOR_HEADER);
     if (nextCursor) res.setHeader('X-Next-Cursor', nextCursor);
+    // Edge-cache ONLY the facets catalog. It is effectively immutable — the
+    // enrichment taxonomy changes only on a migration+deploy — so a full-day
+    // edge TTL with a week of stale-while-revalidate removes the ~0.7 s
+    // Vercel->Railway hop from every visitor after the first. `Cache-Control`
+    // stays `max-age=0` so browsers always revalidate to the edge and a purge
+    // is instantly visible; only `Vercel-CDN-Cache-Control` pins the edge copy.
+    // Set BEFORE forwardResponse (it ends the response), and gated so `search`
+    // (append-heavy, the slow query) and the legacy company list stay uncached.
+    if (sub === 'facets') {
+      res.setHeader('Cache-Control', 'public, max-age=0, must-revalidate');
+      res.setHeader(
+        'Vercel-CDN-Cache-Control',
+        'public, s-maxage=86400, stale-while-revalidate=604800',
+      );
+    }
     await forwardResponse(response, res);
   } catch (error) {
     // Logged, never returned: Node's fetch errors carry the internal backend

@@ -88,6 +88,11 @@ export const locationsApi = createApi({
       }),
       transformResponse: (res: unknown): LocationSearchResult[] =>
         validateLocationSearchResults(res),
+      // Autocomplete terms are stable within a session and the per-{q,limit,
+      // openOnly} cache key already isolates them, so hold each entry 15 min
+      // instead of the 60 s default — re-typing a term earlier searched is
+      // instant with no refetch.
+      keepUnusedDataFor: 900,
     }),
   }),
 });

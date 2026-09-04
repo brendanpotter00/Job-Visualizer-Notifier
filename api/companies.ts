@@ -69,6 +69,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     const response = await fetch(targetUrl, fetchOptions);
+    // Edge-cache ONLY the public bare-directory GET. A newly-onboarded company
+    // being invisible for up to an hour is acceptable (adds are rare and
+    // non-urgent), and stale-while-revalidate hides even the post-expiry
+    // refresh. Deliberately NOT cached: the POST `resolve` mutation, and any
+    // request that carries `Authorization` — a shared edge cache keyed without
+    // `Vary: Authorization` could serve one caller's authed response to another.
+    // Browsers still revalidate (max-age=0) so a CDN purge is instantly visible.
+    // Set BEFORE forwardResponse — that helper ends the response.
+    if (req.method === 'GET' && targetPath === '' && !req.headers.authorization) {
+      res.setHeader('Cache-Control', 'public, max-age=0, must-revalidate');
+      res.setHeader(
+        'Vercel-CDN-Cache-Control',
+        'public, s-maxage=3600, stale-while-revalidate=86400',
+      );
+    }
     await forwardResponse(response, res);
   } catch (error) {
     console.error('[api/companies] Upstream fetch failed:', error);

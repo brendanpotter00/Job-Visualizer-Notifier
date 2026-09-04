@@ -171,11 +171,19 @@ def test_job_freshness_composite_fk_to_job_listings_cascade():
     assert (ondelete or "").upper() == "CASCADE", f"Expected ondelete=CASCADE, got {ondelete!r}"
 
 
-def test_job_freshness_last_seen_index_present():
+def test_job_freshness_last_seen_index_absent():
+    """rev a1f7c9d2e8b4 dropped ``idx_job_freshness_last_seen``.
+
+    Re-adding it here would make ``last_seen_at`` re-stamps non-HOT again on the
+    write-hottest table in the schema (~69.5 M updates/scrape-history) and
+    reintroduce the ~62 MB / ~30x index bloat, for NO hot read path — the only
+    ``ORDER BY last_seen_at DESC`` consumers (no-company legacy ``/api/jobs``,
+    admin problem-jobs) are cold and sort fine without it.
+    """
     table = db_models.Base.metadata.tables["job_freshness"]
     index_names = {ix.name for ix in table.indexes}
-    assert "idx_job_freshness_last_seen" in index_names, (
-        f"Missing idx_job_freshness_last_seen; present: {index_names}"
+    assert "idx_job_freshness_last_seen" not in index_names, (
+        f"idx_job_freshness_last_seen must stay dropped; present: {index_names}"
     )
 
 
@@ -208,11 +216,27 @@ def test_job_listings_has_no_freshness_columns():
     assert "consecutive_misses" in sidecar.c
 
 
-def test_expected_indexes_on_users():
+def test_users_duplicate_indexes_dropped_but_unique_lookups_kept():
+    """rev a1f7c9d2e8b4 dropped the two standalone btrees on users.
+
+    ``idx_users_auth0_id`` / ``idx_users_email`` merely duplicated the unique
+    index Postgres already maintains behind each UNIQUE constraint, so the
+    equality lookups these tests care about are still served — by
+    ``auth0_id``'s column-level ``unique=True`` and the ``users_email_key``
+    constraint. Re-adding either standalone index is pure write-amplification.
+    """
     table = db_models.Base.metadata.tables["users"]
     index_names = {ix.name for ix in table.indexes}
-    assert "idx_users_auth0_id" in index_names
-    assert "idx_users_email" in index_names
+    assert "idx_users_auth0_id" not in index_names, index_names
+    assert "idx_users_email" not in index_names, index_names
+
+    # The backing UNIQUE constraints must remain — they are what serve the
+    # auth0_id / email equality lookups now.
+    assert db_models.User.__table__.c.auth0_id.unique is True
+    unique_names = {
+        c.name for c in table.constraints if isinstance(c, UniqueConstraint)
+    }
+    assert "users_email_key" in unique_names, unique_names
 
 
 def test_user_enabled_companies_has_user_id_index():

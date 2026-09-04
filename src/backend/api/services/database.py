@@ -305,7 +305,11 @@ _TAGS_SUBQUERY = sql.SQL(
 # sidecar (aliased ``f`` in the query) — see get_jobs. ``id`` and ``source_id``
 # are qualified to ``job_listings`` because the sidecar carries same-named join
 # keys and a bare reference would be ambiguous.
-_LIST_COLUMNS = sql.SQL(
+# The base columns every list projection shares — everything except the two
+# correlated per-row JSON subqueries (``_TAGS_SUBQUERY`` / ``_LOCATIONS_SUBQUERY``).
+# Split out so the trend read can take locations-without-tags (see
+# ``_TREND_LIST_COLUMNS`` and Wave-1 B3) without duplicating the column text.
+_LIST_BASE_COLUMNS = sql.SQL(
     "job_listings.id, title, company, location, url, job_listings.source_id,"
     " jsonb_build_object("
     "   'experience_level', experience_level,"
@@ -315,7 +319,26 @@ _LIST_COLUMNS = sql.SQL(
     " has_matched, jsonb_build_object() AS ai_metadata,"
     " first_seen_at, f.last_seen_at, f.consecutive_misses, details_scraped,"
     " enrichment_category AS category, enrichment_level AS level, enrichment_status, "
-) + _TAGS_SUBQUERY + sql.SQL(", ") + _LOCATIONS_SUBQUERY
+)
+
+_LIST_COLUMNS = _LIST_BASE_COLUMNS + _TAGS_SUBQUERY + sql.SQL(", ") + _LOCATIONS_SUBQUERY
+
+# Trend-page projection (Wave-1 B3): the same rows as ``_LIST_COLUMNS`` MINUS the
+# per-row ``tags`` JSON subquery. Used ONLY by :func:`get_jobs` — the legacy
+# ``/api/jobs`` read path the company hiring-trend graph hits
+# (``getJobsForCompany`` → ``/api/jobs?company=&limit=5000``). The graph buckets on
+# timestamps and the job list beneath it renders ``locations`` chips (kept), but
+# NOTHING reads the backend ``tags`` column: it maps to the frontend transformer's
+# ``enrichmentTags`` field, which has zero readers (verified by grep across
+# ``src/frontend/src`` — only the type def, the transformer write, and landing
+# ``mockData``). ``_row_to_job_dict`` fills a missing ``tags`` key with ``[]``, so
+# a row from this projection still serializes ``tags: []`` and the transformer's
+# ``enrichmentTags: raw.tags ?? []`` stays ``[]`` — behaviour preserved, one
+# correlated subquery and the per-row tags array gone from a 2.46 MB payload.
+# ``_LIST_COLUMNS`` itself is untouched, so ``search_jobs`` (Recent),
+# ``get_user_company_jobs``, ``get_owned_custom_jobs`` and the single-job detail
+# read keep their tags.
+_TREND_LIST_COLUMNS = _LIST_BASE_COLUMNS + _LOCATIONS_SUBQUERY
 
 # INNER JOIN onto the freshness sidecar. Lossless by construction: the AFTER
 # INSERT trigger + backfill + composite FK guarantee every job_listings row has
@@ -377,7 +400,9 @@ def get_jobs(
         query = sql.SQL(
             "SELECT {} FROM {}{} {} {} LIMIT %s OFFSET %s"
         ).format(
-            _LIST_COLUMNS, _JOBS_TABLE, _FRESHNESS_JOIN, where,
+            # Trend-scoped projection: locations kept, per-row tags subquery dropped
+            # (Wave-1 B3 — nothing on this path reads ``enrichmentTags``).
+            _TREND_LIST_COLUMNS, _JOBS_TABLE, _FRESHNESS_JOIN, where,
             _KEYSET_ORDER_BY if keyset else _LEGACY_ORDER_BY,
         )
         params.extend([limit, offset])

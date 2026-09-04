@@ -396,7 +396,7 @@ def test_public_jobs_search_counts_exclude_user_company(client, db_conn):
     _insert_job(db_conn, "s6", "u-srchpriv03", custom("u-srchpriv03"), first_seen_at=fresh)
 
     meta = client.get("/api/jobs/search").json()["meta"]
-    assert meta["filteredTotal"] == 1
+    assert meta["filteredTotal"] is None
     assert meta["countLast24h"] == 1
 
 
@@ -421,4 +421,4 @@ def test_search_service_layer_never_returns_a_user_company_job(db_conn):
     assert "u-svcsrch01" not in companies
 
     counts = get_search_counts(db_conn, status="OPEN")
-    assert counts["filtered_total"] == 1
+    assert counts["filtered_total"] is None

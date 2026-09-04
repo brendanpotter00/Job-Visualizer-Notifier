@@ -28,6 +28,10 @@ export const companiesApi = createApi({
       query: () => '',
       transformResponse: (res: { companies: CuratedCompany[] }) => res.companies,
       providesTags: ['CuratedCompanies'],
+      // The directory changes ~never within a session (onboarding a company is
+      // rare), so keep the cache entry an hour instead of the 60 s default — a
+      // nav back to a page that reads it no longer forces a needless refetch.
+      keepUnusedDataFor: 3600,
     }),
   }),
 });
