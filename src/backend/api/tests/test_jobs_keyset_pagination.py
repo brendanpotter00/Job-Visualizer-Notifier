@@ -742,19 +742,13 @@ class _CapturingConnection:
 
 
 def test_legacy_call_emits_the_exact_pre_keyset_sql(db_conn):
-    """The regression lock on "neither ``since`` nor ``cursor`` changes the ORDER BY".
+    """The regression lock on "neither ``since`` nor ``cursor`` changes nothing".
 
-    The ORDER BY template below is copied VERBATIM from the pre-keyset revision
+    The expected template below is copied VERBATIM from the pre-keyset revision
     (2cbb7e0, ``services/database.py::get_jobs``). It is intentionally a literal
     and NOT built from the new ``_LEGACY_ORDER_BY`` constant — reusing the
     constant would make this test agree with any future edit to it, which is
     exactly what it exists to prevent.
-
-    The COLUMN list, by contrast, is taken from ``_TREND_LIST_COLUMNS`` (not the
-    literal pre-keyset projection): Wave-1 B3 thinned the ``/api/jobs`` legacy read
-    to drop the per-row ``tags`` subquery (nothing on that path reads it), and this
-    test locks the ORDER BY / keyset shape, not the projection — so it tracks the
-    trend column constant deliberately.
     """
     _seed_sequence(db_conn, 3)
     spy = _CapturingConnection(db_conn)
@@ -776,7 +770,7 @@ def test_legacy_call_emits_the_exact_pre_keyset_sql(db_conn):
     expected_sql = sql.SQL(
         "SELECT {} FROM {}{} {} ORDER BY f.last_seen_at DESC LIMIT %s OFFSET %s"
     ).format(
-        db_service._TREND_LIST_COLUMNS, db_service._JOBS_TABLE,
+        db_service._LIST_COLUMNS, db_service._JOBS_TABLE,
         db_service._FRESHNESS_JOIN, where,
     ).as_string(db_conn)
     expected_params.extend([25, 0])
@@ -953,9 +947,7 @@ def _explain(conn, since: datetime, cursor=None, limit: int = 50) -> str:
         exclude_hidden_companies=True, since=since, cursor=cursor,
     )
     query = sql.SQL("SELECT {} FROM {}{} {} {} LIMIT %s OFFSET %s").format(
-        # ``get_jobs`` emits the trend-scoped projection (Wave-1 B3 — tags dropped);
-        # mirror it so this EXPLAINs the query the router actually issues.
-        db_service._TREND_LIST_COLUMNS, db_service._JOBS_TABLE,
+        db_service._LIST_COLUMNS, db_service._JOBS_TABLE,
         db_service._FRESHNESS_JOIN, where, db_service._KEYSET_ORDER_BY,
     )
     params.extend([limit, 0])
