@@ -881,6 +881,91 @@ class TestPending:
         assert ids == {"t-newgrad", "t-junior"}
         assert _fetch_listing_facets(db_conn, "t-mgr-new")["enrichment_status"] is None
 
+    def test_member_of_technical_staff_is_swe_tier(
+        self, enrichment_client, db_conn, monkeypatch
+    ):
+        """'Member of Technical Staff' is the AI-lab house title for a software
+        engineer, so it shares tier 1 with the literal SWE titles — it carries no
+        'software engineer' substring, and before this it fell to tier 2 behind the
+        whole backlog. Optional 'the' (Vercel) and the MTS acronym count too."""
+        monkeypatch.setattr(settings, "enrichment_use_external", True)
+        mts_ids = ("t-mts-plain", "t-mts-the", "t-mts-acronym", "t-mts-graded")
+        for jid, title in zip(mts_ids, (
+            "Member of Technical Staff, Inference",       # xAI / Perplexity shape
+            "Member of the Technical Staff - Next.js",    # Vercel writes "of the"
+            "MTS, Security",                              # bare acronym
+            "Platform Engineer — Cloud Infrastructure (SMTS)",  # Senior MTS
+        )):
+            _insert_job(db_conn, _make_job({
+                "id": jid, "status": "OPEN", "title": title,
+                "first_seen_at": "2025-01-01T00:00:00Z",
+                "details": json.dumps({"description_html": "<p>x</p>"}),
+            }))
+        # Newer, but tier 2 — it must not be claimed ahead of any of the MTS rows.
+        _insert_job(db_conn, _make_job({
+            "id": "t-misc-newer", "status": "OPEN", "title": "Account Executive",
+            "first_seen_at": "2026-07-01T00:00:00Z",
+            "details": json.dumps({"description_html": "<p>x</p>"}),
+        }))
+
+        resp = enrichment_client.get(
+            "/api/internal/enrichment/pending", params={"limit": 4}
+        )
+        assert resp.status_code == 200
+        assert {j["job_id"] for j in resp.json()["jobs"]} == set(mts_ids)
+        assert _fetch_listing_facets(db_conn, "t-misc-newer")["enrichment_status"] is None
+
+    def test_emts_false_friend_is_not_mts(
+        self, enrichment_client, db_conn, monkeypatch
+    ):
+        """The acronym is [slp]?mts, not [a-z]?mts, and prod is why: GM posts
+        "EMTS Technician" (Engineering Maintenance and Technical Support), which a
+        looser prefix class would promote into tier 1. Only S/L/P — Senior, Lead
+        and Principal Member of Technical Staff — are the real title family, so a
+        NEWER EMTS row must stay in tier 2 behind an OLDER real MTS role."""
+        monkeypatch.setattr(settings, "enrichment_use_external", True)
+        _insert_job(db_conn, _make_job({
+            "id": "t-mts-real", "status": "OPEN", "title": "MTS - Data Engineering",
+            "first_seen_at": "2025-01-01T00:00:00Z",
+            "details": json.dumps({"description_html": "<p>x</p>"}),
+        }))
+        _insert_job(db_conn, _make_job({
+            "id": "t-emts", "status": "OPEN",
+            "title": "EMTS Technician - Electrical",
+            "first_seen_at": "2026-07-01T00:00:00Z",
+            "details": json.dumps({"description_html": "<p>x</p>"}),
+        }))
+        resp = enrichment_client.get(
+            "/api/internal/enrichment/pending", params={"limit": 1}
+        )
+        assert resp.status_code == 200
+        assert {j["job_id"] for j in resp.json()["jobs"]} == {"t-mts-real"}
+        assert _fetch_listing_facets(db_conn, "t-emts")["enrichment_status"] is None
+
+    def test_mts_intern_still_outranks_mts(
+        self, enrichment_client, db_conn, monkeypatch
+    ):
+        """Tier 0 still wins: an MTS *internship* is entry-level, so it is claimed
+        ahead of a newer plain MTS role rather than being flattened into tier 1."""
+        monkeypatch.setattr(settings, "enrichment_use_external", True)
+        _insert_job(db_conn, _make_job({
+            "id": "t-mts-intern", "status": "OPEN",
+            "title": "Member of Technical Staff Intern, Inference",
+            "first_seen_at": "2025-01-01T00:00:00Z",
+            "details": json.dumps({"description_html": "<p>x</p>"}),
+        }))
+        _insert_job(db_conn, _make_job({
+            "id": "t-mts-senior", "status": "OPEN",
+            "title": "Member of Technical Staff, Training Infrastructure",
+            "first_seen_at": "2026-07-01T00:00:00Z",
+            "details": json.dumps({"description_html": "<p>x</p>"}),
+        }))
+        resp = enrichment_client.get(
+            "/api/internal/enrichment/pending", params={"limit": 1}
+        )
+        assert resp.status_code == 200
+        assert {j["job_id"] for j in resp.json()["jobs"]} == {"t-mts-intern"}
+
     def test_skips_description_null_rows(self, enrichment_client, db_conn, monkeypatch):
         """F7 / CR-5: a row whose details has no description_html can't be
         classified, so /pending must NOT claim it (mirrors /sample's guard)."""

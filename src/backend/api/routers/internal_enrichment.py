@@ -7,8 +7,9 @@ laptop makes only OUTBOUND calls to these routes:
     GET  /pending?limit=N   claim a batch of unenriched OPEN jobs (server-side
                             claim so concurrent polls never hand out the same rows).
                             Ordered by title-priority tier — entry-level/intern,
-                            then software-engineering, then everything else — with
-                            newest first_seen_at as the within-tier tie-breaker.
+                            then software-engineering (incl. "Member of Technical
+                            Staff"/MTS), then everything else — with newest
+                            first_seen_at as the within-tier tie-breaker.
                             The batch is SPLIT: a reserved share (default 10%)
                             goes to custom (user-added) companies, round-robin
                             across them; the rest keeps the published ordering
@@ -94,13 +95,30 @@ _ENTRY_LEVEL_TITLE_RE = r"\y(intern(ship)?s?|junior|jr|entry[ -]?level|new[ -]?g
 # also match; the acronym is matched whole-word separately.
 _SWE_TITLE_RE = r"\ysoftware (engineer|develop)"
 _SWE_ACRONYM_RE = r"\yswe\y"
+# "Member of Technical Staff" is the AI-lab / enterprise house title for a
+# software-engineering IC and belongs in tier 1 with the literal SWE titles: xAI,
+# Perplexity, Cohere, Fireworks, Modal, Vercel, Microsoft and Salesforce all post
+# engineering roles under it, and of the 117 MTS rows prod has already labelled,
+# 109 came back `software_engineering` (the rest `data_scientist`/`business_ops`).
+# Most carry no "software engineer" substring at all, so before this they fell to
+# tier 2 and queued behind a ~20k-row backlog: 247 MTS rows sat below tier 1, 72
+# of them claimable right now (2026-09).
+# Optional "the" — Vercel writes "Member of the Technical Staff"; optional plural
+# on "member". No trailing \y, matching the software root above.
+_MTS_TITLE_RE = r"\ymembers? of (the )?technical staff"
+# The acronym, whole-word, with Salesforce/PayPal's graded prefixes — S/L/P MTS is
+# Senior/Lead/Principal Member of Technical Staff, the same title family. \y keeps
+# it from matching inside an unrelated word. Verified against every title in prod:
+# 31 acronym-only hits, zero false positives.
+_MTS_ACRONYM_RE = r"\y[slp]?mts\y"
 
 # The tier expression itself, shared verbatim by BOTH claim passes (published and
 # custom) so the two slices can never drift into different notions of priority.
 _TITLE_TIER_SQL = (
     "CASE "
     f"  WHEN title ~* '{_ENTRY_LEVEL_TITLE_RE}' THEN 0 "
-    f"  WHEN title ~* '{_SWE_TITLE_RE}' OR title ~* '{_SWE_ACRONYM_RE}' THEN 1 "
+    f"  WHEN title ~* '{_SWE_TITLE_RE}' OR title ~* '{_SWE_ACRONYM_RE}' "
+    f"       OR title ~* '{_MTS_TITLE_RE}' OR title ~* '{_MTS_ACRONYM_RE}' THEN 1 "
     "  ELSE 2 "
     "END"
 )
