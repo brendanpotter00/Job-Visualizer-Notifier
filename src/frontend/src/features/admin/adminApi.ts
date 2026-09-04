@@ -546,6 +546,23 @@ export interface EnrichmentHealth {
   /** Actionable queue depth: OPEN + not yet human-corrected. */
   needsHumanOpen: number;
   humanCorrectedTotal: number;
+  /**
+   * Subcategory coverage. `sweSubcategorized` counts EVALUATED rows
+   * (`IS NOT NULL`), not non-empty ones — `[]` is a legitimate terminal answer,
+   * and the non-empty definition can never cross the 90% reveal threshold.
+   * `subcategoryUnknownSlugs` is the compensating control for the array having
+   * no FK and MUST be permanently 0 — including through Phase 1, where the
+   * backend compares against the code taxonomy because the dimension table is
+   * still empty.
+   *
+   * All four are OPTIONAL-BY-DEFAULT at runtime: a backend that predates them
+   * omits them and the transform coerces to 0 rather than throwing. See the
+   * comment on the health guard for why that exception exists.
+   */
+  sweOpenTotal: number;
+  sweSubcategorized: number;
+  sweSubcategoryLabelled: number;
+  subcategoryUnknownSlugs: number;
   lastEnrichedAt: string | null;
   lastEnrichedAgeS: number | null;
   lastTickUuid: string | null;
@@ -570,6 +587,13 @@ export interface EnrichmentCorrectionTarget {
   company: string | null;
   category: string | null;
   level: string | null;
+  /**
+   * ORDERED SWE subcategory slugs (index 0 = primary), tri-state:
+   * `null` = never evaluated, `[]` = evaluated and nothing applies.
+   * NEVER coerce to `[]` — the two states drive different UI.
+   */
+  subcategories: string[] | null;
+  subcategoryConfidence: number | null;
   tags: string[];
   classifyConfidence: number | null;
   classifyReasoning: string | null;
@@ -587,6 +611,13 @@ export interface EnrichmentNeedsHumanRow {
   enrichmentStatus: string | null;
   category: string | null;
   level: string | null;
+  /**
+   * ORDERED SWE subcategory slugs (index 0 = primary), tri-state:
+   * `null` = never evaluated, `[]` = evaluated and nothing applies.
+   * NEVER coerce to `[]` — the two states drive different UI.
+   */
+  subcategories: string[] | null;
+  subcategoryConfidence: number | null;
   tags: string[];
   cleanDescription: string | null;
   classifyConfidence: number | null;
@@ -618,6 +649,12 @@ export interface EnrichmentNeedsHumanArgs {
   level?: string;
   includeCorrected?: boolean;
   onlyOpen?: boolean;
+  /** One of enriched_at | classify_confidence | judge_confidence | subcategory_confidence. */
+  sort?: string;
+  sortDir?: 'asc' | 'desc';
+  subcategory?: string;
+  /** any | unlabelled_swe | labelled. */
+  subcategoryState?: string;
 }
 
 /** One pushed enricher tick. */
@@ -662,6 +699,13 @@ export interface EnrichmentRecentRow {
   enrichmentStatus: string | null;
   category: string | null;
   level: string | null;
+  /**
+   * ORDERED SWE subcategory slugs (index 0 = primary), tri-state:
+   * `null` = never evaluated, `[]` = evaluated and nothing applies.
+   * NEVER coerce to `[]` — the two states drive different UI.
+   */
+  subcategories: string[] | null;
+  subcategoryConfidence: number | null;
   tags: string[];
   classifyConfidence: number | null;
   classifyReasoning: string | null;
@@ -681,17 +725,35 @@ export interface EnrichmentRecentRow {
 export interface EnrichmentCorrectionRequest {
   category: string | null;
   level: string | null;
+  /**
+   * OPTIONAL, and the optionality is the whole contract. OMITTING the key means
+   * "leave the stored array alone" — which is what stops a level-only
+   * correction from wiping a backfilled label and then locking the row. `null`
+   * means "re-queue this row". Never send `subcategories: undefined` expecting
+   * it to be dropped by chance; build the body without the key.
+   */
+  subcategories?: string[] | null;
   tags: string[];
   note?: string | null;
 }
 
 /** Correction / re-enrich response. */
+/** One runtime-tunable setting row. `updatedAt` is null for a materialized default. */
+export interface AdminSettingRow {
+  key: string;
+  value: unknown;
+  updatedAt: string | null;
+  updatedBy: string | null;
+}
+
 export interface EnrichmentCorrectionResult {
   sourceId: string;
   jobListingId: string;
   enrichmentStatus: string | null;
   category: string | null;
   level: string | null;
+  /** Read BACK from the row, so the not-sent path reports what is stored. */
+  subcategories: string[] | null;
   tags: string[];
   humanCorrectedAt: string | null;
   humanCorrectedBy: string | null;
@@ -727,6 +789,8 @@ export const adminApi = createApi({
     'EnrichmentRecent',
     'AdminCustomCompanies',
     'AdminCustomCompanyAttempts',
+
+    'AdminSettings',
   ],
   endpoints: (builder) => ({
     listAdminFeedback: builder.query<AdminFeedbackListResponse, AdminFeedbackPageArgs>({
@@ -1287,14 +1351,41 @@ export const adminApi = createApi({
             );
           }
         }
-        return res as unknown as EnrichmentHealth;
+        // ⚠ THE COVERAGE COUNTERS ARE A DELIBERATE EXCEPTION TO THE THROWING
+        // GUARD ABOVE. They are NOT in the throw list, and they must not be: a
+        // backend that predates them omits all four, and a throwing check would
+        // blank the ENTIRE admin SPA during the deploy window between the
+        // frontend shipping and Railway catching up. A missing counter renders
+        // as 0, which is both harmless and true (nothing has been evaluated
+        // yet). The banner-critical fields above keep their hard guard because
+        // a wrong verdict is worse than no page.
+        const num = (v: unknown): number => (typeof v === 'number' ? v : 0);
+        return {
+          ...(res as unknown as EnrichmentHealth),
+          sweOpenTotal: num(res.sweOpenTotal),
+          sweSubcategorized: num(res.sweSubcategorized),
+          sweSubcategoryLabelled: num(res.sweSubcategoryLabelled),
+          subcategoryUnknownSlugs: num(res.subcategoryUnknownSlugs),
+        };
       },
       providesTags: ['EnrichmentHealth'],
     }),
 
     listEnrichmentNeedsHuman: builder.query<EnrichmentNeedsHumanResponse, EnrichmentNeedsHumanArgs>(
       {
-        query: ({ limit, offset, company, category, level, includeCorrected, onlyOpen }) => ({
+        query: ({
+          limit,
+          offset,
+          company,
+          category,
+          level,
+          includeCorrected,
+          onlyOpen,
+          sort,
+          sortDir,
+          subcategory,
+          subcategoryState,
+        }) => ({
           url: '/enrichment/needs-human',
           params: {
             limit,
@@ -1304,6 +1395,12 @@ export const adminApi = createApi({
             ...(level ? { level } : {}),
             ...(includeCorrected ? { includeCorrected } : {}),
             ...(onlyOpen === false ? { onlyOpen } : {}),
+            ...(sort ? { sort } : {}),
+            ...(sortDir ? { sortDir } : {}),
+            ...(subcategory ? { subcategory } : {}),
+            ...(subcategoryState && subcategoryState !== 'any'
+              ? { subcategoryState }
+              : {}),
           },
         }),
         transformResponse: (res: unknown): EnrichmentNeedsHumanResponse => {
@@ -1330,13 +1427,29 @@ export const adminApi = createApi({
             }
             // Confidences render via ``.toFixed(2)`` behind only a ``!= null``
             // check — a stringified number ("0.5") would crash the row.
-            for (const field of ['classifyConfidence', 'judgeConfidence'] as const) {
+            for (const field of [
+              'classifyConfidence',
+              'judgeConfidence',
+              'subcategoryConfidence',
+            ] as const) {
               const val = row[field];
               if (val !== null && val !== undefined && typeof val !== 'number') {
                 throw new Error(
                   `Invalid /api/admin/enrichment/needs-human response: ${field} must be number or null`
                 );
               }
+            }
+            // ⚠ SEPARATE Array.isArray GUARD, deliberately NOT folded into the
+            // `string | null` loop below — a CORRECT array value would throw
+            // there. `null` is legal (never evaluated) and so is `[]`.
+            if (
+              row.subcategories !== null &&
+              row.subcategories !== undefined &&
+              !Array.isArray(row.subcategories)
+            ) {
+              throw new Error(
+                'Invalid /api/admin/enrichment/needs-human response: subcategories must be an array or null'
+              );
             }
             // Every ``string | null`` field the NeedsHumanTable renders as a
             // React child. An object value in any of them is an "Objects are not
@@ -1464,13 +1577,29 @@ export const adminApi = createApi({
           }
           // Confidences render via ``.toFixed(2)`` behind only a ``!= null``
           // check; a stringified number would crash the row.
-          for (const field of ['classifyConfidence', 'judgeConfidence'] as const) {
+          for (const field of [
+            'classifyConfidence',
+            'judgeConfidence',
+            'subcategoryConfidence',
+          ] as const) {
             const val = row[field];
             if (val !== null && val !== undefined && typeof val !== 'number') {
               throw new Error(
                 `Invalid /api/admin/enrichment/recent response: ${field} must be number or null`
               );
             }
+          }
+          // ⚠ SEPARATE Array.isArray guard — see the identical note on the
+          // needs-human transform. Putting `subcategories` in the string|null
+          // loop below would throw on a correct value.
+          if (
+            row.subcategories !== null &&
+            row.subcategories !== undefined &&
+            !Array.isArray(row.subcategories)
+          ) {
+            throw new Error(
+              'Invalid /api/admin/enrichment/recent response: subcategories must be an array or null'
+            );
           }
           // Every ``string | null`` field RecentEnrichmentsTable renders as a
           // React child (app-root is the only ErrorBoundary, so any object value
@@ -1503,6 +1632,45 @@ export const adminApi = createApi({
         return res.rows as unknown as EnrichmentRecentRow[];
       },
       providesTags: ['EnrichmentRecent'],
+    }),
+
+    // Runtime settings. The backend materializes a default row for every
+    // allowlisted key, so this never returns a partial list and the UI never
+    // has to render "missing".
+    getAdminSettings: builder.query<AdminSettingRow[], void>({
+      query: () => ({ url: '/settings' }),
+      transformResponse: (res: unknown): AdminSettingRow[] => {
+        if (!isRecord(res) || !Array.isArray(res.settings)) {
+          throw new Error('Invalid /api/admin/settings response');
+        }
+        for (const row of res.settings) {
+          if (!isRecord(row) || typeof row.key !== 'string') {
+            throw new Error('Invalid /api/admin/settings response: malformed row');
+          }
+          // `updatedAt` renders through `new Date(...)`; an object would be an
+          // Invalid-Date crash and the only ErrorBoundary is app-root.
+          if (
+            row.updatedAt !== null &&
+            row.updatedAt !== undefined &&
+            typeof row.updatedAt !== 'string'
+          ) {
+            throw new Error(
+              'Invalid /api/admin/settings response: updatedAt must be string or null'
+            );
+          }
+        }
+        return res.settings as unknown as AdminSettingRow[];
+      },
+      providesTags: ['AdminSettings'],
+    }),
+
+    updateAdminSetting: builder.mutation<AdminSettingRow, { key: string; value: unknown }>({
+      query: ({ key, value }) => ({
+        url: `/settings/${encodeURIComponent(key)}`,
+        method: 'PUT',
+        body: { value },
+      }),
+      invalidatesTags: ['AdminSettings'],
     }),
 
     correctEnrichment: builder.mutation<
@@ -1669,4 +1837,7 @@ export const {
   useReenrichEnrichmentJobMutation,
   useGetAdminCustomCompaniesQuery,
   useGetAdminCustomCompanyAttemptsQuery,
+
+  useGetAdminSettingsQuery,
+  useUpdateAdminSettingMutation,
 } = adminApi;

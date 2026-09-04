@@ -404,6 +404,27 @@ export const jobsApi = createApi({
     // Enrichment facet catalog (GET /api/jobs/facets via the Vercel proxy).
     // Tiny, effectively static payload (changes only with a taxonomy
     // migration) — cache for the session (keepUnusedDataFor override).
+    //
+    // THE CATALOG IS ADDITIVE. A response carrying only `categories` and
+    // `levels` is a SUPPORTED response, not an error: an older backend that has
+    // not shipped the subcategory dimension yet must still render today's flat
+    // dropdowns. `subcategories` is therefore NORMALIZED to `[]` rather than
+    // added to the hard guard below — if it were guarded, the WHOLE query would
+    // error on such a backend, `data` would be undefined, and every consumer
+    // would fall back to FALLBACK_CATEGORIES / FALLBACK_LEVELS. That regresses
+    // the LIVE category dropdown to a stale constant (project_manager included)
+    // and takes the level dropdown with it, on every Vercel-before-Railway
+    // deploy window.
+    //
+    // `keepUnusedDataFor: 3600` stays. It is right for a payload that changes
+    // only with a migration, and it is also why the rollout FLAG must NOT ride
+    // this response: a flag here would be invisible for up to an hour and
+    // cannot be tag-invalidated (this endpoint has no `providesTags`). The flag
+    // WILL live on GET /api/jobs/settings with a 60s TTL instead — the backend
+    // route exists, but nothing in this file (or anywhere in the SPA) queries
+    // it yet, and there is no public subcategory filter for it to gate. PR-F
+    // adds the query; until then this paragraph describes a design, not
+    // behaviour you can observe.
     getFacets: builder.query<JobFacets, void>({
       async queryFn(_arg, { signal }) {
         try {
@@ -416,7 +437,15 @@ export const jobsApi = createApi({
           if (!Array.isArray(facets?.categories) || !Array.isArray(facets?.levels)) {
             return { error: { status: 'CUSTOM_ERROR', data: 'Malformed facets response' } };
           }
-          return { data: facets };
+          // Additive normalization, NOT a guard — see the comment above.
+          return {
+            data: {
+              ...facets,
+              subcategories: Array.isArray(facets.subcategories)
+                ? facets.subcategories
+                : [],
+            },
+          };
         } catch (error) {
           return {
             error: {

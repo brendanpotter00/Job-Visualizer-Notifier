@@ -45,7 +45,7 @@ clean before committing (mirrors the frontend's "Zero TypeScript Errors Required
 ## Prerequisites
 
 - PostgreSQL running on localhost:5432 (use `docker compose up -d postgres` from project root)
-- Database: `jobscraper` (created on first lifespan/migration run). Key tables include `job_listings`, `scrape_runs`, `users`, `user_enabled_companies`, `user_saved_filters`, `user_keyword_lists`, `admins`, `features`, `feature_upvotes`, `companies`, `locations`, `job_locations`, `job_enrichment`, `feedback`, `worker_heartbeats`, and others — see `src/backend/docs/database-schema.md` for the full schema.
+- Database: `jobscraper` (created on first lifespan/migration run). Key tables include `job_listings`, `scrape_runs`, `users`, `user_enabled_companies`, `user_saved_filters`, `user_keyword_lists`, `admins`, `features`, `feature_upvotes`, `companies`, `locations`, `job_locations`, `job_enrichment`, `job_categories`, `job_levels`, `job_subcategories`, `app_settings`, `feedback`, `worker_heartbeats`, and others — see `src/backend/docs/database-schema.md` for the full schema.
 - Python 3.13+ with dependencies from `src/backend/api/requirements.txt`
 
 ## Configuration
@@ -167,7 +167,9 @@ All configuration via environment variables:
 - `DELETE /api/users/saved-filters/keyword-lists/{list_id}` - Delete a list (204; NULLs any active pointer referencing it); 404 if not owned, 422 on the built-in id
 - `GET /api/users/saved-filters/locations/search` - Substring autocomplete over canonical location names (params: `q`, `limit`, `openOnly`)
 
-**Jobs facets:** `GET /api/jobs/facets` - enrichment dropdown catalog (categories + levels with labels/order/parent) from the seeded dimensions.
+**Jobs facets:** `GET /api/jobs/facets` - enrichment dropdown catalog (categories + levels + subcategories with labels/order/parent) from the seeded dimensions. `job_subcategories` ships EMPTY in phase 1, so the `subcategories` array is `[]` until it is seeded; the client normalizes a MISSING key to `[]` too, so an older backend renders exactly today's flat dropdown.
+
+**Public settings:** `GET /api/jobs/settings` - unauthenticated read of the client-visible feature flags (`sweSubcategoriesEnabled`). It **fails CLOSED**: any read failure returns `false`, because hidden-when-broken costs a feature that is not visible yet while failing open reveals a filter that returns nothing. Deliberately NOT a field on `/api/jobs/facets` — that query has no `providesTags` and `keepUnusedDataFor: 3600`, and since the SPA sets no `refetchOnFocus`, a SUBSCRIBED facets entry never refetches for the life of the tab.
 
 **Jobs Search Router (`/api/jobs/search`)** — the Recent Jobs page's read path. Where
 `GET /api/jobs` is a windowed dump the client filters, this applies the user's whole
@@ -242,7 +244,30 @@ filter set in SQL and pages the *result*. Router `routers/jobs_search.py`, SQL
 
 **Internal Enrichment Router (`/api/internal/enrichment`, X-Internal-Key):** `GET /pending` (claim batch; title-priority order — entry-level/intern, then software-engineering, then everything else, newest `first_seen_at` within each tier; the batch is **split** — `ENRICHMENT_CUSTOM_SHARE_PCT` of it is reserved for custom companies, dealt round-robin across them, and each slice absorbs the other's unused budget so the reservation never idles the enricher), `POST /results` (idempotent write-back; returns `written`/`failed[]`(+`source_id`)/`warnings[]`), `GET /sample`, `GET /health`, `POST /metrics` (per-tick push → `enrichment_ticks`, idempotent on `tick_uuid`), `GET /corrections` (human-correction feed for the enricher's golden-merge).
 
-**Admin Enrichment (`/api/admin/enrichment/*`, requires admin):** `GET /health`, `GET /needs-human` (paginated triage queue), `GET /ticks`, `GET /recent`, `POST /jobs/{source_id}/{job_id}/correct` (publish human labels + lock row; sets `human_decision='corrected'`), `POST /jobs/{source_id}/{job_id}/confirm` (one-click validate the proposal as-is + lock row; sets `human_decision='confirmed_correct'`; 409 if the row has no proposed labels), `POST /jobs/{source_id}/{job_id}/reenrich` (reset + unlock; clears `human_decision`). Backing SQL in `services/enrichment_monitor.py`. `job_enrichment.human_decision` (`NULL` | `corrected` | `confirmed_correct`) is the human verdict — distinct from the judge's `judged`/`judge_passed` — and rides the `/api/internal/enrichment/corrections` feed as `decision` so the enricher can tell a fix from a validated raise.
+**Three enrichment write-path contracts — worth stating once, plainly:**
+
+1. **`POST /api/internal/enrichment/results` is FULL-REPLACE, EXCEPT subcategories.**
+   Its `job_enrichment` upsert overwrites the whole audit row from the payload, so
+   every item has to ship `clean_description`. The subcategory triple is the one
+   exception: an item that OMITS the `subcategories` key leaves both columns
+   untouched (`_UNSET`), which is what lets an enricher that has not shipped
+   subcategories keep posting ordinary ticks without NULLing the column on every
+   row — a reversible deploy ORDER instead of a code push.
+2. **`job_listings.enrichment_subcategories` has NO FOREIGN KEY.** Postgres cannot
+   FK-check array elements. `TestTaxonomyParity` (plus `test_taxonomy_artifact.py`
+   and the admin health snapshot's permanently-zero `subcategory_unknown_slugs`
+   counter) is the enforcement.
+3. **`POST /api/internal/enrichment/subcategories` is the ONLY partial write path**
+   into enrichment: two narrow UPDATEs per row and nothing else — not the
+   description, not category/level, not tags, not `enriched_at`. It exists because
+   draining ~8k backfilled labels through `/results` would mean re-shipping ~8k
+   full job descriptions to set two columns.
+
+**Internal Enrichment Router (`/api/internal/enrichment`, X-Internal-Key):** `GET /pending` (claim batch; title-priority order — entry-level/intern, then software-engineering, then everything else, newest `first_seen_at` within each tier), `POST /results` (idempotent write-back; returns `written`/`failed[]`(+`source_id`)/`warnings[]`), `GET /sample`, `GET /health`, `POST /metrics` (per-tick push → `enrichment_ticks`, idempotent on `tick_uuid`), `GET /corrections` (human-correction feed for the enricher's golden-merge — carries `subcategories` AND `taxonomy_version`, the latter being what tells a pre-v7 `confirmed_correct` row from a real subcategory confirmation), `POST /subcategories` (bulk PARTIAL write-back, max 500 items; `extra='forbid'` on each item because it has one client and no legacy fleet).
+
+**Admin Enrichment (`/api/admin/enrichment/*`, requires admin):** `GET /health`, `GET /needs-human` (paginated triage queue), `GET /ticks`, `GET /recent`, `POST /jobs/{source_id}/{job_id}/correct` (publish human labels + lock row; sets `human_decision='corrected'`), `POST /jobs/{source_id}/{job_id}/confirm` (one-click validate the proposal as-is + lock row; sets `human_decision='confirmed_correct'`; 409 if the row has no proposed labels), `POST /jobs/{source_id}/{job_id}/reenrich` (reset + unlock; clears `human_decision`), `POST /enrichment/subcategories/reset` (SCOPED source-keyed rollback — `dryRun` defaults to TRUE, and `source='human'` is never matched implicitly). Backing SQL in `services/enrichment_monitor.py`. `job_enrichment.human_decision` (`NULL` | `corrected` | `confirmed_correct`) is the human verdict — distinct from the judge's `judged`/`judge_passed` — and rides the `/api/internal/enrichment/corrections` feed as `decision` so the enricher can tell a fix from a validated raise.
+
+**Admin settings (`/api/admin/settings`, requires admin):** `GET /settings` (every allowlisted runtime setting, with defaults MATERIALIZED for keys that have no row), `PUT /settings/{key}`. The allowlist lives in `services/app_settings.py`, never in the DDL. `app_settings` has **no seed row** — absent means the code default, so a fresh DB, a deleted flag and a rolled-back migration behave identically.
 
 **Admin Router (`/api/admin`):**
 - `GET /api/admin/users` - List all users with admin flag (requires admin)
@@ -319,6 +344,7 @@ src/backend/api/
 │   ├── companies_seed.py    # Seed/reconcile the companies table from static config
 │   ├── enrichment_monitor.py    # Admin enrichment triage queries (needs-human queue, ticks, recent)
 │   ├── enrichment_writer.py     # Write-back path for enrichment results and corrections
+│   ├── app_settings.py      # Allowlisted runtime settings (key/value, JSONB) + the public flag read
 │   ├── llm_client.py        # Shared Anthropic API client wrapper
 │   ├── location_normalization.py  # Tier-1/Tier-2 normalization pipeline entry point
 │   ├── location_canonicalize.py   # Claude Haiku prompt + schema for Tier-2 canonicalization
@@ -397,6 +423,8 @@ anti-join invariants the `/api/jobs` INNER JOIN depends on — runbook in
 ### Schema migrations
 
 Schema is managed by **Alembic** (not the old `scripts/shared/migrations/` runner, which was removed in the Alembic migration PR). Source of truth is `src/backend/api/db_models.py` (SQLAlchemy declarative models). Revision files live in `src/backend/alembic/versions/`, one per schema change, anchored by the empty baseline revision `91337142414f`.
+
+**`src/backend/taxonomy.json`** is the ONE artifact both this repo and the job-enricher read. It is GENERATED from the migration seeds + `services/enrichment_writer.py` (`python tools/generate_taxonomy_artifact.py`), never hand-typed, and `api/tests/test_taxonomy_artifact.py` asserts four-way equality across the artifact, the code constants, the migration seeds and `get_facets`. It exists because every other taxonomy guard is intra-repo — which is exactly how `job_categories` (7 rows) and the enricher's `taxonomy.CATEGORIES` (6) drifted apart for months with both suites green.
 
 For a human-readable overview of every table — an ER diagram plus per-column notes and conventions — see **`src/backend/docs/database-schema.md`** (point-in-time snapshot of `db_models.py`; refresh it when the schema changes).
 

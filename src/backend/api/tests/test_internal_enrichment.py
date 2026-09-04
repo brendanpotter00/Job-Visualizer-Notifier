@@ -38,7 +38,6 @@ _CATEGORY_SEED = [
     ("software_engineering", "Software Engineering", 0),
     ("hardware_engineer", "Hardware Engineer", 1),
     ("product_manager", "Product Manager", 2),
-    ("project_manager", "Project Manager", 3),
     ("data_scientist", "Data Scientist", 4),
     ("growth", "Growth", 5),
     ("business_ops", "Business Ops", 6),
@@ -70,6 +69,10 @@ _ENRICHMENT_TABLES = (
     "alias_locations",
     "location_aliases",
     "locations",
+    # BEFORE job_categories: job_subcategories.parent_slug is a real FK onto it,
+    # so the child has to truncate first (TRUNCATE ... CASCADE would otherwise
+    # take a different path through the graph than the one intended).
+    "job_subcategories",
     "job_categories",
     "job_levels",
 )
@@ -131,7 +134,8 @@ def _fetch_listing_facets(db_conn, job_id: str) -> dict:
     cur = db_conn.cursor()
     cur.execute(
         "SELECT enrichment_category, enrichment_level, enrichment_status, "
-        "enrichment_claimed_at, normalization_status FROM job_listings WHERE id = %s",
+        "enrichment_claimed_at, normalization_status, enrichment_subcategories, "
+        "enrichment_subcategory_source FROM job_listings WHERE id = %s",
         (job_id,),
     )
     return cur.fetchone()
@@ -608,6 +612,353 @@ class TestApplyResult:
 # --------------------------------------------------------------------------- #
 # 3. Router: /pending, /results, /health                                       #
 # --------------------------------------------------------------------------- #
+
+
+class TestApplySubcategories:
+    """SCHEMA-3: the `_UNSET` tri-state, the parent rule, and the per-field lock.
+
+    The whole point of these is that the failures they catch are SILENT: the
+    endpoint returns 200 and reports `written: N` in every one of them.
+    """
+
+    def _base(self, job_id, **extra):
+        result = {
+            "job_listing_id": job_id,
+            "source_id": "google_scraper",
+            "category": "software_engineering",
+            "level": "senior",
+            "tags": [],
+            "locations": [],
+        }
+        result.update(extra)
+        return result
+
+    def _seed(self, db_conn, job_id, subcats=None, source=None, confidence=None):
+        _insert_job(db_conn, _make_job({"id": job_id}))
+        if subcats is not None or source is not None:
+            cur = db_conn.cursor()
+            cur.execute(
+                "UPDATE job_listings SET enrichment_subcategories = %s::text[], "
+                "enrichment_subcategory_source = %s WHERE id = %s",
+                (subcats, source, job_id),
+            )
+        if confidence is not None:
+            cur = db_conn.cursor()
+            cur.execute(
+                "INSERT INTO job_enrichment (source_id, job_listing_id, "
+                "subcategory_confidence) VALUES ('google_scraper', %s, %s) "
+                "ON CONFLICT (source_id, job_listing_id) DO UPDATE SET "
+                "subcategory_confidence = EXCLUDED.subcategory_confidence",
+                (job_id, confidence),
+            )
+        db_conn.commit()
+
+    def test_a_v6_payload_leaves_an_existing_array_source_AND_confidence_alone(
+        self, db_conn
+    ):
+        """THE SINGLE MOST IMPORTANT TEST IN THIS STEP.
+
+        An enricher that has not shipped subcategories yet posts ordinary ticks
+        with no `subcategories` key. If that NULLed the column, every ordinary
+        tick would wipe the backfill's work — and the response would still say
+        `written: 1`. This is what makes the enricher-side knob a reversible
+        deploy ORDER instead of a code push.
+        """
+        self._seed(db_conn, "v6-coexist", subcats=["backend", "full_stack"],
+                   source="backfill", confidence=0.77)
+
+        apply_result(db_conn, self._base("v6-coexist"), require_judge_pass=False)
+        db_conn.commit()
+
+        facets = _fetch_listing_facets(db_conn, "v6-coexist")
+        assert facets["enrichment_subcategories"] == ["backend", "full_stack"]
+        assert facets["enrichment_subcategory_source"] == "backfill"
+        audit = _fetch_job_enrichment(db_conn, "v6-coexist")
+        assert audit["subcategory_confidence"] == 0.77
+
+    def test_a_FRESH_row_with_a_confidence_and_NO_array_stores_no_confidence(
+        self, db_conn
+    ):
+        """⚠ `_UNSET` IS TRUTHY, AND THE PLAIN-INSERT ARM HAS NO `CASE` GUARD.
+
+        `subcategory_confidence = None if not subcategories else ...` lets the
+        sentinel straight through, because `object()` is truthy. The ON CONFLICT
+        arm is protected by `CASE WHEN <subcategories is not _UNSET>`; the
+        first-time INSERT is not. So a payload carrying `subcategoryConfidence`
+        with no `subcategories` key seeded a brand-new row with a score beside a
+        NULL array — the pairing §1.2 forbids, with no error anywhere.
+
+        Deliberately NO `_seed(..., confidence=...)`: this row must have no
+        `job_enrichment` row at all, or the upsert takes the UPDATE arm and the
+        bug hides.
+        """
+        self._seed(db_conn, "sub-fresh-conf")
+        apply_result(
+            db_conn,
+            self._base("sub-fresh-conf", subcategory_confidence=0.73),
+            require_judge_pass=False,
+        )
+        db_conn.commit()
+
+        facets = _fetch_listing_facets(db_conn, "sub-fresh-conf")
+        assert facets["enrichment_subcategories"] is None
+        assert _fetch_job_enrichment(db_conn, "sub-fresh-conf")[
+            "subcategory_confidence"
+        ] is None
+
+    def test_a_v6_RECLASSIFY_AWAY_from_swe_clears_the_stale_array(self, db_conn):
+        """⚠ THE PARENT CHECK RUNS FIRST, AHEAD OF THE `_UNSET` CHECK.
+
+        §1's SCHEMA-3 step words it "resolved category ≠ software_engineering →
+        None + warn, UNCONDITIONAL AND FIRST". Check `_UNSET` first instead and
+        a v6 tick that RECLASSIFIES a job away from `software_engineering` sets
+        the new category and leaves the old array behind: a non-SWE row carrying
+        subcategories, no DB constraint to catch it, no warning, `written: 1`.
+
+        It is not exotic — the epic's own deploy order has the bulk drain
+        writing arrays while the classify tick is still v6 and sends no key.
+        """
+        self._seed(db_conn, "sub-reclass", subcats=["backend"], source="backfill",
+                   confidence=0.81)
+        # A v6-shaped payload: NO `subcategories` key, new non-SWE category.
+        apply_result(
+            db_conn,
+            self._base("sub-reclass", category="growth"),
+            require_judge_pass=False,
+        )
+        db_conn.commit()
+
+        facets = _fetch_listing_facets(db_conn, "sub-reclass")
+        assert facets["enrichment_category"] == "growth"
+        assert facets["enrichment_subcategories"] is None, (
+            "a non-SWE row kept subcategories the parent rule forbids"
+        )
+        assert facets["enrichment_subcategory_source"] is None
+        assert _fetch_job_enrichment(db_conn, "sub-reclass")[
+            "subcategory_confidence"
+        ] is None
+
+    def test_a_v6_reclassify_away_from_swe_emits_NO_spurious_warning(self, db_conn):
+        """The parent branch must not fire its "dropped" warning on a payload
+        that sent nothing to drop — `_UNSET` is truthy, so a bare `if value:`
+        would put that line in the /results echo for every non-SWE row of every
+        ordinary tick."""
+        self._seed(db_conn, "sub-reclass-quiet")
+        warnings = apply_result(
+            db_conn,
+            self._base("sub-reclass-quiet", category="growth"),
+            require_judge_pass=False,
+        )
+        db_conn.commit()
+        assert not any("subcategories dropped" in w for w in warnings), warnings
+
+    def test_explicit_null_clears_the_column_and_its_source(self, db_conn):
+        self._seed(db_conn, "sub-null", subcats=["backend"], source="classify")
+        apply_result(
+            db_conn, self._base("sub-null", subcategories=None),
+            require_judge_pass=False,
+        )
+        db_conn.commit()
+        facets = _fetch_listing_facets(db_conn, "sub-null")
+        assert facets["enrichment_subcategories"] is None
+        assert facets["enrichment_subcategory_source"] is None
+
+    def test_empty_list_is_terminal_and_carries_a_source(self, db_conn):
+        """`[]` means "evaluated, nothing applies" — it LEAVES the queue."""
+        self._seed(db_conn, "sub-empty")
+        apply_result(
+            db_conn,
+            self._base("sub-empty", subcategories=[], subcategory_source="backfill"),
+            require_judge_pass=False,
+        )
+        db_conn.commit()
+        facets = _fetch_listing_facets(db_conn, "sub-empty")
+        assert facets["enrichment_subcategories"] == []
+        assert facets["enrichment_subcategory_source"] == "backfill"
+
+    def test_unknown_slug_is_dropped_with_a_warning_never_a_raise(self, db_conn):
+        self._seed(db_conn, "sub-bad")
+        warnings = apply_result(
+            db_conn,
+            self._base("sub-bad", subcategories=["backend", "ai_ml"]),
+            require_judge_pass=False,
+        )
+        db_conn.commit()
+        assert _fetch_listing_facets(db_conn, "sub-bad")["enrichment_subcategories"] == [
+            "backend"
+        ]
+        assert any("ai_ml" in w for w in warnings)
+
+    def test_all_slugs_invalid_yields_empty_NOT_null(self, db_conn):
+        """The enricher DID evaluate the row; it just produced nothing this
+        taxonomy recognizes. Returning null would silently re-queue it forever."""
+        self._seed(db_conn, "sub-allbad")
+        apply_result(
+            db_conn,
+            self._base("sub-allbad", subcategories=["ai_ml", "nonsense"]),
+            require_judge_pass=False,
+        )
+        db_conn.commit()
+        assert _fetch_listing_facets(db_conn, "sub-allbad")[
+            "enrichment_subcategories"
+        ] == []
+
+    def test_non_swe_with_a_non_empty_array_is_forced_to_null_with_a_warning(
+        self, db_conn
+    ):
+        self._seed(db_conn, "sub-nonswe")
+        warnings = apply_result(
+            db_conn,
+            self._base("sub-nonswe", category="growth", subcategories=["backend"]),
+            require_judge_pass=False,
+        )
+        db_conn.commit()
+        assert _fetch_listing_facets(db_conn, "sub-nonswe")[
+            "enrichment_subcategories"
+        ] is None
+        assert any("not 'software_engineering'" in w for w in warnings)
+
+    def test_full_stack_suppresses_frontend_and_backend(self, db_conn):
+        self._seed(db_conn, "sub-fs")
+        apply_result(
+            db_conn,
+            self._base("sub-fs", subcategories=["full_stack", "backend"]),
+            require_judge_pass=False,
+        )
+        db_conn.commit()
+        assert _fetch_listing_facets(db_conn, "sub-fs")[
+            "enrichment_subcategories"
+        ] == ["full_stack"]
+
+    def test_order_is_preserved_and_truncated_at_two(self, db_conn):
+        self._seed(db_conn, "sub-order")
+        apply_result(
+            db_conn,
+            self._base(
+                "sub-order",
+                subcategories=["security", "mobile", "quantitative"],
+            ),
+            require_judge_pass=False,
+        )
+        db_conn.commit()
+        assert _fetch_listing_facets(db_conn, "sub-order")[
+            "enrichment_subcategories"
+        ] == ["security", "mobile"]
+
+    def test_a_scalar_is_promoted_not_rejected(self, db_conn):
+        self._seed(db_conn, "sub-scalar")
+        apply_result(
+            db_conn,
+            self._base("sub-scalar", subcategories="backend"),
+            require_judge_pass=False,
+        )
+        db_conn.commit()
+        assert _fetch_listing_facets(db_conn, "sub-scalar")[
+            "enrichment_subcategories"
+        ] == ["backend"]
+
+    def test_invalid_source_soft_nulls_to_the_default(self, db_conn):
+        self._seed(db_conn, "sub-src")
+        warnings = apply_result(
+            db_conn,
+            self._base(
+                "sub-src", subcategories=["backend"],
+                subcategory_source="backfill_failed",
+            ),
+            require_judge_pass=False,
+        )
+        db_conn.commit()
+        assert _fetch_listing_facets(db_conn, "sub-src")[
+            "enrichment_subcategory_source"
+        ] == "classify"
+        assert any("backfill_failed" in w for w in warnings)
+
+    # --- the per-field human unlock ---------------------------------------
+
+    def _lock(self, db_conn, job_id):
+        cur = db_conn.cursor()
+        cur.execute(
+            "INSERT INTO job_enrichment (source_id, job_listing_id, human_corrected_at) "
+            "VALUES ('google_scraper', %s, now()) "
+            "ON CONFLICT (source_id, job_listing_id) DO UPDATE SET "
+            "human_corrected_at = now()",
+            (job_id,),
+        )
+        db_conn.commit()
+
+    def test_a_human_locked_row_with_a_NULL_array_IS_written(self, db_conn):
+        """The human corrected this row BEFORE subcategories existed, so a NULL
+        array is provably not a human decision — there was nothing to decide.
+        Refusing here would permanently exclude the human-labelled pool from the
+        backfill, and that pool is exactly what the eval gate is built on."""
+        self._seed(db_conn, "lock-null")
+        self._lock(db_conn, "lock-null")
+
+        warnings = apply_result(
+            db_conn,
+            self._base(
+                # The payload's own resolved category has to be SWE — the parent
+                # rule is checked against what THIS payload claims, not against
+                # whatever the locked row happens to hold.
+                "lock-null", category="software_engineering", level="senior",
+                subcategories=["backend"], subcategory_source="backfill",
+                subcategory_confidence=0.9,
+            ),
+            require_judge_pass=False,
+        )
+        db_conn.commit()
+
+        facets = _fetch_listing_facets(db_conn, "lock-null")
+        assert facets["enrichment_subcategories"] == ["backend"]
+        assert facets["enrichment_subcategory_source"] == "backfill"
+        assert _fetch_job_enrichment(db_conn, "lock-null")["subcategory_confidence"] == 0.9
+        # EVERYTHING ELSE stays refused — the lock is still absolute for the
+        # facets a human actually decided.
+        assert facets["enrichment_category"] is None
+        assert facets["enrichment_level"] is None
+        assert any("human-corrected" in w for w in warnings)
+
+    def test_a_human_locked_row_with_a_NON_NULL_array_is_NOT_written(self, db_conn):
+        self._seed(db_conn, "lock-set", subcats=["frontend"], source="human")
+        self._lock(db_conn, "lock-set")
+
+        warnings = apply_result(
+            db_conn,
+            self._base("lock-set", subcategories=["backend"]),
+            require_judge_pass=False,
+        )
+        db_conn.commit()
+
+        facets = _fetch_listing_facets(db_conn, "lock-set")
+        assert facets["enrichment_subcategories"] == ["frontend"]
+        assert facets["enrichment_subcategory_source"] == "human"
+        assert any("skipped: human-corrected" in w for w in warnings)
+
+    def test_a_human_locked_row_with_no_subcategories_key_is_still_refused(
+        self, db_conn
+    ):
+        self._seed(db_conn, "lock-v6")
+        self._lock(db_conn, "lock-v6")
+        warnings = apply_result(
+            db_conn, self._base("lock-v6"), require_judge_pass=False
+        )
+        db_conn.commit()
+        assert _fetch_listing_facets(db_conn, "lock-v6")["enrichment_category"] is None
+        assert any("skipped: human-corrected" in w for w in warnings)
+
+    def test_demote_nulls_the_array_unconditionally(self, db_conn):
+        """A row re-flagged for a human must not keep stale published labels."""
+        self._seed(db_conn, "sub-demote", subcats=["backend"], source="classify")
+        apply_result(
+            db_conn,
+            self._base("sub-demote", judge={"judged": True, "needs_human": True}),
+            require_judge_pass=True,
+        )
+        db_conn.commit()
+        facets = _fetch_listing_facets(db_conn, "sub-demote")
+        assert facets["enrichment_subcategories"] is None
+        assert facets["enrichment_subcategory_source"] is None
+        assert facets["enrichment_status"] == "needs_human"
 
 
 class TestPending:
@@ -1725,6 +2076,99 @@ class TestResults:
         assert resp.status_code == 200
         assert resp.json() == {"written": 0, "failed": [], "warnings": []}
 
+    # --- SCHEMA-3: the `_UNSET` distinction AT THE HTTP BOUNDARY ------------- #
+    #
+    # TestApplySubcategories proves the writer honours `_UNSET`, but it calls
+    # `apply_result` directly, where `_UNSET` comes from the CALLER omitting the
+    # dict key — something the route never does. On the wire the key arrives
+    # absent and `model_dump()` flattens absent and null into the same `None`;
+    # only the router's `model_fields_set` pop carries the distinction into the
+    # writer. These two tests are the only coverage of those lines.
+
+    def _seed_subcategorised(
+        self, db_conn, job_id, subcats, source, confidence, src_id="google_scraper"
+    ):
+        _insert_job(db_conn, _make_job({"id": job_id, "source_id": src_id}))
+        cur = db_conn.cursor()
+        cur.execute(
+            "UPDATE job_listings SET enrichment_subcategories = %s::text[], "
+            "enrichment_subcategory_source = %s WHERE source_id = %s AND id = %s",
+            (subcats, source, src_id, job_id),
+        )
+        cur.execute(
+            "INSERT INTO job_enrichment (source_id, job_listing_id, "
+            "subcategory_confidence) VALUES (%s, %s, %s)",
+            (src_id, job_id, confidence),
+        )
+        db_conn.commit()
+
+    def _v6_item(self, job_id, **extra):
+        """Exactly what a v6 enricher posts: no `subcategories` key at all."""
+        item = {
+            "job_listing_id": job_id,
+            "source_id": "google_scraper",
+            "category": "software_engineering",
+            "level": "senior",
+            "tags": [],
+            "locations": [],
+        }
+        item.update(extra)
+        return item
+
+    def test_a_v6_shaped_REQUEST_leaves_the_array_source_AND_confidence_alone(
+        self, enrichment_client, db_conn
+    ):
+        """⚠ THE SILENT FAILURE, PROVEN THROUGH HTTP.
+
+        Delete the two `model_fields_set` pop lines in the route and every
+        ordinary tick of a v6 enricher wipes the backfill's labels — while the
+        response still says `200 {"written": 1}`. Nothing else in the suite
+        fails when those lines go, because the writer-level test constructs
+        `_UNSET` by omitting a dict key, which no HTTP request can do.
+        """
+        self._seed_subcategorised(
+            db_conn, "r-v6", ["backend", "full_stack"], "backfill", 0.77
+        )
+
+        resp = enrichment_client.post(
+            "/api/internal/enrichment/results",
+            json={"results": [self._v6_item("r-v6")]},
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["written"] == 1
+        db_conn.commit()
+
+        facets = _fetch_listing_facets(db_conn, "r-v6")
+        assert facets["enrichment_subcategories"] == ["backend", "full_stack"]
+        assert facets["enrichment_subcategory_source"] == "backfill"
+        assert _fetch_job_enrichment(db_conn, "r-v6")["subcategory_confidence"] == 0.77
+
+    def test_an_explicit_null_over_the_wire_STILL_requeues_the_row(
+        self, enrichment_client, db_conn
+    ):
+        """The other half of the boundary: absent and null must NOT collapse.
+
+        A route that popped the key unconditionally (or dropped `None` values
+        wholesale) would pass the test above and silently make the explicit
+        re-queue signal unreachable — `null` means "never evaluated", and it is
+        how a row gets BACK into the backfill queue.
+        """
+        self._seed_subcategorised(
+            db_conn, "r-null", ["backend"], "classify", 0.55
+        )
+
+        resp = enrichment_client.post(
+            "/api/internal/enrichment/results",
+            json={"results": [self._v6_item("r-null", subcategories=None)]},
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["written"] == 1
+        db_conn.commit()
+
+        facets = _fetch_listing_facets(db_conn, "r-null")
+        assert facets["enrichment_subcategories"] is None
+        assert facets["enrichment_subcategory_source"] is None
+
 
 class TestHealth:
     def test_reports_status_counts(self, enrichment_client, db_conn, monkeypatch):
@@ -1893,7 +2337,15 @@ class TestTaxonomyParity:
 
         mig = _load_enrichment_migration()
         intern_mig = _load_enrichment_migration("*add_intern_level*.py")
+        retire_mig = _load_enrichment_migration(
+            "*retire_project_manager_category*.py"
+        )
+        # Categories = the base seed MINUS every later migration's
+        # REMOVED_CATEGORIES — the mirror image of the ADDED_LEVELS union below,
+        # so a retired slug stays in lock-step with the code constants instead
+        # of tripping this guard.
         seed_categories = {slug for slug, _label, _order in mig.CATEGORY_SEED}
+        seed_categories -= set(retire_mig.REMOVED_CATEGORIES)
         # Levels = the base seed UNION every later migration's ADDED_LEVELS, so a
         # tier added by a follow-up migration (e.g. `intern`) stays in lock-step
         # with the code constants instead of tripping this parity guard.
@@ -1916,6 +2368,70 @@ class TestTaxonomyParity:
 
         actual = {k: set(v) for k, v in _LEVEL_FILTER_EXPANSION.items()}
         assert actual == expected  # {'entry': {'entry', 'new_grad'}}
+
+    def test_subcategory_slug_set_shape(self):
+        """Fifteen slugs, lowercase, no whitespace, no duplicates."""
+        from api.services.enrichment_writer import SUBCATEGORY_SLUGS
+
+        assert len(SUBCATEGORY_SLUGS) == 15
+        for slug in SUBCATEGORY_SLUGS:
+            assert slug == slug.strip().lower()
+            assert " " not in slug
+            assert slug.replace("_", "").isalnum()
+
+    def test_subcategory_slugs_are_disjoint_from_categories(self):
+        """The arrow never runs backwards.
+
+        A slug that means both a category and a subcategory would make every
+        expansion, every facet lookup and every filter ambiguous, and the
+        ambiguity would only show up as wrong results, never as an error.
+        """
+        from api.services.enrichment_writer import (
+            CATEGORY_SLUGS,
+            LEVEL_SLUGS,
+            SUBCATEGORY_SLUGS,
+        )
+
+        assert SUBCATEGORY_SLUGS.isdisjoint(CATEGORY_SLUGS)
+        assert SUBCATEGORY_SLUGS.isdisjoint(LEVEL_SLUGS)
+
+    def test_subcategory_parent_is_a_real_category(self, db_conn):
+        from api.services.enrichment_writer import CATEGORY_SLUGS, SUBCATEGORY_PARENT
+
+        assert SUBCATEGORY_PARENT in CATEGORY_SLUGS
+        cur = db_conn.cursor()
+        cur.execute(
+            "SELECT 1 FROM job_categories WHERE slug = %s", (SUBCATEGORY_PARENT,)
+        )
+        assert cur.fetchone() is not None, (
+            f"{SUBCATEGORY_PARENT!r} is not a seeded category — the subcategory "
+            "dimension's FK target does not exist"
+        )
+
+    def test_seeded_subcategory_rows_are_a_subset_of_code(self, db_conn):
+        """SUBSET + SHAPE, not equality — and that is deliberate.
+
+        Phase 1 ships `job_subcategories` EMPTY in prod, so an equality
+        assertion here would be a FALSE GREEN: it would pass only against a
+        fixture that seeds the table, i.e. against a state production is not in.
+        `<=` holds both while the table is empty and after SCHEMA-7 seeds it;
+        SCHEMA-9 tightens it to `==` in the phase-2 PR, once prod actually
+        carries the rows.
+        """
+        from api.services.enrichment_writer import (
+            SUBCATEGORY_PARENT,
+            SUBCATEGORY_SLUGS,
+        )
+
+        cur = db_conn.cursor()
+        cur.execute("SELECT slug, parent_slug FROM job_subcategories")
+        rows = cur.fetchall()
+        seeded = {r["slug"] for r in rows}
+        assert seeded <= set(SUBCATEGORY_SLUGS), (
+            f"seeded subcategories not present in code: {sorted(seeded - set(SUBCATEGORY_SLUGS))}"
+        )
+        for r in rows:
+            assert r["parent_slug"] == SUBCATEGORY_PARENT
 
     def test_seeded_db_rows_match_code_slug_sets(self, db_conn):
         """The taxonomy the fixture seeds into job_categories/job_levels (a copy
@@ -2030,17 +2546,16 @@ class TestResultsFeedback:
         row = cur.fetchone()
         assert row["enrichment_category"] is None and row["enrichment_level"] == "mid"
 
-    def test_legacy_category_is_kept_but_warned(self, enrichment_client, db_conn):
-        """The taxonomy drifted between the two repos and nothing said so.
+    def test_a_retired_category_is_nulled_and_warned(self, enrichment_client, db_conn):
+        """``project_manager`` is RETIRED (SCHEMA-11), not legacy-accepted.
 
-        JVN accepts 7 categories; the enricher's SKILL.md taxonomy v6 defines 6,
-        without ``project_manager`` — and prod has 21,933 enriched rows across exactly
-        6 categories and zero of this one. So a ``project_manager`` label can only come
-        from a build whose taxonomy no longer matches ours. It is still WRITTEN (nulling
-        it would discard a real label, and the seeded dimension plus the frontend
-        dropdown both still know the slug) but it now rides the same warnings[] channel
-        an invalid facet does, because "both sides look fine and disagree anyway" is the
-        exact failure that channel exists to make visible.
+        It used to ride the accept-and-warn path: written, with a "legacy" warning,
+        because the seeded dimension and the frontend dropdown both still knew the
+        slug. This PR retires it — dropped from ``CATEGORY_SLUGS``, from the
+        ``job_categories`` seed and from the frontend fallback — so accepting it
+        would now WRITE a value whose FK target row no longer exists. It takes the
+        ordinary invalid-facet path instead: the row is still written, the category
+        is NULLed, and the enricher is told over ``warnings[]``.
         """
         self._seed_job(db_conn)
         resp = enrichment_client.post(
@@ -2052,14 +2567,15 @@ class TestResultsFeedback:
         )
         body = resp.json()
         assert body["written"] == 1
-        assert any(
-            "legacy" in msg and "project_manager" in msg
-            for msg in body["warnings"][0]["warnings"]
-        )
-        cur = db_conn.cursor()
-        cur.execute("SELECT enrichment_category FROM job_listings WHERE id='fb-1'")
-        assert cur.fetchone()["enrichment_category"] == "project_manager", (
-            "a legacy slug is reported, never silently dropped"
+        msgs = [
+            m
+            for entry in body["warnings"]
+            for m in (entry["warnings"] if isinstance(entry, dict) else [entry])
+        ]
+        assert any("project_manager" in m for m in msgs), body["warnings"]
+        assert not any("legacy" in m for m in msgs), (
+            "a retired slug must not take the legacy accept-and-warn path — its FK "
+            "target row is deleted by SCHEMA-11"
         )
 
     def test_an_in_taxonomy_category_warns_about_nothing(self, enrichment_client, db_conn):
@@ -2301,6 +2817,403 @@ class TestCorrectionsFeed:
         assert c["job_listing_id"] == "conf-1"
         assert c["decision"] == "confirmed_correct"
         assert c["category"] == "growth" and c["level"] == "mid"
+
+
+    def test_feed_carries_subcategories_and_taxonomy_version(
+        self, enrichment_client, db_conn
+    ):
+        """Both fields, and `taxonomy_version` is the load-bearing one.
+
+        Without it the consumer cannot tell a PRE-v7 `confirmed_correct` row —
+        a human validating a label set that had no subcategory field in it — from
+        a real subcategory confirmation, and every such row becomes a false
+        `subcategories: []` gold label.
+        """
+        from api.services.enrichment_monitor import apply_correction
+
+        _insert_job(db_conn, _make_job({
+            "id": "corr-sub", "source_id": "src-a",
+            "details": json.dumps({"description_html": "<p>x</p>"}),
+        }))
+        cur = db_conn.cursor()
+        cur.execute(
+            "INSERT INTO job_enrichment (source_id, job_listing_id, taxonomy_version) "
+            "VALUES ('src-a', 'corr-sub', 'v7+abc123def456')"
+        )
+        db_conn.commit()
+        apply_correction(
+            db_conn, source_id="src-a", job_listing_id="corr-sub",
+            category="software_engineering", level="mid", tags=[],
+            note=None, admin_email="admin@test",
+            subcategories=["backend", "full_stack"], subcategories_provided=True,
+        )
+        body = enrichment_client.get("/api/internal/enrichment/corrections").json()
+        c = body["corrections"][0]
+        assert c["subcategories"] == ["backend", "full_stack"]
+        assert c["taxonomy_version"] == "v7+abc123def456"
+
+    def test_feed_reports_an_unevaluated_row_as_null_not_empty(
+        self, enrichment_client, db_conn
+    ):
+        """Tri-state survives the feed: null != []."""
+        from api.services.enrichment_monitor import apply_correction
+
+        _insert_job(db_conn, _make_job({
+            "id": "corr-null", "source_id": "src-a",
+            "details": json.dumps({"description_html": "<p>x</p>"}),
+        }))
+        apply_correction(
+            db_conn, source_id="src-a", job_listing_id="corr-null",
+            category="software_engineering", level="mid", tags=[],
+            note=None, admin_email="admin@test",
+        )
+        body = enrichment_client.get("/api/internal/enrichment/corrections").json()
+        c = body["corrections"][0]
+        assert c["subcategories"] is None
+        assert c["taxonomy_version"] is None
+
+    def test_feed_stays_ordered_ascending_by_correction_time(
+        self, enrichment_client, db_conn
+    ):
+        """`cli golden-merge --since` walks this feed forward and relies on it."""
+        from api.services.enrichment_monitor import apply_correction
+
+        for job_id in ("ord-1", "ord-2", "ord-3"):
+            _insert_job(db_conn, _make_job({
+                "id": job_id, "source_id": "src-a",
+                "details": json.dumps({"description_html": "<p>x</p>"}),
+            }))
+            apply_correction(
+                db_conn, source_id="src-a", job_listing_id=job_id,
+                category="growth", level="mid", tags=[],
+                note=None, admin_email="admin@test",
+            )
+        body = enrichment_client.get("/api/internal/enrichment/corrections").json()
+        stamps = [c["corrected_at"] for c in body["corrections"]]
+        assert stamps == sorted(stamps)
+
+
+class TestSubcategoryResults:
+    """SCHEMA-14: POST /subcategories — the only PARTIAL write path.
+
+    What these actually guard is that the endpoint stays CHEAP and NARROW. The
+    moment it touches anything besides the subcategory triple it stops being a
+    drain and becomes a second way to clobber enrichment state.
+    """
+
+    URL = "/api/internal/enrichment/subcategories"
+
+    def _seed(self, db_conn, job_id, source="google_scraper", **enrich):
+        _insert_job(db_conn, _make_job({"id": job_id, "source_id": source}))
+        cur = db_conn.cursor()
+        cur.execute(
+            "UPDATE job_listings SET enrichment_category='software_engineering', "
+            "enrichment_level='senior', enrichment_status='done' "
+            "WHERE source_id=%s AND id=%s",
+            (source, job_id),
+        )
+        cur.execute(
+            "INSERT INTO job_enrichment (source_id, job_listing_id, clean_description, "
+            "classify_confidence, taxonomy_version, human_corrected_at) "
+            "VALUES (%s, %s, 'the original description', 0.9, 'v6+aaa', %s)",
+            (source, job_id, enrich.get("human_corrected_at")),
+        )
+        cur.execute(
+            "INSERT INTO job_tags (source_id, job_listing_id, tag) VALUES (%s, %s, 'go')",
+            (source, job_id),
+        )
+        if enrich.get("subcategory_source"):
+            cur.execute(
+                "UPDATE job_listings SET enrichment_subcategory_source=%s "
+                "WHERE source_id=%s AND id=%s",
+                (enrich["subcategory_source"], source, job_id),
+            )
+        db_conn.commit()
+
+    def _snapshot(self, db_conn, job_id, source="google_scraper"):
+        cur = db_conn.cursor()
+        cur.execute(
+            "SELECT jl.enrichment_category, jl.enrichment_level, "
+            "jl.enrichment_status, je.clean_description, je.enriched_at, "
+            "je.classify_confidence, "
+            "COALESCE((SELECT json_agg(tag ORDER BY tag) FROM job_tags "
+            "  WHERE source_id=jl.source_id AND job_listing_id=jl.id), '[]'::json) AS tags "
+            "FROM job_listings jl JOIN job_enrichment je "
+            "  ON je.source_id=jl.source_id AND je.job_listing_id=jl.id "
+            "WHERE jl.source_id=%s AND jl.id=%s",
+            (source, job_id),
+        )
+        return dict(cur.fetchone())
+
+    def test_a_batch_writes_the_arrays_AND_TOUCHES_NOTHING_ELSE(
+        self, enrichment_client, db_conn
+    ):
+        """The cheapness assertion, byte-for-byte.
+
+        If this endpoint ever starts writing `clean_description` or bumping
+        `enriched_at`, it is no longer a partial write path — it is `/results`
+        with extra steps, and the whole reason it exists is gone.
+        """
+        self._seed(db_conn, "sr-1")
+        self._seed(db_conn, "sr-2")
+        before = {j: self._snapshot(db_conn, j) for j in ("sr-1", "sr-2")}
+
+        resp = enrichment_client.post(
+            self.URL,
+            json={
+                "items": [
+                    {
+                        "jobListingId": "sr-1", "sourceId": "google_scraper",
+                        "subcategories": ["infrastructure_platform", "backend"],
+                        "subcategoryConfidence": 0.82,
+                        "subcategorySource": "backfill",
+                        "taxonomyVersion": "v7+abc123abc123",
+                    },
+                    {
+                        "jobListingId": "sr-2", "sourceId": "google_scraper",
+                        "subcategories": [], "subcategorySource": "backfill",
+                        "taxonomyVersion": "v7+abc123abc123",
+                    },
+                ]
+            },
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["written"] == 2
+        db_conn.commit()
+
+        cur = db_conn.cursor()
+        cur.execute(
+            "SELECT id, enrichment_subcategories AS s, enrichment_subcategory_source "
+            "AS src FROM job_listings WHERE id IN ('sr-1','sr-2') ORDER BY id"
+        )
+        rows = {r["id"]: r for r in cur.fetchall()}
+        # ORDER preserved: index 0 is the primary.
+        assert rows["sr-1"]["s"] == ["infrastructure_platform", "backend"]
+        assert rows["sr-1"]["src"] == "backfill"
+        assert rows["sr-2"]["s"] == []
+
+        for job_id in ("sr-1", "sr-2"):
+            after = self._snapshot(db_conn, job_id)
+            for field in ("enrichment_category", "enrichment_level",
+                          "enrichment_status", "clean_description",
+                          "enriched_at", "classify_confidence", "tags"):
+                assert after[field] == before[job_id][field], (
+                    f"{job_id}.{field} changed — this endpoint must touch ONLY "
+                    "the subcategory triple"
+                )
+
+        cur.execute(
+            "SELECT subcategory_confidence AS c, taxonomy_version AS v "
+            "FROM job_enrichment WHERE job_listing_id='sr-1'"
+        )
+        audit = cur.fetchone()
+        assert audit["c"] == 0.82
+        assert audit["v"] == "v7+abc123abc123"
+
+    def test_a_human_LOCKED_row_is_skipped_and_reported(
+        self, enrichment_client, db_conn
+    ):
+        self._seed(db_conn, "sr-human", subcategory_source="human")
+        cur = db_conn.cursor()
+        cur.execute(
+            "UPDATE job_listings SET enrichment_subcategories='{frontend}'::text[] "
+            "WHERE id='sr-human'"
+        )
+        db_conn.commit()
+
+        resp = enrichment_client.post(
+            self.URL,
+            json={"items": [{"jobListingId": "sr-human",
+                             "sourceId": "google_scraper",
+                             "subcategories": ["backend"],
+                             "subcategorySource": "backfill"}]},
+        )
+        body = resp.json()
+        assert body["written"] == 0
+        assert body["skipped"][0]["job_listing_id"] == "sr-human"
+        db_conn.commit()
+        cur.execute("SELECT enrichment_subcategories AS s FROM job_listings "
+                    "WHERE id='sr-human'")
+        assert cur.fetchone()["s"] == ["frontend"]
+
+    def test_human_corrected_at_ALONE_does_NOT_block_the_write(
+        self, enrichment_client, db_conn
+    ):
+        """THE PER-FIELD FIX.
+
+        `human_corrected_at` means a human fixed the category or level — usually
+        before subcategories existed at all. Treating it as a subcategory lock
+        would make the backfill permanently miss exactly the human-labelled pool
+        the eval gate is built on.
+        """
+        self._seed(db_conn, "sr-hc", human_corrected_at="2026-01-01T00:00:00Z")
+
+        resp = enrichment_client.post(
+            self.URL,
+            json={"items": [{"jobListingId": "sr-hc", "sourceId": "google_scraper",
+                             "subcategories": ["backend"],
+                             "subcategorySource": "backfill"}]},
+        )
+        assert resp.json()["written"] == 1, resp.text
+        db_conn.commit()
+        cur = db_conn.cursor()
+        cur.execute("SELECT enrichment_subcategories AS s FROM job_listings "
+                    "WHERE id='sr-hc'")
+        assert cur.fetchone()["s"] == ["backend"]
+
+    def test_out_of_enum_slug_is_dropped_with_a_warning_never_a_422(
+        self, enrichment_client, db_conn
+    ):
+        self._seed(db_conn, "sr-bad")
+        resp = enrichment_client.post(
+            self.URL,
+            json={"items": [{"jobListingId": "sr-bad", "sourceId": "google_scraper",
+                             "subcategories": ["backend", "ai_ml"],
+                             "subcategorySource": "backfill"}]},
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["written"] == 1
+        assert any("ai_ml" in w for w in body["warnings"][0]["warnings"])
+
+    def test_an_unknown_key_422s_LOUDLY(self, enrichment_client, db_conn):
+        """One client, no legacy fleet. An accidental `category` key must fail
+        loudly rather than read as "wrote nothing, reported success"."""
+        self._seed(db_conn, "sr-extra")
+        resp = enrichment_client.post(
+            self.URL,
+            json={"items": [{"jobListingId": "sr-extra", "sourceId": "google_scraper",
+                             "subcategories": ["backend"], "category": "growth"}]},
+        )
+        assert resp.status_code == 200
+        # The ELEMENT fails (per-row isolation), not the batch.
+        body = resp.json()
+        assert body["written"] == 0
+        assert body["failed"][0]["job_listing_id"] == "sr-extra"
+        assert "category" in body["failed"][0]["error"]
+
+    def test_a_mis_keyed_envelope_422s_up_front(self, enrichment_client):
+        resp = enrichment_client.post(
+            self.URL, json={"results": [{"jobListingId": "x", "sourceId": "y"}]}
+        )
+        assert resp.status_code == 422
+
+    def test_over_500_items_422s(self, enrichment_client):
+        items = [
+            {"jobListingId": f"j{i}", "sourceId": "s", "subcategories": []}
+            for i in range(501)
+        ]
+        resp = enrichment_client.post(self.URL, json={"items": items})
+        assert resp.status_code == 422
+
+    def test_an_unknown_job_lands_in_failed_not_written(
+        self, enrichment_client, db_conn
+    ):
+        resp = enrichment_client.post(
+            self.URL,
+            json={"items": [{"jobListingId": "ghost", "sourceId": "nowhere",
+                             "subcategories": ["backend"]}]},
+        )
+        body = resp.json()
+        assert body["written"] == 0
+        assert body["failed"][0]["job_listing_id"] == "ghost"
+
+    def test_an_item_with_NO_subcategories_key_FAILS_and_writes_nothing(
+        self, enrichment_client, db_conn
+    ):
+        """⚠ §1.2(B): the key may NOT be absent on this endpoint.
+
+        There is nothing else in a subcategory item, so an item without the key
+        said nothing at all — and the value it would otherwise be read as (null)
+        NULLs an existing label array AND its source. The writer raises for the
+        `_UNSET` case, but `model_dump()` flattens absent into `None`, so that
+        guard is only reachable because the route pops the key when Pydantic
+        reports it unset. Without the pop this returns `written: 1` and quietly
+        destroys the backfill's work.
+        """
+        self._seed(db_conn, "sr-absent")
+        cur = db_conn.cursor()
+        cur.execute(
+            "UPDATE job_listings SET enrichment_subcategories='{backend}'::text[], "
+            "enrichment_subcategory_source='backfill' WHERE id='sr-absent'"
+        )
+        db_conn.commit()
+
+        resp = enrichment_client.post(
+            self.URL,
+            json={"items": [{"jobListingId": "sr-absent",
+                             "sourceId": "google_scraper",
+                             "taxonomyVersion": "v7+abc123abc123"}]},
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["written"] == 0
+        assert body["failed"][0]["job_listing_id"] == "sr-absent"
+        assert "missing subcategories" in body["failed"][0]["error"]
+        db_conn.commit()
+
+        cur.execute(
+            "SELECT enrichment_subcategories AS s, enrichment_subcategory_source "
+            "AS src FROM job_listings WHERE id='sr-absent'"
+        )
+        row = cur.fetchone()
+        assert row["s"] == ["backend"]
+        assert row["src"] == "backfill"
+
+    def test_an_EXPLICIT_null_is_accepted_and_requeues_the_row(
+        self, enrichment_client, db_conn
+    ):
+        """The counterpart: absent is a client bug, null is a real instruction.
+
+        Popping the key unconditionally would pass the test above while making
+        the "never evaluated, re-queue me" state unsendable on the one endpoint
+        the backfill uses.
+        """
+        self._seed(db_conn, "sr-null")
+        cur = db_conn.cursor()
+        cur.execute(
+            "UPDATE job_listings SET enrichment_subcategories='{backend}'::text[], "
+            "enrichment_subcategory_source='backfill' WHERE id='sr-null'"
+        )
+        db_conn.commit()
+
+        resp = enrichment_client.post(
+            self.URL,
+            json={"items": [{"jobListingId": "sr-null",
+                             "sourceId": "google_scraper",
+                             "subcategories": None}]},
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["written"] == 1
+        db_conn.commit()
+
+        cur.execute(
+            "SELECT enrichment_subcategories AS s, enrichment_subcategory_source "
+            "AS src FROM job_listings WHERE id='sr-null'"
+        )
+        row = cur.fetchone()
+        assert row["s"] is None
+        assert row["src"] is None
+
+    def test_a_non_swe_row_is_forced_to_null_with_a_warning(
+        self, enrichment_client, db_conn
+    ):
+        self._seed(db_conn, "sr-growth")
+        cur = db_conn.cursor()
+        cur.execute(
+            "UPDATE job_listings SET enrichment_category='growth' WHERE id='sr-growth'"
+        )
+        db_conn.commit()
+        resp = enrichment_client.post(
+            self.URL,
+            json={"items": [{"jobListingId": "sr-growth", "sourceId": "google_scraper",
+                             "subcategories": ["backend"]}]},
+        )
+        assert resp.status_code == 200, resp.text
+        db_conn.commit()
+        cur.execute("SELECT enrichment_subcategories AS s FROM job_listings "
+                    "WHERE id='sr-growth'")
+        assert cur.fetchone()["s"] is None
 
 
 class TestHealthAdditions:

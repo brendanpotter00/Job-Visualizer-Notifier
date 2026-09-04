@@ -25,8 +25,66 @@ This test is deliberately **DB-free**: it reads the revision files off disk via
 graph, which is the only cheap moment to catch it.
 
 Fixing a failure: do NOT hand-write a new revision and do NOT use
-`alembic merge` (no precedent in this repo — history here is strictly linear).
+`alembic merge` in THIS epic — re-parent instead. (Merge revisions do exist on
+main: `a5cf3aed5f15`, `2633dd6348e4` and `776b9dbc68cc` all reconcile two heads.
+They are how a long-lived branch rejoins main, not a substitute for parenting a
+new revision on the current head.)
 Re-parent the newer revision's `down_revision` onto the current head.
+
+SWE-subcategories epic — the pinned merge order (SCHEMA-0)
+----------------------------------------------------------
+Recorded here rather than in a loose doc because this is the file that fails
+when the order is broken.
+
+**Order A (pinned, and what shipped).** PR #252 SQUASH-MERGED on 2026-09-04 and
+the merge brought `776b9dbc68cc`, a reconciliation revision joining #252's chain
+to main's. The epic's revisions stack on top of THAT — not on `536c1cddcd28`
+(#252's last revision), which now already has a child, and not on
+`4b5d40dbc774`, which always did. The rule is one rule: parent on the CURRENT
+head, never on a revision that already has a child.
+
+    ... -> 536c1cddcd28 -> 776b9dbc68cc
+      -> <A> add_job_subcategories_structure      (SCHEMA-1)
+      -> <B> add_app_settings                     (SCHEMA-2)
+      -> <C> retire_project_manager_category      (SCHEMA-11)
+      -> <D> seed_job_subcategories               (SCHEMA-7, PR-F)
+      -> <E> add_subcategory_to_user_saved_filters(SCHEMA-8, PR-F)
+      -> <F> add_subcategory_coverage_index       (SCHEMA-12, conditional)
+
+Every revision in this epic is authored by the SCHEMA workstream. No other
+workstream emits one. Any draft pinning `4b5d40dbc774` is off by one.
+
+**Order B (fallback, only if #252 stalls and this epic lands first).** The
+corrected procedure — the version in the epic's contract decision 4 is WRONG
+and is recorded here so it cannot be reintroduced:
+
+1. Set `<A>.down_revision = '1d2d6c17acfc'` (main's head). Our chain then runs
+   to some head **H** — whatever `alembic heads` prints on the trunk when #252
+   rebases (SCHEMA-8's revision, or SCHEMA-12's if it shipped). Do NOT
+   hardcode H.
+2. Make **exactly ONE** compensating edit, on the `feat/jobs-search-endpoint`
+   branch, before it merges: `4b5d40dbc774.down_revision = H`. Leave
+   `536c1cddcd28.down_revision = '4b5d40dbc774'` untouched.
+3. Result: `1d2d6c17acfc -> <A> -> ... -> H -> 4b5d40dbc774 -> 536c1cddcd28`.
+   One head.
+
+Why contract decision 4 (re-parent `536c1cddcd28` instead) is wrong: it leaves
+`4b5d40dbc774` parented on `1d2d6c17acfc` with **no child**, so
+`4b5d40dbc774` *and* `536c1cddcd28` are BOTH heads,
+`command.upgrade(cfg, "head")` raises `Multiple head revisions are present`
+inside the lifespan, and the container never passes `railway.toml`'s
+healthcheck.
+
+**The rule, stated generally: re-parent the OLDEST revision of the stalled
+branch, never its newest.** Doing both edits re-forks the graph. Exactly one,
+either way.
+
+**A fork fails LOUDLY, which is the one comfort here.** Because migrations run
+in-process in the lifespan and the failure is a boot crash, Railway's
+healthcheck never goes green and the cutover is blocked — a fork costs a failed
+deploy, not a corrupted production database. Verify with `alembic heads`
+printing exactly one revision and
+`pytest api/tests/test_alembic_single_head.py -q`.
 """
 
 from __future__ import annotations
@@ -72,7 +130,7 @@ def test_alembic_has_exactly_one_head() -> None:
         "api/migrations.py runs `command.upgrade(cfg, 'head')` (singular) in "
         "the FastAPI lifespan, so more than one head crashes the backend on "
         "boot. Re-parent the newer revision's `down_revision` onto the current "
-        "head — do not use `alembic merge` (no precedent in this repo)."
+        "head — re-parent this revision rather than adding an `alembic merge`."
     )
 
 

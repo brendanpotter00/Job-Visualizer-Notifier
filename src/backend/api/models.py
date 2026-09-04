@@ -90,6 +90,12 @@ class JobListingResponse(BaseModel):
     category: str | None = None            # job_categories.slug
     level: str | None = None               # job_levels.slug (see the new_grad⊂entry hierarchy)
     tags: list[str] = Field(default_factory=list)
+    # ORDERED (index 0 = primary), max 2. NULLABLE, deliberately NOT
+    # `default_factory=list`: `null` means "never evaluated" (still in the
+    # backfill queue) and `[]` means "evaluated, no specialty applies". A
+    # default of `[]` would erase that distinction for every unenriched row the
+    # moment it crossed the wire.
+    subcategories: list[str] | None = None
     enrichment_status: str | None = None   # NULL | 'claimed' | 'done' | 'needs_human'
 
 
@@ -924,6 +930,33 @@ class EnrichmentResultItem(BaseModel):
     raw_location: str | None = None
     locations: list[Any] = Field(default_factory=list)
     judge: JudgeVerdict | None = None
+    # SWE subcategories, three fields, one contract.
+    #
+    # WHY THESE HAVE TO EXIST AT ALL: this model has NO `extra='forbid'`, so
+    # Pydantic's default `ignore` accepts an unknown `subcategories` key and
+    # DISCARDS it — while the batch cheerfully reports `written: N`. Until the
+    # field is declared, the enricher can push subcategories forever and nothing
+    # is stored and nothing complains. That is the failure the round-trip test
+    # in test_response_shapes.py exists to catch.
+    #
+    # TYPED `Any`, not `list[Any]`, and that is deliberate — it goes one step
+    # further than the `locations` precedent right above. The writer's contract
+    # (`_valid_subcategories`) explicitly handles a SCALAR by promoting it to a
+    # one-element list with a warning, and a dict/garbage value by dropping it
+    # with a warning. `list[Any]` would 422 both at `model_validate` and route
+    # the WHOLE item to `failed[]`, discarding the good category/level/tags —
+    # the exact reclaim churn the `locations` typing exists to avoid. The rule
+    # is the same one, applied honestly: the WRITER is the sole arbiter, so the
+    # model must not pre-empt it.
+    #
+    # THE DEFAULT IS `None`, and the writer treats "key absent" and "key null"
+    # differently by inspecting `model_fields_set` — absent leaves both columns
+    # untouched (which is what makes the enricher's subcategory knob a reversible
+    # DEPLOY ORDER rather than a code push), null means "never evaluated" and
+    # clears them.
+    subcategories: Any = None
+    subcategory_confidence: float | None = None
+    subcategory_source: str | None = None
 
 
 class EnrichmentResultsBody(BaseModel):
@@ -942,6 +975,53 @@ class EnrichmentResultsBody(BaseModel):
     """
 
     results: list[Any]
+
+
+class SubcategoryResultItem(BaseModel):
+    """One row of the BULK subcategory drain (POST /enrichment/subcategories).
+
+    ``extra='forbid'``, UNLIKE ``EnrichmentResultItem``, and the difference is
+    deliberate. That model has a legacy fleet — an older enricher posting a key
+    this backend has not learned about must degrade, not fail. This endpoint has
+    exactly ONE client and no legacy fleet, so an unknown key (``category``,
+    ``tags``, a typo) is a client bug that must fail LOUDLY. The alternative is
+    the specific failure mode this whole endpoint exists to avoid: a 200 reporting
+    ``written: N`` while nothing of consequence was written.
+
+    ``subcategories`` is typed ``Any`` on purpose (same reasoning as
+    ``EnrichmentResultItem``): the WRITER is the sole arbiter, and a malformed
+    value must degrade with a warning rather than route the row to ``failed[]``.
+
+    The ``= None`` default does NOT mean "absent reads as null": the key may not
+    be absent on this endpoint (§1.2 B). ``model_dump()`` cannot tell the two
+    apart, so the ROUTER pops the key when ``model_fields_set`` reports it
+    unset, and the writer's ``_UNSET`` guard then fails the row into
+    ``failed[]``. Drop that pop and an item with no ``subcategories`` key NULLs
+    an existing array and its source while reporting ``written: 1``.
+    """
+
+    model_config = ConfigDict(
+        alias_generator=to_camel, populate_by_name=True, extra="forbid"
+    )
+
+    job_listing_id: Annotated[str, StringConstraints(min_length=1, strip_whitespace=True)]
+    source_id: Annotated[str, StringConstraints(min_length=1, strip_whitespace=True)]
+    subcategories: Any = None
+    subcategory_confidence: float | None = None
+    subcategory_source: str | None = None
+    taxonomy_version: str | None = None
+
+
+class SubcategoryResultsBody(BaseModel):
+    """Envelope for POST /enrichment/subcategories: ``{"items": [...]}``.
+
+    Mirrors ``EnrichmentResultsBody``: ``items`` is REQUIRED (no default) so a
+    mis-keyed body 422s up front instead of returning ``200 {"written": 0}``,
+    while the ELEMENT type stays ``list[Any]`` and each element is validated
+    inside the per-row SAVEPOINT so one bad element lands in ``failed[]``.
+    """
+
+    items: list[Any]
 
 
 class EnrichmentTickCounters(BaseModel):
@@ -1012,9 +1092,18 @@ class FacetOption(BaseModel):
     slug: str
     label: str
     sort_order: int
-    # job_levels only: parent in the level hierarchy (new_grad -> entry). The
-    # frontend derives its client-side filter expansion from this, so the
-    # entry⊇new_grad contract stays data-driven end to end.
+    # `parent_slug` carries TWO DIFFERENT MEANINGS depending on which dimension
+    # the row came from, and confusing them is a real bug:
+    #   * job_levels      -> a FILTER-EXPANSION edge (new_grad -> entry). The
+    #                        frontend builds its client-side level expansion
+    #                        from exactly this, so entry ⊇ new_grad stays
+    #                        data-driven end to end.
+    #   * job_subcategories -> a GROUPING edge. Every row's parent is
+    #                        'software_engineering', and it exists so the
+    #                        dropdown can render a tree. It must NEVER be fed
+    #                        into the level-expansion builder, which would turn
+    #                        one category selection into fifteen subcategories.
+    #   * job_categories  -> always NULL (the query selects `NULL AS parent_slug`).
     parent_slug: str | None = None
 
 
@@ -1027,6 +1116,11 @@ class JobFacetsResponse(BaseModel):
 
     categories: list[FacetOption]
     levels: list[FacetOption]
+    # `default_factory=list` so a phase-1 backend (dimension table present but
+    # EMPTY, or the catalog query not yet extended) still CONSTRUCTS. The
+    # frontend mirrors this: it normalizes a missing key to `[]` rather than
+    # treating it as a malformed response.
+    subcategories: list[FacetOption] = Field(default_factory=list)
 
 
 class JobSearchMeta(BaseModel):
@@ -1101,6 +1195,21 @@ class AdminEnrichmentHealthResponse(BaseModel):
     # CLOSED jobs and already-corrected rows).
     needs_human_open: int = Field(ge=0)
     human_corrected_total: int = Field(ge=0)
+    # --- Subcategory coverage: the number the 90% reveal is read off ---------
+    #
+    # `swe_open_total` is OPEN + enrichment_category='software_engineering'. It
+    # MUST use the same definition as the backfill's PARAM_BACKFILL_DENOMINATOR,
+    # or the tile and the backfill disagree about what 90% means.
+    swe_open_total: int = Field(default=0, ge=0)
+    # EVALUATED rows (`enrichment_subcategories IS NOT NULL`), NOT non-empty
+    # ones — `'{}'` is a legitimate terminal answer. The non-empty definition
+    # asymptotes near 91% and can never cross the 90% threshold.
+    swe_subcategorized: int = Field(default=0, ge=0)
+    # The non-empty subset, reported separately so both numbers are visible.
+    swe_subcategory_labelled: int = Field(default=0, ge=0)
+    # Persisted slugs absent from job_subcategories — the compensating control
+    # for the array having no FK. MUST BE PERMANENTLY 0.
+    subcategory_unknown_slugs: int = Field(default=0, ge=0)
     last_enriched_at: datetime | None = None
     last_enriched_age_s: float | None = None
     # Latest pushed tick (enrichment_ticks); all None when nothing pushed yet.
@@ -1114,6 +1223,81 @@ class AdminEnrichmentHealthResponse(BaseModel):
     window_hours: int = Field(ge=1)
     enriched_in_window: int = Field(ge=0)
     error_ticks_in_window: int = Field(ge=0)
+
+
+class AdminSettingRow(BaseModel):
+    """One runtime-tunable setting. `updated_at` is NULL for a MATERIALIZED
+    default — i.e. no row exists yet, which is the normal state, not an error."""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    key: str
+    # `Any` because the table is JSONB-valued and different keys hold different
+    # types. The service coerces per-key before it gets here, so a bool arrives
+    # as `true`, never as `1`.
+    value: Any = None
+    updated_at: datetime | None = None
+    updated_by: str | None = None
+
+
+class AdminSettingsResponse(BaseModel):
+    """GET /api/admin/settings — every allowlisted setting, defaults included."""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    settings: list[AdminSettingRow] = Field(default_factory=list)
+
+
+class AdminSettingUpdateRequest(BaseModel):
+    """PUT /api/admin/settings/{key}. `extra='forbid'` — a typo'd key would
+    otherwise be accepted and silently change nothing."""
+
+    model_config = ConfigDict(
+        alias_generator=to_camel, populate_by_name=True, extra="forbid"
+    )
+
+    value: Any
+
+
+class PublicSettingsResponse(BaseModel):
+    """GET /api/jobs/settings — unauthenticated, and deliberately a NAMED field
+    per setting rather than a dict dump, so a future admin-only setting cannot
+    leak by being added to one allowlist."""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    # -> `sweSubcategoriesEnabled`. Defaults to False so the reader FAILS CLOSED:
+    # hidden-when-broken beats revealing a filter that returns nothing.
+    swe_subcategories_enabled: bool = False
+
+
+class AdminSubcategoryResetRequest(BaseModel):
+    """Body for POST /api/admin/enrichment/subcategories/reset.
+
+    ``dry_run`` DEFAULTS TO TRUE — the destructive form needs an explicit
+    ``false``, so the reflexive "just run it" produces a count and changes
+    nothing. ``extra='forbid'`` because a typo'd key (``dryrun``,
+    ``dry-run``) would otherwise silently fall back to... running it for real.
+    """
+
+    model_config = ConfigDict(
+        alias_generator=to_camel, populate_by_name=True, extra="forbid"
+    )
+
+    # One of enrichment_writer.SUBCATEGORY_SOURCES. Validated in the service
+    # against the constant (400/409), not re-listed here.
+    source: str = Field(min_length=1, max_length=40)
+    dry_run: bool = True
+
+
+class AdminSubcategoryResetResponse(BaseModel):
+    """Result of a scoped subcategory reset. ``applied`` is 0 on a dry run."""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    source: str
+    matched: int = Field(ge=0)
+    applied: int = Field(ge=0)
 
 
 class AdminEnrichmentNeedsHumanRow(BaseModel):
@@ -1130,6 +1314,12 @@ class AdminEnrichmentNeedsHumanRow(BaseModel):
     enrichment_status: str | None = None
     category: str | None = None              # published facet (job_listings)
     level: str | None = None
+    # ORDERED (index 0 = primary), tri-state. Nullable, never
+    # `default_factory=list` — `null` (never evaluated) and `[]` (evaluated,
+    # nothing applies) are different facts and the triage UI renders them
+    # differently.
+    subcategories: list[str] | None = None
+    subcategory_confidence: float | None = None
     tags: list[str] = Field(default_factory=list)
     clean_description: str | None = None
     classify_confidence: float | None = None
@@ -1210,6 +1400,12 @@ class AdminEnrichmentRecentRow(BaseModel):
     enrichment_status: str | None = None
     category: str | None = None
     level: str | None = None
+    # ORDERED (index 0 = primary), tri-state. Nullable, never
+    # `default_factory=list` — `null` (never evaluated) and `[]` (evaluated,
+    # nothing applies) are different facts and the triage UI renders them
+    # differently.
+    subcategories: list[str] | None = None
+    subcategory_confidence: float | None = None
     tags: list[str] = Field(default_factory=list)
     classify_confidence: float | None = None
     classify_reasoning: str | None = None
@@ -1248,6 +1444,13 @@ class AdminEnrichmentCorrectionRequest(BaseModel):
 
     category: str | None = None
     level: str | None = None
+    # TRI-STATE, and `model_fields_set` is what reads the third state. OMITTING
+    # the key means "leave the existing array alone" — that is how a level-only
+    # correction stops being a silent data loss. `null` means "re-queue this row
+    # for the backfill"; a list is a human label. The handler MUST pass
+    # `subcategories_provided='subcategories' in body.model_fields_set` — at the
+    # service signature `None` and "absent" are the same value.
+    subcategories: list[str] | None = None
     tags: list[str] = Field(default_factory=list, max_length=16)
     note: str | None = Field(default=None, max_length=2000)
 
@@ -1278,6 +1481,10 @@ class AdminEnrichmentCorrectionResponse(BaseModel):
     enrichment_status: str | None = None
     category: str | None = None
     level: str | None = None
+    # Read back from the row, so the not-sent path reports what is ACTUALLY
+    # stored rather than echoing a request field that was never sent. Nullable,
+    # never `default_factory=list` — `null` and `[]` mean different things.
+    subcategories: list[str] | None = None
     tags: list[str] = Field(default_factory=list)
     human_corrected_at: datetime | None = None
     human_corrected_by: str | None = None

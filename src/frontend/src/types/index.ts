@@ -94,6 +94,20 @@ export interface Job {
   /** Level slug; filtering must honor the new_grad ⊂ entry hierarchy. */
   level?: string | null;
 
+  /**
+   * SWE subcategory slugs, ORDERED — index 0 is the primary specialty.
+   *
+   * TRI-STATE, and all three states are distinct:
+   *   - `null` / absent  never evaluated (this is the backfill queue)
+   *   - `[]`             evaluated, and no specialty applies (TERMINAL)
+   *   - `['backend', …]` labelled, max 2, primary first
+   *
+   * Read it with `?.length`. The transformer writes `raw.subcategories ?? null`
+   * and NEVER `?? []` — collapsing null into `[]` here would destroy the
+   * distinction the server went to some trouble to ship.
+   */
+  subcategories?: string[] | null;
+
   /** Free-form enrichment skill tags (lowercase slugs). */
   enrichmentTags?: string[];
 
@@ -287,9 +301,18 @@ export interface RecentJobsFilters {
   level?: string[];
 }
 /**
- * One dropdown option from GET /api/jobs/facets (job_categories / job_levels).
- * `parentSlug` encodes the level hierarchy (new_grad -> entry) so the
- * client-side filter expansion stays data-driven.
+ * One dropdown option from GET /api/jobs/facets
+ * (job_categories / job_levels / job_subcategories).
+ *
+ * `parentSlug` carries TWO different meanings depending on the dimension it
+ * came from, and they must not be confused:
+ *   - on `job_levels` it is a FILTER-EXPANSION edge (new_grad ⊂ entry), which
+ *     is what the client-side level expansion is built from;
+ *   - on `job_subcategories` it is a GROUPING edge (every subcategory's parent
+ *     is `software_engineering`) and it must NEVER be fed into the
+ *     level-expansion builder — doing so would silently expand a category
+ *     selection into fifteen subcategories.
+ * `job_categories` rows carry `parentSlug: null`.
  */
 export interface FacetOption {
   slug: string;
@@ -302,4 +325,11 @@ export interface FacetOption {
 export interface JobFacets {
   categories: FacetOption[];
   levels: FacetOption[];
+  /**
+   * SWE subcategories. OPTIONAL on the wire — a backend that has not shipped
+   * the dimension yet simply omits the key, and that is a supported response,
+   * not an error. `getFacets` NORMALIZES it to `[]`, so the query RESULT always
+   * carries the key even when the response did not.
+   */
+  subcategories?: FacetOption[];
 }

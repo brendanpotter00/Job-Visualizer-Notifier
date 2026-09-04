@@ -49,7 +49,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // on the backend but no frontend caller uses it, and widening a public
   // key-injecting proxy is a decision, not a cleanup. Add it here (with a test)
   // when something actually needs it.
-  const sub = resolveProxyPath(path, ['', 'facets', 'search']);
+  const sub = resolveProxyPath(path, ['', 'facets', 'search', 'settings']);
   if (sub === null) {
     res.status(PROXY_REJECTION.status).json(PROXY_REJECTION.body);
     return;
