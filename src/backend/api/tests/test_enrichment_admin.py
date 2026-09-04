@@ -162,6 +162,24 @@ class TestAdminEnrichmentHealth:
         """The control must not be inert while the dimension is empty: falling
         back to the code arbiter still flags a producer writing off-taxonomy
         slugs, which is the only thing this counter exists for."""
+
+    def test_unknown_slug_counter_against_the_SEEDED_dimension(
+        self, client, db_conn
+    ):
+        """The counter's contract is 'permanently 0 once seeded'.
+
+        Phase 2 seeds the dimension (SCHEMA-7) and the fixture now mirrors that,
+        so this reads the counter the way prod does: a real slug does not count,
+        a slug absent from `job_subcategories` does. Before the seed every
+        persisted slug was 'unknown' by definition, which is why the assertion
+        was only worth making once the fixture and prod agreed.
+        """
+        body = client.get("/api/admin/enrichment/health").json()
+        assert body["subcategoryUnknownSlugs"] == 0
+
+        # A REAL slug stays uncounted — that is the "permanently 0" half.
+        _seed_flagged_job(db_conn, job_id="c-good", category="software_engineering",
+                          subcategories=["backend"])
         body = client.get("/api/admin/enrichment/health").json()
         assert body["subcategoryUnknownSlugs"] == 0
 
@@ -183,17 +201,31 @@ class TestAdminEnrichmentHealth:
                           subcategories=["backend"])
         _seed_flagged_job(db_conn, job_id="c-fe", category="software_engineering",
                           subcategories=["frontend"])
+        # PARTIAL means partial. Once SCHEMA-7 (PR-F) landed, the conftest
+        # fixture seeds all fifteen slugs to mirror prod — so INSERTing 'backend'
+        # no longer creates a gap and this test silently asserted nothing. Remove
+        # 'frontend' instead, which produces the gap under either fixture.
         cur = db_conn.cursor()
         cur.execute(
             "INSERT INTO job_subcategories (slug, label, parent_slug, sort_order) "
             "VALUES ('backend','Backend','software_engineering',1) "
             "ON CONFLICT (slug) DO NOTHING"
         )
+        cur.execute("SELECT label, sort_order FROM job_subcategories WHERE slug='frontend'")
+        restore = cur.fetchone()
+        cur.execute("DELETE FROM job_subcategories WHERE slug='frontend'")
         db_conn.commit()
         try:
             body = client.get("/api/admin/enrichment/health").json()
             assert body["subcategoryUnknownSlugs"] == 1  # 'frontend' is not seeded
         finally:
+            if restore is not None:
+                cur.execute(
+                    "INSERT INTO job_subcategories (slug, label, parent_slug, sort_order) "
+                    "VALUES ('frontend', %s, 'software_engineering', %s) "
+                    "ON CONFLICT (slug) DO NOTHING",
+                    (restore["label"], restore["sort_order"]),
+                )
             cur.execute("DELETE FROM job_subcategories WHERE slug='backend'")
             db_conn.commit()
 
@@ -1043,3 +1075,29 @@ class TestJobFacets:
         # rank ordering: intern first (rank 0), then new_grad (the intern
         # migration renumbered the six pre-existing tiers +1)
         assert [l["slug"] for l in body["levels"]][0] == "intern"
+
+    def test_facets_catalog_carries_the_third_dimension(self, client):
+        """PHASE 2: `subcategories` is populated, not `[]`.
+
+        The prod equivalent is
+        `curl .../api/jobs/facets | jq '[.subcategories|length,(.categories|length)]'`
+        returning `[15, 6]`.
+        """
+        body = client.get("/api/jobs/facets").json()
+
+        assert set(body) >= {"categories", "levels", "subcategories"}
+        subs = body["subcategories"]
+        assert len(subs) == 15
+        assert len(body["categories"]) == 6
+        assert "project_manager" not in [c["slug"] for c in body["categories"]]
+
+        # `parentSlug` on THIS dimension is a GROUPING edge — uniformly the one
+        # parent category — and must never be fed to the client's LEVEL
+        # expansion builder, where the same field name means something else.
+        assert [s["parentSlug"] for s in subs] == ["software_engineering"] * 15
+
+        # Ordered by sort_order, contiguous 0..14.
+        assert [s["sortOrder"] for s in subs] == list(range(15))
+        assert [s["slug"] for s in subs] == sorted(s["slug"] for s in subs)
+        assert subs[1]["slug"] == "backend"
+        assert subs[1]["label"] == "Backend"

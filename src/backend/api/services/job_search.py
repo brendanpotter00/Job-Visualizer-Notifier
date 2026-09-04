@@ -25,6 +25,18 @@ NOT called out is meant to be identical, and
 ``api/tests/test_jobs_search_filters.py::test_server_results_match_client_filter_oracle``
 holds that line by running a Python translation of the client matcher against the
 same corpus.
+
+SOLE EXPANDER
+-------------
+The ``frontend``/``backend`` ⊃ ``full_stack`` widening for the subcategory filter
+happens HERE and nowhere else on this path. **The client does NOT pre-expand**:
+``buildSearchJobsArgs`` sends the user's selection verbatim, so this module is the
+sole expander for ``GET /api/jobs/search``. Expanding on both sides would put two
+copies of the taxonomy in play and — worse — would persist the widened pair
+(``['backend', 'full_stack']``) into the user's saved filters and into the chips
+they see. The client-side matcher ``matchesSubcategory`` is the sole expander for
+the OTHER path (the Companies trend page and demo mode), which never reaches this
+module.
 """
 
 import logging
@@ -37,6 +49,7 @@ from psycopg2 import sql
 from scripts.shared.database import Connection
 
 from ..pagination import JobCursor
+from .enrichment_writer import SUBCATEGORY_FILTER_EXPANSION
 from .database import (
     _CURSOR_PREDICATE,
     _FRESHNESS_JOIN,
@@ -72,6 +85,7 @@ class SearchFilters(TypedDict):
     status: str
     since: datetime | None
     categories: list[str] | None
+    subcategories: list[str] | None
     levels: list[str] | None
     companies: list[str] | None
     locations: list[str] | None
@@ -435,11 +449,33 @@ def expand_levels(levels: list[str]) -> list[str]:
     return expanded
 
 
+def expand_subcategories(subcategories: list[str]) -> list[str]:
+    """Apply the full_stack widening to a multi-select subcategory filter.
+
+    Selecting Frontend or Backend also surfaces Full Stack roles; selecting Full
+    Stack stays EXACT — the relation is deliberately one-way, so a reader who
+    asks specifically for full-stack work does not get every frontend job back.
+
+    Order-preserving and de-duplicating, exactly like :func:`expand_levels`. The
+    map itself lives in ``enrichment_writer`` beside the slug set, so there is
+    one expansion rule rather than two that can drift.
+
+    THIS IS THE SOLE EXPANDER FOR THIS PATH — see the module docstring.
+    """
+    expanded: list[str] = []
+    for subcategory in subcategories:
+        for slug in SUBCATEGORY_FILTER_EXPANSION.get(subcategory, (subcategory,)):
+            if slug not in expanded:
+                expanded.append(slug)
+    return expanded
+
+
 def build_search_where(
     *,
     status: str,
     since: datetime | None = None,
     categories: list[str] | None = None,
+    subcategories: list[str] | None = None,
     levels: list[str] | None = None,
     companies: list[str] | None = None,
     location_descriptors: dict[str, LocationDescriptor] | None = None,
@@ -459,6 +495,14 @@ def build_search_where(
     client matcher (``matchesCategory`` / ``matchesLevel`` both require a non-null
     value). It is stated here because the type docs in ``types/index.ts`` claimed
     the opposite for months.
+
+    THE SUBCATEGORY DIMENSION HIDES HARDER, and the difference matters: ``&&``
+    is false for ``'{}'`` and NULL for ``NULL``, so an active subcategory filter
+    excludes BOTH the rows nobody has evaluated yet AND the rows evaluated to
+    "no specialty applies". Mid-backfill that means an active filter hides every
+    not-yet-labelled SWE row — on day 0, ALL of them. That is precisely why the
+    reveal flag exists: the control stays hidden until coverage is high enough
+    that the filter returns a sensible set rather than an almost-empty one.
     """
     conditions: list[sql.Composable] = []
     params: list = []
@@ -480,6 +524,16 @@ def build_search_where(
         else:
             conditions.append(sql.SQL("job_listings.enrichment_category = ANY(%s::text[])"))
             params.append(list(categories))
+
+    if subcategories:
+        # Array OVERLAP. `&&` gives OR-within-the-dimension for free AND hides
+        # unlabelled rows without a second clause: `NULL && x` is NULL and
+        # `'{}' && x` is false, so both the never-evaluated queue and the
+        # evaluated-but-no-specialty terminal state drop out the moment a filter
+        # is active. It ANDs with every other condition, including the cursor
+        # comparison, and never touches `_KEYSET_ORDER_BY`.
+        conditions.append(sql.SQL("job_listings.enrichment_subcategories && %s::text[]"))
+        params.append(expand_subcategories(subcategories))
 
     if levels:
         conditions.append(sql.SQL("job_listings.enrichment_level = ANY(%s::text[])"))

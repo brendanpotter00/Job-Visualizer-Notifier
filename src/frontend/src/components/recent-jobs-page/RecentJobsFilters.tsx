@@ -15,6 +15,7 @@ import {
   removeRecentJobsCompany,
   setRecentJobsCategory,
   setRecentJobsLevel,
+  setRecentJobsSubcategory,
 } from '../../features/filters/slices/recentJobsFiltersSlice.ts';
 import {
   selectRecentJobsFilters,
@@ -22,7 +23,10 @@ import {
 } from '../../features/filters/selectors/recentJobsSelectors.ts';
 import { useGetFacetsQuery } from '../../features/jobs/jobsApi.ts';
 import { FALLBACK_CATEGORIES, FALLBACK_LEVELS } from '../../constants/enrichment.ts';
+import { useSubcategoryRevealEnabled } from '../../features/settings/subcategoryReveal.tsx';
+// FacetMultiSelect STAYS — it still backs the Level control below.
 import { FacetMultiSelect } from '../shared/filters/FacetMultiSelect.tsx';
+import { FacetTreeMultiSelect } from '../shared/filters/FacetTreeMultiSelect.tsx';
 import { KeywordFilterInput } from '../shared/filters/KeywordFilterInput.tsx';
 import { TimeWindowSelect } from '../shared/filters/TimeWindowSelect.tsx';
 import { MultiSelectAutocomplete } from '../shared/filters/MultiSelectAutocomplete.tsx';
@@ -45,8 +49,15 @@ export function RecentJobsFilters() {
   // Facet dropdown options are data-driven (seeded dimension tables); the
   // fallback constants cover the pre-fetch frame and an endpoint outage.
   const { data: facets } = useGetFacetsQuery();
+  const revealSubcategories = useSubcategoryRevealEnabled();
   const categoryOptions = facets?.categories ?? FALLBACK_CATEGORIES;
   const levelOptions = facets?.levels ?? FALLBACK_LEVELS;
+  // `?? []` and NOT the fallback constant, deliberately. THIS SINGLE EXPRESSION
+  // IS the shared contract's `flag && (facets?.subcategories?.length ?? 0) > 0`
+  // gate: an empty catalog renders no chevron at all, so a warm one-hour facets
+  // cache plus a freshly flipped flag cannot produce a parent row that expands
+  // into nothing.
+  const subcategoryOptions = revealSubcategories ? (facets?.subcategories ?? []) : [];
 
   /**
    * Memoized company options for dropdown
@@ -129,22 +140,32 @@ export function RecentJobsFilters() {
           />
 
           {/*
-            The label says "Job title" but the data model underneath is
+            The label says "Job category" but the data model underneath is
             "category" all the way down — the `filters.category` slice field, the
             `setRecentJobsCategory` action, the API param, and the DB column are
             all "category". This is a deliberate UI-only rename: users engage with
-            a "Job title" filter far more than a "Category" one. It stays a
+            a "Job category" filter far more than a bare "Category" one. It stays a
             category under the hood because these values will subdivide over time
             (e.g. "Software Engineering" → "Frontend SWE" / "Backend SWE"), at
             which point they read as categories again. Rename the label only —
             never the data model.
+
+            NOTE: the LABEL below now reads "Job category" — that value comes
+            from FE-CP-1, the copy-rename step, which ships in a SIBLING PR. The
+            heading, tooltips and this comment's own wording still carry the
+            pre-rename copy until that PR merges; resolve toward it when it does.
           */}
-          <FacetMultiSelect
-            label="Job title"
+          <FacetTreeMultiSelect
+            label="Job category"
             options={categoryOptions}
+            childOptions={subcategoryOptions}
             value={filters.category}
-            onChange={(slugs) => dispatch(setRecentJobsCategory(slugs))}
-            tooltip="AI-enriched job title (choose any number). Only jobs matching your selection are shown."
+            childValue={filters.subcategory}
+            onChange={({ category, subcategory }) => {
+              dispatch(setRecentJobsCategory(category));
+              dispatch(setRecentJobsSubcategory(subcategory));
+            }}
+            tooltip="AI-enriched job category (choose any number). Only jobs matching your selection are shown."
           />
           <FacetMultiSelect
             label="Level"

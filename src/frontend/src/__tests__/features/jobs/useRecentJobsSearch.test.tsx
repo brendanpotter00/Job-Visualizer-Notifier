@@ -10,6 +10,7 @@ import {
 } from '../../../features/jobs/searchJobsArgs';
 import {
   setRecentJobsCategory,
+  setRecentJobsSubcategory,
   setRecentJobsTimeWindow,
 } from '../../../features/filters/slices/recentJobsFiltersSlice';
 import { saveEnabledCompanies } from '../../../features/preferences/enabledCompaniesSlice';
@@ -48,6 +49,7 @@ const BASE_FILTERS: RecentJobsFilters = {
   company: undefined,
   category: undefined,
   level: undefined,
+  subcategory: undefined,
 };
 
 function makeRow(id: string, company = 'google'): BackendJobListing {
@@ -333,6 +335,43 @@ describe('useRecentJobsSearch — when it is allowed to fetch', () => {
 });
 
 describe('useRecentJobsSearch — filter edits', () => {
+  it('TICKING A SUBCATEGORY PUTS subcategory= ON THE WIRE, exactly once', async () => {
+    // THE NETWORK ASSERTION, and it has to be a network one. A different row
+    // count is NOT sufficient evidence: the failure this guards against is the
+    // checkbox changing the debounce signature, firing a refetch, and returning
+    // IDENTICAL rows with a 200 — which is what happens if the arg never
+    // reaches the URL. Only the request itself can tell those apart.
+    const store = makeStore({ filters: { category: ['software_engineering'] } });
+    renderSearch(store);
+    await flush();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(paramsOf(fetchMock.mock.calls[0][0]).has('subcategory')).toBe(false);
+
+    act(() => {
+      store.dispatch(setRecentJobsSubcategory(['backend']));
+    });
+    await flush(400);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const params = paramsOf(fetchMock.mock.calls[1][0]);
+    expect(params.getAll('subcategory')).toEqual(['backend']);
+    // The category filter rides along unchanged — the two dimensions AND.
+    expect(params.getAll('category')).toEqual(['software_engineering']);
+  });
+
+  it('sends a full_stack selection VERBATIM — the server owns the widening', () => {
+    // Belt and braces against a future "helpful" client-side expansion: the
+    // pair ['backend','full_stack'] must never leave this client, or it would
+    // be persisted into saved filters and rendered as two chips.
+    const store = makeStore({ filters: { subcategory: ['full_stack'] } });
+    renderSearch(store);
+    return flush().then(() => {
+      expect(paramsOf(fetchMock.mock.calls[0][0]).getAll('subcategory')).toEqual([
+        'full_stack',
+      ]);
+    });
+  });
+
   it('collapses a burst of filter edits into one request', async () => {
     const store = makeStore();
     renderSearch(store);

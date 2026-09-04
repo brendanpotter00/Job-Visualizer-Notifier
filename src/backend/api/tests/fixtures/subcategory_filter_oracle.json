@@ -1,0 +1,164 @@
+{
+  "_comment": [
+    "THE CROSS-LANGUAGE ORACLE for the subcategory filter. ONE file, TWO readers:",
+    "  - pytest  api/tests/test_jobs_search_filters.py (the SQL predicate)",
+    "  - vitest  src/frontend/src/__tests__/features/filters/subcategoryFilterOracle.test.ts",
+    "            (the client matcher used by the Companies page and demo mode)",
+    "Same file read by both is the only mechanical way to assert the two agree.",
+    "Neither side invents rows; both read whatever is committed here.",
+    "The frontend reaches it with six '../' from src/frontend/src/__tests__/features/filters/,",
+    "resolved absolutely via import.meta.url so it is cwd-independent."
+  ],
+
+  "expansion": {
+    "frontend": ["frontend", "full_stack"],
+    "backend": ["backend", "full_stack"]
+  },
+  "_expansion_comment": [
+    "Keyed on the SELECTED slug and ONE-WAY: picking Frontend also matches Full",
+    "Stack, but picking Full Stack stays exact. Asserted deep-equal against the",
+    "backend's enrichment_writer.SUBCATEGORY_FILTER_EXPANSION and against the",
+    "frontend's constants/enrichment.ts SUBCATEGORY_FILTER_EXPANSION."
+  ],
+
+  "source_id": "oracle_src",
+
+  "jobs": [
+    {
+      "job_id": "o-null",
+      "enrichment_category": "software_engineering",
+      "enrichment_subcategories": null,
+      "_why": "NEVER EVALUATED — the backfill queue. Hidden by any active filter."
+    },
+    {
+      "job_id": "o-empty",
+      "enrichment_category": "software_engineering",
+      "enrichment_subcategories": [],
+      "_why": "EVALUATED, no specialty applies. TERMINAL, and hidden just the same."
+    },
+    {
+      "job_id": "o-backend",
+      "enrichment_category": "software_engineering",
+      "enrichment_subcategories": ["backend"]
+    },
+    {
+      "job_id": "o-frontend",
+      "enrichment_category": "software_engineering",
+      "enrichment_subcategories": ["frontend"]
+    },
+    {
+      "job_id": "o-full-stack",
+      "enrichment_category": "software_engineering",
+      "enrichment_subcategories": ["full_stack"],
+      "_why": "Matched BY frontend and BY backend selections; matches full_stack too."
+    },
+    {
+      "job_id": "o-backend-ai",
+      "enrichment_category": "software_engineering",
+      "enrichment_subcategories": ["backend", "ai_engineering"],
+      "_why": "TWO slugs, primary first. The SECONDARY label counts for filtering."
+    },
+    {
+      "job_id": "o-ai-primary",
+      "enrichment_category": "software_engineering",
+      "enrichment_subcategories": ["ai_engineering", "security"]
+    },
+    {
+      "job_id": "o-security",
+      "enrichment_category": "software_engineering",
+      "enrichment_subcategories": ["security"]
+    },
+    {
+      "job_id": "o-nonswe-backend",
+      "enrichment_category": "growth",
+      "enrichment_subcategories": ["backend"],
+      "_why": [
+        "A DECOY that should not exist in real data. It proves the subcategory",
+        "predicate reads the ARRAY and nothing else — the category predicate is a",
+        "separate condition that ANDs with it. Both languages must return it for a",
+        "bare backend selection, and both must drop it once a category filter is",
+        "also active."
+      ]
+    },
+    {
+      "job_id": "o-nonswe-null",
+      "enrichment_category": "growth",
+      "enrichment_subcategories": null
+    }
+  ],
+
+  "selections": [
+    {
+      "name": "no selection shows everything",
+      "subcategory": [],
+      "expected": [
+        "o-null",
+        "o-empty",
+        "o-backend",
+        "o-frontend",
+        "o-full-stack",
+        "o-backend-ai",
+        "o-ai-primary",
+        "o-security",
+        "o-nonswe-backend",
+        "o-nonswe-null"
+      ]
+    },
+    {
+      "name": "backend widens into full_stack",
+      "subcategory": ["backend"],
+      "expected": ["o-backend", "o-full-stack", "o-backend-ai", "o-nonswe-backend"]
+    },
+    {
+      "name": "frontend widens into full_stack",
+      "subcategory": ["frontend"],
+      "expected": ["o-frontend", "o-full-stack"]
+    },
+    {
+      "name": "full_stack alone stays EXACT (one-way)",
+      "subcategory": ["full_stack"],
+      "expected": ["o-full-stack"]
+    },
+    {
+      "name": "a secondary label counts",
+      "subcategory": ["ai_engineering"],
+      "expected": ["o-backend-ai", "o-ai-primary"]
+    },
+    {
+      "name": "two values OR together, de-duplicating the overlap",
+      "subcategory": ["frontend", "security"],
+      "expected": ["o-frontend", "o-full-stack", "o-ai-primary", "o-security"]
+    },
+    {
+      "name": "frontend and backend together yield full_stack exactly once",
+      "subcategory": ["frontend", "backend"],
+      "expected": [
+        "o-backend",
+        "o-frontend",
+        "o-full-stack",
+        "o-backend-ai",
+        "o-nonswe-backend"
+      ]
+    },
+    {
+      "name": "a well-formed UNKNOWN slug matches nothing without erroring",
+      "subcategory": ["ai_ml"],
+      "expected": []
+    }
+  ],
+
+  "category_composition": [
+    {
+      "name": "category AND subcategory compose — the decoy drops out",
+      "category": ["software_engineering"],
+      "subcategory": ["backend"],
+      "expected": ["o-backend", "o-full-stack", "o-backend-ai"]
+    },
+    {
+      "name": "a non-SWE category with a SWE subcategory returns nothing",
+      "category": ["growth"],
+      "subcategory": ["frontend"],
+      "expected": []
+    }
+  ]
+}

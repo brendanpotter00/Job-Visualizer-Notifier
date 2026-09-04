@@ -22,6 +22,13 @@ const initialFilters: GraphFilters = {
   softwareOnly: false,
   category: undefined,
   level: undefined,
+  // NOT COSMETICS. `reset${Name}Filters` is
+  // `Object.assign(state.filters, initialState.filters)`, which copies only the
+  // keys PRESENT on the source object. Add `subcategory` to the interface but
+  // omit it here and "Reset Filters" silently leaves a subcategory selection
+  // active while visibly clearing everything else — and it typechecks, and every
+  // existing test passes.
+  subcategory: undefined,
 };
 
 const graphFiltersSlice = createFilterSlice('graph', initialFilters);
@@ -56,6 +63,7 @@ export const {
   setGraphEmploymentType,
   setGraphCategory,
   setGraphLevel,
+  setGraphSubcategory,
   toggleGraphSoftwareOnly,
   setGraphSoftwareOnly,
   hydrateGraphFilters,

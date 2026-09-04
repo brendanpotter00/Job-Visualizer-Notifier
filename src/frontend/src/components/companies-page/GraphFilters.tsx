@@ -11,11 +11,15 @@ import {
   removeGraphLocation,
   setGraphCategory,
   setGraphLevel,
+  setGraphSubcategory,
 } from '../../features/filters/slices/graphFiltersSlice.ts';
 import { selectGraphFilters } from '../../features/filters/selectors/graphFiltersSelectors.ts';
 import { useGetFacetsQuery } from '../../features/jobs/jobsApi.ts';
 import { FALLBACK_CATEGORIES, FALLBACK_LEVELS } from '../../constants/enrichment.ts';
+import { useSubcategoryRevealEnabled } from '../../features/settings/subcategoryReveal.tsx';
+// FacetMultiSelect STAYS — it still backs the Level control below.
 import { FacetMultiSelect } from '../shared/filters/FacetMultiSelect.tsx';
+import { FacetTreeMultiSelect } from '../shared/filters/FacetTreeMultiSelect.tsx';
 import { KeywordFilterInput } from '../shared/filters/KeywordFilterInput.tsx';
 import { TimeWindowSelect } from '../shared/filters/TimeWindowSelect.tsx';
 import { AsyncMultiSelectAutocomplete } from '../shared/filters/AsyncMultiSelectAutocomplete.tsx';
@@ -32,8 +36,22 @@ export function GraphFilters() {
   // Facet dropdown options are data-driven (seeded dimension tables); the
   // fallback constants cover the pre-fetch frame and an endpoint outage.
   const { data: facets } = useGetFacetsQuery();
+  const revealSubcategories = useSubcategoryRevealEnabled();
   const categoryOptions = facets?.categories ?? FALLBACK_CATEGORIES;
   const levelOptions = facets?.levels ?? FALLBACK_LEVELS;
+  // `?? []` rather than a fallback constant — the same gate as the Recent bar:
+  // an empty catalog renders no chevron, so a warm facets cache plus a freshly
+  // flipped flag cannot offer a parent that expands into nothing.
+  const subcategoryOptions = revealSubcategories ? (facets?.subcategories ?? []) : [];
+
+  // THIS IS THE PAGE `matchesSubcategory` ACTUALLY SERVES: the Companies trend
+  // page filters entirely in the browser through `graphFiltersSelectors`, so
+  // ticking a child here narrows the chart and the list below it with NO network
+  // request. It is not optional even though the brief named only the Recent
+  // page: `propagateSavedFilters` dispatches `setGraphSubcategory`
+  // unconditionally, so this slice carries the field regardless — and a saved
+  // subcategory filtering this page with no control to see or clear it is worse
+  // than not shipping the control at all.
 
   return (
     <Box sx={{ mb: RESPONSIVE.spacing.sectionMarginB }}>
@@ -70,22 +88,32 @@ export function GraphFilters() {
           />
 
           {/*
-            The label says "Job title" but the data model underneath is
+            The label says "Job category" but the data model underneath is
             "category" all the way down — the `filters.category` slice field, the
             `setGraphCategory` action, the API param, and the DB column are all
             "category". This is a deliberate UI-only rename: users engage with a
-            "Job title" filter far more than a "Category" one. It stays a category
+            "Job category" filter far more than a bare "Category" one. It stays a category
             under the hood because these values will subdivide over time (e.g.
             "Software Engineering" → "Frontend SWE" / "Backend SWE"), at which
             point they read as categories again. Rename the label only — never the
             data model.
+
+            NOTE: the LABEL below now reads "Job category" — that value comes
+            from FE-CP-1, the copy-rename step, which ships in a SIBLING PR. The
+            heading and tooltips still carry the pre-rename copy until that PR
+            merges; resolve toward it when it does.
           */}
-          <FacetMultiSelect
-            label="Job title"
+          <FacetTreeMultiSelect
+            label="Job category"
             options={categoryOptions}
+            childOptions={subcategoryOptions}
             value={filters.category}
-            onChange={(slugs) => dispatch(setGraphCategory(slugs))}
-            tooltip="AI-enriched job title (choose any number). Only jobs matching your selection are shown."
+            childValue={filters.subcategory}
+            onChange={({ category, subcategory }) => {
+              dispatch(setGraphCategory(category));
+              dispatch(setGraphSubcategory(subcategory));
+            }}
+            tooltip="AI-enriched job category (choose any number). Only jobs matching your selection are shown."
           />
           <FacetMultiSelect
             label="Level"

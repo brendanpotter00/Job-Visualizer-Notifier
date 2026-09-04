@@ -19,7 +19,7 @@ a relevance ordering has no immutable, unique sort key to seek on.
 import logging
 import re
 import time
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from typing import NoReturn
 from datetime import datetime
 
@@ -150,6 +150,12 @@ _SLOW_SEARCH_MS = 2500.0
 _COMPANY_ID_RE = re.compile(ENABLED_COMPANY_ID_PATTERN.rstrip("$") + r"\Z")
 _CATEGORY_RE = re.compile(r"\A[a-z_]{1,40}\Z")
 _LEVEL_RE = re.compile(r"\A[a-z_]{1,20}\Z")
+# Same ``\A``/``\Z`` rule and the same reason: ``?subcategory=backend%0A`` would
+# pass a ``^…$`` pattern, then be compared against the array elements as a
+# different string and match nothing — a silent 200 where the contract promises
+# a 422. The longest live slug is ``infrastructure_platform`` (23), so 40 leaves
+# room without letting anything unbounded through.
+_SUBCATEGORY_RE = re.compile(r"\A[a-z_]{1,40}\Z")
 
 # Control characters have no business in a filter value and would corrupt the
 # fingerprint's NUL-separated canonical form if one ever slipped through.
@@ -367,6 +373,17 @@ def search(
             "'entry' also matches new_grad (new_grad ⊂ entry)."
         ),
     ),
+    subcategory: list[str] | None = Query(
+        default=None,
+        description=(
+            "Repeatable SWE subcategory slug. Multiple values OR together and "
+            "AND with every other dimension; every slug implies the "
+            "software_engineering parent. 'frontend' and 'backend' each also "
+            "match 'full_stack', while 'full_stack' alone stays exact. An "
+            "active filter HIDES jobs whose subcategory array is NULL (never "
+            "evaluated) or empty (evaluated, no specialty applies)."
+        ),
+    ),
     company: list[str] | None = Query(
         default=None,
         description="Repeatable company id. Multiple values OR together. Omit for all.",
@@ -441,6 +458,13 @@ def search(
     """
     categories = _validate_slugs(category, pattern=_CATEGORY_RE, field="category")
     levels = _validate_slugs(level, pattern=_LEVEL_RE, field="level")
+    # A well-formed but UNKNOWN slug is deliberately not an error: it simply
+    # matches no row, exactly like an unknown category. Validating against the
+    # live taxonomy here would make a taxonomy migration a breaking API change
+    # for any client holding a bookmarked URL.
+    subcategories = _validate_slugs(
+        subcategory, pattern=_SUBCATEGORY_RE, field="subcategory"
+    )
     companies = _validate_companies(company)
     locations = _validate_text_list(
         location,
@@ -500,19 +524,30 @@ def search(
         # every cursor still validates, and the filter set has silently changed
         # underneath them. Fingerprinting the raw names cannot see that; fingerprinting
         # what they resolved to can, and turns it into the 409 restart below.
-        fingerprint = compute_filter_fingerprint(
-            {
-                "status": status,
-                "since": parsed_since.isoformat() if parsed_since else None,
-                "category": categories or [],
-                "level": levels or [],
-                "company": companies or [],
-                "location": locations or [],
-                "location_resolved": _fingerprint_location_descriptors(location_descriptors),
-                "include": include_terms or [],
-                "exclude": exclude_terms or [],
-            }
-        )
+        fingerprint_inputs: dict[str, str | Iterable[str] | None] = {
+            "status": status,
+            "since": parsed_since.isoformat() if parsed_since else None,
+            "category": categories or [],
+            "level": levels or [],
+            "company": companies or [],
+            "location": locations or [],
+            "location_resolved": _fingerprint_location_descriptors(location_descriptors),
+            "include": include_terms or [],
+            "exclude": exclude_terms or [],
+        }
+        # ONLY when the filter is ACTIVE. Present-but-empty would change the
+        # fingerprint of every cursor in flight at deploy time, 409-ing every
+        # reader mid-walk for a filter none of them selected. Pinned by
+        # test_adding_the_subcategory_PARAM_did_not_churn_existing_cursors, which
+        # reads the fingerprint back out of a router-minted cursor.
+        #
+        # It MUST be here when active, though: the fingerprint is what makes a
+        # filter change invalidate the walk. Without it a reader could switch
+        # subcategory mid-walk, keep a cursor that still validates, and page on
+        # from the old position under the new filter.
+        if subcategories:
+            fingerprint_inputs["subcategory"] = subcategories
+        fingerprint = compute_filter_fingerprint(fingerprint_inputs)
 
         parsed_cursor: JobCursor | None = None
         if cursor is not None:
@@ -538,6 +573,7 @@ def search(
             "status": status,
             "since": parsed_since,
             "categories": categories,
+            "subcategories": subcategories,
             "levels": levels,
             "companies": companies,
             "locations": locations,

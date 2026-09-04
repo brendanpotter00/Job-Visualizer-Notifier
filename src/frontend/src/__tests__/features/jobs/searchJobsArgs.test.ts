@@ -95,6 +95,7 @@ describe('buildSearchJobsArgs — list normalization', () => {
       {
         company: ['stripe', 'apple', 'stripe'],
         category: ['software_engineering', 'design', 'design'],
+        subcategory: ['frontend', 'backend', 'backend'],
         level: ['senior', 'entry', 'entry'],
         location: ['Seattle, WA, US', 'Austin, TX, US', 'Austin, TX, US'],
         searchTags: [
@@ -111,6 +112,7 @@ describe('buildSearchJobsArgs — list normalization', () => {
 
     expect(args?.companies).toEqual(['apple', 'stripe']);
     expect(args?.category).toEqual(['design', 'software_engineering']);
+    expect(args?.subcategory).toEqual(['backend', 'frontend']);
     expect(args?.level).toEqual(['entry', 'senior']);
     expect(args?.locations).toEqual(['Austin, TX, US', 'Seattle, WA, US']);
     expect(args?.include).toEqual(['backend', 'rust']);
@@ -124,6 +126,7 @@ describe('buildSearchJobsArgs — list normalization', () => {
       {
         company: ['apple', 'stripe'],
         category: ['design', 'software_engineering'],
+        subcategory: ['backend', 'frontend'],
         level: ['entry', 'senior'],
         location: ['Austin, TX, US', 'Seattle, WA, US'],
         searchTags: [
@@ -140,6 +143,7 @@ describe('buildSearchJobsArgs — list normalization', () => {
       {
         company: ['stripe', 'apple'],
         category: ['software_engineering', 'design'],
+        subcategory: ['frontend', 'backend'],
         level: ['senior', 'entry'],
         location: ['Seattle, WA, US', 'Austin, TX, US'],
         searchTags: [
@@ -158,11 +162,19 @@ describe('buildSearchJobsArgs — list normalization', () => {
   it('collapses empty lists to undefined rather than []', () => {
     // `[]` and `undefined` serialize to different cache keys but mean the same
     // thing, so only one of them is ever allowed to reach the args.
-    const args = build({ company: [], category: [], level: [], location: [], searchTags: [] });
+    const args = build({
+      company: [],
+      category: [],
+      subcategory: [],
+      level: [],
+      location: [],
+      searchTags: [],
+    });
 
     expect(args).toEqual({
       companies: undefined,
       category: undefined,
+      subcategory: undefined,
       level: undefined,
       locations: undefined,
       include: undefined,
@@ -177,6 +189,7 @@ describe('buildSearchJobsArgs — list normalization', () => {
 
     expect(args?.companies).toBeUndefined();
     expect(args?.category).toBeUndefined();
+    expect(args?.subcategory).toBeUndefined();
     expect(args?.level).toBeUndefined();
     expect(args?.locations).toBeUndefined();
     expect(args?.include).toBeUndefined();
@@ -309,6 +322,41 @@ describe('buildSearchJobsQuery', () => {
 
     expect(params.get('since')).toBe(FROZEN_SINCE);
     expect(params.get('limit')).toBe('50');
+  });
+
+  it('sends subcategory as TWO appended params in sorted order, never comma-joined', () => {
+    // `String(array)` comma-joins, and 'backend,frontend' would reach the
+    // backend as ONE bogus slug that matches nothing — with a 200.
+    const query = buildSearchJobsQuery(
+      makeArgs({ subcategory: ['backend', 'frontend'] }),
+      null,
+    );
+
+    expect(query).toContain('subcategory=backend&subcategory=frontend');
+    expect(new URLSearchParams(query).getAll('subcategory')).toEqual([
+      'backend',
+      'frontend',
+    ]);
+  });
+
+  it('sends a full_stack selection VERBATIM — the client never expands it', () => {
+    // THE DOUBLE-EXPANSION GUARD. The server owns the Frontend/Backend ⊃ Full
+    // Stack widening; expanding here too would put two copies of the taxonomy
+    // in play and would persist the widened pair into saved filters and chips.
+    const params = new URLSearchParams(
+      buildSearchJobsQuery(makeArgs({ subcategory: ['full_stack'] }), null),
+    );
+    expect(params.getAll('subcategory')).toEqual(['full_stack']);
+
+    const widened = new URLSearchParams(
+      buildSearchJobsQuery(makeArgs({ subcategory: ['backend'] }), null),
+    );
+    expect(widened.getAll('subcategory')).toEqual(['backend']);
+  });
+
+  it('omits subcategory entirely when none is selected', () => {
+    const params = new URLSearchParams(buildSearchJobsQuery(makeArgs(), null));
+    expect(params.has('subcategory')).toBe(false);
   });
 
   it('repeats a multi-value filter instead of comma-joining it', () => {

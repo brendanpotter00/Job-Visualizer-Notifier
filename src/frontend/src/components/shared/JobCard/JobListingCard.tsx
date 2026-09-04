@@ -133,7 +133,12 @@ export function JobListingCard({ job }: JobListingCardProps) {
             )}
           </Stack>
 
-          <JobChipsSection isRemote={job.isRemote} category={job.category} level={job.level} />
+          <JobChipsSection
+            isRemote={job.isRemote}
+            category={job.category}
+            level={job.level}
+            subcategories={job.subcategories}
+          />
 
           {/* LinkedIn recruiter link */}
           {recruiterLinkedInUrl && (

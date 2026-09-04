@@ -961,3 +961,231 @@ def test_an_ordinary_search_logs_no_slow_line(client, db_conn, seed_taxonomy, ca
         response = client.get(SEARCH)
     assert response.status_code == 200, response.text
     assert not [r for r in caplog.records if "jobs-search slow" in r.getMessage()]
+
+# ---------------------------------------------------------------------------
+# subcategory — validation, caps, and the cursor no-churn guarantee
+# ---------------------------------------------------------------------------
+
+
+def test_two_subcategory_values_parse_as_a_repeatable_param(client, db_conn):
+    # No `enrichment_category` here: this file does not seed the taxonomy
+    # dimensions, and the array column has no FK of its own — which is itself
+    # part of the contract (Postgres cannot FK-check array elements).
+    _seed(db_conn, "sc-1", enrichment_subcategories=["backend"])
+    _seed(db_conn, "sc-2", minutes_before=1, enrichment_subcategories=["frontend"])
+    _seed(db_conn, "sc-3", minutes_before=2, enrichment_subcategories=["security"])
+
+    resp = client.get(
+        SEARCH, params=[("subcategory", "backend"), ("subcategory", "security")]
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert set(_ids(resp.json())) == {"sc-1", "sc-3"}
+
+
+@pytest.mark.parametrize(
+    "bad_value, id_",
+    [
+        pytest.param("Backend", "uppercase", id="uppercase"),
+        pytest.param("", "empty", id="empty"),
+        pytest.param("back-end", "hyphen", id="hyphen"),
+        pytest.param("back end", "whitespace", id="whitespace"),
+        pytest.param("b" * 41, "too-long", id="too_long"),
+    ],
+)
+def test_a_malformed_subcategory_slug_is_a_422(client, db_conn, bad_value, id_):
+    resp = client.get(SEARCH, params={"subcategory": bad_value})
+    assert resp.status_code == 422, resp.text
+    assert "subcategory" in _detail(resp)
+
+
+def test_a_trailing_newline_in_a_subcategory_slug_is_a_422_not_a_silent_200(
+    client, db_conn
+):
+    """THE ``\\Z`` REGRESSION.
+
+    Python's ``$`` also matches immediately before a trailing newline, so a
+    pattern anchored with ``^…$`` would ACCEPT ``backend\\n``, hand it to the SQL
+    array-overlap predicate as a different string, match no row, and return a
+    perfectly ordinary 200 with an empty list. The contract promises a 422 and
+    the anchors are what deliver it.
+    """
+    _seed(db_conn, "sc-nl", enrichment_subcategories=["backend"])
+
+    resp = client.get(SEARCH, params={"subcategory": "backend\n"})
+
+    assert resp.status_code == 422, resp.text
+    assert "subcategory" in _detail(resp)
+
+
+def test_more_than_twenty_subcategory_values_is_a_structural_400(client, db_conn):
+    """Every value here is well-formed, so only the CAP can be what rejected it."""
+    slugs = [f"sub{chr(ord('a') + n)}" for n in range(21)]
+
+    resp = client.get(SEARCH, params=[("subcategory", slug) for slug in slugs])
+
+    assert resp.status_code == 400, resp.text
+    assert "at most 20" in _detail(resp)
+
+
+def test_duplicate_subcategory_values_dedupe_preserving_order(client, db_conn):
+    """Deduping is order-preserving so the generated SQL stays stable for a given
+    request — which is what keeps EXPLAIN output and the cursor fingerprint
+    reproducible."""
+    from api.routers.jobs_search import _SUBCATEGORY_RE, _validate_slugs
+
+    assert _validate_slugs(
+        ["security", "backend", "security"],
+        pattern=_SUBCATEGORY_RE,
+        field="subcategory",
+    ) == ["security", "backend"]
+
+
+def test_a_well_formed_unknown_subcategory_matches_nothing_without_erroring(
+    client, db_conn
+):
+    """Deliberately NOT an error.
+
+    Validating against the live taxonomy would make a taxonomy migration a
+    breaking API change for anyone holding a bookmarked URL. ``ai_ml`` is a real
+    example: it existed in an earlier draft of this taxonomy and does not now.
+    """
+    _seed(db_conn, "sc-real", enrichment_subcategories=["backend"])
+
+    resp = client.get(SEARCH, params={"subcategory": "ai_ml"})
+
+    assert resp.status_code == 200, resp.text
+    assert _ids(resp.json()) == []
+
+
+def test_a_cursor_minted_without_subcategory_is_refused_once_one_is_added(
+    client, db_conn
+):
+    """The filter change is a 409, exactly like every other dimension."""
+    _seed_fingerprint_corpus(db_conn)
+    cursor = _mint(client, {"company": "google", "limit": 1})
+
+    resp = client.get(
+        SEARCH,
+        params={"company": "google", "limit": 1, "cursor": cursor,
+                "subcategory": "backend"},
+    )
+
+    assert resp.status_code == 409, resp.text
+    assert "different filter set" in _detail(resp)
+
+
+# Captured by running `compute_filter_fingerprint` over the exact nine-key input
+# dict this router built BEFORE the subcategory param was added, for the filter
+# set `status=OPEN, category=software_engineering, company=google`. Pinned as a
+# literal so a change that starts always-including the subcategory key fails
+# here instead of 409-ing every in-flight cursor on deploy day.
+_PRE_CHANGE_FINGERPRINT = "a6107ca0"
+
+
+def _fingerprint_of(cursor: str) -> str:
+    """The fingerprint the ROUTER stamped into a minted cursor.
+
+    Field 2 of the five-field payload — see ``encode_search_cursor`` in
+    api/pagination.py. Decoded here rather than re-derived, because the whole
+    point of the test below is to read back what the router actually built, not
+    what a test thinks it should have built.
+    """
+    from api.pagination import _CURSOR_FIELD_SEPARATOR
+
+    padded = cursor + "=" * (-len(cursor) % 4)
+    text = base64.urlsafe_b64decode(padded.encode("ascii")).decode("utf-8")
+    return text.split(_CURSOR_FIELD_SEPARATOR, 4)[1]
+
+
+def _seed_pre_change_corpus(conn) -> None:
+    """Two OPEN google rows carrying the SWE category, newest first.
+
+    The filter set is fixed on purpose: ``status=OPEN, category=
+    software_engineering, company=google`` is exactly the set
+    :data:`_PRE_CHANGE_FINGERPRINT` was captured under. Two rows so a
+    ``limit=1`` page 1 comes back full and hands out a cursor to inspect.
+
+    They also carry ``backend`` so the second mint below — the one WITH a
+    subcategory — has rows to page through. That array is invisible to the
+    first mint: no ``?subcategory=``, no key in the fingerprint input.
+    """
+    _seed(
+        conn, "pc-newest", minutes_before=0, company="google",
+        enrichment_category="software_engineering",
+        enrichment_subcategories=["backend"],
+    )
+    _seed(
+        conn, "pc-oldest", minutes_before=10, company="google",
+        enrichment_category="software_engineering",
+        enrichment_subcategories=["backend"],
+    )
+
+
+def test_adding_the_subcategory_PARAM_did_not_churn_existing_cursors(
+    client, db_conn, seed_taxonomy
+):
+    """NO-CHURN: a cursor the ROUTER mints today, with no subcategory selected,
+    still carries the pre-change fingerprint byte for byte.
+
+    The key is added to the fingerprint input dict ONLY when the filter is
+    active. If it were always present — even as ``[]`` — every cursor in flight
+    at deploy time would 409 at once, for every reader, for no reason they could
+    see.
+
+    This goes through ``client.get`` and reads the fingerprint back OUT of the
+    minted cursor, so it exercises the router's own ``fingerprint_inputs``
+    construction (jobs_search.py, the ``if subcategories:`` guard). An earlier
+    version of this test rebuilt that dict by hand and re-ran the pure function
+    on it — which cannot fail for the regression this docstring names, because
+    the router was never involved.
+
+    ``_PRE_CHANGE_FINGERPRINT`` was CAPTURED by RUNNING
+    ``compute_filter_fingerprint`` over the nine-key input shape this router
+    built before the subcategory param existed. That matters: a hand-invented
+    literal would pin the wrong value and this test would then assert the
+    opposite of what it is for.
+    """
+    from api.pagination import compute_filter_fingerprint
+
+    _seed_pre_change_corpus(db_conn)
+
+    cursor = _mint(
+        client,
+        {"company": "google", "category": "software_engineering", "limit": 1},
+    )
+    assert _fingerprint_of(cursor) == _PRE_CHANGE_FINGERPRINT, (
+        "the router stamped a different fingerprint than the pre-subcategory "
+        "build did for the same filter set — every in-flight cursor 409s on "
+        "deploy"
+    )
+
+    # Provenance of the literal: the same nine-key shape the router built before
+    # the param existed. Pure-function, so it pins the CONSTANT; the assertion
+    # above pins the ROUTER.
+    pre_change_inputs = {
+        "status": "OPEN",
+        "since": None,
+        "category": ["software_engineering"],
+        "level": [],
+        "company": ["google"],
+        "location": [],
+        "location_resolved": [],
+        "include": [],
+        "exclude": [],
+    }
+    assert compute_filter_fingerprint(pre_change_inputs) == _PRE_CHANGE_FINGERPRINT
+
+    # And the moment a subcategory IS selected, it moves — otherwise the cursor
+    # would survive a filter change, which is the failure a fingerprint exists
+    # to prevent. Minted through the router for the same reason as above.
+    with_sub = _mint(
+        client,
+        {
+            "company": "google",
+            "category": "software_engineering",
+            "subcategory": "backend",
+            "limit": 1,
+        },
+    )
+    assert _fingerprint_of(with_sub) != _PRE_CHANGE_FINGERPRINT
