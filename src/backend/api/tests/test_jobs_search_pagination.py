@@ -71,6 +71,7 @@ def _fingerprint(
     company: list[str] | None = None,
     location: list[str] | None = None,
     location_resolved: list[str] | None = None,
+    location_ids: list[int] | None = None,
     include: list[str] | None = None,
     exclude: list[str] | None = None,
 ) -> str:
@@ -93,6 +94,10 @@ def _fingerprint(
             # instead of silently changing the filter set. Empty for every test
             # here, none of which sends a location filter.
             "location_resolved": location_resolved or [],
+            # Mirrors the router: the effective probed id set is fingerprinted too,
+            # so a catalog INSERT that grows the set invalidates the walk. Empty for
+            # every test here, none of which sends a location filter.
+            "location_ids": [str(x) for x in (location_ids or [])],
             "include": include or [],
             "exclude": exclude or [],
         }
@@ -296,7 +301,10 @@ def test_filtered_total_is_deferred_and_the_walk_still_enumerates_the_set(
     assert first.json()["meta"]["filteredTotal"] is None
 
     seen = _walk(client, page_size=4, params={"category": FILTER_CATEGORY})
-    assert len(seen) == len(expected)
+    # Not just the count: a missing match plus an unexpected row would still pass a
+    # length check. Pin membership, duplicate-freedom, and order like every other
+    # walk in this file.
+    _assert_exactly_once(seen, expected)
 
 
 # ---------------------------------------------------------------------------

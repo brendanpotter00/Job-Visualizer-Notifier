@@ -523,6 +523,14 @@ def search(
                 "company": companies or [],
                 "location": locations or [],
                 "location_resolved": _fingerprint_location_descriptors(location_descriptors),
+                # The RESOLVED descriptors above are a proxy for the filter; the
+                # effective set the WHERE clause actually probes is ``location_ids``,
+                # and a catalog INSERT can grow that set (a new row matching an
+                # existing selection's tier predicate) while the winning descriptor
+                # is unchanged. Fingerprinting the ids too means the cursor 409s the
+                # moment the probed set moves, instead of silently walking a
+                # different location filter mid-page.
+                "location_ids": [str(location_id) for location_id in location_ids],
                 "include": include_terms or [],
                 "exclude": exclude_terms or [],
             }
