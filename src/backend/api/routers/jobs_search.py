@@ -660,6 +660,31 @@ def search(
             }
         )
 
+        fingerprint_inputs: dict[str, str | Iterable[str] | None] = {
+            "status": status,
+            "since": parsed_since.isoformat() if parsed_since else None,
+            "category": categories or [],
+            "level": levels or [],
+            "company": companies or [],
+            "location": locations or [],
+            "location_resolved": _fingerprint_location_descriptors(location_descriptors),
+            "include": include_terms or [],
+            "exclude": exclude_terms or [],
+        }
+        # ONLY when the filter is ACTIVE. Present-but-empty would change the
+        # fingerprint of every cursor in flight at deploy time, 409-ing every
+        # reader mid-walk for a filter none of them selected. Pinned by
+        # test_adding_the_subcategory_PARAM_did_not_churn_existing_cursors, which
+        # reads the fingerprint back out of a router-minted cursor.
+        #
+        # It MUST be here when active, though: the fingerprint is what makes a
+        # filter change invalidate the walk. Without it a reader could switch
+        # subcategory mid-walk, keep a cursor that still validates, and page on
+        # from the old position under the new filter.
+        if subcategories:
+            fingerprint_inputs["subcategory"] = subcategories
+        fingerprint = compute_filter_fingerprint(fingerprint_inputs)
+
         parsed_cursor: JobCursor | None = None
         if cursor is not None:
             try:
@@ -684,6 +709,7 @@ def search(
             "status": status,
             "since": parsed_since,
             "categories": categories,
+            "subcategories": subcategories,
             "levels": levels,
             "companies": companies,
             "locations": locations,
