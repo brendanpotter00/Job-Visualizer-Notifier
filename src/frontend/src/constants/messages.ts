@@ -26,26 +26,14 @@ export const EMPTY_STATE_MESSAGES = {
   ALL_LOADED: (count: number) => `All ${count} jobs loaded`,
 
   /**
-   * Shown when several consecutive pages of older jobs were fetched and NONE of
-   * them matched the active filters, so the list stopped fetching on its own.
-   * Deliberately explicit about what happened: the alternative is a list that
-   * looks finished but is not, or one that silently walks the whole corpus.
+   * Retry label on the inline error shown when fetching the NEXT page fails.
+   * The rows already loaded stay on screen behind it.
+   *
+   * Named for the next PAGE, not for "older jobs": the client-side keyset walk
+   * that once had a "search older jobs" affordance is gone, and the button now
+   * simply reissues the failed `searchJobs` page request.
    */
-  NO_MATCHES_IN_RECENT_PAGES: 'No more matches in the jobs loaded so far.',
-
-  /** Label for the manual continue affordance that follows the message above. */
-  SEARCH_OLDER_JOBS: 'Search older jobs',
-
-  /** Label for the same affordance after a failed fetch. */
-  RETRY_OLDER_JOBS: 'Try again',
-
-  /**
-   * Shown in place of the list while the filter matches nothing loaded so far
-   * but the keyset walk still holds older pages and is auto-deepening. The
-   * terminal "no jobs found" state is reserved for an exhausted walk — showing
-   * it here was the 2026-08-10 empty-filter deadlock.
-   */
-  SEARCHING_OLDER_JOBS_IN_PROGRESS: 'No matches in the newest postings yet — searching older jobs…',
+  RETRY_NEXT_PAGE: 'Try again',
 } as const;
 
 /**

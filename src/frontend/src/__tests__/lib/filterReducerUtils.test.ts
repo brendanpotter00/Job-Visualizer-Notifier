@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { SearchTag } from '../../types';
+import { MAX_SEARCH_TAGS } from '../../constants/tags';
 import {
   setSearchTags,
   addSearchTagToFilters,
@@ -61,6 +62,25 @@ describe('filterReducerUtils - Search Tags', () => {
       addSearchTagToFilters(filters, tag);
 
       expect(filters.searchTags).toEqual([{ text: 'javascript', mode: 'include' }]);
+    });
+
+    it('refuses to grow the chip set past the search endpoint\'s keyword budget', () => {
+      // MAX_SEARCH_TAGS is the endpoint's COMBINED include+exclude budget and the
+      // saved-list storage cap, deliberately the same number. Letting the reader
+      // build one more chip than that means their next Recent Jobs request is a
+      // 400 — and if the chips are saved as a list, every future page load is too,
+      // with the page offering nothing but a Retry that reissues the same request.
+      const filters = {
+        searchTags: Array.from({ length: MAX_SEARCH_TAGS }, (_, n) => ({
+          text: `tag-${n}`,
+          mode: 'include' as const,
+        })),
+      };
+
+      addSearchTagToFilters(filters, { text: 'one-too-many', mode: 'include' });
+
+      expect(filters.searchTags).toHaveLength(MAX_SEARCH_TAGS);
+      expect(filters.searchTags.map((t) => t.text)).not.toContain('one-too-many');
     });
 
     it('should not add empty tag after trimming', () => {
@@ -415,6 +435,52 @@ describe('filterReducerUtils - Software Only', () => {
       const devTagCounts = filters.searchTags?.filter((t) => t.text === 'developer').length;
       expect(devTagCounts).toBe(1);
       expect(filters.searchTags).toHaveLength(6);
+    });
+  });
+
+  describe('the keyword budget applies to the bulk helpers too', () => {
+    // Both helpers append up to six tags in ONE action, so the per-add guard in
+    // `addSearchTagToFilters` never sees them. Twenty existing chips plus this
+    // toggle is twenty-six keywords, which is a hard 400 on every subsequent
+    // Recent Jobs request — and the page's only affordance is a Retry that
+    // reissues the rejected request.
+    const nearlyFull = () =>
+      Array.from({ length: MAX_SEARCH_TAGS - 2 }, (_, n) => ({
+        text: `tag-${n}`,
+        mode: 'include' as const,
+      }));
+
+    it('toggleSoftwareOnlyInFilters stops at the cap instead of overflowing it', () => {
+      const filters = { searchTags: nearlyFull(), softwareOnly: false };
+
+      toggleSoftwareOnlyInFilters(filters);
+
+      expect(filters.searchTags).toHaveLength(MAX_SEARCH_TAGS);
+    });
+
+    it('setSoftwareOnlyInFilters stops at the cap instead of overflowing it', () => {
+      const filters = { searchTags: nearlyFull(), softwareOnly: false };
+
+      setSoftwareOnlyInFilters(filters, true);
+
+      expect(filters.searchTags).toHaveLength(MAX_SEARCH_TAGS);
+    });
+
+    it('never truncates chips the reader already has', () => {
+      // Appending "only into the remaining room" — not slicing the merged list.
+      // A saved list stored before the cap existed still reads back oversized
+      // (KeywordListResponse carries no max_length), and silently deleting chips
+      // that are visible on screen is the failure mode the ADD-site caps exist to
+      // avoid.
+      const existing = Array.from({ length: MAX_SEARCH_TAGS + 3 }, (_, n) => ({
+        text: `legacy-${n}`,
+        mode: 'include' as const,
+      }));
+      const filters = { searchTags: [...existing], softwareOnly: false };
+
+      setSoftwareOnlyInFilters(filters, true);
+
+      expect(filters.searchTags).toEqual(existing);
     });
   });
 });

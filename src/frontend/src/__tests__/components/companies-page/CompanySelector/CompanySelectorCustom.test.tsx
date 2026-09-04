@@ -59,7 +59,7 @@ afterEach(() => {
 describe('CompanySelector — the viewer’s own boards', () => {
   it('lists them under "Your companies", with the name the user chose', async () => {
     const user = userEvent.setup();
-    // Production shape: the board was discovered as "cisco" and renamed. The
+    // Production shape: the board was discovered as "acmeboards" and renamed. The
     // wire `displayName` is already COALESCE(user_display_name, display_name),
     // so the rename must show up with nothing merged client-side.
     await renderSelector([board('u-jw8iz8sqvy', 'Raindrop YC')]);
@@ -75,10 +75,10 @@ describe('CompanySelector — the viewer’s own boards', () => {
 
   it('selects the board, so the trend page loads it like any other company', async () => {
     const user = userEvent.setup();
-    const store = await renderSelector([board('u-abc123', 'Cisco')]);
+    const store = await renderSelector([board('u-abc123', 'Acme Boards')]);
 
     await user.click(screen.getByRole('combobox'));
-    await user.click(await screen.findByRole('option', { name: 'Cisco' }));
+    await user.click(await screen.findByRole('option', { name: 'Acme Boards' }));
 
     await waitFor(() => expect(store.getState().app.selectedCompanyId).toBe('u-abc123'));
   });
@@ -99,7 +99,7 @@ describe('CompanySelector — the viewer’s own boards', () => {
     const store = createTestStore();
     await store.dispatch(
       userCompaniesApi.util.upsertQueryData('getUserCompanies', undefined, {
-        companies: [board('u-abc123', 'Cisco')],
+        companies: [board('u-abc123', 'Acme Boards')],
       })
     );
     flagState.isEnabled = false;
@@ -113,6 +113,6 @@ describe('CompanySelector — the viewer’s own boards', () => {
 
     await screen.findByRole('option', { name: 'SpaceX' });
     expect(screen.queryByText('Your companies')).not.toBeInTheDocument();
-    expect(screen.queryByRole('option', { name: 'Cisco' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: 'Acme Boards' })).not.toBeInTheDocument();
   });
 });

@@ -203,6 +203,40 @@ class JobListing(Base):
             "id",
             postgresql_where=text("status = 'OPEN'"),
         ),
+        # Serves the FILTERED keyset walk behind GET /api/jobs/search: the same
+        # (first_seen_at, source_id, id) sort tuple as the index above, but with
+        # the category equality LEADING so the planner can seek straight to the
+        # requested slug and then scan in sort order — no Sort node, no scanning
+        # past the ~65% of OPEN rows that are unenriched.
+        #
+        # Without it, a narrow filter is the worst case rather than the best one:
+        # `software_engineering + intern` is 129 of ~31k OPEN rows, so an ordered
+        # scan of idx_job_listings_open_first_seen_keyset must walk and heap-probe
+        # ~99.6% of the corpus before the LIMIT is satisfied. The existing
+        # (status, enrichment_category) index does not help — it has no usable
+        # order, so the planner would sort the whole matching set and lose the
+        # LIMIT-friendly path this endpoint's paging depends on.
+        #
+        # FOUR columns, not five: adding `enrichment_level` between the category
+        # and the sort tuple would order entries by level WITHIN a category, which
+        # destroys the ordering for a category-only query (the common case) and
+        # buys little for category+level — the flagship `entry` selection expands
+        # to `= ANY('{entry,new_grad}')`, which cannot seek a non-leading column
+        # anyway. Level rides along as a cheap heap filter on rows that are being
+        # fetched regardless.
+        #
+        # Plain ASC columns for the same reason as the index above: an all-DESC
+        # ORDER BY is served by a BACKWARD scan, and explicit DESC ops would not
+        # round-trip through Alembic autogenerate. Partial on status='OPEN' to
+        # match every real caller and keep it to ~3 MB at prod scale.
+        Index(
+            "idx_job_listings_open_category_keyset",
+            "enrichment_category",
+            "first_seen_at",
+            "source_id",
+            "id",
+            postgresql_where=text("status = 'OPEN'"),
+        ),
     )
 
 
@@ -1034,7 +1068,65 @@ class JobTag(Base):
     __table_args__ = (
         PrimaryKeyConstraint("source_id", "job_listing_id", "tag"),
         Index("idx_job_tags_tag", "tag"),
+        # Serves the keyword filter behind GET /api/jobs/search. That predicate
+        # (`_KEYWORD_PREDICATE` in api/services/job_search.py) matches
+        # `t.tag ILIKE '%term%'`, and a LEADING wildcard is unservable by the
+        # plain btree above — so before this index every keyword term cost one
+        # FULL scan of job_tags, de-correlated by the planner into a hashed
+        # SubPlan and therefore INDEPENDENT of the page LIMIT. Page 1 pays the
+        # predicate twice (the page query and `get_search_counts`' filtered
+        # total), on one pooled connection against DB_POOL_TIMEOUT=5s.
+        #
+        # GIN + gin_trgm_ops rather than a btree variant: trigram is the only
+        # index class Postgres can consult for a leading-wildcard ILIKE. Measured
+        # at prod scale (76,030 listings / 111,831 tags), the six-term built-in
+        # "Software Engineering" list goes from six Seq Scans on job_tags to six
+        # Bitmap Index Scans on this index — see migration 536c1cddcd28 for the
+        # full before/after table.
+        #
+        # KNOWN BLIND SPOT, kept here because a future reader will hit it: a term
+        # SHORTER THAN THREE CHARACTERS yields no complete trigram, so pg_trgm
+        # can extract no index key and the planner correctly falls back to the
+        # Seq Scan. `go`, `ai` and `ml` are all real, popular tags. Those terms
+        # cost exactly what they cost today; this index neither helps nor hurts
+        # them.
+        Index(
+            "idx_job_tags_tag_trgm",
+            "tag",
+            postgresql_using="gin",
+            postgresql_ops={"tag": "gin_trgm_ops"},
+        ),
     )
+
+
+# --- pg_trgm, as model metadata -------------------------------------------
+# Same contract as the job_freshness sync trigger further up this file:
+# migration 536c1cddcd28
+# installs the extension on the prod deploy path, and this `before_create` hook
+# installs it on the create_all-based test/parity bootstrap (api/tests/conftest.py
+# and scripts/tests/conftest.py create_all + stamp rather than running migration
+# bodies). Without it, create_all would reach `idx_job_tags_tag_trgm` and fail
+# with `operator class "gin_trgm_ops" does not exist`, because the operator class
+# ships WITH the extension rather than with core.
+#
+# `before_create` on this table specifically, not on the whole metadata: the
+# operator class only has to exist by the time job_tags' indexes are emitted, and
+# hanging it off the one table that needs it keeps the dependency visible at the
+# point of use.
+#
+# WITH SCHEMA public, explicitly. A bare CREATE EXTENSION lands in the first
+# entry of search_path, which under PYTEST_SCHEMA is the per-module `test_<hex>`
+# schema — and that schema is dropped CASCADE at module teardown, which would
+# take gin_trgm_ops down with it and break every later module in the session.
+# The test fixtures pin `search_path TO "test_<hex>", public`, so public is
+# reachable from the test schema; in prod public IS the schema.
+_PG_TRGM_EXTENSION = DDL("CREATE EXTENSION IF NOT EXISTS pg_trgm WITH SCHEMA public")
+
+event.listen(
+    JobTag.__table__,
+    "before_create",
+    _PG_TRGM_EXTENSION.execute_if(dialect="postgresql"),
+)
 
 
 class JobEnrichment(Base):

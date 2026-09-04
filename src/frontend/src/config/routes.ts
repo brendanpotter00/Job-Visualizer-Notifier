@@ -43,6 +43,15 @@ export const ROUTES = {
   // user-facing flag is off.
   ADMIN_CUSTOM_COMPANIES: '/admin/custom-companies',
   ADMIN_FEEDBACK: '/admin/feedback',
+  // Full-bleed (outside RootLayout) — the marketing landing page. Deliberately
+  // UNLISTED: reachable by direct URL only, with no nav entry anywhere, while
+  // it is iterated on. Do NOT add it to a nav array.
+  LANDING: '/landing',
+  // The pre-consolidation path, kept ONLY so links already sent in texts and
+  // bookmarks keep working now that the four-prototype workspace collapsed to
+  // this one page. App.tsx registers a redirect onto LANDING, query included.
+  // Nothing links here; do not add a nav entry.
+  LANDING_LEGACY: '/admin/landing-prototypes',
 } as const;
 
 /**

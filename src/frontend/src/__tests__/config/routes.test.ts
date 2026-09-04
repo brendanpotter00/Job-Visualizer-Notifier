@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { ROUTES, NAV_ITEMS, ADMIN_NAV_ITEMS } from '../../config/routes';
+import {
+  ROUTES,
+  NAV_ITEMS,
+  ADMIN_NAV_ITEMS,
+  PRIMARY_NAV_ITEMS,
+  INFO_NAV_ITEMS,
+  USER_NAV_ITEMS,
+} from '../../config/routes';
 
 describe('routes config', () => {
   describe('ROUTES', () => {
@@ -22,6 +29,44 @@ describe('routes config', () => {
     it('contains no duplicate paths', () => {
       const paths = Object.values(ROUTES);
       expect(new Set(paths).size).toBe(paths.length);
+    });
+
+    // The landing page replaced the four-tab prototype workspace on 2026-09-03
+    // and moved off /admin/…, which is the part with a deployment consequence:
+    // /admin/:path(.*) already rewrote to index.html in vercel.json, and /landing
+    // does not, so it needs its own rewrite or a hard refresh 404s.
+    it('exposes the LANDING path at /landing, outside the /admin prefix', () => {
+      expect(ROUTES.LANDING).toBe('/landing');
+      expect(ROUTES.LANDING.startsWith('/admin')).toBe(false);
+    });
+
+    it('keeps the pre-consolidation landing path as a legacy alias only', () => {
+      // Not a free-floating string: App.tsx builds the redirect route from it.
+      expect(ROUTES.LANDING_LEGACY).toBe('/admin/landing-prototypes');
+      expect(ROUTES.LANDING_LEGACY).not.toBe(ROUTES.LANDING);
+    });
+  });
+
+  // The landing page is UNLISTED by owner decision: reachable by direct URL
+  // only, so reviewers can open it without signing in and nobody stumbles into
+  // it from the sidebar. A nav entry is the one change that would silently
+  // undo that, so every nav array is checked rather than just the combined one.
+  describe('the landing page stays unlisted', () => {
+    it('appears in no nav array, new path or legacy', () => {
+      const navGroups = {
+        PRIMARY_NAV_ITEMS,
+        INFO_NAV_ITEMS,
+        USER_NAV_ITEMS,
+        NAV_ITEMS,
+        ADMIN_NAV_ITEMS,
+      };
+      for (const [name, group] of Object.entries(navGroups)) {
+        const paths = group.map((item) => item.path);
+        expect(paths, `${name} must not link the landing page`).not.toContain(ROUTES.LANDING);
+        expect(paths, `${name} must not link the legacy landing path`).not.toContain(
+          ROUTES.LANDING_LEGACY
+        );
+      }
     });
   });
 

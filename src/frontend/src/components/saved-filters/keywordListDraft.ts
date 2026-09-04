@@ -1,3 +1,4 @@
+import { canAddSearchTag } from '../../constants/tags';
 import type { KeywordList, SearchTag } from '../../types';
 
 /**
@@ -35,10 +36,17 @@ export function cloneDraftList(list: DraftKeywordList): DraftKeywordList {
  * `SearchTagsInput`. This is intentionally stricter than the backend, which
  * accepts the same text in both modes - the UI simply never produces such a pair.
  * Re-adding an existing keyword is a no-op (toggle its mode instead).
+ *
+ * Capped at `MAX_SEARCH_TAGS`, the same bound the backend enforces on both
+ * storage and the search query. Without it the editor happily builds a list the
+ * save endpoint rejects — and, worse, one that would break Recent Jobs on the
+ * reader's next visit if it ever did persist, because an active list hydrates
+ * straight into the search request's keyword parameters.
  */
 export function addTagToList(list: DraftKeywordList, tag: SearchTag): void {
   const text = tag.text.trim();
   if (!text) return;
+  if (!canAddSearchTag(list.tags)) return;
   if (!list.tags.some((t) => t.text === text)) {
     list.tags.push({ text, mode: tag.mode });
   }

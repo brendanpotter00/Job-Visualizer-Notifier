@@ -70,6 +70,10 @@
     "accomplishment": "It flies private passengers to the edge of space aboard its reusable New Shepard rocket and reaches orbit with its heavy-lift New Glenn launch vehicle.",
     "blurb": "Blue Origin is an aerospace company that develops reusable rockets, spacecraft, and engines to enable commercial human spaceflight and access to orbit."
   },
+  "box": {
+    "accomplishment": "Box was named a Leader in the 2026 Gartner Magic Quadrant for Document Management for the second consecutive year and shipped the Box Agent, an AI assistant that reasons over and acts on enterprise content.",
+    "blurb": "Box is an enterprise content-cloud company that lets organizations securely store, manage, share, and collaborate on their files and documents in the cloud."
+  },
   "braintrust": {
     "accomplishment": "Its evaluation and observability tooling helps companies ship reliable AI features, with adoption by teams such as Notion, Stripe, Vercel, and Perplexity.",
     "blurb": "Braintrust is an AI evaluation and observability platform that helps teams test, monitor, and improve LLM-powered applications."
@@ -86,9 +90,21 @@
     "accomplishment": "Capital One is a major U.S. bank and one of the country's largest credit card issuers.",
     "blurb": "Capital One is a diversified bank offering credit cards, consumer and commercial banking, and auto loans."
   },
+  "cerebras": {
+    "accomplishment": "Cerebras went public on Nasdaq in May 2026 in a $5.55 billion IPO, underpinned by a multi-billion-dollar compute agreement with OpenAI for its wafer-scale inference.",
+    "blurb": "Cerebras Systems builds wafer-scale AI chips and a fast-inference cloud that runs large language models far faster than GPU-based systems."
+  },
   "chalk": {
     "accomplishment": "Chalk provides a data-source-agnostic feature store delivering low-latency feature computation with time-travel for training, batch scoring, and real-time inference.",
     "blurb": "Chalk offers a real-time data and feature platform for building and serving production machine learning and AI inference."
+  },
+  "cisco": {
+    "accomplishment": "In 2026 Cisco launched the Silicon One G300, a next-generation AI networking chip aimed at rivaling Nvidia and Broadcom, alongside an agentic AI platform for automating and defending enterprise infrastructure.",
+    "blurb": "Cisco is the world's largest networking-equipment maker, building the routers, switches, security, and collaboration technology that run the internet and enterprise networks."
+  },
+  "clay": {
+    "accomplishment": "Clay reached a $7 billion valuation in an August 2026 round led by Wellington Management, up from $3.1 billion a year earlier, with customers including OpenAI, Anthropic, and Canva.",
+    "blurb": "Clay operates a go-to-market platform that pulls data from 150+ sources and uses AI agents to research prospects, enrich records, and personalize sales outreach at scale."
   },
   "clear": {
     "accomplishment": "CLEAR pioneered tokenless biometric screening and operates expedited identity lanes across many U.S. airports and sports venues.",
@@ -110,9 +126,25 @@
     "accomplishment": "Cohere is known for its Command, Embed, and Rerank model family, offering enterprise LLMs optimized for retrieval, multilingual search, and regulated industries.",
     "blurb": "Cohere builds enterprise-grade large language models and AI tools designed for secure, private deployment inside business and regulated-industry infrastructure."
   },
+  "coinbase": {
+    "accomplishment": "Coinbase became the first crypto-native company added to the S&P 500 and, in 2026, expanded into 24/7 commission-free stock and ETF trading alongside a record share of global crypto trading volume.",
+    "blurb": "Coinbase operates the largest U.S. cryptocurrency exchange, letting individuals and institutions buy, sell, store, and trade crypto assets."
+  },
+  "console": {
+    "accomplishment": "Console has raised over $29 million from Thrive Capital and DST Global and now resolves more than half of IT tickets automatically for customers including Ramp, Scale AI, Webflow, and Zip.",
+    "blurb": "Console builds AI agents that live in Slack and autonomously resolve internal IT help-desk tickets, freeing IT teams from repetitive support work."
+  },
+  "crowdstrike": {
+    "accomplishment": "At Fal.Con 2026, CrowdStrike unveiled Falcon IQ — agentic AI security built on NVIDIA's Nemotron models — and expanded Falcon to Google Cloud and Snowflake, sending its shares to record highs.",
+    "blurb": "CrowdStrike builds the Falcon platform, a cloud-native cybersecurity suite that protects endpoints, cloud workloads, identity, and data through AI-driven detection and response."
+  },
   "crunchyroll": {
     "accomplishment": "Crunchyroll is the world's leading anime streaming brand, distributing a vast licensed catalog of simulcast and dubbed series to subscribers across the globe.",
     "blurb": "Crunchyroll operates a subscription streaming service dedicated to anime, manga, and East Asian entertainment for a global audience."
+  },
+  "crusoe": {
+    "accomplishment": "Crusoe is building gigawatt-scale AI data centers — including the Stargate site in Abilene, Texas for OpenAI and Oracle — and was reported in mid-2026 to be raising at a valuation around $30 billion.",
+    "blurb": "Crusoe operates an energy-first AI cloud that builds and runs large-scale, GPU-powered data centers for training and serving AI models."
   },
   "ctc": {
     "accomplishment": "CTC is a premier derivatives market maker, providing liquidity across equity index, interest rate, and commodity products on major options exchanges.",
@@ -233,6 +265,10 @@
     "accomplishment": "It blends a user's own notes with AI-generated detail into shareable summaries and is widely adopted by founders, investors, and recruiters.",
     "blurb": "Granola is an AI notepad that transcribes and summarizes meetings by capturing device audio without joining calls as a bot."
   },
+  "greptile": {
+    "accomplishment": "Backed by Benchmark, Greptile raised a $25 million Series A in 2025 and reviews code for thousands of engineering teams, competing with CodeRabbit and Graphite in AI code review.",
+    "blurb": "Greptile builds an AI code-review agent that indexes an entire codebase before commenting on a pull request, catching bugs that diff-only reviewers miss."
+  },
   "happyrobot.ai": {
     "accomplishment": "Its AI workers integrate with transportation management systems and load boards to handle carrier sales and check calls for major logistics and freight firms.",
     "blurb": "Happyrobot builds voice AI agents that automate inbound and outbound phone calls, emails, and texts for the logistics and freight industry."
@@ -256,6 +292,14 @@
   "instacart": {
     "accomplishment": "It is North America's largest online grocery platform, partnering with retailers to fulfill orders from their stores across the continent.",
     "blurb": "Instacart is an online grocery marketplace connecting shoppers with delivery and pickup from local and national retailers."
+  },
+  "intel": {
+    "accomplishment": "Nvidia agreed to a $5 billion investment in Intel to jointly develop data-center and PC chips, while Intel's 18A process reached production as its bid to retake process leadership.",
+    "blurb": "Intel designs and manufactures semiconductors, including CPUs for PCs and servers, and operates Intel Foundry, a contract chipmaking business competing to build the world's most advanced chips."
+  },
+  "janestreet": {
+    "accomplishment": "Jane Street is the largest commercial user of OCaml in the world, running its trading, research, and infrastructure on tens of millions of lines of the functional programming language, and has posted record trading revenue in recent years.",
+    "blurb": "Jane Street is a quantitative trading firm and one of the world's largest electronic market makers, trading equities, ETFs, options, and fixed income using proprietary research and technology."
   },
   "judgmentlabs": {
     "accomplishment": "It created Judgeval, an open-source library for tracing, scoring, and monitoring agent behavior to surface failure patterns in production AI workflows.",
@@ -289,6 +333,10 @@
     "accomplishment": "Merge is one of the most widely adopted unified API platforms, letting B2B software teams ship many third-party integrations through one normalized interface.",
     "blurb": "Merge provides a single unified API that lets software products add hundreds of integrations across HR, payroll, accounting, CRM, and ticketing."
   },
+  "meta": {
+    "accomplishment": "Meta built Facebook, Instagram, WhatsApp, and Messenger into a family of apps used by billions of people, and is now one of the largest investors in AI and virtual/augmented reality.",
+    "blurb": "Meta operates the world's largest social platforms — Facebook, Instagram, WhatsApp, and Messenger — alongside its Reality Labs hardware and a major AI research and infrastructure effort."
+  },
   "microsoft": {
     "accomplishment": "Microsoft's Windows is among the most widely used desktop operating systems in the world, and its Azure platform is a leading cloud computing service.",
     "ats": "script",
@@ -299,6 +347,10 @@
   "mintlify": {
     "accomplishment": "Mintlify powers documentation for leading developer companies and is known for automatically keeping docs in sync with a product's codebase.",
     "blurb": "Mintlify offers an AI-native documentation platform that helps developer teams build polished docs sites with interactive API playgrounds and smart search."
+  },
+  "mistral-ai": {
+    "accomplishment": "Founded by Arthur Mensch (ex-Google DeepMind) with Guillaume Lample and Timothee Lacroix (co-authors of Meta's original LLaMA paper), Mistral raised a ~1.7 billion euro Series C led by ASML at an ~11.7 billion euro valuation, making it Europe's most valuable AI startup.",
+    "blurb": "Mistral AI builds frontier large language models and the Le Chat assistant as Europe's answer to OpenAI and Anthropic."
   },
   "modal": {
     "accomplishment": "Modal is known for serverless GPU and CPU infrastructure that lets AI and data teams run code at scale without managing underlying servers.",
@@ -332,9 +384,17 @@
     "accomplishment": "NVIDIA invented the GPU and its CUDA platform powers the majority of the world's AI training and high-performance computing workloads.",
     "blurb": "NVIDIA designs graphics processing units and accelerated computing platforms for gaming, data centers, and artificial intelligence."
   },
+  "okta": {
+    "accomplishment": "Okta was named a Leader in the 2026 Forrester Wave for Workforce Identity Security Platforms and launched Okta for AI Agents to govern autonomous AI agents as first-class identities.",
+    "blurb": "Okta is an identity and access-management company whose Okta and Auth0 platforms provide single sign-on, multi-factor authentication, and identity security for workforces and customer applications."
+  },
   "openai": {
     "accomplishment": "OpenAI created ChatGPT and the GPT family of models, defining the modern generative AI era with one of the fastest-growing consumer applications ever.",
     "blurb": "OpenAI is an artificial intelligence research and deployment company building large language models and AI products."
+  },
+  "openevidence": {
+    "accomplishment": "OpenEvidence is used regularly by more than 40% of U.S. physicians and, backed by Sequoia and Google Ventures, raised $250 million at a $12 billion valuation in January 2026 — doubling its valuation in three months.",
+    "blurb": "OpenEvidence builds an AI medical-search platform — often called \"ChatGPT for doctors\" — that gives physicians instant, evidence-backed answers at the point of care."
   },
   "optiver": {
     "accomplishment": "Optiver is one of the world's leading market makers, trading and quoting prices across exchanges around the globe.",
@@ -360,6 +420,10 @@
     "accomplishment": "Perplexity is recognized as a leading AI search platform that pioneered citation-backed conversational answers as an alternative to traditional search engines.",
     "blurb": "Perplexity runs an AI-powered answer engine that responds to questions with direct, conversational answers backed by cited web sources."
   },
+  "physical-intelligence": {
+    "accomplishment": "Physical Intelligence was founded by leading robotic-learning researchers from Google DeepMind and Stanford — Karol Hausman, Sergey Levine, and Chelsea Finn — and has raised over $1 billion, including a $600 million Series B led by Alphabet's CapitalG.",
+    "blurb": "Physical Intelligence builds general-purpose foundation models that give robots the ability to perceive, reason, and act in the physical world."
+  },
   "pinterest": {
     "accomplishment": "Pinterest is a leading visual discovery engine where people browse and save ideas, known as Pins, for inspiration and planning.",
     "blurb": "Pinterest operates a visual discovery platform where users find, save, and organize images and ideas for projects and inspiration."
@@ -380,6 +444,14 @@
     "accomplishment": "Pylon serves fast-growing software companies as a modern alternative to legacy help desks, consolidating omnichannel B2B support into a single inbox.",
     "blurb": "Pylon is an AI-native customer support platform for B2B companies, unifying ticketing, chat, knowledge base, and account intelligence across Slack and Microsoft Teams."
   },
+  "railway": {
+    "accomplishment": "Railway raised a $100 million Series B in January 2026 led by TQ Ventures, reaching 2 million developers and over 10 million monthly deployments with famously little marketing spend.",
+    "blurb": "Railway operates a cloud infrastructure platform for deploying, scaling, and hosting applications, databases, and backend services without managing servers."
+  },
+  "raindrop-ai": {
+    "accomplishment": "Raindrop raised a $15 million seed round led by Lightspeed after coming out of Y Combinator to build \"Sentry for AI agents,\" backed by the founders of Replit, Cognition, Notion, and Framer.",
+    "blurb": "Raindrop builds an AI-observability platform that monitors production AI agents to automatically detect and diagnose silent failures like hallucinations and loops."
+  },
   "ramp": {
     "accomplishment": "Ramp is known for pairing corporate cards with automated finance software designed to actively cut company spending rather than encourage it.",
     "blurb": "Ramp provides corporate cards and a spend-management platform that helps businesses automate expenses, payments, accounting, and procurement."
@@ -391,6 +463,10 @@
   "reducto": {
     "accomplishment": "Reducto combines computer vision with vision-language models to parse documents at scale, outperforming major cloud document APIs on accuracy benchmarks.",
     "blurb": "Reducto builds a document-parsing and ingestion API that turns complex PDFs, spreadsheets, and slides into structured data for AI systems."
+  },
+  "replit": {
+    "accomplishment": "Replit raised $400 million at a $9 billion valuation in 2026 — roughly tripling its valuation in six months — alongside the launch of Agent 4, which runs parallel coding agents on a single project.",
+    "blurb": "Replit is a browser-based coding platform whose AI Agent builds and deploys full software projects from natural-language prompts."
   },
   "resolve-ai": {
     "accomplishment": "Founded by co-creators of OpenTelemetry, Resolve AI is deployed in production at major technology, financial, and consumer companies to reduce incident resolution time, and ranked #1 on Harmonic's Hot 25 Startups list for Q3 2026.",
@@ -411,6 +487,10 @@
   "roblox": {
     "accomplishment": "Roblox is one of the world's largest user-generated gaming platforms, where creators build experiences with its Studio tools and earn money via its Robux currency.",
     "blurb": "Roblox operates an online platform and marketplace where users play, create, and share immersive 3D games and experiences built by a global community."
+  },
+  "salesforce": {
+    "accomplishment": "Salesforce's Agentforce AI-agent platform, grounded by its Data 360 platform, surpassed $1.4 billion in annualized revenue in 2026 as enterprises rapidly adopted its autonomous AI agents.",
+    "blurb": "Salesforce is the world's leading CRM platform, providing cloud software for sales, service, marketing, and commerce that helps businesses manage customer relationships."
   },
   "salient": {
     "accomplishment": "Salient ranked #2 on Harmonic's Hot 25 Startups list for Q3 2026 and is backed by a16z and Y Combinator with a $65M Series A.",
@@ -472,6 +552,10 @@
     "accomplishment": "Founded by Stanford roboticists behind influential robot-learning work, Sunday trains its Memo robot on millions of real household chore demonstrations.",
     "blurb": "Sunday Robotics builds AI-powered household robots, led by its home robot Memo that learns and performs everyday chores."
   },
+  "suno": {
+    "accomplishment": "Suno raised $400 million at a $5.4 billion valuation in June 2026, more than doubling its valuation in six months while surpassing 2 million paying subscribers.",
+    "blurb": "Suno builds an AI platform that generates full songs — vocals, lyrics, and instrumentation — from a simple text prompt."
+  },
   "supabase": {
     "accomplishment": "Supabase is widely known as the open-source alternative to Firebase, building its entire platform around the standard PostgreSQL database.",
     "blurb": "Supabase is an open-source backend-as-a-service that gives developers a hosted Postgres database with authentication, storage, realtime, and auto-generated APIs."
@@ -495,6 +579,10 @@
   "traversal": {
     "accomplishment": "Traversal applies causal machine learning to identify the true root cause of production incidents in minutes, serving large enterprises like American Express.",
     "blurb": "Traversal builds an AI site reliability engineer that autonomously triages production incidents and pinpoints their root cause across complex systems."
+  },
+  "turbopuffer": {
+    "accomplishment": "turbopuffer powers search for Cursor's massive code index, Notion's multi-billion-page workspace, and Anthropic, with annualized revenue growing roughly 25x year-over-year to top $100 million by 2026.",
+    "blurb": "turbopuffer builds a serverless vector and full-text search database on object storage, letting AI companies run large-scale semantic search without paying for always-on infrastructure."
   },
   "turo": {
     "accomplishment": "Turo is one of the world's largest car-sharing marketplaces, connecting guests with a wide selection of host-owned vehicles across many countries.",
@@ -520,6 +608,14 @@
     "accomplishment": "Vizcom's sketch-to-render tools are used by industrial and automotive design teams to accelerate concept visualization.",
     "blurb": "Vizcom makes an AI design platform that turns rough sketches into photorealistic, refinable product renders."
   },
+  "wafer": {
+    "accomplishment": "Wafer, a Y Combinator (S25) startup backed by Google chief scientist Jeff Dean and OpenAI co-founder Wojciech Zaremba, scaled to roughly $8 million in ARR within months and raised a $40 million Series A in 2026.",
+    "blurb": "Wafer operates an AI inference cloud that uses autonomous agents to rewrite GPU serving stacks and optimize kernels, cutting the cost and latency of running open-source AI models."
+  },
+  "warp": {
+    "accomplishment": "Backed by Sequoia, GV, and angels including Sam Altman and Elad Gil, Warp serves hundreds of thousands of developers and, per its CEO, went from over 300 days to reach its first $1 million in ARR to adding roughly that much every week.",
+    "blurb": "Warp builds an AI-native agentic development environment, reimagining the terminal as a place where developers build alongside coding agents instead of typing commands alone."
+  },
   "waymo": {
     "accomplishment": "Waymo, an Alphabet subsidiary, operates a fully driverless public robotaxi service on U.S. city streets.",
     "blurb": "Waymo develops autonomous driving technology and operates a self-driving ride-hailing service."
@@ -528,6 +624,10 @@
     "accomplishment": "Wispr Flow delivers AI voice-to-text across desktop and mobile, automatically cleaning up spoken input into polished writing.",
     "blurb": "Wispr Flow builds an AI voice dictation app that turns natural speech into clean, formatted text across any application."
   },
+  "workos": {
+    "accomplishment": "WorkOS raised a $100 million Series C at a $2 billion valuation in 2026, counting OpenAI, Anthropic, Cursor, Perplexity, and Vercel among its 1,000+ paying customers.",
+    "blurb": "WorkOS provides APIs that make software \"enterprise-ready,\" handling single sign-on, SCIM directory sync, audit logs, and user management so startups can sell to large organizations."
+  },
   "workweave": {
     "accomplishment": "Workweave gives engineering teams AI-driven visibility into productivity, impact, and collaboration across their development work.",
     "blurb": "Workweave (Weave) builds an AI agent that measures and improves how software engineering teams work and ship."
@@ -535,6 +635,10 @@
   "xai": {
     "accomplishment": "xAI develops Grok, an AI assistant integrated with the X platform, and was founded by Elon Musk.",
     "blurb": "xAI is an artificial intelligence company building advanced AI models and the Grok conversational assistant."
+  },
+  "zoom": {
+    "accomplishment": "Zoom's built-in AI Companion assistant reached general availability with version 3.0 as the company repositioned from video conferencing into a broader AI-first Workplace platform.",
+    "blurb": "Zoom Communications builds video conferencing and workplace collaboration software, including Zoom Meetings, Zoom Phone, and its AI-powered Workplace suite."
   },
   "zoox": {
     "accomplishment": "Zoox, an Amazon subsidiary, develops a bidirectional, steering-wheel-free vehicle engineered from the ground up for autonomous ride-hailing.",

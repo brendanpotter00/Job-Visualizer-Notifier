@@ -18,12 +18,9 @@ import {
 } from '../../features/filters/slices/recentJobsFiltersSlice.ts';
 import {
   selectRecentJobsFilters,
-  selectRecentAvailableCompanies,
+  selectRecentCompanyOptions,
 } from '../../features/filters/selectors/recentJobsSelectors.ts';
 import { useGetFacetsQuery } from '../../features/jobs/jobsApi.ts';
-import { useGetUserCompaniesQuery } from '../../features/userCompanies/userCompaniesApi.ts';
-import { useAuth } from '../../features/auth/useAuth.ts';
-import { CUSTOM_COMPANIES_CONFIG } from '../../config/customCompanies.ts';
 import { FALLBACK_CATEGORIES, FALLBACK_LEVELS } from '../../constants/enrichment.ts';
 import { FacetMultiSelect } from '../shared/filters/FacetMultiSelect.tsx';
 import { KeywordFilterInput } from '../shared/filters/KeywordFilterInput.tsx';
@@ -32,48 +29,19 @@ import { MultiSelectAutocomplete } from '../shared/filters/MultiSelectAutocomple
 import { AsyncMultiSelectAutocomplete } from '../shared/filters/AsyncMultiSelectAutocomplete.tsx';
 
 /**
- * Filter controls for Recent Job Postings page
- * Subset of filters: time window, location, search tags, software-only
- * Excludes: role category
+ * Filter controls for Recent Job Postings page.
+ *
+ * What is actually rendered: keywords (free text + saved keyword lists), time
+ * window, job title (category), level, location, company, and Reset. The slice
+ * also generates `toggle/setRecentJobsSoftwareOnly`, but
+ * NOTHING dispatches them — there is no software-only control on this page; the
+ * built-in "Software Engineering" keyword list in the keywords input is how a
+ * reader gets that filter now.
  */
 export function RecentJobsFilters() {
   const dispatch = useAppDispatch();
   const filters = useAppSelector(selectRecentJobsFilters);
-  const rosterCompanies = useAppSelector(selectRecentAvailableCompanies);
-  const { isAuthenticated } = useAuth();
-  // Custom (user-added) companies now reach this feed, and they have no entry in
-  // the compile-time `config/companies.ts` roster — so the selector's
-  // `getCompanyById(id)?.name || id` fallback labels them with their raw
-  // `u-<id>` runtime id. Unfixed, the Company filter offers "u-6hkpc6fh0z" as a
-  // choice. This resolves those ids to the name the user gave the board in My
-  // Companies, from the list endpoint that page already caches.
-  //
-  // Both `skip` conditions are load-bearing. Signed out: the endpoint is authed
-  // and an anonymous visitor has no custom companies to name, so issuing it
-  // would be a guaranteed 401 on every anonymous page load. Flag off: the
-  // feature does not exist and the app must make no network calls for it.
-  const { data: userCompanies } = useGetUserCompaniesQuery(undefined, {
-    skip: !isAuthenticated || !CUSTOM_COMPANIES_CONFIG.isEnabled,
-  });
-  const availableCompanies = useMemo(() => {
-    const ownedCompanies = userCompanies?.companies;
-    if (!ownedCompanies?.length) return rosterCompanies;
-    const displayNames = new Map(ownedCompanies.map((c) => [c.id, c.displayName]));
-    let renamed = false;
-    const named = rosterCompanies.map((company) => {
-      const displayName = displayNames.get(company.id);
-      if (!displayName || displayName === company.name) return company;
-      renamed = true;
-      return { ...company, name: displayName };
-    });
-    // Returning `rosterCompanies` BY IDENTITY when no label moved keeps the four
-    // hooks below that key on it (two memos, two callbacks) from recomputing on
-    // every tick for the overwhelmingly common all-public case.
-    if (!renamed) return rosterCompanies;
-    // Re-sort: the selector sorted by the old labels, and a renamed company is
-    // almost never still in the right place alphabetically.
-    return named.sort((a, b) => a.name.localeCompare(b.name));
-  }, [rosterCompanies, userCompanies]);
+  const availableCompanies = useAppSelector(selectRecentCompanyOptions);
   // Facet dropdown options are data-driven (seeded dimension tables); the
   // fallback constants cover the pre-fetch frame and an endpoint outage.
   const { data: facets } = useGetFacetsQuery();
