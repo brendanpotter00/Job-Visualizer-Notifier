@@ -163,6 +163,82 @@ describe('JobListingCard', () => {
     expect(screen.queryByText('Remote')).not.toBeInTheDocument();
   });
 
+  // The Remote chip used to render in the enrichment row, which read as if
+  // "Remote" were a job category next to "Software Engineering"/"Senior". It
+  // describes where the job is, so it belongs in the location row.
+  it('renders the remote chip in the location row, not the enrichment row', () => {
+    const enrichedJob: Job = {
+      ...mockJob,
+      category: 'software_engineering',
+      level: 'senior',
+    };
+    render(<JobListingCard job={enrichedJob} />);
+
+    // Chips are direct children of their row's Stack, so the chip's parent
+    // element IS the row.
+    const rowOf = (label: string) =>
+      screen.getByText(label).closest('.MuiChip-root')?.parentElement;
+
+    expect(rowOf('Remote')).toBe(rowOf('San Francisco, CA'));
+    expect(rowOf('Remote')).not.toBe(rowOf('Software Engineering'));
+    expect(rowOf('Software Engineering')).toBe(rowOf('Senior'));
+  });
+
+  // isRemote and the location tags are independent fields, so a remote job
+  // routinely also carries a kind: 'remote' canonical tag. Beside each other
+  // that renders as "Remote (US)" "Remote", which reads as a bug.
+  it('drops the standalone Remote chip when a canonical location tag is already remote', () => {
+    const remoteTaggedJob: Job = {
+      ...mockJob,
+      locations: [
+        {
+          canonicalName: 'Remote (US)',
+          kind: 'remote',
+          country: 'US',
+          remoteScope: 'country',
+          isPrimary: true,
+        },
+      ],
+    };
+    render(<JobListingCard job={remoteTaggedJob} />);
+
+    expect(screen.getByText('Remote (US)')).toBeInTheDocument();
+    expect(screen.queryByText('Remote')).not.toBeInTheDocument();
+  });
+
+  it('drops the standalone Remote chip when the raw location string already says remote', () => {
+    const rawRemoteJob: Job = {
+      ...mockJob,
+      location: 'Remote - Worldwide',
+      locations: [],
+    };
+    render(<JobListingCard job={rawRemoteJob} />);
+
+    expect(screen.getByText('Remote - Worldwide')).toBeInTheDocument();
+    expect(screen.queryByText('Remote')).not.toBeInTheDocument();
+  });
+
+  it('keeps the Remote chip when the location is a city', () => {
+    const cityRemoteJob: Job = {
+      ...mockJob,
+      locations: [
+        {
+          canonicalName: 'San Mateo, CA, US',
+          kind: 'city',
+          city: 'San Mateo',
+          region: 'CA',
+          country: 'US',
+          remoteScope: null,
+          isPrimary: true,
+        },
+      ],
+    };
+    render(<JobListingCard job={cityRemoteJob} />);
+
+    expect(screen.getByText('San Mateo, CA, US')).toBeInTheDocument();
+    expect(screen.getByText('Remote')).toBeInTheDocument();
+  });
+
   it('displays employment type chip', () => {
     render(<JobListingCard job={mockJob} />);
     expect(screen.getByText('Full-time')).toBeInTheDocument();

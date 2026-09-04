@@ -14,6 +14,28 @@ interface JobListingCardProps {
 }
 
 /**
+ * Whether the location chips already say the job is remote, in which case the
+ * standalone "Remote" chip is dropped.
+ *
+ * `isRemote` and the location tags are independent fields, so a remote job
+ * routinely carries a `kind: 'remote'` canonical tag ("Remote (US)") as well.
+ * That double-billing was invisible while the two chips sat in different rows;
+ * side by side it reads as a rendering bug ("Remote (US)" "Remote"), and ~450
+ * open jobs are in that state today — 11 of them with a canonical tag labelled
+ * exactly "Remote".
+ *
+ * The raw-string branch mirrors the chip fallback below: when there are no
+ * canonical tags we render `job.location` verbatim, so a scraped
+ * "Remote - Worldwide" is the same duplicate with no `kind` to test.
+ */
+function locationAlreadySaysRemote(job: Job): boolean {
+  if (job.locations && job.locations.length > 0) {
+    return job.locations.some((loc) => loc.kind === 'remote');
+  }
+  return /remote/i.test(job.location ?? '');
+}
+
+/**
  * Unified job posting card used by both the company hiring-trend page and the
  * Recent Jobs page, so the two lists render identical cards.
  *
@@ -116,7 +138,9 @@ export function JobListingCard({ job }: JobListingCardProps) {
             </Button>
           </Stack>
 
-          {/* Location + employment-type chips */}
+          {/* Location + Remote + employment-type chips. Remote sits next to the
+              location chips (not with the enrichment chips below) because it
+              answers the same question they do: where is this job? */}
           <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
             {job.locations && job.locations.length > 0
               ? job.locations.map((loc) => (
@@ -128,12 +152,15 @@ export function JobListingCard({ job }: JobListingCardProps) {
                   />
                 ))
               : job.location && <Chip label={job.location} size="small" variant="outlined" />}
+            {job.isRemote && !locationAlreadySaysRemote(job) && (
+              <Chip label="Remote" size="small" color="primary" variant="outlined" />
+            )}
             {job.employmentType && (
               <Chip label={job.employmentType} size="small" variant="outlined" />
             )}
           </Stack>
 
-          <JobChipsSection isRemote={job.isRemote} category={job.category} level={job.level} />
+          <JobChipsSection category={job.category} level={job.level} />
 
           {/* LinkedIn recruiter link */}
           {recruiterLinkedInUrl && (
