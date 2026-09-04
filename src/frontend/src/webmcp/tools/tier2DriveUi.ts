@@ -51,6 +51,8 @@ const ARRANGE_PROPERTIES: Record<string, JSONSchema7Definition> = {
     description: 'Canonical location names from search_locations.',
   },
   timeWindow: { type: 'string', enum: [...TIME_WINDOW_ENUM], default: 'all' },
+  employmentType: { type: 'string', description: 'Employment type filter (e.g. Full-time).' },
+  softwareOnly: { type: 'boolean', description: 'Restrict to software-engineering roles.' },
 };
 
 export function tier2DriveUi(ctx: ToolCtx): WebMcpToolDef[] {

@@ -222,8 +222,14 @@ export function tier1Read(ctx: ToolCtx): WebMcpToolDef[] {
     inputSchema: { type: 'object', additionalProperties: false, properties: {} },
     annotations: { readOnlyHint: true },
     execute: async () => {
-      const facets = await runQuery(ctx.store.dispatch(jobsApi.endpoints.getFacets.initiate()));
-      return ok({ categories: facets.categories, levels: facets.levels });
+      try {
+        const facets = await runQuery(ctx.store.dispatch(jobsApi.endpoints.getFacets.initiate()));
+        return ok({ categories: facets.categories, levels: facets.levels });
+      } catch (e) {
+        return err(
+          `list_filter_options failed: ${e instanceof Error ? e.message : 'unknown error'}`
+        );
+      }
     },
   };
 
@@ -244,16 +250,20 @@ export function tier1Read(ctx: ToolCtx): WebMcpToolDef[] {
     annotations: { readOnlyHint: true },
     execute: async (rawArgs) => {
       const query = asString(rawArgs.query)?.trim().toLowerCase();
-      const companies = await runQuery(
-        ctx.store.dispatch(companiesApi.endpoints.listCuratedCompanies.initiate())
-      );
-      const filtered = query
-        ? companies.filter(
-            (c) =>
-              c.id.toLowerCase().includes(query) || c.displayName.toLowerCase().includes(query)
-          )
-        : companies;
-      return ok({ companies: filtered });
+      try {
+        const companies = await runQuery(
+          ctx.store.dispatch(companiesApi.endpoints.listCuratedCompanies.initiate())
+        );
+        const filtered = query
+          ? companies.filter(
+              (c) =>
+                c.id.toLowerCase().includes(query) || c.displayName.toLowerCase().includes(query)
+            )
+          : companies;
+        return ok({ companies: filtered });
+      } catch (e) {
+        return err(`list_companies failed: ${e instanceof Error ? e.message : 'unknown error'}`);
+      }
     },
   };
 
@@ -277,10 +287,14 @@ export function tier1Read(ctx: ToolCtx): WebMcpToolDef[] {
       if (!q || q.length < 1) return err('search_locations requires a non-empty `q`.');
       const limit = asInt(rawArgs.limit) ?? 10;
       const openOnly = asBool(rawArgs.openOnly) ?? false;
-      const locations = await runQuery(
-        ctx.store.dispatch(locationsApi.endpoints.searchLocations.initiate({ q, limit, openOnly }))
-      );
-      return ok({ locations });
+      try {
+        const locations = await runQuery(
+          ctx.store.dispatch(locationsApi.endpoints.searchLocations.initiate({ q, limit, openOnly }))
+        );
+        return ok({ locations });
+      } catch (e) {
+        return err(`search_locations failed: ${e instanceof Error ? e.message : 'unknown error'}`);
+      }
     },
   };
 
@@ -346,16 +360,22 @@ export function tier1Read(ctx: ToolCtx): WebMcpToolDef[] {
       const companyId = resolveCompany(companyToken) ?? companyToken;
       const timeWindow = asTimeWindow(rawArgs.timeWindow, '90d');
 
-      const result = await runQuery(
-        ctx.store.dispatch(jobsApi.endpoints.getJobsForCompany.initiate({ companyId }))
-      );
-      const jobs = result.jobs;
-      const buckets = bucketJobsByTime(jobs, timeWindow).map((b) => ({
-        bucketStart: b.bucketStart,
-        bucketEnd: b.bucketEnd,
-        count: b.count,
-      }));
-      return ok({ companyId, timeWindow, buckets, total: jobs.length });
+      try {
+        const result = await runQuery(
+          ctx.store.dispatch(jobsApi.endpoints.getJobsForCompany.initiate({ companyId }))
+        );
+        const jobs = result.jobs;
+        const buckets = bucketJobsByTime(jobs, timeWindow).map((b) => ({
+          bucketStart: b.bucketStart,
+          bucketEnd: b.bucketEnd,
+          count: b.count,
+        }));
+        return ok({ companyId, timeWindow, buckets, total: jobs.length });
+      } catch (e) {
+        return err(
+          `get_company_hiring_trend failed: ${e instanceof Error ? e.message : 'unknown error'}`
+        );
+      }
     },
   };
 

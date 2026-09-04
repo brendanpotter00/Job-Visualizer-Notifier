@@ -123,7 +123,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // is instantly visible; only `Vercel-CDN-Cache-Control` pins the edge copy.
     // Set BEFORE forwardResponse (it ends the response), and gated so `search`
     // (append-heavy, the slow query) and the legacy company list stay uncached.
-    if (sub === 'facets') {
+    // Also gated on `response.ok`: forwardResponse preserves the upstream status,
+    // so an error (a 4xx/5xx, or a `redirect:'manual'` 3xx) must not be edge-cached
+    // for a day under the facets key.
+    if (sub === 'facets' && response.ok) {
       res.setHeader('Cache-Control', 'public, max-age=0, must-revalidate');
       res.setHeader(
         'Vercel-CDN-Cache-Control',

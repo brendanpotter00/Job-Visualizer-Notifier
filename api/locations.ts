@@ -46,12 +46,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // URL, so each distinct {q,limit,openOnly} caches independently. This proxy
     // is public + internal-key only and never forwards Authorization, so there
     // is no per-user response to leak. Browsers still revalidate (max-age=0).
-    // Set BEFORE forwardResponse — that helper ends the response.
-    res.setHeader("Cache-Control", "public, max-age=0, must-revalidate");
-    res.setHeader(
-      "Vercel-CDN-Cache-Control",
-      "public, s-maxage=600, stale-while-revalidate=3600",
-    );
+    // Set BEFORE forwardResponse — that helper ends the response. Gated on
+    // `response.ok`: forwardResponse preserves the upstream status, so an error
+    // (a 4xx/5xx, or a `redirect:'manual'` 3xx) must not be edge-cached.
+    if (response.ok) {
+      res.setHeader("Cache-Control", "public, max-age=0, must-revalidate");
+      res.setHeader(
+        "Vercel-CDN-Cache-Control",
+        "public, s-maxage=600, stale-while-revalidate=3600",
+      );
+    }
     await forwardResponse(response, res);
   } catch (error) {
     console.error('[api/locations] Upstream fetch failed:', error);

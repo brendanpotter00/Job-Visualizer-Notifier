@@ -77,7 +77,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // `Vary: Authorization` could serve one caller's authed response to another.
     // Browsers still revalidate (max-age=0) so a CDN purge is instantly visible.
     // Set BEFORE forwardResponse — that helper ends the response.
-    if (req.method === 'GET' && targetPath === '' && !req.headers.authorization) {
+    // Gated on `response.ok`: `forwardResponse` preserves the upstream status, so
+    // without this an error (a 404/5xx, or a `redirect:'manual'` 3xx) would be
+    // edge-cached for an hour under the bare-directory key.
+    if (
+      req.method === 'GET' &&
+      targetPath === '' &&
+      !req.headers.authorization &&
+      response.ok
+    ) {
       res.setHeader('Cache-Control', 'public, max-age=0, must-revalidate');
       res.setHeader(
         'Vercel-CDN-Cache-Control',

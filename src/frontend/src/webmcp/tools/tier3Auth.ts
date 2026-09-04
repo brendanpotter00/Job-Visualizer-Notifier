@@ -59,15 +59,21 @@ export function tier3Auth(ctx: ToolCtx): WebMcpToolDef[] {
       const token = await getTokenOrNull();
       if (!token) return err('Sign in required');
 
-      const echo = await updateEnabledCompanies(token, companyIds, autoEnroll);
-      // Refresh the store so selectors see the new set. Best-effort: the DB
-      // write (the asserted side effect) already succeeded above.
       try {
-        await ctx.store.dispatch(loadEnabledCompanies(token)).unwrap();
+        const echo = await updateEnabledCompanies(token, companyIds, autoEnroll);
+        // Refresh the store so selectors see the new set. Best-effort: the DB
+        // write (the asserted side effect) already succeeded above.
+        try {
+          await ctx.store.dispatch(loadEnabledCompanies(token)).unwrap();
+        } catch (e) {
+          logger.warn('[webmcp] set_enabled_companies store refresh failed:', e);
+        }
+        return ok({ companyIds: echo.companyIds, autoEnroll: echo.autoEnroll });
       } catch (e) {
-        logger.warn('[webmcp] set_enabled_companies store refresh failed:', e);
+        return err(
+          `set_enabled_companies failed: ${e instanceof Error ? e.message : 'unknown error'}`
+        );
       }
-      return ok({ companyIds: echo.companyIds, autoEnroll: echo.autoEnroll });
     },
   };
 
@@ -103,10 +109,16 @@ export function tier3Auth(ctx: ToolCtx): WebMcpToolDef[] {
         trendActiveKeywordListId: asString(rawArgs.trendActiveKeywordListId) ?? null,
       };
 
-      const saved = await runMutation(
-        ctx.store.dispatch(savedFiltersApi.endpoints.updateSavedFilters.initiate(body))
-      );
-      return ok(saved);
+      try {
+        const saved = await runMutation(
+          ctx.store.dispatch(savedFiltersApi.endpoints.updateSavedFilters.initiate(body))
+        );
+        return ok(saved);
+      } catch (e) {
+        return err(
+          `save_filter_defaults failed: ${e instanceof Error ? e.message : 'unknown error'}`
+        );
+      }
     },
   };
 
