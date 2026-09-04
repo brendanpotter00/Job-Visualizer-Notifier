@@ -17,6 +17,16 @@ if [ -z "$SECTION" ]; then
 fi
 shift
 
+# `company-name-search` brings its own runner and hands off BEFORE anything below
+# runs, deliberately. It needs a stack this script cannot produce: a REAL
+# Browserbase Search key (stack_up.sh's env.e2e blanks it and e2e_app.py refuses to
+# boot with one set), no frontend, and its own port and lock. Handing off here —
+# above the lock, above stack_up.sh — means the two sections share the entry point
+# and share nothing else.
+if [ "$SECTION" = "company-name-search" ]; then
+  exec bash "$SCRIPT_DIR/company-name-search/run.sh" "$@"
+fi
+
 FAST=0
 CASE=""
 REFRESH_DB=0

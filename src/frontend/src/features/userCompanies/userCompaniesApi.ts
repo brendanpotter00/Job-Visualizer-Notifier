@@ -657,6 +657,12 @@ export interface SearchAtsCandidate {
  *
  * `autoAddable` means the board token names the company AND the board is
  * non-empty. It is the server's opinion, and the server re-checks on the add.
+ *
+ * `rank` is the board's place in the search engine's ranking, and **0 means it
+ * had none**: the server resolves one more board out of the careers page it was
+ * about to offer, after the search, so there is no result number to report.
+ * Rendered as a tick, exactly like the careers URL, which is numberless for the
+ * same reason.
  */
 export interface SearchCompanyCandidate {
   candidate: SearchAtsCandidate;

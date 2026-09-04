@@ -1311,6 +1311,14 @@ class NameCandidateResponse(BaseModel):
     ``auto_addable`` is the machine's opinion — the board token names the
     company — and it is advisory to the client, never a substitute for the
     server's own re-check when the add is actually submitted.
+
+    ``rank`` is the place this board's URL took in the search engine's own
+    ranking, and **0 means it took none**: the board behind the careers page we
+    were about to offer is resolved after the search, out of the page's own HTML,
+    so there is no result number to report. Borrowing one from the first search
+    would be a small, pointless lie — the client renders 0 as a tick, the same way
+    it renders the careers URL, which came from a different search for the same
+    reason.
     """
 
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
@@ -1319,7 +1327,7 @@ class NameCandidateResponse(BaseModel):
     probe: ProbeResultResponse
     source_url: str
     title: str = ""
-    rank: int = Field(ge=1)
+    rank: int = Field(ge=0)
     auto_addable: bool
 
 

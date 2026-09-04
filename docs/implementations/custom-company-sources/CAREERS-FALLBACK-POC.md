@@ -1,5 +1,41 @@
 # The careers-page fallback — escalate to a second, plain query
 
+> ## ⚠️ CORRECTION, 2026-09-04 — this document's SUCCESS METRIC is wrong
+>
+> **Every table below scores an answer correct when its HOST names the company.**
+> That was the right metric for the failure this study was written against — we had
+> offered `resumeadapter.com` for Oracle — and it is the wrong metric for the
+> product. Whatever we offer is handed to a **paid discovery run**, and a marketing
+> page has nothing to discover. Under "own domain", `www.oracle.com/careers/` is a
+> pass; it is a brochure with no job on it, and Oracle's real board
+> (`careers.oracle.com/en/sites/jobsearch/jobs`) appears **nowhere** in the 25
+> results. So this document records a marketing page as Oracle's correct answer,
+> and the "16 of 28" in `careers_page_pick` rested on labels like that one.
+>
+> **The corrected bar is: the URL must demonstrably lead to postings.** Measured by
+> loading each answer in a real browser and counting job-detail links —
+> `oracle.com/careers/` yields 3, `careers.oracle.com/…/jobs` yields 14. Re-scored
+> that way over the same 28-company corpus:
+>
+> | | own-domain metric (this doc) | leads-to-postings (corrected) |
+> |---|---|---|
+> | offered a URL at all | 28/28 | 22/28 |
+> | offered URL is a real job list | not measured | **21/28** |
+> | offered a page with **no jobs** on it | not measured | **1/28** (was 10/28) |
+> | offered nothing (honest dead end) | 0 | 6 |
+>
+> **What survives.** Everything in here about MECHANISM: `{company} careers` beats
+> the two longer wordings (§Q3), a liveness fetch cannot tell a list from a brochure
+> on a JS-rendered site, 25 results buys one company over 5, and `owns_host` accepts
+> **0** URLs belonging to a different company across 76 accepted (§Q4). The trust
+> rule is still a **filter** and still necessary — it is what stops
+> `resumeadapter.com`. It is no longer **sufficient**.
+>
+> **What does not.** The headline table immediately below, §Q3's "own-host @1"
+> column, and any per-company label recorded here as "correct". `is_job_list_url`
+> in `api/services/careers_page_pick.py` is the corrected criterion, and
+> `e2e/company-name-search/` is the suite that enforces it end to end.
+
 **Verdict: SHIP IT, and widen the trigger while you are in there.**
 
 | | today | with the fix |
@@ -141,6 +177,12 @@ Point 3 also caps the upside: `Cisco careers` still does not find
 `cisco.wd5.myworkdayjobs.com`. That stays the free L1/L2 ladder's job.
 
 ### Q3 — Best wording for the second query
+
+> **Read the correction at the top of this file first.** The `own-host @1` column is
+> the wrong metric — all three wordings score 15/15 on it, and `oracle.com/careers/`
+> is one of those 15. The wording recommendation still stands, because it rests on
+> the other three columns (single-posting rate, aggregator count, top-5 spread),
+> which are about mechanism and are unaffected.
 
 Three candidates, all 15 escalating companies, same `numResults=25`. All measured.
 

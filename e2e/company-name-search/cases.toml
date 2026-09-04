@@ -1,0 +1,101 @@
+# THE CASE LIST for the "type a company name, get its job board" intent test.
+#
+# ONE LINE PER CASE. Add a case by adding a line — never by editing Python.
+# The owner keeps finding edge cases; this file is where they land.
+#
+#   key = { input = "...", <one expectation>, <modifiers>, truth = "...", tags = [...] }
+#
+# ── the ONE positive expectation (pick at most one) ─────────────────────────
+#   board          = "ats:token"    an ATS board we would AUTO-ADD. Passing needs the
+#                                   token to match AND the real ATS client to have
+#                                   answered with >= min_jobs jobs. A marketing page
+#                                   can never satisfy this — nothing resolves it to an
+#                                   ATS token and nothing gives it a job count.
+#   min_jobs       = 200            floor for `board` (default 1).
+#   careers_url    = "https://…"    the exact careers page we must offer. Must be
+#                                   JOB-LIST-SHAPED (see below) or the file fails to
+#                                   load — you cannot record a brochure as truth.
+#   careers_host   = "example.com"  WEAKER: only the host is pinned, because that is
+#                                   all the ground truth we actually have. Reported as
+#                                   `host-only` and counted separately in the summary.
+#   already_public = "company_id"   "we already track this", said at SEARCH time.
+#   match_kind     = "board"|"name" optional companion to already_public.
+#   nothing        = true           an honest dead end — no board, no careers page, no
+#                                   published match. Documents a known limitation.
+#
+# ── modifiers (any number, combine freely) ──────────────────────────────────
+#   must_not            = ["poki"]     none of these may appear ANYWHERE in the
+#                                      ANSWER channels (careersUrl, auto-addable
+#                                      candidates, alreadyPublic). Informational
+#                                      search rows are not answers and are not checked.
+#   must_offer_careers  = true         a careers page must be offered.
+#   must_answer         = true         at least one channel must answer (no dead end).
+#   must_not_aggregator = ["host"]     no search row on this host may be dropped as an
+#                                      aggregator.
+#   max_searches        = 1            cost pin. Implied 1 for `board`: a board the
+#                                      FIRST search resolves must never also pay for
+#                                      the careers escalation. A board that is only
+#                                      reachable through that escalation — eBay's,
+#                                      which is read off the careers page we were
+#                                      about to offer — writes its 2 down, out loud,
+#                                      with the reason. NOT implied for
+#                                      `already_public`: that answer is legitimately
+#                                      reachable on either rung (Databricks takes the
+#                                      two-search one).
+#   allow_brochure      = true         opt out of the global brochure rule below. Write
+#                                      it down only if you have decided a marketing page
+#                                      really is the right answer here.
+#
+# ── truth (REQUIRED) ────────────────────────────────────────────────────────
+# WHERE THE EXPECTED VALUE CAME FROM. This field exists because the last run of this
+# feature was reported "4 for 4" with an INVENTED expectation: Oracle was scored
+# correct for returning `oracle.com/careers/`, a marketing page. Only two prefixes
+# count as verified:
+#
+#   "owner:<date>"     the owner named this answer.
+#   "measured:<doc>"   a doc in docs/implementations/custom-company-sources/ recorded
+#                      it with evidence.
+#
+# Anything else — including "agent-guess" — still RUNS, but its verdict is reported as
+# UNVERIFIED-TRUTH and never counted in the N/M passing line. A green run that rests on
+# a guess is exactly the failure this suite exists to make impossible.
+#
+# ── job-list shape ──────────────────────────────────────────────────────────
+# A `careers_url` (recorded OR returned) must have a path segment that is a job-list
+# word — jobs, jobsearch, all-jobs, openings, positions, search, … or sit on a host whose
+# first label is `jobs`/`job-boards`. `oracle.com/careers/`,
+# `amd.com/en/corporate/careers.html` and `careers.airbnb.com/` all fail it.
+#
+# THE RULE IS GLOBAL, not per case. If the endpoint hands the user a careers page at all,
+# it must be job-list-shaped — even for a case that records no positive expectation. That
+# is what stops `Poke` (which asserts only "not poki") from passing while offering
+# pokemoto.com/careers, a poke-bowl restaurant. It is why a plausible-looking marketing
+# page cannot pass this suite even for a company nobody has established an answer for.
+#
+# It does NOT apply to the careers URL that rides along on an `already_public` 'name'
+# match: there it is the escape hatch, not the offer, and the page shows the published
+# match instead.
+
+[cases]
+
+# ── the owner's list ────────────────────────────────────────────────────────
+atlassian  = { input = "Atlassian", careers_url = "https://www.atlassian.com/company/careers/all-jobs", truth = "owner:2026-09-03", tags = ["careers"], note = "the careers LANDING page outranks the job list; the picker has to beat search rank" }
+oracle     = { input = "Oracle", careers_url = "https://careers.oracle.com/en/sites/jobsearch/jobs", truth = "owner:2026-09-03", tags = ["careers", "regression"], note = "the UNFILTERED variant, deliberately. Oracle's careers page links to its board three times and every link carries ?location=United States&locationId=…; a recipe inherits its capture's filter scope, so tracking that link builds a US-only scraper the system marks `partial`. The unscoped path is the same page (200, same shell) and a superset. Owner's decision 2026-09-04: prefer it. Was FAILING on exactly that query, invisibly — both URLs clipped to the same prefix in the table, which is why _clip_diff exists." }
+github     = { input = "GitHub", careers_url = "https://www.github.careers/careers-home/jobs", truth = "owner:2026-09-03", tags = ["careers"] }
+amd        = { input = "AMD", careers_url = "https://careers.amd.com/careers-home/jobs", truth = "owner:2026-09-03", tags = ["careers"] }
+ebay       = { input = "eBay", board = "workday:ebay", min_jobs = 200, max_searches = 2, truth = "owner:2026-09-03", tags = ["ats", "careers-rung"], note = "the board arrives on the CAREERS rung, so two searches — the pin is written down rather than implied. Neither search finds it: `jobs.ebayinc.com/us/en/search-results` is the careers page the escalation offers, and running THAT back through discover_ats costs 3 free HTTP requests and 1.0s and yields workday:ebay, 287 jobs. The alternative to those requests was a paid discovery run (a browser session, a model call, 4–8¢) and one of the user's twenty monthly adds, on a board we can read for nothing. Two searches is the honest price of the answer; one search would mean not having it." }
+cisco      = { input = "Cisco", board = "workday:cisco", min_jobs = 1, truth = "owner:2026-09-03", tags = ["ats", "fast-path"], note = "deep-link walk-up" }
+crusoe     = { input = "Crusoe", board = "ashby:crusoe", min_jobs = 1, truth = "owner:2026-09-03", tags = ["ats", "fast-path"], note = "auto-add on one search" }
+databricks = { input = "Databricks", already_public = "databricks", truth = "owner:2026-09-03", tags = ["published"], note = "said at SEARCH time, not one press later. Measured 2026-09-04: arrives via the careers-URL NAME rung after TWO searches, not the board rung — Databricks' Greenhouse board is absent from the host-shaped query's 25 results (CNSE ground-truth row). match_kind is 'name', which keeps its escape hatch." }
+ibm        = { input = "IBM", must_offer_careers = true, must_not = ["harvey"], truth = "owner:2026-09-03", tags = ["fallback", "name-gate"], note = "Harvey's live Ashby board resolves for 'IBM'; a stranger's board must not suppress the careers fallback" }
+meta       = { input = "Meta", careers_host = "metacareers.com", must_not = ["anthropic", "cohere", "metabase.com"], truth = "owner:2026-09-03", tags = ["careers", "name-gate"], note = "semantic search returns Anthropic's and Cohere's real boards for 'meta'; both are published here, so an ungated match would answer 'we already track Anthropic'. metabase.com is the mirror image of the `metabase` case and CAREERS-FALLBACK-POC.md records it as still passing the trust rule (OPEN)." }
+facebook   = { input = "Facebook", nothing = true, truth = "owner:2026-09-03", tags = ["limitation"], note = "Recorded as 'returns nothing'. MEASURED WORSE 2026-09-04: it offers facebook.it/careers/ — a DIFFERENT company's site that passes the owns_host trust rule on a country-code TLD. Not a missing alias; an actively wrong answer." }
+metabase   = { input = "Metabase", must_not = ["metacareers.com"], truth = "owner:2026-09-03", tags = ["name-gate"], note = "word-boundary: 'meta' is a prefix of 'metabase', not a name match" }
+poke       = { input = "Poke", must_not = ["poki"], truth = "owner:2026-09-03", tags = ["name-gate"], note = "near-miss rejection — poki.com is a games site. MEASURED 2026-09-04: poki is correctly rejected, but the answer offered instead is pokemoto.com/careers, a poke-bowl restaurant chain. Caught by the global brochure rule, not by this case's own assertion." }
+nutanix    = { input = "Nutanix", must_not_aggregator = ["nutanix.com"], must_answer = true, truth = "owner:2026-09-03", tags = ["aggregator-bug"], note = "'nutanix.com' contains the substring 'x.com'; an unanchored aggregator check dropped the company's own site" }
+
+# ── measured in the repo's own docs, kept as regression pins ────────────────
+# `owns_host` used to accept a host that merely CONTAINS the name. Fixed in
+# a80fd2e7; these two pin the fix. CAREERS-FALLBACK-POC.md §"trust rule", line 187.
+gm         = { input = "GM", must_not = ["gmail.com"], truth = "measured:CAREERS-FALLBACK-POC.md#187", tags = ["name-gate", "extra"] }
+hp         = { input = "HP", must_not = ["hpe.com"], truth = "measured:CAREERS-FALLBACK-POC.md#187", tags = ["name-gate", "extra"] }

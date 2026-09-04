@@ -364,6 +364,17 @@ def _names_match(typed: str, candidate: AtsCandidate) -> bool:
     return False
 
 
+def board_names_company(typed: str, candidate: AtsCandidate) -> bool:
+    """The auto-add name gate, for a board that did not come from a search row.
+
+    ``search_ats_candidates`` applies ``_names_match`` to every result it scores.
+    The careers-page rung resolves ONE more board after that, out of the page we
+    were about to offer, and it has to clear exactly the same bar — so the gate
+    gets a public name here rather than a second implementation in the router.
+    """
+    return _names_match(typed, candidate)
+
+
 def is_aggregator(url: str) -> bool:
     """A job aggregator or social host — a real result, never a readable board.
 
@@ -662,10 +673,15 @@ async def search_ats_candidates(
     Returns ``(candidates, careers_results, trace)``.
 
     ``careers_results`` are the non-aggregator results that resolved to no board,
-    ranked so the ones on the company's own domain come first — rung B feeds the
-    best of them to the existing ``ats_discovery.discover_ats``, which is free and
-    recovers ~3 more companies in 29, Cisco among them. They carry the search
-    engine's title because ``careers_page_pick`` scores on it.
+    ranked so the ones on the company's own domain come first. They carry the
+    search engine's title because ``careers_page_pick`` scores on it.
+
+    THE FREE ATS LADDER RUNS OVER THESE, but not from here and not over all of
+    them: the router picks ONE careers URL to offer and runs that back through
+    ``ats_discovery.discover_ats`` (``_board_behind_careers_page``). Handing the
+    ladder the best of this raw list instead would fetch — and could auto-add from
+    — pages we had already decided were not worth showing anyone, which is how
+    ``Poke`` ends up tracking a poke-bowl chain.
 
     RANKED, NOT FILTERED, on purpose: this list is raw material, and the caller
     decides what it is for. Anything about to be OFFERED to the user must go

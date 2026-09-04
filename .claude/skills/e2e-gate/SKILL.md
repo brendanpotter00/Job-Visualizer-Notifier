@@ -27,6 +27,10 @@ e2e/run.sh <section> --fast       # cheap subset — run on every commit
 e2e/run.sh <section> --case AC-06 # one case, for a fix loop
 ```
 
+Flags are per section — `company-name-search` takes `--runs N`, `--tag`, `--max-searches`
+and a `--case` naming a company rather than an AC id. Read its runbook first; it is the one
+section that bills a third party on every run and must never be wired into CI.
+
 Node 22.14.0 via nvm is required (`export PATH="$HOME/.nvm/versions/node/v22.14.0/bin:$PATH"`
 if `node -v` isn't already 22.12+) — older Node hangs frontend tooling silently. `run.sh`
 attempts this itself but a pre-set `PATH` wins.
@@ -36,6 +40,7 @@ attempts this itself but a pre-set `PATH` wins.
 | Section | Runbook |
 |---|---|
 | `add-companies` | `sections/add-companies.md` |
+| `company-name-search` | `sections/company-name-search.md` — **spends real money** (~$0.21/run) |
 
 Adding a section: create `e2e/<section>/` (its own `PLAN.md`, `CASES.md`, `api/`, `ui/`),
 add a row here and to `e2e/README.md`, and write `sections/<section>.md`. Never grow

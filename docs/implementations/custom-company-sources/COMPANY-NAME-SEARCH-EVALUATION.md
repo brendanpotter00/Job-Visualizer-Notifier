@@ -139,6 +139,20 @@ user types a name
 | Rung C | **28/29 · 97%** | Snap, Databricks, Retool | 6 searches · $0.042 |
 | Never | 28/29 | — | Hudson River Trading only |
 
+> **SHIPPED 2026-09-04, in a narrower and safer form than drawn above.** The ladder
+> is not handed "the best non-aggregator careers URL" from the raw results — it is
+> handed the ONE careers URL the endpoint has decided to offer, after the trust
+> filter and the job-list bar have both passed
+> (`routers/companies._board_behind_careers_page`). That matters: the raw list
+> contains pages we deliberately refuse to show anyone — a poke-bowl chain's
+> `/careers` for "Poke" — and resolving those could auto-add a board off a page we
+> had already rejected. Restricted this way it still recovers the headline case:
+> `jobs.ebayinc.com/us/en/search-results` → `workday:ebay`, 287 jobs, **3 HTTP
+> requests, 1.0s, $0**, against the 4–8¢ browser discovery run it replaces. Measured
+> over the eleven careers URLs the intent suite offers: 1 hit, 10 misses at 5–9
+> requests and 0.7–3.0s each, all inside an 8-second slice of the search budget.
+> Cost of the miss path is latency only, and it is bounded.
+
 **Rung B is the best value in the feature and it is code we already own.** Three
 companies — including the owner's headline Cisco example — are recovered by the free
 `httpx` layer that already exists, given nothing but a careers URL the search call

@@ -347,6 +347,36 @@ describe('buildNameSearchRows', () => {
     expect(rows[0].kind).toBe('rejected');
   });
 
+  it('gives the board read off the careers page a tick, not a rank it never had', () => {
+    // The server resolves one more board after both searches, out of the careers
+    // page it was about to offer, and sends `rank: 0` because that board was in no
+    // ranking at all. Printing "0" — or borrowing a number from the first search —
+    // would be the same small lie the careers row already refuses to tell.
+    const rows = buildNameSearchRows(
+      response({
+        query: 'eBay',
+        candidates: [
+          candidate({
+            candidate: {
+              ats: 'workday',
+              boardToken: 'ebay',
+              providerConfig: {},
+              sourceUrl: 'https://ebay.wd5.myworkdayjobs.com/apply',
+            },
+            sourceUrl: 'https://jobs.ebayinc.com/us/en/search-results',
+            probe: { ok: true, jobCount: 287, error: null },
+            autoAddable: true,
+            rank: 0,
+          }),
+        ],
+        careersUrl: 'https://jobs.ebayinc.com/us/en/search-results',
+      })
+    );
+    expect(rows[0].rank).toBe('✓');
+    expect(rows[0].meta).toBe('workday · ebay · 287 open jobs');
+    expect(rows[0].status).toBe('matches “eBay”');
+  });
+
   it('makes a confirmed board an answer, and a careers page a LATE answer', () => {
     const confirmed = buildNameSearchRows(response())[0];
     expect(confirmed.kind).toBe('answer');

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import socket
+from urllib.parse import urlsplit
 
 import httpx
 import pytest
@@ -261,7 +262,7 @@ def test_no_board_found_is_an_empty_200_not_an_error(
         monkeypatch,
         _two_query_handler(
             ["https://www.example.com/careers"],
-            ["https://www.nobody.com/careers"],
+            ["https://www.nobody.com/careers/jobs"],
             {},
         ),
     )
@@ -270,7 +271,7 @@ def test_no_board_found_is_an_empty_200_not_an_error(
 
     assert resp.status_code == 200
     assert resp.json()["candidates"] == []
-    assert resp.json()["careersUrl"] == "https://www.nobody.com/careers"
+    assert resp.json()["careersUrl"] == "https://www.nobody.com/careers/jobs"
 
 
 # ----------------------------------------------------------------------------
@@ -282,32 +283,299 @@ def test_no_board_found_is_an_empty_200_not_an_error(
 # ----------------------------------------------------------------------------
 
 
-def test_a_junk_fallback_becomes_the_companys_own_careers_page(
+ORACLE_MARKETING = "https://www.oracle.com/careers/"
+# THE LINK THE PAGE ACTUALLY PUBLISHES, verbatim, and it is scoped to one country.
+# All three "Search jobs" links carry it.
+ORACLE_BOARD_SCOPED = (
+    "https://careers.oracle.com/en/sites/jobsearch/jobs"
+    "?location=United%20States&locationId=300000000149325"
+)
+# WHAT WE OFFER: the same page with the filter dropped. A stored recipe inherits
+# its capture's scope, so following the link as published builds a US-only scraper
+# for a company that hires everywhere. Measured live 2026-09-04: the unscoped path
+# answers 200 with the identical shell.
+ORACLE_BOARD = "https://careers.oracle.com/en/sites/jobsearch/jobs"
+# Verbatim from the live page, 2026-09-04. The board is linked three times under
+# "Search jobs", and the talent-community link is the near-miss that makes the
+# link TEXT load-bearing: its path contains `jobsearch` too.
+ORACLE_PAGE = (
+    '<html><body>'
+    f'<a href="{ORACLE_BOARD_SCOPED}" data-lbl="careers-hero-search-jobs">Search jobs</a>'
+    '<a href="https://careers.oracle.com/en/sites/jobsearch/join-talent-community"'
+    ' data-lbl="tc-join-bottom">Join our network</a>'
+    '<a href="https://www.oracle.com/careers/life-at-oracle/">Life at Oracle</a>'
+    '</body></html>'
+)
+
+
+def _oracle_handler(marketing_page: httpx.Response):
+    """Both searches, the ONE page read, and the unscoped board answering 200.
+
+    The 404 tail is the honest shape of the rest: Oracle runs its own recruiting
+    stack, so the free resolver that follows finds no board behind any of it.
+    """
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+        if url == SEARCH_API:
+            second = json.loads(request.content)["query"].endswith(" careers")
+            return httpx.Response(
+                200,
+                json=_search_payload(
+                    *(
+                        [ORACLE_MARKETING, "https://www.oracle.com/careers/students-grads/"]
+                        if second
+                        else ["https://resumeadapter.com/ats/workday/companies"]
+                    )
+                ),
+            )
+        if url == ORACLE_MARKETING:
+            return marketing_page
+        if url == ORACLE_BOARD:
+            return httpx.Response(200, text="<html>the whole job list</html>")
+        return httpx.Response(404)
+
+    return handler
+
+
+def test_a_junk_fallback_becomes_the_companys_own_job_list(
     client, db_conn, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """THE ORACLE CASE. Not one of the 23 host-shaped results was on oracle.com —
-    with the ATS hostnames in the query, a company with no board on any of the six
-    returns SEO content *about* applicant tracking systems. So we offered
-    `resumeadapter.com/ats/workday/companies` as Oracle's careers page, and
-    accepting it would have spent a paid discovery run and a monthly add on a
-    stranger. `Oracle careers` returns `oracle.com/careers/` at rank 1."""
+    """THE ORACLE CASE, and the objective it was mis-scored against.
+
+    Not one of the 23 host-shaped results was on oracle.com — with the ATS
+    hostnames in the query, a company with no board on any of the six returns SEO
+    content *about* applicant tracking systems — so we offered
+    `resumeadapter.com/ats/workday/companies` as Oracle's careers page. The second
+    query fixed the HOST: `Oracle careers` returns `oracle.com/careers/` at rank 1.
+
+    AND THAT WAS RECORDED AS THE RIGHT ANSWER, which it is not.
+    `oracle.com/careers/` is a marketing page with no job on it; the owner's answer
+    is `careers.oracle.com/en/sites/jobsearch/jobs`, which appears NOWHERE in the
+    25 results — not the list, not one posting under it. Ranking cannot reach an
+    absent URL and neither can the cluster. The page itself is the only place it
+    exists, so we read the page.
+    """
     seen = _install_transport(
-        monkeypatch,
-        _two_query_handler(
-            ["https://resumeadapter.com/ats/workday/companies"],
-            ["https://www.oracle.com/careers/"],
-            {},
-        ),
+        monkeypatch, _oracle_handler(httpx.Response(200, text=ORACLE_PAGE))
     )
 
     body = client.post(SEARCH, json={"name": "Oracle"}).json()
 
     assert body["candidates"] == []
-    assert body["careersUrl"] == "https://www.oracle.com/careers/"
+    assert body["careersUrl"] == ORACLE_BOARD
     # The panel narrates the run, so the second call has to be reported as one.
     assert body["careersSearch"]["query"] == "Oracle careers"
-    assert body["careersSearch"]["trusted"] == 1
+    assert body["careersSearch"]["trusted"] == 2
     assert _sent_queries(seen)[1] == "Oracle careers"
+
+    fetched = [str(r.url) for r in seen if str(r.url) != SEARCH_API]
+    # ONE page read to find the board — the page we would otherwise have offered —
+    # and then the country filter proved droppable against the bare path. The
+    # US-scoped URL the page publishes is never what we hand back.
+    assert fetched[:2] == [ORACLE_MARKETING, ORACLE_BOARD]
+    # Everything after that is the free resolver asking the page we ARE offering
+    # whether an ATS sits behind it. It finds nothing here (Oracle runs its own),
+    # and it never leaves the company's own hosts.
+    assert {urlsplit(u).netloc for u in fetched} == {
+        "www.oracle.com", "careers.oracle.com"
+    }
+
+
+def test_a_waf_that_refuses_our_contact_url_gets_the_other_spelling(
+    client, db_conn, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Oracle's WAF 403s any agent string containing a URL; Intel's 403s a bare
+    product token. Measured 2026-09-04, and perfectly anti-correlated — so reading
+    a careers page has to be willing to say who we are both ways. We still never
+    claim to be a browser."""
+    calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+        if url == SEARCH_API:
+            second = json.loads(request.content)["query"].endswith(" careers")
+            return httpx.Response(
+                200,
+                json=_search_payload(
+                    *([ORACLE_MARKETING] if second else ["https://x.example/ats"])
+                ),
+            )
+        if url == ORACLE_MARKETING:
+            agent = request.headers.get("user-agent", "")
+            calls.append(agent)
+            if "https://" in agent:
+                return httpx.Response(403, text="denied")
+            return httpx.Response(200, text=ORACLE_PAGE)
+        if url == ORACLE_BOARD:
+            return httpx.Response(200, text="<html>the whole job list</html>")
+        return httpx.Response(404)
+
+    _install_transport(monkeypatch, handler)
+
+    body = client.post(SEARCH, json={"name": "Oracle"}).json()
+
+    assert body["careersUrl"] == ORACLE_BOARD
+    assert len(calls) == 2, "the refusal is retried once, with the other spelling"
+    assert "https://" in calls[0] and "https://" not in calls[1]
+
+
+def test_a_careers_page_that_links_to_no_job_list_offers_nothing(
+    client, db_conn, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """THE FACEBOOK CASE. `Facebook careers` returns `facebook.it/careers/` and
+    `facebook.dk/careers/` — a different company's site that passes the host trust
+    rule on a country-code TLD — and neither is a job list. Reading the page finds
+    nothing either. "Paste the URL of their careers page" is the right answer;
+    offering a stranger's brochure spends a discovery run and a monthly add."""
+    _install_transport(
+        monkeypatch,
+        _oracle_handler(httpx.Response(200, text="<html><a href='/about'>About</a></html>")),
+    )
+
+    body = client.post(SEARCH, json={"name": "Oracle"}).json()
+
+    assert body["careersUrl"] is None
+    # The search still happened and is still narrated — "nothing to offer" is an
+    # answer, not a failure.
+    assert body["careersSearch"]["trusted"] == 2
+
+
+# ----------------------------------------------------------------------------
+# The board behind the careers page — free, and the last thing before a paid
+# discovery run. Measured live 2026-09-04: `jobs.ebayinc.com/us/en/search-results`
+# (the page this endpoint already offered) resolves in 3 requests and 1.0s to
+# `workday:ebay`, 287 jobs. We were charging a browser session to learn that.
+# ----------------------------------------------------------------------------
+
+EBAY_CAREERS = "https://jobs.ebayinc.com/us/en/search-results"
+EBAY_BOARD = "https://ebay.wd5.myworkdayjobs.com/en-US/apply"
+EBAY_JOBS = "https://ebay.wd5.myworkdayjobs.com/wday/cxs/ebay/apply/jobs"
+
+
+def _careers_page_handler(page_url: str, page_html: str, job_counts: dict[str, int]):
+    """Two searches that find no board, then the careers page, then the probe."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+        if url == SEARCH_API:
+            second = json.loads(request.content)["query"].endswith(" careers")
+            return httpx.Response(
+                200,
+                json=_search_payload(*([page_url] if second else ["https://x.example/ats"])),
+            )
+        if url == page_url:
+            return httpx.Response(200, text=page_html)
+        if url in job_counts:
+            return httpx.Response(
+                200, json={"total": job_counts[url], "jobPostings": [{"title": "SWE"}]}
+            )
+        return httpx.Response(404)
+
+    return handler
+
+
+def test_the_careers_page_we_would_offer_is_resolved_for_free(
+    client, db_conn, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """THE EBAY CASE. Neither search returns eBay's board — the host-shaped query
+    finds job postings and the plain one finds the careers site — so the endpoint
+    offered `jobs.ebayinc.com/us/en/search-results` and left the user to spend a
+    paid discovery run on a page whose own HTML names a Workday tenant.
+
+    The board is the answer now; the careers page rides along as the alternative,
+    which is what `CareersPageAnswer` already renders it as beside a confirmed
+    board."""
+    before = _company_count(db_conn)
+    _install_transport(
+        monkeypatch,
+        _careers_page_handler(
+            EBAY_CAREERS,
+            f'<html><a href="{EBAY_BOARD}">Search jobs</a></html>',
+            {EBAY_JOBS: 287},
+        ),
+    )
+
+    body = client.post(SEARCH, json={"name": "eBay"}).json()
+
+    assert len(body["candidates"]) == 1
+    found = body["candidates"][0]
+    assert found["candidate"]["ats"] == "workday"
+    assert found["candidate"]["boardToken"] == "ebay"
+    assert found["probe"]["jobCount"] == 287
+    assert found["autoAddable"] is True
+    # Where it came from, said honestly: their careers page, and NOT a search
+    # result — `rank` is 0 because this board was in no ranking at all.
+    assert found["sourceUrl"] == EBAY_CAREERS
+    assert found["rank"] == 0
+    assert body["careersUrl"] == EBAY_CAREERS
+    assert body["alreadyPublic"] is None
+    assert _company_count(db_conn) == before
+
+
+def test_a_board_behind_the_page_that_is_not_theirs_is_shown_not_added(
+    client, db_conn, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The name gate is the same one every search row passes, reached through a new
+    door. A careers page is free to embed a recruiting partner's board, and a token
+    that does not name the company is a question for the user, never an auto-add —
+    the Guidehouse-for-Databricks mitigation."""
+    _install_transport(
+        monkeypatch,
+        _careers_page_handler(
+            EBAY_CAREERS,
+            '<html><a href="https://guidehouse.wd1.myworkdayjobs.com/External">'
+            "Search jobs</a></html>",
+            {GUIDEHOUSE_JOBS: 794},
+        ),
+    )
+
+    body = client.post(SEARCH, json={"name": "eBay"}).json()
+
+    found = body["candidates"][0]
+    assert found["candidate"]["boardToken"] == "guidehouse"
+    assert found["probe"]["jobCount"] == 794, "shown with its count, so a human can reject it"
+    assert found["autoAddable"] is False
+    # The careers page is still the offer — a stranger's board never replaces it.
+    assert body["careersUrl"] == EBAY_CAREERS
+
+
+def test_an_empty_board_behind_the_page_is_not_auto_addable(
+    client, db_conn, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A board that answers with zero jobs is the cheapest signal we picked the
+    wrong one — same rule the search rows get."""
+    _install_transport(
+        monkeypatch,
+        _careers_page_handler(
+            EBAY_CAREERS,
+            f'<html><a href="{EBAY_BOARD}">Search jobs</a></html>',
+            {EBAY_JOBS: 0},
+        ),
+    )
+
+    body = client.post(SEARCH, json={"name": "eBay"}).json()
+
+    assert body["candidates"][0]["autoAddable"] is False
+    assert body["careersUrl"] == EBAY_CAREERS
+
+
+def test_a_board_the_first_search_found_is_never_re_resolved(
+    client, db_conn, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """THE FAST PATH IS UNTOUCHED, and this is the test that says so. An
+    auto-addable board on the first search means no careers escalation, so there is
+    no careers page to resolve and not one extra request beyond the probe."""
+    seen = _install_transport(
+        monkeypatch, _handler([CISCO_BOARD], {CISCO_JOBS: 1248})
+    )
+
+    body = client.post(SEARCH, json={"name": "Cisco"}).json()
+
+    assert body["candidates"][0]["autoAddable"] is True
+    assert body["candidates"][0]["rank"] == 1
+    assert body["careersUrl"] is None
+    assert [str(r.url) for r in seen] == [SEARCH_API, CISCO_JOBS]
 
 
 def test_a_strangers_board_no_longer_suppresses_the_careers_page(
@@ -330,7 +598,7 @@ def test_a_strangers_board_no_longer_suppresses_the_careers_page(
                 200,
                 json=_search_payload(
                     *(
-                        ["https://www.ibm.com/careers"]
+                        ["https://www.ibm.com/careers/search"]
                         if second
                         else ["https://jobs.ashbyhq.com/Harvey"]
                     )
@@ -351,7 +619,7 @@ def test_a_strangers_board_no_longer_suppresses_the_careers_page(
     assert body["candidates"][0]["probe"]["jobCount"] == 334
     assert body["candidates"][0]["autoAddable"] is False
     # ...and it no longer costs the user their careers page.
-    assert body["careersUrl"] == "https://www.ibm.com/careers"
+    assert body["careersUrl"] == "https://www.ibm.com/careers/search"
 
 
 def test_nothing_that_names_the_company_means_nothing_is_offered(
@@ -420,7 +688,7 @@ def test_a_second_search_that_fails_is_not_the_whole_request_failing(
             if len(calls) > 1:
                 return httpx.Response(429, json={"error": "slow down"})
             return httpx.Response(
-                200, json=_search_payload("https://careers.tesla.com/")
+                200, json=_search_payload("https://careers.tesla.com/jobs")
             )
         return httpx.Response(404)
 
@@ -432,7 +700,7 @@ def test_a_second_search_that_fails_is_not_the_whole_request_failing(
     body = resp.json()
     # Belt and braces: the first search's own trusted result, measured never to be
     # needed (the second query succeeded 15/15) and kept for exactly this case.
-    assert body["careersUrl"] == "https://careers.tesla.com/"
+    assert body["careersUrl"] == "https://careers.tesla.com/jobs"
     # Nothing narrated about a second search, because none of it happened.
     assert body["careersSearch"] is None
 
@@ -571,7 +839,7 @@ def test_empty_name_is_rejected(client, db_conn) -> None:
 # which decides whether the page may still offer a way past the answer.
 # ----------------------------------------------------------------------------
 
-DATABRICKS_CAREERS = "https://www.databricks.com/company/careers"
+DATABRICKS_CAREERS = "https://www.databricks.com/company/careers/open-jobs"
 AMAZON_CAREERS = "https://www.amazon.jobs/en/search"
 
 
@@ -714,7 +982,7 @@ def test_a_strangers_published_board_never_answers_for_the_name_typed(
     _install_transport(
         monkeypatch,
         _two_query_handler(
-            [GUIDEHOUSE_BOARD], ["https://www.nobody.com/careers"],
+            [GUIDEHOUSE_BOARD], ["https://www.nobody.com/careers/jobs"],
             {GUIDEHOUSE_JOBS: 794},
         ),
     )
@@ -739,19 +1007,14 @@ def test_a_company_we_do_not_publish_is_completely_unchanged(
     body is byte-for-byte what it was before this existed and the careers page is
     still the answer."""
     _install_transport(
-        monkeypatch,
-        _two_query_handler(
-            ["https://resumeadapter.com/ats/workday/companies"],
-            ["https://www.oracle.com/careers/"],
-            {},
-        ),
+        monkeypatch, _oracle_handler(httpx.Response(200, text=ORACLE_PAGE))
     )
 
     body = client.post(SEARCH, json={"name": "Oracle"}).json()
 
     assert body["alreadyPublic"] is None
-    assert body["careersUrl"] == "https://www.oracle.com/careers/"
-    assert body["careersSearch"]["trusted"] == 1
+    assert body["careersUrl"] == ORACLE_BOARD
+    assert body["careersSearch"]["trusted"] == 2
 
 
 def test_a_disabled_public_row_is_not_offered_as_the_answer(
@@ -839,9 +1102,14 @@ def test_the_offered_careers_page_is_the_job_list(
     body = client.post(SEARCH, json={"name": "Airbnb"}).json()
 
     assert body["careersUrl"] == AIRBNB_LIST
-    # Two searches and exactly one verification fetch — the postings themselves
-    # are never fetched, and neither is the landing page.
-    assert [str(r.url) for r in seen if str(r.url) != SEARCH_API] == [AIRBNB_LIST]
+    fetched = [str(r.url) for r in seen if str(r.url) != SEARCH_API]
+    # Two searches and exactly one verification fetch to CHOOSE the page — the
+    # postings themselves are never fetched, and neither is the landing page.
+    assert fetched[0] == AIRBNB_LIST
+    # The derived list carries no query, so nothing is unscoped and no second read
+    # is spent on that. What follows is the free resolver asking the chosen page
+    # whether an ATS is behind it, and it stays on the company's own host.
+    assert {urlsplit(u).netloc for u in fetched} == {"careers.airbnb.com"}
 
 
 def test_a_derived_list_we_cannot_verify_falls_back_to_the_ranker(
@@ -849,12 +1117,15 @@ def test_a_derived_list_we_cannot_verify_falls_back_to_the_ranker(
 ) -> None:
     """FAILING OPEN, end to end. Tesla, Citadel, Epic Games and Dell all 403 us;
     treating that as "reject" would leave the user with nothing on every
-    Cloudflare-fronted careers site."""
+    Cloudflare-fronted careers site.
+
+    It costs the DERIVATION and nothing else — the request still answers 200 with
+    its search narration. What it cannot do is invent a list: the only other row
+    here is `careers.airbnb.com/`, a landing page, so the honest answer is none.
+    """
     _install_transport(monkeypatch, _airbnb_handler(httpx.Response(403, text="no")))
 
     body = client.post(SEARCH, json={"name": "Airbnb"}).json()
 
-    # The landing page again — the old answer, which is the right one to fall
-    # back to and never worse than what we offered before.
-    assert body["careersUrl"] == "https://careers.airbnb.com/"
+    assert body["careersUrl"] is None
     assert body["careersSearch"]["trusted"] == 4

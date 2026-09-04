@@ -346,7 +346,11 @@ export function buildNameSearchRows(result: SearchCompanyResponse): NameSearchRo
     const { ats, boardToken } = found.candidate;
     rows.push({
       key: `board-${ats}:${boardToken}:${found.sourceUrl}`,
-      rank: String(found.rank),
+      // Rank 0 is "this board was in no search result" — it was read off the
+      // careers page below, after both searches. Same tick the careers row gets,
+      // for the same reason: a number from a ranking it never took would be a
+      // small, pointless lie.
+      rank: found.rank === 0 ? '✓' : String(found.rank),
       url: found.sourceUrl,
       // The identity and the live count, always — see `NameSearchRow.meta`.
       meta: `${ats} · ${boardToken} · ${
