@@ -2,7 +2,13 @@ import { Box, Typography } from '@mui/material';
 import { RESPONSIVE } from '../../../config/responsive';
 
 interface MetricCardProps {
-  value: number;
+  /**
+   * The number to show, or a short placeholder string for "not a number yet"
+   * (the Recent page passes an em-dash when a count is genuinely unknown — see
+   * `RecentJobsMetrics`). Anything longer than a couple of characters will not
+   * fit the `h3` tile.
+   */
+  value: number | string;
   label: string;
   /**
    * Compact mode for narrow viewports (e.g. the Recent Jobs page on mobile):

@@ -63,3 +63,49 @@ PR `fix/recent-jobs-empty-filter-deadlock`:
 - **Budget miscount:** the empty-fetch streak increments before dispatch, and `inFlightRef` can silently swallow the dispatch (widening effect racing the sentinel), so the affordance can appear one page early. Return "actually fired" from `loadNextServerPage` and count only those.
 - **Manual "Search older jobs" resets the streak to 0**, so one click buys up to `MAX_EMPTY_AUTO_FETCHES` more automatic pages (~3 chunk-requests × 1000 rows each), not one — the comment on `continueLoading` says "fetches once." Either fix the comment or set the streak to `MAX - 1` on continue. Backend headroom note: each page is 3 batched keyset requests, not the 49-request fanout of the 2026-05-17 pool-exhaustion incident.
 - **Signed-out zero-match copy overclaims:** signed-out users get the terminal "No jobs found" while pages are outstanding (paging is auth-gated by design) and no hint that signing in searches deeper. Consider a "Sign in to search older jobs" variant.
+
+## Addendum: the structural fix (server-side filtering)
+
+The fix above kept the walk alive when a filter matched nothing yet. It removed the
+deadlock; it did not remove the *class* of bug, because the page was still guessing
+how much further to dig. That guess only exists because the client was filtering rows
+the server had already sent it.
+
+A follow-up PR moved the Recent page's entire filter set into SQL behind a new
+`GET /api/jobs/search` (see `src/backend/CLAUDE.md`). Every page the endpoint returns
+contains only matching rows, so "the page came back empty" means "there are none
+left" — and the machinery that had to be kept alive is simply gone: the client-side
+keyset walk, the complete-prefix horizon, window widening, the empty-fetch budget,
+and the manual "search older jobs" affordance were all deleted.
+
+What that resolves from the lists above:
+
+- **Lesson 1** is now enforced structurally rather than by a careful conditional.
+  The terminal empty state is gated on `!hasNextPage`, which is the server's own
+  end-of-walk signal, not a client-side inference from what happens to be loaded.
+- **Lesson 4's clamp-collapse signature** cannot recur: there is no clamp. The
+  recency tiles are computed by the server, and they honour `company` and nothing
+  else — not category, level, keywords, location, `since` or status. That is the
+  scope the client-side page had (`selectEnabledByCompanyId`, applied before any
+  other filter existed), so the two figures still answer "how busy is the job
+  market I follow" rather than shrinking every time the reader types in the
+  keyword box. Widening them back to the whole visible corpus would inflate them
+  ~40x for a reader following 3 of 133 companies — see `_header_counts_where` in
+  `src/backend/api/services/job_search.py` and the contract in
+  `src/backend/CLAUDE.md`.
+- **Wholesale page-1 failure** is fixed: a failed first page renders a real error
+  with a retry, never an empty-results state.
+- **Demo mode** no longer fires real pages — it short-circuits the query entirely.
+- **Budget miscount** and **"Search older jobs" resetting the streak** are moot;
+  neither the budget nor the affordance exists any more.
+
+Still open:
+
+- **Signed-out zero-match copy.** Signed-out readers are capped at a dozen cards and
+  do not page, so a filter matching nothing beyond that cap still reads as a plain
+  "No jobs found" with no hint that signing in searches the whole corpus.
+- **Lesson 2 (import horizon floods)** and **Lesson 3 (enricher capacity)** are
+  unaffected. They were never about the walk: an unenriched row is invisible to a
+  category/level filter no matter which tier does the filtering, and the enricher's
+  ~500/day ceiling against an 18.7k backlog is still the real constraint on how
+  quickly a newly imported company becomes filterable.

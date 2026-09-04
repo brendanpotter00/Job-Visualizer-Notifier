@@ -33,6 +33,7 @@ const LandingPage = lazy(() => import('../pages/LandingPage/LandingPage.tsx'));
 import { AdminRoute } from '../components/auth/AdminRoute.tsx';
 import { useEnabledCompanies } from '../features/preferences/useEnabledCompanies';
 import { useHydrateSavedFilters } from '../features/savedFilters/useHydrateSavedFilters';
+import { useRecentJobsUrlSync } from '../features/filters/useRecentJobsUrlSync';
 import { useFeaturesAuthBridge } from '../features/features/useFeaturesAuthBridge';
 import { useRecordVisit } from '../features/auth/useRecordVisit';
 import { usePostHogPageview } from '../features/analytics/usePostHogPageview';
@@ -94,8 +95,21 @@ function AppContent() {
   // 401, and stick — the queries have no retry / refetchOnMountOrArgChange.
   // React runs effects in declaration order, so the bridge must come first.
   useFeaturesAuthBridge();
+  // BEFORE useHydrateSavedFilters, and the order is load-bearing. A shared link
+  // wins for that visit, and the mechanism is the slice's one-shot `hydrated`
+  // guard: whichever hydration lands first is the one that sticks. This reads the
+  // URL synchronously while saved filters need a round trip, so it would win
+  // anyway — declaring it first makes that a decision instead of an accident.
+  // Mounted at the root but SCOPED INTERNALLY to the Recent Jobs route, the same
+  // way useURLSync above is scoped to /companies: it has to run before the
+  // hydration hook, and the hydration hook lives here, but its query params
+  // belong on one page only.
+  useRecentJobsUrlSync();
   // Hydrate the filter slices (time windows, locations, active keyword list)
-  // from saved filters once on sign-in; reset on sign-out.
+  // from saved filters once on sign-in; reset on sign-out. A no-op when the line
+  // above already hydrated from a shared link — which is exactly the precedence
+  // we want, and why the reader's own saved filters are neither read nor written
+  // on such a visit.
   useHydrateSavedFilters();
   usePostHogPageview();
   usePostHogIdentify();

@@ -72,21 +72,6 @@ export const VIRTUAL_LIST_CONFIG = {
    */
   OVERSCAN: 6,
 
-  /**
-   * How many consecutive keyset pages the list will pull on its own when NONE
-   * of them produce a visible row.
-   *
-   * The failure this prevents: under a filter that matches nothing in the older
-   * pages, every fetch leaves the visible list unchanged, so the sentinel never
-   * leaves the viewport and the IntersectionObserver — which re-arms on the
-   * loading flip and fires an initial callback on `observe()` — walks the entire
-   * corpus from a single scroll to the bottom. After this many empty pages the
-   * list stops fetching by itself and asks the user, which is also the honest
-   * message: "nothing matched in what we loaded; want to look further back?"
-   *
-   * The streak resets on any filter/window change and on a manual continue.
-   */
-  MAX_EMPTY_AUTO_FETCHES: 3,
 } as const;
 
 /**

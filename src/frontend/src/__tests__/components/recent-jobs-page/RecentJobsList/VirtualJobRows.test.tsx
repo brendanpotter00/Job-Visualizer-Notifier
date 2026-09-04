@@ -105,8 +105,11 @@ describe('VirtualJobRows', () => {
     expect(height).toBeGreaterThan(150000);
   });
 
-  it('advertises the FULL list length to assistive tech, not the rendered window', () => {
-    // The caller passes a reveal window of 50 out of a 4,000-row list.
+  it('advertises the FULL list length to assistive tech, not the rows loaded so far', () => {
+    // The caller has walked 50 keyset rows of a 4,000-row filtered result set
+    // (`RecentJobsList` passes the server's own `counts.total`). Announcing the
+    // 50 instead would tell a screen-reader user they are at the end of the list
+    // while 3,950 matching rows are still one scroll away.
     render(<VirtualJobRows jobs={createMockJobs(50)} totalCount={4000} />);
 
     const rows = screen.getAllByRole('listitem');
@@ -115,11 +118,27 @@ describe('VirtualJobRows', () => {
     expect(rows[1]).toHaveAttribute('aria-posinset', '2');
   });
 
+  it('announces an UNKNOWN total as -1 rather than as the rows in hand', () => {
+    // `totalCount: null` is "page 1 has not landed, or its failure nulled the
+    // counts" — nothing has measured the result set. -1 is ARIA's own value for
+    // "the total number of items is unknown"; a plausible number would be a claim
+    // no part of the system made.
+    render(<VirtualJobRows jobs={createMockJobs(50)} totalCount={null} />);
+
+    const rows = screen.getAllByRole('listitem');
+    expect(rows[0]).toHaveAttribute('aria-setsize', '-1');
+    expect(rows[0]).not.toHaveAttribute('aria-setsize', '50');
+    // Position within the loaded rows is still real and still announced.
+    expect(rows[0]).toHaveAttribute('aria-posinset', '1');
+  });
+
   it('survives the row set shrinking underneath it', () => {
-    // A window widening clears the cursors/floors, dropping the completeness
-    // clamp, then re-applies a tighter one as the restarted pages land — so the
-    // list can genuinely get SHORTER between renders while the virtualizer
-    // still holds indices from the longer one.
+    // On a filter change RTK Query swaps `data` to the NEW filter set's pages,
+    // which is routinely shorter than what was on screen — page 1 of a narrower
+    // search replacing five loaded pages of a wider one. So the list genuinely
+    // gets SHORTER between renders while the virtual items computed from the
+    // previous render still carry the old, larger indices. See the guard's own
+    // note in `VirtualJobRows.tsx`; deleting it renders `undefined.id` and throws.
     const { rerender, container } = render(
       <VirtualJobRows jobs={createMockJobs(1000)} totalCount={1000} />
     );

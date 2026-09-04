@@ -10,11 +10,19 @@ cross-user surface:
 Leak 5 (added with the Recent-feed integration) covers the SECOND authed path
 that serves private jobs — ``GET /api/users/companies/jobs`` — which must stay
 owner-scoped without weakening any of the four above.
+
+Leak 6 covers ``GET /api/jobs/search``, the Recent page's read path. It is a
+THIRD public reader over ``job_listings``, added after leaks 1-4 were written and
+therefore not covered by any of them — which is the point: this file enumerates
+surfaces by hand, so a new public reader is invisible to it until someone adds a
+case. It leaks in three distinct ways if unguarded (rows, ``filteredTotal``, and
+the two recency tiles), and all three are asserted below.
 """
 
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from psycopg2 import sql
@@ -51,7 +59,15 @@ def _insert_company(
     conn.commit()
 
 
-def _insert_job(conn, job_id: str, company: str, source_id: str, *, status: str = "OPEN") -> None:
+def _insert_job(
+    conn,
+    job_id: str,
+    company: str,
+    source_id: str,
+    *,
+    status: str = "OPEN",
+    first_seen_at: str = "2025-01-01T00:00:00Z",
+) -> None:
     cur = conn.cursor()
     cur.execute(
         sql.SQL(
@@ -60,7 +76,7 @@ def _insert_job(conn, job_id: str, company: str, source_id: str, *, status: str 
         ).format(sql.Identifier("job_listings")),
         (
             job_id, "Engineer", company, "https://x/1", source_id,
-            "2025-01-01T00:00:00Z", "2025-01-01T00:00:00Z", status,
+            first_seen_at, first_seen_at, status,
         ),
     )
     conn.commit()
@@ -322,3 +338,87 @@ def test_public_jobs_list_still_omits_private_jobs_after_the_feed_endpoint_exist
     finally:
         if original is not None:
             client.app.dependency_overrides[get_current_user] = original
+
+
+# --- Leak 6: the public /api/jobs/search reader -------------------------------
+#
+# ``GET /api/jobs/search`` is unauthenticated (the handler takes only
+# ``Depends(get_db)``) and is allow-listed through the public Vercel proxy, so it
+# is a public read path in exactly the sense ``_USER_COMPANY_PREDICATE`` means.
+#
+# It shipped applying only ``_HIDDEN_COMPANY_PREDICATE`` — the disabled-company
+# guard — because it was authored before ``companies.visibility`` existed. Git
+# merged the two branches without complaint (disjoint files) and every existing
+# test above still passed, because none of them had any notion of this route.
+# That is the failure mode these cases exist to make loud.
+
+
+def test_public_jobs_search_omits_user_company(client, db_conn):
+    _insert_company(db_conn, "srch-pub", visibility="public")
+    _insert_company(db_conn, "u-srchpriv01", visibility="user")
+    _insert_job(db_conn, "s1", "srch-pub", "greenhouse_api")
+    _insert_job(db_conn, "s2", "u-srchpriv01", custom("u-srchpriv01"))
+
+    resp = client.get("/api/jobs/search")
+    assert resp.status_code == 200
+    companies = {j["company"] for j in resp.json()["jobs"]}
+    assert "srch-pub" in companies
+    assert "u-srchpriv01" not in companies
+
+
+def test_public_jobs_search_cannot_target_a_private_board_by_name(client, db_conn):
+    """``ENABLED_COMPANY_ID_PATTERN`` admits ``u-<base36>``, so a private board's
+    id is a syntactically valid ``?company=`` value. Asking for one by name must
+    return nothing rather than that board's whole feed."""
+    _insert_company(db_conn, "u-srchpriv02", visibility="user")
+    _insert_job(db_conn, "s3", "u-srchpriv02", custom("u-srchpriv02"))
+
+    resp = client.get("/api/jobs/search", params={"company": "u-srchpriv02"})
+    assert resp.status_code == 200
+    assert resp.json()["jobs"] == []
+
+
+def test_public_jobs_search_counts_exclude_user_company(client, db_conn):
+    """The tiles and the total are separate SQL from the row query.
+
+    ``filtered_total`` and the two recency counts come from
+    ``get_search_counts`` / ``_header_counts_where``, not from the page query, so
+    guarding only ``build_search_where`` would still publish the SIZE of someone
+    else's private board above a list that correctly hides it.
+    """
+    fresh = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+    _insert_company(db_conn, "srch-pub2", visibility="public")
+    _insert_company(db_conn, "u-srchpriv03", visibility="user")
+    _insert_job(db_conn, "s4", "srch-pub2", "greenhouse_api", first_seen_at=fresh)
+    # TWO private rows, both inside the 24h window: if the tile were unguarded it
+    # would read 3, so this assertion cannot pass by accident.
+    _insert_job(db_conn, "s5", "u-srchpriv03", custom("u-srchpriv03"), first_seen_at=fresh)
+    _insert_job(db_conn, "s6", "u-srchpriv03", custom("u-srchpriv03"), first_seen_at=fresh)
+
+    meta = client.get("/api/jobs/search").json()["meta"]
+    assert meta["filteredTotal"] == 1
+    assert meta["countLast24h"] == 1
+
+
+def test_search_service_layer_never_returns_a_user_company_job(db_conn):
+    """The property where it is implemented, one layer below the router.
+
+    Mirrors ``test_service_layer_read_paths_never_return_a_user_company_job`` for
+    the search reader: it still fails if someone rewires the router, mounts a
+    second one, or gives ``build_search_where`` a viewer argument — the
+    "conditional leak that passes review" the predicate's comment warns about.
+    """
+    from api.services.job_search import get_search_counts, search_jobs
+
+    _insert_company(db_conn, "svc-srch-pub", visibility="public")
+    _insert_company(db_conn, "u-svcsrch01", visibility="user")
+    _insert_job(db_conn, "sv1", "svc-srch-pub", "greenhouse_api")
+    _insert_job(db_conn, "sv2", "u-svcsrch01", custom("u-svcsrch01"))
+
+    rows = search_jobs(db_conn, status="OPEN", limit=100)
+    companies = {r["company"] for r in rows}
+    assert "svc-srch-pub" in companies
+    assert "u-svcsrch01" not in companies
+
+    counts = get_search_counts(db_conn, status="OPEN")
+    assert counts["filtered_total"] == 1

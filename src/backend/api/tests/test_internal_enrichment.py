@@ -14,8 +14,8 @@ Alembic — it does NOT run the migration's ``upgrade()`` body, so the seeded
 ``job_categories`` / ``job_levels`` dimension rows are absent. Because
 ``enrichment_category`` / ``enrichment_level`` are real FKs to those dimensions,
 every test that writes a facet must seed the taxonomy first: the autouse
-``_enrichment_isolation`` fixture does exactly that (and truncates the
-enrichment-side tables, which conftest's ``clean_tables`` does not touch).
+``_enrichment_isolation`` fixture does exactly that, and also truncates the
+enrichment-side tables listed in ``_ENRICHMENT_TABLES``.
 """
 
 import json
@@ -55,9 +55,13 @@ _LEVEL_SEED = [
     ("new_grad", "New Grad", 1, "entry"),  # child last (self-FK)
 ]
 
-# Enrichment-side tables that conftest's clean_tables does NOT truncate. Truncate
-# them ourselves so writer state never leaks between tests. locations + its alias
-# cache are included so the one location test starts from a clean slate.
+# Enrichment-side tables this module truncates itself so writer state never leaks
+# between tests. locations + its alias cache are included so the one location test
+# starts from a clean slate. Most of these are tables conftest's clean_tables does
+# not touch; ``job_categories`` / ``job_levels`` are the exception — clean_tables
+# truncates those too, and the overlap is deliberate and harmless because
+# ``_seed_taxonomy`` re-seeds them and is ON CONFLICT DO NOTHING. Dropping them
+# here would couple this module's per-test isolation to clean_tables' table list.
 _ENRICHMENT_TABLES = (
     "enrichment_ticks",
     "job_tags",

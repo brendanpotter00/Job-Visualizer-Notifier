@@ -3,6 +3,10 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { KeywordListCard } from '../../../components/saved-filters/KeywordListCard';
 import type { DraftKeywordList } from '../../../components/saved-filters/keywordListDraft';
+import {
+  MAX_SEARCH_TAGS,
+  MAX_SEARCH_TAGS_REACHED_HELPER_TEXT,
+} from '../../../constants/tags';
 
 const { createMock, updateMock, deleteMock } = vi.hoisted(() => ({
   createMock: vi.fn(),
@@ -190,6 +194,41 @@ describe('KeywordListCard', () => {
       expect(
         screen.getByRole('radio', { name: 'Set Backend as the active keyword list' })
       ).toBeDisabled();
+    });
+  });
+
+  describe('the keyword budget', () => {
+    const full: DraftKeywordList = {
+      id: 'list-full',
+      name: 'Full',
+      tags: Array.from({ length: MAX_SEARCH_TAGS }, (_, n) => ({
+        text: `tag-${n}`,
+        mode: 'include' as const,
+      })),
+      isBuiltin: false,
+      position: 0,
+      isNew: false,
+    };
+
+    it('tells the editor why the next keyword will not be accepted', async () => {
+      // `addTagToList` refuses past MAX_SEARCH_TAGS — the same bound the backend
+      // enforces on stored lists and on the search query. An active list hydrates
+      // straight into the Recent page's chips, so an oversized list would 400 the
+      // reader's next visit; but a refusal with nothing on screen just looks like
+      // a broken input.
+      const user = userEvent.setup();
+      render(<KeywordListCard list={full} />);
+      await user.click(screen.getByRole('button', { name: 'Edit' }));
+
+      expect(screen.getByText(MAX_SEARCH_TAGS_REACHED_HELPER_TEXT)).toBeInTheDocument();
+    });
+
+    it('says nothing while there is still room', async () => {
+      const user = userEvent.setup();
+      render(<KeywordListCard list={persisted} />);
+      await user.click(screen.getByRole('button', { name: 'Edit' }));
+
+      expect(screen.queryByText(MAX_SEARCH_TAGS_REACHED_HELPER_TEXT)).not.toBeInTheDocument();
     });
   });
 });
