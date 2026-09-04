@@ -201,17 +201,31 @@ class TestAdminEnrichmentHealth:
                           subcategories=["backend"])
         _seed_flagged_job(db_conn, job_id="c-fe", category="software_engineering",
                           subcategories=["frontend"])
+        # PARTIAL means partial. Once SCHEMA-7 (PR-F) landed, the conftest
+        # fixture seeds all fifteen slugs to mirror prod — so INSERTing 'backend'
+        # no longer creates a gap and this test silently asserted nothing. Remove
+        # 'frontend' instead, which produces the gap under either fixture.
         cur = db_conn.cursor()
         cur.execute(
             "INSERT INTO job_subcategories (slug, label, parent_slug, sort_order) "
             "VALUES ('backend','Backend','software_engineering',1) "
             "ON CONFLICT (slug) DO NOTHING"
         )
+        cur.execute("SELECT label, sort_order FROM job_subcategories WHERE slug='frontend'")
+        restore = cur.fetchone()
+        cur.execute("DELETE FROM job_subcategories WHERE slug='frontend'")
         db_conn.commit()
         try:
             body = client.get("/api/admin/enrichment/health").json()
             assert body["subcategoryUnknownSlugs"] == 1  # 'frontend' is not seeded
         finally:
+            if restore is not None:
+                cur.execute(
+                    "INSERT INTO job_subcategories (slug, label, parent_slug, sort_order) "
+                    "VALUES ('frontend', %s, 'software_engineering', %s) "
+                    "ON CONFLICT (slug) DO NOTHING",
+                    (restore["label"], restore["sort_order"]),
+                )
             cur.execute("DELETE FROM job_subcategories WHERE slug='backend'")
             db_conn.commit()
 
