@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
@@ -11,6 +11,7 @@ import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 import { ROUTES } from '../../config/routes';
 import { DiscoveryNetworkLog } from './DiscoveryNetworkLog';
+import { liveViewLog, liveViewLogUrl } from './liveViewDebug';
 import type {
   DiscoveryOutcomeState,
   DiscoveryStep,
@@ -125,6 +126,14 @@ function liveViewSrc(url: string): string {
  * this one only makes the common case close in milliseconds instead of at the next poll.
  * If it silently stops arriving, the lease still ends the frame and the only symptom is
  * the old few-second window coming back.
+ *
+ * AND IT IS NOISY, WHICH IS THE PART THAT WAS NOT KNOWN WHEN THIS SHIPPED. It is not
+ * only unversioned and undocumented; it is WRONG about the session, routinely and
+ * early. On a real Browserbase capture the frame posts it roughly a second after its own
+ * `load` — the first socket closing behind a reconnect — and then goes on painting the
+ * live browser for the next twenty seconds. So a handler that treats it as terminal
+ * deletes almost the whole feature. `LIVE_VIEW_DISCONNECT_GRACE` is what it costs to
+ * keep the fast path without believing it.
  */
 const LIVE_VIEW_DISCONNECT_MESSAGE = 'browserbase-disconnected';
 
@@ -223,6 +232,41 @@ const LIVE_VIEW_SESSION_TTL_MS = 300_000;
 const LIVE_VIEW_ENDED_HOLD_MS = 1_400;
 
 /**
+ * How many times the hosted frame's own `browserbase-disconnected` may be DISPROVED by
+ * a later payload before we stop listening to the disproof.
+ *
+ * ONE, and both halves of that number are load-bearing.
+ *
+ * That it is not ZERO is the bug this constant exists for. The message used to set
+ * `retiredUrl` — the hardest, stickiest closer in the file — while the comment above it
+ * claimed the file "does not lean on it". Measured against a real Browserbase session
+ * (`e2e/live-view/ui-live/real_discovery.spec.ts`, run 20260904T150614Z), the frame
+ * loaded at t=9.2s and posted `browserbase-disconnected` at t=10.2s — 1.06 seconds
+ * later — while the SERVER went on publishing the same `liveViewUrl` for at least
+ * another fourteen seconds. The session was fine; the frame's socket blipped, almost
+ * certainly on its first reconnect. One undocumented string from someone else's page
+ * therefore deleted ~22 of the ~24 watchable seconds, every run. That is the whole of
+ * "it pops up and disappears within a second".
+ *
+ * That it is not UNBOUNDED is the other failure, pointing the other way. On a session
+ * that has genuinely ended the frame will keep failing to connect and keep posting the
+ * same message, and a payload that still carries the URL — which the server's own null
+ * is always at least one poll behind, see `LIVE_VIEW_TRUST_MS` — would put it back each
+ * time. That is a frame flapping once per poll for as long as the lease holds, which is
+ * the same symptom with a different cause. Allowing exactly one recovery makes the
+ * common case (a blip) whole and the terminal case (a dead session) cost at most one
+ * remount.
+ *
+ * WHAT THAT REMOUNT COSTS, precisely: the message is emitted BEFORE Browserbase builds
+ * its "Debugging connection was closed" dialog, in the same synchronous call — which is
+ * why unmounting on it beats the paint rather than merely shortening it. So a remount
+ * onto a dead session shows a blank frame reconnecting for the moment before it posts
+ * again and goes for good. It does not show their error text, which is the thing all of
+ * these closers exist to keep out of our layout.
+ */
+const LIVE_VIEW_DISCONNECT_GRACE = 1;
+
+/**
  * The one thing worth animating on the way out here, and it is deliberately the SAME
  * motion as `DiscoveryNetworkLog`'s `ROW_ANIMATION` — 260ms, a 3px rise, a fade. These
  * two panels sit one above the other during a run and must read as one system rather
@@ -279,13 +323,21 @@ type LiveViewPhase = 'live' | 'ending' | 'gone';
  * Every one of these is recorded as the URL it refers to rather than as a boolean, so no
  * verdict can outlive its own session and suppress the next one.
  *
- * AND EXACTLY ONE OF THEM IS SOFT. The others are statements about the SESSION — its
- * socket is gone, its ceiling has passed, it never painted anything — and a session that
- * has ended does not un-end, so those are permanent. The lease is a statement about US:
- * we have not heard anything recent enough. A later payload simply disproves that, so a
- * fresh `receivedAt` carrying the SAME url puts the frame back. Making it permanent
- * alongside the others is what turned ONE slow poll into a live view that flashed up and
- * disappeared for the remaining ~25s of a session that was still running.
+ * AND TWO OF THEM ARE SOFT, WHICH IS THE WHOLE OF WHAT THIS COMPONENT KEEPS GETTING
+ * WRONG. Sort them by what they are actually a statement ABOUT:
+ *
+ * - about the SESSION — its ceiling has passed, it never painted anything, the server
+ *   retracted it. A session that has ended does not un-end, so these are permanent.
+ * - about US — the lease. "We have not heard anything recent enough" is disproved by
+ *   the next payload, so a fresh `receivedAt` carrying the SAME url puts the frame back.
+ *   Making it permanent alongside the others is what turned ONE slow poll into a live
+ *   view that flashed up and disappeared for the remaining ~25s of a live session.
+ * - about THE FRAME — `browserbase-disconnected`. This one reads like a session fact and
+ *   is not: it says a websocket inside someone else's iframe dropped, and measured
+ *   against a real capture it drops about a second after connecting, on a session the
+ *   server goes on publishing for another fourteen. Filed with the permanent ones it
+ *   produced the same symptom as the lease bug, from the other direction, and survived
+ *   the lease fix untouched — see `LIVE_VIEW_DISCONNECT_GRACE`.
  *
  * The two gates then differ ON PURPOSE:
  *
@@ -345,12 +397,15 @@ function LiveView({
   // verdict was about makes it impossible for one session's ending to suppress the next
   // one's beginning.
   //
-  // `retiredUrl` is the HARD retraction — "this session has ended", from the three
-  // closers that can say so: the frame's own dead socket, a frame that never painted
-  // anything, and the ceiling past which Browserbase has certainly killed it. They are
-  // one piece of state because the renderer does not care WHICH fired — the frame comes
-  // out of the DOM either way — and they are STICKY because none of them is a claim a
-  // later poll could disprove. A session does not come back.
+  // `retiredUrl` is the HARD retraction — "this session has ended", from the two closers
+  // that can say so: a frame that never painted anything, and the ceiling past which
+  // Browserbase has certainly killed it. They are one piece of state because the renderer
+  // does not care WHICH fired — the frame comes out of the DOM either way — and they are
+  // STICKY because neither is a claim a later poll could disprove. A session does not
+  // come back.
+  //
+  // The frame's own dead socket used to be filed here and IT WAS THE BUG. It is not a
+  // statement about the session at all — see the `postMessage` listener below.
   const [retiredUrl, setRetiredUrl] = useState<string | null>(null);
   // `expiredLease` is the SOFT one, and it is a weaker claim on purpose: not "the session
   // ended" but "nothing recent enough has confirmed it". It records the exact payload
@@ -361,9 +416,41 @@ function LiveView({
   const [expiredLease, setExpiredLease] = useState<{ url: string; receivedAt: number } | null>(
     null
   );
+  // `frameDisconnect` is the OTHER soft one, and it used to be filed with the hard ones
+  // above. Same shape as `expiredLease` and for the same reason — it records the payload
+  // it was decided on, so a newer payload carrying the same url disproves it — plus a
+  // COUNT, because unlike the lease this claim can be re-made. See
+  // `LIVE_VIEW_DISCONNECT_GRACE` for what the count is worth.
+  const [frameDisconnect, setFrameDisconnect] = useState<{
+    url: string;
+    receivedAt: number;
+    count: number;
+  } | null>(null);
   // ...and `closedUrl` is "we have already said goodbye to this session", so the ending
   // note plays exactly once and then the section is genuinely gone.
   const [closedUrl, setClosedUrl] = useState<string | null>(null);
+
+  // THE FLIGHT RECORDER — see `liveViewDebug.ts`. Off in every build that is not a dev
+  // build, and off in dev too until a harness sets the window switch, so this costs the
+  // app one dead function call per transition and nothing else. It is here because the
+  // question this component keeps being wrong about — WHICH closer fired — is invisible
+  // from the outside, and the last two attempts at this bug were argued from a
+  // description of a screen rather than from evidence.
+  //
+  // `server-retraction` is logged here rather than in a closer because it is not one:
+  // the backend nulling `live_view_url` simply makes `url` null, and the frame goes
+  // with it. It still has to appear in the timeline, because "the session really ended"
+  // is the one reading of a vanished frame that is not a bug.
+  const previousUrl = useRef<string | null>(null);
+  useEffect(() => {
+    const before = previousUrl.current;
+    previousUrl.current = url;
+    if (url !== null && url !== before) {
+      liveViewLog('url-arrived', { url: liveViewLogUrl(url), receivedAt });
+    } else if (url === null && before !== null) {
+      liveViewLog('closer-fired', { which: 'server-retraction', sticky: true });
+    }
+  }, [url, receivedAt]);
 
   // LOAD WATCHDOG — the only way to notice a frame that never arrives.
   //
@@ -387,7 +474,10 @@ function LiveView({
     if (url === null || url === loadedUrl) {
       return undefined;
     }
-    const timer = setTimeout(() => setRetiredUrl(url), FRAME_LOAD_TIMEOUT_MS);
+    const timer = setTimeout(() => {
+      liveViewLog('closer-fired', { which: 'frame-load-timeout', sticky: true });
+      setRetiredUrl(url);
+    }, FRAME_LOAD_TIMEOUT_MS);
     return () => clearTimeout(timer);
   }, [url, loadedUrl]);
 
@@ -412,7 +502,11 @@ function LiveView({
     if (url === null || receivedAt === 0) {
       return undefined;
     }
-    const timer = setTimeout(() => setExpiredLease({ url, receivedAt }), LIVE_VIEW_TRUST_MS);
+    liveViewLog('lease-rearmed', { receivedAt, windowMs: LIVE_VIEW_TRUST_MS });
+    const timer = setTimeout(() => {
+      liveViewLog('closer-fired', { which: 'lease', sticky: false });
+      setExpiredLease({ url, receivedAt });
+    }, LIVE_VIEW_TRUST_MS);
     return () => clearTimeout(timer);
   }, [url, receivedAt]);
 
@@ -424,7 +518,10 @@ function LiveView({
     if (url === null) {
       return undefined;
     }
-    const timer = setTimeout(() => setRetiredUrl(url), LIVE_VIEW_SESSION_TTL_MS);
+    const timer = setTimeout(() => {
+      liveViewLog('closer-fired', { which: 'session-ttl', sticky: true });
+      setRetiredUrl(url);
+    }, LIVE_VIEW_SESSION_TTL_MS);
     return () => clearTimeout(timer);
   }, [url]);
 
@@ -435,7 +532,19 @@ function LiveView({
   const leaseExpired =
     expiredLease !== null && expiredLease.url === url && expiredLease.receivedAt === receivedAt;
 
-  const liveUrl = url !== null && url !== retiredUrl && !leaseExpired ? url : null;
+  // The frame's own disconnect, RESOLVED AT RENDER for the same reason the lease is: it
+  // binds only while the payload it was decided on is still the newest one we hold, so a
+  // later poll carrying the same url un-says it with nothing to clear. Past the grace it
+  // stops being disprovable and behaves exactly like the hard closers — which is what
+  // keeps a genuinely dead session from flapping back once per poll.
+  const frameDisconnected =
+    frameDisconnect !== null &&
+    frameDisconnect.url === url &&
+    (frameDisconnect.count > LIVE_VIEW_DISCONNECT_GRACE ||
+      frameDisconnect.receivedAt === receivedAt);
+
+  const liveUrl =
+    url !== null && url !== retiredUrl && !leaseExpired && !frameDisconnected ? url : null;
 
   // THE FAST PATH — see `LIVE_VIEW_DISCONNECT_MESSAGE`. The frame announces its own dead
   // socket, and this is the only closer in the component that fires AT the disconnect
@@ -456,9 +565,20 @@ function LiveView({
   // sender is a browserbase.com document inside our page, there is exactly one of those
   // and we put it there, and a ref read purely to re-prove that buys nothing.
   //
-  // NOT AUTHORITATIVE, and this file does not lean on it — see
-  // `LIVE_VIEW_DISCONNECT_MESSAGE` for why. If it stops arriving the lease below still
-  // closes the frame; the only thing lost is the milliseconds.
+  // NOT AUTHORITATIVE, AND NOW THE CODE SAYS SO TOO. This comment always claimed the
+  // file did not lean on it; the handler underneath set `retiredUrl`, the hardest and
+  // stickiest closer here, which is the most leaning a line of this file can do. The two
+  // disagreed, and the comment was the half telling the truth.
+  //
+  // So it writes `frameDisconnect` instead — soft, disproved by the next payload that
+  // still carries the URL, and permanent only from the second time it fires. Everything
+  // that made it worth having is untouched: it is still the only closer that fires AT
+  // the disconnect rather than at the next poll, it still beats their error dialog's
+  // paint, and if it stops arriving entirely the lease still ends the frame and the only
+  // thing lost is the milliseconds. What it may no longer do is END A SESSION on its own
+  // say-so, because it does not know whether one has ended. It knows its socket dropped
+  // — which, measured, it does about a second after connecting, on sessions that then
+  // run for another twenty.
   useEffect(() => {
     if (liveUrl === null) {
       return undefined;
@@ -471,11 +591,34 @@ function LiveView({
       if (event.origin !== origin || event.data !== LIVE_VIEW_DISCONNECT_MESSAGE) {
         return;
       }
-      setRetiredUrl(liveUrl);
+      setFrameDisconnect((previous) => ({
+        url: liveUrl,
+        receivedAt,
+        count: previous !== null && previous.url === liveUrl ? previous.count + 1 : 1,
+      }));
     };
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
-  }, [liveUrl]);
+    // `receivedAt` is a dependency because the handler STAMPS it: a disconnect has to
+    // record which payload was current when it happened, or nothing newer could ever
+    // disprove it. Re-subscribing one listener per poll costs nothing.
+  }, [liveUrl, receivedAt]);
+
+  // Logged HERE and not inside the updater above. React may call a state updater twice —
+  // StrictMode does, deliberately, to catch impure ones — and a `console.log` in there
+  // duplicated every disconnect line in the timeline, which is exactly the kind of thing
+  // that makes a log look like a flap when it is not one. An effect fires once per
+  // committed change.
+  useEffect(() => {
+    if (frameDisconnect === null) {
+      return;
+    }
+    liveViewLog('closer-fired', {
+      which: 'postMessage',
+      sticky: frameDisconnect.count > LIVE_VIEW_DISCONNECT_GRACE,
+      count: frameDisconnect.count,
+    });
+  }, [frameDisconnect]);
 
   // THE GOODBYE, and it is owed only to a session the user actually SAW. `loadedUrl` is
   // set by the iframe's own `load`, so a frame that never painted anything gets no note
@@ -494,6 +637,12 @@ function LiveView({
   }, [ending, loadedUrl]);
 
   const phase: LiveViewPhase = liveUrl !== null ? 'live' : ending ? 'ending' : 'gone';
+
+  // The one line that says what the user is actually looking at. Every gap between a
+  // `live` and the next `live` is a flicker, and `e2e/live-view/` fails on one.
+  useEffect(() => {
+    liveViewLog('phase', { phase });
+  }, [phase]);
 
   // `unmountOnExit` keeps the section's children alive for the ~300ms the outer
   // `Collapse` takes to close, so "which line heads this section" is a question that
@@ -562,6 +711,7 @@ function LiveView({
                 // leaving that on the record would silence the note when the session
                 // REALLY ends. A frame that is painting again has not ended.
                 onLoad={() => {
+                  liveViewLog('frame-load', { url: liveViewLogUrl(liveUrl) });
                   setLoadedUrl(liveUrl);
                   setClosedUrl(null);
                 }}

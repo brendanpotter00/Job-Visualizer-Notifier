@@ -685,17 +685,7 @@ describe('DiscoveryChecklist', () => {
     }
   });
 
-  it('does not resurrect a frame whose own socket said it was gone', () => {
-    // THE HARD RETRACTION, and it is permanent on purpose. This closer is a statement
-    // about the SESSION — the frame told us its socket died — and a session that has
-    // ended does not un-end, so no later payload may argue with it. The payload cannot
-    // even know: the backend writes `live_view_url: null` only after the capture child
-    // has exited, so a poll landing right after the disconnect still carries the URL.
-    const { rerender } = renderWithProviders(
-      <DiscoveryChecklist receivedAt={POLLED_AT} company={company('discovering', CAPTURING)} />
-    );
-    fireEvent.load(screen.getByTestId('discovery-live-view'));
-
+  function disconnect() {
     act(() => {
       window.dispatchEvent(
         new MessageEvent('message', {
@@ -704,17 +694,122 @@ describe('DiscoveryChecklist', () => {
         })
       );
     });
+  }
+
+  it('puts the frame back when the next poll still carries the same session', () => {
+    // THE ONE THIS COMPONENT GOT WRONG TWICE, and the second time it survived the fix
+    // for the first.
+    //
+    // This test used to assert the opposite — "the list keeps answering, still carrying
+    // the same URL; it is wrong, and it is ignored" — on the reasoning that a frame
+    // reporting its own dead socket is a statement about the SESSION, and a session that
+    // has ended does not un-end. The premise is what was wrong. MEASURED against a real
+    // Browserbase capture (`e2e/live-view`, run 20260904T150614Z, cross-checked against
+    // the backend log): the session was created at 10:06:29.6 and released at 10:07:01.4,
+    // and the frame posted `browserbase-disconnected` at ~10:06:32.4 — two seconds into a
+    // thirty-one second session, which then ran on and captured 18 JSON responses. The
+    // message is not a statement about the session. It is a statement about a websocket
+    // inside someone else's iframe, and that socket drops for reasons of its own.
+    //
+    // The cost of believing it: the live view was on screen for 1.98s of a ~24s
+    // watchable window, every run. That is the whole of "it pops up and disappears
+    // within a second", and no unit test could see it because the disconnect only
+    // happens against a real hosted frame.
+    const { rerender } = renderWithProviders(
+      <DiscoveryChecklist receivedAt={POLLED_AT} company={company('discovering', CAPTURING)} />
+    );
+    fireEvent.load(screen.getByTestId('discovery-live-view'));
+
+    disconnect();
+    // It still goes IMMEDIATELY — that half was always right, and it is what keeps
+    // Browserbase's "Debugging connection was closed" out of our layout. What changed is
+    // only how long the verdict is allowed to stand unchallenged.
     expect(screen.queryByTestId('discovery-live-view')).not.toBeInTheDocument();
 
-    // The list keeps answering, still carrying the same URL. It is wrong, and it is
-    // ignored.
+    // The next payload lands still carrying the same URL. Now that IS evidence: the
+    // backend nulls `live_view_url` in the same write that releases the session, so a
+    // payload still naming it is the server saying the browser is open.
     rerender(
       <DiscoveryChecklist
-        receivedAt={POLLED_AT + 20_000}
+        receivedAt={POLLED_AT + 4_000}
         company={company('discovering', CAPTURING)}
       />
     );
+    expect(screen.getByTestId('discovery-live-view')).toBeInTheDocument();
+  });
+
+  it('stops arguing once the frame has said it twice', () => {
+    // THE OTHER HALF, and without it the fix above is a different bug wearing the same
+    // symptom. On a session that has genuinely ended, a remounted frame cannot connect
+    // and posts the message again — measured at 626ms after that mount's `load`. If a
+    // fresh payload could disprove it every time, the frame would flap once per poll for
+    // as long as the trust lease holds, which is "goes in and out" all over again.
+    //
+    // So the disproof is allowed exactly once (`LIVE_VIEW_DISCONNECT_GRACE`). The second
+    // disconnect is permanent, and the remount it cost is sub-second and blank — the
+    // message is emitted before Browserbase builds its error dialog, so a frame that
+    // never gets past reconnecting never paints one.
+    const { rerender } = renderWithProviders(
+      <DiscoveryChecklist receivedAt={POLLED_AT} company={company('discovering', CAPTURING)} />
+    );
+    fireEvent.load(screen.getByTestId('discovery-live-view'));
+
+    disconnect();
+    rerender(
+      <DiscoveryChecklist
+        receivedAt={POLLED_AT + 4_000}
+        company={company('discovering', CAPTURING)}
+      />
+    );
+    expect(screen.getByTestId('discovery-live-view')).toBeInTheDocument();
+
+    // The remounted frame cannot reach the session either.
+    fireEvent.load(screen.getByTestId('discovery-live-view'));
+    disconnect();
     expect(screen.queryByTestId('discovery-live-view')).not.toBeInTheDocument();
+
+    // ...and from here no payload brings it back, however many arrive.
+    for (let poll = 2; poll <= 5; poll += 1) {
+      rerender(
+        <DiscoveryChecklist
+          receivedAt={POLLED_AT + poll * 4_000}
+          company={company('discovering', CAPTURING)}
+        />
+      );
+      expect(screen.queryByTestId('discovery-live-view')).not.toBeInTheDocument();
+    }
+  });
+
+  it('lets a NEW session start after an old one disconnected for good', () => {
+    // Every verdict is recorded as the URL it refers to, and this closer is no
+    // exception: two disconnects retire THAT session, not the component. A second
+    // capture on the same row mounts into a clean slate.
+    const { rerender } = renderWithProviders(
+      <DiscoveryChecklist receivedAt={POLLED_AT} company={company('discovering', CAPTURING)} />
+    );
+    fireEvent.load(screen.getByTestId('discovery-live-view'));
+    disconnect();
+    rerender(
+      <DiscoveryChecklist
+        receivedAt={POLLED_AT + 4_000}
+        company={company('discovering', CAPTURING)}
+      />
+    );
+    fireEvent.load(screen.getByTestId('discovery-live-view'));
+    disconnect();
+    expect(screen.queryByTestId('discovery-live-view')).not.toBeInTheDocument();
+
+    const secondSession = progress({
+      ...CAPTURING,
+      liveViewUrl: 'https://www.browserbase.com/devtools-fullscreen/s/second',
+    });
+    rerender(
+      <DiscoveryChecklist
+        receivedAt={POLLED_AT + 8_000}
+        company={company('discovering', secondSession)}
+      />
+    );
+    expect(screen.getByTestId('discovery-live-view')).toBeInTheDocument();
   });
 
   it('does not resurrect a frame that never loaded, however long the polls keep coming', () => {

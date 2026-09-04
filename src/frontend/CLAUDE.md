@@ -554,7 +554,42 @@ because discovery is deterministic and re-running the same URL reproduces the sa
   Retirement is always recorded as *the URL it refers to*, so no verdict outlives its
   session. `receivedAt` (`fulfilledTimeStamp`) is a **required** prop for exactly this
   reason — a caller that forgets it would get a frame that outlives its session.
-- **The lease is the one SOFT closer, and both halves of that were bugs.** It was one poll
+- **THE LIVE VIEW WAS BROKEN BY A 400-CHARACTER CLIP, AND IT WAS NEVER A FRONTEND BUG.**
+  `services/discovery/progress.py`'s `_safe_url` bounded every URL in the discovery blob
+  at `_MAX_TEXT_CHARS` (400) — right for the network log, where a URL is a *label*.
+  `liveViewUrl` is not a label: it goes in an `<iframe src>`. Browserbase's
+  `debuggerFullscreenUrl` measures **479 characters**, essentially all of it one signed
+  `?wss=` parameter, so the stored URL lost the tail of that parameter and gained an
+  ellipsis. The iframe loaded, connected to a truncated websocket address, and painted
+  *"Debugging connection was closed. Reason: WebSocket disconnected"* about **700ms
+  later** — on a session that ran for another twenty-five seconds.
+  - **Two frontend fixes failed before this was found, because the frontend was right**:
+    the frame really was dead and its `browserbase-disconnected` really was telling the
+    truth. Evidence: seven probe mounts using the *raw* URL never disconnected; eleven
+    product mounts using the *stored* URL all did, ~700ms after each load.
+  - Fixed by `_safe_live_view_url` / `_MAX_LIVE_VIEW_URL_CHARS = 2048`. After it, a real
+    capture keeps the frame on screen for **95%** of the session (it was 7%), and the
+    `frame-shots/` artifact shows it painting the live job list.
+  - **The lesson for this panel:** "the frame is mounted" and "the frame is painting a
+    browser" are different questions with opposite answers, and only a picture separates
+    them. `e2e/live-view --live` takes those pictures.
+- **The frame's `browserbase-disconnected` is a HINT, not a verdict.** It used to set the
+  same sticky state as the session ceiling, which meant one undocumented string from
+  someone else's page could end a session by itself. It is now soft the same way the lease
+  is — it records the payload it was decided on, and a newer payload carrying the same URL
+  disproves it — bounded by `LIVE_VIEW_DISCONNECT_GRACE = 1`. One disproof, then
+  permanent. This is defence in depth rather than the fix for the bug above: without the
+  bound a genuinely dead session would flap the frame once per poll for the whole 12s
+  lease, and without the softness any future frame-side flakiness silently deletes the
+  feature again.
+  - **The cost, written down:** after a genuine end the frame may come back once, briefly,
+    on the payload the server has not caught up with. It shows a blank reconnecting frame,
+    not their error text — the message is emitted *before* Browserbase builds its
+    "Debugging connection was closed" dialog, so a frame that never gets past reconnecting
+    never paints one. `e2e/live-view`'s LV-05 pins that bound. In practice it is almost
+    never seen: the backend writes its null within ~400ms of `browser.close()`, well
+    inside one 4s poll.
+- **The lease is a SOFT closer too, and both halves of that were bugs.** It was one poll
   interval + 2s (6s), and expiry was permanent. But the gap the lease has to survive is the
   end-to-end one between two *fulfilled* payloads, and through `vercel dev` — which proxies
   the list endpoint — that measured 4.8s / 5.4s / **7.0s** / 5.7s on a real run. So the
@@ -568,6 +603,16 @@ because discovery is deterministic and re-running the same URL reproduces the sa
   "Debugging connection was closed". Accepted — the postMessage fast path and the server's
   own retraction still close the healthy path immediately, so the lease is only the
   failing-poll backstop.
+- **This panel is gated by a real browser test, not by unit tests — `e2e/live-view/`.**
+  Both live-view bugs were invisible to jsdom: one was about the gap between two fulfilled
+  polls, the other about a `postMessage` from a page we do not own. The gate scripts the
+  list endpoint and serves its own cross-origin stand-in for the hosted iframe, then
+  asserts the frame is **continuously on screen from first paint until the session really
+  ends**, naming the closer responsible for any gap. `$0`, ~3.5 min:
+  `e2e/run.sh live-view`. `--live` opts into one real Browserbase discovery. The component
+  narrates itself through `liveViewDebug.ts`, which is compiled out of production builds
+  (`import.meta.env.DEV`) and stays silent in dev until a harness sets
+  `window.__JVN_LIVE_VIEW_DEBUG__`. **Change a closer, run that gate.**
 - **It says goodbye rather than vanishing.** Mid-run the frame unmounts immediately (DOM
   removal, never `display: none` — while mounted it is Browserbase's page and free to
   paint their error), the toggle is replaced by *"Live view ended — still setting up"*,

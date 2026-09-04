@@ -140,6 +140,54 @@ def test_a_non_http_live_view_url_is_dropped() -> None:
     assert ledger.snapshot()["live_view_url"].startswith("https://")
 
 
+def test_a_real_browserbase_live_view_url_survives_whole() -> None:
+    """THE BUG THAT BROKE THE LIVE VIEW, and it was one shared constant.
+
+    ``_safe_url`` clipped every URL at ``_MAX_TEXT_CHARS`` (400) — a sensible budget for
+    the network log, where a URL is a LABEL a person reads. ``live_view_url`` is not a
+    label: the frontend puts it in an ``<iframe src>``. And Browserbase's real
+    ``debuggerFullscreenUrl`` measures **479 characters**, because its entire payload is
+    one signed ``?wss=`` parameter.
+
+    So the stored URL lost the last ~80 characters of that parameter and gained an
+    ellipsis. The iframe loaded, connected to a truncated websocket address, and painted
+    "Debugging connection was closed. Reason: WebSocket disconnected" about 700ms later —
+    on a session that ran for another twenty-five seconds. Two attempts to fix that in the
+    frontend failed, because the frontend was right: the frame really was dead.
+
+    The length here is the measured one, not a round number.
+    """
+    real = (
+        "https://www.browserbase.com/devtools-fullscreen/inspector.html?wss="
+        + "a" * (479 - len("https://www.browserbase.com/devtools-fullscreen/inspector.html?wss="))
+    )
+    assert len(real) == 479
+
+    ledger = ProgressLedger()
+    ledger.set_live_view_url(real)
+    stored = ledger.snapshot()["live_view_url"]
+    assert stored == real, "the live-view URL must reach the iframe intact"
+    assert "…" not in stored
+
+    # The constructor is a second path, and the READ is a third — all three went through
+    # the clipped helper, so all three have to be pinned.
+    snapshot = ProgressLedger(live_view_url=real).snapshot()
+    assert snapshot["live_view_url"] == real
+    round_tripped = read_progress({"discovery": snapshot})
+    assert round_tripped is not None
+    assert round_tripped["live_view_url"] == real
+
+
+def test_an_absurd_live_view_url_is_still_bounded() -> None:
+    """Not unbounded — this blob is re-read by every open tab every ~4s. 2048 is four
+    times what Browserbase sends and still a bound."""
+    absurd = "https://www.browserbase.com/x?wss=" + "a" * 5000
+    stored = ProgressLedger(live_view_url=absurd).snapshot()["live_view_url"]
+    assert stored is not None
+    assert len(stored) == 2048
+    assert stored.endswith("…")
+
+
 def test_a_run_with_no_browserbase_session_simply_has_no_live_view() -> None:
     """Our default is our OWN Chromium, which has no hosted view — so this is the
     normal case, not the exception (DECISION D4)."""
