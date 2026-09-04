@@ -48,7 +48,6 @@ const BASE_FILTERS: GraphFilters = {
   timeWindow: 'all',
   searchTags: undefined,
   location: undefined,
-  department: undefined,
   employmentType: undefined,
   softwareOnly: false,
 };
