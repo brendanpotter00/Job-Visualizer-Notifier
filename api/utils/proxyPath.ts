@@ -96,6 +96,16 @@ export function canonicalizeProxyPath(raw: string | string[] | undefined): strin
 
   if (STRUCTURAL_HAZARDS.test(decoded)) return null;
 
+  // Reject a protocol-relative / authority form (`//host/path`) outright. Empty
+  // segments are dropped below, so `//evil.example.com/steal` would otherwise
+  // canonicalize to `['evil.example.com', 'steal']` and match any two-segment
+  // `:a/:b` route (e.g. jobs' `:source/:job` detail read) — forwarding a hostile
+  // authority string as if it were an id. A SINGLE leading slash is a sloppy but
+  // legitimate absolute spelling the callers below normalize (`/facets/` ->
+  // `facets`); only a LEADING double slash names an authority, and no legitimate
+  // sub-path does. Checked on the decoded string so `/%2fx` (-> `//x`) is caught too.
+  if (decoded.startsWith('//')) return null;
+
   const segments = decoded.split('/').filter((segment) => segment.length > 0);
   if (segments.some((segment) => segment === '.' || segment === '..')) return null;
 
