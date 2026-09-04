@@ -19,6 +19,9 @@ describe('JobChipsSection', () => {
     it('should not render a Remote chip', () => {
       render(<JobChipsSection category="software_engineering" />);
 
+      // The positive half matters: without it this passes even if the
+      // component renders nothing at all.
+      expect(screen.getByText('Software Engineering')).toBeInTheDocument();
       expect(screen.queryByText('Remote')).not.toBeInTheDocument();
     });
   });
