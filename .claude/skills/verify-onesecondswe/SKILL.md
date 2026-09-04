@@ -20,12 +20,12 @@ capture evidence. It **reuses the existing e2e harness** under `e2e/` verbatim �
 the stack, the JWKS-seam auth, the DB helpers, the Playwright base — and adds
 nothing to it. Everything here is additive and **nothing commits**.
 
-All commands are written to run from the repo root:
-`/Users/bpotter/developer/personal/Job-Visualizer-Notifier/.claude/worktrees/end-to-end-tests`
-(set `REPO=` to it once and paste the blocks as-is).
+All commands are written to run from the repo root. Set `REPO` once, derived from
+the checkout you are in (correct in any clone or worktree — do NOT hard-code a
+path), then paste the blocks as-is. Run this from inside the checkout:
 
 ```bash
-REPO=/Users/bpotter/developer/personal/Job-Visualizer-Notifier/.claude/worktrees/end-to-end-tests
+REPO="$(git rev-parse --show-toplevel)"
 ```
 
 ## The one idea that makes this skill different
@@ -124,9 +124,11 @@ plus two Tier-3 side effects), from `$REPO/e2e` so Node resolves `e2e/node_modul
 
 ```bash
 export PATH="$HOME/.nvm/versions/node/v22.14.0/bin:$PATH"   # 22.1.0 hangs Playwright
-cd "$REPO/e2e" && npm install --no-audit --no-fund          # first run only
-cd "$REPO/e2e" && npx playwright install chromium           # first run only
-cd "$REPO/e2e" && npx playwright test \
+cd "$REPO/e2e" && npm install --no-audit --no-fund              # first run only
+cd "$REPO/e2e" && npx --no-install playwright install chromium  # first run only
+# --no-install: use the Playwright pinned in e2e/node_modules, never a version npx
+# would otherwise download and run from the registry.
+cd "$REPO/e2e" && npx --no-install playwright test \
   --config="$REPO/.claude/skills/verify-onesecondswe/helpers/verify.playwright.config.ts" \
   --grep '@drive'
 ```
@@ -197,10 +199,17 @@ bash "$REPO/.claude/skills/verify-onesecondswe/helpers/cleanup.sh"
    **never by process name**.
 2. Sweeps both test identities' owned companies through the product's own delete path
    (`python -m e2e.shared.db.reset_user`), exactly as `fixtures.ts:sweepOwnedCompanies` does.
-3. Removes any `VITE_WEBMCP=1` scaffolding the `--env-file` launch wrote to
+3. **Resets the Tier-3 side-effect state `reset_user` does NOT touch** (`helpers/reset_tier3.py`,
+   through `assertions.connect`, which refuses any DB but `jobscraper_e2e`): the drive's
+   anonymous `feedback` rows (`submit_feedback` inserts a durable row with no owner), and
+   `user_enabled_companies` / `user_saved_filters` / `feature_upvotes` for **both** fixture
+   identities — persisted company scope, saved filters and vote state would otherwise leak into
+   a later authenticated run against a non-refreshed DB.
+4. Removes any `VITE_WEBMCP=1` scaffolding the `--env-file` launch wrote to
    `src/frontend/.env.local` (the default process-env launch leaves the tree untouched, so
-   there is nothing to undo).
-4. **Re-confirms the evidence still exists** at `<skill>/artifacts/<run>/` and prints the
+   there is nothing to undo) — and removes **only** the marker-comment + flag block `launch.sh`
+   appended, never a `VITE_WEBMCP=1` a user set elsewhere in the file.
+5. **Re-confirms the evidence still exists** at `<skill>/artifacts/<run>/` and prints the
    path — a cleanup that ate the proof would fail this step.
 
 Evidence survives teardown by construction; the stack does not.
@@ -214,11 +223,12 @@ here needs reverse-engineering.
 |---|---|---|
 | `helpers/launch.sh` | Node pin + `VITE_WEBMCP=1` + `stack_up.sh` | `bash …/launch.sh [--env-file] [--refresh-db]` |
 | `helpers/doctor.sh` | health + worker + 14-tool shim probe | `bash …/doctor.sh` |
-| `helpers/cleanup.sh` | `stack_down.sh` + user sweep + scaffolding removal + evidence re-check | `bash …/cleanup.sh` |
+| `helpers/cleanup.sh` | `stack_down.sh` + company sweep + Tier-3 state reset + scaffolding removal + evidence re-check | `bash …/cleanup.sh` |
+| `helpers/reset_tier3.py` | delete the drive's anonymous `feedback` + reset `user_enabled_companies`/`user_saved_filters`/`feature_upvotes` for both fixtures (via `assertions.connect`) | `.venv/bin/python …/reset_tier3.py` (called by `cleanup.sh`) |
 | `helpers/db_assert.py` | read a Tier-3 side-effect row from `jobscraper_e2e` (via `assertions.connect`) | `.venv/bin/python …/db_assert.py --table … [--email …] [--contains …] [--feature-id …]` |
 | `helpers/verify.playwright.config.ts` | Playwright config extending `e2e/shared/playwright/playwright.config.ts` | passed as `--config` to `npx playwright test` |
-| `helpers/doctor.spec.ts` | `@doctor` — asserts the 14-tool shim surface | `npx playwright test --config … --grep '@doctor'` (run by `doctor.sh`) |
-| `helpers/drive.spec.ts` | `@drive` — the worked proof: Recent company-filter + `submit_feedback` + `set_enabled_companies`, writing evidence | `npx playwright test --config … --grep '@drive'` (run from `$REPO/e2e`) |
+| `helpers/doctor.spec.ts` | `@doctor` — asserts the 14-tool shim surface | `npx --no-install playwright test --config … --grep '@doctor'` (run by `doctor.sh`) |
+| `helpers/drive.spec.ts` | `@drive` — the worked proof: Recent company-filter + `submit_feedback` + `set_enabled_companies`, writing evidence | `npx --no-install playwright test --config … --grep '@drive'` (run from `$REPO/e2e`) |
 
 ## Feature map
 

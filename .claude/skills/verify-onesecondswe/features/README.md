@@ -23,6 +23,7 @@ the proof.
 | [`account.md`](account.md) | `/account` `ACCOUNT` | `request_sign_in` |
 | [`add-companies.md`](add-companies.md) | `/add-companies` `MY_COMPANIES` (flag-gated) | none new — cross-references the `e2e/add-companies` gate |
 | [`why.md`](why.md) | `/why` `WHY` | none (static) |
+| [`landing.md`](landing.md) | `/landing` `LANDING` (direct URL only — no nav entry) | none (static marketing) |
 
 ## Intentionally unmapped
 

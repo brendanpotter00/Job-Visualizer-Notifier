@@ -38,8 +38,9 @@ in the DOM.
 - **Read (Tier-1), the quantitative anchor:**
   ```ts
   const res = await call(page, 'search_jobs', { company: ['apple'], timeWindow: 'all', limit: 200 });
-  // res.meta.filteredTotal > 0; res.meta.serverReturned >= filteredTotal;
-  // every res.jobs[i].company === 'apple'
+  // res.jobs.length > 0; res.meta.serverReturned > 0 (rows on THIS page, ≤ limit);
+  // res.meta.filteredTotal is number|null — DEFERRED (null) on the server-side path,
+  //   so assert it is positive ONLY when non-null; every res.jobs[i].company === 'apple'
   ```
 - **Arrange the live page (Tier-2):**
   ```ts
@@ -67,10 +68,13 @@ in the DOM.
   is **virtualized** (only a screenful is mounted) and the signed-out list is **hard-capped
   at ~12** behind a `SignInOverlay`. Assert the per-card invariant + the "Displayed Jobs"
   metric instead.
-- **`search_jobs.meta.filteredTotal` and the page's "Displayed Jobs" number are different
-  populations.** The tool filters ONE server page (≤ `limit`) client-side; the page filters
-  its own `useGetAllJobsQuery` cache. Use the tool's `meta` as the tool-layer anchor and the
-  DOM invariant as the page-layer anchor — do not expect the two numbers to match.
+- **`search_jobs.meta.filteredTotal` is `number | null` — DEFERRED (null) on the real
+  server-side search path** (Wave-1 B1), a number only in demo mode. `serverReturned` equals
+  `res.jobs.length` — the rows on THIS server page (≤ `limit`), NOT a pre-filter count. So the
+  non-empty check rides `res.jobs.length` / `serverReturned`, and `filteredTotal` is compared
+  only when non-null (then it bounds `serverReturned` from ABOVE). Never assert
+  `serverReturned >= filteredTotal`, and do not expect the tool's `meta` to equal the page's
+  "Displayed Jobs" number — the page pages the same `/api/jobs/search` endpoint independently.
 - **`category` / `level` filters return ~0 in `jobscraper_e2e`** (enrichment is ~100% NULL).
   This is the clone, not a broken tool — prove those by `meta` shape; use company/keyword/
   timeWindow for a non-empty narrowing.

@@ -55,12 +55,27 @@ test('[@drive] Recent feed — company filter: Tier-1 meta anchor + Tier-2 DOM r
   await call(page, 'reset_feed_filters');
   const search = await call<{
     jobs: Array<{ company: string; url: string; title: string }>;
-    meta: { filteredTotal: number; serverReturned: number; nextCursor: string | null; hasMore: boolean };
+    meta: {
+      // DEFERRED on the real server-side search path (Wave-1 B1): null when the
+      // exact count is not computed. Demo mode still sends a number.
+      filteredTotal: number | null;
+      serverReturned: number;
+      nextCursor: string | null;
+      hasMore: boolean;
+    };
   }>(page, 'search_jobs', { company: ['apple'], timeWindow: 'all', limit: 200 });
 
   // jobscraper_e2e holds thousands of open Apple jobs, so this is deterministic.
-  expect(search.meta.filteredTotal, 'expected Apple open jobs in jobscraper_e2e').toBeGreaterThan(0);
-  expect(search.meta.serverReturned).toBeGreaterThanOrEqual(search.meta.filteredTotal);
+  // `serverReturned` is the rows on THIS page (≤ limit), so it is the non-empty
+  // anchor; `filteredTotal` is the full filtered count and rides page 1 only,
+  // deferred (null) on the server-side path — compare it only when present, and
+  // then it bounds serverReturned from ABOVE (thousands ≥ one page of 200).
+  expect(search.meta.serverReturned, 'expected Apple open jobs in jobscraper_e2e').toBeGreaterThan(0);
+  expect(search.meta.serverReturned).toBeLessThanOrEqual(200);
+  if (search.meta.filteredTotal !== null) {
+    expect(search.meta.filteredTotal).toBeGreaterThan(0);
+    expect(search.meta.filteredTotal).toBeGreaterThanOrEqual(search.meta.serverReturned);
+  }
   for (const job of search.jobs) {
     expect(job.company, 'every returned job must be Apple after a company filter').toBe('apple');
   }
