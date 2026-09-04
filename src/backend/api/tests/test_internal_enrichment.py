@@ -946,7 +946,13 @@ class TestPending:
         self, enrichment_client, db_conn, monkeypatch
     ):
         """Tier 0 still wins: an MTS *internship* is entry-level, so it is claimed
-        ahead of a newer plain MTS role rather than being flattened into tier 1."""
+        ahead of a newer plain MTS role rather than being flattened into tier 1.
+
+        The SECOND claim is what pins MTS to tier 1. `t-swe-older` carries a
+        literal SWE title, so it is tier 1 whatever happens; `t-mts-senior` only
+        beats it by being newer *within the same tier*. Drop the MTS pattern and
+        it falls to tier 2 and loses — so this test fails if the feature is
+        deleted, rather than passing on the intern row alone."""
         monkeypatch.setattr(settings, "enrichment_use_external", True)
         _insert_job(db_conn, _make_job({
             "id": "t-mts-intern", "status": "OPEN",
@@ -955,16 +961,28 @@ class TestPending:
             "details": json.dumps({"description_html": "<p>x</p>"}),
         }))
         _insert_job(db_conn, _make_job({
+            "id": "t-swe-older", "status": "OPEN",
+            "title": "Senior Software Engineer, Platform",
+            "first_seen_at": "2026-06-01T00:00:00Z",
+            "details": json.dumps({"description_html": "<p>x</p>"}),
+        }))
+        _insert_job(db_conn, _make_job({
             "id": "t-mts-senior", "status": "OPEN",
             "title": "Member of Technical Staff, Training Infrastructure",
             "first_seen_at": "2026-07-01T00:00:00Z",
             "details": json.dumps({"description_html": "<p>x</p>"}),
         }))
-        resp = enrichment_client.get(
-            "/api/internal/enrichment/pending", params={"limit": 1}
-        )
-        assert resp.status_code == 200
-        assert {j["job_id"] for j in resp.json()["jobs"]} == {"t-mts-intern"}
+
+        def claim_one() -> set[str]:
+            resp = enrichment_client.get(
+                "/api/internal/enrichment/pending", params={"limit": 1}
+            )
+            assert resp.status_code == 200
+            return {j["job_id"] for j in resp.json()["jobs"]}
+
+        assert claim_one() == {"t-mts-intern"}   # tier 0 beats both tier-1 rows
+        assert claim_one() == {"t-mts-senior"}   # tier 1, and newer than the SWE row
+        assert claim_one() == {"t-swe-older"}
 
     def test_skips_description_null_rows(self, enrichment_client, db_conn, monkeypatch):
         """F7 / CR-5: a row whose details has no description_html can't be

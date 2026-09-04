@@ -91,34 +91,35 @@ _JOB_PROJECTION = (
 # Postgres ARE spells the word boundary \y (\b is backspace). These are trusted
 # literal constants (no user input), so f-string interpolation into SQL is safe.
 _ENTRY_LEVEL_TITLE_RE = r"\y(intern(ship)?s?|junior|jr|entry[ -]?level|new[ -]?grad(uate)?)\y"
-# No trailing \y on the software root so "Software Engineering" / "…Development"
-# also match; the acronym is matched whole-word separately.
-_SWE_TITLE_RE = r"\ysoftware (engineer|develop)"
-_SWE_ACRONYM_RE = r"\yswe\y"
-# "Member of Technical Staff" is the AI-lab / enterprise house title for a
-# software-engineering IC and belongs in tier 1 with the literal SWE titles: xAI,
-# Perplexity, Cohere, Fireworks, Modal, Vercel, Microsoft and Salesforce all post
-# engineering roles under it, and of the 117 MTS rows prod has already labelled,
-# 109 came back `software_engineering` (the rest `data_scientist`/`business_ops`).
-# Most carry no "software engineer" substring at all, so before this they fell to
-# tier 2 and queued behind a ~20k-row backlog: 247 MTS rows sat below tier 1, 72
-# of them claimable right now (2026-09).
-# Optional "the" — Vercel writes "Member of the Technical Staff"; optional plural
-# on "member". No trailing \y, matching the software root above.
-_MTS_TITLE_RE = r"\ymembers? of (the )?technical staff"
-# The acronym, whole-word, with Salesforce/PayPal's graded prefixes — S/L/P MTS is
-# Senior/Lead/Principal Member of Technical Staff, the same title family. \y keeps
-# it from matching inside an unrelated word. Verified against every title in prod:
-# 31 acronym-only hits, zero false positives.
-_MTS_ACRONYM_RE = r"\y[slp]?mts\y"
+# "Member of Technical Staff" lives in these SAME constants rather than a
+# parallel pair: it is not an adjacent category, it is what these companies CALL
+# a software engineer. xAI, Perplexity, Cohere, Fireworks, Modal, Vercel,
+# Microsoft and Salesforce post engineering roles under it, and of the 117 MTS
+# rows prod has already labelled, 109 came back `software_engineering` (the rest
+# `data_scientist`/`business_ops`). Most carry no "software engineer" substring at
+# all, so before this they fell to tier 2 and queued behind a ~20k-row backlog:
+# 247 MTS rows sat below tier 1, 72 of them claimable right now (2026-09).
+#
+# No trailing \y on the software root, so "Software Engineering" / "…Development"
+# also match. The MTS branch DOES take one — "staff" is a whole word there, and
+# without it "Member of Technical Staffing" would claim tier 1. A terminal \y
+# still matches "…Technical Staff," and "…Technical Staff - Backend", because
+# punctuation and whitespace are themselves word boundaries.
+# Optional "the": Vercel writes "Member of the Technical Staff".
+_SWE_TITLE_RE = r"\y(software (engineer|develop)|members? of (the )?technical staff\y)"
+# Acronyms, whole-word: SWE, plus MTS with Salesforce/PayPal's graded prefixes —
+# S/L/P MTS is Senior/Lead/Principal Member of Technical Staff, the same title
+# family. The class is [slp]?, NOT [a-z]?, because GM posts "EMTS Technician"
+# (Engineering Maintenance and Technical Support), a different job entirely.
+# Verified against every title in prod: 31 acronym-only hits, zero false positives.
+_SWE_ACRONYM_RE = r"\y(swe|[slp]?mts)\y"
 
 # The tier expression itself, shared verbatim by BOTH claim passes (published and
 # custom) so the two slices can never drift into different notions of priority.
 _TITLE_TIER_SQL = (
     "CASE "
     f"  WHEN title ~* '{_ENTRY_LEVEL_TITLE_RE}' THEN 0 "
-    f"  WHEN title ~* '{_SWE_TITLE_RE}' OR title ~* '{_SWE_ACRONYM_RE}' "
-    f"       OR title ~* '{_MTS_TITLE_RE}' OR title ~* '{_MTS_ACRONYM_RE}' THEN 1 "
+    f"  WHEN title ~* '{_SWE_TITLE_RE}' OR title ~* '{_SWE_ACRONYM_RE}' THEN 1 "
     "  ELSE 2 "
     "END"
 )
