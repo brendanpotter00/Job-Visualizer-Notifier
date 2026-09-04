@@ -61,7 +61,16 @@ LEVEL_SLUGS = frozenset({"intern", "new_grad", "entry", "mid", "senior", "senior
 #
 # Emptying this set is the correct fix once the two taxonomies are reconciled — either
 # the enricher regains ``project_manager`` or JVN retires it in a migration.
-LEGACY_CATEGORY_SLUGS = frozenset({"project_manager"})
+# EMPTIED by SCHEMA-11 (this PR), which is the exact condition the note above
+# names: JVN has now retired ``project_manager`` in a migration, so the slug is
+# gone from ``CATEGORY_SLUGS``, from the seeded ``job_categories`` dimension and
+# from the frontend fallback. The accept-and-warn branch below is therefore
+# unreachable for it, and keeping it populated would be actively unsafe — the
+# branch WRITES the value, and ``job_listings.enrichment_category`` FKs onto
+# ``job_categories.slug``, whose row this PR deletes. An old enricher build
+# sending it now gets the ordinary invalid-facet path: nulled, and warned.
+# The mechanism is kept (empty) because the next cross-repo drift will need it.
+LEGACY_CATEGORY_SLUGS: frozenset[str] = frozenset()
 
 # --- SWE subcategories (the second dimension) -------------------------------
 #

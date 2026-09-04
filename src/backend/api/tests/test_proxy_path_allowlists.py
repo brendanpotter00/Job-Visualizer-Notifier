@@ -66,7 +66,15 @@ PROXIES: dict[str, list[tuple[object, str]]] = {
 # Backend routes deliberately NOT reachable through the public proxy, each with
 # the reason. Empty today: every route under these five prefixes is called by
 # the SPA. An internal-key-only route must be added HERE, never to a proxy.
-NOT_PROXIED: dict[str, set[str]] = {}
+NOT_PROXIED: dict[str, set[str]] = {
+    # POST /api/admin/enrichment/subcategories/reset bulk-NULLs
+    # `enrichment_subcategories` + `enrichment_subcategory_source` for every row
+    # matching a source. Nothing in the SPA calls it — it is a hand-run scoped
+    # rollback for the backfill — so proxying it would put a destructive bulk
+    # write on the public edge for no caller. Admin auth is a second lock, not a
+    # reason to hang the first one outside. Run it against the backend directly.
+    "admin": {"enrichment/subcategories/reset"},
+}
 
 
 def _proxy_allowlist(name: str) -> list[str]:

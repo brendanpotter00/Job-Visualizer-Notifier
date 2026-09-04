@@ -2546,17 +2546,16 @@ class TestResultsFeedback:
         row = cur.fetchone()
         assert row["enrichment_category"] is None and row["enrichment_level"] == "mid"
 
-    def test_legacy_category_is_kept_but_warned(self, enrichment_client, db_conn):
-        """The taxonomy drifted between the two repos and nothing said so.
+    def test_a_retired_category_is_nulled_and_warned(self, enrichment_client, db_conn):
+        """``project_manager`` is RETIRED (SCHEMA-11), not legacy-accepted.
 
-        JVN accepts 7 categories; the enricher's SKILL.md taxonomy v6 defines 6,
-        without ``project_manager`` — and prod has 21,933 enriched rows across exactly
-        6 categories and zero of this one. So a ``project_manager`` label can only come
-        from a build whose taxonomy no longer matches ours. It is still WRITTEN (nulling
-        it would discard a real label, and the seeded dimension plus the frontend
-        dropdown both still know the slug) but it now rides the same warnings[] channel
-        an invalid facet does, because "both sides look fine and disagree anyway" is the
-        exact failure that channel exists to make visible.
+        It used to ride the accept-and-warn path: written, with a "legacy" warning,
+        because the seeded dimension and the frontend dropdown both still knew the
+        slug. This PR retires it — dropped from ``CATEGORY_SLUGS``, from the
+        ``job_categories`` seed and from the frontend fallback — so accepting it
+        would now WRITE a value whose FK target row no longer exists. It takes the
+        ordinary invalid-facet path instead: the row is still written, the category
+        is NULLed, and the enricher is told over ``warnings[]``.
         """
         self._seed_job(db_conn)
         resp = enrichment_client.post(
@@ -2568,14 +2567,15 @@ class TestResultsFeedback:
         )
         body = resp.json()
         assert body["written"] == 1
-        assert any(
-            "legacy" in msg and "project_manager" in msg
-            for msg in body["warnings"][0]["warnings"]
-        )
-        cur = db_conn.cursor()
-        cur.execute("SELECT enrichment_category FROM job_listings WHERE id='fb-1'")
-        assert cur.fetchone()["enrichment_category"] == "project_manager", (
-            "a legacy slug is reported, never silently dropped"
+        msgs = [
+            m
+            for entry in body["warnings"]
+            for m in (entry["warnings"] if isinstance(entry, dict) else [entry])
+        ]
+        assert any("project_manager" in m for m in msgs), body["warnings"]
+        assert not any("legacy" in m for m in msgs), (
+            "a retired slug must not take the legacy accept-and-warn path — its FK "
+            "target row is deleted by SCHEMA-11"
         )
 
     def test_an_in_taxonomy_category_warns_about_nothing(self, enrichment_client, db_conn):
