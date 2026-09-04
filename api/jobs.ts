@@ -45,11 +45,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // `resolveProxyPath` with the other seven proxies fixes that and keeps one
   // implementation of the control instead of eight.
   //
-  // NOT allowlisted, deliberately: `GET /api/jobs/{source_id}/{job_id}` exists
-  // on the backend but no frontend caller uses it, and widening a public
-  // key-injecting proxy is a decision, not a cleanup. Add it here (with a test)
-  // when something actually needs it.
-  const sub = resolveProxyPath(path, ['', 'facets', 'search']);
+  // `:source/:job` is the single-posting detail route `GET
+  // /api/jobs/{source_id}/{job_id}`. It stayed off the allowlist until something
+  // actually needed it — the WebMCP `get_job` tool now does, so this is the
+  // deliberate decision the old comment asked for, not a cleanup. Two dynamic
+  // segments matched by the `:param` form `resolveProxyPath` already supports
+  // (each `:name` matches exactly one already-canonicalized segment); a
+  // traversal like `/api/jobs/../admin` is rejected in canonicalization before
+  // it can reach this pattern. The GET-only detail read injects the internal key
+  // like every other sub-path and 404s cleanly when no row matches.
+  const sub = resolveProxyPath(path, ['', 'facets', 'search', ':source/:job']);
   if (sub === null) {
     res.status(PROXY_REJECTION.status).json(PROXY_REJECTION.body);
     return;

@@ -121,15 +121,24 @@ describe('/api/jobs serverless function', () => {
     /**
      * The allowlist is a security boundary, not a typo guard: this proxy attaches
      * the internal key unconditionally, so anything it forwards clears the
-     * backend's require_internal_key middleware. The enrichment routes live under
-     * the same /api/jobs prefix and must stay unreachable from the internet.
+     * backend's require_internal_key middleware.
+     *
+     * Widening to `:source/:job` (the by-id detail read) means any EXACTLY-two
+     * segment path under `/api/jobs` now forwards — but that only ever reaches
+     * the read-only `GET /api/jobs/{source_id}/{job_id}` lookup, which 404s on a
+     * miss. It cannot reach the mutating enrichment routes: those live under a
+     * DIFFERENT prefix (`/api/internal/enrichment`), so the only way there is a
+     * traversal (`../internal/...`), still rejected in canonicalization. The
+     * cases below stay refused at the proxy: one segment that is not an
+     * allowlisted literal, a path too deep for the detail route, a wrong-case
+     * spelling, and traversals in both the string and array forms.
      */
     it.each<[string, string | string[]]>([
       ['an internal enrichment route', 'enrich'],
-      ['a nested internal route', 'enrichment/next'],
+      ['a path too deep for the detail route', 'enrichment/next/deep'],
       ['a traversal out of the prefix', '../jobs-qa/scraper-health'],
       ['a different case spelling', 'Search'],
-      ['a sub-path smuggled through the array form', ['search', 'enrich']],
+      ['a traversal smuggled through the array form', ['..', 'internal']],
     ])('404s %s and never calls upstream', async (_label, pathValue) => {
       mockReq.query = { path: pathValue };
 
@@ -154,6 +163,45 @@ describe('/api/jobs serverless function', () => {
       await handler(mockReq as VercelRequest, mockRes as VercelResponse);
 
       expect(fetchMock.mock.calls[0][0]).toBe('http://localhost:8000/api/jobs');
+    });
+
+    it('forwards the two-segment detail route to GET /api/jobs/{source}/{id}', async () => {
+      // The WebMCP `get_job` tool reads one posting by (source, id). vercel.json's
+      // single `:path(.*)` capture hands the sub-path in as one slash-bearing
+      // string, which canonicalizes to two segments and matches `:source/:job`.
+      mockReq.query = { path: 'microsoft/abc-123' };
+      fetchMock.mockResolvedValue(mockJsonResponse(200, { id: 'abc-123', title: 'SWE' }));
+
+      await handler(mockReq as VercelRequest, mockRes as VercelResponse);
+
+      const url = forwardedUrl();
+      expect(url.pathname).toBe('/api/jobs/microsoft/abc-123');
+      // A detail read carries no query filters — the URL is the bare path.
+      expect(url.search).toBe('');
+      expect(mockRes.status).toHaveBeenCalledWith(200);
+    });
+
+    it('preserves a colon in the source id of the detail route', async () => {
+      // Source ids can carry a colon (see api/utils/proxyPath.ts) — the `:param`
+      // allowlist deliberately does not constrain the segment charset, so it must
+      // survive to the upstream path intact.
+      mockReq.query = { path: 'workday:tenant/REQ-9' };
+      fetchMock.mockResolvedValue(mockJsonResponse(200, { id: 'REQ-9', title: 'SWE' }));
+
+      await handler(mockReq as VercelRequest, mockRes as VercelResponse);
+
+      expect(forwardedUrl().pathname).toBe('/api/jobs/workday:tenant/REQ-9');
+    });
+
+    it('404s a detail route whose source id would traverse the prefix', async () => {
+      // The by-id widen must not reopen the traversal hole: `..` as a segment is
+      // rejected in canonicalization before the `:source/:job` pattern is tried.
+      mockReq.query = { path: '../internal/enrichment' };
+
+      await handler(mockReq as VercelRequest, mockRes as VercelResponse);
+
+      expect(mockRes.status).toHaveBeenCalledWith(404);
+      expect(fetchMock).not.toHaveBeenCalled();
     });
   });
 

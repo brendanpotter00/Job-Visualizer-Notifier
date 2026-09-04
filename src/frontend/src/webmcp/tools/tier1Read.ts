@@ -1,11 +1,11 @@
-import type { Job } from '../../types';
 import type { BackendJobListing } from '../../api/types';
-import { chunkCompanyIds, fetchJobsPage } from '../../api/clients/backendScraperClient';
-import { jobsWindowForTimeWindow, sinceForWindow } from '../../features/jobs/jobsApi';
-import { jobsApi } from '../../features/jobs/jobsApi';
-import { chunkKey } from '../../features/jobs/keysetWalk';
-import { filterJobsByFilters } from '../../features/filters/utils/jobFilteringUtils';
-import { selectLocationCatalog } from '../../features/locations/locationCatalogSlice';
+import { jobsApi, STALE_CURSOR_STATUS } from '../../features/jobs/jobsApi';
+import {
+  buildSearchJobsArgs,
+  buildSearchJobsQuery,
+  sinceForTimeWindow,
+} from '../../features/jobs/searchJobsArgs';
+import { validateSearchJobsResponse } from '../../features/jobs/validateSearchJobsResponse';
 import { companiesApi } from '../../features/companies/companiesApi';
 import { locationsApi } from '../../features/locations/locationsApi';
 import { transformBackendJob } from '../../api/transformers/backendScraperTransformer';
@@ -16,7 +16,6 @@ import {
   asInt,
   asString,
   asTimeWindow,
-  backendScraperCompanyIds,
   buildRecentFilters,
   err,
   ok,
@@ -29,39 +28,53 @@ import {
 } from './shared';
 
 /**
- * `search_jobs` presents ONE opaque cursor over what is really a per-chunk
- * keyset walk (the backend mints one `X-Next-Cursor` per `/api/jobs?companies=`
- * request, and >50 companies are split across several chunks). The composite
- * cursor is a base64 JSON map of `chunkKey -> cursor`, opaque to the caller and
- * filter-bound: a stale/malformed value decodes to an empty map, restarting the
- * walk from page 1 rather than 409-ing (see catalog "known limits").
+ * `search_jobs` pages `GET /api/jobs/search`, which applies the whole filter set
+ * server-side and pages the RESULT. The endpoint's own `nextCursor` is opaque and
+ * filter-bound; the tool wraps it in ITS OWN opaque cursor that additionally
+ * carries the FROZEN recency bound (`since`).
+ *
+ * A stateless tool has no debounced snapshot to freeze `since` on the way the UI
+ * does, so if every call recomputed `sinceForTimeWindow(timeWindow, Date.now())`,
+ * page 2 (issued seconds after page 1) would send a different `since`, move the
+ * server's cursor fingerprint, and 409. Baking `since` into the tool cursor keeps
+ * it frozen for the walk with no tool-side state. `limit` is deliberately NOT in
+ * the cursor, so page size stays freely changeable mid-walk.
+ *
+ * A malformed/absent tool cursor decodes to `null` — a fresh page-1 walk — the
+ * same "restart rather than error" contract the old composite cursor made.
  */
-function decodeCursor(cursor: string | undefined): Record<string, string> {
-  if (!cursor) return {};
+interface ToolCursor {
+  /** The server's opaque `nextCursor`, replayed verbatim. */
+  c: string;
+  /** The recency bound frozen at page 1, replayed so the fingerprint holds. */
+  s: string;
+}
+
+function decodeToolCursor(cursor: string | undefined): ToolCursor | null {
+  if (!cursor) return null;
   try {
     const parsed: unknown = JSON.parse(atob(cursor));
     if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-      const out: Record<string, string> = {};
-      for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
-        if (typeof v === 'string') out[k] = v;
+      const record = parsed as Record<string, unknown>;
+      if (typeof record.c === 'string' && typeof record.s === 'string') {
+        return { c: record.c, s: record.s };
       }
-      return out;
     }
   } catch {
-    // Malformed / stale cursor -> fresh walk (cursors are filter-bound).
+    // Malformed / stale tool cursor -> fresh walk (page 1).
   }
-  return {};
+  return null;
 }
 
-function encodeCursor(map: Record<string, string>): string {
-  return btoa(JSON.stringify(map));
+function encodeToolCursor(payload: ToolCursor): string {
+  return btoa(JSON.stringify(payload));
 }
 
 export function tier1Read(ctx: ToolCtx): WebMcpToolDef[] {
   const search_jobs: WebMcpToolDef = {
     name: 'search_jobs',
     description:
-      'Search open job postings across tracked companies (server keyset fetch + the app’s own client-side filters); returns serialized job summaries plus filteredTotal/serverReturned/nextCursor meta.',
+      'Search open job postings across tracked companies via server-side filtering (GET /api/jobs/search); every filter (category, level, company, location, keyword include/exclude, time window) is applied by the server. Returns serialized job summaries plus meta { filteredTotal, last24h, last3h, returned, nextCursor, hasMore }. Page with the opaque nextCursor: the time window is FROZEN at the first call and echoed inside the cursor, so timeWindow on a follow-up (cursor) call is ignored; change any filter to start a fresh walk.',
     inputSchema: {
       type: 'object',
       additionalProperties: false,
@@ -104,7 +117,8 @@ export function tier1Read(ctx: ToolCtx): WebMcpToolDef[] {
         limit: { type: 'integer', minimum: 1, maximum: 500, default: 100 },
         cursor: {
           type: 'string',
-          description: 'Opaque nextCursor from a prior call; filter-bound (a filter change restarts the walk).',
+          description:
+            'Opaque nextCursor from a prior call. Filter-bound and carries the frozen time window; echo it verbatim to get the next page. A malformed cursor restarts from page 1; if the server reports it stale (a filter changed underneath it) the call errors with status 409 — drop the cursor and search again.',
         },
       },
     },
@@ -112,53 +126,92 @@ export function tier1Read(ctx: ToolCtx): WebMcpToolDef[] {
     execute: async (rawArgs) => {
       const parsed = parseRecentArgs(rawArgs);
       const limit = Math.min(Math.max(asInt(rawArgs.limit) ?? 100, 1), 500);
-      const cursorMapIn = decodeCursor(asString(rawArgs.cursor));
+      const priorCursor = decodeToolCursor(asString(rawArgs.cursor));
 
-      // Server scope: resolved companies if given, else every backend-scraper
-      // company (mirrors the Recent feed's fan-out).
-      const scopedIds =
-        parsed.company && parsed.company.length > 0
-          ? parsed.company.map(resolveCompany).filter((id): id is string => id !== null)
-          : backendScraperCompanyIds();
+      // Freeze `since` for the walk: page 1 computes it from `timeWindow`; a
+      // follow-up reuses the value baked into the tool cursor (the endpoint folds
+      // `since` into its cursor fingerprint, so recomputing it here would 409).
+      const since = priorCursor ? priorCursor.s : sinceForTimeWindow(parsed.timeWindow, Date.now());
+      const serverCursor = priorCursor ? priorCursor.c : null;
 
-      const chunks = chunkCompanyIds(scopedIds);
-      // Coarse server window (backend keyset supports 90d/180d/all); the precise
-      // timeWindow is enforced again client-side by filterJobsByFilters.
-      const since = sinceForWindow(jobsWindowForTimeWindow(parsed.timeWindow));
-
-      let pages: Array<{ key: string; jobs: Job[]; nextCursor: string | null }>;
-      try {
-        pages = await Promise.all(
-          chunks.map(async (chunk) => {
-            const key = chunkKey(chunk);
-            const page = await fetchJobsPage(chunk, { since, cursor: cursorMapIn[key], limit });
-            return { key, jobs: page.jobs, nextCursor: page.nextCursor };
-          })
-        );
-      } catch (e) {
-        return err(`search_jobs fetch failed: ${e instanceof Error ? e.message : 'unknown error'}`);
-      }
-
-      const serverJobs: Job[] = [];
-      const cursorMapOut: Record<string, string> = {};
-      for (const { key, jobs, nextCursor } of pages) {
-        serverJobs.push(...jobs);
-        if (nextCursor) cursorMapOut[key] = nextCursor;
-      }
-      const serverReturned = serverJobs.length;
-
+      // Reuse the exact builders the Recent page's read path uses — no duplicated
+      // filter or query logic. `enabledCompanyIds: null` scopes only by the
+      // agent's explicit `company` filter (never an operator preference), and
+      // `isSignedOut: false` skips the signed-out overlay's row cap.
       const filters = buildRecentFilters(parsed);
-      const locationCatalog = selectLocationCatalog(ctx.store.getState());
-      const filtered = filterJobsByFilters(serverJobs, filters, locationCatalog).sort(
-        (a, b) => new Date(b.firstSeenAt).getTime() - new Date(a.firstSeenAt).getTime()
-      );
-      const filteredTotal = filtered.length;
-      const jobs = filtered.slice(0, limit).map(toJobSummary);
+      const args = buildSearchJobsArgs({
+        filters,
+        enabledCompanyIds: null,
+        since,
+        isSignedOut: false,
+      });
+      // Unreachable with `enabledCompanyIds: null` (the disjoint path needs a
+      // non-null enabled list), but guarded: `null` means "provably no matches".
+      if (args === null) {
+        return ok({
+          jobs: [],
+          meta: {
+            filteredTotal: 0,
+            last24h: 0,
+            last3h: 0,
+            returned: 0,
+            serverReturned: 0,
+            nextCursor: null,
+            hasMore: false,
+          },
+        });
+      }
+      // The builder hardcodes the page-size to the Recent feed's batch; the tool
+      // owns its own clamped `limit`, and changing it mid-walk is legal (limit is
+      // excluded from the cursor fingerprint).
+      const finalArgs = { ...args, limit };
 
-      const hasMore = Object.keys(cursorMapOut).length > 0;
-      const nextCursor = hasMore ? encodeCursor(cursorMapOut) : null;
+      let res: Response;
+      try {
+        res = await fetch(`/api/jobs/search?${buildSearchJobsQuery(finalArgs, serverCursor)}`, {
+          headers: { Accept: 'application/json' },
+        });
+      } catch (e) {
+        return err(`search_jobs fetch failed: ${e instanceof Error ? e.message : 'network error'}`);
+      }
+      if (!res.ok) {
+        if (res.status === STALE_CURSOR_STATUS) {
+          return err('search_jobs cursor is stale — drop it and call again with no cursor.', {
+            status: STALE_CURSOR_STATUS,
+          });
+        }
+        return err(`search_jobs failed (${res.status})`, { status: res.status });
+      }
 
-      return ok({ jobs, meta: { filteredTotal, serverReturned, nextCursor, hasMore } });
+      let body;
+      try {
+        body = validateSearchJobsResponse(await res.json(), { isFirstPage: serverCursor === null });
+      } catch (e) {
+        return err(
+          `search_jobs response invalid: ${e instanceof Error ? e.message : 'bad response shape'}`
+        );
+      }
+
+      // Server already filtered and ordered the rows — no client-side filter or
+      // sort. Same transformer the Recent page uses, so the mapping stays single.
+      const jobs = body.jobs.map((row) => transformBackendJob(row, row.company)).map(toJobSummary);
+      const nextCursor = body.nextCursor ? encodeToolCursor({ c: body.nextCursor, s: since }) : null;
+
+      return ok({
+        jobs,
+        meta: {
+          // Counts ride page 1 only (cursor pages omit them); null there.
+          filteredTotal: body.counts?.total ?? null,
+          last24h: body.counts?.last24h ?? null,
+          last3h: body.counts?.last3h ?? null,
+          returned: jobs.length,
+          // Back-compat alias; on the server-side path it equals `returned`
+          // (rows on THIS page), not a pre-filter count.
+          serverReturned: jobs.length,
+          nextCursor,
+          hasMore: body.nextCursor !== null,
+        },
+      });
     },
   };
 

@@ -160,11 +160,6 @@ export function resolveCompany(nameOrId: string): string | null {
   return byName ? byName.id : null;
 }
 
-/** Every company served by the batched backend-scraper `/api/jobs` endpoint. */
-export function backendScraperCompanyIds(): string[] {
-  return COMPANIES.filter((c) => c.ats === 'backend-scraper').map((c) => c.id);
-}
-
 // ---------------------------------------------------------------------------
 // Filter construction (reuse the slice's own mutation utils)
 // ---------------------------------------------------------------------------
@@ -173,8 +168,9 @@ export function backendScraperCompanyIds(): string[] {
  * Build a `RecentJobsFilters` from parsed tool args, reusing the filter slice's
  * own mutation utils so keyword-tag and softwareOnly semantics match the UI
  * byte-for-byte. Company tokens are resolved to ids; unresolved ones are
- * dropped. This is the predicate `search_jobs` applies client-side, mirroring
- * `selectRecentFilteredJobs`.
+ * dropped. `search_jobs` feeds this straight into `buildSearchJobsArgs`, so the
+ * tool and the Recent page turn identical filter state into an identical
+ * server-side `GET /api/jobs/search` query.
  */
 export function buildRecentFilters(args: RecentToolArgs): RecentJobsFilters {
   const filters: RecentJobsFilters = {
