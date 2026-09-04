@@ -19,6 +19,18 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    id: 'add-factory',
+    title: 'Added Factory',
+    description:
+      "Factory — an AI research lab whose autonomous “Droid” agents plan, write, test, and review code alongside enterprise engineering teams — is now tracked via its Ashby job board. It raised a $150M Series C led by Khosla Ventures in April 2026 at a $1.5B valuation, after its Droids took the top spot on the Terminal Bench coding-agent benchmark, and NVIDIA, Adobe, EY, Palo Alto Networks, and Adyen run them across their engineering organizations. Around 55 roles are open, 44 of them in San Francisco.",
+    tags: ['new-companies'],
+    date: '2026-09-04',
+    link: {
+      to: ROUTES.ACCOUNT,
+      label: 'Add Factory to your company preferences',
+    },
+  },
+  {
     id: 'add-parallel',
     title: 'Added Parallel',
     description:

@@ -619,6 +619,11 @@ export const COMPANIES: Company[] = [
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22103743985%22%5D',
   }),
+  createBackendScraperCompany('factory', 'Factory', 'https://jobs.ashbyhq.com/factory', {
+    sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2293213132%22%5D',
+  }),
   // Migrated off Greenhouse to Ashby (2026-07-30 and 2026-08-05). The
   // Greenhouse boards 404'd/emptied after the companies moved ATS; the JVN
   // `id` is unchanged (it is the PK + logo key), only the board token moved:
@@ -975,6 +980,7 @@ export const enum COMPANY_IDS {
   EliseAI = 'eliseai',
   Exa = 'exa',
   Expedia = 'expedia',
+  Factory = 'factory',
   Fal = 'fal',
   Figma = 'figma',
   FigureAI = 'figureai',
