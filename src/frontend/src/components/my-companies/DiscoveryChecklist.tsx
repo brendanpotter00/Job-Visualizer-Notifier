@@ -174,18 +174,26 @@ const FRAME_LOAD_TIMEOUT_MS = 10_000;
  *    the row carries a live-looking URL until something reconciles it.
  *
  * So the URL is treated as a CLAIM WITH AN EXPIRY rather than a standing fact: it is
- * good for one poll interval plus a round trip, and every fresh payload renews it. Miss
- * that and we stop asserting there is a browser open, because we no longer have anything
- * recent enough to assert it WITH. This does not shorten the healthy-path gap (nothing
+ * good for three poll intervals, and every fresh payload renews it. Miss all three and we
+ * stop asserting there is a browser open, because we no longer have anything recent
+ * enough to assert it WITH. This does not shorten the healthy-path gap (nothing
  * client-side can — see above); it removes every case where that gap is unbounded, which
  * is the one a user actually sits and stares at.
  *
  * Derived from `DISCOVERY_POLL_INTERVAL_MS` rather than written as a number, so a
  * cadence change cannot silently turn this into a flicker (window < cadence) or a no-op
- * (window >> cadence). The 2s is the round-trip allowance: the list endpoint counts jobs
- * per row, and a poll that lands slow is not a poll that failed.
+ * (window >> cadence). THREE intervals, and not the one-interval-plus-2s it was: that
+ * allowance was measured against the wrong quantity. The cadence is the POLL TIMER's, but
+ * what has to fit inside this window is the END-TO-END gap between two fulfilled payloads,
+ * and through `vercel dev` — which proxies the list endpoint and adds a second or two to
+ * every request — that gap measured 4.8s, 5.4s, 7.0s and 5.7s on a single real run. A 6s
+ * window therefore expired mid-session, on a healthy capture, with the browser still open:
+ * the live view flashed up and was gone inside a second. Three intervals tolerates three
+ * missed polls, which is the thing the number was always trying to say — be slow, not
+ * silent — and it is still far below the capture subprocess's own 120s cap, so a run that
+ * is merely long can never reach it.
  */
-const LIVE_VIEW_TRUST_MS = DISCOVERY_POLL_INTERVAL_MS + 2_000;
+const LIVE_VIEW_TRUST_MS = DISCOVERY_POLL_INTERVAL_MS * 3;
 
 /**
  * The hosted session's own hard ceiling, mirrored from the backend that sets it:
@@ -271,6 +279,14 @@ type LiveViewPhase = 'live' | 'ending' | 'gone';
  * Every one of these is recorded as the URL it refers to rather than as a boolean, so no
  * verdict can outlive its own session and suppress the next one.
  *
+ * AND EXACTLY ONE OF THEM IS SOFT. The others are statements about the SESSION — its
+ * socket is gone, its ceiling has passed, it never painted anything — and a session that
+ * has ended does not un-end, so those are permanent. The lease is a statement about US:
+ * we have not heard anything recent enough. A later payload simply disproves that, so a
+ * fresh `receivedAt` carrying the SAME url puts the frame back. Making it permanent
+ * alongside the others is what turned ONE slow poll into a live view that flashed up and
+ * disappeared for the remaining ~25s of a session that was still running.
+ *
  * The two gates then differ ON PURPOSE:
  *
  * - The IFRAME is gated directly, so it unmounts in the very same render the session is
@@ -329,12 +345,22 @@ function LiveView({
   // verdict was about makes it impossible for one session's ending to suppress the next
   // one's beginning.
   //
-  // `retiredUrl` is "this session is no longer showable", from any of the three closers
-  // below. They are one piece of state because the renderer does not care WHICH fired:
-  // the frame comes out of the DOM either way, and the difference between "it never
-  // loaded", "we stopped hearing about it" and "Browserbase has certainly killed it by
-  // now" is a comment, not a rendering decision.
+  // `retiredUrl` is the HARD retraction — "this session has ended", from the three
+  // closers that can say so: the frame's own dead socket, a frame that never painted
+  // anything, and the ceiling past which Browserbase has certainly killed it. They are
+  // one piece of state because the renderer does not care WHICH fired — the frame comes
+  // out of the DOM either way — and they are STICKY because none of them is a claim a
+  // later poll could disprove. A session does not come back.
   const [retiredUrl, setRetiredUrl] = useState<string | null>(null);
+  // `expiredLease` is the SOFT one, and it is a weaker claim on purpose: not "the session
+  // ended" but "nothing recent enough has confirmed it". It records the exact payload
+  // whose lease ran out — the url AND the `receivedAt` that armed it — rather than just
+  // the url, which is the whole of how it un-says itself: a later payload carrying the
+  // same url is, by definition, not that payload, so the frame comes back with no second
+  // state machine and nothing to write away. See `leaseExpired` below.
+  const [expiredLease, setExpiredLease] = useState<{ url: string; receivedAt: number } | null>(
+    null
+  );
   // ...and `closedUrl` is "we have already said goodbye to this session", so the ending
   // note plays exactly once and then the section is genuinely gone.
   const [closedUrl, setClosedUrl] = useState<string | null>(null);
@@ -370,19 +396,23 @@ function LiveView({
   // else in the row did; a poll that FAILS leaves it exactly where it was, which is the
   // whole mechanism. Measured from this effect rather than from `receivedAt` itself so
   // that nothing here reads a clock — the few milliseconds of render lag are noise
-  // against a six-second window.
+  // against a twelve-second window.
   //
-  // A retired session is NOT un-retired by a poll that recovers and still carries the
-  // URL. That is deliberate: the recovered payload is itself one poll behind, so
-  // remounting on it would be guessing again, and the visible result of guessing wrong
-  // is the frame flickering back to show someone else's error. The live view is a
-  // garnish; losing the tail of one on a run that already had a network hiccup costs
-  // nothing worth a flicker.
+  // AND UN-SAID BY THE NEXT PAYLOAD THAT CONFIRMS THE URL. This half used to be the
+  // opposite — an expired lease was permanent, on the reasoning that a recovered payload
+  // is itself one poll behind, so remounting on it is guessing again and the cost of
+  // guessing wrong is the frame flickering back to show someone else's error. What that
+  // traded away is worse than what it bought: a lease is not evidence the session ENDED,
+  // only that we stopped hearing about it, so one slow poll ended the frame for the rest
+  // of a live capture and nothing could bring it back. The three closers that really do
+  // know the session is over are still permanent, and the fast one among them
+  // (`LIVE_VIEW_DISCONNECT_MESSAGE`) closes the healthy path in milliseconds — so what a
+  // recovering poll can restore is only ever a frame nobody has said is dead.
   useEffect(() => {
     if (url === null || receivedAt === 0) {
       return undefined;
     }
-    const timer = setTimeout(() => setRetiredUrl(url), LIVE_VIEW_TRUST_MS);
+    const timer = setTimeout(() => setExpiredLease({ url, receivedAt }), LIVE_VIEW_TRUST_MS);
     return () => clearTimeout(timer);
   }, [url, receivedAt]);
 
@@ -398,7 +428,14 @@ function LiveView({
     return () => clearTimeout(timer);
   }, [url]);
 
-  const liveUrl = url !== null && url !== retiredUrl ? url : null;
+  // The soft closer, RESOLVED AT RENDER rather than remembered: an expired lease still
+  // binds only while the payload it expired on is the newest one we hold. Anything newer
+  // carrying the same url makes this false on its own, which is why nothing has to clear
+  // it — and why a stale verdict cannot survive into a session it was never about.
+  const leaseExpired =
+    expiredLease !== null && expiredLease.url === url && expiredLease.receivedAt === receivedAt;
+
+  const liveUrl = url !== null && url !== retiredUrl && !leaseExpired ? url : null;
 
   // THE FAST PATH — see `LIVE_VIEW_DISCONNECT_MESSAGE`. The frame announces its own dead
   // socket, and this is the only closer in the component that fires AT the disconnect
@@ -520,7 +557,14 @@ function LiveView({
                 src={liveViewSrc(liveUrl)}
                 title="Live view of the setup session"
                 sandbox="allow-scripts allow-same-origin"
-                onLoad={() => setLoadedUrl(liveUrl)}
+                // Clearing `closedUrl` is about the goodbye, not the load: a lease that
+                // expired and then recovered has already played "Live view ended", and
+                // leaving that on the record would silence the note when the session
+                // REALLY ends. A frame that is painting again has not ended.
+                onLoad={() => {
+                  setLoadedUrl(liveUrl);
+                  setClosedUrl(null);
+                }}
                 data-testid="discovery-live-view"
                 sx={{ width: '100%', height: '100%', border: 0 }}
               />

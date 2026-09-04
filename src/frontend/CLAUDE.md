@@ -547,13 +547,27 @@ because discovery is deterministic and re-running the same URL reproduces the sa
   the frame's own `browserbase-disconnected` postMessage (the only one that beats the
   paint — origin-pinned to the frame we mounted, exact-payload matched, and *not*
   authoritative: it is undocumented and sent with `targetOrigin: "*"`); the server's null;
-  the **trust lease** (`LIVE_VIEW_TRUST_MS` = one poll interval + a round trip, renewed by
-  every fulfilled payload, which is what closes the *unbounded* cases — a failing poll
-  keeps serving the last good payload, banner and all); and the session ceiling
+  the **trust lease** (`LIVE_VIEW_TRUST_MS` = **three** poll intervals, renewed by every
+  fulfilled payload, which is what closes the *unbounded* cases — a failing poll keeps
+  serving the last good payload, banner and all); and the session ceiling
   (`_BROWSERBASE_SESSION_TTL_S`, 300s, for a row a SIGKILLed worker will never retract).
   Retirement is always recorded as *the URL it refers to*, so no verdict outlives its
   session. `receivedAt` (`fulfilledTimeStamp`) is a **required** prop for exactly this
   reason — a caller that forgets it would get a frame that outlives its session.
+- **The lease is the one SOFT closer, and both halves of that were bugs.** It was one poll
+  interval + 2s (6s), and expiry was permanent. But the gap the lease has to survive is the
+  end-to-end one between two *fulfilled* payloads, and through `vercel dev` — which proxies
+  the list endpoint — that measured 4.8s / 5.4s / **7.0s** / 5.7s on a real run. So the
+  lease expired mid-session, and because expiry was sticky one slow poll ended the frame
+  for the remaining ~25s: the live view "popped up and disappeared within a second". Now it
+  is three intervals (12s, i.e. three missed polls) **and** soft — a fresh `receivedAt`
+  carrying the *same* url restores the frame. The other three closers stay permanent
+  because each is a statement about the *session*, which does not un-end; the lease is a
+  statement about *us*, which a later payload can disprove. **The cost:** a session that
+  genuinely died while polls are failing can linger up to ~12s showing Browserbase's
+  "Debugging connection was closed". Accepted — the postMessage fast path and the server's
+  own retraction still close the healthy path immediately, so the lease is only the
+  failing-poll backstop.
 - **It says goodbye rather than vanishing.** Mid-run the frame unmounts immediately (DOM
   removal, never `display: none` — while mounted it is Browserbase's page and free to
   paint their error), the toggle is replaced by *"Live view ended — still setting up"*,

@@ -601,6 +601,14 @@ describe('DiscoveryChecklist', () => {
     // than assumed: the live view's lease (`LIVE_VIEW_TRUST_MS`) is renewed by each
     // fulfilled payload, so a run this long is a run in which the list kept answering.
     // Without the rerenders this is the STALLED case, which is the next test.
+    //
+    // AND EACH POLL COSTS A ROUND TRIP. This test used to advance exactly the 4s cadence
+    // and then rerender in the same tick, i.e. it modelled a request that took no time at
+    // all — which is precisely the assumption that let a 6s lease ship and then expire
+    // mid-session on every real run. The gap the lease has to survive is the one between
+    // two FULFILLED payloads, so the request's own ~2s (through the `vercel dev` proxy)
+    // is part of it.
+    const ROUND_TRIP_MS = 2_000;
     vi.useFakeTimers();
     try {
       const { rerender } = renderWithProviders(
@@ -608,18 +616,28 @@ describe('DiscoveryChecklist', () => {
       );
       fireEvent.load(screen.getByTestId('discovery-live-view'));
 
-      // 15 polls at the discovery cadence — a minute of a session the backend has not
-      // retracted, with every poll saying so.
+      // 15 polls at the real end-to-end cadence — a minute and a half of a session the
+      // backend has not retracted, with every poll saying so.
+      const gap = 4_000 + ROUND_TRIP_MS;
       for (let poll = 1; poll <= 15; poll += 1) {
         act(() => {
-          vi.advanceTimersByTime(4_000);
+          vi.advanceTimersByTime(gap);
         });
+        // ASSERTED BEFORE THE PAYLOAD LANDS, which is the half that catches a lease that
+        // is merely too short: the arriving payload clears a soft expiry, so a check only
+        // after the rerender would find the frame back and never see it blink out. The
+        // gap is the thing the lease has to survive.
+        expect(screen.getByTestId('discovery-live-view')).toBeInTheDocument();
         rerender(
           <DiscoveryChecklist
-            receivedAt={POLLED_AT + poll * 4_000}
+            receivedAt={POLLED_AT + poll * gap}
             company={company('discovering', CAPTURING)}
           />
         );
+        // ...and asserted INSIDE the loop rather than once at the end, because the bug
+        // was a frame that died on one particular slow poll — an end-only assertion lets
+        // it be absent for fourteen of them and come back for the last.
+        expect(screen.getByTestId('discovery-live-view')).toBeInTheDocument();
       }
 
       expect(screen.getByTestId('discovery-live-view')).toBeInTheDocument();
@@ -647,17 +665,18 @@ describe('DiscoveryChecklist', () => {
       );
       fireEvent.load(screen.getByTestId('discovery-live-view'));
 
-      // One poll interval: still believed, because a poll that is merely in flight has
-      // not failed. This half is what stops the lease being a flicker.
+      // Two missed polls and change: still believed, because polls that are merely slow
+      // have not failed — and through the dev proxy they routinely land 5–7s apart. This
+      // half is what stops the lease firing on a session that is still running.
       act(() => {
-        vi.advanceTimersByTime(4_000);
+        vi.advanceTimersByTime(11_000);
       });
       expect(screen.getByTestId('discovery-live-view')).toBeInTheDocument();
 
-      // Past the interval plus its round-trip allowance: we have nothing recent enough
-      // to keep asserting there is a browser open, so we stop asserting it.
+      // Past three whole poll intervals: we have nothing recent enough to keep asserting
+      // there is a browser open, so we stop asserting it.
       act(() => {
-        vi.advanceTimersByTime(2_500);
+        vi.advanceTimersByTime(1_500);
       });
       expect(screen.queryByTestId('discovery-live-view')).not.toBeInTheDocument();
       expect(document.querySelectorAll('iframe')).toHaveLength(0);
@@ -666,23 +685,51 @@ describe('DiscoveryChecklist', () => {
     }
   });
 
-  it('does not resurrect a frame it has already retired, even if the poll recovers', () => {
-    // A recovered payload is itself one poll behind the socket, so remounting on it
-    // would be guessing again — and the visible cost of guessing wrong is the frame
-    // flickering back to show someone else's error. The live view is a garnish; the tail
-    // of one is not worth a flicker.
+  it('does not resurrect a frame whose own socket said it was gone', () => {
+    // THE HARD RETRACTION, and it is permanent on purpose. This closer is a statement
+    // about the SESSION — the frame told us its socket died — and a session that has
+    // ended does not un-end, so no later payload may argue with it. The payload cannot
+    // even know: the backend writes `live_view_url: null` only after the capture child
+    // has exited, so a poll landing right after the disconnect still carries the URL.
+    const { rerender } = renderWithProviders(
+      <DiscoveryChecklist receivedAt={POLLED_AT} company={company('discovering', CAPTURING)} />
+    );
+    fireEvent.load(screen.getByTestId('discovery-live-view'));
+
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          data: 'browserbase-disconnected',
+          origin: 'https://www.browserbase.com',
+        })
+      );
+    });
+    expect(screen.queryByTestId('discovery-live-view')).not.toBeInTheDocument();
+
+    // The list keeps answering, still carrying the same URL. It is wrong, and it is
+    // ignored.
+    rerender(
+      <DiscoveryChecklist
+        receivedAt={POLLED_AT + 20_000}
+        company={company('discovering', CAPTURING)}
+      />
+    );
+    expect(screen.queryByTestId('discovery-live-view')).not.toBeInTheDocument();
+  });
+
+  it('does not resurrect a frame that never loaded, however long the polls keep coming', () => {
+    // The load watchdog is the same kind of claim: nothing ever painted in that box, and
+    // a payload repeating the URL does not change what is inside the iframe.
     vi.useFakeTimers();
     try {
       const { rerender } = renderWithProviders(
         <DiscoveryChecklist receivedAt={POLLED_AT} company={company('discovering', CAPTURING)} />
       );
-      fireEvent.load(screen.getByTestId('discovery-live-view'));
       act(() => {
-        vi.advanceTimersByTime(6_500);
+        vi.advanceTimersByTime(10_000);
       });
       expect(screen.queryByTestId('discovery-live-view')).not.toBeInTheDocument();
 
-      // The list starts answering again, still carrying the same URL.
       rerender(
         <DiscoveryChecklist
           receivedAt={POLLED_AT + 20_000}
@@ -690,6 +737,100 @@ describe('DiscoveryChecklist', () => {
         />
       );
       expect(screen.queryByTestId('discovery-live-view')).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('puts the frame BACK when a late poll re-confirms the same session', () => {
+    // THE SOFT ONE, and the difference is the whole fix. An expired lease never said the
+    // session ended — only that we had not heard about it recently enough to keep
+    // asserting it. That is a claim the next payload simply disproves, so the frame
+    // returns.
+    //
+    // It used to be sticky like the ones above, and the cost was not theoretical: the
+    // real end-to-end poll gap is 5–7s against a 6s lease, so ONE slow poll retired a
+    // live view permanently and the user watched it flash up and vanish while the browser
+    // it was showing ran on for another 25 seconds.
+    vi.useFakeTimers();
+    try {
+      const { rerender } = renderWithProviders(
+        <DiscoveryChecklist receivedAt={POLLED_AT} company={company('discovering', CAPTURING)} />
+      );
+      fireEvent.load(screen.getByTestId('discovery-live-view'));
+      act(() => {
+        vi.advanceTimersByTime(12_500);
+      });
+      expect(screen.queryByTestId('discovery-live-view')).not.toBeInTheDocument();
+
+      // The list starts answering again, still carrying the same URL — and nothing that
+      // KNOWS about the session has said it is over.
+      rerender(
+        <DiscoveryChecklist
+          receivedAt={POLLED_AT + 12_500}
+          company={company('discovering', CAPTURING)}
+        />
+      );
+      expect(screen.getByTestId('discovery-live-view')).toBeInTheDocument();
+
+      // ...and the restored frame holds its own lease rather than living on the expired
+      // one: still there a poll later, and gone again once nothing confirms it.
+      act(() => {
+        vi.advanceTimersByTime(6_000);
+      });
+      rerender(
+        <DiscoveryChecklist
+          receivedAt={POLLED_AT + 18_500}
+          company={company('discovering', CAPTURING)}
+        />
+      );
+      expect(screen.getByTestId('discovery-live-view')).toBeInTheDocument();
+
+      act(() => {
+        vi.advanceTimersByTime(12_500);
+      });
+      expect(screen.queryByTestId('discovery-live-view')).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps the frame up for a whole ~31s session whose polls land 5–7s apart', () => {
+    // THE RUN THAT BROKE IT, replayed. The gaps below are the real ones measured between
+    // successive fulfilled `GET /api/users/companies` payloads during a live capture:
+    // `vercel dev` proxies the list endpoint and adds a second or two to every request,
+    // so the 4s cadence arrives as 5–7s. The session itself ran ~31s.
+    //
+    // With a 6s lease the frame retired on the 7.0s gap and — expiry being permanent —
+    // never came back, which is what "it pops up and disappears within a second" was.
+    vi.useFakeTimers();
+    try {
+      const { rerender } = renderWithProviders(
+        <DiscoveryChecklist receivedAt={POLLED_AT} company={company('discovering', CAPTURING)} />
+      );
+      fireEvent.load(screen.getByTestId('discovery-live-view'));
+
+      let elapsed = 0;
+      for (const gap of [4_800, 5_400, 7_000, 5_700, 6_100, 2_000]) {
+        act(() => {
+          vi.advanceTimersByTime(gap);
+        });
+        // The frame is still up at the END of the gap, before the next payload arrives to
+        // renew anything. This is the assertion the old lease fails — on the 7.0s one.
+        expect(screen.getByTestId('discovery-live-view')).toBeInTheDocument();
+        elapsed += gap;
+        rerender(
+          <DiscoveryChecklist
+            receivedAt={POLLED_AT + elapsed}
+            company={company('discovering', CAPTURING)}
+          />
+        );
+        expect(screen.getByTestId('discovery-live-view')).toBeInTheDocument();
+      }
+
+      // The session was ~31s long and the frame was up for all of it.
+      expect(elapsed).toBeGreaterThanOrEqual(31_000);
+      expect(screen.getByTestId('discovery-live-view')).toBeInTheDocument();
     } finally {
       vi.useRealTimers();
     }
@@ -739,7 +880,10 @@ describe('DiscoveryChecklist', () => {
       );
       fireEvent.load(screen.getByTestId('discovery-live-view'));
 
-      // Polls all the way through, so the lease is never the thing that closes it.
+      // Polls all the way through, so the lease is never the thing that closes it — and
+      // the last few land AFTER the ceiling passes, which is also the assertion that the
+      // ceiling is a HARD retraction: a fresh payload carrying the same URL does not
+      // bring it back the way an expired lease would.
       for (let poll = 1; poll <= 80; poll += 1) {
         act(() => {
           vi.advanceTimersByTime(4_000);
