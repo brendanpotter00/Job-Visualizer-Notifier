@@ -412,6 +412,10 @@
     "accomplishment": "Paraform is known for its marketplace of vetted independent recruiters who fill roles on a pay-for-success basis, offering an alternative to in-house and agency hiring.",
     "blurb": "Paraform operates a recruiting marketplace that connects companies with independent professional recruiters to fill open roles on a success-based fee model."
   },
+  "parallel": {
+    "accomplishment": "Founded by former Twitter CEO Parag Agrawal, Parallel has raised $230M from Kleiner Perkins, Sequoia, Index Ventures, and others at a $2B valuation, and its APIs are used by companies including Harvey, Granola, Modal, and Dropbox.",
+    "blurb": "Parallel builds web infrastructure for AI agents, with APIs that let them search, extract, monitor, and run deep research over the live web."
+  },
   "paypal": {
     "accomplishment": "PayPal is one of the world's most widely used digital payment networks and owns the Venmo and Braintree payment brands.",
     "blurb": "PayPal operates a global online payments platform that lets consumers and businesses send, receive, and manage money digitally."

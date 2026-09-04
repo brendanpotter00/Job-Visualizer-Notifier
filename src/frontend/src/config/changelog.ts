@@ -19,6 +19,18 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    id: 'add-parallel',
+    title: 'Added Parallel',
+    description:
+      "Parallel — web infrastructure for AI agents, giving them programmatic search, extraction, monitoring, and deep research over the live web — is now tracked via its Ashby job board. Founded by former Twitter CEO Parag Agrawal, it has raised $230M from Kleiner Perkins, Sequoia, Index Ventures, Spark Capital, Khosla Ventures, First Round, and Terrain at a $2B valuation, and its APIs are used by the likes of Harvey, Granola, Modal, and Dropbox. The team works fully in person, so all of its roughly 20 open roles sit in Palo Alto or San Francisco.",
+    tags: ['new-companies'],
+    date: '2026-09-03',
+    link: {
+      to: ROUTES.ACCOUNT,
+      label: 'Add Parallel to your company preferences',
+    },
+  },
+  {
     id: 'add-meta',
     title: 'Added Meta',
     description:
