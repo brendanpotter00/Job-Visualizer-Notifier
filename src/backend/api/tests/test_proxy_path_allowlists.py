@@ -88,6 +88,13 @@ NOT_PROXIED: dict[str, set[str]] = {
         # catastrophic and unrecoverable, so it must never be allowlisted anywhere.
         "dev-reset",
     },
+    # POST /api/admin/enrichment/subcategories/reset bulk-NULLs
+    # `enrichment_subcategories` + `enrichment_subcategory_source` for every row
+    # matching a source. Nothing in the SPA calls it — it is a hand-run scoped
+    # rollback for the backfill — so proxying it would put a destructive bulk
+    # write on the public edge for no caller. Admin auth is a second lock, not a
+    # reason to hang the first one outside. Run it against the backend directly.
+    "admin": {"enrichment/subcategories/reset"},
 }
 
 
