@@ -19,6 +19,20 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    id: 'job-category-rename-2026-08',
+    title: '“Job title” is now “Job Category”, and the department chip is gone',
+    description:
+      "Two bits of housekeeping on the filters and the job cards. First, the filter labeled “Job title” is now labeled “Job Category” — on both Recent Job Postings and Company Hiring Trends, and in your saved-filter defaults. It is the same filter with the same options; the old name was a stretch, and it is about to become a worse one, because these categories are being subdivided (Software Engineering into Frontend, Backend, Machine Learning and the rest). “Category” is what they are. Second, the grey department chip on each job card — the raw team name straight from the company's job board — has been removed. It mostly restated the category and level chips right beside it, and when it didn't, it was noise. The department filter on Company Hiring Trends is unchanged and still works. One correction while we're here: the saved-filter defaults page used to say “Jobs not yet enriched still appear.” That was not true — setting a default job category filters unenriched jobs out, exactly as setting the filter on the page does. The wording now says what actually happens.",
+    tags: ['improvement'],
+    // Set to the day PR-A merges (see FE-CL-1). Entries are ordered newest-first
+    // by hand — this one sits above 'add-meta' (2026-09-03) because it ships after it.
+    date: '2026-09-04',
+    link: {
+      to: ROUTES.RECENT_JOBS,
+      label: 'See the renamed filter',
+    },
+  },
+  {
     id: 'add-meta',
     title: 'Added Meta',
     description:

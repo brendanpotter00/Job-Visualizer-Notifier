@@ -30,14 +30,13 @@ export interface CategoryLevelDefaultsProps {
  * constants cover the pre-fetch frame and an endpoint outage, exactly as the
  * live filter bars do. An empty selection means "no filter" on that page.
  *
- * NAMING: the "category" facet is surfaced to users as "Job title" (heading,
- * label, save button). The data model — the `category` prop/field, the API
- * param, the DB column — stays "category"; this is a UI-only rename because
- * users click a "Job title" filter far more than a "Category" one, and the
- * values will subdivide over time (e.g. "Software Engineering" → "Frontend
- * SWE" / "Backend SWE") and read as categories again. Matches the live filter
- * bars in GraphFilters.tsx / RecentJobsFilters.tsx. Rename copy only — never
- * the data model.
+ * NAMING: the "category" facet is surfaced to users as "Job Category"
+ * (heading, label, save button). It previously read "Job title", which was
+ * wrong on its face: these values subdivide (e.g. "Software Engineering" →
+ * "Frontend" / "Backend"), so they read as categories, not titles. The data
+ * model — the `category` prop/field, the API param, the DB column — stays
+ * "category". Matches the live filter bars in GraphFilters.tsx /
+ * RecentJobsFilters.tsx. Rename copy only — never the data model.
  */
 export function CategoryLevelDefaults({
   category,
@@ -64,28 +63,28 @@ export function CategoryLevelDefaults({
       }}
     >
       <AccordionSummary expandIcon={<ExpandMoreIcon />} sx={{ px: 4, py: 1 }}>
-        <Typography variant="h6">Default job title &amp; level</Typography>
+        <Typography variant="h6">Default job category &amp; level</Typography>
       </AccordionSummary>
       <AccordionDetails sx={{ px: 4, pb: 4, pt: 0 }}>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-          Applied when you open either page. Both pages share these defaults. Jobs
-          not yet enriched still appear.
+          Applied when you open either page. Both pages share these defaults. Only jobs matching
+          your selection are shown.
         </Typography>
 
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={3}>
           <FacetMultiSelect
-            label="Job title"
+            label="Job Category"
             options={categoryOptions}
             value={category}
             onChange={onChangeCategory}
-            tooltip="AI-enriched job title (choose any number). Jobs not yet enriched still appear."
+            tooltip="AI-enriched job category (choose any number). Only jobs matching your selection are shown."
           />
           <FacetMultiSelect
             label="Level"
             options={levelOptions}
             value={level}
             onChange={onChangeLevel}
-            tooltip="Choose any number; Entry also includes New Grad. Jobs not yet enriched still appear."
+            tooltip="Choose any number; Entry also includes New Grad. Only jobs matching your selection are shown."
           />
         </Stack>
 
@@ -95,7 +94,7 @@ export function CategoryLevelDefaults({
           success={success}
           error={error}
           onSave={onSave}
-          label="Save job title & level"
+          label="Save job category & level"
         />
       </AccordionDetails>
     </Accordion>
