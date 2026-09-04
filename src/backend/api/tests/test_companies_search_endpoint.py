@@ -540,6 +540,76 @@ def test_a_board_behind_the_page_that_is_not_theirs_is_shown_not_added(
     assert body["careersUrl"] == EBAY_CAREERS
 
 
+ATLASSIAN_TALENT_JOBS = "https://join.atlassian.com/jobs"
+ATLASSIAN_TALENT_FORM = (
+    "https://join.atlassian.com/atlassian-talent-community/talentcommunity/form"
+)
+
+
+def test_a_careers_url_that_redirects_off_a_job_list_is_not_offered(
+    client, db_conn, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`is_job_list_url` is a claim about a URL, and the resolve step above is
+    where we find out what the URL is really serving. `join.atlassian.com/jobs`
+    passes the offer bar and 303s to a talent-community SIGNUP FORM — measured
+    live, and offered to the owner three times out of three. The fetch that learns
+    this has already happened, so re-asking the bar of where it landed is free.
+
+    Offering nothing is the honest answer; the UI then asks for a pasted URL."""
+    before = _company_count(db_conn)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+        if url == SEARCH_API:
+            second = json.loads(request.content)["query"].endswith(" careers")
+            return httpx.Response(
+                200,
+                json=_search_payload(
+                    *([ATLASSIAN_TALENT_JOBS] if second else ["https://x.example/ats"])
+                ),
+            )
+        if url == ATLASSIAN_TALENT_JOBS:
+            return httpx.Response(303, headers={"location": ATLASSIAN_TALENT_FORM})
+        if url == ATLASSIAN_TALENT_FORM:
+            return httpx.Response(200, text="<form>Join our talent community</form>")
+        return httpx.Response(404)
+
+    _install_transport(monkeypatch, handler)
+
+    body = client.post(SEARCH, json={"name": "atlassian"}).json()
+
+    assert body["careersUrl"] is None
+    assert body["candidates"] == []
+    assert body["alreadyPublic"] is None
+    assert _company_count(db_conn) == before
+
+
+def test_a_careers_url_we_could_not_fetch_is_still_offered(
+    client, db_conn, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """FAIL OPEN. The resolve step is a bonus on a request that already has an
+    answer, so a page that refuses us is not evidence against it — the landing URL
+    is then the one we asked for, and the offer stands."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+        if url == SEARCH_API:
+            second = json.loads(request.content)["query"].endswith(" careers")
+            return httpx.Response(
+                200,
+                json=_search_payload(
+                    *([ATLASSIAN_TALENT_JOBS] if second else ["https://x.example/ats"])
+                ),
+            )
+        raise httpx.ConnectError("refused")
+
+    _install_transport(monkeypatch, handler)
+
+    body = client.post(SEARCH, json={"name": "atlassian"}).json()
+
+    assert body["careersUrl"] == ATLASSIAN_TALENT_JOBS
+
+
 def test_an_empty_board_behind_the_page_is_not_auto_addable(
     client, db_conn, monkeypatch: pytest.MonkeyPatch
 ) -> None:

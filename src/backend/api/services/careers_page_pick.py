@@ -757,6 +757,40 @@ async def follow_to_job_list(
     return None if page is None else best_job_list_link(page, is_trusted=is_trusted)
 
 
+def _without_scoped_duplicates(
+    links: list[tuple[str, str]]
+) -> list[tuple[str, str]]:
+    """Drop every link that is a FILTERED VIEW of another link on the same page.
+
+    THE TITLE CANNOT SETTLE THIS AND MUST NOT BE ASKED TO. Atlassian's careers
+    page publishes its job list eighteen times: once whole, as
+    ``/company/careers/all-jobs`` ("Browse Jobs"), and seventeen times filtered —
+    ``?team=&location=Mountain%20View&search=`` ("Browse Mountain View jobs") and
+    the same for fifteen other cities and three teams. The city one WINS on
+    ``title_score``, 9 to 5, because "Mountain **View jobs**" contains the phrase
+    "view jobs". Same accident as Meta's "re|search jobs"; ``_phrase`` cannot help
+    here, because "view jobs" really is two whole words of that title.
+
+    So the choice between "the list" and "a slice of the list" is made first and
+    on the URLs, where it is not a matter of wording: a link whose query is purely
+    scoping (``unscoped_variant``, which refuses anything that could be an
+    identifier) and whose unfiltered form is ALSO linked from this page is a view
+    of that link, and the page has already told us the whole thing exists.
+
+    A page that only ever links its board filtered — Oracle, whose three links all
+    carry ``?location=United States`` — has nothing dropped here; that is
+    ``prefer_unscoped_list``'s job, and it pays a fetch to do it.
+    """
+    unfiltered = {
+        url for url, _ in links
+        if (parts := _split(url)) is not None and not parts.query
+    }
+    return [
+        (url, text) for url, text in links
+        if unscoped_variant(url) not in unfiltered
+    ]
+
+
 def best_job_list_link(
     page: _Page, *, is_trusted: Callable[[str], bool]
 ) -> str | None:
@@ -778,6 +812,7 @@ def best_job_list_link(
         # is the `resumeadapter.com` failure arriving through a new door.
         if is_trusted(url)
     ]
+    links = _without_scoped_duplicates(links)
     if not links:
         return None
     best = min(
@@ -834,6 +869,11 @@ _SCOPE_PARAMS = frozenset({
     # what kind of job
     "category", "categories", "jobcategory", "jobcategories", "jobfamily",
     "jobfield", "jobtype", "employmenttype", "worktype", "level", "seniority",
+    # the words typed into the site's own search box. Free text NARROWS a list by
+    # construction — it cannot name a board, and it is what an empty `search=` in
+    # Atlassian's `?team=&location=Mountain View&search=` is: the site round-
+    # tripping its own three filter controls, two of them unset.
+    "search", "searchtext", "keyword", "keywords", "q", "query",
     # the site's own record of which filter chips are lit
     "facet", "facets", "lastselectedfacet", "selectedfacet",
 })
@@ -979,6 +1019,10 @@ async def _best_offer(
     links to ``/us/en/search-results``, eBay's real list. A shape that fetched for
     Y and then declined to look at what came back would spend the budget and throw
     the answer away.
+
+    A SECOND READ, in one case only: the page we read REDIRECTED AWAY, so it is
+    not a page about this company and Z may not read its links. See
+    ``_harvestable_page``. It is bounded by the same ``deadline`` as the first.
     """
     ranked = rank_careers_results(rows)
     listed = [row for row in ranked if is_job_list_url(row.url)]
@@ -1014,7 +1058,7 @@ async def _best_offer(
             if verified is not None and is_job_list_url(verified):
                 logger.info("Derived careers list %s verified as %s", target, verified)
                 return verified
-        # Y did not verify, or there was nothing to verify. Either way we are
+        # Y did not verify, or there was nothing to verify. Either way we may be
         # holding a page on the company's site — but only ask it where its board
         # is when SEARCH GAVE US NOTHING. A page's own links are weaker evidence
         # than a result the search engine ranked and we scored: Atlassian's
@@ -1023,9 +1067,13 @@ async def _best_offer(
         # `join.atlassian.com/jobs` — while `atlassian.com/company/careers/
         # all-jobs` was sitting in `listed` the whole time, for free.
         if not listed:
-            followed = best_job_list_link(page, is_trusted=is_trusted)
-            if followed is not None:
-                return followed
+            harvest = await _harvestable_page(
+                target, page, ranked, http, deadline=deadline
+            )
+            if harvest is not None:
+                followed = best_job_list_link(harvest, is_trusted=is_trusted)
+                if followed is not None:
+                    return followed
 
     if listed:
         return listed[0].url
@@ -1034,3 +1082,56 @@ async def _best_offer(
         "offering nothing rather than a brochure", len(rows),
     )
     return None
+
+
+async def _harvestable_page(
+    target: str,
+    page: _Page,
+    ranked: Sequence[CareersResult],
+    http: httpx.AsyncClient,
+    *,
+    deadline: float | None = None,
+) -> _Page | None:
+    """The page whose links Z may read, or ``None``. Usually the one we just read.
+
+    A REDIRECT MEANS THE LINKS ARE ABOUT SOMETHING ELSE, and that is the whole of
+    this function. Z's premise is "we are holding a page on the company's site",
+    which stops being true the moment the site bounces us: lowercase ``atlassian``
+    derives ``join.atlassian.com/atlassian-talent-community/jobs``, which 303s to a
+    talent-community SIGNUP FORM. The form's only job-list link is
+    ``join.atlassian.com/jobs``, which redirects straight back to the form — trusted
+    host, ``is_job_list_url`` true, and an answer about nothing. The user was offered
+    that form three times out of three. ``_stayed_put`` is the same test
+    ``verify_list_url`` already applies to a derived URL, asked of the page we are
+    about to mine instead of the URL we are about to offer.
+
+    ONE EXTRA READ, and only here. When the derivation bounced, the best-ranked
+    result has not been read yet and is the page we would have read had the cluster
+    produced nothing — for lowercase ``atlassian`` it is
+    ``www.atlassian.com/company/careers``, which links to ``/company/careers/
+    all-jobs`` under "Browse Jobs". It is read through the same ``deadline`` as the
+    first read, so a slow or hanging site cannot spend more than the budget that is
+    already left; ``_read_page`` returns ``None`` when there is none.
+
+    The second page faces the same redirect test as the first: a rule that applied
+    only to derived URLs would let the same bounce back in through the fallback.
+    """
+    if _stayed_put(target, page.url):
+        return page
+    fallback = ranked[0].url if ranked else None
+    logger.info(
+        "Careers page %s redirected to %s; its links are not evidence about this "
+        "company's board — reading %s instead", target, page.url, fallback or "nothing",
+    )
+    if fallback is None or fallback == target:
+        return None
+    second = await _read_page(
+        fallback,
+        http,
+        deadline=deadline,
+        timeout=_HARVEST_TIMEOUT_S,
+        max_bytes=_HARVEST_MAX_BYTES,
+    )
+    if second is None or not _stayed_put(fallback, second.url):
+        return None
+    return second

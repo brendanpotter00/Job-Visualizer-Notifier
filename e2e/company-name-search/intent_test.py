@@ -710,8 +710,10 @@ def main(argv: list[str] | None = None) -> int:
                    help="run only cases with these tags (repeatable)")
     p.add_argument("--runs", type=int, default=1,
                    help="repeat every case N times; anything short of N/N is FLAKY, not PASS")
-    p.add_argument("--max-searches", type=int, default=40,
-                   help="hard ceiling on paid Browserbase searches for this run")
+    p.add_argument("--max-searches", type=int, default=60,
+                   help="hard ceiling on paid Browserbase searches for this INVOCATION "
+                        "— all runs together, not per run. One full pass is ~38, so "
+                        "--runs N wants roughly 40*N")
     p.add_argument("--json", default=None, help="write the full result record here")
     p.add_argument("--timeout", type=float, default=60.0)
     p.add_argument("--validate-only", action="store_true",

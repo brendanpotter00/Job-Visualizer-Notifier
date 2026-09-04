@@ -7,7 +7,8 @@
 #
 # THIS RUN COSTS REAL MONEY. ~$0.007 per Browserbase Search call, one or two per
 # case. The harness prints the count and the dollar figure and refuses to exceed
-# --max-searches (default 40). Never wire this into CI or a commit hook.
+# --max-searches (default 60, the WHOLE invocation — raise it for --runs N).
+# Never wire this into CI or a commit hook.
 
 set -uo pipefail
 

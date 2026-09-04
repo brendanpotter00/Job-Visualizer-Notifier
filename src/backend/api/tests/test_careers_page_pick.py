@@ -20,7 +20,9 @@ used to be handed a brochure the user would have spent a discovery run on.
 
 from __future__ import annotations
 
+import asyncio
 import socket
+import time
 
 import httpx
 import pytest
@@ -605,6 +607,142 @@ async def test_a_list_search_already_returned_beats_a_link_on_a_page() -> None:
         chosen = await pick_careers_url(rows, http, is_trusted=_trust_everything)
 
     assert chosen == "https://www.atlassian.com/company/careers/all-jobs"
+
+
+# The same search, typed the way people actually type it. Measured against
+# Browserbase 2026-09-04, twice each: `Atlassian careers` returns
+# `atlassian.com/company/careers/all-jobs` at rank 2, and `atlassian careers`
+# does not return it at all, in any of 25 results. So `listed` is EMPTY here and
+# the rule above ("a list search already returned beats a link on a page") has
+# nothing to prefer — which is how a signed-in user got the talent-community
+# signup form three times out of three.
+ATLASSIAN_LOWERCASE = _rows(
+    ("https://www.atlassian.com/company/careers",
+     "Atlassian Careers: Join the Team | Atlassian"),
+    ("https://www.atlassian.com/company/careers/engineering",
+     "Engineering careers | Atlassian"),
+    ("https://join.atlassian.com/atlassian-talent-community/jobs/12345", "SWE"),
+    ("https://join.atlassian.com/atlassian-talent-community/jobs/12346", "PM"),
+)
+
+_TALENT_FORM = "https://join.atlassian.com/atlassian-talent-community/talentcommunity/form"
+
+
+def _atlassian_lowercase_handler(request: httpx.Request) -> httpx.Response:
+    """The three pages this search actually touches, as measured 2026-09-04."""
+    url = str(request.url)
+    if url == "https://join.atlassian.com/atlassian-talent-community/jobs":
+        return httpx.Response(303, headers={"location": _TALENT_FORM})
+    if url == _TALENT_FORM:
+        # A signup form, and its ONE job-list link goes straight back to itself.
+        return httpx.Response(
+            200, text='<a href="https://join.atlassian.com/jobs">Jobs</a>'
+        )
+    # VERBATIM from www.atlassian.com/company/careers, 2026-09-04: the list is
+    # linked once whole and seventeen times filtered. Three of them here, and the
+    # city one is the trap — "Mountain View jobs" contains the phrase "view jobs",
+    # so it scores 9 on the title against "Browse Jobs"' 5.
+    return httpx.Response(
+        200,
+        text=(
+            '<a href="/company/careers/all-jobs">Browse Jobs</a>'
+            '<a href="/company/careers/all-jobs?team=&location=Mountain%20View'
+            '&search=">Browse Mountain View jobs</a>'
+            '<a href="/company/careers/all-jobs?team=Engineering&location=&search=">'
+            "View related jobs</a>"
+        ),
+    )
+
+
+@pytest.mark.asyncio
+async def test_links_off_a_page_we_were_redirected_to_are_not_evidence() -> None:
+    """THE REPORTED BUG. Y's derived URL 303s to a talent-community signup form,
+    and Z used to harvest the form's links: ``join.atlassian.com/jobs``, which
+    redirects back to the same form. Job-list shaped, trusted host, answer about
+    nothing. The best-ranked result is read instead, and it publishes the real
+    list under "Browse Jobs"."""
+    seen: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(str(request.url))
+        return _atlassian_lowercase_handler(request)
+
+    async with _client(handler) as http:
+        chosen = await pick_careers_url(
+            ATLASSIAN_LOWERCASE, http, is_trusted=_trust_everything
+        )
+
+    assert chosen == "https://www.atlassian.com/company/careers/all-jobs"
+    assert seen == [
+        "https://join.atlassian.com/atlassian-talent-community/jobs",
+        _TALENT_FORM,
+        "https://www.atlassian.com/company/careers",
+    ], "the derivation, where it bounced to, and then the page we ranked first"
+
+
+def test_a_city_in_the_link_text_cannot_outrank_the_whole_list() -> None:
+    """Why the same page linked whole and linked filtered is decided on the URLs.
+    The title comparison the ranker would otherwise make is won by a CITY NAME."""
+    assert title_score("Browse Mountain View jobs") > title_score("Browse Jobs"), (
+        "the accident this rule exists to survive: 'Mountain View jobs' contains "
+        "the phrase 'view jobs'"
+    )
+    assert (
+        unscoped_variant(
+            "https://www.atlassian.com/company/careers/all-jobs"
+            "?team=&location=Mountain%20View&search="
+        )
+        == "https://www.atlassian.com/company/careers/all-jobs"
+    ), "team, location and search are all filter words, so the query is droppable"
+
+
+@pytest.mark.asyncio
+async def test_the_second_read_is_bounded_by_the_same_deadline() -> None:
+    """A slow site may not buy itself a second page read. The extra read exists
+    only because the first one landed somewhere unrelated; it is a bonus on a
+    request that already has a budget, so it gets what is left and no extension."""
+    seen: list[str] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(str(request.url))
+        # Slow enough to eat the budget before the fallback read is reached.
+        await asyncio.sleep(0.4)
+        return _atlassian_lowercase_handler(request)
+
+    started = time.monotonic()
+    async with _client(handler) as http:
+        chosen = await pick_careers_url(
+            ATLASSIAN_LOWERCASE,
+            http,
+            is_trusted=_trust_everything,
+            deadline=time.monotonic() + 0.5,
+        )
+    elapsed = time.monotonic() - started
+
+    assert chosen is None, "nothing was offerable and nothing was invented"
+    assert "https://www.atlassian.com/company/careers" not in seen, (
+        "the fallback read must not run on a budget that is gone"
+    )
+    assert elapsed < 3.0, f"took {elapsed:.1f}s; the deadline bounds both reads"
+
+
+@pytest.mark.asyncio
+async def test_the_fallback_page_faces_the_same_redirect_test() -> None:
+    """The rule is about the page we are mining, not about how we got its URL. A
+    best-ranked result that also bounces somewhere else is no better evidence than
+    the derivation that bounced first."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if str(request.url) == "https://www.atlassian.com/company/careers":
+            return httpx.Response(302, headers={"location": _TALENT_FORM})
+        return _atlassian_lowercase_handler(request)
+
+    async with _client(handler) as http:
+        chosen = await pick_careers_url(
+            ATLASSIAN_LOWERCASE, http, is_trusted=_trust_everything
+        )
+
+    assert chosen is None
 
 
 @pytest.mark.asyncio

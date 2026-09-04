@@ -8,10 +8,10 @@ whether that works, for a curated list of names, end to end, at the outermost la
 > a green run, printed, with the case list it ran.
 
 ```bash
-e2e/run.sh company-name-search                       # everything (~29 searches, ~$0.21, ~45s)
+e2e/run.sh company-name-search                       # everything (~38 searches, ~$0.27, ~60s)
 e2e/run.sh company-name-search --case oracle         # one case (repeatable flag)
 e2e/run.sh company-name-search --tag careers         # one slice
-e2e/run.sh company-name-search --runs 3              # flakiness: 3/3 or it is FLAKY
+e2e/run.sh company-name-search --runs 2 --max-searches 90   # flakiness: 2/2 or it is FLAKY
 e2e/run.sh company-name-search --max-searches 10     # hard spend ceiling
 ```
 
@@ -24,14 +24,18 @@ Free, spends nothing:
 ```
 
 `--replay` re-judges a previous run's **stored response bodies**. Every assertion change
-should be checked this way first — it costs $0 instead of another $0.21.
+should be checked this way first — it costs $0 instead of another $0.27.
 
 ## This costs real money
 
 Every case spends at least one **Browserbase Search** call at **$0.007**, and a second one
-whenever the careers fallback fires. A full run is ~30 searches ≈ **$0.21**. The runner
+whenever the careers fallback fires. A full run is ~38 searches ≈ **$0.27**. The runner
 prints the count and the dollar figure, and refuses to start a case it cannot pay for
-under `--max-searches` (default 40).
+under `--max-searches` (default 60).
+
+**`--max-searches` is the whole invocation, not one run.** `--runs N` multiplies the bill,
+so raise it to about `40*N` or the last cases are SKIPPED — and a skipped case is not a
+passing case, so the run reports red for a reason that is only about money.
 
 **Never wire this into CI, a pre-commit hook, or anything that runs per push.** It is a
 before-you-say-ready gate, run by a human or an agent on purpose.
@@ -99,6 +103,22 @@ corpus, costs nothing, and cannot be wrong about network weather.
 Browserbase Search results vary between calls. `--runs N` repeats every case; anything
 short of N/N reports **FLAKY**, never PASS. Use it before believing a green run —
 Atlassian passed 3/3 in one sitting while the owner watched it fail.
+
+### Casing is an input, and it changes the results
+
+That Atlassian split was not flakiness. The typed name reaches the search **verbatim** —
+nothing normalizes it, frontend included — and the two spellings return different result
+sets. Measured 2026-09-04, twice each:
+
+| second-search query | `atlassian.com/company/careers/all-jobs` |
+|---|---|
+| `Atlassian careers` — what this suite used to send | **rank 2**, 2/2 |
+| `atlassian careers` — what the UI sends | **absent from all 25 results**, 2/2 |
+
+Every case here was capitalized and nobody types that way, so the suite reported 4/4 on a
+query no user ever makes. The `lowercase` tag now covers the five spellings people
+actually type. **Add both spellings for anything whose canonical form is not what a
+person types** — an acronym (`IBM`), an intercapital (`eBay`), a brand people lowercase.
 
 ## Three mistakes this is built to prevent
 

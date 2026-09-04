@@ -17,6 +17,7 @@ deleting it outright.
 import asyncio
 import logging
 import time
+from typing import NamedTuple
 
 import httpx
 import psycopg2
@@ -428,12 +429,29 @@ async def _careers_fallback(
 _CAREERS_RESOLVE_BUDGET_S = 8.0
 
 
+class _CareersPageBoard(NamedTuple):
+    """What fetching the careers page told us — both things it told us.
+
+    ``candidate`` is the board behind the page, if any. ``landed`` is where that
+    fetch actually ENDED UP, which is the half we used to throw away: ``discover_ats``
+    resolved ``join.atlassian.com/jobs`` all the way to a talent-community signup
+    form, said "no board here", and the offer went out unchanged. It is the
+    requested URL whenever we cannot say otherwise — a board was found (the
+    resolver's ``final_url`` is then the page the board was named on, not where the
+    offer landed), the budget was gone, or the fetch failed — so an unknown answer
+    changes nothing.
+    """
+
+    candidate: NameCandidateResponse | None
+    landed: str
+
+
 async def _board_behind_careers_page(
     name: str,
     careers_url: str,
     http: httpx.AsyncClient,
     deadline: float,
-) -> NameCandidateResponse | None:
+) -> _CareersPageBoard:
     """The ATS board the careers page we are about to offer is built on, if any.
 
     THE COST ARGUMENT, because this is a handful of extra HTTP requests on a path
@@ -460,22 +478,28 @@ async def _board_behind_careers_page(
     SHOWN and not auto-addable — the Guidehouse-for-Databricks mitigation, reached
     through a new door.
 
-    ``None`` when nothing resolves, which is the common case and costs only the
-    requests. Failure is never propagated: this is an extra, and a careers page
-    that 403s us is still the careers page we were going to offer.
+    A ``None`` candidate when nothing resolves, which is the common case and costs
+    only the requests. Failure is never propagated: this is an extra, and a careers
+    page that 403s us is still the careers page we were going to offer.
+
+    IT ALSO REPORTS WHERE THE FETCH LANDED, for free — see ``_CareersPageBoard``.
+    On the miss path ``DiscoveryResult.final_url`` is the landing page's own
+    resolved URL (``sniff_embedded_ats``'s ``landing_final_url``), which is the one
+    fact the caller needs to notice that the page it is about to offer redirects to
+    something that is not a job list at all.
     """
     budget = min(deadline, time.monotonic() + _CAREERS_RESOLVE_BUDGET_S)
     if budget - time.monotonic() <= 0:
         logger.info("No budget left to resolve the careers page %s", careers_url)
-        return None
+        return _CareersPageBoard(None, careers_url)
 
     result = await discover_ats(careers_url, http, deadline=budget)
     if result.candidate is None:
         logger.info(
-            "Careers page %s resolves to no board we support (%s)",
-            careers_url, result.reason,
+            "Careers page %s resolves to no board we support (%s), landing on %s",
+            careers_url, result.reason, result.final_url,
         )
-        return None
+        return _CareersPageBoard(None, result.final_url)
 
     probe = await probe_candidate(result.candidate, http, deadline=deadline)
     named = board_names_company(name, result.candidate)
@@ -484,24 +508,30 @@ async def _board_behind_careers_page(
         careers_url, result.candidate.ats, result.candidate.board_token,
         probe.job_count, name, named,
     )
-    return NameCandidateResponse(
-        candidate=AtsCandidateResponse(
-            ats=result.candidate.ats,
-            board_token=result.candidate.board_token,
-            provider_config=result.candidate.provider_config,
-            source_url=result.candidate.source_url,
+    return _CareersPageBoard(
+        NameCandidateResponse(
+            candidate=AtsCandidateResponse(
+                ats=result.candidate.ats,
+                board_token=result.candidate.board_token,
+                provider_config=result.candidate.provider_config,
+                source_url=result.candidate.source_url,
+            ),
+            probe=ProbeResultResponse(
+                ok=probe.ok, job_count=probe.job_count, error=probe.error
+            ),
+            # The page we resolved it FROM, not the ATS URL inside it: this row's
+            # job is to tell a person where this board came from, and "their
+            # careers page" is the honest answer.
+            source_url=careers_url,
+            # NOT a search rank — this board was in no search result. See
+            # ``NameCandidateResponse.rank``.
+            rank=0,
+            auto_addable=named and probe.ok and probe.job_count > 0,
         ),
-        probe=ProbeResultResponse(
-            ok=probe.ok, job_count=probe.job_count, error=probe.error
-        ),
-        # The page we resolved it FROM, not the ATS URL inside it: this row's job
-        # is to tell a person where this board came from, and "their careers page"
-        # is the honest answer.
-        source_url=careers_url,
-        # NOT a search rank — this board was in no search result. See
-        # ``NameCandidateResponse.rank``.
-        rank=0,
-        auto_addable=named and probe.ok and probe.job_count > 0,
+        # NOT ``result.final_url`` here: on a hit that is the page the board was
+        # named on — a sub-path the sniff guessed, in the L2 case — which says
+        # nothing about where the offered URL landed.
+        careers_url,
     )
 
 
@@ -713,9 +743,10 @@ async def search_company_by_name(
                     # NOT ASKED when we already publish the company: there is then
                     # nothing to offer, and resolving a board we would not use is
                     # pure cost. Same reasoning that suppresses the second search.
-                    behind = await _board_behind_careers_page(
+                    resolved = await _board_behind_careers_page(
                         payload.name, careers_url, http, deadline
                     )
+                    behind = resolved.candidate
                     if behind is not None:
                         # Rung 1 again, over a board the search never returned. One
                         # indexed lookup, and without it a company whose board we
@@ -739,6 +770,21 @@ async def search_company_by_name(
                         # it to "or use their careers page instead" when a board is
                         # confirmed, which is exactly what it now is.
                         shown = [behind, *shown][:_MAX_SHOWN_CANDIDATES]
+                    elif not is_job_list_url(resolved.landed):
+                        # THE OFFER BAR, RE-ASKED OF WHERE THE PAGE ACTUALLY WENT,
+                        # and it costs nothing: the fetch above already happened and
+                        # already followed the redirects. `is_job_list_url` ran on
+                        # the URL we were GOING to request, which is a claim about a
+                        # URL and not about a page — Atlassian's
+                        # `join.atlassian.com/jobs` is job-list shaped and 303s to a
+                        # talent-community signup form. Offering nothing is the
+                        # honest answer; the UI then asks for a pasted URL.
+                        logger.info(
+                            "Careers page %s redirects to %s, which is not a job "
+                            "list; offering nothing rather than a signup form",
+                            careers_url, resolved.landed,
+                        )
+                        careers_url = None
 
     logger.info(
         "Name search for %r: %d candidate(s), %d shown, %d auto-addable, "

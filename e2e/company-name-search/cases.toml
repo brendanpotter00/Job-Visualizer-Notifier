@@ -94,6 +94,31 @@ metabase   = { input = "Metabase", must_not = ["metacareers.com"], truth = "owne
 poke       = { input = "Poke", must_not = ["poki"], truth = "owner:2026-09-03", tags = ["name-gate"], note = "near-miss rejection — poki.com is a games site. MEASURED 2026-09-04: poki is correctly rejected, but the answer offered instead is pokemoto.com/careers, a poke-bowl restaurant chain. Caught by the global brochure rule, not by this case's own assertion." }
 nutanix    = { input = "Nutanix", must_not_aggregator = ["nutanix.com"], must_answer = true, truth = "owner:2026-09-03", tags = ["aggregator-bug"], note = "'nutanix.com' contains the substring 'x.com'; an unanchored aggregator check dropped the company's own site" }
 
+# ── the same names, typed the way people type them ──────────────────────────
+# CASING IS AN INPUT, AND THIS SUITE DID NOT HAVE ONE LOWERCASE CASE. The typed
+# name reaches the search verbatim — nothing normalizes it, frontend included
+# (`company_name_search.py:597`, `models.py:1299`) — and the two spellings do not
+# return the same results. Measured straight against Browserbase 2026-09-04, twice
+# each:
+#
+#   `Atlassian careers` → atlassian.com/company/careers/all-jobs at RANK 2   (2/2)
+#   `atlassian careers` → that URL ABSENT from all 25 results                (2/2)
+#
+# That is the whole explanation for "the suite says 4/4 and the owner failed 3/3":
+# every input above is capitalized and nobody types that way. Casing NORMALIZATION
+# is deliberately not the fix — `"ebay"→"Ebay"` and `"ibm"→"Ibm"` are unmeasured —
+# so these cases exist to hold the real input shape, not to be normalized away.
+atlassian_lc = { input = "atlassian", careers_url = "https://www.atlassian.com/company/careers/all-jobs", truth = "owner:2026-09-04", tags = ["careers", "lowercase", "regression"], note = "THE REPORTED BUG, and now the regression test. Offered join.atlassian.com/atlassian-talent-community/…/talentcommunity/form 3 times out of 3 — the derived join.atlassian.com/…/jobs 303s to a signup form, and the picker harvested that form's links (its one job link, join.atlassian.com/jobs, redirects back to it). Fixed by not mining a page we were redirected to; the best-ranked result www.atlassian.com/company/careers publishes /all-jobs under 'Browse Jobs'." }
+cisco_lc     = { input = "cisco", board = "workday:cisco", min_jobs = 1, truth = "owner:2026-09-03", tags = ["ats", "fast-path", "lowercase"], note = "the cheapest lowercase case there is — the board resolves on ONE search, so it adds $0.007 a run. Same expectation as `cisco`; only the casing differs." }
+ibm_lc       = { input = "ibm", must_offer_careers = true, must_not = ["harvey"], truth = "owner:2026-09-03", tags = ["fallback", "name-gate", "lowercase"], note = "an ACRONYM lowercased, which is the spelling least like the one search engines index. Same expectation as `IBM`." }
+ebay_lc      = { input = "ebay", board = "workday:ebay", min_jobs = 200, max_searches = 2, truth = "owner:2026-09-03", tags = ["ats", "careers-rung", "lowercase"], note = "the intercapitalized brand, typed flat — `ebay` is what a person types and `eBay` is what nobody types. Same expectation as `eBay`, including its two searches: the board arrives on the careers rung either way." }
+oracle_lc    = { input = "oracle", careers_url = "https://careers.oracle.com/en/sites/jobsearch/jobs", truth = "owner:2026-09-03", tags = ["careers", "lowercase"], note = "the Z path (read the page, take the link it publishes) in lowercase, where `atlassian` covers the redirect path. Measured 2026-09-04: passes, and its results are stable across casing where Atlassian's are not." }
+
+# NOT ADDED, MEASURED 2026-09-04 and both passing: `amd` and `github`. They are the
+# same T-ranker path `AMD` and `GitHub` already pin, they are 2 searches each per
+# run, and a suite that costs more than it proves stops being run. If the picker's
+# ranking changes, the uppercase pair catches it.
+
 # ── measured in the repo's own docs, kept as regression pins ────────────────
 # `owns_host` used to accept a host that merely CONTAINS the name. Fixed in
 # a80fd2e7; these two pin the fix. CAREERS-FALLBACK-POC.md §"trust rule", line 187.
