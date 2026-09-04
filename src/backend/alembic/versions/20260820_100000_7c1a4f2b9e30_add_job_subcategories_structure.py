@@ -93,13 +93,17 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 #
-# down_revision is PR #252's TRUE head (`536c1cddcd28`, the job_tags trigram
-# index), NOT `4b5d40dbc774` — that is #252's FIRST revision and already has a
-# child, so parenting here would fork the graph into two heads and crash the
-# backend in the lifespan. See api/tests/test_alembic_single_head.py for the
-# full pinned chain (SCHEMA-0) and the Order-B fallback procedure.
+# down_revision is main's head. It was `536c1cddcd28` (PR #252's last revision)
+# while #252 was still open; #252 has since been SQUASH-MERGED (2026-09-04), and
+# the merge brought a reconciliation revision `776b9dbc68cc` that joined #252's
+# chain to main's. `536c1cddcd28` therefore already HAS a child now, so parenting
+# there would fork the graph into two heads and crash the backend in the lifespan
+# (`api/migrations.py` runs `command.upgrade(cfg, "head")` — singular — and
+# re-raises). The rule is unchanged and is the same one that made `4b5d40dbc774`
+# wrong before: parent on the CURRENT head, never on a revision that already has
+# a child. See api/tests/test_alembic_single_head.py.
 revision: str = '7c1a4f2b9e30'
-down_revision: Union[str, None] = '536c1cddcd28'
+down_revision: Union[str, None] = '776b9dbc68cc'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

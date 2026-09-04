@@ -36,8 +36,10 @@ TEST_DB_URL = os.environ.get(
     "postgresql://postgres:postgres@localhost:5432/jobscraper",
 )
 
-# PR #252's TRUE head — see api/tests/test_alembic_single_head.py for the chain.
-_PRIOR_HEAD = "536c1cddcd28"
+# main's head — see api/tests/test_alembic_single_head.py for the chain.
+# Was `536c1cddcd28` (PR #252's last revision) while #252 was open; after #252
+# squash-merged, its chain was joined to main's by `776b9dbc68cc`.
+_PRIOR_HEAD = "776b9dbc68cc"
 _SUBCATEGORIES_REV = "7c1a4f2b9e30"
 
 
