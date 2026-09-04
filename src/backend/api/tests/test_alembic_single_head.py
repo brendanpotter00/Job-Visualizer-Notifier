@@ -25,7 +25,10 @@ This test is deliberately **DB-free**: it reads the revision files off disk via
 graph, which is the only cheap moment to catch it.
 
 Fixing a failure: do NOT hand-write a new revision and do NOT use
-`alembic merge` (no precedent in this repo — history here is strictly linear).
+`alembic merge` in THIS epic — re-parent instead. (Merge revisions do exist on
+main: `a5cf3aed5f15`, `2633dd6348e4` and `776b9dbc68cc` all reconcile two heads.
+They are how a long-lived branch rejoins main, not a substitute for parenting a
+new revision on the current head.)
 Re-parent the newer revision's `down_revision` onto the current head.
 
 SWE-subcategories epic — the pinned merge order (SCHEMA-0)
@@ -33,11 +36,14 @@ SWE-subcategories epic — the pinned merge order (SCHEMA-0)
 Recorded here rather than in a loose doc because this is the file that fails
 when the order is broken.
 
-**Order A (pinned, and what shipped).** The epic's revisions stack on top of
-PR #252's TRUE head, `536c1cddcd28` (job_tags trigram index) — *not* on
-`4b5d40dbc774`, which is #252's FIRST revision and already has a child:
+**Order A (pinned, and what shipped).** PR #252 SQUASH-MERGED on 2026-09-04 and
+the merge brought `776b9dbc68cc`, a reconciliation revision joining #252's chain
+to main's. The epic's revisions stack on top of THAT — not on `536c1cddcd28`
+(#252's last revision), which now already has a child, and not on
+`4b5d40dbc774`, which always did. The rule is one rule: parent on the CURRENT
+head, never on a revision that already has a child.
 
-    d8b52c04f6e3 -> 1d2d6c17acfc -> 4b5d40dbc774 -> 536c1cddcd28
+    ... -> 536c1cddcd28 -> 776b9dbc68cc
       -> <A> add_job_subcategories_structure      (SCHEMA-1)
       -> <B> add_app_settings                     (SCHEMA-2)
       -> <C> retire_project_manager_category      (SCHEMA-11)
@@ -124,7 +130,7 @@ def test_alembic_has_exactly_one_head() -> None:
         "api/migrations.py runs `command.upgrade(cfg, 'head')` (singular) in "
         "the FastAPI lifespan, so more than one head crashes the backend on "
         "boot. Re-parent the newer revision's `down_revision` onto the current "
-        "head — do not use `alembic merge` (no precedent in this repo)."
+        "head — re-parent this revision rather than adding an `alembic merge`."
     )
 
 
