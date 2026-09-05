@@ -84,6 +84,16 @@ another company's name" is a change to ``_host_owner`` in ``company_name_search`
 not to the picker, and `metabase.com` for "Meta" is the same hole recorded open in
 ``CAREERS-FALLBACK-POC.md``.
 
+AND IT IS NOT ONLY THE PICKER'S RUNG. Re-measured live 2026-09-05 through the real
+endpoint: "Citadel" came back with no careers URL at all and an **auto-addable**
+``ashby:citadel-ai`` (2 jobs) — Citadel AI, another different company — because
+``board_names_company`` accepts a board token that extends the typed name on exactly
+the same reasoning. The board rung fails harder than this one: auto-addable means the
+stranger's board is added without the user picking it. Both spellings are pinned by
+the ``citadel`` case in ``e2e/company-name-search/cases.toml``, which is recorded as a
+known limitation rather than fixed, because the rule they share is what makes
+"Meta" → ``metacareers.com`` work.
+
 EVERY FETCH FAILS OPEN. Tesla, Citadel, Epic Games and Dell all 403 a plain
 request, and 90 of 364 own-domain results in the corpus were not 200 at all. A
 verification that treated "not 200" as "reject the candidate" would throw away
