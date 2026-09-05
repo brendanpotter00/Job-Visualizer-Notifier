@@ -145,6 +145,49 @@ export async function serveStandIn(page: Page): Promise<void> {
   });
 }
 
+/** What the vendor's frame paints when it cannot connect. Verbatim. */
+export const VENDOR_DEAD_TEXT =
+  'Debugging connection was closed. Reason: WebSocket disconnected';
+/** What a connected frame paints. */
+export const VENDOR_ALIVE_TEXT = 'stand-in live view: streaming';
+
+/**
+ * The SECOND stand-in: same origin, but it reads the `wss=` parameter before deciding
+ * what to paint.
+ *
+ * `serveStandIn` above answers every URL on this origin identically. That is correct for
+ * LV-01..LV-05, whose subject is the closers — and it is precisely why that gate cannot
+ * see a URL the backend mangled on the way out. `progress.py` clipped every URL at 400
+ * characters while Browserbase's `debuggerFullscreenUrl` is 479, so the real frame loaded
+ * a truncated signed socket address and painted the disconnect dialog ~700ms after every
+ * load; five green scripted sessions said nothing about it.
+ *
+ * This variant models that vendor behaviour: the signed parameter intact and the frame
+ * streams, anything else and it paints the vendor's own disconnect text. That makes a
+ * clip observable as a DEAD FRAME for $0, without opening a session.
+ *
+ * IT LIVES HERE, NOT IN THE SKILL THAT USES IT. The skill's `@live-view` drive
+ * (`.claude/skills/verify-onesecondswe/helpers/live_view.spec.ts`) is the only caller
+ * today, and it had its own private copy. Two servers for one origin is how the two
+ * drift: this file already owns `STANDIN_ORIGIN` and the frame contract, so if the
+ * stand-in moves, both callers move with it. See that spec's header for the split of
+ * WHICH assertions live where — this file owns the seam, not the assertions.
+ */
+export async function serveVendorLikeStandIn(page: Page, expectedWss: string): Promise<void> {
+  await page.route(`${STANDIN_ORIGIN}/**`, async (route: Route) => {
+    const served = new URL(route.request().url()).searchParams.get('wss') ?? '';
+    const text = served === expectedWss ? VENDOR_ALIVE_TEXT : VENDOR_DEAD_TEXT;
+    await route.fulfill({
+      status: 200,
+      contentType: 'text/html; charset=utf-8',
+      body:
+        '<!doctype html><html><head><meta charset="utf-8"><title>live view</title></head>' +
+        '<body style="margin:0;background:#101418;color:#9fb;font:13px ui-monospace,monospace">' +
+        `<div id="paint" style="padding:12px">${text}</div></body></html>`,
+    });
+  });
+}
+
 // --- the list endpoint ----------------------------------------------------
 
 export const COMPANY_ID = 'u-liveview01';

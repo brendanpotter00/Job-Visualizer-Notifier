@@ -6,6 +6,11 @@ WebMCP tool covers this** — it is verified by the dedicated `e2e/add-companies
 regression gate, and this file is the cross-reference so a reader knows where the
 real coverage lives.
 
+**This file owns the URL half of the box only.** The same input accepts a company
+*name*, which takes an entirely different backend path (`POST /api/companies/search-by-name`,
+a paid Browserbase Search behind it) with its own gate and its own rules —
+[`company-name-search.md`](company-name-search.md).
+
 Page: `src/frontend/src/pages/MyCompaniesPage/` (kept its pre-rename internal name).
 Flag: `VITE_CUSTOM_COMPANIES_ENABLED === 'true'` (on in the e2e frontend env) **and**
 backend `CUSTOM_COMPANY_SOURCES_ENABLED=true` (set in `env.e2e`). `/add-companies/:id`
@@ -53,7 +58,17 @@ tools. Instead:
   | Idempotent re-add, zero extra spend | AC-11 (Atlassian) |
   | Server-side `trackAnyway` override still works | AC-12 (Microsoft) |
 
-### The one exception: the discovery LIVE VIEW
+### The two exceptions
+
+Two drives in this skill touch this route without the shim, each because of a coverage
+hole its own gate could not reach:
+
+| Drive | Owns | Cost |
+|---|---|---|
+| `helpers/live_view.spec.ts` `@live-view` | the discovery live-view URL reaches the iframe unclipped, and the frame is **alive** | $0 |
+| `helpers/name_search.spec.ts` `@name-search` | the typed **name** reaches `search-by-name` byte-identical, and its answer reaches the screen — see [`company-name-search.md`](company-name-search.md) | $0 |
+
+#### The discovery LIVE VIEW
 
 `helpers/live_view.spec.ts` (`@live-view`) is the single drive in this skill that touches
 this route, and it is here because of a coverage hole neither gate could reach:
@@ -73,8 +88,8 @@ the `e2e/add-companies` gate's job, and the closers remain `e2e/live-view`'s.
 ## Gotchas
 
 - **Its coverage is the gate, not this skill.** A green `verify-onesecondswe` run says
-  nothing about Add Companies — with the single, narrow exception of the `@live-view`
-  drive above; run `e2e/run.sh add-companies` for the rest.
+  nothing about Add Companies — with the two narrow exceptions above (`@live-view`,
+  `@name-search`); run `e2e/run.sh add-companies` for the rest.
 - **Presence is not liveness.** Measured across the live-view regression, the pre-closers
   commit scored **98.7%** on-screen while the frame painted *"Debugging connection was
   closed"* for the whole session. Never assert an on-screen percentage alone — assert the

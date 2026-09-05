@@ -57,6 +57,22 @@
 // own them and should keep owning them. This file owns the one thing that gate cannot
 // see, and nothing else.
 //
+// WHO OWNS WHAT, so the two cannot drift into asserting the same thing:
+//
+//   e2e/live-view  LV-01..LV-05   CONTINUITY — is the frame on screen from the moment it
+//                                 appears until the session really ends, and which closer
+//                                 fired when it is not. Scripted list endpoint.
+//   this file      @live-view     INTEGRITY + LIVENESS — is the URL that reaches the
+//                                 iframe byte-identical to what the ledger was handed,
+//                                 and is the frame ALIVE. Real list endpoint.
+//
+// The one thing they genuinely shared was the stand-in frame server, and it now has a
+// single home: `serveVendorLikeStandIn` in `e2e/live-view/standin.ts`, imported below
+// beside `STANDIN_ORIGIN`. That file owns the seam; the two specs own their own
+// assertions. The `toBeVisible()` re-check late in this test is NOT a continuity
+// assertion — it is the cheap guard that a GOOD url does not get retired mid-session,
+// and LV-01/LV-03 remain the place continuity is actually measured.
+//
 // WHY IT IS NOT DRIVEN THROUGH `window.__webmcp__`: none of the 14 tools touches the
 // Add Companies surface, and `features/add-companies.md` says so — it is a form-driven,
 // browser-backed pipeline, not a store/endpoint the shim wraps. Every OTHER convention
@@ -72,9 +88,12 @@
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import type { Page, Route } from '@playwright/test';
 import { test, expect } from '../../../../e2e/shared/playwright/fixtures';
-import { STANDIN_ORIGIN } from '../../../../e2e/live-view/standin';
+import {
+  STANDIN_ORIGIN,
+  VENDOR_ALIVE_TEXT as ALIVE_TEXT,
+  serveVendorLikeStandIn,
+} from '../../../../e2e/live-view/standin';
 
 const REPO_ROOT = path.resolve(__dirname, '../../../..');
 const PYTHON = path.join(REPO_ROOT, '.venv', 'bin', 'python');
@@ -97,11 +116,6 @@ const BROWSERBASE_URL_CHARS = 479;
  * so "did the tail survive?" and "was this clipped?" are the same question.
  */
 const TAIL_MARKER = 'ENDOFSIGNATURE';
-
-/** What the vendor's frame paints when it cannot connect. Verbatim. */
-const VENDOR_DEAD_TEXT = 'Debugging connection was closed. Reason: WebSocket disconnected';
-/** What a connected frame paints. */
-const ALIVE_TEXT = 'stand-in live view: streaming';
 
 /**
  * A stand-in URL of exactly the measured length, shaped like the real one: everything
@@ -146,33 +160,6 @@ function preFixClip(url: string): string {
   return url.slice(0, PRE_FIX_CLIP_CHARS - 1) + '…';
 }
 
-/**
- * Serve the frame the way the VENDOR behaves, which is what makes liveness observable.
- *
- * `e2e/live-view`'s `serveStandIn` answers every URL on the origin identically — correct
- * for that gate, whose subject is the closers, and precisely why it cannot see a mangled
- * URL. Here the `wss=` parameter is checked: intact and the frame streams; anything else
- * and it paints the vendor's own disconnect dialog, which is exactly what the real frame
- * did on a truncated signed URL (see the root-cause note in `progress.py`).
- *
- * So the URL bug has TWO independent symptoms in this spec — a clipped `src` and a dead
- * frame — and neither of them is a presence percentage.
- */
-async function serveVendorLikeFrame(page: Page, expectedWss: string): Promise<void> {
-  await page.route(`${STANDIN_ORIGIN}/**`, async (route: Route) => {
-    const served = new URL(route.request().url()).searchParams.get('wss') ?? '';
-    const text = served === expectedWss ? ALIVE_TEXT : VENDOR_DEAD_TEXT;
-    await route.fulfill({
-      status: 200,
-      contentType: 'text/html; charset=utf-8',
-      body:
-        '<!doctype html><html><head><meta charset="utf-8"><title>live view</title></head>' +
-        '<body style="margin:0;background:#101418;color:#9fb;font:13px ui-monospace,monospace">' +
-        `<div id="paint" style="padding:12px">${text}</div></body></html>`,
-    });
-  });
-}
-
 interface Seeded {
   companyId: string;
   userId: string;
@@ -209,7 +196,7 @@ test('[@live-view] the live-view URL reaches the iframe whole, and the frame is 
 
   // The frame is answered before DNS; nothing leaves the machine and no session is
   // opened. This is the ONLY seam — the list endpoint stays real.
-  await serveVendorLikeFrame(signedInPage, expectedWss);
+  await serveVendorLikeStandIn(signedInPage, expectedWss);
 
   const seeded = seedDiscoveringRow(SEED_CLIPPED ? preFixClip(rawUrl) : rawUrl);
   // Layer 1: the ledger's own WRITE bound, before a browser is involved.

@@ -35,6 +35,24 @@ Both earlier fixes were in the frontend, and the frontend was not where the bug 
 The frontend's closer was reporting the truth all along. After the fix, a real capture
 keeps the frame on screen for **95% of the session** (measured; it was 7%).
 
+## Who owns what (this gate is not the only drive on this panel)
+
+The `verify-onesecondswe` skill carries a second drive against the same panel,
+`.claude/skills/verify-onesecondswe/helpers/live_view.spec.ts` (`@live-view`). It exists
+because of the blind spot named below, and the two do **not** assert the same thing:
+
+| | Subject | List endpoint | Cost |
+|---|---|---|---|
+| **this gate**, LV-01..LV-05 | **Continuity** — is the frame on screen from first paint until the session really ends, and which closer fired when it is not | scripted (`standin.ts`) | $0 |
+| **skill** `@live-view` | **URL integrity + liveness** — is the URL that reaches the `<iframe src>` byte-identical to what the ledger was handed, and is the frame *alive* rather than merely mounted | real | $0 |
+
+Keep it that way. Continuity needs a scriptable list endpoint, which is what makes this
+gate blind to a mangled URL; integrity needs a real one, which is what stops that drive
+from being able to place a poll and a disconnect in a chosen order. The **one** thing they
+shared — the stand-in frame server — now has a single home here:
+`serveVendorLikeStandIn` in [`standin.ts`](standin.ts), beside `serveStandIn`, imported by
+the skill. If the stand-in moves, both callers move with it.
+
 ## What it asserts
 
 One thing, five ways:

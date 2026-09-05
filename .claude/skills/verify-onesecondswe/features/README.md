@@ -22,6 +22,7 @@ the proof.
 | [`vote-features.md`](vote-features.md) | `/vote-features` `VOTE_FEATURES` | `upvote_feature`, `submit_feedback` |
 | [`account.md`](account.md) | `/account` `ACCOUNT` | `request_sign_in` |
 | [`add-companies.md`](add-companies.md) | `/add-companies` `MY_COMPANIES` (flag-gated) | none — cross-references the `e2e/add-companies` gate, plus the one non-shim `@live-view` drive |
+| [`company-name-search.md`](company-name-search.md) | `/add-companies` `MY_COMPANIES` (flag-gated) — the **name** half of the same box | none — the non-shim `@name-search` drive, plus the folded `e2e/company-name-search` judge (`helpers/name_search.sh`, $0; `--live` ~$0.27) |
 | [`why.md`](why.md) | `/why` `WHY` | none (static) |
 | [`landing.md`](landing.md) | `/landing` `LANDING` (direct URL only — no nav entry) | none (static marketing) |
 
@@ -39,6 +40,11 @@ user-facing skill.
 
 `MY_COMPANY_DETAIL` (`/add-companies/:id`) and `MY_COMPANIES_LEGACY` (`/my-companies`) are
 sub-paths/redirects of Add Companies, covered by [`add-companies.md`](add-companies.md).
+
+`/add-companies` has **two** files because its one input box has two backend paths: paste a
+careers URL and you are in [`add-companies.md`](add-companies.md); type a company name and
+you are in [`company-name-search.md`](company-name-search.md). They are separate features
+with separate gates, separate failure modes, and different costs.
 
 ## Data reality of the `jobscraper_e2e` clone (read before asserting counts)
 
