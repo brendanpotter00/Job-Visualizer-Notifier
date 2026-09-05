@@ -45,11 +45,19 @@ accepted, it is forgotten.
 
 **Status: Open.** Must be decided before the flag is turned on in production.
 
-`POST /api/companies/search-by-name` spends real money on every call: one
-Browserbase Search call (~$0.007; the plan includes 1,000 free per month) plus up
-to five outbound ATS probes. The only bound on it is
+`POST /api/companies/search-by-name` spends real money on every call: **one or two**
+Browserbase Search calls (~$0.007 each; the plan includes 1,000 free per month) plus
+up to five outbound ATS probes. The only bound on it is
 `enforce_resolve_rate_limit` — **10 requests per 60 seconds, per authenticated
 user, held in memory**.
+
+**One search is the best case, not the price.** A second, plain `"{name} careers"`
+query fires whenever the first one produced no **auto-addable** board
+(`_careers_fallback` in `routers/companies.py` — the trigger is `auto_addable`, not
+"no candidates at all", so a request that returns three strangers' boards pays
+twice). Measured 2026-09-04 over the 21-case intent suite: **38 searches for 21
+requests — 17 of the 21 paid twice.** Only a name whose board resolves on the first
+query (Cisco, Crusoe) costs one.
 
 **The 20-adds-per-month cap does not bound this, and that is the whole point of
 the entry.** That cap lives on `POST /api/users/companies` and is counted off the
@@ -60,16 +68,20 @@ in ordinary UI use:
 | What a signed-in user does | Searches spent | Adds consumed |
 |---|---|---|
 | Types a name, one confident board → auto-added | 1 | 1 |
-| Types a name, sees the candidate list, picks nothing | 1 | **0** |
-| Types a name with no board behind it, ignores the fallback | 1 | **0** |
-| Types fifty company names browsing around | 50 | **0** |
+| Types a name, sees the candidate list, picks nothing | **2** | **0** |
+| Types a name with no board behind it, ignores the fallback | **2** | **0** |
+| Types fifty company names browsing around | **up to 100** | **0** |
 
 So this is not only an abuse case. Someone idly exploring the box spends the
-credits and never touches their twenty.
+credits and never touches their twenty — and the cheap-looking row is the *rare*
+one, because a name that resolves straight to a board is the case that does not
+need the fallback.
 
-**Worst case, measured against the limiter:** 10/60s is 600 searches/hour, so a
-single account exhausts the 1,000 free monthly searches in **~100 minutes** and
-then bills. A script with a valid bearer token needs no UI. And because the
+**Worst case, measured against the limiter:** 10/60s is 600 requests/hour, and a
+request that finds no auto-addable board costs **two** searches — so a single
+account can spend **1,200 searches/hour** and exhausts the 1,000 free monthly
+searches in **~50 minutes**, then bills. A script with a valid bearer token needs no
+UI, and every one of its made-up names takes the two-search path. Because the
 limiter is in-process memory, a Railway deploy resets it.
 
 **Why it is not closed yet.** The feature ships behind
@@ -185,18 +197,40 @@ are pinned to each provider's fixed host by `assert_ats_api_host`, built from th
 client's own constants so a client that re-points cannot leave a stale assertion
 behind. Response bodies in the discovery path are read under a byte cap.
 
-**Specifically for name search** (verified 2026-09-02): URLs that come back from
-Browserbase are **never fetched as given**. They go through the pure, IO-free
-`resolve_ats_url`, and only a URL that resolves to a known board is probed — at
-that provider's own API host, re-asserted. The `careersUrl` we hand back to the
-client is *not* validated at that moment, but it is never fetched by us, is
-rendered as text rather than a link, and is re-guarded by `url_guard` if the user
-submits it to the add endpoint.
+**Specifically for name search** (re-verified 2026-09-04 — this paragraph used to say
+search results were "never fetched as given" and that `careersUrl` "is never fetched
+by us". **Both stopped being true** when the careers picker and the free ATS ladder
+landed; the fetches are guarded, but they are fetches, and the ledger has to say so):
+
+- **Scoring is still IO-free.** Every one of the 25 search rows goes through the pure
+  `resolve_ats_url`, and only a URL that resolves to a known board is probed — at that
+  provider's own API host, re-asserted by `assert_ats_api_host`.
+- **The picker DOES fetch search-result pages.** `careers_page_pick._read_page` GETs
+  them through `url_guard.guarded_get` — 65 KB cap, 5 hops, 6-second timeout, every
+  redirect re-validated — to derive a job list from a job-detail URL, to prove an
+  unfiltered list exists, or to read the link a careers page publishes (the Oracle
+  path). It is called only for URLs that already passed `trusted_careers_urls` (the
+  host must name the company) and it fails **open**: a 403 costs us the derivation,
+  never the candidate.
+- **The `careersUrl` we offer is fetched too, once more.**
+  `routers/companies._board_behind_careers_page` runs the offered URL back through
+  `ats_discovery.discover_ats` (L0 pure → L1 redirects → L2 embedded sniff, up to nine
+  requests, all `guarded_get`) to find the board behind it, because the alternative is
+  charging the user a browser session and one of their twenty adds to learn the same
+  thing. It sees **only a URL we were about to offer** — trusted host, job-list shape —
+  never a raw search result.
+
+So the SSRF property is unchanged (nothing reaches the network except through
+`url_guard`), but "we never fetch what the search engine gave us" is no longer the
+reason. The reason is the guard, plus the trusted-host gate in front of it.
 
 **Residual:** a single `/resolve` call can now issue up to ~50 outbound requests
 worst case (the L2 walk-up raised the sniff target cap from 4 to 8), all to one
-host, all inside one user request. It is bounded by the 25-second budget threaded
-through every hop, but it is an amplification factor worth knowing about.
+host, all inside one user request. A `search-by-name` call adds its own, smaller
+fan-out on top of the two search calls: up to five ATS probes, the picker's page
+reads, and the ladder's nine. Both are bounded by the request budget threaded
+through every hop (25s for resolve, 20s here), but the amplification factor is worth
+knowing about.
 
 ---
 
