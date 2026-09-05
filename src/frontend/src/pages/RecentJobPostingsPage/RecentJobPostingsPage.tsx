@@ -52,22 +52,22 @@ export function RecentJobPostingsPage() {
           <>
             {/* `null`, not 0. The hook returns null for "unknown" — page 1 has
                 not landed, or it failed and the previous filter set's figures
-                were deliberately dropped — and `?? 0` turned that into confident
-                zeros directly above the ErrorState, where a 0 reads as "your
-                filters matched nothing" next to a banner that actually says the
-                request was rejected. The tiles render an em-dash instead.
+                were deliberately dropped — and `?? 0` turned that into a
+                confident zero directly above the ErrorState, where a 0 reads as
+                "your filters matched nothing" next to a banner that actually says
+                the request was rejected. The tile renders an em-dash instead.
 
-                Two tiles, not three: the leading "Displayed Jobs" count was
+                ONE tile now: "Displayed Jobs" and "Past 3 Hours" were both
                 removed at the owner's request — see the header comment on
-                `RecentJobsMetrics` before re-adding one.
+                `RecentJobsMetrics` before adding either back. `counts.last3h` is
+                still on the wire and still served by WebMCP; it is only unrendered.
 
                 `pending` covers the other half: during an ordinary filter change
-                the numbers on screen still belong to the OLD filter set, so they
-                stay (blanking them on every edit is its own kind of wrong) but
-                dim until the new page 1 lands. */}
+                the number on screen still belongs to the OLD filter set, so it
+                stays (blanking it on every edit is its own kind of wrong) but
+                dims until the new page 1 lands. */}
             <RecentJobsMetrics
               jobsLast24Hours={counts?.last24h ?? null}
-              jobsLast3Hours={counts?.last3h ?? null}
               pending={search.isRefreshing}
             />
             {/* The filters stay mounted through an error on purpose. They are

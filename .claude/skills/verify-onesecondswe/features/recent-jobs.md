@@ -15,11 +15,13 @@ Card: `components/shared/JobCard/JobListingCard.tsx`.
   level, and time window.
 - **Filter controls** — the on-page `RecentJobsFilters` dispatch the `recentJobsFilters`
   slice; WebMCP's `apply_feed_filters` / `reset_feed_filters` drive the exact same slice.
-- **Metric row** — `RecentJobsMetrics` shows "Past 24 Hours" and "Past 3 Hours", both scoped
-  to the companies the reader follows and to nothing else. A leading "Displayed Jobs" tile
-  was REMOVED on 2026-09-05: the server defers the filtered total (Wave-1 B1), so the only
-  figure it could carry was a lower bound over the rows walked ("50+"), which restates the
-  list under it. There is no filtered count on the page — do not assert one.
+- **Metric row** — `RecentJobsMetrics` shows ONE tile, "Past 24 Hours", scoped to the
+  companies the reader follows and to nothing else. Two tiles were REMOVED on 2026-09-05:
+  "Displayed Jobs" (the server defers the filtered total per Wave-1 B1, so it could only
+  ever show a lower bound over the rows walked — "50+" — which restates the list under it)
+  and "Past 3 Hours" (a second window over the same question). There is no filtered count
+  on the page — do not assert one. `counts.last3h` is still on the wire and still returned
+  by `search_jobs`; it is simply not rendered.
 - **Infinite list** — virtualized when signed in; hard-capped at ~12 with a `SignInOverlay`
   when signed out; keyset-paged as the user scrolls.
 - **Open a posting** — each card's "Apply" opens the ATS URL in a new tab.
