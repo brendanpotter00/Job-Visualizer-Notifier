@@ -251,3 +251,94 @@ def _fs_key(fs):
     return tuple(sorted(
         (k, tuple(v) if isinstance(v, list) else v) for k, v in fs.items()
     ))
+
+
+# ---------------------------------------------------------------------------
+# Per-field keyword parity: a MULTI-WORD term must never match ACROSS a field or
+# tag boundary on the fast (``search_text``) branch — the fallback 4-way OR never
+# does, so the fast branch must not either, on BOTH the include and exclude paths.
+# ``search_text`` joins its fields (and its tags) with a newline, which
+# ``_validate_text_list`` rejects inside a term, so a user term can never contain
+# the separator and therefore can never span a boundary.
+# ---------------------------------------------------------------------------
+
+
+def _seed_boundary_corpus(conn):
+    """Rows where a two-word term either straddles a boundary (must NOT match) or
+    lives within one field/tag (must match)."""
+    # title 'Backend' + raw location 'Engineer': "backend engineer" spans the
+    # title→location boundary. Per-field OR: no single field holds it -> no match.
+    _job(conn, "span-title-loc", title="Backend", company="acme", location="Engineer")
+    # tags 'backend' and 'engineer' are two DISTINCT tags: the fallback's per-tag
+    # EXISTS matches a term to ONE tag, so "backend engineer" spans them -> no match.
+    _job(conn, "span-two-tags", title="Analyst", company="acme",
+         location="NYC", tags=("backend", "engineer"))
+    # "backend engineer" WITHIN a single title field -> matches (space preserved).
+    _job(conn, "within-title", title="Backend Engineer", company="acme",
+         location="Remote")
+    # "machine learning" WITHIN a single tag -> matches (intra-tag space preserved
+    # by the newline join, which only separates DISTINCT tags).
+    _job(conn, "within-tag", title="Researcher", company="acme",
+         location="Boston", tags=("machine learning",))
+
+
+# Include/exclude filters that hinge on the boundary: the two multi-word terms,
+# and single-word controls that must still match within a field/tag.
+_BOUNDARY_FILTER_SETS = [
+    {"include": "backend engineer"},
+    {"include": "machine learning"},
+    {"exclude": "backend engineer"},
+    {"exclude": "machine learning"},
+    {"include": "backend"},          # single word: title field + one tag
+    {"include": "engineer"},         # single word: within-title + one tag
+]
+
+
+def test_multiword_term_never_spans_a_field_or_tag_boundary(client, db_conn):
+    """Fast (backfilled) == fallback (NULL) for multi-word include/exclude terms,
+    fully AND partially backfilled — the boundary case ``_FILTER_SETS`` above does
+    not exercise (its terms are all single words)."""
+    _seed_boundary_corpus(db_conn)
+
+    ground_truth = {_fs_key(fs): _ids(client, **fs) for fs in _BOUNDARY_FILTER_SETS}
+
+    keys = _all_keys(db_conn)
+    _backfill(db_conn, keys)
+    for fs in _BOUNDARY_FILTER_SETS:
+        assert _ids(client, **fs) == ground_truth[_fs_key(fs)], (
+            f"fully-backfilled result diverged from the NULL fallback for {fs!r} — "
+            f"a multi-word term matched across a field/tag boundary on the fast path"
+        )
+
+    _null_all(db_conn)
+    _backfill(db_conn, keys[::2])  # every other row on the fast path
+    for fs in _BOUNDARY_FILTER_SETS:
+        assert _ids(client, **fs) == ground_truth[_fs_key(fs)], (
+            f"partially-backfilled result diverged from the NULL fallback for {fs!r}"
+        )
+
+
+def test_boundary_absolute_expectations_when_backfilled(client, db_conn):
+    """Pin the actual answers so the parity check above can't pass vacuously on a
+    fallback that regressed the same way."""
+    _seed_boundary_corpus(db_conn)
+    _backfill(db_conn, _all_keys(db_conn))
+
+    # Multi-word terms match ONLY within a single field / tag, never across one.
+    assert _ids(client, include="backend engineer") == {"within-title"}
+    assert _ids(client, include="machine learning") == {"within-tag"}
+
+    # Exclude is the mirror: it removes ONLY the row that genuinely matches, and
+    # must NOT drop a boundary-straddling row (the old space-join wrongly did).
+    everyone = {"span-title-loc", "span-two-tags", "within-title", "within-tag"}
+    assert _ids(client, exclude="backend engineer") == everyone - {"within-title"}
+    assert _ids(client, exclude="machine learning") == everyone - {"within-tag"}
+
+    # Single-word controls still match within a field and within a tag.
+    # ``backend`` hits the title of span-title-loc + within-title and the ``backend``
+    # tag of span-two-tags. ``engineer`` hits span-title-loc's RAW LOCATION
+    # ("Engineer"), within-title's title, and span-two-tags' ``engineer`` tag.
+    assert _ids(client, include="backend") == {"span-title-loc", "span-two-tags",
+                                               "within-title"}
+    assert _ids(client, include="engineer") == {"span-title-loc", "span-two-tags",
+                                                "within-title"}

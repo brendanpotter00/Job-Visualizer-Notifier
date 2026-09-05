@@ -147,10 +147,13 @@ def _like_pattern(term: str) -> str:
 # (WAVE2-PLAN.md §5b): ``search_text`` is built with the SAME field set the OR
 # tested, so a backfilled row matches iff the OR would, and a NULL row runs the
 # OR itself. As the backfill drains NULLs the fast branch fires more and the
-# fallback less. The one already-documented divergence persists on the fast
-# branch — matching against one space-joined string can match a term straddling a
-# field boundary that per-field matching would miss (a superset the audit noted,
-# harmless). NULL rows keep the exact per-field semantics.
+# fallback less. There is NO longer a boundary divergence: ``search_text`` joins
+# its fields (and its tags) with ``chr(10)`` (a newline), and
+# ``routers/jobs_search.py``'s ``_validate_text_list`` rejects control characters
+# (newline included) in a term, so a multi-word term can never straddle a field or
+# tag boundary the per-field OR would not — matching the fallback exactly on both
+# the include and the exclude path. (See ``SEARCH_TEXT_EXPR`` in
+# ``scripts/shared/database.py`` for the separator's rationale.)
 #
 # WHY THE ``IS NOT NULL`` GUARD ON THE FAST BRANCH, not the plan's bare
 # ``search_text ILIKE %s OR (…)``: on the EXCLUDE path the whole predicate is

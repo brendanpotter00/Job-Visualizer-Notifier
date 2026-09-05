@@ -211,12 +211,26 @@ PRIMARY_COUNTRY_EXPR = """
 # (never appended-to) so title/location edits and tag deletes can't leave stale
 # text. Built with coalesce()s so it is NEVER NULL for a written row (which is what
 # lets the keyword predicate's ``NOT (...)`` exclude terms behave).
+#
+# SEPARATOR IS ``chr(10)`` (a newline), NOT a space, and that is load-bearing for
+# per-field keyword PARITY. The keyword filter ILIKE-matches a user term against
+# this one string, while the fallback it replaces tests the four fields (and each
+# tag) SEPARATELY. With a space separator a multi-word term could match ACROSS a
+# boundary — ``include=backend engineer`` would hit a row whose title is ``Backend``
+# and raw location ``Engineer`` (and ``exclude=backend engineer`` would then wrongly
+# drop it), which the per-field fallback never does. ``routers/jobs_search.py``'s
+# ``_validate_text_list`` REJECTS control characters (``[\x00-\x1f\x7f]``, newline
+# included), so a user term can never contain this separator and therefore can never
+# span two fields or two tags — single-word and within-field multi-word matches are
+# unchanged, cross-boundary matches are impossible, restoring exact fast/fallback
+# parity. (The tag ``string_agg`` uses the same newline so a term can't span two
+# adjacent tags either, matching the fallback's per-tag ``EXISTS``.)
 SEARCH_TEXT_EXPR = """
 lower(
-  coalesce(jl.title, '')    || ' ' ||
-  coalesce(jl.location, '') || ' ' ||
-  coalesce(jl.company, '')  || ' ' ||
-  coalesce((SELECT string_agg(t.tag, ' ' ORDER BY t.tag)
+  coalesce(jl.title, '')    || chr(10) ||
+  coalesce(jl.location, '') || chr(10) ||
+  coalesce(jl.company, '')  || chr(10) ||
+  coalesce((SELECT string_agg(t.tag, chr(10) ORDER BY t.tag)
               FROM job_tags t
              WHERE t.source_id = jl.source_id
                AND t.job_listing_id = jl.id), '')

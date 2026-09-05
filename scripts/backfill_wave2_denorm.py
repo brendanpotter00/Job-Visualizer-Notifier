@@ -32,8 +32,8 @@ a row another transaction holds is skipped this batch and picked up later. Each
 batch commits on its own; ``--sleep`` between batches bounds WAL / lock pressure
 (POSTGRES-PRINCIPLES §7).
 
-DERIVATION (WAVE2-PLAN.md §3 — keep in lockstep with the write-path constants
-that scripts/shared/database.py will own)
+DERIVATION (WAVE2-PLAN.md §3 — IMPORTED from scripts/shared/database.py, the one
+owner of the write-path expressions, so the backfill can never drift from it)
 -----------------------------------------------------------------------------
 * ``primary_country`` = the job's SINGLE distinct non-remote ISO country, or NULL
   when a scalar can't answer (0 non-remote countries, OR ≥2 distinct → NULL). Not
@@ -41,8 +41,10 @@ that scripts/shared/database.py will own)
   non-remote secondary tag still resolves to that country. ``upper()`` matches
   the country-tier predicate's ``upper(l.country)``.
 * ``search_text`` = ``lower(title ‖ RAW location ‖ company ‖ tags)`` — the same
-  haystack the client ``matchesSearchTags`` builds, plus company. Recomputed from
-  scratch (never appended-to) so edits/tag-deletes can't leave stale text.
+  haystack the client ``matchesSearchTags`` builds, plus company, fields joined by
+  a newline so a multi-word keyword can't span a field/tag boundary (see the
+  ``SEARCH_TEXT_EXPR`` rationale in ``scripts/shared/database.py``). Recomputed
+  from scratch (never appended-to) so edits/tag-deletes can't leave stale text.
 
 USAGE
 -----
@@ -77,30 +79,14 @@ logger = logging.getLogger("backfill_wave2_denorm")
 _DEFAULT_DB_URL = "postgresql://postgres:postgres@localhost:5432/jobscraper"
 
 # --- Derivation SQL (WAVE2-PLAN.md §3). ``jl`` is the alias of the UPDATE target.
-# NOTE: this MUST stay identical to the shared write-path expressions the
-# write-path stage adds to scripts/shared/database.py — if they drift, a
-# backfilled row and a freshly-written row can disagree. Kept inline here so the
-# backfill is a self-contained, runnable script.
-_PRIMARY_COUNTRY_EXPR = """
-(SELECT CASE WHEN count(DISTINCT upper(l.country)) = 1
-             THEN max(upper(l.country)) END
-   FROM job_locations j2
-   JOIN locations l ON l.id = j2.normalized_location_id
-  WHERE j2.job_listing_id = jl.id
-    AND l.kind <> 'remote' AND l.country IS NOT NULL)
-"""
-
-_SEARCH_TEXT_EXPR = """
-lower(
-  coalesce(jl.title, '')    || ' ' ||
-  coalesce(jl.location, '') || ' ' ||
-  coalesce(jl.company, '')  || ' ' ||
-  coalesce((SELECT string_agg(t.tag, ' ' ORDER BY t.tag)
-              FROM job_tags t
-             WHERE t.source_id = jl.source_id
-               AND t.job_listing_id = jl.id), '')
-)
-"""
+# The two expressions are IMPORTED from ``scripts.shared.database`` — the one place
+# the write path (scrapers + backend enrichment / normalization writers) owns them
+# — rather than duplicated here, so a backfilled row and a freshly-written row can
+# never disagree even as the derivation evolves (e.g. the search_text field
+# separator). The module is already imported as ``db`` above; ``db.get_connection``
+# on the same handle keeps this a self-contained, runnable script.
+_PRIMARY_COUNTRY_EXPR = db.PRIMARY_COUNTRY_EXPR
+_SEARCH_TEXT_EXPR = db.SEARCH_TEXT_EXPR
 
 
 def _update_sql(status: str) -> str:

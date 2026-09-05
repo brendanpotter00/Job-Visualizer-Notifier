@@ -64,10 +64,20 @@ transaction and Alembic wraps each migration in one (``transaction_per_migration
 
 ``IF NOT EXISTS`` on every statement is load-bearing for RETRY-SAFETY, not
 decoration: the ``autocommit_block`` commits the columns and the first index
-before the second index is attempted, so a failure partway (a ``CONCURRENTLY``
-build that dies leaves an INVALID index of the same name) must be safe to re-run.
+before the second index is attempted, so a failure partway must be safe to re-run.
 ``ADD COLUMN IF NOT EXISTS`` keeps the combined ALTER re-runnable after such a
 partial apply.
+
+For the index builds ``IF NOT EXISTS`` is necessary but NOT sufficient, and that
+gap is closed by ``_drop_invalid_index`` below. A ``CONCURRENTLY`` build that dies
+mid-flight leaves an INVALID index of the same name (``pg_index.indisvalid =
+false``) — catalog-present, planner-unusable, never finished. On the retry ``IF
+NOT EXISTS`` would find that name and SKIP recreation, so the migration would
+report success while the index stayed broken and every hot query silently fell
+back to the slower indexless plan. So each build is preceded by a probe that drops
+ONLY an invalid leftover of that exact name (a valid index is left alone, so a
+clean re-run is still a no-op) with a non-transactional ``DROP INDEX
+CONCURRENTLY``.
 
 At build time both columns are entirely NULL. The btree country-keyset index
 indexes NULLs, so it materializes ~38k OPEN entries (the backfill later moves each
@@ -95,12 +105,28 @@ not queue writers the way a plain build would, matching ``a1f7c9d2e8b4``.
 
 DOWNGRADE
 ---------
-Fully reversible: drop both indexes ``CONCURRENTLY IF EXISTS`` in an
+Fully reversible SCHEMA-wise: drop both indexes ``CONCURRENTLY IF EXISTS`` in an
 ``autocommit_block``, then one combined ``ALTER TABLE ... DROP COLUMN IF EXISTS``
 under the ``lock_timeout`` guard. ``pg_trgm`` is deliberately NOT dropped — an
 extension is database-global and ``idx_job_tags_tag_trgm`` still depends on it;
 a bare ``DROP EXTENSION`` would fail and a ``CASCADE`` could destroy unrelated
 objects (same asymmetry ``536c1cddcd28`` documents).
+
+DATA IS NOT REVERSIBLE — RE-BACKFILL AFTER ANY downgrade→upgrade. ``downgrade()``
+DROPs the columns, discarding every denormalized value the write path + backfill
+had populated. A later ``upgrade()`` re-adds them as all-NULL (catalog-only, no
+backfill), exactly as on a first deploy. This is SAFE but SLOW, not wrong: the
+``services/job_search.py`` predicates keep the original cross-table ``EXISTS`` /
+4-way ``OR`` as a fallback for NULL rows, so results stay CORRECT while the columns
+are NULL — the hot endpoints just fall back to the slower plans they had before
+Wave 2. To restore fast paths, an operator MUST rerun the post-deploy backfill
+after the re-upgrade:
+
+    PYTHONPATH=. .venv/bin/python scripts/backfill_wave2_denorm.py
+
+(the write path also refills each row lazily as it is next scraped/enriched, but
+the backfill is what drains the pre-existing NULLs promptly). No gating flag and
+no coordination are needed — correctness never depends on the backfill's progress.
 """
 from typing import Sequence, Union
 
@@ -116,6 +142,36 @@ depends_on: Union[str, Sequence[str], None] = None
 
 _COUNTRY_KEYSET_INDEX = "idx_job_listings_open_country_keyset"
 _SEARCH_TRGM_INDEX = "idx_job_listings_search_text_trgm"
+
+
+def _drop_invalid_index(index_name: str) -> None:
+    """Drop ``index_name`` IFF it exists as an INVALID index, clearing the way for
+    the retrying ``CREATE INDEX CONCURRENTLY IF NOT EXISTS`` that follows.
+
+    ``CREATE INDEX CONCURRENTLY`` that is killed mid-build (deploy timeout, OOM,
+    a cancelled statement) leaves an index of the SAME NAME with
+    ``pg_index.indisvalid = false`` — present in the catalog, unusable by the
+    planner, never finished. ``IF NOT EXISTS`` then SKIPS recreation on the next
+    run, so the migration would report success while the index stays broken. This
+    guard removes ONLY that invalid leftover; a VALID index is left untouched, so a
+    clean re-run is still a no-op (we do not drop-and-rebuild a good index). The
+    drop is ``CONCURRENTLY`` — the non-transactional online drop this
+    ``autocommit_block`` permits, matching the create's lock class.
+
+    ``pg_table_is_visible`` scopes the probe to exactly the index the CREATE would
+    target on the current ``search_path`` (per-worker test schemas reuse bare
+    names), so an unrelated schema's same-named leftover is never touched.
+    """
+    invalid = op.get_bind().exec_driver_sql(
+        "SELECT 1 FROM pg_index i "
+        "JOIN pg_class c ON c.oid = i.indexrelid "
+        "WHERE c.relname = %s "
+        "  AND NOT i.indisvalid "
+        "  AND pg_catalog.pg_table_is_visible(c.oid)",
+        (index_name,),
+    ).fetchone()
+    if invalid is not None:
+        op.execute(f"DROP INDEX CONCURRENTLY IF EXISTS {index_name}")
 
 
 def upgrade() -> None:
@@ -141,13 +197,17 @@ def upgrade() -> None:
 
     # (3) Indexes built CONCURRENTLY, OUTSIDE the migration transaction, because
     # job_listings is large and on the scrape write path. autocommit_block +
-    # IF NOT EXISTS = retry-safe (a failed CONCURRENTLY build can leave an INVALID
-    # index of the same name). Same idiom as a1f7c9d2e8b4.
+    # IF NOT EXISTS + the _drop_invalid_index guard = retry-safe. Same idiom as
+    # a1f7c9d2e8b4, hardened for the one gap IF NOT EXISTS alone leaves: a failed
+    # CONCURRENTLY build leaves an INVALID index of the same name, which IF NOT
+    # EXISTS would then SKIP — "succeeding" with an unusable index. The guard drops
+    # that invalid leftover first (see _drop_invalid_index).
     with op.get_context().autocommit_block():
         # C2: partial compound keyset — equality column (primary_country) LEADS,
         # then the (first_seen_at, source_id, id) sort tuple VERBATIM, partial on
         # status='OPEN'. Plain ASC columns served by a BACKWARD scan (same shape
         # and rationale as idx_job_listings_open_category_keyset).
+        _drop_invalid_index(_COUNTRY_KEYSET_INDEX)
         op.execute(
             f"CREATE INDEX CONCURRENTLY IF NOT EXISTS {_COUNTRY_KEYSET_INDEX} "
             "ON job_listings (primary_country, first_seen_at, source_id, id) "
@@ -155,6 +215,7 @@ def upgrade() -> None:
         )
         # C3: GIN trigram on the single search haystack. GIN does not index NULLs,
         # so the build on an all-NULL column is trivially fast.
+        _drop_invalid_index(_SEARCH_TRGM_INDEX)
         op.execute(
             f"CREATE INDEX CONCURRENTLY IF NOT EXISTS {_SEARCH_TRGM_INDEX} "
             "ON job_listings USING gin (search_text gin_trgm_ops)"
@@ -171,6 +232,14 @@ def downgrade() -> None:
     # Then drop the columns in one combined ALTER under the lock_timeout guard.
     # pg_trgm is deliberately NOT dropped — it is database-global and
     # idx_job_tags_tag_trgm still depends on it (see 536c1cddcd28).
+    #
+    # DATA LOSS IS EXPECTED HERE: this discards every populated primary_country /
+    # search_text value. A later upgrade() re-adds the columns all-NULL, and the
+    # job_search.py EXISTS/4-way-OR fallback keeps results CORRECT (just slower)
+    # until the columns are repopulated. After any downgrade→upgrade an operator
+    # MUST rerun `scripts/backfill_wave2_denorm.py` to restore the fast paths (the
+    # write path also refills lazily on the next scrape/enrich). See "DOWNGRADE"
+    # in the module docstring above.
     op.execute("SET LOCAL lock_timeout = '5s'")
     op.execute(
         "ALTER TABLE job_listings "
