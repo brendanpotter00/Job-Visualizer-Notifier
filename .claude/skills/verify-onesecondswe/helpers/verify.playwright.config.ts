@@ -1,9 +1,10 @@
 // verify-onesecondswe :: Playwright config
 //
 // Extends the e2e base config verbatim (chromium, serial, retain-on-failure,
-// baseURL http://127.0.0.1:3201). testDir is THIS helpers dir, so doctor.spec.ts
-// (@doctor) and drive.spec.ts (@drive) are the only specs. Run it from `e2e/`
-// so Node resolves `e2e/node_modules/@playwright`:
+// baseURL http://127.0.0.1:3201). testDir is THIS helpers dir, so the specs it picks up
+// are doctor.spec.ts (@doctor), drive.spec.ts (@drive), live_view.spec.ts (@live-view)
+// and name_search.spec.ts (@name-search). Run it from `e2e/` so Node resolves
+// `e2e/node_modules/@playwright`:
 //
 //   cd <repo>/e2e && npx playwright test \
 //     --config=<repo>/.claude/skills/verify-onesecondswe/helpers/verify.playwright.config.ts \

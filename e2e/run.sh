@@ -13,9 +13,45 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 SECTION="${1:-}"
 if [ -z "$SECTION" ]; then
   echo "usage: e2e/run.sh <section> [--fast] [--case AC-ID] [--refresh-db]" >&2
+  echo >&2
+  echo "sections, and what each COSTS:" >&2
+  echo "  add-companies        \$0 deterministic; a full run makes ~3 live Claude Haiku" >&2
+  echo "                       discovery calls (AC-04/05/06). --fast is \$0." >&2
+  echo "  company-name-search  ~\$0.27 REAL MONEY (~38-39 Browserbase Search calls)." >&2
+  echo "                       --validate-only / --replay <file> are \$0 and need no key." >&2
+  echo "  live-view            \$0. --live opens ONE real Browserbase session (~1 billed min)." >&2
+  echo >&2
+  echo "the verify-onesecondswe skill is the \$0 front door to the same features:" >&2
+  echo "  .claude/skills/verify-onesecondswe/helpers/name_search.sh   (\$0; --live ~\$0.27)" >&2
+  echo "  see e2e/README.md for which runner owns what." >&2
   exit 2
 fi
 shift
+
+# EVERY ENTRY POINT STATES ITS PRICE, out loud, before it does anything. A suite that
+# costs money quietly is one nobody can reason about running.
+case "$SECTION" in
+  add-companies)
+    echo "run.sh: COST — \$0 deterministic. A FULL run makes ~3 live Claude Haiku discovery" \
+         "calls (AC-04/05/06); --fast makes none. No Browserbase session, ever." ;;
+  company-name-search)
+    # The section's own $0 rungs short-circuit below, so the banner must not claim a
+    # price this invocation is not going to pay.
+    _free=0
+    for _a in "$@"; do
+      case "$_a" in --validate-only|--replay) _free=1 ;; esac
+    done
+    if [ "$_free" = "1" ]; then
+      echo "run.sh: COST — \$0. This invocation judges cases/recorded bodies only; no" \
+           "Browserbase call, no backend, no key."
+    else
+      echo "run.sh: COST — REAL MONEY, ~\$0.27 (~38-39 Browserbase Search calls at \$0.007)." \
+           "\$0 alternatives: --validate-only, or --replay <results.json>."
+    fi ;;
+  live-view)
+    echo "run.sh: COST — \$0. Unless --live is passed, which opens ONE real Browserbase" \
+         "session (~1 billed browser-minute)." ;;
+esac
 
 # `company-name-search` brings its own runner and hands off BEFORE anything below
 # runs, deliberately. It needs a stack this script cannot produce: a REAL

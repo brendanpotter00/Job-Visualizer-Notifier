@@ -1,0 +1,1902 @@
+{
+  "base_url": "http://127.0.0.1:8202",
+  "runs": 1,
+  "searches": 39,
+  "usd": 0.273,
+  "elapsed_seconds": 61.9,
+  "passing": 21,
+  "total": 21,
+  "counts": {
+    "PASS": 21,
+    "FAIL": 0,
+    "FLAKY": 0,
+    "ERROR": 0,
+    "SKIP": 0,
+    "PASS?": 0,
+    "KNOWN": 0,
+    "FIXED": 1
+  },
+  "cases": [
+    {
+      "key": "atlassian",
+      "input": "Atlassian",
+      "expected": "careers https://www.atlassian.com/company/careers/all-jobs",
+      "truth": "owner:2026-09-03",
+      "truth_verified": true,
+      "known_limitation": null,
+      "weak": false,
+      "tags": [
+        "careers"
+      ],
+      "verdict": "PASS",
+      "actual": "careers https://www.atlassian.com/company/careers/all-jobs",
+      "attempts": [
+        {
+          "ok": true,
+          "reasons": [],
+          "seconds": 2.01,
+          "searches": 2,
+          "actual": "careers https://www.atlassian.com/company/careers/all-jobs",
+          "body": {
+            "query": "Atlassian",
+            "candidates": [],
+            "careersUrl": "https://www.atlassian.com/company/careers/all-jobs",
+            "trace": {
+              "query": "Atlassian jobs myworkdayjobs.com greenhouse.io ashbyhq.com lever.co jobs.gem.com eightfold.ai",
+              "results": 25,
+              "filtered": 3,
+              "boards": 0,
+              "nonBoards": [
+                {
+                  "url": "https://www.atlassian.com/company/careers",
+                  "rank": 1,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://builtin.com/job/senior-workday-hcm-and-security-application-engineer/2523183",
+                  "rank": 2,
+                  "aggregator": true
+                },
+                {
+                  "url": "https://globalcareers-atlassian.icims.com/jobs/26664/senior-fullstack-software-engineer%2c-dx/job",
+                  "rank": 3,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://www.atlassian.com/company/careers/engineering",
+                  "rank": 4,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://builtin.com/job/principal-forward-deployed-engineer/10516479",
+                  "rank": 5,
+                  "aggregator": true
+                },
+                {
+                  "url": "https://www.jobzmall.com/atlassian/job/application-engineer-workday-hcm-2",
+                  "rank": 6,
+                  "aggregator": false
+                }
+              ],
+              "nonBoardsOmitted": 19
+            },
+            "careersSearch": {
+              "query": "Atlassian careers",
+              "results": 25,
+              "filtered": 2,
+              "trusted": 8
+            },
+            "alreadyPublic": null
+          }
+        }
+      ]
+    },
+    {
+      "key": "oracle",
+      "input": "Oracle",
+      "expected": "careers https://careers.oracle.com/en/sites/jobsearch/jobs",
+      "truth": "owner:2026-09-03",
+      "truth_verified": true,
+      "known_limitation": null,
+      "weak": false,
+      "tags": [
+        "careers",
+        "regression"
+      ],
+      "verdict": "PASS",
+      "actual": "careers https://careers.oracle.com/en/sites/jobsearch/jobs",
+      "attempts": [
+        {
+          "ok": true,
+          "reasons": [],
+          "seconds": 6.08,
+          "searches": 2,
+          "actual": "careers https://careers.oracle.com/en/sites/jobsearch/jobs",
+          "body": {
+            "query": "Oracle",
+            "candidates": [],
+            "careersUrl": "https://careers.oracle.com/en/sites/jobsearch/jobs",
+            "trace": {
+              "query": "Oracle jobs myworkdayjobs.com greenhouse.io ashbyhq.com lever.co jobs.gem.com eightfold.ai",
+              "results": 25,
+              "filtered": 4,
+              "boards": 0,
+              "nonBoards": [
+                {
+                  "url": "https://www.dreamworkhq.com/c/oracle.com",
+                  "rank": 1,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://withresumeai.com/ats-checker/how-to-find-ats",
+                  "rank": 2,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://www.resumeadapter.com/ats/workday/companies",
+                  "rank": 3,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://jobs.weekday.works/?filters=\u2026&jobsTab=\u2026",
+                  "rank": 4,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://openjobradar.com/blog/ats-job-alerts",
+                  "rank": 5,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://dev.to/udaninn/you-can-tell-which-ats-a-company-uses-by-looking-at-its-careers-url-3i5g",
+                  "rank": 6,
+                  "aggregator": false
+                }
+              ],
+              "nonBoardsOmitted": 19
+            },
+            "careersSearch": {
+              "query": "Oracle careers",
+              "results": 25,
+              "filtered": 0,
+              "trusted": 21
+            },
+            "alreadyPublic": null
+          }
+        }
+      ]
+    },
+    {
+      "key": "github",
+      "input": "GitHub",
+      "expected": "careers https://www.github.careers/careers-home/jobs",
+      "truth": "owner:2026-09-03",
+      "truth_verified": true,
+      "known_limitation": null,
+      "weak": false,
+      "tags": [
+        "careers"
+      ],
+      "verdict": "PASS",
+      "actual": "careers https://www.github.careers/careers-home/jobs",
+      "attempts": [
+        {
+          "ok": true,
+          "reasons": [],
+          "seconds": 3.09,
+          "searches": 2,
+          "actual": "careers https://www.github.careers/careers-home/jobs",
+          "body": {
+            "query": "GitHub",
+            "candidates": [],
+            "careersUrl": "https://www.github.careers/careers-home/jobs",
+            "trace": {
+              "query": "GitHub jobs myworkdayjobs.com greenhouse.io ashbyhq.com lever.co jobs.gem.com eightfold.ai",
+              "results": 25,
+              "filtered": 0,
+              "boards": 0,
+              "nonBoards": [
+                {
+                  "url": "https://dev.to/udaninn/you-can-tell-which-ats-a-company-uses-by-looking-at-its-careers-url-3i5g",
+                  "rank": 1,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://github.com/lyt3ral/job-scraper-ts",
+                  "rank": 2,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://github.com/GetAnything-1/ats-jobs-scraper",
+                  "rank": 3,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://withresumeai.com/ats-checker/how-to-find-ats",
+                  "rank": 4,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://github.com/MahmoodMI1/job-scraper-ts",
+                  "rank": 5,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://github.com/ConorsCode/open-jobs-data",
+                  "rank": 6,
+                  "aggregator": false
+                }
+              ],
+              "nonBoardsOmitted": 19
+            },
+            "careersSearch": {
+              "query": "GitHub careers",
+              "results": 25,
+              "filtered": 1,
+              "trusted": 24
+            },
+            "alreadyPublic": null
+          }
+        }
+      ]
+    },
+    {
+      "key": "amd",
+      "input": "AMD",
+      "expected": "careers https://careers.amd.com/careers-home/jobs",
+      "truth": "owner:2026-09-03",
+      "truth_verified": true,
+      "known_limitation": null,
+      "weak": false,
+      "tags": [
+        "careers"
+      ],
+      "verdict": "PASS",
+      "actual": "careers https://careers.amd.com/careers-home/jobs",
+      "attempts": [
+        {
+          "ok": true,
+          "reasons": [],
+          "seconds": 3.14,
+          "searches": 2,
+          "actual": "careers https://careers.amd.com/careers-home/jobs",
+          "body": {
+            "query": "AMD",
+            "candidates": [],
+            "careersUrl": "https://careers.amd.com/careers-home/jobs",
+            "trace": {
+              "query": "AMD jobs myworkdayjobs.com greenhouse.io ashbyhq.com lever.co jobs.gem.com eightfold.ai",
+              "results": 25,
+              "filtered": 2,
+              "boards": 0,
+              "nonBoards": [
+                {
+                  "url": "https://www.amd.com/en/corporate/careers.html",
+                  "rank": 1,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://linkedin.com/company/amd",
+                  "rank": 2,
+                  "aggregator": true
+                },
+                {
+                  "url": "https://hirejack.com/companies/amd.com/",
+                  "rank": 3,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://www.dreamworkhq.com/c/amd.com",
+                  "rank": 4,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://www.tealhq.com/job/system-design-engineer-ai-cluster-software-engineer_7ea1a7b55fb0c65e51e0902d1d53554eea543",
+                  "rank": 5,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://www.dice.com/job-detail/915d3c03-9b51-48b3-b9fb-4ccaf68caafe",
+                  "rank": 6,
+                  "aggregator": true
+                }
+              ],
+              "nonBoardsOmitted": 19
+            },
+            "careersSearch": {
+              "query": "AMD careers",
+              "results": 25,
+              "filtered": 1,
+              "trusted": 23
+            },
+            "alreadyPublic": null
+          }
+        }
+      ]
+    },
+    {
+      "key": "ebay",
+      "input": "eBay",
+      "expected": "board workday:ebay (>= 200 jobs)",
+      "truth": "owner:2026-09-03",
+      "truth_verified": true,
+      "known_limitation": null,
+      "weak": false,
+      "tags": [
+        "ats",
+        "careers-rung"
+      ],
+      "verdict": "PASS",
+      "actual": "auto-add workday:ebay (274 jobs) + careers(escape-hatch) https://jobs.ebayinc.com/us/en/search-results",
+      "attempts": [
+        {
+          "ok": true,
+          "reasons": [],
+          "seconds": 4.29,
+          "searches": 2,
+          "actual": "auto-add workday:ebay (274 jobs) + careers(escape-hatch) https://jobs.ebayinc.com/us/en/search-results",
+          "body": {
+            "query": "eBay",
+            "candidates": [
+              {
+                "candidate": {
+                  "ats": "workday",
+                  "boardToken": "ebay",
+                  "providerConfig": {
+                    "base_url": "https://ebay.wd5.myworkdayjobs.com",
+                    "tenant_slug": "ebay",
+                    "career_site_slug": "apply"
+                  },
+                  "sourceUrl": "https://ebay.wd5.myworkdayjobs.com/apply/job"
+                },
+                "probe": {
+                  "ok": true,
+                  "jobCount": 274,
+                  "error": null
+                },
+                "sourceUrl": "https://jobs.ebayinc.com/us/en/search-results",
+                "title": "",
+                "rank": 0,
+                "autoAddable": true
+              }
+            ],
+            "careersUrl": "https://jobs.ebayinc.com/us/en/search-results",
+            "trace": {
+              "query": "eBay jobs myworkdayjobs.com greenhouse.io ashbyhq.com lever.co jobs.gem.com eightfold.ai",
+              "results": 25,
+              "filtered": 5,
+              "boards": 0,
+              "nonBoards": [
+                {
+                  "url": "https://jobs.ebayinc.com/us/en/home",
+                  "rank": 1,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://hiring.camp/job/34mjao",
+                  "rank": 2,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://jobs.ebayinc.com/us/en/job/R0068048/Sr-NoSQL-DBA-MongoDB-Atlas",
+                  "rank": 3,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://www.tealhq.com/job/people-tech-analyst-payroll-tech_7ea1afa3763aabb4881de9befe8e5b7528398",
+                  "rank": 4,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://linkedin.com/company/ebay",
+                  "rank": 5,
+                  "aggregator": true
+                },
+                {
+                  "url": "https://www.dreamworkhq.com/c/ebay.com",
+                  "rank": 6,
+                  "aggregator": false
+                }
+              ],
+              "nonBoardsOmitted": 19
+            },
+            "careersSearch": {
+              "query": "eBay careers",
+              "results": 25,
+              "filtered": 7,
+              "trusted": 14
+            },
+            "alreadyPublic": null
+          }
+        }
+      ]
+    },
+    {
+      "key": "cisco",
+      "input": "Cisco",
+      "expected": "board workday:cisco (>= 1 jobs)",
+      "truth": "owner:2026-09-03",
+      "truth_verified": true,
+      "known_limitation": null,
+      "weak": false,
+      "tags": [
+        "ats",
+        "fast-path"
+      ],
+      "verdict": "PASS",
+      "actual": "already tracked: cisco (board) + auto-add workday:cisco (1290 jobs)",
+      "attempts": [
+        {
+          "ok": true,
+          "reasons": [],
+          "seconds": 1.25,
+          "searches": 1,
+          "actual": "already tracked: cisco (board) + auto-add workday:cisco (1290 jobs)",
+          "body": {
+            "query": "Cisco",
+            "candidates": [
+              {
+                "candidate": {
+                  "ats": "workday",
+                  "boardToken": "cisco",
+                  "providerConfig": {
+                    "base_url": "https://cisco.wd5.myworkdayjobs.com",
+                    "tenant_slug": "cisco",
+                    "career_site_slug": "Cisco_Careers"
+                  },
+                  "sourceUrl": "https://cisco.wd5.myworkdayjobs.com/en-US/Cisco_Careers/job/AI-Software-Engineer--Analytical-Agents--Hybrid_2010099"
+                },
+                "probe": {
+                  "ok": true,
+                  "jobCount": 1290,
+                  "error": null
+                },
+                "sourceUrl": "https://cisco.wd5.myworkdayjobs.com/en-US/Cisco_Careers/job/AI-Software-Engineer--Analytical-Agents--Hybrid_2010099",
+                "title": "Ai software engineer analytical agents hybrid 2010099",
+                "rank": 1,
+                "autoAddable": true
+              }
+            ],
+            "careersUrl": null,
+            "trace": {
+              "query": "Cisco jobs myworkdayjobs.com greenhouse.io ashbyhq.com lever.co jobs.gem.com eightfold.ai",
+              "results": 25,
+              "filtered": 0,
+              "boards": 1,
+              "nonBoards": [
+                {
+                  "url": "https://careers.cisco.com/global/en/job/CISCISGLOBAL2023306EXTERNALENGLOBAL/Senior-Software-Engineer-CHG-Hybrid",
+                  "rank": 4,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://careers.cisco.com/global/en/job/CISCISGLOBAL2024035EXTERNALENGLOBAL/Software-Engineer-Full-Stack-Backend-I-Full-Time-United-States",
+                  "rank": 5,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://withresumeai.com/ats-checker/how-to-find-ats",
+                  "rank": 6,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://openjobradar.com/blog/ats-job-alerts",
+                  "rank": 7,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://hiring.camp/job/BBgVGO",
+                  "rank": 8,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://careers.cisco.com/global/en/job/CISCISGLOBAL2000087EXTERNALENGLOBAL/Software-Engineer-Full-Stack-Application-Development-I-Full-Time-United-States",
+                  "rank": 9,
+                  "aggregator": false
+                }
+              ],
+              "nonBoardsOmitted": 16
+            },
+            "careersSearch": null,
+            "alreadyPublic": {
+              "status": "already_public",
+              "detail": "That board is our public Cisco page, so there is nothing to set up \u2014 its hiring trend is already there.",
+              "companyId": "cisco",
+              "displayName": "Cisco",
+              "finalUrl": "https://cisco.wd5.myworkdayjobs.com/en-US/Cisco_Careers/job/AI-Software-Engineer--Analytical-Agents--Hybrid_2010099",
+              "matchKind": "board"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "key": "crusoe",
+      "input": "Crusoe",
+      "expected": "board ashby:crusoe (>= 1 jobs)",
+      "truth": "owner:2026-09-03",
+      "truth_verified": true,
+      "known_limitation": null,
+      "weak": false,
+      "tags": [
+        "ats",
+        "fast-path"
+      ],
+      "verdict": "PASS",
+      "actual": "already tracked: crusoe (board) + auto-add ashby:crusoe (378 jobs)",
+      "attempts": [
+        {
+          "ok": true,
+          "reasons": [],
+          "seconds": 1.04,
+          "searches": 1,
+          "actual": "already tracked: crusoe (board) + auto-add ashby:crusoe (378 jobs)",
+          "body": {
+            "query": "Crusoe",
+            "candidates": [
+              {
+                "candidate": {
+                  "ats": "ashby",
+                  "boardToken": "crusoe",
+                  "providerConfig": {},
+                  "sourceUrl": "https://jobs.ashbyhq.com/Crusoe"
+                },
+                "probe": {
+                  "ok": true,
+                  "jobCount": 378,
+                  "error": null
+                },
+                "sourceUrl": "https://jobs.ashbyhq.com/Crusoe",
+                "title": "Crusoe Jobs",
+                "rank": 1,
+                "autoAddable": true
+              }
+            ],
+            "careersUrl": null,
+            "trace": {
+              "query": "Crusoe jobs myworkdayjobs.com greenhouse.io ashbyhq.com lever.co jobs.gem.com eightfold.ai",
+              "results": 25,
+              "filtered": 1,
+              "boards": 1,
+              "nonBoards": [
+                {
+                  "url": "https://linkedin.com/company/crusoe",
+                  "rank": 4,
+                  "aggregator": true
+                },
+                {
+                  "url": "https://jobera.com/job/crusoe-workforce-intelligence-engineer-c8242992/",
+                  "rank": 16,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://withresumeai.com/ats-checker/how-to-find-ats",
+                  "rank": 17,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://openjobradar.com/blog/ats-job-alerts",
+                  "rank": 18,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://www.resumeadapter.com/ats/workday/companies",
+                  "rank": 19,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://jobgooroo.com/blog/ats-resume-formatting-workday-greenhouse-lever",
+                  "rank": 20,
+                  "aggregator": false
+                }
+              ],
+              "nonBoardsOmitted": 5
+            },
+            "careersSearch": null,
+            "alreadyPublic": {
+              "status": "already_public",
+              "detail": "That board is our public Crusoe page, so there is nothing to set up \u2014 its hiring trend is already there.",
+              "companyId": "crusoe",
+              "displayName": "Crusoe",
+              "finalUrl": "https://jobs.ashbyhq.com/Crusoe",
+              "matchKind": "board"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "key": "databricks",
+      "input": "Databricks",
+      "expected": "already tracked: databricks",
+      "truth": "owner:2026-09-03",
+      "truth_verified": true,
+      "known_limitation": null,
+      "weak": false,
+      "tags": [
+        "published"
+      ],
+      "verdict": "PASS",
+      "actual": "already tracked: databricks (name) + careers(escape-hatch) https://www.databricks.com/company/careers/open-positions",
+      "attempts": [
+        {
+          "ok": true,
+          "reasons": [],
+          "seconds": 1.65,
+          "searches": 2,
+          "actual": "already tracked: databricks (name) + careers(escape-hatch) https://www.databricks.com/company/careers/open-positions",
+          "body": {
+            "query": "Databricks",
+            "candidates": [],
+            "careersUrl": "https://www.databricks.com/company/careers/open-positions",
+            "trace": {
+              "query": "Databricks jobs myworkdayjobs.com greenhouse.io ashbyhq.com lever.co jobs.gem.com eightfold.ai",
+              "results": 25,
+              "filtered": 1,
+              "boards": 0,
+              "nonBoards": [
+                {
+                  "url": "https://scoutify.com/companies/databricks/",
+                  "rank": 1,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://tryjeremy.com/companies/databricks",
+                  "rank": 2,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://www.databricks.com/company/careers/engineering---pipeline/staff-fullstack-engineer-agentic-applications-8220840002",
+                  "rank": 3,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://linkedin.com/company/databricks",
+                  "rank": 4,
+                  "aggregator": true
+                },
+                {
+                  "url": "https://www.databricks.com/company/careers/engineering---pipeline/staff-software-engineer---backend-5408888002",
+                  "rank": 5,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://www.dreamworkhq.com/c/databricks.com",
+                  "rank": 6,
+                  "aggregator": false
+                }
+              ],
+              "nonBoardsOmitted": 19
+            },
+            "careersSearch": {
+              "query": "Databricks careers",
+              "results": 25,
+              "filtered": 1,
+              "trusted": 22
+            },
+            "alreadyPublic": {
+              "status": "already_public",
+              "detail": "The careers page we found looks like Databricks, which we already publish \u2014 we matched the name in the web address, not the board itself. If that's right, its hiring trend is already there.",
+              "companyId": "databricks",
+              "displayName": "Databricks",
+              "finalUrl": "https://www.databricks.com/company/careers/open-positions",
+              "matchKind": "name"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "key": "ibm",
+      "input": "IBM",
+      "expected": "a careers page; not harvey",
+      "truth": "owner:2026-09-03",
+      "truth_verified": true,
+      "known_limitation": null,
+      "weak": true,
+      "tags": [
+        "fallback",
+        "name-gate"
+      ],
+      "verdict": "PASS",
+      "actual": "careers https://www.ibm.com/careers/search",
+      "attempts": [
+        {
+          "ok": true,
+          "reasons": [],
+          "seconds": 3.38,
+          "searches": 2,
+          "actual": "careers https://www.ibm.com/careers/search",
+          "body": {
+            "query": "IBM",
+            "candidates": [],
+            "careersUrl": "https://www.ibm.com/careers/search",
+            "trace": {
+              "query": "IBM jobs myworkdayjobs.com greenhouse.io ashbyhq.com lever.co jobs.gem.com eightfold.ai",
+              "results": 25,
+              "filtered": 2,
+              "boards": 0,
+              "nonBoards": [
+                {
+                  "url": "https://careers.ibm.com/en_US/careers/JobDetail/Workday-Integrator-Practitioner/115604",
+                  "rank": 1,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://careers.ibm.com/en_US/careers/JobDetail/Python-Backend-Engineer/116689",
+                  "rank": 2,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://ibmglobal.avature.net/en_US/careers/JobDetail/Workday-Integrations-Consultant/17691",
+                  "rank": 3,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://careers.ibm.com/en_US/careers/JobDetail/Package-Consultant-Workday-Talent-Management/66156",
+                  "rank": 4,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://www.resumeadapter.com/ats/workday/companies",
+                  "rank": 5,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://withresumeai.com/ats-checker/how-to-find-ats",
+                  "rank": 6,
+                  "aggregator": false
+                }
+              ],
+              "nonBoardsOmitted": 19
+            },
+            "careersSearch": {
+              "query": "IBM careers",
+              "results": 25,
+              "filtered": 1,
+              "trusted": 24
+            },
+            "alreadyPublic": null
+          }
+        }
+      ]
+    },
+    {
+      "key": "meta",
+      "input": "Meta",
+      "expected": "careers on host metacareers.com",
+      "truth": "owner:2026-09-03",
+      "truth_verified": true,
+      "known_limitation": null,
+      "weak": true,
+      "tags": [
+        "careers",
+        "name-gate"
+      ],
+      "verdict": "PASS",
+      "actual": "already tracked: meta (board) + careers(escape-hatch) https://www.metacareers.com/jobsearch/",
+      "attempts": [
+        {
+          "ok": true,
+          "reasons": [],
+          "seconds": 3.45,
+          "searches": 2,
+          "actual": "already tracked: meta (board) + careers(escape-hatch) https://www.metacareers.com/jobsearch/",
+          "body": {
+            "query": "Meta",
+            "candidates": [],
+            "careersUrl": "https://www.metacareers.com/jobsearch/",
+            "trace": {
+              "query": "Meta jobs myworkdayjobs.com greenhouse.io ashbyhq.com lever.co jobs.gem.com eightfold.ai",
+              "results": 25,
+              "filtered": 3,
+              "boards": 0,
+              "nonBoards": [
+                {
+                  "url": "https://www.facebook.com/careers/",
+                  "rank": 1,
+                  "aggregator": true
+                },
+                {
+                  "url": "https://scoutify.com/companies/meta/",
+                  "rank": 2,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://engineerjobs.io/meta",
+                  "rank": 3,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://jobs.weekday.works/meta-build-cool-things-for-the-world-to-see",
+                  "rank": 4,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://withresumeai.com/ats-checker/how-to-find-ats",
+                  "rank": 5,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://www.resumeadapter.com/ats/workday/companies",
+                  "rank": 6,
+                  "aggregator": false
+                }
+              ],
+              "nonBoardsOmitted": 19
+            },
+            "careersSearch": {
+              "query": "Meta careers",
+              "results": 25,
+              "filtered": 4,
+              "trusted": 13
+            },
+            "alreadyPublic": {
+              "status": "already_public",
+              "detail": "That board is our public Meta page, so there is nothing to set up \u2014 its hiring trend is already there.",
+              "companyId": "meta",
+              "displayName": "Meta",
+              "finalUrl": "https://www.metacareers.com/jobsearch/",
+              "matchKind": "board"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "key": "facebook",
+      "input": "Facebook",
+      "expected": "nothing (known dead end)",
+      "truth": "owner:2026-09-03",
+      "truth_verified": true,
+      "known_limitation": null,
+      "weak": false,
+      "tags": [
+        "limitation"
+      ],
+      "verdict": "PASS",
+      "actual": "nothing offered (2 board(s) shown, none auto-addable; top: ashby:cohere)",
+      "attempts": [
+        {
+          "ok": true,
+          "reasons": [],
+          "seconds": 2.57,
+          "searches": 2,
+          "actual": "nothing offered (2 board(s) shown, none auto-addable; top: ashby:cohere)",
+          "body": {
+            "query": "Facebook",
+            "candidates": [
+              {
+                "candidate": {
+                  "ats": "ashby",
+                  "boardToken": "cohere",
+                  "providerConfig": {},
+                  "sourceUrl": "https://jobs.ashbyhq.com/cohere"
+                },
+                "probe": {
+                  "ok": true,
+                  "jobCount": 143,
+                  "error": null
+                },
+                "sourceUrl": "https://jobs.ashbyhq.com/cohere",
+                "title": "Cohere Jobs",
+                "rank": 22,
+                "autoAddable": false
+              },
+              {
+                "candidate": {
+                  "ats": "lever",
+                  "boardToken": "weekdayworks",
+                  "providerConfig": {},
+                  "sourceUrl": "https://jobs.lever.co/weekdayworks"
+                },
+                "probe": {
+                  "ok": true,
+                  "jobCount": 60,
+                  "error": null
+                },
+                "sourceUrl": "https://jobs.lever.co/weekdayworks",
+                "title": "Weekday",
+                "rank": 23,
+                "autoAddable": false
+              }
+            ],
+            "careersUrl": null,
+            "trace": {
+              "query": "Facebook jobs myworkdayjobs.com greenhouse.io ashbyhq.com lever.co jobs.gem.com eightfold.ai",
+              "results": 25,
+              "filtered": 3,
+              "boards": 2,
+              "nonBoards": [
+                {
+                  "url": "https://www.facebook.com/careers/",
+                  "rank": 1,
+                  "aggregator": true
+                },
+                {
+                  "url": "https://withresumeai.com/ats-checker/how-to-find-ats",
+                  "rank": 2,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://dev.to/udaninn/you-can-tell-which-ats-a-company-uses-by-looking-at-its-careers-url-3i5g",
+                  "rank": 3,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://www.resumeadapter.com/ats/workday/companies",
+                  "rank": 4,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://openjobradar.com/blog/ats-job-alerts",
+                  "rank": 5,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://echojobs.io/job/eightfold-ai-senior-software-engineer-ai-agentic-product-dev-xjj4v",
+                  "rank": 6,
+                  "aggregator": false
+                }
+              ],
+              "nonBoardsOmitted": 17
+            },
+            "careersSearch": {
+              "query": "Facebook careers",
+              "results": 25,
+              "filtered": 4,
+              "trusted": 3
+            },
+            "alreadyPublic": null
+          }
+        }
+      ]
+    },
+    {
+      "key": "metabase",
+      "input": "Metabase",
+      "expected": "not metacareers.com",
+      "truth": "owner:2026-09-03",
+      "truth_verified": true,
+      "known_limitation": null,
+      "weak": true,
+      "tags": [
+        "name-gate"
+      ],
+      "verdict": "PASS",
+      "actual": "careers https://www.metabase.com/jobs",
+      "attempts": [
+        {
+          "ok": true,
+          "reasons": [],
+          "seconds": 4.12,
+          "searches": 2,
+          "actual": "careers https://www.metabase.com/jobs",
+          "body": {
+            "query": "Metabase",
+            "candidates": [],
+            "careersUrl": "https://www.metabase.com/jobs",
+            "trace": {
+              "query": "Metabase jobs myworkdayjobs.com greenhouse.io ashbyhq.com lever.co jobs.gem.com eightfold.ai",
+              "results": 25,
+              "filtered": 1,
+              "boards": 0,
+              "nonBoards": [
+                {
+                  "url": "https://www.metabase.com/jobs",
+                  "rank": 1,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://jobs.metabase.com/jobs/85f454d8-e795-4978-8a2b-4b8bfa7d7c37",
+                  "rank": 2,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://jobs.metabase.com/jobs/0559088a-66e6-4cd3-9bfe-3cf03baaaba5",
+                  "rank": 3,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://jobs.metabase.com/jobs/da72d8c9-9604-476a-8f3b-bc130890973b",
+                  "rank": 4,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://jobs.metabase.com/jobs/ee8203b5-2cf7-4eae-afd6-3f9724761ad9",
+                  "rank": 5,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://www.jobless.dev/companies/metabase",
+                  "rank": 6,
+                  "aggregator": false
+                }
+              ],
+              "nonBoardsOmitted": 19
+            },
+            "careersSearch": {
+              "query": "Metabase careers",
+              "results": 25,
+              "filtered": 3,
+              "trusted": 11
+            },
+            "alreadyPublic": null
+          }
+        }
+      ]
+    },
+    {
+      "key": "poke",
+      "input": "Poke",
+      "expected": "nothing (known dead end)",
+      "truth": "owner:2026-09-03",
+      "truth_verified": true,
+      "known_limitation": null,
+      "weak": false,
+      "tags": [
+        "name-gate",
+        "limitation"
+      ],
+      "verdict": "PASS",
+      "actual": "nothing offered (2 board(s) shown, none auto-addable; top: ashby:interaction)",
+      "attempts": [
+        {
+          "ok": true,
+          "reasons": [],
+          "seconds": 2.09,
+          "searches": 2,
+          "actual": "nothing offered (2 board(s) shown, none auto-addable; top: ashby:interaction)",
+          "body": {
+            "query": "Poke",
+            "candidates": [
+              {
+                "candidate": {
+                  "ats": "ashby",
+                  "boardToken": "interaction",
+                  "providerConfig": {},
+                  "sourceUrl": "https://jobs.ashbyhq.com/interaction/08609fa6-a47d-417a-be9b-ae9c7bec64c8"
+                },
+                "probe": {
+                  "ok": false,
+                  "jobCount": 0,
+                  "error": "Client error '404 Not Found' for url 'https://api.ashbyhq.com/posting-api/job-board/interaction?includeCompensation=true'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404"
+                },
+                "sourceUrl": "https://jobs.ashbyhq.com/interaction/08609fa6-a47d-417a-be9b-ae9c7bec64c8",
+                "title": "MTS - Research @ Interaction",
+                "rank": 2,
+                "autoAddable": false
+              },
+              {
+                "candidate": {
+                  "ats": "ashby",
+                  "boardToken": "ashby",
+                  "providerConfig": {},
+                  "sourceUrl": "https://jobs.ashbyhq.com/Ashby"
+                },
+                "probe": {
+                  "ok": true,
+                  "jobCount": 72,
+                  "error": null
+                },
+                "sourceUrl": "https://jobs.ashbyhq.com/Ashby",
+                "title": "Ashby Jobs",
+                "rank": 21,
+                "autoAddable": false
+              }
+            ],
+            "careersUrl": null,
+            "trace": {
+              "query": "Poke jobs myworkdayjobs.com greenhouse.io ashbyhq.com lever.co jobs.gem.com eightfold.ai",
+              "results": 25,
+              "filtered": 3,
+              "boards": 2,
+              "nonBoards": [
+                {
+                  "url": "https://jobs.generalcatalyst.com/companies/poke-2-84f51aab-17cd-42fe-9159-d8033d48c053/jobs/90167617-research-engineer-ml-infrastructure",
+                  "rank": 1,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://jobs.generalcatalyst.com/companies/poke-2-84f51aab-17cd-42fe-9159-d8033d48c053/jobs/90167619-strategic-ai-analyst",
+                  "rank": 3,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://www.getclera.com/jobs/poke-com/member-of-technical-staff",
+                  "rank": 4,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://withresumeai.com/ats-checker/how-to-find-ats",
+                  "rank": 5,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://github.com/abhishekbamotra/job_hunt_tricks",
+                  "rank": 6,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://openjobradar.com/blog/ats-job-alerts",
+                  "rank": 7,
+                  "aggregator": false
+                }
+              ],
+              "nonBoardsOmitted": 17
+            },
+            "careersSearch": {
+              "query": "Poke careers",
+              "results": 25,
+              "filtered": 6,
+              "trusted": 8
+            },
+            "alreadyPublic": null
+          }
+        }
+      ]
+    },
+    {
+      "key": "nutanix",
+      "input": "Nutanix",
+      "expected": "some answer; nutanix.com not dropped as aggregator",
+      "truth": "owner:2026-09-03",
+      "truth_verified": true,
+      "known_limitation": null,
+      "weak": true,
+      "tags": [
+        "aggregator-bug"
+      ],
+      "verdict": "PASS",
+      "actual": "careers https://careers.nutanix.com/en/jobs",
+      "attempts": [
+        {
+          "ok": true,
+          "reasons": [],
+          "seconds": 2.02,
+          "searches": 2,
+          "actual": "careers https://careers.nutanix.com/en/jobs",
+          "body": {
+            "query": "Nutanix",
+            "candidates": [],
+            "careersUrl": "https://careers.nutanix.com/en/jobs",
+            "trace": {
+              "query": "Nutanix jobs myworkdayjobs.com greenhouse.io ashbyhq.com lever.co jobs.gem.com eightfold.ai",
+              "results": 25,
+              "filtered": 2,
+              "boards": 0,
+              "nonBoards": [
+                {
+                  "url": "https://careers.nutanix.com/en/jobs/",
+                  "rank": 1,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://linkedin.com/company/nutanix",
+                  "rank": 2,
+                  "aggregator": true
+                },
+                {
+                  "url": "https://careers.nutanix.com/en/jobs/31825/software-engineer-linux-virtualization-hypervisor/",
+                  "rank": 3,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://careers.nutanix.com/en/jobs/29277/staff-engineertech-lead-aiml-natural-language-processing-transformers-gen-ai-llm-neural-networks/",
+                  "rank": 4,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://careers.nutanix.com/en/jobs/n1697/build-engineer-developer-productivity/",
+                  "rank": 5,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://careers.nutanix.com/en/jobs/31816/member-of-technical-staff-1-core-data-path-ai-inference/",
+                  "rank": 6,
+                  "aggregator": false
+                }
+              ],
+              "nonBoardsOmitted": 19
+            },
+            "careersSearch": {
+              "query": "Nutanix careers",
+              "results": 25,
+              "filtered": 1,
+              "trusted": 24
+            },
+            "alreadyPublic": null
+          }
+        }
+      ]
+    },
+    {
+      "key": "atlassian_lc",
+      "input": "atlassian",
+      "expected": "careers https://www.atlassian.com/company/careers/all-jobs",
+      "truth": "owner:2026-09-04",
+      "truth_verified": true,
+      "known_limitation": null,
+      "weak": false,
+      "tags": [
+        "careers",
+        "lowercase",
+        "regression"
+      ],
+      "verdict": "PASS",
+      "actual": "careers https://www.atlassian.com/company/careers/all-jobs",
+      "attempts": [
+        {
+          "ok": true,
+          "reasons": [],
+          "seconds": 1.81,
+          "searches": 2,
+          "actual": "careers https://www.atlassian.com/company/careers/all-jobs",
+          "body": {
+            "query": "atlassian",
+            "candidates": [],
+            "careersUrl": "https://www.atlassian.com/company/careers/all-jobs",
+            "trace": {
+              "query": "atlassian jobs myworkdayjobs.com greenhouse.io ashbyhq.com lever.co jobs.gem.com eightfold.ai",
+              "results": 25,
+              "filtered": 2,
+              "boards": 0,
+              "nonBoards": [
+                {
+                  "url": "https://www.atlassian.com/company/careers",
+                  "rank": 1,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://builtin.com/job/senior-workday-hcm-and-security-application-engineer/2523183",
+                  "rank": 2,
+                  "aggregator": true
+                },
+                {
+                  "url": "https://www.atlassian.com/company/careers/engineering",
+                  "rank": 3,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://www.jobzmall.com/atlassian/job/application-engineer-workday-hcm-2",
+                  "rank": 4,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://linkedin.com/company/atlassian",
+                  "rank": 5,
+                  "aggregator": true
+                },
+                {
+                  "url": "https://www.atlassian.com/company/careers/engineering/ai",
+                  "rank": 6,
+                  "aggregator": false
+                }
+              ],
+              "nonBoardsOmitted": 19
+            },
+            "careersSearch": {
+              "query": "atlassian careers",
+              "results": 25,
+              "filtered": 2,
+              "trusted": 10
+            },
+            "alreadyPublic": null
+          }
+        }
+      ]
+    },
+    {
+      "key": "cisco_lc",
+      "input": "cisco",
+      "expected": "board workday:cisco (>= 1 jobs)",
+      "truth": "owner:2026-09-03",
+      "truth_verified": true,
+      "known_limitation": null,
+      "weak": false,
+      "tags": [
+        "ats",
+        "fast-path",
+        "lowercase"
+      ],
+      "verdict": "PASS",
+      "actual": "already tracked: cisco (board) + auto-add workday:cisco (1290 jobs)",
+      "attempts": [
+        {
+          "ok": true,
+          "reasons": [],
+          "seconds": 1.17,
+          "searches": 1,
+          "actual": "already tracked: cisco (board) + auto-add workday:cisco (1290 jobs)",
+          "body": {
+            "query": "cisco",
+            "candidates": [
+              {
+                "candidate": {
+                  "ats": "workday",
+                  "boardToken": "cisco",
+                  "providerConfig": {
+                    "base_url": "https://cisco.wd5.myworkdayjobs.com",
+                    "tenant_slug": "cisco",
+                    "career_site_slug": "Cisco_Careers"
+                  },
+                  "sourceUrl": "https://cisco.wd5.myworkdayjobs.com/en-US/Cisco_Careers/job/Director---AI-Research-and-Engineering-Efficiency--Circuit-Platform-_2013651-1"
+                },
+                "probe": {
+                  "ok": true,
+                  "jobCount": 1290,
+                  "error": null
+                },
+                "sourceUrl": "https://cisco.wd5.myworkdayjobs.com/en-US/Cisco_Careers/job/Director---AI-Research-and-Engineering-Efficiency--Circuit-Platform-_2013651-1",
+                "title": "Director - AI Research and Engineering Efficiency (Circuit Platform)",
+                "rank": 1,
+                "autoAddable": true
+              }
+            ],
+            "careersUrl": null,
+            "trace": {
+              "query": "cisco jobs myworkdayjobs.com greenhouse.io ashbyhq.com lever.co jobs.gem.com eightfold.ai",
+              "results": 25,
+              "filtered": 0,
+              "boards": 1,
+              "nonBoards": [
+                {
+                  "url": "https://careers.cisco.com/global/en/job/CISCISGLOBAL2023306EXTERNALENGLOBAL/Senior-Software-Engineer-CHG-Hybrid",
+                  "rank": 4,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://careers.cisco.com/global/en/job/CISCISGLOBAL2024035EXTERNALENGLOBAL/Software-Engineer-Full-Stack-Backend-I-Full-Time-United-States",
+                  "rank": 5,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://hiringticker.com/company/cisco/",
+                  "rank": 6,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://hiretik.com/jobs/f700d6ad-ea51-495f-a296-3a7a5b37388a",
+                  "rank": 7,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://withresumeai.com/ats-checker/how-to-find-ats",
+                  "rank": 8,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://openjobradar.com/blog/ats-job-alerts",
+                  "rank": 9,
+                  "aggregator": false
+                }
+              ],
+              "nonBoardsOmitted": 16
+            },
+            "careersSearch": null,
+            "alreadyPublic": {
+              "status": "already_public",
+              "detail": "That board is our public Cisco page, so there is nothing to set up \u2014 its hiring trend is already there.",
+              "companyId": "cisco",
+              "displayName": "Cisco",
+              "finalUrl": "https://cisco.wd5.myworkdayjobs.com/en-US/Cisco_Careers/job/Director---AI-Research-and-Engineering-Efficiency--Circuit-Platform-_2013651-1",
+              "matchKind": "board"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "key": "ibm_lc",
+      "input": "ibm",
+      "expected": "a careers page; not harvey",
+      "truth": "owner:2026-09-03",
+      "truth_verified": true,
+      "known_limitation": null,
+      "weak": true,
+      "tags": [
+        "fallback",
+        "name-gate",
+        "lowercase"
+      ],
+      "verdict": "PASS",
+      "actual": "careers https://www.ibm.com/careers/search",
+      "attempts": [
+        {
+          "ok": true,
+          "reasons": [],
+          "seconds": 4.27,
+          "searches": 2,
+          "actual": "careers https://www.ibm.com/careers/search",
+          "body": {
+            "query": "ibm",
+            "candidates": [],
+            "careersUrl": "https://www.ibm.com/careers/search",
+            "trace": {
+              "query": "ibm jobs myworkdayjobs.com greenhouse.io ashbyhq.com lever.co jobs.gem.com eightfold.ai",
+              "results": 25,
+              "filtered": 3,
+              "boards": 0,
+              "nonBoards": [
+                {
+                  "url": "https://www.resumeadapter.com/ats/workday/companies",
+                  "rank": 1,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://withresumeai.com/ats-checker/how-to-find-ats",
+                  "rank": 2,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://www.levels.fyi/jobs?jobId=\u2026",
+                  "rank": 3,
+                  "aggregator": true
+                },
+                {
+                  "url": "https://dev.to/udaninn/you-can-tell-which-ats-a-company-uses-by-looking-at-its-careers-url-3i5g",
+                  "rank": 4,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://openjobradar.com/blog/ats-job-alerts",
+                  "rank": 5,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://jobspipe.dev/sources/workday",
+                  "rank": 6,
+                  "aggregator": false
+                }
+              ],
+              "nonBoardsOmitted": 19
+            },
+            "careersSearch": {
+              "query": "ibm careers",
+              "results": 25,
+              "filtered": 1,
+              "trusted": 24
+            },
+            "alreadyPublic": null
+          }
+        }
+      ]
+    },
+    {
+      "key": "ebay_lc",
+      "input": "ebay",
+      "expected": "board workday:ebay (>= 200 jobs)",
+      "truth": "owner:2026-09-03",
+      "truth_verified": true,
+      "known_limitation": null,
+      "weak": false,
+      "tags": [
+        "ats",
+        "careers-rung",
+        "lowercase"
+      ],
+      "verdict": "PASS",
+      "actual": "auto-add workday:ebay (274 jobs) + careers(escape-hatch) https://jobs.ebayinc.com/us/en/search-results",
+      "attempts": [
+        {
+          "ok": true,
+          "reasons": [],
+          "seconds": 5.46,
+          "searches": 2,
+          "actual": "auto-add workday:ebay (274 jobs) + careers(escape-hatch) https://jobs.ebayinc.com/us/en/search-results",
+          "body": {
+            "query": "ebay",
+            "candidates": [
+              {
+                "candidate": {
+                  "ats": "workday",
+                  "boardToken": "ebay",
+                  "providerConfig": {
+                    "base_url": "https://ebay.wd5.myworkdayjobs.com",
+                    "tenant_slug": "ebay",
+                    "career_site_slug": "apply"
+                  },
+                  "sourceUrl": "https://ebay.wd5.myworkdayjobs.com/apply/job"
+                },
+                "probe": {
+                  "ok": true,
+                  "jobCount": 274,
+                  "error": null
+                },
+                "sourceUrl": "https://jobs.ebayinc.com/us/en/search-results",
+                "title": "",
+                "rank": 0,
+                "autoAddable": true
+              }
+            ],
+            "careersUrl": "https://jobs.ebayinc.com/us/en/search-results",
+            "trace": {
+              "query": "ebay jobs myworkdayjobs.com greenhouse.io ashbyhq.com lever.co jobs.gem.com eightfold.ai",
+              "results": 25,
+              "filtered": 6,
+              "boards": 0,
+              "nonBoards": [
+                {
+                  "url": "https://jobs.ebayinc.com/us/en/home",
+                  "rank": 1,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://www.tealhq.com/job/people-tech-analyst-payroll-tech_7ea1afa3763aabb4881de9befe8e5b7528398",
+                  "rank": 2,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://linkedin.com/company/ebay",
+                  "rank": 3,
+                  "aggregator": true
+                },
+                {
+                  "url": "https://www.dreamworkhq.com/c/ebay.com",
+                  "rank": 4,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://jobs.ebayinc.com/us/en/job/R0068048/Sr-NoSQL-DBA-MongoDB-Atlas",
+                  "rank": 5,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://withresumeai.com/ats-checker/how-to-find-ats",
+                  "rank": 6,
+                  "aggregator": false
+                }
+              ],
+              "nonBoardsOmitted": 19
+            },
+            "careersSearch": {
+              "query": "ebay careers",
+              "results": 25,
+              "filtered": 8,
+              "trusted": 15
+            },
+            "alreadyPublic": null
+          }
+        }
+      ]
+    },
+    {
+      "key": "oracle_lc",
+      "input": "oracle",
+      "expected": "careers https://careers.oracle.com/en/sites/jobsearch/jobs",
+      "truth": "owner:2026-09-03",
+      "truth_verified": true,
+      "known_limitation": null,
+      "weak": false,
+      "tags": [
+        "careers",
+        "lowercase"
+      ],
+      "verdict": "PASS",
+      "actual": "careers https://careers.oracle.com/en/sites/jobsearch/jobs",
+      "attempts": [
+        {
+          "ok": true,
+          "reasons": [],
+          "seconds": 5.01,
+          "searches": 2,
+          "actual": "careers https://careers.oracle.com/en/sites/jobsearch/jobs",
+          "body": {
+            "query": "oracle",
+            "candidates": [],
+            "careersUrl": "https://careers.oracle.com/en/sites/jobsearch/jobs",
+            "trace": {
+              "query": "oracle jobs myworkdayjobs.com greenhouse.io ashbyhq.com lever.co jobs.gem.com eightfold.ai",
+              "results": 25,
+              "filtered": 2,
+              "boards": 0,
+              "nonBoards": [
+                {
+                  "url": "https://withresumeai.com/ats-checker/how-to-find-ats",
+                  "rank": 1,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://www.resumeadapter.com/ats/workday/companies",
+                  "rank": 2,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://dev.to/udaninn/you-can-tell-which-ats-a-company-uses-by-looking-at-its-careers-url-3i5g",
+                  "rank": 3,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://www.dreamworkhq.com/c/oracle.com",
+                  "rank": 4,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://openjobradar.com/blog/ats-job-alerts",
+                  "rank": 5,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://jobgooroo.com/blog/ats-resume-formatting-workday-greenhouse-lever",
+                  "rank": 6,
+                  "aggregator": false
+                }
+              ],
+              "nonBoardsOmitted": 19
+            },
+            "careersSearch": {
+              "query": "oracle careers",
+              "results": 25,
+              "filtered": 0,
+              "trusted": 21
+            },
+            "alreadyPublic": null
+          }
+        }
+      ]
+    },
+    {
+      "key": "gm",
+      "input": "GM",
+      "expected": "some answer; not gmail.com",
+      "truth": "measured:CAREERS-FALLBACK-POC.md#187",
+      "truth_verified": true,
+      "known_limitation": null,
+      "weak": true,
+      "tags": [
+        "name-gate",
+        "extra"
+      ],
+      "verdict": "PASS",
+      "actual": "already tracked: gm (name) + careers(escape-hatch) https://search-careers.gm.com/en/jobs",
+      "attempts": [
+        {
+          "ok": true,
+          "reasons": [],
+          "seconds": 1.42,
+          "searches": 2,
+          "actual": "already tracked: gm (name) + careers(escape-hatch) https://search-careers.gm.com/en/jobs",
+          "body": {
+            "query": "GM",
+            "candidates": [],
+            "careersUrl": "https://search-careers.gm.com/en/jobs",
+            "trace": {
+              "query": "GM jobs myworkdayjobs.com greenhouse.io ashbyhq.com lever.co jobs.gem.com eightfold.ai",
+              "results": 25,
+              "filtered": 0,
+              "boards": 0,
+              "nonBoards": [
+                {
+                  "url": "https://search-careers.gm.com/en/jobs/jr-202500591/staff-backend-software-engineer/",
+                  "rank": 1,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://search-careers.gm.com/en/jobs/jr-202604174/workday-extend-configurator/",
+                  "rank": 2,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://search-careers.gm.com/en/jobs/jr-202520454/staff-ai-ml-engineer-ci-platform/",
+                  "rank": 3,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://search-careers.gm.com/en/jobs/jr-202613310/sr-workday-integrations-configurator-hr-it/",
+                  "rank": 4,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://withresumeai.com/ats-checker/how-to-find-ats",
+                  "rank": 5,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://www.resumeadapter.com/ats/workday/companies",
+                  "rank": 6,
+                  "aggregator": false
+                }
+              ],
+              "nonBoardsOmitted": 19
+            },
+            "careersSearch": {
+              "query": "GM careers",
+              "results": 25,
+              "filtered": 2,
+              "trusted": 21
+            },
+            "alreadyPublic": {
+              "status": "already_public",
+              "detail": "The careers page we found looks like General Motors, which we already publish \u2014 we matched the name in the web address, not the board itself. If that's right, its hiring trend is already there.",
+              "companyId": "gm",
+              "displayName": "General Motors",
+              "finalUrl": "https://search-careers.gm.com/en/jobs",
+              "matchKind": "name"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "key": "hp",
+      "input": "HP",
+      "expected": "some answer; not hpe.com",
+      "truth": "measured:CAREERS-FALLBACK-POC.md#187",
+      "truth_verified": true,
+      "known_limitation": null,
+      "weak": true,
+      "tags": [
+        "name-gate",
+        "extra"
+      ],
+      "verdict": "PASS",
+      "actual": "auto-add workday:hp (838 jobs)",
+      "attempts": [
+        {
+          "ok": true,
+          "reasons": [],
+          "seconds": 1.67,
+          "searches": 1,
+          "actual": "auto-add workday:hp (838 jobs)",
+          "body": {
+            "query": "HP",
+            "candidates": [
+              {
+                "candidate": {
+                  "ats": "workday",
+                  "boardToken": "hp",
+                  "providerConfig": {
+                    "base_url": "https://hp.wd5.myworkdayjobs.com",
+                    "tenant_slug": "hp",
+                    "career_site_slug": "externalcareersite"
+                  },
+                  "sourceUrl": "https://hp.wd5.myworkdayjobs.com/en-US/externalcareersite/job/San-Francisco-California-United-States-of-America/Senior-AI-Software-Engineer---HP-IQ_3156063-1"
+                },
+                "probe": {
+                  "ok": true,
+                  "jobCount": 838,
+                  "error": null
+                },
+                "sourceUrl": "https://hp.wd5.myworkdayjobs.com/en-US/externalcareersite/job/San-Francisco-California-United-States-of-America/Senior-AI-Software-Engineer---HP-IQ_3156063-1",
+                "title": "Senior ai software engineer hp iq 3156063 1",
+                "rank": 1,
+                "autoAddable": true
+              }
+            ],
+            "careersUrl": null,
+            "trace": {
+              "query": "HP jobs myworkdayjobs.com greenhouse.io ashbyhq.com lever.co jobs.gem.com eightfold.ai",
+              "results": 25,
+              "filtered": 3,
+              "boards": 1,
+              "nonBoards": [
+                {
+                  "url": "https://hp.eightfold.ai/careers/job/43898379",
+                  "rank": 2,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://hp.eightfold.ai/careers/job/43826926",
+                  "rank": 3,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://hp.eightfold.ai/careers/job/44108669",
+                  "rank": 4,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://apply.hp.com/careers/job/43532524?domain=\u2026",
+                  "rank": 5,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://hp.eightfold.ai/careers/job/42826550",
+                  "rank": 6,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://hp.eightfold.ai/careers/job/43348570",
+                  "rank": 7,
+                  "aggregator": false
+                }
+              ],
+              "nonBoardsOmitted": 18
+            },
+            "careersSearch": null,
+            "alreadyPublic": null
+          }
+        }
+      ]
+    },
+    {
+      "key": "citadel",
+      "input": "Citadel",
+      "expected": "some answer; not citadelsecurities",
+      "truth": "measured:careers_page_pick.py#78 module docstring, 2026-09-04",
+      "truth_verified": true,
+      "known_limitation": "wrong legal entity: `owns_host` accepts a host that extends the typed name, so Citadel is offered Citadel Securities'. Closing it means changing `_host_owner`, the same rule `meta` -> `metacareers.com` depends on.",
+      "weak": true,
+      "tags": [
+        "name-gate",
+        "wrong-entity",
+        "limitation"
+      ],
+      "verdict": "FIXED",
+      "actual": "auto-add ashby:citadel-ai (2 jobs)",
+      "attempts": [
+        {
+          "ok": true,
+          "reasons": [],
+          "seconds": 0.86,
+          "searches": 1,
+          "actual": "auto-add ashby:citadel-ai (2 jobs)",
+          "body": {
+            "query": "Citadel",
+            "candidates": [
+              {
+                "candidate": {
+                  "ats": "ashby",
+                  "boardToken": "citadel-ai",
+                  "providerConfig": {},
+                  "sourceUrl": "https://jobs.ashbyhq.com/citadel-ai"
+                },
+                "probe": {
+                  "ok": true,
+                  "jobCount": 2,
+                  "error": null
+                },
+                "sourceUrl": "https://jobs.ashbyhq.com/citadel-ai",
+                "title": "Citadel AI Jobs",
+                "rank": 9,
+                "autoAddable": true
+              }
+            ],
+            "careersUrl": null,
+            "trace": {
+              "query": "Citadel jobs myworkdayjobs.com greenhouse.io ashbyhq.com lever.co jobs.gem.com eightfold.ai",
+              "results": 25,
+              "filtered": 1,
+              "boards": 1,
+              "nonBoards": [
+                {
+                  "url": "https://www.citadel.com/careers/",
+                  "rank": 1,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://www.citadel.com/careers/details/software-engineer/",
+                  "rank": 2,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://www.citadelsecurities.com/careers/details/software-engineer-university-graduate-us/",
+                  "rank": 3,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://www.citadel.com/careers/details/quantitative-research-engineer-university-graduate-us/",
+                  "rank": 4,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://jobs.weekday.works/citadel-securities-research-engineer",
+                  "rank": 5,
+                  "aggregator": false
+                },
+                {
+                  "url": "https://jobs.weekday.works/citadel-investment-intern---citadel",
+                  "rank": 6,
+                  "aggregator": false
+                }
+              ],
+              "nonBoardsOmitted": 18
+            },
+            "careersSearch": null,
+            "alreadyPublic": null
+          }
+        }
+      ]
+    }
+  ]
+}

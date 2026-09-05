@@ -15,14 +15,42 @@ e2e/run.sh company-name-search --runs 2 --max-searches 90   # flakiness: 2/2 or 
 e2e/run.sh company-name-search --max-searches 10     # hard spend ceiling
 ```
 
-Free, spends nothing:
+Free, spends nothing — and these now short-circuit **before** the backend, the port and
+the key, so they work with no Browserbase credential at all:
 
 ```bash
+e2e/run.sh company-name-search --validate-only
+e2e/run.sh company-name-search --replay e2e/company-name-search/recorded/20260905T021303Z.json
+
 .venv/bin/python e2e/company-name-search/intent_test.py --validate-only
 .venv/bin/python e2e/company-name-search/intent_test.py \
-    --replay e2e/company-name-search/artifacts/<run>/results.json
+    --replay e2e/company-name-search/recorded/20260905T021303Z.json
 .venv/bin/python -m pytest e2e/company-name-search/test_judge.py -q
 ```
+
+## The $0 front door: the verify-onesecondswe skill
+
+This feature is **folded into** `.claude/skills/verify-onesecondswe/` so there is one place
+a person goes to verify this product. Nothing was copied — the skill shells out to the
+`intent_test.py` in this directory, and its `--live` rung `exec`s `e2e/run.sh` right back
+here. One judge, one case file.
+
+```bash
+bash .claude/skills/verify-onesecondswe/helpers/name_search.sh            # $0
+bash .claude/skills/verify-onesecondswe/helpers/name_search.sh --prove-it # $0, must go RED
+bash .claude/skills/verify-onesecondswe/helpers/name_search.sh --live     # ~$0.27, = this suite
+```
+
+The skill adds one assertion this harness structurally cannot make. Rule 1 below — *"this
+harness only ever speaks HTTP to the real endpoint"* — is what makes it honest, and it also
+means it composes the request body itself and can never see what the **browser** sends. The
+`@name-search` drive types a name into the real box and asserts the string arrives
+byte-identical. Given that casing is an input, a `.trim().toLowerCase()` added to the form
+would re-open the original bug with every case here still green. See
+`.claude/skills/verify-onesecondswe/features/company-name-search.md`.
+
+[`recorded/`](recorded/README.md) holds one real paid run's stored bodies — that is what
+makes the $0 rungs possible, and it must be re-recorded when `cases.toml` gains a case.
 
 `--replay` re-judges a previous run's **stored response bodies**. Every assertion change
 should be checked this way first — it costs $0 instead of another $0.27.
