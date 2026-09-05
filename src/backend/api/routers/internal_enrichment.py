@@ -111,7 +111,9 @@ _SWE_TITLE_RE = r"\y(software (engineer|develop)|members? of (the )?technical st
 # S/L/P MTS is Senior/Lead/Principal Member of Technical Staff, the same title
 # family. The class is [slp]?, NOT [a-z]?, because GM posts "EMTS Technician"
 # (Engineering Maintenance and Technical Support), a different job entirely.
-# Verified against every title in prod: 31 acronym-only hits, zero false positives.
+# Verified against every title in prod as of 2026-09: 31 acronym-only hits, zero
+# false positives. A future board could still land one (MTS Systems Corp is a real
+# industrial company) — the cost is queue position, never a wrong label.
 _SWE_ACRONYM_RE = r"\y(swe|[slp]?mts)\y"
 
 # The tier expression itself, shared verbatim by BOTH claim passes (published and
@@ -312,7 +314,8 @@ def pending(
         # jobs get labelled while still fresh. We front-load the roles we care
         # about most (see _ENTRY_LEVEL_TITLE_RE / _SWE_TITLE_RE above):
         #   tier 0 — entry-level / internships (intern, new grad, junior, entry-level)
-        #   tier 1 — software-engineering (software engineer/dev, SWE)
+        #   tier 1 — software-engineering (software engineer/dev, SWE, and the
+        #            "Member of Technical Staff"/MTS house title for the same job)
         #   tier 2 — everything else
         # An entry-level SWE role (e.g. "Software Engineer Intern") lands in tier 0
         # because tier 0 is tested first — exactly "entry-level before all else".

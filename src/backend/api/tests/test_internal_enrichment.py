@@ -887,12 +887,16 @@ class TestPending:
         """'Member of Technical Staff' is the AI-lab house title for a software
         engineer, so it shares tier 1 with the literal SWE titles — it carries no
         'software engineer' substring, and before this it fell to tier 2 behind the
-        whole backlog. Optional 'the' (Vercel) and the MTS acronym count too."""
+        whole backlog. Optional 'the' (Vercel), the plural, and the MTS acronym
+        (with its graded S/L/P prefixes) all count too."""
         monkeypatch.setattr(settings, "enrichment_use_external", True)
-        mts_ids = ("t-mts-plain", "t-mts-the", "t-mts-acronym", "t-mts-graded")
+        mts_ids = (
+            "t-mts-plain", "t-mts-the", "t-mts-plural", "t-mts-acronym", "t-mts-graded",
+        )
         for jid, title in zip(mts_ids, (
             "Member of Technical Staff, Inference",       # xAI / Perplexity shape
             "Member of the Technical Staff - Next.js",    # Vercel writes "of the"
+            "Members of Technical Staff, Research",       # plural — the `members?`
             "MTS, Security",                              # bare acronym
             "Platform Engineer — Cloud Infrastructure (SMTS)",  # Senior MTS
         )):
@@ -909,7 +913,7 @@ class TestPending:
         }))
 
         resp = enrichment_client.get(
-            "/api/internal/enrichment/pending", params={"limit": 4}
+            "/api/internal/enrichment/pending", params={"limit": 5}
         )
         assert resp.status_code == 200
         assert {j["job_id"] for j in resp.json()["jobs"]} == set(mts_ids)
