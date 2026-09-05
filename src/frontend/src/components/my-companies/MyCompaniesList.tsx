@@ -38,7 +38,6 @@ import {
   sourceBoardLabel,
   sourceBoardUrl,
 } from './companyHealth';
-import { AddCompanyHowTo } from './AddCompanyHowTo';
 import { DiscoveryChecklist } from './DiscoveryChecklist';
 import { PublicBoardMatchBanner } from './PublicBoardMatchBanner';
 
@@ -602,24 +601,26 @@ export function MyCompaniesList() {
       ) : null}
 
       <Typography variant="h6" component="h2" gutterBottom>
-        Companies you&apos;re tracking
+        Your companies
       </Typography>
 
-      {/* THE HOW-TO IS THE EMPTY STATE. There is no separate "no companies yet" screen
-          and no separate how-to section: they are the same block. A user with nothing
-          tracked sees the explanation where an icon and two grey lines used to sit, and
-          the moment they have one company their list is there instead — and the
-          explanation is GONE, with no way back to it. `MyCompaniesPage` used to carry a
-          persistent "How it works" link for exactly that reader; it was removed at the
-          owner's request (2026-09-02), so this block is now the only place the how-to
-          is ever rendered.
+      {/* THE EMPTY STATE SAYS ONE THING. It used to be a three-step how-to — "open their
+          careers page, copy the link, paste it in the box above" — written when the form
+          took a URL and nothing else. The form takes a company NAME now, so those steps
+          taught the harder path and sent a reader off to hunt for a link they no longer
+          need. The state is named, visibly, and that is all.
 
           `rows.length === 0` is safe as the gate ONLY because the `isLoading` branch
-          above already returned: on a first load the query is not settled and this
-          would otherwise be briefly true for every returning user, who would watch a
-          three-step tutorial flash on screen and vanish. */}
+          above already returned: on a first load the query is not settled and this would
+          otherwise be briefly true for every returning user. */}
       {rows.length === 0 ? (
-        <AddCompanyHowTo srOnlyLine="No companies yet" />
+        <Typography
+          color="text.secondary"
+          data-testid="my-companies-empty"
+          sx={{ textAlign: 'center', py: 2.5 }}
+        >
+          No companies yet
+        </Typography>
       ) : (
         <Stack spacing={1.5} data-testid="my-companies-list">
           {rows.map((company) => (

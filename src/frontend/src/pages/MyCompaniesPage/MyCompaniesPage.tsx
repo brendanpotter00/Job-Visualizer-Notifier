@@ -410,13 +410,12 @@ export function MyCompaniesPage() {
           />
 
           {/* NO PERSISTENT "How it works" LINK. One used to sit here for anyone
-              already tracking a company, re-opening the same `AddCompanyHowTo` the
-              empty state renders. Removed at the owner's request (2026-09-02): "it's
-              just unnecessary noise. It should only be there when there's an empty
-              state, showing how to do it." The how-to still IS the empty state —
-              `MyCompaniesList` renders it for a user tracking nothing — so the
-              explanation has not gone, only the way back to it. See
-              `src/frontend/CLAUDE.md` for what that costs. */}
+              already tracking a company, re-opening the three steps the empty state
+              drew. Removed at the owner's request (2026-09-02): "it's just unnecessary
+              noise. It should only be there when there's an empty state, showing how to
+              do it." The steps have since gone as well — they described the URL-only
+              flow the name search superseded — so there is no explanation left for a
+              link to point back at. See `src/frontend/CLAUDE.md`. */}
         </Paper>
 
         {/* One spinner for the one call. No `!adding` guard on the outcome below it:
