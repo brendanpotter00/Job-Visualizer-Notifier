@@ -77,9 +77,10 @@ and time window.
 | UC-recent-07 | Open a posting | `search_jobs(...)` → `open_job({url: jobs[0].url})` | Popup **intent** recorded (`page.on('popup')` / `window.open` stub); returns `{opened:true, url}` — headless popups are blocked, so intent not live nav |
 | UC-recent-08 | Filter catalog + company resolution load | `list_filter_options`; `list_companies({query})` | `{categories, levels}` non-empty; a display name resolves to its company id |
 
-**Feature notes:** the metric row shows Past 24 Hours / Past 3 Hours (a leading "Displayed
-Jobs" tile was removed on 2026-09-05 — the server defers the filtered total, so it could only
-ever show a lower bound over the rows walked). The
+**Feature notes:** the metric row shows one tile, Past 24 Hours ("Displayed Jobs" and "Past
+3 Hours" were both removed on 2026-09-05 — the first because the server defers the filtered
+total so it could only ever show a lower bound, the second as a redundant second window).
+The
 list virtualizes when signed in and hard-caps at ~12 (behind a sign-in overlay) when signed
 out. `apply_feed_filters` is **additive** — it only changes the fields you pass — so tests
 call `reset_feed_filters` first for a clean slate.

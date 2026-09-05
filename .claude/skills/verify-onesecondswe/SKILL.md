@@ -159,8 +159,8 @@ The rules every drive follows:
   auth — that tool cannot complete headlessly).
 - Real handles on the Recent page (`components/shared/JobCard/`): job title is a
   `role=heading level=3`; the company name renders as text (e.g. `Apple`); each card
-  has an `Apply` link; the metric row shows the labels `Past 24 Hours` / `Past 3 Hours`
-  (a "Displayed Jobs" tile was removed on 2026-09-05).
+  has an `Apply` link; the metric row shows one label, `Past 24 Hours` ("Displayed Jobs"
+  and "Past 3 Hours" were both removed on 2026-09-05).
 
 To drive a feature yourself, copy `helpers/drive.spec.ts` as a template and follow
 the matching file in [`features/`](features/README.md).

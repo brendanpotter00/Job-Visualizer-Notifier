@@ -148,7 +148,6 @@ describe('RecentJobPostingsPage', () => {
       // REJECTED, which reads as "your filters matched nothing" and sends the
       // reader off to widen filters that were never the problem.
       expect(within(tile('Past 24 Hours')).getByText('—')).toBeInTheDocument();
-      expect(within(tile('Past 3 Hours')).getByText('—')).toBeInTheDocument();
       expect(within(tile('Past 24 Hours')).queryByText('0')).not.toBeInTheDocument();
       // The list owns the empty state, so it must not render — that is the whole
       // point of surfacing an error instead.
@@ -183,14 +182,15 @@ describe('RecentJobPostingsPage', () => {
   });
 
   describe('metrics', () => {
-    it('feeds the hook’s recency counts into the 24h / 3h tiles', () => {
-      // Both figures count only the companies the reader follows and ignore every
-      // other filter. Distinct numbers so a mis-wire cannot pass.
+    it('feeds the hook’s 24h recency count into the tile', () => {
+      // Counts only the companies the reader follows, ignoring every other filter.
+      // `last3h` is deliberately a DIFFERENT number and must appear nowhere: it is
+      // still on the wire, just no longer rendered.
       mockSearch({ counts: { total: null, last24h: 7, last3h: 3 } });
       renderWithProviders(<RecentJobPostingsPage />, { initialEntries: ['/'] });
 
       expect(within(tile('Past 24 Hours')).getByText('7')).toBeInTheDocument();
-      expect(within(tile('Past 3 Hours')).getByText('3')).toBeInTheDocument();
+      expect(screen.queryByText('3')).not.toBeInTheDocument();
     });
 
     // Removed at the owner's request (2026-09-05). Since #277 the server defers
@@ -208,9 +208,9 @@ describe('RecentJobPostingsPage', () => {
 
       expect(screen.queryByText('Displayed Jobs')).not.toBeInTheDocument();
       expect(screen.queryByText('50+')).not.toBeInTheDocument();
-      // The two recency tiles are untouched by the removal.
+      expect(screen.queryByText('Past 3 Hours')).not.toBeInTheDocument();
+      // The surviving tile is untouched by either removal.
       expect(within(tile('Past 24 Hours')).getByText('309')).toBeInTheDocument();
-      expect(within(tile('Past 3 Hours')).getByText('9')).toBeInTheDocument();
     });
 
     it('reads as unknown, not as zero, while page 1 (which carries the counts) is in flight', () => {
@@ -221,7 +221,6 @@ describe('RecentJobPostingsPage', () => {
       renderWithProviders(<RecentJobPostingsPage />, { initialEntries: ['/'] });
 
       expect(within(tile('Past 24 Hours')).getByText('—')).toBeInTheDocument();
-      expect(within(tile('Past 3 Hours')).getByText('—')).toBeInTheDocument();
     });
 
     it('keeps the previous numbers but marks them not-yet-current during a refresh', () => {
@@ -313,7 +312,6 @@ describe('RecentJobPostingsPage', () => {
       });
 
       expect(within(tile('Past 24 Hours')).getByText('3')).toBeInTheDocument();
-      expect(within(tile('Past 3 Hours')).getByText('2')).toBeInTheDocument();
       expect(screen.getByTestId('recent-jobs-list')).toHaveAttribute('data-job-count', '3');
       expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     });
