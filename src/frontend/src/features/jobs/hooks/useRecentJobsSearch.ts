@@ -26,6 +26,8 @@ import { STALE_CURSOR_STATUS, useSearchJobsInfiniteQuery } from '../jobsApi.ts';
 import { DEMO_JOBS } from '../demoJobs.ts';
 import { buildSearchJobsArgs, sinceForTimeWindow } from '../searchJobsArgs.ts';
 import type { SearchJobsCounts } from '../searchJobsTypes.ts';
+import { resolveResultTotal, type ResultTotal } from '../resultTotal.ts';
+import { SIGN_IN_OVERLAY_CONFIG } from '../../../constants/ui.ts';
 
 /** Quiet period before a filter edit becomes a request. House convention. */
 const FILTER_DEBOUNCE_MS = 300;
@@ -48,8 +50,25 @@ export type RecentJobsErrorScope = 'initial' | 'nextPage';
 export interface RecentJobsSearch {
   /** Every row fetched so far for the CURRENT filters, newest first. */
   jobs: Job[];
+  /**
+   * The rows a reader can actually SEE — `jobs`, capped for a signed-out reader
+   * at `SIGNED_OUT_JOB_LIMIT`.
+   *
+   * Derived here rather than in the list because it is no longer only the list's
+   * business: the header's "Displayed Jobs" tile counts these too, and the cap is
+   * this hook's policy already (it is what `hasNextPage: !isSignedOut && …`
+   * enforces). Two components applying the same cap from the same constant is one
+   * edit away from a header that disagrees with the list under it.
+   */
+  displayedJobs: Job[];
   /** Header metrics from page 1; null until it lands. */
   counts: SearchJobsCounts | null;
+  /**
+   * How many jobs the filter set holds, to whatever precision is honest — see
+   * `resultTotal.ts`. Since #277 the server defers the exact total, so on a real
+   * search this is an `atLeast` bound over `displayedJobs` rather than a number.
+   */
+  resultTotal: ResultTotal;
   /** No data at all yet — render skeletons. */
   isInitialLoading: boolean;
   /** Filters changed and the new first page is in flight; previous rows still shown. */
@@ -256,9 +275,7 @@ export function useRecentJobsSearch(): RecentJobsSearch {
   // position) with a spinner for minutes, then re-request every loaded page on
   // each retry.
   const isDeployGap =
-    status === 404 &&
-    currentData === undefined &&
-    retryAttempt < DEPLOY_RETRY_DELAYS_MS.length;
+    status === 404 && currentData === undefined && retryAttempt < DEPLOY_RETRY_DELAYS_MS.length;
 
   useEffect(() => {
     if (!isDeployGap) return;
@@ -298,9 +315,15 @@ export function useRecentJobsSearch(): RecentJobsSearch {
     };
   }, [demoModeEnabled, filters, locationCatalog]);
 
-  const jobs = useMemo(
-    () => (data?.pages ?? []).flatMap((page) => page.jobs),
-    [data]
+  const jobs = useMemo(() => (data?.pages ?? []).flatMap((page) => page.jobs), [data]);
+
+  // The signed-out cap, applied ONCE for every consumer. A signed-out reader is
+  // fetched one row MORE than they may see, deliberately — that extra row is how
+  // the list knows a 13th job exists and that the sign-in overlay is warranted —
+  // so `jobs.length` overcounts the visible list by one for them.
+  const displayedJobs = useMemo(
+    () => (isSignedOut ? jobs.slice(0, SIGN_IN_OVERLAY_CONFIG.SIGNED_OUT_JOB_LIMIT) : jobs),
+    [isSignedOut, jobs]
   );
 
   const fetchNextPage = useCallback(() => {
@@ -344,7 +367,11 @@ export function useRecentJobsSearch(): RecentJobsSearch {
   if (demo) {
     return {
       jobs: demo.jobs,
+      displayedJobs: demo.jobs,
       counts: demo.counts,
+      // Demo mode computes its own EXACT total from the fixture and cannot page,
+      // so the walk is trivially exhausted and the tile shows a plain number.
+      resultTotal: resolveResultTotal(demo.counts, demo.jobs.length, true),
       isInitialLoading: false,
       isRefreshing: false,
       isFetchingNextPage: false,
@@ -358,17 +385,26 @@ export function useRecentJobsSearch(): RecentJobsSearch {
     };
   }
 
+  // Nulled on an INITIAL error for exactly the reason the page swaps the list for
+  // an ErrorState: `data` deliberately retains the PREVIOUS filter set's pages, so
+  // `pages[0].counts` describes filters the reader is no longer looking at.
+  // Leaving the tiles populated under the new chips is the "plausible,
+  // fully-populated, wrong result set" the errorScope split above exists to
+  // prevent — half-fixed (rows hidden, tiles left behind) is the worst of the
+  // three states, because the numbers are the part nobody can check by eye.
+  //
+  // Hoisted out of the return object because `resultTotal` derives from it too.
+  const resolvedCounts = errorScope === 'initial' ? null : (data?.pages[0]?.counts ?? null);
+  // A signed-out reader is CAPPED, never finished — `hasNextPage` is forced false
+  // for them below, so reading exhaustion off that alone would report their dozen
+  // cards as the whole result set. Same guard as the list's `atTrueEnd`.
+  const walkExhausted = !isSignedOut && !hasNextPage;
+
   return {
     jobs,
-    // Nulled on an INITIAL error for exactly the reason the page swaps the list
-    // for an ErrorState: `data` deliberately retains the PREVIOUS filter set's
-    // pages, so `pages[0].counts` describes filters the reader is no longer
-    // looking at. Leaving the tiles populated under the new chips is the
-    // "plausible, fully-populated, wrong result set" the errorScope split above
-    // exists to prevent — half-fixed (rows hidden, tiles left behind) is the
-    // worst of the three states, because the numbers are the part nobody can
-    // check by eye.
-    counts: errorScope === 'initial' ? null : (data?.pages[0]?.counts ?? null),
+    displayedJobs,
+    resultTotal: resolveResultTotal(resolvedCounts, displayedJobs.length, walkExhausted),
+    counts: resolvedCounts,
     // `!preferencesReady` counts as loading, and that clause is load-bearing:
     // while it holds we are deliberately NOT fetching, so without it the list
     // would see zero jobs, no next page, nothing in flight and no error — and
@@ -377,13 +413,13 @@ export function useRecentJobsSearch(): RecentJobsSearch {
     // `args === null` is the one genuinely-terminal skip and is reported
     // separately as `isSkippedEmpty`.
     isInitialLoading:
-      (!preferencesReady && !demoModeEnabled) ||
-      (!skip && data === undefined && !queryError),
+      (!preferencesReady && !demoModeEnabled) || (!skip && data === undefined && !queryError),
     // `currentData` is undefined while a NEW arg's first page is in flight, but
     // `data` still holds the previous filter's pages — that gap is exactly
     // "refreshing", and it is what keeps the terminal empty state from flashing
     // over stale rows during a filter change.
-    isRefreshing: isFetching && !isFetchingNextPage && currentData === undefined && data !== undefined,
+    isRefreshing:
+      isFetching && !isFetchingNextPage && currentData === undefined && data !== undefined,
     isFetchingNextPage,
     hasNextPage: !isSignedOut && Boolean(hasNextPage),
     fetchNextPage,

@@ -17,6 +17,7 @@ import { createTestStore } from '../../../test/testUtils';
 import type { BackendJobListing } from '../../../api/types';
 import type { RecentJobsFilters } from '../../../types';
 import { ERROR_MESSAGES } from '../../../constants/messages';
+import { SIGN_IN_OVERLAY_CONFIG } from '../../../constants/ui';
 
 // `useAuth` is the seam that tells the hook whether it may fetch at all, so it
 // is a mutable object rather than a per-test factory: several cases flip
@@ -74,14 +75,23 @@ function makeRow(id: string, company = 'google'): BackendJobListing {
   };
 }
 
-/** A well-formed page-1 envelope (page 1 is the only page that carries `meta`). */
-function page(ids: string[], nextCursor: string | null, withMeta = false) {
+/**
+ * A well-formed page-1 envelope (page 1 is the only page that carries `meta`).
+ *
+ * `filteredTotal` defaults to a number, but PRODUCTION sends `null` — #277 moved
+ * the exact count off the page-1 critical path — so the cases about the header
+ * figures pass `null` explicitly. The two recency counts are still exact.
+ */
+function page(
+  ids: string[],
+  nextCursor: string | null,
+  withMeta = false,
+  filteredTotal: number | null = 137
+) {
   return {
     jobs: ids.map((id) => makeRow(id)),
     nextCursor,
-    meta: withMeta
-      ? { filteredTotal: 137, countLast24h: 42, countLast3h: 7 }
-      : null,
+    meta: withMeta ? { filteredTotal, countLast24h: 42, countLast3h: 7 } : null,
   };
 }
 
@@ -266,7 +276,7 @@ describe('useRecentJobsSearch — when it is allowed to fetch', () => {
     expect(scoped.result.current.jobs.every((job) => job.company === 'google')).toBe(true);
   });
 
-  it('waits for auth to resolve and for the signed-in user\'s companies to load', async () => {
+  it("waits for auth to resolve and for the signed-in user's companies to load", async () => {
     // Fetching before preferences arrive would show other people's companies for
     // a frame and then throw the page away — the flash the old page avoided.
     mockAuthState.isLoading = true;
@@ -364,7 +374,7 @@ describe('useRecentJobsSearch — filter edits', () => {
     ]);
   });
 
-  it('keeps the previous rows readable while the new filter\'s first page is in flight', async () => {
+  it("keeps the previous rows readable while the new filter's first page is in flight", async () => {
     // The anti-flash guarantee: on a filter change the list must show stale rows
     // with a refresh affordance, never an empty state that resolves back to rows.
     let release!: () => void;
@@ -414,9 +424,9 @@ describe('useRecentJobsSearch — the frozen recency bound', () => {
     const firstUrl = String(fetchMock.mock.calls[0][0]);
     const firstSince = paramsOf(firstUrl).get('since');
     expect(firstSince).toMatch(/Z$/);
-    expect(Math.abs(new Date(firstSince as string).getTime() - (Date.now() - 90 * DAY_MS))).toBeLessThan(
-      120_000
-    );
+    expect(
+      Math.abs(new Date(firstSince as string).getTime() - (Date.now() - 90 * DAY_MS))
+    ).toBeLessThan(120_000);
 
     rerender();
     await flush(1_000);
@@ -541,7 +551,10 @@ describe('useRecentJobsSearch — failures', () => {
       if (cursor === 'cursor-fresh' && cursorAccepted) {
         return { body: page(['c'], null) };
       }
-      return { status: 409, body: { detail: "Stale 'cursor': cursor was minted under a different filter set" } };
+      return {
+        status: 409,
+        body: { detail: "Stale 'cursor': cursor was minted under a different filter set" },
+      };
     });
 
     const store = makeStore();
@@ -647,7 +660,7 @@ describe('useRecentJobsSearch — when a prerequisite fails', () => {
     expect(result.current.error).toBeTruthy();
   });
 
-  it('drops the previous filter set\'s counts when the new first page fails', async () => {
+  it("drops the previous filter set's counts when the new first page fails", async () => {
     // The other half of the same bug. The page hides the rows on an initial
     // error but goes on rendering `counts` — which still describes the OLD
     // filters, because `data` retains their pages. The header tiles are the part
@@ -675,7 +688,7 @@ describe('useRecentJobsSearch — when a prerequisite fails', () => {
     expect(result.current.counts).toBeNull();
   });
 
-  it('surfaces the endpoint\'s reason so the reader can see which filter to relax', async () => {
+  it("surfaces the endpoint's reason so the reader can see which filter to relax", async () => {
     // Every cap on this endpoint is client-fixable, and the page's only
     // affordance is a Retry that reissues the identical rejected request. A
     // generic "Failed to load jobs" leaves the reader pressing it forever.
@@ -720,5 +733,67 @@ describe('useRecentJobsSearch — when a prerequisite fails', () => {
     expect(result.current.isAwaitingDeploy).toBe(false);
     expect(result.current.errorScope).toBe('initial');
     expect(result.current.error).toBe(ERROR_MESSAGES.LOAD_JOBS_FAILED);
+  });
+});
+
+describe('useRecentJobsSearch — the "Displayed Jobs" figure', () => {
+  // The bug: #277 moved `filtered_total` off the page-1 critical path, so the
+  // server sends `filteredTotal: null` on every real search. The client was
+  // taught to TOLERATE that (the tile fell back to an em-dash) but never to
+  // answer it, so the header read "—" over a screen full of jobs. The rows
+  // walked so far were the answer the whole time.
+  it('reports the rows in hand as a lower bound when the server defers the total', async () => {
+    install(() => ({ body: page(['a', 'b', 'c'], 'cursor-1', true, null) }));
+
+    const store = makeStore();
+    const { result } = renderSearch(store);
+    await flush();
+
+    expect(result.current.counts?.total).toBeNull();
+    expect(result.current.resultTotal).toEqual({ kind: 'atLeast', value: 3 });
+  });
+
+  it('becomes exact once the walk is exhausted', async () => {
+    // `nextCursor: null` is the endpoint's end-of-walk signal, so the rows in
+    // hand ARE the whole filter set and the tile may drop the "+".
+    install(() => ({ body: page(['a', 'b', 'c'], null, true, null) }));
+
+    const store = makeStore();
+    const { result } = renderSearch(store);
+    await flush();
+
+    expect(result.current.hasNextPage).toBe(false);
+    expect(result.current.resultTotal).toEqual({ kind: 'exact', value: 3 });
+  });
+
+  it('is unknown before page 1 lands, never a zero', async () => {
+    const store = makeStore();
+    const { result } = renderSearch(store);
+
+    expect(result.current.resultTotal).toEqual({ kind: 'unknown' });
+    await flush();
+  });
+
+  it('counts the rows a signed-out reader can SEE, not the extra one fetched to detect the overlay', async () => {
+    // Signed out, the hook asks for one row MORE than may be shown so the list
+    // knows a further job exists. Counting `jobs` would overstate the visible
+    // list by exactly that row.
+    const ids = Array.from({ length: SIGNED_OUT_FETCH_LIMIT }, (_, i) => `job-${i}`);
+    install(() => ({ body: page(ids, null, true, null) }));
+
+    mockAuthState.isAuthenticated = false;
+    const store = makeStore();
+    const { result } = renderSearch(store);
+    await flush();
+
+    expect(result.current.jobs).toHaveLength(SIGNED_OUT_FETCH_LIMIT);
+    expect(result.current.displayedJobs).toHaveLength(SIGN_IN_OVERLAY_CONFIG.SIGNED_OUT_JOB_LIMIT);
+    // A CAP is not an exhausted walk: those dozen cards are a floor under
+    // thousands, so the tile must keep the "+" rather than announce the whole
+    // corpus as twelve jobs.
+    expect(result.current.resultTotal).toEqual({
+      kind: 'atLeast',
+      value: SIGN_IN_OVERLAY_CONFIG.SIGNED_OUT_JOB_LIMIT,
+    });
   });
 });

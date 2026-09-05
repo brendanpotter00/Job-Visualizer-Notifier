@@ -11,6 +11,7 @@ import { EMPTY_STATE_MESSAGES } from '../../../constants/messages.ts';
 import { RESPONSIVE } from '../../../config/responsive.ts';
 import { useAuth } from '../../../features/auth/useAuth.ts';
 import type { RecentJobsSearch } from '../../../features/jobs/hooks/useRecentJobsSearch.ts';
+import { ariaSetSizeFor } from '../../../features/jobs/resultTotal.ts';
 
 export interface RecentJobsListProps {
   search: RecentJobsSearch;
@@ -53,7 +54,6 @@ export interface RecentJobsListProps {
 export function RecentJobsList({ search }: RecentJobsListProps) {
   const {
     jobs,
-    counts,
     isInitialLoading,
     isRefreshing,
     isFetchingNextPage,
@@ -77,17 +77,17 @@ export function RecentJobsList({ search }: RecentJobsListProps) {
   // caller's `if` to keep a terminal state honest is exactly the pattern the
   // 2026-08-10 incident's first lesson warns about. The list must be unable to
   // claim "no jobs found" while a retry is still pending, whoever renders it.
-  const isLoadingMore =
-    isInitialLoading || isRefreshing || isFetchingNextPage || isAwaitingDeploy;
+  const isLoadingMore = isInitialLoading || isRefreshing || isFetchingNextPage || isAwaitingDeploy;
   // A failed next-page fetch stops automatic loading: the sentinel would sit in
   // the viewport and retry the same failing request forever, silently, for as
   // long as the reader stayed at the bottom.
   const hasMore = !isSignedOut && hasNextPage && errorScope !== 'nextPage';
   const showSignInOverlay =
     isSignedOut && jobs.length > SIGN_IN_OVERLAY_CONFIG.SIGNED_OUT_JOB_LIMIT;
-  const displayedJobs = isSignedOut
-    ? jobs.slice(0, SIGN_IN_OVERLAY_CONFIG.SIGNED_OUT_JOB_LIMIT)
-    : jobs;
+  // The cap now lives in `useRecentJobsSearch`, because the header's "Displayed
+  // Jobs" tile counts these rows too and two components slicing the same constant
+  // is one edit away from a header that disagrees with the list under it.
+  const displayedJobs = search.displayedJobs;
   // Signed-out readers are capped, not finished: `hasNextPage` is forced false
   // for them, so without this guard the list would announce "All 13 jobs loaded"
   // (the fetch limit) while showing 12 cards out of thousands.
@@ -101,31 +101,13 @@ export function RecentJobsList({ search }: RecentJobsListProps) {
   // initial error nulls them, nothing has measured the total), and renders as
   // ARIA's `-1`.
   //
-  // Three cases now that the exact total can be DEFERRED (Wave-1 B1 — `counts` is
-  // present but `counts.total` is `null` on a real search; demo mode still sends a
-  // number):
-  //   * no counts at all            -> null  (unknown; aria-setsize -1)
-  //   * an exact total (demo)       -> Math.max(total, rows on screen), floored at
-  //                                    the rows for the one case the two disagree:
-  //                                    the corpus can gain rows between page 1 and
-  //                                    page N, and "item 51 of 50" is worse than
-  //                                    either number alone.
-  //   * a deferred (null) total     -> the rows in hand are only a LOWER bound
-  //                                    while the walk can continue, so announce
-  //                                    "unknown" (-1) while `hasNextPage`; once the
-  //                                    walk is exhausted the rows on screen ARE the
-  //                                    exact total, so announce that. Never announce
-  //                                    a lower bound as the set size mid-walk.
-  // Only the signed-IN path reaches the virtualizer, so the signed-out dozen-card
-  // cap never enters this math.
-  const announcedTotal =
-    counts === null
-      ? null
-      : counts.total !== null
-        ? Math.max(counts.total, displayedJobs.length)
-        : hasNextPage
-          ? null
-          : displayedJobs.length;
+  // The three cases — unknown, an exact total, and a deferred one that makes the
+  // rows in hand a mere LOWER bound — are resolved once in `resultTotal.ts` and
+  // shared with the header tile, which renders the same three differently ("50+"
+  // where ARIA must say "unknown"). Only `exact` may be announced as a set size:
+  // ARIA has no spelling for a lower bound, and announcing one tells a
+  // screen-reader user they are at the end of a list they are twenty rows into.
+  const announcedTotal = ariaSetSizeFor(search.resultTotal);
 
   const { sentinelRef } = useInfiniteScroll({
     hasMore,

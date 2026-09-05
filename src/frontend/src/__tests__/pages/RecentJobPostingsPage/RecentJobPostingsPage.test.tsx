@@ -5,6 +5,7 @@ import { renderWithProviders } from '../../../test/testUtils';
 import { RecentJobPostingsPage } from '../../../pages/RecentJobPostingsPage/RecentJobPostingsPage';
 import { useRecentJobsSearch } from '../../../features/jobs/hooks/useRecentJobsSearch';
 import type { RecentJobsSearch } from '../../../features/jobs/hooks/useRecentJobsSearch';
+import { resolveResultTotal } from '../../../features/jobs/resultTotal';
 import type { Job } from '../../../types';
 
 /**
@@ -59,9 +60,11 @@ function makeJob(id: string): Job {
 
 /** A healthy, idle search result; each test overrides only what it is about. */
 function mockSearch(overrides: Partial<RecentJobsSearch> = {}): RecentJobsSearch {
-  const result: RecentJobsSearch = {
+  const base: RecentJobsSearch = {
     jobs: [],
     counts: null,
+    displayedJobs: [],
+    resultTotal: { kind: 'unknown' },
     isInitialLoading: false,
     isRefreshing: false,
     isFetchingNextPage: false,
@@ -73,6 +76,18 @@ function mockSearch(overrides: Partial<RecentJobsSearch> = {}): RecentJobsSearch
     retry,
     isSkippedEmpty: false,
     ...overrides,
+  };
+  // Derived by the hook, never stated by its callers — so the mock derives them
+  // too rather than letting a test hand the page a combination the hook cannot
+  // produce. The signed-out cap does not apply here: this suite renders the page
+  // signed in, and a test that needs a capped view states `displayedJobs`.
+  const displayedJobs = overrides.displayedJobs ?? base.jobs;
+  const result: RecentJobsSearch = {
+    ...base,
+    displayedJobs,
+    resultTotal:
+      overrides.resultTotal ??
+      resolveResultTotal(base.counts, displayedJobs.length, !base.hasNextPage),
   };
   vi.mocked(useRecentJobsSearch).mockReturnValue(result);
   return result;
@@ -220,7 +235,10 @@ describe('RecentJobPostingsPage', () => {
 
   describe('data', () => {
     it('renders the heading, metrics, filters, and list', () => {
-      mockSearch({ jobs: [makeJob('1'), makeJob('2')], counts: { total: 2, last24h: 2, last3h: 1 } });
+      mockSearch({
+        jobs: [makeJob('1'), makeJob('2')],
+        counts: { total: 2, last24h: 2, last3h: 1 },
+      });
       renderWithProviders(<RecentJobPostingsPage />, { initialEntries: ['/'] });
 
       expect(

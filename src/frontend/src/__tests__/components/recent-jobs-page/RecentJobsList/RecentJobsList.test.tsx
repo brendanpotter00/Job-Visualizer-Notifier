@@ -7,6 +7,7 @@ import { SIGN_IN_OVERLAY_CONFIG } from '../../../../constants/ui';
 import { SIGN_IN_OVERLAY_MESSAGES, EMPTY_STATE_MESSAGES } from '../../../../constants/messages';
 import type { Job } from '../../../../types';
 import type { RecentJobsSearch } from '../../../../features/jobs/hooks/useRecentJobsSearch';
+import { resolveResultTotal } from '../../../../features/jobs/resultTotal';
 import type { UseInfiniteScrollOptions } from '../../../../hooks/useInfiniteScroll';
 
 /**
@@ -122,7 +123,7 @@ function createMockJobs(count: number, idPrefix = 'job'): Job[] {
  * no error. Every test states only the fields whose values it is actually about.
  */
 function makeSearch(overrides: Partial<RecentJobsSearch> = {}): RecentJobsSearch {
-  return {
+  const base: RecentJobsSearch = {
     jobs: [],
     counts: null,
     isInitialLoading: false,
@@ -135,7 +136,28 @@ function makeSearch(overrides: Partial<RecentJobsSearch> = {}): RecentJobsSearch
     isAwaitingDeploy: false,
     retry: vi.fn(),
     isSkippedEmpty: false,
+    displayedJobs: [],
+    resultTotal: { kind: 'unknown' },
     ...overrides,
+  };
+
+  // `displayedJobs` and `resultTotal` are DERIVED by `useRecentJobsSearch`, never
+  // stated by its callers, so the helper derives them the same way rather than
+  // letting a test hand the list a combination the hook cannot produce. That
+  // includes the signed-out cap, which moved into the hook because the header's
+  // "Displayed Jobs" tile counts the same rows this list renders. A test may
+  // still state either field explicitly to reach a state directly.
+  const isSignedOut = mockAuthState.isEnabled && !mockAuthState.isAuthenticated;
+  const displayedJobs =
+    overrides.displayedJobs ??
+    (isSignedOut ? base.jobs.slice(0, SIGN_IN_OVERLAY_CONFIG.SIGNED_OUT_JOB_LIMIT) : base.jobs);
+
+  return {
+    ...base,
+    displayedJobs,
+    resultTotal:
+      overrides.resultTotal ??
+      resolveResultTotal(base.counts, displayedJobs.length, !isSignedOut && !base.hasNextPage),
   };
 }
 
@@ -431,10 +453,7 @@ describe('RecentJobsList', () => {
       // screen reader announce "item 20 of 500" a tenth of the way through a
       // 4,137-row result set, and "item 500 of 500" at a point that is not the
       // end of anything.
-      expect(container.querySelector('[role="listitem"]')).toHaveAttribute(
-        'aria-setsize',
-        '4137'
-      );
+      expect(container.querySelector('[role="listitem"]')).toHaveAttribute('aria-setsize', '4137');
     });
 
     it('announces an unmeasured total as unknown, never as the rows in hand', () => {
@@ -443,10 +462,7 @@ describe('RecentJobsList', () => {
       // own "total unknown"; 500 would be a claim nothing measured.
       const { container } = renderList({ jobs: createMockJobs(500), counts: null });
 
-      expect(container.querySelector('[role="listitem"]')).toHaveAttribute(
-        'aria-setsize',
-        '-1'
-      );
+      expect(container.querySelector('[role="listitem"]')).toHaveAttribute('aria-setsize', '-1');
     });
 
     it('never announces fewer items than are already on screen', () => {
@@ -459,10 +475,7 @@ describe('RecentJobsList', () => {
         counts: { total: 30, last24h: 1, last3h: 0 },
       });
 
-      expect(container.querySelector('[role="listitem"]')).toHaveAttribute(
-        'aria-setsize',
-        '50'
-      );
+      expect(container.querySelector('[role="listitem"]')).toHaveAttribute('aria-setsize', '50');
     });
 
     it('renders the back-to-top affordance alongside the list', () => {
@@ -540,9 +553,7 @@ describe('RecentJobsList — states the list must not be able to misread on its 
       error: null,
     });
 
-    expect(
-      screen.queryByText(EMPTY_STATE_MESSAGES.NO_JOBS_TITLE)
-    ).not.toBeInTheDocument();
+    expect(screen.queryByText(EMPTY_STATE_MESSAGES.NO_JOBS_TITLE)).not.toBeInTheDocument();
   });
 
   it('does not tell a signed-out reader the corpus is exhausted at the cap', () => {
