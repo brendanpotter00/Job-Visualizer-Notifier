@@ -192,18 +192,7 @@ def _seed_alias(conn, raw_text):
     conn.commit()
 
 
-@pytest.fixture
-def _clean_aliases(db_conn):
-    cur = db_conn.cursor()
-    cur.execute(sql.SQL("TRUNCATE {}, {}, {} CASCADE").format(
-        sql.Identifier("alias_locations"),
-        sql.Identifier("location_aliases"),
-        sql.Identifier("locations"),
-    ))
-    db_conn.commit()
-
-
-async def test_collapses_jobs_sharing_one_cold_location(db_conn, defer_mock, _clean_aliases):
+async def test_collapses_jobs_sharing_one_cold_location(db_conn, defer_mock):
     """5 jobs, one uncached location -> ONE defer, not five.
 
     This is the spend fix: in prod ~2,000 OPEN jobs read exactly "San Francisco".
@@ -216,7 +205,7 @@ async def test_collapses_jobs_sharing_one_cold_location(db_conn, defer_mock, _cl
     assert defer_mock.await_count == 1
 
 
-async def test_does_not_collapse_when_the_key_is_already_cached(db_conn, defer_mock, _clean_aliases):
+async def test_does_not_collapse_when_the_key_is_already_cached(db_conn, defer_mock):
     """A cached key costs no LLM call, so all 5 defer -- that is how the backlog drains."""
     _seed_alias(db_conn, "san francisco")
     for i in range(5):
@@ -226,7 +215,7 @@ async def test_does_not_collapse_when_the_key_is_already_cached(db_conn, defer_m
     assert defer_mock.await_count == 5
 
 
-async def test_distinct_cold_locations_all_defer(db_conn, defer_mock, _clean_aliases):
+async def test_distinct_cold_locations_all_defer(db_conn, defer_mock):
     cities = ["Austin, TX", "Seattle, WA", "Denver, CO", "Boston, MA"]
     for i, city in enumerate(cities):
         _insert_job_at(db_conn, f"job-{i}", city)
@@ -234,7 +223,7 @@ async def test_distinct_cold_locations_all_defer(db_conn, defer_mock, _clean_ali
     assert deferred == len(cities)
 
 
-async def test_collapse_keys_on_the_normalized_form(db_conn, defer_mock, _clean_aliases):
+async def test_collapse_keys_on_the_normalized_form(db_conn, defer_mock):
     """Casing/whitespace/dash variants are ONE key, so they collapse together."""
     for i, raw in enumerate(["San Francisco", "  san   francisco ", "SAN FRANCISCO"]):
         _insert_job_at(db_conn, f"sf-{i}", raw)
@@ -242,7 +231,7 @@ async def test_collapse_keys_on_the_normalized_form(db_conn, defer_mock, _clean_
     assert deferred == 1
 
 
-async def test_null_location_jobs_are_never_collapsed(db_conn, defer_mock, _clean_aliases):
+async def test_null_location_jobs_are_never_collapsed(db_conn, defer_mock):
     """They terminate in tx1 (marked 'failed') without touching the LLM.
 
     Collapsing them would drain a NULL-location backlog at one row per tick for
