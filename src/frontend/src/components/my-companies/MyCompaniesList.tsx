@@ -576,9 +576,15 @@ export function MyCompaniesList() {
   }
 
   const rows = companies ?? [];
+  const isEmpty = rows.length === 0;
 
   return (
-    <Box>
+    /* THE GROWTH IS CONDITIONAL, and that is the whole point. Only the empty state
+       wants to fill the page; a populated list must lay out exactly as it did, so
+       when there are rows this is a plain `<Box>` with no `sx` at all rather than a
+       flex column carrying an inert `flexGrow`. See the empty branch below for what
+       the growth is anchored to. */
+    <Box sx={isEmpty ? { display: 'flex', flexDirection: 'column', flexGrow: 1 } : undefined}>
       {/* Auto-refresh while any brand-new board hasn't reported jobs yet — faster
           while a discovery is mid-run so its checklist reads as live. */}
       <CompaniesPoller intervalMs={pollIntervalFor(rows, fulfilledTimeStamp ?? 0)} />
@@ -612,15 +618,40 @@ export function MyCompaniesList() {
 
           `rows.length === 0` is safe as the gate ONLY because the `isLoading` branch
           above already returned: on a first load the query is not settled and this would
-          otherwise be briefly true for every returning user. */}
-      {rows.length === 0 ? (
-        <Typography
-          color="text.secondary"
-          data-testid="my-companies-empty"
-          sx={{ textAlign: 'center', py: 2.5 }}
+          otherwise be briefly true for every returning user.
+
+          AND IT SITS IN THE MIDDLE OF WHAT IS LEFT. Hugging the heading left the line
+          stranded at the top of an otherwise blank page. The height it centres in is not
+          computed here: `RootLayout` already runs a `minHeight: 100vh` flex column whose
+          `<Outlet />` wrapper is `flex: 1`, so that box IS "viewport minus the fixed
+          toolbar minus the footer" as the browser measured it. Growing into it needs no
+          `calc(100vh - 64px)` — there is no toolbar-height constant to subtract anyway,
+          `theme.mixins.toolbar` being a responsive object — and, because we never claim
+          more than the space that box already had, it cannot put a scrollbar on a page
+          that did not have one.
+
+          `flexGrow: 1`, NOT `flex: 1`: flex-basis stays `auto`, so the text's own height
+          is the floor. On a viewport too short to centre in, the block keeps its content
+          height and the line stays whole instead of being squeezed or clipped. */}
+      {isEmpty ? (
+        <Box
+          data-testid="my-companies-empty-fill"
+          sx={{
+            flexGrow: 1,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            py: 2.5,
+          }}
         >
-          No companies yet
-        </Typography>
+          <Typography
+            color="text.secondary"
+            data-testid="my-companies-empty"
+            sx={{ textAlign: 'center' }}
+          >
+            No companies yet
+          </Typography>
+        </Box>
       ) : (
         <Stack spacing={1.5} data-testid="my-companies-list">
           {rows.map((company) => (
