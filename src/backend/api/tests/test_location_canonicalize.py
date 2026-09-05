@@ -269,21 +269,42 @@ class TestRenderCanonicalName:
             remote_scope=None) is None
 
 
-class TestUnknownUsRegionDropped:
-    """A US `region` means a USPS state. Anything else forged a row per spelling
-    -- prod accumulated region='United States', 'Eastern Time Zone' and
-    'Michigan, Ohio, Indiana', each a separate row rendering the same label."""
+class TestUsRegionDropOnlyWhenItRestatesTheCountry:
+    """Only a US region that RESTATES the country is dropped.
 
-    def test_non_state_us_region_dropped(self):
+    An earlier version dropped EVERY unrecognised US region. That looked tidy
+    and was badly wrong: 'Space Coast' (40 prod jobs), 'Bay Area' (16),
+    'Southern California' (2) and 'Central Texas' (1) all collapse to the tuple
+    (region, NULL, NULL, US), which uq_locations_canonical then merges into ONE
+    row labelled 'United States'. A Florida-coast role would advertise itself as
+    nationwide. Keeping an unmapped region costs one row per spelling; dropping
+    it costs real geography.
+    """
+
+    def test_region_restating_the_country_is_dropped(self):
         assert canonical_region("United States", "US", "remote") is None
-        assert canonical_region("Eastern Time Zone", "US", "remote") is None
-        assert canonical_region("Michigan, Ohio, Indiana", "US", "remote") is None
+        assert canonical_region("USA", "US", "remote") is None
+        assert canonical_region("US", "US", "remote") is None
+
+    def test_real_us_metros_are_kept_not_merged(self):
+        for metro in ("Space Coast", "Bay Area", "Southern California",
+                      "Central Texas", "California or Arizona"):
+            assert canonical_region(metro, "US", "region") == metro, (
+                f"{metro!r} was dropped; it would merge into the generic US row"
+            )
+
+    def test_kept_metros_stay_distinct_from_each_other(self):
+        names = {
+            canonicalize(_Loc("", "region", None, m, "US")).canonical_name
+            for m in ("Space Coast", "Bay Area", "Southern California")
+        }
+        assert len(names) == 3, f"metros collapsed to the same label: {names}"
 
     def test_real_states_still_survive(self):
         assert canonical_region("Michigan", "US", "city") == "MI"
         assert canonical_region("MI", "US", "city") == "MI"
 
-    def test_dropping_it_removes_the_junk_from_the_label(self):
+    def test_country_restating_region_derives_a_clean_label(self):
         c = canonicalize(_Loc("Remote (United States)", "remote", None,
                               "United States", "US", "country"))
         assert c.region is None
@@ -308,3 +329,36 @@ class TestScopeCollapseOnRealProdValues:
         }
         # Twelve prod spellings of "remote, anywhere in the US" -> one value.
         assert collapsed == {"us"}
+
+
+class TestReviewBlockers:
+    """Regression cover for the blockers the Opus review round found."""
+
+    def test_unmappable_country_never_leaks_into_the_scope_vocabulary(self):
+        """canonical_country() echoes an unmappable value back unchanged, so the
+        scope fallback must re-validate it. Prod rows that would otherwise have
+        produced scopes like 'united states & canada' (175 job links)."""
+        valid_macro = {"global", "amer", "namer", "latam", "emea", "eu", "apac"}
+        for country in ("United States & Canada", "Turkey", "Canada/USA",
+                        "Multiple Locations", "Atlantis"):
+            out = canonical_remote_scope("country", kind="remote", canon_country=country)
+            assert out is None or out in valid_macro or (
+                len(out) == 2 and out.isalpha() and out.islower()
+            ), f"country={country!r} leaked scope {out!r}"
+
+    def test_macro_scope_is_not_overridden_by_a_us_state(self):
+        """A globally-remote role that happens to carry a US region must not be
+        labelled as that single state -- the stored scope said global while the
+        label the user filters on said California."""
+        for scope, want in [("global", "Remote (Global)"), ("emea", "Remote (EMEA)"),
+                            ("namer", "Remote (NAMER)")]:
+            c = canonicalize(_Loc("", "remote", None, "CA", "US", scope))
+            assert c.canonical_name == want
+
+    def test_us_state_scope_still_renders_the_state(self):
+        c = canonicalize(_Loc("", "remote", None, "AZ", "US", "us"))
+        assert c.canonical_name == "Remote (AZ, US)"
+
+    def test_dc_is_not_title_cased_to_capital_of(self):
+        c = canonicalize(_Loc("", "region", None, "DC", "US"))
+        assert c.canonical_name == "District of Columbia, US"

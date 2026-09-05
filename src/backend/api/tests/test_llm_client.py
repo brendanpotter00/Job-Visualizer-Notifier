@@ -237,18 +237,28 @@ class TestCardinalityGuard:
     def test_ceiling_scales_with_separator_groups(self):
         from api.services.llm_client import max_plausible_locations
 
-        assert max_plausible_locations("San Francisco") == 3  # the floor
+        assert max_plausible_locations("San Francisco") == 6  # the floor
         assert max_plausible_locations("Sunnyvale, CA, USA; Kirkland, WA, USA") == 6
         assert max_plausible_locations("a, b, c, d, e, f, g, h") == 8
 
-    def test_over_generation_is_rejected(self):
-        with pytest.raises(LocationLLMError, match="over-generation"):
-            parse_locations_text(self._payload(10), "San Francisco")
+    def test_over_generation_truncates_it_does_not_reject(self):
+        """Rejecting was the wrong failure mode.
 
-    def test_single_token_allows_a_small_expansion(self):
-        """"Bay Area" / "HQ" can legitimately mean a couple of places."""
-        locs = parse_locations_text(self._payload(3), "Bay Area")
-        assert len(locs) == 3
+        A raise retries 5x then marks the job normalization_status='failed' --
+        and nothing ever retries a failed job (scan_unnormalized selects IS NULL
+        only). So one over-generating raw string left every job carrying it with
+        ZERO tags, permanently, invisible in location filters. Too many tags is
+        visible and repairable; no tags is neither.
+        """
+        locs = parse_locations_text(self._payload(10), "San Francisco")
+        assert len(locs) == 6
+        assert [l.city for l in locs] == [f"City{i}" for i in range(6)]
+
+    def test_a_metro_string_is_not_truncated(self):
+        """The floor is 6 so separator-free metros survive: prod has
+        'greater seattle area' on 376 OPEN jobs."""
+        locs = parse_locations_text(self._payload(4), "greater seattle area")
+        assert len(locs) == 4
 
     def test_genuine_multi_site_posting_is_allowed(self):
         raw = ("Sunnyvale, CA, Los Angeles, CA, Bellevue, WA, Austin, TX, "

@@ -233,11 +233,24 @@ def _parse_envelope(raw_obj: object) -> list[CanonicalLocation]:
 # The bound is deliberately generous: real multi-site postings are separated by
 # commas/semicolons, so the separator-group count is a fair ceiling, and
 # MIN_PLAUSIBLE_LOCATIONS gives short strings ("Bay Area", "HQ") room to expand.
-# A response over the bound RAISES rather than being truncated: the model is
-# nondeterministic, so a retry usually returns a sane answer, whereas silently
-# keeping the first N would persist a guess.
+# A response over the bound is TRUNCATED to the ceiling and logged at ERROR --
+# it is deliberately NOT raised. Raising sent the job through 5 Procrastinate
+# retries (6 Haiku calls) and then marked it `normalization_status='failed'`,
+# which is a DEAD END: scan_unnormalized only ever selects `IS NULL`, so nothing
+# retries a failed job. One over-generating raw string would therefore leave
+# every job carrying it with ZERO location tags, permanently -- invisible in
+# location filters, and dropped into a `failed` bucket that already holds 4,073
+# OPEN jobs and that nothing monitors.
+#
+# Too many tags is a visible, repairable error; no tags is an invisible,
+# unrecoverable one. Truncation keeps the most likely locations (the model emits
+# the primary first) and #283's replace semantics mean a later correction
+# supersedes it cleanly.
 _SEPARATORS = re.compile(r"[;,/|\n]")
-MIN_PLAUSIBLE_LOCATIONS = 3
+# Six, not three. Separator-free metro strings legitimately expand: prod has
+# "greater seattle area" (376 OPEN jobs), "bay area", "hq". A floor of 3 would
+# truncate a correct Seattle/Bellevue/Redmond/Kirkland answer.
+MIN_PLAUSIBLE_LOCATIONS = 6
 
 
 def max_plausible_locations(raw: str) -> int:
@@ -268,11 +281,15 @@ def parse_locations_text(text: str, raw: str = "") -> list[CanonicalLocation]:
     if raw:
         ceiling = max_plausible_locations(raw)
         if len(locations) > ceiling:
-            raise LocationLLMError(
-                f"LLM returned {len(locations)} locations for {raw!r}, which names at "
-                f"most {ceiling} place(s); rejecting as over-generation "
-                f"(got: {[l.canonical_name for l in locations]!r})"
+            dropped = [l.canonical_name for l in locations[ceiling:]]
+            logger.error(
+                "LLM over-generated for %r: %d locations for a string naming at most "
+                "%d place(s). Truncating to the first %d and DROPPING %r. "
+                "(Truncating rather than rejecting: a rejection retries 5x then marks "
+                "the job 'failed', which nothing ever retries, leaving it with no tags.)",
+                raw, len(locations), ceiling, ceiling, dropped,
             )
+            locations = locations[:ceiling]
     return locations
 
 

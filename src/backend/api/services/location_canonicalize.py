@@ -190,16 +190,33 @@ def canonical_region(raw: str | None, canon_country: str | None, kind: str) -> s
             mapped = _US_STATE_NAME_TO_USPS.get(up)
             if mapped:
                 region = mapped
-            else:
-                # `region` for a US row means a USPS state -- anything else is
-                # noise, and keeping it forges a distinct `locations` row per
-                # spelling. Prod accumulated region='United States',
-                # 'Eastern Time Zone', 'Michigan, Ohio, Indiana' and
-                # 'Delaware, Florida, Georgia, Kansas, ...' this way, each one a
-                # separate row rendering the same label. Dropping matches what
-                # non-US regions already do.
-                logger.warning("canonical_region: unknown US region %r dropped", raw)
+            elif canonical_country(s) == canon_country:
+                # The region merely RESTATES the country ('United States',
+                # 'USA', 'US'). It carries no sub-national information, and
+                # keeping it forges one row per spelling. Safe to drop.
+                logger.warning(
+                    "canonical_region: US region %r just restates the country; dropped", raw
+                )
                 return None
+            else:
+                # ANYTHING ELSE IS KEPT, even though it is not a USPS code.
+                # An earlier version of this dropped every unrecognised US
+                # region. That looked tidy and was badly wrong: prod carries
+                # 'Space Coast' (40 jobs), 'Bay Area' (16), 'Southern
+                # California' (2), 'Central Texas' (1) and 'California or
+                # Arizona' (90). Dropping them does not merely lose detail --
+                # every one collapses to the tuple (region, NULL, NULL, US),
+                # which uq_locations_canonical then merges into a SINGLE row
+                # rendering the generic label "United States". A Florida-coast
+                # role would advertise itself as nationwide.
+                #
+                # Keeping an unmapped region costs one row per spelling (the
+                # status quo). Dropping it costs real geography. Prefer the row.
+                logger.warning(
+                    "canonical_region: US region %r is not a USPS state; kept as-is "
+                    "(dropping it would merge distinct places into 'United States')", raw
+                )
+                region = s
     elif canon_country is not None:
         # Non-US: drop the region (lowest-risk; filter by city or country).
         return None
@@ -240,12 +257,20 @@ _MACRO_REGIONS: frozenset[str] = frozenset(
 # Spellings of a macro region that are not the canonical token.
 _SCOPE_ALIASES: dict[str, str] = {
     "worldwide": "global", "anywhere": "global", "world": "global",
-    "americas": "amer", "america": "amer",
+    "americas": "amer",
     "north america": "namer", "northamerica": "namer",
-    "latin america": "latam", "south america": "latam",
-    "europe": "eu", "european union": "eu",
+    "latin america": "latam",
+    "european union": "eu",
     "asia pacific": "apac", "asia-pacific": "apac", "asiapac": "apac",
 }
+# Deliberately NOT aliased, because each would change the MEANING of the scope
+# rather than its spelling -- and this path returns before the warning, so the
+# change would be silent:
+#   "america"       -> 'amer' widens a US-only role to the whole hemisphere
+#                      ("America" colloquially means the USA).
+#   "europe"        -> 'eu'   narrows Europe to the EU, dropping GB/CH/NO/UA.
+#   "south america" -> 'latam' widens to include Mexico and Central America.
+# They fall through to the country fallback (or None) and get logged.
 
 # Values that describe HOW remote a role is, not WHERE it may be worked from.
 # They carry no geography, so the row's country (if any) becomes the scope.
@@ -287,7 +312,19 @@ def canonical_remote_scope(
     if kind != "remote":
         return None
 
-    country_fallback = canon_country.lower() if canon_country else None
+    # canonical_country() returns an UNMAPPABLE value unchanged (by design -- it
+    # never guesses), so canon_country is not necessarily an ISO-2 code. Feeding
+    # that straight into the scope would put free text back into the "closed"
+    # vocabulary and, because remote_scope is part of uq_locations_canonical,
+    # would forge one NEW row per unmappable country spelling -- the exact
+    # fragmentation this function exists to remove. Prod has rows that would hit
+    # this: country='United States & Canada' (175 job links), 'Turkey' (29),
+    # 'Canada/USA' (41). Only a real 2-letter code may become a scope.
+    country_fallback = (
+        canon_country.lower()
+        if canon_country and _TWO_LETTER.match(canon_country.upper())
+        else None
+    )
 
     if raw is None:
         return country_fallback
@@ -304,6 +341,12 @@ def canonical_remote_scope(
         )
 
     if s in _NON_GEOGRAPHIC_SCOPES:
+        if country_fallback is None and canon_country:
+            logger.warning(
+                "canonical_remote_scope: scope %r carries no geography and country "
+                "%r is not an ISO-2 code; dropping the scope to None",
+                raw, canon_country,
+            )
         return country_fallback
     if s in _MACRO_REGIONS:
         return s
@@ -343,8 +386,13 @@ _ISO2_TO_DISPLAY: dict[str, str] = {}
 for _name, _code in _COUNTRY_NAME_TO_ISO2.items():
     _ISO2_TO_DISPLAY.setdefault(_code, _name.title())
 
+# .title() would render DC as "District Of Columbia" (capital "Of"), so the
+# handful of names with lowercase particles are spelled out.
+_STATE_NAME_OVERRIDES: dict[str, str] = {"DC": "District of Columbia"}
+
 _USPS_TO_STATE_NAME: dict[str, str] = {
-    _usps: _state.title() for _state, _usps in _US_STATE_NAME_TO_USPS.items()
+    _usps: _STATE_NAME_OVERRIDES.get(_usps, _state.title())
+    for _state, _usps in _US_STATE_NAME_TO_USPS.items()
 }
 
 # How a macro-region token renders in a label. Anything not listed is uppercased.
@@ -374,10 +422,16 @@ def _scope_label(remote_scope: str, region: str | None, country: str | None) -> 
     the existing tests, and the dropdown all already say. Every other country
     renders as its display name, with the code as fallback when none is mapped.
     """
-    if country == "US" and region:
-        return f"{region}, US"
+    # ORDER MATTERS. The macro-region check must come FIRST: a row can be
+    # globally remote while still carrying a US region (an "anywhere, HQ in
+    # California" answer gives region='CA', country='US', remote_scope='global').
+    # Rendering the state first labelled that row "Remote (CA, US)" -- the stored
+    # scope said global while the label the user filters on said California.
+    # Silent meaning-narrowing, and the tests only covered remote_scope='us'.
     if remote_scope in _MACRO_REGIONS:
         return _MACRO_REGION_LABELS.get(remote_scope, remote_scope.upper())
+    if country == "US" and region:
+        return f"{region}, US"
     code = remote_scope.upper()
     if code == "US":
         return "US"
@@ -469,6 +523,11 @@ def canonicalize_parts(
     # The label is a pure function of the canonicalized tuple, so one physical
     # place renders exactly one way. Falls back to the model's own label only
     # when there is too little structure to build one.
+    #
+    # This is safe to derive unconditionally because canonical_region now only
+    # drops a US region that RESTATES the country ('United States' -> None).
+    # An unrecognised-but-real region ('Space Coast', 'Bay Area') is KEPT, so
+    # deriving cannot silently promote a regional role to nationwide.
     name = render_canonical_name(
         kind=kind,
         city=city,
