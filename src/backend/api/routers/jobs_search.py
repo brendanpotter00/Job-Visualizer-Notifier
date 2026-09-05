@@ -24,7 +24,7 @@ from typing import NoReturn
 from datetime import datetime
 
 import psycopg2
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from psycopg2.extensions import connection as Connection
 
 from ..auth.dependencies import TokenClaims, get_optional_user_lenient
@@ -362,6 +362,7 @@ def _resolve_owned_source_ids(
 
 @router.get("", response_model=JobSearchResponse)
 def search(
+    response: Response,
     conn: Connection = Depends(get_db),
     user: TokenClaims | None = Depends(get_optional_user_lenient),
     status: str = Query(
@@ -485,6 +486,34 @@ def search(
     ``services/job_search.py`` for the field-by-field parity argument. A job with
     no normalized location tags matches no active location filter.
     """
+    # THIS RESPONSE VARIES BY VIEWER, so it must never sit in a shared cache.
+    # Since the owner-scoped feed landed, two callers sending the SAME query
+    # string with different ``Authorization`` headers get different rows — one of
+    # them including that reader's own private boards. A cache that keyed on the
+    # URL alone would hand the second caller the first one's board.
+    #
+    # NOT a live leak today, and the check was done rather than assumed: the only
+    # cache in the chain is ``api/jobs.ts``, which sets ``Vercel-CDN-Cache-Control``
+    # for the ``facets`` sub-path ONLY, and ``vercel.json`` sets no cache headers on
+    # ``/api/*`` at all. This is what keeps that from being the whole defence. The
+    # gate is one ``if`` in another repo layer, and widening it to cover ``search``
+    # is exactly the change someone makes for an obvious performance win.
+    #
+    # BOTH headers, because they answer different questions: ``private, no-store``
+    # says do not keep it, ``Vary`` says what it depends on for any cache that
+    # keeps it anyway.
+    #
+    # It does NOT reach the browser by itself — ``forwardResponse`` in the proxy
+    # copies status and body only, which is the same reason ``X-Next-Cursor`` has
+    # to be re-emitted by hand there. ``api/jobs.ts`` sets its own copy for the
+    # ``search`` sub-path. Set here as well because the backend is also reachable
+    # directly, and because the property belongs to the response, not to one hop.
+    #
+    # Rejections raised through ``_reject`` build their own response and do not
+    # carry these; that is fine — an error body has no rows in it.
+    response.headers["Cache-Control"] = "private, no-store"
+    response.headers["Vary"] = "Authorization"
+
     categories = _validate_slugs(category, pattern=_CATEGORY_RE, field="category")
     levels = _validate_slugs(level, pattern=_LEVEL_RE, field="level")
     companies = _validate_companies(company)

@@ -652,3 +652,286 @@ def test_search_cursor_minted_signed_in_is_409_when_replayed_anonymously(
     assert replayed.status_code == 409, (
         "a signed-in cursor replayed anonymously must 409, not silently re-scope"
     )
+
+
+def test_search_cursor_minted_and_replayed_anonymously_walks_every_page(
+    client, db_conn
+):
+    """THE NO-REGRESSION CASE, and the one with the widest blast radius.
+
+    The visibility scope joined the cursor fingerprint in this change, and the
+    scope of an anonymous reader has two spellings in the code — ``None`` from
+    ``_resolve_owned_source_ids`` and the ``[]`` the router canonicalizes it to.
+    If those two ever hashed differently, page 2 would be a 409 for every
+    signed-out visitor on the site: a far worse failure than the one this branch
+    fixes, and invisible to every owner-side test above.
+
+    Asserted as a WALK rather than as "page 2 returned 200", because a cursor
+    that validates and then seeks to the wrong place is also a 200.
+    """
+    _insert_company(db_conn, "srch-pub6e", visibility="public")
+    for i in range(3):
+        _insert_job(db_conn, f"w{i}", "srch-pub6e", "greenhouse_api")
+
+    _logout_optional(client)
+    seen: list[str] = []
+    cursor: str | None = None
+    for _ in range(6):
+        params: dict = {"limit": 1}
+        if cursor is not None:
+            params["cursor"] = cursor
+        resp = client.get("/api/jobs/search", params=params)
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        seen.extend(j["id"] for j in body["jobs"])
+        cursor = body["nextCursor"]
+        if cursor is None:
+            break
+
+    assert cursor is None, "the anonymous walk never terminated"
+    assert seen == ["w2", "w1", "w0"], (
+        "an anonymous keyset walk must still enumerate every row exactly once, "
+        "in (first_seen_at, source_id, id) DESC order"
+    )
+
+
+def test_search_cursor_minted_by_the_owner_replays_for_the_same_owner(
+    client, db_conn
+):
+    """The signed-in mirror of the case above.
+
+    Same requirement, different scope: a walk whose scope did not move must not
+    409, and the owner's own private row has to survive the page boundary rather
+    than appearing on page 1 and vanishing afterwards.
+    """
+    owner_id = uuid.uuid4().hex
+    email = f"{owner_id}@example.com"
+    _insert_user(db_conn, owner_id, email)
+    _insert_company(db_conn, "srch-pub6f", visibility="public")
+    _insert_company(db_conn, "u-own6b0006", visibility="user")
+    _own(db_conn, owner_id, "u-own6b0006")
+    _insert_job(db_conn, "p-1", "srch-pub6f", "greenhouse_api")
+    _insert_job(db_conn, "p-2", "srch-pub6f", "greenhouse_api")
+    _insert_job(db_conn, "priv-1", "u-own6b0006", custom("u-own6b0006"))
+
+    try:
+        _login_optional_as(client, email)
+        seen: list[str] = []
+        cursor: str | None = None
+        for _ in range(6):
+            params: dict = {"limit": 1}
+            if cursor is not None:
+                params["cursor"] = cursor
+            resp = client.get("/api/jobs/search", params=params)
+            assert resp.status_code == 200, resp.text
+            body = resp.json()
+            seen.extend(j["id"] for j in body["jobs"])
+            cursor = body["nextCursor"]
+            if cursor is None:
+                break
+
+        assert cursor is None, "the owner's walk never terminated"
+        assert sorted(seen) == ["p-1", "p-2", "priv-1"], (
+            "the owner's own private row must survive the page boundary"
+        )
+    finally:
+        _logout_optional(client)
+
+
+def test_search_cursor_minted_by_one_owner_is_409_for_a_different_owner(
+    client, db_conn
+):
+    """CROSS-SCOPE replay — the direction the anonymous case cannot reach.
+
+    Two signed-in readers owning DIFFERENT boards are walking two different
+    queries, so one's cursor must not be honoured for the other. The final
+    assertion is the control: the SAME cursor is still accepted for the reader
+    who minted it, so the 409 above is the scope moving and not a cursor this
+    endpoint would have rejected from anybody.
+    """
+    owner_id = uuid.uuid4().hex
+    rival_id = uuid.uuid4().hex
+    _insert_user(db_conn, owner_id, f"{owner_id}@example.com")
+    _insert_user(db_conn, rival_id, f"{rival_id}@example.com")
+    _insert_company(db_conn, "srch-pub6g", visibility="public")
+    _insert_company(db_conn, "u-own6b0007", visibility="user")
+    _insert_company(db_conn, "u-riv6b0007", visibility="user")
+    _own(db_conn, owner_id, "u-own6b0007")
+    _own(db_conn, rival_id, "u-riv6b0007")
+    for i in range(3):
+        _insert_job(db_conn, f"x{i}", "srch-pub6g", "greenhouse_api")
+
+    try:
+        _login_optional_as(client, f"{owner_id}@example.com")
+        page1 = client.get("/api/jobs/search", params={"limit": 1})
+        assert page1.status_code == 200, page1.text
+        cursor = page1.json()["nextCursor"]
+        assert cursor, "need a full page to mint a cursor"
+
+        _login_optional_as(client, f"{rival_id}@example.com")
+        rival = client.get("/api/jobs/search", params={"limit": 1, "cursor": cursor})
+        assert rival.status_code == 409, (
+            "a cursor minted under one reader's owned set must not be honoured "
+            f"for another's; got {rival.status_code}: {rival.text}"
+        )
+
+        _login_optional_as(client, f"{owner_id}@example.com")
+        again = client.get("/api/jobs/search", params={"limit": 1, "cursor": cursor})
+        assert again.status_code == 200, (
+            "the control failed: the cursor is not accepted even for the reader "
+            f"who minted it, so the 409 above proves nothing. {again.text}"
+        )
+    finally:
+        _logout_optional(client)
+
+
+def test_search_cursor_minted_anonymously_is_409_once_the_reader_signs_in(
+    client, db_conn
+):
+    """Signing IN mid-walk moves the scope too — the mirror of the expiry case.
+
+    Without it the reader's own boards would start appearing partway through a
+    walk that had already passed their position, so the pages would enumerate
+    neither scope completely while every cursor kept validating.
+    """
+    owner_id = uuid.uuid4().hex
+    email = f"{owner_id}@example.com"
+    _insert_user(db_conn, owner_id, email)
+    _insert_company(db_conn, "srch-pub6h", visibility="public")
+    _insert_company(db_conn, "u-own6b0008", visibility="user")
+    _own(db_conn, owner_id, "u-own6b0008")
+    for i in range(3):
+        _insert_job(db_conn, f"y{i}", "srch-pub6h", "greenhouse_api")
+
+    _logout_optional(client)
+    page1 = client.get("/api/jobs/search", params={"limit": 1})
+    assert page1.status_code == 200, page1.text
+    cursor = page1.json()["nextCursor"]
+    assert cursor, "need a full page to mint a cursor"
+
+    try:
+        _login_optional_as(client, email)
+        signed_in = client.get(
+            "/api/jobs/search", params={"limit": 1, "cursor": cursor}
+        )
+        assert signed_in.status_code == 409, signed_in.text
+    finally:
+        _logout_optional(client)
+
+    # The control: still anonymous, the same cursor is fine.
+    anon = client.get("/api/jobs/search", params={"limit": 1, "cursor": cursor})
+    assert anon.status_code == 200, anon.text
+
+
+def test_an_empty_owned_scope_emits_the_shipped_sql_byte_for_byte(db_conn):
+    """The no-regression proof for every reader who owns nothing.
+
+    The relaxed predicate is opt-in on a NON-EMPTY scope, and "byte-identical
+    otherwise" is the whole reason the Leak-6 cases above still mean what they
+    meant. This asserts it against the composed SQL instead of restating the
+    claim in a comment: all three empty spellings — the argument omitted, ``None``
+    and ``[]`` — must compose to the same text and the same parameters.
+
+    An ``if owned_source_ids is not None`` slip would type-check, keep every
+    owner test green, and hand the array branch to every anonymous reader on the
+    site. The inequality assertions at the end are what stop this from passing
+    vacuously for an implementation that ignored the scope entirely.
+    """
+    from api.services.job_search import _header_counts_where, build_search_where
+
+    omitted_sql, omitted_params = build_search_where(status="OPEN")
+    none_sql, none_params = build_search_where(status="OPEN", owned_source_ids=None)
+    empty_sql, empty_params = build_search_where(status="OPEN", owned_source_ids=[])
+    scoped_sql, scoped_params = build_search_where(
+        status="OPEN", owned_source_ids=["custom:u-scope0001"]
+    )
+
+    baseline = omitted_sql.as_string(db_conn)
+    assert none_sql.as_string(db_conn) == baseline
+    assert empty_sql.as_string(db_conn) == baseline
+    assert omitted_params == none_params == empty_params == ["OPEN"]
+    assert "job_listings.source_id = ANY" not in baseline, (
+        f"the empty scope emitted the owner branch anyway:\n{baseline}"
+    )
+    assert "c.visibility = 'user'" in baseline, (
+        f"the blanket private-company guard is gone:\n{baseline}"
+    )
+    assert scoped_sql.as_string(db_conn) != baseline
+    assert scoped_params == ["OPEN", ["custom:u-scope0001"]]
+
+    # The tiles are separate SQL and get the identical guarantee — a fix that
+    # touched only the page query would pass everything above.
+    tiles_baseline = _header_counts_where(None)[0].as_string(db_conn)
+    assert _header_counts_where(None, None)[0].as_string(db_conn) == tiles_baseline
+    assert _header_counts_where(None, [])[0].as_string(db_conn) == tiles_baseline
+    assert (
+        _header_counts_where(None)[1]
+        == _header_counts_where(None, None)[1]
+        == _header_counts_where(None, [])[1]
+        == []
+    )
+    assert "job_listings.source_id = ANY" not in tiles_baseline, tiles_baseline
+    tiles_scoped_sql, tiles_scoped_params = _header_counts_where(
+        None, ["custom:u-scope0001"]
+    )
+    assert tiles_scoped_sql.as_string(db_conn) != tiles_baseline
+    assert tiles_scoped_params == [["custom:u-scope0001"]]
+
+
+def test_the_visibility_scope_hashes_order_and_duplicate_independently():
+    """The scope is a SET, and the fingerprint has to treat it as one.
+
+    ``list_owned_source_ids`` returns rows in whatever order the planner hands
+    back — no ``ORDER BY`` — and a board co-owned through two ``user_companies``
+    rows would repeat. Either would move the fingerprint if it were hashed
+    positionally, and the symptom is a reader 409ing their OWN walk between two
+    pages that asked for exactly the same thing.
+
+    ``compute_filter_fingerprint`` sorts and de-duplicates every list value; this
+    pins that the scope is carried as a list and therefore gets that treatment,
+    rather than being folded in as a pre-joined string somewhere upstream.
+    """
+    from api.pagination import compute_filter_fingerprint
+
+    def fp(scope: list[str]) -> str:
+        return compute_filter_fingerprint({"owned_sources": scope})
+
+    assert fp(["custom:u-b", "custom:u-a"]) == fp(["custom:u-a", "custom:u-b"])
+    assert fp(["custom:u-a", "custom:u-a"]) == fp(["custom:u-a"])
+    # ...and it is not a constant function: an empty scope is a DIFFERENT query.
+    assert fp([]) != fp(["custom:u-a"])
+
+
+def test_search_response_is_marked_uncacheable_because_it_varies_by_viewer(
+    client, db_conn
+):
+    """A viewer-dependent body has to SAY it is viewer-dependent.
+
+    Since the owner scope landed, the same query string returns different rows
+    for different ``Authorization`` headers — one of them carrying that reader's
+    own private boards. A cache keyed on the URL alone would hand the second
+    caller the first one's board.
+
+    Nothing in the chain caches this today (``api/jobs.ts`` edge-caches the
+    ``facets`` sub-path only, and ``vercel.json`` sets no cache headers on
+    ``/api/*``), so this is not a live leak and this test is not a regression
+    guard for one. It is what stops the safety from resting entirely on a single
+    ``if`` in a different repo layer — widening that ``if`` to cover ``search`` is
+    the obvious performance change, and it is one line.
+
+    The proxy sets its own copy for the same reason it re-emits ``X-Next-Cursor``
+    by hand: ``forwardResponse`` copies status and body only, so these headers do
+    not survive that hop. See ``jobs.serverless.test.ts`` for that half.
+    """
+    _insert_company(db_conn, "srch-pub6i", visibility="public")
+    _insert_job(db_conn, "cache-1", "srch-pub6i", "greenhouse_api")
+
+    resp = client.get("/api/jobs/search")
+    assert resp.status_code == 200
+
+    cache_control = resp.headers.get("cache-control", "")
+    assert "no-store" in cache_control, f"got {cache_control!r}"
+    assert "private" in cache_control, f"got {cache_control!r}"
+    assert "Authorization" in resp.headers.get("vary", ""), (
+        f"got {resp.headers.get('vary')!r}"
+    )

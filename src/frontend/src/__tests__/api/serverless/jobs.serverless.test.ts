@@ -259,6 +259,30 @@ describe('/api/jobs serverless function', () => {
       expect(forwardedHeaders()).not.toHaveProperty('Authorization');
     });
 
+    it('marks the search response uncacheable, because it now varies by viewer', async () => {
+      // The body includes the caller's own `visibility='user'` boards, resolved
+      // by the backend from the Authorization header this proxy forwards. Two
+      // readers sending the same query string get different rows, so a shared
+      // cache keyed on the URL would serve one of them the other's private
+      // board.
+      //
+      // Asserted HERE and not only on the backend because `forwardResponse`
+      // copies status + body only — the backend's own Cache-Control and Vary die
+      // at this hop, exactly like `X-Next-Cursor` does.
+      mockReq.query = { path: 'search' };
+      fetchMock.mockResolvedValue(mockJsonResponse(200, SEARCH_PAGE));
+
+      await handler(mockReq as VercelRequest, mockRes as VercelResponse);
+
+      expect(mockRes.setHeader).toHaveBeenCalledWith('Cache-Control', 'private, no-store');
+      expect(mockRes.setHeader).toHaveBeenCalledWith('Vary', 'Authorization');
+      // ...and it must never pick up the facets sub-path's day-long edge cache.
+      expect(mockRes.setHeader).not.toHaveBeenCalledWith(
+        'Vercel-CDN-Cache-Control',
+        expect.anything(),
+      );
+    });
+
     it('targets the configured backend origin in deployed environments', async () => {
       process.env.BACKEND_API_URL = 'https://backend.example.com';
       mockReq.headers = { host: 'onesecondswe.dev' };

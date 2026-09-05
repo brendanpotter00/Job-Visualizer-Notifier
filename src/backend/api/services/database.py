@@ -474,9 +474,14 @@ def get_user_company_jobs(
 ) -> list[dict]:
     """Owner-scoped read of a private custom company's jobs (E7).
 
-    The ONLY read path that returns ``visibility='user'`` jobs. Authorization
-    (the caller owns this company) is enforced by the router BEFORE calling this
-    — there is no viewer arg here. Scoped by BOTH ``company`` and
+    The only read path KEYED BY A COMPANY ID that returns ``visibility='user'``
+    jobs. Authorization (the caller owns this company) is enforced by the router
+    BEFORE calling this — there is no viewer arg here. It is no longer the only
+    such read path at all: since the owner-scoped Recent feed,
+    ``job_search.build_search_where`` returns them too, but from a server-derived
+    ``custom:<id>`` set rather than from an id on the request — see
+    :data:`_OWNED_USER_COMPANY_PREDICATE` above for why that distinction is the
+    whole safety argument. Scoped by BOTH ``company`` and
     ``source_id = custom:<id>`` so the query can only ever surface this one
     company's rows even if a company id were somehow reused.
 

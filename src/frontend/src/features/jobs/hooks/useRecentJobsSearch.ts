@@ -409,9 +409,13 @@ export function useRecentJobsSearch(): RecentJobsSearch {
   // `cachedPageParams[0]` — always `null` here — and then walks forward via
   // `getNextPageParam` on the new data), so no stale token survives it.
   //
-  // Reachable only after a backend deploy moves the cursor version or the
-  // fingerprint inputs mid-session; the client cannot produce it on its own,
-  // because RTK Query keys the cache by the whole filter set.
+  // Reachable two ways now. A backend deploy that moves the cursor version or
+  // the fingerprint inputs mid-session was the original one. The second arrived
+  // with the owner-scoped feed: the reader's VISIBILITY SCOPE is a fingerprint
+  // input resolved from the bearer token, and it is NOT part of
+  // `SearchJobsArgs`, so a session expiring — or a custom board being added —
+  // between two pages moves the server's fingerprint without moving this cache
+  // entry's key. RTK Query keys by the filter set; it never keyed by the viewer.
   const retry = useCallback(() => {
     if (errorScope === 'nextPage' && status !== STALE_CURSOR_STATUS) rtkFetchNextPage();
     else refetch();

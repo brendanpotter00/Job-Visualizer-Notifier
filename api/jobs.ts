@@ -136,6 +136,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // the contract's "end of results" signal, so only copy it when present.
     const nextCursor = response.headers.get(NEXT_CURSOR_HEADER);
     if (nextCursor) res.setHeader('X-Next-Cursor', nextCursor);
+    // The search response VARIES BY VIEWER: it includes the caller's own
+    // `visibility='user'` boards, resolved from the Authorization header this
+    // proxy now forwards. Two readers sending the same query string get
+    // different rows, so a shared cache keyed on the URL would serve one of them
+    // the other's private board.
+    //
+    // Set here rather than relied on from upstream for exactly the reason the
+    // cursor header above is: `forwardResponse` copies status + body only, so
+    // the backend's own `Cache-Control` and `Vary` die at this hop. The
+    // `facets`-only gate below is what keeps this response uncached today; this
+    // line is what keeps that true if the gate ever widens.
+    if (sub === 'search') {
+      res.setHeader('Cache-Control', 'private, no-store');
+      res.setHeader('Vary', 'Authorization');
+    }
     // Edge-cache ONLY the facets catalog. It is effectively immutable — the
     // enrichment taxonomy changes only on a migration+deploy — so a full-day
     // edge TTL with a week of stale-while-revalidate removes the ~0.7 s

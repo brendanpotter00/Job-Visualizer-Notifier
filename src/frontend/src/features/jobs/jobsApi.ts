@@ -36,10 +36,15 @@ interface JobsQueryResult {
  * never clear. `useRecentJobsSearch` keys its recovery on this status instead
  * (retry restarts the walk), which is the whole reason it has its own code.
  *
- * Unreachable from THIS client today — RTK Query's per-arg cache isolation means
- * a cursor and the filters that minted it always travel together — but reachable
- * the first time a backend deploy moves `_SEARCH_CURSOR_VERSION` or the
- * fingerprint inputs mid-session, which is exactly when nobody is watching.
+ * Reachable from THIS client in two ways, and the second one arrived with the
+ * owner-scoped Recent feed. (1) A backend deploy that moves
+ * `_SEARCH_CURSOR_VERSION` or the fingerprint inputs mid-session — the original
+ * case, and the one nobody is watching for. (2) The reader's VISIBILITY SCOPE
+ * moving mid-walk: the backend folds the caller's own custom boards into the
+ * cursor fingerprint and resolves that set from the bearer token, so a session
+ * expiring — or the reader adding a board — between two pages changes the query
+ * without changing the RTK Query args that key this cache entry. Per-arg cache
+ * isolation covers the FILTERS; it has never covered the VIEWER.
  */
 export const STALE_CURSOR_STATUS = 409;
 
