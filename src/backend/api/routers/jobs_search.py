@@ -48,7 +48,7 @@ from ..services.job_search import (
     LocationDescriptor,
     SearchFilters,
     get_search_counts,
-    resolve_location_ids,
+    resolve_location_filter,
     resolve_location_selections,
     search_jobs,
 )
@@ -492,10 +492,15 @@ def search(
         location_descriptors = (
             resolve_location_selections(conn, locations) if locations else {}
         )
-        location_ids = (
-            resolve_location_ids(conn, locations, location_descriptors)
+        # Split resolution (Perf Wave 2, C2): ``country_paths`` seek the
+        # denormalized ``primary_country``; ``other_location_ids`` is the id-set
+        # EXISTS for every non-country tier + every exact-name branch;
+        # ``all_location_ids`` is their union, fingerprinted below so the cursor's
+        # catalog-drift 409 behaviour is byte-identical to the pre-split resolver.
+        country_paths, other_location_ids, all_location_ids = (
+            resolve_location_filter(conn, locations, location_descriptors)
             if locations
-            else []
+            else ([], [], [])
         )
 
         # Fingerprint the EFFECTIVE filter set (post-validation, post-dedupe) so two
@@ -524,13 +529,15 @@ def search(
                 "location": locations or [],
                 "location_resolved": _fingerprint_location_descriptors(location_descriptors),
                 # The RESOLVED descriptors above are a proxy for the filter; the
-                # effective set the WHERE clause actually probes is ``location_ids``,
-                # and a catalog INSERT can grow that set (a new row matching an
-                # existing selection's tier predicate) while the winning descriptor
-                # is unchanged. Fingerprinting the ids too means the cursor 409s the
-                # moment the probed set moves, instead of silently walking a
-                # different location filter mid-page.
-                "location_ids": [str(location_id) for location_id in location_ids],
+                # effective set the WHERE clause actually probes is the resolved
+                # ids, and a catalog INSERT can grow that set (a new row matching
+                # an existing selection's tier predicate) while the winning
+                # descriptor is unchanged. Fingerprinting the ids too means the
+                # cursor 409s the moment the probed set moves, instead of silently
+                # walking a different location filter mid-page. ``all_location_ids``
+                # is the FULL union (country tiers included), so this fingerprint
+                # is unchanged by the Wave-2 country/other split.
+                "location_ids": [str(location_id) for location_id in all_location_ids],
                 "include": include_terms or [],
                 "exclude": exclude_terms or [],
             }
@@ -563,7 +570,8 @@ def search(
             "levels": levels,
             "companies": companies,
             "locations": locations,
-            "location_ids": location_ids,
+            "location_ids": other_location_ids,
+            "location_country_paths": country_paths,
             "include": include_terms,
             "exclude": exclude_terms,
         }

@@ -21,6 +21,8 @@ from typing import Any
 
 from psycopg2.extensions import connection as Connection
 
+from scripts.shared.database import recompute_search_text_for
+
 from ..config import settings
 from .db_rows import scalar
 from .enrichment_writer import CATEGORY_SLUGS, LEVEL_SLUGS, MAX_TAGS_PER_JOB
@@ -403,6 +405,9 @@ def apply_correction(
                 "ON CONFLICT (source_id, job_listing_id, tag) DO NOTHING",
                 (source_id, job_listing_id, tag),
             )
+        # Perf Wave 2: the corrected tag set changes the denormalized search_text
+        # haystack — recompute it in the same transaction as the tag rewrite.
+        recompute_search_text_for(cur, source_id, job_listing_id)
         # The audit row may not exist (e.g. correcting a never-enriched job an
         # admin found by hand) — upsert so the lock + provenance always land.
         # The correction note rides in judge_notes with an explicit [human]
@@ -563,6 +568,9 @@ def request_reenrich(
             "DELETE FROM job_tags WHERE source_id = %s AND job_listing_id = %s",
             (source_id, job_listing_id),
         )
+        # Perf Wave 2: dropping the tags empties that part of the denormalized
+        # search_text — recompute it in the same transaction as the tag delete.
+        recompute_search_text_for(cur, source_id, job_listing_id)
         cur.execute(
             "UPDATE job_enrichment SET needs_human = false, "
             "human_corrected_at = NULL, human_corrected_by = NULL, "

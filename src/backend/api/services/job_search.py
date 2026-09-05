@@ -75,14 +75,23 @@ class SearchFilters(TypedDict):
     levels: list[str] | None
     companies: list[str] | None
     locations: list[str] | None
-    # The concrete ``locations.id`` set the ``locations`` selections resolve to,
-    # pre-computed once per request by :func:`resolve_location_ids` and shared by
-    # the page and count queries. ``locations`` is kept alongside it only to tell
-    # whether a location filter is ACTIVE (a non-empty ``locations`` with an empty
-    # ``location_ids`` is a name-miss that must still match nothing, not "no
-    # filter"). See :func:`_location_predicate` for why ids replaced the per-row
-    # cross-table ``EXISTS (… JOIN locations …)`` the descriptors used to drive.
+    # The ``locations.id`` set for every location selection EXCEPT the country
+    # TIER of a country-tier selection — i.e. the exact-canonical-name branch of
+    # every selection plus the full match group of region/city/remote selections,
+    # pre-resolved once per request by :func:`resolve_location_filter`. The
+    # country tier is split out into :data:`location_country_paths` so it can seek
+    # on the denormalized ``primary_country`` (Perf Wave 2, C2). ``locations`` is
+    # kept alongside these two only to tell whether a location filter is ACTIVE (a
+    # non-empty ``locations`` that resolves to neither an id nor a country path is
+    # a name-miss that must still match nothing, not "no filter"). See
+    # :func:`_location_predicate` for why ids replaced the per-row cross-table
+    # ``EXISTS (… JOIN locations …)`` the descriptors used to drive.
     location_ids: list[int] | None
+    # Per country-tier selection: ``(ISO country code, member locations.id set)``.
+    # The code drives the ``primary_country = %s`` fast path; the id set is the
+    # NULL-``primary_country`` fallback's ``job_locations`` probe (the country
+    # tier's own rows). See :func:`build_search_where` / WAVE2-PLAN.md §5a.
+    location_country_paths: list[tuple[str, list[int]]] | None
     include: list[str] | None
     exclude: list[str] | None
 
@@ -121,9 +130,43 @@ def _like_pattern(term: str) -> str:
 
 # One keyword term against the searchable text of a job.
 #
-# The frontend haystack is ``[title, department, team, location, ...tags]`` joined
-# with spaces and lower-cased, and this reproduces it field by field:
+# FAST PATH + FALLBACK (Perf Wave 2, C3). ``job_listings.search_text`` is a
+# denormalized, lower-cased ``title ‖ raw location ‖ company ‖ tags`` haystack
+# (migration ``e3b1a4c9d7f2``), covered by a GIN trigram index — so
+# ``search_text ILIKE '%term%'`` is one bitmap probe instead of the 4-way OR that
+# spans ``job_listings`` and ``job_tags`` and no per-column trigram can serve.
+# But ``search_text`` is nullable and populated lazily (write path + a bounded
+# post-deploy backfill), so a row whose value is NULL has NOT been computed yet
+# and seeking on it would DROP the row. The predicate therefore keeps the
+# ORIGINAL 4-way OR verbatim as a fallback for exactly those NULL rows:
 #
+#   (search_text IS NOT NULL AND search_text ILIKE %s)    -- backfilled: fast path
+#   OR (search_text IS NULL AND <original 4-way OR>)       -- not-yet-filled
+#
+# This is provably parity-exact with the old predicate for any population state
+# (WAVE2-PLAN.md §5b): ``search_text`` is built with the SAME field set the OR
+# tested, so a backfilled row matches iff the OR would, and a NULL row runs the
+# OR itself. As the backfill drains NULLs the fast branch fires more and the
+# fallback less. There is NO longer a boundary divergence: ``search_text`` joins
+# its fields (and its tags) with ``chr(10)`` (a newline), and
+# ``routers/jobs_search.py``'s ``_validate_text_list`` rejects control characters
+# (newline included) in a term, so a multi-word term can never straddle a field or
+# tag boundary the per-field OR would not — matching the fallback exactly on both
+# the include and the exclude path. (See ``SEARCH_TEXT_EXPR`` in
+# ``scripts/shared/database.py`` for the separator's rationale.)
+#
+# WHY THE ``IS NOT NULL`` GUARD ON THE FAST BRANCH, not the plan's bare
+# ``search_text ILIKE %s OR (…)``: on the EXCLUDE path the whole predicate is
+# wrapped in ``NOT (…)``, and for a NULL-``search_text`` row ``NULL ILIKE %s`` is
+# NULL — ``NULL OR (NULL IS NULL AND <false OR>)`` collapses to NULL, and
+# ``NOT (NULL)`` is NULL, which Postgres drops. That is the very
+# null-drops-the-row hazard the ``COALESCE(location,'')`` below guards against,
+# reintroduced one level up. Gating the fast branch on ``search_text IS NOT
+# NULL`` and the fallback on ``search_text IS NULL`` makes the whole expression
+# total (each branch is boolean under its guard, so the OR is boolean, never
+# NULL) — safe under both include and exclude.
+#
+# The original 4-way OR, now the fallback, unchanged. Its field set:
 # * ``department`` is NOT matched, and the history here is worth keeping because
 #   it reversed twice. It used to be ``details.experience_level`` on the frontend
 #   (``backendScraperTransformer.ts``), mirrored into the denormalized
@@ -138,42 +181,45 @@ def _like_pattern(term: str) -> str:
 #   return jobs whose title says nothing about seniority, which is exactly the
 #   ATS-assigned noise #260 removed from the job card. Matching the deployed
 #   client is the whole contract of this predicate, so the column is dropped.
+#   ``search_text`` is derived from the same fields, so it excludes it too.
 # * ``team`` is never populated by any transformer, so it contributes nothing.
 # * ``company`` IS searched, which the frontend does not do. Typing "stripe" into
 #   a keyword box and getting Stripe's jobs is what users expect.
 #
-# The one remaining divergence: terms match per-FIELD rather than against one
-# space-joined string, so a term straddling a field boundary (the tail of the
-# title plus the head of the location) no longer matches. That was accidental
-# behaviour, not a feature.
-#
-# ``COALESCE(..., '')`` on ``location`` (the one nullable column left in this
-# chain) is load-bearing and NOT defensive noise. Without it, a row whose
-# ``location`` is NULL and which matches none of the other fields makes this
-# whole OR-chain evaluate to NULL rather than false — and on the exclude path ``AND NOT (NULL)`` is NULL,
-# which drops the row from the result set. A negative keyword would then silently
-# hide every location-less job. ``title`` and ``company`` are NOT NULL.
+# ``COALESCE(..., '')`` on ``location`` (the one nullable column in the OR) is
+# load-bearing and NOT defensive noise. Without it, a NULL-location row that
+# matches none of the other fields makes the OR evaluate to NULL rather than
+# false — and on the exclude path ``AND NOT (NULL)`` is NULL, which drops the
+# row. A negative keyword would then silently hide every location-less job.
+# ``title`` and ``company`` are NOT NULL. (``search_text`` on the fast branch is
+# built with ``coalesce``s too, so it is never NULL for a backfilled row.)
 #
 # ``ESCAPE '\'`` is stated explicitly rather than relying on LIKE's default, so
 # the escape character is part of the query text.
 _KEYWORD_PREDICATE = sql.SQL(
     "("
-    " job_listings.title ILIKE %s ESCAPE '\\'"
-    " OR COALESCE(job_listings.location, '') ILIKE %s ESCAPE '\\'"
-    " OR job_listings.company ILIKE %s ESCAPE '\\'"
-    " OR EXISTS ("
-    "   SELECT 1 FROM job_tags t"
-    "   WHERE t.source_id = job_listings.source_id"
-    "     AND t.job_listing_id = job_listings.id"
-    "     AND t.tag ILIKE %s ESCAPE '\\')"
+    " (job_listings.search_text IS NOT NULL"
+    "  AND job_listings.search_text ILIKE %s ESCAPE '\\')"
+    " OR (job_listings.search_text IS NULL AND ("
+    "   job_listings.title ILIKE %s ESCAPE '\\'"
+    "   OR COALESCE(job_listings.location, '') ILIKE %s ESCAPE '\\'"
+    "   OR job_listings.company ILIKE %s ESCAPE '\\'"
+    "   OR EXISTS ("
+    "     SELECT 1 FROM job_tags t"
+    "     WHERE t.source_id = job_listings.source_id"
+    "       AND t.job_listing_id = job_listings.id"
+    "       AND t.tag ILIKE %s ESCAPE '\\')"
+    " ))"
     ")"
 )
 
-_KEYWORD_PARAM_COUNT = 4
+# One copy of the pattern for the fast ``search_text`` branch, plus the four the
+# original OR bound (title / location / company / tag).
+_KEYWORD_PARAM_COUNT = 5
 
 
 def _keyword_condition(term: str) -> tuple[sql.Composable, list[str]]:
-    """One escaped keyword term plus the four copies of its pattern it binds."""
+    """One escaped keyword term plus the five copies of its pattern it binds."""
     pattern = _like_pattern(term)
     return _KEYWORD_PREDICATE, [pattern] * _KEYWORD_PARAM_COUNT
 
@@ -425,48 +471,104 @@ def _location_match_group(
     return sql.SQL("(") + sql.SQL(" OR ").join(branches) + sql.SQL(")"), params
 
 
-def resolve_location_ids(
+# The country tier's own ``locations`` rows: the exact predicate the country
+# branch of :func:`_tier_condition` carries, resolved to an id set at request
+# time so the NULL-``primary_country`` fallback probes ``job_locations`` with the
+# same join-free int-array test :func:`_location_predicate` uses.
+_COUNTRY_TIER_IDS_SQL = sql.SQL(
+    "SELECT id FROM locations l WHERE l.kind <> 'remote' AND upper(l.country) = %s"
+)
+
+
+def resolve_location_filter(
     conn: Connection,
     selections: list[str],
     descriptors: dict[str, LocationDescriptor],
-) -> list[int]:
-    """Resolve every active location selection to the UNION of matching ``locations.id``.
+) -> tuple[list[tuple[str, list[int]]], list[int], list[int]]:
+    """Resolve active location selections into the country fast path + the id-set path.
 
-    The app half of owner decision ③. The query filter no longer joins
-    ``locations`` per candidate row and calls ``upper()`` on every one; instead the
-    hierarchy is walked ONCE here, against the small ``locations`` catalog, and the
-    resulting integer set is probed directly on ``job_locations`` (see
-    :func:`_location_predicate`).
+    Returns ``(country_paths, other_ids, all_ids)``:
 
-    Why the union is exact, not a widening: the whole location filter is
-    ``loc(sel₁) OR loc(sel₂) OR …`` over the same ``job_locations`` rows, and the
-    EXISTS quantifier distributes over OR — a job matches iff it carries a tag whose
-    ``normalized_location_id`` is in ``ids(sel₁) ∪ ids(sel₂) ∪ …``. So one EXISTS
-    over the combined id set means precisely what N per-selection EXISTS clauses
-    meant, and the duplicate-canonical-name resolution is preserved untouched: each
-    selection's TIER branch still uses only its single ranked descriptor (from
-    :func:`resolve_location_selections`), while the exact-``canonical_name`` branch
-    still matches every same-named row — exactly as the old predicate did.
+    * ``country_paths`` — for each DISTINCT country-tier selection, ``(ISO code,
+      member locations.id set)``. The code feeds the ``primary_country = %s`` seek
+      (Perf Wave 2, C2); the id set is the fallback ``job_locations`` probe for
+      rows whose ``primary_country IS NULL`` (its own country-tier rows only).
+    * ``other_ids`` — the UNION of every selection's exact-``canonical_name``
+      branch plus the FULL match group of every NON-country selection
+      (region/city/remote), probed by :func:`_location_predicate` exactly as
+      before. Region/city/remote tiers are unchanged — they match far fewer rows,
+      so the planner never mis-estimated them.
+    * ``all_ids`` — ``other_ids`` ∪ every country tier's ids, i.e. the SAME set
+      the pre-Wave-2 single-union resolver returned. It exists solely for the
+      cursor fingerprint, so splitting the WHERE clause does not perturb which
+      catalog growth invalidates a walk.
 
-    Returns ``[]`` when nothing resolves. A caller with an active ``locations``
-    filter whose ids are empty must still emit a predicate that matches nothing (a
-    name-miss), which is why the empty case is handled at the call site, not by
-    skipping the filter.
+    WHY THE SPLIT IS PARITY-EXACT (WAVE2-PLAN.md §5a). The whole location filter
+    is ``loc(sel₁) OR loc(sel₂) OR …`` and EXISTS distributes over OR, so the old
+    single ``EXISTS(id ∈ ⋃ ids(sel))`` equals ``OR_sel [NameExists(sel) OR
+    TierExists(sel)]``. This function keeps every ``NameExists`` and every
+    non-country ``TierExists`` in ``other_ids`` untouched; it only lifts a
+    country selection's ``TierExists(sel)`` out, and :func:`build_search_where`
+    replaces it with ``primary_country = code OR (primary_country IS NULL AND
+    TierExists(sel))`` — which is row-for-row equal to ``TierExists(sel)`` because
+    ``primary_country = code`` is a strict subset of it (a job whose single
+    non-remote country is ``code`` necessarily carries a country-tier row) and a
+    non-matching or NULL value falls through to the identical EXISTS. So the
+    result set is unchanged for ANY population state of ``primary_country``,
+    including entirely un-backfilled.
+
+    Returns ``([], [], [])`` when nothing resolves. A caller with an active
+    ``locations`` filter that resolves to neither a country path nor an id must
+    still emit a predicate matching nothing (a name-miss) — handled at the call
+    site (:func:`build_search_where`), not by skipping the filter.
     """
     if not selections:
-        return []
-    groups: list[sql.Composable] = []
-    params: list = []
-    for selection in selections:
-        clause, clause_params = _location_match_group(
-            selection, descriptors.get(selection)
-        )
-        groups.append(clause)
-        params.extend(clause_params)
-    query = sql.SQL("SELECT id FROM locations l WHERE ") + sql.SQL(" OR ").join(groups)
+        return [], [], []
+    other_groups: list[sql.Composable] = []
+    other_params: list = []
+    # Keyed by ISO code so two selections resolving to the same country (e.g.
+    # "United States" and a catalog "USA" row) contribute one fast path, and the
+    # order stays the selections' first-seen order for stable SQL.
+    country_ids: dict[str, list[int]] = {}
     with conn.cursor() as cursor:
-        cursor.execute(query, params)
-        return sorted({int(row["id"]) for row in cursor.fetchall()})
+        for selection in selections:
+            descriptor = descriptors.get(selection)
+            if (
+                descriptor is not None
+                and descriptor["tier"] == "country"
+                and descriptor["country"] is not None
+            ):
+                country = descriptor["country"]
+                # Only the country TIER moves to the fast path; the exact-name
+                # branch stays in the id-set union, exactly as before — so a
+                # (pathological) job tagged with a same-named remote row still
+                # matches through ``other_ids``.
+                other_groups.append(sql.SQL("l.canonical_name = %s"))
+                other_params.append(selection)
+                if country not in country_ids:
+                    cursor.execute(_COUNTRY_TIER_IDS_SQL, (country,))
+                    country_ids[country] = sorted(
+                        {int(row["id"]) for row in cursor.fetchall()}
+                    )
+            else:
+                clause, clause_params = _location_match_group(selection, descriptor)
+                other_groups.append(clause)
+                other_params.extend(clause_params)
+
+        if other_groups:
+            query = sql.SQL("SELECT id FROM locations l WHERE ") + sql.SQL(
+                " OR "
+            ).join(other_groups)
+            cursor.execute(query, other_params)
+            other_ids = sorted({int(row["id"]) for row in cursor.fetchall()})
+        else:  # pragma: no cover - every selection contributes at least a name branch
+            other_ids = []
+
+    country_paths = [(code, ids) for code, ids in country_ids.items()]
+    all_id_set = set(other_ids)
+    for ids in country_ids.values():
+        all_id_set.update(ids)
+    return country_paths, other_ids, sorted(all_id_set)
 
 
 def _location_predicate(location_ids: list[int]) -> tuple[sql.Composable, list]:
@@ -492,6 +594,30 @@ def _location_predicate(location_ids: list[int]) -> tuple[sql.Composable, list]:
         ),
         [location_ids],
     )
+
+
+# One country-tier selection's predicate (Perf Wave 2, C2). The fast branch seeks
+# the denormalized ``primary_country`` — which carries real column stats, so the
+# planner keeps the ordered ``idx_job_listings_open_country_keyset`` walk and
+# early-stops at the LIMIT instead of top-N sorting ~25k rows. The fallback fires
+# ONLY for rows whose ``primary_country IS NULL`` (multi-country, remote-only,
+# untagged, or not-yet-backfilled) and re-runs the ORIGINAL country-tier test as
+# a join-free int-array probe over that selection's own ``locations`` rows, so a
+# not-yet-filled value is never a wrong answer. Binds ``[country_code,
+# tier_ids]``. Never negated (the location filter is inclusion-only), so a NULL
+# result on a NULL-``primary_country`` non-match is indistinguishable from false
+# under the AND — exactly as the plain EXISTS was.
+_COUNTRY_TIER_PREDICATE = sql.SQL(
+    "("
+    " job_listings.primary_country = %s"
+    " OR ("
+    "  job_listings.primary_country IS NULL AND EXISTS ("
+    "   SELECT 1 FROM job_locations jl"
+    "   WHERE jl.job_listing_id = job_listings.id"
+    "   AND jl.normalized_location_id = ANY(%s::int[]))"
+    " )"
+    ")"
+)
 
 
 # ---------------------------------------------------------------------------
@@ -523,6 +649,7 @@ def build_search_where(
     levels: list[str] | None = None,
     companies: list[str] | None = None,
     location_ids: list[int] | None = None,
+    location_country_paths: list[tuple[str, list[int]]] | None = None,
     locations: list[str] | None = None,
     include: list[str] | None = None,
     exclude: list[str] | None = None,
@@ -589,14 +716,30 @@ def build_search_where(
         params.append(since)
 
     if locations:
-        # One EXISTS over the pre-resolved id set (owner decision ③, app half).
-        # ``locations`` gates the filter as ACTIVE; ``location_ids`` is what it
-        # resolved to. An empty set is a name-miss and still matches nothing —
-        # emitted here rather than skipped, so an active filter never degrades to
-        # "no filter".
-        clause, clause_params = _location_predicate(location_ids or [])
-        conditions.append(clause)
-        params.extend(clause_params)
+        # The location filter is ``loc(sel₁) OR loc(sel₂) OR …``. Country-tier
+        # selections take the ``primary_country`` fast path (Perf Wave 2, C2);
+        # every other selection and every selection's exact-name branch stay on
+        # the pre-resolved id-set EXISTS (owner decision ③, app half). ``locations``
+        # gates the filter as ACTIVE; the split is what it resolved to (see
+        # :func:`resolve_location_filter`).
+        location_branches: list[sql.Composable] = []
+        for country_code, tier_ids in location_country_paths or []:
+            location_branches.append(_COUNTRY_TIER_PREDICATE)
+            params.append(country_code)
+            params.append(tier_ids)
+        other_ids = location_ids or []
+        # Emit the id-set EXISTS whenever it carries rows, OR when there is no
+        # country path at all — the latter keeps the name-miss case (an active
+        # filter that resolved to nothing) matching NOTHING via ``= ANY('{}')``,
+        # exactly as before. When country paths do the work and there are no other
+        # ids, it is skipped so no dead empty-array semi-join is planned.
+        if other_ids or not location_country_paths:
+            clause, clause_params = _location_predicate(other_ids)
+            location_branches.append(clause)
+            params.extend(clause_params)
+        conditions.append(
+            sql.SQL("(") + sql.SQL(" OR ").join(location_branches) + sql.SQL(")")
+        )
 
     if include:
         branches: list[sql.Composable] = []

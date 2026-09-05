@@ -18,6 +18,8 @@ from typing import Any
 
 from psycopg2.extensions import connection as Connection
 
+from scripts.shared.database import recompute_search_text_for
+
 from .llm_client import CanonicalLocation
 from .location_normalization import normalize_string, persist_llm_result
 
@@ -242,6 +244,13 @@ def apply_result(
                 "DELETE FROM job_tags WHERE source_id = %s AND job_listing_id = %s",
                 (source_id, job_id),
             )
+        # Perf Wave 2: search_text (the denormalized keyword haystack) folds in
+        # job_tags, so recompute it in this SAME transaction now that the tag set
+        # for this row is settled — published tags inserted, or demote/lock dropped
+        # them. The row is guaranteed to exist here (both UPDATEs above raise on 0
+        # rows). primary_country is NOT touched here — it tracks job_locations,
+        # which persist_llm_result below refreshes when a location is present.
+        recompute_search_text_for(cur, source_id, job_id)
     finally:
         cur.close()
 
