@@ -152,6 +152,26 @@ export function MyCompaniesPage() {
   const boardsAreTheQuestion =
     candidates !== null && candidates.candidates.some((found) => found.autoAddable);
 
+  /**
+   * NOTHING CAME BACK THAT WE COULD CONFIRM — and this state gets ONE card.
+   *
+   * It used to get two. `CareersPageAnswer` said "No board we can confirm belongs to
+   * “Linkedin” · Try pasting the URL of their careers page", and `NameSearchProgress`
+   * stacked the same news above it in machine terms: "None of the 25 results was on
+   * their own site", "17 aggregator or social results dropped", and a numbered list of
+   * raw URLs with an orange `not “Linkedin”` against each. Owner, 2026-09-05: *"I don't
+   * like how there's two different no-boards-were-found states and cards. It should
+   * just be very simple. There shouldn't be orange… it's just a no-boards, very
+   * simple."*
+   *
+   * The narration is suppressed HERE ONLY. It still runs while the request is out —
+   * that spinner is the page's only in-flight signal — and it still narrates the two
+   * states whose numbers answer a question the reader is actually being asked:
+   * "Which board is X?", and "we already publish this".
+   */
+  const nothingWasConfirmed =
+    candidates !== null && !candidates.alreadyPublic && !boardsAreTheQuestion;
+
   // The correction under a GUESSED "we already publish this" notice — the one where the
   // backend matched the company name inside the domain (`matchKind: 'name'`) rather than
   // a board. It re-sends the URL the server settled on with the override, so the board is
@@ -435,8 +455,12 @@ export function MyCompaniesPage() {
             a single confident result is added immediately without a list ever
             appearing, and flashing four lines of narration on the way past would be
             motion for something nobody is being asked to read. `NameSearchProgress`
-            has the rest — in particular why its only spinner is the request itself. */}
-        {!adding ? (
+            has the rest — in particular why its only spinner is the request itself.
+
+            Hidden too when `nothingWasConfirmed`: that state is a plain "we found no
+            board we can vouch for", and the narration was a second card saying the
+            same thing in counts and raw URLs. See `nothingWasConfirmed` above. */}
+        {!adding && !nothingWasConfirmed ? (
           <NameSearchProgress query={searchedName} searching={searching} result={candidates} />
         ) : null}
 

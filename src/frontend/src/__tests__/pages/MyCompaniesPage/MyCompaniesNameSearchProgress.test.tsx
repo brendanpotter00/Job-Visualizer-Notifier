@@ -294,12 +294,29 @@ describe('MyCompaniesPage — the narrated name search', () => {
   it('narrates what it can when the backend sent no trace', async () => {
     // Vercel and Railway deploy separately; a new client talks to the previous
     // backend for a few minutes after every ship. Fewer steps, never invented ones.
+    //
+    // TWO candidates, one of them auto-addable, because that is the state the panel is
+    // FOR — a real question about which board is right. A lone rejected board is the
+    // no-boards state, which renders one plain card and no narration at all; see
+    // 'collapses the no-boards answer to one plain card' below.
+    const second = candidate({
+      candidate: {
+        ats: 'greenhouse',
+        boardToken: 'databricks-labs',
+        providerConfig: {},
+        sourceUrl: 'https://boards.greenhouse.io/databricks-labs',
+      },
+      probe: { ok: true, jobCount: 12, error: null },
+      sourceUrl: 'https://boards.greenhouse.io/databricks-labs',
+      rank: 2,
+      autoAddable: false,
+    });
     fetchMock.mockImplementation((req: Request) =>
       Promise.resolve(
         req.url.includes('search-by-name')
           ? jsonResponse({
               query: 'Databricks',
-              candidates: [candidate({ autoAddable: false })],
+              candidates: [candidate(), second],
               careersUrl: null,
             })
           : jsonResponse(CREATED, 201)
@@ -315,10 +332,83 @@ describe('MyCompaniesPage — the narrated name search', () => {
     expect(screen.queryByTestId('name-search-detail-search')).not.toBeInTheDocument();
     expect(screen.queryByTestId('name-search-step-results')).not.toBeInTheDocument();
     expect(screen.getByTestId('name-search-step-boards')).toHaveTextContent(
-      'Checked it for open jobs'
+      'Checked all 2 for open jobs'
     );
-    // The board it DID send still gets a row. The results it did not name do not:
+    // The boards it DID send get a row each. The results it did not name do not:
     // there is no path from "25 results" to twenty-five rows.
-    expect(screen.getAllByTestId('name-search-row')).toHaveLength(1);
+    expect(screen.getAllByTestId('name-search-row')).toHaveLength(2);
+  });
+
+  it('collapses the no-boards answer to one plain card', async () => {
+    // THE TWO-CARD STATE, GONE. A name that confirms nothing used to render the plain
+    // "we could not confirm this" card AND, stacked above it, the whole search trace:
+    // result counts, "N aggregator or social results dropped", a numbered list of raw
+    // URLs, and an orange `not “Linkedin”` beside each board.
+    const harvey = candidate({
+      candidate: {
+        ats: 'ashby',
+        boardToken: 'harvey',
+        providerConfig: {},
+        sourceUrl: 'https://jobs.ashbyhq.com/Harvey',
+      },
+      probe: { ok: true, jobCount: 346, error: null },
+      sourceUrl: 'https://jobs.ashbyhq.com/Harvey',
+      rank: 25,
+      autoAddable: false,
+    });
+    fetchMock.mockImplementation((req: Request) =>
+      Promise.resolve(
+        req.url.includes('search-by-name')
+          ? jsonResponse({
+              query: 'Linkedin',
+              candidates: [harvey],
+              careersUrl: null,
+              trace: {
+                query: TRACE_QUERY,
+                results: 25,
+                filtered: 17,
+                boards: 1,
+                nonBoards: [
+                  { url: 'https://www.indeed.com/q-linkedin-jobs', rank: 2, aggregator: true },
+                ],
+                nonBoardsOmitted: 7,
+              },
+              careersSearch: {
+                query: 'Linkedin careers',
+                results: 25,
+                filtered: 17,
+                trusted: 0,
+              },
+            })
+          : jsonResponse(CREATED, 201)
+      )
+    );
+    renderWithProviders(<MyCompaniesPage />);
+
+    await submit('Linkedin');
+
+    // The one card that survives, in the register a person actually reads...
+    const answer = await screen.findByTestId('careers-page-answer');
+    expect(answer).toHaveTextContent('No board we can confirm belongs to “Linkedin”');
+    expect(answer).toHaveTextContent('Try pasting the URL of their careers page.');
+    // ...and the fold under it, which is the only way out of this state when the gate
+    // was too strict. These two are what keep every negative below non-vacuous: they
+    // fail if the state stops rendering rather than merely losing its diagnostics.
+    expect(
+      screen.getByRole('button', { name: /show 1 other board we found/i })
+    ).toBeInTheDocument();
+
+    // The diagnostic card is gone, and with it every part of it that was the
+    // complaint: the counts, the second search's verdict, the raw result URLs, the
+    // result index, and the orange rejection label.
+    expect(screen.queryByTestId('name-search-progress')).not.toBeInTheDocument();
+    expect(screen.queryAllByTestId('name-search-row')).toHaveLength(0);
+    expect(screen.queryByText(/results came back/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/aggregator or social result/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/was on their own site/i)).not.toBeInTheDocument();
+    expect(
+      screen.queryByText('https://www.indeed.com/q-linkedin-jobs')
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText('not “Linkedin”')).not.toBeInTheDocument();
   });
 });
