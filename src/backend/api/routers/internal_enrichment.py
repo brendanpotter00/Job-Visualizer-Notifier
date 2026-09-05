@@ -7,8 +7,9 @@ laptop makes only OUTBOUND calls to these routes:
     GET  /pending?limit=N   claim a batch of unenriched OPEN jobs (server-side
                             claim so concurrent polls never hand out the same rows).
                             Ordered by title-priority tier — entry-level/intern,
-                            then software-engineering, then everything else — with
-                            newest first_seen_at as the within-tier tie-breaker.
+                            then software-engineering (incl. "Member of Technical
+                            Staff"/MTS), then everything else — with newest
+                            first_seen_at as the within-tier tie-breaker.
                             The batch is SPLIT: a reserved share (default 10%)
                             goes to custom (user-added) companies, round-robin
                             across them; the rest keeps the published ordering
@@ -90,10 +91,30 @@ _JOB_PROJECTION = (
 # Postgres ARE spells the word boundary \y (\b is backspace). These are trusted
 # literal constants (no user input), so f-string interpolation into SQL is safe.
 _ENTRY_LEVEL_TITLE_RE = r"\y(intern(ship)?s?|junior|jr|entry[ -]?level|new[ -]?grad(uate)?)\y"
-# No trailing \y on the software root so "Software Engineering" / "…Development"
-# also match; the acronym is matched whole-word separately.
-_SWE_TITLE_RE = r"\ysoftware (engineer|develop)"
-_SWE_ACRONYM_RE = r"\yswe\y"
+# "Member of Technical Staff" lives in these SAME constants rather than a
+# parallel pair: it is not an adjacent category, it is what these companies CALL
+# a software engineer. xAI, Perplexity, Cohere, Fireworks, Modal, Vercel,
+# Microsoft and Salesforce post engineering roles under it, and of the 117 MTS
+# rows prod has already labelled, 109 came back `software_engineering` (the rest
+# `data_scientist`/`business_ops`). Most carry no "software engineer" substring at
+# all, so before this they fell to tier 2 and queued behind a ~20k-row backlog:
+# 247 MTS rows sat below tier 1, 72 of them claimable right now (2026-09).
+#
+# No trailing \y on the software root, so "Software Engineering" / "…Development"
+# also match. The MTS branch DOES take one — "staff" is a whole word there, and
+# without it "Member of Technical Staffing" would claim tier 1. A terminal \y
+# still matches "…Technical Staff," and "…Technical Staff - Backend", because
+# punctuation and whitespace are themselves word boundaries.
+# Optional "the": Vercel writes "Member of the Technical Staff".
+_SWE_TITLE_RE = r"\y(software (engineer|develop)|members? of (the )?technical staff\y)"
+# Acronyms, whole-word: SWE, plus MTS with Salesforce/PayPal's graded prefixes —
+# S/L/P MTS is Senior/Lead/Principal Member of Technical Staff, the same title
+# family. The class is [slp]?, NOT [a-z]?, because GM posts "EMTS Technician"
+# (Engineering Maintenance and Technical Support), a different job entirely.
+# Verified against every title in prod as of 2026-09: 31 acronym-only hits, zero
+# false positives. A future board could still land one (MTS Systems Corp is a real
+# industrial company) — the cost is queue position, never a wrong label.
+_SWE_ACRONYM_RE = r"\y(swe|[slp]?mts)\y"
 
 # The tier expression itself, shared verbatim by BOTH claim passes (published and
 # custom) so the two slices can never drift into different notions of priority.
@@ -293,7 +314,8 @@ def pending(
         # jobs get labelled while still fresh. We front-load the roles we care
         # about most (see _ENTRY_LEVEL_TITLE_RE / _SWE_TITLE_RE above):
         #   tier 0 — entry-level / internships (intern, new grad, junior, entry-level)
-        #   tier 1 — software-engineering (software engineer/dev, SWE)
+        #   tier 1 — software-engineering (software engineer/dev, SWE, and the
+        #            "Member of Technical Staff"/MTS house title for the same job)
         #   tier 2 — everything else
         # An entry-level SWE role (e.g. "Software Engineer Intern") lands in tier 0
         # because tier 0 is tested first — exactly "entry-level before all else".
