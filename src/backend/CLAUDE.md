@@ -182,6 +182,18 @@ filter set in SQL and pages the *result*. Router `routers/jobs_search.py`, SQL
   **repeatable** multi-value filters: `category`, `level`, `company`, `location`,
   `include`, `exclude`. Repeated (`?category=a&category=b`) rather than CSV because
   canonical location names and keywords legitimately contain commas.
+- **Optionally authenticated, and the token changes which rows come back.** The
+  only public read path that is viewer-scoped. A Bearer token is resolved through
+  `get_optional_user_lenient`, so a missing / expired / unverifiable one degrades
+  the caller to anonymous rather than 401-ing the feed. A resolved caller's OWN
+  `visibility='user'` boards are added to the result — `_resolve_owned_source_ids`
+  reads `user_companies` server-side and nothing on the request reaches that set,
+  so it can only ever widen the read by rows the caller provably owns
+  (`database._OWNED_USER_COMPANY_PREDICATE`). The page query and the recency tiles
+  take the SAME scope; a mismatch would publish the *size* of a private board
+  above a list that hides it. Anonymous emits the blanket guard, byte-identical.
+  `api/jobs.ts` forwards `Authorization` only when the caller sent one, and edge-
+  caches `facets` only — never `search`.
 - **Response is an ENVELOPE**, not a bare array: `{jobs, nextCursor, meta}`.
   `nextCursor` present iff the page came back full; **its absence is the only
   end-of-walk signal**. In the body deliberately — `/api/jobs` uses `X-Next-Cursor`
@@ -196,8 +208,10 @@ filter set in SQL and pages the *result*. Router `routers/jobs_search.py`, SQL
   following 3 of 133 boards; adding any other dimension would change what the tile
   means while it still looks like the same number.
 - **Cursors are filter-bound.** A search cursor embeds an 8-hex fingerprint of the
-  filter set (`compute_filter_fingerprint` in `pagination.py`); replaying one under
-  different filters is a **409**, not a silently-incoherent walk. `limit` is excluded
+  filter set AND of the reader's visibility scope (`compute_filter_fingerprint` in
+  `pagination.py`); replaying one under different filters — or as a different
+  viewer, which a session expiring mid-walk does unprompted — is a **409**, not a
+  silently-incoherent walk. `limit` is excluded
   from the fingerprint, so changing page size mid-walk stays legal — but `since` is
   included, so **a client must freeze its window bound and replay it verbatim**.
 - **409 vs 422 on `cursor` is a contract, not a detail.** `409` = the token decoded

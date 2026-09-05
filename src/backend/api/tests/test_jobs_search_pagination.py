@@ -74,12 +74,21 @@ def _fingerprint(
     location_ids: list[int] | None = None,
     include: list[str] | None = None,
     exclude: list[str] | None = None,
+    owned_sources: list[str] | None = None,
 ) -> str:
     """The fingerprint the router computes for a filter set.
 
     Rebuilt from the same primitive rather than scraped off a response, so a test
     that decodes a cursor is checking the cursor's contents and not merely that
     the server agrees with itself.
+
+    THAT INDEPENDENCE HAS A COST, and it is worth naming because it has already
+    been paid once: this mapping is a HAND MIRROR of the one in
+    ``routers/jobs_search.search``, and adding a key there without adding it here
+    does not fail as a missing argument. It fails as a ``StaleCursorError`` out of
+    ``decode_search_cursor`` below — which reads exactly like a paging bug and is
+    not one. If this file starts failing on a fingerprint after a change to the
+    router, check the KEY SET here first.
     """
     return compute_filter_fingerprint(
         {
@@ -100,6 +109,13 @@ def _fingerprint(
             "location_ids": [str(x) for x in (location_ids or [])],
             "include": include or [],
             "exclude": exclude or [],
+            # Mirrors the router: the reader's VISIBILITY SCOPE is part of the
+            # query even though no request parameter carries it, so a cursor minted
+            # signed in is not valid replayed anonymously. Empty for every test
+            # here — they are all anonymous, and the router canonicalizes the
+            # anonymous ``None`` to ``[]``, so "signed out" and "owns nothing" hash
+            # identically and neither can 409 the other's walk.
+            "owned_sources": owned_sources or [],
         }
     )
 

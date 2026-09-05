@@ -28,6 +28,11 @@ import { buildSearchJobsArgs, sinceForTimeWindow } from '../searchJobsArgs.ts';
 import type { SearchJobsCounts } from '../searchJobsTypes.ts';
 import { resolveResultTotal, type ResultTotal } from '../resultTotal.ts';
 import { SIGN_IN_OVERLAY_CONFIG } from '../../../constants/ui.ts';
+import { useGetUserCompaniesQuery } from '../../userCompanies/userCompaniesApi.ts';
+import { CUSTOM_COMPANIES_CONFIG } from '../../../config/customCompanies.ts';
+
+/** Stable empty list, so a skipped query does not remint the args cache key. */
+const NO_OWNED_COMPANIES: readonly string[] = [];
 
 /** Quiet period before a filter edit becomes a request. House convention. */
 const FILTER_DEBOUNCE_MS = 300;
@@ -161,8 +166,34 @@ export function useRecentJobsSearch(): RecentJobsSearch {
   const keywordLists = useGetKeywordListsQuery(undefined, { skip: !isAuthenticated });
   const savedFiltersReady = filtersHydrated || savedFilters.isError || keywordLists.isError;
 
+  // The reader's OWN custom boards. BOTH skips are load-bearing, for the same
+  // reasons documented at `useCompanyLoader.ts`: the endpoint is authed and would
+  // 401 on every anonymous load, and flag-off means the feature makes no network
+  // calls.
+  //
+  // Their ids have to reach `buildSearchJobsArgs` because the enabled-companies
+  // preference cannot carry them — see `BuildSearchJobsArgsInput.ownedCompanyIds`.
+  const {
+    data: ownedCompaniesData,
+    isSuccess: ownedCompaniesLoaded,
+    isError: ownedCompaniesFailed,
+    isUninitialized: ownedCompaniesSkipped,
+  } = useGetUserCompaniesQuery(undefined, {
+    skip: !isAuthenticated || !CUSTOM_COMPANIES_CONFIG.isEnabled,
+  });
+
+  // SETTLED, not "loaded" — the same distinction, and for the same reason, as
+  // `preferencesSettled` above: a failed request must also release the gate, or a
+  // 500 here strands a signed-in reader on skeletons forever with no rows, no
+  // error and no retry. A failure degrades to "no custom boards", which is exactly
+  // what this reader saw before the feature existed. `isUninitialized` is the
+  // SKIPPED case (signed out, or flag off), which is settled on arrival.
+  const ownedCompaniesSettled =
+    ownedCompaniesSkipped || ownedCompaniesLoaded || ownedCompaniesFailed;
+
   const preferencesReady =
-    !authLoading && (!isAuthenticated || (preferencesSettled && savedFiltersReady));
+    !authLoading &&
+    (!isAuthenticated || (preferencesSettled && savedFiltersReady && ownedCompaniesSettled));
 
   // One debounced snapshot of the filters, STAMPED with the instant it settled.
   //
@@ -222,15 +253,37 @@ export function useRecentJobsSearch(): RecentJobsSearch {
     [debouncedFilters.timeWindow, snapshot.at]
   );
 
+  // Keyed on CONTENT, not on the query object's identity.
+  //
+  // `data` is a fresh reference after any refetch — and this query IS refetched:
+  // `addUserCompany` / `removeUserCompany` invalidate the `MyCompanies` tag, and
+  // `MyCompaniesList` subscribes with a `pollingInterval`. Memoizing on `data`
+  // itself would hand `buildSearchJobsArgs` a NEW array for an UNCHANGED set of
+  // boards, mint a new cache key, and throw away every page the reader had already
+  // walked — mid-scroll. Deriving a string first means the identity moves only when
+  // the ids actually do. Sorted so a reordered response is not a change either.
+  //
+  // A space is a safe joiner: these are `u-<base36>` ids matched by
+  // `ENABLED_COMPANY_ID_PATTERN`, which admits no whitespace.
+  const ownedIdsKey = (ownedCompaniesData?.companies ?? [])
+    .map((company) => company.id)
+    .sort()
+    .join(' ');
+  const ownedCompanyIds = useMemo(
+    () => (ownedIdsKey === '' ? NO_OWNED_COMPANIES : ownedIdsKey.split(' ')),
+    [ownedIdsKey]
+  );
+
   const args = useMemo(
     () =>
       buildSearchJobsArgs({
         filters: debouncedFilters,
         enabledCompanyIds,
+        ownedCompanyIds,
         since,
         isSignedOut,
       }),
-    [debouncedFilters, enabledCompanyIds, since, isSignedOut]
+    [debouncedFilters, enabledCompanyIds, ownedCompanyIds, since, isSignedOut]
   );
 
   // Demo mode serves a curated fixture, so it must not touch the network at all.
@@ -357,9 +410,13 @@ export function useRecentJobsSearch(): RecentJobsSearch {
   // `cachedPageParams[0]` — always `null` here — and then walks forward via
   // `getNextPageParam` on the new data), so no stale token survives it.
   //
-  // Reachable only after a backend deploy moves the cursor version or the
-  // fingerprint inputs mid-session; the client cannot produce it on its own,
-  // because RTK Query keys the cache by the whole filter set.
+  // Reachable two ways now. A backend deploy that moves the cursor version or
+  // the fingerprint inputs mid-session was the original one. The second arrived
+  // with the owner-scoped feed: the reader's VISIBILITY SCOPE is a fingerprint
+  // input resolved from the bearer token, and it is NOT part of
+  // `SearchJobsArgs`, so a session expiring — or a custom board being added —
+  // between two pages moves the server's fingerprint without moving this cache
+  // entry's key. RTK Query keys by the filter set; it never keyed by the viewer.
   const retry = useCallback(() => {
     if (errorScope === 'nextPage' && status !== STALE_CURSOR_STATUS) rtkFetchNextPage();
     else refetch();

@@ -23,9 +23,11 @@ from collections.abc import Mapping
 from typing import NoReturn
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+import psycopg2
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from psycopg2.extensions import connection as Connection
 
+from ..auth.dependencies import TokenClaims, get_optional_user_lenient
 from ..dependencies import get_db
 from ..models import (
     ENABLED_COMPANY_ID_PATTERN,
@@ -44,6 +46,7 @@ from ..pagination import (
     encode_search_cursor,
     parse_utc_timestamp,
 )
+from ..services.custom_companies_service import list_owned_source_ids
 from ..services.job_search import (
     LocationDescriptor,
     SearchFilters,
@@ -52,6 +55,7 @@ from ..services.job_search import (
     resolve_location_selections,
     search_jobs,
 )
+from ..services.user_service import get_user_by_email
 
 logger = logging.getLogger(__name__)
 
@@ -319,9 +323,48 @@ def _fingerprint_location_descriptors(
     ]
 
 
+def _resolve_owned_source_ids(
+    conn: Connection, user: TokenClaims | None
+) -> list[str] | None:
+    """The ``custom:<id>`` namespaces this caller owns, or None for anonymous.
+
+    BEST-EFFORT, and the direction of the failure is the whole point: every error
+    path here returns ``None``, which restores the blanket private-company guard.
+    A caller we cannot resolve is treated as anonymous, so a DB hiccup or a
+    claimless token can only ever show LESS than it should — never more. The
+    opposite bias (fail open) on an authorization input is how private rows leak.
+
+    Mirrors ``routers/features._resolve_optional_user_id`` for the user lookup,
+    including the ``rollback()``: this endpoint runs on a pooled connection and a
+    failed statement left in an aborted transaction would break the search query
+    that follows with "current transaction is aborted".
+    """
+    if user is None:
+        return None
+    email = user.get("email")
+    if not email:
+        return None
+    try:
+        row = get_user_by_email(conn, email)
+        if row is None:
+            # A valid token for someone with no users row — nothing owned yet.
+            return None
+        return list_owned_source_ids(conn, row["id"]) or None
+    except psycopg2.Error:
+        conn.rollback()
+        logger.exception(
+            "Failed to resolve owned custom sources for the search reader "
+            "(email=%s); falling back to anonymous scope",
+            email,
+        )
+        return None
+
+
 @router.get("", response_model=JobSearchResponse)
 def search(
+    response: Response,
     conn: Connection = Depends(get_db),
+    user: TokenClaims | None = Depends(get_optional_user_lenient),
     status: str = Query(
         default="OPEN",
         pattern=r"^(OPEN|CLOSED)$",
@@ -443,6 +486,34 @@ def search(
     ``services/job_search.py`` for the field-by-field parity argument. A job with
     no normalized location tags matches no active location filter.
     """
+    # THIS RESPONSE VARIES BY VIEWER, so it must never sit in a shared cache.
+    # Since the owner-scoped feed landed, two callers sending the SAME query
+    # string with different ``Authorization`` headers get different rows — one of
+    # them including that reader's own private boards. A cache that keyed on the
+    # URL alone would hand the second caller the first one's board.
+    #
+    # NOT a live leak today, and the check was done rather than assumed: the only
+    # cache in the chain is ``api/jobs.ts``, which sets ``Vercel-CDN-Cache-Control``
+    # for the ``facets`` sub-path ONLY, and ``vercel.json`` sets no cache headers on
+    # ``/api/*`` at all. This is what keeps that from being the whole defence. The
+    # gate is one ``if`` in another repo layer, and widening it to cover ``search``
+    # is exactly the change someone makes for an obvious performance win.
+    #
+    # BOTH headers, because they answer different questions: ``private, no-store``
+    # says do not keep it, ``Vary`` says what it depends on for any cache that
+    # keeps it anyway.
+    #
+    # It does NOT reach the browser by itself — ``forwardResponse`` in the proxy
+    # copies status and body only, which is the same reason ``X-Next-Cursor`` has
+    # to be re-emitted by hand there. ``api/jobs.ts`` sets its own copy for the
+    # ``search`` sub-path. Set here as well because the backend is also reachable
+    # directly, and because the property belongs to the response, not to one hop.
+    #
+    # Rejections raised through ``_reject`` build their own response and do not
+    # carry these; that is fine — an error body has no rows in it.
+    response.headers["Cache-Control"] = "private, no-store"
+    response.headers["Vary"] = "Authorization"
+
     categories = _validate_slugs(category, pattern=_CATEGORY_RE, field="category")
     levels = _validate_slugs(level, pattern=_LEVEL_RE, field="level")
     companies = _validate_companies(company)
@@ -498,6 +569,16 @@ def search(
             else []
         )
 
+        # WHO IS ASKING — resolved here, from the token, and never from the query
+        # string. This is what lets a signed-in reader see their OWN private
+        # boards in the feed without making them visible to anyone else; see
+        # ``services/database._OWNED_USER_COMPANY_PREDICATE``.
+        #
+        # Costs one indexed lookup per request for a signed-in caller and NOTHING
+        # for an anonymous one (``user`` is None before any statement runs), which
+        # is the common case on this endpoint.
+        owned_source_ids = _resolve_owned_source_ids(conn, user)
+
         # Fingerprint the EFFECTIVE filter set (post-validation, post-dedupe) so two
         # requests that mean the same thing hash the same way. ``since`` uses the
         # normalized UTC form rather than the raw string, so an equivalent offset
@@ -533,6 +614,18 @@ def search(
                 "location_ids": [str(location_id) for location_id in location_ids],
                 "include": include_terms or [],
                 "exclude": exclude_terms or [],
+                # The VISIBILITY SCOPE is part of the query, so it belongs in the
+                # fingerprint even though no request parameter carries it.
+                #
+                # Without it a cursor minted while signed in stays valid when
+                # replayed anonymously (a token that expires mid-walk does exactly
+                # this, unprompted): the reader's own private rows vanish from
+                # page N onward while every cursor keeps validating, and the walk
+                # silently enumerates neither scope completely — the precise
+                # failure the fingerprint exists to turn into a 409 restart. It
+                # also moves when the reader ADDS or REMOVES a custom company
+                # mid-walk, which is the same thing for the same reason.
+                "owned_sources": owned_source_ids or [],
             }
         )
 
@@ -566,6 +659,7 @@ def search(
             "location_ids": location_ids,
             "include": include_terms,
             "exclude": exclude_terms,
+            "owned_source_ids": owned_source_ids,
         }
 
         jobs = search_jobs(conn, limit=limit, cursor=parsed_cursor, **filters)

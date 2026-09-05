@@ -36,10 +36,15 @@ interface JobsQueryResult {
  * never clear. `useRecentJobsSearch` keys its recovery on this status instead
  * (retry restarts the walk), which is the whole reason it has its own code.
  *
- * Unreachable from THIS client today — RTK Query's per-arg cache isolation means
- * a cursor and the filters that minted it always travel together — but reachable
- * the first time a backend deploy moves `_SEARCH_CURSOR_VERSION` or the
- * fingerprint inputs mid-session, which is exactly when nobody is watching.
+ * Reachable from THIS client in two ways, and the second one arrived with the
+ * owner-scoped Recent feed. (1) A backend deploy that moves
+ * `_SEARCH_CURSOR_VERSION` or the fingerprint inputs mid-session — the original
+ * case, and the one nobody is watching for. (2) The reader's VISIBILITY SCOPE
+ * moving mid-walk: the backend folds the caller's own custom boards into the
+ * cursor fingerprint and resolves that set from the bearer token, so a session
+ * expiring — or the reader adding a board — between two pages changes the query
+ * without changing the RTK Query args that key this cache entry. Per-arg cache
+ * isolation covers the FILTERS; it has never covered the VIEWER.
  */
 export const STALE_CURSOR_STATUS = 409;
 
@@ -309,10 +314,26 @@ export const jobsApi = createApi({
         // legitimate page param here (it is what page 1 uses).
         getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
       },
-      async queryFn({ queryArg, pageParam }, { signal }) {
+      async queryFn({ queryArg, pageParam }, { signal, extra }) {
         try {
           const url = `/api/jobs/search?${buildSearchJobsQuery(queryArg, pageParam)}`;
-          const response = await fetch(url, { signal });
+          // OPTIONAL auth, unlike the private-half fetch above: this endpoint
+          // serves anonymous callers the public corpus, and a token only ever
+          // ADDS the reader's own custom boards to the result. So a null token is
+          // a normal request, not a refusal — the walk proceeds either way.
+          //
+          // Without it the backend cannot tell who is asking and applies the
+          // blanket private-company guard, which is why a reader's own custom
+          // companies were missing from their feed even after being fetched.
+          //
+          // The header must also survive `api/jobs.ts`, which forwards it only
+          // because it was taught to; `tokenFromExtra` never throws (see above),
+          // so a token failure degrades to anonymous rather than failing the page.
+          const token = await tokenFromExtra(extra);
+          const response = await fetch(url, {
+            signal,
+            headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+          });
           if (!response.ok) {
             // Status is preserved verbatim so the caller can tell a 404 (the
             // backend deploy has not landed yet — recoverable, see
