@@ -255,9 +255,10 @@ def _insert_user(conn, user: dict) -> None:
 def _clear_tables(conn) -> None:
     """Truncate test tables between tests."""
     cursor = conn.cursor()
-    cursor.execute(sql.SQL(
-        "TRUNCATE {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {} CASCADE"
-    ).format(
+    # Comma-joined rather than a hand-counted "{}" format string: the
+    # placeholder count drifting from the identifier list is a silent footgun
+    # (#283 appended two tables and the "{}"s did not follow).
+    tables = (
         sql.Identifier("feature_upvotes"),
         sql.Identifier("features"),
         # feedback FKs users with ON DELETE SET NULL, so a users CASCADE would
@@ -284,6 +285,14 @@ def _clear_tables(conn) -> None:
         sql.Identifier("job_tags"),
         sql.Identifier("job_locations"),
         sql.Identifier("locations"),
+        # The Tier-1 alias cache. Same reasoning as job_locations above: nothing
+        # else here reaches them, so without this an alias written by one test
+        # stays cached for every later test in the module's schema. That leak is
+        # what forced the scan_unnormalized tests to TRUNCATE these tables
+        # themselves (#283) — a test asserting "this key is COLD" silently
+        # depended on no earlier test having warmed it.
+        sql.Identifier("alias_locations"),
+        sql.Identifier("location_aliases"),
         sql.Identifier("scrape_runs"),
         sql.Identifier("admins"),
         sql.Identifier("users"),
@@ -299,7 +308,10 @@ def _clear_tables(conn) -> None:
         # in this same statement, so the FK from it is not an ordering problem.
         sql.Identifier("job_categories"),
         sql.Identifier("job_levels"),
-    ))
+    )
+    cursor.execute(
+        sql.SQL("TRUNCATE {} CASCADE").format(sql.SQL(", ").join(tables))
+    )
     conn.commit()
 
 
