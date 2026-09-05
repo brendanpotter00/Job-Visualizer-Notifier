@@ -115,7 +115,22 @@ _JOB_PLACEHOLDERS = ", ".join(["%s"] * len(_JOB_COLUMNS.split(",")))
 # in the same transaction. We still
 # reactivate here (``status='OPEN'``, ``closed_on=NULL``) because status is a
 # ``job_listings`` column, and still refresh the content columns.
-_UPSERT_ON_CONFLICT = """
+#
+# ``normalization_status`` is reset to NULL when — and only when — the board
+# changed the location text. The location tags on a job are derived from
+# ``job_listings.location``, but nothing re-derived them when that text changed:
+# ``scan_unnormalized`` only ever selects ``normalization_status IS NULL``, so a
+# job normalized once kept those tags forever. A role reposted from "Remote" to
+# "Washington DC" silently kept its Remote tags. Prod has 215 OPEN jobs that are
+# 'done' yet whose current location has no alias row at all — the fingerprint of
+# exactly this drift.
+#
+# Clearing the status hands the job back to the safety-net scan, which re-derives
+# the tags on the next tick. The CASE is deliberate: an unconditional NULL would
+# re-normalize every OPEN row on every scrape cycle (tens of thousands of
+# needless Haiku calls), and ``IS DISTINCT FROM`` rather than ``<>`` so a
+# NULL-to-value or value-to-NULL transition also counts as a change.
+_UPSERT_ON_CONFLICT = f"""
     ON CONFLICT (source_id, id) DO UPDATE SET
         title = EXCLUDED.title,
         location = EXCLUDED.location,
@@ -126,7 +141,11 @@ _UPSERT_ON_CONFLICT = """
         closed_on = NULL,
         details_scraped = EXCLUDED.details_scraped,
         experience_level = EXCLUDED.experience_level,
-        is_remote_eligible = EXCLUDED.is_remote_eligible
+        is_remote_eligible = EXCLUDED.is_remote_eligible,
+        normalization_status = CASE
+            WHEN {_JOBS_TABLE}.location IS DISTINCT FROM EXCLUDED.location THEN NULL
+            ELSE {_JOBS_TABLE}.normalization_status
+        END
 """.strip()
 
 # Sidecar (job_freshness) table + its re-seen upsert.
