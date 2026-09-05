@@ -645,7 +645,8 @@ export function failedDiscoveryStep(
 }
 
 /**
- * Where each ATS publishes the human-readable board for a bare slug.
+ * Where each ATS publishes the human-readable board for a bare slug — the LEGACY
+ * derivation, kept only for a payload that predates `boardUrl`.
  *
  * These four are the ones whose `board_token` IS the slug the public board is addressed
  * by (`ats_link_resolver.py` extracts exactly that), so the URL is a template and nothing
@@ -653,14 +654,14 @@ export function failedDiscoveryStep(
  * backend accepts both as input and the old one 301s to this one, so emitting the
  * destination saves every reader a redirect.
  *
- * WORKDAY AND EIGHTFOLD ARE DELIBERATELY ABSENT, and that is why this is a lookup rather
- * than a switch with a default. Their `board_token` is a cosmetic tenant label —
+ * WORKDAY AND EIGHTFOLD ARE STILL DELIBERATELY ABSENT, and that is why this is a lookup
+ * rather than a switch with a default. Their `board_token` is a cosmetic tenant label —
  * `blueorigin`, `netflix` — and the real board lives at a host the token does not spell
  * (`https://<tenant>.wd5.myworkdayjobs.com/<career_site>`,
- * `https://explore.jobs.netflix.net/careers?domain=…`). Both live in `provider_config`,
- * which the list endpoint does not send. Guessing would produce a confident link to a
- * 404 — worse than the missing link this exists to fix — so those rows get no link until
- * the backend sends one.
+ * `https://explore.jobs.netflix.net/careers?domain=…`). Both parts live in
+ * `provider_config`, which is not on the wire, so guessing here would produce a confident
+ * link to a 404. The server now sends the real thing (`boardUrl`); this table must never
+ * grow those two, because the only version of them it could ever hold is a guess.
  */
 const ATS_BOARD_HOSTS: Record<string, string> = {
   greenhouse: 'https://job-boards.greenhouse.io',
@@ -678,29 +679,57 @@ const DISCOVERED_ATS = 'discovered';
  * THE QUESTION IT ANSWERS: "what did we actually read to make this?" A tracked row showed
  * a name, a chip, a count and a freshness line, and nothing anywhere said which page it
  * came from — so when a board started serving dead job links there was no way to go and
- * look at it without opening the database.
+ * look at it without opening the database. It got sharper once a company could be added
+ * by NAME: you type "Cisco", we search, we pick a board, and the row you get back has to
+ * be able to tell you WHICH board, or you cannot check that we found the right company.
  *
- * Two sources, one answer:
- *  - a DISCOVERED board's `boardToken` IS the normalized URL the user pasted
- *    (`custom_companies_service.py` stores `board_token=normalized_url`), so it is used
- *    verbatim — and that is the case the request came from;
- *  - an ATS board's `boardToken` is a slug, and four of the six providers publish a board
- *    at a fixed host plus that slug (`ATS_BOARD_HOSTS`).
+ * THE ANSWER IS THE SERVER'S. `boardUrl` is computed in `api/services/board_url.py`, from
+ * `provider_config` — the only place Workday's real host (`base_url` + `career_site_slug`)
+ * and Eightfold's (`tenant_host` + `domain`) exist. Those two are precisely the providers
+ * this file could never build a link for, and the Cisco case is a Workday board, so the
+ * headline example rendered nothing. Teaching the browser those shapes would mean putting
+ * `provider_config` on the wire and keeping a second copy of every provider's URL grammar
+ * in sync with the backend's; asking the server for one string does neither.
+ *
+ * THE LOCAL DERIVATION SURVIVES AS A FALLBACK, for one reason: the frontend and the
+ * backend deploy separately, so a Vercel deploy can land ahead of the Railway one and
+ * serve a payload with no `boardUrl` KEY AT ALL. Without the fallback, every Greenhouse /
+ * Ashby / Lever / Gem link that works today would vanish for that window. It covers what
+ * it always covered and still refuses to guess Workday or Eightfold.
+ *
+ * ABSENT AND NULL ARE THEREFORE DIFFERENT THINGS, and collapsing them would undo half of
+ * this. Absent is "we are talking to a server that predates the field" → derive what we
+ * safely can. `null` is that server's considered answer — it looked at the config and
+ * could not name an honest destination — and it WINS, because falling back there would
+ * be this file overruling the only code that can see the row.
  *
  * NULL IS A REAL ANSWER and callers must render nothing for it, never a dead link. It
- * comes back for the two providers whose board URL is not derivable, and for anything
- * that does not parse as `http(s)`: a `boardToken` is server data, but it ORIGINATES in
- * something a stranger pasted, and an `href` is the one place that distinction matters.
- * The scheme check is what keeps a `javascript:` token from becoming a link.
+ * comes back for that case, and for anything that does not parse as `http(s)`: these
+ * values are server data, but they ORIGINATE in something a stranger pasted, and an
+ * `href` is the one place that distinction matters. The scheme check is what keeps a
+ * `javascript:` URL from becoming a link — applied to the server's answer too, because
+ * the check costs nothing and "the server sent it" is not the property that makes a
+ * string safe to put in an `href`.
  */
-export function sourceBoardUrl(company: Pick<UserCompany, 'ats' | 'boardToken'>): string | null {
+export function sourceBoardUrl(
+  company: Pick<UserCompany, 'ats' | 'boardToken' | 'boardUrl'>
+): string | null {
+  if (company.boardUrl !== undefined) {
+    const served = company.boardUrl?.trim();
+    return served && isHttpUrl(served) ? served : null;
+  }
   const token = company.boardToken?.trim();
   if (!token) return null;
   if (company.ats === DISCOVERED_ATS) {
-    return /^https?:\/\//i.test(token) ? token : null;
+    return isHttpUrl(token) ? token : null;
   }
   const host = ATS_BOARD_HOSTS[company.ats];
   return host ? `${host}/${encodeURIComponent(token)}` : null;
+}
+
+/** `http(s)` and nothing else — the one gate between stored text and an `href`. */
+function isHttpUrl(value: string): boolean {
+  return /^https?:\/\//i.test(value);
 }
 
 /**

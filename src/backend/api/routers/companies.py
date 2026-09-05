@@ -17,6 +17,7 @@ deleting it outright.
 import asyncio
 import logging
 import time
+from typing import NamedTuple
 
 import httpx
 import psycopg2
@@ -30,12 +31,19 @@ from ..auth.jwt import get_normalized_subject
 from ..config import settings
 from ..dependencies import get_db
 from ..models import (
+    AlreadyPublicResponse,
     AtsCandidateResponse,
+    CareersSearchTraceResponse,
     CompanyListResponse,
     CompanyProfileResponse,
+    NameCandidateResponse,
     ProbeResultResponse,
     ResolveUrlRequest,
     ResolveUrlResponse,
+    SearchCompanyRequest,
+    SearchCompanyResponse,
+    SearchResultRowResponse,
+    SearchTraceResponse,
 )
 from ..services.ats_discovery import (
     DiscoveryResult,
@@ -43,7 +51,24 @@ from ..services.ats_discovery import (
     discover_ats,
     probe_candidate,
 )
+from ..services.careers_page_pick import (
+    CareersResult,
+    is_job_list_url,
+    pick_careers_url,
+    rank_careers_results,
+)
+from ..services.company_name_search import (
+    CareersSearchTrace,
+    NameCandidate,
+    NameSearchUnavailable,
+    board_names_company,
+    search_ats_candidates,
+    search_careers_page,
+    trusted_careers_results,
+    trusted_careers_urls,
+)
 from ..services.companies_service import list_enabled_companies_with_profiles
+from ..services import custom_companies_service as svc
 from ..services.rate_limit import enforce_resolve_rate_limit
 from ..services.url_guard import REASON_DEADLINE, UrlGuardError, normalize_public_url
 
@@ -60,8 +85,9 @@ router = APIRouter()
 _RESOLVE_CLIENT_TIMEOUT_S = 30.0
 
 # The actual aggregate bound, and the reason one is needed. Worst case without it
-# is ~36 outbound requests for a single call (L1 HEAD chain + GET retry, then 4
-# sniff targets, each up to _MAX_REDIRECT_HOPS hops) at _DISCOVERY_TIMEOUT_S
+# is ~50 outbound requests for a single call (L1 HEAD chain + GET retry, then up
+# to _MAX_SNIFF_URLS = 8 sniff targets since the walk-up landed — it was 4, and
+# ~36 requests, before that — each up to _MAX_REDIRECT_HOPS hops) at _DISCOVERY_TIMEOUT_S
 # each — minutes, at a third-party host, with Vercel 504-ing the user long before
 # the backend stopped working. The monotonic deadline is threaded into every
 # ``guarded_get`` so the burst *stops*; the ``asyncio.wait_for`` below is the hard
@@ -228,4 +254,589 @@ async def resolve_company_url(
         via=result.via,
         hops=list(result.hops),
         final_url=result.final_url,
+    )
+
+
+# Probing every candidate a search returns would multiply one user action into up
+# to 25 outbound ATS calls. Only the few we are going to SHOW get probed, and the
+# job count is most of what makes a wrong board obvious to a human, so it is worth
+# exactly this much and no more.
+_MAX_SHOWN_CANDIDATES = 5
+
+# The whole name path, end to end, inside one user request. Deliberately tighter
+# than the resolve budget: rung A is a single fast search call plus a handful of
+# probes, and if that is slow the honest answer is "type a URL", not a longer wait.
+_SEARCH_BUDGET_S = 20.0
+
+
+async def _probe_shown(
+    candidates: list[NameCandidate], http: httpx.AsyncClient, deadline: float
+) -> list[NameCandidateResponse]:
+    """Probe the handful of candidates we intend to show, concurrently.
+
+    A probe that fails is kept, not dropped: "Guidehouse · board unreachable" is
+    still the information that tells a user this is not their company. Only the
+    ``ok``/``job_count`` fields change.
+    """
+    shown = candidates[:_MAX_SHOWN_CANDIDATES]
+    probes = await asyncio.gather(
+        *(probe_candidate(c.candidate, http, deadline=deadline) for c in shown),
+        return_exceptions=True,
+    )
+    out: list[NameCandidateResponse] = []
+    # `strict=True` states the invariant `asyncio.gather` already guarantees —
+    # one result per input, in order. If that ever stops holding, a silent
+    # truncation would pair a candidate with another candidate's job count,
+    # which is the one number the user is being asked to judge.
+    for found, probe in zip(shown, probes, strict=True):
+        if isinstance(probe, BaseException):
+            logger.warning(
+                "Probe of %s/%s raised during name search",
+                found.candidate.ats, found.candidate.board_token, exc_info=probe,
+            )
+            probe = ProbeResult(ok=False, job_count=0, error="probe failed")
+        out.append(
+            NameCandidateResponse(
+                candidate=AtsCandidateResponse(
+                    ats=found.candidate.ats,
+                    board_token=found.candidate.board_token,
+                    provider_config=found.candidate.provider_config,
+                    source_url=found.candidate.source_url,
+                ),
+                probe=ProbeResultResponse(
+                    ok=probe.ok, job_count=probe.job_count, error=probe.error
+                ),
+                source_url=found.source_url,
+                title=found.title,
+                rank=found.rank,
+                # A board that resolves but has NO jobs is never something to add
+                # silently, however well its token matches — an empty board is the
+                # cheapest signal we have that we picked the wrong one.
+                auto_addable=found.auto_addable and probe.ok and probe.job_count > 0,
+            )
+        )
+    return out
+
+
+def _best_without_fetching(rows: list[CareersResult]) -> str | None:
+    """The best trusted JOB LIST by title and path alone — no network, no derivation.
+
+    The half of ``pick_careers_url`` that costs nothing. It serves the FALLBACK
+    source, where a fetch would either be this request's second or have no budget
+    left to run in.
+
+    It applies the same offer bar (``is_job_list_url``) the paid path does, and for
+    the same reason: a row that only proves the host belongs to the company is not
+    an answer, it is a brochure, and this path has no fetch left to do better with.
+    ``None`` here means the UI asks for a pasted URL — which is what we want it to
+    say when all we have is ``www.oracle.com/careers/``.
+    """
+    ranked = [row for row in rank_careers_results(rows) if is_job_list_url(row.url)]
+    return ranked[0].url if ranked else None
+
+
+async def _careers_fallback(
+    name: str,
+    first_search_results: list[CareersResult],
+    http: httpx.AsyncClient,
+    deadline: float,
+) -> tuple[str | None, CareersSearchTrace | None]:
+    """The company's own careers page, or nothing. Called ONLY on a miss.
+
+    THE TRIGGER IS ``auto_addable``, NOT "no candidates at all", and that widening
+    is most of the value here. Searching "IBM" resolves Harvey's live Ashby board —
+    a real board with 334 real jobs, belonging to a legal-AI company — and a
+    non-empty ``candidates`` list used to suppress the fallback entirely, leaving
+    the user with three strangers' boards and no way forward. Measured over 22
+    companies, the wider trigger takes "we offered nothing at all" from 6 to 0.
+
+    Two sources, in order, and neither may return an untrusted host:
+
+    1. A second search, ``"{name} careers"`` — a plain query, because the ATS
+       hostnames in the first one are what make its results SEO content *about*
+       applicant tracking systems for a company with no board. This is where
+       Oracle's `resumeadapter.com/ats/workday/companies` becomes
+       `oracle.com/careers/`.
+    2. Failing that, the trusted remains of the FIRST search's careers list.
+       Measured never to be needed (the second query succeeded 15/15); it is here
+       so that a second search we could not run is not automatically a dead end.
+
+    WHICH of a source's trusted rows we offer is ``pick_careers_url``: derive the
+    job list from any job-detail URLs and prove it with one fetch, else rank on
+    title and path, else read the best page and take the job-list link it publishes.
+    Taking ``trusted[0]`` — the first by search rank, which is what this did —
+    landed on the company's real job list 3 times in 28; this lands on it 17 times
+    in 28.
+
+    A BROCHURE IS NOT AN ANSWER AND NEITHER SOURCE MAY RETURN ONE. Both go through
+    ``is_job_list_url``, so "Facebook", whose only trusted results are
+    ``facebook.it/careers/`` and ``facebook.dk/careers/``, gets ``None`` and the UI
+    asks for a pasted URL. Offering the best of a bad set spends a paid discovery
+    run on a stranger's website.
+
+    ONE PAGE READ TO CHOOSE, and only on the second search's rows. If those produce
+    nothing offerable, source 2 is picked over without fetching again: a dead end is
+    not worth a second outbound request, and the case is measured never to arise.
+    (``pick_careers_url`` may spend one more on a URL whose query is a location or
+    category filter, proving the unfiltered list is really there — see
+    ``prefer_unscoped_list``. That one is about WHICH SLICE we offer, not which
+    page, and it fires for one of the eleven URLs this suite offers.)
+
+    A second search that fails or runs out of budget is NOT an error for this
+    request. We already have a real answer above it, and turning a working search
+    into a 503 because its optional follow-up timed out would trade the whole
+    result for the footnote. The same is true of the verification fetch — it fails
+    open into the ranker, so a 403 costs us the derivation and nothing else.
+    """
+    first_trusted = trusted_careers_results(name, first_search_results)
+
+    # The probes above already ate part of the budget, and this call is the
+    # optional part of the request. It gets what is left and no extension.
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        logger.warning("No budget left for the careers fallback search for %r", name)
+        return _best_without_fetching(first_trusted), None
+
+    try:
+        trusted, trace = await asyncio.wait_for(
+            search_careers_page(name, http), timeout=remaining
+        )
+    except (NameSearchUnavailable, asyncio.TimeoutError) as exc:
+        logger.warning("Careers fallback search failed for %r: %s", name, exc)
+        return _best_without_fetching(first_trusted), None
+
+    chosen = await pick_careers_url(
+        trusted,
+        http,
+        # The DERIVED url is new, so it faces the same host filter every row here
+        # already passed — asked before the fetch, so a host we would never offer
+        # is never contacted either.
+        is_trusted=lambda url: bool(trusted_careers_urls(name, [url])),
+        deadline=deadline,
+    )
+    if chosen is None:
+        chosen = _best_without_fetching(first_trusted)
+    return chosen, trace
+
+
+# The free resolver's slice of the search budget, spent on ONE url. Two things
+# make it small on purpose. It runs late — after the probes, after a second
+# search and after at most one page read — so it may only have what is left; and
+# it is a bonus attempt on a request that already has an answer to give, so it
+# must never be the reason a working search times out. Measured 2026-09-04 over
+# the eleven careers URLs this suite offers: 3 requests / 1.0s on the hit (eBay),
+# 5–9 requests / 0.7–3.0s on the ten misses, every one of them inside this.
+_CAREERS_RESOLVE_BUDGET_S = 8.0
+
+
+class _CareersPageBoard(NamedTuple):
+    """What fetching the careers page told us — both things it told us.
+
+    ``candidate`` is the board behind the page, if any. ``landed`` is where that
+    fetch actually ENDED UP, which is the half we used to throw away: ``discover_ats``
+    resolved ``join.atlassian.com/jobs`` all the way to a talent-community signup
+    form, said "no board here", and the offer went out unchanged. It is the
+    requested URL whenever we cannot say otherwise — a board was found (the
+    resolver's ``final_url`` is then the page the board was named on, not where the
+    offer landed), the budget was gone, or the fetch failed — so an unknown answer
+    changes nothing.
+    """
+
+    candidate: NameCandidateResponse | None
+    landed: str
+
+
+async def _board_behind_careers_page(
+    name: str,
+    careers_url: str,
+    http: httpx.AsyncClient,
+    deadline: float,
+) -> _CareersPageBoard:
+    """The ATS board the careers page we are about to offer is built on, if any.
+
+    THE COST ARGUMENT, because this is a handful of extra HTTP requests on a path
+    that already has an answer. The answer it has is a careers URL, and a careers
+    URL is not a board: pressing the button under it spends a **paid discovery
+    run** — a real browser session, a model call, 4–8¢ — and one of the user's
+    twenty monthly adds. Every URL here is one we were about to hand to that. So
+    the trade is up to nine free HTTP requests against a browser session we did
+    not need, and the free requests win by two orders of magnitude. Measured:
+    ``jobs.ebayinc.com/us/en/search-results`` — the page this endpoint already
+    offered — resolves in 3 requests and 1.0s to ``workday:ebay``, 287 live jobs.
+
+    IT ONLY EVER SEES A URL WE WOULD HAVE OFFERED, and that is what keeps it safe
+    rather than merely cheap. Both fallback sources gate on ``trusted_careers_urls``
+    (the host must name the company) and ``is_job_list_url`` (it must be a list,
+    not a brochure), so ``Poke`` — whose best result is a poke-bowl chain's About
+    page — offers nothing and therefore resolves nothing. Running the resolver over
+    the raw search results instead would fetch, and could auto-add, boards from
+    pages we had already decided were not worth showing anyone.
+
+    Same ladder a pasted URL enters at (``discover_ats``: L0 pure, L1 redirects,
+    L2 embedded sniff), same probe, and the same ``board_names_company`` gate the
+    search rows pass, so a board that resolves but does not name the company is
+    SHOWN and not auto-addable — the Guidehouse-for-Databricks mitigation, reached
+    through a new door.
+
+    A ``None`` candidate when nothing resolves, which is the common case and costs
+    only the requests. Failure is never propagated: this is an extra, and a careers
+    page that 403s us is still the careers page we were going to offer.
+
+    IT ALSO REPORTS WHERE THE FETCH LANDED, for free — see ``_CareersPageBoard``.
+    On the miss path ``DiscoveryResult.final_url`` is the landing page's own
+    resolved URL (``sniff_embedded_ats``'s ``landing_final_url``), which is the one
+    fact the caller needs to notice that the page it is about to offer redirects to
+    something that is not a job list at all.
+    """
+    budget = min(deadline, time.monotonic() + _CAREERS_RESOLVE_BUDGET_S)
+    if budget - time.monotonic() <= 0:
+        logger.info("No budget left to resolve the careers page %s", careers_url)
+        return _CareersPageBoard(None, careers_url)
+
+    result = await discover_ats(careers_url, http, deadline=budget)
+    if result.candidate is None:
+        logger.info(
+            "Careers page %s resolves to no board we support (%s), landing on %s",
+            careers_url, result.reason, result.final_url,
+        )
+        return _CareersPageBoard(None, result.final_url)
+
+    probe = await probe_candidate(result.candidate, http, deadline=deadline)
+    named = board_names_company(name, result.candidate)
+    logger.info(
+        "Careers page %s is %s/%s: %d job(s), names %r: %s",
+        careers_url, result.candidate.ats, result.candidate.board_token,
+        probe.job_count, name, named,
+    )
+    return _CareersPageBoard(
+        NameCandidateResponse(
+            candidate=AtsCandidateResponse(
+                ats=result.candidate.ats,
+                board_token=result.candidate.board_token,
+                provider_config=result.candidate.provider_config,
+                source_url=result.candidate.source_url,
+            ),
+            probe=ProbeResultResponse(
+                ok=probe.ok, job_count=probe.job_count, error=probe.error
+            ),
+            # The page we resolved it FROM, not the ATS URL inside it: this row's
+            # job is to tell a person where this board came from, and "their
+            # careers page" is the honest answer.
+            source_url=careers_url,
+            # NOT a search rank — this board was in no search result. See
+            # ``NameCandidateResponse.rank``.
+            rank=0,
+            auto_addable=named and probe.ok and probe.job_count > 0,
+        ),
+        # NOT ``result.final_url`` here: on a hit that is the page the board was
+        # named on — a sub-path the sniff guessed, in the L2 case — which says
+        # nothing about where the offered URL landed.
+        careers_url,
+    )
+
+
+def _already_public(match: svc.PublishedMatch, final_url: str) -> AlreadyPublicResponse:
+    """The add endpoint's own answer, worded for someone who typed a NAME.
+
+    THE CHECKS ARE SHARED, THE SENTENCE IS NOT, and that split is deliberate. Which
+    rung answered and what ``match_kind`` it earns come from
+    ``custom_companies_service`` so the two endpoints cannot drift; the copy differs
+    because the inputs do. "That URL is the same job board as…" is a true thing to
+    say to someone who pasted a URL and a confusing one to say to someone who typed
+    ``databricks`` and pasted nothing.
+
+    Only the ``'name'`` sentence is ever read: ``AlreadyPublicNotice`` renders the
+    ``'board'`` branch as one flat headline and ignores ``detail`` entirely. It is
+    still written honestly because it is on the wire either way.
+
+    ``final_url`` is what a caller re-sends with ``trackAnyway`` to say we guessed
+    wrong — the board we matched, or the careers page we were about to offer.
+    """
+    if match.match_kind == "board":
+        return AlreadyPublicResponse(
+            detail=(
+                f"That board is our public {match.display_name} page, so there is "
+                "nothing to set up — its hiring trend is already there."
+            ),
+            company_id=match.id,
+            display_name=match.display_name,
+            final_url=final_url,
+        )
+    # Hedged, and every clause earns its place: "looks like" because we matched a
+    # name and not a board, "we matched the name in the web address" because someone
+    # about to be told they are covered deserves to know what that rests on, and the
+    # last sentence so the escape hatch reads as correcting us rather than opting
+    # into a duplicate.
+    return AlreadyPublicResponse(
+        detail=(
+            f"The careers page we found looks like {match.display_name}, which we "
+            "already publish — we matched the name in the web address, not the "
+            "board itself. If that's right, its hiring trend is already there."
+        ),
+        company_id=match.id,
+        display_name=match.display_name,
+        final_url=final_url,
+        match_kind="name",
+    )
+
+
+def _published_candidate(
+    conn: Connection, candidates: list[NameCandidate]
+) -> AlreadyPublicResponse | None:
+    """Rung 1 over the boards this search resolved — "that IS Stripe's board".
+
+    ONLY THE CANDIDATES WHOSE TOKEN NAMES THE COMPANY are asked about, and that gate
+    is the whole safety property. Browserbase Search is semantic, so a search for
+    ``meta`` really does return Anthropic's, Cohere's and Glean's live boards; without
+    the gate, the first of those we happen to publish would answer a search for Meta
+    with "we already track Anthropic" — a confident, wrong, terminal answer, which is
+    strictly worse than the dead end this whole change exists to remove.
+
+    ``NameCandidate.auto_addable`` is the PRE-PROBE name gate (``_names_match``), not
+    the post-probe verdict ``_probe_shown`` computes. Deliberately: a published board
+    that is empty or answering 422 today (Walmart's own Workday tenant does) is still
+    the board we publish, and "we already track them" is still the right answer.
+
+    The whole candidate list, not just the five we show — a name-gated board at rank 8
+    still names the company, and the SELECT is one indexed lookup against ~135 rows.
+    """
+    for found in candidates:
+        if not found.auto_addable:
+            continue
+        match = svc.find_published_company_for_candidate(
+            conn,
+            ats=found.candidate.ats,
+            board_token=found.candidate.board_token,
+            provider_config=dict(found.candidate.provider_config),
+        )
+        if match is not None:
+            return _already_public(match, found.candidate.source_url)
+    return None
+
+
+@router.post("/search-by-name", response_model=SearchCompanyResponse)
+async def search_company_by_name(
+    payload: SearchCompanyRequest,
+    # AUTH BEFORE THE CONNECTION, and the order of these two parameters is what
+    # enforces it: FastAPI solves dependencies in declaration order, so an
+    # unauthenticated caller 401s in ``get_current_user`` without ever taking a slot
+    # out of the pool. ``test_requires_a_bearer_token`` pins it — with ``conn`` first
+    # that test 500s instead of 401ing.
+    user: TokenClaims = Depends(get_current_user),
+    conn: Connection = Depends(get_db),
+) -> SearchCompanyResponse:
+    """Find ATS boards for a typed company name. Writes nothing.
+
+    One Browserbase Search call, then every result scored by the free pure
+    ``resolve_ats_url``. This route exists ONLY for names — a pasted URL still
+    goes to ``/resolve`` and enters at L0, which is exact, free and instant.
+
+    A SECOND search happens only on a miss — see ``_careers_fallback``. A name that
+    resolves an auto-addable board spends exactly one search and gets a
+    byte-identical answer to the one it got before that escalation existed.
+
+    THE CAREERS PAGE IS THEN ASKED WHETHER IT HAS A BOARD BEHIND IT, for free —
+    see ``_board_behind_careers_page``. It is the last thing standing between a
+    user and a paid discovery run, it costs no search, and it only ever looks at
+    the one URL we had already decided to offer.
+
+    A COMPANY WE ALREADY PUBLISH IS SAID SO HERE, not one press later. This route
+    used to have no database access at all, so it was structurally incapable of
+    knowing what we publish: typing ``databricks`` was answered with a careers page
+    under a filled "Use this careers page" button, and only the ADD call behind that
+    button could say "this looks like Databricks, which we already track". Same three
+    checks the add endpoint runs (``custom_companies_service``), run against both the
+    boards this search resolved and the careers URL we are about to offer, and the
+    answer rides back as ``already_public``. The add endpoint still runs its own — a
+    replayed request must hit the same wall — and this changes nothing it does.
+
+    503 (not an empty 200) when the flag is off or search is unavailable, because
+    "we could not look" and "we looked and there is no board" must never reach a
+    user as the same sentence. The second one is an empty ``candidates`` list.
+    """
+    if not settings.custom_company_sources_enabled:
+        raise HTTPException(
+            status_code=503, detail="Custom company sources are not enabled"
+        )
+    if not settings.company_name_search_enabled:
+        raise HTTPException(
+            status_code=503, detail="Company name search is not enabled"
+        )
+
+    # Same limiter as /resolve: one call is a paid third-party search plus up to
+    # five outbound ATS probes, so it needs a bound that is not just "logged in".
+    enforce_resolve_rate_limit(get_normalized_subject(user) or "unknown")
+
+    deadline = time.monotonic() + _SEARCH_BUDGET_S
+    async with _http_client() as http:
+        try:
+            # The hard backstop, matching /resolve and the add path. The deadline
+            # below bounds only the PROBES; without this a slow search would eat
+            # the whole budget and leave the probes 0 seconds, silently reporting
+            # every candidate as unreadable — a wrong answer rather than a slow one.
+            candidates, careers_results, trace = await asyncio.wait_for(
+                search_ats_candidates(payload.name, http),
+                timeout=_SEARCH_BUDGET_S + _RESOLVE_GRACE_S,
+            )
+        except NameSearchUnavailable as exc:
+            logger.warning("Name search unavailable for %r: %s", payload.name, exc)
+            raise HTTPException(
+                status_code=503, detail="Company search is temporarily unavailable"
+            ) from exc
+        except asyncio.TimeoutError as exc:
+            logger.warning("Name search for %r exceeded its budget", payload.name)
+            raise HTTPException(
+                status_code=503, detail="Company search is temporarily unavailable"
+            ) from exc
+
+        shown = await _probe_shown(candidates, http, deadline)
+
+        # ── DO WE ALREADY PUBLISH THIS COMPANY? Asked HERE, before anything is
+        # offered, because the answer was always knowable here and used to arrive one
+        # press too late. Typing `databricks` produced a careers page and a filled
+        # "Use this careers page" button; only the add call behind that button said
+        # "this looks like Databricks, which we already track". The owner's verdict:
+        # "There should not be that flow. If we already track it, just say that."
+        #
+        # The add endpoint keeps every one of these checks — this is an earlier,
+        # friendlier answer and never a replacement for server-side enforcement, so a
+        # bookmarked or replayed add still hits the same wall.
+        already_public = _published_candidate(conn, candidates)
+
+        # THE ESCALATION, and its trigger is the whole design. Not "we found no
+        # boards" — "we found nothing the user can just accept". A board that
+        # resolves but is somebody else's, or is theirs and is dead (Walmart's own
+        # Workday tenant answers HTTP 422), leaves the user exactly as stuck as no
+        # board at all, and until now it also silently suppressed the careers page.
+        #
+        # Read from `shown`, not from `candidates`, because `auto_addable` only
+        # becomes final after the probe: `_probe_shown` ANDs the name gate with
+        # "the board answered and has jobs", which is the half that catches Walmart.
+        #
+        # A PUBLISHED MATCH ALSO SUPPRESSES IT, and that is a paid search saved on a
+        # question we have already answered: the second query exists to find a careers
+        # page to OFFER, and we are not going to offer one.
+        careers_url: str | None = None
+        careers_trace: CareersSearchTrace | None = None
+        if already_public is None and not any(found.auto_addable for found in shown):
+            careers_url, careers_trace = await _careers_fallback(
+                payload.name, careers_results, http, deadline
+            )
+            # Rungs 2 and 3, against the URL we are about to put a button on. The
+            # careers HOST table first (Amazon, Apple, Google, Microsoft, TikTok —
+            # exact, terminal), then the company name inside the registrable domain
+            # (`databricks.com` → Databricks — a guess, and it keeps its way out).
+            # One shared call so the order and the `match_kind` cannot drift from the
+            # add endpoint's; see `find_published_company_for_urls`.
+            if careers_url is not None:
+                match = svc.find_published_company_for_urls(conn, careers_url)
+                if match is not None:
+                    already_public = _already_public(match, careers_url)
+                else:
+                    # IS THERE A BOARD BEHIND THAT PAGE? Asked here, of the one URL
+                    # we were about to offer, because the alternative to these few
+                    # free requests is the paid discovery run the button under it
+                    # starts. `jobs.ebayinc.com/us/en/search-results` — which this
+                    # endpoint already found — is `workday:ebay` with 287 jobs, and
+                    # we were charging a browser session to learn that.
+                    #
+                    # NOT ASKED when we already publish the company: there is then
+                    # nothing to offer, and resolving a board we would not use is
+                    # pure cost. Same reasoning that suppresses the second search.
+                    resolved = await _board_behind_careers_page(
+                        payload.name, careers_url, http, deadline
+                    )
+                    behind = resolved.candidate
+                    if behind is not None:
+                        # Rung 1 again, over a board the search never returned. One
+                        # indexed lookup, and without it a company whose board we
+                        # publish but whose board search missed would be walked all
+                        # the way to the add endpoint's wall to hear it.
+                        published = svc.find_published_company_for_candidate(
+                            conn,
+                            ats=behind.candidate.ats,
+                            board_token=behind.candidate.board_token,
+                            provider_config=dict(behind.candidate.provider_config),
+                        )
+                        if published is not None:
+                            already_public = _already_public(
+                                published, behind.candidate.source_url
+                            )
+                        # FIRST, and the cap re-applied around it: this is the only
+                        # candidate on the response that came from the company's own
+                        # page rather than from a semantic search for its name, so it
+                        # is the one a person should read first. `careers_url` stays
+                        # on the wire beside it — `CareersPageAnswer` already demotes
+                        # it to "or use their careers page instead" when a board is
+                        # confirmed, which is exactly what it now is.
+                        shown = [behind, *shown][:_MAX_SHOWN_CANDIDATES]
+                    elif not is_job_list_url(resolved.landed):
+                        # THE OFFER BAR, RE-ASKED OF WHERE THE PAGE ACTUALLY WENT,
+                        # and it costs nothing: the fetch above already happened and
+                        # already followed the redirects. `is_job_list_url` ran on
+                        # the URL we were GOING to request, which is a claim about a
+                        # URL and not about a page — Atlassian's
+                        # `join.atlassian.com/jobs` is job-list shaped and 303s to a
+                        # talent-community signup form. Offering nothing is the
+                        # honest answer; the UI then asks for a pasted URL.
+                        logger.info(
+                            "Careers page %s redirects to %s, which is not a job "
+                            "list; offering nothing rather than a signup form",
+                            careers_url, resolved.landed,
+                        )
+                        careers_url = None
+
+    logger.info(
+        "Name search for %r: %d candidate(s), %d shown, %d auto-addable, "
+        "careers fallback %s, already published %s",
+        payload.name, len(candidates), len(shown),
+        sum(1 for c in shown if c.auto_addable), careers_url or "none",
+        f"{already_public.company_id} ({already_public.match_kind})"
+        if already_public is not None
+        else "no",
+    )
+    return SearchCompanyResponse(
+        query=payload.name,
+        candidates=shown,
+        careers_url=careers_url,
+        # Passed straight through from the service, not recomputed here: `shown`
+        # is already capped at `_MAX_SHOWN_CANDIDATES`, so a count taken from it
+        # would under-report how many boards the scoring actually found — and
+        # "we found 8, checked the top 5" is exactly the sentence the client is
+        # trying to say.
+        trace=SearchTraceResponse(
+            query=trace.query,
+            results=trace.results,
+            filtered=trace.filtered,
+            boards=trace.boards,
+            # The rows the add page's morphing list folds away. Already sanitized
+            # by the service (`display_url`), so this is a straight mapping and
+            # not a second place that could forget to redact one.
+            non_boards=[
+                SearchResultRowResponse(
+                    url=row.url, rank=row.rank, aggregator=row.aggregator
+                )
+                for row in trace.non_boards
+            ],
+            non_boards_omitted=trace.non_boards_omitted,
+        ),
+        # None unless a second search really happened. The add page narrates the
+        # run from these numbers, and a panel that described two calls when one
+        # was made would be the one thing that panel exists not to do.
+        careers_search=(
+            None
+            if careers_trace is None
+            else CareersSearchTraceResponse(
+                query=careers_trace.query,
+                results=careers_trace.results,
+                filtered=careers_trace.filtered,
+                trusted=careers_trace.trusted,
+            )
+        ),
+        # THE ANSWER when it is present, and everything above it becomes the evidence
+        # behind it. `careers_url` deliberately still rides along on a `'name'` match:
+        # it is what the escape hatch re-sends, and the narration draws its last row
+        # from it. What must NOT happen is the page drawing both this and the "Use
+        # this careers page" card — see `MyCompaniesPage`.
+        already_public=already_public,
     )

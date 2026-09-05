@@ -32,6 +32,7 @@ import type { SearchTag } from '../../types/index.ts';
 import type { BackendJobListing } from '../../api/types.ts';
 import { COMPANIES } from '../../config/companies';
 import { RESPONSIVE, TABLE_SCROLL_SX } from '../../config/responsive';
+import { DevResetPanel } from './DevResetPanel';
 
 // Backend scraper companies for QA filtering
 const BACKEND_SCRAPER_COMPANIES = COMPANIES.filter((c) => c.ats === 'backend-scraper');
@@ -389,6 +390,10 @@ export function QAPage() {
         <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
           Showing all jobs from the backend database ({jobs.length} total)
         </Typography>
+
+        {/* LOCAL DEV ONLY: renders nothing in a production build, and nothing
+            unless the backend says the reset is available. */}
+        <DevResetPanel />
 
         {/* Scrape Controls */}
         <Box sx={{ mb: 4, p: 2, bgcolor: 'background.paper', borderRadius: 1 }}>

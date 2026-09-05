@@ -51,9 +51,15 @@ if [ ! -d "$REPO_ROOT/e2e/node_modules/@playwright" ]; then
   echo "doctor: installing e2e Playwright deps (first run)…"
   ( cd "$REPO_ROOT/e2e" && npm install --no-audit --no-fund >/dev/null 2>&1 && npx playwright install chromium >/dev/null 2>&1 ) || true
 fi
+# NODE_PATH is load-bearing, not belt-and-braces. Node resolves a spec's imports from
+# the SPEC FILE's directory upward, not from cwd — and these specs live under
+# `.claude/skills/…/helpers/`, which has no `node_modules` above it until the repo root,
+# where `@playwright/test` is not installed (it lives only in `e2e/node_modules`). So
+# `cd e2e` alone is not enough: without this the specs die with
+# "Cannot find module '@playwright/test'" before a single assertion runs.
 (
   cd "$REPO_ROOT/e2e"
-  npx playwright test \
+  NODE_PATH="$REPO_ROOT/e2e/node_modules" npx --no-install playwright test \
     --config="$SKILL_DIR/helpers/verify.playwright.config.ts" \
     --grep '@doctor'
 )

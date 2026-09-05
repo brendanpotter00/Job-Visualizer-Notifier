@@ -1340,6 +1340,240 @@ class ResolveUrlResponse(BaseModel):
     final_url: str
 
 
+class SearchCompanyRequest(BaseModel):
+    """Body for POST /api/companies/search-by-name — a typed company name.
+
+    The 60-character ceiling is not cosmetic. Browserbase Search caps ``query``
+    at 200 characters, and the query we build spends most of that budget naming
+    the six ATS hosts — which is the entire reason the strategy scores 76%
+    instead of 41%. A longer name would push those hosts off the end.
+    """
+
+    model_config = ConfigDict(
+        alias_generator=to_camel, populate_by_name=True, extra="forbid"
+    )
+
+    name: str = Field(min_length=1, max_length=60)
+
+
+class NameCandidateResponse(BaseModel):
+    """One board a name search turned up, with everything needed to judge it.
+
+    ``job_count`` and ``display_name`` exist for the human, and they are the
+    whole mitigation for the wrong-company failure: searching "Databricks"
+    returned Guidehouse's live Workday board at rank 1 with 794 real jobs, which
+    every automated check we own accepts. "Guidehouse · 794 jobs" on screen is
+    what a person rejects instantly.
+
+    ``auto_addable`` is the machine's opinion — the board token names the
+    company — and it is advisory to the client, never a substitute for the
+    server's own re-check when the add is actually submitted.
+
+    ``rank`` is the place this board's URL took in the search engine's own
+    ranking, and **0 means it took none**: the board behind the careers page we
+    were about to offer is resolved after the search, out of the page's own HTML,
+    so there is no result number to report. Borrowing one from the first search
+    would be a small, pointless lie — the client renders 0 as a tick, the same way
+    it renders the careers URL, which came from a different search for the same
+    reason.
+    """
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    candidate: AtsCandidateResponse
+    probe: ProbeResultResponse
+    source_url: str
+    title: str = ""
+    rank: int = Field(ge=0)
+    auto_addable: bool
+
+
+class SearchResultRowResponse(BaseModel):
+    """One search result that did NOT resolve to a board, as much of it as we render.
+
+    THE ROWS THE ADD PAGE FOLDS AWAY. The page narrates a name search as one list
+    that narrows to its answer: results land, the ones we cannot use fold away, and
+    what survives is the answer. That only works if the rows are REAL — the panel's
+    contract is that everything on it is something that really happened, so the
+    URLs have to come from here rather than be invented client-side.
+
+    Only the non-boards ride here. The boards are already on the response as
+    ``candidates`` with their token, their probe and their job count, and sending
+    them twice would be two records of one result that could disagree.
+
+    ``url`` is run through :func:`api.services.discovery.progress.display_url`
+    before it is put on the wire — userinfo and port stripped, every query VALUE
+    replaced with an ellipsis, the whole thing clipped. These are public search
+    results and there is no secret in them, but a search result can carry a signed
+    URL like any other and the network log's rule is the right one to reuse.
+    """
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    url: str
+    #: Its 1-based place in the search engine's own ranking.
+    rank: int = Field(ge=1)
+    #: Dropped by ``is_aggregator`` (LinkedIn, Indeed, Reddit…) rather than merely
+    #: failing to resolve. The page labels the two differently because they are
+    #: different facts about the result.
+    aggregator: bool
+
+
+class SearchTraceResponse(BaseModel):
+    """What the search actually DID — the numbers behind the answer above it.
+
+    This block exists for one reason: the add page narrates a name search as a
+    short list of steps, and a step is only allowed on screen if there is a real
+    number behind it. Everything here is measured on the call that produced this
+    response; nothing is averaged, estimated or carried over.
+
+    It is also the only honest source for two of the four: ``query`` is assembled
+    from ``_QUERY_TEMPLATE`` server-side (rebuilding it in the client would be a
+    second place that has to stay right about the 76%-vs-41% host-shaped query),
+    and ``results`` is the raw count before any of our own filtering, which never
+    otherwise leaves the service.
+
+    The three counts are meant to add up on screen —
+    ``results - filtered = scored``, of which ``boards`` resolved — so
+    ``filtered`` deliberately counts aggregator/social hosts ONLY, never a
+    malformed row.
+    """
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    query: str
+    results: int = Field(ge=0)
+    filtered: int = Field(ge=0)
+    boards: int = Field(ge=0)
+    #: The non-board results, in rank order, capped server-side. Empty from a
+    #: backend that predates the field, which makes the page's list SHORTER — it
+    #: never draws a row it was not sent.
+    non_boards: list[SearchResultRowResponse] = Field(default_factory=list)
+    #: How many more non-board results there were than the cap let through. The
+    #: page draws one "…and N more results" row for them, which is the only row on
+    #: it that stands for something other than itself — and it says so.
+    non_boards_omitted: int = Field(default=0, ge=0)
+
+
+class CareersSearchTraceResponse(BaseModel):
+    """What the SECOND search did, present only when a second search happened.
+
+    ``null`` is the honest default and carries meaning: the client narrates the run
+    from these numbers, so a missing block must make the panel say nothing about a
+    second search rather than imply one.
+
+    Deliberately NOT ``SearchTraceResponse``: this query is never scored for boards
+    (measured over 1,125 results, zero resolved), so it has no ``boards`` count to
+    report. ``trusted`` takes its place — how many results sat on a host that names
+    the company, which is the number that decides whether anything is offered.
+    """
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    query: str
+    results: int = Field(ge=0)
+    filtered: int = Field(ge=0)
+    trusted: int = Field(ge=0)
+
+
+class AlreadyPublicResponse(BaseModel):
+    """"We already publish this company" — the P2 dedupe's answer, in two places.
+
+    The ADD endpoint returns it as its whole 200 body when a pasted URL turns out
+    to be a board we publish. The SEARCH endpoint embeds it as
+    ``SearchCompanyResponse.already_public`` when a typed NAME resolves to one, so
+    the same answer arrives before the user has pressed anything. One shape, one
+    ``match_kind`` rule, one set of components on the page.
+
+    Nothing was created — no ``companies`` row, no ``user_companies`` row, no
+    scraper, no capture — so there is no ``UserCompany`` to return and this is not
+    a failure either. ``status`` is the discriminant the frontend narrows on, the
+    same way it narrows the 202 ``discovery_pending`` body.
+
+    ``company_id`` / ``display_name`` are the PUBLIC company's, and both are
+    already served unauthenticated by ``GET /api/companies``. ``final_url`` is the
+    URL the resolver settled on, echoed back so a caller that decides to track a
+    private copy anyway can re-send exactly what we resolved.
+
+    ``match_kind`` is HOW SURE WE ARE, and it exists because the same body is now
+    produced by evidence of two very different strengths:
+
+    * ``'board'`` — we matched a BOARD. Either the ``(ats, board_token)`` pair the
+      resolver named, or a careers host in our own declared table. There is no
+      plausible reading where the user meant a different company, so the frontend
+      renders this terminally: "We already track X", and no escape hatch.
+    * ``'name'`` — we matched a STRING IN A DOMAIN against the names of companies we
+      publish (``lifeatspotify.com`` → Spotify). No board was resolved and no job set
+      was compared. It is a good guess and it is still a guess, so the frontend must
+      hedge the wording AND keep a way out; a wrong guess with no way out would
+      hard-block somebody from adding a legitimately different company.
+
+    Defaulted to ``'board'`` so the two exact rungs need say nothing, and so a client
+    built before this field existed keeps reading the stricter, older meaning.
+    """
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    status: Literal["already_public"] = "already_public"
+    detail: str
+    company_id: str
+    display_name: str
+    final_url: str
+    match_kind: Literal["board", "name"] = "board"
+
+
+class SearchCompanyResponse(BaseModel):
+    """200 body for POST /api/companies/search-by-name. Persists nothing.
+
+    An empty ``candidates`` list is a real, successful answer meaning "we looked
+    and found no board" — distinct from the 503 that means search itself could
+    not run.
+
+    ``careers_url`` is offered so the client can fall back to the ordinary
+    paste-a-URL path (and, from there, one-time discovery) rather than dead-ending.
+    It is present ONLY when no candidate came back auto-addable, and only when some
+    result's host actually NAMES the company — never the best of a bad set, because
+    accepting one costs a paid discovery run plus one of the user's monthly adds.
+    ``null`` therefore means "we have nothing you can use", and the UI says so.
+
+    It may be non-null ALONGSIDE a non-empty ``candidates`` list, and that
+    combination is the point of the wider trigger: searching "IBM" resolves
+    Harvey's live Ashby board, which is a real board, is not IBM's, and used to
+    suppress the careers page and leave the user with no way forward. Both are
+    shown now; the boards are information, the careers page is the action.
+
+    ``trace`` is always sent. The client still treats it as optional, because the
+    frontend (Vercel) and this API (Railway) deploy separately and a new client
+    routinely talks to the previous backend for a few minutes.
+
+    ``already_public`` IS THE ANSWER WHEN IT IS PRESENT, and everything else on the
+    body becomes evidence behind it. It carries the same three already-published
+    checks the add endpoint runs, moved one press earlier: typing ``databricks``
+    used to be answered with a careers page and a filled "Use this careers page"
+    button, and only the press after it said "this looks like Databricks, which we
+    already track". The dead end was knowable before the button was drawn.
+
+    It is the SAME ``AlreadyPublicResponse`` the add endpoint returns, deliberately,
+    so the page renders it with the same components and the same ``match_kind``
+    rule — ``'board'`` is terminal, ``'name'`` keeps its "this isn't the same
+    company" escape hatch. This is an EARLIER answer, never a replacement for the
+    add endpoint's own checks: a bookmarked or replayed add still hits the same
+    wall server-side.
+    """
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    query: str
+    candidates: list[NameCandidateResponse] = Field(default_factory=list)
+    careers_url: str | None = None
+    trace: SearchTraceResponse
+    careers_search: CareersSearchTraceResponse | None = None
+    #: Null on the ordinary path, which is most searches. Non-null means we
+    #: recognised the company before offering anything, and the client must show
+    #: THIS instead of the careers-page card rather than stacking the two.
+    already_public: AlreadyPublicResponse | None = None
+
+
 class AddUserCompanyRequest(BaseModel):
     """Body for POST /api/users/companies — the careers URL to add.
 
@@ -1381,46 +1615,6 @@ class RenameUserCompanyRequest(BaseModel):
     )
 
     display_name: str = Field(min_length=1, max_length=1000)
-
-
-class AlreadyPublicResponse(BaseModel):
-    """200 body when a pasted URL is a board we already publish (the P2 dedupe).
-
-    Nothing was created — no ``companies`` row, no ``user_companies`` row, no
-    scraper, no capture — so there is no ``UserCompany`` to return and this is not
-    a failure either. ``status`` is the discriminant the frontend narrows on, the
-    same way it narrows the 202 ``discovery_pending`` body.
-
-    ``company_id`` / ``display_name`` are the PUBLIC company's, and both are
-    already served unauthenticated by ``GET /api/companies``. ``final_url`` is the
-    URL the resolver settled on, echoed back so a caller that decides to track a
-    private copy anyway can re-send exactly what we resolved.
-
-    ``match_kind`` is HOW SURE WE ARE, and it exists because the same body is now
-    produced by evidence of two very different strengths:
-
-    * ``'board'`` — we matched a BOARD. Either the ``(ats, board_token)`` pair the
-      resolver named, or a careers host in our own declared table. There is no
-      plausible reading where the user meant a different company, so the frontend
-      renders this terminally: "We already track X", and no escape hatch.
-    * ``'name'`` — we matched a STRING IN A DOMAIN against the names of companies we
-      publish (``lifeatspotify.com`` → Spotify). No board was resolved and no job set
-      was compared. It is a good guess and it is still a guess, so the frontend must
-      hedge the wording AND keep a way out; a wrong guess with no way out would
-      hard-block somebody from adding a legitimately different company.
-
-    Defaulted to ``'board'`` so the two exact rungs need say nothing, and so a client
-    built before this field existed keeps reading the stricter, older meaning.
-    """
-
-    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
-
-    status: Literal["already_public"] = "already_public"
-    detail: str
-    company_id: str
-    display_name: str
-    final_url: str
-    match_kind: Literal["board", "name"] = "board"
 
 
 class DiscoveryStepResponse(BaseModel):
@@ -1586,6 +1780,21 @@ class UserCompanyResponse(BaseModel):
     display_name: str
     ats: str
     board_token: str
+    # THE BOARD WE ACTUALLY READ, as a URL a person can open — the row's
+    # provenance, and the only answer to "which Cisco is this?" for a company the
+    # user found by NAME rather than by pasting a link.
+    #
+    # Computed here rather than in the browser (``services.board_url``) because the
+    # data is here: Workday's real host lives in ``provider_config.base_url`` and
+    # Eightfold's in ``provider_config.tenant_host``, and that column is not on the
+    # wire. The frontend's own derivation could only ever cover the four providers
+    # whose ``board_token`` IS their board slug, so those two rendered no link at
+    # all — a company added by name, on Workday, showed nothing.
+    #
+    # NULL when we cannot name an HONEST destination (an ATS we do not recognise, a
+    # config that fails ``board_url``'s shape checks). The UI renders nothing for
+    # it; a confident link to a 404 is worse than the gap.
+    board_url: str | None = None
     source_id: str
     health_state: str | None = None
     open_job_count: int = Field(ge=0)

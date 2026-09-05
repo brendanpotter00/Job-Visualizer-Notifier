@@ -142,14 +142,52 @@ def _one_of(value: object, allowed: frozenset[str], fallback: str) -> str:
     return value if isinstance(value, str) and value in allowed else fallback
 
 
-def _safe_url(value: object) -> str | None:
-    """``value`` if it is an http(s) URL we are willing to render as a link, else None."""
+def _safe_url(value: object, *, limit: int = _MAX_TEXT_CHARS) -> str | None:
+    """``value`` if it is an http(s) URL we are willing to render as a link, else None.
+
+    ``limit`` exists because ONE of the URLs through here is not a display string. See
+    :data:`_MAX_LIVE_VIEW_URL_CHARS`.
+    """
     if not isinstance(value, str):
         return None
     text = value.strip()
     if not text.startswith(_SAFE_URL_PREFIXES):
         return None
-    return _clip(text)
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+# THE ONE URL HERE THAT IS LOADED RATHER THAN READ, and the reason it needs its own
+# budget.
+#
+# Every other URL in this blob is EVIDENCE — a row in the network log, shown to a person
+# so they can recognise their own board. Clipping one at 400 characters costs a reader
+# the tail of a query string they were never going to read anyway.
+#
+# ``live_view_url`` is different in kind: the frontend puts it in an ``<iframe src>``, so
+# a clipped one is not a shortened label, it is a BROKEN ADDRESS. And it was clipped.
+# Browserbase's ``debuggerFullscreenUrl`` measures **479 characters** — its whole payload
+# is one signed ``?wss=`` parameter — so ``_MAX_TEXT_CHARS`` chopped 80 characters off the
+# end of that parameter and appended an ellipsis. The iframe then loaded, connected to a
+# truncated websocket address, and Browserbase's inspector painted "Debugging connection
+# was closed. Reason: WebSocket disconnected" about 700ms later, on a session that was
+# still running for another twenty-five seconds.
+#
+# THAT WAS THE WHOLE OF "the live view pops up and disappears within a second". Two
+# separate attempts to fix it in the frontend failed because the frontend was right: the
+# frame really was dead, and its ``browserbase-disconnected`` message really was telling
+# the truth. Proof either way is in ``e2e/live-view`` — the same session viewed through
+# the UNtruncated URL stays connected for the full capture.
+#
+# 2048 is the conventional practical URL ceiling, four times what Browserbase sends
+# today, and it keeps the size guard this module is built on: this blob is re-read by
+# every open tab every ~4s, and ``_MAX_BLOB_CHARS`` still bounds the whole object. What
+# it must never be again is a number chosen for prose.
+_MAX_LIVE_VIEW_URL_CHARS = 2048
+
+
+def _safe_live_view_url(value: object) -> str | None:
+    """The hosted live-view URL — kept whole, because it gets LOADED."""
+    return _safe_url(value, limit=_MAX_LIVE_VIEW_URL_CHARS)
 
 
 # --------------------------------------------------------------------------
@@ -471,7 +509,7 @@ class ProgressLedger:
         self._results: dict[str, str] = {}
         self._active: str | None = None
         self._failed: str | None = None
-        self._live_view_url = _safe_url(live_view_url)
+        self._live_view_url = _safe_live_view_url(live_view_url)
         # THE NETWORK LOG, accumulated in CAPTURE ORDER and never re-sorted. Ranking it
         # by score the moment the pre-filter runs would make every row jump position on
         # one poll, which reads as a glitch rather than as progress — and arrival order
@@ -490,7 +528,7 @@ class ProgressLedger:
         is absent on almost every run — the UI treats it as an optional garnish and
         never blocks the checklist on it (plan DECISION D4).
         """
-        self._live_view_url = _safe_url(url)
+        self._live_view_url = _safe_live_view_url(url)
 
     def start(self, key: str) -> None:
         """Mark ``key`` the step in progress."""
@@ -730,7 +768,7 @@ def read_progress(provider_config: Any) -> dict[str, Any] | None:
     return {
         "steps": steps,
         "outcome": _one_of(outcome, _OUTCOMES, OUTCOME_RUNNING),
-        "live_view_url": _safe_url(raw.get("live_view_url")),
+        "live_view_url": _safe_live_view_url(raw.get("live_view_url")),
         "updated_at": updated_at if isinstance(updated_at, str) else None,
         "job_preview": _clean_preview(
             preview

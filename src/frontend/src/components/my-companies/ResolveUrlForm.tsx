@@ -4,7 +4,19 @@ import Button from '@mui/material/Button';
 import CircularProgress from '@mui/material/CircularProgress';
 import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
-import Typography from '@mui/material/Typography';
+import {
+  classifyCompanyInput,
+  COMPANY_NAME_MAX_CHARS,
+} from '../../features/userCompanies/companyInput';
+
+/**
+ * What a value over the cap is told, and it has to be an INSTRUCTION rather than a
+ * measurement. The server's own refusal is a raw Pydantic 422 reading "String should
+ * have at most 60 characters", which is true, arrives after a round-trip, and tells
+ * nobody what to do next. The thing to do next is paste a link.
+ */
+const TOO_LONG_FOR_A_NAME =
+  'That’s too long to be a company name — paste the link to their careers page instead.';
 
 interface ResolveUrlFormProps {
   /** Called with the trimmed URL. Never called while busy or with an empty value. */
@@ -35,6 +47,17 @@ interface ResolveUrlFormProps {
    * of what this button does — see the 422 `monthly_limit_reached`.
    */
   disabled?: boolean;
+  /**
+   * Accept a typed company NAME as well as a URL — label, placeholder and helper
+   * text all change with it.
+   *
+   * A prop rather than reading the flag here, so this component stays a dumb
+   * input and the page owns which of the two submit paths a value takes. OFF
+   * renders exactly the URL-only wording that shipped before, which matters
+   * because the wording is a promise: with the server flag off a typed name is
+   * a 503, so the box must not invite one.
+   */
+  allowName?: boolean;
 }
 
 /**
@@ -58,25 +81,69 @@ interface ResolveUrlFormProps {
  * carry the whole branch ("if it's a board we already read you'll see what we found
  * before anything is tracked; if it isn't, we start a one-time setup to learn how to
  * read it") — three clauses under a one-line input, which is a length people skip, and
- * skipped help is worse than none. So the helper says only WHAT TO PASTE, and the spend
- * sentence under the button says WHAT PRESSING IT COSTS. Two jobs, two lines; they must
- * not merge back into one paragraph.
+ * skipped help is worse than none. So the helper says only WHAT TO PASTE. It must not
+ * grow back into the spend explanation now that the sentence which carried that job is
+ * gone (see below) — a helper nobody finishes reading is not a disclosure.
  *
- * THE SPEND SENTENCE LIVES HERE, glued to the button, and it replaced a blue consent
- * alert that used to sit above the whole form ("the consent alert can be completely
- * removed"). It is the only place the page says that pressing Add company can start
- * paid work on the user's behalf, so it is never behind a click, never inside the
- * how-to block, and never in a component the button could be lifted out of.
+ * THE SPEND SENTENCE IS GONE, removed at the owner's request on 2026-09-02, and this
+ * note is here so nobody re-derives it from first principles and puts it back by
+ * accident. It read "If this board is new to us, Add company starts a one-time setup
+ * right away, about a minute", sat glued under the button, and had itself replaced an
+ * earlier blue consent alert above the form.
+ *
+ * What its removal costs, stated plainly because it is a real trade: nothing on this
+ * page now says that pressing **Add company** on a board we do not already read can
+ * start paid work — a headless browser session and a model call — on the user's
+ * behalf. The spend is still bounded server-side (20 adds per UTC month, a 10/60s
+ * burst limit, and `CUSTOM_COMPANY_DISCOVERY_ENABLED`), so the exposure is capped;
+ * what is missing is the disclosure, not the cap.
+ *
+ * If it ever comes back it belongs HERE — under the button, in both the empty and the
+ * populated state, never behind a click and never inside the how-to block.
  */
-export function ResolveUrlForm({ onSubmit, busy, disabled = false }: ResolveUrlFormProps) {
+export function ResolveUrlForm({
+  onSubmit,
+  busy,
+  disabled = false,
+  allowName = false,
+}: ResolveUrlFormProps) {
   const [value, setValue] = useState('');
+  const [tooLong, setTooLong] = useState(false);
 
   const trimmed = value.trim();
   const canSubmit = trimmed.length > 0 && !busy && !disabled;
 
+  /**
+   * THE LIMIT FOLLOWS THE CLASSIFICATION, NOT THE FIELD.
+   *
+   * One box takes two kinds of value with two different ceilings: a URL may be 2048
+   * characters and a name may be 60, and the field cannot know which it is holding
+   * until the press. So the `maxLength` stays at the URL's ceiling — truncating a
+   * pasted link at 60 would be far worse than any error message — and the name's cap
+   * is checked HERE, at submit, on the value we have just classified.
+   *
+   * Before the request, deliberately. Sending it would spend a paid Browserbase
+   * search on an input we can already tell is invalid, and buy back a raw Pydantic
+   * 422 the user cannot act on. The server keeps its own cap; that is the real
+   * enforcement and this is only the part that is kind about it.
+   *
+   * Gated on `allowName`, because with the flag off nothing is a name — every value
+   * goes to the URL path exactly as it did before the name box existed.
+   */
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!canSubmit) return;
+    if (allowName) {
+      const classified = classifyCompanyInput(trimmed);
+      if (
+        classified.kind === 'name' &&
+        classified.name.length > COMPANY_NAME_MAX_CHARS
+      ) {
+        setTooLong(true);
+        return;
+      }
+    }
+    setTooLong(false);
     onSubmit(trimmed);
   };
 
@@ -85,11 +152,17 @@ export function ResolveUrlForm({ onSubmit, busy, disabled = false }: ResolveUrlF
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems="flex-start">
         <TextField
           fullWidth
-          label="Careers page link"
-          placeholder="e.g. stripe.com/jobs"
+          label={allowName ? 'Company name or careers page link' : 'Careers page link'}
+          placeholder={allowName ? 'e.g. Stripe, or stripe.com/jobs' : 'e.g. stripe.com/jobs'}
           value={value}
-          onChange={(event) => setValue(event.target.value)}
+          onChange={(event) => {
+            setValue(event.target.value);
+            // The complaint is about a value that no longer exists the moment it is
+            // edited. Left up, it would sit under a field the user has already fixed.
+            setTooLong(false);
+          }}
           disabled={busy}
+          error={tooLong}
           // THE ONE RULE THE PRODUCT CANNOT YET ENFORCE, so it has to be written down.
           // `_NEVER_MATCH_DOMAINS` (company_name_match.py) does hold linkedin.com and
           // indeed.com, but it is a DENYLIST consulted on the wrong rung — it is the "is
@@ -103,8 +176,25 @@ export function ResolveUrlForm({ onSubmit, busy, disabled = false }: ResolveUrlF
           // to say it does not exist yet. Delete that clause the day
           // `HOW_IT_WORKS_VIDEO_SRC` (AddCompanyHowTo.tsx) stops being null, and not
           // before: it is currently the last statement of this rule anywhere in the app.
-          helperText="Paste the link to the company’s own careers page, not LinkedIn or Indeed. Any page of their job list works."
-          slotProps={{ htmlInput: { 'aria-label': 'Careers page link', maxLength: 2048 } }}
+          helperText={
+            tooLong
+              ? TOO_LONG_FOR_A_NAME
+              : allowName
+                ? 'Type the company’s name, or paste the link to their own careers page — not LinkedIn or Indeed. Any page of their job list works.'
+                : 'Paste the link to the company’s own careers page, not LinkedIn or Indeed. Any page of their job list works.'
+          }
+          slotProps={{
+            htmlInput: {
+              'aria-label': allowName
+                ? 'Company name or careers page link'
+                : 'Careers page link',
+              // The URL ceiling, and it stays that for every value. A name over its
+              // own (much shorter) cap is REFUSED at submit rather than truncated
+              // here — see `handleSubmit`. Truncating would silently search for
+              // something the user did not type.
+              maxLength: 2048,
+            },
+          }}
         />
         <Button
           type="submit"
@@ -117,15 +207,6 @@ export function ResolveUrlForm({ onSubmit, busy, disabled = false }: ResolveUrlF
         </Button>
       </Stack>
 
-      {/* UNDER THE BUTTON, in both the empty and the populated state, never behind a
-          disclosure. See the docstring: this sentence is the whole consent. */}
-      <Typography variant="body2" color="text.secondary" sx={{ mt: 1.75 }}>
-        If this board is new to us,{' '}
-        <Box component="strong" sx={{ color: 'text.primary' }}>
-          Add company
-        </Box>{' '}
-        starts a one-time setup right away, about a minute.
-      </Typography>
     </Box>
   );
 }

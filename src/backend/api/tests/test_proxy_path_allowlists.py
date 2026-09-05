@@ -43,6 +43,7 @@ import pytest
 from api.routers import (
     admin,
     companies,
+    dev_reset,
     features,
     feedback,
     saved_filters,
@@ -56,7 +57,17 @@ API_DIR = Path(__file__).resolve().parents[4] / "api"
 # ``main.py`` gives them. ``/api/users`` is three routers, which is why that
 # proxy's allowlist is the widest of the five.
 PROXIES: dict[str, list[tuple[object, str]]] = {
-    "users": [(users, ""), (saved_filters, "saved-filters"), (user_companies, "companies")],
+    "users": [
+        (users, ""),
+        (saved_filters, "saved-filters"),
+        (user_companies, "companies"),
+        # Registered by main.py ONLY when settings.dev_reset_enabled is on. Listed
+        # here unconditionally on purpose: this file reads router objects, not the
+        # running app, so the route is checked whether or not the flag happens to be
+        # set on the machine running the tests. A guard that only holds when the
+        # feature is enabled is not a guard.
+        (dev_reset, "dev-reset"),
+    ],
     "companies": [(companies, "")],
     "feedback": [(feedback, "")],
     "features": [(features, "")],
@@ -64,9 +75,20 @@ PROXIES: dict[str, list[tuple[object, str]]] = {
 }
 
 # Backend routes deliberately NOT reachable through the public proxy, each with
-# the reason. Empty today: every route under these five prefixes is called by
-# the SPA. An internal-key-only route must be added HERE, never to a proxy.
-NOT_PROXIED: dict[str, set[str]] = {}
+# the reason. An internal-key-only — or local-development-only — route must be
+# added HERE, never to a proxy.
+NOT_PROXIED: dict[str, set[str]] = {
+    "users": {
+        # GET (status) and POST (the reset) share one path. LOCAL DEVELOPMENT ONLY:
+        # POST deletes every visibility='user' company the caller owns, their jobs,
+        # and their company_add_attempts audit (which is the monthly-add quota, so a
+        # reset refunds it). It exists so the add flow can be re-tested, and the QA
+        # page calls it DIRECTLY on http://localhost:<backend port> — never through
+        # a Vercel function. Reachable from the public internet it would be
+        # catastrophic and unrecoverable, so it must never be allowlisted anywhere.
+        "dev-reset",
+    },
+}
 
 
 def _proxy_allowlist(name: str) -> list[str]:
@@ -103,6 +125,31 @@ def _shape(path: str) -> tuple[str, ...]:
         else:
             out.append(seg)
     return tuple(out)
+
+
+def _allowlist_entry_matches(entry: str, path: str) -> bool:
+    """``matchesRoute`` from ``api/utils/proxyPath.ts``, in Python.
+
+    Mirrored rather than approximated with a string compare because the whole point
+    is the part a string compare misses: ``:id`` matches ANY single segment (the name
+    is documentation only) and ``*`` matches one or more trailing segments. So
+    ``companies/:id`` in the allowlist reaches ``companies/dev-reset``, and a
+    NOT_PROXIED entry that only differs from an allowlisted route by a dynamic
+    segment is not refused at all — it is wide open.
+    """
+    pattern = [] if entry == "" else entry.split("/")
+    segments = [s for s in path.split("/") if s]
+    if "*" in pattern:
+        if pattern.index("*") != len(pattern) - 1:
+            return False
+        if len(segments) < len(pattern):
+            return False
+    elif len(segments) != len(pattern):
+        return False
+    return all(
+        expected == "*" or expected.startswith(":") or segments[i] == expected
+        for i, expected in enumerate(pattern)
+    )
 
 
 def _backend_routes(name: str) -> dict[tuple[str, ...], str]:
@@ -146,6 +193,32 @@ class TestProxyPathAllowlists:
             f"api/{name}.ts, or to NOT_PROXIED in this file with the reason it "
             f"must never be publicly reachable."
         )
+
+    def test_never_proxied_routes_are_unreachable_through_the_allowlist(
+        self, name: str
+    ) -> None:
+        """NOT_PROXIED has to MEAN not proxied.
+
+        Recording a route in NOT_PROXIED documents a decision; on its own it enforces
+        nothing, because ``test_every_backend_route_is_reachable_or_explicitly_refused``
+        is satisfied by the entry existing. This is the half that bites: it replays
+        ``api/utils/proxyPath.ts``'s matcher against every allowlist entry and fails
+        if ANY of them — including a dynamic ``:id`` or a trailing ``*`` — resolves to
+        a path we said must never be publicly reachable.
+
+        Concretely: ``dev-reset`` would be reachable as ``companies/dev-reset`` if it
+        were mounted one segment lower, because ``companies/:id`` is allowlisted and
+        ``:id`` matches any segment. That near-miss is why this test exists.
+        """
+        allowlist = _proxy_allowlist(name)
+        for path in sorted(NOT_PROXIED.get(name, set())):
+            reachable = [e for e in allowlist if _allowlist_entry_matches(e, path)]
+            assert not reachable, (
+                f"/api/{name}/{path} is listed in NOT_PROXIED but api/{name}.ts "
+                f"allowlists {reachable} — which matches it. A route that must never "
+                f"be publicly reachable cannot share a shape with an allowlisted one; "
+                f"move it to a path no entry (literal, ':id' or '*') can match."
+            )
 
     def test_no_allowlist_entry_can_leave_its_prefix(self, name: str) -> None:
         """The allowlist is the last line; an entry containing a dot segment or

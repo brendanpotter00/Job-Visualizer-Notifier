@@ -92,7 +92,11 @@ describe('T1 — identity when there is nothing to add', () => {
 });
 
 describe('the viewer owns boards', () => {
-  it('appends them after the public roster, sorted by name', async () => {
+  it('INTERLEAVES them into one alphabetical list, not a block at the end', async () => {
+    // They used to be appended after all ~135 curated companies, under a "Your
+    // companies" heading. Finding a board you track meant first knowing which of
+    // the two lists it was filed under — so a company now sits where its name
+    // says it does, and the badge carries the distinction instead.
     const store = await storeWithBoards([
       userCompany({ id: 'u-zzz', displayName: 'Zebra Corp' }),
       userCompany({ id: 'u-aaa', displayName: 'Aardvark Inc' }),
@@ -101,9 +105,23 @@ describe('the viewer owns boards', () => {
 
     expect(options).not.toBe(PUBLIC_COMPANY_OPTIONS);
     expect(options.length).toBe(PUBLIC_COMPANY_OPTIONS.length + 2);
-    expect(options.slice(0, PUBLIC_COMPANY_OPTIONS.length)).toEqual(PUBLIC_COMPANY_OPTIONS);
-    expect(options.slice(-2).map((o) => o.name)).toEqual(['Aardvark Inc', 'Zebra Corp']);
-    expect(options.slice(-2).every((o) => o.isCustom)).toBe(true);
+
+    const names = options.map((o) => o.name);
+    expect(names).toEqual([...names].sort((a, b) => a.localeCompare(b)));
+
+    // "Aardvark Inc" sorts to the very front, ahead of every curated company —
+    // which is precisely what appending could never do.
+    expect(names[0]).toBe('Aardvark Inc');
+    expect(options[0].isCustom).toBe(true);
+
+    // Every curated company is still present and still not custom.
+    const curated = options.filter((o) => !o.isCustom);
+    expect(curated).toEqual([...PUBLIC_COMPANY_OPTIONS]);
+
+    expect(options.filter((o) => o.isCustom).map((o) => o.name)).toEqual([
+      'Aardvark Inc',
+      'Zebra Corp',
+    ]);
     expect(selectUserCompanyIdSet(state(store))).toEqual(new Set(['u-zzz', 'u-aaa']));
   });
 

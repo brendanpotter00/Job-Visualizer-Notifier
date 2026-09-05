@@ -17,6 +17,47 @@ list of which other well-known companies do the same thing, verified rather than
 
 ---
 
+## Corrections (2026-09-01)
+
+Three claims below were wrong, and all three were found by measuring rather than
+re-reading. They are corrected in place; this block exists so the corrections are not
+silently absorbed.
+
+**1. Cisco is not a Discovery trap — it was a DEEP-LINK trap.** The paragraph above says
+Discovery "correctly refused". It refused because of the URL it was given, not because
+Cisco is unresolvable. Measured across five plausible Cisco careers URLs:
+
+| pasted | before | after the walk-up fix |
+|---|---|---|
+| `careers.cisco.com/` | ✅ free, 2.0s | ✅ |
+| `careers.cisco.com/global/en` | ✅ free, 2.2s | ✅ |
+| `careers.cisco.com/global/en/home` | ❌ → paid Discovery | ✅ free |
+| `careers.cisco.com/global/en/search-results` | ✅ free, 1.6s | ✅ |
+| `www.cisco.com/c/en/us/about/careers.html` | ❌ → paid Discovery | ✅ free |
+
+L2 appended its sub-paths to the *pasted* path, so a deep link probed
+`…/home/search-results` (a 404) instead of `/global/en/search-results` (ten hits). The
+owner had browsed to a job and copied the address bar — the single most likely thing a
+user does. Fixed by walking up one level at a time; jumping to the host root does not
+work, because Cisco answers every path with the same 176,896-byte SPA shell and `/`
+redirects back to `/global/en`.
+
+**2. Raindrop has a live Ashby board.** It is listed below as the one live example of
+Discovery's own output (`ats = 'discovered'`). `jobs.ashbyhq.com/raindrop` returns **9
+jobs** — the same 9 the discovered recipe reads. Our only paid-Discovery company never
+needed to be one. A name search finds it at rank 2.
+
+**3. Jane Street has a live Greenhouse board.** `boards-api.greenhouse.io/v1/boards/janestreet/jobs`
+returns **231 jobs** with real `gh_jid` apply links. `browserbase-agent/README.md` lists
+Jane Street as a hard scraping target whose per-job URLs "only exist in the page's
+anchors" — true of `janestreet.com`, and moot, because the Greenhouse board is free.
+
+**Not a correction:** Spotify. The table below is right that `jobs.lever.co/spotify` is a
+live Lever board already in `companies`; "negative result" refers to its *careers page*
+revealing no ATS, not to Spotify lacking one.
+
+---
+
 ## Part 1 — the search prompt
 
 Rewritten from the owner's draft (*"give me spotify's career webpage and if there is a

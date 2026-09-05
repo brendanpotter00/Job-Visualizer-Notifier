@@ -42,6 +42,17 @@ budget** against **what the response proves is there**. Three signals, all from 
 capture: a grouped payload's union, the board's own total in the object holding the
 records, and a `{label, count}` facet block's sum.
 
+**The corollary, added 2026-09-04: the scope has to be right BEFORE the capture.**
+Because a recipe inherits it and nothing downstream can widen it, the URL we hand a
+user is the whole decision. Oracle's own careers page links to its board three times
+and every link carries `?location=United States&locationId=…`, so following the link
+as published would build a US-only scraper for a company that hires everywhere. The
+name-search picker now drops a query it can prove is only a FILTER and keeps one that
+could be an IDENTIFIER (Greenhouse's `?for=<token>` names the board) — see
+`careers_page_pick.unscoped_variant`. That is the one place a URL is rewritten, it is
+upstream of any capture, and it fails closed: unrecognised parameter, or a bare path
+that does not answer 200, means the URL is offered exactly as found.
+
 ### What a partial read looks like now
 
 * the discovery outcome is `partial`, not `tracking`;
