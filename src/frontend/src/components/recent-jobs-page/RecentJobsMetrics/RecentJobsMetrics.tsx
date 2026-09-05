@@ -1,16 +1,34 @@
 import { Paper, Stack, Divider } from '@mui/material';
 import { MetricCard } from '../../companies-page/MetricsDashboard/MetricCard.tsx';
 import { RESPONSIVE } from '../../../config/responsive';
+import {
+  formatResultTotal,
+  UNKNOWN_TOTAL,
+  type ResultTotal,
+} from '../../../features/jobs/resultTotal.ts';
 
 interface RecentJobsMetricsProps {
   /**
-   * `null` means the number is NOT KNOWN — page 1 has not landed, or it failed
-   * and the hook deliberately dropped the previous filter set's figures. It is
-   * never "zero": rendering an unknown count as 0 puts "0 Displayed Jobs" over an
-   * error banner, which reads as "your filters matched nothing" and sends the
-   * reader off to widen filters that were never the problem.
+   * How many jobs the filter set holds, to whatever precision is honest.
+   *
+   * NOT a plain number, because since #277 the exact total usually does not
+   * exist: the server defers it and the rows walked so far are a lower bound, so
+   * this tile shows "50+". It rendered a bare em-dash for every real search until
+   * that bound was plumbed through — the count was there the whole time, in the
+   * rows on screen, and the header simply had no way to say "at least".
+   *
+   * `unknown` still renders the em-dash, and still must: it means page 1 has not
+   * landed or it failed and the previous filter set's figures were deliberately
+   * dropped. Never "zero" — "0 Displayed Jobs" over an error banner reads as
+   * "your filters matched nothing" and sends the reader off to widen filters that
+   * were never the problem.
    */
-  totalJobs: number | null;
+  totalJobs: ResultTotal;
+  /**
+   * `null` means NOT KNOWN, for the same reasons and with the same em-dash. These
+   * two stay exact numbers — the server still counts them on every page 1; only
+   * the filtered total was deferred.
+   */
   jobsLast24Hours: number | null;
   jobsLast3Hours: number | null;
   /**
@@ -22,10 +40,7 @@ interface RecentJobsMetricsProps {
   pending?: boolean;
 }
 
-/** What an unknown count renders as. An em-dash, never a zero. */
-const UNKNOWN = '—';
-
-const show = (value: number | null): number | string => (value === null ? UNKNOWN : value);
+const show = (value: number | null): number | string => (value === null ? UNKNOWN_TOTAL : value);
 
 /**
  * Displays metrics for Recent Job Postings page
@@ -56,7 +71,7 @@ export function RecentJobsMetrics({
         divider={<Divider orientation="vertical" flexItem />}
         sx={{ mb: { xs: 0, sm: 3 } }}
       >
-        <MetricCard value={show(totalJobs)} label="Displayed Jobs" dense />
+        <MetricCard value={formatResultTotal(totalJobs)} label="Displayed Jobs" dense />
         <MetricCard value={show(jobsLast24Hours)} label="Past 24 Hours" dense />
         <MetricCard value={show(jobsLast3Hours)} label="Past 3 Hours" dense />
       </Stack>
