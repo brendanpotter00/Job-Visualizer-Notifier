@@ -219,8 +219,13 @@ class Settings(BaseSettings):
     # THIS FLAG IS NOT THE REAL GUARD. A flag is one env var away from being wrong on
     # the wrong machine, so the endpoint ALSO re-derives, at call time and independent
     # of this setting, that ``database_url`` points at a loopback host
-    # (``dev_reset.assert_local_database``) and refuses otherwise. Two independent
-    # mistakes are required to delete anything that is not on someone's laptop.
+    # (``dev_reset.assert_local_database``, parsed with libpq's own ``parse_dsn`` so a
+    # ``?host=``/``?hostaddr=`` parameter cannot hide a production host behind a
+    # ``localhost`` authority) AND asks the live connection where it really is
+    # (``dev_reset.assert_local_connection``). Two independent mistakes are required to
+    # delete anything that is not on someone's laptop — and the one statement that
+    # would reach another USER's rows, ``?scope=all``, additionally needs an admin
+    # grant.
     dev_reset_enabled: bool = False
 
     # PostHog analytics

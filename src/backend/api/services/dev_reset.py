@@ -17,9 +17,20 @@ independent layers and this module owns the two that matter most:
    ``settings.database_url``, INDEPENDENT of the flag, and FAIL-CLOSED: anything it
    cannot parse, or that does not resolve to a loopback host, refuses. This is the
    layer that survives ``DEV_RESET_ENABLED=true`` being set on the wrong machine.
-3. Never proxied — no ``api/*.ts`` allowlists it; pinned by
+   It parses with libpq's own ``parse_dsn``, because a DSN's ``host=`` / ``hostaddr=``
+   query parameters OVERRIDE the authority in the URL and ``urlsplit`` cannot see
+   that: ``…@localhost/db?host=prod.railway.internal`` reads as "localhost" and
+   connects to production.
+3. :func:`assert_local_connection` — the same question asked of the CONNECTION the
+   DELETEs will travel down (libpq's own ``conn.info.host``, plus
+   ``SELECT inet_server_addr()``). The static check judges a config string; the pool
+   is built from an augmented copy of it and the tests from a different variable
+   entirely, so proving the setting is local proves nothing about the socket.
+4. Never proxied — no ``api/*.ts`` allowlists it; pinned by
    ``api/tests/test_proxy_path_allowlists.py``'s ``NOT_PROXIED``.
-4. Every delete is scoped to ``visibility='user'``. A published company's row, and
+5. ``?scope=all`` — which deletes every USER's rows, not just the caller's —
+   additionally requires an ``admins`` grant (``routers/dev_reset.py``).
+6. Every delete is scoped to ``visibility='user'``. A published company's row, and
    every job under a published source_id, is unreachable from here.
 
 THE PURGE ORDER IS NOT REINVENTED. ``custom_companies_service.purge_custom_company``
@@ -38,7 +49,8 @@ from dataclasses import dataclass
 from typing import Any, Optional
 from urllib.parse import urlsplit
 
-from psycopg2.extensions import connection as Connection
+import psycopg2
+from psycopg2.extensions import connection as Connection, parse_dsn
 
 from scripts.shared.constants import CUSTOM_SOURCE_PREFIX, custom
 
@@ -69,33 +81,94 @@ class NonLocalDatabaseError(RuntimeError):
     """
 
 
-def assert_local_database(database_url: str) -> str:
-    """Return the loopback hostname, or raise :class:`NonLocalDatabaseError`.
+def _strip_sqlalchemy_driver(database_url: str) -> str:
+    """``postgresql+psycopg2://…`` → ``postgresql://…``, everything else untouched.
 
-    PARSED, NEVER SUBSTRING-MATCHED. ``'localhost' in url`` is true for
-    ``postgresql://u:p@prod.example/db?options=--search_path%3Dlocalhost`` and for
-    ``postgresql://localhost@evil.example/db`` — whose real host is ``evil.example``,
-    because a userinfo section ends at the LAST ``@``. ``urlsplit().hostname``
-    applies the actual URL grammar, so both of those are refused here.
+    libpq has never heard of SQLAlchemy's ``+driver`` spelling and ``parse_dsn``
+    refuses the whole string when it sees one. Only the scheme is rewritten; the
+    query parameters this guard exists to read are left exactly as they are.
+    """
+    scheme, separator, rest = database_url.partition("://")
+    if not separator or "+" not in scheme:
+        return database_url
+    return f"{scheme.split('+', 1)[0]}{separator}{rest}"
 
-    FAILS CLOSED at every branch: an unparseable URL, a scheme that is not Postgres,
-    a URL with no host at all (a Unix-socket DSN such as ``postgresql:///jobscraper``
-    — local in practice, but not *provably* so from the string), or a host that is
-    neither the literal ``localhost`` nor an IP in a loopback range.
+
+def _assert_loopback(value: str, *, source: str) -> None:
+    """Raise unless ``value`` is the literal ``localhost`` or a loopback IP.
 
     Loopback is decided by :mod:`ipaddress`, not by an equality test against
     ``127.0.0.1``: the whole ``127.0.0.0/8`` block and IPv6 ``::1`` are loopback, and
     hard-coding one spelling would refuse a developer whose DSN says ``127.0.0.2``.
     """
+    host = value.strip().lower()
+    if not host:
+        raise NonLocalDatabaseError(
+            f"refusing the dev reset: {source} is empty, so it cannot be proven to "
+            f"be a local database"
+        )
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        if host != _LOOPBACK_HOSTNAME:
+            raise NonLocalDatabaseError(
+                f"refusing the dev reset: {source} is {host!r}, which is not "
+                f"localhost. This endpoint only ever runs against a loopback "
+                f"database."
+            ) from None
+        return
+    if not address.is_loopback:
+        raise NonLocalDatabaseError(
+            f"refusing the dev reset: {source} is {host!r}, which is not a loopback "
+            f"address. This endpoint only ever runs against a loopback database."
+        )
+
+
+def assert_local_database(database_url: str) -> str:
+    """Return the loopback host libpq would DIAL, or raise :class:`NonLocalDatabaseError`.
+
+    PARSED, NEVER SUBSTRING-MATCHED. ``'localhost' in url`` is true for
+    ``postgresql://u:p@prod.example/db?options=--search_path%3Dlocalhost`` and for
+    ``postgresql://localhost@evil.example/db`` — whose real host is ``evil.example``,
+    because a userinfo section ends at the LAST ``@``.
+
+    AND PARSED THE WAY LIBPQ PARSES IT, which ``urlsplit`` alone is not. A Postgres
+    DSN may carry ``host=`` / ``hostaddr=`` **as query parameters**, and when it does
+    they WIN — the authority in the URL is then just decoration. ``dependencies.py``
+    hands the DSN to psycopg2 through ``augment_db_url``, which preserves the query
+    string, so both of these connected to production while this function said
+    "localhost" (measured 2026-09-04):
+
+    ==================================================  ============  ==================
+    DSN                                                 urlsplit says libpq dials
+    ==================================================  ============  ==================
+    ``…@localhost:5432/db?host=prod.railway.internal``  localhost     prod.railway.internal
+    ``…@localhost:5432/db?hostaddr=10.0.0.5``           localhost     10.0.0.5
+    ==================================================  ============  ==================
+
+    So ``psycopg2.extensions.parse_dsn`` — libpq's own parser, resolving the same keys
+    libpq will — decides, and EVERY host the string names (the URL authority, ``host``
+    and ``hostaddr``) must independently be loopback. One of them pointing somewhere
+    else is a refusal, whichever one libpq would have preferred.
+
+    STATIC ONLY. It reads a string; it cannot know what answered. Pair it with
+    :func:`assert_local_connection`, which asks the server that actually picked up.
+
+    FAILS CLOSED at every branch: an unparseable URL, a DSN libpq cannot parse, a
+    scheme that is not Postgres, a string naming no host at all (a Unix-socket DSN
+    such as ``postgresql:///jobscraper``, or a ``host=/var/run/postgresql`` socket
+    directory — local in practice, but not *provably* so from the string, and the
+    contract here is proof), or a host that is neither ``localhost`` nor a loopback IP.
+    """
     try:
         parts = urlsplit(database_url)
         scheme = parts.scheme.lower()
-        hostname = parts.hostname
+        url_hostname = parts.hostname
         # ACCESSING ``.port`` IS THE CHECK, not a value we need. ``.hostname`` is
         # lenient about the rest of the authority, so ``@localhost:notaport`` would
-        # otherwise sail through as "localhost"; ``.port`` is what makes urllib
-        # validate it and raise. A DSN psycopg2 could not parse is a DSN we have not
-        # understood, and the answer to that is always refusal.
+        # otherwise sail through as "localhost" — and ``parse_dsn`` accepts that port
+        # too, so this is the only thing that catches it. A DSN we have not
+        # understood is a DSN we refuse.
         _ = parts.port
     except ValueError as exc:  # malformed IPv6 literal, non-numeric port, …
         raise NonLocalDatabaseError(
@@ -108,30 +181,113 @@ def assert_local_database(database_url: str) -> str:
             f"PostgreSQL URL, so its host cannot be checked"
         )
 
-    if not hostname:
+    try:
+        dsn = parse_dsn(_strip_sqlalchemy_driver(database_url))
+    except psycopg2.Error as exc:
+        raise NonLocalDatabaseError(
+            "refusing the dev reset: database_url is not a DSN libpq can parse, so "
+            "the host it would really connect to is unknown"
+        ) from exc
+
+    dsn_host = dsn.get("host")
+    dsn_hostaddr = dsn.get("hostaddr")
+    named = [
+        (url_hostname, "the database_url host"),
+        (dsn_host, "the DSN's host= parameter"),
+        (dsn_hostaddr, "the DSN's hostaddr= parameter"),
+    ]
+    present = [(str(value), label) for value, label in named if value]
+    if not present:
         raise NonLocalDatabaseError(
             "refusing the dev reset: database_url names no host, so it cannot be "
             "proven to be a local database"
         )
+    for value, label in present:
+        _assert_loopback(value, source=label)
 
-    host = hostname.strip().lower()
-    try:
-        address = ipaddress.ip_address(host)
-    except ValueError:
-        if host != _LOOPBACK_HOSTNAME:
-            raise NonLocalDatabaseError(
-                f"refusing the dev reset: database_url host {host!r} is not "
-                f"localhost. This endpoint only ever runs against a loopback "
-                f"database."
-            ) from None
-        return host
+    # What libpq would actually dial, in its own precedence order — that is the host
+    # the QA panel names on the button, so it must be the one that was checked last
+    # rather than the one that reads best.
+    effective = dsn_hostaddr or dsn_host or url_hostname
+    return str(effective).strip().lower()
 
-    if not address.is_loopback:
+
+def assert_local_connection(conn: Connection) -> None:
+    """Check the CONNECTION we are about to delete through, not a config string.
+
+    :func:`assert_local_database` judges ``settings.database_url``. This judges the
+    live connection, which is not the same object: it comes out of a pool built from
+    a DSN that was augmented on the way in (``dependencies.augment_db_url``), and in
+    tests it comes from ``TEST_DATABASE_URL`` entirely. Proving the setting is local
+    proves nothing about the socket the DELETEs will travel down.
+
+    TWO QUESTIONS:
+
+    1. **Where did libpq connect?** ``conn.info.host`` is libpq's own account of the
+       host parameter it used for THIS connection — including a ``host=`` that came
+       out of the query string, which is the bypass the static check now closes. It
+       must be loopback, or a socket directory (a path never leaves the machine).
+    2. **Where did the server answer from?** ``inet_server_addr()`` is NULL over a
+       Unix socket (local by construction) and otherwise the server's own address.
+
+    WHY (2) IS NOT REQUIRED TO BE LOOPBACK, measured rather than assumed. The setup
+    this repo prescribes — ``docker compose up -d postgres``, connected as
+    ``localhost:5432`` through a published port — reports **172.18.0.2** on this
+    machine, because the server is inside the container's network and sees the NATed
+    connection. GitHub Actions' service containers are the same shape. Demanding
+    loopback there would refuse every ordinary local setup, including the one the
+    owner runs, so what is refused is a **globally routable** server address: we
+    dialed something local and ended up somewhere on the public internet. A private
+    address is the container case and is allowed, with (1) carrying the weight.
+
+    FAILS CLOSED on anything it cannot establish — an unreadable row, an address that
+    will not parse, a query that errored. "We could not tell where this database is"
+    is the same answer as "somewhere else".
+    """
+    host = (conn.info.host or "").strip()
+    if not host:
         raise NonLocalDatabaseError(
-            f"refusing the dev reset: database_url host {host!r} is not a loopback "
-            f"address. This endpoint only ever runs against a loopback database."
+            "refusing the dev reset: the connection does not say which host it "
+            "reached, so it cannot be proven to be a local database"
         )
-    return host
+    if not host.startswith("/"):  # a socket DIRECTORY is local by construction
+        _assert_loopback(host, source="the host libpq actually connected to")
+
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT inet_server_addr() AS server_addr")
+        row = cursor.fetchone()
+    except psycopg2.Error as exc:
+        raise NonLocalDatabaseError(
+            "refusing the dev reset: the database would not say where it is "
+            "(SELECT inet_server_addr() failed)"
+        ) from exc
+
+    if row is None:
+        raise NonLocalDatabaseError(
+            "refusing the dev reset: the database did not answer where it is"
+        )
+    address = row["server_addr"] if isinstance(row, dict) else row[0]
+    if address is None:
+        return  # Unix-domain socket: it never left this machine.
+
+    # ``inet`` may render with a prefix length (``172.18.0.2/32``) depending on the
+    # cursor factory; the prefix is not part of the address.
+    text = str(address).split("/")[0]
+    try:
+        parsed = ipaddress.ip_address(text)
+    except ValueError as exc:
+        raise NonLocalDatabaseError(
+            f"refusing the dev reset: the database reported an address we could not "
+            f"parse ({text!r})"
+        ) from exc
+    if parsed.is_loopback or parsed.is_private:
+        return
+    raise NonLocalDatabaseError(
+        f"refusing the dev reset: we connected to {host!r} but the server answered "
+        f"from {text!r}, a public address. Something is forwarding a local port to a "
+        f"remote database."
+    )
 
 
 @dataclass(frozen=True)
@@ -227,6 +383,11 @@ def reset_custom_companies(
     hit the cap instead of the code path under test.
     """
     scope = SCOPE_ALL if user_id is None else SCOPE_MINE
+    # THE LAST GUARD, AND THE ONLY ONE INSIDE THE FUNCTION THAT DELETES. The router
+    # has already checked both, but this is also called by the CLI and by tests, and
+    # a "delete every user-added company" function that trusts its caller to have
+    # checked is one refactor away from being called by something that did not.
+    assert_local_connection(conn)
     cursor = conn.cursor()
     try:
         targets = _target_companies(cursor, user_id)

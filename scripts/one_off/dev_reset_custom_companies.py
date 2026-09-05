@@ -132,9 +132,16 @@ def main() -> int:
         # leaves the transaction open for the rollback below. A dry run that
         # counted rows through some other query would be reporting on a different
         # statement than the one that deletes, which is how a dry run lies.
+        #
+        # It re-checks the LIVE connection first (a string can be spelled to look
+        # local; the socket cannot), so the refusal is caught here and printed the
+        # same way the static one above is, rather than as a traceback.
         outcome = reset_custom_companies(conn, user_id=user_id, commit=args.apply)
         if not args.apply:
             conn.rollback()
+    except NonLocalDatabaseError as exc:
+        print(f"REFUSED: {exc}", file=sys.stderr)
+        return 2
     finally:
         conn.close()
 

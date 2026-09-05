@@ -19,6 +19,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+import psycopg2
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -31,6 +32,8 @@ from api.routers import dev_reset as dev_reset_router
 from api.services import dev_reset as svc
 from api.services.user_service import get_or_create_user
 from scripts.shared.constants import custom
+
+from .conftest import _insert_admin
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 BACKEND_DIR = Path(__file__).resolve().parents[2]
@@ -65,11 +68,18 @@ def _main_app_with_flag(value: str) -> dict:
     # ``app.routes`` holds opaque _IncludedRouter wrappers in this FastAPI version,
     # so the route table is read from the OpenAPI schema — a public, stable view of
     # exactly the paths the app will answer.
+    #
+    # ``raise_server_exceptions=False`` because the child never runs the lifespan, so
+    # there is no connection pool, and the status route takes a connection now (it
+    # verifies the LIVE database rather than trusting the URL). Without this the
+    # handler's "pool not initialized" would come back as a crashed child instead of
+    # the 500 it is. What this function measures is 404-vs-not — whether the route
+    # was registered — and a 500 answers that as well as a 403 does.
     code = (
         "import json;"
         "from fastapi.testclient import TestClient;"
         "import api.main as m;"
-        "r = TestClient(m.app).get(%r);"
+        "r = TestClient(m.app, raise_server_exceptions=False).get(%r);"
         "print('RESULT ' + json.dumps({'status': r.status_code,"
         " 'paths': sorted(m.app.openapi()['paths'])}))" % DEV_RESET_PATH
     )
@@ -122,6 +132,12 @@ def test_the_route_is_registered_with_the_flag_on() -> None:
         "postgresql://u:p@[::1]:5432/db",
         "postgresql+psycopg2://u:p@localhost/db",
         "postgresql://u:p@LOCALHOST/db",
+        # What the pool ACTUALLY connects with. ``dependencies.init_pool`` runs the
+        # configured URL through ``augment_db_url`` first, which appends keepalives,
+        # an application_name and a statement_timeout as query parameters — so the
+        # string this guard sees in anger is never the bare one above.
+        "postgresql://u:p@localhost:5432/db?keepalives=1&keepalives_idle=30"
+        "&application_name=fastapi_pool&options=-c%20statement_timeout%3D30000",
     ],
 )
 def test_loopback_urls_are_accepted(url: str) -> None:
@@ -151,11 +167,171 @@ def test_loopback_urls_are_accepted(url: str) -> None:
         "mysql://u:p@localhost/db",
         "postgresql://u:p@localhost:notaport/db",
         "postgresql://u:p@[::1/db",
+        # ── THE BYPASS, measured 2026-09-04 ────────────────────────────────────
+        # libpq IGNORES the authority when the DSN carries host= / hostaddr=, and
+        # ``augment_db_url`` (which every pooled connection goes through) preserves
+        # query parameters. ``urlsplit().hostname`` reports "localhost" for both of
+        # these while psycopg2 connects to production. A guard that reads the URL
+        # grammar instead of libpq's is reading a different string than the driver.
+        "postgresql://u:p@localhost:5432/db?host=prod-db.railway.internal",
+        "postgresql://u:p@localhost:5432/db?hostaddr=10.0.0.5",
+        # …and through the SQLAlchemy driver spelling, which parse_dsn refuses
+        # outright unless the ``+driver`` suffix is stripped first. Fail-closed
+        # either way, but it must fail for the right reason.
+        "postgresql+psycopg2://u:p@localhost/db?host=prod-db.railway.internal",
+        # A socket DIRECTORY as host= is local in practice; refused for the same
+        # reason ``postgresql:///jobscraper`` is — the contract here is proof.
+        "postgresql://u:p@localhost/db?host=/var/run/postgresql",
     ],
 )
 def test_non_loopback_or_unparseable_urls_are_refused(url: str) -> None:
     with pytest.raises(svc.NonLocalDatabaseError):
         svc.assert_local_database(url)
+
+
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        ("postgresql://u:p@localhost:5432/db?host=prod-db.railway.internal",
+         "host="),
+        ("postgresql://u:p@localhost:5432/db?hostaddr=10.0.0.5", "hostaddr="),
+    ],
+)
+def test_the_refusal_names_the_parameter_that_did_it(url: str, expected: str) -> None:
+    """The message has to say WHICH host lost, or the reader is left staring at a
+    DSN whose visible hostname is 'localhost' wondering why it was refused."""
+    with pytest.raises(svc.NonLocalDatabaseError, match=expected):
+        svc.assert_local_database(url)
+
+
+# --- Guard 3: the live connection, not the config string ----------------------
+#
+# ``assert_local_database`` judges ``settings.database_url``. The DELETEs travel down
+# a pooled connection built from an AUGMENTED copy of it — and, under pytest, from
+# ``TEST_DATABASE_URL`` instead. These use a fake connection rather than the real one
+# because the interesting answers (a remote server, a Unix socket, a query that
+# errors) cannot be produced by the local database on demand.
+
+
+class _FakeCursor:
+    def __init__(self, row: object, error: Exception | None) -> None:
+        self._row = row
+        self._error = error
+
+    def execute(self, _sql: str) -> None:
+        if self._error is not None:
+            raise self._error
+
+    def fetchone(self) -> object:
+        return self._row
+
+
+class _FakeInfo:
+    def __init__(self, host: str | None) -> None:
+        self.host = host
+
+
+class _FakeConnection:
+    """Just enough psycopg2 connection for the guard: ``.info.host`` and a cursor."""
+
+    def __init__(
+        self,
+        *,
+        host: str | None,
+        server_addr: object = None,
+        row: object = "unset",
+        error: Exception | None = None,
+    ) -> None:
+        self.info = _FakeInfo(host)
+        self._row = ({"server_addr": server_addr} if row == "unset" else row)
+        self._error = error
+
+    def cursor(self) -> _FakeCursor:
+        return _FakeCursor(self._row, self._error)
+
+
+@pytest.mark.parametrize(
+    ("host", "server_addr", "why"),
+    [
+        ("localhost", "127.0.0.1", "the plain local case"),
+        ("127.0.0.1", "127.0.0.1", "an IP literal, same thing"),
+        ("localhost", None, "a Unix socket has no server address"),
+        ("/var/run/postgresql", None, "a socket DIRECTORY never leaves the machine"),
+        # MEASURED on this repo's own prescribed setup (`docker compose up -d
+        # postgres`, published port): the server sits inside the container network
+        # and reports 172.18.0.2 for a connection made to localhost:5432. GitHub
+        # Actions' service containers are the same shape. Refusing this would refuse
+        # every ordinary local setup, so `info.host` carries the weight here.
+        ("localhost", "172.18.0.2", "Postgres in Docker behind a published port"),
+        ("localhost", "172.18.0.2/32", "…rendered by a cursor that keeps the prefix"),
+    ],
+)
+def test_a_local_connection_is_accepted(
+    host: str, server_addr: object, why: str
+) -> None:
+    svc.assert_local_connection(
+        _FakeConnection(host=host, server_addr=server_addr)  # type: ignore[arg-type]
+    )
+
+
+@pytest.mark.parametrize(
+    ("conn", "why"),
+    [
+        (
+            _FakeConnection(host="prod-db.railway.internal", server_addr="10.0.0.5"),
+            "the ?host= bypass, caught on the wire this time",
+        ),
+        (
+            _FakeConnection(host="db.railway.internal", server_addr=None),
+            "a remote host that answers over a socket it claims not to have",
+        ),
+        (
+            _FakeConnection(host="localhost", server_addr="52.10.20.30"),
+            "we dialled loopback and the server answered from the public internet — "
+            "something is forwarding the port",
+        ),
+        (_FakeConnection(host=""), "a connection that will not say where it went"),
+        (_FakeConnection(host=None), "…or says nothing at all"),
+        (
+            _FakeConnection(host="localhost", row=None),
+            "no row back from inet_server_addr()",
+        ),
+        (
+            _FakeConnection(host="localhost", server_addr="not-an-address"),
+            "an address that will not parse",
+        ),
+        (
+            _FakeConnection(host="localhost", error=psycopg2.OperationalError("boom")),
+            "the query itself failed — 'we could not tell' is 'no'",
+        ),
+    ],
+)
+def test_a_connection_that_is_not_provably_local_is_refused(
+    conn: object, why: str
+) -> None:
+    with pytest.raises(svc.NonLocalDatabaseError):
+        svc.assert_local_connection(conn)  # type: ignore[arg-type]
+
+
+def test_a_tuple_cursor_row_is_read_the_same_as_a_dict_row() -> None:
+    """The app's pool uses RealDictCursor; the CLI and psql-shaped callers do not."""
+    svc.assert_local_connection(
+        _FakeConnection(host="localhost", row=("127.0.0.1",))  # type: ignore[arg-type]
+    )
+    with pytest.raises(svc.NonLocalDatabaseError):
+        svc.assert_local_connection(
+            _FakeConnection(host="localhost", row=("52.10.20.30",))  # type: ignore[arg-type]
+        )
+
+
+def test_the_delete_itself_refuses_a_non_local_connection() -> None:
+    """The service function guards ITSELF, so a caller that skipped the router — the
+    CLI, a test, a future reaper — cannot delete through a remote connection."""
+    with pytest.raises(svc.NonLocalDatabaseError):
+        svc.reset_custom_companies(
+            _FakeConnection(host="db.railway.internal"),  # type: ignore[arg-type]
+            user_id=None,
+        )
 
 
 # --- Test app: the router registered, i.e. the flag already ON ----------------
@@ -454,9 +630,49 @@ def test_scope_mine_leaves_another_users_custom_company_alone(
                   (custom("u-devreset2"),)) == 2
 
 
+# --- Guard 5: scope=all is everybody's data, so it needs the admin grant -------
+#
+# ``scope=all`` runs ``DELETE FROM user_companies`` and ``DELETE FROM
+# company_add_attempts`` with NO WHERE clause. Behind ``get_current_user`` alone that
+# is "any authenticated caller wipes every user's data", which is harmless on one
+# laptop and is exactly what compounds a mis-set flag or a DSN that is not as local as
+# it looks. ``scope=mine`` — the default, and what the button sends — needs no grant.
+
+
+def test_scope_all_is_refused_for_a_non_admin_and_deletes_nothing(
+    client_on, db_conn
+) -> None:
+    owner = _user_id(db_conn, "owner@example.com")
+    other = _user_id(db_conn, "other@example.com")
+    _seed_custom_company(db_conn, "u-devreset1", owner)
+    _seed_custom_company(db_conn, "u-devreset2", other)
+
+    response = client_on.post(f"{DEV_RESET_PATH}?scope=all")
+
+    assert response.status_code == 403
+    assert "admin" in response.json()["detail"].lower()
+    # Not one row, not even the caller's own — the refusal is before the delete.
+    assert _count(db_conn, "companies", "WHERE visibility = 'user'") == 2
+    assert _count(db_conn, "user_companies") == 2
+    assert _count(db_conn, "company_add_attempts") == 2
+
+
+def test_scope_mine_still_needs_no_admin_grant(client_on, db_conn) -> None:
+    """The gate is on the scope, not on the endpoint. A developer clearing their own
+    boards twenty times an evening must not need a row in ``admins`` to do it."""
+    owner = _user_id(db_conn, "owner@example.com")
+    _seed_custom_company(db_conn, "u-devreset1", owner)
+
+    body = client_on.post(DEV_RESET_PATH).json()
+
+    assert body["scope"] == "mine"
+    assert body["company_ids"] == ["u-devreset1"]
+
+
 def test_scope_all_clears_every_users_custom_companies(client_on, db_conn) -> None:
     owner = _user_id(db_conn, "owner@example.com")
     other = _user_id(db_conn, "other@example.com")
+    _insert_admin(db_conn, owner)
     _seed_custom_company(db_conn, "u-devreset1", owner)
     _seed_custom_company(db_conn, "u-devreset2", other)
     _seed_published_company(db_conn, "pub-co", ("pub-1",))
