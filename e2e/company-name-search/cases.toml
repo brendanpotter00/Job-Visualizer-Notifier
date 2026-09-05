@@ -45,6 +45,30 @@
 #   allow_brochure      = true         opt out of the global brochure rule below. Write
 #                                      it down only if you have decided a marketing page
 #                                      really is the right answer here.
+#   known_limitation    = "why"        THIS CASE IS EXPECTED TO FAIL TODAY, and this is
+#                                      the reason. It still runs, is still judged, and
+#                                      its reasons still print in full under `WHY:` —
+#                                      the only thing it changes is that the row sits on
+#                                      its own `known` line instead of inside the N/M
+#                                      pass count, so a gap we have decided not to close
+#                                      cannot be confused with a regression that arrived
+#                                      today. Must be a NON-EMPTY string: the reason has
+#                                      to be written down by whoever decided it. If the
+#                                      case starts PASSING the run says FIXED and tells
+#                                      you to delete the marker, so it cannot rot.
+#
+# ── SILENCE IS NOT A PASS ───────────────────────────────────────────────────
+# A case that records NO positive expectation is judged `vacuous` — and FAILS — when
+# the endpoint answers nothing at all. `must_not` is checked against the answer, and an
+# endpoint that answers nothing gives it nothing to look at, so `metabase`, `poke`, `gm`
+# and `hp` all used to pass against a completely dead `search-by-name`: 4 of 21 green on
+# an endpoint returning `{candidates: [], careersUrl: null}`. That is the "4 for 4, live"
+# report reproduced inside the harness built to prevent it.
+#
+# So a one-line `must_not` case is no longer enough on its own. Say what a right answer
+# is: `must_answer = true` if any answer will do, or `nothing = true` if the honest
+# answer really is silence (`facebook`, `poke`) — that is a POSITIVE expectation, it can
+# fail, and it is the difference between ASSERTING a dead end and inheriting one.
 #
 # ── truth (REQUIRED) ────────────────────────────────────────────────────────
 # WHERE THE EXPECTED VALUE CAME FROM. This field exists because the last run of this
@@ -54,7 +78,9 @@
 #
 #   "owner:<date>"     the owner named this answer.
 #   "measured:<doc>"   a doc in docs/implementations/custom-company-sources/ recorded
-#                      it with evidence.
+#                      it with evidence — or, where the measurement was written into the
+#                      code it is about rather than into a doc, that module's docstring,
+#                      cited by file and line (`citadel` does this).
 #
 # Anything else — including "agent-guess" — still RUNS, but its verdict is reported as
 # UNVERIFIED-TRUTH and never counted in the N/M passing line. A green run that rests on
@@ -91,7 +117,7 @@ ibm        = { input = "IBM", must_offer_careers = true, must_not = ["harvey"], 
 meta       = { input = "Meta", careers_host = "metacareers.com", must_not = ["anthropic", "cohere", "metabase.com"], truth = "owner:2026-09-03", tags = ["careers", "name-gate"], note = "semantic search returns Anthropic's and Cohere's real boards for 'meta'; both are published here, so an ungated match would answer 'we already track Anthropic'. metabase.com is the mirror image of the `metabase` case and CAREERS-FALLBACK-POC.md records it as still passing the trust rule (OPEN)." }
 facebook   = { input = "Facebook", nothing = true, truth = "owner:2026-09-03", tags = ["limitation"], note = "Recorded as 'returns nothing'. MEASURED WORSE 2026-09-04: it offers facebook.it/careers/ — a DIFFERENT company's site that passes the owns_host trust rule on a country-code TLD. Not a missing alias; an actively wrong answer." }
 metabase   = { input = "Metabase", must_not = ["metacareers.com"], truth = "owner:2026-09-03", tags = ["name-gate"], note = "word-boundary: 'meta' is a prefix of 'metabase', not a name match" }
-poke       = { input = "Poke", must_not = ["poki"], truth = "owner:2026-09-03", tags = ["name-gate"], note = "near-miss rejection — poki.com is a games site. MEASURED 2026-09-04: poki is correctly rejected, but the answer offered instead is pokemoto.com/careers, a poke-bowl restaurant chain. Caught by the global brochure rule, not by this case's own assertion." }
+poke       = { input = "Poke", nothing = true, must_not = ["poki"], truth = "owner:2026-09-03", tags = ["name-gate", "limitation"], note = "near-miss rejection — poki.com is a games site. MEASURED 2026-09-04: poki is correctly rejected, but the answer offered instead is pokemoto.com/careers, a poke-bowl restaurant chain. Caught by the global brochure rule, not by this case's own assertion. `nothing = true` ADDED 2026-09-04 alongside the vacuous rule: there is no board and no careers page for this name — poki is a games site, pokemoto is a restaurant chain — so silence is the right answer here and this case now SAYS so instead of passing because it had nothing to look at. Same expectation shape as `facebook`, and it changes no outcome: a run that offers pokemoto failed on the brochure rule before and fails on both now." }
 nutanix    = { input = "Nutanix", must_not_aggregator = ["nutanix.com"], must_answer = true, truth = "owner:2026-09-03", tags = ["aggregator-bug"], note = "'nutanix.com' contains the substring 'x.com'; an unanchored aggregator check dropped the company's own site" }
 
 # ── the same names, typed the way people type them ──────────────────────────
@@ -122,5 +148,20 @@ oracle_lc    = { input = "oracle", careers_url = "https://careers.oracle.com/en/
 # ── measured in the repo's own docs, kept as regression pins ────────────────
 # `owns_host` used to accept a host that merely CONTAINS the name. Fixed in
 # a80fd2e7; these two pin the fix. CAREERS-FALLBACK-POC.md §"trust rule", line 187.
-gm         = { input = "GM", must_not = ["gmail.com"], truth = "measured:CAREERS-FALLBACK-POC.md#187", tags = ["name-gate", "extra"] }
-hp         = { input = "HP", must_not = ["hpe.com"], truth = "measured:CAREERS-FALLBACK-POC.md#187", tags = ["name-gate", "extra"] }
+gm         = { input = "GM", must_not = ["gmail.com"], must_answer = true, truth = "measured:CAREERS-FALLBACK-POC.md#187", tags = ["name-gate", "extra"], note = "`must_answer` says what the vacuous rule would otherwise have to infer: GM has an answer (published match + search-careers.gm.com/en/jobs), so an empty response is a regression, not a rejection of gmail.com." }
+hp         = { input = "HP", must_not = ["hpe.com"], must_answer = true, truth = "measured:CAREERS-FALLBACK-POC.md#187", tags = ["name-gate", "extra"], note = "same as `gm`: HP resolves workday:hp with ~800 jobs, so silence here means the endpoint died, not that hpe.com was correctly refused." }
+
+# ── the wrong-legal-entity gap, pinned so it cannot be forgotten ─────────────
+# `owns_host` accepts a host label that merely EXTENDS the typed name. That is what
+# lets "Meta" reach `metacareers.com` and "Pinterest" reach `pinterestcareers.com` —
+# and, on the identical rule, lets "Citadel" reach `citadelsecurities.com`, a different
+# legal entity. Measured by executing the real functions 2026-09-04: `Apple` →
+# `applebees.com/en/careers/jobs`, `Citadel` → `citadelsecurities.com/careers/open-positions`
+# and `Ramp` → `rampartsecurity.com/careers/openings` all pass BOTH the trust gate and
+# the job-list gate, so nothing downstream catches them.
+#
+# THE CASE IS RECORDED AS FAILING ON PURPOSE. Fixing it means separating "extends with a
+# recruiting word" from "extends into another company's name" inside `_host_owner`, which
+# is a change to the name-matching rule that `meta` → `metacareers.com` and `metabase`
+# both ride on. That is its own commit, with its own measurement, not a green-up.
+citadel    = { input = "Citadel", must_not = ["citadelsecurities"], must_answer = true, known_limitation = "wrong legal entity: `owns_host` accepts a host that extends the typed name, so Citadel is offered Citadel Securities'. Closing it means changing `_host_owner`, the same rule `meta` -> `metacareers.com` depends on.", truth = "measured:careers_page_pick.py#78 module docstring, 2026-09-04", tags = ["name-gate", "wrong-entity", "limitation"], note = "EXPECTED TO FAIL TODAY, and the run says so on its own `known` line. `must_answer` is here so the case cannot be satisfied by the endpoint dying: the gap is 'we answer with the wrong company', and an empty answer is a different bug that must not be able to hide behind this one." }

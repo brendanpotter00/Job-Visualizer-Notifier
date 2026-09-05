@@ -43,6 +43,14 @@ value recorded in ``cases.toml`` (so a brochure cannot be written down as truth)
 on the value the endpoint actually returns (so a brochure cannot be returned as an
 answer, even for a company nobody has established the right answer for yet).
 
+SILENCE IS NOT A PASS. A case that says only what must NOT come back is satisfied by
+an endpoint that answers nothing at all — the ``must_not`` check has no answer to
+look at, so it never fires. Four cases were that shape, which means a completely dead
+``search-by-name`` would have printed "4 of 21 passing" — the same false green,
+reproduced inside the harness written to prevent it. :func:`judge` now fails any case
+that asserts no POSITIVE expectation against an answer of nothing, and a case whose
+right answer really is silence says ``nothing = true`` out loud.
+
 A NOTE ON WHY A LIVE "does this page have jobs on it" PROBE IS NOT USED. It was
 measured and it does not work. Fetched plain, ``careers.oracle.com/en/sites/jobsearch/jobs``
 — the CORRECT answer — yields 6 characters of text (an empty SPA shell), while
@@ -197,7 +205,7 @@ _POSITIVE_KEYS = ("board", "careers_url", "careers_host", "already_public", "not
 _KNOWN_KEYS = set(_POSITIVE_KEYS) | {
     "input", "min_jobs", "match_kind", "must_not", "must_offer_careers",
     "must_answer", "must_not_aggregator", "max_searches", "allow_brochure",
-    "truth", "tags", "note",
+    "known_limitation", "truth", "tags", "note",
 }
 
 #: Only these prefixes count as an expectation somebody actually established.
@@ -228,6 +236,34 @@ class Case:
         return self.truth.startswith(_VERIFIED_TRUTH)
 
     @property
+    def known_limitation(self) -> str:
+        """WHY this case is expected to fail today, or ``""`` if it is not.
+
+        A case wearing this still RUNS, is still judged, and its reasons are still
+        printed in full under ``WHY:`` — the only thing it changes is that the gap
+        it records cannot be mistaken for a regression, so it is reported on its own
+        line instead of inside the N/M pass count. ``citadel`` is the case it exists
+        for: the wrong-legal-entity match is real, measured, and fixing it means
+        changing the name-matching rule, which is a change of its own with its own
+        risk (``metabase``/``meta`` live on the same rule).
+
+        It is a STRING and never a bare ``true`` so that the reason has to be
+        written down by whoever decided it, right next to the case.
+        """
+        return str(self.spec.get("known_limitation", ""))
+
+    @property
+    def has_positive_expectation(self) -> bool:
+        """Does this case say what a RIGHT answer looks like, at all?
+
+        ``nothing = true`` counts: "the honest answer here is silence" is a claim
+        about the right answer, and one the endpoint can fail. A case with none of
+        these says only what must NOT come back, which is the shape that silence
+        satisfies for free — see the vacuous rule in :func:`judge`.
+        """
+        return any(k in self.spec for k in _POSITIVE_KEYS)
+
+    @property
     def weak(self) -> bool:
         """True when the strongest thing asserted is weaker than an exact answer.
 
@@ -237,9 +273,7 @@ class Case:
         suite made mostly of weak checks is not the same evidence as one made of
         strong ones.
         """
-        return "careers_host" in self.spec or not any(
-            k in self.spec for k in _POSITIVE_KEYS
-        )
+        return "careers_host" in self.spec or not self.has_positive_expectation
 
     @property
     def expected_text(self) -> str:
@@ -318,6 +352,13 @@ def load_cases(path: Path) -> list[Case]:
                 )
         if "board" in spec and ":" not in str(spec["board"]):
             raise CaseFileError(f"{where}: board must be 'ats:token', got {spec['board']!r}")
+        if "known_limitation" in spec and not str(spec["known_limitation"]).strip():
+            raise CaseFileError(
+                f"{where}: known_limitation must be a non-empty string saying WHY this "
+                f"case fails today and what closing it would take. A bare flag would "
+                f"let a case be excused from the pass line without anyone writing down "
+                f"what is broken."
+            )
         cases.append(Case(key=key, input=str(spec["input"]), spec=spec))
     return cases
 
@@ -549,6 +590,35 @@ def judge(case: Case, a: Answer) -> list[str]:
                 f"(no /jobs, /jobsearch, /openings… segment)"
             )
 
+    # ── THE VACUOUS-PASS RULE, applied to every case ───────────────────────
+    # A case that only says what must NOT come back is satisfied by SILENCE. The
+    # ``must_not`` loop below iterates the ANSWER strings; an endpoint that answered
+    # nothing produces none, so the loop body never runs and every check "passes" by
+    # having nothing to look at.
+    #
+    # Four cases were shaped exactly like that — `metabase`, `poke`, `gm`, `hp` — so
+    # a `search-by-name` that returned `{candidates: [], careersUrl: null}` for every
+    # input would have reported 4 of 21 GREEN. That is a reproduction, inside the
+    # harness built to prevent it, of the "4 for 4, live" report this file exists
+    # because of.
+    #
+    # STRUCTURAL rather than four more ``must_answer`` lines, deliberately: the hole
+    # belongs to the SHAPE of a case, not to those four, so the next one-line
+    # ``must_not`` case someone adds is covered without them ever learning this
+    # happened.
+    #
+    # A case whose right answer really IS silence opts in by saying so —
+    # ``nothing = true`` (`facebook`, `poke`). That is a positive expectation, judged
+    # above, and it can fail; the difference is between ASSERTING a dead end and
+    # INHERITING one.
+    if not case.has_positive_expectation and not a.answered:
+        fails.append(
+            "vacuous: the endpoint answered nothing at all, and this case asserts "
+            "only what must NOT come back — so every check above passed by having "
+            "nothing to look at. Say what a right answer is (`nothing = true` if it "
+            "really is silence, `must_answer = true` if any answer will do)."
+        )
+
     # ── modifiers, applied to every case ───────────────────────────────────
     haystack = _answer_strings(a)
     for forbidden in s.get("must_not", []):
@@ -641,6 +711,12 @@ VERDICT_FLAKY = "FLAKY"
 VERDICT_ERROR = "ERROR"
 VERDICT_SKIP = "SKIP"
 VERDICT_UNVERIFIED = "PASS?"
+#: A gap somebody wrote down (``known_limitation``). Judged and printed like any
+#: other failure — it just does not masquerade as a regression in the pass line.
+VERDICT_KNOWN = "KNOWN"
+#: A ``known_limitation`` case that PASSED. Not a failure, but never silent: the
+#: marker is now a lie and the summary says so.
+VERDICT_FIXED = "FIXED"
 
 
 def verdict_for(case: Case, attempts: list[Attempt]) -> str:
@@ -649,6 +725,9 @@ def verdict_for(case: Case, attempts: list[Attempt]) -> str:
     if all(a.error for a in attempts):
         return VERDICT_ERROR
     oks = [a.ok for a in attempts]
+    if case.known_limitation:
+        # Written-down gap. It still ran, and its reasons still print under WHY:.
+        return VERDICT_FIXED if all(oks) else VERDICT_KNOWN
     if all(oks):
         # A pass on an expectation nobody established is exactly the Oracle
         # mistake. It shows, and it does not count.
@@ -861,7 +940,7 @@ def _report(
     # two values are printed whole, for anyone reading the summary file after the
     # run rather than watching it.
     bad = [(case, v) for case, v, _, _ in rows
-           if v in (VERDICT_FAIL, VERDICT_FLAKY, VERDICT_ERROR)]
+           if v in (VERDICT_FAIL, VERDICT_FLAKY, VERDICT_ERROR, VERDICT_KNOWN)]
     if bad:
         print("\nWHY:")
         for case, v in bad:
@@ -877,9 +956,18 @@ def _report(
 
     counts = {v: sum(1 for _, verd, _, _ in rows if verd == v)
               for v in (VERDICT_PASS, VERDICT_FAIL, VERDICT_FLAKY, VERDICT_ERROR,
-                        VERDICT_SKIP, VERDICT_UNVERIFIED)}
-    total = len(rows)
-    passing = counts[VERDICT_PASS]
+                        VERDICT_SKIP, VERDICT_UNVERIFIED, VERDICT_KNOWN,
+                        VERDICT_FIXED)}
+    # THE PASS LINE COUNTS ONLY THE CASES THAT CLAIM TO WORK. A case carrying a
+    # ``known_limitation`` is a gap somebody wrote down, not a claim — counting it
+    # in the denominator would make the headline permanently red for something we
+    # already know, which is the fastest way to teach a reader to ignore the
+    # headline. It is printed instead, in full, on its own line and under WHY:.
+    graded = [(case, v) for case, v, _, _ in rows if not case.known_limitation]
+    total = len(graded)
+    passing = sum(1 for _, v in graded if v == VERDICT_PASS)
+    # The parenthetical explains the N/M line, so it describes the same rows.
+    graded_counts = {v: sum(1 for _, verd in graded if verd == v) for v in counts}
 
     if replayed:
         print(f"\ncost       $0.00 — replayed from disk. The {budget.spent} search(es) "
@@ -889,16 +977,32 @@ def _report(
               f"(wall clock {elapsed:.0f}s)")
     detail = ", ".join(
         f"{n} {name.lower()}" for name, n in (
-            ("failing", counts[VERDICT_FAIL]), ("flaky", counts[VERDICT_FLAKY]),
-            ("errored", counts[VERDICT_ERROR]), ("not run", counts[VERDICT_SKIP]),
-            ("unverified-truth", counts[VERDICT_UNVERIFIED]),
+            ("failing", graded_counts[VERDICT_FAIL]),
+            ("flaky", graded_counts[VERDICT_FLAKY]),
+            ("errored", graded_counts[VERDICT_ERROR]),
+            ("not run", graded_counts[VERDICT_SKIP]),
+            ("unverified-truth", graded_counts[VERDICT_UNVERIFIED]),
         ) if n
     )
     weak = [c.key for c, v, _, _ in rows if c.weak and v in (VERDICT_PASS, VERDICT_UNVERIFIED)]
     if weak:
         print(f"weak       {len(weak)} passing case(s) rest on a host-only or "
               f"negative-only check: {', '.join(weak)}")
-    print(f"\n>>> {passing}/{total} passing" + (f"  ({detail})" if detail else ""))
+
+    # THE KNOWN GAPS, NAMED, every run. They are outside the pass line, so this is
+    # the only thing standing between "documented limitation" and "quietly ignored".
+    known = [(c, v) for c, v, _, _ in rows if c.known_limitation]
+    for case, v in known:
+        state = {VERDICT_KNOWN: "STILL FAILING", VERDICT_FIXED: "NOW PASSING"}.get(v, v)
+        print(f"known      {case.key}: {case.known_limitation} [{state}]")
+    fixed = [c.key for c, v in known if v == VERDICT_FIXED]
+    if fixed:
+        print(f"known      {', '.join(fixed)} PASSED — the known_limitation is now "
+              f"false. Delete it so the case counts, or say what changed.")
+
+    print(f"\n>>> {passing}/{total} passing" + (f"  ({detail})" if detail else "")
+          + (f"  [+{len(known)} known limitation(s), outside the count: "
+             f"{', '.join(c.key for c, _ in known)}]" if known else ""))
     if passing != total:
         print(">>> THIS FEATURE IS NOT DONE. A claim that it is, without a green run "
               "of this suite, is not supportable.")
@@ -918,6 +1022,7 @@ def _report(
                 {
                     "key": c.key, "input": c.input, "expected": c.expected_text,
                     "truth": c.truth, "truth_verified": c.truth_verified,
+                    "known_limitation": c.known_limitation or None,
                     "weak": c.weak, "tags": c.tags, "verdict": v, "actual": actual,
                     "attempts": [
                         {"ok": a.ok, "reasons": a.reasons, "seconds": round(a.seconds, 2),

@@ -21,10 +21,16 @@ Free, spends nothing:
 .venv/bin/python e2e/company-name-search/intent_test.py --validate-only
 .venv/bin/python e2e/company-name-search/intent_test.py \
     --replay e2e/company-name-search/artifacts/<run>/results.json
+.venv/bin/python -m pytest e2e/company-name-search/test_judge.py -q
 ```
 
 `--replay` re-judges a previous run's **stored response bodies**. Every assertion change
 should be checked this way first — it costs $0 instead of another $0.27.
+
+`test_judge.py` judges a **dead endpoint** — `{"candidates": [], "careersUrl": null}` —
+against every case in the file, and pins the one invariant that cannot be checked any
+other way: *the only cases a dead endpoint may pass are the ones that explicitly expect
+silence*. It needs no backend and no key.
 
 ## This costs real money
 
@@ -48,12 +54,21 @@ One line in [`cases.toml`](cases.toml), never Python:
 zalando = { input = "Zalando", careers_url = "https://jobs.zalando.com/en/jobs", truth = "owner:2026-09-10", tags = ["careers"] }
 ```
 
-The file's own header documents every key. Two of them are load-bearing:
+The file's own header documents every key. Four of them are load-bearing:
 
 - **`truth`** — where the expected value came from. Only `owner:<date>` and
   `measured:<doc>` count. Anything else still runs but reports **`PASS?`
   (unverified-truth)** and never counts toward the pass line.
 - the URL must be **job-list-shaped**, or the file refuses to load.
+- **say what a RIGHT answer is, not only what a wrong one is.** A case asserting only
+  `must_not` is judged **`vacuous`** and fails when the endpoint answers nothing at all —
+  there is no answer for `must_not` to look at, so it would otherwise pass by default.
+  Add `must_answer = true`, or `nothing = true` if silence really is the right answer
+  here (`facebook`, `poke`).
+- **`known_limitation = "why"`** — this case is expected to fail today. It still runs and
+  its reasons still print in full; it moves out of the `N/M passing` line onto its own
+  `known` line, so a gap we have decided not to close is not confused with a regression.
+  If it starts passing the run says **FIXED** and tells you to delete the marker.
 
 ## What "correct" means, and why a marketing page cannot fake it
 
@@ -120,7 +135,7 @@ query no user ever makes. The `lowercase` tag now covers the five spellings peop
 actually type. **Add both spellings for anything whose canonical form is not what a
 person types** — an acronym (`IBM`), an intercapital (`eBay`), a brand people lowercase.
 
-## Three mistakes this is built to prevent
+## Four mistakes this is built to prevent
 
 1. **Testing the wrong thing.** A previous check called `pick_careers_url` directly. The UI
    calls `POST /api/companies/search-by-name`, which runs a probe phase, a 20s budget, a
@@ -137,6 +152,13 @@ person types** — an acronym (`IBM`), an intercapital (`eBay`), a brand people 
    FAIL beside it. The ACTUAL column is now clipped **against the expectation**
    (`_clip_diff`), so the window moves to where the two part, and every non-passing
    case is repeated in full under a **`WHY:`** block below the table.
+4. **Passing because nothing came back.** `must_not` is checked against what the user is
+   *offered*, so a case that asserts only `must_not` was satisfied by an endpoint that
+   offered nothing: `metabase`, `poke`, `gm` and `hp` all reported PASS against
+   `{"candidates": [], "careersUrl": null}` — a dead endpoint would have printed **4 of
+   21 passing**. `judge()` now fails any case with no positive expectation against an
+   answer of nothing, and `test_judge.py` pins the invariant for every case in the file,
+   including ones added later.
 
 ## Ground truth is perishable, and the docs disagree with each other
 
