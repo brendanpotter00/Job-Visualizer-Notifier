@@ -125,6 +125,22 @@ tell "the frame is mounted" from "the frame is painting a browser". Those were o
 answers on the same DOM, and the whole diagnosis turned on it. **If the live view ever
 misbehaves again, run this and look at the pictures first.**
 
+**The blind spot now has a $0 gate too.**
+`.claude/skills/verify-onesecondswe/helpers/live_view.spec.ts` (`@live-view`) keeps the
+list endpoint REAL — it arranges a `discovering` row through the product's own writers
+(`add_discovering_placeholder` + `ProgressLedger` + `record_discovery_progress`) and
+asserts the URL that comes back is byte-identical and carries no `…`, then reads what the
+frame **painted**. That is the assertion `--live` used to be the only source of. `--live`
+is still the only thing that exercises Browserbase's real frame, so it stays the tool for
+"the live view is misbehaving again and I need pictures".
+
+**Presence is not liveness — do not add a percentage-only assertion here.** Measured
+across the regression: at `b86f5b1f` the frame was on screen for **98.7%** of the session
+while painting *"Debugging connection was closed"* the entire time; at `e48257fe`, 4.7%
+and blank; at `047db740` (the fix), 92.1% painting the real careers page. A frame nobody
+unmounts scores near-perfect while being completely dead, so coverage must always be read
+next to something that says what the frame *rendered*.
+
 It runs `stack_app.py`, the only entrypoint in this repo that permits
 `CAPTURE_USE_BROWSERBASE=true`, with the guard inverted and every other guard kept. Cost:
 one billed browser-minute (Browserbase rounds up, and the session is ~31s) plus one

@@ -21,7 +21,7 @@ the proof.
 | [`saved-filters.md`](saved-filters.md) | `/saved-filters` `SAVED_FILTERS` (login-gated) | `save_filter_defaults`, `set_enabled_companies` |
 | [`vote-features.md`](vote-features.md) | `/vote-features` `VOTE_FEATURES` | `upvote_feature`, `submit_feedback` |
 | [`account.md`](account.md) | `/account` `ACCOUNT` | `request_sign_in` |
-| [`add-companies.md`](add-companies.md) | `/add-companies` `MY_COMPANIES` (flag-gated) | none new — cross-references the `e2e/add-companies` gate |
+| [`add-companies.md`](add-companies.md) | `/add-companies` `MY_COMPANIES` (flag-gated) | none — cross-references the `e2e/add-companies` gate, plus the one non-shim `@live-view` drive |
 | [`why.md`](why.md) | `/why` `WHY` | none (static) |
 | [`landing.md`](landing.md) | `/landing` `LANDING` (direct URL only — no nav entry) | none (static marketing) |
 
