@@ -1109,3 +1109,139 @@ class TestDenormalizedDetailsColumns:
         db.upsert_jobs_batch(in_memory_db, [stripped])
 
         assert self._columns(in_memory_db, stripped)["experience_level"] is None
+
+
+class TestUpsertResetsNormalizationOnLocationChange:
+    """A job's location TAGS are derived from `job_listings.location`, but nothing
+    re-derived them when a board changed that text: `scan_unnormalized` only
+    selects `normalization_status IS NULL`, so a job normalized once kept its old
+    tags forever. A role reposted from "Remote" to "Washington DC" silently kept
+    its Remote tags. Prod has 215 OPEN jobs that are 'done' yet whose current
+    location has no alias row -- the fingerprint of exactly this drift.
+    """
+
+    @staticmethod
+    def _set_status(conn, job, status):
+        cur = conn.cursor()
+        cur.execute(
+            "UPDATE job_listings SET normalization_status = %s "
+            "WHERE source_id = %s AND id = %s",
+            (status, job.source_id, job.id),
+        )
+        conn.commit()
+
+    @staticmethod
+    def _status(conn, job):
+        row = db.get_job_by_id(conn, job.source_id, job.id)
+        return row["normalization_status"]
+
+    @staticmethod
+    def _same_job_at(sample, location):
+        return JobListing(
+            id=sample.id,
+            title=sample.title,
+            company=sample.company,
+            location=location,
+            url=sample.url,
+            source_id=sample.source_id,
+            details=sample.details,
+            created_at=sample.created_at,
+            first_seen_at=sample.first_seen_at,
+            last_seen_at=sample.last_seen_at,
+        )
+
+    def test_changed_location_clears_status(self, in_memory_db, sample_job_listing):
+        job = self._same_job_at(sample_job_listing, "Remote")
+        db.insert_job(in_memory_db, job)
+        self._set_status(in_memory_db, job, "done")
+
+        db.upsert_job(in_memory_db, self._same_job_at(sample_job_listing, "Washington DC"))
+
+        assert self._status(in_memory_db, job) is None, (
+            "a changed location must hand the job back to the safety-net scan"
+        )
+
+    def test_unchanged_location_preserves_status(self, in_memory_db, sample_job_listing):
+        """An unconditional reset would re-normalize every OPEN row on every
+        scrape cycle -- tens of thousands of needless Haiku calls."""
+        job = self._same_job_at(sample_job_listing, "Remote")
+        db.insert_job(in_memory_db, job)
+        self._set_status(in_memory_db, job, "done")
+
+        db.upsert_job(in_memory_db, self._same_job_at(sample_job_listing, "Remote"))
+
+        assert self._status(in_memory_db, job) == "done"
+
+    def test_other_fields_changing_does_not_clear_status(self, in_memory_db, sample_job_listing):
+        job = self._same_job_at(sample_job_listing, "Remote")
+        db.insert_job(in_memory_db, job)
+        self._set_status(in_memory_db, job, "done")
+
+        retitled = self._same_job_at(sample_job_listing, "Remote")
+        retitled.title = "Staff Software Engineer"
+        db.upsert_job(in_memory_db, retitled)
+
+        assert self._status(in_memory_db, job) == "done"
+
+    def test_null_to_value_counts_as_a_change(self, in_memory_db, sample_job_listing):
+        """IS DISTINCT FROM, not <> -- a NULL comparison with <> yields NULL, so
+        the CASE would fall through and the stale tags would survive."""
+        job = self._same_job_at(sample_job_listing, None)
+        db.insert_job(in_memory_db, job)
+        self._set_status(in_memory_db, job, "failed")
+
+        db.upsert_job(in_memory_db, self._same_job_at(sample_job_listing, "Austin, TX"))
+
+        assert self._status(in_memory_db, job) is None
+
+    def test_value_to_null_counts_as_a_change(self, in_memory_db, sample_job_listing):
+        job = self._same_job_at(sample_job_listing, "Austin, TX")
+        db.insert_job(in_memory_db, job)
+        self._set_status(in_memory_db, job, "done")
+
+        db.upsert_job(in_memory_db, self._same_job_at(sample_job_listing, None))
+
+        assert self._status(in_memory_db, job) is None
+
+    def test_batch_path_resets_too(self, in_memory_db, sample_job_listing):
+        """upsert_jobs_batch shares _UPSERT_ON_CONFLICT, so it must behave the
+        same -- the ATS fetch tasks go through the batch path, not upsert_job."""
+        job = self._same_job_at(sample_job_listing, "Remote")
+        db.insert_job(in_memory_db, job)
+        self._set_status(in_memory_db, job, "done")
+
+        db.upsert_jobs_batch(
+            in_memory_db, [self._same_job_at(sample_job_listing, "Seattle, WA")]
+        )
+
+        assert self._status(in_memory_db, job) is None
+
+    def test_whitespace_and_case_noise_does_not_reset(self, in_memory_db, sample_job_listing):
+        """Comparing raw bytes would make this a treadmill.
+
+        The pipeline keys its cache on normalize_string(), which lowercases and
+        collapses whitespace runs -- so these spellings resolve to the SAME
+        alias and re-normalizing yields byte-identical tags. Prod already carries
+        such pairs ('San Francisco' / 'San Francisco '). A byte comparison would
+        flip normalization_status on every scrape cycle for those jobs, and they
+        would permanently occupy the safety-net scan window.
+        """
+        job = self._same_job_at(sample_job_listing, "San Francisco")
+        db.insert_job(in_memory_db, job)
+        self._set_status(in_memory_db, job, "done")
+
+        for noisy in ["San Francisco ", " San Francisco", "san francisco",
+                      "SAN FRANCISCO", "San  Francisco"]:
+            db.upsert_job(in_memory_db, self._same_job_at(sample_job_listing, noisy))
+            assert self._status(in_memory_db, job) == "done", (
+                f"{noisy!r} differs from 'San Francisco' only in case/whitespace; "
+                f"it normalizes to the same alias key, so it must not re-normalize"
+            )
+
+    def test_a_real_change_still_resets_despite_the_normalizing(self, in_memory_db, sample_job_listing):
+        job = self._same_job_at(sample_job_listing, "San Francisco")
+        db.insert_job(in_memory_db, job)
+        self._set_status(in_memory_db, job, "done")
+
+        db.upsert_job(in_memory_db, self._same_job_at(sample_job_listing, "San Francisco, CA"))
+        assert self._status(in_memory_db, job) is None
