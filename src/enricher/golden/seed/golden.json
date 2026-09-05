@@ -78,9 +78,9 @@
     "label_source": "draft",
     "hard_case": "ml_vs_ds",
     "category": "software_engineering",
-    "level": "senior",
+    "level": "mid",
     "level_includes": [
-      "senior"
+      "mid"
     ],
     "tags": [
       "recsys",
@@ -4547,11 +4547,11 @@
     "department": "Engineering",
     "description_html": "## **About Us:**\n\nAt Fireworks, we\u2019re building the future of generative AI infrastructure. Our platform delivers the highest-quality models with the fastest and most scalable inference in the industry. We\u2019ve been independently benchmarked as the leader in LLM inference speed and are driving cutting-edge innovation through projects like our own function calling and multimodal models. Fireworks is a Series C company valued at $4 billion and backed by top investors including Benchmark, Sequoia, Lightspeed, Index, and Evantic. We\u2019re an ambitious, collaborative team of builders, founded by veterans of Meta PyTorch and Google Vertex AI.\n\n## **The Role**\n\nWe are looking for a Data Platform Engineer that specializes in Order-to-Cash**(OTC) Revenue   Transformation and AI Application Enablement** to own and evolve the end-to-end billing, revenue and business data pipeline -  from usage metering and invoice generation through revenue recognition and financial reporting. You will sit at the intersection of Engineering, Finance, and Data, ensuring every dollar of usage across our five revenue streams is accurately captured, billed, recognized, and reconciled.\n\nThis is a high-impact, cross-functional role. You will work hands-on with our billing platform (Orb, etc), accounting systems , data warehouse (BigQuery), and cloud marketplaces (AWS, GCP) \u2014 and ultimately help design AI-enabled workflow agents that automate reconciliation, anomaly detection, and revenue operations once the core data infrastructure is hardened.\n\n## **What You'll Do**\n\n### **Phase 1 \u2013 Platform & Data Foundation**\n\n  * Own and enhance billing infrastructure: pricing models, usage ingestion, invoicing, and revenue workflows.\n  * Resolve key platform gaps (pricing flexibility, account hierarchy, overages, prepaid/credit logic).\n  * Integrate billing with ERP, payments, and cloud marketplaces for an automated invoice-to-ledger pipeline.\n  * Implement deferred revenue and prepaid amortization across all billing models.\n  * Build and maintain an end-to-end OTC data pipeline (usage \u2192 billing \u2192 payments \u2192 revenue \u2192 GL \u2192 reporting).\n  * Establish authoritative data models and ensure transaction-level reconciliation across all systems.\n  * Implement data quality, auditability, and SOX-ready controls.\n  * Strengthen CRM \u2192 Billing \u2192 ERP integration as a single source of truth.\n  * Automate journal entries, AR sub-ledger, and revenue postings; integrate payments and marketplace settlements.\n\n\n\n### **Phase 2 \u2013 Autonomous Intelligence**\n\n  * Build and deploy autonomous enterprise agents to automate and augment OTC operations, including anomaly detection, reconciliation, revenue recognition, collections, contract interpretation, and forecasting. \n\n\n\n###  \n\n## **What We're Looking For**\n\n### **Preferred**\n\n  * **5+ years** in billing engineering, revenue systems, or order-to-cash operations at a SaaS or usage-based platform company.\n  * **Experience** with Billing Systems, ERP,  AWS, K8, etc\n  * **Strong SQL and BigQuery proficiency** \u2014 you can design schemas, write complex analytical queries, build dbt models, and maintain production data pipelines.\n  * **Working knowledge of accounting systems** (QuickBooks or NetSuite) and the ability to map billing events to GL journal entries, manage sub-ledger reconciliation, and support month-end close.\n  * **Experience with payment platforms**   including payment processing, dunning, refunds, and cash application.\n  * **Familiarity with cloud marketplace billing** \u2014 AWS Marketplace CPPO/SaaS contracts, GCP Marketplace, or Azure Marketplace private offers and settlement reporting.\n  * **Proficiency in Python or Node.js** for building integrations, data transforms, and automation scripts.\n\n\n  * Experience building **LLM-powered agents or automation workflows** \u2014 using frameworks like LangChain, or custom tool-calling architectures.\n  * Background in **GPU compute or AI infrastructure billing** \u2014 understanding of compute-hour metering, token-based pricing, and capacity reservation models.\n  * Experience with **ERP migration** projects (e.g., QuickBooks to NetSuite).\n\n\n\nTotal compensation for this role also includes meaningful equity in a fast-growing startup, along with a competitive salary and comprehensive benefits package. Base salary is determined by a range of factors including individual qualifications, experience, skills, interview performance, market data, and work location. The listed salary range is intended as a guideline and may be adjusted.\n\nBase Pay Range (Plus Equity)\n\n$175,000--$220,000 USD\n\n## **Why Fireworks AI?**\n\n  * Solve Hard Problems: Tackle challenges at the forefront of AI infrastructure, from low-latency inference to scalable model serving.\n  * Build What\u2019s Next: Work with bleeding-edge technology that impacts how businesses and developers harness AI globally.\n  * Ownership & Impact: Join a fast-growing, passionate team where your work directly shapes the future of AI\u2014no bureaucracy, just results.\n  * Learn from the Best: Collaborate with world-class engineers and AI researchers who thrive on curiosity and innovation.\n\n\n\n_Fireworks AI is an equal-opportunity employer. We celebrate diversity and are committed to creating an inclusive environment for all innovators._",
     "label_source": "draft",
-    "hard_case": "none",
+    "hard_case": "mts_title",
     "category": "software_engineering",
-    "level": "senior_plus",
+    "level": "senior",
     "level_includes": [
-      "senior_plus"
+      "senior"
     ],
     "tags": [
       "platform",
@@ -4609,11 +4609,11 @@
     "department": "Product",
     "description_html": "### **ABOUT xAI**\n\nxAI\u2019s mission is to create AI systems that can accurately understand the universe and aid humanity in its pursuit of knowledge. Our team is small, highly motivated, and focused on engineering excellence. This organization is for individuals who appreciate challenging themselves and thrive on curiosity. We operate with a flat organizational structure. All employees are expected to be hands-on and to contribute directly to the company\u2019s mission. Leadership is given to those who show initiative and consistently deliver excellence. Work ethic and strong prioritization skills are important. All employees are expected to have strong communication skills. They should be able to concisely and accurately share knowledge with their teammates.\n\n### **ABOUT THE ROLE:**\n\nThe Data Platform team builds and operates the infrastructure responsible for all large-scale data transport and processing across the company. We own and manage core systems including Apache Kafka, HDFS, Spark, Flink, and Trino, enabling real-time ML pipelines, feed ranking, experimentation, analytics, and observability at petabyte scale. Our team deals with latency-critical workloads, high-throughput streaming, and distributed compute systems that require fault tolerance, performance, and absolute reliability.\n\nAs a software engineer on the Data Platform team, you will design, build, and operate the distributed systems powering X\u2019s data movement and compute. You will take ownership of infrastructure components that process trillions of events daily, driving the scalability, performance, and reliability of the systems that power product and ML workloads across the company.\n\n### **RESPONSIBILITIES:**\n\n  * Design and implement high-throughput, low-latency data ingestion and transport systems.\n  * Scale and optimize multi-tenant Kafka infrastructure supporting real-time workloads.\n  * Extend and tune Spark, Flink, and Trino for demanding production pipelines.\n  * Build interfaces, APIs, and pipelines enabling teams to query, process, and move data at petabyte scale.\n  * Debug and optimize distributed systems, with a focus on reliability and performance under load.\n  * Collaborate with ML, product, and infrastructure teams to unblock critical data workflows.\n\n\n\n### **BASIC QUALIFICATIONS:**\n\n  * Proven expertise in distributed systems, stream processing, or large-scale data platforms.\n  * Proficiency in  Rust, Go, Scala  or similar systems languages.\n  * Hands-on experience with  Kafka, Flink, Spark, Trino, or Hadoop*in production.\n  * Strong debugging, profiling, and performance optimization skills.\n  * Track record of shipping and maintaining critical infrastructure.\n  * Comfortable working in fast-moving, high-stakes environments with minimal guardrails.\n\n\n\n### **COMPENSATION AND BENEFITS:**\n\n$180,000 - $440,000 USD\n\nBase salary is just one part of our total rewards package at X, which also includes equity, comprehensive medical, vision, and dental coverage, access to a 401(k) retirement plan, short & long-term disability insurance, life insurance, and various other discounts and perks.\n\n_xAI is an equal opportunity employer. For details on data processing, view our  __[Recruitment Privacy Notice](https://x.ai/legal/recruitment-privacy-notice)._",
     "label_source": "draft",
-    "hard_case": "none",
+    "hard_case": "mts_title",
     "category": "software_engineering",
-    "level": "senior_plus",
+    "level": "mid",
     "level_includes": [
-      "senior_plus"
+      "mid"
     ],
     "tags": [
       "platform",
@@ -8494,5 +8494,406 @@
     ],
     "locations": null,
     "human_decision": "corrected"
+  },
+  {
+    "job_listing_id": "6746dfde-8f8d-4a13-9961-7ae1e222a4c0",
+    "source_id": "ashby_api",
+    "company": "fireworksai",
+    "title": "Member of Technical Staff",
+    "raw_location": "New York",
+    "department": null,
+    "description_html": "<h2><strong>About Us:</strong></h2><p style=\"min-height:1.5em\">Fireworks is the platform for specialized intelligence, enabling companies to build, train, and serve AI models tailored to their own data, workflows, and products. Founded by the team behind PyTorch and backed by AMD, Atreides, Benchmark Capital, Index Ventures, Lightspeed, NVIDIA, Sequoia Capital, and TCV, Fireworks powers production AI with hundreds of state-of-the-art open models across text, image, embedding, audio, and multimodal workloads. Today, Fireworks is a Series D company valued at $17.5 billion, bringing together an ambitious, collaborative team that's building the future of enterprise AI.</p><h2><strong>The Role:</strong></h2><p style=\"min-height:1.5em\">As a Training Infrastructure Engineer, you'll design, develop, and maintain large-scale backend and cloud-native infrastructure to support distributed machine learning training, inference, and data processing pipelines for our generative AI platform. You'll architect scalable, resilient backend infrastructure, lead technical design discussions, mentor engineers, and establish best practices for large-scale machine learning systems.</p><h2><strong>Key Responsibilities:</strong></h2><ul style=\"min-height:1.5em\"><li><p style=\"min-height:1.5em\">Architect and build scalable, resilient backend infrastructure to support distributed training, inference, and data processing pipelines</p></li><li><p style=\"min-height:1.5em\">Lead technical design discussions, mentor engineers, and establish best practices for large-scale machine learning systems</p></li><li><p style=\"min-height:1.5em\">Design and implement core backend services with a focus on efficiency and low latency</p></li><li><p style=\"min-height:1.5em\">Drive infrastructure optimization initiatives for compute cost, storage lifecycle management, and network performance</p></li><li><p style=\"min-height:1.5em\">Collaborate with machine learning, DevOps, and product teams to translate research and product requirements into robust infrastructure solutions</p></li><li><p style=\"min-height:1.5em\">Evaluate and integrate cloud-native and open-source technologies such as Kubernetes, Ray, Kubeflow, and MLFlow to enhance platform reliability</p></li><li><p style=\"min-height:1.5em\">Own end-to-end systems from design to deployment, emphasizing reliability, fault tolerance, and operational excellence</p></li></ul><h2><strong>Minimum Qualifications:</strong></h2><ul style=\"min-height:1.5em\"><li><p style=\"min-height:1.5em\">Bachelor's degree or equivalent in Computer Science or related field plus four (4) years of experience in software engineering or related role</p></li><li><p style=\"min-height:1.5em\">4 years of experience designing, building, and optimizing large-scale backend infrastructure and distributed data systems (e.g., PostgreSQL, MySQL, DynamoDB, Apache Spark, Apache Flink, Apache Kafka) in cloud environments (AWS, GCP, Azure, or equivalent), including cloud-native platforms, core infrastructure components, and optimization techniques (caching, indexing, sharding, replication, transactions, ACID)</p></li><li><p style=\"min-height:1.5em\">4 years of experience with major server-side programming languages and frameworks (e.g., Python, C++, Go, TypeScript)</p></li><li><p style=\"min-height:1.5em\">4 years of experience writing technical design documentation, leading cross-functional projects, and collaborating with cross-functional teams to achieve business impact</p></li><li><p style=\"min-height:1.5em\">3 years of experience developing and maintaining data processing and API systems, including client-server communication frameworks (e.g., gRPC, Thrift)</p></li><li><p style=\"min-height:1.5em\">3 years of experience conducting A/B testing and scientific experimentation (e.g., Statsig, Meta Deltoid, Optimizely) to measure software impact</p></li><li><p style=\"min-height:1.5em\">3 years of experience conducting coding interviews and providing systematic feedback for engineering candidates</p></li><li><p style=\"min-height:1.5em\">2 years of experience with cloud-native tools and infrastructure, such as Docker and Kubernetes</p></li><li><p style=\"min-height:1.5em\">2 years of experience defining and implementing data-driven metrics to support company or team goals</p></li></ul><p style=\"min-height:1.5em\"><strong>How to Apply:</strong> Submit resume and apply online at <a target=\"_blank\" rel=\"noopener noreferrer nofollow\" class=\"underline underline underline-offset-2 decoration-1 decoration-current/40 hover:decoration-current focus:decoration-current\" href=\"http://www.fireworks.ai/careers\">http://www.fireworks.ai/careers</a> and search for job by title.</p><p style=\"min-height:1.5em\">Fireworks AI is an equal-opportunity employer. We celebrate diversity and are committed to creating an inclusive environment for all innovators.</p><h2><strong>Why Fireworks?</strong></h2><ul style=\"min-height:1.5em\"><li><p style=\"min-height:1.5em\">Solve Hard Problems: Tackle challenges at the forefront of AI infrastructure, from low-latency inference to scalable model serving.</p></li><li><p style=\"min-height:1.5em\">Build What\u2019s Next: Work with bleeding-edge technology that impacts how businesses and developers harness AI globally.</p></li><li><p style=\"min-height:1.5em\">Ownership &amp; Impact: Join a fast-growing, passionate team where your work directly shapes the future of AI\u2014no bureaucracy, just results.</p></li><li><p style=\"min-height:1.5em\">Learn from the Best: Collaborate with world-class engineers and AI researchers who thrive on curiosity and innovation.</p></li></ul><p style=\"min-height:1.5em\"><em>Fireworks AI is an equal-opportunity employer. We celebrate diversity and are committed to creating an inclusive environment for all innovators.</em></p>",
+    "label_source": "draft",
+    "hard_case": "mts_title",
+    "category": "software_engineering",
+    "level": "mid",
+    "level_includes": [
+      "mid"
+    ],
+    "tags": [
+      "kubernetes",
+      "distributed-systems",
+      "mlops",
+      "backend",
+      "python"
+    ],
+    "locations": [
+      {
+        "canonical_name": "New York, NY, USA",
+        "kind": "city",
+        "city": "New York",
+        "region": "NY",
+        "country": "USA",
+        "remote_scope": null,
+        "confidence": 0.9
+      }
+    ]
+  },
+  {
+    "job_listing_id": "4c577aae-1ad0-444b-9e15-2ad994333de4",
+    "source_id": "ashby_api",
+    "company": "openevidence",
+    "title": "Member of Technical Staff",
+    "raw_location": "San Francisco",
+    "department": null,
+    "description_html": "<p style=\"min-height:1.5em\"><strong>OpenEvidence is the most widely used medical AI platform in the world</strong>.</p><p style=\"min-height:1.5em\">In just over a year, our usage has grown to &gt;65% of US clinicians via product-led word of mouth adoption. We are a $12B company with a 30 person engineering team from MIT, Harvard, and Stanford. We believe world-changing products come from a small group of exceptional, autonomous builders, organized along focused objectives and empowered to take individual ownership and run fast. We are growing our team to seize a once-in-a-lifetime opportunity to define the default platform for medical AI. If you are a world-class engineer or scientist looking to define the bleeding edge and deliver concrete outcomes that impact hundreds of millions of lives, we want to talk.</p><p style=\"min-height:1.5em\"></p><p style=\"min-height:1.5em\"><strong>Culture</strong></p><p style=\"min-height:1.5em\">We believe work is something that should be engaged with at a world-class level. Building 0-&gt;1  and scaling 1-&gt;1000 are professional sports, and uncompromising excellence is the bar. We believe building technologies that haven't existed is only possible with end to end ownership. We don't have separate product managers\u2013every engineer and scientist is responsible for landing major improvements to the product. Important things are accomplished when an individual decides to accomplish them.</p><p style=\"min-height:1.5em\">We believe that work should be hard. We believe good work is precise and intentional. There are no sacred cows. Doing something a certain way just because that's how others are doing it guarantees mediocrity. We believe the quality of the product is paramount and the smallest details matter most. At the same time, developer and product velocity are essential. The best engineers know how to jump right to the hardest part of the problem and take every possible shortcut while keeping the user experience pristine. We believe an engineer's job is to complete and announce important projects and demonstrate their impact, or fail fast and pivot.</p><p style=\"min-height:1.5em\"></p><p style=\"min-height:1.5em\"><strong>Who are you?</strong></p><p style=\"min-height:1.5em\">If you are looking to complete tickets 9-5 that someone else assigns, this job is not for you. If you are looking to write papers, this job is not for you. If you are looking to lean in and get your hands dirty, bruised, and bloody making something from nothing, personally impact hundreds of millions of lives, and drive ten figures of revenue, this job might be for you.</p><p style=\"min-height:1.5em\">The ideal candidate is a brilliant builder. They are smart, ambitious, scrappy, autonomous, precise, motivated, hard-working, and low-ego. Does that sound rare? It is rare, we have only found 30 of them, and we would like to find more.</p><p style=\"min-height:1.5em\"><br /></p><p style=\"min-height:1.5em\"><strong>Skillsets</strong></p><p style=\"min-height:1.5em\"><em>Specific skillsets are secondary, but some important spikes for different facets of our work are:</em></p><p style=\"min-height:1.5em\"></p><p style=\"min-height:1.5em\"><strong>Machine learning</strong></p><ul style=\"min-height:1.5em\"><li><p style=\"min-height:1.5em\">You have experience pushing the boundaries of what modern models are capable of.</p></li><li><p style=\"min-height:1.5em\">You have a background in research, but find yourself drawn to actually <em>making</em> things instead of writing papers, and want real ownership and autonomy to build the future.</p></li><li><p style=\"min-height:1.5em\">Evaluation and quantitative proof are first-class citizens to you.</p></li></ul><p style=\"min-height:1.5em\"></p><p style=\"min-height:1.5em\"><strong>Applied AI</strong></p><ul style=\"min-height:1.5em\"><li><p style=\"min-height:1.5em\">You excel at building end-to-end systems grounded in a strong intuition about how to leverage modern models as components of extremely thoughtful, intentional systems.</p></li></ul><p style=\"min-height:1.5em\"></p><p style=\"min-height:1.5em\"><strong>Fullstack</strong></p><ul style=\"min-height:1.5em\"><li><p style=\"min-height:1.5em\">You love building end-to-end and seeing ideas through to completion.</p></li><li><p style=\"min-height:1.5em\">The concept of creating something with your own two hands and then seeing that used and loved by millions of the most discerning users in the world is highly motivating.</p></li></ul><p style=\"min-height:1.5em\"></p><p style=\"min-height:1.5em\"><strong>Frontend and/or mobile</strong></p><ul style=\"min-height:1.5em\"><li><p style=\"min-height:1.5em\">You are personally in control of the direct user experience. You have extreme attention to detail, and strive to make beautiful, modern, intentional interfaces.</p></li><li><p style=\"min-height:1.5em\">You might have experience building beautiful mobile apps that users find to be a joy to use.</p></li></ul><p style=\"min-height:1.5em\"></p><p style=\"min-height:1.5em\"><strong>Infrastructure / site reliability</strong></p><ul style=\"min-height:1.5em\"><li><p style=\"min-height:1.5em\">Every single moment of downtime for a service used in literally life or death moments is something you want to personally eliminate.</p></li><li><p style=\"min-height:1.5em\">You thrive building robust, optimized backends for mission-critical domains.</p></li></ul><p style=\"min-height:1.5em\"></p><p style=\"min-height:1.5em\"><strong>Speed</strong></p><ul style=\"min-height:1.5em\"><li><p style=\"min-height:1.5em\">You know that improving speed doesn\u2019t just make things faster, it can completely transform the user experience.</p></li><li><p style=\"min-height:1.5em\">You enjoy tracking down and optimizing away every single source of inefficiency to create magical experiences for users.</p></li></ul><p style=\"min-height:1.5em\"></p><p style=\"min-height:1.5em\"></p><p style=\"min-height:1.5em\"><em>Our engineering team is in-person 5 days a week in SF and Miami. We believe in creating an environment that optimizes for focus and productivity, including providing meals, transport and anything else you need to move quickly.</em></p>",
+    "label_source": "draft",
+    "hard_case": "mts_title",
+    "category": "software_engineering",
+    "level": "mid",
+    "level_includes": [
+      "mid"
+    ],
+    "tags": [
+      "fullstack",
+      "applied-ai",
+      "frontend",
+      "infrastructure",
+      "healthcare"
+    ],
+    "locations": [
+      {
+        "canonical_name": "San Francisco, CA, USA",
+        "kind": "city",
+        "city": "San Francisco",
+        "region": "CA",
+        "country": "USA",
+        "remote_scope": null,
+        "confidence": 0.9
+      }
+    ]
+  },
+  {
+    "job_listing_id": "24e660d5-090d-4dc5-9a5f-274ba853e751",
+    "source_id": "ashby_api",
+    "company": "wafer",
+    "title": "Member of Technical Staff",
+    "raw_location": "San Francisco",
+    "department": null,
+    "description_html": "<h1>Member of Technical Staff</h1><p style=\"min-height:1.5em\">Inference performance depends on how efficiently models use the underlying hardware. Techniques across kernels, compilers, runtimes, and serving systems can dramatically improve latency and throughput, but these optimizations are difficult, hardware-specific, and slow to reproduce across new accelerators. And none of it counts until it is running in a customer's production traffic.</p><p style=\"min-height:1.5em\">At Wafer, we are building AI systems that automatically optimize inference workloads across silicon. The goal is fungible token capacity. Any accelerator optimized toward serving inference most efficiently.</p><p style=\"min-height:1.5em\">Wafer is well funded and serves trillions of tokens a month for mission critical workloads. We serve the highest performance inference to fast-growing AI startups.</p><p style=\"min-height:1.5em\">Members of Technical Staff build the systems that make that possible and own the customers running on them. There is no separate solutions team, and no layer between you and the workload.</p><div style=\"min-height:1.2em;margin-top:0;margin-bottom:0\">\u00a0</div><h2>What you'll do</h2><ul style=\"min-height:1.5em\"><li><p style=\"min-height:1.5em\">Develop and optimize high-performance computing kernels, and work across inference engine internals and serving infrastructure</p></li><li><p style=\"min-height:1.5em\">Develop AI agents to do autonomous inference engineering</p></li><li><p style=\"min-height:1.5em\">Design, deploy, and operate heterogeneous clusters across vendors</p></li><li><p style=\"min-height:1.5em\">Own customer accounts end to end. Sales gets the first meeting. From there you decide what to prove, you build it, you keep it running in production, and you carry the relationship</p></li><li><p style=\"min-height:1.5em\">Win the technical evaluation. Prove Wafer on the customer's own workload rather than a synthetic benchmark, and be the person who can explain the result to their engineers</p></li><li><p style=\"min-height:1.5em\">Own production for your accounts. When latency moves or error rates climb, you find it, you fix it or route it, and you are who the customer hears from</p></li><li><p style=\"min-height:1.5em\">Inform product roadmap. You sit closer than anyone to how Wafer behaves under real load, and the engineering team builds against what you report</p></li></ul><div style=\"min-height:1.2em;margin-top:0;margin-bottom:0\">\u00a0</div><h2>What we look for</h2><ul style=\"min-height:1.5em\"><li><p style=\"min-height:1.5em\">You are an exceptional engineer. You have shipped and operated production systems, and you can still open a profiler, read a trace, and find the problem yourself. Inference experience helps, but it matters more that you can be handed an unfamiliar system and own it inside a week.</p></li><li><p style=\"min-height:1.5em\">You have owned a customer relationship. You can name an account that was yours, say what was going wrong, and describe what you personally did about it.</p></li><li><p style=\"min-height:1.5em\">You are credible in a room full of engineers. You can take a skeptical ML team through a benchmark, defend the methodology, and concede the point when they are right.</p></li><li><p style=\"min-height:1.5em\">You work without a spec. The problem arrives half-defined from a customer who does not yet know what they need, and you come back with a scoped answer rather than a list of questions.</p></li></ul><div style=\"min-height:1.2em;margin-top:0;margin-bottom:0\">\u00a0</div><h2>How we evaluate</h2><p style=\"min-height:1.5em\">We score every candidate on seven values:</p><ol style=\"min-height:1.5em\"><li><p style=\"min-height:1.5em\">Infinitely Resourceful</p></li><li><p style=\"min-height:1.5em\">Exceptionalism</p></li><li><p style=\"min-height:1.5em\">Unreasonable Standards</p></li><li><p style=\"min-height:1.5em\">Company Over Self</p></li><li><p style=\"min-height:1.5em\">High EQ</p></li><li><p style=\"min-height:1.5em\">Learns Quickly</p></li><li><p style=\"min-height:1.5em\">First Principles Thinker</p></li></ol><div style=\"min-height:1.2em;margin-top:0;margin-bottom:0\">\u00a0</div><h2>Compensation and benefits</h2><ul style=\"min-height:1.5em\"><li><p style=\"min-height:1.5em\">$200-300K base salary + generous equity.</p></li><li><p style=\"min-height:1.5em\">Fully covered medical, dental, and vision insurance.</p></li><li><p style=\"min-height:1.5em\">Daily lunch and dinner, unlimited PTO, and parental leave.</p></li><li><p style=\"min-height:1.5em\">$1K/month housing stipend (post-tax) if you live within walking distance (0.5 miles) from the office.</p></li><li><p style=\"min-height:1.5em\">Covered Uber/Waymo from/to office.</p></li><li><p style=\"min-height:1.5em\">Visa sponsorship available.</p></li></ul><div style=\"min-height:1.2em;margin-top:0;margin-bottom:0\">\u00a0</div><h2>How we work</h2><p style=\"min-height:1.5em\">On-site in San Francisco, five days a week. Small team with massive surface area and ownership. You operate with complete autonomy of how to solve problems. We don't see engineers as code writers, but as problem solvers. You will work across the stack to build a company scaling extremely quickly.</p><p style=\"min-height:1.5em\">This is not a role that lives in meetings. Nearly all of your time is engineering. What makes it different is who that engineering is for: you are responsible for a named set of customers, their workloads run on what you build, and you are the person they hear from when it matters.</p>",
+    "label_source": "draft",
+    "hard_case": "sales_eng",
+    "category": "software_engineering",
+    "level": "mid",
+    "level_includes": [
+      "mid"
+    ],
+    "tags": [
+      "inference",
+      "gpu",
+      "performance",
+      "kernels",
+      "distributed-systems"
+    ],
+    "locations": [
+      {
+        "canonical_name": "San Francisco, CA, USA",
+        "kind": "city",
+        "city": "San Francisco",
+        "region": "CA",
+        "country": "USA",
+        "remote_scope": null,
+        "confidence": 0.9
+      }
+    ]
+  },
+  {
+    "job_listing_id": "6134374004",
+    "source_id": "greenhouse_api",
+    "company": "vercel",
+    "title": "Member of the Technical Staff, Internal Agent",
+    "raw_location": "Office - San Francisco",
+    "department": null,
+    "description_html": "&lt;div class=&quot;content-intro&quot;&gt;&lt;h2&gt;About Vercel:&lt;/h2&gt;\n&lt;p&gt;&lt;span data-sheets-root=&quot;1&quot;&gt;Vercel is the agentic infrastructure company. We free people and agents to ship what\u2019s next.&lt;/span&gt;&lt;/p&gt;\n&lt;p&gt;&lt;span data-sheets-root=&quot;1&quot;&gt;For more than a decade, Vercel has shaped how the web is built. As the team behind Next.js, v0, and AI SDK, we create products that help builders move from idea to production with speed, security, and exceptional developer experience.&lt;/span&gt;&lt;/p&gt;\n&lt;p&gt;&lt;span data-sheets-root=&quot;1&quot;&gt;Now, software is entering a new era, and the next generation of products will not just be used by people. They will be built, extended, and operated by agents.&lt;/span&gt;&lt;/p&gt;\n&lt;p&gt;&lt;span data-sheets-root=&quot;1&quot;&gt;We are building the platform for that future, trusted by companies like&amp;nbsp;&lt;strong&gt;OpenAI, PayPal, Ramp, Supreme, and millions of developers worldwide&lt;/strong&gt;. Whether you\u2019re building our products, supporting our customers, growing our community, or shaping our story, you\u2019ll help define what comes next.&lt;/span&gt;&lt;/p&gt;&lt;/div&gt;&lt;h2&gt;What You Will Do:&lt;/h2&gt;\n&lt;ul&gt;\n&lt;li&gt;Design and build V as the primary agentic interface for getting work done across Vercel, from answering questions and analyzing data to executing complex, multi-system workflows.&lt;/li&gt;\n&lt;li&gt;Build the agent architecture that allows V to understand intent, plan work, select the right skills and tools, recover from failures, and complete long-running tasks reliably.&lt;/li&gt;\n&lt;li&gt;Ship polished experiences across Slack, web, and other surfaces, combining natural-language interaction with rich, interactive interfaces when chat alone is not enough.&lt;/li&gt;\n&lt;li&gt;Develop evaluation, observability, and feedback systems that measure whether V\u2019s answers and actions are accurate, useful, efficient, and trustworthy.&lt;/li&gt;\n&lt;li&gt;Establish primitives that make it easy for teams across Vercel to contribute new capabilities without creating fragmented agents or inconsistent user experiences.&lt;/li&gt;\n&lt;li&gt;Help define what it means for a company to be operated through an agent and turn what we learn building V into ideas and infrastructure that can eventually benefit Vercel\u2019s customers.&lt;/li&gt;\n&lt;/ul&gt;\n&lt;h2&gt;About You:&lt;/h2&gt;\n&lt;ul&gt;\n&lt;li&gt;You have 7+ years of full-time software engineering experience and strong TypeScript proficiency.&lt;/li&gt;\n&lt;li&gt;You are comfortable working across product surfaces and system boundaries, from conversational UI and interactive data experiences to APIs, queues, databases, permissions, and production infrastructure.&lt;/li&gt;\n&lt;li&gt;You care about the quality of AI interactions: context selection, tool use, memory, latency, generated interfaces, uncertainty, and how the system communicates progress and asks for help.&lt;/li&gt;\n&lt;li&gt;You have a track record of openness and adaptability. You have moved into unfamiliar technologies, domains, or responsibilities and learned quickly. This space is changing too quickly for fixed expertise to matter more than curiosity and judgment.&lt;/li&gt;\n&lt;li&gt;Experience with using and building agent harnesses (OpenClaw, Hermes, Pi, etc) is a plus but not required&lt;/li&gt;\n&lt;/ul&gt;\n&lt;h2&gt;Benefits:&lt;/h2&gt;\n&lt;ul&gt;\n&lt;li data-stringify-indent=&quot;0&quot; data-stringify-border=&quot;0&quot;&gt;Competitive compensation package, including equity.&lt;/li&gt;\n&lt;li data-stringify-indent=&quot;0&quot; data-stringify-border=&quot;0&quot;&gt;Inclusive Healthcare Package.&lt;/li&gt;\n&lt;li data-stringify-indent=&quot;0&quot; data-stringify-border=&quot;0&quot;&gt;Learn and Grow - we provide mentorship and send you to events that help you build your network and skills.&lt;/li&gt;\n&lt;li data-stringify-indent=&quot;0&quot; data-stringify-border=&quot;0&quot;&gt;Flexible Time Off.&lt;/li&gt;\n&lt;li data-stringify-indent=&quot;0&quot; data-stringify-border=&quot;0&quot;&gt;We will provide you the gear you need to do your role, and a WFH budget for you to outfit your space as needed.&lt;/li&gt;\n&lt;/ul&gt;\n&lt;p&gt;&lt;span data-sheets-root=&quot;1&quot;&gt;The San Francisco, CA base pay range for this role is $208,000 - $312,000. Actual salary will be based on job-related skills, experience, and location. Compensation outside of San Francisco may be adjusted based on employee location. The total compensation package may include benefits, equity-based compensation, and eligibility for a company bonus or variable pay program depending on the role. Your recruiter can share more details during the hiring process.&amp;nbsp;&lt;/span&gt;&lt;/p&gt;\n&lt;p&gt;Vercel is committed to fostering and empowering an inclusive community within our organization. We do not discriminate on the basis of race, religion, color, gender expression or identity, sexual orientation, national origin, citizenship, age, marital status, veteran status, disability status, or any other characteristic protected by law. Vercel encourages everyone to apply for our available positions, even if they don&#39;t necessarily check every box on the job description.&lt;/p&gt;\n&lt;p&gt;&amp;nbsp;&lt;/p&gt;\n&lt;div id=&quot;te-floating-button-container&quot;&gt;&lt;/div&gt;",
+    "label_source": "draft",
+    "hard_case": "mts_title",
+    "category": "software_engineering",
+    "level": "senior",
+    "level_includes": [
+      "senior"
+    ],
+    "tags": [
+      "typescript",
+      "fullstack",
+      "agents",
+      "backend",
+      "ai"
+    ],
+    "locations": [
+      {
+        "canonical_name": "San Francisco, CA, USA",
+        "kind": "city",
+        "city": "San Francisco",
+        "region": "CA",
+        "country": "USA",
+        "remote_scope": null,
+        "confidence": 0.9
+      }
+    ]
+  },
+  {
+    "job_listing_id": "0c5d5a82-bfed-4786-b411-79073979af07",
+    "source_id": "ashby_api",
+    "company": "perplexity",
+    "title": "Member of Technical Staff (TPM, Inference)",
+    "raw_location": "San Francisco",
+    "department": null,
+    "description_html": "<p style=\"min-height:1.5em\"><strong>Perplexity is looking for a technical program manager to be the connective tissue between our model providers, engineering, and product teams, driving our core inference platform forward.</strong></p><p style=\"min-height:1.5em\"></p><p style=\"min-height:1.5em\">Perplexity runs one of the highest-throughput inference stacks in the industry, serving Ask, Computer, and API traffic across a large and constantly shifting portfolio of first-party and third-party models. This role sits at the intersection of product, engineering, and finance: you'll orchestrate across model providers and internal teams to keep new models and capacity moving smoothly into production, while executing the roadmap for the inference platform itself. The ideal candidate has strong technical judgment, thrives coordinating across teams and external partners with competing timelines, and is energized by building the operating model for a function that doesn't have much precedent yet.</p><p style=\"min-height:1.5em\"></p><h2><strong>Our Mission</strong></h2><p style=\"min-height:1.5em\">Perplexity's mission is to power curiosity. Curious people are the people who drive change in the world. Driving change is a continuous cycle of learning, building, and integrating.</p><p style=\"min-height:1.5em\"></p><p style=\"min-height:1.5em\">Learn: curious people constantly learn new things by asking more. They question the status quo in their own expertise and they constantly learn outside of it. Research is essential to them and never ending.</p><p style=\"min-height:1.5em\"></p><p style=\"min-height:1.5em\">Build: curious people make and create things, to show the world their new answers to problems no one else ever questioned. They take action on what they've learned. Makers need tools to create their products, their companies, their reality.</p><p style=\"min-height:1.5em\"></p><p style=\"min-height:1.5em\">Integrate: they must interact with the world as it is to drive change and adoption. True leaders do not simply build something and hope. They must have armies of agents and workers who can constantly work in millions of small ways.</p><p style=\"min-height:1.5em\"></p><p style=\"min-height:1.5em\">Repeat. For curious people this is a cycle that never ends.</p><p style=\"min-height:1.5em\"></p><h2><strong>What You'll Do</strong></h2><p style=\"min-height:1.5em\"><strong>Execute the roadmap for the inference platform</strong> \u2014 request handling, rate limits and quotas, usage controls, and the reliability and observability surface engineering and product teams depend on</p><ul style=\"min-height:1.5em\"><li><p style=\"min-height:1.5em\"><strong>Be the connective tissue between model providers and Perplexity's engineering and product teams</strong> \u2014 coordinating onboarding, launch readiness, and rollout for new models and capacity</p></li><li><p style=\"min-height:1.5em\"><strong>Drive latency, throughput, uptime, and cost-efficiency</strong> as core execution metrics, surfacing tradeoffs between them rather than letting them become side effects</p></li><li><p style=\"min-height:1.5em\"><strong>Run the operating model for model-release and optimization programs</strong>, including day-zero launches, across performance engineering, infrastructure, and product teams</p></li><li><p style=\"min-height:1.5em\"><strong>Lead cross-functional delivery for inference-stack changes</strong>, from planning through launch and post-launch validation</p></li><li><p style=\"min-height:1.5em\"><strong>Build the mechanisms that make releases predictable</strong> \u2014 rituals, dashboards, launch checklists \u2014 so inference releases stay low-risk at Perplexity's scale</p></li><li><p style=\"min-height:1.5em\"><strong>Partner with GPU capacity and compute teams</strong> to reconcile execution decisions against cost, capacity, and vendor constraints</p></li></ul><p style=\"min-height:1.5em\"></p><h2><strong>Qualifications</strong></h2><ul style=\"min-height:1.5em\"><li><p style=\"min-height:1.5em\">Strong experience with technical program management or product management in infrastructure, distributed systems, or ML/model-serving products</p></li><li><p style=\"min-height:1.5em\">Direct experience with production LLM or ML inference \u2014 understanding what makes serving fast, reliable, and cheap rather than just what a roadmap slide says about it</p></li><li><p style=\"min-height:1.5em\">Comfort orchestrating across external partners and internal engineering teams with competing priorities and timelines</p></li><li><p style=\"min-height:1.5em\">Experience with data and metrics, and the judgment to surface difficult tradeoffs between latency, throughput, uptime, and cost</p></li><li><p style=\"min-height:1.5em\">Thrives in a small, agile team; has initiative and desire for ownership without much precedent to lean on</p></li><li><p style=\"min-height:1.5em\">6+ years of combined technical program management or product management experience</p></li></ul><div style=\"min-height:1.2em;margin-top:0;margin-bottom:0\">\u00a0</div>",
+    "label_source": "draft",
+    "hard_case": "mts_not_swe",
+    "category": "business_ops",
+    "level": "senior",
+    "level_includes": [
+      "senior"
+    ],
+    "tags": [
+      "program-management",
+      "inference",
+      "cross-functional",
+      "capacity-planning"
+    ],
+    "locations": [
+      {
+        "canonical_name": "San Francisco, CA, USA",
+        "kind": "city",
+        "city": "San Francisco",
+        "region": "CA",
+        "country": "USA",
+        "remote_scope": null,
+        "confidence": 0.9
+      }
+    ]
+  },
+  {
+    "job_listing_id": "ee35bd97-43f9-4574-8ab7-81debd5d3d1a",
+    "source_id": "ashby_api",
+    "company": "fireworksai",
+    "title": "Member of Technical Staff, Research",
+    "raw_location": "San Mateo",
+    "department": null,
+    "description_html": "<h2><strong>About Us:</strong></h2><p style=\"min-height:1.5em\">Fireworks is the platform for specialized intelligence, enabling companies to build, train, and serve AI models tailored to their own data, workflows, and products. Founded by the team behind PyTorch and backed by AMD, Atreides, Benchmark Capital, Index Ventures, Lightspeed, NVIDIA, Sequoia Capital, and TCV, Fireworks powers production AI with hundreds of state-of-the-art open models across text, image, embedding, audio, and multimodal workloads. Today, Fireworks is a Series D company valued at $17.5 billion, bringing together an ambitious, collaborative team that's building the future of enterprise AI.</p><h2><strong>The Role:</strong></h2><p style=\"min-height:1.5em\">As a Member of Technical Staff on the Research team, you\u2019ll push the boundaries of generative AI, advancing LLMs and multimodal systems through foundational research. Your work will enhance model efficiency, accuracy, and scalability, directly shaping our high-performance AI infrastructure. You'll collaborate with top experts in deep learning, distributed systems, and optimization to bring cutting-edge research into real-world applications. You'll also have the opportunity to shape how some of the world\u2019s leading companies build and deploy AI through the models and tools you help create.</p><h3><strong>Key Responsibilities</strong></h3><ul style=\"min-height:1.5em\"><li><p style=\"min-height:1.5em\">Conduct foundational research to advance the capabilities, efficiency, and reliability of LLMs and multimodal systems</p></li><li><p style=\"min-height:1.5em\">Design, implement, and evaluate novel model architectures, training methods, and optimization techniques</p></li><li><p style=\"min-height:1.5em\">Collaborate with engineering teams to transition research prototypes into production-grade systems</p></li><li><p style=\"min-height:1.5em\">Analyze empirical results, identify performance bottlenecks, and iterate quickly to improve model quality</p></li><li><p style=\"min-height:1.5em\">Contribute to internal research strategy by identifying high-impact opportunities and emerging trends in AI</p></li></ul><h2><strong>Minimum Qualifications:</strong></h2><ul style=\"min-height:1.5em\"><li><p style=\"min-height:1.5em\">Research background in Artificial Intelligence, Machine Learning, Physics, or similar field</p></li><li><p style=\"min-height:1.5em\">Experience solving analytical problems using analytic and quantitative approaches</p></li><li><p style=\"min-height:1.5em\">Experience communicating research to audiences with different backgrounds</p></li><li><p style=\"min-height:1.5em\">Experience coding in C/C++, Python, or other similar languages</p></li></ul><h2><strong>Preferred Qualifications:</strong></h2><ul style=\"min-height:1.5em\"><li><p style=\"min-height:1.5em\">PhD degree in Computer Science, Computational Physics, Mathematics, or a similar field</p></li><li><p style=\"min-height:1.5em\">Research and engineering experience demonstrated via grants, fellowships, patents, internships, work experience, and/or coding competitions</p></li><li><p style=\"min-height:1.5em\">Experience having first-authored publications at peer-reviewed conferences or journals</p></li><li><p style=\"min-height:1.5em\">Experience working with ML frameworks such as PyTorch, TensorFlow, or Jax</p></li></ul><h2><strong>Why Fireworks?</strong></h2><ul style=\"min-height:1.5em\"><li><p style=\"min-height:1.5em\">Solve Hard Problems: Tackle challenges at the forefront of AI infrastructure, from low-latency inference to scalable model serving.</p></li><li><p style=\"min-height:1.5em\">Build What\u2019s Next: Work with bleeding-edge technology that impacts how businesses and developers harness AI globally.</p></li><li><p style=\"min-height:1.5em\">Ownership &amp; Impact: Join a fast-growing, passionate team where your work directly shapes the future of AI\u2014no bureaucracy, just results.</p></li><li><p style=\"min-height:1.5em\">Learn from the Best: Collaborate with world-class engineers and AI researchers who thrive on curiosity and innovation.</p></li></ul><p style=\"min-height:1.5em\"><em>Fireworks AI is an equal-opportunity employer. We celebrate diversity and are committed to creating an inclusive environment for all innovators.</em></p>",
+    "label_source": "draft",
+    "hard_case": "mts_not_swe",
+    "category": "data_scientist",
+    "level": "mid",
+    "level_includes": [
+      "mid"
+    ],
+    "tags": [
+      "ml",
+      "research",
+      "llm",
+      "multimodal",
+      "deep-learning"
+    ],
+    "locations": [
+      {
+        "canonical_name": "San Mateo, CA, USA",
+        "kind": "city",
+        "city": "San Mateo",
+        "region": "CA",
+        "country": "USA",
+        "remote_scope": null,
+        "confidence": 0.9
+      }
+    ]
+  },
+  {
+    "job_listing_id": "19d8bcfd-e493-4b3a-b8fd-11a2a6502da2",
+    "source_id": "ashby_api",
+    "company": "perplexity",
+    "title": "Member of Technical Staff (Machine Learning Engineer, Ranking Quality - Search)",
+    "raw_location": "Belgrade",
+    "department": null,
+    "description_html": "<p style=\"min-height:1.5em\">Perplexity is seeking an experienced Machine Learning Engineer to improve search quality across the middle and later stages of ranking. We are looking for a strong ranking generalist who can own ambiguous problems end to end and brings exceptional depth in either neural ranking or production ranking systems.<br /><br /><strong>Responsibilities</strong></p><ul style=\"min-height:1.5em\"><li><p style=\"min-height:1.5em\">Relentlessly push search quality forward through models, data, evaluation, infrastructure, or any other leverage available.</p></li><li><p style=\"min-height:1.5em\">Own ranking-quality problems end to end: define the evaluation, identify the bottleneck, build the solution, and ship it safely.</p></li><li><p style=\"min-height:1.5em\">Train and evaluate retrieval, ranking, and classification models, including neural and LLM-based approaches where appropriate.</p></li><li><p style=\"min-height:1.5em\">Build and operate ranking infrastructure, including feature computation, low-latency inference, multi-stage cascades, deployment, and monitoring.</p></li><li><p style=\"min-height:1.5em\">Make sound trade-offs across quality, latency, reliability, cost, and engineering complexity.</p></li><li><p style=\"min-height:1.5em\">Collaborate across Data, AI, Infrastructure, and Product while retaining ownership of the final quality outcome.</p><p style=\"min-height:1.5em\"></p></li></ul><p style=\"min-height:1.5em\"><strong>Qualifications</strong></p><ul style=\"min-height:1.5em\"><li><p style=\"min-height:1.5em\">Deep understanding of search or recommender systems and their evaluation.</p></li><li><p style=\"min-height:1.5em\">Proven ownership of a large-scale production ranking system or a substantial class of quality problems.</p></li><li><p style=\"min-height:1.5em\">Strong machine-learning and software-engineering skills across data, models, serving, and monitoring.</p></li><li><p style=\"min-height:1.5em\">Ability to drive ambiguous, cross-team problems without continuous task decomposition.</p></li><li><p style=\"min-height:1.5em\">Exceptional depth in either modern neural ranking methods or low-latency ranking systems and runtime.</p></li><li><p style=\"min-height:1.5em\">Minimum 5 years of relevant industry experience.</p></li></ul>",
+    "label_source": "draft",
+    "hard_case": "ml_vs_ds",
+    "category": "software_engineering",
+    "level": "senior",
+    "level_includes": [
+      "senior"
+    ],
+    "tags": [
+      "ml",
+      "ranking",
+      "search",
+      "information-retrieval",
+      "serving"
+    ],
+    "locations": [
+      {
+        "canonical_name": "Belgrade, Serbia",
+        "kind": "city",
+        "city": "Belgrade",
+        "region": null,
+        "country": "Serbia",
+        "remote_scope": null,
+        "confidence": 0.9
+      }
+    ]
+  },
+  {
+    "job_listing_id": "3b349a2f-360e-44e6-a57d-6a87bc3016a7",
+    "source_id": "ashby_api",
+    "company": "perplexity",
+    "title": "Member of Technical Staff (Search Quality Analyst)",
+    "raw_location": "Belgrade",
+    "department": null,
+    "description_html": "<p style=\"min-height:1.5em\">Perplexity is looking for an experienced analyst to help us build and improve our core search technologies. You'll work at the intersection of data analysis and engineering - designing metrics, building data pipelines, and improving the quality of our search and answer systems.<br /><br />This role is hybrid in Belgrade, London or Berlin.<br /><br /><strong>Responsibilities</strong></p><ul style=\"min-height:1.5em\"><li><p style=\"min-height:1.5em\"> Find and diagnose quality issues in our search pipeline</p></li><li><p style=\"min-height:1.5em\">Design metrics from scratch to track and measure search quality</p></li><li><p style=\"min-height:1.5em\">Build datasets for model training, including LLM-as-a-judge labeling pipelines</p></li><li><p style=\"min-height:1.5em\">Improve search snippet quality and page selection algorithms for indexing</p></li><li><p style=\"min-height:1.5em\">Design and analyze A/B experiments to validate improvements</p></li></ul><p style=\"min-height:1.5em\"><strong>Qualifications</strong></p><ul style=\"min-height:1.5em\"><li><p style=\"min-height:1.5em\">4+ years of experience as a data analyst or in a related role</p></li><li><p style=\"min-height:1.5em\">Strong coding skills \u2014 expected to write production-grade code at a mid-level backend engineer level</p></li><li><p style=\"min-height:1.5em\">Proficiency with SQL and Python</p></li><li><p style=\"min-height:1.5em\">Demonstrated hands-on experience with <strong>at least one</strong> of the following:</p></li><li><p style=\"min-height:1.5em\">Designing metrics from scratch (not just analyzing existing A/B experiments)</p></li><li><p style=\"min-height:1.5em\">Building labeling pipelines using LLM-as-a-judge</p></li><li><p style=\"min-height:1.5em\">Training ML models that shipped to production with measurable metric improvements</p></li><li><p style=\"min-height:1.5em\">Designing evals with known ground truth (e.g. SimpleQA, BrowseComp) or driving meaningful improvements on such evals</p></li></ul><p style=\"min-height:1.5em\"><strong>Preferred Qualifications</strong></p><ul style=\"min-height:1.5em\"><li><p style=\"min-height:1.5em\">Experience working on search-related products</p></li><li><p style=\"min-height:1.5em\">Knowledge of statistics and A/B experiment design</p></li><li><p style=\"min-height:1.5em\">Experience with Apache Spark or Databricks</p></li></ul><div style=\"min-height:1.2em;margin-top:0;margin-bottom:0\">\u00a0</div><div style=\"min-height:1.2em;margin-top:0;margin-bottom:0\">\u00a0</div>",
+    "label_source": "draft",
+    "hard_case": "mts_not_swe",
+    "category": "data_scientist",
+    "level": "mid",
+    "level_includes": [
+      "mid"
+    ],
+    "tags": [
+      "sql",
+      "python",
+      "experimentation",
+      "search",
+      "evaluation"
+    ],
+    "locations": [
+      {
+        "canonical_name": "Belgrade, Serbia",
+        "kind": "city",
+        "city": "Belgrade",
+        "region": null,
+        "country": "Serbia",
+        "remote_scope": null,
+        "confidence": 0.9
+      }
+    ]
+  },
+  {
+    "job_listing_id": "08609fa6-a47d-417a-be9b-ae9c7bec64c8",
+    "source_id": "ashby_api",
+    "company": "poke",
+    "title": "MTS - Research",
+    "raw_location": "Palo Alto, California",
+    "department": "1. Technical Staff",
+    "description_html": "<p style=\"min-height:1.5em\"><br />We\u2019re the makers of <a target=\"_blank\" rel=\"noopener noreferrer nofollow\" href=\"http://Poke.com\">Poke.com</a>, a proactive AI agent for everyday life. Interaction is a $300M consumer company backed by $27M from General Catalyst and angels such as Guillermo Rauch (Vercel), Scott Wu (Cognition), Patrick and John Collison (Stripe), Fred Ehrsam (Coinbase), Ken Howery (Co-Founder of PayPal and Founders Fund), and many others.</p><div style=\"min-height:1.2em;margin-top:0;margin-bottom:0\">\u00a0</div><p style=\"min-height:1.5em\"><strong>The Context</strong></p><p style=\"min-height:1.5em\">For the last year, our core engineering team has built this entire agent platform from the ground up. Now, traffic and concurrent agent executions are scaling by orders of magnitude. We need engineers to harden infrastructure without slowing down feature velocity.</p><div style=\"min-height:1.2em;margin-top:0;margin-bottom:0\">\u00a0</div><p style=\"min-height:1.5em\">We only care about technical depth, obsession with your craft, and how well you can build alongside us. Our current team is strongly connected and talent-dense, with backgrounds from Jane Street, MIT/Stanford research, and International Olympiads, but we care more about experience building than your pedigree.</p><div style=\"min-height:1.2em;margin-top:0;margin-bottom:0\">\u00a0</div><p style=\"min-height:1.5em\"><strong>The Role</strong></p><p style=\"min-height:1.5em\">We hire across many strengths under one title. You are a T-shaped engineer who can navigate the whole stack, but you are uniquely experienced in at least one of these areas:</p><ul style=\"min-height:1.5em\"><li><p style=\"min-height:1.5em\"><strong>Scale &amp; Infra:</strong> High-concurrency, low-latency, distributed state under heavy load.</p></li><li><p style=\"min-height:1.5em\"><strong>Product:</strong> Prototyping, shipping, and iterating on agentic workflows zero-to-one.</p></li><li><p style=\"min-height:1.5em\"><strong>Extensibility &amp; DevTools:</strong> APIs, SDKs, and primitives that make Poke programmable by external developers.</p></li><li><p style=\"min-height:1.5em\"><strong>AI Runtime &amp; Evals:</strong> Tool use, model selection, and output quality in production.</p></li><li><p style=\"min-height:1.5em\"><strong>Post-Training &amp; Alignment.</strong> SFT, preference optimization, reward modeling, synthetic data generation, eval design, and improving agent performance through training rather than prompting.</p></li></ul><div style=\"min-height:1.2em;margin-top:0;margin-bottom:0\">\u00a0</div><p style=\"min-height:1.5em\">We work mostly in Typescript and some Python, but lack of experience in these specific languages is not a deal breaker.</p><div style=\"min-height:1.2em;margin-top:0;margin-bottom:0\">\u00a0</div><p style=\"min-height:1.5em\"><strong>What we're looking for</strong></p><ul style=\"min-height:1.5em\"><li><p style=\"min-height:1.5em\"><strong>Rigor under pressure.</strong> You move between infra, product, and debugging. You can stabilize melting systems while still shipping features.</p></li><li><p style=\"min-height:1.5em\"><strong>Platform thinking.</strong> You design primitives, not one-off features. You build solutions that solve today's product needs while unlocking ten future use cases.</p></li><li><p style=\"min-height:1.5em\"><strong>Low ego.</strong> The talent bar is high, but no important problem is beneath us.</p></li></ul><div style=\"min-height:1.2em;margin-top:0;margin-bottom:0\">\u00a0</div><p style=\"min-height:1.5em\"><strong>Something Else</strong></p><p style=\"min-height:1.5em\">If you don't fit perfectly into a bucket, that\u2019s fine. We care more about ownership and technical depth over specific labels.</p><div style=\"min-height:1.2em;margin-top:0;margin-bottom:0\">\u00a0</div><p style=\"min-height:1.5em\">Tell us what you are unusually good at, what systems you\u2019ve owned, and why it transfers here. Include a link to your GitHub, a project you're proud of, or a breakdown of the hardest technical problem you've solved.</p>",
+    "label_source": "draft",
+    "hard_case": "mts_title",
+    "category": "software_engineering",
+    "level": "mid",
+    "level_includes": [
+      "mid"
+    ],
+    "tags": [
+      "typescript",
+      "python",
+      "agents",
+      "infrastructure",
+      "devtools"
+    ],
+    "locations": [
+      {
+        "canonical_name": "Palo Alto, CA, USA",
+        "kind": "city",
+        "city": "Palo Alto",
+        "region": "CA",
+        "country": "USA",
+        "remote_scope": null,
+        "confidence": 0.9
+      }
+    ]
+  },
+  {
+    "job_listing_id": "1970393556637142",
+    "source_id": "microsoft_scraper",
+    "company": "microsoft",
+    "title": "MTS - Site Reliability Engineer",
+    "raw_location": "United States, Washington, Redmond",
+    "department": null,
+    "description_html": "<b>Overview</b><br><div>As Microsoft continues to push the boundaries of AI, we are on the lookout for passionate individuals to work with us on the most interesting and challenging AI questions of our time. Our vision is bold and broad \u2014 to build systems that have true artificial intelligence across agents, applications, services, and infrastructure. It\u2019s also inclusive: we aim to make AI accessible to all \u2014 consumers, businesses, developers \u2014 so that everyone can realize its benefits.</div><div>\u00a0</div><div>We\u2019re looking for an experienced <strong>Site Reliability Engineer (SRE)</strong> to join our infrastructure team. In this role, you\u2019ll blend software engineering and systems engineering to keep our large-scale distributed AI infrastructure reliable and efficient. You\u2019ll work closely with ML researchers, data engineers, and product developers to design and operate the platforms that power training, fine-tuning, and serving generative AI models.</div><div>Microsoft\u2019s mission is to empower every person and every organization on the planet to achieve more. As employees we come together with a growth mindset, innovate to empower others, and collaborate to realize our shared goals. Each day we build on our values of respect, integrity, and accountability to create a culture of inclusion where everyone can thrive at work and beyond.</div><div>\u00a0</div><div>Starting January 26, 2026, MAI employees are expected to work from a designated Microsoft office at least four days a week if they live within 50 miles (U.S.) or 25 miles (non-U.S., country-specific) of that location. This expectation is subject to local law and may vary by jurisdiction.</div><br><br><b>Responsibilities</b><br><ul><li><strong>Reliability & Availability</strong>: Ensure uptime, resiliency, and fault tolerance of AI model training and inference systems.</li><li><strong>Observability</strong>: Design and maintain monitoring, alerting, and logging systems to provide real-time visibility into model serving pipelines and infra.</li><li><strong>Performance Optimization</strong>: Analyze system performance and scalability, optimize resource utilization (compute, GPU clusters, storage, networking).</li><li><strong>Automation & Tooling</strong>: Build automation for deployments, incident response, scaling, and failover in hybrid cloud/on-prem CPU+GPU environments.</li><li><strong>Incident Management</strong>: Lead on-call rotations, troubleshoot production issues, conduct blameless postmortems, and drive continuous improvements.</li><li><strong>Security & Compliance</strong>: Ensure data privacy, compliance, and secure operations across model training and serving environments.</li><li><strong>Collaboration</strong>: Partner with ML engineers and platform teams to improve developer experience and accelerate research-to-production workflows.</li></ul><br><br><b>Qualifications</b><br><p><strong>Required Qualifications</strong></p><ul><li>4+ years of experience in Site Reliability Engineering, DevOps, or Infrastructure Engineering roles.</li></ul><p><strong>Preferred Qualifications</strong></p><ul><li>Strong proficiency in <strong>Kubernetes, Docker, and container orchestration</strong>.</li><li>Knowledge of <strong>CI/CD pipelines</strong> for Inference and ML model deployment.</li><li>Hands-on experience with <strong>public cloud platforms like Azure/AWS/GCP</strong> and infrastructure-as-code.</li><li>Expertise in <strong>monitoring & observability tools</strong> (Grafana, Datadog, OpenTelemetry, etc.).</li><li>Strong programming/scripting skills in <strong>Python, Go, or Bash</strong>.</li><li>Solid knowledge of <strong>distributed systems, networking, and storage</strong>.</li><li>Experience running <strong>large-scale GPU clusters</strong> for ML/AI workloads (preferred).</li><li>Familiarity with ML training/inference pipelines.</li><li>Experience with <strong>high-performance computing (HPC)</strong> and workload schedulers ( Kubernetes operators).</li><li>Background in <strong>capacity planning & cost optimization</strong> for GPU-heavy environments.</li><li>Work on cutting-edge infrastructure that powers the future of Generative AI.</li><li>Collaborate with world-class researchers and engineers.</li><li>Impact millions of users through reliable and responsible AI deployments.</li><li>Competitive compensation, equity options, and comprehensive benefits.</li></ul> <br><br><p>Software Engineering IC4 - The typical base pay range for this role across the U.S. is USD $119,800 - $234,700 per year. There is a different range applicable to specific work locations, within the San Francisco Bay area and New York City metropolitan area, and the base pay range for this role in those locations is USD $158,400 - $258,000 per year. <p></p> <p>Certain roles may be eligible for benefits and other compensation. Find additional benefits and pay information here:<br/><a href='https://careers.microsoft.com/us/en/us-corporate-pay'>https://careers.microsoft.com/us/en/us-corporate-pay</a></p><p></p> <p>Software Engineering IC5 - The typical base pay range for this role across the U.S. is USD $139,900 - $274,800 per year. There is a different range applicable to specific work locations, within the San Francisco Bay area and New York City metropolitan area, and the base pay range for this role in those locations is USD $188,000 - $304,200 per year. <p></p> <p>Certain roles may be eligible for benefits and other compensation. Find additional benefits and pay information here:<br/><a href='https://careers.microsoft.com/us/en/us-corporate-pay'>https://careers.microsoft.com/us/en/us-corporate-pay</a></p></p><br><p>This position will be open for a minimum of 5 days, with applications accepted on an ongoing basis until the position is filled.</p><br><hr><br><p>Microsoft is an equal opportunity employer. All qualified applicants will receive consideration for employment without regard to age, ancestry, citizenship, color, family or medical care leave, gender identity or expression, genetic information, immigration status, marital status, medical condition, national origin, physical or mental disability, political affiliation, protected veteran or military status, race, ethnicity, religion, sex (including pregnancy), sexual orientation, or any other characteristic protected by applicable local laws, regulations and ordinances. If you need assistance with religious accommodations and/or a reasonable accommodation due to a disability during the application process, read more about <a href=\"https://careers.microsoft.com/v2/global/en/accessibility.html\"><b><u>requesting accommodations.</u></b></a></p> ",
+    "label_source": "draft",
+    "hard_case": "mts_title",
+    "category": "software_engineering",
+    "level": "mid",
+    "level_includes": [
+      "mid"
+    ],
+    "tags": [
+      "sre",
+      "reliability",
+      "distributed-systems",
+      "infrastructure",
+      "mlops"
+    ],
+    "locations": [
+      {
+        "canonical_name": "Redmond, WA, USA",
+        "kind": "city",
+        "city": "Redmond",
+        "region": "WA",
+        "country": "USA",
+        "remote_scope": null,
+        "confidence": 0.9
+      }
+    ]
+  },
+  {
+    "job_listing_id": "a8abf746-17f5-45e3-a72e-085ccb8f2d74",
+    "source_id": "ashby_api",
+    "company": "fireworksai",
+    "title": "Member of Technical Staff, Cloud Infrastructure",
+    "raw_location": "San Mateo",
+    "department": null,
+    "description_html": "<h2><strong>About Us:</strong></h2><p style=\"min-height:1.5em\">Fireworks is the platform for specialized intelligence, enabling companies to build, train, and serve AI models tailored to their own data, workflows, and products. Founded by the team behind PyTorch and backed by AMD, Atreides, Benchmark Capital, Index Ventures, Lightspeed, NVIDIA, Sequoia Capital, and TCV, Fireworks powers production AI with hundreds of state-of-the-art open models across text, image, embedding, audio, and multimodal workloads. Today, Fireworks is a Series D company valued at $17.5 billion, bringing together an ambitious, collaborative team that's building the future of enterprise AI.</p><h2>The Role:</h2><p style=\"min-height:1.5em\">As a Software Engineer on our Cloud Infrastructure team, you'll be at the forefront, architecting and building the foundational systems that power Fireworks AI's revolutionary generative AI platform. You'll spearhead the creation of one of the world's first virtual clouds, seamlessly serving AI workloads across the globe and every cloud provider. Your mission: to deliver unparalleled reliability, efficiency, and scalability, fueling the world's most innovative AI products.This is a highly technical role requiring deep expertise in distributed systems, cloud-native infrastructure, and machine learning platforms. You\u2019ll partner closely with engineering partners, product teams, and infrastructure stakeholders to design solutions that balance performance, cost-efficiency, and operational simplicity across compute, storage, and networking layers.</p><h2>Key Responsibilities:</h2><ul style=\"min-height:1.5em\"><li><p style=\"min-height:1.5em\">Architect and build scalable, resilient, and high-performance backend infrastructure to support distributed training, inference, and data processing pipelines.</p></li><li><p style=\"min-height:1.5em\">Lead technical design discussions, mentor other engineers, and establish best practices for building and operating large-scale ML infrastructure.</p></li><li><p style=\"min-height:1.5em\">Design and implement core backend services (e.g., job schedulers, resource managers, autoscalers, model serving layers) with a focus on efficiency and low latency.</p></li><li><p style=\"min-height:1.5em\">Drive infrastructure optimization initiatives, including compute cost reduction, storage lifecycle management, and network performance tuning.</p></li><li><p style=\"min-height:1.5em\">Collaborate cross-functionally with ML, DevOps, and product teams to translate research and product needs into robust infrastructure solutions.</p></li><li><p style=\"min-height:1.5em\">Continuously evaluate and integrate cloud-native and open-source technologies (e.g., Kubernetes, Kubeflow, MLFlow) to enhance our platform\u2019s capabilities and reliability.</p></li><li><p style=\"min-height:1.5em\">Own end-to-end systems from design to deployment and observability, with a strong emphasis on reliability, fault tolerance, and operational excellence.</p></li><li><p style=\"min-height:1.5em\">Ensuring System Reliability: Ensure systems are designed and implemented with high availability, scalability, and performance. Focus on fault tolerance, disaster recovery, identifying and removing scaling bottlenecks, and performance optimization across our multi-cloud infrastructure.</p></li><li><p style=\"min-height:1.5em\">Observability &amp; Monitoring: Develop, implement, and maintain comprehensive monitoring, alerting, logging, and tracing solutions to provide deep insights into system health and performance\u00a0</p></li></ul><h2>Minimum qualifications:</h2><ul style=\"min-height:1.5em\"><li><p style=\"min-height:1.5em\">Bachelor\u2019s degree in Computer Science, Engineering, or a related technical field (or equivalent practical experience).</p></li><li><p style=\"min-height:1.5em\">5+ years of experience designing and building backend infrastructure in cloud environments (e.g., AWS, GCP, Azure).</p></li><li><p style=\"min-height:1.5em\">Proven experience in ML infrastructure and tooling (e.g., PyTorch, TensorFlow, Vertex AI, SageMaker, Kubernetes, etc.).</p></li><li><p style=\"min-height:1.5em\">Strong software development skills in languages like Python, or C++.</p></li><li><p style=\"min-height:1.5em\">Deep understanding of distributed systems fundamentals: scheduling, orchestration, storage, networking, and compute optimization.</p></li></ul><h2>Preferred qualifications:</h2><ul style=\"min-height:1.5em\"><li><p style=\"min-height:1.5em\">Master\u2019s or PhD in Computer Science or related field.</p></li><li><p style=\"min-height:1.5em\">Experience leading infrastructure projects supporting large-scale ML/AI workloads or high-throughput systems.</p></li><li><p style=\"min-height:1.5em\">Familiarity with infrastructure-as-code and CI/CD tooling (e.g., Terraform, ArgoCD, GitOps).</p></li><li><p style=\"min-height:1.5em\">Track record of driving system performance, reliability, and cost-efficiency improvements.</p></li><li><p style=\"min-height:1.5em\">Contributions to open-source cloud or ML infrastructure projects a plus.</p></li></ul><h2><strong>Why Fireworks?</strong></h2><ul style=\"min-height:1.5em\"><li><p style=\"min-height:1.5em\">Solve Hard Problems: Tackle challenges at the forefront of AI infrastructure, from low-latency inference to scalable model serving.</p></li><li><p style=\"min-height:1.5em\">Build What\u2019s Next: Work with bleeding-edge technology that impacts how businesses and developers harness AI globally.</p></li><li><p style=\"min-height:1.5em\">Ownership &amp; Impact: Join a fast-growing, passionate team where your work directly shapes the future of AI\u2014no bureaucracy, just results.</p></li><li><p style=\"min-height:1.5em\">Learn from the Best: Collaborate with world-class engineers and AI researchers who thrive on curiosity and innovation.</p></li></ul><p style=\"min-height:1.5em\"><em>Fireworks AI is an equal-opportunity employer. We celebrate diversity and are committed to creating an inclusive environment for all innovators.</em></p>",
+    "label_source": "draft",
+    "hard_case": "mts_title",
+    "category": "software_engineering",
+    "level": "senior",
+    "level_includes": [
+      "senior"
+    ],
+    "tags": [
+      "distributed-systems",
+      "cloud",
+      "backend",
+      "infrastructure",
+      "mlops"
+    ],
+    "locations": [
+      {
+        "canonical_name": "San Mateo, CA, USA",
+        "kind": "city",
+        "city": "San Mateo",
+        "region": "CA",
+        "country": "USA",
+        "remote_scope": null,
+        "confidence": 0.9
+      }
+    ]
+  },
+  {
+    "job_listing_id": "JR352082",
+    "source_id": "workday_api",
+    "company": "salesforce",
+    "title": "Software Engineering SMTS",
+    "raw_location": "Washington - Bellevue",
+    "department": null,
+    "description_html": null,
+    "label_source": "draft",
+    "hard_case": "mts_graded",
+    "category": "software_engineering",
+    "level": "senior",
+    "level_includes": [
+      "senior"
+    ],
+    "tags": [],
+    "locations": [
+      {
+        "canonical_name": "Bellevue, WA, USA",
+        "kind": "city",
+        "city": "Bellevue",
+        "region": "WA",
+        "country": "USA",
+        "remote_scope": null,
+        "confidence": 0.9
+      }
+    ]
   }
 ]

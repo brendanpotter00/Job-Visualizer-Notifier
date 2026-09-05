@@ -37,6 +37,18 @@ _BOILERPLATE_HEADERS = (
 _WS_RE = re.compile(r"[ \t]+")
 _MULTINEWLINE_RE = re.compile(r"\n{3,}")
 
+# A body stored DOUBLE-escaped: real block-level tags that arrived as entity TEXT
+# ("&lt;li&gt;") instead of markup, so one unescaping pass turns them into live
+# tags rather than removing them. Deliberately keyed on a closed list of real HTML
+# tag names in the INPUT — not on "the output still has angle brackets", which
+# also fires on ordinary prose like `Promise&lt;T&gt;` or `&lt;Button /&gt;` and
+# would then delete it.
+_DOUBLE_ESCAPED_TAG_RE = re.compile(
+    r"&lt;/?(?:p|div|span|br|hr|li|ul|ol|dl|dd|dt|h[1-6]|table|thead|tbody|tr|td|th"
+    r"|strong|em|b|i|u|a|img|section|article|header|footer|blockquote|pre|code)\b",
+    re.IGNORECASE,
+)
+
 
 def _to_markdown(description_html: str | None) -> str:
     if not description_html:
@@ -75,6 +87,20 @@ def _cut_boilerplate(text: str) -> str:
 
 def clean_description(description_html: str | None) -> str:
     md = _to_markdown(description_html)
+    # Some ATS rows store the body DOUBLE-escaped (Greenhouse serves Vercel's
+    # postings as "&lt;li ...&gt;"), so the first pass UNESCAPES the entities into
+    # literal tags instead of stripping them and the classifier gets markup as
+    # prose. Re-run the pass ONCE for exactly those rows — bounded, so no loop.
+    #
+    # The trigger is the INPUT carrying escaped real tags, NOT "the output still
+    # has angle brackets". Keying on the output looks equivalent and is not: it
+    # also fires on postings that merely mention `Promise<T>` or `<Button />`,
+    # and pass 2 then DELETES them. Worse, when pass 1's output is ordinary
+    # markdown, feeding it back to html2text collapses every newline — which
+    # silently disables `_cut_boilerplate` below (it is line-based and skips
+    # lines >80 chars), so EEO/benefits boilerplate survives into the classifier.
+    if _DOUBLE_ESCAPED_TAG_RE.search(description_html or ""):
+        md = _to_markdown(md)
     md = _cut_boilerplate(md)
     md = _WS_RE.sub(" ", md)
     md = _MULTINEWLINE_RE.sub("\n\n", md)

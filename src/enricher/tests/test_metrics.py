@@ -3,11 +3,13 @@ the best-effort CLI contract (a metrics failure must never fail a tick)."""
 
 import argparse
 import json
+import re
 
 import httpx
 
 from job_enricher import cli
 from job_enricher.metrics import build_metrics_payload, drift_suspected
+from job_enricher.taxonomy import taxonomy_version
 from job_enricher.store import LAST_SCORECARD_HASH_KEY
 
 
@@ -38,7 +40,12 @@ def test_build_metrics_payload_shape(store):
     ]
     assert payload["heartbeat_age_s"] is not None and payload["heartbeat_age_s"] >= 0
     assert payload["knobs"]["judge_scope"] == "low_confidence"
-    assert payload["taxonomy_version"].startswith("v6+")
+    # The contract is "the payload carries the LIVE taxonomy version", not any
+    # particular number — pinning the literal broke this test on every SKILL.md
+    # bump. Assert the SHAPE too: comparing against taxonomy_version() alone would
+    # still pass if both sides degraded together.
+    assert re.fullmatch(r"v\d+\+[0-9a-f]{12}", payload["taxonomy_version"])
+    assert payload["taxonomy_version"] == taxonomy_version()
     assert payload["enricher_version"]
     assert payload["drift_suspected"] is False
     assert payload["scorecard"] is None or scorecard_hash  # depends on repo scorecard state

@@ -93,7 +93,9 @@ rejected at record time):
 - Otherwise change `level` only when your OWN confidence >= 0.8 AND you cite a
   decisive explicit signal (a level word / stated YOE) OR the ABSENCE of any
   explicit signal (which makes `mid` correct). Difficulty / intensity / "high
-  agency" language is NOT a seniority signal — never bump UP on it.
+  agency" language is NOT a seniority signal — never bump UP on it. Neither is a
+  house title: "Member of Technical Staff"/MTS carries NO tier on its own (only
+  a stated YOE, an attached level word, or a graded acronym like SMTS does).
 
 For each item, produce exactly one JSON object:
   "job_listing_id": echo EXACTLY as given
