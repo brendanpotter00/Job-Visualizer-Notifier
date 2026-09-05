@@ -17,6 +17,13 @@ therefore not covered by any of them — which is the point: this file enumerate
 surfaces by hand, so a new public reader is invisible to it until someone adds a
 case. It leaks in three distinct ways if unguarded (rows, ``filteredTotal``, and
 the two recency tiles), and all three are asserted below.
+
+Leak 6b is the OTHER side of leak 6: that same reader now serves a signed-in
+caller their OWN private boards (the Recent page's only read path, so without it
+a custom company is invisible to the person who added it). The hole is scoped by
+a server-derived ownership set, never by anything on the request, and 6b reads one
+fixture four ways — anonymous, owning-nothing, owning-something-else, owner — to
+prove only the last one sees it.
 """
 
 from __future__ import annotations
@@ -28,7 +35,7 @@ import pytest
 from psycopg2 import sql
 
 from scripts.shared.constants import custom
-from api.auth.dependencies import get_current_user
+from api.auth.dependencies import get_current_user, get_optional_user_lenient
 from api.config import settings
 from scripts.shared.database import (
     list_enabled_companies as list_ats_enabled_companies,
@@ -404,9 +411,16 @@ def test_search_service_layer_never_returns_a_user_company_job(db_conn):
     """The property where it is implemented, one layer below the router.
 
     Mirrors ``test_service_layer_read_paths_never_return_a_user_company_job`` for
-    the search reader: it still fails if someone rewires the router, mounts a
-    second one, or gives ``build_search_where`` a viewer argument — the
-    "conditional leak that passes review" the predicate's comment warns about.
+    the search reader: it still fails if someone rewires the router or mounts a
+    second one.
+
+    THE DEFAULT IS THE INVARIANT. ``search_jobs`` now takes an
+    ``owned_source_ids`` scope (Leak 6b below), so "no viewer argument exists" is
+    no longer the thing being asserted — what is asserted is that OMITTING it
+    yields the blanket guard, unchanged. That is the state every anonymous
+    request is in, so a regression that inverted the default would fail here.
+    Leak 6b covers the other half: that supplying a scope widens the read by
+    exactly the caller's own rows and nothing else.
     """
     from api.services.job_search import get_search_counts, search_jobs
 
@@ -422,3 +436,219 @@ def test_search_service_layer_never_returns_a_user_company_job(db_conn):
 
     counts = get_search_counts(db_conn, status="OPEN")
     assert counts["filtered_total"] is None
+
+
+# --- Leak 6b: the OWNER-scoped relaxation of the search reader ----------------
+#
+# The counterpart to Leak 6. Leak 6 proves the blanket guard; these prove the one
+# sanctioned hole in it does not become a leak.
+#
+# WHY THE HOLE EXISTS. The Recent Jobs page migrated to ``GET /api/jobs/search``
+# and left behind the client-side merge of the authed
+# ``GET /api/users/companies/jobs`` that used to put a reader's own private boards
+# in their feed. The unconditional predicate then hid those boards from their own
+# OWNER: discovery succeeded, the harvest wrote the rows, and the feed showed none
+# of them.
+#
+# WHY IT IS NOT THE "conditional leak" THE PREDICATE WARNS ABOUT. The scope is
+# never request-derived. It is computed from ``user_companies`` against a
+# validated token (``_resolve_owned_source_ids`` -> ``list_owned_source_ids``), so
+# a caller cannot name a namespace they do not own — no parameter reaches it.
+# These cases pin that: one fixture is read four ways (anonymous, a signed-in user
+# owning nothing, a signed-in user owning a DIFFERENT board, and the owner) and
+# only the owner ever sees the row.
+
+
+def _login_optional_as(client, email: str) -> None:
+    """Sign in for the SEARCH endpoint specifically.
+
+    ``/api/jobs/search`` resolves its viewer through ``get_optional_user_lenient``
+    (a public endpoint must degrade a stale token to anonymous, not 401 the whole
+    feed), which is a DIFFERENT dependency from the ``get_current_user`` that
+    ``_login_as`` overrides. Overriding the wrong one would leave every request
+    anonymous and make the negatives below pass vacuously — which is why every
+    negative case here is asserted alongside the owner's positive on the SAME
+    fixture.
+    """
+    client.app.dependency_overrides[get_optional_user_lenient] = lambda: {
+        "sub": f"auth0|{email}", "email": email,
+        "given_name": "A", "family_name": "B", "picture": None,
+    }
+
+
+def _logout_optional(client) -> None:
+    client.app.dependency_overrides.pop(get_optional_user_lenient, None)
+
+
+def test_search_serves_the_owners_own_private_board_to_the_owner(client, db_conn):
+    """The bug this fixes: the owner could not see their own custom jobs."""
+    owner_id = uuid.uuid4().hex
+    email = f"{owner_id}@example.com"
+    _insert_user(db_conn, owner_id, email)
+    _insert_company(db_conn, "srch-pub6b", visibility="public")
+    _insert_company(db_conn, "u-own6b0001", visibility="user")
+    _own(db_conn, owner_id, "u-own6b0001")
+    _insert_job(db_conn, "own-6b-1", "srch-pub6b", "greenhouse_api")
+    _insert_job(db_conn, "own-6b-2", "u-own6b0001", custom("u-own6b0001"))
+
+    try:
+        _login_optional_as(client, email)
+        resp = client.get("/api/jobs/search")
+        assert resp.status_code == 200
+        ids = {j["id"] for j in resp.json()["jobs"]}
+        assert "own-6b-2" in ids, "owner must see their OWN private board"
+        assert "own-6b-1" in ids, "...without losing the public corpus"
+    finally:
+        _logout_optional(client)
+
+
+def test_search_owner_can_target_their_own_board_by_name(client, db_conn):
+    """The ``?company=`` path Leak 6 proves returns nothing for a stranger.
+
+    Same request, same id, opposite expectation purely because of who is asking —
+    which is the entire point of the scope.
+    """
+    owner_id = uuid.uuid4().hex
+    email = f"{owner_id}@example.com"
+    _insert_user(db_conn, owner_id, email)
+    _insert_company(db_conn, "u-own6b0002", visibility="user")
+    _own(db_conn, owner_id, "u-own6b0002")
+    _insert_job(db_conn, "own-6b-3", "u-own6b0002", custom("u-own6b0002"))
+
+    try:
+        _login_optional_as(client, email)
+        owned = client.get("/api/jobs/search", params={"company": "u-own6b0002"})
+        assert owned.status_code == 200
+        assert {j["id"] for j in owned.json()["jobs"]} == {"own-6b-3"}
+    finally:
+        _logout_optional(client)
+
+    # ...and the identical request, signed out, still returns nothing.
+    anon = client.get("/api/jobs/search", params={"company": "u-own6b0002"})
+    assert anon.status_code == 200
+    assert anon.json()["jobs"] == []
+
+
+def test_search_hides_a_private_board_from_anonymous_and_from_other_users(
+    client, db_conn
+):
+    """The privacy half, read FOUR ways off one fixture.
+
+    The owner assertion is the control: without it, a fixture that silently failed
+    to insert the row (or to sign anyone in) would make all three negatives pass
+    forever while proving nothing.
+    """
+    owner_id = uuid.uuid4().hex
+    nobody_id = uuid.uuid4().hex
+    rival_id = uuid.uuid4().hex
+    _insert_user(db_conn, owner_id, f"{owner_id}@example.com")
+    _insert_user(db_conn, nobody_id, f"{nobody_id}@example.com")
+    _insert_user(db_conn, rival_id, f"{rival_id}@example.com")
+    _insert_company(db_conn, "u-own6b0003", visibility="user")
+    _insert_company(db_conn, "u-riv6b0003", visibility="user")
+    _own(db_conn, owner_id, "u-own6b0003")
+    _own(db_conn, rival_id, "u-riv6b0003")
+    _insert_job(db_conn, "secret-6b", "u-own6b0003", custom("u-own6b0003"))
+    _insert_job(db_conn, "rival-6b", "u-riv6b0003", custom("u-riv6b0003"))
+
+    try:
+        # 1. ANONYMOUS — sees neither private row.
+        _logout_optional(client)
+        anon = client.get("/api/jobs/search")
+        assert anon.status_code == 200
+        assert "secret-6b" not in anon.text
+        assert "rival-6b" not in anon.text
+
+        # 2. Signed in, owns NOTHING — the scope is empty, so the blanket guard
+        #    applies exactly as it does for an anonymous caller.
+        _login_optional_as(client, f"{nobody_id}@example.com")
+        nobody = client.get("/api/jobs/search")
+        assert nobody.status_code == 200
+        assert "secret-6b" not in nobody.text
+        assert "rival-6b" not in nobody.text
+
+        # 3. Signed in, owns a DIFFERENT private board — the cross-user leak. Sees
+        #    theirs, never the owner's. This is the case a request-derived scope
+        #    would get wrong.
+        _login_optional_as(client, f"{rival_id}@example.com")
+        rival_ids = {j["id"] for j in client.get("/api/jobs/search").json()["jobs"]}
+        assert "rival-6b" in rival_ids
+        assert "secret-6b" not in rival_ids
+
+        # 4. The OWNER — the control. The row was there the whole time.
+        _login_optional_as(client, f"{owner_id}@example.com")
+        owner_ids = {j["id"] for j in client.get("/api/jobs/search").json()["jobs"]}
+        assert "secret-6b" in owner_ids
+        assert "rival-6b" not in owner_ids
+    finally:
+        _logout_optional(client)
+
+
+def test_search_recency_tiles_follow_the_same_scope_as_the_rows(client, db_conn):
+    """The tiles are separate SQL (``_header_counts_where``) and must agree.
+
+    Both directions are a bug. Counting a private row the list hides publishes the
+    SIZE of someone else's board (Leak 6). NOT counting the owner's own row while
+    the list shows it puts the tile UNDER the feed beneath it — the same
+    disagreement, and the one a fix that touched only ``build_search_where`` ships.
+    """
+    fresh = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+    owner_id = uuid.uuid4().hex
+    email = f"{owner_id}@example.com"
+    _insert_user(db_conn, owner_id, email)
+    _insert_company(db_conn, "srch-pub6c", visibility="public")
+    _insert_company(db_conn, "u-own6b0004", visibility="user")
+    _insert_company(db_conn, "u-oth6b0004", visibility="user")
+    _own(db_conn, owner_id, "u-own6b0004")
+    _insert_job(db_conn, "t1", "srch-pub6c", "greenhouse_api", first_seen_at=fresh)
+    _insert_job(db_conn, "t2", "u-own6b0004", custom("u-own6b0004"), first_seen_at=fresh)
+    # Someone else's private row, same window: never counted, for anyone.
+    _insert_job(db_conn, "t3", "u-oth6b0004", custom("u-oth6b0004"), first_seen_at=fresh)
+
+    anon_meta = client.get("/api/jobs/search").json()["meta"]
+    assert anon_meta["countLast24h"] == 1, "anonymous counts only the public row"
+
+    try:
+        _login_optional_as(client, email)
+        body = client.get("/api/jobs/search").json()
+        assert body["meta"]["countLast24h"] == 2, (
+            "owner counts the public row + their OWN private row, never the third"
+        )
+        # The tile matches the rows it sits above.
+        assert {j["id"] for j in body["jobs"]} == {"t1", "t2"}
+    finally:
+        _logout_optional(client)
+
+
+def test_search_cursor_minted_signed_in_is_409_when_replayed_anonymously(
+    client, db_conn
+):
+    """A cursor carries the VISIBILITY SCOPE it was minted under.
+
+    A token expiring mid-walk turns a signed-in walk anonymous with no client
+    involvement. Without the scope in the fingerprint that cursor stays valid, the
+    owner's rows silently drop out from page N on, and the walk enumerates neither
+    scope completely — exactly what the fingerprint exists to turn into a restart.
+    """
+    owner_id = uuid.uuid4().hex
+    email = f"{owner_id}@example.com"
+    _insert_user(db_conn, owner_id, email)
+    _insert_company(db_conn, "u-own6b0005", visibility="user")
+    _own(db_conn, owner_id, "u-own6b0005")
+    _insert_company(db_conn, "srch-pub6d", visibility="public")
+    for i in range(3):
+        _insert_job(db_conn, f"c{i}", "srch-pub6d", "greenhouse_api")
+
+    try:
+        _login_optional_as(client, email)
+        page1 = client.get("/api/jobs/search", params={"limit": 1})
+        assert page1.status_code == 200
+        cursor = page1.json()["nextCursor"]
+        assert cursor, "need a full page to mint a cursor"
+    finally:
+        _logout_optional(client)
+
+    replayed = client.get("/api/jobs/search", params={"limit": 1, "cursor": cursor})
+    assert replayed.status_code == 409, (
+        "a signed-in cursor replayed anonymously must 409, not silently re-scope"
+    )

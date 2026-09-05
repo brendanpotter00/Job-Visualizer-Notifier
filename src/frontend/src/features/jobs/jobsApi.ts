@@ -309,10 +309,26 @@ export const jobsApi = createApi({
         // legitimate page param here (it is what page 1 uses).
         getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
       },
-      async queryFn({ queryArg, pageParam }, { signal }) {
+      async queryFn({ queryArg, pageParam }, { signal, extra }) {
         try {
           const url = `/api/jobs/search?${buildSearchJobsQuery(queryArg, pageParam)}`;
-          const response = await fetch(url, { signal });
+          // OPTIONAL auth, unlike the private-half fetch above: this endpoint
+          // serves anonymous callers the public corpus, and a token only ever
+          // ADDS the reader's own custom boards to the result. So a null token is
+          // a normal request, not a refusal — the walk proceeds either way.
+          //
+          // Without it the backend cannot tell who is asking and applies the
+          // blanket private-company guard, which is why a reader's own custom
+          // companies were missing from their feed even after being fetched.
+          //
+          // The header must also survive `api/jobs.ts`, which forwards it only
+          // because it was taught to; `tokenFromExtra` never throws (see above),
+          // so a token failure degrades to anonymous rather than failing the page.
+          const token = await tokenFromExtra(extra);
+          const response = await fetch(url, {
+            signal,
+            headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+          });
           if (!response.ok) {
             // Status is preserved verbatim so the caller can tell a 404 (the
             // backend deploy has not landed yet — recoverable, see

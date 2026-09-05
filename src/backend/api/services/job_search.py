@@ -45,6 +45,7 @@ from .database import (
     _KEYSET_ORDER_BY,
     _LEVEL_FILTER_EXPANSION,
     _LIST_COLUMNS,
+    _OWNED_USER_COMPANY_PREDICATE,
     _SINCE_PREDICATE,
     _USER_COMPANY_PREDICATE,
     _row_to_job_dict,
@@ -85,6 +86,19 @@ class SearchFilters(TypedDict):
     location_ids: list[int] | None
     include: list[str] | None
     exclude: list[str] | None
+    # The ``custom:<id>`` namespaces the CALLER owns, resolved server-side from
+    # ``user_companies`` by the router — never from anything on the request. It is
+    # an authorization input, not a filter: it never narrows the result, it only
+    # exempts the caller's own private boards from the blanket private-company
+    # guard. ``None`` (anonymous, or a signed-in reader who owns nothing) restores
+    # the byte-identical unconditional predicate. See
+    # :data:`database._OWNED_USER_COMPANY_PREDICATE`.
+    #
+    # It lives in ``SearchFilters`` rather than as a separate argument for the
+    # reason the class docstring gives: the page query and the count query must
+    # never disagree about it. A tile that counted rows the list cannot show would
+    # leak the SIZE of a private board even while hiding its contents.
+    owned_source_ids: list[str] | None
 
 
 class SearchCounts(TypedDict):
@@ -526,6 +540,7 @@ def build_search_where(
     locations: list[str] | None = None,
     include: list[str] | None = None,
     exclude: list[str] | None = None,
+    owned_source_ids: list[str] | None = None,
     cursor: JobCursor | None = None,
 ) -> tuple[sql.Composable, list]:
     """Compose the full filter set into one WHERE clause.
@@ -569,20 +584,31 @@ def build_search_where(
     # asked for — same public-read-path guard as ``/api/jobs``.
     conditions.append(_HIDDEN_COMPANY_PREDICATE)
 
-    # ...and so do PRIVATE companies. This endpoint is unauthenticated
-    # (``routers/jobs_search.search`` takes only ``Depends(get_db)``) and is
-    # allow-listed through the public Vercel proxy, so it is a public read path
-    # in exactly the sense :data:`_USER_COMPANY_PREDICATE` means. It was written
-    # before ``visibility`` existed and mirrored only the OTHER guard, which left
-    # one user's private board readable by anyone the moment E7 landed — rows,
-    # ``filtered_total`` and both recency tiles alike.
+    # ...and so do PRIVATE companies. This endpoint is allow-listed through the
+    # public Vercel proxy and serves anonymous callers, so it is a public read
+    # path in exactly the sense :data:`_USER_COMPANY_PREDICATE` means. It was
+    # written before ``visibility`` existed and mirrored only the OTHER guard,
+    # which left one user's private board readable by anyone the moment E7 landed
+    # — rows, ``filtered_total`` and both recency tiles alike.
     #
-    # UNCONDITIONAL, never viewer-scoped, for the reason the predicate's own
-    # docstring gives: a "hide private companies unless YOU own them" variant
-    # turns an unconditional leak into a conditional one. A signed-in reader's
-    # own boards are served only by the authed, owner-scoped
-    # ``GET /api/users/companies/{id}/jobs``.
-    conditions.append(_USER_COMPANY_PREDICATE)
+    # The blanket form is the DEFAULT and the anonymous form: with no
+    # ``owned_source_ids`` the SQL emitted here is byte-identical to what shipped,
+    # which is what keeps the Leak-6 regression cases honest.
+    #
+    # The relaxed form applies ONLY to a caller whose owned ``custom:<id>``
+    # namespaces the router resolved from ``user_companies`` against a validated
+    # token. That set is closed and server-derived — see
+    # :data:`database._OWNED_USER_COMPANY_PREDICATE` for why this is not the
+    # request-derived "conditional leak" the blanket predicate's docstring warns
+    # about. Without it the Recent feed could not show a reader their OWN custom
+    # boards, which is the bug this branch exists to fix: the page migrated to
+    # this endpoint and left the old client-side merge of
+    # ``GET /api/users/companies/jobs`` behind.
+    if owned_source_ids:
+        conditions.append(_OWNED_USER_COMPANY_PREDICATE)
+        params.append(list(owned_source_ids))
+    else:
+        conditions.append(_USER_COMPANY_PREDICATE)
 
     if since is not None:
         conditions.append(_SINCE_PREDICATE)
@@ -663,7 +689,10 @@ def search_jobs(
 _DISABLE_JIT = sql.SQL("SET LOCAL jit = off")
 
 
-def _header_counts_where(companies: list[str] | None) -> tuple[sql.Composable, list]:
+def _header_counts_where(
+    companies: list[str] | None,
+    owned_source_ids: list[str] | None = None,
+) -> tuple[sql.Composable, list]:
     """WHERE for the two recency tiles: the visible OPEN corpus the reader FOLLOWS.
 
     COMPANY-SCOPED, AND ONLY COMPANY-SCOPED. The tiles ignore category, level,
@@ -685,13 +714,25 @@ def _header_counts_where(companies: list[str] | None) -> tuple[sql.Composable, l
         sql.SQL("job_listings.status = 'OPEN'"),
         sql.SQL("job_listings.first_seen_at >= now() - interval '24 hours'"),
         _HIDDEN_COMPANY_PREDICATE,
-        # Same unconditional private-company guard as ``build_search_where``.
-        # Without it the tiles COUNT rows the list cannot show, so the two
-        # numbers disagree with the feed beneath them and leak the size of
-        # someone else's private board.
-        _USER_COMPANY_PREDICATE,
     ]
     params: list = []
+
+    # The SAME private-company guard as ``build_search_where``, resolved the SAME
+    # way for the same caller. Without it the tiles COUNT rows the list cannot
+    # show, so the two numbers disagree with the feed beneath them and leak the
+    # size of someone else's private board — and with the owner-scoped form on
+    # only ONE of the two, the owner's own boards would be shown but not counted,
+    # which is the same disagreement wearing the other sign.
+    #
+    # Appended (not seeded in the literal above) because its parameter must land
+    # in the list at the position its placeholder occupies in the joined SQL —
+    # i.e. before ``companies`` below.
+    if owned_source_ids:
+        conditions.append(_OWNED_USER_COMPANY_PREDICATE)
+        params.append(list(owned_source_ids))
+    else:
+        conditions.append(_USER_COMPANY_PREDICATE)
+
     if companies:
         conditions.append(sql.SQL("job_listings.company = ANY(%s::text[])"))
         params.append(list(companies))
@@ -753,7 +794,9 @@ def get_search_counts(conn: Connection, **filters: Unpack[SearchFilters]) -> Sea
     not of where the reader happens to be, and there is no way to hand one in — the
     keyset position is not part of :class:`SearchFilters`.
     """
-    header_where, header_params = _header_counts_where(filters.get("companies"))
+    header_where, header_params = _header_counts_where(
+        filters.get("companies"), filters.get("owned_source_ids")
+    )
     query = _SEARCH_COUNTS_SQL.format(jobs=_JOBS_TABLE, header_where=header_where)
     with conn.cursor() as cursor:
         cursor.execute(_DISABLE_JIT)

@@ -153,6 +153,40 @@ _USER_COMPANY_PREDICATE = sql.SQL(
 )
 
 
+# The OWNER-SCOPED relaxation of the guard above, for ``GET /api/jobs/search``
+# ONLY — the Recent page's read path, and the one surface where a signed-in
+# reader is supposed to see their OWN private boards alongside the public corpus.
+#
+# WHY THIS IS NOT THE "conditional leak" ``_USER_COMPANY_PREDICATE`` WARNS ABOUT.
+# That warning is about a predicate whose exemption is derived from the REQUEST —
+# "hide private companies unless the caller claims to own them" — where a forged
+# or fat-fingered parameter widens the read. This exemption is not request-derived
+# and cannot be. It is a CLOSED set computed server-side from ``user_companies``
+# joined to ``companies`` on ``visibility = 'user'``
+# (``custom_companies_service.list_owned_source_ids``), keyed off a validated JWT.
+# Nothing the caller sends reaches it. The set is therefore always a subset of
+# what that caller already reads on the authed
+# ``GET /api/users/companies/jobs``, so this can only ever widen the result by
+# rows the caller provably owns — never by anyone else's.
+#
+# KEYED ON ``source_id``, NOT ``company``. ``custom:<id>`` is the namespace the
+# job rows actually carry (``tasks/fetch_custom_company.py`` writes
+# ``source_id=custom:<id>`` alongside ``company=<id>``), and it is exactly what
+# ``list_owned_source_ids`` returns — so the authorization set and the column it
+# is tested against are the same key, with no id→namespace translation left for a
+# caller to get wrong. A public company can never collide with it: nothing but a
+# custom harvest writes a ``custom:`` prefix.
+#
+# The anti-join is kept as the FIRST branch so the common case (a public row) is
+# decided by the same partial-index probe as before and never touches the array.
+_OWNED_USER_COMPANY_PREDICATE = sql.SQL(
+    "(NOT EXISTS ("
+    " SELECT 1 FROM companies c"
+    " WHERE c.id = job_listings.company AND c.visibility = 'user')"
+    " OR job_listings.source_id = ANY(%s::text[]))"
+)
+
+
 # Recency lower bound for the keyset-paged read path. INCLUSIVE (``>=``): the
 # caller's window is "everything first seen at or after this instant", so a job
 # whose ``first_seen_at`` equals the bound exactly is IN. Qualified to

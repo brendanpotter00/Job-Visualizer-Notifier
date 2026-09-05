@@ -139,9 +139,16 @@ export function tier1Read(ctx: ToolCtx): WebMcpToolDef[] {
       // agent's explicit `company` filter (never an operator preference), and
       // `isSignedOut: false` skips the signed-out overlay's row cap.
       const filters = buildRecentFilters(parsed);
+      // `ownedCompanyIds: []` because this tool has no reader to own anything —
+      // it scopes by the agent's explicit filter alone. It would be a no-op here
+      // regardless: the union only widens a non-null enabled list, and this one is
+      // null ("all companies"), which already covers every board the request is
+      // authorized to see. The backend still decides that authorization from the
+      // bearer token, not from this list.
       const args = buildSearchJobsArgs({
         filters,
         enabledCompanyIds: null,
+        ownedCompanyIds: [],
         since,
         isSignedOut: false,
       });
