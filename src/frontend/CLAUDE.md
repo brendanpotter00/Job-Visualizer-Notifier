@@ -539,11 +539,11 @@ because discovery is deterministic and re-running the same URL reproduces the sa
 - **Flag OFF must render byte-for-byte what shipped before** — the gate lives in
   `MyCompaniesList`, and `MyCompaniesList.test.tsx` pins it against an identical payload.
 - The live-view iframe is optional and absent by default: only a Browserbase capture has a
-  hosted view and the backend runs its own Chromium. When present it opens **expanded**
-  (the session lasts ~30s — a run that ends before the user notices a "Watch live" button
-  showed them nothing) behind a toggle that can put it away, and `pointer-events: none`
-  either way. Never infer browser liveness from step state, which is always at least one
-  write behind.
+  hosted view and the backend runs its own Chromium. When present it simply **shows**,
+  with no control over it (the session lasts ~30s — a run that ends before the user
+  notices a button showed them nothing), and it is `pointer-events: none`. It leaves only
+  when the session is retired. Never infer browser liveness from step state, which is
+  always at least one write behind.
 - **The backend's null is structurally too late, and that used to be the bug.** The
   browser dies inside the capture child (`_capture_main.py`'s `await browser.close()` is
   its last act); the parent only writes `live_view_url: null` after that child exits, and
