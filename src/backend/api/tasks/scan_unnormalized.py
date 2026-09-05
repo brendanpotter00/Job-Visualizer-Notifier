@@ -2,7 +2,9 @@
 
 Fires every 5 minutes (Procrastinate periodic deferrer; no external cron). Finds
 job_listings with normalization_status IS NULL and defers one normalize_location
-per id, throttled to SCAN_LIMIT/tick. Recovery path for: subprocess-scraper jobs
+per id, throttled to SCAN_LIMIT/tick and deduped so a tick defers at most ONE job
+per distinct alias key (many jobs share one location string; one call warms the
+cache for all of them). Recovery path for: subprocess-scraper jobs
 (Google/Apple/Microsoft) not covered by Unit-6 chaining; the initial ~44,666-row
 backlog; the LLM-failure tail.
 
@@ -30,6 +32,7 @@ from procrastinate import exceptions as procrastinate_exceptions
 from scripts.shared import database as db
 
 from ..config import settings
+from ..services.location_normalization import normalize_string
 from .normalize_location import normalize_location
 from .procrastinate_app import procrastinate_app
 
@@ -41,6 +44,13 @@ logger = logging.getLogger(__name__)
 SCAN_LIMIT = 100
 SCAN_CRON = "*/5 * * * *"
 _STATEMENT_TIMEOUT_MS = 60_000
+# How much wider than `limit` to look before deduping by alias key. A tick whose
+# candidates collapse to a handful of distinct locations would otherwise defer
+# only a handful of jobs; over-selecting keeps each tick full while staying a
+# bounded, indexable read. 5x covers the observed worst case (prod's largest
+# single alias, "san francisco", is ~2,000 OPEN jobs but they are spread across
+# the table, not clustered in one LIMIT window).
+_CANDIDATE_WINDOW_MULTIPLIER = 5
 
 
 @procrastinate_app.periodic(cron=SCAN_CRON, periodic_id="scan_unnormalized")
@@ -64,16 +74,77 @@ async def scan_unnormalized(timestamp: int, limit: int = SCAN_LIMIT) -> int:
     )
     try:
         def _select_ids() -> list[Any]:
+            """Pick up to ``limit`` jobs, collapsing only what would stampede.
+
+            The problem this solves: many jobs share one location string (prod has
+            ~2,000 OPEN jobs whose location is exactly "San Francisco"). Deferring
+            all of them at once means they all miss Tier-1 together and all pay
+            Haiku for the same answer. Deferring ONE warms the cache; the rest
+            Tier-1 HIT on a later tick, free.
+
+            But only a COLD, non-empty key can stampede, so only those are
+            collapsed:
+              * empty key  -> the job has no location and terminates in tx1
+                              (marked 'failed'), never reaching the LLM. Collapsing
+                              these would drain a NULL-location backlog at one row
+                              per tick for no benefit.
+              * cached key -> Tier-1 HIT, no LLM call. Free to defer in bulk, and
+                              deferring them is how the backlog actually drains.
+
+            Correctness does not depend on any of this -- the advisory lock in
+            normalize_location's tx2 is what guarantees one mapping per key. This
+            is purely a spend/throughput optimisation.
+            """
             cur = conn.cursor()
             try:
                 cur.execute(
-                    "SELECT id FROM job_listings WHERE normalization_status IS NULL LIMIT %s",
-                    (limit,),
+                    "SELECT id, location FROM job_listings "
+                    "WHERE normalization_status IS NULL LIMIT %s",
+                    (limit * _CANDIDATE_WINDOW_MULTIPLIER,),
                 )
                 rows = cur.fetchall()
+
+                candidates: list[tuple[Any, str]] = []
+                for r in rows:
+                    row_id = r["id"] if isinstance(r, dict) else r[0]
+                    row_location = r["location"] if isinstance(r, dict) else r[1]
+                    candidates.append((row_id, normalize_string(row_location)))
+
+                cold_keys = {k for _, k in candidates if k}
+                cached_keys: set[str] = set()
+                if cold_keys:
+                    cur.execute(
+                        "SELECT raw_text FROM location_aliases WHERE raw_text = ANY(%s)",
+                        (list(cold_keys),),
+                    )
+                    cached_keys = {
+                        (cr["raw_text"] if isinstance(cr, dict) else cr[0])
+                        for cr in cur.fetchall()
+                    }
             finally:
                 cur.close()
-            return [r["id"] if isinstance(r, dict) else r[0] for r in rows]
+
+            picked: list[Any] = []
+            claimed: set[str] = set()
+            collapsed = 0
+            for row_id, key in candidates:
+                if key and key not in cached_keys:
+                    if key in claimed:
+                        collapsed += 1
+                        continue
+                    claimed.add(key)
+                picked.append(row_id)
+                if len(picked) >= limit:
+                    break
+
+            if collapsed > 0:
+                logger.info(
+                    "scan_unnormalized: collapsed %d candidate(s) sharing a cold alias key "
+                    "already claimed this tick; deferring %d of %d (the rest Tier-1 HIT "
+                    "on a later tick, at no LLM cost)",
+                    collapsed, len(picked), len(rows),
+                )
+            return picked
         job_ids = await asyncio.to_thread(_select_ids)
     finally:
         try:

@@ -220,7 +220,13 @@ def write_job_locations_from_ids(conn: Connection, job_id: str, location_ids: Se
 
 
 def persist_llm_result(conn: Connection, job_id: str, raw_text: str, locations: "Sequence[CanonicalLocation]") -> None:
-    """Tier-2 writer (tx2 body). raw_text MUST be the normalize_string()'d key. All ON CONFLICT DO NOTHING. No commit."""
+    """Tier-2 writer (tx2 body). raw_text MUST be the normalize_string()'d key. No commit.
+
+    REPLACE semantics on BOTH the shared alias cache and this job's links: the
+    alias cache holds exactly one mapping per key (the current one), never a
+    union of every answer the LLM has given. A source='manual' alias is exempt
+    and keeps its operator-supplied mapping.
+    """
     cursor = conn.cursor()
     try:
         location_ids: list[int] = []
@@ -272,21 +278,60 @@ def persist_llm_result(conn: Connection, job_id: str, raw_text: str, locations: 
         location_ids = deduped
 
         avg_conf = sum(l.confidence for l in locations) / len(locations)
+        # Claim/refresh the alias row. DO UPDATE (not DO NOTHING) so a
+        # re-normalization refreshes the stored confidence -- but the WHERE
+        # restricts that to an 'llm' alias, so a source='manual' operator
+        # correction still wins (Decision #10).
         cursor.execute(
-            sql.SQL("INSERT INTO {} (raw_text, source, confidence) VALUES (%s, 'llm', %s) "
-                    "ON CONFLICT (raw_text) DO NOTHING").format(_LOCATION_ALIASES),
+            sql.SQL("INSERT INTO {aliases} (raw_text, source, confidence) VALUES (%s, 'llm', %s) "
+                    "ON CONFLICT (raw_text) DO UPDATE SET confidence = EXCLUDED.confidence "
+                    "WHERE {aliases}.source = 'llm'").format(aliases=_LOCATION_ALIASES),
             (raw_text, avg_conf),
         )
-        for position, loc_id in enumerate(location_ids):
-            cursor.execute(
-                sql.SQL("INSERT INTO {} (raw_text, normalized_location_id, position) VALUES (%s, %s, %s) "
-                        "ON CONFLICT (raw_text, normalized_location_id) DO NOTHING").format(_ALIAS_LOCATIONS),
-                (raw_text, loc_id, position),
+
+        # A 'manual' alias owns its mapping outright: leave alias_locations
+        # alone. In practice Tier-1 (and the advisory-lock re-check in
+        # tasks/normalize_location) means we never get here for a manual key;
+        # this is the belt-and-braces guard behind that.
+        cursor.execute(
+            sql.SQL("SELECT source FROM {} WHERE raw_text = %s").format(_LOCATION_ALIASES),
+            (raw_text,),
+        )
+        source_row = cursor.fetchone()
+        alias_source = (
+            (source_row["source"] if isinstance(source_row, dict) else source_row[0])
+            if source_row is not None else "llm"
+        )
+
+        if alias_source == "manual":
+            logger.warning(
+                "persist_llm_result: alias key %r is source='manual'; keeping the manual "
+                "mapping and NOT writing the LLM result to the cache (job %r).",
+                raw_text, job_id,
             )
+        else:
+            # REPLACE semantics, matching write_job_locations_from_ids below and
+            # location_admin.upsert_manual_alias. The alias cache holds ONE
+            # answer per key -- the current one. Appending instead (the pre-2026-09
+            # behaviour) made every re-normalization UNION its result with every
+            # previous answer, so one raw string accumulated every mapping the LLM
+            # had ever produced for it (prod: 'remote' reached 29 locations,
+            # 'san francisco' reached 10). The DELETE is the fix; the ON CONFLICT
+            # below is retained only for concurrency safety.
+            cursor.execute(
+                sql.SQL("DELETE FROM {} WHERE raw_text = %s").format(_ALIAS_LOCATIONS),
+                (raw_text,),
+            )
+            for position, loc_id in enumerate(location_ids):
+                cursor.execute(
+                    sql.SQL("INSERT INTO {} (raw_text, normalized_location_id, position) VALUES (%s, %s, %s) "
+                            "ON CONFLICT (raw_text, normalized_location_id) DO NOTHING").format(_ALIAS_LOCATIONS),
+                    (raw_text, loc_id, position),
+                )
         # REPLACE this job's links FIRST (reset is_primary, drop stale rows) so a
         # re-normalization reflects the new mapping. ON CONFLICT below stays for
-        # concurrency safety. Does NOT touch location_aliases/alias_locations
-        # (the shared cache).
+        # concurrency safety. The shared alias cache above is replaced the same
+        # way, so the two writers agree.
         cursor.execute(
             sql.SQL("DELETE FROM {} WHERE job_listing_id = %s").format(_JOB_LOCATIONS),
             (job_id,),

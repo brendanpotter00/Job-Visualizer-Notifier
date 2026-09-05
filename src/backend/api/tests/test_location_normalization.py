@@ -189,3 +189,137 @@ class TestLookupAlias:
     def test_present_but_empty_alias_returns_empty_list_not_none(self, db_conn):
         _insert_alias(db_conn, "ghost city")
         assert lookup_alias(db_conn, "Ghost City") == []
+
+
+# --- persist_llm_result: the alias cache must REPLACE, never UNION -----------
+#
+# Regression cover for the 2026-09 prod incident: alias_locations was written
+# append-only (INSERT ... ON CONFLICT DO NOTHING with no DELETE), so every
+# re-normalization unioned its answer with every previous one. One raw string
+# accumulated every mapping the LLM had ever produced for it -- 'remote' reached
+# 29 locations and 'san francisco' reached 10, and every job carrying that raw
+# string inherited the whole pile.
+
+def _alias_mapping(db_conn, raw_text):
+    """Ordered (location_id, position) rows currently cached for a key."""
+    cur = db_conn.cursor()
+    cur.execute(
+        sql.SQL(
+            "SELECT normalized_location_id AS lid, position FROM {}"
+            " WHERE raw_text = %s ORDER BY position"
+        ).format(_ALIAS_LOCATIONS),
+        (raw_text,),
+    )
+    return [(int(r["lid"]), int(r["position"])) for r in cur.fetchall()]
+
+
+def _alias_row(db_conn, raw_text):
+    cur = db_conn.cursor()
+    cur.execute(
+        sql.SQL("SELECT source, confidence FROM {} WHERE raw_text = %s").format(
+            _LOCATION_ALIASES
+        ),
+        (raw_text,),
+    )
+    row = cur.fetchone()
+    return dict(row) if row else None
+
+
+def _canon(canonical, kind, *, city=None, region=None, country=None,
+           remote_scope=None, confidence=0.95):
+    from api.services.llm_client import CanonicalLocation
+
+    return CanonicalLocation(
+        canonical_name=canonical, kind=kind, city=city, region=region,
+        country=country, remote_scope=remote_scope, confidence=confidence,
+    )
+
+
+@pytest.mark.usefixtures("clean_location_tables")
+class TestPersistLlmResultReplaceSemantics:
+    def test_second_answer_replaces_first_it_does_not_union(self, db_conn):
+        from api.services.location_normalization import persist_llm_result
+
+        key = "remote"
+        persist_llm_result(db_conn, "job-1", key, [
+            _canon("Remote (Global)", "remote", remote_scope="global"),
+        ])
+        db_conn.commit()
+        first = _alias_mapping(db_conn, key)
+        assert len(first) == 1
+
+        # A later run answers differently (Haiku is nondeterministic).
+        persist_llm_result(db_conn, "job-2", key, [
+            _canon("Remote (US)", "remote", country="US", remote_scope="us"),
+        ])
+        db_conn.commit()
+        second = _alias_mapping(db_conn, key)
+
+        # The cache holds ONE answer -- the current one. Under the old
+        # append-only writer this asserted 2, then 3, then 29.
+        assert len(second) == 1, f"alias cache unioned instead of replacing: {second}"
+        assert second[0][0] != first[0][0]
+        assert second[0][1] == 0  # positions restart from 0, no orphaned ordinals
+
+    def test_shrinking_answer_drops_the_extra_rows(self, db_conn):
+        from api.services.location_normalization import persist_llm_result
+
+        key = "sunnyvale, ca, seattle, wa"
+        persist_llm_result(db_conn, "job-1", key, [
+            _canon("Sunnyvale, CA, US", "city", city="Sunnyvale", region="CA", country="US"),
+            _canon("Seattle, WA, US", "city", city="Seattle", region="WA", country="US"),
+        ])
+        db_conn.commit()
+        assert len(_alias_mapping(db_conn, key)) == 2
+
+        persist_llm_result(db_conn, "job-2", key, [
+            _canon("Sunnyvale, CA, US", "city", city="Sunnyvale", region="CA", country="US"),
+        ])
+        db_conn.commit()
+        assert len(_alias_mapping(db_conn, key)) == 1
+
+    def test_confidence_is_refreshed_not_frozen_at_first_write(self, db_conn):
+        from api.services.location_normalization import persist_llm_result
+
+        key = "hq"
+        persist_llm_result(db_conn, "job-1", key, [
+            _canon("Austin, TX, US", "city", city="Austin", region="TX",
+                   country="US", confidence=0.9),
+        ])
+        db_conn.commit()
+        assert _alias_row(db_conn, key)["confidence"] == pytest.approx(0.9)
+
+        persist_llm_result(db_conn, "job-2", key, [
+            _canon("Austin, TX, US", "city", city="Austin", region="TX",
+                   country="US", confidence=0.6),
+        ])
+        db_conn.commit()
+        assert _alias_row(db_conn, key)["confidence"] == pytest.approx(0.6)
+
+    def test_manual_alias_keeps_its_mapping_and_source(self, db_conn):
+        """Decision #10: a manual alias is an operator correction and wins.
+
+        The old writer left location_aliases alone (ON CONFLICT DO NOTHING) but
+        still APPENDED to alias_locations, so an LLM run silently polluted a
+        hand-curated mapping. Replace semantics must not turn that into an
+        outright overwrite either -- manual is skipped entirely.
+        """
+        from api.services.location_normalization import persist_llm_result
+
+        key = "hq"
+        manual_id = _insert_location(
+            db_conn, canonical_name="New York, NY, US", kind="city",
+            city="New York", region="NY", country="US",
+        )
+        _insert_alias(db_conn, key, source="manual", confidence=1.0)
+        _insert_alias_location(db_conn, key, manual_id, 0)
+
+        persist_llm_result(db_conn, "job-1", key, [
+            _canon("Austin, TX, US", "city", city="Austin", region="TX", country="US"),
+        ])
+        db_conn.commit()
+
+        row = _alias_row(db_conn, key)
+        assert row["source"] == "manual"
+        assert row["confidence"] == pytest.approx(1.0)
+        assert _alias_mapping(db_conn, key) == [(manual_id, 0)]
