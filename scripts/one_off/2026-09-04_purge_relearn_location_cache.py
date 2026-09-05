@@ -40,9 +40,33 @@ Cost and duration
 drains 100 jobs/tick every 5 minutes, so the full corpus takes ~32h at the default
 cadence. Raise SCAN_LIMIT temporarily to compress it.
 
-While it drains, OPEN jobs progressively regain tags. Jobs not yet re-normalized
-have NO location tags, so location filters under-return during the window. That
-is accepted (see the plan); run it overnight if you would rather not.
+What users see during the drain
+-------------------------------
+This script does NOT delete from ``job_locations``. It clears the alias cache and
+resets ``normalization_status``; the ~97,500 existing job->location links all
+survive. So a job that has not been re-normalized yet keeps its OLD, POISONED
+tags -- the "Remote" job still shows Riyadh -- until its turn comes.
+
+Filters therefore OVER-return (wrong places) for the window; they do not
+under-return. That is the milder outcome, but it is the opposite of what an
+earlier version of this docstring claimed, and it changes the decision: there is
+no window of missing data to hide overnight, so timing matters less than the
+concurrency note below.
+
+It also means step 3's orphan sweep is nearly inert on the first run -- almost
+every ``locations`` row is still referenced by a stale ``job_locations`` link.
+The orphans appear only after the relearn has moved jobs off those rows.
+
+Concurrency
+-----------
+This takes full-table DELETEs on the alias tables and then row locks on ~38,800
+OPEN ``job_listings`` rows, all in one transaction. The live normalize worker
+takes those same tables in the OPPOSITE order, so a deadlock is possible -- safe
+(the transaction rolls back) but it makes the run a coin flip. A ``lock_timeout``
+is set so it fails fast instead of blocking the scrapers indefinitely.
+
+Prefer a scrape-quiet window. If a post-check trips because a worker committed a
+row mid-run, just re-run it.
 
 Safety
 ------
@@ -119,6 +143,15 @@ def main() -> int:
     ap.add_argument("--include-closed", action="store_true",
                     help="also reset CLOSED jobs. Off by default -- re-normalizing "
                          "closed jobs spends Haiku calls on rows nobody can apply to.")
+    ap.add_argument("--include-blank-locations", action="store_true",
+                    help="also reset jobs whose location is NULL/blank. Off by "
+                         "default: they terminate in tx1 as 'failed' without ever "
+                         "reaching the LLM, so re-running them cannot change the "
+                         "outcome -- it just spends ~3.4h of the drain window.")
+    ap.add_argument("--lock-timeout-ms", type=int, default=30_000,
+                    help="fail rather than block the live scrapers (default 30s)")
+    ap.add_argument("--statement-timeout-ms", type=int, default=600_000,
+                    help="ceiling for any single statement (default 10min)")
     args = ap.parse_args()
 
     if not args.db_url:
@@ -131,6 +164,14 @@ def main() -> int:
     conn = psycopg2.connect(args.db_url, cursor_factory=RealDictCursor)
     try:
         cur = conn.cursor()
+        # Fail fast rather than blocking the live scrapers. Prod runs with
+        # lock_timeout = statement_timeout = 0 (unlimited), and this transaction
+        # holds row locks on ~38,800 OPEN rows that every scraper upsert needs.
+        # Without a timeout a contended run stalls the whole ingest pipeline
+        # instead of erroring out and letting us retry in a quieter window.
+        cur.execute(f"SET lock_timeout = '{args.lock_timeout_ms}ms'")
+        cur.execute(f"SET statement_timeout = '{args.statement_timeout_ms}ms'")
+
         before = report(cur, "BEFORE")
         print()
 
@@ -146,22 +187,37 @@ def main() -> int:
         #    for the manual-preserving case, where a plain TRUNCATE is not an option.
         if args.purge_manual:
             cur.execute("DELETE FROM alias_locations")
+            cleared_links = cur.rowcount
             cur.execute("DELETE FROM location_aliases")
+            cleared_aliases = cur.rowcount
         else:
             cur.execute(
                 "DELETE FROM alias_locations WHERE raw_text IN "
                 "(SELECT raw_text FROM location_aliases WHERE source <> 'manual')"
             )
+            cleared_links = cur.rowcount
             cur.execute("DELETE FROM location_aliases WHERE source <> 'manual'")
-        print(f"\ncleared {cur.rowcount} alias row(s)")
+            cleared_aliases = cur.rowcount
+        # Both counts, not just the last statement's -- the earlier version
+        # printed the alias count and silently omitted the (larger) link count.
+        print(f"\ncleared {cleared_aliases} alias row(s) and {cleared_links} mapping row(s)")
 
         # 2. Hand every job back to the safety-net. 'failed' rows are included on
         #    purpose: 4,073 OPEN jobs sit there with no tags at all, and they
         #    deserve a fresh attempt under the fixed code.
         status_filter = "" if args.include_closed else " AND status = 'OPEN'"
+        # Blank-location jobs terminate in tx1 as 'failed' WITHOUT reaching the
+        # LLM, so re-running them cannot produce a different outcome. Prod has
+        # 4,073 OPEN 'failed' jobs and 3,986 of them are blank -- resetting those
+        # burns ~3,986 of the 38,800 defers (~3.4h of the drain window) for zero
+        # possible gain. The 87 with real text DO deserve a fresh attempt.
+        blank_filter = (
+            "" if args.include_blank_locations
+            else " AND location IS NOT NULL AND btrim(location) <> ''"
+        )
         cur.execute(
             "UPDATE job_listings SET normalization_status = NULL "
-            f"WHERE normalization_status IS NOT NULL{status_filter}"
+            f"WHERE normalization_status IS NOT NULL{status_filter}{blank_filter}"
         )
         print(f"reset normalization_status on {cur.rowcount} job(s)")
 
@@ -185,16 +241,20 @@ def main() -> int:
                 f"manual aliases changed {before['manual_aliases']} -> "
                 f"{after['manual_aliases']} but --purge-manual was not passed"
             )
-        expected_non_manual = 0 if args.purge_manual else after["manual_aliases"]
-        if after["aliases"] != expected_non_manual:
+        expected_total_aliases = 0 if args.purge_manual else after["manual_aliases"]
+        if after["aliases"] != expected_total_aliases:
             problems.append(
-                f"expected {expected_non_manual} alias(es) to remain, found {after['aliases']}"
+                f"expected {expected_total_aliases} alias(es) to remain, "
+                f"found {after['aliases']}"
             )
-        if after["open_null"] != after["open_jobs"]:
+
+        expected_reset = after["open_jobs"] if args.include_blank_locations else None
+        if expected_reset is not None and after["open_null"] != expected_reset:
             problems.append(
                 f"{after['open_jobs'] - after['open_null']} OPEN job(s) still carry a "
                 f"normalization_status; they will not be re-learned"
             )
+
         cur.execute(
             "SELECT count(*) AS n FROM alias_locations al "
             "WHERE NOT EXISTS (SELECT 1 FROM location_aliases la WHERE la.raw_text = al.raw_text)"
@@ -202,6 +262,31 @@ def main() -> int:
         widowed = int(scalar(cur.fetchone(), "n"))
         if widowed:
             problems.append(f"{widowed} alias_locations row(s) have no parent alias")
+
+        # The MIRROR of the widow check, and the worse of the two. An alias row
+        # with ZERO children makes lookup_alias return [] rather than None --
+        # a Tier-1 "HIT" with no locations. write_job_locations_from_ids then
+        # DELETEs the job's tags, writes none, and marks it 'done'. The safety
+        # net never retries a done job, so that is permanent, silent tag loss.
+        # The SQL above cannot currently produce this, but it is the single worst
+        # botch this gate exists to catch and it is one line.
+        cur.execute(
+            "SELECT count(*) AS n FROM location_aliases la "
+            "WHERE NOT EXISTS (SELECT 1 FROM alias_locations al WHERE al.raw_text = la.raw_text)"
+        )
+        childless = int(scalar(cur.fetchone(), "n"))
+        if childless:
+            problems.append(
+                f"{childless} location_aliases row(s) have ZERO children -- Tier-1 would "
+                f"report a hit with no locations and silently strip those jobs' tags"
+            )
+
+        # The whole point of the exercise: no alias may still hold a pile.
+        if after["aliases_3plus"]:
+            problems.append(
+                f"{after['aliases_3plus']} alias(es) still hold 3+ locations after the "
+                f"purge; the cache was not actually cleared"
+            )
 
         print()
         if problems:
