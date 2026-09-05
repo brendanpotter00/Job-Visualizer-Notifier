@@ -244,6 +244,8 @@ here needs reverse-engineering.
 | `helpers/drive.spec.ts` | `@drive` — the worked proof: Recent company-filter + `submit_feedback` + `set_enabled_companies`, writing evidence | `npx --no-install playwright test --config … --grep '@drive'` (run from `$REPO/e2e`) |
 | `helpers/seed_live_view.py` | arrange ONE `discovering` row carrying a full-length live-view URL, through the product's own writers (`add_discovering_placeholder` + `ProgressLedger` + `record_discovery_progress`) | called by `live_view.spec.ts`; standalone: `.venv/bin/python …/seed_live_view.py --live-view-url '…'` |
 | `helpers/live_view.spec.ts` | `@live-view` — the discovery live view: the URL reaches the `<iframe src>` UNCLIPPED, and the frame is **alive** rather than merely mounted | `npx --no-install playwright test --config … --grep '@live-view'` (run from `$REPO/e2e`) |
+| `helpers/name_search.sh` | the folded company-name-search feature: `cases.toml` validity + the dead-endpoint judge pins + re-judge a recorded paid run + the `@name-search` drive. **$0**; `--live` (~$0.27) `exec`s `e2e/run.sh` | `bash …/name_search.sh [--prove-it \| --live]` |
+| `helpers/name_search.spec.ts` | `@name-search` — the typed company NAME reaches `POST /api/companies/search-by-name` byte-identical, and the recorded answer reaches the screen. Answers the endpoint from `e2e/company-name-search/recorded/`, so **$0** and no add is written | `npx --no-install playwright test --config … --grep '@name-search'` (run from `$REPO/e2e`) |
 
 ### The `@live-view` drive, and why it is not shim-driven
 
@@ -288,6 +290,45 @@ LIVE_VIEW_SEED_CLIPPED=1 npx --no-install playwright test --config … --grep '@
 seeds the URL byte-for-byte as the pre-fix backend would have stored it (400 chars + the
 ellipsis) and **must fail** — at the wire, at the `<iframe src>`, and at the painted
 frame. If that run ever passes, the spec has stopped testing anything.
+
+### The `@name-search` drive, and the feature folded in with it
+
+"Type a company name into the add box, get that company's job board" used to be verifiable
+only through `e2e/run.sh company-name-search`, which **spends real money** — one or two
+Browserbase Search calls per case, ~38–39 per pass, **≈ $0.27**. That suite is not
+duplicated here. It is reached through `helpers/name_search.sh`, which runs the same
+`judge()` over a **recorded** paid run (`e2e/company-name-search/recorded/`) for **$0**,
+and `exec`s straight back to `e2e/run.sh` when you ask for the paid rung.
+
+The spec itself owns exactly one thing the gate structurally cannot see: **the typed name
+reaches the endpoint byte-identical.** `intent_test.py` speaks HTTP straight to the
+endpoint and imports no service module — the rule that makes it honest — so it composes
+the request body itself and can never observe what the *browser* sends. Casing is an input
+that nothing normalizes, and that single fact is why the suite once reported 4/4 on a query
+no user ever types while the owner failed 3/3 by hand.
+
+Like `@live-view`, it is **not** shim-driven — no WebMCP tool touches Add Companies — and
+like `@live-view`, it proves it can fail: `NAME_SEARCH_SEED_NORMALIZED=1` lower-cases the
+typed name and that run MUST fail. `name_search.sh --prove-it` is the harness-level twin:
+it re-judges every case against a dead endpoint and requires the run to go **red** (2/21,
+and the only two passing may be `facebook` and `poke`, the cases that expect silence).
+
+Full detail: [`features/company-name-search.md`](features/company-name-search.md).
+
+## What each entry point costs
+
+This skill is **local-only and $0**, and that is a property worth keeping rather than a
+coincidence. Exactly one entry point spends money and it is behind an explicit flag.
+
+| Entry point | Cost |
+|---|---|
+| `helpers/launch.sh` / `doctor.sh` / `cleanup.sh` | **$0** |
+| `--grep '@doctor'` / `'@drive'` / `'@live-view'` / `'@name-search'` | **$0** |
+| `helpers/name_search.sh` (default), `--prove-it` | **$0** — recorded bodies, no network |
+| `helpers/name_search.sh --live` | **~$0.27** real money — ~38–39 Browserbase Search calls; `exec`s `e2e/run.sh company-name-search` |
+
+Every runner prints its own price before it does anything. The `e2e/` gates do too — see
+[`e2e/README.md`](../../../e2e/README.md) for which runner owns what.
 
 ## Feature map
 

@@ -41,6 +41,13 @@ if ! command -v node >/dev/null 2>&1 || [[ "$(node -v 2>/dev/null)" != v22.1[24]
 fi
 echo "live-view: node $(node -v 2>/dev/null || echo 'NOT FOUND')"
 
+if [ "$LIVE" = "1" ]; then
+  echo "live-view: COST — ONE REAL BROWSERBASE SESSION (~1 billed browser-minute)."
+else
+  echo "live-view: COST — \$0. No Browserbase session is opened; the hosted iframe and the" \
+       "list endpoint's liveViewUrl are both served by the test."
+fi
+
 # --- Run lock -------------------------------------------------------------
 # THE SAME LOCK e2e/run.sh takes, by the same formula, because this section reuses
 # add-companies' stack: same ports, same pidfiles. Without it, starting this while that
