@@ -82,13 +82,11 @@ test.describe('AC-08 add -> remove, end to end', () => {
     await page.getByTestId('my-company-remove-confirm').click();
     await waitForRowGone(page, CISCO.label, { timeoutMs: 30_000 });
 
-    // …and the empty list is the how-to now, not a "No companies yet" card. The words
-    // survive as a screen-reader-only line, so this asserts what is DRAWN: the three
-    // steps. (`toBeVisible` on the sr-only line would pass on its 1px box and prove
-    // nothing about what a sighted user sees.)
-    const howTo = page.getByTestId('add-company-how-to');
-    await expect(howTo).toBeVisible();
-    await expect(howTo).toContainText('Open their careers page');
-    await expect(howTo).toContainText('Paste it in the box above');
+    // …and the empty list says so in one line. Asserting the DRAWN text matters: this
+    // used to be a `visuallyHidden` "No companies yet" behind three visible steps, and
+    // `toBeVisible` passes on a 1px sr-only box.
+    const empty = page.getByTestId('my-companies-empty');
+    await expect(empty).toBeVisible();
+    await expect(empty).toHaveText('No companies yet');
   });
 });

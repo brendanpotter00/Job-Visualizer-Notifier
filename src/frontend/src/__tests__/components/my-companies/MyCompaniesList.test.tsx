@@ -230,29 +230,32 @@ describe('MyCompaniesList', () => {
     expect(within(rows[1]).queryByTestId('my-company-board-link')).not.toBeInTheDocument();
   });
 
-  it('shows the how-to, not an empty state, when the user tracks nothing', async () => {
-    // "What if instead of the no-companies-yet screen we have the how-to there?" The
-    // block that used to be an icon over two grey lines is now the three steps, in the
-    // same place, on the same condition.
+  it('shows a plain empty state when the user tracks nothing', async () => {
+    // This used to be a three-step how-to ("open their careers page, copy the link,
+    // paste it in the box above") written for the URL-only flow. The form takes a
+    // company name now, so the steps taught the harder path; the empty state names
+    // the state and stops.
     fetchMock.mockResolvedValue(jsonResponse({ companies: [] }));
     renderWithProviders(<MyCompaniesList />);
 
-    expect(await screen.findByTestId('add-company-how-to')).toBeInTheDocument();
-    expect(screen.getByText('Open their careers page')).toBeInTheDocument();
-    expect(screen.getByText('Paste it in the box above')).toBeInTheDocument();
+    const empty = await screen.findByTestId('my-companies-empty');
+    // VISIBLE, not the `visuallyHidden` line this replaced: a sr-only 1px box satisfies
+    // `toBeInTheDocument` while a sighted user sees nothing.
+    expect(empty).toBeVisible();
+    expect(empty).toHaveTextContent('No companies yet');
     expect(screen.queryByTestId('my-company-row')).not.toBeInTheDocument();
-    // The old copy is gone from the screen, and the state is still NAMED for a screen
-    // reader — see `AddCompanyHowTo`'s `srOnlyLine`.
-    expect(screen.queryByText(/paste a careers url above/i)).not.toBeInTheDocument();
-    expect(screen.getByText('No companies yet')).toBeInTheDocument();
+    // The steps are gone — and the positive assertions above are what stop this passing
+    // against a block that vanished entirely.
+    expect(screen.queryByText('Open their careers page')).not.toBeInTheDocument();
+    expect(screen.queryByText('Paste it in the box above')).not.toBeInTheDocument();
   });
 
-  it('shows the how-to only while the list is empty', async () => {
+  it('shows the empty state only while the list is empty', async () => {
     fetchMock.mockResolvedValue(jsonResponse({ companies: [COMPANY_A] }));
     renderWithProviders(<MyCompaniesList />);
 
     await screen.findByTestId('my-company-row');
-    expect(screen.queryByTestId('add-company-how-to')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('my-companies-empty')).not.toBeInTheDocument();
     expect(screen.queryByText('No companies yet')).not.toBeInTheDocument();
   });
 

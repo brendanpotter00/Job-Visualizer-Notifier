@@ -110,7 +110,7 @@ Three UI changes land on the two things AC-08 drives, so its locators moved with
 |---|---|---|
 | The field | `getByLabel('Job board link')` | `getByLabel('Careers page link')` — also in AC-01/02 (`already-public.spec.ts`) and AC-06's UI half (`checklist.spec.ts`) |
 | The row's actions | text buttons `Rename` / `Remove` | icons: a pencil beside the name, an X at the far edge. **`data-testid` is unchanged** (`my-company-rename`, `my-company-remove`), so only the *name* assertions moved |
-| The empty list | a `No companies yet` card | the how-to: three numbered steps (`add-company-how-to`) |
+| The empty list | a `No companies yet` card | a plain `No companies yet` line (`my-companies-empty`) |
 
 **The X is a trigger, not a delete, and AC-08 now proves that twice.** The confirmation
 dialog is the one that already shipped — the icon is simply its new trigger — but the
@@ -118,10 +118,11 @@ target got smaller and less deliberate, so the case opens the dialog, **cancels*
 asserts the row is still there before doing the real removal. That is the regression an
 icon-sized destructive control invites.
 
-**`No companies yet` survives as a screen-reader-only line, so the old assertion would
-have kept passing while proving nothing.** `toBeVisible()` is true of a `visuallyHidden`
-element (a 1px box is a non-empty bounding box), so the case asserts what is actually
-drawn — the three step labels — instead.
+**`No companies yet` is drawn text again, and the case asserts it with `toHaveText` on
+the visible node.** For a spell it was a `visuallyHidden` line behind three visible steps,
+and `toBeVisible()` is true of a `visuallyHidden` element (a 1px box is a non-empty
+bounding box) — which is why the assertion is written against what is actually rendered
+rather than against mere presence.
 
 **Also asserted: `a button, button a` has zero matches on the page.** The card is now one
 click target with two icon buttons and a board link on it, which is exactly the shape that

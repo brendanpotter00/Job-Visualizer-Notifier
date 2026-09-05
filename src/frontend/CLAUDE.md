@@ -207,34 +207,32 @@ every import for zero user-visible gain.
   in both the empty and populated states, never behind a click.
 - **The field helper is the last statement of the aggregator rule.** *"Paste the link to
   the company's own careers page, not LinkedIn or Indeed."* The clause naming the
-  aggregators is there ONLY because the how-to video that was going to say it does not
-  exist yet (`HOW_IT_WORKS_VIDEO_SRC` is `null`), and nothing in the product enforces it:
-  `_NEVER_MATCH_DOMAINS` is a denylist read on the wrong rung, and it misses `dice.com`,
-  `monster.com` and `hiring.cafe`. An aggregator URL therefore resolves, finds no board,
-  reaches `no_ats_detected`, and that is precisely the branch that spends a discovery run
-  and one of the user's monthly adds. Delete the clause when the video ships; not before.
-- **The how-to IS the empty state, and it is now the ONLY place it appears**
-  (`AddCompanyHowTo`). A user tracking nothing sees three numbered steps where "No
-  companies yet" used to be, and the state is still named for a screen reader by a
-  `visuallyHidden` line. One company later the list replaces it and the explanation is
-  gone. The **video slot is empty and draws nothing**: set `HOW_IT_WORKS_VIDEO_SRC` and
-  the video appears under the same steps, which is the whole change.
+  aggregators is there ONLY because nothing else in the app says it — the how-to that was
+  going to went when the form started taking a company name — and nothing in the product
+  enforces it either: `_NEVER_MATCH_DOMAINS` is a denylist read on the wrong rung, and it
+  misses `dice.com`, `monster.com` and `hiring.cafe`. An aggregator URL therefore
+  resolves, finds no board, reaches `no_ats_detected`, and that is precisely the branch
+  that spends a discovery run and one of the user's monthly adds.
+- **The empty state is one line: "No companies yet"**, drawn (not `visuallyHidden`) where
+  a user tracking nothing would otherwise see the list. It used to be a three-step how-to
+  — *open their careers page, copy the link, paste it in the box above* — with a video
+  slot under it that never got a video. Both went when the form started accepting a
+  company NAME: the steps described the URL-only flow the name search superseded, so they
+  taught the harder path and sent a reader off hunting for a link they no longer need.
 - **There is no persistent "How it works" link under the form, and that is deliberate.**
   One used to sit in `MyCompaniesPage` for any user already tracking a company
-  (`canReopenHowTo`), re-opening the very same `AddCompanyHowTo` the empty state renders
-  — one component, two triggers, so the two could not drift. **Removed at the owner's
-  request (2026-09-02):** *"remove the How it works text under the input, it's just
-  unnecessary noise. It should only be there when there's an empty state, showing how to
-  do it."* Recorded here for the same reason the spend sentence above is: the reasoning
+  (`canReopenHowTo`), re-opening the same three steps the empty state drew. **Removed at
+  the owner's request (2026-09-02):** *"remove the How it works text under the input, it's
+  just unnecessary noise. It should only be there when there's an empty state, showing how
+  to do it."* Recorded here for the same reason the spend sentence above is: the reasoning
   that produced it is still sound, it was simply overruled, and a later reader will
-  otherwise re-derive it and put it back. **What the removal costs:** a user who adds a
-  board on day one and comes back on day thirty holding a LinkedIn URL now has **no route
-  back to the explanation at all** — the empty state is behind them forever, and nothing
-  else on the page says what a careers page is or why an aggregator link will not do. The
-  field helper is the last statement of the aggregator rule (above), and it is now the
-  only one. If it ever returns it belongs where it was, under the form, as a text link
-  rather than an accordion — a shut accordion is a permanent 63px of summary row on every
-  visit, the link was 29px only a reader who wanted it ever spent attention on.
+  otherwise re-derive it and put it back. The steps themselves have since gone as well, so
+  there is no longer an explanation anywhere for the link to point back at — nothing on
+  the page says what a careers page is or why an aggregator link will not do, and the
+  field helper (above) is the last statement of that rule. If a how-to ever returns it
+  belongs where the link was, under the form, as a text link rather than an accordion — a
+  shut accordion is a permanent 63px of summary row on every visit, the link was 29px only
+  a reader who wanted it ever spent attention on.
 - **The card is one click target.** The company name carries a stretched `::after`, so
   pressing anywhere on the card opens that company; the pencil and the X are its SIBLINGS,
   raised to `z-index: 2`, never its children (a `<button>` inside an `<a>` is invalid, and
@@ -476,8 +474,6 @@ The search endpoint now runs the same three checks — **the same code path**, `
 - `features/userCompanies/resolveErrors.ts` — resolver-code → copy mapping
 - `components/my-companies/ResolveUrlForm.tsx` — the input, the only button, the helper
   carrying the aggregator rule (the spend sentence that used to sit under the button was removed 2026-09-02)
-- `components/my-companies/AddCompanyHowTo.tsx` — the three steps and the video slot;
-  `HOW_IT_WORKS_VIDEO_SRC` at the top is the one line to change when a video exists
 - `components/my-companies/AddCompanyOutcome.tsx` — every outcome one press can land on
 - `components/my-companies/CompanyCandidateList.tsx` — the boards a name search found;
   `demoted` is state B (folded, secondary, no live region)
