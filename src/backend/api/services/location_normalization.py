@@ -37,6 +37,8 @@ import psycopg2
 from psycopg2 import sql
 from psycopg2.extensions import connection as Connection
 
+from scripts.shared.database import recompute_primary_country_for
+
 from .location_canonicalize import canonicalize
 
 if TYPE_CHECKING:  # avoid circular import — Tier-1 must not hard-import Tier-2.
@@ -215,6 +217,10 @@ def write_job_locations_from_ids(conn: Connection, job_id: str, location_ids: Se
             sql.SQL("UPDATE {} SET normalization_status = 'done' WHERE id = %s").format(_JOB_LISTINGS),
             (job_id,),
         )
+        # Perf Wave 2: job_locations just changed for this job, so recompute the
+        # denormalized primary_country in the same transaction (no commit — the
+        # task owns the tx). Keyed on id alone, like the status UPDATE above.
+        recompute_primary_country_for(cursor, job_id)
     finally:
         cursor.close()
 
@@ -301,5 +307,9 @@ def persist_llm_result(conn: Connection, job_id: str, raw_text: str, locations: 
             sql.SQL("UPDATE {} SET normalization_status = 'done' WHERE id = %s").format(_JOB_LISTINGS),
             (job_id,),
         )
+        # Perf Wave 2: job_locations just changed for this job, so recompute the
+        # denormalized primary_country in the same transaction (no commit — the
+        # task owns the tx). Keyed on id alone, like the status UPDATE above.
+        recompute_primary_country_for(cursor, job_id)
     finally:
         cursor.close()
