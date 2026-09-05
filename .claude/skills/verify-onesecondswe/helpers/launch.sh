@@ -52,6 +52,22 @@ if [ ! -x "$REPO_ROOT/.venv/bin/python" ]; then
   exit 1
 fi
 
+# --- Module resolution for the specs in this dir ---------------------------
+#
+# Node resolves a spec's imports from the SPEC FILE's directory upward, not from cwd,
+# and there is no `node_modules` above `.claude/skills/…/helpers/` until the repo root —
+# which does not carry `@playwright/test` (only `e2e/node_modules` does). So `cd e2e`
+# before `npx playwright test` is NOT enough; without this every spec here dies with
+# "Cannot find module '@playwright/test'" before a single assertion runs.
+#
+# The symlink is what `helpers/.gitignore` already anticipates ("created at runtime");
+# it was simply never created. It fixes a bare `npx playwright test` too, which an
+# exported NODE_PATH only fixes for the command that exports it.
+if [ ! -e "$SCRIPT_DIR/node_modules" ] && [ -d "$REPO_ROOT/e2e/node_modules" ]; then
+  ln -s "$REPO_ROOT/e2e/node_modules" "$SCRIPT_DIR/node_modules"
+  echo "launch.sh: linked helpers/node_modules -> e2e/node_modules (gitignored)"
+fi
+
 # --- Artifacts dir (survives teardown; evidence lives here too) ------------
 RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)"
 ARTIFACTS_DIR="$SKILL_DIR/artifacts/$RUN_ID"

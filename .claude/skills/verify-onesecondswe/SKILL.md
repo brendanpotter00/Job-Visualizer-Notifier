@@ -124,6 +124,7 @@ plus two Tier-3 side effects), from `$REPO/e2e` so Node resolves `e2e/node_modul
 
 ```bash
 export PATH="$HOME/.nvm/versions/node/v22.14.0/bin:$PATH"   # 22.1.0 hangs Playwright
+export NODE_PATH="$REPO/e2e/node_modules"                   # REQUIRED — see below
 cd "$REPO/e2e" && npm install --no-audit --no-fund              # first run only
 cd "$REPO/e2e" && npx --no-install playwright install chromium  # first run only
 # --no-install: use the Playwright pinned in e2e/node_modules, never a version npx
@@ -132,6 +133,18 @@ cd "$REPO/e2e" && npx --no-install playwright test \
   --config="$REPO/.claude/skills/verify-onesecondswe/helpers/verify.playwright.config.ts" \
   --grep '@drive'
 ```
+
+**Module resolution needs one of these, and `cd "$REPO/e2e"` is NOT one of them.** Node
+resolves a spec's imports from the SPEC FILE's directory upward, not from cwd. These
+specs live under `.claude/skills/verify-onesecondswe/helpers/`, and there is no
+`node_modules` anywhere above them until the repo root — which does not carry
+`@playwright/test` (only `e2e/node_modules` does). Without a fix every spec dies with
+`Cannot find module '@playwright/test'` before a single assertion runs.
+
+`launch.sh` now creates the gitignored `helpers/node_modules` symlink that
+`helpers/.gitignore` always anticipated, so after a Launch a bare `npx playwright test`
+works. `NODE_PATH` above is the belt for a run that skipped Launch; `doctor.sh` exports
+it itself.
 
 The rules every drive follows:
 - **Invoke tools through the shim, never through DOM selectors:** `page.evaluate(([n,a]) => window.__webmcp__.call(n,a), [name, args])`.
@@ -229,6 +242,52 @@ here needs reverse-engineering.
 | `helpers/verify.playwright.config.ts` | Playwright config extending `e2e/shared/playwright/playwright.config.ts` | passed as `--config` to `npx playwright test` |
 | `helpers/doctor.spec.ts` | `@doctor` — asserts the 14-tool shim surface | `npx --no-install playwright test --config … --grep '@doctor'` (run by `doctor.sh`) |
 | `helpers/drive.spec.ts` | `@drive` — the worked proof: Recent company-filter + `submit_feedback` + `set_enabled_companies`, writing evidence | `npx --no-install playwright test --config … --grep '@drive'` (run from `$REPO/e2e`) |
+| `helpers/seed_live_view.py` | arrange ONE `discovering` row carrying a full-length live-view URL, through the product's own writers (`add_discovering_placeholder` + `ProgressLedger` + `record_discovery_progress`) | called by `live_view.spec.ts`; standalone: `.venv/bin/python …/seed_live_view.py --live-view-url '…'` |
+| `helpers/live_view.spec.ts` | `@live-view` — the discovery live view: the URL reaches the `<iframe src>` UNCLIPPED, and the frame is **alive** rather than merely mounted | `npx --no-install playwright test --config … --grep '@live-view'` (run from `$REPO/e2e`) |
+
+### The `@live-view` drive, and why it is not shim-driven
+
+The discovery live view is the embedded Browserbase iframe shown while a company's job
+feed is discovered. It was reported fixed **three times** and was still broken, because
+every earlier check was a unit test and the bug lived where jsdom cannot look:
+`progress.py` clipped every URL in the discovery blob at 400 characters, and
+Browserbase's `debuggerFullscreenUrl` is 479 — so the iframe loaded a truncated `?wss=`
+and its socket died ~700ms after every load.
+
+`e2e/live-view` is the gate for this panel and states its own blind spot: its
+deterministic mode answers `GET /api/users/companies` from its own script, so it is
+structurally blind to a URL the backend mangled. Only `--live` (one billed Browserbase
+minute) caught the truncation.
+
+This spec closes that for **$0** by moving the seam: the row is arranged through the
+product's own writers and the **real** backend answers the **real** poll, so the URL is
+asserted where it actually lands — on the wire, in the `<iframe src>`, and in what the
+frame paints.
+
+**Presence is not liveness**, and that is the trap this spec is built around. Measured
+across the regression, the pre-closers commit kept the frame on screen for **98.7%** of
+the session while it painted *"Debugging connection was closed"* the entire time. An
+on-screen percentage would have passed there. So the backbone assertion is **URL
+integrity** (not truncated, no `…`, byte-identical to what the ledger was handed) and the
+liveness check reads what the frame **rendered**.
+
+**It is not driven through `window.__webmcp__`**, and that is a limit of the tool
+surface, not a shortcut: none of the 14 tools touches the Add Companies surface — see
+[`features/add-companies.md`](features/add-companies.md). Every other convention here is
+kept: the shared `signedInPage` fixture, `verify.playwright.config.ts`, the
+`assertions.connect` DB guard, and evidence in the run's artifacts dir.
+
+**It proves it can fail.** A test that only ever passes is exactly what let this bug
+survive three rounds, so the failing case is reproducible without editing any source
+(the owner's dev stack serves this tree live):
+
+```bash
+LIVE_VIEW_SEED_CLIPPED=1 npx --no-install playwright test --config … --grep '@live-view'
+```
+
+seeds the URL byte-for-byte as the pre-fix backend would have stored it (400 chars + the
+ellipsis) and **must fail** — at the wire, at the `<iframe src>`, and at the painted
+frame. If that run ever passes, the spec has stopped testing anything.
 
 ## Feature map
 

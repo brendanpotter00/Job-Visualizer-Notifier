@@ -150,6 +150,7 @@ describe('MyCompanyTrendPage', () => {
                 displayName: 'Jane Street',
                 ats: 'discovered',
                 boardToken: 'https://www.janestreet.com/join-jane-street/open-roles/',
+                boardUrl: 'https://www.janestreet.com/join-jane-street/open-roles/',
                 sourceId: 'custom:u-abc1234567',
                 healthState: 'unverified',
                 openJobCount: 1,
@@ -175,6 +176,46 @@ describe('MyCompanyTrendPage', () => {
     );
     expect(boardLink).toHaveAttribute('target', '_blank');
     expect(boardLink).toHaveTextContent('janestreet.com');
+  });
+
+  it('names the Workday board behind a company that was found by NAME', async () => {
+    // THE FOLLOW-UP ASK, in the owner's words: "Why do I not see the link, the main link
+    // that I put in when the search functionality triggers? I want to know what link that
+    // was, in the custom hiring page for it." He typed "Cisco" — which resolves to
+    // Workday, the one provider whose `boardToken` names no host — so this page, the one
+    // he named, showed a heading and no source at all. The url is the server's now.
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input instanceof Request ? input.url : input);
+      if (url.includes('/api/users/companies') && !url.includes('/jobs')) {
+        return Promise.resolve(
+          jsonResponse({
+            companies: [
+              {
+                id: 'u-abc1234567',
+                displayName: 'Cisco',
+                ats: 'workday',
+                boardToken: 'cisco',
+                boardUrl: 'https://cisco.wd5.myworkdayjobs.com/Cisco_Careers',
+                sourceId: 'custom:u-abc1234567',
+                healthState: 'unverified',
+                openJobCount: 1,
+                lastSuccessAt: null,
+                trackingStartedAt: null,
+              },
+            ],
+          })
+        );
+      }
+      return Promise.resolve(jsonResponse([rawJob('a', '2026-08-05T12:00:00Z')]));
+    });
+
+    renderTrendPage();
+
+    const boardLink = await screen.findByTestId('my-company-board-link');
+    expect(boardLink).toHaveAttribute('href', 'https://cisco.wd5.myworkdayjobs.com/Cisco_Careers');
+    // Host for scanning, exact url on hover — the same division the freshness line makes.
+    expect(boardLink).toHaveTextContent('cisco.wd5.myworkdayjobs.com');
+    expect(boardLink).toHaveAttribute('title', 'https://cisco.wd5.myworkdayjobs.com/Cisco_Careers');
   });
 
   it('still renders the trend when the company row is unavailable', async () => {

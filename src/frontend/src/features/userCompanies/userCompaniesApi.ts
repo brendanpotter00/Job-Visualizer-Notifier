@@ -221,6 +221,24 @@ export interface UserCompany {
   /** Bare `str` on the wire — backend-owned, so a new provider is not a type error. */
   ats: string;
   boardToken: string;
+  /**
+   * THE BOARD WE ACTUALLY READ, as a URL a person can open — computed by the server
+   * (`api/services/board_url.py`), which is the only place the parts exist.
+   *
+   * Workday's real host is `provider_config.base_url` and Eightfold's is
+   * `provider_config.tenant_host`, and that column is not on the wire; `boardToken` for
+   * both is a cosmetic tenant label (`blueorigin`, `netflix`) that names no host. So
+   * the derivation this replaced could only ever cover the four providers whose token
+   * IS their board slug, and those two rows showed no source at all — which is exactly
+   * what a company added by NAME, on Workday, looked like.
+   *
+   * Optional AND nullable, and the two mean different things. **Absent** is a server
+   * that predates the field, and {@link sourceBoardUrl} still derives what it safely
+   * can — a frontend deploy that lands ahead of the backend one must not blank the
+   * links that already work. **Null** is the server saying it cannot name an honest
+   * destination for this row, and the UI renders nothing.
+   */
+  boardUrl?: string | null;
   /** `custom:<id>` — per-company job namespace. */
   sourceId: string;
   /** See `UserCompanyHealthState`; typed wide because the server owns the list. */
@@ -559,6 +577,170 @@ interface UserCompaniesApiExtra {
 }
 
 
+/** The board identity a candidate resolved to, as the backend clients consume it. */
+export interface SearchAtsCandidate {
+  ats: string;
+  boardToken: string;
+  providerConfig: Record<string, string>;
+  sourceUrl: string;
+}
+
+/**
+ * One board a name search turned up.
+ *
+ * `probe.jobCount` and the board token are not decoration — they are the ONLY
+ * defence against the feature's worst failure. Searching "Databricks" really did
+ * return Guidehouse's live Workday board at rank 1 with 794 real jobs; it passes
+ * every automated check there is, because it is a real board that does return
+ * jobs. A person reading "Guidehouse · 794 jobs" rejects it instantly. So any UI
+ * that renders a candidate MUST render its name and its count.
+ *
+ * `autoAddable` means the board token names the company AND the board is
+ * non-empty. It is the server's opinion, and the server re-checks on the add.
+ *
+ * `rank` is the board's place in the search engine's ranking, and **0 means it
+ * had none**: the server resolves one more board out of the careers page it was
+ * about to offer, after the search, so there is no result number to report.
+ * Rendered as a tick, exactly like the careers URL, which is numberless for the
+ * same reason.
+ */
+export interface SearchCompanyCandidate {
+  candidate: SearchAtsCandidate;
+  probe: { ok: boolean; jobCount: number; error: string | null };
+  sourceUrl: string;
+  title: string;
+  rank: number;
+  autoAddable: boolean;
+}
+
+/**
+ * What the search actually DID — the numbers behind the candidates above.
+ *
+ * This is the entire supply for `NameSearchProgress`, and the reason it is on
+ * the wire rather than reconstructed: `query` is assembled server-side from one
+ * template (rebuilding it here would be a second place that has to stay right
+ * about a query worth 76% instead of 41%), `results` and `filtered` never
+ * otherwise leave the service, and `boards` is counted BEFORE the five-candidate
+ * display cap — so it is the only field that can say "found 8, checked 5".
+ *
+ * The three counts are meant to add up on screen: `results - filtered` is what
+ * got scored, of which `boards` resolved.
+ */
+export interface SearchTrace {
+  /** The host-shaped query we sent, verbatim. */
+  query: string;
+  /** Results the search engine returned (at most 25). */
+  results: number;
+  /** Aggregator / social hosts dropped before any scoring. */
+  filtered: number;
+  /** Scored results that resolved to a board we can read, before the display cap. */
+  boards: number;
+  /**
+   * The results that resolved to NO board, in rank order, capped server-side.
+   *
+   * They are on the wire because `NameSearchProgress` DRAWS them: the panel is one
+   * list that narrows to its answer, and a row is only allowed on it if it stands
+   * for a result that really came back. Absent from a backend that predates the
+   * field, which makes the list shorter — never invented.
+   *
+   * The BOARDS are deliberately not here. They are already `candidates` above,
+   * carrying a token, a probe and a live job count, and one result described in
+   * two places is one result that can be described two ways.
+   */
+  nonBoards?: SearchResultRow[];
+  /** Non-board results the server's cap left out — one "…and N more" row. */
+  nonBoardsOmitted?: number;
+}
+
+/**
+ * One search result that produced no board — a row the narration folds away.
+ *
+ * `url` is sanitized server-side by the same rule the discovery network log uses
+ * (`display_url`): userinfo and port gone, every query VALUE replaced with an
+ * ellipsis, the whole thing clipped. It is something to RENDER, never to fetch.
+ */
+export interface SearchResultRow {
+  url: string;
+  /** Its 1-based place in the search engine's own ranking. */
+  rank: number;
+  /** Dropped as an aggregator/social host, rather than merely not being a board. */
+  aggregator: boolean;
+}
+
+/**
+ * What the SECOND search did — present only when a second search happened.
+ *
+ * The server escalates to a plain `"{name} careers"` query when nothing the first
+ * search found was auto-addable, because the ATS hostnames that make the first query
+ * good at finding boards are exactly what stop it finding a careers page. Its
+ * presence is the fact `NameSearchProgress` narrates: absent means one call was
+ * made, and the panel must not describe two.
+ *
+ * No `boards` count, unlike `SearchTrace`: the second query is never scored for
+ * boards. `trusted` takes its place — how many results sat on a host that names the
+ * company, which is the number that decides whether anything is offered at all.
+ */
+export interface CareersSearchTrace {
+  /** The plain query we sent, verbatim (`"Oracle careers"`). */
+  query: string;
+  /** Results the search engine returned (at most 25). */
+  results: number;
+  /** Aggregator / social hosts dropped before anything else. */
+  filtered: number;
+  /** Of the rest, how many sat on a host that names the company. */
+  trusted: number;
+}
+
+/**
+ * The 200 body of `POST /api/companies/search-by-name`.
+ *
+ * An empty `candidates` with a non-null `careersUrl` is a real, useful answer:
+ * we found no board we can read for free, but we did find the company's careers
+ * page, which is exactly what the ordinary paste-a-URL path takes.
+ *
+ * `careersUrl` may ALSO be non-null beside a non-empty `candidates` list, and that
+ * combination has to stay visible: searching "IBM" resolves Harvey's live Ashby
+ * board, which is a real board, is not IBM's, and used to suppress the careers page
+ * and leave the user stuck. The boards are information; the careers page is the
+ * action. It is null whenever no result's host named the company, which means "we
+ * have nothing you can use" — never a stranger's site offered as a guess.
+ *
+ * `trace` is OPTIONAL here and required server-side, and that asymmetry is
+ * deliberate rather than sloppy: this app and its API deploy separately (Vercel
+ * and Railway), so a freshly-shipped client routinely talks to the previous
+ * backend for a few minutes. `NameSearchProgress` narrates fewer steps when it
+ * is missing rather than inventing the numbers it would have carried.
+ */
+export interface SearchCompanyResponse {
+  query: string;
+  candidates: SearchCompanyCandidate[];
+  careersUrl: string | null;
+  trace?: SearchTrace;
+  /** Null or absent when only one search ran, which is the common case. */
+  careersSearch?: CareersSearchTrace | null;
+  /**
+   * WE ALREADY PUBLISH THIS COMPANY — and when this is set it IS the answer, in
+   * place of the careers-page card rather than stacked above it.
+   *
+   * Typing `databricks` used to be answered with their careers page under a filled
+   * "Use this careers page" button, and only the press after it said "this looks
+   * like Databricks, which we already track". The search endpoint had no database
+   * access at all, so the dead end was knowable a whole press before it was
+   * announced. It runs the same three checks the add endpoint runs — against the
+   * boards it resolved AND the careers URL it was about to offer — and this is the
+   * result.
+   *
+   * The SAME body the add endpoint returns, deliberately: `DiscoveryStatus` renders
+   * it with the same components and the same `matchKind` rule, so `'board'` is
+   * terminal and `'name'` keeps its escape hatch. `careersUrl` may be non-null
+   * beside it (it is what the escape hatch re-sends, and the narration draws its
+   * last row from it) — the page is what must not draw both.
+   *
+   * Absent from a backend that predates this, which is simply the old behaviour.
+   */
+  alreadyPublic?: AlreadyPublicResponse | null;
+}
+
 export const userCompaniesApi = createApi({
   reducerPath: 'userCompaniesApi',
   baseQuery: fetchBaseQuery({
@@ -662,6 +844,26 @@ export const userCompaniesApi = createApi({
         rows.map((row) => transformBackendJob(row, id)),
       providesTags: (_result, _error, { id }) => [{ type: 'MyCompanies', id }],
     }),
+
+    /**
+     * Find boards for a typed company NAME. Reads only — nothing is created.
+     *
+     * A MUTATION rather than a query, and not because it writes. It costs a paid
+     * third-party search call, so it must fire when the user presses the button
+     * and at no other time; a query would be re-fetched on remount, refocus and
+     * cache expiry, spending money each time for a result nobody asked for again.
+     *
+     * `503` is "we could not look" (flag off, or search unavailable) and is a
+     * different sentence from an empty `candidates` array, which is "we looked and
+     * there is no board". Never collapse the two in the UI.
+     */
+    searchCompanyByName: builder.mutation<SearchCompanyResponse, string>({
+      query: (name) => ({
+        url: 'companies/search-by-name',
+        method: 'POST',
+        body: { name },
+      }),
+    }),
   }),
 });
 
@@ -671,4 +873,5 @@ export const {
   useRenameUserCompanyMutation,
   useRemoveUserCompanyMutation,
   useGetUserCompanyJobsQuery,
+  useSearchCompanyByNameMutation,
 } = userCompaniesApi;

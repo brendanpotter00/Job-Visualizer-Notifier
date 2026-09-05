@@ -244,7 +244,14 @@ async def test_sniffer_stops_at_the_first_page_that_names_a_board() -> None:
 
 
 @pytest.mark.asyncio
-async def test_sniffer_tries_at_most_four_urls() -> None:
+async def test_sniffer_tries_the_pasted_path_first_then_walks_up() -> None:
+    """Order is the contract: the original four, unchanged, then ancestors.
+
+    The pasted path's own variants must stay first and in their original order —
+    that is what makes the walk-up incapable of regressing a URL that resolves
+    today. Only after they are exhausted do the parent's variants get a turn.
+    """
+
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, text="<html>nothing</html>")
 
@@ -253,13 +260,78 @@ async def test_sniffer_tries_at_most_four_urls() -> None:
         result = await sniff_embedded_ats("https://start.example/careers", http)
 
     assert result.candidate is None
-    assert len(recorder.requests) == 4
-    assert recorder.urls == [
+    assert recorder.urls[:4] == [
         "https://start.example/careers",
         "https://start.example/careers/search-results",
         "https://start.example/careers/careers",
         "https://start.example/careers/jobs",
     ]
+    # Then the root's variants. ``/careers`` is not re-requested — it is the page
+    # we already fetched as target 0, and the dedupe drops it.
+    assert recorder.urls[4:] == [
+        "https://start.example/search-results",
+        "https://start.example/jobs",
+    ]
+    assert len(recorder.requests) <= ats_discovery._MAX_SNIFF_URLS
+
+
+@pytest.mark.asyncio
+async def test_sniffer_walks_up_one_level_to_find_the_board() -> None:
+    """The Cisco case, and the reason the walk-up exists.
+
+    Measured live 2026-09-01: pasting ``careers.cisco.com/global/en/home`` — what
+    you get by browsing to a job and copying the address bar — resolved to nothing
+    and fell through to a PAID discovery run, because the sniffer only ever probed
+    *deeper* (``/home/search-results``, a 404). The board is one level up, on
+    ``/global/en/search-results``. Cisco's site answers every path with the same
+    SPA shell, so jumping straight to the host root does NOT work — the walk-up has
+    to step up a level at a time. That is what this pins.
+    """
+    board = "https://cisco.wd5.myworkdayjobs.com/Cisco_Careers"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/global/en/search-results":
+            return httpx.Response(200, text=f'<a href="{board}">apply</a>')
+        # Every other path: the same board-less shell the real site serves.
+        return httpx.Response(200, text="<html>shell</html>")
+
+    recorder = _Recorder(handler)
+    async with recorder.client() as http:
+        result = await sniff_embedded_ats(
+            "https://careers.cisco.com/global/en/home", http
+        )
+
+    assert result.candidate is not None
+    assert result.candidate.ats == "workday"
+    assert result.candidate.provider_config["career_site_slug"] == "Cisco_Careers"
+    assert "https://careers.cisco.com/global/en/search-results" in recorder.urls
+
+
+@pytest.mark.asyncio
+async def test_walk_up_is_skipped_when_the_budget_is_nearly_spent() -> None:
+    """A bonus probe may only spend SPARE budget.
+
+    If the walk-up were allowed to run the clock out, the miss reason would flip
+    from ``no_ats_detected`` to ``deadline`` — and the one-time-discovery gate keys
+    on exactly that distinction, so the flip decides whether a user is billed for a
+    browser session. The base four still run; the ancestors are dropped.
+    """
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text="<html>nothing</html>")
+
+    recorder = _Recorder(handler)
+    async with recorder.client() as http:
+        result = await sniff_embedded_ats(
+            "https://start.example/a/b/c",
+            http,
+            # Real, positive, but far below _WALK_UP_MIN_BUDGET_S.
+            deadline=time.monotonic() + 1.0,
+        )
+
+    assert len(recorder.requests) == ats_discovery._BASE_SNIFF_URLS
+    assert result.candidate is None
+    assert result.reason == ats_discovery.REASON_NO_ATS
 
 
 @pytest.mark.asyncio

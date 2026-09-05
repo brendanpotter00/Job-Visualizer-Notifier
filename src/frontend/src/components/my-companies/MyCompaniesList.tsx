@@ -470,10 +470,13 @@ function CompanyRow({
                 It sits at the END of the metadata line, after the facts about the data,
                 because it is provenance rather than status — and it wraps off onto its
                 own line first on a narrow screen, which is the right thing to lose.
-                Same short-form/`title` division as the freshness line above it. Renders
-                nothing at all when we cannot build an HONEST url (Workday and Eightfold
-                keep their real host in `provider_config`, which this payload does not
-                carry) — a confident link to a 404 would be worse than the gap. */}
+                Same short-form/`title` division as the freshness line above it. It is
+                the SERVER's url now (`boardUrl`), which is what finally gave Workday and
+                Eightfold rows a link: their real host lives in `provider_config` and this
+                payload never carried it, so a company added by name — Cisco is a Workday
+                board — showed no source at all. Renders nothing when the server cannot
+                name an honest destination; a confident link to a 404 is worse than the
+                gap. See `sourceBoardUrl`. */}
         {boardLink ? (
           <Link
             href={boardLink.url}
@@ -605,8 +608,11 @@ export function MyCompaniesList() {
       {/* THE HOW-TO IS THE EMPTY STATE. There is no separate "no companies yet" screen
           and no separate how-to section: they are the same block. A user with nothing
           tracked sees the explanation where an icon and two grey lines used to sit, and
-          the moment they have one company their list is there instead and the
-          explanation is one text link away (`MyCompaniesPage`, "How it works").
+          the moment they have one company their list is there instead — and the
+          explanation is GONE, with no way back to it. `MyCompaniesPage` used to carry a
+          persistent "How it works" link for exactly that reader; it was removed at the
+          owner's request (2026-09-02), so this block is now the only place the how-to
+          is ever rendered.
 
           `rows.length === 0` is safe as the gate ONLY because the `isLoading` branch
           above already returned: on a first load the query is not settled and this

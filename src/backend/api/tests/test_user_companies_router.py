@@ -373,6 +373,115 @@ def test_get_returns_owner_list(client, db_conn, monkeypatch):
     assert companies[0]["openJobCount"] == 1
 
 
+# --- boardUrl: WHERE this row is read from -------------------------------------
+#
+# The owner typed a NAME ("Cisco"), search picked a board, we tracked it — and the
+# row never said which page it ended up reading. The link is computed server-side
+# because the data is server-side: Workday's real host is in ``provider_config``,
+# which the payload does not carry, so the frontend's own derivation could only
+# ever cover the four providers whose token IS their board slug.
+
+
+def _add_ats_company(db_conn, email: str, *, ats: str, token: str, config: dict) -> str:
+    """A tracked ATS company with a real ``provider_config``, created by the same
+    service the add endpoint calls. Workday and Eightfold cannot be added through
+    ``POST`` here without mocking their whole probe, and what these tests are about
+    is the READ, not the resolve."""
+    created = svc.add_custom_company(
+        db_conn,
+        user_id=_user_id(db_conn, email),
+        ats=ats,
+        board_token=token,
+        provider_config=config,
+        display_name=token,
+        submitted_url="https://example.test/careers",
+        normalized_url="https://example.test/careers",
+    )
+    return str(created["id"])
+
+
+def test_the_list_says_which_board_a_greenhouse_row_reads(client, db_conn, monkeypatch):
+    _login(client, "auth0|A", "a@example.com")
+    _install_greenhouse(monkeypatch, [1])
+    client.post("/api/users/companies", json={"url": GREENHOUSE_URL})
+
+    (company,) = client.get("/api/users/companies").json()["companies"]
+    assert company["boardUrl"] == "https://job-boards.greenhouse.io/duolingo"
+
+
+def test_a_workday_row_now_gets_the_link_it_used_to_render_nothing_for(client, db_conn):
+    """THE REPORTED BUG. ``board_token`` is the cosmetic tenant label (``cisco``) and
+    names no host, so the frontend refused to guess and the row showed no source at
+    all. ``provider_config`` has had the real board all along."""
+    _login(client, "auth0|A", "a@example.com")
+    _add_ats_company(
+        db_conn, "a@example.com", ats="workday", token="cisco",
+        config={
+            "base_url": "https://cisco.wd5.myworkdayjobs.com",
+            "tenant_slug": "cisco",
+            "career_site_slug": "Cisco_Careers",
+        },
+    )
+
+    (company,) = client.get("/api/users/companies").json()["companies"]
+    assert company["ats"] == "workday"
+    assert company["boardUrl"] == (
+        "https://cisco.wd5.myworkdayjobs.com/Cisco_Careers"
+    )
+
+
+def test_an_eightfold_row_gets_its_tenant_key_back_on_the_wire(client, db_conn):
+    """The other provider that rendered nothing. The tenant key is not derivable from
+    the host (``netflix.net`` 404s while ``netflix.com`` does not), so it comes from
+    ``provider_config`` or not at all."""
+    _login(client, "auth0|A", "a@example.com")
+    _add_ats_company(
+        db_conn, "a@example.com", ats="eightfold", token="netflix",
+        config={"tenant_host": "explore.jobs.netflix.net", "domain": "netflix.com"},
+    )
+
+    (company,) = client.get("/api/users/companies").json()["companies"]
+    assert company["boardUrl"] == (
+        "https://explore.jobs.netflix.net/careers?domain=netflix.com"
+    )
+
+
+def test_the_add_response_carries_the_same_link_the_list_will(client, db_conn, monkeypatch):
+    """The 201 body renders the success card, so it cannot be the one response missing
+    the link every later read of the same row carries."""
+    _login(client, "auth0|A", "a@example.com")
+    _install_greenhouse(monkeypatch, [1])
+    added = client.post("/api/users/companies", json={"url": GREENHOUSE_URL}).json()
+
+    (company,) = client.get("/api/users/companies").json()["companies"]
+    assert added["boardUrl"] == company["boardUrl"]
+    assert added["boardUrl"] == "https://job-boards.greenhouse.io/duolingo"
+
+
+def test_a_discovered_row_links_the_page_the_user_actually_pasted(client, db_conn):
+    _login(client, "auth0|A", "a@example.com")
+    user_id = _user_id(db_conn, "a@example.com")
+    svc.add_discovering_placeholder(
+        db_conn, user_id=user_id, submitted_url=_NON_ATS_URL,
+        normalized_url=_NON_ATS_URL, display_name="acme.example",
+    )
+
+    (company,) = client.get("/api/users/companies").json()["companies"]
+    assert company["boardUrl"] == _NON_ATS_URL
+
+
+def test_a_row_whose_config_we_cannot_vouch_for_carries_no_link_at_all(client, db_conn):
+    """NULL is a real answer and the UI renders nothing for it. A Workday row with a
+    config we did not write gets no link rather than a confident 404."""
+    _login(client, "auth0|A", "a@example.com")
+    _add_ats_company(
+        db_conn, "a@example.com", ats="workday", token="acme", config={},
+    )
+
+    (company,) = client.get("/api/users/companies").json()["companies"]
+    assert company["boardUrl"] is None
+
+
 # --- DELETE -------------------------------------------------------------------
 
 

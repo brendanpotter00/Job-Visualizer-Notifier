@@ -53,10 +53,32 @@ tools. Instead:
   | Idempotent re-add, zero extra spend | AC-11 (Atlassian) |
   | Server-side `trackAnyway` override still works | AC-12 (Microsoft) |
 
+### The one exception: the discovery LIVE VIEW
+
+`helpers/live_view.spec.ts` (`@live-view`) is the single drive in this skill that touches
+this route, and it is here because of a coverage hole neither gate could reach:
+
+- `e2e/live-view` scripts `GET /api/users/companies` from its own stand-in, so it is
+  **structurally blind to a URL the backend mangled** — its README says so. That was the
+  actual bug (`progress.py` clipped the 479-char `debuggerFullscreenUrl` at 400), and
+  only `--live` (one billed Browserbase minute) caught it.
+- This spec keeps the list endpoint **real** and arranges the row through the product's
+  own writers instead, so the URL is asserted where it lands: on the wire, in the
+  `<iframe src>`, and in what the frame paints. $0, no session opened.
+
+It is still **not** shim-driven — there is no WebMCP tool for this surface, per below —
+and it covers only URL integrity + liveness. Everything else about Add Companies remains
+the `e2e/add-companies` gate's job, and the closers remain `e2e/live-view`'s.
+
 ## Gotchas
 
 - **Its coverage is the gate, not this skill.** A green `verify-onesecondswe` run says
-  nothing about Add Companies; run `e2e/run.sh add-companies` for that.
+  nothing about Add Companies — with the single, narrow exception of the `@live-view`
+  drive above; run `e2e/run.sh add-companies` for the rest.
+- **Presence is not liveness.** Measured across the live-view regression, the pre-closers
+  commit scored **98.7%** on-screen while the frame painted *"Debugging connection was
+  closed"* for the whole session. Never assert an on-screen percentage alone — assert the
+  URL is unclipped, and read what the frame rendered.
 - **Both flags must be on.** The e2e stack sets frontend `VITE_CUSTOM_COMPANIES_ENABLED=true`
   (via `src/frontend/.env.local`, picked up by `vite.e2e.config.ts`) and backend
   `CUSTOM_COMPANY_SOURCES_ENABLED=true` (`env.e2e`). With either off, the page/route is absent

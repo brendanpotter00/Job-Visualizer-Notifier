@@ -195,6 +195,39 @@ class Settings(BaseSettings):
     # our own browser rather than refusing a board we could have read for free.
     capture_use_browserbase: bool = False
 
+    # Type a company NAME instead of pasting a URL. One Browserbase Search call
+    # per attempt (~$0.007, and the plan includes 1,000 free), then our own free
+    # deterministic scoring — no model call, no browser. Independent of
+    # ``capture_use_browserbase``: this uses the Search API, discovery uses
+    # Browsers, and they are separately priced products. Default OFF so no spend
+    # can happen until it is deliberately flipped on; with it off the add box is
+    # exactly as URL-only as it was before.
+    company_name_search_enabled: bool = False
+
+    # LOCAL DEVELOPMENT ONLY — the destructive custom-company reset
+    # (``POST /api/users/dev-reset``, ``services/dev_reset.py``). It deletes every
+    # ``visibility='user'`` company the caller owns, their jobs, and their
+    # ``company_add_attempts`` audit — which is also the monthly-quota counter, so a
+    # reset gives the adds back. That is the whole point: without it the add flow
+    # cannot be re-tested, because "you already track this" changes the behaviour on
+    # every attempt after the first.
+    #
+    # OFF means the router is NOT REGISTERED (``main.py`` skips ``include_router``),
+    # so the path 404s exactly like a path that does not exist — never a 403, which
+    # would advertise that the endpoint is there and merely refusing.
+    #
+    # THIS FLAG IS NOT THE REAL GUARD. A flag is one env var away from being wrong on
+    # the wrong machine, so the endpoint ALSO re-derives, at call time and independent
+    # of this setting, that ``database_url`` points at a loopback host
+    # (``dev_reset.assert_local_database``, parsed with libpq's own ``parse_dsn`` so a
+    # ``?host=``/``?hostaddr=`` parameter cannot hide a production host behind a
+    # ``localhost`` authority) AND asks the live connection where it really is
+    # (``dev_reset.assert_local_connection``). Two independent mistakes are required to
+    # delete anything that is not on someone's laptop — and the one statement that
+    # would reach another USER's rows, ``?scope=all``, additionally needs an admin
+    # grant.
+    dev_reset_enabled: bool = False
+
     # PostHog analytics
     posthog_project_token: str | None = None
     posthog_host: str = "https://us.i.posthog.com"

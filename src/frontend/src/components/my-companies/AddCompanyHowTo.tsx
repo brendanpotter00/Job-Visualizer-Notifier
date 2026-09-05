@@ -59,10 +59,11 @@ interface AddCompanyHowToProps {
 /**
  * "How it works": three numbered steps, centred, with the video slot under them.
  *
- * ONE COMPONENT, TWO TRIGGERS. It is the whole empty state for a user tracking
- * nothing (`MyCompaniesList`), and it is what the persistent "How it works" link on
- * the page re-opens for a user who already has companies. Trimming one and not the
- * other would ship two versions of the same screen.
+ * ONE TRIGGER, AND ONLY ONE: it is the whole empty state for a user tracking nothing
+ * (`MyCompaniesList`). It used to have a second — a persistent "How it works" link on
+ * `MyCompaniesPage` that re-opened this same block for a user who already had
+ * companies — removed at the owner's request (2026-09-02). Nothing renders this once
+ * the first company is tracked.
  *
  * WHY THE LIST IS CENTRED AS A BLOCK RATHER THAN ROW BY ROW. The number sits to the
  * LEFT of its label, and the block is centred. Centring each ROW on its own axis gives

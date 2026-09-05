@@ -662,6 +662,65 @@ describe('the discovery evidence, and when it is reachable', () => {
 });
 
 describe('sourceBoardUrl — the board a tracked row was built from', () => {
+  it('uses the server’s url whenever the payload carries one', () => {
+    // The answer is the SERVER's now (`api/services/board_url.py`), because that is the
+    // only place `provider_config` exists — see the Workday case below.
+    expect(
+      sourceBoardUrl({
+        ats: 'greenhouse',
+        boardToken: 'duolingo',
+        boardUrl: 'https://job-boards.greenhouse.io/duolingo',
+      })
+    ).toBe('https://job-boards.greenhouse.io/duolingo');
+  });
+
+  it('gives Workday and Eightfold the link they could never have here', () => {
+    // THE REPORTED BUG: their `boardToken` is a cosmetic tenant label naming no host, so
+    // these two rows rendered nothing — and "Cisco", typed as a NAME, is a Workday board.
+    // The host lives in `provider_config`, which this payload has never carried, so the
+    // fix could only ever be the server sending the assembled url.
+    expect(
+      sourceBoardUrl({
+        ats: 'workday',
+        boardToken: 'cisco',
+        boardUrl: 'https://cisco.wd5.myworkdayjobs.com/Cisco_Careers',
+      })
+    ).toBe('https://cisco.wd5.myworkdayjobs.com/Cisco_Careers');
+    expect(
+      sourceBoardUrl({
+        ats: 'eightfold',
+        boardToken: 'netflix',
+        boardUrl: 'https://explore.jobs.netflix.net/careers?domain=netflix.com',
+      })
+    ).toBe('https://explore.jobs.netflix.net/careers?domain=netflix.com');
+  });
+
+  it('treats a null boardUrl as the server’s answer, and does NOT fall back to a guess', () => {
+    // `null` and absent are different things and collapsing them would undo half of this.
+    // `null` is the server saying it looked at the row and could not name an honest
+    // destination; deriving one here would be this file overruling the only code that can
+    // see the config.
+    expect(
+      sourceBoardUrl({ ats: 'greenhouse', boardToken: 'duolingo', boardUrl: null })
+    ).toBeNull();
+    expect(sourceBoardUrl({ ats: 'workday', boardToken: 'blueorigin', boardUrl: null })).toBeNull();
+    // Whitespace-only is the same nothing.
+    expect(
+      sourceBoardUrl({ ats: 'greenhouse', boardToken: 'duolingo', boardUrl: '   ' })
+    ).toBeNull();
+  });
+
+  it('never puts a non-http server url in an href either', () => {
+    // "The server sent it" is not the property that makes a string safe in an `href`, and
+    // the check costs nothing.
+    expect(
+      sourceBoardUrl({ ats: 'discovered', boardToken: 'x', boardUrl: 'javascript:alert(1)' })
+    ).toBeNull();
+    expect(
+      sourceBoardUrl({ ats: 'greenhouse', boardToken: 'x', boardUrl: 'job-boards.greenhouse.io/x' })
+    ).toBeNull();
+  });
+
   it('uses a discovered board’s pasted URL verbatim', () => {
     // `board_token` IS the normalized URL for a discovered board
     // (`custom_companies_service.py` stores `board_token=normalized_url`), and this is
@@ -676,6 +735,9 @@ describe('sourceBoardUrl — the board a tracked row was built from', () => {
   });
 
   it('builds the public board for the four ATS providers whose token IS the slug', () => {
+    // All of these run the LEGACY fallback: no `boardUrl` key at all, which is what a
+    // server that predates the field sends. The frontend and backend deploy separately,
+    // so every link that works today has to survive a Vercel deploy landing first.
     expect(sourceBoardUrl({ ats: 'greenhouse', boardToken: 'spacex' })).toBe(
       'https://job-boards.greenhouse.io/spacex'
     );
@@ -688,12 +750,16 @@ describe('sourceBoardUrl — the board a tracked row was built from', () => {
     );
   });
 
-  it('refuses to GUESS a Workday or Eightfold board', () => {
+  it('refuses to GUESS a Workday or Eightfold board on a payload with no boardUrl', () => {
     // Their `board_token` is a cosmetic tenant label; the real board lives at a host the
     // token does not spell (`<tenant>.wd5.myworkdayjobs.com/<career_site>`,
     // `explore.jobs.netflix.net/careers?domain=…`), and that host is in `provider_config`
     // which this payload does not carry. A confident link to a 404 is worse than no link
     // — the row is missing information either way, and one of the two lies about it.
+    //
+    // The server now sends the real url, so these two rows DO get a link in practice
+    // (above). What this pins is that the fallback never learns to fake one: the only
+    // version of these it could ever build here is a guess.
     expect(sourceBoardUrl({ ats: 'workday', boardToken: 'blueorigin' })).toBeNull();
     expect(sourceBoardUrl({ ats: 'eightfold', boardToken: 'netflix' })).toBeNull();
   });

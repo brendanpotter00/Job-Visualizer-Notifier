@@ -57,7 +57,7 @@ afterEach(() => {
 });
 
 describe('CompanySelector — the viewer’s own boards', () => {
-  it('lists them under "Your companies", with the name the user chose', async () => {
+  it('lists them inline, badged, with the name the user chose', async () => {
     const user = userEvent.setup();
     // Production shape: the board was discovered as "acmeboards" and renamed. The
     // wire `displayName` is already COALESCE(user_display_name, display_name),
@@ -66,11 +66,41 @@ describe('CompanySelector — the viewer’s own boards', () => {
 
     await user.click(screen.getByRole('combobox'));
 
-    expect(await screen.findByText('Your companies')).toBeInTheDocument();
-    expect(screen.getByRole('option', { name: 'Raindrop YC' })).toBeInTheDocument();
-    // The curated roster is still all there, under its own heading.
-    expect(screen.getByText('Tracked by us')).toBeInTheDocument();
+    // The badge is part of the option's accessible name, not a separate node —
+    // it renders inside the row so a screen reader reads "Raindrop YC Custom".
+    expect(await screen.findByRole('option', { name: /Raindrop YC/ })).toBeInTheDocument();
+    expect(screen.getByText('Custom')).toBeInTheDocument();
+    // The curated roster is still all there, and carries no badge.
     expect(screen.getByRole('option', { name: 'SpaceX' })).toBeInTheDocument();
+    // No group headings at all any more — one list, ordered by name.
+    expect(screen.queryByText('Your companies')).not.toBeInTheDocument();
+    expect(screen.queryByText('Tracked by us')).not.toBeInTheDocument();
+  });
+
+  it('sorts a custom board into the curated list by NAME, not into a block at the end', async () => {
+    const user = userEvent.setup();
+    // "Meridian Labs" must land among the Ms. The whole point of the change is
+    // that a company sits where its name says it does.
+    //
+    // A DELIBERATELY FICTIONAL name, and it has to stay fictional. This first
+    // used "Cisco", which broke the moment Cisco was added to the curated
+    // roster — the dropdown then held two options matching /Cisco/ and the
+    // query became ambiguous. Any real company name is a landmine here, because
+    // the roster is exactly the thing that grows.
+    await renderSelector([board('u-abc123', 'Meridian Labs')]);
+
+    await user.click(screen.getByRole('combobox'));
+    await screen.findByRole('option', { name: /Meridian Labs/ });
+
+    const names = screen
+      .getAllByRole('option')
+      .map((option) => option.textContent?.replace(/Custom$/, '').trim() ?? '');
+    const sorted = [...names].sort((a, b) => a.localeCompare(b));
+    expect(names).toEqual(sorted);
+    // ...and it is genuinely interleaved, not first or last.
+    const index = names.indexOf('Meridian Labs');
+    expect(index).toBeGreaterThan(0);
+    expect(index).toBeLessThan(names.length - 1);
   });
 
   it('selects the board, so the trend page loads it like any other company', async () => {
@@ -78,18 +108,22 @@ describe('CompanySelector — the viewer’s own boards', () => {
     const store = await renderSelector([board('u-abc123', 'Acme Boards')]);
 
     await user.click(screen.getByRole('combobox'));
-    await user.click(await screen.findByRole('option', { name: 'Acme Boards' }));
+    // Regex, not an exact string: the row now renders the badge inside it, so
+    // the option's accessible name is "Acme Boards Custom". (Fixture name from
+    // main, which genericised it away from a real company; the regex is ours.)
+    await user.click(await screen.findByRole('option', { name: /^Acme Boards/ }));
 
     await waitFor(() => expect(store.getState().app.selectedCompanyId).toBe('u-abc123'));
   });
 
-  it('shows NO group headings when the viewer owns nothing — the flat list as before', async () => {
+  it('shows no badge at all when the viewer owns nothing — the list as before', async () => {
     const user = userEvent.setup();
     await renderSelector([]);
 
     await user.click(screen.getByRole('combobox'));
 
     await screen.findByRole('option', { name: 'SpaceX' });
+    expect(screen.queryByText('Custom')).not.toBeInTheDocument();
     expect(screen.queryByText('Your companies')).not.toBeInTheDocument();
     expect(screen.queryByText('Tracked by us')).not.toBeInTheDocument();
   });
