@@ -1032,16 +1032,20 @@ class JobFacetsResponse(BaseModel):
 class JobSearchMeta(BaseModel):
     """Header metrics for GET /api/jobs/search, returned with page 1 only.
 
-    ``filtered_total`` counts the ACTIVE filter set. The two recency tiles are
-    scoped to ``company`` and to nothing else — not category, level, keywords,
-    locations, ``since`` or ``status`` — which is what the Recent page's "Past 24
-    Hours" / "Past 3 Hours" cards have always shown: client-side they were derived
-    from the enabled-companies prefilter before any other filter ran.
+    ``filtered_total`` is ``None`` since Wave-1 B1 deferred the exact count off the
+    page-1 critical path (owner decision ①: fast searches beat exact counts). The
+    field is kept — the envelope has always allowed it to be null — so the wire
+    contract is unchanged and the client approximates the total from the rows it
+    has walked. The two recency tiles stay exact and are scoped to ``company`` and
+    to nothing else — not category, level, keywords, locations, ``since`` or
+    ``status`` — which is what the Recent page's "Past 24 Hours" / "Past 3 Hours"
+    cards have always shown: client-side they were derived from the
+    enabled-companies prefilter before any other filter ran.
     """
 
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
 
-    filtered_total: int
+    filtered_total: int | None = None
     # Explicit aliases: ``to_camel`` splits on the digit and emits
     # ``countLast24H`` / ``countLast3H`` — a stray capital that reads like a typo
     # in the JSON and would have to be mirrored verbatim in the TypeScript type.

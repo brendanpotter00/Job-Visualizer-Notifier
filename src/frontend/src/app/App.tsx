@@ -39,6 +39,7 @@ import { useRecordVisit } from '../features/auth/useRecordVisit';
 import { usePostHogPageview } from '../features/analytics/usePostHogPageview';
 import { usePostHogIdentify } from '../features/analytics/usePostHogIdentify';
 import { useSignupFunnel } from '../features/analytics/useSignupFunnel';
+import { WEBMCP_CONFIG, WebMcpBridge } from '../webmcp';
 
 /**
  * Redirects the pre-rename `/my-companies…` path onto `/add-companies…`.
@@ -119,6 +120,10 @@ function AppContent() {
 
   return (
     <>
+      {/* Captures router navigate + auth login into module refs for the
+          store-only WebMCP tools. Mounted only behind VITE_WEBMCP; renders
+          null and touches no other state. */}
+      {WEBMCP_CONFIG.isEnabled && <WebMcpBridge />}
       <Routes>
         <Route path="/" element={<RootLayout />}>
           <Route index element={<RecentJobPostingsPage />} />

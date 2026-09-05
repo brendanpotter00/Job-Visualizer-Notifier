@@ -98,13 +98,34 @@ export function RecentJobsList({ search }: RecentJobsListProps) {
   // and announcing them as the set size tells a screen-reader user they are at
   // the end of a list they are twenty rows into. `null` is passed through as
   // genuinely unknown (page 1 carries the counts; before it lands, or after an
-  // initial error nulls them, nothing has measured the total).
+  // initial error nulls them, nothing has measured the total), and renders as
+  // ARIA's `-1`.
   //
-  // Floored at the rows on screen for the one case where the two can disagree:
-  // the corpus can gain matching rows between page 1 and page N, and "item 51 of
-  // 50" is worse than either number on its own. Only the signed-IN path reaches
-  // the virtualizer, so the signed-out dozen-card cap never enters this math.
-  const announcedTotal = counts === null ? null : Math.max(counts.total, displayedJobs.length);
+  // Three cases now that the exact total can be DEFERRED (Wave-1 B1 — `counts` is
+  // present but `counts.total` is `null` on a real search; demo mode still sends a
+  // number):
+  //   * no counts at all            -> null  (unknown; aria-setsize -1)
+  //   * an exact total (demo)       -> Math.max(total, rows on screen), floored at
+  //                                    the rows for the one case the two disagree:
+  //                                    the corpus can gain rows between page 1 and
+  //                                    page N, and "item 51 of 50" is worse than
+  //                                    either number alone.
+  //   * a deferred (null) total     -> the rows in hand are only a LOWER bound
+  //                                    while the walk can continue, so announce
+  //                                    "unknown" (-1) while `hasNextPage`; once the
+  //                                    walk is exhausted the rows on screen ARE the
+  //                                    exact total, so announce that. Never announce
+  //                                    a lower bound as the set size mid-walk.
+  // Only the signed-IN path reaches the virtualizer, so the signed-out dozen-card
+  // cap never enters this math.
+  const announcedTotal =
+    counts === null
+      ? null
+      : counts.total !== null
+        ? Math.max(counts.total, displayedJobs.length)
+        : hasNextPage
+          ? null
+          : displayedJobs.length;
 
   const { sentinelRef } = useInfiniteScroll({
     hasMore,

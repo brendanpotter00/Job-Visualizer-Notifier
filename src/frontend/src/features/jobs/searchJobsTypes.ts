@@ -12,16 +12,21 @@ import type { Job } from '../../types';
 /**
  * Header metrics, returned with page 1 only.
  *
- * `total` counts the ACTIVE filter set. The two recency figures are scoped to the
- * companies the reader follows (the `companies` argument) and to NOTHING else —
- * not category, level, keywords, locations or the time window. That is what the
- * Recent page's "Past 24 Hours" / "Past 3 Hours" tiles have always shown: before
- * this endpoint they came off `selectAllJobsFromQuery`, i.e. the enabled-companies
- * prefilter, applied ahead of every other filter. Preserved rather than
- * "simplified" so the migration does not silently change what those numbers mean.
+ * `total` is `null` when the server DEFERRED the exact filtered count (Wave-1 B1,
+ * owner decision ①: the exact count was the expensive half of every filtered
+ * page-1 search, so it is off that path and the UI approximates the total from the
+ * rows it has walked). It is a real number only where something still computes it
+ * exactly — demo mode counts its fixture. The two recency figures are always
+ * present and are scoped to the companies the reader follows (the `companies`
+ * argument) and to NOTHING else — not category, level, keywords, locations or the
+ * time window. That is what the Recent page's "Past 24 Hours" / "Past 3 Hours"
+ * tiles have always shown: before this endpoint they came off
+ * `selectAllJobsFromQuery`, i.e. the enabled-companies prefilter, applied ahead of
+ * every other filter. Preserved rather than "simplified" so the migration does not
+ * silently change what those numbers mean.
  */
 export interface SearchJobsCounts {
-  total: number;
+  total: number | null;
   last24h: number;
   last3h: number;
 }

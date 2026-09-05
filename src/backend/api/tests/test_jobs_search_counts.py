@@ -9,9 +9,6 @@ and the two recency tiles are assertions about rows the current filter set
 deliberately excludes. Every way of getting them wrong produces a number that
 still looks like a number:
 
-* ``filteredTotal`` drifting from what the walk actually yields reads as "247
-  matches" over a list that ends at 203. Nobody downstream can tell which one
-  lied.
 * ``countLast24h`` / ``countLast3h`` quietly picking up the active filters would
   make the "Past 24 Hours" tile mean something new — a smaller, plausible number
   that changes as the user types in the keyword box. Those tiles have always
@@ -23,11 +20,12 @@ still looks like a number:
   prefilter and nothing else. A reader following 3 of 133 companies would watch
   those two numbers jump by ~40x for no reason they could see.
 
-So the assertions here never spot-check a count against a hand-tallied constant
-alone. The two central invariants are:
-
-    filteredTotal == the number of rows a complete walk under the same filters
-                     returns, exactly
+``filteredTotal`` USED to be the third guarded number — an exact count that had to
+agree with a complete walk row-for-row. Wave-1 B1 DEFERRED it (owner decision ①:
+the exact count was the expensive half of every filtered page-1 search), so it is
+``null`` now and the client approximates the total from the rows it walks. The key
+stays on the wire; the tests below therefore assert it is ``None`` and lean on the
+ROWS to prove each filter still reaches the result set. The central invariant is:
 
     (countLast24h, countLast3h) honour ``company`` and NOTHING else — invariant
                      under category, level, keywords, locations, ``since`` and
@@ -35,7 +33,8 @@ alone. The two central invariants are:
                      visibility rules (OPEN, company not deactivated) and the clock
 
 Each dimension case seeds a decoy that the filter must exclude, so a predicate
-that silently stopped applying to the count query fails here instead of shipping.
+that silently stopped applying fails here (in the rows, or in the tiles) instead
+of shipping.
 """
 
 from datetime import datetime, timedelta, timezone
@@ -250,10 +249,11 @@ def test_filtered_total_equals_the_length_of_a_full_walk(
     seen, metas = _walk(client, params, page_size=4)
 
     assert metas[0] is not None
-    assert metas[0]["filteredTotal"] == len(seen), (
-        "filteredTotal disagrees with what the walk actually returns — one of the "
-        "two is lying to the client and neither can tell which"
-    )
+    # Wave-1 B1 DEFERRED the exact count off the page-1 path (owner decision ①), so
+    # `filteredTotal` is `null` and the client approximates from the rows it walks.
+    # The walk itself is still exact — this now guards that the paged result set is
+    # complete and duplicate-free, which is the half B1 did not change.
+    assert metas[0]["filteredTotal"] is None
     assert len(seen) == len(set(seen)), "the walk returned duplicates"
     assert len(seen) == expected
 
@@ -339,12 +339,17 @@ def test_filtered_total_counts_exactly_the_rows_the_page_returns(
     assert resp.status_code == 200, resp.text
     body = resp.json()
 
+    # `filteredTotal` is deferred (Wave-1 B1) — the ROWS are the assertion now, and
+    # each case's corpus holds a decoy the filter must drop, so a predicate that
+    # stopped applying changes the row set rather than leaving it coincidentally
+    # right. (The page returns the whole result set at limit=500, so the rows here
+    # are the complete filtered set, not a first page of it.)
     assert {job["id"] for job in body["jobs"]} == set(expected)
-    assert body["meta"]["filteredTotal"] == len(expected)
-    assert body["meta"]["filteredTotal"] == len(body["jobs"])
+    assert body["meta"]["filteredTotal"] is None
+    assert len(body["jobs"]) == len(expected)
     assert len(expected) < len(ALL_JOBS) or not params, (
-        "this case's filter excludes nothing, so it would pass against a count "
-        "query with no WHERE clause at all"
+        "this case's filter excludes nothing, so it would pass against a query "
+        "with no WHERE clause at all"
     )
 
 
@@ -354,12 +359,13 @@ def test_filtered_total_counts_exactly_the_rows_the_page_returns(
 
 
 def test_filtered_total_is_unchanged_by_page_size(client, db_conn, seed_taxonomy):
-    """``limit`` bounds the page; it must not bound the total.
+    """``limit`` bounds the page; it must not bound anything on the meta.
 
-    Both numbers come out of the same request, so the tempting implementation
-    (count what you just fetched) produces a total that equals the page size on
-    every page — indistinguishable from correct whenever the corpus happens to fit
-    in one page, which is every developer's local dataset.
+    ``filteredTotal`` is deferred (Wave-1 B1) so it is ``null`` at every page size —
+    which trivially cannot equal the page size, closing the "count what you just
+    fetched" trap the exact total used to guard against. The load-bearing half is
+    that the PAGES genuinely differ with ``limit`` (including whether the walk
+    continues) while the meta does not.
     """
     _seed_two_categories(db_conn, wanted=23, decoys=17)
     params = {"category": "software_engineering"}
@@ -372,12 +378,12 @@ def test_filtered_total_is_unchanged_by_page_size(client, db_conn, seed_taxonomy
     assert len(five["jobs"]) == 5
     assert len(everything["jobs"]) == 23
     # The pages genuinely differ — including whether the walk continues — while
-    # the total does not.
+    # the total stays null regardless of page size.
     assert one["nextCursor"] is not None
     assert everything["nextCursor"] is None
-    assert one["meta"]["filteredTotal"] == 23
-    assert five["meta"]["filteredTotal"] == 23
-    assert everything["meta"]["filteredTotal"] == 23
+    assert one["meta"]["filteredTotal"] is None
+    assert five["meta"]["filteredTotal"] is None
+    assert everything["meta"]["filteredTotal"] is None
 
 
 # ---------------------------------------------------------------------------
@@ -440,20 +446,29 @@ def test_recency_counts_ignore_the_active_filters(
     """
     _seed_recency_corpus(db_conn)
 
-    unfiltered = client.get(SEARCH_URL, params={"limit": 500}).json()["meta"]
-    assert (unfiltered["countLast24h"], unfiltered["countLast3h"]) == (5, 3)
-    assert unfiltered["filteredTotal"] == 6
+    unfiltered = client.get(SEARCH_URL, params={"limit": 500}).json()
+    assert (
+        unfiltered["meta"]["countLast24h"],
+        unfiltered["meta"]["countLast3h"],
+    ) == (5, 3)
+    assert len(unfiltered["jobs"]) == 6
 
     resp = client.get(SEARCH_URL, params={**params, "limit": 500})
     assert resp.status_code == 200, resp.text
-    meta = resp.json()["meta"]
+    body = resp.json()
+    meta = body["meta"]
 
-    assert meta["filteredTotal"] == expected_total, (
+    # `filteredTotal` is deferred (Wave-1 B1 — null). The filter's effect is proven
+    # by the ROWS instead, which is what keeps this case able to distinguish "the
+    # filter narrowed the set" from "it did nothing" — the premise the
+    # tile-invariance assertions below rely on.
+    assert meta["filteredTotal"] is None
+    assert len(body["jobs"]) == expected_total, (
         "the filter did not actually change the result set, so this case cannot "
-        "distinguish filtered counts from unfiltered ones"
+        "distinguish a narrowed set from an unfiltered one"
     )
-    assert meta["countLast24h"] == unfiltered["countLast24h"]
-    assert meta["countLast3h"] == unfiltered["countLast3h"]
+    assert meta["countLast24h"] == unfiltered["meta"]["countLast24h"]
+    assert meta["countLast3h"] == unfiltered["meta"]["countLast3h"]
 
 
 @pytest.mark.parametrize("company,expected", [
@@ -482,12 +497,17 @@ def test_the_recency_tiles_are_scoped_to_the_companies_the_reader_follows(
     unfiltered = client.get(SEARCH_URL, params={"limit": 500}).json()["meta"]
     assert (unfiltered["countLast24h"], unfiltered["countLast3h"]) == (5, 3)
 
-    meta = client.get(
+    body = client.get(
         SEARCH_URL, params={"company": company, "limit": 500}
-    ).json()["meta"]
+    ).json()
+    meta = body["meta"]
 
+    # `filteredTotal` is deferred (Wave-1 B1 — null); the company-scoped ROW count
+    # stands in for it (``expected[0]``), and the two tiles carry the
+    # company-scoping assertion this test exists for.
+    assert meta["filteredTotal"] is None
     assert (
-        meta["filteredTotal"],
+        len(body["jobs"]),
         meta["countLast24h"],
         meta["countLast3h"],
     ) == expected
@@ -519,27 +539,19 @@ def test_the_recency_tiles_are_scoped_to_the_companies_the_reader_follows(
 def test_company_combined_with_another_dimension_binds_both_predicates_correctly(
     client, db_conn, seed_taxonomy, params, expected
 ):
-    """``company`` AND another filter — the case where the two WHEREs disagree on arity.
+    """``company`` AND another filter — the row query and the tiles must disagree correctly.
 
-    ``get_search_counts`` renders ONE statement out of two independently-composed
-    predicates: the filtered total's WHERE (the whole filter set) as a scalar
-    subquery, and the recency tiles' WHERE (``company`` only) on the outer scan.
-    Their parameter lists are concatenated ``[*filtered_params, *header_params]``
-    and bound BY POSITION against the combined statement text. That is only correct
-    while the subquery's placeholders really do all precede the outer WHERE's.
-
-    Every other case in this file gives the two clauses the SAME arity — either no
-    company (header binds nothing) or company alone (both bind the same one list) —
-    so a placeholder that crossed the boundary would land on an identically-shaped
-    value and the numbers would still look right. Here they are deliberately
-    UNEQUAL (e.g. status + company + category = 3 params against the header's 1,
-    and the keyword case expands to more still), so a crossed placeholder either
-    raises or produces a visibly wrong triple.
-
-    The expected values are ``(filteredTotal, countLast24h, countLast3h)`` and are
-    chosen so ``filteredTotal`` differs from the tiles in every case: a bug that
-    applied the tiles' company-only predicate to the total (or the total's full
-    predicate to the tiles) cannot pass by coincidence.
+    Since Wave-1 B1 deferred ``filteredTotal``, ``get_search_counts`` issues ONLY
+    the company-scoped recency tiles, so the concatenated
+    ``[*filtered_params, *header_params]`` placeholder-binding hazard this case was
+    originally written for no longer exists (there is no filtered subquery to
+    precede the outer WHERE). What is still worth pinning is that the two remaining
+    consumers of the filter set diverge correctly: the ROW query honours the whole
+    filter set while the TILES honour ``company`` only. The expected values are
+    ``(rows, countLast24h, countLast3h)`` and are chosen so the row count differs
+    from the tiles in every case, so a bug that applied the tiles' company-only
+    predicate to the rows (or the rows' full predicate to the tiles) cannot pass by
+    coincidence.
     """
     _seed_recency_corpus(db_conn)
 
@@ -550,17 +562,17 @@ def test_company_combined_with_another_dimension_binds_both_predicates_correctly
 
     resp = client.get(SEARCH_URL, params={**params, "limit": 500})
     assert resp.status_code == 200, resp.text
-    meta = resp.json()["meta"]
+    body = resp.json()
+    meta = body["meta"]
 
+    # `filteredTotal` is deferred (null); the ROWS carry the full filter set and the
+    # TILES the company scope.
+    assert meta["filteredTotal"] is None
     assert (
-        meta["filteredTotal"],
+        len(body["jobs"]),
         meta["countLast24h"],
         meta["countLast3h"],
     ) == expected
-
-    # …and the total still has to agree with the rows, which is what proves the
-    # subquery's own placeholders did not shift among themselves.
-    assert len(resp.json()["jobs"]) == expected[0]
 
 
 # ---------------------------------------------------------------------------
@@ -587,9 +599,13 @@ def test_recency_counts_exclude_closed_listings(client, db_conn):
             "status": "CLOSED", "first_seen_at": _ago(minutes=30 + n),
         }))
 
-    meta = client.get(SEARCH_URL, params={"limit": 500}).json()["meta"]
+    body = client.get(SEARCH_URL, params={"limit": 500}).json()
+    meta = body["meta"]
 
-    assert meta["filteredTotal"] == 2, "status defaults to OPEN"
+    # `filteredTotal` is deferred (null); the ROW count carries the "status defaults
+    # to OPEN" assertion, and the tiles pin status=OPEN in their own SQL.
+    assert meta["filteredTotal"] is None
+    assert len(body["jobs"]) == 2, "status defaults to OPEN"
     assert meta["countLast24h"] == 2
     assert meta["countLast3h"] == 2
 
@@ -616,11 +632,16 @@ def test_recency_counts_stay_open_only_when_the_caller_asks_for_closed(
             "status": "CLOSED", "first_seen_at": _ago(minutes=30 + n),
         }))
 
-    meta = client.get(
+    body = client.get(
         SEARCH_URL, params={"status": "CLOSED", "limit": 500}
-    ).json()["meta"]
+    ).json()
+    meta = body["meta"]
 
-    assert meta["filteredTotal"] == 3
+    # `filteredTotal` is deferred (null). ``status=CLOSED`` retargets the ROW query
+    # (3 closed rows) while the tiles stay on the live OPEN feed — the row count
+    # carries the retarget assertion the total used to.
+    assert meta["filteredTotal"] is None
+    assert len(body["jobs"]) == 3
     assert meta["countLast24h"] == 2
     assert meta["countLast3h"] == 2
 
@@ -648,9 +669,13 @@ def test_recency_counts_exclude_jobs_from_deactivated_companies(client, db_conn)
             "first_seen_at": _ago(minutes=40 + n),
         }))
 
-    meta = client.get(SEARCH_URL, params={"limit": 500}).json()["meta"]
+    body = client.get(SEARCH_URL, params={"limit": 500}).json()
+    meta = body["meta"]
 
-    assert meta["filteredTotal"] == 2
+    # `filteredTotal` is deferred (null); the ROW count carries the deactivation
+    # exclusion for the list, and the tiles carry it for the recency windows.
+    assert meta["filteredTotal"] is None
+    assert len(body["jobs"]) == 2
     assert meta["countLast24h"] == 2
     assert meta["countLast3h"] == 2
 
@@ -685,15 +710,18 @@ def test_recency_counts_split_the_corpus_at_the_24h_and_3h_boundaries(
             "first_seen_at": _iso(datetime.now(timezone.utc) - age),
         }))
 
-    meta = client.get(SEARCH_URL, params={"limit": 500}).json()["meta"]
+    body = client.get(SEARCH_URL, params={"limit": 500}).json()
+    meta = body["meta"]
 
     # inside-3h, outside-3h and inside-24h are all younger than a day; only
     # inside-3h is younger than three hours.
     assert meta["countLast24h"] == 3
     assert meta["countLast3h"] == 1
-    # And the windows belong to the tiles alone — filteredTotal has no recency
-    # bound of its own, so the 30-day-old row is still a match.
-    assert meta["filteredTotal"] == 5
+    # The windows belong to the tiles alone — the row query has no recency bound of
+    # its own, so the 30-day-old row is still in the set. `filteredTotal` is
+    # deferred (null), so the ROW count carries that "no recency bound" assertion.
+    assert meta["filteredTotal"] is None
+    assert len(body["jobs"]) == 5
 
 
 # ---------------------------------------------------------------------------
@@ -720,13 +748,15 @@ def test_meta_is_absent_from_every_page_after_the_first(
 
     assert len(metas) > 1, "page size 5 over 23 rows must take several pages"
     assert metas[0] is not None
+    # The `filteredTotal` KEY is still present on page 1 (the wire contract is
+    # unchanged); its VALUE is deferred to null (Wave-1 B1).
     assert set(metas[0]) == {"filteredTotal", "countLast24h", "countLast3h"}
+    assert metas[0]["filteredTotal"] is None
     assert all(meta is None for meta in metas[1:]), (
         f"meta must be null on cursor pages; got {metas[1:]}"
     )
-    # The walk still completed, and page 1's total still described all of it.
+    # The walk still completed and enumerated the whole set.
     assert len(seen) == 23
-    assert metas[0]["filteredTotal"] == len(seen)
 
 
 def test_meta_is_absent_on_a_cursor_page_even_when_it_is_the_last_one(
@@ -744,7 +774,7 @@ def test_meta_is_absent_on_a_cursor_page_even_when_it_is_the_last_one(
     first = client.get(
         SEARCH_URL, params={"category": "software_engineering", "limit": 5}
     ).json()
-    assert first["meta"]["filteredTotal"] == 6
+    assert first["meta"]["filteredTotal"] is None  # deferred (Wave-1 B1)
     assert first["nextCursor"] is not None
 
     last = client.get(SEARCH_URL, params={

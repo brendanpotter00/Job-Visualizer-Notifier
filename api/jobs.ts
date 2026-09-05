@@ -45,11 +45,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // `resolveProxyPath` with the other seven proxies fixes that and keeps one
   // implementation of the control instead of eight.
   //
-  // NOT allowlisted, deliberately: `GET /api/jobs/{source_id}/{job_id}` exists
-  // on the backend but no frontend caller uses it, and widening a public
-  // key-injecting proxy is a decision, not a cleanup. Add it here (with a test)
-  // when something actually needs it.
-  const sub = resolveProxyPath(path, ['', 'facets', 'search']);
+  // `:source/:job` is the single-posting detail route `GET
+  // /api/jobs/{source_id}/{job_id}`. It stayed off the allowlist until something
+  // actually needed it — the WebMCP `get_job` tool now does, so this is the
+  // deliberate decision the old comment asked for, not a cleanup. Two dynamic
+  // segments matched by the `:param` form `resolveProxyPath` already supports
+  // (each `:name` matches exactly one already-canonicalized segment); a
+  // traversal like `/api/jobs/../admin` is rejected in canonicalization before
+  // it can reach this pattern. The GET-only detail read injects the internal key
+  // like every other sub-path and 404s cleanly when no row matches.
+  const sub = resolveProxyPath(path, ['', 'facets', 'search', ':source/:job']);
   if (sub === null) {
     res.status(PROXY_REJECTION.status).json(PROXY_REJECTION.body);
     return;
@@ -110,6 +115,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // the contract's "end of results" signal, so only copy it when present.
     const nextCursor = response.headers.get(NEXT_CURSOR_HEADER);
     if (nextCursor) res.setHeader('X-Next-Cursor', nextCursor);
+    // Edge-cache ONLY the facets catalog. It is effectively immutable — the
+    // enrichment taxonomy changes only on a migration+deploy — so a full-day
+    // edge TTL with a week of stale-while-revalidate removes the ~0.7 s
+    // Vercel->Railway hop from every visitor after the first. `Cache-Control`
+    // stays `max-age=0` so browsers always revalidate to the edge and a purge
+    // is instantly visible; only `Vercel-CDN-Cache-Control` pins the edge copy.
+    // Set BEFORE forwardResponse (it ends the response), and gated so `search`
+    // (append-heavy, the slow query) and the legacy company list stay uncached.
+    // Also gated on `response.ok`: forwardResponse preserves the upstream status,
+    // so an error (a 4xx/5xx, or a `redirect:'manual'` 3xx) must not be edge-cached
+    // for a day under the facets key.
+    if (sub === 'facets' && response.ok) {
+      res.setHeader('Cache-Control', 'public, max-age=0, must-revalidate');
+      res.setHeader(
+        'Vercel-CDN-Cache-Control',
+        'public, s-maxage=86400, stale-while-revalidate=604800',
+      );
+    }
     await forwardResponse(response, res);
   } catch (error) {
     // Logged, never returned: Node's fetch errors carry the internal backend

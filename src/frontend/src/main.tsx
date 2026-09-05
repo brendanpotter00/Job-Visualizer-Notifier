@@ -11,6 +11,14 @@ import { AuthProviders } from './components/shared/AuthProviders';
 import { CookieConsentBanner } from './components/shared/CookieConsentBanner';
 import { POSTHOG_CONFIG } from './config/posthog';
 import { posthog } from './lib/posthog';
+import { WEBMCP_CONFIG, registerWebMcpTools } from './webmcp';
+
+// WebMCP agent-driving surface — dead branch unless VITE_WEBMCP === '1' (only
+// the e2e verification harness sets it). Store-only; the bridge in App captures
+// router/auth out of band. With the flag off this is byte-identical to prod.
+if (WEBMCP_CONFIG.isEnabled) {
+  registerWebMcpTools(store);
+}
 
 const app = (
   <React.StrictMode>
