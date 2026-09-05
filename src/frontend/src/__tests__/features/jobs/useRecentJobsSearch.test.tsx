@@ -736,7 +736,7 @@ describe('useRecentJobsSearch — when a prerequisite fails', () => {
   });
 });
 
-describe('useRecentJobsSearch — the "Displayed Jobs" figure', () => {
+describe('useRecentJobsSearch — the result-total derivation (aria-setsize)', () => {
   // The bug: #277 moved `filtered_total` off the page-1 critical path, so the
   // server sends `filteredTotal: null` on every real search. The client was
   // taught to TOLERATE that (the tile fell back to an em-dash) but never to

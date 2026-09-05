@@ -1,10 +1,7 @@
 import { Paper, Divider } from '@mui/material';
 import { RESPONSIVE } from '../../../config/responsive';
 import { useAppSelector } from '../../../app/hooks';
-import {
-  selectCurrentCompanyMetadataRtk,
-  selectCurrentCompanyJobsRtk,
-} from '../../../features/jobs/jobsSelectors';
+import { selectCurrentCompanyJobsRtk } from '../../../features/jobs/jobsSelectors';
 import { selectEffectiveCompanyById } from '../../../features/userCompanies/effectiveCompanies';
 import { useTimeBasedJobCounts } from './hooks/useTimeBasedJobCounts';
 import { MetricsRow } from './MetricsRow';
@@ -14,7 +11,6 @@ import { LinksRow } from './LinksRow';
  * Dashboard displaying key metrics and links above the graph
  */
 export function MetricsDashboard() {
-  const metadata = useAppSelector(selectCurrentCompanyMetadataRtk);
   const allJobs = useAppSelector(selectCurrentCompanyJobsRtk);
   const selectedCompanyId = useAppSelector((state) => state.app.selectedCompanyId);
 
@@ -31,7 +27,6 @@ export function MetricsDashboard() {
   return (
     <Paper sx={{ p: RESPONSIVE.spacing.paperPadding, mb: RESPONSIVE.spacing.sectionMarginB }}>
       <MetricsRow
-        totalJobs={metadata?.totalCount ?? 0}
         jobsLast3Days={jobsLast3Days}
         jobsLast24Hours={jobsLast24Hours}
         jobsLast12Hours={jobsLast12Hours}

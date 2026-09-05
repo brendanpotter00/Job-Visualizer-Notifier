@@ -1,9 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import {
-  resolveResultTotal,
-  formatResultTotal,
-  ariaSetSizeFor,
-} from '../../../features/jobs/resultTotal';
+import { resolveResultTotal, ariaSetSizeFor } from '../../../features/jobs/resultTotal';
 import type { SearchJobsCounts } from '../../../features/jobs/searchJobsTypes';
 
 const counts = (total: number | null): SearchJobsCounts => ({
@@ -78,22 +74,6 @@ describe('resolveResultTotal', () => {
         value: 51,
       });
     });
-  });
-});
-
-describe('formatResultTotal', () => {
-  it('renders an em-dash for unknown, never a zero', () => {
-    // "0 Displayed Jobs" over an error banner reads as "your filters matched
-    // nothing" and sends the reader off to widen filters that were never at fault.
-    expect(formatResultTotal({ kind: 'unknown' })).toBe('—');
-  });
-
-  it('renders a lower bound with a trailing +', () => {
-    expect(formatResultTotal({ kind: 'atLeast', value: 50 })).toBe('50+');
-  });
-
-  it('renders an exact total plainly', () => {
-    expect(formatResultTotal({ kind: 'exact', value: 137 })).toBe('137');
   });
 });
 

@@ -9,13 +9,18 @@
  * It sends `null`, and the rows the reader has walked are then a LOWER BOUND, not
  * a total.
  *
- * That distinction is the whole point of this module. The header tile and the
- * list's `aria-setsize` both need it and each renders it differently — a tile can
- * say "50+", ARIA has no way to express a lower bound and must say "unknown" — so
- * the DERIVATION lives here once and only the rendering differs. They used to
- * derive it separately, and after #277 that cost the tile its number: it rendered
- * an em-dash for every real search, while the list had at least worked out that
- * an exhausted walk makes the rows in hand the exact total.
+ * That distinction is the whole point of this module, and `aria-setsize` is now
+ * its only consumer: ARIA needs a SET SIZE, so it may be told an exact total or
+ * "unknown" (-1) and nothing in between — announcing a lower bound would tell a
+ * screen-reader user they are at the end of a list they are twenty rows into.
+ *
+ * A header tile shared this derivation briefly and rendered the third case as
+ * "50+". It was removed at the owner's request (2026-09-05) — see the header
+ * comment on `RecentJobsMetrics` — which is why a module this size has one
+ * caller. The three-way split is kept rather than collapsed into
+ * `number | null`, because the two nulls are NOT the same fact ("nothing has
+ * measured this" vs "at least this many"), and flattening them is how the tile
+ * came to render a permanent em-dash in the first place.
  */
 
 import type { SearchJobsCounts } from './searchJobsTypes.ts';
@@ -51,23 +56,6 @@ export function resolveResultTotal(
   return walkExhausted
     ? { kind: 'exact', value: displayedCount }
     : { kind: 'atLeast', value: displayedCount };
-}
-
-/** What an unknown count renders as in the header tile. An em-dash, never a zero. */
-export const UNKNOWN_TOTAL = '—';
-
-export function formatResultTotal(total: ResultTotal): string {
-  switch (total.kind) {
-    case 'unknown':
-      return UNKNOWN_TOTAL;
-    case 'exact':
-      return String(total.value);
-    case 'atLeast':
-      // "50+" — a lower bound stated as one. The reader is mid-walk and more rows
-      // arrive as they scroll, so a bare "50" would read as a total and then tick
-      // upwards for no visible reason.
-      return `${total.value}+`;
-  }
 }
 
 /**

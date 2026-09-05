@@ -144,9 +144,9 @@ function makeSearch(overrides: Partial<RecentJobsSearch> = {}): RecentJobsSearch
   // `displayedJobs` and `resultTotal` are DERIVED by `useRecentJobsSearch`, never
   // stated by its callers, so the helper derives them the same way rather than
   // letting a test hand the list a combination the hook cannot produce. That
-  // includes the signed-out cap, which moved into the hook because the header's
-  // "Displayed Jobs" tile counts the same rows this list renders. A test may
-  // still state either field explicitly to reach a state directly.
+  // includes the signed-out cap, which lives in the hook because that is where the
+  // rest of the signed-out policy lives. A test may still state either field
+  // explicitly to reach a state directly.
   const isSignedOut = mockAuthState.isEnabled && !mockAuthState.isAuthenticated;
   const displayedJobs =
     overrides.displayedJobs ??

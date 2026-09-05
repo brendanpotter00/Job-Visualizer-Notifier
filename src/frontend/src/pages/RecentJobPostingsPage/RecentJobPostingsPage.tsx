@@ -50,27 +50,22 @@ export function RecentJobPostingsPage() {
           <LoadingState caption="Finishing an update — jobs will appear in a moment." />
         ) : (
           <>
-            {/* `null`, not 0, for the two recency tiles. The hook returns null
-                for "unknown" — page 1 has not landed, or it failed and the
-                previous filter set's figures were deliberately dropped — and
-                `?? 0` turned that into confident zeros directly above the
-                ErrorState, where "0 Displayed Jobs" reads as "your filters
-                matched nothing" next to a banner that actually says the request
-                was rejected. The tiles render an em-dash instead.
+            {/* `null`, not 0. The hook returns null for "unknown" — page 1 has
+                not landed, or it failed and the previous filter set's figures
+                were deliberately dropped — and `?? 0` turned that into confident
+                zeros directly above the ErrorState, where a 0 reads as "your
+                filters matched nothing" next to a banner that actually says the
+                request was rejected. The tiles render an em-dash instead.
 
-                The FIRST tile takes `search.resultTotal` rather than a number,
-                because since #277 there usually is no exact total to pass: the
-                server defers the count and the rows walked so far are a lower
-                bound the tile shows as "50+". Reading it off `counts.total` is
-                what left it blank on every real search — that field is now
-                permanently null outside demo mode.
+                Two tiles, not three: the leading "Displayed Jobs" count was
+                removed at the owner's request — see the header comment on
+                `RecentJobsMetrics` before re-adding one.
 
                 `pending` covers the other half: during an ordinary filter change
                 the numbers on screen still belong to the OLD filter set, so they
                 stay (blanking them on every edit is its own kind of wrong) but
                 dim until the new page 1 lands. */}
             <RecentJobsMetrics
-              totalJobs={search.resultTotal}
               jobsLast24Hours={counts?.last24h ?? null}
               jobsLast3Hours={counts?.last3h ?? null}
               pending={search.isRefreshing}
