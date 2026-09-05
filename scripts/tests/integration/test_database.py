@@ -1215,3 +1215,33 @@ class TestUpsertResetsNormalizationOnLocationChange:
         )
 
         assert self._status(in_memory_db, job) is None
+
+    def test_whitespace_and_case_noise_does_not_reset(self, in_memory_db, sample_job_listing):
+        """Comparing raw bytes would make this a treadmill.
+
+        The pipeline keys its cache on normalize_string(), which lowercases and
+        collapses whitespace runs -- so these spellings resolve to the SAME
+        alias and re-normalizing yields byte-identical tags. Prod already carries
+        such pairs ('San Francisco' / 'San Francisco '). A byte comparison would
+        flip normalization_status on every scrape cycle for those jobs, and they
+        would permanently occupy the safety-net scan window.
+        """
+        job = self._same_job_at(sample_job_listing, "San Francisco")
+        db.insert_job(in_memory_db, job)
+        self._set_status(in_memory_db, job, "done")
+
+        for noisy in ["San Francisco ", " San Francisco", "san francisco",
+                      "SAN FRANCISCO", "San  Francisco"]:
+            db.upsert_job(in_memory_db, self._same_job_at(sample_job_listing, noisy))
+            assert self._status(in_memory_db, job) == "done", (
+                f"{noisy!r} differs from 'San Francisco' only in case/whitespace; "
+                f"it normalizes to the same alias key, so it must not re-normalize"
+            )
+
+    def test_a_real_change_still_resets_despite_the_normalizing(self, in_memory_db, sample_job_listing):
+        job = self._same_job_at(sample_job_listing, "San Francisco")
+        db.insert_job(in_memory_db, job)
+        self._set_status(in_memory_db, job, "done")
+
+        db.upsert_job(in_memory_db, self._same_job_at(sample_job_listing, "San Francisco, CA"))
+        assert self._status(in_memory_db, job) is None

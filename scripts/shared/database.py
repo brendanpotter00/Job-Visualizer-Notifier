@@ -126,11 +126,33 @@ _JOB_PLACEHOLDERS = ", ".join(["%s"] * len(_JOB_COLUMNS.split(",")))
 # exactly this drift.
 #
 # Clearing the status hands the job back to the safety-net scan, which re-derives
-# the tags on the next tick. The CASE is deliberate: an unconditional NULL would
-# re-normalize every OPEN row on every scrape cycle (tens of thousands of
-# needless Haiku calls), and ``IS DISTINCT FROM`` rather than ``<>`` so a
-# NULL-to-value or value-to-NULL transition also counts as a change.
-_UPSERT_ON_CONFLICT = f"""
+# the tags on the next tick. Three details are deliberate:
+#
+# 1. The CASE, not an unconditional NULL. Every OPEN row is re-upserted on every
+#    scrape cycle, so resetting unconditionally would re-normalize the whole
+#    corpus continuously -- tens of thousands of needless Haiku calls per day.
+#
+# 2. ``IS DISTINCT FROM`` rather than ``<>``, so a NULL-to-value or
+#    value-to-NULL transition also counts as a change (``<>`` with a NULL
+#    operand yields NULL and the CASE would fall through).
+#
+# 3. The comparison is on the NORMALIZED form, not the raw bytes. The pipeline
+#    keys its cache on ``normalize_string()``, which lowercases and collapses
+#    whitespace runs -- so two spellings that differ only in case or spacing
+#    resolve to the SAME alias and re-normalizing yields byte-identical tags.
+#    Prod already carries such pairs: 'San Francisco' / 'San Francisco ',
+#    'United States' / 'United States ' / 'united states', 'Remote (US)' /
+#    'Remote  (US)'. Comparing raw bytes would flip normalization_status on
+#    every scrape cycle for those jobs, re-deferring them forever. The cost is
+#    not Haiku (they are Tier-1 hits) -- it is that they permanently occupy the
+#    scan window, whose total capacity is SCAN_LIMIT * 12 ticks/hour, starving
+#    the real backlog.
+#
+#    lower(btrim(regexp_replace(...))) covers the case and whitespace rules.
+#    It does not replicate normalize_string's NFKC / unicode-dash folding, but
+#    prod has zero rows where those matter, and a miss there is merely one
+#    needless re-normalization, not a loop.
+_UPSERT_ON_CONFLICT = rf"""
     ON CONFLICT (source_id, id) DO UPDATE SET
         title = EXCLUDED.title,
         location = EXCLUDED.location,
@@ -143,7 +165,10 @@ _UPSERT_ON_CONFLICT = f"""
         experience_level = EXCLUDED.experience_level,
         is_remote_eligible = EXCLUDED.is_remote_eligible,
         normalization_status = CASE
-            WHEN {_JOBS_TABLE}.location IS DISTINCT FROM EXCLUDED.location THEN NULL
+            WHEN lower(btrim(regexp_replace({_JOBS_TABLE}.location, '\s+', ' ', 'g')))
+                 IS DISTINCT FROM
+                 lower(btrim(regexp_replace(EXCLUDED.location, '\s+', ' ', 'g')))
+            THEN NULL
             ELSE {_JOBS_TABLE}.normalization_status
         END
 """.strip()
