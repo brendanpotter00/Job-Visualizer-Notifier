@@ -59,11 +59,9 @@ export interface RecentJobsSearch {
    * The rows a reader can actually SEE — `jobs`, capped for a signed-out reader
    * at `SIGNED_OUT_JOB_LIMIT`.
    *
-   * Derived here rather than in the list because it is no longer only the list's
-   * business: the header's "Displayed Jobs" tile counts these too, and the cap is
-   * this hook's policy already (it is what `hasNextPage: !isSignedOut && …`
-   * enforces). Two components applying the same cap from the same constant is one
-   * edit away from a header that disagrees with the list under it.
+   * Derived here rather than in the list because the cap is this hook's policy
+   * already — it is what `hasNextPage: !isSignedOut && …` enforces — and because
+   * `resultTotal` below has to count the same rows the list renders.
    */
   displayedJobs: Job[];
   /** Header metrics from page 1; null until it lands. */
@@ -72,6 +70,9 @@ export interface RecentJobsSearch {
    * How many jobs the filter set holds, to whatever precision is honest — see
    * `resultTotal.ts`. Since #277 the server defers the exact total, so on a real
    * search this is an `atLeast` bound over `displayedJobs` rather than a number.
+   *
+   * Consumed only by the list's `aria-setsize` — no tile renders it; see the
+   * header comment on `RecentJobsMetrics`.
    */
   resultTotal: ResultTotal;
   /** No data at all yet — render skeletons. */

@@ -37,7 +37,8 @@ Recorded up front so no reader is misled by a "failing-looking" number that is a
 Also note: **the on-screen row count is never asserted equal to `meta.filteredTotal`.** The
 signed-in list is virtualized (only a screenful is mounted) and the signed-out list is
 hard-capped at ~12 behind a sign-in overlay. Tests assert a *per-card invariant* (e.g. "every
-visible card is Apple") plus the "Displayed Jobs" metric, not exact-count equality.
+visible card is Apple"), not exact-count equality — and the page renders no total to
+compare against (the "Displayed Jobs" tile was removed on 2026-09-05).
 
 ## Feature areas at a glance
 
@@ -60,7 +61,7 @@ the user surface, not missing.
 
 ## 1. Recent job feed — `/`
 
-The home page: recent openings across every tracked company, a "Displayed Jobs" metric row,
+The home page: recent openings across every tracked company, a recency metric row,
 and an infinite-scrolling list of job cards. Filters read open jobs from the server, then
 narrow them by keyword, company, location, employment type, software-only, category, level,
 and time window.
@@ -76,7 +77,9 @@ and time window.
 | UC-recent-07 | Open a posting | `search_jobs(...)` → `open_job({url: jobs[0].url})` | Popup **intent** recorded (`page.on('popup')` / `window.open` stub); returns `{opened:true, url}` — headless popups are blocked, so intent not live nav |
 | UC-recent-08 | Filter catalog + company resolution load | `list_filter_options`; `list_companies({query})` | `{categories, levels}` non-empty; a display name resolves to its company id |
 
-**Feature notes:** the metric row shows Displayed Jobs / Past 24 Hours / Past 3 Hours. The
+**Feature notes:** the metric row shows Past 24 Hours / Past 3 Hours (a leading "Displayed
+Jobs" tile was removed on 2026-09-05 — the server defers the filtered total, so it could only
+ever show a lower bound over the rows walked). The
 list virtualizes when signed in and hard-caps at ~12 (behind a sign-in overlay) when signed
 out. `apply_feed_filters` is **additive** — it only changes the fields you pass — so tests
 call `reset_feed_filters` first for a clean slate.

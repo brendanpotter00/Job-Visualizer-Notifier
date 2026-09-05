@@ -151,15 +151,16 @@ The rules every drive follows:
 - **WebMCP arranges/acts; the DOM asserts.** After `apply_feed_filters`, read the
   rendered Recent list. The list is **virtualized (signed-in) / hard-capped at ~12
   (signed-out)**, so it never mounts all N rows — assert the *per-card invariant*
-  (every visible `JobListingCard` matches the filter) and the **"Displayed Jobs"**
-  metric, NOT a row-count equality against `meta.filteredTotal` (see the Recent-feed
+  (every visible `JobListingCard` matches the filter), NOT a row-count equality
+  against a header number (see the Recent-feed
   feature file's Gotchas — this trips people).
 - **Anonymous flows use a plain `page`;** Tier-3 side-effect flows use
   `signedInPage`/`signedInContext` (the fixture, never `request_sign_in`, drives the
   auth — that tool cannot complete headlessly).
 - Real handles on the Recent page (`components/shared/JobCard/`): job title is a
   `role=heading level=3`; the company name renders as text (e.g. `Apple`); each card
-  has an `Apply` link; the metric row shows the label `Displayed Jobs`.
+  has an `Apply` link; the metric row shows the labels `Past 24 Hours` / `Past 3 Hours`
+  (a "Displayed Jobs" tile was removed on 2026-09-05).
 
 To drive a feature yourself, copy `helpers/drive.spec.ts` as a template and follow
 the matching file in [`features/`](features/README.md).

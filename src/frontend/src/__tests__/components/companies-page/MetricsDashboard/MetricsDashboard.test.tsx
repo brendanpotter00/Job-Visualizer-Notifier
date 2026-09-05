@@ -156,7 +156,7 @@ describe('MetricsDashboard', () => {
     // Reset any mocks if needed
   });
 
-  it('renders all four metric sections', () => {
+  it('renders the three recency metric sections', () => {
     const store = createMockStore([
       jobPosted6HoursAgo,
       jobPosted18HoursAgo,
@@ -170,13 +170,16 @@ describe('MetricsDashboard', () => {
       </Provider>
     );
 
-    expect(screen.getByText('Total Jobs')).toBeInTheDocument();
     expect(screen.getByText('Past 3 Days')).toBeInTheDocument();
     expect(screen.getByText('Past 24 Hours')).toBeInTheDocument();
     expect(screen.getByText('Past 12 Hours')).toBeInTheDocument();
   });
 
-  it('displays correct total jobs count from metadata', () => {
+  // Removed at the owner's request (2026-09-05), alongside the Recent page's
+  // "Displayed Jobs". This row answers "how much hiring is happening lately"; a
+  // standing headcount answers a different question. Pinned so re-adding it is a
+  // deliberate act — see the header comment on `MetricsRow`.
+  it('renders no standing job-count tile', () => {
     const store = createMockStore([
       jobPosted6HoursAgo,
       jobPosted18HoursAgo,
@@ -190,10 +193,14 @@ describe('MetricsDashboard', () => {
       </Provider>
     );
 
-    expect(screen.getByText('5')).toBeInTheDocument();
+    expect(screen.queryByText('Total Jobs')).not.toBeInTheDocument();
+    // Five jobs are in the store; none of the three recency tiles can total 5
+    // here (the newest three fall in different windows), so a stray "5" would
+    // mean the headcount came back.
+    expect(screen.queryByText('5')).not.toBeInTheDocument();
   });
 
-  it('displays zero when no metadata available', () => {
+  it('displays zero for every window when there are no jobs', () => {
     const store = createMockStore([]);
     render(
       <Provider store={store}>
@@ -201,9 +208,7 @@ describe('MetricsDashboard', () => {
       </Provider>
     );
 
-    // Both Total Jobs and Filtered Jobs should show 0
-    const zeros = screen.getAllByText('0');
-    expect(zeros.length).toBeGreaterThanOrEqual(2);
+    expect(screen.getAllByText('0')).toHaveLength(3);
   });
 
   it('displays correct count for jobs posted in past 3 days', () => {
@@ -388,7 +393,11 @@ describe('MetricsDashboard', () => {
     expect(stackContainers.length).toBeGreaterThan(0);
   });
 
-  it('displays correct company name in context', () => {
+  it('counts the selected company’s jobs and ignores the metadata headcount', () => {
+    // `metadata.totalCount` fed the removed "Total Jobs" tile and nothing reads it
+    // here any more. A store whose headcount disagrees with its job rows proves
+    // the row is driven by the jobs themselves: one job six hours old lands in all
+    // three windows, and 15 must appear nowhere.
     const store = createMockStore({
       jobs: [{ ...jobPosted6HoursAgo, company: 'anthropic' }],
       companyId: 'anthropic',
@@ -406,7 +415,7 @@ describe('MetricsDashboard', () => {
       </Provider>
     );
 
-    // Should display total jobs for Anthropic
-    expect(screen.getByText('15')).toBeInTheDocument();
+    expect(screen.queryByText('15')).not.toBeInTheDocument();
+    expect(screen.getAllByText('1')).toHaveLength(3);
   });
 });

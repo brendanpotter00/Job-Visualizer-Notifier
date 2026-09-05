@@ -116,7 +116,7 @@ describe('RecentJobPostingsPage', () => {
       expect(screen.getByText(/Finishing an update/i)).toBeInTheDocument();
       expect(screen.queryByRole('alert')).not.toBeInTheDocument();
       expect(screen.queryByTestId('recent-jobs-list')).not.toBeInTheDocument();
-      expect(screen.queryByText('Displayed Jobs')).not.toBeInTheDocument();
+      expect(screen.queryByText('Past 24 Hours')).not.toBeInTheDocument();
     });
 
     it('still suppresses the banner if an error survives alongside the grace window', () => {
@@ -143,14 +143,13 @@ describe('RecentJobPostingsPage', () => {
       expect(screen.getByRole('alert')).toHaveTextContent('boom');
       // …and the tiles above it must not claim a result. The hook nulls `counts`
       // on an initial error precisely so the page does not render the PREVIOUS
-      // filter set's numbers under the new chips; turning that null into 0 puts
-      // "0 Displayed Jobs" directly above a banner that says the request was
+      // filter set's numbers under the new chips; turning that null into 0 puts a
+      // confident zero directly above a banner that says the request was
       // REJECTED, which reads as "your filters matched nothing" and sends the
       // reader off to widen filters that were never the problem.
-      expect(within(tile('Displayed Jobs')).getByText('—')).toBeInTheDocument();
       expect(within(tile('Past 24 Hours')).getByText('—')).toBeInTheDocument();
       expect(within(tile('Past 3 Hours')).getByText('—')).toBeInTheDocument();
-      expect(within(tile('Displayed Jobs')).queryByText('0')).not.toBeInTheDocument();
+      expect(within(tile('Past 24 Hours')).queryByText('0')).not.toBeInTheDocument();
       // The list owns the empty state, so it must not render — that is the whole
       // point of surfacing an error instead.
       expect(screen.queryByTestId('recent-jobs-list')).not.toBeInTheDocument();
@@ -184,24 +183,22 @@ describe('RecentJobPostingsPage', () => {
   });
 
   describe('metrics', () => {
-    it('feeds the hook’s counts into the total / 24h / 3h tiles', () => {
-      // `total` counts the active filter set; the two recency figures count only
-      // the companies the reader follows and ignore every other filter. Three
-      // distinct numbers so a mis-wire cannot pass.
-      mockSearch({ counts: { total: 42, last24h: 7, last3h: 3 } });
+    it('feeds the hook’s recency counts into the 24h / 3h tiles', () => {
+      // Both figures count only the companies the reader follows and ignore every
+      // other filter. Distinct numbers so a mis-wire cannot pass.
+      mockSearch({ counts: { total: null, last24h: 7, last3h: 3 } });
       renderWithProviders(<RecentJobPostingsPage />, { initialEntries: ['/'] });
 
-      expect(within(tile('Displayed Jobs')).getByText('42')).toBeInTheDocument();
       expect(within(tile('Past 24 Hours')).getByText('7')).toBeInTheDocument();
       expect(within(tile('Past 3 Hours')).getByText('3')).toBeInTheDocument();
     });
 
-    // THE PRODUCTION SHAPE, and the regression this whole page suite missed for
-    // months. Every other case here passes `total: 42`, which the endpoint stopped
-    // sending in #277 — it defers the exact count and sends `filteredTotal: null`.
-    // So the tile fell back to its "unknown" em-dash on every real search and no
-    // page-level test noticed, because no page-level test used the real payload.
-    it('shows the rows walked as a lower bound when the server defers the exact total', () => {
+    // Removed at the owner's request (2026-09-05). Since #277 the server defers
+    // the exact total, so the only honest figure this tile could carry was a lower
+    // bound over the rows walked — "50+" above fifty cards, which restates the
+    // list beneath it and climbs as the reader scrolls. Pinned so re-adding one is
+    // a deliberate act; `RecentJobsMetrics`' header comment carries the reasoning.
+    it('renders no job-count tile, even with rows loaded and more pages waiting', () => {
       mockSearch({
         counts: { total: null, last24h: 309, last3h: 9 },
         jobs: Array.from({ length: 50 }, (_, i) => makeJob(String(i))),
@@ -209,22 +206,11 @@ describe('RecentJobPostingsPage', () => {
       });
       renderWithProviders(<RecentJobPostingsPage />, { initialEntries: ['/'] });
 
-      expect(within(tile('Displayed Jobs')).getByText('50+')).toBeInTheDocument();
-      expect(within(tile('Displayed Jobs')).queryByText('—')).not.toBeInTheDocument();
-      // The two recency tiles are still exact — only the filtered total moved.
+      expect(screen.queryByText('Displayed Jobs')).not.toBeInTheDocument();
+      expect(screen.queryByText('50+')).not.toBeInTheDocument();
+      // The two recency tiles are untouched by the removal.
       expect(within(tile('Past 24 Hours')).getByText('309')).toBeInTheDocument();
       expect(within(tile('Past 3 Hours')).getByText('9')).toBeInTheDocument();
-    });
-
-    it('drops the "+" once the walk is exhausted, because the rows in hand ARE the set', () => {
-      mockSearch({
-        counts: { total: null, last24h: 309, last3h: 9 },
-        jobs: Array.from({ length: 4 }, (_, i) => makeJob(String(i))),
-        hasNextPage: false,
-      });
-      renderWithProviders(<RecentJobPostingsPage />, { initialEntries: ['/'] });
-
-      expect(within(tile('Displayed Jobs')).getByText('4')).toBeInTheDocument();
     });
 
     it('reads as unknown, not as zero, while page 1 (which carries the counts) is in flight', () => {
@@ -234,7 +220,6 @@ describe('RecentJobPostingsPage', () => {
       mockSearch({ counts: null, isInitialLoading: true });
       renderWithProviders(<RecentJobPostingsPage />, { initialEntries: ['/'] });
 
-      expect(within(tile('Displayed Jobs')).getByText('—')).toBeInTheDocument();
       expect(within(tile('Past 24 Hours')).getByText('—')).toBeInTheDocument();
       expect(within(tile('Past 3 Hours')).getByText('—')).toBeInTheDocument();
     });
@@ -246,21 +231,21 @@ describe('RecentJobPostingsPage', () => {
       // 1 is in flight, and the chips above them have already changed. So they
       // stay and are marked busy, rather than silently reading as current.
       mockSearch({
-        counts: { total: 42, last24h: 7, last3h: 3 },
+        counts: { total: null, last24h: 7, last3h: 3 },
         isRefreshing: true,
         jobs: [makeJob('1')],
       });
       renderWithProviders(<RecentJobPostingsPage />, { initialEntries: ['/'] });
 
-      expect(within(tile('Displayed Jobs')).getByText('42')).toBeInTheDocument();
-      expect(screen.getByText('Displayed Jobs').closest('[aria-busy="true"]')).not.toBeNull();
+      expect(within(tile('Past 24 Hours')).getByText('7')).toBeInTheDocument();
+      expect(screen.getByText('Past 24 Hours').closest('[aria-busy="true"]')).not.toBeNull();
     });
 
     it('does not mark the tiles busy when nothing is in flight', () => {
-      mockSearch({ counts: { total: 42, last24h: 7, last3h: 3 } });
+      mockSearch({ counts: { total: null, last24h: 7, last3h: 3 } });
       renderWithProviders(<RecentJobPostingsPage />, { initialEntries: ['/'] });
 
-      expect(screen.getByText('Displayed Jobs').closest('[aria-busy="true"]')).toBeNull();
+      expect(screen.getByText('Past 24 Hours').closest('[aria-busy="true"]')).toBeNull();
     });
   });
 
@@ -327,7 +312,7 @@ describe('RecentJobPostingsPage', () => {
         preloadedState: { ui: demoUiState },
       });
 
-      expect(within(tile('Displayed Jobs')).getByText('3')).toBeInTheDocument();
+      expect(within(tile('Past 24 Hours')).getByText('3')).toBeInTheDocument();
       expect(within(tile('Past 3 Hours')).getByText('2')).toBeInTheDocument();
       expect(screen.getByTestId('recent-jobs-list')).toHaveAttribute('data-job-count', '3');
       expect(screen.queryByRole('alert')).not.toBeInTheDocument();

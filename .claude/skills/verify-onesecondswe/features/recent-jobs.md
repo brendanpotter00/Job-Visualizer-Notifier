@@ -1,7 +1,7 @@
 # Recent Job Postings — `/` (`ROUTES.RECENT_JOBS`)
 
 The app's home page: recent openings across every tracked company, with filters, a
-"Displayed Jobs" metric row, and an infinite-scrolling list of job cards. This is
+recency metric row, and an infinite-scrolling list of job cards. This is
 the feature the bundled proof drive (`helpers/drive.spec.ts`) exercises end-to-end.
 
 Page: `src/frontend/src/pages/RecentJobPostingsPage/RecentJobPostingsPage.tsx`.
@@ -15,8 +15,11 @@ Card: `components/shared/JobCard/JobListingCard.tsx`.
   level, and time window.
 - **Filter controls** — the on-page `RecentJobsFilters` dispatch the `recentJobsFilters`
   slice; WebMCP's `apply_feed_filters` / `reset_feed_filters` drive the exact same slice.
-- **Metric row** — `RecentJobsMetrics` shows "Displayed Jobs" (the filtered count), "Past
-  24 Hours", "Past 3 Hours".
+- **Metric row** — `RecentJobsMetrics` shows "Past 24 Hours" and "Past 3 Hours", both scoped
+  to the companies the reader follows and to nothing else. A leading "Displayed Jobs" tile
+  was REMOVED on 2026-09-05: the server defers the filtered total (Wave-1 B1), so the only
+  figure it could carry was a lower bound over the rows walked ("50+"), which restates the
+  list under it. There is no filtered count on the page — do not assert one.
 - **Infinite list** — virtualized when signed in; hard-capped at ~12 with a `SignInOverlay`
   when signed out; keyset-paged as the user scrolls.
 - **Open a posting** — each card's "Apply" opens the ATS URL in a new tab.
@@ -49,7 +52,7 @@ in the DOM.
   ```
 - **DOM assert (the real handles):** job title = `getByRole('heading', { level: 3 })`;
   company name renders as text (`getByText('Apple', { exact: true })`); the metric label
-  is `getByText('Displayed Jobs')`; each card has an `Apply` link. Assert the **per-card
+  is `getByText('Past 24 Hours')`; each card has an `Apply` link. Assert the **per-card
   invariant** — after a company filter every visible card is Apple, and a company that was
   visible unfiltered (e.g. `SpaceX`) is gone.
 - **Discovery tools** feed the filters: `list_filter_options` → `{ categories, levels }`;
@@ -66,15 +69,15 @@ in the DOM.
 
 - **DOM count ≠ `meta.filteredTotal`. Never assert row-count equality.** The signed-in list
   is **virtualized** (only a screenful is mounted) and the signed-out list is **hard-capped
-  at ~12** behind a `SignInOverlay`. Assert the per-card invariant + the "Displayed Jobs"
-  metric instead.
+  at ~12** behind a `SignInOverlay`. Assert the per-card invariant instead; there is no
+  header count to compare against.
 - **`search_jobs.meta.filteredTotal` is `number | null` — DEFERRED (null) on the real
   server-side search path** (Wave-1 B1), a number only in demo mode. `serverReturned` equals
   `res.jobs.length` — the rows on THIS server page (≤ `limit`), NOT a pre-filter count. So the
   non-empty check rides `res.jobs.length` / `serverReturned`, and `filteredTotal` is compared
   only when non-null (then it bounds `serverReturned` from ABOVE). Never assert
-  `serverReturned >= filteredTotal`, and do not expect the tool's `meta` to equal the page's
-  "Displayed Jobs" number — the page pages the same `/api/jobs/search` endpoint independently.
+  `serverReturned >= filteredTotal`. The page no longer renders any total, so there is
+  nothing on screen to compare the tool's `meta` against.
 - **`category` / `level` filters return ~0 in `jobscraper_e2e`** (enrichment is ~100% NULL).
   This is the clone, not a broken tool — prove those by `meta` shape; use company/keyword/
   timeWindow for a non-empty narrowing.
