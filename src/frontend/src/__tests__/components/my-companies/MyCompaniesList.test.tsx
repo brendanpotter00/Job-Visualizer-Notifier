@@ -248,15 +248,29 @@ describe('MyCompaniesList', () => {
     // against a block that vanished entirely.
     expect(screen.queryByText('Open their careers page')).not.toBeInTheDocument();
     expect(screen.queryByText('Paste it in the box above')).not.toBeInTheDocument();
+    // The line is wrapped in the box that grows into the leftover page height and
+    // centres it. jsdom HAS NO LAYOUT ENGINE — it will happily report a centred
+    // element as 0x0 — so this asserts the STRUCTURE only: that the wrapper exists
+    // and that the line is inside it. Whether it actually lands in the middle is a
+    // browser question, checked against a real Chromium at several viewport sizes.
+    const fill = screen.getByTestId('my-companies-empty-fill');
+    expect(fill).toContainElement(empty);
   });
 
   it('shows the empty state only while the list is empty', async () => {
     fetchMock.mockResolvedValue(jsonResponse({ companies: [COMPANY_A] }));
     renderWithProviders(<MyCompaniesList />);
 
-    await screen.findByTestId('my-company-row');
+    // Positive first: the negatives below are worthless on their own, since a
+    // component that rendered nothing at all would satisfy every one of them.
+    const rows = await screen.findAllByTestId('my-company-row');
+    expect(rows).toHaveLength(1);
     expect(screen.queryByTestId('my-companies-empty')).not.toBeInTheDocument();
     expect(screen.queryByText('No companies yet')).not.toBeInTheDocument();
+    // The growing wrapper goes with it. A populated list must not inherit the
+    // fill-the-page box — that is the whole reason the growth is applied
+    // conditionally rather than left on as an inert `flexGrow`.
+    expect(screen.queryByTestId('my-companies-empty-fill')).not.toBeInTheDocument();
   });
 
   it('heads the section "Your companies"', async () => {

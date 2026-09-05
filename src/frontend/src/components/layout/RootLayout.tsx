@@ -97,7 +97,15 @@ export function RootLayout() {
         }}
       >
         <DrawerHeader />
-        <Box sx={{ flex: 1 }}>
+        {/* `flex: 1` already sized this box to "viewport minus toolbar minus footer",
+            but only as a USED height — its computed `height` stays `auto`, so a page
+            asking for `minHeight: 100%` resolved against nothing and collapsed back to
+            its content. `display: flex` + `column` hands that same measured height down
+            as flex space instead, which is how `MyCompaniesPage` lets its empty state
+            centre in the leftover room. Pages that don't opt in are unaffected: a lone
+            child of a column flex container still stretches to full width and keeps its
+            natural height, because nothing here sets `flexGrow` on it. */}
+        <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
           <Outlet />
         </Box>
         <AppFooter />

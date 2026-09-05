@@ -373,7 +373,27 @@ export function MyCompaniesPage() {
   };
 
   return (
-    <Container maxWidth="md" sx={{ py: RESPONSIVE.spacing.pageMarginY }}>
+    /* The flex column here exists for ONE consumer: the empty state at the bottom of
+       `MyCompaniesList`, which centres itself in whatever space is left over. It is
+       plumbing, not layout — `flexGrow` claims the height `RootLayout`'s `<Outlet />`
+       wrapper already has ("viewport minus toolbar minus footer"), and every child
+       below keeps its natural height because nothing but the empty state ever sets
+       `flexGrow` of its own. With companies in the list the extra room is simply
+       unused, exactly as it was before.
+
+       `flexGrow`, not `minHeight: '100%'`: that wrapper's height is a flex-derived
+       USED height while its computed `height` is still `auto`, so a percentage
+       min-height resolves against nothing and silently collapses to content height.
+       Measured, not assumed — it is why this is the second attempt. */
+    <Container
+      maxWidth="md"
+      sx={{
+        py: RESPONSIVE.spacing.pageMarginY,
+        display: 'flex',
+        flexDirection: 'column',
+        flexGrow: 1,
+      }}
+    >
       {/* The badge lives INSIDE the `<h1>` so it is part of the heading's
           accessible name ("Add Companies Beta") rather than a decoration a
           screen reader steps over. `flexWrap` keeps it off the title's line
@@ -392,7 +412,7 @@ export function MyCompaniesPage() {
           See `AddQuotaCounter` for why there is no alert and no low-balance notice. */}
       <AddQuotaCounter quota={quota} />
 
-      <Stack spacing={3}>
+      <Stack spacing={3} sx={{ flexGrow: 1 }}>
         {/* THE CONSENT MOVED, it did not go. A blue info alert used to sit here saying
             what the press does; it is now one body-size sentence directly under the
             button, inside `ResolveUrlForm`, where the control it describes is. An alert
