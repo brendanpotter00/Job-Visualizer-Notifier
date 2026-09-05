@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Multi-Company Job Scraper - A Python-based web scraping framework that extracts job listings from multiple company career sites. Currently supports **Google Careers** (Playwright browser automation), **Apple Jobs** (hybrid HTML + API approach), **Microsoft Careers** (Eightfold ATS JSON APIs), **Amazon Jobs** (public JSON search endpoint, no detail fetch), and **TikTok Jobs** (public JSON search endpoint, POST, no detail fetch). Designed to feed structured job data into the Job Visualizer application with support for incremental scraping, database persistence, and comprehensive error handling.
+Multi-Company Job Scraper - A Python-based web scraping framework that extracts job listings from multiple company career sites. Currently supports **Google Careers** (Playwright browser automation), **Apple Jobs** (hybrid HTML + API approach), **Microsoft Careers** (Eightfold ATS JSON APIs), **Amazon Jobs** (public JSON search endpoint, no detail fetch), **TikTok Jobs** (public JSON search endpoint, POST, no detail fetch), and **Meta Jobs** (Playwright GraphQL response sniffing, no pagination, no detail fetch). Designed to feed structured job data into the Job Visualizer application with support for incremental scraping, database persistence, and comprehensive error handling.
 
 ## Commands
 
@@ -25,6 +25,10 @@ python scripts/run_scraper.py --company amazon --max-jobs 10 -v         # Quick 
 # TikTok Scraper
 python scripts/run_scraper.py --company tiktok                          # TikTok scrape
 python scripts/run_scraper.py --company tiktok --max-jobs 10 -v         # Quick smoke test
+
+# Meta Scraper
+python scripts/run_scraper.py --company meta                            # Meta scrape
+python scripts/run_scraper.py --company meta --max-jobs 10 -v           # Quick smoke test
 
 python scripts/run_scraper.py --company all                             # Run all scrapers
 
@@ -53,7 +57,7 @@ pip install -r scripts/requirements-dev.txt      # Install dev dependencies (tes
 ## CLI Options
 
 ```
---company {google,apple,microsoft,amazon,tiktok,all}  # Which scraper to run (default: google)
+--company {google,apple,microsoft,amazon,tiktok,meta,all}  # Which scraper to run (default: google)
 --db-url URL                  # PostgreSQL connection URL
 --incremental                 # Run incremental mode (requires --db-url)
 --detail-scrape               # Scrape individual job detail pages
@@ -82,6 +86,11 @@ pip install -r scripts/requirements-dev.txt      # Install dev dependencies (tes
 - `apple_jobs_scraper/parser.py` - HTML parsing for list/search result pages
 - `apple_jobs_scraper/api_client.py` - JSON API client for job details
 - `apple_jobs_scraper/config.py` - Apple-specific configuration (locations, keywords)
+
+**Meta-Specific:**
+- `meta_jobs_scraper/scraper.py` - Playwright GraphQL response sniffing (extends BaseScraper)
+- `meta_jobs_scraper/parser.py` - GraphQL payload extraction and completeness guard
+- `meta_jobs_scraper/config.py` - Meta-specific configuration (completeness ratio, US filters)
 
 **Shared Modules:**
 - `shared/base_scraper.py` - Abstract base class for all company scrapers
@@ -295,6 +304,27 @@ The TikTok scraper is **API-only** — no HTML parsing and no detail-fetch phase
   matched on **word boundaries** ("HR" as a substring matches "T-h-r-eat")
 - `JOBS_PER_PAGE` - 100
 - `MAX_PAGES` - 50 safety bound (hitting it raises rather than truncating)
+
+## Meta Scraper Details
+
+The Meta scraper uses **Playwright GraphQL response sniffing** — no pagination API and no detail-fetch phase:
+
+1. **Single GraphQL POST:** Navigates `https://www.metacareers.com/jobsearch` (a client-side SPA), attaches a response handler that intercepts every `/graphql` POST, and mines the response whose `data` subtree contains `all_jobs` / `featured_jobs`. The whole US catalogue (~890 jobs) arrives in one shot — there is no `offset`/`cursor` parameter to drive.
+2. **Descriptions are NOT inline:** `scrape_job_details_streaming` is a pass-through; `posted_on` is always `None` (no date in the payload, same as TikTok).
+
+**Key Differences from Other Scrapers:**
+- **No pagination.** The entire catalogue is returned in a single GraphQL response; asking for another page is not possible.
+- **Anchor on leaf arrays, not wrapper names.** Meta has already renamed its GraphQL operation/container once (silently zeroing the sibling adapter for 41 days). The parser walks `data` for any dict containing `all_jobs` or `featured_jobs`, so it survives a `..._v3` wrapper rename.
+- **Client-side US + title filtering.** `metacareers.com/jobsearch` returns the global catalogue (~890 jobs); narrowing to US roles is done by tokenising the `City, ST` location format and matching against US state/territory codes, spelled-out state names, and `US`/`USA` country tokens — NOT a substring match on "United States" (which matches zero Meta rows).
+- **An empty or short capture RAISES, never returns short.** Parsing fewer than 90% of the advertised `job_count` raises `MetaCaptureError` and discards the result — same class of bug as the 2026-03-29 mass-closure incident.
+- **Same-origin navigation is required** for GraphQL interception (cross-origin response bodies are blocked by the browser sandbox).
+
+**Meta Configuration (`meta_jobs_scraper/config.py`):**
+- `LIST_URL` - `https://www.metacareers.com/jobsearch`
+- `FILTER_US_ONLY` - `True`; set `False` to keep the global catalogue
+- `MIN_COMPLETENESS_RATIO` - `0.9` (90% of advertised `job_count` must parse)
+- `INCLUDE_TITLE_KEYWORDS` / `EXCLUDE_TITLE_KEYWORDS` - title filters; EXCLUDE matched on word boundaries
+- `RESPONSE_WAIT_S` / `PAGE_TIMEOUT_MS` - timeouts for the SPA hydration
 
 ## Common Tasks
 
