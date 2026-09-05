@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 
 import anthropic
 from anthropic import AsyncAnthropic
@@ -222,11 +223,39 @@ def _parse_envelope(raw_obj: object) -> list[CanonicalLocation]:
     return envelope.locations
 
 
+# --- cardinality guard -------------------------------------------------------
+#
+# A raw string can only name so many places. "San Francisco" is one; it is never
+# ten. Prod had no such check, so an over-generating response was accepted whole
+# and (under the pre-2026-09 append-only cache) fused permanently into the alias
+# mapping -- the key 'remote' reached 29 locations including Riyadh.
+#
+# The bound is deliberately generous: real multi-site postings are separated by
+# commas/semicolons, so the separator-group count is a fair ceiling, and
+# MIN_PLAUSIBLE_LOCATIONS gives short strings ("Bay Area", "HQ") room to expand.
+# A response over the bound RAISES rather than being truncated: the model is
+# nondeterministic, so a retry usually returns a sane answer, whereas silently
+# keeping the first N would persist a guess.
+_SEPARATORS = re.compile(r"[;,/|\n]")
+MIN_PLAUSIBLE_LOCATIONS = 3
+
+
+def max_plausible_locations(raw: str) -> int:
+    """Ceiling on how many locations ``raw`` could legitimately name."""
+    groups = [g for g in _SEPARATORS.split(raw) if g.strip()]
+    return max(MIN_PLAUSIBLE_LOCATIONS, len(groups))
+
+
 def parse_locations_text(text: str, raw: str = "") -> list[CanonicalLocation]:
     """Parse a model text payload into >=1 ``CanonicalLocation``.
 
     Shared by the sync and batch paths. Raises ``LocationLLMError`` on empty /
-    non-JSON / schema-invalid / zero-location output.
+    non-JSON / schema-invalid / zero-location output, and on a response naming
+    implausibly many locations for the input (see the cardinality guard above).
+
+    The guard is skipped when ``raw`` is not supplied -- the eval's batch path
+    calls this without it, and the eval scores answers against a curated expected
+    set rather than needing the guard.
     """
     if not text:
         raise LocationLLMError(f"LLM returned no text content for {raw!r}")
@@ -234,7 +263,17 @@ def parse_locations_text(text: str, raw: str = "") -> list[CanonicalLocation]:
         raw_obj = json.loads(text)
     except json.JSONDecodeError as exc:
         raise LocationLLMError(f"LLM returned non-JSON text for {raw!r}: {exc}") from exc
-    return _parse_envelope(raw_obj)
+    locations = _parse_envelope(raw_obj)
+
+    if raw:
+        ceiling = max_plausible_locations(raw)
+        if len(locations) > ceiling:
+            raise LocationLLMError(
+                f"LLM returned {len(locations)} locations for {raw!r}, which names at "
+                f"most {ceiling} place(s); rejecting as over-generation "
+                f"(got: {[l.canonical_name for l in locations]!r})"
+            )
+    return locations
 
 
 async def normalize_location_via_llm(raw: str) -> list[CanonicalLocation]:

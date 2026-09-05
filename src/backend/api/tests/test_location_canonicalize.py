@@ -12,8 +12,10 @@ from dataclasses import dataclass
 from api.services.location_canonicalize import (
     canonical_country,
     canonical_region,
+    canonical_remote_scope,
     canonicalize,
     canonicalize_parts,
+    render_canonical_name,
 )
 
 
@@ -98,20 +100,33 @@ class TestCanonicalize:
         assert (c.region, c.country) == (None, "GB")
         assert c.canonical_name == "London, GB"
 
-    def test_country_label_preserved_code_fixed(self):
+    def test_country_label_derived_from_code(self):
         c = canonicalize(_Loc("United States", "country", None, None, "USA"))
         assert c.country == "US"
-        assert c.canonical_name == "United States"  # label preserved (eval-locked)
+        # Derived from the ISO-2 code now, not carried over from the model. It
+        # happens to equal the old preserved label, which is the point: the
+        # derivation reproduces the intended label without depending on the
+        # model to spell it the same way twice.
+        assert c.canonical_name == "United States"
 
-    def test_remote_label_preserved(self):
+    def test_remote_label_derived(self):
         c = canonicalize(_Loc("Remote (US)", "remote", None, None, "US", "us"))
         assert c.canonical_name == "Remote (US)"
         assert c.country == "US"
         assert c.remote_scope == "us"
 
-    def test_region_kind_label_preserved(self):
+    def test_remote_label_is_derived_not_echoed(self):
+        """A junk label + junk scope still produces the canonical rendering."""
+        c = canonicalize(_Loc("REMOTE - usa (anywhere in US)", "remote", None, None,
+                              "United States", "zone_1"))
+        assert c.country == "US"
+        assert c.remote_scope == "us"
+        assert c.canonical_name == "Remote (US)"
+
+    def test_region_kind_label_derived(self):
         c = canonicalize(_Loc("California, US", "region", None, "CA", "US"))
         assert (c.region, c.country) == ("CA", "US")
+        # USPS code expanded back to the state name for the label.
         assert c.canonical_name == "California, US"
 
     def test_idempotent(self):
@@ -126,3 +141,170 @@ class TestCanonicalize:
         )
         assert once == twice
         assert twice.canonical_name == "Bangalore, IN"
+
+
+class TestCanonicalRemoteScope:
+    """remote_scope is part of `uq_locations_canonical`, so an unvalidated value
+    forges a new `locations` row. Prod reached 113 distinct values for what
+    should be ~60 -- 23 rows all named "Remote (US)", 14 all named "Remote"."""
+
+    def test_macro_regions_pass_through(self):
+        for token in ("global", "amer", "namer", "latam", "emea", "eu", "apac"):
+            assert canonical_remote_scope(token, kind="remote", canon_country=None) == token
+
+    def test_case_and_spelling_variants_collapse(self):
+        for raw in ("Global", "GLOBAL", "worldwide", "Worldwide", "anywhere"):
+            assert canonical_remote_scope(raw, kind="remote", canon_country=None) == "global"
+        for raw in ("AMER", "americas", "Americas", "AMERICAS"):
+            assert canonical_remote_scope(raw, kind="remote", canon_country=None) == "amer"
+        for raw in ("APAC", "apac", "Asia Pacific"):
+            assert canonical_remote_scope(raw, kind="remote", canon_country=None) == "apac"
+
+    def test_country_names_and_codes_collapse_to_iso2(self):
+        assert canonical_remote_scope("Brazil", kind="remote", canon_country="BR") == "br"
+        assert canonical_remote_scope("br", kind="remote", canon_country="BR") == "br"
+        assert canonical_remote_scope("United States", kind="remote", canon_country="US") == "us"
+        assert canonical_remote_scope("USA", kind="remote", canon_country="US") == "us"
+        assert canonical_remote_scope("UK", kind="remote", canon_country="GB") == "gb"
+
+    def test_non_geographic_words_fall_back_to_country(self):
+        """'country'/'region'/'state'/'full' describe HOW remote, not WHERE."""
+        for junk in ("country", "region", "regional", "state", "full", "partial",
+                     "unspecified", "local", "remote-friendly",
+                     "telecommuting_permitted"):
+            assert canonical_remote_scope(junk, kind="remote", canon_country="US") == "us"
+            assert canonical_remote_scope(junk, kind="remote", canon_country=None) is None
+
+    def test_remote_is_a_tautology_not_a_global_claim(self):
+        """remote_scope='remote' says the row IS remote -- which kind already
+        says -- not that it is worldwide. Treating it as 'global' would widen a
+        US-only remote role to the whole planet. Prod has 16 such rows carrying
+        countries US/GB and regions NY/MN/PA/TX/CA."""
+        assert canonical_remote_scope("remote", kind="remote", canon_country="US") == "us"
+        assert canonical_remote_scope("remote", kind="remote", canon_country="GB") == "gb"
+        assert canonical_remote_scope("remote", kind="remote", canon_country=None) is None
+        assert canonical_remote_scope("fully remote", kind="remote", canon_country="US") == "us"
+
+    def test_genuine_global_claims_still_map_to_global(self):
+        for raw in ("worldwide", "anywhere", "world", "global"):
+            assert canonical_remote_scope(
+                raw, kind="remote", canon_country=None) == "global"
+
+    def test_ats_junk_falls_back_to_country(self):
+        assert canonical_remote_scope("zone_1", kind="remote", canon_country="US") == "us"
+        assert canonical_remote_scope("US-Eastern", kind="remote", canon_country="US") == "us"
+        assert canonical_remote_scope("Bay Area, CA", kind="remote", canon_country="US") == "us"
+
+    def test_whole_label_in_the_scope_column_is_unwrapped(self):
+        assert canonical_remote_scope("Remote (US)", kind="remote", canon_country="US") == "us"
+        assert canonical_remote_scope(
+            "Remote (Philippines)", kind="remote", canon_country="PH") == "ph"
+
+    def test_two_letter_ambiguity_resolved_by_country(self):
+        """CA is California AND Canada; IN is Indiana AND India."""
+        # With a US country, a 2-letter scope is a STATE -> country-level scope.
+        assert canonical_remote_scope("CA", kind="remote", canon_country="US") == "us"
+        assert canonical_remote_scope("IN", kind="remote", canon_country="US") == "us"
+        # With no country to anchor it, it reads as an ISO-2 country code.
+        assert canonical_remote_scope("CA", kind="remote", canon_country=None) == "ca"
+
+    def test_scope_is_none_for_non_remote_kinds(self):
+        for kind in ("city", "region", "country"):
+            assert canonical_remote_scope("us", kind=kind, canon_country="US") is None
+
+    def test_never_raises_on_arbitrary_input(self):
+        for junk in ("", "   ", "???", "Remote (India, Australia, New Zealand)",
+                     "United States & Canada", "EMEA/AMER"):
+            canonical_remote_scope(junk, kind="remote", canon_country=None)
+
+
+class TestRenderCanonicalName:
+    def test_city(self):
+        assert render_canonical_name(
+            kind="city", city="Austin", region="TX", country="US",
+            remote_scope=None) == "Austin, TX, US"
+
+    def test_country_uses_display_name(self):
+        assert render_canonical_name(
+            kind="country", city=None, region=None, country="BR",
+            remote_scope=None) == "Brazil"
+
+    def test_region_expands_us_state_code(self):
+        assert render_canonical_name(
+            kind="region", city=None, region="NY", country="US",
+            remote_scope=None) == "New York, US"
+
+    def test_macro_region_without_country(self):
+        assert render_canonical_name(
+            kind="region", city=None, region="EMEA", country=None,
+            remote_scope=None) == "EMEA"
+
+    def test_remote_us_stays_a_code(self):
+        assert render_canonical_name(
+            kind="remote", city=None, region=None, country="US",
+            remote_scope="us") == "Remote (US)"
+
+    def test_remote_other_countries_use_display_names(self):
+        """ISO-2 collides with USPS: a bare 'Remote (CA)' would read as California."""
+        assert render_canonical_name(
+            kind="remote", city=None, region=None, country="CA",
+            remote_scope="ca") == "Remote (Canada)"
+        assert render_canonical_name(
+            kind="remote", city=None, region=None, country="BR",
+            remote_scope="br") == "Remote (Brazil)"
+
+    def test_remote_us_state_scoped(self):
+        assert render_canonical_name(
+            kind="remote", city=None, region="AZ", country="US",
+            remote_scope="us") == "Remote (AZ, US)"
+
+    def test_remote_unscoped(self):
+        assert render_canonical_name(
+            kind="remote", city=None, region=None, country=None,
+            remote_scope=None) == "Remote"
+
+    def test_returns_none_when_there_is_no_structure(self):
+        assert render_canonical_name(
+            kind="country", city=None, region=None, country=None,
+            remote_scope=None) is None
+
+
+class TestUnknownUsRegionDropped:
+    """A US `region` means a USPS state. Anything else forged a row per spelling
+    -- prod accumulated region='United States', 'Eastern Time Zone' and
+    'Michigan, Ohio, Indiana', each a separate row rendering the same label."""
+
+    def test_non_state_us_region_dropped(self):
+        assert canonical_region("United States", "US", "remote") is None
+        assert canonical_region("Eastern Time Zone", "US", "remote") is None
+        assert canonical_region("Michigan, Ohio, Indiana", "US", "remote") is None
+
+    def test_real_states_still_survive(self):
+        assert canonical_region("Michigan", "US", "city") == "MI"
+        assert canonical_region("MI", "US", "city") == "MI"
+
+    def test_dropping_it_removes_the_junk_from_the_label(self):
+        c = canonicalize(_Loc("Remote (United States)", "remote", None,
+                              "United States", "US", "country"))
+        assert c.region is None
+        assert c.canonical_name == "Remote (US)"
+
+
+class TestScopeCollapseOnRealProdValues:
+    """The distinct (scope, region, country) tuples prod actually holds for
+    kind='remote' must collapse hard -- that shrinkage IS the fix."""
+
+    def test_prod_variants_collapse(self):
+        raw_variants = [
+            ("us", None, None), ("US", None, "US"), ("USA", None, "US"),
+            ("United States", None, "US"), ("country", None, "US"),
+            ("country", "DC", "US"), ("region", "MA", "US"), ("state", "OH", "US"),
+            ("remote", None, "US"), ("remote-friendly", None, "US"),
+            ("Remote (US)", None, "US"), ("zone_1", None, "US"),
+        ]
+        collapsed = {
+            canonical_remote_scope(scope, kind="remote", canon_country=country)
+            for scope, _region, country in raw_variants
+        }
+        # Twelve prod spellings of "remote, anywhere in the US" -> one value.
+        assert collapsed == {"us"}
