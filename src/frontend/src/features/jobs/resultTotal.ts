@@ -15,12 +15,13 @@
  * screen-reader user they are at the end of a list they are twenty rows into.
  *
  * A header tile shared this derivation briefly and rendered the third case as
- * "50+". It was removed at the owner's request (2026-09-05) — see the header
- * comment on `RecentJobsMetrics` — which is why a module this size has one
- * caller. The three-way split is kept rather than collapsed into
+ * "50+". That tile, and eventually the entire Recent metric row, were removed at
+ * the owner's request on 2026-09-05 — which is why a module this size has exactly
+ * one caller. The three-way split is kept rather than collapsed into
  * `number | null`, because the two nulls are NOT the same fact ("nothing has
- * measured this" vs "at least this many"), and flattening them is how the tile
- * came to render a permanent em-dash in the first place.
+ * measured this" vs "at least this many"), and flattening them is precisely how
+ * the tile came to render a permanent em-dash in the first place. `aria-setsize`
+ * needs that distinction even though no pixels do.
  */
 
 import type { SearchJobsCounts } from './searchJobsTypes.ts';

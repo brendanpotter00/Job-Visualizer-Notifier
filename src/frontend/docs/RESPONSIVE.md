@@ -88,7 +88,8 @@ sx={{ ...(isMobile && { '& .MuiChip-root': { height: RESPONSIVE.jobCard.chipHeig
   and shrink long secondary text on mobile (the curated card keeps its full description but
   drops to a smaller font — shrink text, don't truncate it).
 - **Metrics/numbers stack tall** → keep them a horizontal dense row on mobile (see
-  `MetricCard`'s `dense` prop + `RecentJobsMetrics`), not a vertical column.
+  `MetricCard`'s `dense` prop + `MetricsRow` on the hiring trend page), not a vertical
+  column.
 
 ## Checklist — making a page mobile-friendly
 

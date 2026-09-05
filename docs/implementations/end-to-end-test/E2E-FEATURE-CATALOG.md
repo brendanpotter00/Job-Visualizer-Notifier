@@ -61,8 +61,8 @@ the user surface, not missing.
 
 ## 1. Recent job feed — `/`
 
-The home page: recent openings across every tracked company, a recency metric row,
-and an infinite-scrolling list of job cards. Filters read open jobs from the server, then
+The home page: recent openings across every tracked company and an infinite-scrolling
+list of job cards. Filters read open jobs from the server, then
 narrow them by keyword, company, location, employment type, software-only, category, level,
 and time window.
 
@@ -72,15 +72,15 @@ and time window.
 | UC-recent-02 | Keyword include / exclude | `apply_feed_filters({include:['engineer'], exclude:['staff']})` | Visible titles all match an include term; none match an exclude term |
 | UC-recent-03 | Filter by location | `search_locations({q:'Seattle'})` → `apply_feed_filters({location:[canonicalName]})` | Visible cards show that location |
 | UC-recent-04 | Filter by category (the NULL-row limit) | `list_filter_options` → `apply_feed_filters({category:['software_engineering']})` | List narrows to `meta.filteredTotal` (≈ 0 in the clone — proven by `meta` **shape**, per the limit above) |
-| UC-recent-05 | Narrow by time window | `apply_feed_filters({timeWindow:'24h'})` | Feed narrows to recent postings; "Past 24 Hours" metric reflects the window |
+| UC-recent-05 | Narrow by time window | `apply_feed_filters({timeWindow:'24h'})` | Feed narrows to recent postings (read the proof off the cards — there is no header metric) |
 | UC-recent-06 | Reset restores the full feed | (filters applied) → `reset_feed_filters` | Filter chips cleared; the full unfiltered feed is back |
 | UC-recent-07 | Open a posting | `search_jobs(...)` → `open_job({url: jobs[0].url})` | Popup **intent** recorded (`page.on('popup')` / `window.open` stub); returns `{opened:true, url}` — headless popups are blocked, so intent not live nav |
 | UC-recent-08 | Filter catalog + company resolution load | `list_filter_options`; `list_companies({query})` | `{categories, levels}` non-empty; a display name resolves to its company id |
 
-**Feature notes:** the metric row shows one tile, Past 24 Hours ("Displayed Jobs" and "Past
-3 Hours" were both removed on 2026-09-05 — the first because the server defers the filtered
-total so it could only ever show a lower bound, the second as a redundant second window).
-The
+**Feature notes:** there is no header metric row — it was dismantled on 2026-09-05
+("Displayed Jobs" first, because the server defers the filtered total so it could only
+ever show a lower bound; then "Past 3 Hours" as a redundant second window; then the row).
+Anchor "the chrome rendered" on the page's `h1`, not on a count. The
 list virtualizes when signed in and hard-caps at ~12 (behind a sign-in overlay) when signed
 out. `apply_feed_filters` is **additive** — it only changes the fields you pass — so tests
 call `reset_feed_filters` first for a clean slate.
