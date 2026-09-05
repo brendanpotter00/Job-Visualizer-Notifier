@@ -21,6 +21,7 @@ import pytest
 from api.config import settings
 from api.services.llm_client import (
     CanonicalLocation,
+    parse_locations_text,
     LocationLLMError,
     MissingAnthropicKeyError,
     normalize_location_via_llm,
@@ -209,3 +210,64 @@ async def test_missing_key_raises_and_never_builds_client(monkeypatch):
 
 async def test_missing_key_is_subclass_of_location_llm_error():
     assert issubclass(MissingAnthropicKeyError, LocationLLMError)
+
+
+# --- cardinality guard -------------------------------------------------------
+
+class TestCardinalityGuard:
+    """A raw string can only name so many places. "San Francisco" is one; it is
+    never ten. Prod had no such check, so an over-generating response was
+    accepted whole -- the alias key 'remote' ended up holding 29 locations,
+    including Riyadh, for jobs whose raw location was the single word "Remote".
+    """
+
+    @staticmethod
+    def _payload(n):
+        return json.dumps({
+            "locations": [
+                {
+                    "canonical_name": f"City{i}, CA, US", "kind": "city",
+                    "city": f"City{i}", "region": "CA", "country": "US",
+                    "remote_scope": None, "confidence": 0.9,
+                }
+                for i in range(n)
+            ]
+        })
+
+    def test_ceiling_scales_with_separator_groups(self):
+        from api.services.llm_client import max_plausible_locations
+
+        assert max_plausible_locations("San Francisco") == 6  # the floor
+        assert max_plausible_locations("Sunnyvale, CA, USA; Kirkland, WA, USA") == 6
+        assert max_plausible_locations("a, b, c, d, e, f, g, h") == 8
+
+    def test_over_generation_truncates_it_does_not_reject(self):
+        """Rejecting was the wrong failure mode.
+
+        A raise retries 5x then marks the job normalization_status='failed' --
+        and nothing ever retries a failed job (scan_unnormalized selects IS NULL
+        only). So one over-generating raw string left every job carrying it with
+        ZERO tags, permanently, invisible in location filters. Too many tags is
+        visible and repairable; no tags is neither.
+        """
+        locs = parse_locations_text(self._payload(10), "San Francisco")
+        assert len(locs) == 6
+        assert [l.city for l in locs] == [f"City{i}" for i in range(6)]
+
+    def test_a_metro_string_is_not_truncated(self):
+        """The floor is 6 so separator-free metros survive: prod has
+        'greater seattle area' on 376 OPEN jobs."""
+        locs = parse_locations_text(self._payload(4), "greater seattle area")
+        assert len(locs) == 4
+
+    def test_genuine_multi_site_posting_is_allowed(self):
+        raw = ("Sunnyvale, CA, Los Angeles, CA, Bellevue, WA, Austin, TX, "
+               "Seattle, WA, New York, NY")
+        locs = parse_locations_text(self._payload(6), raw)
+        assert len(locs) == 6
+
+    def test_guard_skipped_when_raw_not_supplied(self):
+        """The eval's batch path calls this without `raw`; it scores against a
+        curated expected set rather than needing the guard."""
+        locs = parse_locations_text(self._payload(20))
+        assert len(locs) == 20
