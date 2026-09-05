@@ -74,6 +74,19 @@ export function useHydrateSavedFilters(): void {
 
     // Logged out. Only reset on the actual transition from authenticated so we
     // don't stomp anonymous users' in-session filter tweaks on every render.
+    //
+    // THE ADDRESS BAR IS CLEARED BY THE RESET BELOW, not here, and that is a
+    // dependency worth knowing about. `resetRecentJobsFilters` changes
+    // `filters`, which re-runs `useRecentJobsUrlSync`'s write effect, which
+    // rebuilds the query string from the (now default) filter set and drops
+    // every param it owns. That matters most on the path with no page load at
+    // all — a silent Auth0 session expiry or a failed refresh — where the ex
+    // user's `?time=…&tag=…` would otherwise sit in the bar above a defaults
+    // page and be re-applied verbatim by the next reload. (The Logout BUTTON
+    // redirects through `auth0Logout` and takes the URL with it, so it never
+    // showed the problem.) The write effect's gate must therefore stay
+    // independent of `hydrated` — `setRecentJobsHydrated(false)` two lines down
+    // used to silence it, which is what left the params behind.
     if (wasAuthenticated.current) {
       wasAuthenticated.current = false;
       dispatch(resetGraphFilters());

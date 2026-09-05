@@ -19,6 +19,42 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    id: 'add-factory',
+    title: 'Added Factory',
+    description:
+      "Factory — an AI research lab whose autonomous “Droid” agents plan, write, test, and review code alongside enterprise engineering teams — is now tracked via its Ashby job board. It raised a $150M Series C led by Khosla Ventures in April 2026 at a $1.5B valuation, after its Droids took the top spot on the Terminal Bench coding-agent benchmark, and NVIDIA, Adobe, EY, Palo Alto Networks, and Adyen run them across their engineering organizations. Around 55 roles are open, 44 of them in San Francisco.",
+    tags: ['new-companies'],
+    date: '2026-09-04',
+    link: {
+      to: ROUTES.ACCOUNT,
+      label: 'Add Factory to your company preferences',
+    },
+  },
+  {
+    id: 'add-parallel',
+    title: 'Added Parallel',
+    description:
+      "Parallel — web infrastructure for AI agents, giving them programmatic search, extraction, monitoring, and deep research over the live web — is now tracked via its Ashby job board. Founded by former Twitter CEO Parag Agrawal, it has raised $230M from Kleiner Perkins, Sequoia, Index Ventures, Spark Capital, Khosla Ventures, First Round, and Terrain at a $2B valuation, and its APIs are used by the likes of Harvey, Granola, Modal, and Dropbox. The team works fully in person, so all of its roughly 20 open roles sit in Palo Alto or San Francisco.",
+    tags: ['new-companies'],
+    date: '2026-09-03',
+    link: {
+      to: ROUTES.ACCOUNT,
+      label: 'Add Parallel to your company preferences',
+    },
+  },
+  {
+    id: 'add-meta',
+    title: 'Added Meta',
+    description:
+      "Meta — the company behind Facebook, Instagram, WhatsApp, and Messenger, plus its Reality Labs and AI efforts — is now tracked. Its careers site has no standard job board behind it, so this needed a purpose-built scraper rather than the usual ATS integration, joining Google, Apple, Microsoft, Amazon, and TikTok in the Custom Web Scrapers group. Coverage is US software and data roles, currently around 430 open postings out of a ~890-role global catalogue, refreshed hourly like everything else. One quirk worth knowing: Meta's listings carry no posted date, so their timeline reflects when this site first saw them.",
+    tags: ['new-companies'],
+    date: '2026-09-03',
+    link: {
+      to: ROUTES.ACCOUNT,
+      label: 'Add Meta to your company preferences',
+    },
+  },
+  {
     id: 'add-companies-2026-09-batch',
     title: 'Added a bunch of new companies',
     description:

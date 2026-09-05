@@ -27,6 +27,7 @@ from .routers import (
     internal_enrichment,
     jobs,
     jobs_qa,
+    jobs_search,
     locations,
     saved_filters,
     user_companies,
@@ -524,6 +525,10 @@ app.add_middleware(
 )
 
 app.include_router(jobs.router, prefix="/api/jobs", tags=["jobs"])
+# Mounted at a deeper prefix than the jobs router, but there is no route conflict:
+# ``/api/jobs/search`` is one path segment and the jobs router's only parametrized
+# route (``/{source_id}/{job_id}``) needs two.
+app.include_router(jobs_search.router, prefix="/api/jobs/search", tags=["jobs-search"])
 app.include_router(jobs_qa.router, prefix="/api/jobs-qa", tags=["jobs-qa"])
 app.include_router(locations.router, prefix="/api/locations", tags=["locations"])
 app.include_router(users.router, prefix="/api/users", tags=["users"])

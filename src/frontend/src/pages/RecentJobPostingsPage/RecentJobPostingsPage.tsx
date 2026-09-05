@@ -1,55 +1,37 @@
-import { useMemo } from 'react';
 import { Container, Typography, Box } from '@mui/material';
-import { useGetAllJobsQuery } from '../../features/jobs/jobsApi';
-import { useAppSelector } from '../../app/hooks';
-import {
-  selectRecentJobsMetadata,
-  selectRecentJobsTimeBasedCounts,
-} from '../../features/filters/selectors/recentJobsSelectors';
-import { selectEnabledCompanyIds } from '../../features/preferences/enabledCompaniesSlice';
-import { selectDemoModeEnabled } from '../../features/ui/uiSlice';
-import { useAuth } from '../../features/auth/useAuth';
+import { useRecentJobsSearch } from '../../features/jobs/hooks/useRecentJobsSearch';
 import { RecentJobsMetrics } from '../../components/recent-jobs-page/RecentJobsMetrics/RecentJobsMetrics';
 import { RecentJobsFilters } from '../../components/recent-jobs-page/RecentJobsFilters';
 import { RecentJobsList } from '../../components/recent-jobs-page/RecentJobsList/RecentJobsList';
 import { EditCompanyPreferencesRow } from '../../components/recent-jobs-page/EditCompanyPreferencesRow';
-import { FetchProgressBar } from '../../components/companies-page/FetchProgressBar/FetchProgressBar';
-import { FetchProgressBarSkeleton } from '../../components/companies-page/FetchProgressBar/FetchProgressBarSkeleton';
-import { ERROR_MESSAGES } from '../../constants/messages';
 import { ErrorState } from '../../components/shared/ErrorDisplay';
-import { extractErrorMessage } from '../../lib/errors';
+import { LoadingState } from '../../components/shared/LoadingIndicator';
 import { RESPONSIVE } from '../../config/responsive';
 
 /**
- * Recent Job Postings page component
+ * Recent Job Postings page.
  *
- * Displays recently posted jobs across all companies using RTK Query
- * with 10-minute cache and automatic request deduplication.
- * Features independent filters and chronological job list.
+ * Owns the single `useRecentJobsSearch()` call for the page and passes the result
+ * down. One call, deliberately: the hook debounces filter edits and freezes the
+ * recency bound per walk, and a second instance would keep its own timers and
+ * mint a competing cache entry — doubling every request for the same view.
  *
- * Uses memoized selectors for optimal performance:
- * - selectRecentJobsMetadata: Filtered job counts
- * - selectRecentJobsTimeBasedCounts: Time-based counts (24h and 3h windows)
+ * The page decides between three mutually exclusive shells; the list only ever
+ * renders under the third:
  *
- * @returns Recent job postings page with loading, error, or data display
+ * * **Awaiting deploy** — the search endpoint 404s shortly after a release, which
+ *   means Vercel published this bundle before Railway finished shipping the
+ *   backend. That is a wait, not a failure, so it reads as loading and the hook
+ *   retries on a backoff until it resolves.
+ * * **Initial error** — the first page failed. This must be an explicit error,
+ *   never an empty list: "no jobs found" for what is actually an outage was a
+ *   documented follow-up from the 2026-08-10 incident, and it sends the reader
+ *   off to change filters that were never the problem.
+ * * **Data** — metrics, filters, list.
  */
 export function RecentJobPostingsPage() {
-  const { data, error } = useGetAllJobsQuery();
-  const metadata = useAppSelector(selectRecentJobsMetadata);
-  const timeBasedCounts = useAppSelector(selectRecentJobsTimeBasedCounts);
-  const enabledIds = useAppSelector(selectEnabledCompanyIds);
-  const demoModeEnabled = useAppSelector(selectDemoModeEnabled);
-  const { isAuthenticated, isLoading: authLoading } = useAuth();
-  // Constrain the progress bar's chips/totals to the user's enabled set.
-  // null/[] = "all enabled" (matches the recent-jobs selector semantics).
-  const progressFilter = useMemo(
-    () => (enabledIds && enabledIds.length > 0 ? new Set(enabledIds) : null),
-    [enabledIds]
-  );
-  // Avoid flashing the full company list before the signed-in user's enabled
-  // preferences arrive. Render once either: auth has resolved to signed-out,
-  // or we have the user's ids in hand.
-  const preferencesReady = !authLoading && (!isAuthenticated || enabledIds !== null);
+  const search = useRecentJobsSearch();
+  const { counts, isAwaitingDeploy, error, errorScope } = search;
 
   return (
     <Container maxWidth="xl">
@@ -63,39 +45,41 @@ export function RecentJobPostingsPage() {
           Recent Job Postings
         </Typography>
         <EditCompanyPreferencesRow />
-        {/* Demo mode serves curated DEMO_JOBS from the selectors regardless of the
-            live query, so suppress the live-error banner while it is active — the
-            whole point of demo mode is to work when the backend is unavailable. */}
-        {error && !demoModeEnabled ? (
-          <Box sx={{ mb: 2 }}>
-            <ErrorState
-              inline
-              message={extractErrorMessage(error, ERROR_MESSAGES.LOAD_JOBS_FAILED)}
-            />
-          </Box>
-        ) : null}
 
-        {/* Render the list whenever the live query succeeds OR demo mode is on.
-            In demo mode the selectors return curated data, so bypass the
-            live-query loading/error gate entirely. */}
-        {(demoModeEnabled || (!error && data)) && (
+        {isAwaitingDeploy ? (
+          <LoadingState caption="Finishing an update — jobs will appear in a moment." />
+        ) : (
           <>
+            {/* `null`, not 0. The hook returns null for "unknown" — page 1 has
+                not landed, or it failed and the previous filter set's figures
+                were deliberately dropped — and `?? 0` turned that into three
+                confident zeros directly above the ErrorState, where "0 Displayed
+                Jobs" reads as "your filters matched nothing" next to a banner
+                that actually says the request was rejected. The tiles render an
+                em-dash instead. `pending` covers the other half: during an
+                ordinary filter change the numbers on screen still belong to the
+                OLD filter set, so they stay (blanking them on every edit is its
+                own kind of wrong) but dim until the new page 1 lands. */}
             <RecentJobsMetrics
-              totalJobs={metadata.filteredCount}
-              jobsLast24Hours={timeBasedCounts.jobsLast24Hours}
-              jobsLast3Hours={timeBasedCounts.jobsLast3Hours}
+              totalJobs={counts?.total ?? null}
+              jobsLast24Hours={counts?.last24h ?? null}
+              jobsLast3Hours={counts?.last3h ?? null}
+              pending={search.isRefreshing}
             />
-            {/* Live fetch-progress is meaningless in demo mode; only show it for
-                real data once the user's company preferences are ready. */}
-            {!demoModeEnabled &&
-              data &&
-              (preferencesReady ? (
-                <FetchProgressBar companyIdFilter={progressFilter} />
-              ) : (
-                <FetchProgressBarSkeleton />
-              ))}
+            {/* The filters stay mounted through an error on purpose. They are
+                persisted across reloads, so when the request failed BECAUSE of
+                the filter set (too many companies, too many keywords, a value
+                the endpoint rejects), unmounting them leaves the reader with a
+                Retry button that reissues the same rejected request forever and
+                no way to widen their way out. */}
             <RecentJobsFilters />
-            <RecentJobsList />
+            {errorScope === 'initial' && error ? (
+              <Box sx={{ mt: 2 }}>
+                <ErrorState inline message={error} onRetry={search.retry} />
+              </Box>
+            ) : (
+              <RecentJobsList search={search} />
+            )}
           </>
         )}
       </Box>

@@ -206,6 +206,10 @@
     "accomplishment": "Expedia is one of the world's largest online travel companies, anchoring a brand family that includes Hotels.com, Vrbo, and Orbitz.",
     "blurb": "Expedia operates online travel booking platforms where travelers compare and reserve flights, hotels, car rentals, and vacation packages."
   },
+  "factory": {
+    "accomplishment": "Factory raised a $150M Series C led by Khosla Ventures in April 2026 at a $1.5B valuation, after its Droids took the top spot on the Terminal Bench coding-agent benchmark; NVIDIA, Adobe, EY, Palo Alto Networks, and Adyen run them across their engineering organizations.",
+    "blurb": "Factory is an AI research lab building autonomous software-engineering agents called Droids, which plan, write, test, and review code alongside enterprise engineering teams."
+  },
   "fal": {
     "accomplishment": "fal operates a generative media platform serving developers and companies through a unified API with proprietary inference optimizations.",
     "blurb": "fal runs a generative media inference platform giving developers fast API access to AI image, video, audio, and 3D models."
@@ -333,6 +337,10 @@
     "accomplishment": "Merge is one of the most widely adopted unified API platforms, letting B2B software teams ship many third-party integrations through one normalized interface.",
     "blurb": "Merge provides a single unified API that lets software products add hundreds of integrations across HR, payroll, accounting, CRM, and ticketing."
   },
+  "meta": {
+    "accomplishment": "Meta built Facebook, Instagram, WhatsApp, and Messenger into a family of apps used by billions of people, and is now one of the largest investors in AI and virtual/augmented reality.",
+    "blurb": "Meta operates the world's largest social platforms — Facebook, Instagram, WhatsApp, and Messenger — alongside its Reality Labs hardware and a major AI research and infrastructure effort."
+  },
   "microsoft": {
     "accomplishment": "Microsoft's Windows is among the most widely used desktop operating systems in the world, and its Azure platform is a leading cloud computing service.",
     "ats": "script",
@@ -407,6 +415,10 @@
   "paraform": {
     "accomplishment": "Paraform is known for its marketplace of vetted independent recruiters who fill roles on a pay-for-success basis, offering an alternative to in-house and agency hiring.",
     "blurb": "Paraform operates a recruiting marketplace that connects companies with independent professional recruiters to fill open roles on a success-based fee model."
+  },
+  "parallel": {
+    "accomplishment": "Founded by former Twitter CEO Parag Agrawal, Parallel has raised $230M from Kleiner Perkins, Sequoia, Index Ventures, and others at a $2B valuation, and its APIs are used by companies including Harvey, Granola, Modal, and Dropbox.",
+    "blurb": "Parallel builds web infrastructure for AI agents, with APIs that let them search, extract, monitor, and run deep research over the live web."
   },
   "paypal": {
     "accomplishment": "PayPal is one of the world's most widely used digital payment networks and owns the Venmo and Braintree payment brands.",

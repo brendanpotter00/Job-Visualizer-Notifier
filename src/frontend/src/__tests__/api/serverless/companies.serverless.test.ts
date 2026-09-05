@@ -24,6 +24,7 @@ describe('/api/companies serverless function', () => {
       status: vi.fn().mockReturnThis(),
       json: vi.fn().mockReturnThis(),
       end: vi.fn().mockReturnThis(),
+      setHeader: vi.fn().mockReturnThis(),
     };
     fetchMock = vi.fn();
     global.fetch = fetchMock as unknown as typeof fetch;

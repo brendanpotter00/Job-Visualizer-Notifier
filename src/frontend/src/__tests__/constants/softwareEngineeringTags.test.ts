@@ -5,8 +5,6 @@ import {
   isSoftwareEngineeringTag,
   getSoftwareEngineeringTagTexts,
   isSoftwareOnlyEnabled,
-  addAllSoftwareEngineeringTags,
-  removeAllSoftwareEngineeringTags,
 } from '../../constants/tags';
 
 describe('softwareEngineeringTags', () => {
@@ -127,119 +125,6 @@ describe('softwareEngineeringTags', () => {
       ];
 
       expect(isSoftwareOnlyEnabled(tags)).toBe(true);
-    });
-  });
-
-  describe('addAllSoftwareEngineeringTags', () => {
-    it('should add all SE tags to undefined searchTags', () => {
-      const result = addAllSoftwareEngineeringTags(undefined);
-
-      expect(result).toHaveLength(6);
-      expect(result).toContainEqual({ text: 'software engineer', mode: 'include' });
-      expect(result).toContainEqual({ text: 'developer', mode: 'include' });
-      expect(result).toContainEqual({ text: 'engineer', mode: 'include' });
-      expect(result).toContainEqual({ text: 'data engineer', mode: 'include' });
-      expect(result).toContainEqual({ text: 'backend', mode: 'include' });
-      expect(result).toContainEqual({ text: 'frontend', mode: 'include' });
-    });
-
-    it('should add all SE tags to empty searchTags array', () => {
-      const result = addAllSoftwareEngineeringTags([]);
-
-      expect(result).toHaveLength(6);
-    });
-
-    it('should not add duplicate SE tags', () => {
-      const existing: SearchTag[] = [{ text: 'software engineer', mode: 'include' }];
-
-      const result = addAllSoftwareEngineeringTags(existing);
-
-      expect(result).toHaveLength(6);
-      const seTagCount = result.filter((t) => t.text === 'software engineer').length;
-      expect(seTagCount).toBe(1);
-    });
-
-    it('should preserve existing non-SE tags', () => {
-      const existing: SearchTag[] = [{ text: 'custom tag', mode: 'include' }];
-
-      const result = addAllSoftwareEngineeringTags(existing);
-
-      expect(result).toHaveLength(7); // 6 SE tags + 1 custom tag
-      expect(result).toContainEqual({ text: 'custom tag', mode: 'include' });
-    });
-
-    it('should preserve existing SE tags and add missing ones', () => {
-      const existing: SearchTag[] = [
-        { text: 'software engineer', mode: 'include' },
-        { text: 'developer', mode: 'include' },
-      ];
-
-      const result = addAllSoftwareEngineeringTags(existing);
-
-      expect(result).toHaveLength(6);
-    });
-  });
-
-  describe('removeAllSoftwareEngineeringTags', () => {
-    it('should return undefined when searchTags is undefined', () => {
-      expect(removeAllSoftwareEngineeringTags(undefined)).toBeUndefined();
-    });
-
-    it('should return undefined when searchTags is empty array', () => {
-      expect(removeAllSoftwareEngineeringTags([])).toBeUndefined();
-    });
-
-    it('should remove all SE tags', () => {
-      const tags: SearchTag[] = [
-        { text: 'software engineer', mode: 'include' },
-        { text: 'developer', mode: 'include' },
-        { text: 'engineer', mode: 'include' },
-        { text: 'data engineer', mode: 'include' },
-        { text: 'backend', mode: 'include' },
-        { text: 'frontend', mode: 'include' },
-      ];
-
-      const result = removeAllSoftwareEngineeringTags(tags);
-
-      expect(result).toBeUndefined();
-    });
-
-    it('should preserve non-SE tags', () => {
-      const tags: SearchTag[] = [
-        { text: 'software engineer', mode: 'include' },
-        { text: 'custom tag', mode: 'include' },
-        { text: 'another tag', mode: 'exclude' },
-      ];
-
-      const result = removeAllSoftwareEngineeringTags(tags);
-
-      expect(result).toHaveLength(2);
-      expect(result).toContainEqual({ text: 'custom tag', mode: 'include' });
-      expect(result).toContainEqual({ text: 'another tag', mode: 'exclude' });
-    });
-
-    it('should return undefined when only SE tags exist', () => {
-      const tags: SearchTag[] = [
-        { text: 'software engineer', mode: 'include' },
-        { text: 'developer', mode: 'include' },
-      ];
-
-      const result = removeAllSoftwareEngineeringTags(tags);
-
-      expect(result).toBeUndefined();
-    });
-
-    it('should handle tags with SE text but different mode', () => {
-      const tags: SearchTag[] = [
-        { text: 'software engineer', mode: 'exclude' }, // Different mode
-        { text: 'custom tag', mode: 'include' },
-      ];
-
-      const result = removeAllSoftwareEngineeringTags(tags);
-
-      // Should remove by text, not by mode
-      expect(result).toHaveLength(1);
-      expect(result).toContainEqual({ text: 'custom tag', mode: 'include' });
     });
   });
 });

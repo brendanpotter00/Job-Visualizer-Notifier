@@ -32,7 +32,14 @@ All paths below are relative to `src/frontend/src/`.
 - Factory patterns: `createAPIClient` (api/clients/baseClient.ts) and `createFilterSlice` (features/filters/slices/createFilterSlice.ts)
 - The company hiring-trend page has a single filter source (`graphFilters`) that drives both the graph and the job list — the list reflects the graph
 - The timeline chart in `GraphSection.tsx` is collapsible (local `useState`, default expanded, not persisted); collapsing hides only the chart — the filters stay visible because they also drive the list
-- Jobs normalized by company ID in `byCompanyId` map for O(1) lookup
+- Two job read paths, and they do NOT share a cache shape. The company hiring-trend
+  page uses `getJobsForCompany` (one RTK Query entry per company id). The Recent
+  Jobs page pages `GET /api/jobs/search` through the `searchJobs` **infinite**
+  query, whose cache key is the whole filter set and whose entry is a list of
+  server-returned pages. The old `byCompanyId` map — the all-companies fan-out both
+  pages once shared — was removed with the client-side walk; there is no store-wide
+  index of every job any more, and re-adding one would put the whole corpus back in
+  memory (see Gotcha #10)
 
 **Data Flow:**
 User selects company → `getJobsForCompany` RTK Query endpoint (features/jobs/jobsApi.ts) → Factory selects API client → Transform to normalized Job model → RTK Query cache update → Memoized selectors filter data → Components render
@@ -45,7 +52,7 @@ Backend-Scraper (api/clients/backendScraperClient.ts) is the only production cli
 - `selectGraphFilteredJobs` (features/filters/selectors/graphFiltersSelectors.ts) - Apply graph filters
 - `selectGraphFilteredJobsSorted` (features/filters/selectors/graphFiltersSelectors.ts) - Graph-filtered jobs sorted most-recent-first; feeds the job list view
 - `selectGraphBucketData` (features/filters/selectors/graphFiltersSelectors.ts) - Filtered jobs + time bucketing
-- `selectRecentFilteredJobs` (features/filters/selectors/recentJobsSelectors.ts) - Apply recent jobs filters
+- `useRecentJobsSearch` (features/jobs/hooks/useRecentJobsSearch.ts) - The Recent page's ENTIRE data path: debounces the filters, freezes the recency bound, and drives the `searchJobs` infinite query against `GET /api/jobs/search`. The page filters server-side now; there is no `selectRecentFilteredJobs` and no client-side keyset walk (both retired with the 2026-08-10 deadlock's root cause)
 
 **Routes/Pages:**
 - `/` - Recent Job Postings (pages/RecentJobPostingsPage/RecentJobPostingsPage.tsx) - Aggregated recent jobs across all companies
@@ -787,7 +794,7 @@ Use the `add-company` skill (repo-root `.claude/skills/add-company/`, `/add-comp
 9. **Test Coverage**: Maintain >80% coverage (1300+ tests passing)
 10. **Memory Management**: Large job datasets require careful handling:
    - **Tables**: Always paginate tables with 100+ rows - unpaginated tables with thousands of rows cause severe browser memory issues (50+ GB)
-   - **Selectors**: `selectAllJobsFromQuery` flattens all jobs - use filtered selectors when possible
+   - **Recent jobs are paged server-side**: the Recent page never holds the whole corpus — `useRecentJobsSearch` walks `/api/jobs/search` a page at a time and `VirtualJobRows` renders only the visible window. Do not reintroduce a selector that flattens every loaded page into one array to filter or sort it client-side; send the filter to the endpoint instead
    - **Pattern**: See QAPage jobs table for pagination pattern (useMemo for slice + TablePagination component)
 
 ## Key Files
@@ -801,8 +808,9 @@ All paths relative to `src/frontend/src/`:
 - API Client Factory: `api/clients/baseClient.ts`
 - Backend Scraper Client: `api/clients/backendScraperClient.ts`
 - Filter Slice Factory: `features/filters/slices/createFilterSlice.ts`
-- Jobs RTK Query API: `features/jobs/jobsApi.ts`, `jobsSelectors.ts`, `progressHelpers.ts`, `keysetWalk.ts`
-- Recent Jobs Filters: `features/filters/slices/recentJobsFiltersSlice.ts`, `features/filters/selectors/recentJobsSelectors.ts`
+- Jobs RTK Query API: `features/jobs/jobsApi.ts`, `jobsSelectors.ts`
+- Recent Jobs search: `features/jobs/searchJobsArgs.ts` (args + query serialization), `validateSearchJobsResponse.ts`, `hooks/useRecentJobsSearch.ts`
+- Recent Jobs Filters: `features/filters/slices/recentJobsFiltersSlice.ts`, `features/filters/selectors/recentJobsSelectors.ts` (filter state + the company dropdown's options; all job filtering is server-side)
 - Time Bucketing: `lib/timeBucketing.ts`
 - Main App: `app/App.tsx`
 
@@ -810,7 +818,7 @@ All paths relative to `src/frontend/src/`:
 
 Located in project root `api/` directory (proxies to avoid CORS):
 
-- `jobs.ts` - Backend jobs API proxy (every company, including all Greenhouse, Ashby, Lever, Gem, Eightfold/Netflix, and Workday boards)
+- `jobs.ts` - Backend jobs API proxy. Allow-lists both query params and sub-paths (`facets`, `search`). The `search` sub-path's multi-value filters must be **appended** as repeated params — `String()` on an array joins with commas and would turn two selected categories into one bogus slug
 - `jobs-qa.ts` - Backend QA endpoints proxy (scraper triggers, run history)
 - `users.ts` - Backend users API proxy (forwards Authorization header)
 - `features.ts` - Feature voting API proxy (forwards Authorization header)

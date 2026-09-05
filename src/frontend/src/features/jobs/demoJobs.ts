@@ -4,7 +4,7 @@ import { getCompanyById } from '../../config/companies.ts';
 /**
  * Demo dataset for the admin-only "Demo mode" toggle (see uiSlice `demoModeEnabled`).
  *
- * When demo mode is on, `selectAllJobsFromQuery` returns this array instead of the
+ * When demo mode is on, `useRecentJobsSearch` serves this array instead of the
  * live RTK Query data, so the Recent Job Postings page shows a curated set of fake
  * software-engineering listings from real, tracked companies. Because the swap happens
  * upstream of all filtering/sorting/metrics, every existing feature (time-window,

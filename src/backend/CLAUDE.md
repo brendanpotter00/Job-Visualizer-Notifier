@@ -120,7 +120,9 @@ All configuration via environment variables:
   every OPEN row every scrape cycle), and `(source_id, id)` is the composite PK, so the tuple
   is unique. Both properties are load-bearing — without the first, a concurrent scrape
   reshuffles the ordering mid-walk; without the second, rows sharing a `first_seen_at` page
-  non-deterministically. Matches the UI's own `selectRecentJobsSorted` (firstSeenAt DESC).
+  non-deterministically. The UI no longer sorts at all — it renders the rows in the order
+  this endpoint returns them (`selectRecentJobsSorted` was deleted with the client-side
+  walk), so this ORDER BY *is* the Recent page's ordering, not a mirror of one.
 - **Header delivery is THREE hops, all wired here:** `api/jobs.ts` (the Vercel proxy)
   re-emits it explicitly — `forwardResponse` copies status + body only — `CORSMiddleware`
   in `main.py` lists it in `expose_headers` for callers hitting the backend directly, and
@@ -169,6 +171,77 @@ All configuration via environment variables:
 - `GET /api/users/saved-filters/locations/search` - Substring autocomplete over canonical location names (params: `q`, `limit`, `openOnly`)
 
 **Jobs facets:** `GET /api/jobs/facets` - enrichment dropdown catalog (categories + levels with labels/order/parent) from the seeded dimensions.
+
+**Jobs Search Router (`/api/jobs/search`)** — the Recent Jobs page's read path. Where
+`GET /api/jobs` is a windowed dump the client filters, this applies the user's whole
+filter set in SQL and pages the *result*. Router `routers/jobs_search.py`, SQL
+`services/job_search.py`.
+
+- **Params:** `status` (default `OPEN`, unlike `/api/jobs` which has none), `since`
+  (inclusive, tz-aware ISO), `cursor`, `limit` (default 100, max 500), plus six
+  **repeatable** multi-value filters: `category`, `level`, `company`, `location`,
+  `include`, `exclude`. Repeated (`?category=a&category=b`) rather than CSV because
+  canonical location names and keywords legitimately contain commas.
+- **Response is an ENVELOPE**, not a bare array: `{jobs, nextCursor, meta}`.
+  `nextCursor` present iff the page came back full; **its absence is the only
+  end-of-walk signal**. In the body deliberately — `/api/jobs` uses `X-Next-Cursor`
+  only because it could not break an existing body contract, and that header needs
+  all three delivery hops wired or it vanishes silently. `meta`
+  (`filteredTotal`, `countLast24h`, `countLast3h`) rides page 1 only. `filteredTotal`
+  honours the whole filter set; the two recency counts are scoped to the caller's
+  `company` list and to **nothing else** — they deliberately ignore `category`,
+  `level`, `include`/`exclude`, `location`, `since` and `status`, because "Past 24
+  Hours" answers "how busy are the boards I follow", not "how many rows match my
+  current chips". Dropping the company scope would inflate them ~40x for a reader
+  following 3 of 133 boards; adding any other dimension would change what the tile
+  means while it still looks like the same number.
+- **Cursors are filter-bound.** A search cursor embeds an 8-hex fingerprint of the
+  filter set (`compute_filter_fingerprint` in `pagination.py`); replaying one under
+  different filters is a **409**, not a silently-incoherent walk. `limit` is excluded
+  from the fingerprint, so changing page size mid-walk stays legal — but `since` is
+  included, so **a client must freeze its window bound and replay it verbatim**.
+- **409 vs 422 on `cursor` is a contract, not a detail.** `409` = the token decoded
+  perfectly but names a different query (fingerprint moved, or `_SEARCH_CURSOR_VERSION`
+  did) — the fix is mechanical and belongs to the CLIENT: drop the cursor, re-request
+  page 1. `422` = the token is malformed and nothing downstream can repair it. The
+  frontend needs the split: it renders 400/422 `detail` to the reader verbatim, and
+  "restart the walk from page 1" is not a sentence a reader can act on — while its
+  next-page Retry replays the same rejected cursor. `useRecentJobsSearch` keys its
+  restart on the 409 (`STALE_CURSOR_STATUS`). Raised as `StaleCursorError`, a subclass
+  of `InvalidCursorError` so `/api/jobs` (no fingerprint, never raises it) is unchanged.
+- **Filter semantics** are a port of the frontend matcher this replaced. Dimensions
+  AND, values within a dimension OR. An active `category`/`level` filter **hides
+  unenriched (NULL) rows** — ~65% of OPEN rows. `entry` expands to
+  `{entry, new_grad}`. Keyword terms match title / raw location / company / tags —
+  the same haystack `matchesSearchTags` builds on the client. `department` is NOT
+  searched: E7 Phase 3 (#248) deleted the field from the frontend model, so
+  matching the `experience_level` column it used to map to would make the endpoint
+  WIDER than the page it replaces. `team` is not searched
+  because no transformer ever populates it — there is nothing to match.
+  Locations resolve hierarchically against the `locations` catalog, including the
+  synthesized `United States` and `<State>, US` options that have no catalog row.
+- **Index:** `idx_job_listings_open_category_keyset` on
+  `(enrichment_category, first_seen_at, source_id, id)` partial `WHERE status='OPEN'`
+  (migration `4b5d40dbc774`) — equality column leading, sort tuple trailing, so a
+  category filter is an ordered seek instead of a scan that discards ~99% of the
+  corpus. Four columns, not five: wedging `enrichment_level` in would order entries
+  by level within a category and destroy the ordering for the common category-only
+  query.
+- **Keyword index:** `idx_job_tags_tag_trgm`, a **GIN trigram** index on
+  `job_tags(tag)` plus `CREATE EXTENSION pg_trgm` (migration `536c1cddcd28`).
+  `_KEYWORD_PREDICATE` matches `t.tag ILIKE '%term%'`, and a LEADING wildcard is
+  unservable by the plain btree `idx_job_tags_tag` — so before this, every keyword
+  term cost one FULL scan of `job_tags`, **LIMIT-independent** (the planner
+  de-correlates the `EXISTS` into a hashed `SubPlan` run once), and **page 1 pays
+  it twice** (the page query and `filtered_total`). Measured at prod scale, the
+  6-term built-in list goes 617 ms → 209 ms of DB time and a 20-term set
+  1807 ms → 442 ms; the `job_tags` share drops ~25x (~43 ms → ~1.5 ms per term).
+  **Blind spot to know about:** a term under THREE characters has no complete
+  trigram, so `go`/`ai`/`ml` still get the `Seq Scan` (~110 ms each). The index is
+  mirrored in `db_models.py` with a `before_create` hook that installs the
+  extension, because `create_all` would otherwise fail on `gin_trgm_ops`.
+  `downgrade()` drops the index but NOT the extension — an extension is
+  database-global and a `DROP … CASCADE` could take unrelated objects with it.
 
 **Internal Enrichment Router (`/api/internal/enrichment`, X-Internal-Key):** `GET /pending` (claim batch; title-priority order — entry-level/intern, then software-engineering, then everything else, newest `first_seen_at` within each tier; the batch is **split** — `ENRICHMENT_CUSTOM_SHARE_PCT` of it is reserved for custom companies, dealt round-robin across them, and each slice absorbs the other's unused budget so the reservation never idles the enricher), `POST /results` (idempotent write-back; returns `written`/`failed[]`(+`source_id`)/`warnings[]`), `GET /sample`, `GET /health`, `POST /metrics` (per-tick push → `enrichment_ticks`, idempotent on `tick_uuid`), `GET /corrections` (human-correction feed for the enricher's golden-merge).
 

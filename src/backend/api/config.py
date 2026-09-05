@@ -15,7 +15,17 @@ class Settings(BaseSettings):
     # production actually runs — adding a scraper here does enable it on the
     # next deploy. If someone later sets the env var, it silently wins and this
     # line stops mattering; check Railway before assuming a scraper is live.
-    scraper_companies: str = "apple,google,microsoft,amazon,tiktok"
+    #
+    # ⚠️ META NEEDS A PROD SMOKE TEST. job-watcher scrapes Meta from a
+    # RESIDENTIAL IP; these scrapers run on Railway (a DATACENTER IP), where
+    # Meta's anti-bot may serve a bot wall or an empty board. Enabling `meta`
+    # here is SAFE even if walled — the raise-on-empty invariant means a walled
+    # fetch raises (non-zero exit, logged) and inserts/closes NOTHING, and Meta
+    # has no rows to close on first runs — but it is POINTLESS until a prod
+    # smoke test confirms a real, non-zero harvest from Railway. If that smoke
+    # test shows a bot wall, remove `meta` from this default so the
+    # scraper-health watchdog doesn't flag a permanently-stale source.
+    scraper_companies: str = "apple,google,microsoft,amazon,tiktok,meta"
     scraper_detail_scrape: bool = True
     scraper_timeout_minutes: int = Field(default=90, gt=0)
     scraper_scripts_path: str = "../../scripts"

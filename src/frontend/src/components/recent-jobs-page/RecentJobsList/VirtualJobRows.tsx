@@ -7,14 +7,22 @@ import { VIRTUAL_LIST_CONFIG } from '../../../constants/ui.ts';
 import { useIsMobile } from '../../../hooks/useIsMobile.ts';
 
 interface VirtualJobRowsProps {
-  /** Rows to render. Already filtered, sorted, and windowed by the caller. */
+  /** Rows to render. Already filtered and ordered by the server. */
   jobs: Job[];
   /**
-   * Size of the FULL list these rows are a prefix of, for `aria-setsize`.
-   * Assistive tech should hear the length of the list the user is navigating,
-   * not the size of the reveal window (and certainly not the mounted slice).
+   * Length of the list the reader is navigating, for `aria-setsize` — NOT the
+   * rows loaded so far, which is a paging detail assistive tech must never hear.
+   * The two are different numbers and the difference is the whole point: the
+   * caller pages server-side, so `jobs` is "what has arrived", while this is the
+   * filtered result set the endpoint measured. Passing `jobs.length` makes a
+   * screen reader announce "item 20 of 20" in the middle of a 4,000-row walk.
+   *
+   * `null` means the total is genuinely UNKNOWN — page 1 (which carries the
+   * counts) has not landed, or its failure nulled them. That renders
+   * `aria-setsize="-1"`, which is ARIA's own spelling of "the total number of
+   * items is unknown", rather than a number nothing has measured.
    */
-  totalCount: number;
+  totalCount: number | null;
 }
 
 /**
@@ -42,7 +50,10 @@ interface VirtualJobRowsProps {
  * **A11y.** The rows carry `role="listitem"` inside a `role="list"` container
  * with `aria-setsize`/`aria-posinset`, so assistive tech announces "item N of
  * total" against the FULL list rather than against the handful of mounted
- * nodes — the count a bare virtualized `div` would otherwise report.
+ * nodes — the count a bare virtualized `div` would otherwise report. The total
+ * is the caller's to supply (`totalCount`) because this component only ever
+ * sees the rows that have arrived, which on a server-paged list is not the
+ * list.
  */
 export function VirtualJobRows({ jobs, totalCount }: VirtualJobRowsProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -76,13 +87,16 @@ export function VirtualJobRows({ jobs, totalCount }: VirtualJobRowsProps) {
     [measureScrollMargin]
   );
 
-  // The header above the list changes height on its own — most visibly when
-  // FetchProgressBarSkeleton swaps for the real FetchProgressBar, and whenever
-  // the filter chips rewrap. Neither is a window resize, so watching `resize`
-  // alone leaves the margin stale and the range shifted. Observing the body
-  // catches every such reflow; the identity guard above means the common case
-  // (the list's own height changing as rows measure) costs one rect read and
-  // no re-render.
+  // The header above the list changes height on its own — the filter chips
+  // rewrap onto another line as the reader adds or removes companies, locations
+  // and keywords, and a filter input grows a helperText row when its options
+  // query fails. (It used to change for a third reason, FetchProgressBarSkeleton
+  // swapping for the real FetchProgressBar; both components were deleted with the
+  // client-side walk, so only the header's own reflow is left.) None of that is a
+  // window resize, so watching `resize` alone leaves the margin stale and the
+  // range shifted. Observing the body catches every such reflow; the identity
+  // guard above means the common case (the list's own height changing as rows
+  // measure) costs one rect read and no re-render.
   useEffect(() => {
     window.addEventListener('resize', measureScrollMargin);
     const observer =
@@ -121,8 +135,10 @@ export function VirtualJobRows({ jobs, totalCount }: VirtualJobRowsProps) {
     <Box
       ref={attachContainer}
       role="list"
-      // The size of the reveal window, published for tests and for debugging a
-      // list whose mounted rows deliberately tell you nothing about it.
+      // How many rows have been loaded so far, published for tests and for
+      // debugging a list whose mounted rows deliberately tell you nothing about
+      // it. Named for the client-side reveal window it used to measure; it now
+      // measures the pages the keyset walk has fetched.
       data-client-window={jobs.length}
       sx={{
         position: 'relative',
@@ -133,11 +149,12 @@ export function VirtualJobRows({ jobs, totalCount }: VirtualJobRowsProps) {
       }}
     >
       {virtualizer.getVirtualItems().map((virtualRow) => {
-        // The row set can SHRINK under the virtualizer: a window widening
-        // clears the cursors and floors, which drops the completeness clamp and
-        // then re-applies a tighter one as the restarted pages land. Indices
-        // from the render before that are stale, so this guard is load-bearing,
-        // not defensive habit.
+        // The row set can SHRINK under the virtualizer: on a filter change RTK
+        // Query swaps `data` to the new filter set's pages, which is routinely
+        // SHORTER than what was on screen (page 1 of a narrower search replacing
+        // five loaded pages of a wider one). The virtual items computed from the
+        // previous render still carry the old, larger indices. Load-bearing, not
+        // defensive habit — deleting it renders `undefined.id` and throws.
         const job = jobs[virtualRow.index];
         if (!job) return null;
 
@@ -147,7 +164,8 @@ export function VirtualJobRows({ jobs, totalCount }: VirtualJobRowsProps) {
             data-index={virtualRow.index}
             ref={virtualizer.measureElement}
             role="listitem"
-            aria-setsize={totalCount}
+            // -1 is ARIA's "total unknown", not a sentinel of our own.
+            aria-setsize={totalCount ?? -1}
             aria-posinset={virtualRow.index + 1}
             style={{
               position: 'absolute',

@@ -2,8 +2,6 @@ import { createApi, fetchBaseQuery } from '@reduxjs/toolkit/query/react';
 import type { Job } from '../../types';
 import type { BackendJobListing } from '../../api/types';
 import { transformBackendJob } from '../../api/transformers/backendScraperTransformer';
-import { jobsApi } from '../jobs/jobsApi';
-import { logger } from '../../lib/logger';
 
 /**
  * Arg for `addUserCompany`. `trackAnyway` is the single override for the
@@ -578,64 +576,6 @@ interface UserCompaniesApiExtra {
   getTokenOrNull: () => Promise<string | null>;
 }
 
-/**
- * Cross-slice cache coherence: adding or removing a board must move the Recent
- * Jobs feed, and `invalidatesTags(['MyCompanies'])` cannot do that.
- *
- * The custom rows do NOT live in this slice. `getAllJobs` (in `jobsApi`) copies
- * them into its own `byCompanyId` map as part of one merged keyset walk, so a
- * tag invalidated here sweeps this slice's caches and leaves that map exactly as
- * it was. The visible defect was the removal half: delete a board and its jobs
- * stayed in the feed for the rest of the session — jobs from a company the user
- * had just told us to stop tracking, with no way to be rid of them short of a
- * reload. Adding a board had the mirror-image problem (its jobs did not appear
- * until a reload), which reads as the add having quietly failed.
- *
- * The correction is delegated to `jobsApi.syncCustomJobsIntoFeed`, which owns
- * that cache. Read its docstring for the one thing that must not be done here:
- * invalidating the bare `Jobs` tag BLANKS the feed permanently, because
- * `getAllJobs` is filled by `onCacheEntryAdded` and a refetch does not re-run it.
- *
- * Only on `queryFulfilled` — a failed add or a 404 delete changed nothing on the
- * server, so touching a good feed for it would be pure loss.
- */
-async function syncFeedOnSuccess(
-  dispatch: (action: ReturnType<typeof jobsApi.endpoints.syncCustomJobsIntoFeed.initiate>) => {
-    then: Promise<unknown>['then'];
-    reset: () => void;
-  },
-  queryFulfilled: Promise<unknown>,
-  removedCompanyId?: string
-): Promise<void> {
-  try {
-    await queryFulfilled;
-  } catch {
-    return;
-  }
-  // Every failure mode of the refresh is swallowed, for the same reason the
-  // Recent feed swallows a failed private page: the mutation the user actually
-  // asked for has already succeeded, and a stale feed is a far smaller problem
-  // than an add or a remove that reports failure because a follow-up refresh
-  // did. It also covers a store that wires this slice WITHOUT `jobsApi` (every
-  // `userCompaniesApi` unit-test store is one), where the dispatch itself
-  // throws RTK's missing-middleware error.
-  try {
-    const sync = dispatch(
-      jobsApi.endpoints.syncCustomJobsIntoFeed.initiate(
-        removedCompanyId ? { removedCompanyId } : undefined
-      )
-    );
-    try {
-      await sync;
-    } finally {
-      // One-shot: drop the mutation's cache entry rather than leaving one
-      // behind per add/remove for the rest of the session.
-      sync.reset();
-    }
-  } catch (error) {
-    logger.warn('[userCompanies] could not refresh the Recent feed after the change:', error);
-  }
-}
 
 /** The board identity a candidate resolved to, as the backend clients consume it. */
 export interface SearchAtsCandidate {
@@ -855,8 +795,6 @@ export const userCompaniesApi = createApi({
         body: trackAnyway ? { url, trackAnyway } : { url },
       }),
       invalidatesTags: ['MyCompanies'],
-      onQueryStarted: (_arg, { dispatch, queryFulfilled }) =>
-        syncFeedOnSuccess(dispatch, queryFulfilled),
     }),
 
     /**
@@ -891,8 +829,6 @@ export const userCompaniesApi = createApi({
         method: 'DELETE',
       }),
       invalidatesTags: ['MyCompanies'],
-      onQueryStarted: (id, { dispatch, queryFulfilled }) =>
-        syncFeedOnSuccess(dispatch, queryFulfilled, id),
     }),
 
     /**

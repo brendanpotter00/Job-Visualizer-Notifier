@@ -51,7 +51,14 @@ PYTHONPATH=. uvicorn src.backend.api.main:app --host 0.0.0.0 --port 8000 --reloa
 - Traditional Redux slices for filters, app, and ui state
 - Factory patterns: `createAPIClient` (src/frontend/src/api/clients/baseClient.ts) and `createFilterSlice` (src/frontend/src/features/filters/slices/createFilterSlice.ts)
 - The company hiring-trend page has a single filter source (`graphFilters`) that drives both the graph and the job list — the list reflects the graph
-- Jobs normalized by company ID in `byCompanyId` map for O(1) lookup
+- Two job read paths, and they do NOT share a cache shape. The company hiring-trend
+  page uses `getJobsForCompany` (one RTK Query entry per company id). The Recent
+  Jobs page pages `GET /api/jobs/search` through the `searchJobs` **infinite**
+  query, whose cache key is the whole filter set and whose entry is a list of
+  server-returned pages. The old `byCompanyId` map — the all-companies fan-out both
+  pages once shared — was removed with the client-side walk; there is no store-wide
+  index of every job any more, and re-adding one would put the whole corpus back in
+  memory (see Gotcha #7 / #10)
 
 **Data Flow:**
 User selects company → `getJobsForCompany` RTK Query endpoint (src/frontend/src/features/jobs/jobsApi.ts) → Factory selects API client → Transform to normalized Job model → RTK Query cache update → Memoized selectors filter data → Components render
@@ -113,7 +120,7 @@ Automatic per-PR preview deploys are **off** — root `vercel.json` sets `git.de
 
 ## Vercel Serverless Functions (api/)
 
-- `api/jobs.ts` - Backend jobs API proxy. Note it **allow-lists** query params (an unforwarded param is silently dropped, not an error) and must **explicitly re-emit any response header** — the shared `forwardResponse` helper copies status + body only. `X-Next-Cursor` (keyset pagination) is forwarded for exactly this reason; see the keyset section in `src/backend/CLAUDE.md`.
+- `api/jobs.ts` - Backend jobs API proxy for both `GET /api/jobs` and `GET /api/jobs/search` (the Recent page's server-side filtered read path; see `src/backend/CLAUDE.md`). Note it **allow-lists** sub-paths AND query params (an unforwarded param is silently dropped, not an error) and must **explicitly re-emit any response header** — the shared `forwardResponse` helper copies status + body only. `X-Next-Cursor` (keyset pagination) is forwarded for exactly this reason; see the keyset section in `src/backend/CLAUDE.md`.
 - `api/jobs-qa.ts` - Backend QA endpoints proxy
 - `api/users.ts` - Backend users API proxy (forwards Authorization header)
 - `api/features.ts` - Feature voting API proxy (forwards Authorization header)

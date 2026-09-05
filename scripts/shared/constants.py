@@ -20,6 +20,7 @@ class SourceId:
     # ``_scraper`` suffix marks a custom web scraper (no vendor ATS behind it).
     AMAZON: Final[str] = "amazon_scraper"
     TIKTOK: Final[str] = "tiktok_scraper"
+    META: Final[str] = "meta_scraper"
     GREENHOUSE: Final[str] = "greenhouse_api"
     ASHBY: Final[str] = "ashby_api"
     LEVER: Final[str] = "lever_api"
@@ -114,6 +115,19 @@ SCRIPT_COMPANY_CAREERS_HOSTS: Final[dict[str, tuple[tuple[str, str], ...]]] = {
         # 302s to lifeattiktok.com.
         ("careers.tiktok.com", ""),
     ),
+    # Bare ``metacareers.com`` (normalized): ``normalize_host`` strips a leading
+    # ``www.``, so this one entry matches both ``www.metacareers.com`` and
+    # ``metacareers.com``. Declaring ``www.metacareers.com`` would fail
+    # ``test_every_declared_host_is_already_normalized`` (a host must equal its
+    # own normalized form).
+    #
+    # NOT extended to ``meta.com/careers``, ``about.meta.com`` or
+    # ``facebook.com/careers``: none was confirmed to redirect to the
+    # ``metacareers.com`` board, and a careers-host hit is TERMINAL (a wrong
+    # entry hard-blocks a user), so — like the ``apple.com/careers`` near-miss
+    # noted above — the baseline is the single board host. The near-miss
+    # parametrize block in ``test_careers_host_match.py`` pins them to None.
+    "meta": (("metacareers.com", ""),),
 }
 
 

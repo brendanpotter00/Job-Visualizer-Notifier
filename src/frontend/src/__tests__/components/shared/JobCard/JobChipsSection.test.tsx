@@ -4,27 +4,25 @@ import { JobChipsSection } from '../../../../components/shared/JobCard/JobChipsS
 
 /**
  * Tests for JobChipsSection component
- * Verifies rendering of the remote chip and the enrichment category/level chips.
+ * Verifies rendering of the enrichment category/level chips. The Remote chip
+ * is NOT rendered here — it lives in JobListingCard's location row (see
+ * JobCard.test.tsx).
  */
 describe('JobChipsSection', () => {
   describe('Chip Rendering', () => {
-    it('should render Remote chip when isRemote is true', () => {
-      render(<JobChipsSection isRemote={true} />);
+    it('should render nothing when there is no enrichment', () => {
+      const { container } = render(<JobChipsSection />);
 
-      expect(screen.getByText('Remote')).toBeInTheDocument();
+      expect(container).toBeEmptyDOMElement();
     });
 
-    it('should not render Remote chip when isRemote is false', () => {
-      render(<JobChipsSection isRemote={false} />);
+    it('should not render a Remote chip', () => {
+      render(<JobChipsSection category="software_engineering" />);
 
+      // The positive half matters: without it this passes even if the
+      // component renders nothing at all.
+      expect(screen.getByText('Software Engineering')).toBeInTheDocument();
       expect(screen.queryByText('Remote')).not.toBeInTheDocument();
-    });
-
-    it('should render no chips when nothing is provided', () => {
-      const { container } = render(<JobChipsSection isRemote={false} />);
-
-      const chips = container.querySelectorAll('.MuiChip-root');
-      expect(chips).toHaveLength(0);
     });
   });
 
@@ -43,12 +41,11 @@ describe('JobChipsSection', () => {
       expect(screen.getByText('quantum widget wrangler')).toBeInTheDocument();
     });
 
-    it('renders remote alongside the enrichment chips', () => {
-      render(<JobChipsSection isRemote={true} category="software_engineering" level="senior" />);
+    it('renders only the chips it is given', () => {
+      const { container } = render(<JobChipsSection level="senior" />);
 
-      expect(screen.getByText('Remote')).toBeInTheDocument();
-      expect(screen.getByText('Software Engineering')).toBeInTheDocument();
       expect(screen.getByText('Senior')).toBeInTheDocument();
+      expect(container.querySelectorAll('.MuiChip-root')).toHaveLength(1);
     });
   });
 });

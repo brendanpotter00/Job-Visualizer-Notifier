@@ -171,11 +171,19 @@ def test_job_freshness_composite_fk_to_job_listings_cascade():
     assert (ondelete or "").upper() == "CASCADE", f"Expected ondelete=CASCADE, got {ondelete!r}"
 
 
-def test_job_freshness_last_seen_index_present():
+def test_job_freshness_last_seen_index_absent():
+    """rev a1f7c9d2e8b4 dropped ``idx_job_freshness_last_seen``.
+
+    Re-adding it here would make ``last_seen_at`` re-stamps non-HOT again on the
+    write-hottest table in the schema (~69.5 M updates/scrape-history) and
+    reintroduce the ~62 MB / ~30x index bloat, for NO hot read path — the only
+    ``ORDER BY last_seen_at DESC`` consumers (no-company legacy ``/api/jobs``,
+    admin problem-jobs) are cold and sort fine without it.
+    """
     table = db_models.Base.metadata.tables["job_freshness"]
     index_names = {ix.name for ix in table.indexes}
-    assert "idx_job_freshness_last_seen" in index_names, (
-        f"Missing idx_job_freshness_last_seen; present: {index_names}"
+    assert "idx_job_freshness_last_seen" not in index_names, (
+        f"idx_job_freshness_last_seen must stay dropped; present: {index_names}"
     )
 
 
@@ -208,14 +216,145 @@ def test_job_listings_has_no_freshness_columns():
     assert "consecutive_misses" in sidecar.c
 
 
-def test_expected_indexes_on_users():
+def test_users_duplicate_indexes_dropped_but_unique_lookups_kept():
+    """rev a1f7c9d2e8b4 dropped the two standalone btrees on users.
+
+    ``idx_users_auth0_id`` / ``idx_users_email`` merely duplicated the unique
+    index Postgres already maintains behind each UNIQUE constraint, so the
+    equality lookups these tests care about are still served — by
+    ``auth0_id``'s column-level ``unique=True`` and the ``users_email_key``
+    constraint. Re-adding either standalone index is pure write-amplification.
+    """
     table = db_models.Base.metadata.tables["users"]
     index_names = {ix.name for ix in table.indexes}
-    assert "idx_users_auth0_id" in index_names
-    assert "idx_users_email" in index_names
+    assert "idx_users_auth0_id" not in index_names, index_names
+    assert "idx_users_email" not in index_names, index_names
+
+    # The backing UNIQUE constraints must remain — they are what serve the
+    # auth0_id / email equality lookups now.
+    assert db_models.User.__table__.c.auth0_id.unique is True
+    unique_names = {
+        c.name for c in table.constraints if isinstance(c, UniqueConstraint)
+    }
+    assert "users_email_key" in unique_names, unique_names
 
 
 def test_user_enabled_companies_has_user_id_index():
     table = db_models.Base.metadata.tables["user_enabled_companies"]
     index_names = {ix.name for ix in table.indexes}
     assert "idx_user_enabled_companies_user_id" in index_names
+
+
+# --- migration <-> model mirror --------------------------------------------
+#
+# Two schema-building paths exist and they must agree. Prod runs the Alembic
+# chain from the FastAPI lifespan hook; both test bootstraps
+# (`api/tests/conftest.py::db_conn`, `scripts/tests/conftest.py::postgres_db`)
+# run `Base.metadata.create_all` + `alembic stamp` and never execute a migration
+# body at all. So an index that lives in only ONE of the two places is a schema
+# that differs between prod and every test in the suite.
+#
+# `scripts/tests/integration/test_alembic_parity.py` does NOT catch that, despite
+# being the obvious candidate: it builds its schema with `create_all` from the
+# current models and then diffs autogenerate against those SAME models, so it can
+# only detect db_models.py disagreeing with itself. Deleting
+# `idx_job_tags_tag_trgm` from db_models.py entirely leaves it green. Nor can the
+# gap be closed the obvious way — running `alembic upgrade head` on an empty
+# database and diffing that — because this chain is not runnable from zero: the
+# baseline revision `91337142414f` is EMPTY (the original tables were materialized
+# by `create_all`), so `upgrade` from an empty DB dies at the first migration that
+# references `users`. Verified 2026-08-20.
+#
+# What is left is to compare the two DECLARATIONS directly, which is what these
+# do. It is narrow — one migration, the one this PR adds — and it is the check
+# that was claimed and not actually held.
+
+
+def _trigram_migration_ops():
+    """Run `536c1cddcd28`'s bodies against a recording stand-in for `op`.
+
+    Importing the module by path rather than by package name because revision
+    files are not importable modules of `api`, and swapping the module-global
+    `op` because the real proxy needs a live MigrationContext — which would drag
+    a database into a test whose whole subject is two declarations.
+    """
+    import importlib.util
+    from pathlib import Path
+
+    class _Recorder:
+        def __init__(self):
+            self.executed: list[str] = []
+            self.created: list[tuple] = []
+            self.dropped: list[tuple] = []
+
+        def execute(self, sql):
+            self.executed.append(str(sql))
+
+        def create_index(self, name, table, columns, **kwargs):
+            self.created.append((name, table, list(columns), kwargs))
+
+        def drop_index(self, name, table_name=None, **kwargs):
+            self.dropped.append((name, table_name))
+
+    versions = Path(__file__).resolve().parents[2] / "alembic" / "versions"
+    matches = sorted(versions.glob("*536c1cddcd28*.py"))
+    assert len(matches) == 1, f"expected one 536c1cddcd28 revision, found {matches}"
+
+    spec = importlib.util.spec_from_file_location("_rev_536c1cddcd28", matches[0])
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    up, down = _Recorder(), _Recorder()
+    module.op = up
+    module.upgrade()
+    module.op = down
+    module.downgrade()
+    return up, down
+
+
+def test_the_trigram_index_migration_and_the_model_mirror_declare_the_SAME_index():
+    """`idx_job_tags_tag_trgm` must be identical on both schema-building paths.
+
+    Access method and operator class are both load-bearing and both silent when
+    wrong: a plain btree, or GIN without `gin_trgm_ops`, still creates an index
+    and still answers every query correctly — it simply cannot serve the leading
+    wildcard, so the keyword filter goes back to a full `job_tags` scan per term
+    with nothing failing anywhere.
+    """
+    up, _ = _trigram_migration_ops()
+
+    assert len(up.created) == 1, up.created
+    name, table, columns, kwargs = up.created[0]
+
+    model_index = next(
+        (i for i in db_models.JobTag.__table__.indexes if i.name == name), None
+    )
+    assert model_index is not None, (
+        f"migration 536c1cddcd28 creates {name} but db_models.py does not mirror it — "
+        "create_all-built schemas (every test bootstrap) would not have it"
+    )
+
+    assert table == db_models.JobTag.__tablename__
+    assert columns == [c.name for c in model_index.expressions]
+    assert kwargs["postgresql_using"] == model_index.dialect_kwargs["postgresql_using"]
+    assert kwargs["postgresql_ops"] == model_index.dialect_kwargs["postgresql_ops"]
+
+
+def test_the_trigram_migration_installs_the_extension_the_model_hook_installs():
+    """Both paths need `pg_trgm` in `public`, and for the same reason.
+
+    A bare `CREATE EXTENSION` lands in the first entry of `search_path`, which
+    under `PYTEST_SCHEMA` is a per-module `test_<hex>` schema dropped CASCADE at
+    teardown — taking `gin_trgm_ops` with it and breaking every later module in
+    the session. If these two statements ever drift, one of the two paths gets
+    the extension in the wrong place.
+    """
+    up, down = _trigram_migration_ops()
+
+    assert str(db_models._PG_TRGM_EXTENSION) in up.executed, up.executed
+
+    # And the asymmetry is deliberate: the index goes, the extension stays. An
+    # extension is database-global, so a DROP would either fail (half-applied
+    # downgrade) or CASCADE away objects this migration never created.
+    assert [d[0] for d in down.dropped] == ["idx_job_tags_tag_trgm"], down.dropped
+    assert not any("DROP EXTENSION" in sql.upper() for sql in down.executed), down.executed

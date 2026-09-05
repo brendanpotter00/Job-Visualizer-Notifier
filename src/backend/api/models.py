@@ -621,7 +621,14 @@ KeywordMode = Literal["include", "exclude"]
 # saved_filters_service.MAX_KEYWORD_LISTS_PER_USER, where the existing row count
 # is visible — Pydantic can't enforce it at the request boundary.
 _MAX_LOCATIONS = 100
-_MAX_TAGS_PER_LIST = 100
+# Tied to ``routers.jobs_search._MAX_KEYWORDS``, which is the per-query budget for
+# include+exclude terms COMBINED. A saved list auto-hydrates into the Recent page's
+# filter chips on page load and those chips become the query's keyword parameters,
+# so a list the user may STORE but not QUERY is a hard 400 on Recent Jobs the next
+# time they open it. Lowered from 100 to match; the widest list in prod is 11 tags
+# (2026-08-19), so no stored list is affected, and ``KeywordListResponse`` carries
+# no length bound, so any legacy oversized row still reads back fine.
+_MAX_TAGS_PER_LIST = 20
 _MAX_TAG_TEXT_LEN = 100
 _MAX_LIST_NAME_LEN = 100
 _MAX_LOCATION_LEN = 200  # matches LocationSpec.canonical_name
@@ -1020,6 +1027,56 @@ class JobFacetsResponse(BaseModel):
 
     categories: list[FacetOption]
     levels: list[FacetOption]
+
+
+class JobSearchMeta(BaseModel):
+    """Header metrics for GET /api/jobs/search, returned with page 1 only.
+
+    ``filtered_total`` is ``None`` since Wave-1 B1 deferred the exact count off the
+    page-1 critical path (owner decision ①: fast searches beat exact counts). The
+    field is kept — the envelope has always allowed it to be null — so the wire
+    contract is unchanged and the client approximates the total from the rows it
+    has walked. The two recency tiles stay exact and are scoped to ``company`` and
+    to nothing else — not category, level, keywords, locations, ``since`` or
+    ``status`` — which is what the Recent page's "Past 24 Hours" / "Past 3 Hours"
+    cards have always shown: client-side they were derived from the
+    enabled-companies prefilter before any other filter ran.
+    """
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    filtered_total: int | None = None
+    # Explicit aliases: ``to_camel`` splits on the digit and emits
+    # ``countLast24H`` / ``countLast3H`` — a stray capital that reads like a typo
+    # in the JSON and would have to be mirrored verbatim in the TypeScript type.
+    # A field-level alias takes priority over the generator.
+    count_last_24h: int = Field(serialization_alias="countLast24h")
+    count_last_3h: int = Field(serialization_alias="countLast3h")
+
+
+class JobSearchResponse(BaseModel):
+    """GET /api/jobs/search — an ENVELOPE, unlike GET /api/jobs' bare array.
+
+    ``/api/jobs`` carries its page token in the ``X-Next-Cursor`` header because it
+    could not change a body shape every existing consumer depended on. That header
+    needs three separate hops wired correctly (the Vercel proxy's explicit
+    re-emit, FastAPI ``expose_headers``, and ``vercel.json``'s
+    ``Access-Control-Expose-Headers``), and missing any one of them fails
+    silently — the client simply never sees another page.
+
+    This endpoint is new, so it has no such constraint and puts the cursor in the
+    body, where it cannot be dropped in transit.
+    """
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    jobs: list[JobListingResponse]
+    # Absent/null means END OF WALK — it is the only termination signal, exactly
+    # as with the header on /api/jobs. Present iff the page came back full.
+    next_cursor: str | None = None
+    # None on cursor pages: the counts describe the whole filter set, so
+    # recomputing them per page would be pure waste.
+    meta: JobSearchMeta | None = None
 
 
 # --- Enrichment MONITOR models (admin oversight of the pull pipeline) ---------

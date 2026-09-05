@@ -1,0 +1,300 @@
+# Landing Page Prototypes — Implementation Plan
+
+> Epic 11 (`wdwb1cbnc7`). Started as frontend-only, mock-data prototypes of 4 landing-page
+> directions behind a tab strip; **consolidated on 2026-09-03 to one page — Gravity, at
+> `/landing`** (see Round 6). Copy traces to `docs/seo/positioning-brief.md` (11.1).
+> Promotion to `/` (robots/sitemap/meta/JSON-LD, `signup_funnel_landing` cutover) is
+> 11.2/11.3 — still OUT of scope here.
+>
+> **The bullets below marked ⟨superseded⟩ describe the pre-consolidation design.** They are
+> kept because the reasoning behind the surviving pieces (the lazy boundary, the single-
+> Canvas invariant, the props contract) is recorded there and nowhere else.
+
+## Architecture
+
+- **Route**: `/landing`, registered in `App.tsx` as a **sibling** of the
+  `path="/"`/`RootLayout` route → renders full-bleed (no drawer/appbar) while all
+  `main.tsx` providers still wrap it. **Unlisted, not admin-gated** (owner decision
+  2026-08-10): no nav entry anywhere, reachable by direct URL, so a reviewer can open it
+  without signing in. `vercel.json` carries a `/landing` → `/index.html` rewrite —
+  ⟨superseded⟩ the original plan needed none, because `/admin/landing-prototypes` was
+  already covered by the `/admin/:path(.*)` catch-all. `ROUTES.LANDING_LEGACY` keeps that
+  old path routable as a query-preserving redirect.
+- ⟨superseded⟩ **Tab strip**: MUI `Tabs variant="scrollable" allowScrollButtonsMobile`
+  styled chrome-like via sx; tab persisted via `?proto=`. Deleted in Round 6 along with
+  the registry. `?data=sparse` survived as the shell's only URL contract.
+- **Only one Canvas ever mounts** — the single-Canvas invariant (GL context leak
+  prevention) that the conditional tab render used to enforce is now structural.
+- **The scene stays lazy** (`React.lazy` + `Suspense` with `LoadingState`). With one design
+  left, this boundary is no longer about choosing between prototypes: it is the only thing
+  keeping three/rapier out of the main bundle, so it must not be flattened. The entry file
+  exports named (tests) + default (lazy) — accepted deviation from the named-export
+  convention, now confined to that one entry.
+- **Props contract** (`types.ts`):
+  `LandingPrototypeProps { content: LandingContent; jobs: Job[]; sparse: boolean; now: number }`.
+  `stats` was dropped in Round 6 with `MiniJobBoard`, its last consumer.
+- **Theme**: monochrome light everywhere (Q5) — app theme as-is; NO nested dark themes.
+
+## File tree (under `src/frontend/src/`)
+
+Post-consolidation (Round 6, 2026-09-03) — one page, no tabs. The `prototypes/`
+directory kept its name: it still reads as the scene's home, and renaming it
+would have churned every import for no reader gain.
+
+```
+pages/LandingPage/
+├── LandingPage.tsx                  # shell: 100dvh column, ?data=, lazy + Suspense
+├── types.ts                         # LandingPrototypeProps
+├── content.ts                       # LANDING_CONTENT: claims by id, heroVariants, CTAs, TOP_COMPANY_IDS
+├── mockData.ts                      # buildMockJobs(now) ~18 / buildSparseMockJobs(now) ~6 + constants
+├── companyCategories.ts             # PURE category taxonomy over COMPANY_IDS
+├── usePrefersReducedMotion.ts       # useSyncExternalStore over guarded matchMedia
+├── prototypes/
+│   ├── GravityPrototype/            # the page body — falling logos physics
+│   │   ├── GravityPrototype.tsx     # lazy entry: hero copy + sections + tier gate
+│   │   ├── GravityScene.tsx         # nested-lazy: <Canvas><Physics> walls/tiles/shadows
+│   │   ├── LogoTileBody.tsx
+│   │   ├── arenaLayout.ts           # PURE walls/columns + tile-escape guard
+│   │   ├── pointerInput.ts          # PURE NDC pointer mapping + retract rule
+│   │   ├── spawnPlan.ts             # PURE seeded (mulberry32) spawn plan
+│   │   └── useSettleGovernor.ts     # sleep counter + IO + visibility → frameloop always↔never
+│   └── shared3d/
+│       ├── experienceTier.ts        # PURE resolveExperienceTier / resolveFrameloop
+│       ├── useExperienceTier.ts
+│       ├── detectWebGL.ts           # injectable probe
+│       ├── mulberry32.ts            # PURE seeded PRNG
+│       ├── logoRoster.ts            # PURE selectLogoRoster(COMPANIES, count, seed)
+│       └── LogoGridFallback.tsx     # DOM "pre-settled" logo grid (reduced/no-WebGL tiers)
+└── sections/
+    ├── LandingHeader.tsx            # sticky bar; IO sentinel drives the scrolled state
+    ├── HeroCopy.tsx                 # variant-aware (source | antiNoise); page uses antiNoise
+    ├── CTAButtons.tsx               # primary "Browse jobs" → ROUTES.RECENT_JOBS
+    ├── HeroTrendline.tsx + trendlinePath.ts   # PURE smoothed path behind the canvas
+    ├── FreshJobsTriptych.tsx + triptychJobs.ts  # PURE 3-slot selection; FlippingCard per slot
+    ├── FlippingCard.tsx             # real JobListingCard on a timed flip, PRM kill switch
+    ├── HowItWorksSection.tsx
+    ├── CompanyCategoriesSection.tsx
+    ├── FeatureMatrixSection.tsx + matrixLayout.ts  # PURE trailing-row span rule
+    ├── FAQSection.tsx
+    └── FooterLite.tsx
+```
+
+Tests mirror under `__tests__/pages/LandingPage/`.
+
+## Key specs
+
+- **content.ts**: claims keyed by id (`straight_from_source`, `minutes_after_posting`,
+  `no_reposts`, `curated_companies`, `thousands_weekly`, `apply_early_rolling`) each with
+  `evidence` breadcrumb → brief §5. `headlineVariants: { source, antiNoise }` (brief §4);
+  Signal uses `source`, The Board uses `antiNoise`, 3D tabs pick per fit. `TOP_COMPANY_IDS`
+  (brief §8). Invariant tests: non-empty copy, record keys === claim.id, CTA `to` ∈ ROUTES.
+- **mockData.ts**: factories take `now` (deterministic tests), module-load constants for the
+  page. Real company ids only → `CompanyLogo` resolves committed PNGs. Verified enums:
+  categories `software_engineering|hardware_engineer|product_manager|project_manager|data_scientist|growth|business_ops`;
+  levels `intern|new_grad|entry|mid|senior|senior_plus|manager` (intern standalone).
+  `Job` required: `id, source:'backend-scraper', company, title, createdAt=firstSeenAt,
+  firstSeenAt, url, raw`. Freshness spread <3h → 7d; sparse fixture = weekend reality.
+  Mock stats DERIVE from mock jobs (coherent numbers).
+- **LiveActivityStats** (Q7): event-shaped — "SpaceX posted N jobs in the past hour",
+  "N jobs tracked in the past 24 hours" — computed from the jobs prop via
+  `filterJobsByHours`; never static vanity metrics.
+- **RESPONSIVE**: new `RESPONSIVE.landingProto` token group per `docs/RESPONSIVE.md` recipe
+  ({xs,sm} with sm restating desktop; pin-map entries in `responsive.test.ts`). No
+  hard-coded px. No breakpoint overrides anywhere.
+- **3D stack** (exact pins): `three@0.185.1`, `@types/three@0.185.4` (dev),
+  `@react-three/fiber@9.7.0`, `@react-three/drei@10.7.8`, `@react-three/rapier@2.2.0`
+  (compat wasm-as-base64 → zero Vite/Vercel plumbing; do NOT add rapier3d-compat directly).
+- **Gravity scene**: shared BoxGeometry(1,1,0.14); per-tile face material (`useTexture`
+  batch, sRGB); shared edge material; ambient + directional light, no shadow maps; drei
+  ContactShadows desktop tier only; ~72 bodies desktop / ~40 mobile; shallow pile via
+  front/back walls z≈±0.75, floor + side walls from viewport; `linearDamping 0.15`, `ccd`,
+  `restitution 0.2`, `friction 0.8`; seeded `buildSpawnPlan` staggers drops ~2.5s with zero
+  timers; rapier auto-sleep + `onSleep`/`onWake` counter → `useSettleGovernor` flips
+  frameloop `always↔never` (also on scroll-away via IntersectionObserver + visibilitychange);
+  pointer-repel kinematic ball on `(pointer: fine)` only; DPR clamp [1, 2] desktop /
+  [1, 1.5] mobile.
+- **Degradation ladder** (resolved in the lazy entry BEFORE importing the scene chunk):
+  full-desktop → full-mobile (fewer bodies, no shadows) → reduced-motion OR no-WebGL →
+  `LogoGridFallback` DOM grid / static CSS backdrop. Low tiers never download three/rapier.
+  Chunks: three+fiber+drei shared (~220–260KB gz, auto-hoisted by Rollup), rapier only in
+  Gravity's scene chunk (~1.1MB gz), no `manualChunks` unless build inspection demands it.
+  Invariant: NO eager module statically imports `three`/`@react-three/*`.
+- **Zero new eslint-disables**: seeded PRNG in `useMemo` passes `react-hooks/purity`
+  honestly; `useSyncExternalStore` for matchMedia (hand-rolled `usePrefersReducedMotion` —
+  framer-motion's singleton caches and breaks per-test toggling; jsdom has NO matchMedia,
+  guard `typeof window.matchMedia === 'function'`); rapier event callbacks instead of
+  state-mirroring effects.
+
+## Wiring checklist
+
+1. `config/routes.ts`: `ROUTES.ADMIN_LANDING_PROTOTYPES` + `ADMIN_NAV_ITEMS` entry
+   (label "Landing Prototypes", icon `Palette`).
+2. `NavigationDrawer.tsx`: `PaletteIcon` import + `IconName` union + `iconMap`
+   (missing = runtime crash, not a type error).
+3. `App.tsx`: sibling `<Route>` wrapped in `<AdminRoute>`.
+4. `config/changelog.ts`: honest entry ("internal landing-page prototypes"); changelog test
+   asserts link targets ∈ ROUTES.
+5. Tests as mirrored above; `renderWithProviders` + `initialEntries` for URL cases;
+   `vi.mock` at lazy boundaries (scene modules mocked — Vitest 4 with `coverage.include`
+   unset only counts loaded files; keep scenes thin JSX plumbing).
+
+## Ordered work units
+
+1. Config wiring (routes/nav/changelog + tests)
+2. Pure modules: types/content/mockData + invariant tests
+3. Shared sections + `RESPONSIVE.landingProto` + tests
+4. Shell + strip + registry + placeholder 3D stubs (page live end-to-end)
+5. Signal prototype + tests
+6. The Board prototype + MiniJobBoard + tests
+7. 3D deps install + pure 3D modules (spawnPlan/experienceTier/logoRoster/particlesConfig) + tests
+8. Drift scene (validates three/chunking/lifecycle stack without rapier)
+9. Gravity scene (walls, tiles, governor, pointer ball)
+10. Hardening: coverage, reduced-motion audit, mobile audit (390px), build-chunk inspection
+    (three must NOT appear in main bundle), tab-flip ×20 GL-context check
+
+## Verification
+
+`npm run type-check` · `npm run lint` · `npm test` · `npm run test:coverage -w src/frontend`
+(≥80% all metrics) · `npm run build` + chunk listing inspection. Manual: full-stack dev
+(run skill — AdminRoute needs Auth0 + `/api/users`; frontend-only insufficient), signed-in
+admin walk: 4 tabs, `?proto=` deep links, `?data=sparse`, reduced-motion ON → fully static,
+iPhone 390×844 (scrollable strip, no horizontal overflow), real logo PNGs render (no
+initials fallback). Then open in Brendan's browser for review.
+
+## Review log
+
+### Round 1 — 2026-08-09 (live review on port 3100)
+
+**Direction:** converging on **Gravity as the primary prototype** (keep the tab name for
+now). Board is cooling — an embedded mini board that's less capable than the real Recent
+Jobs page could deter people; keep the tab but stop investing.
+
+**Changes requested (this round):**
+1. Gravity tiles: full color (TILE_TONE → 'brand'), not grayscale — the one deliberate
+   splash of color on the monochrome page. DONE.
+2. Pointer lag when mousing through the Gravity pile — perf investigation + fix (own
+   workstream; measured root-cause, not guessed).
+3. Replace the "little tiny cards" fresh-jobs ticker rows with **one full JobListingCard
+   that flips/alternates** through fresh jobs (Signal + Gravity).
+4. Remove the LiveActivityStats tiles ("1 job posted by SpaceX…") from ALL prototypes.
+5. Gravity hero copy → the Board's antiNoise wording: "No reposts. No stale listings.
+   No noise." (Brendan's favorite line.)
+6. Hero CTAs: outlined "Create free account" next to "Browse jobs".
+7. FAQ → collapsed accordions (answers stay in the DOM for AEO).
+8. NEW section (below hero, Gravity first): **curated-company category presets** — cards
+   like FAANG-level, YC startups, unicorns, AI labs, big brands + agent-invented
+   categories, each a preset-filter entry point (mock links for now).
+
+**Noted for later (no action yet):**
+- If a carousel returns, use the Board's **two-row logo marquee** style.
+- Signal's post-hero content is liked but "needs cleanup quite a bit" — future round.
+- Feedback so far is hero-section-scoped; deeper below-fold passes to come.
+
+### Round 2 — 2026-08-09 (continued live review)
+
+1. Gravity mobile: finger-drag must shove the tiles (repel ball was desktop-only via
+   `(pointer: fine)` gate) and the physics arena must track window resizes instead of
+   freezing at load-time width. Fix in flight — resize triggers a debounced re-drop of
+   the pile rather than squeezing walls through settled bodies.
+2. Categories section heading → **"Browse curated companies"** (+ "Hand-picked companies,
+   grouped the way people actually search."). DONE.
+3. NEW **FreshJobsTriptych**: three JobListingCards in a horizontal row — "newest
+   internship" / "posted in the last 24 hours" / "fresh from big tech" — each slot
+   flipping through its own pool, staggered, priority-deduped. Goes on Gravity in place
+   of the single RotatingJobCard; Signal keeps the single card for A/B comparison.
+4. REJECTED (Brendan talked himself out of it): logo carousel behind the flipping card.
+5. Musing, no action: a "why this was built"-style features section (footer already
+   links /why).
+6. NEW `docs/marketing/business-context.md` — candidate-centric stance (no paid
+   reposts, ever — that's how incumbents monetize), apply-early thesis, "Datadog for
+   the job market" north star, feature-set truth table (live / in-progress
+   custom-company scrapers / NOT-yet notifications-payments-saved-jobs), long-horizon
+   talent-movement + VC-data ideas explicitly kept OFF the landing page. DONE.
+7. NEW `sections/HeroTrendline.tsx` — very faint mock posting-cadence line for the hero
+   background ("just a line" per Brendan, real data explicitly deferred). Built;
+   integration into the Gravity hero pending the touch/resize agent vacating those
+   files.
+8. TODO next round: **AI-powered labeling** deserves a landing section mention
+   (Brendan: "that should probably be somewhere in one of the sections").
+9. BUG (screenshot evidence): the tall Microsoft intern card grows the triptych row on
+   rotation, shifting the whole page below by a line each cycle. Fix in flight: sizer
+   stack in FlippingCard — all pool jobs rendered invisible in the same grid cell so
+   each slot pre-reserves its tallest card's height (immune to any job title length,
+   also covers Signal's RotatingJobCard).
+10. DESIGN PASS (in flight): text sections feel "condensed and busy" — add negative
+    space, Notion-inspired (bigger section gaps, capped reading measure, roomier matrix
+    cells/FAQ rows, space-over-lines). Spacing only; zero copy changes.
+11. COPY ROUND (in flight, folded into the negative-space agent): NO em-dashes anywhere
+    in landing copy; text bigger (sections were hard to read); How-it-works steps now
+    Monitor job boards / Label every role / Set up custom filters (freshness-timestamp
+    step removed as redundant); apply-early quotable gains a second line about finding
+    hiring managers + recruiters on LinkedIn and messaging them within minutes; "What
+    you get" renamed "Features"; speed cell says "seconds", NOT "~45 min median" —
+    ⚠ OWNER-DIRECTED overclaim vs the brief's ~45-min evidence; revisit before
+    promotion to prod. Hero antiNoise subheadline rewritten candidate-centric ("a job
+    board for candidates; less time searching") replacing the reposts line (also
+    surfaces on Board's hero).
+12. Sections decision (after orchestrator's ClickUp-grounded proposal): **"How it works"
+   and "Apply early" merge into ONE minimal section** placed between the triptych and
+   the categories grid (breaks up the motion-noise); **feature-set list as a minimal
+   matrix** (monochrome outlined icons, skimmable in seconds, roadmap items only as
+   quiet "Soon" cells) after categories. Text stays Signal-level tame — the Gravity
+   page's noise budget is spent on the hero + flipping cards. Epic grounding: AI
+   labeling = Enrichment epic (live); watch-any-company = Epic 7 (in flight); alerts =
+   Epic 12/15.9; saved jobs = S1; time-to-close proof for apply-early lands with Epic
+   14.3 later. Keep off: talent-movement/VC vision, payments, fabricated social proof.
+
+### Round 4 — 2026-08-20 (post-PR #250, review continues)
+
+1. NEW: grayed-out **"Coming soon" tier in the Features matrix** (owner decision,
+   REVERSES the earlier no-unshipped-features rule for this clearly-labeled tier
+   only): three cells, honest future tense, evidence → real epics:
+   - MCP / AI-assistant access (Claude Code / Desktop / web app / any assistant;
+     headless mode) → EPIC Power-user data access (wdwb1cbnce)
+   - AI-powered notifications: upload resume, set a rubric, get notified →
+     EPIC Notifications (wdwb1cbncb) + 12.1/15.9
+   - Track any company: name one (e.g. TikTok), we find the career page, build and
+     host the scraper → EPIC Custom company sources (wdwb1cbnc2, in flight)
+2. business-context.md gains the owner-decision exception for labeled coming-soon
+   tiers on the landing page.
+3. NEW `LandingHeader` (in flight): sticky landing header on all four prototypes —
+   wordmark left; quiet Companies/Why nav (desktop); right: GitHub source icon +
+   "Log in" (text) + "Sign up" (contained), auth links mock → /account. Transparent
+   over hero, opaque + hairline once scrolled (IO sentinel). Mobile: wordmark +
+   Sign up only. Brendan confirmed sticky explicitly.
+
+### Round 6 — 2026-09-03 (consolidation to one shipping page)
+
+Owner decision: the four-prototype workspace has served its purpose and collapses to
+**Gravity only**, served at **`/landing`** — an unlisted page (no nav entry anywhere,
+enforced by a routes test over every nav array) that Brendan iterates on after this
+merges, NOT the homepage. Signal, The Board and Drift are deleted outright, along with
+the `PrototypeTabStrip`, the lazy `registry.ts`, the `?proto=` URL contract, and the
+`PROTOTYPE_IDS` / `isPrototypeId` types that existed only to validate it. Sections that
+died with their only callers went too: `RotatingJobCard` (Signal), `FreshJobsTicker`
+(Board), `tickerJobs.ts` (verified orphan — `triptychJobs` selects its own slots and
+never imported `selectTickerJobs`), and `LogoWall` (Gravity's settled pile has always
+been its logo wall). The `stats` prop and `MOCK_STATS` went with `MiniJobBoard`, their
+last consumer. The shell keeps exactly two things it earned: the `React.lazy` + Suspense
+boundary, which is now the only thing keeping three/rapier out of the main bundle, and
+the `?data=sparse` fixture toggle, because the sparse case is the one that breaks
+layouts. The 100dvh inner scroller stays — `LandingHeader`'s sticky positioning and its
+root-less IntersectionObserver are both written against that scroller, so flattening it
+to a document-level scroll is a real behaviour change and belongs in the iteration pass,
+not in a deletion commit. `/admin/landing-prototypes` redirects to `/landing` with query
+and hash preserved (links were already shared by hand, and `?data=` still means
+something); `vercel.json` gains a `/landing` → `/index.html` rewrite, because the old
+path was only ever served by the `/admin/:path(.*)` catch-all.
+
+Copy changes landed in the same pass, all owner-directed: the header's second nav link
+became **Changelog → `/vote-features`** (that page IS the public changelog) in place of
+"Why", which the footer still carries; two FAQ entries were cut for restating answers
+other entries already gave (a uniqueness assertion replaced the count floor); **"Track
+any company" GRADUATED** out of the grayed coming-soon tier into the live cells now that
+custom company sources shipped on main, leaving 7 live / 2 coming-soon; and the footer
+lost both the "Popular searches" stubs (six links, all pointing at the same board,
+placeholders for 11.3 category pages that do not exist) and the closing proof tagline
+(a fourth restatement of numbers the page had already made). The matrix's old
+fill-both-grids-exactly count invariant could not survive a cell moving tiers, so it was
+replaced by `matrixLayout.ts` — a pure rule that widens a trailing cell only when it
+would otherwise sit alone in its row, at each breakpoint independently.

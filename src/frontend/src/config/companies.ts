@@ -614,6 +614,16 @@ export const COMPANIES: Company[] = [
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2298799140%22%5D',
   }),
+  createBackendScraperCompany('parallel', 'Parallel', 'https://jobs.ashbyhq.com/parallel', {
+    sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22103743985%22%5D',
+  }),
+  createBackendScraperCompany('factory', 'Factory', 'https://jobs.ashbyhq.com/factory', {
+    sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2293213132%22%5D',
+  }),
   // Migrated off Greenhouse to Ashby (2026-07-30 and 2026-08-05). The
   // Greenhouse boards 404'd/emptied after the companies moved ATS; the JVN
   // `id` is unchanged (it is the PK + logo key), only the board token moved:
@@ -916,6 +926,10 @@ export const COMPANIES: Company[] = [
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2233246798%22%5D',
   }),
+  createBackendScraperCompany('meta', 'Meta', 'https://www.metacareers.com/jobs', {
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2210667%22%5D',
+  }),
 ];
 
 export const enum COMPANY_IDS {
@@ -966,6 +980,7 @@ export const enum COMPANY_IDS {
   EliseAI = 'eliseai',
   Exa = 'exa',
   Expedia = 'expedia',
+  Factory = 'factory',
   Fal = 'fal',
   Figma = 'figma',
   FigureAI = 'figureai',
@@ -993,6 +1008,7 @@ export const enum COMPANY_IDS {
   Linear = 'linear',
   Lyft = 'lyft',
   Merge = 'merge',
+  Meta = 'meta',
   Microsoft = 'microsoft',
   Mintlify = 'mintlify',
   MistralAI = 'mistral-ai',
@@ -1010,6 +1026,7 @@ export const enum COMPANY_IDS {
   Pallet = 'pallet',
   Palantir = 'palantir',
   Paraform = 'paraform',
+  Parallel = 'parallel',
   PayPal = 'paypal',
   Perplexity = 'perplexity',
   PhysicalIntelligence = 'physical-intelligence',

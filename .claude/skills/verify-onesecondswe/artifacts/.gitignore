@@ -1,0 +1,5 @@
+# Transient per-run verification output (stack logs, Playwright results, run
+# metadata). Regenerated on every run of the verify-onesecondswe skill — keep
+# the directory, never commit the run output.
+*
+!.gitignore
