@@ -31,12 +31,19 @@ export interface StandInOptions {
    * load, ONCE for the whole session, and then never again however often the frame is
    * remounted.
    *
-   * This is not a hypothetical shape. Measured on a real capture
-   * (`artifacts/20260904T150614Z`, backend log): the session was created at 10:06:29.6
-   * and released at 10:07:01.4, and the frame posted the disconnect at ~10:06:32.4 —
-   * two seconds into a thirty-one second session. Measured again with the frame
-   * remounted four times over a healthy session (~8s each), it posted NOTHING: a frame
-   * that has settled does not blip. So: once, early, and never again.
+   * EARLY IS THE WHOLE POINT, and the reason is worth writing down because the comment
+   * here used to get it wrong. It cited `artifacts/20260904T150614Z` — the frame posting
+   * two seconds into a thirty-one second session — as proof the message is routinely
+   * spurious. That run predates the truncated-URL fix (`047db740`): the URL was clipped
+   * at 400 chars, so the socket really was dead. Four `--live` runs since post the
+   * message exactly once each, ~26s after load, at the genuine end.
+   *
+   * So this models the case the product must SURVIVE rather than one it must expect: a
+   * frame that has not settled yet claiming its socket is gone. The component keeps that
+   * disprovable on purpose (`LIVE_VIEW_DISCONNECT_GRACE`), because the message is an
+   * undocumented string from someone else's page and must not be able to end a session
+   * by itself. Measured with the frame remounted four times over a healthy session (~8s
+   * each), it posted NOTHING. So: once, early, and never again.
    */
   blipAfterMs?: number;
   /**

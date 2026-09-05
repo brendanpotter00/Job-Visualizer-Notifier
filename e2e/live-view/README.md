@@ -60,7 +60,7 @@ connection was closed"* into our layout, which is what every closer exists to pr
 | `LV-02` | the frame posts one spurious `browserbase-disconnected` 1.2s after loading | recovers within one poll and stays up — defence in depth, since a third-party hint must never be able to end a session by itself |
 | `LV-03` | one poll takes 13.5s, longer than the 12s trust lease | the lease expires (correct) but is *soft*, so the late payload restores the frame; the blink is bounded |
 | `LV-04` | genuinely ends, server retracts promptly | frame goes at the disconnect and does not come back |
-| `LV-05` | genuinely ends, server's null is a poll late | at most **one** short re-appearance, then gone for good — the written-down price of a soft closer |
+| `LV-05` | genuinely ends, server's null is a poll late | **no** re-appearance — the stale payload that still carries the URL must not remount the iframe onto a dead session |
 
 ## How it is instrumented
 
@@ -133,6 +133,35 @@ asserts the URL that comes back is byte-identical and carries no `…`, then rea
 frame **painted**. That is the assertion `--live` used to be the only source of. `--live`
 is still the only thing that exercises Browserbase's real frame, so it stays the tool for
 "the live view is misbehaving again and I need pictures".
+
+### The blink after the URL fix (LV-05)
+
+The URL fix left one blink behind, and it took `--live` to see it. `browserbase-disconnected`
+was made *disprovable* in the same commit — belt and braces — so a payload landing after it
+put the frame back. But the backend's `live_view_url: null` is **structurally one poll
+behind the socket**, so the payload that "disproves" a real ending is always the stale one:
+it was fetched before the browser closed, which is exactly why it still carries the URL.
+
+Measured across four `--live` runs at `047db740`:
+
+| run | frame-load | first disconnect | gap | server retracted |
+|---|---|---|---|---|
+| `20260905T005745Z` | 19197ms | 45127ms | 25.9s | +1.8s |
+| `20260905T005925Z` | 15529ms | 41057ms | 25.5s | **+4.7s** |
+| `20260905T010148Z` | 9143ms | 34792ms | 25.6s | +2.5s |
+| `20260905T010310Z` | 9685ms | 36556ms | 26.9s | +1.0s |
+
+One message per session, every time, ~26s after the frame loaded. In run `005925Z` the
+retraction was 4.7s behind it — longer than the 4s poll — so a payload landed 76ms after
+the disconnect, remounted the iframe onto a released session, and it painted **nothing**
+for 807ms before dying again. Real page → gone → white flash → gone. That run scored
+**87% coverage** and would have passed a percentage-only assertion.
+
+The fix is `LIVE_VIEW_FRAME_SETTLE_MS`: a disconnect from a frame that has been up longer
+than one poll interval is the ending it says it is. Below that window it stays disprovable,
+which is LV-02 — the one measurement that ever looked like a mid-session blip
+(`20260904T150614Z`, 1.06s after load) is the pre-fix **clipped-URL** run, where the socket
+genuinely died, so the softness is policy rather than an expected behaviour.
 
 **Presence is not liveness — do not add a percentage-only assertion here.** Measured
 across the regression: at `b86f5b1f` the frame was on screen for **98.7%** of the session

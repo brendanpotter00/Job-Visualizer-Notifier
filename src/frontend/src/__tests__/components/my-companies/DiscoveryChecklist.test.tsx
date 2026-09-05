@@ -696,25 +696,26 @@ describe('DiscoveryChecklist', () => {
     });
   }
 
-  it('puts the frame back when the next poll still carries the same session', () => {
-    // THE ONE THIS COMPONENT GOT WRONG TWICE, and the second time it survived the fix
-    // for the first.
+  it('puts the frame back when a frame that is still connecting says its socket dropped', () => {
+    // A FRAME THAT HAS NOT SETTLED YET, which is the only case the disproof is for. The
+    // disconnect here lands in the same tick as the `load`, so nothing has confirmed this
+    // frame was ever watchable — see `LIVE_VIEW_FRAME_SETTLE_MS`. The test below is the
+    // other side of the same line.
     //
-    // This test used to assert the opposite — "the list keeps answering, still carrying
-    // the same URL; it is wrong, and it is ignored" — on the reasoning that a frame
-    // reporting its own dead socket is a statement about the SESSION, and a session that
-    // has ended does not un-end. The premise is what was wrong. MEASURED against a real
-    // Browserbase capture (`e2e/live-view`, run 20260904T150614Z, cross-checked against
-    // the backend log): the session was created at 10:06:29.6 and released at 10:07:01.4,
-    // and the frame posted `browserbase-disconnected` at ~10:06:32.4 — two seconds into a
-    // thirty-one second session, which then ran on and captured 18 JSON responses. The
-    // message is not a statement about the session. It is a statement about a websocket
-    // inside someone else's iframe, and that socket drops for reasons of its own.
+    // WHY THE SOFTNESS EXISTS AT ALL, corrected. This comment used to cite a real capture
+    // (`e2e/live-view`, run 20260904T150614Z) as proof that the message is routinely
+    // WRONG: the frame posted `browserbase-disconnected` two seconds into a thirty-one
+    // second session that then ran on and captured 18 JSON responses. That run is the one
+    // that FOUND the truncated-URL bug and predates its fix — `progress.py` clipped the
+    // URL at 400 characters, so the frame's socket really was dead while the session ran
+    // on. The frame was right; our URL was wrong. Four `--live` runs since the fix post
+    // the message exactly ONCE each, ~26s after the frame loads, at the genuine end.
     //
-    // The cost of believing it: the live view was on screen for 1.98s of a ~24s
-    // watchable window, every run. That is the whole of "it pops up and disappears
-    // within a second", and no unit test could see it because the disconnect only
-    // happens against a real hosted frame.
+    // So the reason to keep it disprovable is POLICY, not a measured blip: it is an
+    // unversioned, unnamespaced string sent with `targetOrigin: '*'` from a page we do
+    // not own, and nothing that arrives that way should be able to delete this feature by
+    // itself. If Browserbase ever starts posting it on every reconnect, this test is what
+    // keeps the live view alive.
     const { rerender } = renderWithProviders(
       <DiscoveryChecklist receivedAt={POLLED_AT} company={company('discovering', CAPTURING)} />
     );
@@ -777,6 +778,69 @@ describe('DiscoveryChecklist', () => {
         />
       );
       expect(screen.queryByTestId('discovery-live-view')).not.toBeInTheDocument();
+    }
+  });
+
+  it('does not put the frame back once it has been watching for a while', () => {
+    // THE BLINK THE OWNER REPORTED, and the one the disproof above buys at full price.
+    //
+    // MEASURED, four real Browserbase discoveries at 047db740 (`e2e/live-view --live`,
+    // artifacts 20260905T005745Z / 005925Z / 010148Z / 010310Z): the frame posts
+    // `browserbase-disconnected` EXACTLY ONCE per session, 25.5–26.9s after its own
+    // `load`, and the server retracts the URL 1.0–4.7s later. There is no mid-session
+    // blip on a healthy capture.
+    //
+    // In one of those four the retraction was 4.7s behind the disconnect — longer than
+    // the 4s poll — so a payload still carrying the URL landed 76ms after the frame said
+    // its socket was gone, disproved it, and remounted the iframe onto a session that
+    // was already dead. It painted nothing for 807ms and died again. Real page → gone →
+    // blank white flash → gone: "it came in and out".
+    //
+    // A disconnect from a frame that has been up for longer than a poll interval is
+    // therefore taken as the ending it is (`LIVE_VIEW_FRAME_SETTLE_MS`). The grace is
+    // for a frame still connecting — the case the test above pins — and nothing else.
+    vi.useFakeTimers();
+    try {
+      const { rerender } = renderWithProviders(
+        <DiscoveryChecklist receivedAt={POLLED_AT} company={company('discovering', CAPTURING)} />
+      );
+      fireEvent.load(screen.getByTestId('discovery-live-view'));
+
+      // Two healthy polls with the frame on screen the whole way: this is a frame that
+      // has settled, not one that is still finding its socket.
+      for (const poll of [1, 2]) {
+        act(() => {
+          vi.advanceTimersByTime(4_000);
+        });
+        rerender(
+          <DiscoveryChecklist
+            receivedAt={POLLED_AT + poll * 4_000}
+            company={company('discovering', CAPTURING)}
+          />
+        );
+        expect(screen.getByTestId('discovery-live-view')).toBeInTheDocument();
+      }
+
+      disconnect();
+      expect(screen.queryByTestId('discovery-live-view')).not.toBeInTheDocument();
+
+      // The next payload still carries the URL — the backend's null is structurally at
+      // least one poll behind the socket (see LIVE_VIEW_TRUST_MS), so this is what a
+      // genuine ending looks like from here. It must not be read as the session still
+      // being open.
+      act(() => {
+        vi.advanceTimersByTime(4_000);
+      });
+      rerender(
+        <DiscoveryChecklist
+          receivedAt={POLLED_AT + 3 * 4_000}
+          company={company('discovering', CAPTURING)}
+        />
+      );
+      expect(screen.queryByTestId('discovery-live-view')).not.toBeInTheDocument();
+      expect(document.querySelectorAll('iframe')).toHaveLength(0);
+    } finally {
+      vi.useRealTimers();
     }
   });
 

@@ -212,17 +212,24 @@ test.describe('LV-04 the session genuinely ends, and the server says so promptly
 });
 
 test.describe('LV-05 the session ends and the server is a poll behind', () => {
-  test('at most one short flicker, then gone for good', async ({ signedInPage }) => {
-    // THE PRICE OF A SOFT CLOSER, written down rather than left to be discovered.
+  test('the frame does not come back, however late the server is', async ({ signedInPage }) => {
+    // THE OWNER'S "IT CAME IN AND OUT", scripted. This is the one scenario in the file
+    // that reproduces it, and it used to be written down as a price worth paying.
     //
-    // The frame's disconnect is not authoritative, so a payload that still carries the
-    // URL can disprove it — and for one poll after a genuine end, the server's payload
-    // does still carry it (its null is structurally late; see LIVE_VIEW_TRUST_MS). So
-    // the frame may come back once. `LIVE_VIEW_DISCONNECT_GRACE` is what stops that
-    // becoming a flap once per poll for the whole 12s lease.
+    // The shape: the session genuinely ends, the frame says so, and the server's null is
+    // structurally at least one poll behind it (see LIVE_VIEW_TRUST_MS). So a payload
+    // still carrying the URL lands in between — and that payload was FETCHED BEFORE the
+    // socket died, which is exactly why it still carries it. Treating it as evidence the
+    // browser is open remounts the iframe onto a session that is already dead: a blank
+    // white box for the moment before the frame gives up again.
     //
-    // What it must never do is SIT there. Browserbase paints "Debugging connection was
-    // closed" into a frame whose socket is gone, and a long re-appearance is that.
+    // Measured on a real capture (`--live`, artifacts 20260905T005925Z): frame gone at
+    // t=41036ms, BACK 77ms later, painting nothing for 807ms, then gone for good. Real
+    // page → gone → white flash → gone. The percentage that run scored was 87%.
+    //
+    // So: zero re-appearances. A disconnect from a frame that has been up longer than a
+    // poll interval is the ending it says it is (`LIVE_VIEW_FRAME_SETTLE_MS`); the grace
+    // that lets a payload disprove one is for a frame still connecting, which is LV-02.
     const { v, disconnectAt } = await endingSession(signedInPage, 6_000);
     const report = v.recorder.report(v.samples);
     expect(everPresent(v.samples), `the frame never appeared\n${report}`).toBe(true);
@@ -231,9 +238,9 @@ test.describe('LV-05 the session ends and the server is a poll behind', () => {
     const back = presentRunsAfter(v.samples, disconnectAt + 300);
     expect(
       back.length,
-      `the frame came back ${back.length} times after a genuine disconnect — a soft ` +
-        `closer must be soft ONCE, not once per poll\n${report}`
-    ).toBeLessThanOrEqual(1);
+      `the frame came back ${back.length} time(s) after a genuine disconnect — a remount ` +
+        `onto a dead session is a blank box, which is the blink this gate exists for\n${report}`
+    ).toBe(0);
     for (const run of back) {
       expect(
         run.durationMs,
