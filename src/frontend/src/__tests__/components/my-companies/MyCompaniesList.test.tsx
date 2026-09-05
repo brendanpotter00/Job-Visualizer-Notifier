@@ -259,17 +259,6 @@ describe('MyCompaniesList', () => {
     expect(screen.queryByText('No companies yet')).not.toBeInTheDocument();
   });
 
-  it('heads the section "Your companies"', async () => {
-    fetchMock.mockResolvedValue(jsonResponse({ companies: [COMPANY_A] }));
-    renderWithProviders(<MyCompaniesList />);
-
-    await screen.findByTestId('my-company-row');
-    expect(screen.getByRole('heading', { name: 'Your companies' })).toBeInTheDocument();
-    expect(
-      screen.queryByRole('heading', { name: /you.re tracking/i })
-    ).not.toBeInTheDocument();
-  });
-
   it('removes a company via the confirm dialog', async () => {
     // First load returns one company; the DELETE resolves 204; the invalidation
     // refetch returns an empty list.

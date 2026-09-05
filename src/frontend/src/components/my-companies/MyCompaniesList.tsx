@@ -601,7 +601,7 @@ export function MyCompaniesList() {
       ) : null}
 
       <Typography variant="h6" component="h2" gutterBottom>
-        Your companies
+        Companies you&apos;re tracking
       </Typography>
 
       {/* THE EMPTY STATE SAYS ONE THING. It used to be a three-step how-to — "open their
