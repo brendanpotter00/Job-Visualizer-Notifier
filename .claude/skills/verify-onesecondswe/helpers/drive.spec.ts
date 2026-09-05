@@ -9,7 +9,7 @@
 //
 // Grounded selectors (src/frontend/src/components/shared/JobCard/): a job title is
 // a role=heading level=3; the company name renders as text (e.g. "Apple"); the
-// metric row shows the label "Displayed Jobs".
+// metric row shows the labels "Past 24 Hours" / "Past 3 Hours".
 import fs from 'node:fs';
 import path from 'node:path';
 import { test, expect } from '../../../../e2e/shared/playwright/fixtures';
@@ -93,7 +93,10 @@ test('[@drive] Recent feed — company filter: Tier-1 meta anchor + Tier-2 DOM r
   // toBeVisible waits, so the bounded keyset auto-deepen (RecentJobsList) can land.
   await expect(page.getByText('Apple', { exact: true }).first()).toBeVisible({ timeout: 20_000 });
   await expect(page.getByText('SpaceX', { exact: true })).toHaveCount(0);
-  await expect(page.getByText('Displayed Jobs')).toBeVisible();
+  // The metric row is still the proof that the header rendered. It used to be
+  // checked via "Displayed Jobs", which was removed on 2026-09-05 — "Past 24
+  // Hours" is the leading tile now.
+  await expect(page.getByText('Past 24 Hours')).toBeVisible();
 
   // Evidence: ARIA snapshot of the page's main region + a screenshot.
   const main = page.locator('main, [role="main"]').first();

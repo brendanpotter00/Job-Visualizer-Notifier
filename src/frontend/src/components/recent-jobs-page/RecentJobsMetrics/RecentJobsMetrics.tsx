@@ -1,33 +1,19 @@
 import { Paper, Stack, Divider } from '@mui/material';
 import { MetricCard } from '../../companies-page/MetricsDashboard/MetricCard.tsx';
 import { RESPONSIVE } from '../../../config/responsive';
-import {
-  formatResultTotal,
-  UNKNOWN_TOTAL,
-  type ResultTotal,
-} from '../../../features/jobs/resultTotal.ts';
 
 interface RecentJobsMetricsProps {
   /**
-   * How many jobs the filter set holds, to whatever precision is honest.
+   * `null` means the number is NOT KNOWN — page 1 has not landed, or it failed
+   * and the hook deliberately dropped the previous filter set's figures. It is
+   * never "zero": rendering an unknown count as 0 puts a confident number over an
+   * error banner, which reads as "your filters matched nothing" and sends the
+   * reader off to widen filters that were never the problem.
    *
-   * NOT a plain number, because since #277 the exact total usually does not
-   * exist: the server defers it and the rows walked so far are a lower bound, so
-   * this tile shows "50+". It rendered a bare em-dash for every real search until
-   * that bound was plumbed through — the count was there the whole time, in the
-   * rows on screen, and the header simply had no way to say "at least".
-   *
-   * `unknown` still renders the em-dash, and still must: it means page 1 has not
-   * landed or it failed and the previous filter set's figures were deliberately
-   * dropped. Never "zero" — "0 Displayed Jobs" over an error banner reads as
-   * "your filters matched nothing" and sends the reader off to widen filters that
-   * were never the problem.
-   */
-  totalJobs: ResultTotal;
-  /**
-   * `null` means NOT KNOWN, for the same reasons and with the same em-dash. These
-   * two stay exact numbers — the server still counts them on every page 1; only
-   * the filtered total was deferred.
+   * Both are scoped to the companies the reader follows and to NOTHING else — not
+   * category, level, keywords, locations or the time window. That is deliberate:
+   * these two tiles answer "how busy is the market I follow", so a narrowed list
+   * still sits under an unchanged market reading.
    */
   jobsLast24Hours: number | null;
   jobsLast3Hours: number | null;
@@ -40,15 +26,30 @@ interface RecentJobsMetricsProps {
   pending?: boolean;
 }
 
-const show = (value: number | null): number | string => (value === null ? UNKNOWN_TOTAL : value);
+/** What an unknown count renders as. An em-dash, never a zero. */
+const UNKNOWN = '—';
+
+const show = (value: number | null): number | string => (value === null ? UNKNOWN : value);
 
 /**
- * Displays metrics for Recent Job Postings page
- * Matches styling of MetricsDashboard component
- * Shows total jobs and time-based counts (24h, 3h)
+ * The Recent page's header metrics: how busy the market is, and nothing else.
+ *
+ * A "Displayed Jobs" tile led this row until it was removed at the owner's
+ * request (2026-09-05). Worth writing down, because the obvious instinct is to
+ * put a count back: since #277 the server does not compute the filtered total on
+ * page 1 (fast searches beat exact counts), so the only figure this tile could
+ * honestly show was a LOWER BOUND over the rows walked so far — "50+" above
+ * exactly fifty cards. That is self-referential rather than informative: it
+ * restates the list under it and climbs as the reader scrolls. The owner's
+ * verdict was "it's useless if it says 50 plus jobs", and an uninformative number
+ * costs more attention than it returns.
+ *
+ * So do not re-add it as a bare `jobs.length`, and do not re-add it by making the
+ * server count again — that trade was already made deliberately. The list still
+ * derives the same figure for `aria-setsize` (`features/jobs/resultTotal.ts`),
+ * where ARIA needs a set size and honestly reports "unknown" mid-walk.
  */
 export function RecentJobsMetrics({
-  totalJobs,
   jobsLast24Hours,
   jobsLast3Hours,
   pending = false,
@@ -63,15 +64,14 @@ export function RecentJobsMetrics({
         transition: 'opacity 150ms ease-out',
       }}
     >
-      {/* Always a horizontal 3-up row (was column on xs, which stacked the three
-          numbers vertically and filled the whole phone screen). */}
+      {/* Always a horizontal row (was column on xs, which stacked the numbers
+          vertically and filled the whole phone screen). */}
       <Stack
         direction="row"
         spacing={RESPONSIVE.spacing.rowSpacing}
         divider={<Divider orientation="vertical" flexItem />}
         sx={{ mb: { xs: 0, sm: 3 } }}
       >
-        <MetricCard value={formatResultTotal(totalJobs)} label="Displayed Jobs" dense />
         <MetricCard value={show(jobsLast24Hours)} label="Past 24 Hours" dense />
         <MetricCard value={show(jobsLast3Hours)} label="Past 3 Hours" dense />
       </Stack>

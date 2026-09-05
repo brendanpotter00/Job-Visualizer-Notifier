@@ -54,10 +54,8 @@ export interface RecentJobsListProps {
 export function RecentJobsList({ search }: RecentJobsListProps) {
   const {
     jobs,
-    // Already capped for a signed-out reader. The cap lives in
-    // `useRecentJobsSearch` because the header's "Displayed Jobs" tile counts
-    // these same rows, and two components slicing the same constant is one edit
-    // away from a header that disagrees with the list under it.
+    // Already capped for a signed-out reader — the cap is the hook's policy, the
+    // same place that forces `hasNextPage` false for them.
     displayedJobs,
     resultTotal,
     isInitialLoading,
