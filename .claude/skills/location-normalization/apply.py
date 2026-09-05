@@ -23,6 +23,7 @@ cannot overwrite it.
 from __future__ import annotations
 
 import argparse
+import datetime
 import json
 import os
 import pathlib
@@ -41,6 +42,9 @@ sys.path.insert(0, str(_REPO_ROOT))
 
 from src.backend.api.services.location_canonicalize import (  # noqa: E402
     canonicalize_parts,
+)
+from src.backend.api.services.location_normalization import (  # noqa: E402
+    normalize_string,
 )
 
 ENV_PATH = pathlib.Path.home() / ".config" / "jvn" / "location-writer.env"
@@ -66,13 +70,42 @@ def load_dsn() -> str:
             f"This script will not fall back to a superuser DSN or to `railway run`."
         )
 
+    # NOTE: the DSN string is NOT the authority on which role we connect as --
+    # see assert_connected_role(), which is. urlparse().username reads only the
+    # userinfo, and libpq lets a URI query parameter override it:
+    #
+    #   postgresql://claude_location_writer:x@host/db?user=postgres
+    #     -> urlparse says 'claude_location_writer', libpq connects as postgres
+    #
+    # That would have put an unattended loop on prod as superuser with the one
+    # stated safety boundary intact-looking. This check stays as an early,
+    # friendly failure; the real gate runs after the connection is open.
     user = urllib.parse.urlparse(dsn).username
-    if user != REQUIRED_ROLE:
+    if user is not None and user != REQUIRED_ROLE:
         sys.exit(
             f"refusing to run: DSN user is {user!r}, expected {REQUIRED_ROLE!r}.\n"
             f"The narrow role is the safety boundary -- do not point this at postgres."
         )
     return dsn
+
+
+def assert_connected_role(cur) -> None:
+    """The authoritative check: ask the SERVER who we are.
+
+    Authoritative for every DSN form -- userinfo, ``?user=`` query parameter,
+    ``service=`` file, PGUSER, key/value strings -- because it reads the session
+    the server actually established rather than parsing the request.
+    """
+    cur.execute("SELECT current_user AS cu, session_user AS su")
+    row = cur.fetchone()
+    current, session = row["cu"], row["su"]
+    if current != REQUIRED_ROLE or session != REQUIRED_ROLE:
+        sys.exit(
+            f"refusing to run: connected as current_user={current!r} "
+            f"session_user={session!r}, expected {REQUIRED_ROLE!r} for both.\n"
+            f"The narrow role IS the safety boundary -- this script will not run "
+            f"as a superuser no matter how the DSN is spelled."
+        )
 
 
 # ---------------------------------------------------------------- plan model
@@ -111,22 +144,56 @@ def load_plan(path: pathlib.Path) -> dict:
     for alias in plan.get("aliases", []):
         if not alias.get("raw_text"):
             sys.exit("every alias entry needs a raw_text")
+        # The cache key is normalize_string(location), NOT the raw spelling. A
+        # plan saying "Remote" (capital R) would create a DEAD alias row that
+        # Tier-1 never looks up, leave the poisoned 'remote' key untouched,
+        # retag zero jobs -- and print COMMITTED. Refuse rather than normalize
+        # silently, because a plan whose key is wrong usually means the judging
+        # step read the wrong row.
+        supplied = alias["raw_text"]
+        normalized = normalize_string(supplied)
+        if supplied != normalized:
+            sys.exit(
+                f"alias raw_text {supplied!r} is not a normalized cache key.\n"
+                f"Tier-1 looks up normalize_string(location) = {normalized!r}, so this "
+                f"entry would create a dead alias and retag nothing. Use {normalized!r}."
+            )
         if not alias.get("locations"):
             sys.exit(
                 f"alias {alias['raw_text']!r} has no locations. To remove a mapping "
                 f"entirely, delete the alias by hand -- this script only rewrites."
             )
         alias["locations"] = [canonical_spec(s) for s in alias["locations"]]
-    for merge in plan.get("merges", []):
+    merges = plan.get("merges", [])
+    all_losers: set[int] = set()
+    for merge in merges:
         if merge.get("survivor_id") in merge.get("loser_ids", []):
             sys.exit(f"merge {merge!r} lists the survivor as its own loser")
+        all_losers.update(int(x) for x in merge.get("loser_ids", []))
+    for merge in merges:
+        survivor = int(merge["survivor_id"])
+        if survivor in all_losers:
+            # Otherwise the second entry aborts mid-run on "survivor does not
+            # exist" -- AFTER arbitrary work, and the rollback file is written
+            # downstream of the merge loop, so no undo is produced at all.
+            sys.exit(
+                f"merge survivor {survivor} is also a loser in another merge entry. "
+                f"Chained merges are ambiguous; collapse them into one entry."
+            )
     return plan
 
 
 # ---------------------------------------------------------------- reads
 
 
-def upsert_location(cur, spec: dict) -> int:
+def upsert_location(cur, spec: dict, rb=None) -> int:
+    """Insert or find the row for this tuple, and REPAIR its label if stale.
+
+    DO NOTHING alone left an existing row's `canonical_name` untouched, so the
+    run printed the intended label while the database kept the old one -- and
+    D2 (duplicate canonical names) / D6 (invariant violations) could never drop,
+    which makes the skill's auto-rollback fire on every tick that touches them.
+    """
     cur.execute(
         "INSERT INTO locations (canonical_name, kind, city, region, country, remote_scope) "
         "VALUES (%(canonical_name)s, %(kind)s, %(city)s, %(region)s, %(country)s, %(remote_scope)s) "
@@ -135,9 +202,12 @@ def upsert_location(cur, spec: dict) -> int:
     )
     row = cur.fetchone()
     if row:
-        return int(row["id"])
+        loc_id = int(row["id"])
+        if rb is not None:
+            rb.note_created_location(loc_id)
+        return loc_id
     cur.execute(
-        "SELECT id FROM locations WHERE kind = %(kind)s "
+        "SELECT id, canonical_name FROM locations WHERE kind = %(kind)s "
         "AND city IS NOT DISTINCT FROM %(city)s AND region IS NOT DISTINCT FROM %(region)s "
         "AND country IS NOT DISTINCT FROM %(country)s "
         "AND remote_scope IS NOT DISTINCT FROM %(remote_scope)s",
@@ -146,7 +216,17 @@ def upsert_location(cur, spec: dict) -> int:
     row = cur.fetchone()
     if not row:
         sys.exit(f"locations upsert conflicted but no matching row found for {spec!r}")
-    return int(row["id"])
+    loc_id = int(row["id"])
+    if row["canonical_name"] != spec["canonical_name"]:
+        if rb is not None:
+            rb.snapshot_location(cur, loc_id)
+        cur.execute(
+            "UPDATE locations SET canonical_name = %s WHERE id = %s",
+            (spec["canonical_name"], loc_id),
+        )
+        print(f"    relabelled location {loc_id}: "
+              f"{row['canonical_name']!r} -> {spec['canonical_name']!r}")
+    return loc_id
 
 
 def sql_literal(value: Any) -> str:
@@ -183,7 +263,16 @@ class Rollback:
         self._aliases: dict[str, str] = {}
         self._alias_children: dict[str, list[dict]] = {}
         self._jobs: dict[str, list[dict]] = {}
+        self._created_locations: list[int] = []
         self._notes: list[str] = []
+
+    def note_created_location(self, loc_id: int) -> None:
+        """A `locations` row this run brought into existence.
+
+        Undoing must remove it, or every rollback leaves a fresh D5 orphan
+        behind and "restored to the prior state" is not quite true.
+        """
+        self._created_locations.append(loc_id)
 
     def note(self, text: str) -> None:
         self._notes.append(f"-- {text}")
@@ -199,12 +288,25 @@ class Rollback:
         row = cur.fetchone()
         if not row:
             return
+        # TWO arbiters, not one. `ON CONFLICT (id)` alone does not cover
+        # uq_locations_canonical, so if a later run re-created this tuple under
+        # a fresh id, restoring the old row violates that constraint and the
+        # WHOLE undo transaction aborts -- the same failure class as the
+        # FK-ordering bug. Delete anything occupying the tuple first, then
+        # restore by id.
         self._locations[loc_id] = (
+            "DELETE FROM locations WHERE kind IS NOT DISTINCT FROM "
+            f"{sql_literal(row['kind'])} AND city IS NOT DISTINCT FROM "
+            f"{sql_literal(row['city'])} AND region IS NOT DISTINCT FROM "
+            f"{sql_literal(row['region'])} AND country IS NOT DISTINCT FROM "
+            f"{sql_literal(row['country'])} AND remote_scope IS NOT DISTINCT FROM "
+            f"{sql_literal(row['remote_scope'])} AND id <> {row['id']};\n"
             "INSERT INTO locations (id, canonical_name, kind, city, region, country, "
             f"remote_scope) VALUES ({row['id']}, {sql_literal(row['canonical_name'])}, "
             f"{sql_literal(row['kind'])}, {sql_literal(row['city'])}, "
             f"{sql_literal(row['region'])}, {sql_literal(row['country'])}, "
-            f"{sql_literal(row['remote_scope'])}) ON CONFLICT (id) DO NOTHING;"
+            f"{sql_literal(row['remote_scope'])}) ON CONFLICT (id) DO UPDATE SET "
+            "canonical_name = EXCLUDED.canonical_name;"
         )
 
     def snapshot_alias(self, cur, raw_text: str) -> None:
@@ -286,6 +388,16 @@ class Rollback:
                     f"is_primary) VALUES ({sql_literal(job_id)}, "
                     f"{row['normalized_location_id']}, {sql_literal(row['is_primary'])});"
                 )
+        # Last: drop rows this run created, now that nothing references them.
+        for loc_id in self._created_locations:
+            if loc_id not in self._locations:
+                out.append(
+                    f"DELETE FROM locations WHERE id = {loc_id} "
+                    f"AND NOT EXISTS (SELECT 1 FROM job_locations WHERE "
+                    f"normalized_location_id = {loc_id}) "
+                    f"AND NOT EXISTS (SELECT 1 FROM alias_locations WHERE "
+                    f"normalized_location_id = {loc_id});"
+                )
         out.append("COMMIT;")
         return "\n".join(out) + "\n"
 
@@ -293,14 +405,56 @@ class Rollback:
 # ---------------------------------------------------------------- main
 
 
+def run_rollback(path: pathlib.Path) -> int:
+    """Execute a rollback file produced by an earlier apply.
+
+    SKILL.md documents auto-rollback as a brake on the unattended loop, but the
+    agent had no sanctioned way to run one: the prod MCP is SELECT-only and this
+    script took only --plan/--apply. A brake nobody can pull is not a brake, so
+    a regressing tick would report a rollback it had not performed.
+    """
+    if not path.exists():
+        sys.exit(f"rollback file not found: {path}")
+    dsn = load_dsn()
+    conn = psycopg2.connect(dsn, cursor_factory=RealDictCursor)
+    try:
+        cur = conn.cursor()
+        assert_connected_role(cur)
+        body = path.read_text()
+        # The file carries its own BEGIN/COMMIT; strip them so this transaction
+        # owns the boundary and a failure rolls the whole thing back.
+        stripped = "\n".join(
+            line for line in body.splitlines()
+            if line.strip().upper() not in {"BEGIN;", "COMMIT;"}
+        )
+        cur.execute(stripped)
+        conn.commit()
+        print(f"ROLLED BACK using {path}")
+    except Exception:
+        conn.rollback()
+        print("rollback FAILED and was itself rolled back; the database is unchanged")
+        raise
+    finally:
+        conn.close()
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--plan", required=True, type=pathlib.Path,
+    ap.add_argument("--plan", type=pathlib.Path,
                     help="JSON repair plan (see SKILL.md \u00a75)")
     ap.add_argument("--apply", action="store_true",
                     help="COMMIT. Without this the transaction is rolled back.")
+    ap.add_argument("--rollback", type=pathlib.Path,
+                    help="Execute a .rollback.sql produced by an earlier --apply, "
+                         "undoing that run. Mutually exclusive with --plan.")
     args = ap.parse_args()
+
+    if bool(args.plan) == bool(args.rollback):
+        sys.exit("pass exactly one of --plan or --rollback")
+    if args.rollback:
+        return run_rollback(args.rollback)
 
     plan = load_plan(args.plan)
     dsn = load_dsn()
@@ -321,6 +475,7 @@ def main() -> int:
     conn = psycopg2.connect(dsn, cursor_factory=RealDictCursor)
     try:
         cur = conn.cursor()
+        assert_connected_role(cur)
         touched_jobs: set[str] = set()
 
         # ---- 1. alias rewrites -------------------------------------------
@@ -331,7 +486,7 @@ def main() -> int:
                 c["normalized_location_id"] for c in rb.prior_alias_locations(raw)
             ]
 
-            wanted_ids = [upsert_location(cur, s) for s in alias["locations"]]
+            wanted_ids = [upsert_location(cur, s, rb) for s in alias["locations"]]
             seen: set[int] = set()
             wanted_ids = [i for i in wanted_ids if not (i in seen or seen.add(i))]
 
@@ -473,12 +628,19 @@ def main() -> int:
             print(f"deleted orphan {loc_id} ({row['canonical_name']!r})")
 
         # ---- 4. explicit re-normalizations -------------------------------
+        cleared = 0
         for job_id in renormalize:
             cur.execute(
                 "UPDATE job_listings SET normalization_status = NULL WHERE id = %s", (job_id,)
             )
+            cleared += cur.rowcount
         if renormalize:
-            print(f"cleared normalization_status on {len(renormalize)} job(s)")
+            # rowcount, not len(renormalize): a plan naming a stale or typo'd job
+            # id updates nothing and used to report the full count anyway.
+            print(f"cleared normalization_status on {cleared} of "
+                  f"{len(renormalize)} requested job(s)")
+            if cleared != len(renormalize):
+                print(f"    WARNING: {len(renormalize) - cleared} job id(s) matched no row")
             rb.note(
                 f"normalization_status was cleared on {len(renormalize)} job(s); the "
                 "pipeline re-derives it on the next scan, so there is nothing to undo"
@@ -487,7 +649,18 @@ def main() -> int:
         if touched_jobs:
             print(f"\nretagged {len(touched_jobs)} distinct OPEN job(s) in total")
 
-        rollback_path = args.plan.with_suffix(".rollback.sql")
+        # Timestamped, never a fixed name. SKILL.md \u00a77 loops this whole cycle
+        # each tick with one plan filename, so a fixed `.rollback.sql` meant tick
+        # N+1 destroyed tick N's undo -- and a dry-run after an apply replaced the
+        # real undo with a post-state one. An overnight loop would leave exactly
+        # one usable rollback, which \u00a77 calls "the only way to undo a bad night".
+        stamp = datetime.datetime.now().strftime("%Y%m%dT%H%M%S")
+        suffix = "apply" if args.apply else "dryrun"
+        rollback_path = args.plan.with_name(
+            f"{args.plan.stem}.{stamp}.{suffix}.rollback.sql"
+        )
+        if rollback_path.exists():
+            sys.exit(f"refusing to overwrite an existing rollback file: {rollback_path}")
         rollback_path.write_text(rb.render(args.plan))
         print(f"rollback written to {rollback_path}")
 
@@ -497,8 +670,19 @@ def main() -> int:
         else:
             conn.rollback()
             print("DRY-RUN \u2014 rolled back. Re-run with --apply to commit.")
+    except SystemExit:
+        # sys.exit() raises SystemExit (a BaseException), so `except Exception`
+        # never sees it. The database is safe either way -- psycopg2 discards an
+        # open transaction on close() -- but without this the output ended with
+        # every "retagging N OPEN job(s)" line intact and NO indication that
+        # nothing was committed, and an agent summarising it would report the
+        # aliases as applied.
+        conn.rollback()
+        print("\nABORTED — nothing was committed.")
+        raise
     except Exception:
         conn.rollback()
+        print("\nERROR — the transaction was rolled back; nothing was committed.")
         raise
     finally:
         conn.close()

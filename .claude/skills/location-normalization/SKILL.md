@@ -60,6 +60,12 @@ genuinely ambiguous to you (§4).
 
 ## §2 Why writing `manual` is the whole point
 
+> **Depends on #283.** The `source='manual'` skip in `persist_llm_result` ships
+> in that PR. Until it is merged AND deployed, a manual alias is still protected
+> in practice (Tier-1 hits before Tier-2 ever runs), but the mechanism described
+> below does not exist yet and a re-normalization race can overwrite a
+> correction. Do not run Phase 3 against prod before #283 is live.
+
 `location_aliases.source` is either `'llm'` or `'manual'`. The Tier-2 writer
 (`persist_llm_result`) **skips any alias whose source is `manual`** — an
 operator correction wins permanently (Decision #10).
@@ -82,18 +88,35 @@ record the counts so §6 can compare.
 **D1 — one raw string mapped to implausibly many locations.** The headline
 problem. A raw string can only name so many places.
 
+The job counts come from a CTE, not a correlated subquery. The obvious form
+(`(SELECT count(*) FROM job_listings j WHERE lower(btrim(j.location)) = al.raw_text)`)
+runs one sequential scan of `job_listings` **per alias** — 907 scans of a
+13,444-page table, EXPLAIN cost 13.8M. `shared_buffers` is 128 MB and the
+`job_listings` heap alone is 105 MB, so on a `/loop` that evicts the buffer pool
+every tick. This version scans the table once.
+
 ```sql
-SELECT al.raw_text,
-       count(*) AS n_locations,
-       (length(al.raw_text) - length(replace(al.raw_text, ',', ''))) + 1 AS comma_groups,
-       (SELECT count(*) FROM job_listings j
-         WHERE lower(btrim(j.location)) = al.raw_text AND j.status = 'OPEN') AS open_jobs,
-       string_agg(l.canonical_name, ' | ' ORDER BY al.position) AS current_mapping
-FROM alias_locations al
-JOIN locations l ON l.id = al.normalized_location_id
-GROUP BY al.raw_text
-HAVING count(*) > GREATEST((length(al.raw_text) - length(replace(al.raw_text, ',', ''))) + 1, 2)
-ORDER BY open_jobs DESC, n_locations DESC
+WITH job_counts AS (
+    SELECT lower(btrim(location)) AS key, count(*) AS open_jobs
+    FROM job_listings
+    WHERE status = 'OPEN' AND location IS NOT NULL
+    GROUP BY 1
+),
+alias_counts AS (
+    SELECT al.raw_text,
+           count(*) AS n_locations,
+           (length(al.raw_text) - length(replace(al.raw_text, ',', ''))) + 1 AS comma_groups,
+           string_agg(l.canonical_name, ' | ' ORDER BY al.position) AS current_mapping
+    FROM alias_locations al
+    JOIN locations l ON l.id = al.normalized_location_id
+    GROUP BY al.raw_text
+)
+SELECT a.raw_text, a.n_locations, a.comma_groups,
+       coalesce(j.open_jobs, 0) AS open_jobs, a.current_mapping
+FROM alias_counts a
+LEFT JOIN job_counts j ON j.key = a.raw_text
+WHERE a.n_locations > GREATEST(a.comma_groups, 2)
+ORDER BY open_jobs DESC, a.n_locations DESC
 LIMIT 40;
 ```
 
@@ -254,6 +277,12 @@ Write your decisions to a JSON file, then run `apply.py`. Its schema:
 }
 ```
 
+`raw_text` MUST be the normalized cache key — lowercased, whitespace-collapsed —
+because that is what Tier-1 looks up. `apply.py` refuses a plan whose `raw_text`
+differs from `normalize_string(raw_text)` rather than fixing it silently: a
+mis-keyed entry would create a dead alias row, leave the poisoned key untouched,
+retag zero jobs, and still print `COMMITTED`.
+
 Every location spec is validated through the repo's own `canonicalize()` before
 it is written, so you cannot write something the pipeline would reject.
 
@@ -278,15 +307,28 @@ What it does, in one transaction:
 4. Merges each duplicate group: repoints `job_locations` + `alias_locations`
    FKs onto the survivor, ORs `is_primary`, deletes the losers.
 5. Deletes the listed orphans (refuses any that still have references).
-6. Writes a rollback `.sql` next to the plan file BEFORE committing.
+6. Writes a **timestamped** rollback `.sql` next to the plan file BEFORE it
+   commits — `fixes.20260904T223101.apply.rollback.sql`. Never a fixed name: §7
+   loops this cycle with one plan filename, so a fixed `.rollback.sql` would let
+   tick N+1 destroy tick N's undo, and a dry-run after an apply would replace the
+   real undo with a post-state one.
 
 ## §6 Phase 4 — Verify
 
 Re-run every §3 probe. Compare with the counts you recorded.
 
 * Findings dropped → good. Report the deltas.
-* Findings did NOT drop, or any probe errors → **roll back** with the generated
-  rollback file and report. Do not attempt a second fix in the same run.
+* Findings did NOT drop, or any probe errors → **roll back**, then report. Do not
+  attempt a second fix in the same run.
+
+```bash
+python .claude/skills/location-normalization/apply.py \
+  --rollback .lavish/fixes.20260904T223101.apply.rollback.sql
+```
+
+That is the only sanctioned way to undo a run: the prod MCP is SELECT-only, so
+you cannot execute the file through it. If this command is unavailable, say the
+rollback did NOT happen — never report a rollback you could not perform.
 
 ```
 LOCATION NORMALIZATION REPORT
