@@ -75,15 +75,30 @@ class SearchFilters(TypedDict):
     levels: list[str] | None
     companies: list[str] | None
     locations: list[str] | None
-    location_descriptors: dict[str, "LocationDescriptor"] | None
+    # The concrete ``locations.id`` set the ``locations`` selections resolve to,
+    # pre-computed once per request by :func:`resolve_location_ids` and shared by
+    # the page and count queries. ``locations`` is kept alongside it only to tell
+    # whether a location filter is ACTIVE (a non-empty ``locations`` with an empty
+    # ``location_ids`` is a name-miss that must still match nothing, not "no
+    # filter"). See :func:`_location_predicate` for why ids replaced the per-row
+    # cross-table ``EXISTS (… JOIN locations …)`` the descriptors used to drive.
+    location_ids: list[int] | None
     include: list[str] | None
     exclude: list[str] | None
 
 
 class SearchCounts(TypedDict):
-    """Header metrics, computed once per walk alongside page 1."""
+    """Header metrics, computed once per walk alongside page 1.
 
-    filtered_total: int
+    ``filtered_total`` is ``None`` since Wave-1 B1 deferred the exact count off the
+    page-1 critical path (owner decision ①: fast searches beat exact counts). The
+    key is kept — the meta envelope has always allowed it to be null — so the wire
+    contract is unchanged; the client approximates the total from the rows it has
+    walked. The two recency tiles stay exact: they are windowed over the cheap 24 h
+    slice of the keyset index, not a full-corpus count.
+    """
+
+    filtered_total: int | None
     count_last_24h: int
     count_last_3h: int
 
@@ -382,19 +397,23 @@ def _tier_condition(want: LocationDescriptor) -> tuple[sql.Composable, list] | N
     return None
 
 
-def _location_condition(
+def _location_match_group(
     selection: str, descriptor: LocationDescriptor | None
 ) -> tuple[sql.Composable, list]:
-    """One location selection as an EXISTS over the job's canonical tags.
+    """One selection's match test against the ``locations`` catalog: ``(name OR tier)``.
 
-    Correlated on ``job_listings.id`` alone because that is how ``job_locations``
-    is keyed (see :class:`db_models.JobLocation`) — the same correlation the
-    existing ``_LOCATIONS_SUBQUERY`` uses.
+    Exactly the predicate the old per-row ``_location_condition`` EXISTS carried,
+    but lifted OUT of the correlated subquery so it can be evaluated ONCE against
+    the 1,186-row ``locations`` table at resolve time (see
+    :func:`resolve_location_ids`) instead of once per candidate job row.
 
-    A job with NO location tags fails every EXISTS and therefore matches no active
-    location filter. That is the frontend's behaviour too (``matchesLocation``
-    returns false on an empty tag list): an unnormalized job is not silently
-    treated as "everywhere".
+    The ``canonical_name = %s`` branch is always present — the exact-name fallback
+    the frontend requires for a selection that resolves to no descriptor (e.g. a
+    catalog row with no usable structure, or a name the catalog does not know) —
+    and the tier branch is appended only when the descriptor yields one. Both read
+    the same ``l.*`` columns and use the same ``upper()`` / ``IS NOT DISTINCT
+    FROM`` null-equality as before, so the id set this gathers is identical to the
+    set of ``locations`` rows the old EXISTS would have joined against.
     """
     branches: list[sql.Composable] = [sql.SQL("l.canonical_name = %s")]
     params: list = [selection]
@@ -403,14 +422,75 @@ def _location_condition(
         clause, clause_params = built
         branches.append(clause)
         params.extend(clause_params)
+    return sql.SQL("(") + sql.SQL(" OR ").join(branches) + sql.SQL(")"), params
+
+
+def resolve_location_ids(
+    conn: Connection,
+    selections: list[str],
+    descriptors: dict[str, LocationDescriptor],
+) -> list[int]:
+    """Resolve every active location selection to the UNION of matching ``locations.id``.
+
+    The app half of owner decision ③. The query filter no longer joins
+    ``locations`` per candidate row and calls ``upper()`` on every one; instead the
+    hierarchy is walked ONCE here, against the small ``locations`` catalog, and the
+    resulting integer set is probed directly on ``job_locations`` (see
+    :func:`_location_predicate`).
+
+    Why the union is exact, not a widening: the whole location filter is
+    ``loc(sel₁) OR loc(sel₂) OR …`` over the same ``job_locations`` rows, and the
+    EXISTS quantifier distributes over OR — a job matches iff it carries a tag whose
+    ``normalized_location_id`` is in ``ids(sel₁) ∪ ids(sel₂) ∪ …``. So one EXISTS
+    over the combined id set means precisely what N per-selection EXISTS clauses
+    meant, and the duplicate-canonical-name resolution is preserved untouched: each
+    selection's TIER branch still uses only its single ranked descriptor (from
+    :func:`resolve_location_selections`), while the exact-``canonical_name`` branch
+    still matches every same-named row — exactly as the old predicate did.
+
+    Returns ``[]`` when nothing resolves. A caller with an active ``locations``
+    filter whose ids are empty must still emit a predicate that matches nothing (a
+    name-miss), which is why the empty case is handled at the call site, not by
+    skipping the filter.
+    """
+    if not selections:
+        return []
+    groups: list[sql.Composable] = []
+    params: list = []
+    for selection in selections:
+        clause, clause_params = _location_match_group(
+            selection, descriptors.get(selection)
+        )
+        groups.append(clause)
+        params.extend(clause_params)
+    query = sql.SQL("SELECT id FROM locations l WHERE ") + sql.SQL(" OR ").join(groups)
+    with conn.cursor() as cursor:
+        cursor.execute(query, params)
+        return sorted({int(row["id"]) for row in cursor.fetchall()})
+
+
+def _location_predicate(location_ids: list[int]) -> tuple[sql.Composable, list]:
+    """The location filter as one EXISTS over the pre-resolved ``normalized_location_id`` set.
+
+    Replaces the per-row ``EXISTS (… JOIN locations l ON l.id =
+    jl.normalized_location_id WHERE … AND (canonical_name = … OR <tier>))`` with a
+    join-free integer-set probe. Correlated on ``job_listings.id`` alone, the way
+    ``job_locations`` is keyed.
+
+    An EMPTY id set yields ``= ANY('{}')`` → matches nothing, identical to the old
+    name-miss behaviour (an EXISTS whose inner predicate no ``locations`` row
+    satisfied). A job with NO location tags matches no active location filter,
+    unchanged — the frontend's ``matchesLocation`` returns false on an empty tag
+    list too, so an unnormalized job is never treated as "everywhere".
+    """
     return (
         sql.SQL(
             "EXISTS ("
             " SELECT 1 FROM job_locations jl"
-            " JOIN locations l ON l.id = jl.normalized_location_id"
-            " WHERE jl.job_listing_id = job_listings.id AND ({}))"
-        ).format(sql.SQL(" OR ").join(branches)),
-        params,
+            " WHERE jl.job_listing_id = job_listings.id"
+            " AND jl.normalized_location_id = ANY(%s::int[]))"
+        ),
+        [location_ids],
     )
 
 
@@ -442,7 +522,7 @@ def build_search_where(
     categories: list[str] | None = None,
     levels: list[str] | None = None,
     companies: list[str] | None = None,
-    location_descriptors: dict[str, LocationDescriptor] | None = None,
+    location_ids: list[int] | None = None,
     locations: list[str] | None = None,
     include: list[str] | None = None,
     exclude: list[str] | None = None,
@@ -509,18 +589,17 @@ def build_search_where(
         params.append(since)
 
     if locations:
-        descriptors = location_descriptors or {}
-        branches: list[sql.Composable] = []
-        for selection in locations:
-            clause, clause_params = _location_condition(
-                selection, descriptors.get(selection)
-            )
-            branches.append(clause)
-            params.extend(clause_params)
-        conditions.append(sql.SQL("(") + sql.SQL(" OR ").join(branches) + sql.SQL(")"))
+        # One EXISTS over the pre-resolved id set (owner decision ③, app half).
+        # ``locations`` gates the filter as ACTIVE; ``location_ids`` is what it
+        # resolved to. An empty set is a name-miss and still matches nothing —
+        # emitted here rather than skipped, so an active filter never degrades to
+        # "no filter".
+        clause, clause_params = _location_predicate(location_ids or [])
+        conditions.append(clause)
+        params.extend(clause_params)
 
     if include:
-        branches = []
+        branches: list[sql.Composable] = []
         for term in include:
             clause, clause_params = _keyword_condition(term)
             branches.append(clause)
@@ -619,48 +698,32 @@ def _header_counts_where(companies: list[str] | None) -> tuple[sql.Composable, l
     return sql.SQL(" WHERE ") + sql.SQL(" AND ").join(conditions), params
 
 
-# All three header numbers in ONE round trip.
+# The two recency tiles, in ONE round trip. Both are ``FILTER`` clauses over a
+# single scan bounded at 24 h, so the 3 h number is a subset of the 24 h one by
+# construction.
 #
-# They used to be two statements on the same pooled connection, and page 1 of a
-# search already holds that connection for the row query (plus a location resolve
-# when a location filter is active). Prod runs ``DB_POOL_MAX=30`` with a 5s
-# checkout timeout and has logged bursts of "Timed out waiting for a database
-# connection", so the number of statements per checkout is a budget, not an
-# implementation detail. The two counts have DIFFERENT predicates — the total
-# honours the whole filter set, the tiles only the company scope — so they are
-# composed as an uncorrelated scalar subquery beside the windowed aggregate
-# rather than merged into one scan.
+# WHAT USED TO BE HERE — the expensive half. Until Wave-1 B1 this statement also
+# carried ``(SELECT count(*) FROM {jobs}{filtered_where}) AS filtered_total`` — an
+# EXACT count over the WHOLE matching set, which cannot early-stop the way the
+# LIMITed page query does. On a keyword search it re-ran ``_KEYWORD_PREDICATE`` (a
+# de-correlated hashed ``SubPlan``, LIMIT-independent) over the entire OPEN corpus,
+# so page 1 evaluated the whole keyword predicate TWICE on one pooled connection;
+# on a location search it re-ran the 25 k-row materialize a second time (~444 ms).
+# Measured on prod that count was the villain of nearly every filtered page-1
+# search — keyword page 1 ~1.45 s, location ~2.08 s — and it bought little a reader
+# uses on a feed. Owner decision ①: DEFER it. It is now returned ``None`` and the
+# client approximates the total from the rows it walks. The exact count, if ever
+# wanted back, belongs behind a separate lightweight async request, not on the
+# page-1 critical path.
 #
-# The total deliberately drops the ``job_freshness`` join the page query carries:
-# the join is lossless by construction (AFTER INSERT trigger + composite FK), so
-# it cannot change the count, and omitting it saves a join over the whole matching
-# set.
-#
-# COST WARNING — ``filtered_total`` is the EXPENSIVE half when keywords are active,
-# and it is expensive for a reason that is easy to miss: ``_KEYWORD_PREDICATE``'s
-# ``EXISTS`` over ``job_tags`` is de-correlated by the planner into a hashed
-# ``SubPlan``, executed ONCE per term rather than per candidate row. That is
-# LIMIT-independent, so the un-LIMITed count here pays exactly what the page query
-# pays — and page 1 therefore runs the whole keyword predicate TWICE on one pooled
-# connection.
-#
-# ``idx_job_tags_tag_trgm`` (migration ``536c1cddcd28``) is what keeps that
-# affordable: each term's ``t.tag ILIKE '%…%'`` is now a ``Bitmap Index Scan`` over
-# a GIN trigram index rather than a full ``Seq Scan`` of ``job_tags``. Measured at
-# prod scale, this statement with the built-in 6-term "Software Engineering" list
-# went 399.8 ms -> 196.1 ms, and with a full 20-term set 1091.5 ms -> 406.5 ms.
-#
-# What is LEFT is this statement's own shape, not the tags: the ``job_tags``
-# SubPlans are down to ~10 ms of the 196 ms (6 terms) and ~29 ms of the 406 ms
-# (20 terms). The remainder is the FOUR un-indexed ILIKEs each term applies to
-# ``job_listings`` (title / location / experience_level / company) across the OPEN
-# corpus, which no index on ``job_tags`` can touch. So this is still the half to
-# watch, and it is still the half to measure before anyone raises
-# ``_MAX_KEYWORDS`` — see that constant's comment in ``routers/jobs_search.py``
-# for the full before/after table and for the sub-3-character blind spot.
+# So this statement is now ONLY the tiles. The ``first_seen_at >= now() - interval
+# '24 hours'`` bound is what keeps it cheap — a few hundred index entries of
+# ``idx_job_listings_open_first_seen_keyset`` rather than a full-corpus scan. It is
+# company-scoped and nothing else (``_header_counts_where``): a "Past 24 Hours"
+# tile answers "how busy is the market I follow", not "how many rows match my
+# current chips".
 _SEARCH_COUNTS_SQL = sql.SQL(
     "SELECT"
-    " (SELECT count(*) FROM {jobs}{filtered_where}) AS filtered_total,"
     " count(*) FILTER"
     "   (WHERE job_listings.first_seen_at >= now() - interval '24 hours')"
     "   AS count_last_24h,"
@@ -672,32 +735,36 @@ _SEARCH_COUNTS_SQL = sql.SQL(
 
 
 def get_search_counts(conn: Connection, **filters: Unpack[SearchFilters]) -> SearchCounts:
-    """The whole ``meta`` block for page 1, in a single statement.
+    """The ``meta`` block for page 1: the two recency tiles, with a deferred total.
 
-    ``filtered_total`` counts the active filter set exactly — it is the number the
-    walk will yield if the reader pages to the end. The two recency figures answer
-    "how busy is the market I follow" and are scoped to ``companies`` only; see
-    :func:`_header_counts_where`.
+    ``filtered_total`` is ``None`` — the exact count is off the page-1 critical path
+    since Wave-1 B1 (owner decision ①). The client approximates it from the rows it
+    has walked. This deletes the second, expensive predicate evaluation entirely:
+    page 1 no longer runs the keyword / location predicate a second time, and the
+    ``build_search_where`` call the filtered count needed is gone.
 
-    The caller must not pass ``cursor``: a total is a property of the filters, not
-    of where the reader happens to be, and there is no way to hand one in — the
+    The two recency figures answer "how busy is the market I follow" and are scoped
+    to ``companies`` only; see :func:`_header_counts_where`. ``**filters`` is kept
+    in the signature (rather than narrowing to ``companies``) so the router still
+    unpacks one shared filter set into both the page and count queries — a filter
+    added to :class:`SearchFilters` stays a type error at every site that forgot it.
+
+    The caller must not pass ``cursor``: the tiles are a property of the filter set,
+    not of where the reader happens to be, and there is no way to hand one in — the
     keyset position is not part of :class:`SearchFilters`.
     """
-    filtered_where, filtered_params = build_search_where(**filters)
     header_where, header_params = _header_counts_where(filters.get("companies"))
-    query = _SEARCH_COUNTS_SQL.format(
-        jobs=_JOBS_TABLE, filtered_where=filtered_where, header_where=header_where
-    )
+    query = _SEARCH_COUNTS_SQL.format(jobs=_JOBS_TABLE, header_where=header_where)
     with conn.cursor() as cursor:
         cursor.execute(_DISABLE_JIT)
-        # Subquery first: it appears first in the statement text, so its
-        # placeholders bind ahead of the outer WHERE's.
-        cursor.execute(query, [*filtered_params, *header_params])
+        cursor.execute(query, header_params)
         row = cursor.fetchone()
         if not row:
-            return SearchCounts(filtered_total=0, count_last_24h=0, count_last_3h=0)
+            return SearchCounts(
+                filtered_total=None, count_last_24h=0, count_last_3h=0
+            )
         return SearchCounts(
-            filtered_total=int(row["filtered_total"] or 0),
+            filtered_total=None,
             count_last_24h=int(row["count_last_24h"] or 0),
             count_last_3h=int(row["count_last_3h"] or 0),
         )

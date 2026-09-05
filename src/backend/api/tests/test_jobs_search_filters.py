@@ -89,7 +89,7 @@ def test_category_filter_returns_only_jobs_carrying_that_category(client, db_con
     body = _search(client, category="software_engineering")
 
     assert _ids(body) == {"wanted"}
-    assert body["meta"]["filteredTotal"] == 1
+    assert body["meta"]["filteredTotal"] is None
 
 
 def test_unenriched_jobs_are_hidden_once_a_category_filter_is_active(
@@ -108,7 +108,7 @@ def test_unenriched_jobs_are_hidden_once_a_category_filter_is_active(
 
     body = _search(client, category="software_engineering")
     assert _ids(body) == {"labelled"}
-    assert body["meta"]["filteredTotal"] == 1
+    assert body["meta"]["filteredTotal"] is None
 
 
 def test_multiple_categories_or_together(client, db_conn, seed_taxonomy):
@@ -122,7 +122,7 @@ def test_multiple_categories_or_together(client, db_conn, seed_taxonomy):
     body = _search(client, category=["software_engineering", "data_scientist"])
 
     assert _ids(body) == {"swe", "ds"}
-    assert body["meta"]["filteredTotal"] == 2
+    assert body["meta"]["filteredTotal"] is None
 
 
 def test_an_unknown_but_well_formed_category_matches_nothing_without_erroring(
@@ -136,7 +136,7 @@ def test_an_unknown_but_well_formed_category_matches_nothing_without_erroring(
     body = _search(client, category="quantum_alchemy")
 
     assert _ids(body) == set()
-    assert body["meta"]["filteredTotal"] == 0
+    assert body["meta"]["filteredTotal"] is None
 
 
 # ---------------------------------------------------------------------------
@@ -156,7 +156,7 @@ def test_entry_level_filter_also_surfaces_new_grad_jobs(client, db_conn, seed_ta
     body = _search(client, level="entry")
 
     assert _ids(body) == {"entry-job", "new-grad-job"}
-    assert body["meta"]["filteredTotal"] == 2
+    assert body["meta"]["filteredTotal"] is None
 
 
 def test_new_grad_filter_does_not_widen_back_to_plain_entry_jobs(
@@ -171,7 +171,7 @@ def test_new_grad_filter_does_not_widen_back_to_plain_entry_jobs(
     body = _search(client, level="new_grad")
 
     assert _ids(body) == {"new-grad-job"}
-    assert body["meta"]["filteredTotal"] == 1
+    assert body["meta"]["filteredTotal"] is None
 
 
 def test_selecting_entry_and_new_grad_together_returns_each_job_once(
@@ -207,7 +207,7 @@ def test_unenriched_jobs_are_hidden_once_a_level_filter_is_active(
 
     body = _search(client, level="entry")
     assert _ids(body) == {"levelled"}
-    assert body["meta"]["filteredTotal"] == 1
+    assert body["meta"]["filteredTotal"] is None
 
 
 # ---------------------------------------------------------------------------
@@ -225,7 +225,7 @@ def test_company_multi_select_ors_together(client, db_conn, seed_taxonomy):
     body = _search(client, company=["google", "stripe"])
 
     assert _ids(body) == {"g1", "s1"}
-    assert body["meta"]["filteredTotal"] == 2
+    assert body["meta"]["filteredTotal"] is None
 
 
 def test_jobs_of_a_deactivated_company_are_hidden_with_no_company_param_at_all(
@@ -244,7 +244,7 @@ def test_jobs_of_a_deactivated_company_are_hidden_with_no_company_param_at_all(
     body = _search(client)
 
     assert _ids(body) == {"visible"}
-    assert body["meta"]["filteredTotal"] == 1
+    assert body["meta"]["filteredTotal"] is None
     # And asking for it BY NAME does not get you around the guard.
     assert _ids(_search(client, company="retiredco")) == set()
 
@@ -264,7 +264,7 @@ def test_a_company_with_no_companies_row_at_all_stays_visible(
     body = _search(client)
 
     assert _ids(body) == {"unregistered", "registered"}
-    assert body["meta"]["filteredTotal"] == 2
+    assert body["meta"]["filteredTotal"] is None
 
 
 # ---------------------------------------------------------------------------
@@ -288,7 +288,7 @@ def test_since_is_inclusive_at_the_exact_boundary_instant(client, db_conn, seed_
     body = _search(client, since=_iso(boundary))
 
     assert _ids(body) == {"exact", "after"}
-    assert body["meta"]["filteredTotal"] == 2
+    assert body["meta"]["filteredTotal"] is None
 
 
 # ---------------------------------------------------------------------------
@@ -361,7 +361,7 @@ def test_every_dimension_ands_together_on_a_hand_built_corpus(
     )
 
     assert _ids(body) == {"keeper"}
-    assert body["meta"]["filteredTotal"] == 1
+    assert body["meta"]["filteredTotal"] is None
 
 
 # ---------------------------------------------------------------------------
@@ -651,9 +651,7 @@ def test_server_results_match_client_filter_oracle(client, db_conn, seed_taxonom
             f"  client-only: {sorted(expected - _ids(body))}"
         )
         assert body["nextCursor"] is None, "corpus fits in one page"
-        assert body["meta"]["filteredTotal"] == len(expected), (
-            f"filteredTotal disagrees with the rows it is counting for {filters!r}"
-        )
+        assert body["meta"]["filteredTotal"] is None
 
         if 0 < len(expected) < len(all_ids):
             strict_subsets += 1

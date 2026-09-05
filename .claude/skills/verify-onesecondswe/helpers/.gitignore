@@ -1,0 +1,3 @@
+# Local dev convenience symlink into e2e/node_modules, created at runtime so the
+# Playwright/vitest configs here can resolve their deps. Never commit it.
+node_modules

@@ -123,7 +123,7 @@ erDiagram
     job_freshness {
         text source_id PK "composite PK + composite FK to job_listings, CASCADE"
         text id PK
-        timestamptz last_seen_at "indexed"
+        timestamptz last_seen_at "re-stamped every scrape; NOT indexed (rev a1f7c9d2e8b4)"
         integer consecutive_misses "default 0"
     }
 
@@ -167,8 +167,8 @@ Authenticated accounts (Auth0 / Google One Tap). One row per person.
 | Column | Type | Notes |
 | --- | --- | --- |
 | `id` | text PK | Internal user id. |
-| `auth0_id` | text | Unique; indexed (`idx_users_auth0_id`). Issuer subject. |
-| `email` | text | `UNIQUE users_email_key`; indexed (`idx_users_email`). |
+| `auth0_id` | text | `UNIQUE` (`users_auth0_id_key`, from column-level `unique=True`) — its backing index serves equality lookups. Issuer subject. (The standalone `idx_users_auth0_id` was a duplicate, dropped in rev `a1f7c9d2e8b4`.) |
+| `email` | text | `UNIQUE users_email_key` — its backing index serves equality lookups. (The standalone `idx_users_email` was a duplicate, dropped in rev `a1f7c9d2e8b4`.) |
 | `display_name`, `given_name`, `family_name`, `picture_url` | text | Profile fields, nullable. |
 | `created_at`, `updated_at` | **text** | Legacy string timestamps. Intentionally *not* `timestamptz`. |
 | `company_enroll_watermark` | timestamptz | "I've decided about every company that existed as of this time." Companies created after it auto-enroll on read; bumped to `now()` on every save. `NOT NULL DEFAULT now()`. |
@@ -294,6 +294,9 @@ parent; the Unit 4 contract migration (`18fe9c20a8fd`) then dropped the parent c
 `idx_job_listings_last_seen` entirely. An `AFTER INSERT` trigger on `job_listings` seeds a
 freshness row (from `first_seen_at` + `0`) for every new listing regardless of insert path,
 so the read-side INNER JOIN in `/api/jobs` is lossless and the two tables cannot drift.
+The sidecar's own `idx_job_freshness_last_seen` was later dropped too (rev `a1f7c9d2e8b4`,
+Wave-1 perf): the re-stamp was still non-HOT here for the same reason, an ~8 MB heap carried
+a ~62 MB / ~30x bloated index on no hot read path, and dropping it makes the re-stamp HOT.
 Full story: `docs/incidents/2026-07-13-api-jobs-outage.md`,
 `src/backend/docs/job-listings-bloat.md`.
 

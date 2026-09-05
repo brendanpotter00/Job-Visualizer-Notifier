@@ -725,7 +725,7 @@ def test_meta_is_computed_on_page_one_and_omitted_on_every_cursor_page(client, d
     first = client.get(SEARCH, params={"limit": 2}).json()
     assert set(first) == ENVELOPE_KEYS
     assert set(first["meta"]) == META_KEYS
-    assert first["meta"]["filteredTotal"] == 3
+    assert first["meta"]["filteredTotal"] is None
 
     second = client.get(SEARCH, params={"limit": 2, "cursor": first["nextCursor"]}).json()
     assert set(second) == ENVELOPE_KEYS

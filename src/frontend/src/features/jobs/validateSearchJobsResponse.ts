@@ -25,17 +25,27 @@ function isNullableString(value: unknown): boolean {
   return value === null || value === undefined || typeof value === 'string';
 }
 
+function isNullableNumber(value: unknown): boolean {
+  return value === null || value === undefined || typeof value === 'number';
+}
+
 function validateCounts(value: unknown): SearchJobsCounts {
+  // `filteredTotal` is NULLABLE now (Wave-1 B1 defers the exact count — the server
+  // sends `null`; demo mode still sends a real number). Accept number | null |
+  // undefined and normalize the absent forms to `null`, but a WRONG type (a string
+  // like `'137'`, an object) is still a broken envelope and must throw — a meta
+  // that parsed to `NaN` would render as "NaN jobs" in the header tile. The two
+  // recency tiles stay REQUIRED numbers.
   if (
     !isRecord(value) ||
-    typeof value.filteredTotal !== 'number' ||
+    !isNullableNumber(value.filteredTotal) ||
     typeof value.countLast24h !== 'number' ||
     typeof value.countLast3h !== 'number'
   ) {
     throw new Error('Invalid /api/jobs/search response: bad meta shape');
   }
   return {
-    total: value.filteredTotal,
+    total: typeof value.filteredTotal === 'number' ? value.filteredTotal : null,
     last24h: value.countLast24h,
     last3h: value.countLast3h,
   };
