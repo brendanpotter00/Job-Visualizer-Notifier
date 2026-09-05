@@ -24,12 +24,14 @@ import type { Job } from '../../types';
  * rather than "simplified" so the migration does not silently change what those
  * numbers mean.
  *
- * ALL THREE OUTLIVE THEIR TILES. The page renders only `last24h` now — `total`'s
- * tile and `last3h`'s were removed on 2026-09-05 (see `RecentJobsMetrics`) — but
- * this type mirrors the WIRE, not the header, and the other two still have real
- * consumers: `total` feeds the list's `aria-setsize` via `resultTotal.ts`, and
- * `last3h` is returned by the WebMCP `search_jobs` tool. Do not prune them to
- * match what is on screen.
+ * ALL THREE OUTLIVE THEIR TILES, AND ONE OUTLIVES THE WHOLE ROW. The Recent
+ * page's header metrics were dismantled on 2026-09-05 — "Displayed Jobs", then
+ * "Past 3 Hours", then the row itself — so NOTHING renders any of these numbers
+ * now. They stay because this type mirrors the WIRE, not a header: page 1 returns
+ * them whether or not anyone draws them, and two still have real consumers —
+ * `total` feeds the list's `aria-setsize` via `resultTotal.ts`, and `last3h` is
+ * returned by the WebMCP `search_jobs` tool. Do not prune them to match what is
+ * on screen; the validator would then reject a perfectly good page-1 envelope.
  */
 export interface SearchJobsCounts {
   total: number | null;

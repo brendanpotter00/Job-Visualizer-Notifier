@@ -64,15 +64,22 @@ export interface RecentJobsSearch {
    * `resultTotal` below has to count the same rows the list renders.
    */
   displayedJobs: Job[];
-  /** Header metrics from page 1; null until it lands. */
+  /**
+   * Header metrics from page 1; null until it lands.
+   *
+   * NOTHING RENDERS THESE. The Recent page's metric row was removed on
+   * 2026-09-05, so the name is now historical — page 1 carries them regardless
+   * (they cost the server nothing extra), and they stay exposed because they are
+   * what `resultTotal` below is derived from and because a future header would
+   * want them. Do not read a consumer into the name.
+   */
   counts: SearchJobsCounts | null;
   /**
    * How many jobs the filter set holds, to whatever precision is honest — see
    * `resultTotal.ts`. Since #277 the server defers the exact total, so on a real
    * search this is an `atLeast` bound over `displayedJobs` rather than a number.
    *
-   * Consumed only by the list's `aria-setsize` — no tile renders it; see the
-   * header comment on `RecentJobsMetrics`.
+   * Consumed only by the list's `aria-setsize`; no pixels render it.
    */
   resultTotal: ResultTotal;
   /** No data at all yet — render skeletons. */

@@ -159,8 +159,9 @@ The rules every drive follows:
   auth — that tool cannot complete headlessly).
 - Real handles on the Recent page (`components/shared/JobCard/`): job title is a
   `role=heading level=3`; the company name renders as text (e.g. `Apple`); each card
-  has an `Apply` link; the metric row shows one label, `Past 24 Hours` ("Displayed Jobs"
-  and "Past 3 Hours" were both removed on 2026-09-05).
+  has an `Apply` link; the page title is a `role=heading level=1` reading `Recent Job
+  Postings`. There is NO header metric row — it was removed on 2026-09-05, so anchor
+  "the chrome rendered" on that title rather than on a count.
 
 To drive a feature yourself, copy `helpers/drive.spec.ts` as a template and follow
 the matching file in [`features/`](features/README.md).

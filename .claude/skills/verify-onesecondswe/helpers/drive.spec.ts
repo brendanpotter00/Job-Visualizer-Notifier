@@ -9,7 +9,8 @@
 //
 // Grounded selectors (src/frontend/src/components/shared/JobCard/): a job title is
 // a role=heading level=3; the company name renders as text (e.g. "Apple"); the
-// metric row shows a single label, "Past 24 Hours".
+// page's own title is a role=heading level=1, "Recent Job Postings". There is no
+// header metric row any more — do not assert one.
 import fs from 'node:fs';
 import path from 'node:path';
 import { test, expect } from '../../../../e2e/shared/playwright/fixtures';
@@ -93,10 +94,12 @@ test('[@drive] Recent feed — company filter: Tier-1 meta anchor + Tier-2 DOM r
   // toBeVisible waits, so the bounded keyset auto-deepen (RecentJobsList) can land.
   await expect(page.getByText('Apple', { exact: true }).first()).toBeVisible({ timeout: 20_000 });
   await expect(page.getByText('SpaceX', { exact: true })).toHaveCount(0);
-  // The metric row is still the proof that the header rendered. "Displayed Jobs"
-  // and "Past 3 Hours" were both removed on 2026-09-05; "Past 24 Hours" is the
-  // only tile left.
-  await expect(page.getByText('Past 24 Hours')).toBeVisible();
+  // Proof that the page CHROME rendered, not just a list of cards. This used to
+  // key on the header metric row, but that row was dismantled tile-by-tile over
+  // 2026-09-05 and then removed entirely, so it anchors on the page's own h1 —
+  // the one piece of chrome the Recent page cannot lose without ceasing to be
+  // itself.
+  await expect(page.getByRole('heading', { level: 1, name: 'Recent Job Postings' })).toBeVisible();
 
   // Evidence: ARIA snapshot of the page's main region + a screenshot.
   const main = page.locator('main, [role="main"]').first();

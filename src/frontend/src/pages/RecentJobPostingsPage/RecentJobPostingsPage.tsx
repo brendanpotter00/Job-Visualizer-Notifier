@@ -1,6 +1,5 @@
 import { Container, Typography, Box } from '@mui/material';
 import { useRecentJobsSearch } from '../../features/jobs/hooks/useRecentJobsSearch';
-import { RecentJobsMetrics } from '../../components/recent-jobs-page/RecentJobsMetrics/RecentJobsMetrics';
 import { RecentJobsFilters } from '../../components/recent-jobs-page/RecentJobsFilters';
 import { RecentJobsList } from '../../components/recent-jobs-page/RecentJobsList/RecentJobsList';
 import { EditCompanyPreferencesRow } from '../../components/recent-jobs-page/EditCompanyPreferencesRow';
@@ -27,11 +26,20 @@ import { RESPONSIVE } from '../../config/responsive';
  *   never an empty list: "no jobs found" for what is actually an outage was a
  *   documented follow-up from the 2026-08-10 incident, and it sends the reader
  *   off to change filters that were never the problem.
- * * **Data** — metrics, filters, list.
+ * * **Data** — filters, list.
+ *
+ * There is NO header metric row. One stood above the filters until 2026-09-05,
+ * when its three tiles were removed one at a time at the owner's request and the
+ * empty shell went with them: "Displayed Jobs" (the server defers the filtered
+ * total since #277, so it could only ever show a lower bound over the rows walked
+ * — "50+" above fifty cards), then "Past 3 Hours" (a redundant second window),
+ * then the row itself. The counts are still fetched and still on the wire —
+ * `search.counts` — because page 1 returns them whether or not anything renders
+ * them; nothing on this page reads them any more.
  */
 export function RecentJobPostingsPage() {
   const search = useRecentJobsSearch();
-  const { counts, isAwaitingDeploy, error, errorScope } = search;
+  const { isAwaitingDeploy, error, errorScope } = search;
 
   return (
     <Container maxWidth="xl">
@@ -50,26 +58,6 @@ export function RecentJobPostingsPage() {
           <LoadingState caption="Finishing an update — jobs will appear in a moment." />
         ) : (
           <>
-            {/* `null`, not 0. The hook returns null for "unknown" — page 1 has
-                not landed, or it failed and the previous filter set's figures
-                were deliberately dropped — and `?? 0` turned that into a
-                confident zero directly above the ErrorState, where a 0 reads as
-                "your filters matched nothing" next to a banner that actually says
-                the request was rejected. The tile renders an em-dash instead.
-
-                ONE tile now: "Displayed Jobs" and "Past 3 Hours" were both
-                removed at the owner's request — see the header comment on
-                `RecentJobsMetrics` before adding either back. `counts.last3h` is
-                still on the wire and still served by WebMCP; it is only unrendered.
-
-                `pending` covers the other half: during an ordinary filter change
-                the number on screen still belongs to the OLD filter set, so it
-                stays (blanking it on every edit is its own kind of wrong) but
-                dims until the new page 1 lands. */}
-            <RecentJobsMetrics
-              jobsLast24Hours={counts?.last24h ?? null}
-              pending={search.isRefreshing}
-            />
             {/* The filters stay mounted through an error on purpose. They are
                 persisted across reloads, so when the request failed BECAUSE of
                 the filter set (too many companies, too many keywords, a value

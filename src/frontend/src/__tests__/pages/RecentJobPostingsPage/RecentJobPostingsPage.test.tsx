@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen, within } from '@testing-library/react';
+import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '../../../test/testUtils';
 import { RecentJobPostingsPage } from '../../../pages/RecentJobPostingsPage/RecentJobPostingsPage';
@@ -19,9 +19,8 @@ vi.mock('../../../features/jobs/hooks/useRecentJobsSearch', () => ({
 }));
 
 // Children with their own test files are stubbed so assertions stay pinned to
-// the page shell. `RecentJobsMetrics` is deliberately NOT stubbed: the counts
-// wiring is one of the things this file is here to prove, and the real component
-// renders the numbers next to their labels.
+// the page shell. Nothing is left unstubbed on purpose any more: the metric row
+// used to be, so the counts wiring could be proved here, and it no longer exists.
 vi.mock('../../../components/recent-jobs-page/RecentJobsFilters', () => ({
   RecentJobsFilters: () => <div data-testid="recent-jobs-filters" />,
 }));
@@ -93,13 +92,6 @@ function mockSearch(overrides: Partial<RecentJobsSearch> = {}): RecentJobsSearch
   return result;
 }
 
-/** The MetricCard box wrapping a labeled tile, so a value can be tied to its label. */
-function tile(label: string): HTMLElement {
-  const labelNode = screen.getByText(label);
-  if (!labelNode.parentElement) throw new Error(`metric tile for "${label}" has no container`);
-  return labelNode.parentElement;
-}
-
 describe('RecentJobPostingsPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -141,14 +133,11 @@ describe('RecentJobPostingsPage', () => {
       renderWithProviders(<RecentJobPostingsPage />, { initialEntries: ['/'] });
 
       expect(screen.getByRole('alert')).toHaveTextContent('boom');
-      // …and the tiles above it must not claim a result. The hook nulls `counts`
-      // on an initial error precisely so the page does not render the PREVIOUS
-      // filter set's numbers under the new chips; turning that null into 0 puts a
-      // confident zero directly above a banner that says the request was
-      // REJECTED, which reads as "your filters matched nothing" and sends the
-      // reader off to widen filters that were never the problem.
-      expect(within(tile('Past 24 Hours')).getByText('—')).toBeInTheDocument();
-      expect(within(tile('Past 24 Hours')).queryByText('0')).not.toBeInTheDocument();
+      // Nothing above the banner may claim a result. This used to be about the
+      // metric row rendering an em-dash rather than a confident 0 next to a
+      // message that says the request was REJECTED; with the row gone the
+      // requirement survives as "no number at all".
+      expect(screen.queryByText('0')).not.toBeInTheDocument();
       // The list owns the empty state, so it must not render — that is the whole
       // point of surfacing an error instead.
       expect(screen.queryByTestId('recent-jobs-list')).not.toBeInTheDocument();
@@ -181,70 +170,57 @@ describe('RecentJobPostingsPage', () => {
     });
   });
 
-  describe('metrics', () => {
-    it('feeds the hook’s 24h recency count into the tile', () => {
-      // Counts only the companies the reader follows, ignoring every other filter.
-      // `last3h` is deliberately a DIFFERENT number and must appear nowhere: it is
-      // still on the wire, just no longer rendered.
-      mockSearch({ counts: { total: null, last24h: 7, last3h: 3 } });
-      renderWithProviders(<RecentJobPostingsPage />, { initialEntries: ['/'] });
-
-      expect(within(tile('Past 24 Hours')).getByText('7')).toBeInTheDocument();
-      expect(screen.queryByText('3')).not.toBeInTheDocument();
-    });
-
-    // Removed at the owner's request (2026-09-05). Since #277 the server defers
-    // the exact total, so the only honest figure this tile could carry was a lower
-    // bound over the rows walked — "50+" above fifty cards, which restates the
-    // list beneath it and climbs as the reader scrolls. Pinned so re-adding one is
-    // a deliberate act; `RecentJobsMetrics`' header comment carries the reasoning.
-    it('renders no job-count tile, even with rows loaded and more pages waiting', () => {
+  // The header metric row is GONE — three tiles removed one at a time on
+  // 2026-09-05, then the row itself. What is left is the absence, pinned here so
+  // a row cannot reappear unnoticed: the page renders its title, the filters and
+  // the list, and no number of its own anywhere.
+  describe('no header metric row', () => {
+    it('renders no counts, even when the hook supplies a full set', () => {
+      // Every figure the old row could have drawn from is present and distinct,
+      // so any one of them leaking back onto the page fails this.
       mockSearch({
-        counts: { total: null, last24h: 309, last3h: 9 },
+        counts: { total: 4242, last24h: 309, last3h: 77 },
         jobs: Array.from({ length: 50 }, (_, i) => makeJob(String(i))),
         hasNextPage: true,
       });
       renderWithProviders(<RecentJobPostingsPage />, { initialEntries: ['/'] });
 
-      expect(screen.queryByText('Displayed Jobs')).not.toBeInTheDocument();
-      expect(screen.queryByText('50+')).not.toBeInTheDocument();
-      expect(screen.queryByText('Past 3 Hours')).not.toBeInTheDocument();
-      // The surviving tile is untouched by either removal.
-      expect(within(tile('Past 24 Hours')).getByText('309')).toBeInTheDocument();
+      for (const label of ['Displayed Jobs', 'Total Jobs', 'Past 24 Hours', 'Past 3 Hours']) {
+        expect(screen.queryByText(label)).not.toBeInTheDocument();
+      }
+      for (const value of ['4242', '309', '77', '50+', '—']) {
+        expect(screen.queryByText(value)).not.toBeInTheDocument();
+      }
     });
 
-    it('reads as unknown, not as zero, while page 1 (which carries the counts) is in flight', () => {
-      // Same rule as the error branch: `counts: null` is "not known yet". A 0
-      // here is a claim about the corpus that nothing has measured, and it is
-      // indistinguishable from a real empty result.
-      mockSearch({ counts: null, isInitialLoading: true });
+    it('still renders the title, the filters and the list', () => {
+      // The removal must take the row and NOTHING else: this is the whole page
+      // shell minus the metrics.
+      mockSearch({ jobs: [makeJob('1')], counts: { total: null, last24h: 7, last3h: 3 } });
       renderWithProviders(<RecentJobPostingsPage />, { initialEntries: ['/'] });
 
-      expect(within(tile('Past 24 Hours')).getByText('—')).toBeInTheDocument();
+      expect(
+        screen.getByRole('heading', { level: 1, name: 'Recent Job Postings' })
+      ).toBeInTheDocument();
+      expect(screen.getByTestId('recent-jobs-filters')).toBeInTheDocument();
+      expect(screen.getByTestId('recent-jobs-list')).toBeInTheDocument();
     });
 
-    it('keeps the previous numbers but marks them not-yet-current during a refresh', () => {
-      // An ordinary filter change is not an error, so the tiles must not blank —
-      // vanishing numbers on every filter edit is its own kind of wrong. But the
-      // figures on screen DO still describe the old filter set while the new page
-      // 1 is in flight, and the chips above them have already changed. So they
-      // stay and are marked busy, rather than silently reading as current.
+    it('does not mount an aria-busy container during a refresh', () => {
+      // `aria-busy` was the metric row's own affordance — it dimmed while a new
+      // page 1 was in flight. With the row gone nothing on this page should be
+      // claiming busy-ness, and a leftover wrapper announcing it would be worse
+      // than useless to a screen reader.
       mockSearch({
         counts: { total: null, last24h: 7, last3h: 3 },
         isRefreshing: true,
         jobs: [makeJob('1')],
       });
-      renderWithProviders(<RecentJobPostingsPage />, { initialEntries: ['/'] });
+      const { container } = renderWithProviders(<RecentJobPostingsPage />, {
+        initialEntries: ['/'],
+      });
 
-      expect(within(tile('Past 24 Hours')).getByText('7')).toBeInTheDocument();
-      expect(screen.getByText('Past 24 Hours').closest('[aria-busy="true"]')).not.toBeNull();
-    });
-
-    it('does not mark the tiles busy when nothing is in flight', () => {
-      mockSearch({ counts: { total: null, last24h: 7, last3h: 3 } });
-      renderWithProviders(<RecentJobPostingsPage />, { initialEntries: ['/'] });
-
-      expect(screen.getByText('Past 24 Hours').closest('[aria-busy="true"]')).toBeNull();
+      expect(container.querySelector('[aria-busy="true"]')).toBeNull();
     });
   });
 
@@ -311,7 +287,6 @@ describe('RecentJobPostingsPage', () => {
         preloadedState: { ui: demoUiState },
       });
 
-      expect(within(tile('Past 24 Hours')).getByText('3')).toBeInTheDocument();
       expect(screen.getByTestId('recent-jobs-list')).toHaveAttribute('data-job-count', '3');
       expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     });
