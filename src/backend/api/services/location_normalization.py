@@ -293,8 +293,22 @@ def persist_llm_result(conn: Connection, job_id: str, raw_text: str, locations: 
         # alone. In practice Tier-1 (and the advisory-lock re-check in
         # tasks/normalize_location) means we never get here for a manual key;
         # this is the belt-and-braces guard behind that.
+        # FOR UPDATE is load-bearing, not decoration. Without it this is a
+        # TOCTOU: we read source='llm', an operator (admin UI, or the
+        # location-normalization skill running unattended) commits
+        # source='manual' with its own mapping, and we then take the else-branch
+        # and overwrite their children -- leaving the LLM's answer sealed under
+        # source='manual', which persist_llm_result will now never touch again.
+        # A wrong answer permanently disguised as an operator judgment, and the
+        # operator's UI confirmed the save before it evaporated.
+        #
+        # The INSERT ... ON CONFLICT DO UPDATE above already takes a row lock in
+        # practice, but relying on that is subtle and easy to break; this states
+        # the requirement.
         cursor.execute(
-            sql.SQL("SELECT source FROM {} WHERE raw_text = %s").format(_LOCATION_ALIASES),
+            sql.SQL("SELECT source FROM {} WHERE raw_text = %s FOR UPDATE").format(
+                _LOCATION_ALIASES
+            ),
             (raw_text,),
         )
         source_row = cursor.fetchone()
@@ -304,11 +318,49 @@ def persist_llm_result(conn: Connection, job_id: str, raw_text: str, locations: 
         )
 
         if alias_source == "manual":
-            logger.warning(
-                "persist_llm_result: alias key %r is source='manual'; keeping the manual "
-                "mapping and NOT writing the LLM result to the cache (job %r).",
-                raw_text, job_id,
+            # Keep the operator's cache entry -- AND tag this job from it. The
+            # first version only protected the cache, then fell through and
+            # wrote job_locations from the LLM's answer anyway, so this one job
+            # ended up contradicting every other job carrying the same raw
+            # string, permanently (it is marked 'done', and only a change to the
+            # location text ever re-derives a done job).
+            cursor.execute(
+                sql.SQL(
+                    "SELECT normalized_location_id FROM {} WHERE raw_text = %s "
+                    "ORDER BY position"
+                ).format(_ALIAS_LOCATIONS),
+                (raw_text,),
             )
+            manual_ids = [
+                int(r["normalized_location_id"] if isinstance(r, dict) else r[0])
+                for r in cursor.fetchall()
+            ]
+            if manual_ids:
+                logger.warning(
+                    "persist_llm_result: alias key %r is source='manual'; discarding the "
+                    "LLM result and tagging job %r from the operator mapping (%d location(s)).",
+                    raw_text, job_id, len(manual_ids),
+                )
+                location_ids = manual_ids
+            else:
+                # A manual alias with no children is an operator error, and it is
+                # self-sustaining: lookup_alias returns [] (not None), tx1 falls
+                # through to Tier-2, and we land here again on every job carrying
+                # this key -- one Haiku call each, forever. Loud, and terminal for
+                # this job, so it stops costing money until someone fixes the alias.
+                logger.error(
+                    "persist_llm_result: alias key %r is source='manual' but has ZERO "
+                    "alias_locations children. Every job with this location will pay a "
+                    "Haiku call and get no usable mapping until the alias is repaired. "
+                    "Marking job %r failed rather than tagging it from the discarded "
+                    "LLM answer.", raw_text, job_id,
+                )
+                cursor.execute(
+                    sql.SQL("UPDATE {} SET normalization_status = 'failed' WHERE id = %s")
+                    .format(_JOB_LISTINGS),
+                    (job_id,),
+                )
+                return
         else:
             # REPLACE semantics, matching write_job_locations_from_ids below and
             # location_admin.upsert_manual_alias. The alias cache holds ONE

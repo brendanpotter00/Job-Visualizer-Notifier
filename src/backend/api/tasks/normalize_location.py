@@ -188,13 +188,17 @@ async def normalize_location(context: JobContext | None = None, *, job_id: str) 
         def _persist() -> int | None:
             """Serialize on the alias key, re-check Tier-1, then write.
 
-            The stampede this guards against: scan_unnormalized defers a batch
-            of jobs per tick and many share one location string ("San Francisco"
-            is ~2,000 open jobs in prod). They all miss Tier-1 together, all call
-            Haiku, and all come back with slightly different structured output.
-            Serializing the WRITE on the alias key means the FIRST writer wins and
-            every other worker adopts its mapping, so those jobs end up with
-            identical tags instead of N competing ones.
+            What this lock does and does NOT do. It is taken in tx2, AFTER the
+            Haiku call -- so by the time we get here every concurrent worker has
+            already paid for its own call. The lock does not prevent that spend;
+            the per-alias collapse in scan_unnormalized does. What the lock
+            prevents is DIVERGENCE: without it the N answers race and the last
+            writer wins, so jobs sharing one location string end up with
+            different tags depending on commit order. With it the FIRST writer
+            wins and everyone else adopts its mapping.
+
+            Do not delete the scan collapse on the belief that this lock covers
+            it. They solve different halves.
 
             The lock is transaction-scoped, so it is held only across this short
             write and released on commit/rollback -- it is NEVER held across the

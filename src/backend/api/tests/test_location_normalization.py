@@ -323,3 +323,62 @@ class TestPersistLlmResultReplaceSemantics:
         assert row["source"] == "manual"
         assert row["confidence"] == pytest.approx(1.0)
         assert _alias_mapping(db_conn, key) == [(manual_id, 0)]
+
+    def test_manual_alias_also_tags_the_job_from_the_manual_mapping(self, db_conn):
+        """The guard must protect the JOB, not just the cache.
+
+        The first version preserved the manual cache entry and then fell through
+        and wrote job_locations from the LLM's answer anyway -- so that one job
+        contradicted every other job carrying the same raw string, permanently
+        (it is marked 'done', and only a change to the location text re-derives
+        a done job).
+        """
+        from api.services.location_normalization import persist_llm_result
+
+        key = "hq"
+        manual_id = _insert_location(
+            db_conn, canonical_name="New York, NY, US", kind="city",
+            city="New York", region="NY", country="US",
+        )
+        _insert_alias(db_conn, key, source="manual", confidence=1.0)
+        _insert_alias_location(db_conn, key, manual_id, 0)
+
+        persist_llm_result(db_conn, "job-manual", key, [
+            _canon("Austin, TX, US", "city", city="Austin", region="TX", country="US"),
+        ])
+        db_conn.commit()
+
+        cur = db_conn.cursor()
+        cur.execute(
+            sql.SQL("SELECT normalized_location_id AS lid FROM {} WHERE job_listing_id = %s")
+            .format(sql.Identifier("job_locations")),
+            ("job-manual",),
+        )
+        tagged = [int(r["lid"]) for r in cur.fetchall()]
+        assert tagged == [manual_id], (
+            "job was tagged from the discarded LLM answer instead of the manual mapping"
+        )
+
+    def test_childless_manual_alias_marks_the_job_failed_not_llm_tagged(self, db_conn):
+        """A manual alias with no children is self-sustaining: lookup_alias
+        returns [] (not None) so tx1 falls through to Tier-2 for EVERY job with
+        that key, forever. Tagging from the discarded LLM answer would hide it;
+        failing loudly stops the spend until someone repairs the alias."""
+        from api.services.location_normalization import persist_llm_result
+
+        key = "broken manual"
+        _insert_alias(db_conn, key, source="manual", confidence=1.0)
+
+        persist_llm_result(db_conn, "job-broken", key, [
+            _canon("Austin, TX, US", "city", city="Austin", region="TX", country="US"),
+        ])
+        db_conn.commit()
+
+        cur = db_conn.cursor()
+        cur.execute(
+            sql.SQL("SELECT count(*) AS n FROM {} WHERE job_listing_id = %s")
+            .format(sql.Identifier("job_locations")),
+            ("job-broken",),
+        )
+        assert int(cur.fetchone()["n"]) == 0
+        assert _alias_mapping(db_conn, key) == []

@@ -138,8 +138,11 @@ def upsert_manual_alias(
          INSERT the new ordered rows (position = index). This overwrites a
          previous (possibly wrong) llm mapping wholesale.
     Manual persistence guarantee: a later LLM run for the same string calls
-    persist_llm_result, whose `location_aliases` INSERT is ON CONFLICT (raw_text)
-    DO NOTHING — so it will NOT clobber the manual alias. Manual persists.
+    persist_llm_result, which reads this row `FOR UPDATE`, sees source='manual',
+    and skips the cache write entirely (it also tags that job from THIS mapping
+    rather than its own answer). Its `location_aliases` upsert is ON CONFLICT
+    (raw_text) DO UPDATE ... WHERE source = 'llm', so the row itself is untouched
+    too. Manual persists.
 
     Commits on success. Rolls back + re-raises on psycopg2 error.
     Returns a dict {raw_text, source, confidence, locations:[{...,position}]}.

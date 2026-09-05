@@ -113,8 +113,18 @@ async def scan_unnormalized(timestamp: int, limit: int = SCAN_LIMIT) -> int:
                 cold_keys = {k for _, k in candidates if k}
                 cached_keys: set[str] = set()
                 if cold_keys:
+                    # Query alias_locations, NOT location_aliases. Tier-1
+                    # (lookup_alias) only counts a key as a HIT when it has >=1
+                    # child; a parent row with zero children returns [] and falls
+                    # through to Tier-2. Probing the parent table alone would
+                    # class such a key as "cached", skip the collapse, and defer
+                    # all N jobs -- every one of them missing Tier-1 and calling
+                    # Haiku. That is precisely the stampede this function exists
+                    # to prevent, in the one state normalize_location already
+                    # logs as an invariant violation.
                     cur.execute(
-                        "SELECT raw_text FROM location_aliases WHERE raw_text = ANY(%s)",
+                        "SELECT DISTINCT raw_text FROM alias_locations "
+                        "WHERE raw_text = ANY(%s)",
                         (list(cold_keys),),
                     )
                     cached_keys = {
