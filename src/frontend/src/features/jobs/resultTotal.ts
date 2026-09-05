@@ -13,8 +13,9 @@
  * list's `aria-setsize` both need it and each renders it differently — a tile can
  * say "50+", ARIA has no way to express a lower bound and must say "unknown" — so
  * the DERIVATION lives here once and only the rendering differs. They used to
- * disagree: after #277 the tile rendered an em-dash for every real search while
- * the list was already counting the same rows perfectly well.
+ * derive it separately, and after #277 that cost the tile its number: it rendered
+ * an em-dash for every real search, while the list had at least worked out that
+ * an exhausted walk makes the rows in hand the exact total.
  */
 
 import type { SearchJobsCounts } from './searchJobsTypes.ts';

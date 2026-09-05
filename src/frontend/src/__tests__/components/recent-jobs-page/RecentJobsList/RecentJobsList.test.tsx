@@ -157,7 +157,14 @@ function makeSearch(overrides: Partial<RecentJobsSearch> = {}): RecentJobsSearch
     displayedJobs,
     resultTotal:
       overrides.resultTotal ??
-      resolveResultTotal(base.counts, displayedJobs.length, !isSignedOut && !base.hasNextPage),
+      // Exhausted means no further page AND nothing withheld by the cap — the
+      // same rule the hook applies, keyed on truncation rather than on being
+      // signed out.
+      resolveResultTotal(
+        base.counts,
+        displayedJobs.length,
+        !base.hasNextPage && displayedJobs.length === base.jobs.length
+      ),
   };
 }
 

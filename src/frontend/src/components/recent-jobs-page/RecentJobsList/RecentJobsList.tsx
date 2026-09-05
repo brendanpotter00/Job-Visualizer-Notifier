@@ -54,6 +54,12 @@ export interface RecentJobsListProps {
 export function RecentJobsList({ search }: RecentJobsListProps) {
   const {
     jobs,
+    // Already capped for a signed-out reader. The cap lives in
+    // `useRecentJobsSearch` because the header's "Displayed Jobs" tile counts
+    // these same rows, and two components slicing the same constant is one edit
+    // away from a header that disagrees with the list under it.
+    displayedJobs,
+    resultTotal,
     isInitialLoading,
     isRefreshing,
     isFetchingNextPage,
@@ -84,22 +90,11 @@ export function RecentJobsList({ search }: RecentJobsListProps) {
   const hasMore = !isSignedOut && hasNextPage && errorScope !== 'nextPage';
   const showSignInOverlay =
     isSignedOut && jobs.length > SIGN_IN_OVERLAY_CONFIG.SIGNED_OUT_JOB_LIMIT;
-  // The cap now lives in `useRecentJobsSearch`, because the header's "Displayed
-  // Jobs" tile counts these rows too and two components slicing the same constant
-  // is one edit away from a header that disagrees with the list under it.
-  const displayedJobs = search.displayedJobs;
   // Signed-out readers are capped, not finished: `hasNextPage` is forced false
   // for them, so without this guard the list would announce "All 13 jobs loaded"
   // (the fetch limit) while showing 12 cards out of thousands.
   const atTrueEnd = !isSignedOut && !hasNextPage && !isLoadingMore;
-  // What assistive tech hears as `aria-setsize`. It has to be the SERVER's count
-  // of the filter set, not `displayedJobs.length`: the page walks the result set
-  // one keyset page at a time, so the rows in hand are "how far we have got",
-  // and announcing them as the set size tells a screen-reader user they are at
-  // the end of a list they are twenty rows into. `null` is passed through as
-  // genuinely unknown (page 1 carries the counts; before it lands, or after an
-  // initial error nulls them, nothing has measured the total), and renders as
-  // ARIA's `-1`.
+  // What assistive tech hears as `aria-setsize`.
   //
   // The three cases — unknown, an exact total, and a deferred one that makes the
   // rows in hand a mere LOWER bound — are resolved once in `resultTotal.ts` and
@@ -107,7 +102,8 @@ export function RecentJobsList({ search }: RecentJobsListProps) {
   // where ARIA must say "unknown"). Only `exact` may be announced as a set size:
   // ARIA has no spelling for a lower bound, and announcing one tells a
   // screen-reader user they are at the end of a list they are twenty rows into.
-  const announcedTotal = ariaSetSizeFor(search.resultTotal);
+  // Everything else becomes `-1`.
+  const announcedTotal = ariaSetSizeFor(resultTotal);
 
   const { sentinelRef } = useInfiniteScroll({
     hasMore,

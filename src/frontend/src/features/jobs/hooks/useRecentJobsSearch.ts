@@ -365,13 +365,24 @@ export function useRecentJobsSearch(): RecentJobsSearch {
   }, [errorScope, status, rtkFetchNextPage, refetch]);
 
   if (demo) {
+    // Capped like any other path: `displayedJobs` promises the rows a reader can
+    // SEE, and a signed-out reader sees at most the overlay cap here too. The
+    // fixture is ~100 rows, so handing them over uncapped would break that
+    // promise and render the whole thing under the sign-in overlay.
+    const demoDisplayed = isSignedOut
+      ? demo.jobs.slice(0, SIGN_IN_OVERLAY_CONFIG.SIGNED_OUT_JOB_LIMIT)
+      : demo.jobs;
     return {
       jobs: demo.jobs,
-      displayedJobs: demo.jobs,
+      displayedJobs: demoDisplayed,
       counts: demo.counts,
       // Demo mode computes its own EXACT total from the fixture and cannot page,
-      // so the walk is trivially exhausted and the tile shows a plain number.
-      resultTotal: resolveResultTotal(demo.counts, demo.jobs.length, true),
+      // so the walk is exhausted unless the signed-out cap truncated it.
+      resultTotal: resolveResultTotal(
+        demo.counts,
+        demoDisplayed.length,
+        demoDisplayed.length === demo.jobs.length
+      ),
       isInitialLoading: false,
       isRefreshing: false,
       isFetchingNextPage: false,
@@ -395,10 +406,19 @@ export function useRecentJobsSearch(): RecentJobsSearch {
   //
   // Hoisted out of the return object because `resultTotal` derives from it too.
   const resolvedCounts = errorScope === 'initial' ? null : (data?.pages[0]?.counts ?? null);
-  // A signed-out reader is CAPPED, never finished — `hasNextPage` is forced false
-  // for them below, so reading exhaustion off that alone would report their dozen
-  // cards as the whole result set. Same guard as the list's `atTrueEnd`.
-  const walkExhausted = !isSignedOut && !hasNextPage;
+  // Exhausted means BOTH "the server has no more rows" and "we are showing every
+  // row we hold". The second half is the signed-out cap: we deliberately fetch one
+  // row more than may be shown, so a truncated view has seen rows it is not
+  // displaying and its count is a floor, not a total.
+  //
+  // Keyed on truncation rather than on `isSignedOut`, and the difference is a bug:
+  // a signed-out reader whose filters match FEWER jobs than the cap is not
+  // truncated at all — the server returns 5 rows and no cursor — and gating on
+  // `!isSignedOut` called that a lower bound, rendering "5+" over exactly five
+  // cards with no overlay and nothing else on the page to corroborate the "+".
+  // Note `hasNextPage` here is the RAW value from RTK, which is honest for
+  // signed-out readers; the forced-false one is the field returned below.
+  const walkExhausted = !hasNextPage && displayedJobs.length === jobs.length;
 
   return {
     jobs,

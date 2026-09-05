@@ -796,4 +796,22 @@ describe('useRecentJobsSearch — the "Displayed Jobs" figure', () => {
       value: SIGN_IN_OVERLAY_CONFIG.SIGNED_OUT_JOB_LIMIT,
     });
   });
+
+  it('does NOT claim a lower bound for a signed-out reader whose results fit under the cap', async () => {
+    // Being signed out is not the same as being truncated. Five matches come back
+    // as five rows and no cursor — nothing was withheld — so the honest answer is
+    // "5", not "5+". Gating exhaustion on `isSignedOut` instead of on truncation
+    // rendered "5+" over exactly five cards, with no overlay and nothing else on
+    // the page to corroborate the "+".
+    install(() => ({ body: page(['a', 'b', 'c', 'd', 'e'], null, true, null) }));
+
+    mockAuthState.isAuthenticated = false;
+    const store = makeStore();
+    const { result } = renderSearch(store);
+    await flush();
+
+    expect(result.current.jobs).toHaveLength(5);
+    expect(result.current.displayedJobs).toHaveLength(5);
+    expect(result.current.resultTotal).toEqual({ kind: 'exact', value: 5 });
+  });
 });

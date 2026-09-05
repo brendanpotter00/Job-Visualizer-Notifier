@@ -39,6 +39,20 @@ describe('resolveResultTotal', () => {
       });
     });
 
+    it('treats "capped" and "exhausted" as the caller\'s call, not its own', () => {
+      // The helper never infers truncation — the hook decides, because only it
+      // knows whether the signed-out cap actually withheld anything. Same rows,
+      // opposite verdicts, driven purely by the flag.
+      expect(resolveResultTotal(counts(null), 12, false)).toEqual({
+        kind: 'atLeast',
+        value: 12,
+      });
+      expect(resolveResultTotal(counts(null), 12, true)).toEqual({
+        kind: 'exact',
+        value: 12,
+      });
+    });
+
     it('is never a bare zero over a landed, empty result', () => {
       // Zero rows and an exhausted walk is a genuine "nothing matched", which the
       // list's own empty state says in words. The tile may state it as a number.

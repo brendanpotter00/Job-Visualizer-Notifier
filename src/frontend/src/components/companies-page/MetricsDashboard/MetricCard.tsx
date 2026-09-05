@@ -3,10 +3,11 @@ import { RESPONSIVE } from '../../../config/responsive';
 
 interface MetricCardProps {
   /**
-   * The number to show, or a short placeholder string for "not a number yet"
-   * (the Recent page passes an em-dash when a count is genuinely unknown — see
-   * `RecentJobsMetrics`). Anything longer than a couple of characters will not
-   * fit the `h3` tile.
+   * The number to show, or a short string where a bare number will not do — the
+   * Recent page passes an em-dash for a genuinely unknown count and a bounded
+   * form like "1250+" while a walk can still turn up more (see
+   * `RecentJobsMetrics` and `features/jobs/resultTotal.ts`). Keep it to a handful
+   * of characters; a long string will not fit the `h3` tile at the dense size.
    */
   value: number | string;
   label: string;
