@@ -52,6 +52,7 @@ from urllib.parse import urlsplit
 
 import httpx
 
+from ..browser_budget import browser_permit
 from ..guarded_client import guarded_sync_client
 from ..harvest_meta import HarvestEvidence
 from ..recipe_runner import (
@@ -299,30 +300,44 @@ async def _subprocess_run(subprocess_plan: dict[str, Any]) -> dict[str, Any]:
         p for p in (str(backend_root), str(repo_root), prior) if p
     )
 
-    proc = await asyncio.create_subprocess_exec(
-        sys.executable, "-m", "api.services.browser_fetch._browser_fetch_main",
-        cwd=str(backend_root),
-        env=env,
-        stdin=asyncio.subprocess.PIPE,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    try:
-        stdout, stderr = await asyncio.wait_for(
-            proc.communicate(input=json.dumps(subprocess_plan).encode("utf-8")),
-            timeout=_SUBPROCESS_TIMEOUT_S,
+    # THE BROWSER BUDGET (``services/browser_budget.py``). This transport ALWAYS
+    # drives a LOCAL Chromium — Browserbase is discovery-time only, see this
+    # function's docstring — and it is the longest-lived browser we spawn: this
+    # subprocess may run to ``_SUBPROCESS_TIMEOUT_S`` inside a 900s task, against
+    # discovery's 120s inside 240s. It runs in the BULK lane, which is precisely
+    # why the cap lives here and not in a lane size: no lane number can bound a
+    # resource that two different lanes allocate.
+    #
+    # The permit spans the spawn and the reap and NOTHING else. Everything below
+    # the ``async with`` — the return-code check and ``_parse_report`` — is pure
+    # CPU over bytes already collected, with no child alive to pay for.
+    async with browser_permit():
+        proc = await asyncio.create_subprocess_exec(
+            sys.executable, "-m", "api.services.browser_fetch._browser_fetch_main",
+            cwd=str(backend_root),
+            env=env,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
         )
-    except asyncio.TimeoutError as exc:
-        raise RecipeExecutionError(
-            f"browser_fetch subprocess timed out after {_SUBPROCESS_TIMEOUT_S}s"
-        ) from exc
-    finally:
-        # NOT in the ``except`` — the leaf task's 120s ``wait_for`` cancels this
-        # coroutine, and a ``CancelledError`` (a BaseException) skips every
-        # ``except`` clause here. Reaping in the ``finally`` is what makes the
-        # kill unconditional; without it the one path that actually strands a
-        # Chromium is the one path that never killed it.
-        await _reap(proc)
+        try:
+            stdout, stderr = await asyncio.wait_for(
+                proc.communicate(input=json.dumps(subprocess_plan).encode("utf-8")),
+                timeout=_SUBPROCESS_TIMEOUT_S,
+            )
+        except asyncio.TimeoutError as exc:
+            raise RecipeExecutionError(
+                f"browser_fetch subprocess timed out after {_SUBPROCESS_TIMEOUT_S}s"
+            ) from exc
+        finally:
+            # NOT in the ``except`` — the leaf task's 120s ``wait_for`` cancels this
+            # coroutine, and a ``CancelledError`` (a BaseException) skips every
+            # ``except`` clause here. Reaping in the ``finally`` is what makes the
+            # kill unconditional; without it the one path that actually strands a
+            # Chromium is the one path that never killed it. It is also what makes
+            # the permit released above honest: the child is dead before we hand
+            # the slot to the next caller.
+            await _reap(proc)
     if proc.returncode != 0:
         raise RecipeExecutionError(
             f"browser_fetch subprocess failed (rc={proc.returncode}): "

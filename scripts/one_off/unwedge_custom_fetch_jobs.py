@@ -28,21 +28,42 @@ THE ROW THIS WAS WRITTEN FOR
 ----------------------------
 Production ``procrastinate_jobs`` id 880727: ``fetch_custom_company``,
 ``status='doing'``, ``queueing_lock='custom:u-okarwa3huc'``, started
-2026-09-05 00:05:53, still ``doing`` more than a day later. Its company row, its
-job rows and its ``user_companies`` row are all gone. It costs two things:
+2026-09-05 00:05:53 and still ``doing``. Its company row, its job rows
+and its ``user_companies`` row are all gone.
 
-1. one of the interactive lane's slots, and
-2. the ``custom:u-okarwa3huc`` queueing lock, which blocks that company from ever
-   being re-added -- ``procrastinate_jobs`` has a unique index on
-   ``queueing_lock`` for non-terminal rows, so a new harvest for the same id
-   cannot be deferred while this row sits in ``doing``.
+FIRST, WHAT IT DOES **NOT** COST -- both claims were in an earlier draft of this
+docstring and both are false, verified against production:
+
+* **It does not hold a worker slot.** The row has exactly two events,
+  ``deferred`` and ``started``, 0.3s apart, and nothing since -- across a
+  container restart. Procrastinate's worker slots are IN-PROCESS; a ``doing`` row
+  left behind by a restart is a stale marker, not a held slot. Nothing is running.
+* **It does not block re-adding the company.** The index is
+  ``CREATE UNIQUE INDEX procrastinate_jobs_queueing_lock_idx ON
+  procrastinate_jobs USING btree (queueing_lock) WHERE (status = 'todo')`` --
+  ``todo`` ONLY. A ``doing`` row does not stop a new ``todo`` job taking the same
+  ``custom:u-okarwa3huc`` lock.
+
+WHAT IT ACTUALLY COSTS, which is still worth cleaning up:
+
+1. It makes ``doing`` counts lie. Any liveness or health view that reads
+   non-terminal job status -- including a human reading the table during an
+   incident -- sees a harvest that is not happening.
+2. It can make ``tasks/reap_ownerless_companies._has_live_job()`` defer, because
+   that helper deliberately counts ``doing`` as live so the sweep never purges a
+   board with real work in flight. **Bounded, not forever:** the same helper also
+   dates the job by ``max(procrastinate_events.at)`` and returns live only while
+   that is inside ``_ORPHAN_GRACE_SECONDS`` (30 minutes). Row 880727's newest
+   event is many hours old, far outside that grace, so the reaper is NOT
+   currently blocked by it. The real window is the first 30 minutes after a
+   wedge -- small, but it is the window in which the sweep would have acted.
 
 WHAT IT DOES
 ------------
 Moves matching rows from ``doing`` to the terminal ``failed`` status. ``failed``
 rather than ``succeeded`` because the run genuinely did not complete, and
 ``failed`` is what the health tooling already understands; either way the row
-leaves the non-terminal set, which is what frees the lock and the slot.
+leaves the non-terminal set, which is what stops it reading as live work.
 
 It does NOT touch ``job_listings``, ``companies`` or anything else. It is not a
 purge. If you want the data gone, that is ``purge_custom_companies.py``.

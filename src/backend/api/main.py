@@ -152,19 +152,30 @@ _WORKER_QUEUES: tuple[str, ...] = _BULK_QUEUES + _INTERACTIVE_QUEUES
 # happened.
 #
 # WHAT BOUNDS THIS, in the order the constraints actually bite:
-#   * Local Chromium — THE BINDING ONE. Discovery always spawns a headless
-#     Chromium subprocess (`services/capture/_capture_main.py`), and the first
-#     harvest does too when the board's stored transport is `browser_fetch`.
-#     Railway gives this container 4.0 GB and 1 vCPU; 48h memory peak is 1.97 GB
-#     against an 0.84 GB average, and each Chromium costs hundreds of MB. 6 is
-#     therefore the QUEUE-SLOT number, not a promise that six browsers fit: the
-#     safe number of SIMULTANEOUS browser tasks on this box is about 4. The two
-#     ways to buy the rest are enabling Browserbase for capture (moves the
-#     browser off-box entirely) or growing the container.
+#   * Local Chromium — nothing binds it TODAY, and that is precisely why it is now
+#     ENFORCED rather than documented. `CAPTURE_USE_BROWSERBASE` is TRUE in
+#     production, so discovery attaches to a REMOTE browser and this container
+#     launches nothing; every stored recipe is `http_json`, so the `browser_fetch`
+#     first-harvest launches nothing either. Both of those are point-in-time facts
+#     that 6 slots make expensive to be wrong about: one discovery returning a
+#     `browser_fetch` recipe, or one Browserbase outage (the flag FAILS OPEN back
+#     to a local Chromium by design), turns what used to be at most two local
+#     browsers into six, on a 4.0 GB / 1 vCPU box where each costs hundreds of MB.
+#     So 6 stays the QUEUE-SLOT number and the simultaneous-BROWSER number is a
+#     process-wide semaphore of 4 in `services/browser_budget.py`, taken around
+#     the actual spawn on the local path in both lanes (and around the legacy
+#     `scripts/` scraper subprocess, a third local Chromium in this same
+#     container). The queue still absorbs the burst — all six adds START and show
+#     real progress. Read that module before changing either number, and read the
+#     DEPLOYED env rather than `_capture_main`'s "our own Chromium by default",
+#     which describes the default and not production.
 #   * Browserbase — 25 concurrent sessions on the Developer plan
 #     (`docs/implementations/custom-company-sources/BROWSER-FIRST-EVALUATION.md`,
-#     confirmed against browserbase.com/pricing). Not binding at 6, and only
-#     relevant at all when `capture_use_browserbase` is on.
+#     confirmed against browserbase.com/pricing). 6 of 25 leaves 19 spare, and at
+#     ~31s per discovery the 100 browser-hours/month is not a constraint either.
+#     It is NOT a way to buy more slots: it is discovery-only, never applies to
+#     the nightly replay, and fails OPEN, so it lowers the EXPECTED number of
+#     local browsers and never the WORST CASE.
 #   * The FastAPI request pool (`db_pool_max`, its 5s checkout semaphore, and
 #     `search-by-name` holding a connection across a 22s outbound budget) does
 #     NOT need to grow with this number. Worker tasks never borrow from it —
