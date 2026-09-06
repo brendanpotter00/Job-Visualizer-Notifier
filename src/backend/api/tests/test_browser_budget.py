@@ -8,9 +8,13 @@ for the two live-in-code paths that would. This module proves the cap is real
 rather than aspirational.
 
 These tests are deliberately NOT "assert the constant is 4". They drive the real
-``_subprocess_run`` on BOTH spawn sites with a fake ``create_subprocess_exec``
-that records the maximum number of children alive simultaneously, fire more
-concurrent calls than the cap, and assert the observed peak never exceeded it.
+spawn functions on ALL THREE sites with a fake ``create_subprocess_exec`` that
+records the maximum number of children alive simultaneously, fire more concurrent
+calls than the cap, and assert the observed peak never exceeded it.
+
+The third site — ``services/scraper_runner.run_scraper``, the hourly ATS scrape —
+is the only one production runs today, and it shipped with no coverage here at
+all. Its cases are at the bottom of the file.
 
 The cap is LOCAL-PATH ONLY: a discovery capture that attaches to a remote
 Browserbase browser over CDP costs this container no browser, so it must take no
@@ -44,6 +48,8 @@ from api.services.browser_fetch.runner import (
 from api.services.capture.network_capture import (
     _subprocess_run as capture_subprocess_run,
 )
+from api.config import Settings
+from api.services.scraper_runner import run_scraper
 
 pytestmark = pytest.mark.asyncio
 
@@ -323,3 +329,188 @@ async def test_the_two_spawn_sites_share_one_budget_so_the_bound_is_not_doubled(
                 browser_fetch_subprocess_run({"origin_url": "https://example.com/"})
             )
     await _drive(mixed, tracker, gate)
+
+
+# --------------------------------------------------------------------------
+# the THIRD spawn site — services/scraper_runner.py
+#
+# The only one of the three that runs in production TODAY: `auto_scraper_loop`
+# launches `scripts/run_scraper.py --headless` hourly, and every scraper under
+# `scripts/` extends `BaseScraper`, which calls `chromium.launch()`.
+#
+# It shipped with no coverage at all. Confirmed by mutation: deleting the
+# `finally: budget.release()` at the bottom of `run_scraper` leaves this module
+# and `test_scraper_runner.py` green at 24 passed — i.e. the ONE site whose
+# browser is real today was the one site whose permit nothing checked. A leak
+# there does not fail loudly; it shrinks the cap by one permanently, once per
+# hourly run, until the container is bounced.
+#
+# Unlike the two capture/replay sites this one holds its permit for the whole
+# scrape (`scraper_timeout_minutes`, default 90), so a release that is not
+# bulletproof is a slow-motion way to starve the cap to zero.
+# --------------------------------------------------------------------------
+
+_SCRAPER_CONFIG = Settings(
+    database_url="postgresql://test:test@localhost/test",
+    scraper_scripts_path="/fake/scripts",
+    scraper_python_path="/usr/bin/python3",
+    scraper_timeout_minutes=5,
+    scraper_detail_scrape=False,
+    scraper_companies="testco",
+)
+
+
+class _FakeScraperChild:
+    """A stand-in for one `run_scraper.py --headless` subprocess.
+
+    Alive — i.e. inside the tracker — from the moment the parent starts reading
+    its output until *gate* opens and the pipe hits EOF. That window is exactly
+    what the permit is supposed to cover.
+    """
+
+    def __init__(self, tracker: _PeakTracker, gate: asyncio.Event) -> None:
+        self._tracker = tracker
+        self._gate = gate
+        self.returncode = 0
+        self.stdout = self
+        self.stderr = None
+        self._entered = False
+
+    async def readline(self) -> bytes:
+        if not self._entered:
+            self._entered = True
+            self._tracker.enter()
+            try:
+                await self._gate.wait()
+            finally:
+                self._tracker.exit()
+        return b""
+
+    async def read(self, n: int = -1) -> bytes:
+        return b""
+
+    async def wait(self) -> int:
+        return 0
+
+    def kill(self) -> None:
+        return None
+
+
+def _patch_scraper_spawn(monkeypatch, tracker, gate, spawns):
+    async def _fake_exec(*args, **kwargs):
+        spawns.append(args)
+        return _FakeScraperChild(tracker, gate)
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", _fake_exec)
+
+
+async def test_the_hourly_scraper_takes_a_permit_and_gives_it_back(monkeypatch) -> None:
+    """One permit while the child lives, all four back afterwards."""
+    tracker = _PeakTracker()
+    gate = asyncio.Event()
+    spawns: list = []
+    _patch_scraper_spawn(monkeypatch, tracker, gate, spawns)
+
+    budget = get_browser_budget()
+    task = asyncio.create_task(run_scraper(_SCRAPER_CONFIG, "google"))
+    await _settle()
+
+    assert tracker.live == 1, "the scraper child should be alive and holding a permit"
+    # Three left for everyone else, and the fourth attempt must find the pool dry.
+    held = [budget.acquire() for _ in range(MAX_CONCURRENT_BROWSERS - 1)]
+    await asyncio.wait_for(asyncio.gather(*held), timeout=1)
+    assert budget.locked(), (
+        "the scraper's browser was not counted against the shared budget"
+    )
+    for _ in range(MAX_CONCURRENT_BROWSERS - 1):
+        budget.release()
+
+    gate.set()
+    result = await asyncio.wait_for(task, timeout=5)
+    assert result.exit_code == 0
+
+    # The whole cap is available again — nothing leaked.
+    reclaim = [budget.acquire() for _ in range(MAX_CONCURRENT_BROWSERS)]
+    await asyncio.wait_for(asyncio.gather(*reclaim), timeout=1)
+    for _ in range(MAX_CONCURRENT_BROWSERS):
+        budget.release()
+
+
+async def test_the_scraper_permit_survives_a_spawn_failure(monkeypatch) -> None:
+    """The `except (FileNotFoundError, PermissionError)` branch returns, it does not raise.
+
+    A `return` out of a `try` is the classic way a hand-rolled acquire/release
+    pair leaks, and `run_scraper` has five of them.
+    """
+    async def _boom(*args, **kwargs):
+        raise FileNotFoundError("/usr/bin/python3")
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", _boom)
+
+    budget = get_browser_budget()
+    result = await run_scraper(_SCRAPER_CONFIG, "google")
+    assert result.exit_code == -1
+
+    reclaim = [budget.acquire() for _ in range(MAX_CONCURRENT_BROWSERS)]
+    await asyncio.wait_for(asyncio.gather(*reclaim), timeout=1)
+    for _ in range(MAX_CONCURRENT_BROWSERS):
+        budget.release()
+
+
+async def test_the_scraper_permit_survives_cancellation(monkeypatch) -> None:
+    """`CancelledError` is a BaseException — it skips every `except` clause here.
+
+    The release therefore has to be in the `finally`, which is the same reason
+    `_reap` lives in one at the other two sites. Shutdown cancels
+    `auto_scraper_loop`, so this is a real path and not a hypothetical.
+    """
+    tracker = _PeakTracker()
+    gate = asyncio.Event()
+    _patch_scraper_spawn(monkeypatch, tracker, gate, [])
+
+    budget = get_browser_budget()
+    task = asyncio.create_task(run_scraper(_SCRAPER_CONFIG, "google"))
+    await _settle()
+    assert tracker.live == 1
+
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    reclaim = [budget.acquire() for _ in range(MAX_CONCURRENT_BROWSERS)]
+    await asyncio.wait_for(asyncio.gather(*reclaim), timeout=1)
+    for _ in range(MAX_CONCURRENT_BROWSERS):
+        budget.release()
+
+
+async def test_the_scraper_waits_when_the_budget_is_already_spent(monkeypatch) -> None:
+    """The cap is a REAL ceiling on simultaneous browsers, not a per-caller one.
+
+    With all four permits held by the custom-company paths, the hourly scrape
+    must not spawn at all — `scraper_lock` bounds it to one scrape, but only the
+    shared budget stops that one browser from being the fifth. This is the test
+    that fails if `scraper_runner` ever builds its own semaphore.
+    """
+    tracker = _PeakTracker()
+    gate = asyncio.Event()
+    spawns: list = []
+    _patch_scraper_spawn(monkeypatch, tracker, gate, spawns)
+
+    budget = get_browser_budget()
+    held = [budget.acquire() for _ in range(MAX_CONCURRENT_BROWSERS)]
+    await asyncio.wait_for(asyncio.gather(*held), timeout=1)
+
+    task = asyncio.create_task(run_scraper(_SCRAPER_CONFIG, "google"))
+    await _settle()
+    assert spawns == [], (
+        "the hourly scraper spawned a browser with the shared budget fully spent"
+    )
+
+    budget.release()
+    await _settle()
+    assert len(spawns) == 1, "...and it starts as soon as a permit frees up"
+
+    gate.set()
+    await asyncio.wait_for(task, timeout=5)
+    for _ in range(MAX_CONCURRENT_BROWSERS - 1):
+        budget.release()

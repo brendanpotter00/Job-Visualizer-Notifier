@@ -683,3 +683,94 @@ async def test_a_captured_row_lands_with_a_description() -> None:
     values = db._build_job_values(job.model_copy(update={"details": details}))
     bound = json.loads(values[columns.index("details")])
     assert bound["description"] == "Own the pipeline."
+
+
+# --- The WRITE side of the 2026-09-05 incident -------------------------------
+#
+# The last-moment existence re-check in `_work` (and
+# `custom_companies_service.custom_company_exists` under it) shipped with NO
+# test of any kind: nothing in `api/tests` referenced either name. The read-side
+# safety net was pinned five ways in `test_visibility_leaks.py`; the root-cause
+# fix — the half that stops orphans EXISTING — was pinned zero ways, so deleting
+# the re-check left the suite green.
+
+
+async def test_a_company_deleted_mid_run_writes_no_jobs_and_records_a_failed_run(
+    db_conn, monkeypatch
+):
+    """The purge/harvest race, reproduced end-to-end.
+
+    `pending_jobs.cancel_queued_jobs` cancels only `todo` jobs, so a purge that
+    commits while this task is already `doing` never stops it. Before the
+    re-check the fetched rows landed against a company row that no longer
+    existed — 2,057 ORPHANS, which the old read guard then served to anonymous
+    callers because its anti-join fails OPEN on a missing company.
+
+    The delete is committed FROM INSIDE THE FETCH, on the test's own connection.
+    That is exactly the window the re-check covers: after `load_custom_company_
+    for_run` at the top of `_work`, before `upsert_jobs_batch`. READ COMMITTED
+    gives every later statement on the task's connection a fresh snapshot, so
+    the probe sees the delete even though the task's transaction predates it.
+    """
+    company_id = "u-purgerace1"
+    _seed_custom_company(db_conn, company_id, "duolingo")
+    _patch_env(monkeypatch)
+
+    async def _fetch_then_purge(board_token, http):
+        # The purge lands mid-flight, committed, on another connection — the
+        # same shape as scripts/one_off/purge_custom_companies.py.
+        cur = db_conn.cursor()
+        cur.execute("DELETE FROM company_scripts WHERE company_id = %s", (company_id,))
+        cur.execute("DELETE FROM companies WHERE id = %s", (company_id,))
+        db_conn.commit()
+        return (
+            [_raw_job(1), _raw_job(2)],
+            HarvestEvidence.single_shot(declared_total=2),
+        )
+
+    monkeypatch.setattr(greenhouse_client, "fetch_jobs_with_meta", _fetch_then_purge)
+
+    await fetch_custom_company(company_id=company_id)
+    db_conn.rollback()
+
+    # THE LEAK AT ITS SOURCE: not one orphaned row was written.
+    assert _job_status(db_conn, company_id) == {}, (
+        "an in-flight harvest wrote job rows for a company that had already been "
+        "deleted — these are the 2026-09-05 orphans"
+    )
+
+    harvests = _rows(db_conn, "company_harvests", company_id)
+    assert len(harvests) == 1
+    assert harvests[0]["verdict_reason"] == "company_deleted_mid_run"
+    # FAILED, not the VERIFIED `verify_harvest` had just returned. Same shape as
+    # the `company_or_script_missing` early return at the top of `_work`.
+    assert harvests[0]["verdict"] == "FAILED"
+
+    runs = _scrape_runs(db_conn, company_id)
+    assert len(runs) == 1
+    assert runs[0]["success"] is False, (
+        "a harvest that wrote nothing at all was recorded as a SUCCESS, with a "
+        "jobs_seen count, for a board that no longer exists"
+    )
+
+
+async def test_a_live_company_still_harvests_normally(db_conn, monkeypatch):
+    """CONTROL for the re-check.
+
+    The probe runs on every single harvest, immediately before the only
+    destructive write in the task. A version of it that answered "gone" too
+    eagerly — probing `company_scripts`, say, or reusing
+    `load_custom_company_for_run` — would silently stop every board from ever
+    writing a row again, and the test above would still pass.
+    """
+    company_id = "u-purgerace2"
+    _seed_custom_company(db_conn, company_id, "duolingo")
+    _patch_env(monkeypatch)
+    patch_greenhouse_meta(monkeypatch, [_raw_job(1), _raw_job(2)], 2)
+
+    await fetch_custom_company(company_id=company_id)
+    db_conn.rollback()
+
+    assert set(_job_status(db_conn, company_id)) == {"1", "2"}
+    runs = _scrape_runs(db_conn, company_id)
+    assert runs[0]["success"] is True

@@ -884,6 +884,24 @@ async def fetch_custom_company(company_id: str) -> None:
                     ccs.custom_company_exists, conn, company_id
                 )
                 if not still_exists:
+                    # FAILED, not the VERIFIED/UNVERIFIED verdict `verify_harvest`
+                    # just returned — the SAME shape as the `company_or_script_missing`
+                    # early return at the top of `_work`, which relies on `verdict`
+                    # still holding its FAILED initial value.
+                    #
+                    # Without this the run reaches the `finally` with
+                    # `success = scrape_error is None and verdict != FAILED` TRUE, and
+                    # a harvest that wrote nothing at all is recorded as a SUCCESS: a
+                    # `scrape_runs` row with `success=true` and `jobs_seen=N`, a
+                    # `company_harvests` row stamped VERIFIED, `mark_last_success`, and
+                    # a first-scan rung reading "read N job(s) from the board". Every
+                    # one of those is a claim about a board that no longer exists.
+                    #
+                    # It does NOT make Procrastinate retry: retries are driven by
+                    # `scrape_error` being re-raised at the end, and that stays None
+                    # here. A FAILED run writes nothing destructive and is not a miss,
+                    # which is exactly what this path did.
+                    verdict = FAILED
                     verdict_reason = "company_deleted_mid_run"
                     logger.warning(
                         "fetch_custom_company: company %s was deleted while this "
