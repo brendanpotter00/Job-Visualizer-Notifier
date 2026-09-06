@@ -125,12 +125,56 @@ _INTERACTIVE_QUEUES: tuple[str, ...] = (
 _WORKER_QUEUES: tuple[str, ...] = _BULK_QUEUES + _INTERACTIVE_QUEUES
 
 # Concurrency per lane. The bulk lane keeps the 5 slots it has always had — a
-# reserved lane must not be a lane that STEALS capacity from the fan-outs — and
-# the interactive lane adds 2 on top, for 7 total. Two is enough: discovery is
-# one job per add and is wall-clock-capped at 240s, and the first harvest is
-# one job per add.
+# reserved lane must not be a lane that STEALS capacity from the fan-outs.
+#
+# The interactive lane was 2, justified as "discovery is one job per add and is
+# wall-clock-capped at 240s, and the first harvest is one job per add". Both
+# halves of that are true and the conclusion was still wrong, because it silently
+# assumed ONE ADD AT A TIME. This is a public product: five different users
+# adding one company each hit the same ceiling as one owner adding five, and on
+# 2026-09-05 three simultaneous adds all sat at ``attempts=0`` for minutes while
+# the UI showed "opening the page".
+#
+# 6 = 5 concurrent adds + 1 slot that `interactive_heartbeat` can always get.
+# Every add needs this lane TWICE (discover, then first-harvest) but never at the
+# same instant, so 5 slots carry 5 adds end-to-end. The +1 is not padding: on
+# 2026-09-05 19:30->19:44 this lane's own heartbeat went silent for 847s because
+# both slots were held by first-harvests, which is indistinguishable from worker
+# death to `/health/worker` and to the health-watch alarm.
+#
+# MEASURED, from prod `procrastinate_events` (n=23 completed runs of each):
+#   discovery      p50 40s   p90 44s   max 47s   (against a 240s cap)
+#   first harvest  p50 55s   p90 656s  max 708s
+# The first harvest, not discovery, is the real tail — and it shares this lane.
+# So 5 concurrent adds drain in ~700s worst case (44 + 656, all five in
+# parallel, none queued) and ~95s typically. At the old 2 the same five adds
+# serialise into ~29 minutes, or ~58 with one slot wedged, which is what
+# happened.
+#
+# WHAT BOUNDS THIS, in the order the constraints actually bite:
+#   * Local Chromium — THE BINDING ONE. Discovery always spawns a headless
+#     Chromium subprocess (`services/capture/_capture_main.py`), and the first
+#     harvest does too when the board's stored transport is `browser_fetch`.
+#     Railway gives this container 4.0 GB and 1 vCPU; 48h memory peak is 1.97 GB
+#     against an 0.84 GB average, and each Chromium costs hundreds of MB. 6 is
+#     therefore the QUEUE-SLOT number, not a promise that six browsers fit: the
+#     safe number of SIMULTANEOUS browser tasks on this box is about 4. The two
+#     ways to buy the rest are enabling Browserbase for capture (moves the
+#     browser off-box entirely) or growing the container.
+#   * Browserbase — 25 concurrent sessions on the Developer plan
+#     (`docs/implementations/custom-company-sources/BROWSER-FIRST-EVALUATION.md`,
+#     confirmed against browserbase.com/pricing). Not binding at 6, and only
+#     relevant at all when `capture_use_browserbase` is on.
+#   * The FastAPI request pool (`db_pool_max`, its 5s checkout semaphore, and
+#     `search-by-name` holding a connection across a 22s outbound budget) does
+#     NOT need to grow with this number. Worker tasks never borrow from it —
+#     they open their own psycopg2 connections via
+#     `scripts.shared.database.get_connection`. The pool that DOES scale with
+#     this constant is Procrastinate's connector pool; see
+#     `_CONNECTOR_POOL_MAX_SIZE` in `tasks/procrastinate_app.py`, which is sized
+#     off the total slot count and must be updated whenever this is.
 _BULK_WORKER_CONCURRENCY = 5
-_INTERACTIVE_WORKER_CONCURRENCY = 2
+_INTERACTIVE_WORKER_CONCURRENCY = 6
 
 
 # Bound on how long shutdown waits for the cancelled worker task to unwind

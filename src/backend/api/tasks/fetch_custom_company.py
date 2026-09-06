@@ -850,6 +850,50 @@ async def fetch_custom_company(company_id: str) -> None:
                 # that also clears every safety gate below. An UNVERIFIED run may
                 # never close a job; that is the load-bearing invariant.
 
+                # LAST-MOMENT EXISTENCE RE-CHECK, immediately before the only
+                # destructive write in this task.
+                #
+                # The company was loaded ONCE, at the top of `_work`, and every
+                # step since then has committed in its own transaction (see the
+                # per-step auto-commit note above). Between that load and this
+                # line sits the whole fetch — up to the 900s task timeout — so
+                # the `companies` row can be deleted underneath a run that is
+                # already `doing`, and nothing downstream would notice: there is
+                # no foreign key from `job_listings.company` to `companies.id`,
+                # and `upsert_jobs_batch` will happily insert rows for a company
+                # that no longer exists.
+                #
+                # That is exactly what happened on 2026-09-05.
+                # `scripts/one_off/purge_custom_companies.py` deleted a company
+                # and its jobs while this task was mid-flight;
+                # `pending_jobs.cancel_queued_jobs` cancels only `todo` jobs, by
+                # design, so the in-flight harvest was never stopped and
+                # re-inserted 2,057 rows against the deleted company. Those rows
+                # then had no company row to make them private and were served
+                # to anonymous callers.
+                #
+                # `services/database._ORPHANED_CUSTOM_PREDICATE` is the read-side
+                # safety net that keeps such rows unreadable no matter what
+                # creates them. This is the write-side half: stop creating them.
+                # Returning here exits `_work` before the upsert, before
+                # `update_last_seen`, and before the miss-increment/close block,
+                # so a purged company's harvest neither writes rows nor closes
+                # anything — it just ends, releasing its worker slot and its
+                # queueing lock instead of wedging in `doing`.
+                still_exists = await asyncio.to_thread(
+                    ccs.custom_company_exists, conn, company_id
+                )
+                if not still_exists:
+                    verdict_reason = "company_deleted_mid_run"
+                    logger.warning(
+                        "fetch_custom_company: company %s was deleted while this "
+                        "harvest was in flight; discarding %d fetched job(s) "
+                        "without writing and closing nothing",
+                        company_id,
+                        len(jobs),
+                    )
+                    return
+
                 if jobs:
                     await asyncio.to_thread(db.upsert_jobs_batch, conn, jobs)
 

@@ -935,3 +935,221 @@ def test_search_response_is_marked_uncacheable_because_it_varies_by_viewer(
     assert "Authorization" in resp.headers.get("vary", ""), (
         f"got {resp.headers.get('vary')!r}"
     )
+
+
+# --- Leak 6c: ORPHANED custom jobs (company row deleted, job rows survive) ----
+#
+# THE INCIDENT THESE PIN, 2026-09-05. Every guard above works by FINDING the
+# job's ``companies`` row and testing it. That shape fails OPEN when the row is
+# absent: the anti-join's subquery matches nothing, ``NOT EXISTS`` is TRUE, and
+# the job is served as public. There is no foreign key from
+# ``job_listings.company`` to ``companies.id`` — a deliberate house convention,
+# not an oversight — so the absent case is reachable.
+#
+# It was reached. ``scripts/one_off/purge_custom_companies.py`` deleted a company
+# and its jobs while that company's ``fetch_custom_company`` job was already
+# ``doing``. ``pending_jobs.cancel_queued_jobs`` cancels only ``todo`` jobs, by
+# design, so the in-flight harvest was never stopped; it re-inserted 2,057 rows
+# against the now-deleted company, and all 2,057 became readable by anonymous
+# callers. The delete itself was not sloppy — every delete path funnels through
+# ``purge_custom_company`` and removes the job rows in the same transaction. The
+# orphans were created AFTER the delete committed.
+#
+# ``tasks/fetch_custom_company`` now re-checks the company row immediately before
+# its upsert, which is the root-cause fix. These cases pin the SAFETY NET —
+# ``database._ORPHANED_CUSTOM_PREDICATE`` — because the requirement is stronger
+# than "the harvest behaves": NO orphan may ever be publicly visible, whatever
+# created it. A future writer, a restored backup, a manual INSERT and a race the
+# re-check loses are all covered here and none of them are covered there.
+#
+# Every case seeds the orphan the way production made it: insert the company,
+# insert its jobs, then delete ONLY the company row and leave the jobs behind.
+
+
+def _orphan(conn, company_id: str) -> None:
+    """Delete the company row, leaving its ``job_listings`` rows orphaned.
+
+    Exactly the production state after the 2026-09-05 purge raced the in-flight
+    harvest: no ``companies`` row, no ``user_companies`` row, job rows intact.
+    """
+    cur = conn.cursor()
+    cur.execute(
+        sql.SQL("DELETE FROM {} WHERE company_id = %s").format(
+            sql.Identifier("user_companies")
+        ),
+        (company_id,),
+    )
+    cur.execute(
+        sql.SQL("DELETE FROM {} WHERE id = %s").format(sql.Identifier("companies")),
+        (company_id,),
+    )
+    conn.commit()
+
+
+def test_orphaned_custom_job_is_not_in_the_anonymous_public_list(client, db_conn):
+    """The headline case: 2,057 rows served to the world, in miniature."""
+    _insert_company(db_conn, "pub-6c", visibility="public")
+    _insert_company(db_conn, "u-orph6c0001", visibility="user")
+    _insert_job(db_conn, "orph-6c-1", "pub-6c", "greenhouse_api")
+    _insert_job(db_conn, "orph-6c-2", "u-orph6c0001", custom("u-orph6c0001"))
+    _orphan(db_conn, "u-orph6c0001")
+
+    resp = client.get("/api/jobs")
+    assert resp.status_code == 200
+    ids = {j["id"] for j in resp.json()}
+    assert "orph-6c-2" not in ids, (
+        "an orphaned custom job was served to an anonymous caller — this is the "
+        "2026-09-05 leak"
+    )
+    assert "orph-6c-1" in ids, "...without dropping the public corpus"
+
+    # ...and it is still gone when the caller names the dead company explicitly.
+    targeted = client.get("/api/jobs", params={"company": "u-orph6c0001"})
+    assert targeted.status_code == 200
+    assert targeted.json() == []
+
+
+def test_orphaned_custom_job_detail_is_404(client, db_conn):
+    _insert_company(db_conn, "u-orph6c0002", visibility="user")
+    _insert_job(db_conn, "orph-6c-3", "u-orph6c0002", custom("u-orph6c0002"))
+    _orphan(db_conn, "u-orph6c0002")
+
+    resp = client.get(f"/api/jobs/{custom('u-orph6c0002')}/orph-6c-3")
+    assert resp.status_code == 404
+
+
+def test_orphaned_custom_job_is_not_in_another_users_search_feed(client, db_conn):
+    """Another signed-in user must not see it — rows OR tiles.
+
+    ``resp.text`` rather than the parsed id set because ``filteredTotal`` and
+    ``countLast24h`` are computed by a SECOND composed WHERE
+    (``job_search._header_counts_where``), and a guard applied to the rows query
+    but not the tiles would leak the SIZE of a dead private board while showing
+    none of it.
+    """
+    other_id = uuid.uuid4().hex
+    other_email = f"{other_id}@example.com"
+    _insert_user(db_conn, other_id, other_email)
+    _insert_company(db_conn, "srch-pub6c", visibility="public")
+    _insert_company(db_conn, "u-orph6c0003", visibility="user")
+    _insert_job(db_conn, "orph-6c-4", "srch-pub6c", "greenhouse_api")
+    _insert_job(db_conn, "orph-6c-5", "u-orph6c0003", custom("u-orph6c0003"))
+    _orphan(db_conn, "u-orph6c0003")
+
+    try:
+        _login_optional_as(client, other_email)
+        resp = client.get("/api/jobs/search")
+        assert resp.status_code == 200
+        ids = {j["id"] for j in resp.json()["jobs"]}
+        assert "orph-6c-5" not in ids
+        assert "orph-6c-5" not in resp.text, (
+            "orphaned job leaked through the recency tiles / counts"
+        )
+        assert "orph-6c-4" in ids, "...without dropping the public corpus"
+    finally:
+        _logout_optional(client)
+
+
+def test_orphaned_custom_job_is_hidden_even_from_its_former_owner(client, db_conn):
+    """Fail CLOSED, including for the one caller with a claim to it.
+
+    The orphan guard sits OUTSIDE the ownership ``OR`` in
+    ``database._OWNED_USER_COMPANY_PREDICATE`` precisely so this holds. Inside
+    the OR it would read "hide orphans unless you used to own them", which
+    re-opens the hole for the caller most likely to still have the board in their
+    feed. Once the company row is gone the board does not exist, and there is no
+    ownership left to honour.
+    """
+    owner_id = uuid.uuid4().hex
+    email = f"{owner_id}@example.com"
+    _insert_user(db_conn, owner_id, email)
+    _insert_company(db_conn, "srch-pub6c2", visibility="public")
+    _insert_company(db_conn, "u-orph6c0004", visibility="user")
+    _own(db_conn, owner_id, "u-orph6c0004")
+    _insert_job(db_conn, "orph-6c-6", "srch-pub6c2", "greenhouse_api")
+    _insert_job(db_conn, "orph-6c-7", "u-orph6c0004", custom("u-orph6c0004"))
+    _orphan(db_conn, "u-orph6c0004")
+
+    try:
+        _login_optional_as(client, email)
+        resp = client.get("/api/jobs/search")
+        assert resp.status_code == 200
+        ids = {j["id"] for j in resp.json()["jobs"]}
+        assert "orph-6c-7" not in ids, (
+            "the former owner still saw an orphaned board — the guard is inside "
+            "the ownership OR instead of outside it"
+        )
+        assert "orph-6c-7" not in resp.text
+        assert "orph-6c-6" in ids
+    finally:
+        _logout_optional(client)
+
+
+def test_orphaned_custom_job_is_hidden_at_the_service_layer(db_conn):
+    """The property where it is implemented, not where it is routed.
+
+    Same reasoning as ``test_service_layer_read_paths_never_return_a_user_company_job``:
+    this still fails if someone rewires the router or adds a second public reader.
+    """
+    _insert_company(db_conn, "svc-pub6c", visibility="public")
+    _insert_company(db_conn, "u-orph6c0005", visibility="user")
+    _insert_job(db_conn, "orph-6c-8", "svc-pub6c", "greenhouse_api")
+    _insert_job(db_conn, "orph-6c-9", "u-orph6c0005", custom("u-orph6c0005"))
+    _orphan(db_conn, "u-orph6c0005")
+
+    companies = {j["company"] for j in get_jobs(db_conn)}
+    assert "u-orph6c0005" not in companies
+    assert "svc-pub6c" in companies
+
+    assert get_jobs(db_conn, company="u-orph6c0005") == []
+    assert get_job_by_id(db_conn, custom("u-orph6c0005"), "orph-6c-9") is None
+    assert get_job_by_id(db_conn, "greenhouse_api", "orph-6c-8") is not None
+
+
+def test_live_custom_board_is_still_visible_to_its_owner(client, db_conn):
+    """CONTROL. The fix must not cost the owner their own live board.
+
+    This is ``test_search_serves_the_owners_own_private_board_to_the_owner``
+    restated next to the orphan cases, so a fix that hides orphans by hiding
+    every ``custom:`` row fails HERE rather than shipping.
+    """
+    owner_id = uuid.uuid4().hex
+    email = f"{owner_id}@example.com"
+    _insert_user(db_conn, owner_id, email)
+    _insert_company(db_conn, "u-live6c0001", visibility="user")
+    _own(db_conn, owner_id, "u-live6c0001")
+    _insert_job(db_conn, "live-6c-1", "u-live6c0001", custom("u-live6c0001"))
+
+    try:
+        _login_optional_as(client, email)
+        resp = client.get("/api/jobs/search")
+        assert resp.status_code == 200
+        ids = {j["id"] for j in resp.json()["jobs"]}
+        assert "live-6c-1" in ids, (
+            "the orphan guard hid a LIVE custom board from its owner"
+        )
+    finally:
+        _logout_optional(client)
+
+
+def test_public_ats_jobs_are_unaffected_by_the_orphan_guard(client, db_conn):
+    """CONTROL. Public rows never carry the ``custom:`` prefix.
+
+    The new conjunct must be a no-op for them — including when their company row
+    is missing, which is the documented (and deliberate) fail-OPEN behaviour of
+    the separate ``_HIDDEN_COMPANY_PREDICATE``. That is exactly why the orphan
+    guard is scoped to the ``custom:`` namespace instead of hiding every row with
+    no company: a blanket rule would have contradicted it.
+    """
+    _insert_company(db_conn, "pub-6c2", visibility="public")
+    _insert_job(db_conn, "pub-6c-1", "pub-6c2", "greenhouse_api")
+    _insert_job(db_conn, "pub-6c-2", "gone-co", "greenhouse_api")
+
+    resp = client.get("/api/jobs")
+    assert resp.status_code == 200
+    ids = {j["id"] for j in resp.json()}
+    assert "pub-6c-1" in ids
+    assert "pub-6c-2" in ids, (
+        "a public-ATS job with no company row must stay visible — the orphan "
+        "guard is scoped to the custom: namespace on purpose"
+    )
