@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from ..config import Settings
+from .browser_budget import get_browser_budget
 
 logger = logging.getLogger(__name__)
 
@@ -113,6 +114,25 @@ async def run_scraper(config: Settings, company: str) -> ScraperResult:
             safe_args.append(arg)
     logger.info("Running scraper: %s", " ".join(safe_args))
 
+    # THE BROWSER BUDGET (``services/browser_budget.py``). ``run_scraper.py`` is
+    # launched with ``--headless`` and every scraper in ``scripts/`` extends
+    # ``shared/base_scraper.BaseScraper``, which calls ``chromium.launch()``. That
+    # is a THIRD local Chromium in this same 4.0 GB container, alongside discovery's
+    # capture child and the ``browser_fetch`` replay child — and unlike those two it
+    # is running in production TODAY, hourly, via ``auto_scraper_loop``.
+    #
+    # ``scraper_lock`` already serialises this path to one scrape at a time, so it
+    # can only ever hold ONE permit; what it could not do is stop that one browser
+    # from being the fifth. Counting it here is what makes the cap a real ceiling on
+    # simultaneous browsers rather than a ceiling on custom-company browsers.
+    #
+    # Acquired around the whole ``try`` (rather than with ``async with``) so the
+    # existing 100-line body keeps its indentation and stays reviewable; the
+    # ``finally`` at the bottom is the release and covers every ``return`` above it.
+    # ``scraper_lock`` is always taken BEFORE this permit and never after, so the
+    # two cannot deadlock against each other.
+    budget = get_browser_budget()
+    await budget.acquire()
     try:
         process = await asyncio.create_subprocess_exec(
             *args,
@@ -240,3 +260,8 @@ async def run_scraper(config: Settings, company: str) -> ScraperResult:
             company=company,
             completed_at=datetime.now(timezone.utc).isoformat(),
         )
+    finally:
+        # Releases the browser permit taken above on EVERY path: the two `return`s
+        # inside the `try`, the timeout `return`, both `except` branches, and a
+        # cancellation. A permit leaked here would shrink the cap permanently.
+        budget.release()

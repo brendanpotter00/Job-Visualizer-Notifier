@@ -146,10 +146,76 @@ _HIDDEN_COMPANY_PREDICATE = sql.SQL(
 # Like ``_HIDDEN_COMPANY_PREDICATE`` this is an ANTI-join keyed on the private
 # subset, so the planner satisfies it from ``ix_companies_visibility`` (the
 # partial index over just the ``visibility <> 'public'`` rows).
-_USER_COMPANY_PREDICATE = sql.SQL(
+#
+# It is HALF the guard. See :data:`_ORPHANED_CUSTOM_PREDICATE` below for the
+# other half and for why an anti-join alone is not enough.
+_PRIVATE_COMPANY_ANTIJOIN = sql.SQL(
     "NOT EXISTS ("
     " SELECT 1 FROM companies c"
     " WHERE c.id = job_listings.company AND c.visibility = 'user')"
+)
+
+
+# THE FAIL-CLOSED HALF OF THE GUARD. Read it together with the anti-join above.
+#
+# That anti-join hides a private job by FINDING its ``companies`` row and testing
+# it. Every predicate of that shape has the same hole: if the company row is
+# GONE, the subquery matches nothing, ``NOT EXISTS`` is TRUE, and the job is
+# served as public. The guard fails OPEN on missing data — it is strongest
+# exactly when ``companies`` is intact, and absent when it is not.
+#
+# That is not hypothetical. There is NO foreign key from ``job_listings.company``
+# to ``companies.id`` — checked against production, where ``job_listings`` carries
+# only its primary key and the two enrichment FKs — so an orphaned job row is
+# reachable, and on 2026-09-05 it happened. ``scripts/one_off/purge_custom_companies.py``
+# deleted a company and its jobs while that company's ``fetch_custom_company``
+# job was already ``doing``; ``pending_jobs.cancel_queued_jobs`` cancels only
+# ``todo`` jobs, so the in-flight harvest kept writing against the deleted
+# company and re-inserted 2,057 rows. Every one of those 2,057 rows then
+# satisfied the anti-join above and was readable by ANONYMOUS callers.
+#
+# So the private-company test is PAIRED with an EXISTENCE test, scoped to the row
+# namespace that can only ever be private. ``custom:<id>`` is written by nothing
+# but ``tasks/fetch_custom_company.py`` (see the ``_OWNED_USER_COMPANY_PREDICATE``
+# note below on why ``source_id`` is the honest key here), so a ``custom:`` row
+# whose company row is absent is an orphan BY DEFINITION and can never be
+# legitimately public. Public-ATS rows never carry the prefix, so their behaviour
+# is byte-for-byte what shipped.
+#
+# Keyed on "company row EXISTS", deliberately NOT on "exists AND is public": a
+# custom board that were ever promoted to ``visibility='public'`` would still
+# pass, so this closes the orphan hole without hard-coding "custom means private
+# forever" into the read path.
+#
+# ``starts_with()`` and NOT ``LIKE 'custom:%'`` — load-bearing, not style. These
+# ``sql.SQL`` fragments are handed to ``cursor.execute(query, params)``, where a
+# literal ``%`` is a placeholder marker. The usual fix is to double it, but
+# ``%%`` is only correct while psycopg is actually interpolating: ``_build_where``
+# contributes no parameters of its own for this predicate and can emit it with an
+# EMPTY parameter list, and on that path ``%%`` reaches Postgres verbatim and the
+# LIKE silently stops matching — the guard would look present in review and be
+# off in production. ``starts_with`` has no such mode. It is a plain function
+# call (Postgres 11+; prod is 17.9, local test DB is 15.x) and needs no escaping.
+#
+# Measured against production data before shipping, read-only. On today's (clean)
+# corpus the change is a behavioural NO-OP: old predicate 89,646 rows visible,
+# new predicate 89,646 rows visible, out of 92,463 total — the 2,817-row
+# difference is the private custom corpus, hidden identically by both. Replaying
+# the incident against the largest custom board, whose company row deletion left
+# 2,057 job rows behind: the OLD predicate serves all 2,057 of them, the NEW one
+# serves 0.
+_ORPHANED_CUSTOM_PREDICATE = sql.SQL(
+    "(NOT starts_with(job_listings.source_id, 'custom:')"
+    " OR EXISTS (SELECT 1 FROM companies c2 WHERE c2.id = job_listings.company))"
+)
+
+
+_USER_COMPANY_PREDICATE = (
+    sql.SQL("(")
+    + _PRIVATE_COMPANY_ANTIJOIN
+    + sql.SQL(" AND ")
+    + _ORPHANED_CUSTOM_PREDICATE
+    + sql.SQL(")")
 )
 
 
@@ -179,11 +245,25 @@ _USER_COMPANY_PREDICATE = sql.SQL(
 #
 # The anti-join is kept as the FIRST branch so the common case (a public row) is
 # decided by the same partial-index probe as before and never touches the array.
-_OWNED_USER_COMPANY_PREDICATE = sql.SQL(
-    "(NOT EXISTS ("
-    " SELECT 1 FROM companies c"
-    " WHERE c.id = job_listings.company AND c.visibility = 'user')"
-    " OR job_listings.source_id = ANY(%s::text[]))"
+#
+# THE ORPHAN GUARD SITS OUTSIDE THE OWNERSHIP ``OR``, AND THAT PLACEMENT IS THE
+# WHOLE POINT. Inside the OR it would read "hide orphans unless you used to own
+# them", which re-opens the hole for the one caller most likely to still have the
+# board in their feed. Outside it, the composed predicate says: this row is
+# servable only if (it is not private, or you own it) AND (it is not an orphaned
+# custom row) — so a deleted company's jobs vanish for EVERYONE, the former owner
+# included. That is the correct reading of a deleted board: the company row is
+# the record that the board exists at all, and once it is gone there is no
+# ownership left to honour. ``user_companies`` rows are deleted alongside it by
+# ``custom_companies_service.purge_custom_company``, so in practice
+# ``owned_source_ids`` would not list the orphan anyway — this makes that a
+# guarantee rather than a coincidence of delete ordering.
+_OWNED_USER_COMPANY_PREDICATE = (
+    sql.SQL("((")
+    + _PRIVATE_COMPANY_ANTIJOIN
+    + sql.SQL(" OR job_listings.source_id = ANY(%s::text[])) AND ")
+    + _ORPHANED_CUSTOM_PREDICATE
+    + sql.SQL(")")
 )
 
 

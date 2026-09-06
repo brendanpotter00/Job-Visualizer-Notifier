@@ -1653,6 +1653,32 @@ def load_custom_company_for_run(
     return dict(row) if row else None
 
 
+def custom_company_exists(conn: Connection, company_id: str) -> bool:
+    """Does this company's row still exist?
+
+    Deliberately the narrowest possible question, asked at the last moment
+    before ``tasks/fetch_custom_company`` writes job rows. It is NOT
+    ``load_custom_company_for_run`` again: that one joins ``company_scripts``
+    and returns the whole run payload, so a missing SCRIPT row would read as
+    "gone" and abort a harvest whose company is perfectly alive. The only thing
+    that makes a written job row unsafe is the absence of the ``companies``
+    row — nothing else — so that is the only thing this asks.
+
+    Runs on the task's own connection, outside any of the per-step
+    transactions, so it sees rows committed by a concurrent purge. It is a
+    primary-key probe on a ~165-row table; the cost is not worth optimising.
+
+    Not a lock, and not trying to be. A purge committing in the microseconds
+    between this check and the upsert would still slip through — the read-side
+    guard (``services/database._ORPHANED_CUSTOM_PREDICATE``) is what makes that
+    residual race harmless rather than a leak. This check closes the wide window
+    (the whole fetch, up to 900s); that predicate closes the narrow one.
+    """
+    cursor = conn.cursor()
+    cursor.execute("SELECT 1 FROM companies WHERE id = %s", (company_id,))
+    return cursor.fetchone() is not None
+
+
 def mark_last_success(conn: Connection, company_id: str) -> None:
     """Stamp ``companies.last_success_at = now()`` after a successful harvest.
 
