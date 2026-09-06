@@ -1153,3 +1153,226 @@ def test_public_ats_jobs_are_unaffected_by_the_orphan_guard(client, db_conn):
         "a public-ATS job with no company row must stay visible — the orphan "
         "guard is scoped to the custom: namespace on purpose"
     )
+
+
+# --- Leak 6d: the three orphan-guard claims Leak 6c asserts but does not test --
+#
+# Leak 6c is real and its headline cases are honest. These are the ones it
+# MISSES, each found by reverting one piece of the guard and watching the whole
+# file stay green.
+#
+#   1. the owner-scoped predicate  (guard moved INSIDE the ownership OR -> 33 passed)
+#   2. the recency tiles           (guard dropped from _header_counts_where -> 139 passed)
+#   3. GET /api/locations/search   (never carried the guard at all)
+#
+# All three are the same failure mode: a negative assertion that cannot fail,
+# because the fixture never reaches the code the assertion names.
+
+
+def _search_filters(**over):
+    """A TOTAL :class:`job_search.SearchFilters` — it is deliberately not ``total=False``."""
+    base = dict(
+        status="OPEN", since=None, categories=None, levels=None, companies=None,
+        locations=None, location_ids=None, include=None, exclude=None,
+        owned_source_ids=None,
+    )
+    base.update(over)
+    return base
+
+
+def _insert_location(conn, canonical_name: str) -> int:
+    """One canonical ``locations`` row; returns its id.
+
+    ``city``/``region`` are filled from the name so each fixture satisfies
+    ``uq_locations_canonical`` (kind, city, region, country, remote_scope).
+    """
+    cur = conn.cursor()
+    cur.execute(
+        sql.SQL(
+            "INSERT INTO {} (canonical_name, kind, city, region, country) "
+            "VALUES (%s, 'city', %s, %s, 'US') RETURNING id"
+        ).format(sql.Identifier("locations")),
+        (canonical_name, canonical_name, canonical_name),
+    )
+    location_id = int(cur.fetchone()["id"])
+    conn.commit()
+    return location_id
+
+
+def _tag_location(conn, job_id: str, location_id: int) -> None:
+    """Give a job a normalized location. ``job_locations`` keys on the job id alone."""
+    cur = conn.cursor()
+    cur.execute(
+        sql.SQL(
+            "INSERT INTO {} (job_listing_id, normalized_location_id, is_primary) "
+            "VALUES (%s, %s, TRUE)"
+        ).format(sql.Identifier("job_locations")),
+        (job_id, location_id),
+    )
+    conn.commit()
+
+
+def test_orphan_stays_hidden_when_the_owned_scope_itself_names_it(db_conn):
+    """The orphan guard must sit OUTSIDE the ownership ``OR`` — and only this can tell.
+
+    ``test_orphaned_custom_job_is_hidden_even_from_its_former_owner`` claims to
+    pin that placement. It cannot. ``_orphan`` deletes the ``user_companies`` row
+    as well, and ``custom_companies_service.list_owned_source_ids`` JOINs
+    ``companies`` — so through the router an orphan's ``custom:`` id can never
+    reach ``owned_source_ids``. The router takes the ``else`` branch, the case
+    exercises the blanket ``_USER_COMPANY_PREDICATE``, and
+    ``_OWNED_USER_COMPANY_PREDICATE`` is never evaluated at all. Confirmed by
+    mutation: moving the guard inside the OR leaves this entire file green.
+
+    So drive the owner-scoped predicate directly with the one input the router
+    cannot build today — an owned set that NAMES the orphan. That is precisely
+    the state a ``list_owned_source_ids`` without its JOIN, or a delete that
+    drops ``companies`` while leaving ``user_companies``, would produce, and it
+    is the state the placement argument in ``database.py`` is written about.
+    """
+    from api.services.job_search import search_jobs
+
+    _insert_company(db_conn, "pub-6d", visibility="public")
+    _insert_company(db_conn, "u-orph6d0001", visibility="user")
+    _insert_job(db_conn, "orph-6d-1", "pub-6d", "greenhouse_api")
+    _insert_job(db_conn, "orph-6d-2", "u-orph6d0001", custom("u-orph6d0001"))
+    _orphan(db_conn, "u-orph6d0001")
+
+    rows = search_jobs(
+        db_conn, limit=50,
+        **_search_filters(owned_source_ids=[custom("u-orph6d0001")]),
+    )
+    ids = {r["id"] for r in rows}
+    assert "orph-6d-2" not in ids, (
+        "an orphan NAMED BY the owned scope was served — the orphan guard is "
+        "inside the ownership OR, where ownership can vote it back in"
+    )
+    assert "orph-6d-1" in ids, "...without dropping the public corpus"
+
+
+def test_orphaned_custom_job_is_not_counted_in_the_recency_tiles(db_conn):
+    """The tiles are separate SQL and need their own assertion, not ``resp.text``.
+
+    ``test_orphaned_custom_job_is_not_in_another_users_search_feed`` asserts
+    ``"orph-6c-5" not in resp.text`` and its docstring calls that the tile check.
+    It is not one: the tiles return COUNTS and never ids, so a job id cannot
+    appear in the tile payload however wrong the counts are. Confirmed by
+    mutation: dropping the orphan guard from ``job_search._header_counts_where``
+    leaves 139 tests green.
+
+    The count IS the leak here — it publishes the SIZE of a deleted board.
+    """
+    from api.services.job_search import get_search_counts
+
+    fresh = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+    _insert_company(db_conn, "pub-6d2", visibility="public")
+    _insert_company(db_conn, "u-orph6d0002", visibility="user")
+    _insert_job(db_conn, "orph-6d-3", "pub-6d2", "greenhouse_api", first_seen_at=fresh)
+    _insert_job(
+        db_conn, "orph-6d-4", "u-orph6d0002", custom("u-orph6d0002"),
+        first_seen_at=fresh,
+    )
+    _orphan(db_conn, "u-orph6d0002")
+
+    anon = get_search_counts(db_conn, **_search_filters())
+    assert anon["count_last_24h"] == 1, (
+        "the recency tile counted an orphaned custom job — the guard is on the "
+        "rows query but not on _header_counts_where"
+    )
+
+    # ...and the OWNER-SCOPED form of the tile is guarded too, on the same input
+    # the router cannot build (see the test above).
+    owned = get_search_counts(
+        db_conn, **_search_filters(owned_source_ids=[custom("u-orph6d0002")])
+    )
+    assert owned["count_last_24h"] == 1
+
+
+def test_public_location_search_omits_private_and_orphaned_boards(db_conn):
+    """``GET /api/locations/search?openOnly=true`` is a PUBLIC read over job_listings.
+
+    Unauthenticated, allow-listed through ``api/locations.ts``, edge-cached for
+    ten minutes — and its ``EXISTS`` over ``job_listings`` carried NEITHER guard.
+    That makes it an EXISTENCE ORACLE: a canonical location enters the world's
+    dropdown because someone's private board, or an orphaned ``custom:`` row, has
+    an OPEN job there. It returns no job row, which is exactly why it was missed
+    — the leak is the FACT of the row, not its contents.
+
+    Three boards, three locations, one visible answer.
+    """
+    from api.services.saved_filters_service import search_locations
+
+    pub_loc = _insert_location(db_conn, "Publictown, ZZ")
+    priv_loc = _insert_location(db_conn, "Privateton, ZZ")
+    orph_loc = _insert_location(db_conn, "Orphanhaven, ZZ")
+
+    _insert_company(db_conn, "pub-6d3", visibility="public")
+    _insert_company(db_conn, "u-priv6d0003", visibility="user")
+    _insert_company(db_conn, "u-orph6d0003", visibility="user")
+
+    _insert_job(db_conn, "loc-6d-1", "pub-6d3", "greenhouse_api")
+    _insert_job(db_conn, "loc-6d-2", "u-priv6d0003", custom("u-priv6d0003"))
+    _insert_job(db_conn, "loc-6d-3", "u-orph6d0003", custom("u-orph6d0003"))
+
+    _tag_location(db_conn, "loc-6d-1", pub_loc)
+    _tag_location(db_conn, "loc-6d-2", priv_loc)
+    _tag_location(db_conn, "loc-6d-3", orph_loc)
+
+    _orphan(db_conn, "u-orph6d0003")
+
+    names = {
+        r["canonical_name"]
+        for r in search_locations(db_conn, "ZZ", limit=50, open_only=True)
+    }
+    assert "Publictown, ZZ" in names, "the public corpus must still populate the filter"
+    assert "Privateton, ZZ" not in names, (
+        "a location entered the PUBLIC dropdown because a PRIVATE board has an "
+        "open job there — an existence oracle over someone else's board"
+    )
+    assert "Orphanhaven, ZZ" not in names, (
+        "same leak via an ORPHANED custom row — the 2026-09-05 shape"
+    )
+
+
+def test_public_location_search_omits_deactivated_companies(db_conn):
+    """The other half of "the same corpus as ``/api/jobs``".
+
+    Consistency rather than secrecy: ``/api/jobs`` drops a soft-deactivated
+    company's rows, so without ``_HIDDEN_COMPANY_PREDICATE`` here the dropdown
+    offers a location that matches zero jobs. Pinned so the two predicate sets
+    cannot drift apart again.
+    """
+    from api.services.saved_filters_service import search_locations
+
+    live = _insert_location(db_conn, "Liveville, YY")
+    dead = _insert_location(db_conn, "Deadwood, YY")
+    _insert_company(db_conn, "pub-6d4", visibility="public")
+    _insert_company(db_conn, "dead-6d4", visibility="public", enabled=False)
+    _insert_job(db_conn, "loc-6d-4", "pub-6d4", "greenhouse_api")
+    _insert_job(db_conn, "loc-6d-5", "dead-6d4", "greenhouse_api")
+    _tag_location(db_conn, "loc-6d-4", live)
+    _tag_location(db_conn, "loc-6d-5", dead)
+
+    names = {
+        r["canonical_name"]
+        for r in search_locations(db_conn, "YY", limit=50, open_only=True)
+    }
+    assert "Liveville, YY" in names
+    assert "Deadwood, YY" not in names
+
+
+def test_location_search_without_open_only_is_untouched(db_conn):
+    """CONTROL. The unfiltered branch reads ``locations`` alone and must not change.
+
+    It never joins ``job_listings``, so it has nothing to leak and nothing to
+    guard — and a fix that "hardened" it by requiring an open job would silently
+    change what the dropdown offers to a caller who asked for everything.
+    """
+    from api.services.saved_filters_service import search_locations
+
+    _insert_location(db_conn, "Nojobsburg, XX")
+    names = {
+        r["canonical_name"]
+        for r in search_locations(db_conn, "XX", limit=50, open_only=False)
+    }
+    assert "Nojobsburg, XX" in names
