@@ -703,6 +703,28 @@ export const COMPANIES: Company[] = [
     sourceAts: 'ashby',
   }),
 
+  // Batch add (2026-09-07) — Ashby boards (every token verified live: HTTP 200
+  // with postings). The JVN id differs from the ATS board_token for ploy
+  // (`ployai`; bare `ploy` 404s) — the backend seed migration holds the real
+  // token. `sieve` kept its Ashby slug through the sievedata.com -> sieve.ai
+  // rebrand (`sievedata` 404s), and `taste-labs` is hyphenated and
+  // case-sensitive (bare `tastelabs` 404s).
+  createBackendScraperCompany('composio', 'Composio', 'https://composio.dev/careers', {
+    sourceAts: 'ashby',
+  }),
+  createBackendScraperCompany('listenlabs', 'Listen Labs', 'https://listenlabs.ai/careers', {
+    sourceAts: 'ashby',
+  }),
+  createBackendScraperCompany('taste-labs', 'Taste Labs', 'https://tastelabs.com/careers', {
+    sourceAts: 'ashby',
+  }),
+  createBackendScraperCompany('sieve', 'Sieve', 'https://sieve.ai/careers', {
+    sourceAts: 'ashby',
+  }),
+  createBackendScraperCompany('ploy', 'Ploy', 'https://ploy.ai/careers', {
+    sourceAts: 'ashby',
+  }),
+
   // Gem (backend-scraper) — backend Procrastinate worker fetches from
   // api.gem.com/job_board/v0/<id>/job_posts/ on a 30-min cron. See
   // docs/implementations/gemBackendMigration/PLAN.md.
@@ -963,6 +985,7 @@ export const enum COMPANY_IDS {
   Cognition = 'cognition',
   Cohere = 'cohere',
   Coinbase = 'coinbase',
+  Composio = 'composio',
   Console = 'console',
   CrowdStrike = 'crowdstrike',
   Crunchyroll = 'crunchyroll',
@@ -1006,6 +1029,7 @@ export const enum COMPANY_IDS {
   LangChain = 'langchain',
   Light = 'light',
   Linear = 'linear',
+  ListenLabs = 'listenlabs',
   Lyft = 'lyft',
   Merge = 'merge',
   Meta = 'meta',
@@ -1034,6 +1058,7 @@ export const enum COMPANY_IDS {
   Pylon = 'pylon-labs',
   Pinterest = 'pinterest',
   Plaid = 'plaid',
+  Ploy = 'ploy',
   Railway = 'railway',
   RaindropAI = 'raindrop-ai',
   Ramp = 'ramp',
@@ -1051,6 +1076,7 @@ export const enum COMPANY_IDS {
   Sesame = 'sesame',
   Sentry = 'sentry',
   Sierra = 'sierra',
+  Sieve = 'sieve',
   SiftStack = 'siftstack',
   Slack = 'slack',
   Snap = 'snap',
@@ -1062,6 +1088,7 @@ export const enum COMPANY_IDS {
   Sunday = 'sunday',
   Suno = 'suno',
   Supabase = 'supabase',
+  TasteLabs = 'taste-labs',
   ThinkingMachines = 'thinkingmachines',
   TikTok = 'tiktok',
   TogetherAI = 'togetherai',
