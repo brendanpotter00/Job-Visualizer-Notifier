@@ -19,6 +19,18 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    id: 'add-companies-2026-09-09-ia40',
+    title: 'Added 22 companies from the IA40 list',
+    description:
+      "Madrona publishes an annual Intelligent Applications 40 — the AI companies its investor network rates most highly, split into early, mid and late stage plus the infrastructure layer underneath them. We already tracked 22 of the 2026 list; these are the other 22, about 970 open roles between them. The infrastructure names are ClickHouse (the columnar database behind a lot of real-time analytics), OpenRouter (one API that routes across every major model provider), Cartesia (real-time voice and speech models), Gimlet (an inference cloud that runs across several chip vendors) and Mastra (an open-source TypeScript framework for building agents). The application companies span writing and design — Gamma for presentations and sites, HeyGen for video with synthetic avatars, Lovable for turning a prompt into a deployed web app — through go-to-market and research: Profound measures how brands show up inside AI search answers, Clarify is an AI-native CRM, Listen Labs runs customer interviews end to end, Simile simulates how customers will react using the generative-agent work out of Stanford, and Gradial automates marketing content operations. In the enterprise and back office: Legora is an AI workspace for lawyers, Serval resolves IT and HR service requests, Town is an assistant that works across email, calendar and Slack, Fireflies records and summarises meetings, and Resend is the email API a lot of these products send through. On the developer side, Zed is a fast collaborative editor and CodeRabbit reviews pull requests. And three take on trust and safety directly: AIUC red-teams, certifies and insures AI agents, Fable Security scores and coaches risky employee behaviour, and Yutori builds web agents sold as enterprise APIs. Every board token was verified live before it shipped.",
+    tags: ['new-companies'],
+    date: '2026-09-09',
+    link: {
+      to: ROUTES.ACCOUNT,
+      label: 'Add them to your company preferences',
+    },
+  },
+  {
     id: 'add-companies-2026-09-07-ashby-batch',
     title: 'Added five more AI companies',
     description:
