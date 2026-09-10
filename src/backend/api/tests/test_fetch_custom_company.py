@@ -131,7 +131,17 @@ def _scrape_runs(db_conn, company_id: str) -> list[dict]:
     return list(cur.fetchall())
 
 
-def _job_status(db_conn, company_id: str) -> dict[str, dict]:
+def _job_status(
+    db_conn, company_id: str, *, source_id: str | None = None
+) -> dict[str, dict]:
+    """Per-job status + miss counter, scoped to ONE namespace.
+
+    ``source_id`` defaults to ``custom:<id>`` — the private lane every caller
+    wanted before published recipe boards existed. A PUBLISHED board passes its
+    own ``recipe:<id>``; the scoping is the point, because a helper that read
+    both namespaces would make "the rows landed under the right prefix"
+    unassertable (see ``test_fetch_recipe_company_close``).
+    """
     cur = db_conn.cursor()
     cur.execute(
         sql.SQL(
@@ -139,19 +149,23 @@ def _job_status(db_conn, company_id: str) -> dict[str, dict]:
             "FROM {} j JOIN job_freshness f ON f.source_id = j.source_id AND f.id = j.id "
             "WHERE j.company = %s AND j.source_id = %s"
         ).format(sql.Identifier("job_listings")),
-        (company_id, custom(company_id)),
+        (company_id, source_id or custom(company_id)),
     )
     return {r["id"]: r for r in cur.fetchall()}
 
 
-def backdate_last_seen(db_conn, company_id: str, job_id: str, hours: float) -> None:
-    """Push a job's ``job_freshness.last_seen_at`` back by ``hours`` so the 36h
-    close floor can be satisfied in a test without waiting."""
+def backdate_last_seen(
+    db_conn, company_id: str, job_id: str, hours: float, *,
+    source_id: str | None = None,
+) -> None:
+    """Push a job's ``job_freshness.last_seen_at`` back by ``hours`` so the
+    ``1.5 * cadence_hours`` close floor can be satisfied in a test without
+    waiting. ``source_id`` defaults to the private ``custom:<id>`` namespace."""
     cur = db_conn.cursor()
     cur.execute(
         "UPDATE job_freshness SET last_seen_at = now() - (%s * interval '1 hour') "
         "WHERE source_id = %s AND id = %s",
-        (hours, custom(company_id), job_id),
+        (hours, source_id or custom(company_id), job_id),
     )
     db_conn.commit()
 

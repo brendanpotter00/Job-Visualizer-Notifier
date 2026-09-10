@@ -43,11 +43,25 @@ from api.tests.test_fetch_custom_company import (
 pytestmark = pytest.mark.asyncio
 
 
-def _seed_recipe_company(db_conn, company_id: str, *, script: dict) -> None:
+def _seed_recipe_company(
+    db_conn, company_id: str, *, script: dict,
+    oracle_kind: str = "facet_sum", transport: str = "http_json",
+) -> None:
     """A PUBLISHED recipe board: ``ats='recipe'``, ``visibility='public'``.
 
     No ``user_companies`` row and no ``next_run_at`` bookkeeping — it is scheduled
     by the ``*/30`` cron, not by the private claim tick.
+
+    ``cadence_hours`` IS LEFT NULL, exactly as migration ``4c1f8a26d7be`` leaves
+    it: the leaf task falls back to ``ccs.DEFAULT_CADENCE_HOURS``, and both the
+    close floor (``1.5 * cadence``) and the ``none``-oracle VERIFIED streak
+    (``24 / cadence``) are derived from that fallback on the real published rows.
+    A seed that pinned a cadence here would quietly test a schedule production
+    does not run — see ``test_fetch_recipe_company_close``.
+
+    ``oracle_kind`` / ``transport`` mirror the ``company_scripts`` columns, which
+    ``run_recipe`` re-asserts against the stored JSONB on every replay — so a
+    caller must pass the pair that its ``script`` actually declares.
     """
     cur = db_conn.cursor()
     cur.execute(
@@ -62,9 +76,9 @@ def _seed_recipe_company(db_conn, company_id: str, *, script: dict) -> None:
     cur.execute(
         sql.SQL(
             "INSERT INTO {} (company_id, script, script_version, transport, "
-            "oracle_kind) VALUES (%s, %s::jsonb, 1, 'http_json', 'facet_sum')"
+            "oracle_kind) VALUES (%s, %s::jsonb, 1, %s, %s)"
         ).format(sql.Identifier("company_scripts")),
-        (company_id, json.dumps(script)),
+        (company_id, json.dumps(script), transport, oracle_kind),
     )
     db_conn.commit()
 
