@@ -1,7 +1,7 @@
 """seed the two promoted recipe boards
 
 Revision ID: 4c1f8a26d7be
-Revises: 87fe6224b0b5
+Revises: e3b1a4c9d7f2
 Create Date: 2026-09-09 00:00:00.000000+00:00
 
 Hand-written data migration (the documented exception to the autogenerate-only
@@ -72,7 +72,7 @@ import sqlalchemy as sa
 
 
 revision: str = '4c1f8a26d7be'
-down_revision: Union[str, None] = '87fe6224b0b5'
+down_revision: Union[str, None] = 'e3b1a4c9d7f2'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

@@ -115,7 +115,44 @@ _JOB_PLACEHOLDERS = ", ".join(["%s"] * len(_JOB_COLUMNS.split(",")))
 # in the same transaction. We still
 # reactivate here (``status='OPEN'``, ``closed_on=NULL``) because status is a
 # ``job_listings`` column, and still refresh the content columns.
-_UPSERT_ON_CONFLICT = """
+#
+# ``normalization_status`` is reset to NULL when — and only when — the board
+# changed the location text. The location tags on a job are derived from
+# ``job_listings.location``, but nothing re-derived them when that text changed:
+# ``scan_unnormalized`` only ever selects ``normalization_status IS NULL``, so a
+# job normalized once kept those tags forever. A role reposted from "Remote" to
+# "Washington DC" silently kept its Remote tags. Prod has 215 OPEN jobs that are
+# 'done' yet whose current location has no alias row at all — the fingerprint of
+# exactly this drift.
+#
+# Clearing the status hands the job back to the safety-net scan, which re-derives
+# the tags on the next tick. Three details are deliberate:
+#
+# 1. The CASE, not an unconditional NULL. Every OPEN row is re-upserted on every
+#    scrape cycle, so resetting unconditionally would re-normalize the whole
+#    corpus continuously -- tens of thousands of needless Haiku calls per day.
+#
+# 2. ``IS DISTINCT FROM`` rather than ``<>``, so a NULL-to-value or
+#    value-to-NULL transition also counts as a change (``<>`` with a NULL
+#    operand yields NULL and the CASE would fall through).
+#
+# 3. The comparison is on the NORMALIZED form, not the raw bytes. The pipeline
+#    keys its cache on ``normalize_string()``, which lowercases and collapses
+#    whitespace runs -- so two spellings that differ only in case or spacing
+#    resolve to the SAME alias and re-normalizing yields byte-identical tags.
+#    Prod already carries such pairs: 'San Francisco' / 'San Francisco ',
+#    'United States' / 'United States ' / 'united states', 'Remote (US)' /
+#    'Remote  (US)'. Comparing raw bytes would flip normalization_status on
+#    every scrape cycle for those jobs, re-deferring them forever. The cost is
+#    not Haiku (they are Tier-1 hits) -- it is that they permanently occupy the
+#    scan window, whose total capacity is SCAN_LIMIT * 12 ticks/hour, starving
+#    the real backlog.
+#
+#    lower(btrim(regexp_replace(...))) covers the case and whitespace rules.
+#    It does not replicate normalize_string's NFKC / unicode-dash folding, but
+#    prod has zero rows where those matter, and a miss there is merely one
+#    needless re-normalization, not a loop.
+_UPSERT_ON_CONFLICT = rf"""
     ON CONFLICT (source_id, id) DO UPDATE SET
         title = EXCLUDED.title,
         location = EXCLUDED.location,
@@ -126,7 +163,14 @@ _UPSERT_ON_CONFLICT = """
         closed_on = NULL,
         details_scraped = EXCLUDED.details_scraped,
         experience_level = EXCLUDED.experience_level,
-        is_remote_eligible = EXCLUDED.is_remote_eligible
+        is_remote_eligible = EXCLUDED.is_remote_eligible,
+        normalization_status = CASE
+            WHEN lower(btrim(regexp_replace({_JOBS_TABLE}.location, '\s+', ' ', 'g')))
+                 IS DISTINCT FROM
+                 lower(btrim(regexp_replace(EXCLUDED.location, '\s+', ' ', 'g')))
+            THEN NULL
+            ELSE {_JOBS_TABLE}.normalization_status
+        END
 """.strip()
 
 # Sidecar (job_freshness) table + its re-seen upsert.
@@ -172,6 +216,144 @@ def _upsert_freshness(cursor: Any, jobs: List[JobListing]) -> None:
         for job in jobs
     ]
     execute_values(cursor, _FRESHNESS_UPSERT, freshness_values, page_size=100)
+
+
+# --- Perf Wave 2 denormalization (primary_country + search_text) -------------
+#
+# ``job_listings.primary_country`` and ``job_listings.search_text`` are
+# DENORMALIZED columns added by migration ``e3b1a4c9d7f2`` to fix the two slowest
+# read endpoints (location search + keyword search). They are catalog-only /
+# nullable, start NULL, and the ``/api/jobs/search`` predicates keep the ORIGINAL
+# cross-table ``EXISTS`` / 4-way ``OR`` as a fallback for NULL rows — so a
+# not-yet-populated value is never a WRONG answer (WAVE2-PLAN.md §0/§5), only a
+# slower one. This module OWNS the two derivation expressions so every writer —
+# the scrapers + backend worker here, and the enrichment / normalization writers
+# in ``src/backend`` — computes them identically. The standalone backfill
+# (``scripts/backfill_wave2_denorm.py``) carries an inline copy that MUST stay
+# byte-identical to these; if they drift, a backfilled row and a freshly-written
+# row can disagree.
+#
+# ``jl`` is the alias every consumer must give the ``job_listings`` UPDATE target
+# — the expressions correlate their subqueries on ``jl.id`` / ``jl.source_id``.
+
+# primary_country — the job's SINGLE distinct non-remote ISO country, or NULL when
+# a scalar can't answer faithfully (0 non-remote countries, OR >=2 distinct ->
+# NULL). NOT tied to ``is_primary``: a job whose primary tag is remote but which
+# has a non-remote secondary tag still resolves to that country. ``upper()``
+# matches the country-tier predicate's ``upper(l.country)``.
+PRIMARY_COUNTRY_EXPR = """
+(SELECT CASE WHEN count(DISTINCT upper(l.country)) = 1
+             THEN max(upper(l.country)) END
+   FROM job_locations j2
+   JOIN locations l ON l.id = j2.normalized_location_id
+  WHERE j2.job_listing_id = jl.id
+    AND l.kind <> 'remote' AND l.country IS NOT NULL)
+"""
+
+# search_text — lower(title ‖ RAW location ‖ company ‖ tags), the same haystack the
+# client ``matchesSearchTags`` builds, plus company. Always recomputed from scratch
+# (never appended-to) so title/location edits and tag deletes can't leave stale
+# text. Built with coalesce()s so it is NEVER NULL for a written row (which is what
+# lets the keyword predicate's ``NOT (...)`` exclude terms behave).
+#
+# SEPARATOR IS ``chr(10)`` (a newline), NOT a space, and that is load-bearing for
+# per-field keyword PARITY. The keyword filter ILIKE-matches a user term against
+# this one string, while the fallback it replaces tests the four fields (and each
+# tag) SEPARATELY. With a space separator a multi-word term could match ACROSS a
+# boundary — ``include=backend engineer`` would hit a row whose title is ``Backend``
+# and raw location ``Engineer`` (and ``exclude=backend engineer`` would then wrongly
+# drop it), which the per-field fallback never does. ``routers/jobs_search.py``'s
+# ``_validate_text_list`` REJECTS control characters (``[\x00-\x1f\x7f]``, newline
+# included), so a user term can never contain this separator and therefore can never
+# span two fields or two tags — single-word and within-field multi-word matches are
+# unchanged, cross-boundary matches are impossible, restoring exact fast/fallback
+# parity. (The tag ``string_agg`` uses the same newline so a term can't span two
+# adjacent tags either, matching the fallback's per-tag ``EXISTS``.)
+SEARCH_TEXT_EXPR = """
+lower(
+  coalesce(jl.title, '')    || chr(10) ||
+  coalesce(jl.location, '') || chr(10) ||
+  coalesce(jl.company, '')  || chr(10) ||
+  coalesce((SELECT string_agg(t.tag, chr(10) ORDER BY t.tag)
+              FROM job_tags t
+             WHERE t.source_id = jl.source_id
+               AND t.job_listing_id = jl.id), '')
+)
+"""
+
+# Bulk recompute over a batch of upserted keys, joined via a VALUES list (robust
+# against psycopg2's single-element-tuple ``IN`` pitfall, and paged like
+# _upsert_freshness). The ``_IF_NULL`` variant only fills rows whose search_text
+# is still NULL — used by the ON-CONFLICT-DO-NOTHING / plain-INSERT paths so a
+# skipped duplicate row is never needlessly rewritten (the freshness-bloat lesson);
+# the upsert paths use the unconditional form because ON CONFLICT DO UPDATE just
+# refreshed title/location, so a stale non-NULL search_text MUST be recomputed.
+_SEARCH_TEXT_BATCH_UPDATE = (
+    f"UPDATE {_JOBS_TABLE} jl "
+    f"SET search_text = {SEARCH_TEXT_EXPR} "
+    f"FROM (VALUES %s) AS v (source_id, id) "
+    f"WHERE jl.source_id = v.source_id AND jl.id = v.id"
+)
+_SEARCH_TEXT_BATCH_UPDATE_IF_NULL = (
+    _SEARCH_TEXT_BATCH_UPDATE + " AND jl.search_text IS NULL"
+)
+
+
+def _recompute_search_text(
+    cursor: Any, jobs: List[JobListing], *, only_if_null: bool = False
+) -> None:
+    """Recompute ``job_listings.search_text`` for every upserted job in ``jobs``.
+
+    MUST be called after the matching ``job_listings`` rows are written in the
+    SAME transaction (it reads title/location/company off those rows + their
+    ``job_tags``). Does NOT commit — the caller owns the transaction boundary so
+    the content and its derived search_text land atomically. ``primary_country``
+    is deliberately NOT set here: it depends on normalized ``job_locations`` that
+    the async normalization pipeline writes later, so the scrape path leaves it
+    NULL and the §5 EXISTS fallback covers the row until normalization runs.
+
+    ``only_if_null`` restricts the write to rows whose search_text is still NULL
+    (the INSERT / DO-NOTHING paths, where an existing row's content — and thus its
+    search_text — did not change).
+    """
+    if not jobs:
+        return
+    keys = [(job.source_id, job.id) for job in jobs]
+    statement = (
+        _SEARCH_TEXT_BATCH_UPDATE_IF_NULL if only_if_null else _SEARCH_TEXT_BATCH_UPDATE
+    )
+    execute_values(cursor, statement, keys, page_size=100)
+
+
+def recompute_search_text_for(cursor: Any, source_id: str, job_id: str) -> None:
+    """Recompute ``search_text`` for ONE job, keyed on the composite
+    ``(source_id, id)`` PK. No commit — the caller owns the transaction.
+
+    Shared by the backend enrichment write-back / admin-correction paths, which
+    mutate ``job_tags`` (search_text folds the tags in) and must keep the
+    denormalized haystack in step in the same transaction as the tag write.
+    """
+    cursor.execute(
+        f"UPDATE {_JOBS_TABLE} jl SET search_text = {SEARCH_TEXT_EXPR} "
+        f"WHERE jl.source_id = %s AND jl.id = %s",
+        (source_id, job_id),
+    )
+
+
+def recompute_primary_country_for(cursor: Any, job_id: str) -> None:
+    """Recompute ``primary_country`` for ONE job, keyed on ``id`` ALONE. No commit.
+
+    Keyed on ``id`` (not the composite PK) to match the location-normalization
+    writers this is called from — that whole subsystem treats ``id`` as globally
+    unique (``job_locations`` has no ``source_id`` column, and the derivation's
+    own subquery joins on ``j2.job_listing_id = jl.id``). Recomputed wherever
+    ``job_locations`` changes for the job (Tier-1 cache hit + Tier-2 LLM write).
+    """
+    cursor.execute(
+        f"UPDATE {_JOBS_TABLE} jl SET primary_country = {PRIMARY_COUNTRY_EXPR} "
+        f"WHERE jl.id = %s",
+        (job_id,),
+    )
 
 
 def _build_job_values(job: JobListing) -> Tuple:
@@ -471,6 +653,11 @@ def insert_job(conn: Connection, job: JobListing) -> None:
         _build_job_values(job)
     )
 
+    # Populate the denormalized search_text for the just-inserted row in the same
+    # transaction (only_if_null: this is a brand-new row, so search_text is NULL).
+    # primary_country stays NULL here — see _recompute_search_text.
+    _recompute_search_text(cursor, [job], only_if_null=True)
+
     conn.commit()
     logger.debug(f"Inserted job: {job.id} - {job.title}")
 
@@ -510,6 +697,11 @@ def upsert_job(conn: Connection, job: JobListing) -> bool:
     # this upsert then advances it to the scrape's last_seen_at. For a re-seen /
     # reactivated row the trigger does not fire, so this is the only freshness write.
     _upsert_freshness(cursor, [job])
+
+    # Refresh the denormalized search_text in the same transaction. Unconditional:
+    # the ON CONFLICT DO UPDATE above may have just refreshed title/location, so a
+    # stale non-NULL search_text must be recomputed.
+    _recompute_search_text(cursor, [job])
 
     conn.commit()
 
@@ -590,6 +782,11 @@ def upsert_jobs_batch(conn: Connection, jobs: List[JobListing]) -> int:
     # trigger-seeded freshness row; re-seen / reactivated rows get theirs here.
     _upsert_freshness(cursor, jobs)
 
+    # Refresh the denormalized search_text for every upserted row in the same
+    # transaction. Unconditional: ON CONFLICT DO UPDATE may have refreshed
+    # title/location, so a stale non-NULL search_text must be recomputed.
+    _recompute_search_text(cursor, jobs)
+
     conn.commit()
     source_ids = sorted({job.source_id for job in jobs})
     logger.info(
@@ -626,7 +823,17 @@ def insert_jobs_batch(conn: Connection, jobs: List[JobListing]) -> int:
         page_size=100
     )
 
+    # Read rowcount BEFORE the recompute below overwrites it (the recompute runs
+    # its own UPDATE). ON CONFLICT DO NOTHING leaves this as the count of rows
+    # actually inserted.
     actual_inserted = cursor.rowcount
+
+    # Populate search_text for the newly-inserted rows in the same transaction.
+    # only_if_null: DO NOTHING skipped the existing duplicates, whose content (and
+    # thus search_text) did not change — so we must not rewrite them, only fill
+    # the NULL search_text on the brand-new rows.
+    _recompute_search_text(cursor, jobs, only_if_null=True)
+
     conn.commit()
     logger.info(f"Batch inserted {actual_inserted}/{len(jobs)} jobs (skipped {len(jobs) - actual_inserted} duplicates)")
     return actual_inserted

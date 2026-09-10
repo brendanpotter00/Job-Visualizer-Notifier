@@ -91,6 +91,28 @@ class JobListing(Base):
     enrichment_level = Column(Text, ForeignKey("job_levels.slug"), nullable=True)
     enrichment_claimed_at = Column(TIMESTAMP(timezone=True), nullable=True)
 
+    # Perf Wave 2 denormalizations (migration ``e3b1a4c9d7f2``). Both nullable,
+    # NO default and NO inline backfill, so each ADD COLUMN stays catalog-only —
+    # the 2026-04-18 volume-incident rule that also governs ``experience_level``
+    # and the ``enrichment_*`` facets above. They start NULL and are filled by
+    # the write path + a bounded post-deploy backfill
+    # (``scripts/backfill_wave2_denorm.py``); the search predicates keep the
+    # original cross-table EXISTS/ILIKE as a fallback for NULL rows, so a
+    # not-yet-filled value is never a wrong answer (WAVE2-PLAN.md §0/§5).
+    #
+    # ``primary_country`` — the job's SINGLE distinct non-remote ISO country, or
+    # NULL when a scalar can't answer faithfully (zero non-remote countries, OR
+    # ≥2 distinct → NULL, OR not-yet-backfilled). Folds the multi-country case
+    # into the NULL fallback bucket rather than a sentinel. Fast path for the #1
+    # slow endpoint (``location=United States``): see the country-keyset index
+    # below.
+    primary_country = Column(Text, nullable=True)
+    # ``search_text`` — lower(title ‖ raw location ‖ company ‖ tags), the single
+    # haystack the keyword filter can trigram-match in one GIN probe instead of
+    # a 4-way OR spanning ``job_listings`` and ``job_tags``. See the GIN index
+    # below.
+    search_text = Column(Text, nullable=True)
+
     __table_args__ = (
         PrimaryKeyConstraint("source_id", "id"),
         Index("idx_job_listings_status", "status"),
@@ -239,6 +261,49 @@ class JobListing(Base):
             "source_id",
             "id",
             postgresql_where=text("status = 'OPEN'"),
+        ),
+        # Perf Wave 2 (C2). Fixes the #1 slow endpoint — ``location=United
+        # States`` (2.08 s), where the planner mis-estimates the cross-table
+        # location EXISTS 139x and drops the keyset index. Same shape as the
+        # category-keyset index above: the denormalized equality column
+        # (``primary_country``) LEADS, then the ``(first_seen_at, source_id,
+        # id)`` sort tuple VERBATIM, so a single-country selection becomes an
+        # ordered seek that early-stops at the LIMIT instead of a top-N sort of
+        # ~25k rows. ``primary_country='US'`` carries real column stats
+        # (~64 % of OPEN), so the ``= %s OR (IS NULL AND <EXISTS>)`` predicate
+        # still estimates ≥64 % and keeps this ordered path (WAVE2-PLAN.md §0).
+        #
+        # Plain ASC columns for the same reason as the two keyset indexes above:
+        # an all-DESC ORDER BY is served by a BACKWARD scan and explicit DESC ops
+        # would not round-trip through Alembic autogenerate. Partial on
+        # status='OPEN' to match every real caller and keep it small. Built
+        # CONCURRENTLY in the migration (job_listings is 859 MB / on the scrape
+        # write path); the declaration here is plain because CONCURRENTLY is a
+        # migration-only concern, exactly like ``idx_job_tags_tag_trgm``.
+        Index(
+            "idx_job_listings_open_country_keyset",
+            "primary_country",
+            "first_seen_at",
+            "source_id",
+            "id",
+            postgresql_where=text("status = 'OPEN'"),
+        ),
+        # Perf Wave 2 (C3). Fixes keyword search: ``_KEYWORD_PREDICATE`` is a
+        # 4-way OR (title / location / company ILIKE + a ``job_tags`` EXISTS)
+        # spanning two tables, which no per-column trigram can serve as one unit.
+        # ``search_text`` collapses all four fields into one lower-cased haystack,
+        # and this GIN + gin_trgm_ops index makes ``search_text ILIKE '%term%'``
+        # a single bitmap probe. Needs the ``pg_trgm`` extension — installed by
+        # the ``before_create`` hook below (create_all/parity bootstrap) and by
+        # the migration (prod), exactly as ``JobTag``/``idx_job_tags_tag_trgm``
+        # does. Same THREE-char blind spot: ``go``/``ai``/``ml`` yield no
+        # complete trigram and fall to a filter — a ceiling on the recoverable
+        # cost, not a defect.
+        Index(
+            "idx_job_listings_search_text_trgm",
+            "search_text",
+            postgresql_using="gin",
+            postgresql_ops={"search_text": "gin_trgm_ops"},
         ),
     )
 
@@ -1121,10 +1186,17 @@ class JobTag(Base):
 # with `operator class "gin_trgm_ops" does not exist`, because the operator class
 # ships WITH the extension rather than with core.
 #
-# `before_create` on this table specifically, not on the whole metadata: the
-# operator class only has to exist by the time job_tags' indexes are emitted, and
-# hanging it off the one table that needs it keeps the dependency visible at the
-# point of use.
+# `before_create` on the specific tables that carry a gin_trgm_ops index, not on
+# the whole metadata: the operator class only has to exist by the time those
+# tables' indexes are emitted, and hanging it off the tables that need it keeps
+# the dependency visible at the point of use. As of Perf Wave 2 there are TWO —
+# `job_tags` (idx_job_tags_tag_trgm) and `job_listings`
+# (idx_job_listings_search_text_trgm) — and create_all emits them in metadata
+# order, so the hook is registered on BOTH: whichever table is created first
+# installs the extension and the other's `CREATE EXTENSION IF NOT EXISTS` is a
+# harmless no-op. Registering on only one would fail create_all with
+# `operator class "gin_trgm_ops" does not exist` whenever that table happened to
+# be built second.
 #
 # WITH SCHEMA public, explicitly. A bare CREATE EXTENSION lands in the first
 # entry of search_path, which under PYTEST_SCHEMA is the per-module `test_<hex>`
@@ -1136,6 +1208,11 @@ _PG_TRGM_EXTENSION = DDL("CREATE EXTENSION IF NOT EXISTS pg_trgm WITH SCHEMA pub
 
 event.listen(
     JobTag.__table__,
+    "before_create",
+    _PG_TRGM_EXTENSION.execute_if(dialect="postgresql"),
+)
+event.listen(
+    JobListing.__table__,
     "before_create",
     _PG_TRGM_EXTENSION.execute_if(dialect="postgresql"),
 )

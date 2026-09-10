@@ -56,7 +56,7 @@ TEST_DB_URL = os.environ.get(
 )
 
 RECIPE_SEED_REV = "4c1f8a26d7be"
-RECIPE_PREV_HEAD = "87fe6224b0b5"
+RECIPE_PREV_HEAD = "e3b1a4c9d7f2"
 SEEDED_IDS = ("atlassian", "github")
 
 
