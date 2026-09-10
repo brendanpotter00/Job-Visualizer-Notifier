@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import Box from '@mui/material/Box';
-import Button from '@mui/material/Button';
 import ButtonBase from '@mui/material/ButtonBase';
 import CircularProgress from '@mui/material/CircularProgress';
 import Collapse from '@mui/material/Collapse';
@@ -416,11 +415,11 @@ type LiveViewPhase = 'live' | 'ending' | 'gone';
  * it would collapse 375px→36px instantly and then animate the leftover — a jump, then
  * a slide. Empty, it holds the shape for ~300ms and closes.
  *
- * And mid-run it says goodbye rather than just going: `ending` swaps the toggle for one
- * line, lets the frame's box slide shut under it, and then closes that too. A panel that
- * disappears while the checklist above it is still ticking reads as something breaking;
- * the same panel that says "Live view ended — still setting up" and then folds reads as
- * us finishing with it.
+ * And mid-run it says goodbye rather than just going: `ending` puts one line above the
+ * frame, lets the frame's box slide shut under it, and then closes that too. A panel
+ * that disappears while the checklist above it is still ticking reads as something
+ * breaking; the same panel that says "Live view ended — still setting up" and then folds
+ * reads as us finishing with it.
  */
 function LiveView({
   url,
@@ -447,7 +446,6 @@ function LiveView({
    */
   receivedAt: number;
 }) {
-  const [open, setOpen] = useState(true);
   const [loadedUrl, setLoadedUrl] = useState<string | null>(null);
   // WHY THESE ARE URLs AND NOT BOOLEANS: every one of them is a verdict ABOUT A SESSION,
   // and a boolean verdict outlives its session — the next capture would mount into a
@@ -741,30 +739,20 @@ function LiveView({
   }, [phase]);
 
   // `unmountOnExit` keeps the section's children alive for the ~300ms the outer
-  // `Collapse` takes to close, so "which line heads this section" is a question that
-  // outlives `phase` and has to be answered for the exit too. A run that ends without a
-  // goodbye collapses with its toggle, exactly as it always did; a run that said goodbye
-  // collapses with the goodbye, rather than flashing the toggle back for the last frames
-  // of a session that is over.
-  const headedByGoodbye =
+  // `Collapse` takes to close, so "is the goodbye showing" is a question that outlives
+  // `phase` and has to be answered for the exit too. A run that ends without a goodbye
+  // collapses with nothing above the frame, exactly as it always did; a run that said
+  // goodbye keeps the note up through the close, rather than dropping it for the last
+  // frames of a session that is over.
+  const showEndedNote =
     phase === 'ending' || (phase === 'gone' && closedUrl !== null && closedUrl === loadedUrl);
 
   return (
     <Collapse in={phase !== 'gone'} unmountOnExit>
       <Box sx={{ mt: 1.5 }} data-testid="discovery-live-view-section">
-        {!headedByGoodbye ? (
-          <Button
-            size="small"
-            onClick={() => setOpen((isOpen) => !isOpen)}
-            aria-expanded={open}
-            data-testid="discovery-live-view-toggle"
-          >
-            {open ? 'Hide live view' : 'Watch live'}
-          </Button>
-        ) : (
-          // IN THE TOGGLE'S PLACE, not under it: a "Hide live view" button for a frame
-          // that no longer exists is a control over nothing, and swapping one line for
-          // another keeps the row height steady while the box below it slides shut.
+        {showEndedNote ? (
+          // ABOVE the frame's box, not under it, so the line that explains the close is
+          // already in the reader's eye when the box below it starts sliding shut.
           <Typography
             variant="caption"
             color="text.secondary"
@@ -774,14 +762,14 @@ function LiveView({
           >
             Live view ended — still setting up.
           </Typography>
-        )}
+        ) : null}
         {/* `phase !== 'ending'` rather than `phase === 'live'`, which is not the same
             thing on the last beat: when the run itself ends there is no note, so the box
             must HOLD its height and let the outer `Collapse` perform the whole close in
             one movement. Closing both at once there would collapse 375px twice as fast
             as everything else this panel does. During `ending` the inner one closes
             first on purpose — the video slides away, the line stays behind to say why. */}
-        <Collapse in={open && phase !== 'ending'}>
+        <Collapse in={phase !== 'ending'}>
           <Box
             // `pointer-events: none` — read-only by construction. This is someone
             // else's hosted browser session; it is here to be watched, never driven.
@@ -1027,14 +1015,15 @@ interface DiscoveryChecklistProps {
  *
  * The live view is OPTIONAL and degrades silently (DECISION D4): only a Browserbase
  * capture has one and our default is our own Chromium, so on almost every run there is
- * no iframe, no toggle, and a checklist that renders exactly as it always has — no
- * empty box, no reserved space, no layout shift.
+ * no iframe at all, and a checklist that renders exactly as it always has — no empty
+ * box, no reserved space, no layout shift.
  *
- * When there IS one it opens EXPANDED, because the thing it shows lasts about thirty
- * seconds: a hosted session is watchable only while the capture is running, and a run
- * that ends before the user notices a "Watch live" button showed them nothing. The
- * toggle stays so it can be collapsed, and the frame is `pointer-events: none` either
- * way — this is someone else's browser, here to be watched and never driven.
+ * When there IS one it just SHOWS, with no control over it, because the thing it shows
+ * lasts about thirty seconds: a hosted session is watchable only while the capture is
+ * running, so a button the user has to find first showed them nothing. It leaves on its
+ * own the moment the session is retired (see `LiveView`), which is the only reason it
+ * ever needs to leave. The frame is `pointer-events: none` throughout — this is someone
+ * else's browser, here to be watched and never driven.
  *
  * And it is watchable for the CAPTURE, not for the run: the browser is handed back
  * roughly a third of the way through, and the backend nulls the URL in the same write.

@@ -26,6 +26,13 @@ import { STALE_CURSOR_STATUS, useSearchJobsInfiniteQuery } from '../jobsApi.ts';
 import { DEMO_JOBS } from '../demoJobs.ts';
 import { buildSearchJobsArgs, sinceForTimeWindow } from '../searchJobsArgs.ts';
 import type { SearchJobsCounts } from '../searchJobsTypes.ts';
+import { resolveResultTotal, type ResultTotal } from '../resultTotal.ts';
+import { SIGN_IN_OVERLAY_CONFIG } from '../../../constants/ui.ts';
+import { useGetUserCompaniesQuery } from '../../userCompanies/userCompaniesApi.ts';
+import { CUSTOM_COMPANIES_CONFIG } from '../../../config/customCompanies.ts';
+
+/** Stable empty list, so a skipped query does not remint the args cache key. */
+const NO_OWNED_COMPANIES: readonly string[] = [];
 
 /** Quiet period before a filter edit becomes a request. House convention. */
 const FILTER_DEBOUNCE_MS = 300;
@@ -48,8 +55,33 @@ export type RecentJobsErrorScope = 'initial' | 'nextPage';
 export interface RecentJobsSearch {
   /** Every row fetched so far for the CURRENT filters, newest first. */
   jobs: Job[];
-  /** Header metrics from page 1; null until it lands. */
+  /**
+   * The rows a reader can actually SEE — `jobs`, capped for a signed-out reader
+   * at `SIGNED_OUT_JOB_LIMIT`.
+   *
+   * Derived here rather than in the list because the cap is this hook's policy
+   * already — it is what `hasNextPage: !isSignedOut && …` enforces — and because
+   * `resultTotal` below has to count the same rows the list renders.
+   */
+  displayedJobs: Job[];
+  /**
+   * Header metrics from page 1; null until it lands.
+   *
+   * NOTHING RENDERS THESE. The Recent page's metric row was removed on
+   * 2026-09-05, so the name is now historical — page 1 carries them regardless
+   * (they cost the server nothing extra), and they stay exposed because they are
+   * what `resultTotal` below is derived from and because a future header would
+   * want them. Do not read a consumer into the name.
+   */
   counts: SearchJobsCounts | null;
+  /**
+   * How many jobs the filter set holds, to whatever precision is honest — see
+   * `resultTotal.ts`. Since #277 the server defers the exact total, so on a real
+   * search this is an `atLeast` bound over `displayedJobs` rather than a number.
+   *
+   * Consumed only by the list's `aria-setsize`; no pixels render it.
+   */
+  resultTotal: ResultTotal;
   /** No data at all yet — render skeletons. */
   isInitialLoading: boolean;
   /** Filters changed and the new first page is in flight; previous rows still shown. */
@@ -141,8 +173,34 @@ export function useRecentJobsSearch(): RecentJobsSearch {
   const keywordLists = useGetKeywordListsQuery(undefined, { skip: !isAuthenticated });
   const savedFiltersReady = filtersHydrated || savedFilters.isError || keywordLists.isError;
 
+  // The reader's OWN custom boards. BOTH skips are load-bearing, for the same
+  // reasons documented at `useCompanyLoader.ts`: the endpoint is authed and would
+  // 401 on every anonymous load, and flag-off means the feature makes no network
+  // calls.
+  //
+  // Their ids have to reach `buildSearchJobsArgs` because the enabled-companies
+  // preference cannot carry them — see `BuildSearchJobsArgsInput.ownedCompanyIds`.
+  const {
+    data: ownedCompaniesData,
+    isSuccess: ownedCompaniesLoaded,
+    isError: ownedCompaniesFailed,
+    isUninitialized: ownedCompaniesSkipped,
+  } = useGetUserCompaniesQuery(undefined, {
+    skip: !isAuthenticated || !CUSTOM_COMPANIES_CONFIG.isEnabled,
+  });
+
+  // SETTLED, not "loaded" — the same distinction, and for the same reason, as
+  // `preferencesSettled` above: a failed request must also release the gate, or a
+  // 500 here strands a signed-in reader on skeletons forever with no rows, no
+  // error and no retry. A failure degrades to "no custom boards", which is exactly
+  // what this reader saw before the feature existed. `isUninitialized` is the
+  // SKIPPED case (signed out, or flag off), which is settled on arrival.
+  const ownedCompaniesSettled =
+    ownedCompaniesSkipped || ownedCompaniesLoaded || ownedCompaniesFailed;
+
   const preferencesReady =
-    !authLoading && (!isAuthenticated || (preferencesSettled && savedFiltersReady));
+    !authLoading &&
+    (!isAuthenticated || (preferencesSettled && savedFiltersReady && ownedCompaniesSettled));
 
   // One debounced snapshot of the filters, STAMPED with the instant it settled.
   //
@@ -202,15 +260,37 @@ export function useRecentJobsSearch(): RecentJobsSearch {
     [debouncedFilters.timeWindow, snapshot.at]
   );
 
+  // Keyed on CONTENT, not on the query object's identity.
+  //
+  // `data` is a fresh reference after any refetch — and this query IS refetched:
+  // `addUserCompany` / `removeUserCompany` invalidate the `MyCompanies` tag, and
+  // `MyCompaniesList` subscribes with a `pollingInterval`. Memoizing on `data`
+  // itself would hand `buildSearchJobsArgs` a NEW array for an UNCHANGED set of
+  // boards, mint a new cache key, and throw away every page the reader had already
+  // walked — mid-scroll. Deriving a string first means the identity moves only when
+  // the ids actually do. Sorted so a reordered response is not a change either.
+  //
+  // A space is a safe joiner: these are `u-<base36>` ids matched by
+  // `ENABLED_COMPANY_ID_PATTERN`, which admits no whitespace.
+  const ownedIdsKey = (ownedCompaniesData?.companies ?? [])
+    .map((company) => company.id)
+    .sort()
+    .join(' ');
+  const ownedCompanyIds = useMemo(
+    () => (ownedIdsKey === '' ? NO_OWNED_COMPANIES : ownedIdsKey.split(' ')),
+    [ownedIdsKey]
+  );
+
   const args = useMemo(
     () =>
       buildSearchJobsArgs({
         filters: debouncedFilters,
         enabledCompanyIds,
+        ownedCompanyIds,
         since,
         isSignedOut,
       }),
-    [debouncedFilters, enabledCompanyIds, since, isSignedOut]
+    [debouncedFilters, enabledCompanyIds, ownedCompanyIds, since, isSignedOut]
   );
 
   // Demo mode serves a curated fixture, so it must not touch the network at all.
@@ -256,9 +336,7 @@ export function useRecentJobsSearch(): RecentJobsSearch {
   // position) with a spinner for minutes, then re-request every loaded page on
   // each retry.
   const isDeployGap =
-    status === 404 &&
-    currentData === undefined &&
-    retryAttempt < DEPLOY_RETRY_DELAYS_MS.length;
+    status === 404 && currentData === undefined && retryAttempt < DEPLOY_RETRY_DELAYS_MS.length;
 
   useEffect(() => {
     if (!isDeployGap) return;
@@ -298,9 +376,15 @@ export function useRecentJobsSearch(): RecentJobsSearch {
     };
   }, [demoModeEnabled, filters, locationCatalog]);
 
-  const jobs = useMemo(
-    () => (data?.pages ?? []).flatMap((page) => page.jobs),
-    [data]
+  const jobs = useMemo(() => (data?.pages ?? []).flatMap((page) => page.jobs), [data]);
+
+  // The signed-out cap, applied ONCE for every consumer. A signed-out reader is
+  // fetched one row MORE than they may see, deliberately — that extra row is how
+  // the list knows a 13th job exists and that the sign-in overlay is warranted —
+  // so `jobs.length` overcounts the visible list by one for them.
+  const displayedJobs = useMemo(
+    () => (isSignedOut ? jobs.slice(0, SIGN_IN_OVERLAY_CONFIG.SIGNED_OUT_JOB_LIMIT) : jobs),
+    [isSignedOut, jobs]
   );
 
   const fetchNextPage = useCallback(() => {
@@ -333,18 +417,37 @@ export function useRecentJobsSearch(): RecentJobsSearch {
   // `cachedPageParams[0]` — always `null` here — and then walks forward via
   // `getNextPageParam` on the new data), so no stale token survives it.
   //
-  // Reachable only after a backend deploy moves the cursor version or the
-  // fingerprint inputs mid-session; the client cannot produce it on its own,
-  // because RTK Query keys the cache by the whole filter set.
+  // Reachable two ways now. A backend deploy that moves the cursor version or
+  // the fingerprint inputs mid-session was the original one. The second arrived
+  // with the owner-scoped feed: the reader's VISIBILITY SCOPE is a fingerprint
+  // input resolved from the bearer token, and it is NOT part of
+  // `SearchJobsArgs`, so a session expiring — or a custom board being added —
+  // between two pages moves the server's fingerprint without moving this cache
+  // entry's key. RTK Query keys by the filter set; it never keyed by the viewer.
   const retry = useCallback(() => {
     if (errorScope === 'nextPage' && status !== STALE_CURSOR_STATUS) rtkFetchNextPage();
     else refetch();
   }, [errorScope, status, rtkFetchNextPage, refetch]);
 
   if (demo) {
+    // Capped like any other path: `displayedJobs` promises the rows a reader can
+    // SEE, and a signed-out reader sees at most the overlay cap here too. The
+    // fixture is ~100 rows, so handing them over uncapped would break that
+    // promise and render the whole thing under the sign-in overlay.
+    const demoDisplayed = isSignedOut
+      ? demo.jobs.slice(0, SIGN_IN_OVERLAY_CONFIG.SIGNED_OUT_JOB_LIMIT)
+      : demo.jobs;
     return {
       jobs: demo.jobs,
+      displayedJobs: demoDisplayed,
       counts: demo.counts,
+      // Demo mode computes its own EXACT total from the fixture and cannot page,
+      // so the walk is exhausted unless the signed-out cap truncated it.
+      resultTotal: resolveResultTotal(
+        demo.counts,
+        demoDisplayed.length,
+        demoDisplayed.length === demo.jobs.length
+      ),
       isInitialLoading: false,
       isRefreshing: false,
       isFetchingNextPage: false,
@@ -358,17 +461,35 @@ export function useRecentJobsSearch(): RecentJobsSearch {
     };
   }
 
+  // Nulled on an INITIAL error for exactly the reason the page swaps the list for
+  // an ErrorState: `data` deliberately retains the PREVIOUS filter set's pages, so
+  // `pages[0].counts` describes filters the reader is no longer looking at.
+  // Leaving the tiles populated under the new chips is the "plausible,
+  // fully-populated, wrong result set" the errorScope split above exists to
+  // prevent — half-fixed (rows hidden, tiles left behind) is the worst of the
+  // three states, because the numbers are the part nobody can check by eye.
+  //
+  // Hoisted out of the return object because `resultTotal` derives from it too.
+  const resolvedCounts = errorScope === 'initial' ? null : (data?.pages[0]?.counts ?? null);
+  // Exhausted means BOTH "the server has no more rows" and "we are showing every
+  // row we hold". The second half is the signed-out cap: we deliberately fetch one
+  // row more than may be shown, so a truncated view has seen rows it is not
+  // displaying and its count is a floor, not a total.
+  //
+  // Keyed on truncation rather than on `isSignedOut`, and the difference is a bug:
+  // a signed-out reader whose filters match FEWER jobs than the cap is not
+  // truncated at all — the server returns 5 rows and no cursor — and gating on
+  // `!isSignedOut` called that a lower bound, rendering "5+" over exactly five
+  // cards with no overlay and nothing else on the page to corroborate the "+".
+  // Note `hasNextPage` here is the RAW value from RTK, which is honest for
+  // signed-out readers; the forced-false one is the field returned below.
+  const walkExhausted = !hasNextPage && displayedJobs.length === jobs.length;
+
   return {
     jobs,
-    // Nulled on an INITIAL error for exactly the reason the page swaps the list
-    // for an ErrorState: `data` deliberately retains the PREVIOUS filter set's
-    // pages, so `pages[0].counts` describes filters the reader is no longer
-    // looking at. Leaving the tiles populated under the new chips is the
-    // "plausible, fully-populated, wrong result set" the errorScope split above
-    // exists to prevent — half-fixed (rows hidden, tiles left behind) is the
-    // worst of the three states, because the numbers are the part nobody can
-    // check by eye.
-    counts: errorScope === 'initial' ? null : (data?.pages[0]?.counts ?? null),
+    displayedJobs,
+    resultTotal: resolveResultTotal(resolvedCounts, displayedJobs.length, walkExhausted),
+    counts: resolvedCounts,
     // `!preferencesReady` counts as loading, and that clause is load-bearing:
     // while it holds we are deliberately NOT fetching, so without it the list
     // would see zero jobs, no next page, nothing in flight and no error — and
@@ -377,13 +498,13 @@ export function useRecentJobsSearch(): RecentJobsSearch {
     // `args === null` is the one genuinely-terminal skip and is reported
     // separately as `isSkippedEmpty`.
     isInitialLoading:
-      (!preferencesReady && !demoModeEnabled) ||
-      (!skip && data === undefined && !queryError),
+      (!preferencesReady && !demoModeEnabled) || (!skip && data === undefined && !queryError),
     // `currentData` is undefined while a NEW arg's first page is in flight, but
     // `data` still holds the previous filter's pages — that gap is exactly
     // "refreshing", and it is what keeps the terminal empty state from flashing
     // over stale rows during a filter change.
-    isRefreshing: isFetching && !isFetchingNextPage && currentData === undefined && data !== undefined,
+    isRefreshing:
+      isFetching && !isFetchingNextPage && currentData === undefined && data !== undefined,
     isFetchingNextPage,
     hasNextPage: !isSignedOut && Boolean(hasNextPage),
     fetchNextPage,

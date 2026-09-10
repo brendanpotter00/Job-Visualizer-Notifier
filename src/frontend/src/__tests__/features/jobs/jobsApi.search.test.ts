@@ -199,6 +199,7 @@ function argsFromFilters(filters: RecentJobsFilters): SearchJobsArgs {
   const args = buildSearchJobsArgs({
     filters,
     enabledCompanyIds: null,
+    ownedCompanyIds: [],
     since: SINCE,
     isSignedOut: false,
   });

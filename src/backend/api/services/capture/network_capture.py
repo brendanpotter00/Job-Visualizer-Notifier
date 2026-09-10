@@ -46,6 +46,7 @@ import json
 import logging
 import os
 import sys
+from contextlib import AsyncExitStack
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Protocol
@@ -53,6 +54,7 @@ from urllib.parse import urlsplit
 
 import httpx
 
+from ..browser_budget import browser_permit
 from ..url_guard import _DNS_EXECUTOR, UrlGuardError, validate_public_url
 from ...config import settings
 
@@ -368,64 +370,87 @@ async def _subprocess_run(
         p for p in (str(backend_root), str(repo_root), prior) if p
     )
 
-    proc = await asyncio.create_subprocess_exec(
-        sys.executable, "-m", "api.services.capture._capture_main",
-        cwd=str(backend_root),
-        env=env,
-        stdin=asyncio.subprocess.PIPE,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
+    # THE BROWSER BUDGET (``services/browser_budget.py``), ON THE LOCAL PATH ONLY.
+    #
+    # ``cdp_url`` is present exactly when this parent opened a Browserbase session,
+    # and it is the SAME field the child branches on: ``_capture_main`` does
+    # ``connect_over_cdp(cdp_url)`` if it is set and ``chromium.launch()`` if it is
+    # not. So a permit is taken if and only if a Chromium is about to start on THIS
+    # box. Throttling a remote browser would buy nothing — it costs this container
+    # a pipe and a few MB of Python — and would needlessly serialise the path that
+    # is normal in production.
+    #
+    # That conditional is not an optimisation, it is the case that matters: when
+    # Browserbase is on, the local branch is the FALLBACK, reached when a session
+    # cannot be opened (``config.py``: a session-create error "degrades back to our
+    # own browser"). During a Browserbase outage every concurrent discovery lands
+    # here at once, which is precisely when a cap is worth having.
+    #
+    # The permit spans the spawn and the reap and NOTHING else — the return-code
+    # check and ``_parse_report`` below run with no child alive to pay for.
+    async with AsyncExitStack() as stack:
+        if not plan.get("cdp_url"):
+            await stack.enter_async_context(browser_permit())
+        proc = await asyncio.create_subprocess_exec(
+            sys.executable, "-m", "api.services.capture._capture_main",
+            cwd=str(backend_root),
+            env=env,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
 
-    async def _feed_and_collect() -> tuple[bytes, bytes]:
-        """Write the plan in, then drain BOTH pipes to EOF, narrating stdout as it goes.
+        async def _feed_and_collect() -> tuple[bytes, bytes]:
+            """Write the plan in, then drain BOTH pipes to EOF, narrating stdout as it goes.
 
-        This replaced ``proc.communicate()`` for exactly one reason: ``communicate``
-        returns when the process EXITS, so every line the child printed while the
-        browser was open arrived 30-80 seconds late, all at once. Nothing about the
-        capture changed; what changed is that the parent now sees each response as the
-        child records it.
+            This replaced ``proc.communicate()`` for exactly one reason: ``communicate``
+            returns when the process EXITS, so every line the child printed while the
+            browser was open arrived 30-80 seconds late, all at once. Nothing about the
+            capture changed; what changed is that the parent now sees each response as the
+            child records it.
 
-        BOTH pipes are drained CONCURRENTLY, which is the part that is not optional: a
-        child blocked writing a full stderr pipe never gets to finish its report, and a
-        sequential reader is how that deadlock happens. (``communicate`` did this too —
-        this is keeping the property, not adding one.)
+            BOTH pipes are drained CONCURRENTLY, which is the part that is not optional: a
+            child blocked writing a full stderr pipe never gets to finish its report, and a
+            sequential reader is how that deadlock happens. (``communicate`` did this too —
+            this is keeping the property, not adding one.)
 
-        The plan is written first rather than inside the gather because it is a few
-        hundred bytes, i.e. orders of magnitude under one pipe buffer; a plan that could
-        fill a pipe would have to move into the gather.
-        """
-        assert proc.stdin is not None and proc.stdout is not None
-        assert proc.stderr is not None
-        proc.stdin.write(json.dumps(plan).encode("utf-8"))
+            The plan is written first rather than inside the gather because it is a few
+            hundred bytes, i.e. orders of magnitude under one pipe buffer; a plan that could
+            fill a pipe would have to move into the gather.
+            """
+            assert proc.stdin is not None and proc.stdout is not None
+            assert proc.stderr is not None
+            proc.stdin.write(json.dumps(plan).encode("utf-8"))
+            try:
+                await proc.stdin.drain()
+            except (BrokenPipeError, ConnectionResetError):
+                # The child died before reading its plan. Not our error to report: it exits
+                # non-zero and the rc branch below quotes its stderr, which says why.
+                pass
+            proc.stdin.close()
+            out, err = await asyncio.gather(
+                _pump_stdout(proc.stdout, on_event), proc.stderr.read()
+            )
+            # Both pipes are at EOF, so this is bookkeeping rather than a wait — but it is
+            # what makes ``proc.returncode`` below a real exit status instead of ``None``.
+            await proc.wait()
+            return out, err
+
         try:
-            await proc.stdin.drain()
-        except (BrokenPipeError, ConnectionResetError):
-            # The child died before reading its plan. Not our error to report: it exits
-            # non-zero and the rc branch below quotes its stderr, which says why.
-            pass
-        proc.stdin.close()
-        out, err = await asyncio.gather(
-            _pump_stdout(proc.stdout, on_event), proc.stderr.read()
-        )
-        # Both pipes are at EOF, so this is bookkeeping rather than a wait — but it is
-        # what makes ``proc.returncode`` below a real exit status instead of ``None``.
-        await proc.wait()
-        return out, err
-
-    try:
-        stdout, stderr = await asyncio.wait_for(
-            _feed_and_collect(), timeout=_SUBPROCESS_TIMEOUT_S
-        )
-    except asyncio.TimeoutError as exc:
-        raise CaptureError(
-            f"capture subprocess timed out after {_SUBPROCESS_TIMEOUT_S}s"
-        ) from exc
-    finally:
-        # NOT in the ``except`` — the discovery task's 240s ``wait_for`` cancels this
-        # coroutine, and a ``CancelledError`` (a BaseException) skips every ``except``
-        # clause here. Reaping in the ``finally`` is what makes the kill unconditional.
-        await _reap(proc)
+            stdout, stderr = await asyncio.wait_for(
+                _feed_and_collect(), timeout=_SUBPROCESS_TIMEOUT_S
+            )
+        except asyncio.TimeoutError as exc:
+            raise CaptureError(
+                f"capture subprocess timed out after {_SUBPROCESS_TIMEOUT_S}s"
+            ) from exc
+        finally:
+            # NOT in the ``except`` — the discovery task's 240s ``wait_for`` cancels this
+            # coroutine, and a ``CancelledError`` (a BaseException) skips every ``except``
+            # clause here. Reaping in the ``finally`` is what makes the kill unconditional.
+            # It is also what makes the permit released above honest: the child is dead
+            # before the slot goes to the next caller.
+            await _reap(proc)
     if proc.returncode != 0:
         raise CaptureError(
             f"capture subprocess failed (rc={proc.returncode}): "

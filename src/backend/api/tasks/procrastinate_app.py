@@ -44,10 +44,18 @@ _WORKER_STATEMENT_TIMEOUT_MS = 60_000
 # present as "the worker stopped draining" — indistinguishable, from the
 # outside, from the signal-handler bug this sizing was added alongside.
 #
-# 12 = 2 listeners + 7 job slots (5 bulk + 2 interactive) + 3 slack for the
+# 16 = 2 listeners + 11 job slots (5 bulk + 6 interactive) + 3 slack for the
 # periodic deferrers and the API's own defer_async calls.
+#
+# This arithmetic is derived from the lane concurrencies in ``api.main``
+# (``_BULK_WORKER_CONCURRENCY`` + ``_INTERACTIVE_WORKER_CONCURRENCY``) and must
+# be recomputed whenever either changes — it went 12 -> 16 when the interactive
+# lane went 2 -> 6. Undersizing it does not fail loudly; it presents as "the
+# worker stopped draining", which is the same symptom as the signal-handler bug
+# this sizing was added alongside. Postgres' own ``max_connections`` is 100 with
+# roughly 17 in use, so the headroom to grow this is not the constraint.
 _CONNECTOR_POOL_MIN_SIZE = 4
-_CONNECTOR_POOL_MAX_SIZE = 12
+_CONNECTOR_POOL_MAX_SIZE = 16
 
 # The add-time FIRST harvest of a just-tracked custom company rides this queue
 # instead of ``custom_ats_fetch``. Same task (``fetch_custom_company``), same

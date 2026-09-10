@@ -19,6 +19,30 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    id: 'add-companies-2026-09-09-ia40',
+    title: 'Added 22 companies from the IA40 list',
+    description:
+      "Madrona publishes an annual Intelligent Applications 40 — the AI companies its investor network rates most highly, split into early, mid and late stage plus the infrastructure layer underneath them. We already tracked 22 of the 2026 list; these are the other 22, about 970 open roles between them. The infrastructure names are ClickHouse (the columnar database behind a lot of real-time analytics), OpenRouter (one API that routes across every major model provider), Cartesia (real-time voice and speech models), Gimlet (an inference cloud that runs across several chip vendors) and Mastra (an open-source TypeScript framework for building agents). The application companies span writing and design — Gamma for presentations and sites, HeyGen for video with synthetic avatars, Lovable for turning a prompt into a deployed web app — through go-to-market and research: Profound measures how brands show up inside AI search answers, Clarify is an AI-native CRM, Listen Labs runs customer interviews end to end, Simile simulates how customers will react using the generative-agent work out of Stanford, and Gradial automates marketing content operations. In the enterprise and back office: Legora is an AI workspace for lawyers, Serval resolves IT and HR service requests, Town is an assistant that works across email, calendar and Slack, Fireflies records and summarises meetings, and Resend is the email API a lot of these products send through. On the developer side, Zed is a fast collaborative editor and CodeRabbit reviews pull requests. And three take on trust and safety directly: AIUC red-teams, certifies and insures AI agents, Fable Security scores and coaches risky employee behaviour, and Yutori builds web agents sold as enterprise APIs. Every board token was verified live before it shipped.",
+    tags: ['new-companies'],
+    date: '2026-09-09',
+    link: {
+      to: ROUTES.ACCOUNT,
+      label: 'Add them to your company preferences',
+    },
+  },
+  {
+    id: 'add-companies-2026-09-07-ashby-batch',
+    title: 'Added five more AI companies',
+    description:
+      "Five new Ashby boards are now tracked, with about 90 open roles between them. Composio builds the plumbing AI agents use to actually do things — just-in-time tool calls, delegated auth, and sandboxed execution across 1,500+ apps — and announced $29M in funding led by Lightspeed. Listen Labs runs customer research end to end with AI, from recruiting participants to conducting interviews to analysing the answers; it raised a $69M Series B led by Ribbit Capital in January 2026 at a $500M valuation, after interviewing more than a million people for the likes of Microsoft, Perplexity, and Robinhood. Taste Labs is building “the taste layer for AI” — the preference data, rubrics, and evaluation environments meant to end AI slop — and came out of stealth in June 2026 with an $18.5M seed co-led by CRV and Amplify Partners. Sieve is a Y Combinator-backed multimodal data lab supplying the video, audio, and image datasets frontier labs use to train world models, video generation systems, and robot policies. And Ploy, founded by Webflow co-founder and former CTO Bryant Chou, launched out of stealth in June 2026 with a $27M seed led by First Round Capital, turning a company's website into an AI-run growth engine.",
+    tags: ['new-companies'],
+    date: '2026-09-07',
+    link: {
+      to: ROUTES.ACCOUNT,
+      label: 'Add them to your company preferences',
+    },
+  },
+  {
     id: 'add-factory',
     title: 'Added Factory',
     description:

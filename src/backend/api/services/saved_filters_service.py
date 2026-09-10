@@ -33,6 +33,8 @@ from psycopg2 import sql
 from psycopg2.extensions import connection as Connection
 from psycopg2.extras import Json
 
+from .database import _HIDDEN_COMPANY_PREDICATE, _USER_COMPANY_PREDICATE
+
 logger = logging.getLogger(__name__)
 
 _SAVED_FILTERS = sql.Identifier("user_saved_filters")
@@ -605,6 +607,29 @@ def search_locations(
     "country", "remote_scope"}`` dicts. The structured columns let the frontend
     filter cache a full descriptor so it can resolve any selected location, not
     just the US states/cities it re-derives from the display string.
+
+    THE ``open_only`` EXISTS IS A PUBLIC READ OVER ``job_listings`` AND CARRIES
+    THE SAME TWO GUARDS AS ``/api/jobs``. ``routers/locations.py`` is
+    unauthenticated and allow-listed through ``api/locations.ts``, so anything
+    this branch derives from a job row is served to the world — and the proxy
+    edge-caches it for 10 minutes. Unguarded it was an EXISTENCE ORACLE over
+    private boards: a canonical location entered the public dropdown solely
+    because someone's ``visibility='user'`` company had an OPEN job there, and
+    an ORPHANED ``custom:`` row (the 2026-09-05 incident shape) counted too.
+    Neither returns a job row, which is exactly why it was missed — the leak is
+    the FACT of the row, not its contents.
+
+    ``_HIDDEN_COMPANY_PREDICATE`` rides along for consistency rather than
+    secrecy: ``/api/jobs`` already drops soft-deactivated companies, so without
+    it the dropdown offers locations that match zero jobs. Applying BOTH is what
+    makes the rule statable — this EXISTS sees exactly the corpus the public
+    list sees — instead of a second, subtly different notion of "visible".
+
+    The join is aliased ``job_listings`` (not ``j``) because both predicates are
+    correlated on the qualified ``job_listings.company`` / ``.source_id``.
+    Neither contributes a parameter, so the named-parameter dict below is
+    unchanged — and neither contains a literal ``%``, which would collide with
+    psycopg2's placeholder scanning in this ``%(name)s`` query.
     """
     pat = f"%{q}%"
     prefix = f"{q}%"
@@ -619,13 +644,18 @@ def search_locations(
                         " WHERE l.canonical_name ILIKE %(pat)s"
                         " AND EXISTS ("
                         " SELECT 1 FROM job_locations jl"
-                        " JOIN job_listings j ON j.id = jl.job_listing_id"
+                        " JOIN job_listings ON job_listings.id = jl.job_listing_id"
                         " WHERE jl.normalized_location_id = l.id"
-                        " AND j.status = 'OPEN')"
+                        " AND job_listings.status = 'OPEN'"
+                        " AND {hidden} AND {private})"
                         " ORDER BY (l.canonical_name ILIKE %(prefix)s) DESC,"
                         " length(l.canonical_name) ASC, l.canonical_name ASC"
                         " LIMIT %(limit)s"
-                    ).format(locations=_LOCATIONS),
+                    ).format(
+                        locations=_LOCATIONS,
+                        hidden=_HIDDEN_COMPANY_PREDICATE,
+                        private=_USER_COMPANY_PREDICATE,
+                    ),
                     {"pat": pat, "prefix": prefix, "limit": limit},
                 )
             else:

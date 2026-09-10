@@ -668,14 +668,11 @@ describe('MyCompaniesPage', () => {
         expect(screen.queryByTestId('how-it-works-toggle')).not.toBeInTheDocument()
       );
       expect(screen.queryByText('How it works')).not.toBeInTheDocument();
-      // ...and nothing re-opened the block either. The how-to lives in the list's empty
-      // state now, and only there.
-      expect(screen.queryByTestId('add-company-how-to')).not.toBeInTheDocument();
     });
 
     it('is not offered to a user tracking nothing either', async () => {
-      // The empty state IS the how-to (`MyCompaniesList`), so a link to it would have
-      // been a second copy of the same thing even before the removal.
+      // The empty state it used to re-open is gone too — it was the three steps, which
+      // described the URL-only flow — so there is nothing left for a link to point at.
       listBody = { companies: [] };
       renderWithProviders(<MyCompaniesPage />);
 

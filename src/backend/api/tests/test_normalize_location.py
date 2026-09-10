@@ -391,3 +391,63 @@ async def test_llm_noncanonical_codes_are_canonicalized_before_upsert(db_conn, m
     # The raw, non-canonical values must NOT survive to the DB.
     assert row["country"] != "Germany"
     assert row["canonical_name"] != "Berlin, Berlin, Germany"
+
+
+# --- tx2 advisory lock: first writer wins, losers adopt ----------------------
+
+def _alias_children(db_conn, raw_text):
+    cur = db_conn.cursor()
+    cur.execute(
+        sql.SQL("SELECT normalized_location_id AS lid FROM {} WHERE raw_text = %s "
+                "ORDER BY position").format(_ALIAS_LOCATIONS),
+        (raw_text,),
+    )
+    return [int(r["lid"]) for r in cur.fetchall()]
+
+
+async def test_concurrent_winner_mapping_is_adopted_not_unioned(db_conn, monkeypatch):
+    """Another worker populates the alias while our Haiku call is in flight.
+
+    tx1 missed Tier-1, so this task called the LLM. By the time it reaches tx2 a
+    concurrent worker has already cached a (different) mapping for the same key.
+    The advisory lock serializes the write and the re-check makes the loser ADOPT
+    the winner's mapping -- so both jobs end up with identical tags, and the
+    cache still holds exactly one answer.
+
+    Without the re-check the loser would overwrite the winner (churn); under the
+    pre-2026-09 append-only writer it would have unioned (the actual prod bug).
+    """
+    jid = _insert_job(db_conn, location="Remote")
+    key = normalize_string("Remote")
+
+    winner_id = None
+
+    def _other_worker_wins(*_args, **_kwargs):
+        # Runs between tx1 and tx2, i.e. exactly the race window.
+        nonlocal winner_id
+        cur = db_conn.cursor()
+        cur.execute(
+            sql.SQL("INSERT INTO {} (canonical_name, kind, country, remote_scope) "
+                    "VALUES ('Remote (US)', 'remote', 'US', 'us') RETURNING id").format(_LOCATIONS)
+        )
+        row = cur.fetchone()
+        winner_id = int(row["id"] if isinstance(row, dict) else row[0])
+        cur.execute(
+            sql.SQL("INSERT INTO {} (raw_text, source, confidence) VALUES (%s, 'llm', 0.9)")
+            .format(_LOCATION_ALIASES), (key,))
+        cur.execute(
+            sql.SQL("INSERT INTO {} (raw_text, normalized_location_id, position) "
+                    "VALUES (%s, %s, 0)").format(_ALIAS_LOCATIONS), (key, winner_id))
+        db_conn.commit()
+        # Our own Haiku answer differs from the winner's.
+        return [_loc("Remote (Global)", "remote", remote_scope="global", confidence=0.95)]
+
+    _patch_llm(monkeypatch, side_effect=_other_worker_wins)
+    await normalize_location(job_id=jid)
+    db_conn.rollback()
+
+    assert _status(db_conn, jid) == "done"
+    # The alias still holds ONE mapping -- the winner's.
+    assert _alias_children(db_conn, key) == [winner_id]
+    # And this job was tagged with the winner's location, not its own LLM answer.
+    assert [r["lid"] for r in _job_locations(db_conn, jid)] == [winner_id]

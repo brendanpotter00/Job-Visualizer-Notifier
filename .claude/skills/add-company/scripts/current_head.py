@@ -8,7 +8,12 @@ wrong revision creates a *multi-head*, which crash-loops the backend on boot
 (a documented incident in this repo).
 
 The committed migrations mix single- AND double-quoted revision identifiers
-(``revision: str = 'abc'`` *and* ``revision: str = "abc"``), so both are parsed.
+(``revision: str = 'abc'`` *and* ``revision: str = "abc"``), and a *merge*
+migration's ``down_revision`` is a **tuple of parents**
+(``down_revision: Union[str, None] = ('a5cf3aed5f15', '9d2f7ae5c1b4')``). The
+module is parsed with ``ast`` so every one of those shapes is read correctly —
+a regex that assumed a single quoted value silently dropped both parents of
+every merge migration and reported their consumed parents as extra heads.
 
 Exit codes:
   0  exactly one head -> printed to stdout (the value to use as down_revision)
@@ -17,7 +22,7 @@ Exit codes:
 """
 from __future__ import annotations
 
-import re
+import ast
 import sys
 from pathlib import Path
 
@@ -26,12 +31,40 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[4]
 VERSIONS_DIR = REPO_ROOT / "src" / "backend" / "alembic" / "versions"
 
-# Match a top-of-file ``revision`` / ``down_revision`` assignment with either
-# quote style. ``[^=]*`` skips the type annotation (e.g. ``: Union[str, None]``).
-# A ``= None`` down_revision (the base migration) has no quotes -> no match,
-# which is correct: it must not count as a parent.
-_REVISION = re.compile(r"""^revision\s*[^=]*=\s*['"]([^'"]+)['"]""", re.M)
-_DOWN_REVISION = re.compile(r"""^down_revision\s*[^=]*=\s*['"]([^'"]+)['"]""", re.M)
+def _module_assignments(text: str) -> dict[str, ast.expr]:
+    """Map each top-level assigned name in a migration module to its value node.
+
+    Covers both the annotated form the templates emit
+    (``revision: str = 'abc'``) and a bare ``revision = 'abc'``.
+    """
+    assignments: dict[str, ast.expr] = {}
+    for node in ast.parse(text).body:
+        if isinstance(node, ast.AnnAssign):
+            if isinstance(node.target, ast.Name) and node.value is not None:
+                assignments[node.target.id] = node.value
+        elif isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    assignments[target.id] = node.value
+    return assignments
+
+
+def _revision_ids(node: ast.expr | None) -> list[str]:
+    """Every revision id held by a ``revision`` / ``down_revision`` value.
+
+    A plain string yields one id. A **merge** migration's tuple (or list) yields
+    *all* of its parents — miss these and each consumed parent looks like a head.
+    ``down_revision = None`` (the base migration) correctly yields none.
+    """
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return [node.value]
+    if isinstance(node, (ast.Tuple, ast.List)):
+        return [
+            elt.value
+            for elt in node.elts
+            if isinstance(elt, ast.Constant) and isinstance(elt.value, str)
+        ]
+    return []
 
 
 def find_heads(versions_dir: Path = VERSIONS_DIR) -> list[str]:
@@ -39,14 +72,12 @@ def find_heads(versions_dir: Path = VERSIONS_DIR) -> list[str]:
     revisions: dict[str, str] = {}
     down_revisions: set[str] = set()
     for path in sorted(versions_dir.glob("*.py")):
-        text = path.read_text(encoding="utf-8")
-        match = _REVISION.search(text)
-        if not match:
+        assignments = _module_assignments(path.read_text(encoding="utf-8"))
+        ids = _revision_ids(assignments.get("revision"))
+        if not ids:
             continue
-        revisions[match.group(1)] = path.name
-        down = _DOWN_REVISION.search(text)
-        if down:
-            down_revisions.add(down.group(1))
+        revisions[ids[0]] = path.name
+        down_revisions.update(_revision_ids(assignments.get("down_revision")))
     return sorted(rev for rev in revisions if rev not in down_revisions)
 
 

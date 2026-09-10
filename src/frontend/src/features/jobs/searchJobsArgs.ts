@@ -72,6 +72,24 @@ export interface BuildSearchJobsArgsInput {
   filters: RecentJobsFilters;
   /** The user's enabled-companies preference. `null` or `[]` both mean "all". */
   enabledCompanyIds: string[] | null;
+  /**
+   * The reader's OWN custom companies (`u-<id>`), which are never in
+   * `enabledCompanyIds`.
+   *
+   * `user_enabled_companies` holds only public companies: nothing writes a custom
+   * company into it, and `list_enabled_companies`' auto-enroll UNION filters on
+   * `c.visibility = 'public'` so it cannot supply one either (correctly — that
+   * branch must never pull someone ELSE's private board into a feed). The result
+   * is that a signed-in reader's enabled set is an explicit allowlist that omits
+   * the very companies they added themselves, and since that set becomes the
+   * `company=` param, it filtered their own boards back out of a request the
+   * backend was by then willing to serve.
+   *
+   * Kept separate from `enabledCompanyIds` rather than merged upstream so the
+   * "did the user opt out of this company" preference stays one concept and this
+   * stays another. Empty for signed-out readers.
+   */
+  ownedCompanyIds: readonly string[];
   /** Frozen recency bound for this walk. */
   since: string;
   isSignedOut: boolean;
@@ -91,10 +109,19 @@ export interface BuildSearchJobsArgsInput {
 export function buildSearchJobsArgs({
   filters,
   enabledCompanyIds,
+  ownedCompanyIds,
   since,
   isSignedOut,
 }: BuildSearchJobsArgsInput): SearchJobsArgs | null {
-  const enabled = normalizeList(enabledCompanyIds ?? undefined);
+  const storedEnabled = normalizeList(enabledCompanyIds ?? undefined);
+  // ONLY widen an allowlist that already exists. `undefined` here means "all
+  // companies" (the param is omitted), and that already includes the reader's own
+  // boards — turning it into an explicit list containing just those would INVERT
+  // the meaning and hide the entire public corpus.
+  const enabled =
+    storedEnabled && ownedCompanyIds.length > 0
+      ? normalizeList([...storedEnabled, ...ownedCompanyIds])
+      : storedEnabled;
   const selected = normalizeList(filters.company);
 
   let companies: string[] | undefined;

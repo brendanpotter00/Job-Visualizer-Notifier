@@ -38,7 +38,6 @@ import {
   sourceBoardLabel,
   sourceBoardUrl,
 } from './companyHealth';
-import { AddCompanyHowTo } from './AddCompanyHowTo';
 import { DiscoveryChecklist } from './DiscoveryChecklist';
 import { PublicBoardMatchBanner } from './PublicBoardMatchBanner';
 
@@ -577,9 +576,15 @@ export function MyCompaniesList() {
   }
 
   const rows = companies ?? [];
+  const isEmpty = rows.length === 0;
 
   return (
-    <Box>
+    /* THE GROWTH IS CONDITIONAL, and that is the whole point. Only the empty state
+       wants to fill the page; a populated list must lay out exactly as it did, so
+       when there are rows this is a plain `<Box>` with no `sx` at all rather than a
+       flex column carrying an inert `flexGrow`. See the empty branch below for what
+       the growth is anchored to. */
+    <Box sx={isEmpty ? { display: 'flex', flexDirection: 'column', flexGrow: 1 } : undefined}>
       {/* Auto-refresh while any brand-new board hasn't reported jobs yet — faster
           while a discovery is mid-run so its checklist reads as live. */}
       <CompaniesPoller intervalMs={pollIntervalFor(rows, fulfilledTimeStamp ?? 0)} />
@@ -602,24 +607,51 @@ export function MyCompaniesList() {
       ) : null}
 
       <Typography variant="h6" component="h2" gutterBottom>
-        Companies you&apos;re tracking
+        Your companies
       </Typography>
 
-      {/* THE HOW-TO IS THE EMPTY STATE. There is no separate "no companies yet" screen
-          and no separate how-to section: they are the same block. A user with nothing
-          tracked sees the explanation where an icon and two grey lines used to sit, and
-          the moment they have one company their list is there instead — and the
-          explanation is GONE, with no way back to it. `MyCompaniesPage` used to carry a
-          persistent "How it works" link for exactly that reader; it was removed at the
-          owner's request (2026-09-02), so this block is now the only place the how-to
-          is ever rendered.
+      {/* THE EMPTY STATE SAYS ONE THING. It used to be a three-step how-to — "open their
+          careers page, copy the link, paste it in the box above" — written when the form
+          took a URL and nothing else. The form takes a company NAME now, so those steps
+          taught the harder path and sent a reader off to hunt for a link they no longer
+          need. The state is named, visibly, and that is all.
 
           `rows.length === 0` is safe as the gate ONLY because the `isLoading` branch
-          above already returned: on a first load the query is not settled and this
-          would otherwise be briefly true for every returning user, who would watch a
-          three-step tutorial flash on screen and vanish. */}
-      {rows.length === 0 ? (
-        <AddCompanyHowTo srOnlyLine="No companies yet" />
+          above already returned: on a first load the query is not settled and this would
+          otherwise be briefly true for every returning user.
+
+          AND IT SITS IN THE MIDDLE OF WHAT IS LEFT. Hugging the heading left the line
+          stranded at the top of an otherwise blank page. The height it centres in is not
+          computed here: `RootLayout` already runs a `minHeight: 100vh` flex column whose
+          `<Outlet />` wrapper is `flex: 1`, so that box IS "viewport minus the fixed
+          toolbar minus the footer" as the browser measured it. Growing into it needs no
+          `calc(100vh - 64px)` — there is no toolbar-height constant to subtract anyway,
+          `theme.mixins.toolbar` being a responsive object — and, because we never claim
+          more than the space that box already had, it cannot put a scrollbar on a page
+          that did not have one.
+
+          `flexGrow: 1`, NOT `flex: 1`: flex-basis stays `auto`, so the text's own height
+          is the floor. On a viewport too short to centre in, the block keeps its content
+          height and the line stays whole instead of being squeezed or clipped. */}
+      {isEmpty ? (
+        <Box
+          data-testid="my-companies-empty-fill"
+          sx={{
+            flexGrow: 1,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            py: 2.5,
+          }}
+        >
+          <Typography
+            color="text.secondary"
+            data-testid="my-companies-empty"
+            sx={{ textAlign: 'center' }}
+          >
+            No companies yet
+          </Typography>
+        </Box>
       ) : (
         <Stack spacing={1.5} data-testid="my-companies-list">
           {rows.map((company) => (

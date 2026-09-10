@@ -25,6 +25,30 @@ mkdir -p "$STATE_DIR"
 PIDFILE="$STATE_DIR/backend.pid"
 LOCK_DIR="$STATE_DIR/run.lock"
 
+# ── the $0 rungs hand off BEFORE the lock, the port and the key ────────────
+# `--validate-only` and `--replay` need no backend, no Browserbase key and no port:
+# one loads cases.toml, the other re-judges response bodies already on disk. Booting
+# :8202 for them would mean an entry point that is free in principle refuses to run
+# without a paid credential, and taking the lock would make a free check block a paid
+# run. Handing off here keeps `e2e/run.sh company-name-search --replay …` genuinely
+# free, which is what the verify-onesecondswe skill leans on.
+for _arg in "$@"; do
+  case "$_arg" in
+    --validate-only|--replay)
+      if [ ! -x "$PY" ]; then
+        echo "run.sh: no venv python at $PY" >&2; exit 1
+      fi
+      echo "run.sh: COST \$0 — '$_arg' needs no backend, no port and no Browserbase key."
+      exec "$PY" "$SECTION_DIR/intent_test.py" "$@"
+      ;;
+  esac
+done
+
+echo "run.sh: COST — REAL MONEY. ~\$0.007 per Browserbase Search call, one or two per"
+echo "run.sh:        case, ~38-39 for a full pass ≈ \$0.27. Ceiling: --max-searches"
+echo "run.sh:        (default 60, the WHOLE invocation). \$0 alternatives: --validate-only,"
+echo "run.sh:        --replay <results.json>, or the skill's helpers/name_search.sh."
+
 RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)"
 ARTIFACTS="$SECTION_DIR/artifacts/$RUN_ID"
 mkdir -p "$ARTIFACTS"

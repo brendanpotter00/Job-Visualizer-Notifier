@@ -38,21 +38,6 @@ export const selectCurrentCompanyError = createSelector(
 );
 
 /**
- * Select metadata for current company
- */
-export const selectCurrentCompanyMetadataRtk = createSelector(
-  [(state: RootState) => state.app.selectedCompanyId, (state: RootState) => state],
-  (companyId, state) => {
-    const result = jobsApi.endpoints.getJobsForCompany.select({ companyId })(state);
-    return (
-      result.data?.metadata || {
-        totalCount: 0,
-      }
-    );
-  }
-);
-
-/**
  * Select jobs for a specific company (parameterized selector)
  * Usage: useAppSelector(state => selectJobsForCompany(state, companyId))
  */

@@ -6,9 +6,18 @@ route requires a Bearer token (``get_current_user``) and is gated by the
 ``custom_company_sources_enabled`` flag — 503 when off, so the whole feature
 ships dark and rolls back by flipping the flag.
 
-The load-bearing invariant: ``visibility='user'`` jobs are served ONLY by
-``GET /api/users/companies/{id}/jobs``, which 403s any caller that does not own
-the company. The public ``/api/jobs`` never serves them.
+The load-bearing invariant: ``visibility='user'`` jobs are served ONLY where the
+OWNER is resolved SERVER-SIDE. Two paths qualify now, not one — this router's
+``GET /api/users/companies/{id}/jobs``, which 403s any caller that does not own the
+company, and ``GET /api/jobs/search``, which exempts the caller's own ``custom:<id>``
+namespaces (read out of ``user_companies`` against a validated token) from an
+otherwise blanket guard. Neither takes that set from the request. The public
+``GET /api/jobs`` list and single-job detail still never serve them, under any
+credential.
+
+NOTE THE FLAG ASYMMETRY. Every route in THIS file 503s with
+``custom_company_sources_enabled`` off; the search endpoint's owner scope is NOT
+gated by it, so flipping that flag does not turn the Recent-feed half off.
 """
 
 from __future__ import annotations
@@ -1306,7 +1315,10 @@ async def get_company_jobs(
 ) -> list[JobListingResponse]:
     """Owner-scoped jobs for a private company. 403 if the caller is not an owner.
 
-    This is the ONLY path that serves ``visibility='user'`` jobs.
+    No longer the ONLY path that serves ``visibility='user'`` jobs —
+    ``GET /api/jobs/search`` adds the caller's own boards to the Recent feed — but
+    still the only one keyed by a COMPANY ID, and the ownership check here is what
+    makes that id safe to accept from the request at all.
     """
     _require_flag()
     email = user.get("email")

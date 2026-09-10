@@ -172,10 +172,11 @@ export function ResolveUrlForm({
           // precisely the reason the add endpoint routes into PAID discovery: a headless
           // browser session, an LLM call, and one of the user's monthly adds.
           //
-          // "not LinkedIn or Indeed" is here ONLY because the how-to video that was going
-          // to say it does not exist yet. Delete that clause the day
-          // `HOW_IT_WORKS_VIDEO_SRC` (AddCompanyHowTo.tsx) stops being null, and not
-          // before: it is currently the last statement of this rule anywhere in the app.
+          // "not LinkedIn or Indeed" is here ONLY because nothing else in the app says
+          // it. The how-to that was going to — three steps in the empty state, plus a
+          // video slot that never got a video — went when the form started taking a
+          // company name and the steps stopped describing the flow. This clause is now
+          // the last statement of this rule anywhere in the app.
           helperText={
             tooLong
               ? TOO_LONG_FOR_A_NAME

@@ -273,14 +273,13 @@ describe('DiscoveryChecklist', () => {
     expect(screen.getByRole('progressbar')).toBeInTheDocument();
   });
 
-  it('renders no iframe and no toggle when there is no live-view URL', async () => {
+  it('renders no iframe when there is no live-view URL', async () => {
     // The DEFAULT: only a Browserbase capture has a hosted view and we run our own
     // Chromium, so this is the ordinary case, not the exception (DECISION D4).
     const { container } = renderWithProviders(
       <DiscoveryChecklist receivedAt={POLLED_AT} company={company('discovering', RUNNING)} />
     );
 
-    expect(screen.queryByTestId('discovery-live-view-toggle')).not.toBeInTheDocument();
     expect(screen.queryByTestId('discovery-live-view')).not.toBeInTheDocument();
     expect(container.querySelectorAll('iframe')).toHaveLength(0);
     // ...and the checklist itself is intact — no gap where the video would go.
@@ -289,35 +288,35 @@ describe('DiscoveryChecklist', () => {
   });
 
   it('shows the live view straight away, read-only, while the browser is open', async () => {
-    const user = userEvent.setup();
     renderWithProviders(
       <DiscoveryChecklist receivedAt={POLLED_AT} company={company('discovering', CAPTURING)} />
     );
 
-    // EXPANDED on arrival. The session lasts about thirty seconds; a run that ends
-    // before the user notices a "Watch live" button showed them nothing at all.
+    // VISIBLE on arrival, with nothing to press first. The session lasts about thirty
+    // seconds, so a control the user has to find showed them nothing at all.
     const frame = screen.getByTestId('discovery-live-view');
     // `navbar=false` strips the host's own chrome; the wrapper kills pointer events so
     // nobody can drive someone else's browser session from our page.
     expect(frame).toHaveAttribute('src', expect.stringContaining('navbar=false'));
     expect(getComputedStyle(frame.parentElement as HTMLElement).pointerEvents).toBe('none');
 
-    // ...and it can still be put away.
-    expect(screen.getByTestId('discovery-live-view-toggle')).toHaveTextContent(/hide live view/i);
-    await user.click(screen.getByTestId('discovery-live-view-toggle'));
-    expect(screen.getByTestId('discovery-live-view-toggle')).toHaveTextContent(/watch live/i);
+    // ...and there is NO control over it: the section is the frame and, when the session
+    // ends, the line that says so. Nothing in it is pressable. The frame's own lifetime
+    // is decided by the closers in `LiveView`, never by the reader.
+    const section = screen.getByTestId('discovery-live-view-section');
+    expect(section.querySelectorAll('button')).toHaveLength(0);
   });
 
   it('renders no live-view box at all when there is no session to watch', () => {
     // The DEFAULT path: our own headless Chromium has no hosted view, so the checklist
-    // must render exactly as it always has — no toggle, no empty frame, no layout shift.
+    // must render exactly as it always has — no section, no empty frame, no layout shift.
     renderWithProviders(
       <DiscoveryChecklist
         receivedAt={POLLED_AT}
         company={company('discovering', progress({ ...RUNNING }))}
       />
     );
-    expect(screen.queryByTestId('discovery-live-view-toggle')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('discovery-live-view-section')).not.toBeInTheDocument();
     expect(screen.queryByTestId('discovery-live-view')).not.toBeInTheDocument();
   });
 
@@ -413,20 +412,19 @@ describe('DiscoveryChecklist', () => {
     expect(screen.getByTestId('discovery-checklist')).toBe(panel);
 
     // AND IT ENDS AT NOTHING. Once the exit settles the whole section is unmounted —
-    // no toggle for a session that is over, no 0px box, nothing.
+    // no 0px box, nothing.
     await waitFor(() => {
       expect(screen.queryByTestId('discovery-live-view-section')).not.toBeInTheDocument();
     });
     expect(screen.queryByTestId('discovery-live-view-frame')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('discovery-live-view-toggle')).not.toBeInTheDocument();
   });
 
   it('says goodbye when the session ends UNDER a run that is still going', () => {
     // A 375px panel that vanishes while the checklist above it is still ticking reads as
     // something breaking. The close is two beats instead: the frame goes immediately —
     // that part is not negotiable, it is Browserbase's page and it is already painting
-    // their error — and one line takes the toggle's place to say what happened, before
-    // the section folds itself away.
+    // their error — and one line appears above it to say what happened, before the
+    // section folds itself away.
     vi.useFakeTimers();
     try {
       const { rerender } = renderWithProviders(
@@ -441,24 +439,22 @@ describe('DiscoveryChecklist', () => {
         />
       );
 
-      // GONE in the same render, and the control over it goes with it.
+      // GONE in the same render.
       expect(screen.queryByTestId('discovery-live-view')).not.toBeInTheDocument();
       expect(document.querySelectorAll('iframe')).toHaveLength(0);
-      expect(screen.queryByTestId('discovery-live-view-toggle')).not.toBeInTheDocument();
 
       // ...and in its place, the reason. Still `running`, so it says so.
       expect(screen.getByTestId('discovery-live-view-ended')).toHaveTextContent(
         /live view ended — still setting up/i
       );
 
-      // Then it closes itself, without anyone pressing anything — and it is the GOODBYE
-      // that collapses, not the toggle flashing back for the last frames of a session
+      // Then it closes itself, without anyone pressing anything — and the goodbye stays
+      // up through the close rather than being dropped for the last frames of a session
       // that is over.
       act(() => {
         vi.advanceTimersByTime(1_400);
       });
       expect(screen.getByTestId('discovery-live-view-ended')).toBeInTheDocument();
-      expect(screen.queryByTestId('discovery-live-view-toggle')).not.toBeInTheDocument();
 
       // ...and once the collapse settles there is nothing left at all.
       act(() => {
@@ -1069,7 +1065,7 @@ describe('DiscoveryChecklist', () => {
       />
     );
     // The session is gone by then — the URL would render a dead frame.
-    expect(screen.queryByTestId('discovery-live-view-toggle')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('discovery-live-view-section')).not.toBeInTheDocument();
     expect(screen.queryByTestId('discovery-live-view')).not.toBeInTheDocument();
   });
 

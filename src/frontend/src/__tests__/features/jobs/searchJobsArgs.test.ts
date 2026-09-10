@@ -27,14 +27,62 @@ function build(
   filters: Partial<RecentJobsFilters>,
   enabledCompanyIds: string[] | null = null,
   isSignedOut = false,
+  ownedCompanyIds: readonly string[] = [],
 ) {
   return buildSearchJobsArgs({
     filters: makeFilters(filters),
     enabledCompanyIds,
+    ownedCompanyIds,
     since: FROZEN_SINCE,
     isSignedOut,
   });
 }
+
+describe('buildSearchJobsArgs — the reader’s own custom companies', () => {
+  /**
+   * `user_enabled_companies` holds only PUBLIC companies — nothing writes a
+   * custom board into it, and the auto-enroll UNION filters on
+   * `visibility='public'` so it cannot supply one either. The enabled set is
+   * therefore an explicit allowlist that omits the very companies the reader
+   * added, and it becomes the `company=` param. Before this union, a custom
+   * company was filtered out of the reader's own feed here, client-side, no
+   * matter what the backend was willing to serve.
+   */
+  it('adds the reader’s own boards to an explicit enabled allowlist', () => {
+    const args = build({}, ['apple', 'stripe'], false, ['u-e95ejyhhwg']);
+
+    expect(args?.companies).toEqual(['apple', 'stripe', 'u-e95ejyhhwg']);
+  });
+
+  it('leaves "all companies" as all companies rather than narrowing to the owned set', () => {
+    // THE INVERSION GUARD. `undefined` companies means "no filter", which already
+    // includes the reader's own boards. Materializing it into an explicit list
+    // would flip the meaning and hide the entire public corpus behind the one
+    // company they just added — a far worse bug than the one being fixed.
+    expect(build({}, null, false, ['u-e95ejyhhwg'])?.companies).toBeUndefined();
+    expect(build({}, [], false, ['u-e95ejyhhwg'])?.companies).toBeUndefined();
+  });
+
+  it('still returns null when the selection and the widened set are disjoint', () => {
+    // The union must not accidentally rescue a provably-empty filter set into a
+    // corpus-wide request. Selecting a company you do not follow is still "no
+    // jobs", and `null` is how the caller is told to render that without a fetch.
+    expect(build({ company: ['netflix'] }, ['apple'], false, ['u-e95ejyhhwg'])).toBeNull();
+  });
+
+  it('lets an explicit selection of an owned board through the enabled ceiling', () => {
+    // The reader filtering their Recent feed down to just their own custom board.
+    // Without the union `enabled` would not contain it, the intersection would be
+    // empty, and this would wrongly short-circuit to "no jobs".
+    const args = build({ company: ['u-e95ejyhhwg'] }, ['apple'], false, ['u-e95ejyhhwg']);
+
+    expect(args?.companies).toEqual(['u-e95ejyhhwg']);
+  });
+
+  it('is inert when the reader owns nothing', () => {
+    expect(build({}, ['apple', 'stripe'], false, [])?.companies).toEqual(['apple', 'stripe']);
+  });
+});
 
 describe('buildSearchJobsArgs — companies', () => {
   it('sends only the companies that are both enabled and explicitly selected', () => {
@@ -408,6 +456,7 @@ describe('buildSearchJobsQuery', () => {
         ],
       }),
       enabledCompanyIds: ['apple', 'stripe', 'figma'],
+      ownedCompanyIds: [],
       since: FROZEN_SINCE,
       isSignedOut: true,
     });

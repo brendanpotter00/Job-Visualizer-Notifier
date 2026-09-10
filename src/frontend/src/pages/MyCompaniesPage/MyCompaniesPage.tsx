@@ -152,6 +152,26 @@ export function MyCompaniesPage() {
   const boardsAreTheQuestion =
     candidates !== null && candidates.candidates.some((found) => found.autoAddable);
 
+  /**
+   * NOTHING CAME BACK THAT WE COULD CONFIRM — and this state gets ONE card.
+   *
+   * It used to get two. `CareersPageAnswer` said "No board we can confirm belongs to
+   * “Linkedin” · Try pasting the URL of their careers page", and `NameSearchProgress`
+   * stacked the same news above it in machine terms: "None of the 25 results was on
+   * their own site", "17 aggregator or social results dropped", and a numbered list of
+   * raw URLs with an orange `not “Linkedin”` against each. Owner, 2026-09-05: *"I don't
+   * like how there's two different no-boards-were-found states and cards. It should
+   * just be very simple. There shouldn't be orange… it's just a no-boards, very
+   * simple."*
+   *
+   * The narration is suppressed HERE ONLY. It still runs while the request is out —
+   * that spinner is the page's only in-flight signal — and it still narrates the two
+   * states whose numbers answer a question the reader is actually being asked:
+   * "Which board is X?", and "we already publish this".
+   */
+  const nothingWasConfirmed =
+    candidates !== null && !candidates.alreadyPublic && !boardsAreTheQuestion;
+
   // The correction under a GUESSED "we already publish this" notice — the one where the
   // backend matched the company name inside the domain (`matchKind: 'name'`) rather than
   // a board. It re-sends the URL the server settled on with the override, so the board is
@@ -373,7 +393,27 @@ export function MyCompaniesPage() {
   };
 
   return (
-    <Container maxWidth="md" sx={{ py: RESPONSIVE.spacing.pageMarginY }}>
+    /* The flex column here exists for ONE consumer: the empty state at the bottom of
+       `MyCompaniesList`, which centres itself in whatever space is left over. It is
+       plumbing, not layout — `flexGrow` claims the height `RootLayout`'s `<Outlet />`
+       wrapper already has ("viewport minus toolbar minus footer"), and every child
+       below keeps its natural height because nothing but the empty state ever sets
+       `flexGrow` of its own. With companies in the list the extra room is simply
+       unused, exactly as it was before.
+
+       `flexGrow`, not `minHeight: '100%'`: that wrapper's height is a flex-derived
+       USED height while its computed `height` is still `auto`, so a percentage
+       min-height resolves against nothing and silently collapses to content height.
+       Measured, not assumed — it is why this is the second attempt. */
+    <Container
+      maxWidth="md"
+      sx={{
+        py: RESPONSIVE.spacing.pageMarginY,
+        display: 'flex',
+        flexDirection: 'column',
+        flexGrow: 1,
+      }}
+    >
       {/* The badge lives INSIDE the `<h1>` so it is part of the heading's
           accessible name ("Add Companies Beta") rather than a decoration a
           screen reader steps over. `flexWrap` keeps it off the title's line
@@ -392,7 +432,7 @@ export function MyCompaniesPage() {
           See `AddQuotaCounter` for why there is no alert and no low-balance notice. */}
       <AddQuotaCounter quota={quota} />
 
-      <Stack spacing={3}>
+      <Stack spacing={3} sx={{ flexGrow: 1 }}>
         {/* THE CONSENT MOVED, it did not go. A blue info alert used to sit here saying
             what the press does; it is now one body-size sentence directly under the
             button, inside `ResolveUrlForm`, where the control it describes is. An alert
@@ -410,13 +450,12 @@ export function MyCompaniesPage() {
           />
 
           {/* NO PERSISTENT "How it works" LINK. One used to sit here for anyone
-              already tracking a company, re-opening the same `AddCompanyHowTo` the
-              empty state renders. Removed at the owner's request (2026-09-02): "it's
-              just unnecessary noise. It should only be there when there's an empty
-              state, showing how to do it." The how-to still IS the empty state —
-              `MyCompaniesList` renders it for a user tracking nothing — so the
-              explanation has not gone, only the way back to it. See
-              `src/frontend/CLAUDE.md` for what that costs. */}
+              already tracking a company, re-opening the three steps the empty state
+              drew. Removed at the owner's request (2026-09-02): "it's just unnecessary
+              noise. It should only be there when there's an empty state, showing how to
+              do it." The steps have since gone as well — they described the URL-only
+              flow the name search superseded — so there is no explanation left for a
+              link to point back at. See `src/frontend/CLAUDE.md`. */}
         </Paper>
 
         {/* One spinner for the one call. No `!adding` guard on the outcome below it:
@@ -436,8 +475,12 @@ export function MyCompaniesPage() {
             a single confident result is added immediately without a list ever
             appearing, and flashing four lines of narration on the way past would be
             motion for something nobody is being asked to read. `NameSearchProgress`
-            has the rest — in particular why its only spinner is the request itself. */}
-        {!adding ? (
+            has the rest — in particular why its only spinner is the request itself.
+
+            Hidden too when `nothingWasConfirmed`: that state is a plain "we found no
+            board we can vouch for", and the narration was a second card saying the
+            same thing in counts and raw URLs. See `nothingWasConfirmed` above. */}
+        {!adding && !nothingWasConfirmed ? (
           <NameSearchProgress query={searchedName} searching={searching} result={candidates} />
         ) : null}
 

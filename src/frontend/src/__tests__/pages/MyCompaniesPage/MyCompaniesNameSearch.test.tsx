@@ -205,9 +205,9 @@ describe('MyCompaniesPage — typed company name', () => {
     // The identity is still one press away, at full size — unfolding must never
     // shrink the thing a person uses to catch the wrong company.
     await user.click(await screen.findByRole('button', { name: /show 1 other board we found/i }));
-    // Scoped to the fold: the narration above also names every board it checked
-    // (it folds them away on screen; nothing animates in a test, so both are in the
-    // DOM). This assertion is about the ANSWER surface.
+    // Scoped to the fold because that is the ANSWER surface. The narration panel that
+    // used to repeat every board it checked is no longer rendered in this state —
+    // see MyCompaniesNameSearchProgress.test.tsx.
     const fold = await screen.findByTestId('unconfirmed-boards');
     expect(within(fold).getByText('guidehouse')).toBeInTheDocument();
     expect(within(fold).getByText(/794 open jobs/)).toBeInTheDocument();
