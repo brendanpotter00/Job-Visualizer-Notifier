@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 
 import anthropic
 from anthropic import AsyncAnthropic
@@ -222,11 +223,52 @@ def _parse_envelope(raw_obj: object) -> list[CanonicalLocation]:
     return envelope.locations
 
 
+# --- cardinality guard -------------------------------------------------------
+#
+# A raw string can only name so many places. "San Francisco" is one; it is never
+# ten. Prod had no such check, so an over-generating response was accepted whole
+# and (under the pre-2026-09 append-only cache) fused permanently into the alias
+# mapping -- the key 'remote' reached 29 locations including Riyadh.
+#
+# The bound is deliberately generous: real multi-site postings are separated by
+# commas/semicolons, so the separator-group count is a fair ceiling, and
+# MIN_PLAUSIBLE_LOCATIONS gives short strings ("Bay Area", "HQ") room to expand.
+# A response over the bound is TRUNCATED to the ceiling and logged at ERROR --
+# it is deliberately NOT raised. Raising sent the job through 5 Procrastinate
+# retries (6 Haiku calls) and then marked it `normalization_status='failed'`,
+# which is a DEAD END: scan_unnormalized only ever selects `IS NULL`, so nothing
+# retries a failed job. One over-generating raw string would therefore leave
+# every job carrying it with ZERO location tags, permanently -- invisible in
+# location filters, and dropped into a `failed` bucket that already holds 4,073
+# OPEN jobs and that nothing monitors.
+#
+# Too many tags is a visible, repairable error; no tags is an invisible,
+# unrecoverable one. Truncation keeps the most likely locations (the model emits
+# the primary first) and #283's replace semantics mean a later correction
+# supersedes it cleanly.
+_SEPARATORS = re.compile(r"[;,/|\n]")
+# Six, not three. Separator-free metro strings legitimately expand: prod has
+# "greater seattle area" (376 OPEN jobs), "bay area", "hq". A floor of 3 would
+# truncate a correct Seattle/Bellevue/Redmond/Kirkland answer.
+MIN_PLAUSIBLE_LOCATIONS = 6
+
+
+def max_plausible_locations(raw: str) -> int:
+    """Ceiling on how many locations ``raw`` could legitimately name."""
+    groups = [g for g in _SEPARATORS.split(raw) if g.strip()]
+    return max(MIN_PLAUSIBLE_LOCATIONS, len(groups))
+
+
 def parse_locations_text(text: str, raw: str = "") -> list[CanonicalLocation]:
     """Parse a model text payload into >=1 ``CanonicalLocation``.
 
     Shared by the sync and batch paths. Raises ``LocationLLMError`` on empty /
-    non-JSON / schema-invalid / zero-location output.
+    non-JSON / schema-invalid / zero-location output, and on a response naming
+    implausibly many locations for the input (see the cardinality guard above).
+
+    The guard is skipped when ``raw`` is not supplied -- the eval's batch path
+    calls this without it, and the eval scores answers against a curated expected
+    set rather than needing the guard.
     """
     if not text:
         raise LocationLLMError(f"LLM returned no text content for {raw!r}")
@@ -234,7 +276,21 @@ def parse_locations_text(text: str, raw: str = "") -> list[CanonicalLocation]:
         raw_obj = json.loads(text)
     except json.JSONDecodeError as exc:
         raise LocationLLMError(f"LLM returned non-JSON text for {raw!r}: {exc}") from exc
-    return _parse_envelope(raw_obj)
+    locations = _parse_envelope(raw_obj)
+
+    if raw:
+        ceiling = max_plausible_locations(raw)
+        if len(locations) > ceiling:
+            dropped = [l.canonical_name for l in locations[ceiling:]]
+            logger.error(
+                "LLM over-generated for %r: %d locations for a string naming at most "
+                "%d place(s). Truncating to the first %d and DROPPING %r. "
+                "(Truncating rather than rejecting: a rejection retries 5x then marks "
+                "the job 'failed', which nothing ever retries, leaving it with no tags.)",
+                raw, len(locations), ceiling, ceiling, dropped,
+            )
+            locations = locations[:ceiling]
+    return locations
 
 
 async def normalize_location_via_llm(raw: str) -> list[CanonicalLocation]:
