@@ -185,8 +185,53 @@ async def normalize_location(context: JobContext | None = None, *, job_id: str) 
     raw_text = normalize_string(location)
     conn4 = await _open_conn("task_normalize_location_write")
     try:
-        await asyncio.to_thread(persist_llm_result, conn4, job_id, raw_text, locations)
+        def _persist() -> int | None:
+            """Serialize on the alias key, re-check Tier-1, then write.
+
+            What this lock does and does NOT do. It is taken in tx2, AFTER the
+            Haiku call -- so by the time we get here every concurrent worker has
+            already paid for its own call. The lock does not prevent that spend;
+            the per-alias collapse in scan_unnormalized does. What the lock
+            prevents is DIVERGENCE: without it the N answers race and the last
+            writer wins, so jobs sharing one location string end up with
+            different tags depending on commit order. With it the FIRST writer
+            wins and everyone else adopts its mapping.
+
+            Do not delete the scan collapse on the belief that this lock covers
+            it. They solve different halves.
+
+            The lock is transaction-scoped, so it is held only across this short
+            write and released on commit/rollback -- it is NEVER held across the
+            Haiku await (Decision #3). hashtext() is stable within a database;
+            a hash collision between two different location strings costs a
+            little needless serialization and nothing else.
+
+            Returns the adopted location count if another worker won the race,
+            else None (we wrote our own result).
+            """
+            cur = conn4.cursor()
+            try:
+                cur.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (raw_text,))
+            finally:
+                cur.close()
+            # Double-checked cache fill: whoever held the lock before us may have
+            # just populated this key (or an operator may have set a manual alias).
+            winner_ids = lookup_alias(conn4, location)
+            if winner_ids:
+                write_job_locations_from_ids(conn4, job_id, winner_ids)
+                return len(winner_ids)
+            persist_llm_result(conn4, job_id, raw_text, locations)
+            return None
+
+        adopted = await asyncio.to_thread(_persist)
         await asyncio.to_thread(conn4.commit)
-        logger.info("normalize_location: job %r normalized via Tier-2 (%d location(s)); done", job_id, len(locations))
+        if adopted is not None:
+            logger.info(
+                "normalize_location: job %r adopted a concurrently-written alias mapping "
+                "for %r (%d location(s)); done (our Haiku result discarded)",
+                job_id, raw_text, adopted,
+            )
+        else:
+            logger.info("normalize_location: job %r normalized via Tier-2 (%d location(s)); done", job_id, len(locations))
     finally:
         await _close_conn(conn4)

@@ -161,3 +161,122 @@ async def test_all_defers_failed_escalates_to_error(db_conn, defer_mock, caplog)
         and "no progress this tick" in rec.getMessage()
         for rec in caplog.records
     )
+
+
+# --- cold-key collapse: don't pay Haiku N times for one answer ---------------
+
+def _insert_job_at(conn, job_id, location):
+    """Insert a NULL-status job carrying a specific raw location."""
+    cols = ["id", *_REQUIRED_COLS.keys(), "normalization_status", "location"]
+    vals = [job_id, *_REQUIRED_COLS.values(), None, location]
+    cur = conn.cursor()
+    cur.execute(
+        sql.SQL("INSERT INTO {} ({}) VALUES ({})").format(
+            sql.Identifier("job_listings"),
+            sql.SQL(", ").join(sql.Identifier(c) for c in cols),
+            sql.SQL(", ").join(sql.Placeholder() for _ in vals),
+        ),
+        vals,
+    )
+    conn.commit()
+
+
+def _seed_alias(conn, raw_text, *, with_child=True):
+    """Make `raw_text` a real Tier-1 cache HIT.
+
+    A parent `location_aliases` row is NOT enough: lookup_alias only reports a
+    hit when the key has >=1 `alias_locations` child. An earlier version of this
+    helper seeded only the parent and called it a hit, which is exactly the
+    divergence that let a childless alias be treated as cached.
+
+    `with_child=False` seeds the broken shape on purpose.
+    """
+    cur = conn.cursor()
+    cur.execute(
+        sql.SQL("INSERT INTO {} (raw_text, source, confidence) VALUES (%s, 'llm', 0.9) "
+                "ON CONFLICT (raw_text) DO NOTHING").format(sql.Identifier("location_aliases")),
+        (raw_text,),
+    )
+    if with_child:
+        cur.execute(
+            sql.SQL("INSERT INTO {} (canonical_name, kind, city, region, country) "
+                    "VALUES (%s, 'city', %s, 'CA', 'US') RETURNING id")
+            .format(sql.Identifier("locations")),
+            (f"{raw_text} seed", raw_text[:40]),
+        )
+        row = cur.fetchone()
+        loc_id = row["id"] if isinstance(row, dict) else row[0]
+        cur.execute(
+            sql.SQL("INSERT INTO {} (raw_text, normalized_location_id, position) "
+                    "VALUES (%s, %s, 0) ON CONFLICT DO NOTHING")
+            .format(sql.Identifier("alias_locations")),
+            (raw_text, loc_id),
+        )
+    conn.commit()
+
+
+async def test_collapses_jobs_sharing_one_cold_location(db_conn, defer_mock):
+    """5 jobs, one uncached location -> ONE defer, not five.
+
+    This is the spend fix: in prod ~2,000 OPEN jobs read exactly "San Francisco".
+    Deferring all of them means 2,000 Haiku calls for one cache entry.
+    """
+    for i in range(5):
+        _insert_job_at(db_conn, f"sf-{i}", "San Francisco")
+    deferred = await scan_unnormalized(timestamp=0, limit=10)
+    assert deferred == 1
+    assert defer_mock.await_count == 1
+
+
+async def test_does_not_collapse_when_the_key_is_already_cached(db_conn, defer_mock):
+    """A cached key costs no LLM call, so all 5 defer -- that is how the backlog drains."""
+    _seed_alias(db_conn, "san francisco")
+    for i in range(5):
+        _insert_job_at(db_conn, f"sf-{i}", "San Francisco")
+    deferred = await scan_unnormalized(timestamp=0, limit=10)
+    assert deferred == 5
+    assert defer_mock.await_count == 5
+
+
+async def test_distinct_cold_locations_all_defer(db_conn, defer_mock):
+    cities = ["Austin, TX", "Seattle, WA", "Denver, CO", "Boston, MA"]
+    for i, city in enumerate(cities):
+        _insert_job_at(db_conn, f"job-{i}", city)
+    deferred = await scan_unnormalized(timestamp=0, limit=10)
+    assert deferred == len(cities)
+
+
+async def test_collapse_keys_on_the_normalized_form(db_conn, defer_mock):
+    """Casing/whitespace/dash variants are ONE key, so they collapse together."""
+    for i, raw in enumerate(["San Francisco", "  san   francisco ", "SAN FRANCISCO"]):
+        _insert_job_at(db_conn, f"sf-{i}", raw)
+    deferred = await scan_unnormalized(timestamp=0, limit=10)
+    assert deferred == 1
+
+
+async def test_null_location_jobs_are_never_collapsed(db_conn, defer_mock):
+    """They terminate in tx1 (marked 'failed') without touching the LLM.
+
+    Collapsing them would drain a NULL-location backlog at one row per tick for
+    no saving at all.
+    """
+    for i in range(5):
+        _insert_job_at(db_conn, f"nul-{i}", None)
+    deferred = await scan_unnormalized(timestamp=0, limit=10)
+    assert deferred == 5
+
+
+async def test_childless_alias_is_not_treated_as_cached(db_conn, defer_mock):
+    """A `location_aliases` row with no children is NOT a Tier-1 hit.
+
+    lookup_alias returns [] for it and falls through to Tier-2, so every job
+    carrying that key calls Haiku. If the scan classed the key as cached it
+    would skip the collapse and defer all N -- the exact stampede this function
+    exists to prevent, in the one state normalize_location logs as an invariant
+    violation.
+    """
+    _seed_alias(db_conn, "san francisco", with_child=False)
+    for i in range(5):
+        _insert_job_at(db_conn, f"sf-{i}", "San Francisco")
+    deferred = await scan_unnormalized(timestamp=0, limit=10)
+    assert deferred == 1, "a childless alias must still collapse like a cold key"
