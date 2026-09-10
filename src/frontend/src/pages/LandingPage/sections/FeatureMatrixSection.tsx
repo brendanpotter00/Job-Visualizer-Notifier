@@ -2,11 +2,10 @@ import type { ComponentType } from 'react';
 import { Box, Link, Typography } from '@mui/material';
 import type { SvgIconProps } from '@mui/material';
 import { Link as RouterLink } from 'react-router-dom';
-import ApartmentOutlinedIcon from '@mui/icons-material/ApartmentOutlined';
 import FilterListOutlinedIcon from '@mui/icons-material/FilterListOutlined';
-import LanguageOutlinedIcon from '@mui/icons-material/LanguageOutlined';
 import LockOpenOutlinedIcon from '@mui/icons-material/LockOpenOutlined';
 import NotificationsNoneOutlinedIcon from '@mui/icons-material/NotificationsNoneOutlined';
+import PersonSearchOutlinedIcon from '@mui/icons-material/PersonSearchOutlined';
 import ScheduleOutlinedIcon from '@mui/icons-material/ScheduleOutlined';
 import SellOutlinedIcon from '@mui/icons-material/SellOutlined';
 import SmartToyOutlinedIcon from '@mui/icons-material/SmartToyOutlined';
@@ -14,6 +13,9 @@ import TravelExploreOutlinedIcon from '@mui/icons-material/TravelExploreOutlined
 import { RESPONSIVE } from '../../../config/responsive';
 import type { LandingContent, LandingFeature } from '../content';
 import { MATRIX_COLUMNS, matrixCellSpans, type MatrixCellSpans } from './matrixLayout';
+import { Eyebrow, SectionIntro } from './SectionIntro';
+
+const HEADING_ID = 'landing-features-heading';
 
 /**
  * Icon per feature id, across both tiers. Icons are presentation, not copy, so
@@ -24,15 +26,14 @@ import { MATRIX_COLUMNS, matrixCellSpans, type MatrixCellSpans } from './matrixL
  * read.
  */
 const FEATURE_ICONS: Record<string, ComponentType<SvgIconProps>> = {
-  source: LanguageOutlinedIcon,
   freshness: ScheduleOutlinedIcon,
   ai_labels: SellOutlinedIcon,
-  curated: ApartmentOutlinedIcon,
   saved_filters: FilterListOutlinedIcon,
+  track_any_company: TravelExploreOutlinedIcon,
+  reach_recruiter: PersonSearchOutlinedIcon,
   free: LockOpenOutlinedIcon,
   mcp_access: SmartToyOutlinedIcon,
   ai_notifications: NotificationsNoneOutlinedIcon,
-  track_any_company: TravelExploreOutlinedIcon,
 };
 
 /**
@@ -64,8 +65,7 @@ interface MatrixCellProps {
    * Per-breakpoint row-filling, from `matrixCellSpans` — which owns the rule
    * about when a trailing cell would otherwise sit alone. Both breakpoints have
    * to be answered independently, because a tier that orphans a cell in the
-   * 2-up mobile grid usually does not orphan one in the 3-up desktop grid (a
-   * 7-cell tier orphans in both; a 3-cell tier only in mobile).
+   * 2-up mobile grid usually does not orphan one in the 3-up desktop grid.
    */
   spans?: MatrixCellSpans;
 }
@@ -106,7 +106,7 @@ function MatrixCell({ feature, muted = false, spans }: MatrixCellProps) {
           component="h3"
           sx={{
             fontSize: RESPONSIVE.landingProto.blockTitleFontSize,
-            fontWeight: 600,
+            fontWeight: 500,
             ...(muted && { color: 'text.disabled' }),
           }}
         >
@@ -138,15 +138,14 @@ interface FeatureMatrixSectionProps {
  * Layout is a zero-gap CSS grid (2 columns on phones, 3 from `sm`) where each
  * cell draws its own top hairline, so adjacent cells fuse into continuous rules
  * and the block reads as a ruled matrix rather than floating cards. Neither
- * tier's count is required to divide evenly any more — `matrixCellSpans` widens
- * a trailing cell that would otherwise be alone in its row, which is what lets
- * a cell graduate between tiers without the counts having to be re-balanced by
+ * tier's count is required to divide evenly — `matrixCellSpans` widens a
+ * trailing cell that would otherwise be alone in its row, which is what lets a
+ * cell graduate between tiers without the counts having to be re-balanced by
  * hand on the same day.
  *
- * **Rules are load-bearing only where they separate rows.** The closing bottom
- * rule was dropped and the cells given deep vertical padding instead: Notion
- * separates with space, not lines, so each tier ends in air and the columns are
- * parted by each cell's own right gutter rather than by a vertical rule.
+ * **Rules are load-bearing only where they separate rows.** There is no closing
+ * bottom rule; the cells carry deep vertical padding instead, so each tier
+ * ends in air and the columns are parted by each cell's own right gutter.
  *
  * **The coming-soon tier is a labeled exception, not a softening of the rule.**
  * `docs/marketing/business-context.md` still forbids anything unshipped from
@@ -158,24 +157,16 @@ interface FeatureMatrixSectionProps {
  * opposite reason — a badge on every cell would cost the matrix the calm skim
  * it exists for, and one group label already says it once.
  *
- * The vote link still closes the section, now reading as the coda after the
+ * The vote link still closes the section, reading as the coda after the
  * roadmap instead of standing in for it.
  */
 export function FeatureMatrixSection({ content }: FeatureMatrixSectionProps) {
-  const { heading, features, comingSoonLabel, comingSoon, nextUp } = content.featureMatrix;
+  const { eyebrow, heading, features, comingSoonLabel, comingSoon, nextUp } =
+    content.featureMatrix;
 
   return (
-    <Box component="section" data-testid="feature-matrix">
-      <Typography
-        component="h2"
-        sx={{
-          fontSize: RESPONSIVE.landingProto.sectionTitleFontSize,
-          fontWeight: 600,
-          mb: RESPONSIVE.landingProto.sectionTitleMarginBottom,
-        }}
-      >
-        {heading}
-      </Typography>
+    <Box component="section" aria-labelledby={HEADING_ID} data-testid="feature-matrix">
+      <SectionIntro eyebrow={eyebrow} heading={heading} headingId={HEADING_ID} />
 
       <Box data-testid="feature-matrix-live" sx={MATRIX_GRID_SX}>
         {features.map((feature, i) => (
@@ -191,18 +182,9 @@ export function FeatureMatrixSection({ content }: FeatureMatrixSectionProps) {
           the live cells' own deep bottom padding, then the overline sitting in
           that air above the group's first hairline. */}
       <Box data-testid="feature-matrix-coming-soon" sx={{ mt: { xs: 1, sm: 2 } }}>
-        <Typography
-          sx={{
-            color: 'text.disabled',
-            fontSize: RESPONSIVE.landingProto.matrixTierLabelFontSize,
-            fontWeight: 600,
-            letterSpacing: '0.08em',
-            textTransform: 'uppercase',
-            mb: { xs: 1, sm: 1.5 },
-          }}
-        >
-          {comingSoonLabel}
-        </Typography>
+        <Box sx={{ mb: { xs: 1, sm: 1.5 } }}>
+          <Eyebrow muted>{comingSoonLabel}</Eyebrow>
+        </Box>
         <Box sx={MATRIX_GRID_SX}>
           {comingSoon.map((feature, i) => (
             <MatrixCell
