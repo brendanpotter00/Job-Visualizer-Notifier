@@ -26,6 +26,16 @@ vi.mock('../../../features/preferences/useEnabledCompanies', () => ({
   useEnabledCompanies: () => mockEnabled,
 }));
 
+// The real roster is ~190 companies, and every test that enters "Only these"
+// renders a chip (with a logo) per company — far too slow for jsdom. Trim the
+// roster to a handful; "Clear" is kept on purpose because it shares its name
+// with the Clear button and once collided with it.
+vi.mock('../../../config/companies', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../config/companies')>();
+  const keep = new Set(['Adobe', 'Airbnb', 'Clear', 'Google', 'OpenAI', 'Stripe']);
+  return { ...actual, COMPANIES: actual.COMPANIES.filter((c) => keep.has(c.name)) };
+});
+
 function resetMock(overrides: Partial<MockEnabled> = {}) {
   mockEnabled = {
     ids: null,
@@ -38,9 +48,18 @@ function resetMock(overrides: Partial<MockEnabled> = {}) {
   };
 }
 
-function getSearchCombobox(): HTMLElement {
-  return screen.getByRole('combobox', { name: /search companies/i });
-}
+const getAllRadio = () => screen.getByRole('radio', { name: /all companies/i });
+const getCustomRadio = () => screen.getByRole('radio', { name: /only these companies/i });
+const getFilterInput = () => screen.getByRole('textbox', { name: /find a company/i });
+const queryFilterInput = () => screen.queryByRole('textbox', { name: /find a company/i });
+const getAutoEnrollCheckbox = () =>
+  screen.getByRole('checkbox', { name: /auto-add new companies/i });
+const queryAutoEnrollCheckbox = () =>
+  screen.queryByRole('checkbox', { name: /auto-add new companies/i });
+const getSaveButton = () => screen.getByRole('button', { name: /save companies/i });
+const chip = (id: string) => screen.getByTestId(`company-chip-${id}`);
+const queryChip = (id: string) => screen.queryByTestId(`company-chip-${id}`);
+const getSummary = () => screen.getByTestId('saved-companies-summary');
 
 describe('EnabledCompaniesSection', () => {
   beforeEach(() => {
@@ -48,116 +67,216 @@ describe('EnabledCompaniesSection', () => {
     resetMock();
   });
 
+  // ── initial state ─────────────────────────────────────────────────────
+
   it('shows a loading spinner when loading and ids are not yet loaded', () => {
     resetMock({ loading: true, ids: null });
     render(<EnabledCompaniesSection />);
-
     expect(screen.getByRole('progressbar')).toBeInTheDocument();
-    expect(screen.queryByRole('combobox', { name: /search companies/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('radio', { name: /all companies/i })).not.toBeInTheDocument();
   });
 
-  it('renders the picker with no selected chips when ids is null', () => {
-    resetMock({ ids: null, loading: false });
+  it('starts in "All companies" mode with the grid hidden when ids is null', () => {
+    resetMock({ ids: null });
     render(<EnabledCompaniesSection />);
-
-    expect(getSearchCombobox()).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /save changes/i })).toBeDisabled();
+    expect(getAllRadio()).toBeChecked();
+    expect(getCustomRadio()).not.toBeChecked();
+    expect(queryFilterInput()).not.toBeInTheDocument();
+    expect(queryChip('airbnb')).not.toBeInTheDocument();
+    expect(queryAutoEnrollCheckbox()).not.toBeInTheDocument();
+    expect(getSummary()).toHaveTextContent('All companies');
+    expect(getSaveButton()).toBeDisabled();
   });
 
-  it('renders the picker with no selected chips when ids is empty', () => {
-    resetMock({ ids: [], loading: false });
+  it('starts in "All companies" mode when the saved list is empty', () => {
+    resetMock({ ids: [] });
     render(<EnabledCompaniesSection />);
-
-    expect(getSearchCombobox()).toBeInTheDocument();
-    expect(screen.queryByTestId('selected-chip-Airbnb')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /save changes/i })).toBeDisabled();
+    expect(getAllRadio()).toBeChecked();
+    expect(queryFilterInput()).not.toBeInTheDocument();
   });
 
-  it('renders saved ids as chips with display names', async () => {
-    resetMock({ ids: ['airbnb'] });
+  it('starts in "Only these" mode with every company listed and the saved ones pressed', async () => {
+    resetMock({ ids: ['stripe', 'airbnb'] });
     render(<EnabledCompaniesSection />);
-
     await waitFor(() => {
-      expect(screen.getByTestId('selected-chip-Airbnb')).toBeInTheDocument();
+      expect(getCustomRadio()).toBeChecked();
     });
+    expect(chip('airbnb')).toHaveAttribute('aria-pressed', 'true');
+    expect(chip('stripe')).toHaveAttribute('aria-pressed', 'true');
+    expect(chip('adobe')).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getAllByTestId(/^company-chip-/)).toHaveLength(COMPANIES.length);
+    expect(getAutoEnrollCheckbox()).toBeChecked();
+    expect(getSummary()).toHaveTextContent('2 selected');
+    expect(getSaveButton()).toBeDisabled();
   });
 
-  it('shows the empty-state copy and zero count when nothing is selected', () => {
-    resetMock({ ids: [], loading: false });
+  it('ignores unknown company ids in saved state without crashing', async () => {
+    resetMock({ ids: ['nope-not-a-company'] });
     render(<EnabledCompaniesSection />);
-
-    expect(screen.getByTestId('selected-count')).toHaveTextContent('0');
-    expect(
-      screen.getByText(/no companies selected\. you'll see postings from all companies\./i)
-    ).toBeInTheDocument();
+    await waitFor(() => {
+      expect(getCustomRadio()).toBeChecked();
+    });
+    expect(getSummary()).toHaveTextContent('0 selected');
+    expect(getSaveButton()).toBeDisabled();
   });
 
-  it('updates the selected-count chip when selections change', async () => {
+  it('is not dirty when the saved list only differs in order', async () => {
+    resetMock({ ids: ['stripe', 'airbnb'] });
+    render(<EnabledCompaniesSection />);
+    await waitFor(() => {
+      expect(chip('airbnb')).toHaveAttribute('aria-pressed', 'true');
+    });
+    expect(getSaveButton()).toBeDisabled();
+  });
+
+  // ── mode switching ────────────────────────────────────────────────────
+
+  it('switching to "Only these" reveals the grid but stays clean until a company is picked', async () => {
     resetMock({ ids: [] });
     const user = userEvent.setup();
     render(<EnabledCompaniesSection />);
 
-    expect(screen.getByTestId('selected-count')).toHaveTextContent('0');
+    await user.click(getCustomRadio());
 
-    const combo = getSearchCombobox();
-    await user.click(combo);
-    await user.type(combo, 'Airbnb');
-    await user.keyboard('{Enter}');
-
-    await waitFor(() => {
-      expect(screen.getByTestId('selected-count')).toHaveTextContent('1');
-    });
-    expect(screen.getByTestId('selected-chip-Airbnb')).toBeInTheDocument();
+    expect(getFilterInput()).toBeInTheDocument();
+    expect(chip('airbnb')).toHaveAttribute('aria-pressed', 'false');
+    expect(getAutoEnrollCheckbox()).toBeInTheDocument();
+    expect(screen.getByText(/nothing picked yet/i)).toBeInTheDocument();
+    // An empty explicit list persists exactly like "All companies", so nothing to save yet.
+    expect(getSaveButton()).toBeDisabled();
   });
 
-  it('removes a selection when the chip delete icon is clicked', async () => {
+  it('switching a saved list to "All companies" saves an empty list', async () => {
+    const saveMock = vi.fn().mockResolvedValue(undefined);
+    resetMock({ ids: ['airbnb'], save: saveMock });
+    const user = userEvent.setup();
+    render(<EnabledCompaniesSection />);
+    await waitFor(() => {
+      expect(chip('airbnb')).toHaveAttribute('aria-pressed', 'true');
+    });
+
+    await user.click(getAllRadio());
+
+    expect(queryChip('airbnb')).not.toBeInTheDocument();
+    expect(getSummary()).toHaveTextContent('All companies');
+    expect(getSaveButton()).toBeEnabled();
+
+    await user.click(getSaveButton());
+    await waitFor(() => {
+      expect(saveMock).toHaveBeenCalledWith([], true);
+    });
+  });
+
+  it('switching back to "Only these" restores the list that was there before', async () => {
+    resetMock({ ids: ['airbnb'] });
+    const user = userEvent.setup();
+    render(<EnabledCompaniesSection />);
+    await waitFor(() => {
+      expect(chip('airbnb')).toHaveAttribute('aria-pressed', 'true');
+    });
+
+    await user.click(getAllRadio());
+    await user.click(getCustomRadio());
+
+    expect(chip('airbnb')).toHaveAttribute('aria-pressed', 'true');
+    expect(getSaveButton()).toBeDisabled();
+  });
+
+  // ── picking from the grid ─────────────────────────────────────────────
+
+  it('clicking a chip selects it, updates the count, and enables Save', async () => {
+    resetMock({ ids: [] });
+    const user = userEvent.setup();
+    render(<EnabledCompaniesSection />);
+
+    await user.click(getCustomRadio());
+    await user.click(chip('airbnb'));
+
+    expect(chip('airbnb')).toHaveAttribute('aria-pressed', 'true');
+    expect(getSummary()).toHaveTextContent('1 selected');
+    expect(screen.queryByText(/nothing picked yet/i)).not.toBeInTheDocument();
+    expect(getSaveButton()).toBeEnabled();
+  });
+
+  it('clicking a selected chip removes it', async () => {
     resetMock({ ids: ['airbnb', 'stripe'] });
     const user = userEvent.setup();
     render(<EnabledCompaniesSection />);
-
     await waitFor(() => {
-      expect(screen.getByTestId('selected-chip-Airbnb')).toBeInTheDocument();
+      expect(chip('airbnb')).toHaveAttribute('aria-pressed', 'true');
     });
 
-    const chip = screen.getByTestId('selected-chip-Airbnb');
-    const deleteIcon = chip.querySelector('svg');
-    expect(deleteIcon).not.toBeNull();
-    await user.click(deleteIcon!);
+    await user.click(chip('airbnb'));
 
-    expect(screen.queryByTestId('selected-chip-Airbnb')).not.toBeInTheDocument();
-    expect(screen.getByTestId('selected-chip-Stripe')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /save changes/i })).toBeEnabled();
+    expect(chip('airbnb')).toHaveAttribute('aria-pressed', 'false');
+    expect(chip('stripe')).toHaveAttribute('aria-pressed', 'true');
+    expect(getSummary()).toHaveTextContent('1 selected');
+    expect(getSaveButton()).toBeEnabled();
   });
 
-  it('disables the Clear button while the draft is empty', () => {
-    resetMock({ ids: [] });
+  it('the filter box narrows the grid without changing the selection', async () => {
+    resetMock({ ids: ['stripe'] });
+    const user = userEvent.setup();
     render(<EnabledCompaniesSection />);
+    await waitFor(() => {
+      expect(chip('stripe')).toBeInTheDocument();
+    });
 
-    expect(screen.getByRole('button', { name: /^clear$/i })).toBeDisabled();
+    await user.type(getFilterInput(), 'airb');
+
+    expect(chip('airbnb')).toBeInTheDocument();
+    expect(queryChip('stripe')).not.toBeInTheDocument();
+    expect(getSummary()).toHaveTextContent('1 selected');
+    expect(getSaveButton()).toBeDisabled();
   });
 
-  it('ignores unknown company ids in saved state without crashing', () => {
-    resetMock({ ids: ['some-deleted-company'] });
-    render(<EnabledCompaniesSection />);
-
-    expect(getSearchCombobox()).toBeInTheDocument();
-  });
-
-  it('enables Save button when the draft differs from saved ids', async () => {
+  it('Enter in the filter box toggles the top match and clears the filter', async () => {
     resetMock({ ids: [] });
     const user = userEvent.setup();
     render(<EnabledCompaniesSection />);
 
-    const combo = getSearchCombobox();
-    await user.click(combo);
-    await user.type(combo, 'Airbnb');
-    await user.keyboard('{Enter}');
+    await user.click(getCustomRadio());
+    await user.type(getFilterInput(), 'airb{Enter}');
 
-    await waitFor(() => {
-      expect(screen.getByTestId('selected-chip-Airbnb')).toBeInTheDocument();
-    });
-    expect(screen.getByRole('button', { name: /save changes/i })).toBeEnabled();
+    expect(chip('airbnb')).toHaveAttribute('aria-pressed', 'true');
+    expect(getFilterInput()).toHaveValue('');
+    // The full grid is back, ready for the next name.
+    expect(chip('stripe')).toBeInTheDocument();
   });
+
+  it('shows a no-match message and Enter does nothing when the filter matches nothing', async () => {
+    resetMock({ ids: [] });
+    const user = userEvent.setup();
+    render(<EnabledCompaniesSection />);
+
+    await user.click(getCustomRadio());
+    await user.type(getFilterInput(), 'zzzzzz{Enter}');
+
+    expect(screen.getByText(/no companies match/i)).toBeInTheDocument();
+    expect(getSummary()).toHaveTextContent('0 selected');
+    expect(getSaveButton()).toBeDisabled();
+  });
+
+  it('Select all picks every company and Clear empties the list', async () => {
+    resetMock({ ids: ['airbnb'] });
+    const user = userEvent.setup();
+    render(<EnabledCompaniesSection />);
+    await waitFor(() => {
+      expect(chip('airbnb')).toHaveAttribute('aria-pressed', 'true');
+    });
+
+    await user.click(screen.getByRole('button', { name: /select all companies/i }));
+    expect(getSummary()).toHaveTextContent(`${COMPANIES.length} selected`);
+    expect(chip('stripe')).toHaveAttribute('aria-pressed', 'true');
+    expect(getSaveButton()).toBeEnabled();
+
+    await user.click(screen.getByRole('button', { name: /clear selected companies/i }));
+    expect(getSummary()).toHaveTextContent('0 selected');
+    expect(chip('airbnb')).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByRole('button', { name: /clear selected companies/i })).toBeDisabled();
+  });
+
+  // ── saving ────────────────────────────────────────────────────────────
 
   it('calls save with a canonicalized (sorted, deduped) id list', async () => {
     const saveMock = vi.fn().mockResolvedValue(undefined);
@@ -165,372 +284,117 @@ describe('EnabledCompaniesSection', () => {
     const user = userEvent.setup();
     render(<EnabledCompaniesSection />);
 
-    const combo = getSearchCombobox();
-    await user.click(combo);
-    await user.type(combo, 'Stripe');
-    await user.keyboard('{Enter}');
-    await waitFor(() => {
-      expect(screen.getByTestId('selected-chip-Stripe')).toBeInTheDocument();
-    });
-    await user.type(combo, 'Airbnb');
-    await user.keyboard('{Enter}');
-    await waitFor(() => {
-      expect(screen.getByTestId('selected-chip-Airbnb')).toBeInTheDocument();
-    });
-
-    await user.click(screen.getByRole('button', { name: /save changes/i }));
+    await user.click(getCustomRadio());
+    await user.click(chip('stripe'));
+    await user.click(chip('airbnb'));
+    await user.click(getSaveButton());
 
     await waitFor(() => {
       expect(saveMock).toHaveBeenCalledWith(['airbnb', 'stripe'], true);
     });
   });
 
-  it('shows success alert after a successful save', async () => {
-    const saveMock = vi.fn().mockResolvedValue(undefined);
+  it('shows "Saved." once the save lands and the hook reflects the new list', async () => {
+    resetMock({ ids: [] });
+    mockEnabled.save = vi.fn(async (ids: string[], autoEnroll: boolean) => {
+      mockEnabled = { ...mockEnabled, ids, autoEnroll };
+    });
+    const user = userEvent.setup();
+    const { rerender } = render(<EnabledCompaniesSection />);
+
+    await user.click(getCustomRadio());
+    await user.click(chip('airbnb'));
+    await user.click(getSaveButton());
+    rerender(<EnabledCompaniesSection />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Saved.')).toBeInTheDocument();
+    });
+    expect(getSaveButton()).toBeDisabled();
+  });
+
+  it('shows an error when save rejects', async () => {
+    const saveMock = vi.fn().mockRejectedValue(new Error('Network down'));
     resetMock({ ids: [], save: saveMock });
     const user = userEvent.setup();
     render(<EnabledCompaniesSection />);
 
-    const combo = getSearchCombobox();
-    await user.click(combo);
-    await user.type(combo, 'Airbnb');
-    await user.keyboard('{Enter}');
-    await waitFor(() => {
-      expect(screen.getByTestId('selected-chip-Airbnb')).toBeInTheDocument();
-    });
-
-    await user.click(screen.getByRole('button', { name: /save changes/i }));
+    await user.click(getCustomRadio());
+    await user.click(chip('airbnb'));
+    await user.click(getSaveButton());
 
     await waitFor(() => {
-      expect(screen.getByText('Preferences saved.')).toBeInTheDocument();
+      expect(screen.getByText(/network down/i)).toBeInTheDocument();
     });
   });
 
-  it('shows error alert when save rejects', async () => {
-    const saveMock = vi.fn().mockRejectedValue(new Error('Failed to save enabled companies (500)'));
-    resetMock({ ids: [], save: saveMock });
-    const user = userEvent.setup();
+  it('surfaces a hook-level load error', () => {
+    resetMock({ ids: [], error: 'Failed to load enabled companies' });
     render(<EnabledCompaniesSection />);
-
-    const combo = getSearchCombobox();
-    await user.click(combo);
-    await user.type(combo, 'Airbnb');
-    await user.keyboard('{Enter}');
-    await waitFor(() => {
-      expect(screen.getByTestId('selected-chip-Airbnb')).toBeInTheDocument();
-    });
-
-    await user.click(screen.getByRole('button', { name: /save changes/i }));
-
-    await waitFor(() => {
-      expect(screen.getByText('Failed to save enabled companies (500)')).toBeInTheDocument();
-    });
+    expect(screen.getByText(/failed to load enabled companies/i)).toBeInTheDocument();
   });
 
-  it('Select All populates the draft with every company id', async () => {
-    const saveMock = vi.fn().mockResolvedValue(undefined);
-    resetMock({ ids: [], save: saveMock });
-    const user = userEvent.setup();
-    render(<EnabledCompaniesSection />);
+  // ── auto-enroll checkbox ──────────────────────────────────────────────
 
-    await user.click(screen.getByRole('button', { name: /^select all$/i }));
-    await user.click(screen.getByRole('button', { name: /save changes/i }));
-
-    const expectedIds = [...COMPANIES.map((c) => c.id)].sort();
-    await waitFor(() => {
-      expect(saveMock).toHaveBeenCalledWith(expectedIds, true);
-    });
-  });
-
-  it('Clear empties the draft and makes it dirty relative to a non-empty saved list', async () => {
-    resetMock({ ids: ['airbnb'] });
-    const user = userEvent.setup();
-    render(<EnabledCompaniesSection />);
-
-    await waitFor(() => {
-      expect(screen.getByTestId('selected-chip-Airbnb')).toBeInTheDocument();
-    });
-
-    await user.click(screen.getByRole('button', { name: /^clear$/i }));
-
-    expect(screen.queryByTestId('selected-chip-Airbnb')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /save changes/i })).toBeEnabled();
-  });
-
-  it('treats saved and draft as equal regardless of order (not dirty when order differs)', async () => {
-    resetMock({ ids: ['stripe', 'airbnb'] });
-    render(<EnabledCompaniesSection />);
-
-    await waitFor(() => {
-      expect(screen.getByTestId('selected-chip-Stripe')).toBeInTheDocument();
-      expect(screen.getByTestId('selected-chip-Airbnb')).toBeInTheDocument();
-    });
-
-    expect(screen.getByRole('button', { name: /save changes/i })).toBeDisabled();
-  });
-
-  // ---------------------------------------------------------------------
-  // Auto-include-new-companies toggle.
-  // ---------------------------------------------------------------------
-
-  function getAutoEnrollToggle(): HTMLElement {
-    return screen.getByRole('checkbox', {
-      name: /auto-include newly added companies/i,
-    });
-  }
-
-  it('renders the auto-include toggle checked when autoEnroll is true', async () => {
-    resetMock({ ids: ['airbnb'], autoEnroll: true });
-    render(<EnabledCompaniesSection />);
-    await waitFor(() => {
-      expect(getAutoEnrollToggle()).toBeChecked();
-    });
-  });
-
-  it('reflects autoEnroll=false from the hook as an unchecked toggle and stays not-dirty', async () => {
+  it('reflects autoEnroll=false from the hook as an unchecked box and stays clean', async () => {
     resetMock({ ids: ['airbnb'], autoEnroll: false });
     render(<EnabledCompaniesSection />);
-
     await waitFor(() => {
-      expect(screen.getByTestId('selected-chip-Airbnb')).toBeInTheDocument();
+      expect(chip('airbnb')).toHaveAttribute('aria-pressed', 'true');
     });
-    expect(getAutoEnrollToggle()).not.toBeChecked();
-    expect(screen.getByRole('button', { name: /save changes/i })).toBeDisabled();
+    expect(getAutoEnrollCheckbox()).not.toBeChecked();
+    expect(getSaveButton()).toBeDisabled();
   });
 
-  it('toggling the switch alone makes the form dirty', async () => {
-    resetMock({ ids: ['airbnb'], autoEnroll: true });
-    const user = userEvent.setup();
-    render(<EnabledCompaniesSection />);
-
-    await waitFor(() => {
-      expect(screen.getByTestId('selected-chip-Airbnb')).toBeInTheDocument();
-    });
-    expect(screen.getByRole('button', { name: /save changes/i })).toBeDisabled();
-
-    await user.click(getAutoEnrollToggle());
-
-    expect(getAutoEnrollToggle()).not.toBeChecked();
-    expect(screen.getByRole('button', { name: /save changes/i })).toBeEnabled();
-  });
-
-  it('saving with the auto-include toggle off passes autoEnroll=false', async () => {
+  it('toggling the checkbox alone makes the section dirty and saves autoEnroll=false', async () => {
     const saveMock = vi.fn().mockResolvedValue(undefined);
     resetMock({ ids: ['airbnb'], autoEnroll: true, save: saveMock });
     const user = userEvent.setup();
     render(<EnabledCompaniesSection />);
-
     await waitFor(() => {
-      expect(screen.getByTestId('selected-chip-Airbnb')).toBeInTheDocument();
+      expect(chip('airbnb')).toHaveAttribute('aria-pressed', 'true');
     });
+    expect(getSaveButton()).toBeDisabled();
 
-    await user.click(getAutoEnrollToggle());
-    await user.click(screen.getByRole('button', { name: /save changes/i }));
+    await user.click(getAutoEnrollCheckbox());
 
+    expect(getAutoEnrollCheckbox()).not.toBeChecked();
+    expect(getSaveButton()).toBeEnabled();
+
+    await user.click(getSaveButton());
     await waitFor(() => {
       expect(saveMock).toHaveBeenCalledWith(['airbnb'], false);
     });
   });
 
-  // ---------------------------------------------------------------------
-  // New-behavior tests: search-add flow, hide-already-selected, accordion,
-  // chip grid toggles, grid-panel sync, keyboard navigation.
-  // ---------------------------------------------------------------------
-
-  it('Enter commits top match and clears the input', async () => {
-    resetMock({ ids: [] });
+  it('starts checked when coming from "All companies", even if a stale false is stored', async () => {
+    const saveMock = vi.fn().mockResolvedValue(undefined);
+    resetMock({ ids: [], autoEnroll: false, save: saveMock });
     const user = userEvent.setup();
     render(<EnabledCompaniesSection />);
 
-    const combo = getSearchCombobox() as HTMLInputElement;
-    await user.click(combo);
-    await user.type(combo, 'air');
-    await user.keyboard('{Enter}');
+    await user.click(getCustomRadio());
 
+    expect(getAutoEnrollCheckbox()).toBeChecked();
+    expect(getSaveButton()).toBeDisabled();
+
+    await user.click(chip('airbnb'));
+    await user.click(getSaveButton());
     await waitFor(() => {
-      expect(screen.getByTestId('selected-chip-Airbnb')).toBeInTheDocument();
+      expect(saveMock).toHaveBeenCalledWith(['airbnb'], true);
     });
-    expect(combo.value).toBe('');
   });
 
-  it('supports sequential fast-add via Enter', async () => {
-    resetMock({ ids: [] });
-    const user = userEvent.setup();
-    render(<EnabledCompaniesSection />);
-
-    const combo = getSearchCombobox();
-    await user.click(combo);
-    await user.type(combo, 'strip');
-    await user.keyboard('{Enter}');
-    await waitFor(() => {
-      expect(screen.getByTestId('selected-chip-Stripe')).toBeInTheDocument();
-    });
-
-    await user.type(combo, 'airb');
-    await user.keyboard('{Enter}');
-    await waitFor(() => {
-      expect(screen.getByTestId('selected-chip-Airbnb')).toBeInTheDocument();
-    });
-
-    expect(screen.getByTestId('selected-count')).toHaveTextContent('2');
-  });
-
-  it('pressing Enter with zero matches does not add anything', async () => {
-    resetMock({ ids: [] });
-    const user = userEvent.setup();
-    render(<EnabledCompaniesSection />);
-
-    const combo = getSearchCombobox();
-    await user.click(combo);
-    await user.type(combo, 'zzzzzz');
-    await user.keyboard('{Enter}');
-
-    expect(screen.getByTestId('selected-count')).toHaveTextContent('0');
-    expect(screen.getByRole('button', { name: /save changes/i })).toBeDisabled();
-  });
-
-  it('hides already-selected companies from the search dropdown', async () => {
+  it('the checkbox is not offered in "All companies" mode', async () => {
     resetMock({ ids: ['airbnb'] });
     const user = userEvent.setup();
     render(<EnabledCompaniesSection />);
-
     await waitFor(() => {
-      expect(screen.getByTestId('selected-chip-Airbnb')).toBeInTheDocument();
+      expect(getAutoEnrollCheckbox()).toBeInTheDocument();
     });
 
-    const combo = getSearchCombobox();
-    await user.click(combo);
-    await user.type(combo, 'Airbnb');
+    await user.click(getAllRadio());
 
-    // The input has "Airbnb" typed, but Airbnb is already selected and
-    // therefore filtered out. Expect the "No companies match" fallback.
-    await waitFor(() => {
-      expect(screen.getByText(/no companies match/i)).toBeInTheDocument();
-    });
-    expect(screen.queryByRole('option', { name: /^airbnb$/i })).not.toBeInTheDocument();
-  });
-
-  it('accordion is collapsed by default and expands to reveal the chip grid', async () => {
-    resetMock({ ids: [] });
-    const user = userEvent.setup();
-    render(<EnabledCompaniesSection />);
-
-    expect(screen.queryByTestId('browse-chip-Airbnb')).not.toBeInTheDocument();
-
-    await user.click(screen.getByRole('button', { name: /browse and select all companies/i }));
-
-    await waitFor(() => {
-      expect(screen.getByTestId('browse-chip-Airbnb')).toBeInTheDocument();
-    });
-  });
-
-  it('clicking a chip in the grid toggles selection on', async () => {
-    resetMock({ ids: [] });
-    const user = userEvent.setup();
-    render(<EnabledCompaniesSection />);
-
-    await user.click(screen.getByRole('button', { name: /browse and select all companies/i }));
-    const gridChip = await screen.findByTestId('browse-chip-Airbnb');
-    await user.click(gridChip);
-
-    await waitFor(() => {
-      expect(screen.getByTestId('selected-chip-Airbnb')).toBeInTheDocument();
-    });
-    expect(screen.getByRole('button', { name: /save changes/i })).toBeEnabled();
-  });
-
-  it('clicking an already-selected chip in the grid removes it', async () => {
-    resetMock({ ids: ['airbnb'] });
-    const user = userEvent.setup();
-    render(<EnabledCompaniesSection />);
-
-    await waitFor(() => {
-      expect(screen.getByTestId('selected-chip-Airbnb')).toBeInTheDocument();
-    });
-
-    await user.click(screen.getByRole('button', { name: /browse and select all companies/i }));
-    const gridChip = await screen.findByTestId('browse-chip-Airbnb');
-    await user.click(gridChip);
-
-    await waitFor(() => {
-      expect(screen.queryByTestId('selected-chip-Airbnb')).not.toBeInTheDocument();
-    });
-    expect(screen.getByRole('button', { name: /save changes/i })).toBeEnabled();
-  });
-
-  it('grid chips reflect selection visually via aria-pressed', async () => {
-    resetMock({ ids: ['airbnb'] });
-    const user = userEvent.setup();
-    render(<EnabledCompaniesSection />);
-
-    await user.click(screen.getByRole('button', { name: /browse and select all companies/i }));
-
-    const airbnbChip = await screen.findByTestId('browse-chip-Airbnb');
-    expect(airbnbChip).toHaveAttribute('aria-pressed', 'true');
-
-    const stripeChip = await screen.findByTestId('browse-chip-Stripe');
-    expect(stripeChip).toHaveAttribute('aria-pressed', 'false');
-  });
-
-  it('selected-panel delete and grid stay in sync', async () => {
-    resetMock({ ids: [] });
-    const user = userEvent.setup();
-    render(<EnabledCompaniesSection />);
-
-    // Add Airbnb via the search input.
-    const combo = getSearchCombobox();
-    await user.click(combo);
-    await user.type(combo, 'air');
-    await user.keyboard('{Enter}');
-    await waitFor(() => {
-      expect(screen.getByTestId('selected-chip-Airbnb')).toBeInTheDocument();
-    });
-
-    // Expand grid, verify pressed.
-    await user.click(screen.getByRole('button', { name: /browse and select all companies/i }));
-    const gridChip = await screen.findByTestId('browse-chip-Airbnb');
-    expect(gridChip).toHaveAttribute('aria-pressed', 'true');
-
-    // Delete from the selected panel.
-    const selectedChip = screen.getByTestId('selected-chip-Airbnb');
-    const deleteIcon = selectedChip.querySelector('svg');
-    expect(deleteIcon).not.toBeNull();
-    await user.click(deleteIcon!);
-
-    // Grid chip should now be unpressed.
-    await waitFor(() => {
-      expect(screen.getByTestId('browse-chip-Airbnb')).toHaveAttribute('aria-pressed', 'false');
-    });
-  });
-
-  it('ArrowDown + Enter commits the second alphabetical option', async () => {
-    resetMock({ ids: [] });
-    const user = userEvent.setup();
-    render(<EnabledCompaniesSection />);
-
-    const combo = getSearchCombobox();
-    await user.click(combo);
-    await user.type(combo, 'a');
-    // Wait for the options list to be visible.
-    await screen.findByRole('option', { name: /^adobe$/i });
-
-    // With autoHighlight pre-highlighting the first option, MUI's
-    // Autocomplete has a quirk where the first ArrowDown press nudges the
-    // active descendant onto the already-highlighted row rather than
-    // stepping past it. A second ArrowDown advances to the next option.
-    // Rather than asserting on that specific behavior, we lock the intent
-    // via aria-activedescendant below — the W3C-standard pointer from an
-    // editable combobox to its currently-highlighted option. That
-    // decouples this test from MUI's internal highlight tracking (class
-    // names, aria-selected on options, etc.) while still proving the
-    // Enter-press commits the row we think it will.
-    await user.keyboard('{ArrowDown}{ArrowDown}');
-    const airbnbOption = screen.getByRole('option', { name: /airbnb/i });
-    expect(combo).toHaveAttribute('aria-activedescendant', airbnbOption.id);
-    await user.keyboard('{Enter}');
-
-    await waitFor(() => {
-      expect(screen.getByTestId('selected-chip-Airbnb')).toBeInTheDocument();
-    });
+    expect(queryAutoEnrollCheckbox()).not.toBeInTheDocument();
   });
 });
