@@ -1506,6 +1506,122 @@ class TestPendingCustomShare:
         assert _fetch_listing_facets(db_conn, "u-nodesc-0")["enrichment_status"] is None
 
 
+# The PUBLISHED recipe-board namespace, spelled literally for the same reason
+# `_CUSTOM_PREFIX` is: these tests pin the WIRE contract the claim partitions on,
+# so moving the constant has to be a deliberate, visible test edit.
+_RECIPE_PREFIX = "recipe:"
+
+
+def _recipe_board_jobs(company_id: str, n: int, *,
+                       title: str = "Account Executive") -> list[dict]:
+    """`n` OPEN rows for a PUBLISHED recipe board, dated in the CUSTOM epoch.
+
+    Dated with the custom rows, not the published ones, on purpose: these rows are
+    the newest in the table, so if the claim's `custom:` partition captured them
+    they would sweep the reserved slice and the assertion below would fail loudly.
+    Dating them in the published epoch would let the test pass for the wrong reason.
+    """
+    return [
+        _make_job({
+            "id": f"{company_id}-{i}",
+            "source_id": f"{_RECIPE_PREFIX}{company_id}",
+            "company": company_id,
+            "title": title,
+            "status": "OPEN",
+            "first_seen_at": (_CUSTOM_EPOCH + timedelta(minutes=i)).isoformat(),
+            "details": _DESC,
+        })
+        for i in range(n)
+    ]
+
+
+class TestPublishedRecipeBoardsAreNotCustom:
+    """A published recipe board is enriched as PUBLISHED, not out of the 10% slice.
+
+    `tasks/enqueue_recipe_fan_out` harvests curated `ats='recipe'` boards through
+    the same leaf task the private lane uses, but writes them under `recipe:<id>`
+    rather than `custom:<id>`. That prefix is exactly what this router partitions
+    on, so it is what decides which side of the fairness brake these rows land on —
+    and getting it wrong is silent: four curated boards would quietly share the 6
+    slots reserved for every user-added board in the fleet, and it would read as
+    "enrichment is slow for Atlassian".
+    """
+
+    @pytest.fixture(autouse=True)
+    def _enabled(self, monkeypatch):
+        monkeypatch.setattr(settings, "enrichment_use_external", True)
+
+    def test_recipe_rows_are_claimed_by_the_published_pass(
+        self, enrichment_client, db_conn
+    ):
+        """Custom keeps exactly its 6; the other 54 go to the recipe board.
+
+        There are NO greenhouse rows here, so every row the published pass returns
+        must be a `recipe:` one. If the custom partition captured them, the
+        published pass would find nothing and the batch would be 6 rows, not 60.
+        """
+        for company in ("u-aaa", "u-bbb", "u-ccc"):
+            _bulk_insert_jobs(db_conn, _custom_jobs(company, 10))
+        _bulk_insert_jobs(db_conn, _recipe_board_jobs("atlassian", 60))
+
+        resp = enrichment_client.get(
+            "/api/internal/enrichment/pending", params={"limit": 60}
+        )
+        assert resp.status_code == 200
+        jobs = resp.json()["jobs"]
+
+        custom_rows = [j for j in jobs if j["source_id"].startswith(_CUSTOM_PREFIX)]
+        recipe_rows = [j for j in jobs if j["source_id"].startswith(_RECIPE_PREFIX)]
+
+        assert len(custom_rows) == 6
+        assert len(recipe_rows) == 54, (
+            "the published pass did not claim the recipe board's rows — if they "
+            "were swept into the custom slice, a curated board is competing for "
+            "the 10% reserved for every user-added board in the fleet"
+        )
+        assert len(custom_rows) + len(recipe_rows) == len(jobs)
+
+    def test_a_recipe_board_is_not_capped_by_the_custom_share(
+        self, enrichment_client, db_conn
+    ):
+        """With no custom rows at all, a recipe board takes the WHOLE batch.
+
+        The custom slice is a ceiling on custom and costs the published side
+        nothing when idle. A recipe board on a `custom:` id would instead be
+        limited to 6 of 60 here — the single clearest symptom of the bug.
+        """
+        _bulk_insert_jobs(db_conn, _recipe_board_jobs("dell", 80))
+
+        resp = enrichment_client.get(
+            "/api/internal/enrichment/pending", params={"limit": 60}
+        )
+        assert resp.status_code == 200
+        jobs = resp.json()["jobs"]
+
+        assert len(jobs) == 60
+        assert all(j["source_id"] == f"{_RECIPE_PREFIX}dell" for j in jobs)
+
+    def test_a_recipe_row_does_not_consume_a_slot_reserved_for_custom(
+        self, enrichment_client, db_conn
+    ):
+        """The mirror: with a deep recipe backlog, the custom slice still gets its
+        reservation. A brake that leaked in both directions would pass the first
+        test above and still starve the boards it exists to protect."""
+        _bulk_insert_jobs(db_conn, _recipe_board_jobs("github", 200))
+        _bulk_insert_jobs(db_conn, _custom_jobs("u-tiny", 3))
+
+        resp = enrichment_client.get(
+            "/api/internal/enrichment/pending", params={"limit": 60}
+        )
+        assert resp.status_code == 200
+        jobs = resp.json()["jobs"]
+
+        custom_rows = [j for j in jobs if j["source_id"].startswith(_CUSTOM_PREFIX)]
+        assert len(custom_rows) == 3, (
+            "the user-added board lost its reserved slots to a curated one"
+        )
+
+
 class TestResults:
     def test_bad_location_row_still_written_with_warning(
         self, enrichment_client, db_conn

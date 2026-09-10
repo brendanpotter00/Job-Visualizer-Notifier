@@ -34,8 +34,20 @@ def _as_optional_str(value: Any) -> str | None:
     return value if isinstance(value, str) else str(value)
 
 
-def recipe_rows_to_job_listings(company_id: str, rows: list[dict]) -> list[JobListing]:
-    """Map runner rows to ``JobListing`` scoped to ``custom:<company_id>``.
+def recipe_rows_to_job_listings(
+    company_id: str, rows: list[dict], *, source_id: str | None = None
+) -> list[JobListing]:
+    """Map runner rows to ``JobListing`` scoped to one company's source_id.
+
+    ``source_id`` defaults to ``custom:<company_id>`` — the private-board
+    namespace every caller wanted before published recipe boards existed. A
+    PUBLISHED recipe board (``companies.ats='recipe'``,
+    ``visibility='public'``) passes its own ``recipe:<company_id>`` instead;
+    see ``scripts.shared.constants.recipe`` for why the two namespaces must not
+    be the same one. The leaf task's ``_remap_for_custom`` re-stamps the field
+    a second time from the SAME value, so this default is belt-and-braces
+    there — but ``services/capture/discover`` maps probe rows with no remap at
+    all, which is why the default has to stay.
 
     The runner guarantees each row has a non-empty, stringified ``id`` and a
     non-empty ``title`` (``map_records`` drops the rest) and — because the schema
@@ -52,7 +64,8 @@ def recipe_rows_to_job_listings(company_id: str, rows: list[dict]) -> list[JobLi
     synthesized here either way.
     """
     now = get_iso_timestamp()
-    source_id = custom(company_id)
+    if source_id is None:
+        source_id = custom(company_id)
     out: list[JobListing] = []
     for row in rows:
         job_id = str(row["id"])

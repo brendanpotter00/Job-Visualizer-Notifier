@@ -175,17 +175,29 @@ _PRIVATE_COMPANY_ANTIJOIN = sql.SQL(
 # satisfied the anti-join above and was readable by ANONYMOUS callers.
 #
 # So the private-company test is PAIRED with an EXISTENCE test, scoped to the row
-# namespace that can only ever be private. ``custom:<id>`` is written by nothing
-# but ``tasks/fetch_custom_company.py`` (see the ``_OWNED_USER_COMPANY_PREDICATE``
-# note below on why ``source_id`` is the honest key here), so a ``custom:`` row
-# whose company row is absent is an orphan BY DEFINITION and can never be
-# legitimately public. Public-ATS rows never carry the prefix, so their behaviour
-# is byte-for-byte what shipped.
+# namespaces the RECIPE ENGINE writes. ``custom:<id>`` and ``recipe:<id>`` are
+# written by nothing but ``tasks/fetch_custom_company.py`` (see the
+# ``_OWNED_USER_COMPANY_PREDICATE`` note below on why ``source_id`` is the honest
+# key here), so a row in either namespace whose company row is absent is an orphan
+# BY DEFINITION. Public-ATS rows never carry either prefix, so their behaviour is
+# byte-for-byte what shipped.
+#
+# BOTH PREFIXES, NOT JUST ``custom:``. ``recipe:`` is the published half of the same
+# engine, and the existence hole is IDENTICAL there: no FK, the same leaf task, and
+# the same anti-join failing open when the ``companies`` row goes missing. It is not
+# hypothetical either — the seed migration that publishes the recipe boards
+# (``4c1f8a26d7be``) deletes its ``companies`` rows on ``downgrade()``, and the
+# ``recipe:atlassian`` / ``recipe:github`` job rows outlive them. Those rows drop out
+# of ``GET /api/jobs`` (it INNER JOINs ``companies``) but ``GET /api/jobs/search``
+# does not join, so under the old ``custom:``-only predicate a stranded published
+# corpus stayed readable — a board nobody is scraping any more, served as current.
+# The migration now deletes those rows in the same transaction; this predicate is the
+# fail-closed backstop for every OTHER way a company row can vanish.
 #
 # Keyed on "company row EXISTS", deliberately NOT on "exists AND is public": a
 # custom board that were ever promoted to ``visibility='public'`` would still
-# pass, so this closes the orphan hole without hard-coding "custom means private
-# forever" into the read path.
+# pass (and a ``recipe:`` board is public already), so this closes the orphan hole
+# without hard-coding a visibility into the read path.
 #
 # ``starts_with()`` and NOT ``LIKE 'custom:%'`` — load-bearing, not style. These
 # ``sql.SQL`` fragments are handed to ``cursor.execute(query, params)``, where a
@@ -204,8 +216,17 @@ _PRIVATE_COMPANY_ANTIJOIN = sql.SQL(
 # the incident against the largest custom board, whose company row deletion left
 # 2,057 job rows behind: the OLD predicate serves all 2,057 of them, the NEW one
 # serves 0.
+#
+# The two prefixes are SPELLED OUT rather than interpolated from
+# ``scripts.shared.constants``, to keep this fragment a plain ``sql.SQL`` with no
+# rendering context of its own (``sql.Literal`` needs a live connection to render, and
+# this predicate is composed at import time). The anti-drift job is done instead by
+# ``test_visibility_leaks``, which asserts the rendered predicate names every
+# recipe-engine namespace constant — so adding a third one fails a test rather than
+# silently leaving a namespace outside the guard.
 _ORPHANED_CUSTOM_PREDICATE = sql.SQL(
-    "(NOT starts_with(job_listings.source_id, 'custom:')"
+    "(NOT (starts_with(job_listings.source_id, 'custom:')"
+    " OR starts_with(job_listings.source_id, 'recipe:'))"
     " OR EXISTS (SELECT 1 FROM companies c2 WHERE c2.id = job_listings.company))"
 )
 

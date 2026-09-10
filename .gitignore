@@ -73,3 +73,7 @@ iphone-*.png
 # lavish-axi editor + ad-hoc analysis artifacts (local, not committed)
 .lavish/
 .analysis/
+
+# pytest-cov data file, written at the repo root by a local backend run
+.coverage
+.coverage.*

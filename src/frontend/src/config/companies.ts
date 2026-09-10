@@ -1040,6 +1040,20 @@ export const COMPANIES: Company[] = [
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2210667%22%5D',
   }),
+
+  // Recipe boards (2026-09-09) — bespoke career sites read by the deterministic
+  // replay engine (`companies.ats='recipe'`), not by a vendor ATS client and not
+  // by a Python scraper. Each one's stored script lives in `company_scripts` and
+  // is committed alongside at
+  // `src/backend/api/tests/fixtures/recipes/published/<id>.json`.
+  //
+  // They omit `sourceAts` for the same reason the Python-scraped five above do:
+  // that absence is what groups them under "Custom Web Scrapers", and the union
+  // type deliberately names only the six vendor ATSes. Do NOT add 'recipe' to it
+  // — `sourceAts` answers "which vendor board is behind this", and the answer
+  // here is genuinely none.
+  createBackendScraperCompany('atlassian', 'Atlassian', 'https://www.atlassian.com/company/careers/all-jobs'),
+  createBackendScraperCompany('github', 'GitHub', 'https://www.github.careers/careers-home/jobs'),
 ];
 
 export const enum COMPANY_IDS {
@@ -1055,6 +1069,7 @@ export const enum COMPANY_IDS {
   Apple = 'apple',
   AppliedIntuition = 'appliedintuition',
   Astranis = 'astranis',
+  Atlassian = 'atlassian',
   Baseten = 'baseten',
   BasePower = 'base-power',
   Block = 'block',
@@ -1110,6 +1125,7 @@ export const enum COMPANY_IDS {
   GeneralMotors = 'gm',
   GigaML = 'gigaml',
   Gimlet = 'gimlet',
+  Github = 'github',
   GitLab = 'gitlab',
   Glean = 'gleanwork',
   Google = 'google',

@@ -19,7 +19,14 @@ from scripts.shared.database import (
 
 # Every ATS whose fan-out task calls list_enabled_companies(conn, <ats>). A
 # script row must be selected by none of these.
-WORKER_ATS = ("greenhouse", "ashby", "lever", "gem", "eightfold", "workday")
+#
+# "recipe" is the PUBLISHED recipe-engine lane (``tasks/enqueue_recipe_fan_out``),
+# which reads the same helper the six vendor fan-outs do. It belongs here for the
+# reason the tuple exists at all: the disjointness proof below iterates it, so a
+# worker ats missing from this list is a fan-out the proof silently does not cover.
+WORKER_ATS = (
+    "greenhouse", "ashby", "lever", "gem", "eightfold", "workday", "recipe",
+)
 
 # Small fixture standing in for the committed JSON. The three script entries
 # carry the row-creation fields; "stripe" is an already-seeded worker company.

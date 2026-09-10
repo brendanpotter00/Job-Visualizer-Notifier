@@ -31,6 +31,18 @@ export const CHANGELOG: readonly ChangelogEntry[] = [
     },
   },
   {
+    id: 'add-companies-2026-09-09-recipe-boards',
+    title: 'Added Atlassian and GitHub',
+    description:
+      "Two big career sites are now tracked, about 310 open roles between them. Neither runs on a job board we already read — Atlassian and GitHub each publish their own bespoke jobs API — so each is read by a scraper written once and then replayed on a schedule, the same engine that powers the add-your-own-company feature. Atlassian, the company behind Jira, Confluence and Bitbucket, brings about 230 roles, and GitHub another 81. Every run is checked for completeness before anything is marked closed, so a role that gets filled drops off your chart instead of sitting there forever.",
+    tags: ['new-companies'],
+    date: '2026-09-09',
+    link: {
+      to: ROUTES.ACCOUNT,
+      label: 'Add them to your company preferences',
+    },
+  },
+  {
     id: 'add-companies-2026-09-09-ia40',
     title: 'Added 22 companies from the IA40 list',
     description:

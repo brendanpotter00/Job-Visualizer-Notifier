@@ -98,7 +98,7 @@ def custom_company_integrity(
     conn: Connection = Depends(get_db),
     limit: int = Query(default=ORPHAN_LIST_CAP, ge=1, le=ORPHAN_LIST_CAP),
 ) -> dict[str, Any]:
-    """Report private companies that own jobs but belong to no user.
+    """Report BOTH ownership orphans: a company nobody owns, and a corpus no company owns.
 
     Same auth posture and same reason as ``/scraper-health`` above: the consumer is a
     scheduled job holding one static header, not a browser session with an admin JWT.
@@ -108,7 +108,11 @@ def custom_company_integrity(
 
     Always 200, including when the state IS broken. The endpoint reports; the caller
     decides red/green — and a green-looking 200 with ``ownerlessCount > 0`` is exactly
-    what a ``jq -e '.ownerlessCount == 0'`` gate is for.
+    what a ``jq -e '.ownerlessCount == 0'`` gate is for. ``strandedCount`` is the other
+    half and deserves its own clause in that gate: it counts recipe-engine ``source_id``
+    namespaces whose ``companies`` row is gone. Those rows are hidden from every read
+    path on purpose (``services/database._ORPHANED_CUSTOM_PREDICATE``), which is exactly
+    why this endpoint is the only place they can be seen at all.
 
     Read-only: this NAMES the rows, it does not reap them. A reaper is a delete path,
     and it has to reuse ``remove_owned_company``'s purge ordering rather than invent a
