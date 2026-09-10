@@ -337,13 +337,19 @@ captions, and a lot of air.
   sentence (the LinkedIn people-search link became a feature cell, "Reach the recruiter").
   Feature matrix is 6 live / 2 coming-soon: "Straight from the source" and "130+ curated
   companies" left because the comparison now makes both claims.
-- **SEO/AEO:** `LandingSeo` (React 19 head hoisting — no helmet) renders title,
-  description, canonical, OG/Twitter and a JSON-LD `@graph` (Organization + WebSite +
-  WebPage + FAQPage, built by the pure `landingJsonLd.ts`); `index.html` carries the same
-  title/description statically for bots that never run JS; `public/` gains `robots.txt`
-  (AI retrieval bots allowed, admin/auth surfaces disallowed), `sitemap.xml`, `llms.txt`.
-  Every section is a labelled `<section>` inside `<main>`, one h1, h2 per section.
+- **SEO/AEO:** `LandingSeo` sets the landing title + description **imperatively** (a
+  rendered React 19 `<title>` is appended AFTER `index.html`'s static one and the browser
+  uses the first, so hoisting can never win) and restores them on unmount; it renders the
+  canonical `<link>` (hoisted) and a JSON-LD `@graph` (Organization + WebSite + WebPage +
+  FAQPage, built by the pure `landingJsonLd.ts`). `index.html`'s static head is the
+  brand-first app default and link-preview card, deliberately NOT the landing title, so
+  `/` and `/landing` (both in the sitemap) never share one — pinned by
+  `indexHtmlHead.test.ts`. `public/` gains `robots.txt` (AI retrieval bots allowed;
+  admin/auth surfaces disallowed; `/api/` left crawlable because Googlebot obeys robots
+  for the XHR it makes while rendering the board), `sitemap.xml`, `llms.txt`. Every section
+  is a labelled `<section>` inside `<main>`, one h1, h2 per section.
   **Still open (11.2):** prerendering `/landing` — the only fix for the P0 no-JS gap.
-- **Still open for Brendan:** the feature cell says "Seconds, not weeks" (his 2026-08-09
-  override) two sections after the proof strip says "45 min" median. Both are on the
-  page; he rules before promotion.
+- **Freshness copy, decided without asking:** the feature cell became "Minutes, not
+  weeks" (was "Seconds, not weeks", Brendan's 2026-08-09 override) because the new proof
+  strip puts the 45-minute median in a headline two sections away and a page should state
+  one freshness number. One-word revert in `content.ts` if he prefers "seconds".

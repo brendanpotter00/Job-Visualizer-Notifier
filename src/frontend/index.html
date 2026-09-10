@@ -19,33 +19,34 @@
     />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <!--
-      Static head = the ONLY thing a crawler that does not run JavaScript ever
-      sees (every answer-engine bot except Googlebot). Keep it the same shape as
-      the landing page's LandingSeo: keyword-first title, answer-first
-      description, absolute social-card URLs.
+      Static head = the site-wide default, the link-preview card, and the ONLY
+      thing a crawler that does not run JavaScript ever sees (every
+      answer-engine bot except Googlebot). Brand-first on purpose: `/landing`
+      swaps in its own keyword-first title and description at runtime
+      (pages/LandingPage/seo/LandingSeo.tsx), so the two pages never share one.
     -->
     <meta
       name="description"
-      content="A free job board for software engineers. Jobs straight from 130+ curated company career pages, a median of 45 minutes after posting. No reposts, no noise."
+      content="Browse software engineer jobs minutes after companies post them on their own career pages. 130+ curated companies, no reposts, free."
     />
     <meta property="og:site_name" content="onesecondswe" />
-    <meta property="og:title" content="Software Engineer Jobs, Minutes After They’re Posted | onesecondswe" />
+    <meta property="og:title" content="onesecondswe: software engineer jobs, minutes after they’re posted" />
     <meta
       property="og:description"
-      content="A free job board for software engineers. Jobs straight from 130+ curated company career pages, a median of 45 minutes after posting. No reposts, no noise."
+      content="Browse software engineer jobs minutes after companies post them on their own career pages. 130+ curated companies, no reposts, free."
     />
     <meta property="og:type" content="website" />
     <meta property="og:image" content="https://onesecondswe.dev/og-image.png" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="Software Engineer Jobs, Minutes After They’re Posted | onesecondswe" />
+    <meta name="twitter:title" content="onesecondswe: software engineer jobs, minutes after they’re posted" />
     <meta
       name="twitter:description"
-      content="A free job board for software engineers. Jobs straight from 130+ curated company career pages, a median of 45 minutes after posting. No reposts, no noise."
+      content="Browse software engineer jobs minutes after companies post them on their own career pages. 130+ curated companies, no reposts, free."
     />
     <meta name="twitter:image" content="https://onesecondswe.dev/og-image.png" />
-    <title>Software Engineer Jobs, Minutes After They’re Posted | onesecondswe</title>
+    <title>onesecondswe: software engineer jobs, minutes after they’re posted</title>
   </head>
   <body>
     <div id="root"></div>

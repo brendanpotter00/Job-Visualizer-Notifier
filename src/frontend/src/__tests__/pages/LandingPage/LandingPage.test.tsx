@@ -60,29 +60,51 @@ describe('LandingPage', () => {
     expect(now).toBeGreaterThan(0);
   });
 
-  // The head is the shell's job, not the scene's: React 19 hoists the title,
-  // description and canonical into <head> the moment the route mounts, so they
-  // exist before (and regardless of whether) the lazy scene chunk arrives.
-  it('puts the SEO head on the page: title, description, canonical, social card', async () => {
+  // The head is the shell's job, not the scene's: the title and description
+  // are applied the moment the route mounts, before (and regardless of
+  // whether) the lazy scene chunk arrives, and the canonical is hoisted.
+  it('puts the SEO head on the page: title, description, canonical', async () => {
     renderPage();
     await screen.findByTestId('landing-body');
     const { seo } = LANDING_CONTENT;
-    const canonical = `${seo.siteUrl}${seo.canonicalPath}`;
     expect(document.title).toBe(seo.title);
-    expect(document.querySelector('meta[name="description"]')).toHaveAttribute(
+    expect(document.head.querySelectorAll('meta[name="description"]')).toHaveLength(1);
+    expect(document.head.querySelector('meta[name="description"]')).toHaveAttribute(
       'content',
       seo.description
     );
-    expect(document.querySelector('link[rel="canonical"]')).toHaveAttribute('href', canonical);
-    expect(document.querySelector('meta[property="og:url"]')).toHaveAttribute('content', canonical);
-    expect(document.querySelector('meta[property="og:image"]')).toHaveAttribute(
-      'content',
-      `${seo.siteUrl}${seo.ogImagePath}`
+    expect(document.querySelector('link[rel="canonical"]')).toHaveAttribute(
+      'href',
+      `${seo.siteUrl}${seo.canonicalPath}`
     );
-    expect(document.querySelector('meta[name="twitter:card"]')).toHaveAttribute(
-      'content',
-      'summary_large_image'
-    );
+  });
+
+  // The title and description are edited IN PLACE on the static head (a
+  // rendered <title> would sit behind index.html's and never win), so leaving
+  // the route must hand the app back exactly what it had — otherwise every
+  // page after /landing would carry the landing title.
+  it('overrides the static title and description in place, and restores them on unmount', async () => {
+    const staticTitle = 'app default title';
+    const staticDescription = 'app default description';
+    document.title = staticTitle;
+    const meta = document.createElement('meta');
+    meta.name = 'description';
+    meta.content = staticDescription;
+    document.head.appendChild(meta);
+    try {
+      const { unmount } = renderPage();
+      await screen.findByTestId('landing-body');
+      expect(document.title).toBe(LANDING_CONTENT.seo.title);
+      expect(meta).toHaveAttribute('content', LANDING_CONTENT.seo.description);
+      expect(document.head.querySelectorAll('meta[name="description"]')).toHaveLength(1);
+
+      unmount();
+      expect(document.title).toBe(staticTitle);
+      expect(meta).toHaveAttribute('content', staticDescription);
+    } finally {
+      meta.remove();
+      document.title = '';
+    }
   });
 
   it('embeds the JSON-LD graph with one FAQ question per content entry', async () => {

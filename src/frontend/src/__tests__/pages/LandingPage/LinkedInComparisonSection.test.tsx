@@ -31,10 +31,11 @@ describe('LinkedInComparisonSection', () => {
     expect(rendered).toEqual(comparison.rows.map((row) => row.label));
   });
 
-  // On a phone there is no column-head row, so each cell names its column
-  // inline; on desktop the head row carries the names once. Both column names
-  // must therefore be present for every row, whichever layout is showing.
-  it('names both columns on every row so the cells read correctly without the head row', () => {
+  // Every cell carries its column name in the DOM at every width: visible on a
+  // phone (no head row there), visually hidden from `sm` up where the
+  // decorative head row shows the names. jsdom only applies the `xs` branch,
+  // so this pins presence, not the clip — the clip is CSS on the same span.
+  it('names both columns on every row so no cell is ever an unattributed paragraph', () => {
     renderSection();
     for (const row of comparison.rows) {
       const region = screen.getByTestId(`comparison-row-${row.id}`);

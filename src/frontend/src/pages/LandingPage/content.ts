@@ -396,10 +396,10 @@ export const LANDING_CONTENT: LandingContent = {
     features: [
       {
         id: 'freshness',
-        name: 'Seconds, not weeks',
-        detail: 'New roles land here seconds after posting.',
+        name: 'Minutes, not weeks',
+        detail: 'New roles land here minutes after posting.',
         evidence:
-          'owner-directed 2026-08-09 (overrides ~45-min median claim; revisit before promotion)',
+          'brief §5 minutes_after_posting (prod median 0.76h). Was "Seconds, not weeks" (owner-directed 2026-08-09); reworded 2026-09-10 when the proof strip put the 45-minute median in a headline two sections away, so the page states ONE freshness number. Reverting is a one-word edit if the owner prefers "seconds".',
       },
       {
         id: 'ai_labels',

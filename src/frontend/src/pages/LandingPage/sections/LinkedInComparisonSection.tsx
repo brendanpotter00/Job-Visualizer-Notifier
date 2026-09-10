@@ -18,19 +18,45 @@ const ROW_SX = {
   rowGap: 1,
 } as const;
 
+/**
+ * Off-screen but still in the accessibility tree — the standard clip recipe.
+ * `display: none` would drop the text for assistive tech too, which is the one
+ * thing this must not do.
+ */
+const VISUALLY_HIDDEN = {
+  position: 'absolute',
+  width: '1px',
+  height: '1px',
+  padding: 0,
+  margin: '-1px',
+  overflow: 'hidden',
+  clip: 'rect(0 0 0 0)',
+  whiteSpace: 'nowrap',
+  border: 0,
+} as const;
+
 interface ComparisonCellProps {
-  /** The column this cell belongs to; spoken on phones, where there is no head row. */
+  /** The column this cell belongs to. */
   column: string;
   /** LinkedIn's cell is the quieter one: the contrast is the point of the row. */
   muted?: boolean;
   children: ReactNode;
 }
 
+/**
+ * One cell, always prefixed with its column name so it is never an
+ * unattributed paragraph. On a phone the prefix is visible (there is no head
+ * row); from `sm` up the head row shows the names and the prefix goes
+ * visually hidden — hidden, not removed, so a screen reader on desktop still
+ * hears "LinkedIn:" / "onesecondswe:" before every cell. The head row itself
+ * is decorative for exactly that reason.
+ */
 function ComparisonCell({ column, muted = false, children }: ComparisonCellProps) {
   return (
     <Typography
       component="p"
       sx={{
+        position: 'relative',
         minWidth: 0,
         fontSize: RESPONSIVE.landingProto.bodyFontSize,
         lineHeight: 1.6,
@@ -40,11 +66,11 @@ function ComparisonCell({ column, muted = false, children }: ComparisonCellProps
     >
       <Box
         component="span"
-        sx={{
-          display: { xs: 'inline', sm: 'none' },
+        sx={(theme) => ({
           color: 'text.disabled',
           fontWeight: 400,
-        }}
+          [theme.breakpoints.up('sm')]: VISUALLY_HIDDEN,
+        })}
       >
         {column}:{' '}
       </Box>
@@ -71,6 +97,9 @@ export function LinkedInComparisonSection({ content }: LinkedInComparisonSection
     <Box component="section" aria-labelledby={HEADING_ID} data-testid="linkedin-comparison">
       <SectionIntro eyebrow={eyebrow} heading={heading} headingId={HEADING_ID} />
 
+      {/* Decorative: every cell already carries its column name (visually
+          hidden from `sm` up), so announcing the head row would say each name
+          twice. */}
       <Box sx={{ ...ROW_SX, display: { xs: 'none', sm: 'grid' }, pb: 1.5 }} aria-hidden>
         <Box />
         <Eyebrow>{columns.linkedin}</Eyebrow>
