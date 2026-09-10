@@ -565,6 +565,35 @@ def verify_harvest(
             page_advance_ok=False,
         )
 
+    # Check 6b — the sweep read THROUGH a short page (``stop_on_empty_page``) and a
+    # later page came back non-empty. The cursor advanced by a full ``page_size`` over
+    # a window the board only partly served, so those records are provably missing from
+    # this harvest. A PROVEN HOLE, and therefore never a completeness claim.
+    #
+    # PLACED HERE, ABOVE THE ORACLE SPLIT, DELIBERATELY. The obvious cheaper fix is to
+    # have the runner report ``terminated_cleanly=False``, but that only reaches
+    # ``self_consistent`` and ``none`` — ``declared_probed`` and the Phase-3 oracles do
+    # not read it (they compare counts and nothing else), so a board whose declared
+    # total happened to equal its gappy harvest would still VERIFY. That is not
+    # hypothetical: careers.oracle.com is the board this flag exists for, it is stored
+    # ``declared_probed``, and today it stays UNVERIFIED only because its declared
+    # ``TotalJobsCount`` does not equal what it serves. That is a numeric coincidence,
+    # not a guard — the day the board fixes its own count, a read that structurally
+    # never sees the record it drops mid-window would start VERIFYING and closing. This
+    # check makes "a read with a hole cannot close" structural for every oracle kind,
+    # including the ones decided by arithmetic the board controls.
+    #
+    # Note the asymmetry with ``terminated_cleanly``, which stays honest about how the
+    # loop ENDED (it did reach the empty page). This flag is about what happened in the
+    # MIDDLE, which is a different fact and deserves its own evidence field and its own
+    # verdict reason on the ``company_harvests`` audit row.
+    if evidence.mid_sweep_short_page:
+        return HarvestVerdict(
+            UNVERIFIED, "mid_sweep_short_page",
+            declared_total=evidence.declared_total,
+            page_advance_ok=evidence.page_advance_ok,
+        )
+
     if oracle_kind == "declared_probed":
         return _verify_declared_probed(n, evidence)
     if oracle_kind in _PHASE_3_ORACLES:
@@ -866,7 +895,9 @@ def _zero_proof(evidence: HarvestEvidence, oracle_kind: str) -> HarvestVerdict:
 #
 # Every other UNVERIFIED reason is, or may be, a SHORT READ and is excluded:
 # ``cap_hit`` (a ceiling stopped the sweep), ``page_advance_failed`` (offset
-# wrap), ``not_terminated_cleanly`` (ran out of page budget), ``count_mismatch``
+# wrap), ``not_terminated_cleanly`` (ran out of page budget),
+# ``mid_sweep_short_page`` (the board served a window short and the sweep skipped
+# the remainder — a PROVEN hole), ``count_mismatch``
 # (n < a trusted total — a PROVEN short read), ``delta_anomaly`` (the count moved
 # far enough off the trailing median that the data is likelier wrong than the
 # board), ``over_harvest`` (n > the trusted total — not short, but the filter
@@ -926,7 +957,11 @@ def read_untruncated(verdict: HarvestVerdict, evidence: HarvestEvidence) -> bool
     * ``cap_hit`` — a ceiling (window, record, or wall-clock budget) stopped it;
     * ``terminated_cleanly`` — it ended on a short/empty page rather than
       exhausting its page budget;
-    * ``page_advance_ok is False`` — a page re-served ids we already had.
+    * ``page_advance_ok is False`` — a page re-served ids we already had;
+    * ``mid_sweep_short_page`` — the board served a window short and the sweep
+      skipped past the remainder. Not "cut off at the end" but "holed in the
+      middle", and for a title-set comparison the two are the same defect: the
+      candidate side is missing rows the public side has.
 
     For the single-request class all three are constants (no sweep, no cap, one
     page), so for THOSE boards this reduces to "the verdict reason was
@@ -946,6 +981,8 @@ def read_untruncated(verdict: HarvestVerdict, evidence: HarvestEvidence) -> bool
     if not evidence.terminated_cleanly:
         return False
     if evidence.page_advance_ok is False:
+        return False
+    if evidence.mid_sweep_short_page:
         return False
     if verdict.verdict == VERIFIED:
         return True

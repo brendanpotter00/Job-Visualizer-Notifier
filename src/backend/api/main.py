@@ -37,6 +37,7 @@ from .tasks import procrastinate_app
 from .tasks.heartbeat import LANE_BULK as _LANE_BULK
 from .tasks.heartbeat import LANE_INTERACTIVE as _LANE_INTERACTIVE
 from .tasks.procrastinate_app import CUSTOM_ATS_FIRST_FETCH_QUEUE
+from .tasks.procrastinate_app import RECIPE_FETCH_QUEUE
 from .tasks.procrastinate_app import ensure_schema_async
 from .migrations import apply_alembic_migrations_with_retry
 from .services.db_watchdog import DbWatchdog
@@ -94,6 +95,14 @@ _BULK_QUEUES: tuple[str, ...] = (
     # */15 claim tick: bulk by definition. The add-time FIRST harvest is not
     # here; it rides `custom_ats_first_fetch` in the interactive lane below.
     "custom_ats_fetch",
+    # PUBLISHED recipe boards (`companies.ats='recipe'`) — the */30
+    # `enqueue_recipe_fan_out` tick and the per-company harvests it defers. Its
+    # OWN queue rather than `custom_ats_fetch` so the two lanes' backpressure is
+    # independent: the custom claim's ceiling of 3 queued fetches per */15 tick
+    # is a budget for USER boards, and a handful of curated boards must not be
+    # able to spend it. Bulk by definition — a */30 cron over curated boards,
+    # with nobody watching a spinner.
+    RECIPE_FETCH_QUEUE,
     "heartbeat",
     "normalize",
 )

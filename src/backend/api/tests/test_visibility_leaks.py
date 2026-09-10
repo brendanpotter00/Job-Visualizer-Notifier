@@ -34,7 +34,13 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from psycopg2 import sql
 
-from scripts.shared.constants import custom
+from scripts.shared.constants import (
+    CUSTOM_SOURCE_PREFIX,
+    RECIPE_ATS,
+    RECIPE_SOURCE_PREFIX,
+    custom,
+    recipe,
+)
 from api.auth.dependencies import get_current_user, get_optional_user_lenient
 from api.config import settings
 from scripts.shared.database import (
@@ -1133,13 +1139,13 @@ def test_live_custom_board_is_still_visible_to_its_owner(client, db_conn):
 
 
 def test_public_ats_jobs_are_unaffected_by_the_orphan_guard(client, db_conn):
-    """CONTROL. Public rows never carry the ``custom:`` prefix.
+    """CONTROL. Vendor-ATS rows never carry a recipe-engine prefix.
 
     The new conjunct must be a no-op for them — including when their company row
     is missing, which is the documented (and deliberate) fail-OPEN behaviour of
     the separate ``_HIDDEN_COMPANY_PREDICATE``. That is exactly why the orphan
-    guard is scoped to the ``custom:`` namespace instead of hiding every row with
-    no company: a blanket rule would have contradicted it.
+    guard is scoped to the ``custom:``/``recipe:`` namespaces instead of hiding
+    every row with no company: a blanket rule would have contradicted it.
     """
     _insert_company(db_conn, "pub-6c2", visibility="public")
     _insert_job(db_conn, "pub-6c-1", "pub-6c2", "greenhouse_api")
@@ -1376,3 +1382,152 @@ def test_location_search_without_open_only_is_untouched(db_conn):
         for r in search_locations(db_conn, "XX", limit=50, open_only=False)
     }
     assert "Nojobsburg, XX" in names
+
+
+# --- Leak 6e: a STRANDED PUBLISHED recipe corpus -------------------------------
+#
+# The orphan guard of Leak 6c short-circuited on ``NOT starts_with(source_id,
+# 'custom:')``, on the stated premise that the ``custom:`` prefix "can only ever be
+# private". The published recipe boards (``companies.ats='recipe'``) broke that premise
+# without touching it: their rows carry ``recipe:<id>``, a namespace the guard did not
+# name, so a ``recipe:`` row whose ``companies`` row is gone fell straight through to
+# the fail-OPEN anti-join and was served.
+#
+# NOT hypothetical, and not even exotic. The seed migration that publishes these four
+# boards (``4c1f8a26d7be``) deletes the four ``companies`` rows on ``downgrade()`` — one
+# ``alembic downgrade`` away from ~3,000 stranded ``recipe:oracle`` / ``recipe:dell``
+# rows. They disappear from ``GET /api/jobs`` because it INNER JOINs ``companies``,
+# which is exactly what makes the hole quiet: the obvious surface looks clean while
+# ``GET /api/jobs/search`` (no join) keeps serving a board nobody is scraping any more.
+# The migration now deletes those job rows in the same transaction; these cases pin the
+# read-side backstop, which has to hold whatever created the state.
+#
+# Note the shape difference from 6c and why both matter: a stranded ``recipe:`` corpus
+# is not a privacy leak (the board WAS public) — it is a TRUTHFULNESS leak. The rows say
+# OPEN and nothing will ever close them.
+
+
+def _seed_recipe_board(conn, company_id: str, job_id: str) -> None:
+    """A published recipe board with one job row, in the ``recipe:`` namespace."""
+    _insert_company(conn, company_id, visibility="public", ats=RECIPE_ATS)
+    _insert_job(conn, job_id, company_id, recipe(company_id))
+
+
+def _strand(conn, company_id: str) -> None:
+    """Delete ONLY the ``companies`` row — what ``downgrade()`` used to leave behind."""
+    cur = conn.cursor()
+    cur.execute(
+        sql.SQL("DELETE FROM {} WHERE id = %s").format(sql.Identifier("companies")),
+        (company_id,),
+    )
+    conn.commit()
+
+
+def test_stranded_recipe_job_is_not_served_on_the_public_search_feed(client, db_conn):
+    """THE case: ``/api/jobs/search`` does not join ``companies``, so nothing else stops it."""
+    _insert_company(db_conn, "pub-6e", visibility="public")
+    _insert_job(db_conn, "strand-6e-1", "pub-6e", "greenhouse_api")
+    _seed_recipe_board(db_conn, "oracle6e", "strand-6e-2")
+    _strand(db_conn, "oracle6e")
+
+    resp = client.get("/api/jobs/search")
+    assert resp.status_code == 200
+    ids = {j["id"] for j in resp.json()["jobs"]}
+    assert "strand-6e-2" not in ids, (
+        "a stranded PUBLISHED recipe job was served — the orphan guard only names "
+        "the custom: prefix"
+    )
+    assert "strand-6e-2" not in resp.text, "...including through the recency tiles"
+    assert "strand-6e-1" in ids, "...without dropping the public corpus"
+
+
+def test_stranded_recipe_job_is_hidden_at_the_service_layer(db_conn):
+    """The property where it is implemented, not where it is routed."""
+    _insert_company(db_conn, "pub-6e2", visibility="public")
+    _insert_job(db_conn, "strand-6e-3", "pub-6e2", "greenhouse_api")
+    _seed_recipe_board(db_conn, "dell6e", "strand-6e-4")
+    _strand(db_conn, "dell6e")
+
+    companies = {j["company"] for j in get_jobs(db_conn)}
+    assert "dell6e" not in companies
+    assert "pub-6e2" in companies
+    assert get_jobs(db_conn, company="dell6e") == []
+    assert get_job_by_id(db_conn, recipe("dell6e"), "strand-6e-4") is None
+    assert get_job_by_id(db_conn, "greenhouse_api", "strand-6e-3") is not None
+
+
+def test_stranded_recipe_job_is_not_counted_in_the_recency_tiles(db_conn):
+    """The tiles are separate SQL (``job_search._header_counts_where``) and the count
+    is the leak: it publishes the SIZE of a board that no longer exists."""
+    from api.services.job_search import get_search_counts
+
+    fresh = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+    _insert_company(db_conn, "pub-6e3", visibility="public")
+    _insert_job(db_conn, "strand-6e-5", "pub-6e3", "greenhouse_api", first_seen_at=fresh)
+    _insert_company(db_conn, "github6e", visibility="public", ats=RECIPE_ATS)
+    _insert_job(
+        db_conn, "strand-6e-6", "github6e", recipe("github6e"), first_seen_at=fresh
+    )
+    _strand(db_conn, "github6e")
+
+    counts = get_search_counts(db_conn, **_search_filters())
+    assert counts["count_last_24h"] == 1, (
+        "the recency tile counted a stranded recipe job — the guard is on the rows "
+        "query but not on _header_counts_where"
+    )
+
+
+def test_public_location_search_omits_stranded_recipe_boards(db_conn):
+    """The existence oracle, for the published namespace too."""
+    from api.services.saved_filters_service import search_locations
+
+    live = _insert_location(db_conn, "Recipeville, WW")
+    dead = _insert_location(db_conn, "Strandtown, WW")
+    _insert_company(db_conn, "pub-6e4", visibility="public")
+    _insert_job(db_conn, "loc-6e-1", "pub-6e4", "greenhouse_api")
+    _seed_recipe_board(db_conn, "atlassian6e", "loc-6e-2")
+    _tag_location(db_conn, "loc-6e-1", live)
+    _tag_location(db_conn, "loc-6e-2", dead)
+    _strand(db_conn, "atlassian6e")
+
+    names = {
+        r["canonical_name"]
+        for r in search_locations(db_conn, "WW", limit=50, open_only=True)
+    }
+    assert "Recipeville, WW" in names
+    assert "Strandtown, WW" not in names
+
+
+def test_a_LIVE_published_recipe_board_is_still_public(client, db_conn):
+    """CONTROL, and the one that matters most — these boards are meant to be visible.
+
+    A fix that hid orphans by hiding every ``recipe:`` row would dark the four boards
+    this branch exists to publish, on both public readers. It fails HERE.
+    """
+    _seed_recipe_board(db_conn, "atlassian6f", "live-6e-1")
+
+    listed = client.get("/api/jobs")
+    assert listed.status_code == 200
+    assert "live-6e-1" in {j["id"] for j in listed.json()}
+
+    searched = client.get("/api/jobs/search")
+    assert searched.status_code == 200
+    assert "live-6e-1" in {j["id"] for j in searched.json()["jobs"]}
+
+    assert get_job_by_id(db_conn, recipe("atlassian6f"), "live-6e-1") is not None
+
+
+def test_the_orphan_guard_names_every_recipe_engine_namespace():
+    """ANTI-DRIFT. The guard is a hand-written SQL literal, so a THIRD namespace added
+    to ``scripts.shared.constants`` would be outside it and nothing else would notice —
+    which is precisely how ``recipe:`` got out. Derived from the constants, so this
+    cannot be satisfied by editing the expected list.
+    """
+    from api.services.database import _ORPHANED_CUSTOM_PREDICATE
+
+    predicate = _ORPHANED_CUSTOM_PREDICATE.as_string(None)
+    for prefix in (CUSTOM_SOURCE_PREFIX, RECIPE_SOURCE_PREFIX):
+        assert f"'{prefix}'" in predicate, (
+            f"the orphan guard does not name the {prefix!r} namespace — rows in it "
+            f"are served as public when their companies row goes missing"
+        )

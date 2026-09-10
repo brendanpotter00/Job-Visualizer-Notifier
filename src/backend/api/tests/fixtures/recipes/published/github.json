@@ -1,0 +1,57 @@
+{
+ "script_version": 1,
+ "transport": "http_json",
+ "expected_min_jobs": 20,
+ "base_url": "https://www.github.careers",
+ "steps": [
+  {
+   "op": "fetch",
+   "method": "GET",
+   "url": "https://www.github.careers/api/jobs?page=1&sortBy=relevance&descending=false&internal=false&limit=100",
+   "headers": {
+    "accept": "application/json, text/plain, */*"
+   }
+  },
+  {
+   "op": "paginate_page",
+   "param": "page",
+   "page_size": 100,
+   "start_page": 1,
+   "max_pages": 20
+  },
+  {
+   "op": "extract_json_path",
+   "records_path": "jobs.*.data",
+   "fields": {
+    "id": "req_id",
+    "title": "title",
+    "url": "https://www.github.careers/careers-home/jobs/{req_id}?lang=en-us",
+    "location": "location_name",
+    "posted_at": "posted_date",
+    "description": "description"
+   }
+  },
+  {
+   "op": "parse_date",
+   "field": "posted_at",
+   "mode": "iso"
+  },
+  {
+   "op": "dedupe_key",
+   "field": "id"
+  },
+  {
+   "op": "assert_unique",
+   "field": "id"
+  },
+  {
+   "op": "assert_page_advances"
+  }
+ ],
+ "oracle": {
+  "kind": "declared_probed",
+  "total_path": "totalCount"
+ },
+ "discovered_at": "2026-09-09T00:00:00+00:00",
+ "discovered_by": "hand/published-seed"
+}

@@ -57,7 +57,11 @@ from scripts.shared import database as db
 from ..config import settings
 from ..services import custom_companies_service as ccs
 from .fetch_custom_company import fetch_custom_company
-from .procrastinate_app import CUSTOM_ATS_FIRST_FETCH_QUEUE, procrastinate_app
+from .procrastinate_app import (
+    CUSTOM_ATS_FIRST_FETCH_QUEUE,
+    CUSTOM_FETCH_QUEUES,
+    procrastinate_app,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -111,9 +115,20 @@ def _count_queued_fetches(conn: psycopg2.extensions.connection) -> int:
     if not row or row["t"] is None:
         return 0
     cursor.execute(
+        # SCOPED TO THE PRIVATE LANE'S QUEUES, not to the task name alone.
+        # ``fetch_custom_company`` is also the leaf task for PUBLISHED recipe
+        # boards (``enqueue_recipe_fan_out``, queue ``recipe_fetch``), and those
+        # must not spend this budget: four curated boards deferred on one */30
+        # tick would hold ``queued >= 3`` and skip the very next */15 claim for
+        # every user-added board. Today ``CUSTOM_FETCH_QUEUES`` is exactly the
+        # set of queues the custom deferrers use, so this predicate is a no-op
+        # for the behaviour that shipped — it just stops being one the moment a
+        # second lane shares the task.
         "SELECT count(*) AS n FROM procrastinate_jobs "
         "WHERE task_name = 'fetch_custom_company' "
-        "AND status = 'todo'"
+        "AND queue_name = ANY(%s) "
+        "AND status = 'todo'",
+        (list(CUSTOM_FETCH_QUEUES),),
     )
     row = cursor.fetchone()
     return int(row["n"]) if row else 0

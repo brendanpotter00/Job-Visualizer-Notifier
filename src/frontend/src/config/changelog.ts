@@ -19,6 +19,18 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    id: 'add-companies-2026-09-09-recipe-boards',
+    title: 'Added Atlassian, GitHub, Oracle and Dell',
+    description:
+      "Four big career sites are now tracked, about 3,000 open roles between them. None of them runs on a job board we already read — Atlassian, GitHub, Oracle and Dell each publish their own bespoke jobs API — so each one is read by a scraper written once and then replayed on a schedule, the same engine that powers the add-your-own-company feature. Atlassian brings about 230 roles, GitHub 81, Dell 470, and Oracle roughly 2,200. One honest caveat on Oracle: its own job board reports a slightly different total than it will actually hand over, so we show every role we can see there but never mark one as closed — we would rather leave a filled role on the page than delete a real one from your chart.",
+    tags: ['new-companies'],
+    date: '2026-09-09',
+    link: {
+      to: ROUTES.ACCOUNT,
+      label: 'Add them to your company preferences',
+    },
+  },
+  {
     id: 'add-companies-2026-09-09-ia40',
     title: 'Added 22 companies from the IA40 list',
     description:

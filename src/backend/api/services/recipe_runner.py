@@ -712,6 +712,11 @@ class _HarvestState:
     # apart: a ``window_cap`` stops ONE facet and the next one still deserves its
     # sweep, while an exhausted clock stops the whole run.
     budget_exhausted: bool = False
+    # A ``stop_on_empty`` sweep read THROUGH a short page and a later page came back
+    # non-empty — so the board declined to serve part of a window the cursor has
+    # already skipped past. Surfaced on ``HarvestEvidence`` and routed to UNVERIFIED;
+    # see the short-page branch in :func:`_sweep_offset_page`.
+    mid_sweep_short_page: bool = False
 
 
 def _effective_window_cap(pg: dict[str, Any], plan: RecipePlan) -> int | None:
@@ -744,6 +749,7 @@ def _sweep_offset_page(
     records_path: str,
     fields: dict[str, str],
     deadline: float | None = None,
+    stop_on_empty: bool = False,
 ) -> None:
     """One offset/page sweep. Appends mapped rows + per-page id sets onto ``state``.
 
@@ -753,10 +759,29 @@ def _sweep_offset_page(
     read as UNVERIFIED ``cap_hit`` in ``verify_harvest`` instead of a completed read.
     That routing is the load-bearing half: an unfinished sweep that looked finished
     would let the destructive tail close every job it never got to (invariant #2).
+
+    ``stop_on_empty`` moves the terminus from "a short page" to "an EMPTY page", for the
+    board that serves a short page in the MIDDLE of its own result set. It is
+    ``recipe_schema._STOP_ON_EMPTY_PAGE`` — opt-in, absent from every stored recipe by
+    construction (the key could not validate before it existed), and ``False`` here so
+    that a caller which does not pass it behaves byte-identically to before.
+
+    It RECOVERS the rows past the gap; it does NOT recover the rows inside it, and the
+    sweep says so. A short page followed by a non-empty one sets
+    ``state.mid_sweep_short_page``, which :func:`harvest_verification.verify_harvest`
+    routes to UNVERIFIED under every oracle kind. Reading on without recording that
+    would trade a silently TRUNCATED read for a silently GAPPY one — the same class of
+    wrong close, wearing better evidence.
     """
     cursor = 0 if style == "offset" else start_page
     seen_pages = 0
     ended_short = False
+    # Only meaningful under ``stop_on_empty``: "the page we just read was short, and we
+    # do not yet know whether that was the end of the board or a hole in it". Resolved
+    # by the next request — see the short-page branch below. Per-sweep, not per-harvest,
+    # because a facet fan-out runs this function once per facet value and a short final
+    # page in facet A says nothing about facet B.
+    short_page_pending = False
     while seen_pages < max_pages:
         # THE TWO RUNTIME BOUNDS, checked BEFORE the request so neither is exceeded
         # rather than merely detected. Both are gated on at least one page having been
@@ -826,7 +851,37 @@ def _sweep_offset_page(
         # differs it can only make the sweep keep paging: the worst it can do is run
         # out of pages, which is ``terminated_cleanly=False`` → UNVERIFIED → nothing
         # closes.
-        if len(page_records) + skipped < page_size:
+        #
+        # ``stop_on_empty`` swaps the comparison for the ONE board family that serves a
+        # short page mid-result-set (Oracle Fusion drops index 2000 exactly) — see
+        # ``recipe_schema._STOP_ON_EMPTY_PAGE``. It is False unless the recipe says
+        # otherwise, so the non-flag branch is the same line it was for every stored
+        # recipe.
+        served = len(page_records) + skipped
+        if stop_on_empty:
+            if served == 0:
+                ended_short = True
+                break
+            # THE SHORT PAGE IS EVIDENCE, NOT JUST A NON-TERMINUS. Reading THROUGH a
+            # short page recovers the rows past it, but it does not recover the rows
+            # INSIDE it: the cursor still advances by ``page_size``, so whatever the
+            # board declined to serve in that window is gone from this harvest for
+            # good. Without recording that, the flag would only convert *silently
+            # truncated* into *silently gappy* — a read with a proven hole reporting
+            # ``terminated_cleanly=True`` and ``cap_hit=False``, which VERIFIES and is
+            # therefore allowed to close the missing jobs. Same failure class, better-
+            # looking evidence.
+            #
+            # A short page is only proof of a hole once a LATER page comes back
+            # non-empty. The natural last page of a board is short too (25 records,
+            # page_size 10 → the third page serves 5), and that one is the terminus,
+            # not a gap — so the short page is held PENDING and only promoted when the
+            # next request proves the sweep was not over.
+            if short_page_pending:
+                state.mid_sweep_short_page = True
+            if served < page_size:
+                short_page_pending = True
+        elif served < page_size:
             ended_short = True
             break
         cursor += page_size if style == "offset" else 1
@@ -894,6 +949,7 @@ def _run_http_json(http: httpx.Client, plan: RecipePlan) -> _HarvestState:
         _sweep_offset_page(
             http, plan, state, {}, style, param, page_size, max_pages,
             start_page, window_cap, records_path, fields, deadline=deadline,
+            stop_on_empty=bool(pg.get("stop_on_empty_page", False)),
         )
     return state
 
@@ -1717,6 +1773,7 @@ def finalize_harvest(
         page_advance_ok=_page_advance_ok(state.page_id_sets),
         pages_fetched=state.pages_fetched,
         transport_ok=True,
+        mid_sweep_short_page=state.mid_sweep_short_page,
     )
     return deduped, evidence
 

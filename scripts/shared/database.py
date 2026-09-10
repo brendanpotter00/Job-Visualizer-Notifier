@@ -350,7 +350,9 @@ def list_enabled_companies(conn: Connection, ats: str) -> List[Dict[str, Any]]:
     List all enabled companies for a given ATS.
 
     Used by the periodic fan-out tasks (Greenhouse / Ashby / Workday / Gem /
-    Lever) to discover which companies to defer per-company fetch tasks for.
+    Lever, plus ``recipe`` — the PUBLISHED recipe-engine boards fanned out by
+    ``tasks/enqueue_recipe_fan_out``) to discover which companies to defer
+    per-company fetch tasks for.
 
     Args:
         conn: Database connection

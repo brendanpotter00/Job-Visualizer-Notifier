@@ -397,3 +397,29 @@ def test_the_index_skips_rows_with_no_usable_name():
     index = build_name_index([("", "Nameless"), ("ok-co", ""), ("dashes", "---")])
     assert index.get("") is None
     assert match_name_in_url("https://okco.com/careers", index) == "ok-co"
+
+
+# ─────────────────── the vendor domain the recipe boards sit on ──────────────────────
+
+
+def test_a_fusion_tenant_never_name_matches_the_company_called_oracle():
+    """Publishing a company named **Oracle** put a live collision on the name rung.
+
+    ``*.fa.<region>.oraclecloud.com`` is Oracle Fusion Recruiting — an ATS, one tenant
+    per pod host, tenant selected by a ``siteNumber`` QUERY PARAMETER rather than by the
+    host. Our own recipe corpus already carries two of them: Oracle's own board and
+    JPMorgan Chase's. So the registrable label ``oraclecloud`` names the VENDOR, and
+    anything that reads identity out of it answers "Oracle" for JPMC.
+
+    ``oraclecloud`` does not decompose into ``oracle`` under today's closed affix lists,
+    so this is a guard against a future edit rather than a live bug — which is exactly
+    what ``_NEVER_MATCH_DOMAINS`` is for, and why ``myworkdayjobs.com`` and
+    ``successfactors.com`` are already in it.
+    """
+    index = build_name_index(PUBLISHED + [("oracle", "Oracle")])
+
+    assert match("https://eeho.fa.us2.oraclecloud.com/hcmRestApi/resources", index) is None
+    assert match("https://jpmc.fa.oraclecloud.com/hcmUI/CandidateExperience", index) is None
+    assert match("https://oraclecloud.com/careers", index) is None
+    # ...and Oracle's REAL careers domain is untouched: different registrable domain.
+    assert match("https://careers.oracle.com/en/sites/jobsearch", index) == "oracle"

@@ -128,6 +128,18 @@ _NEVER_MATCH_DOMAINS = frozenset({
     # Rung 1's own ATSs.
     "greenhouse.io", "ashbyhq.com", "lever.co", "gem.com",
     "myworkdayjobs.com", "workday.com", "eightfold.ai",
+    # ``oraclecloud.com`` is Oracle Fusion Recruiting — an ATS the way
+    # ``myworkdayjobs.com`` is, one tenant per ``<pod>.fa.<region>`` host, and our own
+    # recipe corpus already carries TWO of them (``eeho...`` is Oracle's own board,
+    # ``jpmc.fa.oraclecloud.com`` is JPMorgan Chase's). It is listed for the exact
+    # reason the block comment gives: a company whose name collides with a vendor's
+    # domain label must not turn that vendor's whole estate into a match. Publishing a
+    # company called **Oracle** made that collision live — ``oraclecloud`` does not
+    # decompose into ``oracle`` under today's closed affix lists, so this changes
+    # nothing today, and it is one added suffix away from answering "Oracle" for every
+    # Fusion tenant on earth. ``careers.oracle.com`` is a different registrable domain
+    # and still name-matches normally.
+    "oraclecloud.com",
     # Other ATS vendors and job aggregators. Not read by us; pasted by users.
     "smartrecruiters.com", "jobvite.com", "icims.com", "taleo.net",
     "successfactors.com", "workable.com", "recruitee.com", "teamtailor.com",

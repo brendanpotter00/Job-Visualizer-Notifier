@@ -20,7 +20,12 @@ from typing import Any, Literal, NamedTuple, Optional
 import psycopg2
 from psycopg2.extensions import connection as Connection
 
-from scripts.shared.constants import custom, new_custom_company_id
+from scripts.shared.constants import (
+    CUSTOM_SOURCE_PREFIX,
+    RECIPE_SOURCE_PREFIX,
+    custom,
+    new_custom_company_id,
+)
 from .careers_host_match import match_any_careers_url
 from .company_name_match import build_name_index, match_name_in_any_url
 from .discovery.progress import initial_snapshot, with_first_scan
@@ -628,6 +633,15 @@ def harvest_queueing_lock(company_id: str) -> str:
 
     Same reason as :func:`discovery_queueing_lock`: the claim tick, the add-time first
     harvest and the removal path all name it, and they must name the same string.
+
+    ONE NAMESPACE ACROSS BOTH LANES. ``enqueue_recipe_fan_out`` (published
+    ``ats='recipe'`` boards) defers the same leaf task and takes its lock from here
+    too, even though its rows are ``visibility='public'`` and its ``source_id``
+    namespace is ``recipe:``. ``companies.id`` is a primary key, so one lock string
+    per company id is what actually delivers "never two concurrent harvests of one
+    board" — including for a row whose visibility changes while a job of its own is
+    still queued, which two lane-specific namespaces would each miss. The ``custom:``
+    spelling is historical; it names the COMPANY, not the source_id.
     """
     return f"custom:{company_id}"
 
@@ -1820,19 +1834,45 @@ def fleet_breaker_tripped(
     min_sample: int = 5,
     fail_fraction: float = 0.20,
 ) -> bool:
-    """Fleet circuit breaker (§4.3): did > 20% of the night's custom runs FAIL?
+    """Fleet circuit breaker (§4.3): did > 20% of the night's recipe-engine runs FAIL?
 
-    If so, NO custom company closes that night — the check that would have made
-    the 2026-03-29 mass closure a non-event. Computed as a night-scoped aggregate
-    over ``scrape_runs`` (there is no barrier where "the night's companies" all
-    finish, so each leaf task reads this right before its close step):
+    If so, NO recipe-engine company closes that night — the check that would have made
+    the 2026-03-29 mass closure a non-event. Computed as a night-scoped aggregate over
+    ``scrape_runs`` (there is no barrier where "the night's companies" all finish, so
+    each leaf task reads this right before its close step).
 
-        tripped iff total >= min_sample AND failed / total > fail_fraction
+    ONE FRACTION PER NAMESPACE, TRIPPED ON EITHER — and that is the whole shape of
+    this function::
 
-    Global across ALL custom companies on purpose — a systemic failure (a shared
-    client bug now, a Browserbase outage in Phase 4) is exactly the class this
-    generalizes. It never touches another user's DATA (source_id isolation
-    holds); it only SUPPRESSES this company's close.
+        tripped iff (custom_total >= min_sample AND custom_failed/custom_total > f)
+                 OR (recipe_total >= min_sample AND recipe_failed/recipe_total > f)
+
+    WHY NOT ONE POOLED FRACTION OVER BOTH PREFIXES. The breaker is a RATIO, so widening
+    the row set widens the DENOMINATOR too — and a healthier, higher-volume lane in the
+    denominator makes the breaker HARDER to trip, not easier. The arithmetic, on
+    measured production volumes: the ``custom:`` lane runs ~65 times per 24h, so a bad
+    night of 14 failures is 21.5% and trips. Pool in the published lane — 4 curated
+    boards x 48 ``*/30`` ticks = ~192 runs — and the same 14 failures are 5.4% of ~257,
+    which does NOT trip. The published lane would have silently disarmed the guard that
+    exists for the mass-closure class.
+
+    It gets worse before it gets better: ``scrape_runs.success`` is
+    ``scrape_error IS NULL AND verdict != FAILED``, so a board that harvests fine and
+    is merely never VERIFIED — Oracle, permanently ``count_mismatch`` by construction —
+    contributes 48 guaranteed SUCCESSES a day to that denominator. A pooled fraction
+    would have let a board that can never close pay for the closes of boards that can.
+
+    Per-namespace is also the honest generalization. The two lanes share the leaf task,
+    the replay runner and the SSRF-guarded client, so a shared-engine outage shows up in
+    BOTH fractions and either one is enough to trip. What per-namespace refuses to do is
+    let one lane's volume dilute the other's failures. Each lane carries its own
+    ``min_sample`` for the same reason: a 3-run lane has not said anything yet, whatever
+    the other lane did.
+
+    Global across ALL companies WITHIN a namespace on purpose — a systemic failure (a
+    shared client bug now, a Browserbase outage in Phase 4) is exactly the class this
+    generalizes. It never touches another user's DATA (source_id isolation holds); it
+    only SUPPRESSES this company's close.
 
     ``scrape_runs.started_at`` is ISO-8601 Text, so the cutoff is a Python-
     computed ISO string compared lexicographically (correct for zero-padded UTC).
@@ -1857,12 +1897,27 @@ def fleet_breaker_tripped(
     try:
         cursor.execute(
             """
-            SELECT count(*) AS total,
-                   count(*) FILTER (WHERE success IS FALSE) AS failed
+            SELECT
+                count(*) FILTER (WHERE starts_with(source_id, %(custom)s))
+                    AS custom_total,
+                count(*) FILTER (WHERE starts_with(source_id, %(custom)s)
+                                   AND success IS FALSE)
+                    AS custom_failed,
+                count(*) FILTER (WHERE starts_with(source_id, %(recipe)s))
+                    AS recipe_total,
+                count(*) FILTER (WHERE starts_with(source_id, %(recipe)s)
+                                   AND success IS FALSE)
+                    AS recipe_failed
             FROM scrape_runs
-            WHERE source_id LIKE 'custom:%%' AND started_at >= %s
+            WHERE (starts_with(source_id, %(custom)s)
+                   OR starts_with(source_id, %(recipe)s))
+              AND started_at >= %(cutoff)s
             """,
-            (cutoff,),
+            {
+                "custom": CUSTOM_SOURCE_PREFIX,
+                "recipe": RECIPE_SOURCE_PREFIX,
+                "cutoff": cutoff,
+            },
         )
         row = cursor.fetchone()
     finally:
@@ -1870,11 +1925,17 @@ def fleet_breaker_tripped(
 
     if row is None:
         return False
-    total = int(row["total"] or 0)
-    failed = int(row["failed"] or 0)
-    if total < min_sample:
-        return False
-    return (failed / total) > fail_fraction
+
+    def _lane_tripped(total: int, failed: int) -> bool:
+        if total < min_sample:
+            return False
+        return (failed / total) > fail_fraction
+
+    return _lane_tripped(
+        int(row["custom_total"] or 0), int(row["custom_failed"] or 0)
+    ) or _lane_tripped(
+        int(row["recipe_total"] or 0), int(row["recipe_failed"] or 0)
+    )
 
 
 def record_company_harvest(

@@ -148,6 +148,27 @@ SCRIPT_COMPANY_CAREERS_HOSTS: Final[dict[str, tuple[tuple[str, str], ...]]] = {
 # per-company namespace is what its round-robin partitions on.
 CUSTOM_SOURCE_PREFIX: Final[str] = "custom:"
 
+# --- Published recipe boards -------------------------------------------------
+# A curated, ``visibility='public'`` company harvested by the SAME deterministic
+# recipe engine the private custom boards use, rather than by a vendor ATS client.
+# ``companies.ats = 'recipe'`` is what routes it: it is selected by its own
+# ``enqueue_recipe_fan_out`` cron (``list_enabled_companies(conn, RECIPE_ATS)``,
+# which already filters ``visibility='public'``) and is invisible to the six vendor
+# fan-outs and to ``claim_custom_companies`` (``visibility='user'``) alike.
+#
+# ``companies.ats`` is plain Text with no CHECK constraint and already carries
+# non-vendor values (``'script'`` for the five scraper boards, ``'discovered'`` for
+# a discovered private board), so ``'recipe'`` is the established shape for
+# "harvested by us, not by a vendor API".
+RECIPE_ATS: Final[str] = "recipe"
+
+# Its per-company ``source_id`` namespace. NOT ``custom:`` — see :func:`recipe`.
+RECIPE_SOURCE_PREFIX: Final[str] = "recipe:"
+
+# ``companies.visibility`` value for a curated, published board. Spelled once here
+# because ``harvest_source_id`` below branches on it and the fan-out asserts it.
+PUBLIC_VISIBILITY: Final[str] = "public"
+
 # ``companies.id`` shape for a custom company: ``u-<10 base36 chars>``. Satisfies
 # the frontend company-id contract ``^[a-z0-9][a-z0-9.\-]*$``, cannot collide
 # with a compile-time ``COMPANY_IDS`` member or a ``public/logos/*`` filename
@@ -155,6 +176,25 @@ CUSTOM_SOURCE_PREFIX: Final[str] = "custom:"
 _CUSTOM_COMPANY_ID_RE: Final[re.Pattern[str]] = re.compile(r"^[a-z0-9][a-z0-9.\-]*$")
 _BASE36_ALPHABET: Final[str] = "0123456789abcdefghijklmnopqrstuvwxyz"
 _CUSTOM_ID_RANDOM_LEN: Final[int] = 10
+
+
+def _namespaced(prefix: str, company_id: str, *, label: str) -> str:
+    """``<prefix><company_id>`` after validating the id shape.
+
+    Shared by :func:`custom` and :func:`recipe` so the two namespaces can never
+    drift on WHAT they accept. The validation is the load-bearing half: an
+    unvalidated id would be interpolated into ``WHERE source_id = %s`` and (via
+    the per-company isolation above) is the one value that decides which rows a
+    destructive helper can reach.
+    """
+    if not isinstance(company_id, str) or not _CUSTOM_COMPANY_ID_RE.fullmatch(
+        company_id
+    ):
+        raise ValueError(
+            f"invalid {label} company id {company_id!r}: must match "
+            f"{_CUSTOM_COMPANY_ID_RE.pattern}"
+        )
+    return prefix + company_id
 
 
 def custom(company_id: str) -> str:
@@ -165,14 +205,50 @@ def custom(company_id: str) -> str:
     into ``WHERE source_id = %s`` and (via the per-company isolation above) is
     the one value that decides which rows a destructive helper can reach.
     """
-    if not isinstance(company_id, str) or not _CUSTOM_COMPANY_ID_RE.fullmatch(
-        company_id
-    ):
-        raise ValueError(
-            f"invalid custom company id {company_id!r}: must match "
-            f"{_CUSTOM_COMPANY_ID_RE.pattern}"
-        )
-    return CUSTOM_SOURCE_PREFIX + company_id
+    return _namespaced(CUSTOM_SOURCE_PREFIX, company_id, label="custom")
+
+
+def recipe(company_id: str) -> str:
+    """Return the ``recipe:<company_id>`` source_id for a PUBLISHED recipe board.
+
+    Same per-company namespacing as :func:`custom`, and the same validation, but
+    a DELIBERATELY DIFFERENT PREFIX. Three things key off ``custom:`` and would
+    be wrong for a published board if it reused that prefix:
+
+    * ``routers/internal_enrichment`` partitions the enrichment queue on
+      ``source_id LIKE 'custom:%'`` and reserves only ~10% of every batch for that
+      slice (``enrichment_custom_share_pct``). A published board on a ``custom:``
+      id would silently ride the private-board fairness brake — a real bug, and a
+      quiet one: it looks like "enrichment is slow for Atlassian", not like a
+      mis-namespaced row.
+    * ``services/database._ORPHANED_CUSTOM_PREDICATE`` treats a ``custom:`` row
+      whose ``companies`` row is missing as an orphan BY DEFINITION, on the stated
+      premise that the prefix "can only ever be private".
+    * ``custom_companies_service.list_owned_source_ids`` returns ``custom:<id>``
+      as the owner-scoped read exemption on ``GET /api/jobs/search``.
+
+    A published board is public, unowned, and belongs in the published enrichment
+    slice, so it needs its own namespace rather than a widened meaning for the old
+    one. ``recipe:`` names WHAT harvests it (``companies.ats = 'recipe'``, the
+    deterministic recipe engine) exactly the way ``custom:`` names where its board
+    came from.
+    """
+    return _namespaced(RECIPE_SOURCE_PREFIX, company_id, label="recipe")
+
+
+def harvest_source_id(company_id: str, *, visibility: str | None) -> str:
+    """The source_id ONE harvest of ``company_id`` must write, given its visibility.
+
+    THE single place the recipe-engine leaf task decides which namespace it is
+    writing into, so the published and private paths cannot answer differently.
+    ``'public'`` — and only ``'public'`` — gets ``recipe:``; everything else
+    (``'user'``, and a NULL/unknown value) falls back to ``custom:``, because the
+    private namespace is the one carrying the extra read-side guards and is
+    therefore the safe direction to fail in.
+    """
+    if visibility == PUBLIC_VISIBILITY:
+        return recipe(company_id)
+    return custom(company_id)
 
 
 def _to_base36(n: int) -> str:
