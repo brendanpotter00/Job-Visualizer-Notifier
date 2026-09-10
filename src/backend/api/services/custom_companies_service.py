@@ -1851,16 +1851,20 @@ def fleet_breaker_tripped(
     the row set widens the DENOMINATOR too — and a healthier, higher-volume lane in the
     denominator makes the breaker HARDER to trip, not easier. The arithmetic, on
     measured production volumes: the ``custom:`` lane runs ~65 times per 24h, so a bad
-    night of 14 failures is 21.5% and trips. Pool in the published lane — 4 curated
-    boards x 48 ``*/30`` ticks = ~192 runs — and the same 14 failures are 5.4% of ~257,
+    night of 14 failures is 21.5% and trips. Pool in the published lane — 2 curated
+    boards x 48 ``*/30`` ticks = ~96 runs — and the same 14 failures are 8.7% of ~161,
     which does NOT trip. The published lane would have silently disarmed the guard that
-    exists for the mass-closure class.
+    exists for the mass-closure class. (It was worse when the seed carried four boards:
+    5.4% of ~257. Fewer published boards weakens the effect; it does not remove it, and
+    the ratio moves back the moment the fleet grows.)
 
     It gets worse before it gets better: ``scrape_runs.success`` is
-    ``scrape_error IS NULL AND verdict != FAILED``, so a board that harvests fine and
-    is merely never VERIFIED — Oracle, permanently ``count_mismatch`` by construction —
-    contributes 48 guaranteed SUCCESSES a day to that denominator. A pooled fraction
-    would have let a board that can never close pay for the closes of boards that can.
+    ``scrape_error IS NULL AND verdict != FAILED``, so a board that harvests fine and is
+    merely never VERIFIED contributes 48 guaranteed SUCCESSES a day to that denominator.
+    That is not hypothetical — careers.oracle.com is permanently ``count_mismatch`` by
+    construction and was cut from the seed for it (see migration ``4c1f8a26d7be``) — and
+    a pooled fraction would have let a board that can never close pay for the closes of
+    boards that can.
 
     Per-namespace is also the honest generalization. The two lanes share the leaf task,
     the replay runner and the SSRF-guarded client, so a shared-engine outage shows up in

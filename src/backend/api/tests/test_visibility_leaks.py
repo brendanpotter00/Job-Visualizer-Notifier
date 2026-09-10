@@ -1393,9 +1393,9 @@ def test_location_search_without_open_only_is_untouched(db_conn):
 # name, so a ``recipe:`` row whose ``companies`` row is gone fell straight through to
 # the fail-OPEN anti-join and was served.
 #
-# NOT hypothetical, and not even exotic. The seed migration that publishes these four
-# boards (``4c1f8a26d7be``) deletes the four ``companies`` rows on ``downgrade()`` — one
-# ``alembic downgrade`` away from ~3,000 stranded ``recipe:oracle`` / ``recipe:dell``
+# NOT hypothetical, and not even exotic. The seed migration that publishes these boards
+# (``4c1f8a26d7be``) deletes the ``companies`` rows on ``downgrade()`` — one ``alembic
+# downgrade`` away from hundreds of stranded ``recipe:atlassian`` / ``recipe:github``
 # rows. They disappear from ``GET /api/jobs`` because it INNER JOINs ``companies``,
 # which is exactly what makes the hole quiet: the obvious surface looks clean while
 # ``GET /api/jobs/search`` (no join) keeps serving a board nobody is scraping any more.
@@ -1501,7 +1501,7 @@ def test_public_location_search_omits_stranded_recipe_boards(db_conn):
 def test_a_LIVE_published_recipe_board_is_still_public(client, db_conn):
     """CONTROL, and the one that matters most — these boards are meant to be visible.
 
-    A fix that hid orphans by hiding every ``recipe:`` row would dark the four boards
+    A fix that hid orphans by hiding every ``recipe:`` row would dark the boards
     this branch exists to publish, on both public readers. It fails HERE.
     """
     _seed_recipe_board(db_conn, "atlassian6f", "live-6e-1")

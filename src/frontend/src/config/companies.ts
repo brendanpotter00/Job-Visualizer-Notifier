@@ -1054,8 +1054,6 @@ export const COMPANIES: Company[] = [
   // here is genuinely none.
   createBackendScraperCompany('atlassian', 'Atlassian', 'https://www.atlassian.com/company/careers/all-jobs'),
   createBackendScraperCompany('github', 'GitHub', 'https://www.github.careers/careers-home/jobs'),
-  createBackendScraperCompany('oracle', 'Oracle', 'https://careers.oracle.com/en/sites/jobsearch'),
-  createBackendScraperCompany('dell', 'Dell', 'https://jobs.dell.com/en/search-jobs'),
 ];
 
 export const enum COMPANY_IDS {
@@ -1104,7 +1102,6 @@ export const enum COMPANY_IDS {
   Databricks = 'databricks',
   Decagon = 'decagon',
   Datadog = 'datadog',
-  Dell = 'dell',
   Discord = 'discord',
   Distyl = 'distyl',
   Dropbox = 'dropbox',
@@ -1169,7 +1166,6 @@ export const enum COMPANY_IDS {
   OpenAI = 'openai',
   OpenEvidence = 'openevidence',
   OpenRouter = 'openrouter',
-  Oracle = 'oracle',
   Pallet = 'pallet',
   Palantir = 'palantir',
   Paraform = 'paraform',

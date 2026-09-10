@@ -50,6 +50,10 @@
     "accomplishment": "It is known for its MicroGEO satellite class: compact geostationary spacecraft providing dedicated internet capacity at a fraction of the size and cost of traditional GEO satellites.",
     "blurb": "Astranis designs and manufactures small, software-defined geostationary communications satellites that deliver dedicated broadband connectivity to specific regions and customers."
   },
+  "atlassian": {
+    "blurb": "Atlassian builds the software teams plan and ship work in — Jira for tracking, Confluence for documentation, and Bitbucket for code — used by most of the Fortune 500.",
+    "accomplishment": "Moved its entire customer base to the cloud and now runs a distributed-by-default workforce with no company-wide office requirement."
+  },
   "base-power": {
     "accomplishment": "It builds a distributed network of residential battery storage that provides homes with backup power while helping balance the electric grid.",
     "blurb": "Base Power Company is an electricity provider that installs home battery systems and supplies grid power, pairing backup energy with low-cost service."
@@ -245,6 +249,10 @@
   "gigaml": {
     "accomplishment": "It deploys AI support agents for large consumer brands such as DoorDash and meets SOC 2, GDPR, ISO 27001, and HIPAA compliance standards.",
     "blurb": "GigaML builds enterprise AI voice and chat agents that resolve customer-support issues at scale with human-like conversations."
+  },
+  "github": {
+    "blurb": "GitHub hosts the majority of the world's open-source code and the collaboration tools built around it — pull requests, Actions CI, and Copilot.",
+    "accomplishment": "Passed 100 million developers on the platform, and Copilot made AI pair programming a mainstream part of how software gets written."
   },
   "gitlab": {
     "accomplishment": "It is one of the world's largest all-remote companies and provides a single application used by enterprises and open-source developers worldwide.",

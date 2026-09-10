@@ -185,9 +185,9 @@ _PRIVATE_COMPANY_ANTIJOIN = sql.SQL(
 # BOTH PREFIXES, NOT JUST ``custom:``. ``recipe:`` is the published half of the same
 # engine, and the existence hole is IDENTICAL there: no FK, the same leaf task, and
 # the same anti-join failing open when the ``companies`` row goes missing. It is not
-# hypothetical either — the seed migration that publishes the four recipe boards
-# (``4c1f8a26d7be``) deletes its ``companies`` rows on ``downgrade()``, and ~3,000
-# ``recipe:oracle`` / ``recipe:dell`` / ... job rows outlive them. Those rows drop out
+# hypothetical either — the seed migration that publishes the recipe boards
+# (``4c1f8a26d7be``) deletes its ``companies`` rows on ``downgrade()``, and the
+# ``recipe:atlassian`` / ``recipe:github`` job rows outlive them. Those rows drop out
 # of ``GET /api/jobs`` (it INNER JOINs ``companies``) but ``GET /api/jobs/search``
 # does not join, so under the old ``custom:``-only predicate a stranded published
 # corpus stayed readable — a board nobody is scraping any more, served as current.

@@ -20,9 +20,9 @@ export interface ChangelogEntry {
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
     id: 'add-companies-2026-09-09-recipe-boards',
-    title: 'Added Atlassian, GitHub, Oracle and Dell',
+    title: 'Added Atlassian and GitHub',
     description:
-      "Four big career sites are now tracked, about 3,000 open roles between them. None of them runs on a job board we already read — Atlassian, GitHub, Oracle and Dell each publish their own bespoke jobs API — so each one is read by a scraper written once and then replayed on a schedule, the same engine that powers the add-your-own-company feature. Atlassian brings about 230 roles, GitHub 81, Dell 470, and Oracle roughly 2,200. One honest caveat on Oracle: its own job board reports a slightly different total than it will actually hand over, so we show every role we can see there but never mark one as closed — we would rather leave a filled role on the page than delete a real one from your chart.",
+      "Two big career sites are now tracked, about 310 open roles between them. Neither runs on a job board we already read — Atlassian and GitHub each publish their own bespoke jobs API — so each is read by a scraper written once and then replayed on a schedule, the same engine that powers the add-your-own-company feature. Atlassian, the company behind Jira, Confluence and Bitbucket, brings about 230 roles, and GitHub another 81. Every run is checked for completeness before anything is marked closed, so a role that gets filled drops off your chart instead of sitting there forever.",
     tags: ['new-companies'],
     date: '2026-09-09',
     link: {

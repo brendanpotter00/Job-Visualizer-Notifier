@@ -1,19 +1,28 @@
-"""seed the four promoted recipe boards
+"""seed the two promoted recipe boards
 
 Revision ID: 4c1f8a26d7be
 Revises: 87fe6224b0b5
 Create Date: 2026-09-09 00:00:00.000000+00:00
 
 Hand-written data migration (the documented exception to the autogenerate-only
-rule). Promotes four boards that were previously read as *custom* companies onto
-the published fleet, using the deterministic recipe engine rather than four
+rule). Promotes two boards that were previously read as *custom* companies onto
+the published fleet, using the deterministic recipe engine rather than two
 bespoke Python scrapers:
 
     id          jobs    oracle              verdict at time of writing
     atlassian     230   none                VERIFIED / history_delta_ok
     github         81   declared_probed     VERIFIED / declared_exact
-    dell          470   declared_probed     VERIFIED / declared_exact
-    oracle      2,234   declared_probed     UNVERIFIED / count_mismatch
+
+Dell and Oracle were authored and proved alongside these two, then cut before
+merge. Dell (470 jobs, exact declared match) is simply not a company this product
+wants to track. Oracle is the more interesting cut and worth recording: its board
+declares ``TotalJobsCount`` 2,239, exposes 2,237 addressable positions and serves
+2,236. ``declared_probed`` compares at tolerance 0, so that gap is a PERMANENT
+``count_mismatch`` — Oracle would have shown every job it had and closed none of
+them, every night, forever. A board that can never VERIFY can never close, and a
+company whose filled roles never leave the chart is worse than a company we do
+not carry. Neither recipe is in the tree; re-adding either later is a fixture
+plus a row in this list, not new engine work.
 
 Each company needs BOTH halves and neither is useful alone:
 
@@ -32,20 +41,27 @@ row and must never be reaped for lacking one.
 but the column is NOT NULL — the same thing the script companies (tiktok, meta,
 amazon) do.
 
-ORACLE IS SEEDED KNOWING IT CAN NEVER VERIFY, and that is the honest outcome
-rather than an oversight. Its board declares ``TotalJobsCount`` 2,239, exposes
-2,237 addressable positions, and serves 2,236; the gap is exactly 3 on every
-measured sweep, and one record is unreachable in any bulk window a recipe can
-express. ``declared_probed`` compares at tolerance 0, so the verdict is a
-permanent ``count_mismatch``: Oracle shows all its jobs every run and closes
-none. Relabelling the oracle to ``self_consistent`` or ``none`` WOULD produce a
-VERIFIED verdict — i.e. permission for destructive closes — purely by changing a
-label on a board we cannot prove we read completely. That is precisely why it was
-not done. If Oracle ever fixes its own count, this row starts verifying with no
-code change.
+THE PRODUCTION ROLLBACK IS NOT ``alembic downgrade``. It is one statement:
+
+    UPDATE companies SET enabled = false WHERE id IN ('atlassian', 'github');
+
+That is the whole rollback and it is not a euphemism for a partial one. It stops
+the fan-out — ``enqueue_recipe_fan_out`` reads ``db.list_enabled_companies``,
+which filters ``enabled = true AND visibility = 'public'`` — so no board is
+harvested again; and ``services/database._HIDDEN_COMPANY_PREDICATE`` (an
+anti-join on ``NOT c.enabled``) keeps the rows already harvested out of the public
+``/api/jobs`` list and detail reads. Instant, undone by flipping the flag back,
+and it destroys nothing.
+
+``downgrade()`` below is for a local or CI database that wants the pre-seed state
+back. RUNNING IT AGAINST PRODUCTION REQUIRES A VERIFIED BACKUP FIRST, because it
+DELETES the harvested ``job_listings`` for these boards plus every sidecar hanging
+off them (``job_freshness`` CASCADEs off the listings). Re-harvesting is the only
+recovery and it is not one: a fresh harvest cannot restore ``first_seen_at``,
+``closed_on``, or any of the history the trend charts are drawn from.
 
 Source of truth for the frontend entries:
-  src/frontend/src/config/companies.ts (the four rows in the recipe group)
+  src/frontend/src/config/companies.ts (the rows in the recipe group)
 Recipes are committed alongside at:
   src/backend/api/tests/fixtures/recipes/published/<id>.json
 """
@@ -61,10 +77,11 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
-# Python literals, NOT json.dumps output. A recipe carrying a boolean
-# (oracle's ``stop_on_empty_page``) renders as a bare ``true`` under
-# json.dumps, which is an undefined NAME in Python — it compiles fine and
-# then NameErrors on import, i.e. at migration time.
+# Python literals, NOT ``json.dumps`` output. A recipe carrying a boolean renders
+# as a bare ``true`` under json.dumps, which is an undefined NAME in Python — it
+# compiles fine and then NameErrors on import, i.e. at migration time. No recipe
+# in the current corpus carries one, which is exactly why the rule has to be
+# written down rather than remembered.
 SEED_ROWS = [   {   'id': 'atlassian',
         'display_name': 'Atlassian',
         'script': {   'script_version': 1,
@@ -121,73 +138,6 @@ SEED_ROWS = [   {   'id': 'atlassian',
                       'discovered_at': '2026-09-09T00:00:00+00:00',
                       'discovered_by': 'hand/published-seed'},
         'transport': 'http_json',
-        'oracle_kind': 'declared_probed'},
-    {   'id': 'oracle',
-        'display_name': 'Oracle',
-        'script': {   'script_version': 1,
-                      'transport': 'http_json',
-                      'expected_min_jobs': 500,
-                      'base_url': 'https://careers.oracle.com',
-                      'steps': [   {   'op': 'fetch',
-                                       'method': 'GET',
-                                       'url': 'https://eeho.fa.us2.oraclecloud.com/hcmRestApi/resources/latest/recruitingCEJobRequisitions?onlyData=true&expand=requisitionList.secondaryLocations,flexFieldsFacet.values,requisitionList.requisitionFlexFields&finder=findReqs;siteNumber=CX_45001,facetsList=LOCATIONS;WORK_LOCATIONS;WORKPLACE_TYPES;TITLES;CATEGORIES;ORGANIZATIONS;POSTING_DATES;FLEX_FIELDS,limit=200,offset=0,sortBy=POSTING_DATES_DESC',
-                                       'headers': {   'accept': '*/*',
-                                                      'accept-language': 'en',
-                                                      'origin': 'https://careers.oracle.com'}},
-                                   {   'op': 'paginate_offset',
-                                       'param': 'offset',
-                                       'page_size': 200,
-                                       'max_pages': 40,
-                                       'stop_on_empty_page': True},
-                                   {   'op': 'extract_json_path',
-                                       'records_path': 'items.0.requisitionList',
-                                       'fields': {   'id': 'Id',
-                                                     'title': 'Title',
-                                                     'url': 'https://careers.oracle.com/en/sites/jobsearch/job/{Id}',
-                                                     'location': 'PrimaryLocation',
-                                                     'posted_at': 'PostedDate',
-                                                     'description': 'ShortDescriptionStr'}},
-                                   {'op': 'parse_date', 'field': 'posted_at', 'mode': 'iso'},
-                                   {'op': 'dedupe_key', 'field': 'id'},
-                                   {'op': 'assert_unique', 'field': 'id'},
-                                   {'op': 'assert_page_advances'}],
-                      'oracle': {'kind': 'declared_probed', 'total_path': 'items.0.TotalJobsCount'},
-                      'discovered_at': '2026-09-09T00:00:00+00:00',
-                      'discovered_by': 'hand/published-seed'},
-        'transport': 'http_json',
-        'oracle_kind': 'declared_probed'},
-    {   'id': 'dell',
-        'display_name': 'Dell',
-        'script': {   'script_version': 1,
-                      'transport': 'http_json',
-                      'expected_min_jobs': 100,
-                      'base_url': 'https://enterpriseplatform.dell.com',
-                      'steps': [   {   'op': 'fetch',
-                                       'method': 'GET',
-                                       'url': 'https://enterpriseplatform.dell.com/hcmRestApi/resources/latest/recruitingCEJobRequisitions?onlyData=true&expand=requisitionList.secondaryLocations,flexFieldsFacet.values,requisitionList.requisitionFlexFields&finder=findReqs;siteNumber=CX_1001,facetsList=LOCATIONS;WORK_LOCATIONS;WORKPLACE_TYPES;TITLES;CATEGORIES;ORGANIZATIONS;POSTING_DATES;FLEX_FIELDS,limit=200,offset=0,sortBy=POSTING_DATES_DESC',
-                                       'headers': {   'accept': '*/*',
-                                                      'accept-language': 'en',
-                                                      'origin': 'https://enterpriseplatform.dell.com'}},
-                                   {   'op': 'paginate_offset',
-                                       'param': 'offset',
-                                       'page_size': 200,
-                                       'max_pages': 25},
-                                   {   'op': 'extract_json_path',
-                                       'records_path': 'items.0.requisitionList',
-                                       'fields': {   'id': 'Id',
-                                                     'title': 'Title',
-                                                     'url': 'https://enterpriseplatform.dell.com/hcmUI/CandidateExperience/en/sites/careers/job/{Id}',
-                                                     'location': 'PrimaryLocation',
-                                                     'posted_at': 'PostedDate',
-                                                     'description': 'ShortDescriptionStr'}},
-                                   {'op': 'parse_date', 'field': 'posted_at', 'mode': 'iso'},
-                                   {'op': 'dedupe_key', 'field': 'id'},
-                                   {'op': 'assert_unique', 'field': 'id'},
-                                   {'op': 'assert_page_advances'}],
-                      'oracle': {'kind': 'declared_probed', 'total_path': 'items.0.TotalJobsCount'},
-                      'discovered_at': '2026-09-09T00:00:00+00:00',
-                      'discovered_by': 'hand/published-seed'},
-        'transport': 'http_json',
         'oracle_kind': 'declared_probed'}]
 
 
@@ -216,37 +166,118 @@ def upgrade() -> None:
         })
 
 
+# --------------------------------------------------------------------------
+# The ownership test the downgrade is scoped by
+# --------------------------------------------------------------------------
+# WHY THIS EXISTS. ``upgrade()`` inserts with ``ON CONFLICT (id) DO NOTHING``, and
+# the ``companies`` insert and the ``company_scripts`` insert conflict
+# INDEPENDENTLY. So on any database where one of these ids is already taken, this
+# migration is a partial no-op — and a ``downgrade()`` that deleted by bare id
+# would then destroy rows (and a whole harvested corpus) it never created. Every
+# delete below is therefore gated.
+#
+# WHAT THE TEST IS. A ``companies`` row is treated as ours only if it still looks
+# exactly like the row ``upgrade()`` writes: ``ats = 'recipe'`` AND
+# ``board_token = id`` AND the seeded ``display_name`` AND ``visibility = 'public'``
+# — i.e. every column ``upgrade()`` determines. ``company_scripts`` is judged on
+# its own separate evidence, full ``script`` JSONB equality with the recipe this
+# file carries, because its insert conflicts separately from the company's.
+#
+# WHAT IT PROVES: nothing outside the exact shape this migration writes can be
+# deleted. A user-added recipe board cannot match (those are ``visibility='user'``).
+# A vendor-ATS company that happens to own one of these ids cannot match
+# (``ats <> 'recipe'``). A row someone re-pointed at a different board cannot match
+# (``board_token <> id``). A ``company_scripts`` row holding anyone else's recipe
+# cannot match.
+#
+# WHAT IT DOES NOT PROVE, stated plainly: not that WE wrote the row — only that the
+# row is indistinguishable from the one we would have written. If another actor
+# created a byte-identical public recipe company under the same id before this
+# migration ran, the ``ON CONFLICT`` skipped our insert and this test still passes,
+# and the downgrade deletes their row. Distinguishing those two cases needs a
+# provenance record this schema does not have, and adding one for a two-row data
+# migration is not worth a table.
+#
+# ``enabled`` is DELIBERATELY ABSENT from the test even though ``upgrade()`` sets
+# it TRUE: the documented production rollback is ``SET enabled = false``, so a
+# downgrade run after that rollback must still recognise its own rows.
+_OWNED_COMPANY_SQL = sa.text(
+    "SELECT 1 FROM companies "
+    "WHERE id = :id "
+    "  AND ats = 'recipe' "
+    "  AND board_token = id "
+    "  AND display_name = :display_name "
+    "  AND visibility = 'public'"
+)
+
+
 def downgrade() -> None:
     """Undo the seed — INCLUDING the job rows the boards harvested while seeded.
 
+    NOT THE PRODUCTION ROLLBACK. See the module docstring: production rolls back
+    with ``UPDATE companies SET enabled = false``, and running this against prod
+    needs a verified backup first because the job deletes below are unrecoverable.
+
     THE JOB ROWS ARE THE POINT, and leaving them was a real hole rather than
-    untidiness. Deleting only the ``companies`` rows strands ~3,000
-    ``recipe:<id>`` ``job_listings`` with no company row. They drop out of
-    ``GET /api/jobs`` (it INNER JOINs ``companies``), which is what makes it
-    quiet — but ``GET /api/jobs/search`` does not join, so a board nobody is
-    scraping any more keeps being served as current, with every row still OPEN
-    and nothing left that could ever close them. The read path now fails closed
-    on this shape too (``services/database._ORPHANED_CUSTOM_PREDICATE`` covers
-    the ``recipe:`` prefix), but a downgrade that knowingly creates the state
-    the guard exists to survive is the wrong half of the fix.
+    untidiness. Deleting only the ``companies`` rows strands the ``recipe:<id>``
+    ``job_listings`` with no company row. They drop out of ``GET /api/jobs`` (it
+    INNER JOINs ``companies``), which is what makes it quiet — but
+    ``GET /api/jobs/search`` does not join, so a board nobody is scraping any more
+    keeps being served as current, with every row still OPEN and nothing left that
+    could ever close them. The read path now fails closed on this shape too
+    (``services/database._ORPHANED_CUSTOM_PREDICATE`` covers the ``recipe:``
+    prefix), but a downgrade that knowingly creates the state the guard exists to
+    survive is the wrong half of the fix.
+
+    EVERY DELETE IS SCOPED TO ROWS THIS MIGRATION COULD HAVE CREATED — see
+    ``_OWNED_COMPANY_SQL`` above for exactly what that test does and does not
+    prove. A company whose row this migration skipped (``ON CONFLICT DO NOTHING``)
+    keeps its row, its script, and its entire harvested corpus.
 
     ORDER IS ``custom_companies_service.purge_custom_company``'s, not a new one:
     ``job_locations`` (keyed by ``job_listing_id`` alone, no FK, so it must go
-    while the listings still exist, and the NOT EXISTS keeps a shared id's tags
-    when another source also serves it) -> ``job_tags`` -> ``job_enrichment`` ->
-    ``job_listings`` -> the per-company operational rows -> ``companies``.
-    ``job_freshness`` is absent because it CASCADEs off ``job_listings``.
+    while the listings still exist, and the NOT EXISTS keeps a shared id's rows
+    when another source also serves it — ``job_listings``' PK is the COMPOSITE
+    ``(source_id, id)``, so an id really can appear under two sources) ->
+    ``job_tags`` -> ``job_enrichment`` -> ``job_listings`` -> the per-company
+    operational rows -> ``company_scripts`` -> ``companies``. ``job_freshness`` is
+    absent because it CASCADEs off ``job_listings``.
 
     NEVER-WRONG-CLOSE: every statement is a DELETE. Nothing sets
     ``status='CLOSED'``, nothing writes ``closed_on``, nothing touches
     ``consecutive_misses``. Removing a board's history is not deciding that its
     jobs went away.
 
-    One transaction — Alembic's — so a failure half way strands nothing.
+    One transaction — Alembic's — so a failure half way strands nothing, and the
+    ownership probes below read the same snapshot the deletes write in.
     """
-    ids = tuple(row['id'] for row in SEED_ROWS)
-    source_ids = tuple('recipe:' + row['id'] for row in SEED_ROWS)
+    import json as _json
+
     bind = op.get_bind()
+
+    # The scripts are judged one at a time on their own evidence, because their
+    # insert conflicted independently of the company's.
+    for row in SEED_ROWS:
+        bind.execute(
+            sa.text(
+                "DELETE FROM company_scripts "
+                "WHERE company_id = :id AND script = CAST(:script AS jsonb)"
+            ),
+            {'id': row['id'], 'script': _json.dumps(row['script'])},
+        )
+
+    owned = [
+        row for row in SEED_ROWS
+        if bind.execute(
+            _OWNED_COMPANY_SQL,
+            {'id': row['id'], 'display_name': row['display_name']},
+        ).first() is not None
+    ]
+    if not owned:
+        return
+
+    ids = tuple(row['id'] for row in owned)
+    source_ids = tuple('recipe:' + row['id'] for row in owned)
 
     def _run(statement: str, **params: object) -> None:
         text = sa.text(statement)
@@ -282,7 +313,17 @@ def downgrade() -> None:
     # no longer exists is a false signal to the health watchdog.
     _run("DELETE FROM company_harvests WHERE company_id IN :ids", ids=ids)
     _run("DELETE FROM scrape_runs WHERE company IN :ids", ids=ids)
-    # Scripts before the company: company_scripts has no FK, but dropping the script
-    # first keeps the row from ever being selected mid-downgrade.
-    _run("DELETE FROM company_scripts WHERE company_id IN :ids", ids=ids)
-    _run("DELETE FROM companies WHERE id IN :ids", ids=ids)
+    # The company last, re-stating the ownership test inline so the delete cannot
+    # widen even if the probe above and this statement ever drift apart.
+    for row in owned:
+        bind.execute(
+            sa.text(
+                "DELETE FROM companies "
+                "WHERE id = :id "
+                "  AND ats = 'recipe' "
+                "  AND board_token = id "
+                "  AND display_name = :display_name "
+                "  AND visibility = 'public'"
+            ),
+            {'id': row['id'], 'display_name': row['display_name']},
+        )

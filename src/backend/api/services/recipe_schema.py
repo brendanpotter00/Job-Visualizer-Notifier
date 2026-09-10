@@ -48,14 +48,6 @@ additions:
 * ``fetch.body_encoding`` — ``json`` (the default, and what every stored recipe still
   means) or ``form``.
 * ``extract_embedded_island.source = 'rsc_flight'`` — the Next.js App-Router row parser.
-
-A FOURTH widening, on the same terms, for the published-company seed corpus:
-
-* ``paginate_offset``/``paginate_page``.``stop_on_empty_page`` — move the sweep's
-  terminus from "a short page" to "an EMPTY page", for a board that serves a short page
-  in the MIDDLE of its result set (Oracle Fusion Recruiting). See
-  :data:`_STOP_ON_EMPTY_PAGE` for the measurement and for why an ABSENT key cannot mean
-  anything other than what it means today.
 """
 
 from __future__ import annotations
@@ -436,78 +428,18 @@ def _v_fetch(step: dict[str, Any]) -> None:
             )
 
 
-# --------------------------------------------------------------------------
-# ``stop_on_empty_page`` — the sweep's terminus, for a board that serves a SHORT page
-# in the MIDDLE of its own result set
-# --------------------------------------------------------------------------
-# The sweep's stop rule is "a page shorter than ``page_size`` was the last page"
-# (``recipe_runner._sweep_offset_page``). It is right for nearly every board and it is
-# what makes ``terminated_cleanly`` mean anything.
-#
-# Oracle Fusion Recruiting breaks it, measured 2026-09-09 on careers.oracle.com
-# (siteNumber CX_45001): the board declines to serve exactly one record at absolute
-# index 2000, so ``limit=200,offset=2000`` comes back with **199** rows while
-# ``offset=2200`` still has 37 more. The sweep sees 199 < 200, stops, and reports
-# ``terminated_cleanly=True`` with 2,199 of 2,236 rows — a partial read that calls
-# itself complete. On a ``self_consistent`` board that verdict VERIFIES and the
-# destructive tail closes all 37 jobs it never fetched, every night. This is the exact
-# shape ``_dig_page_records``' skip-counting already defends against on OUR side of the
-# path; the hole left is the board doing it on ITS side.
-#
-# The flag moves the terminus from "short page" to "EMPTY page": keep asking until the
-# board answers with zero records. It is OPT-IN and its ABSENCE means precisely what it
-# means today — an absent key is not merely defaulted to ``False``, it could never have
-# been present, because ``_reject_unknown_keys`` refused it on write AND on every
-# nightly read for the whole life of the vocabulary. No stored recipe can carry it.
-#
-# WHAT IT DOES NOT BUY, and this is the important half: reading THROUGH the gap
-# recovers the 37 rows AFTER it, never the one INSIDE it. The cursor still advances by a
-# full ``page_size`` across a window the board only partly served, so a
-# ``stop_on_empty_page`` sweep that meets a mid-board short page has a PROVEN HOLE in
-# it. ``recipe_runner._sweep_offset_page`` records that as
-# ``HarvestEvidence.mid_sweep_short_page`` and ``harvest_verification.verify_harvest``
-# routes it to UNVERIFIED under EVERY oracle kind — including the count-comparing ones,
-# which never read ``terminated_cleanly``. Without that the flag would only have
-# converted a silently TRUNCATED read into a silently GAPPY one: same wrong close,
-# better-looking evidence. So the flag buys COMPLETENESS OF DISPLAY (the board's jobs
-# all show up), never permission to close.
-#
-# WHAT IT COSTS AND WHERE IT FAILS, stated plainly: one extra request per sweep (the
-# empty page), and a board that never serves an empty page pages until ``max_pages`` and
-# then reports ``terminated_cleanly=False`` → UNVERIFIED → closes nothing. Both are the
-# safe direction. It is NOT admitted on ``paginate_facet``: there the extra page is paid
-# once per facet value, and no measured board needs both.
-_STOP_ON_EMPTY_PAGE = "stop_on_empty_page"
-
-
-def _require_stop_on_empty_page(step: dict[str, Any], where: str) -> None:
-    if _STOP_ON_EMPTY_PAGE in step:
-        _require(
-            isinstance(step[_STOP_ON_EMPTY_PAGE], bool),
-            f"{where}.{_STOP_ON_EMPTY_PAGE} must be true or false",
-        )
-
-
 def _v_paginate_offset(step: dict[str, Any]) -> None:
-    _reject_unknown_keys(
-        step,
-        {"param", "page_size", "max_pages", "window_cap", _STOP_ON_EMPTY_PAGE},
-        "paginate_offset",
-    )
+    _reject_unknown_keys(step, {"param", "page_size", "max_pages", "window_cap"}, "paginate_offset")
     _require_str(step, "param", "paginate_offset")
     _require_pos_int(step, "page_size", "paginate_offset")
     _require_pos_int(step, "max_pages", "paginate_offset")
     if "window_cap" in step:
         _require_pos_int(step, "window_cap", "paginate_offset")
-    _require_stop_on_empty_page(step, "paginate_offset")
 
 
 def _v_paginate_page(step: dict[str, Any]) -> None:
     _reject_unknown_keys(
-        step,
-        {"param", "page_size", "max_pages", "start_page", "window_cap",
-         _STOP_ON_EMPTY_PAGE},
-        "paginate_page",
+        step, {"param", "page_size", "max_pages", "start_page", "window_cap"}, "paginate_page"
     )
     _require_str(step, "param", "paginate_page")
     _require_pos_int(step, "page_size", "paginate_page")
@@ -519,7 +451,6 @@ def _v_paginate_page(step: dict[str, Any]) -> None:
         )
     if "window_cap" in step:
         _require_pos_int(step, "window_cap", "paginate_page")
-    _require_stop_on_empty_page(step, "paginate_page")
 
 
 def _v_paginate_facet(step: dict[str, Any]) -> None:
@@ -1142,21 +1073,6 @@ def validate_recipe(
                 f"transport 'browser_fetch' allows at most {BROWSER_FETCH_MAX_PAGES} "
                 f"pages per run, got max_pages={pagination_step['max_pages']} — each "
                 f"page is a fresh in-browser fetch inside one 90s Chromium session",
-            )
-            # ``stop_on_empty_page`` is honoured by ``recipe_runner._sweep_offset_page``
-            # and by NOTHING ELSE. The browser tier's loop lives in the out-of-process
-            # child (``browser_fetch/_browser_fetch_main.py``), which has its own
-            # short-page terminus and has never read this key — so a browser_fetch
-            # script carrying it would validate, store, and then sweep exactly as if it
-            # did not, which is the "silently does less than it says" failure the whole
-            # module is built to refuse. Rejected here rather than defaulted, until the
-            # child implements it.
-            _require(
-                _STOP_ON_EMPTY_PAGE not in pagination_step,
-                f"transport 'browser_fetch' does not implement {_STOP_ON_EMPTY_PAGE!r} — "
-                "its pagination loop runs in the Chromium subprocess and stops on the "
-                "first short page; a script carrying this key there would silently "
-                "sweep as if it did not",
             )
 
     _validate_oracle(script.get("oracle"))

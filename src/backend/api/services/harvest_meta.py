@@ -42,14 +42,6 @@ class HarvestEvidence:
             transport failure raises upstream before evidence is ever built, so
             this is ``True`` on every constructed instance; it exists so the
             zero-proof chain can assert "a live 200 declared zero".
-        mid_sweep_short_page: The sweep read THROUGH a page the board served short
-            and a later page came back non-empty — i.e. the board declined to serve
-            part of a window whose cursor the sweep has already advanced past, and
-            those records are absent from a harvest that otherwise looks complete.
-            Only a ``stop_on_empty_page`` sweep can set it (every other sweep stops
-            AT the short page); ``False`` everywhere else, so no existing client
-            changes. Routed to UNVERIFIED for EVERY oracle kind — see
-            :func:`harvest_verification.verify_harvest`.
     """
 
     declared_total: int | None
@@ -58,7 +50,6 @@ class HarvestEvidence:
     page_advance_ok: bool | None
     pages_fetched: int = 1
     transport_ok: bool = True
-    mid_sweep_short_page: bool = False
 
     @classmethod
     def single_shot(cls, declared_total: int | None) -> "HarvestEvidence":
