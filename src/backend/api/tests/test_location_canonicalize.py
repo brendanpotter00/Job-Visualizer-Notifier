@@ -362,7 +362,23 @@ class TestReviewBlockers:
     def test_macro_scope_is_not_overridden_by_a_us_state(self):
         """A globally-remote role that happens to carry a US region must not be
         labelled as that single state -- the stored scope said global while the
-        label the user filters on said California."""
+        label the user filters on said California.
+
+        NOTE the input here deliberately carries region='CA', country='US'. An
+        earlier revision of this test dropped both to make it pass, which
+        silently retired the invariant: with the region present, the US-region
+        branch ran BEFORE the macro guard and (region=TX, country=US,
+        scope='emea') rendered "Remote (EMEA)". Do not weaken this input again.
+        """
+        for scope in ("global", "emea", "namer"):
+            c = canonicalize(_Loc("Remote (worldwide)", "remote", None, "CA", "US", scope))
+            assert c.canonical_name != "Remote (CA, US)", (
+                f"scope={scope} was overridden by the US state"
+            )
+            # macro + a specific country is contradictory -> keep the stored label
+            assert c.canonical_name == "Remote (worldwide)"
+
+    def test_macro_scope_renders_when_there_is_no_country_to_contradict_it(self):
         for scope, want in [("global", "Remote (Global)"), ("emea", "Remote (EMEA)"),
                             ("namer", "Remote (North America)")]:
             c = canonicalize(_Loc("", "remote", None, None, None, scope))
@@ -387,3 +403,56 @@ class TestReviewBlockers:
         # country=US + scope=global would have promoted a US role to worldwide.
         c = canonicalize(_Loc("Remote", "remote", None, None, "US", "global"))
         assert c.canonical_name == "Remote"
+
+
+class TestPr307ReviewFindings:
+    """Regression cover for what the Opus review of #307 found."""
+
+    def test_us_region_does_not_bypass_the_macro_guard(self):
+        """H1: the US-region branch used to run first, so a US row carrying a
+        region rendered the macro anyway -- (TX, US, 'emea') -> 'Remote (EMEA)'.
+        Prod has this shape (id=32300 is region=GA / country=US / scope=global).
+        """
+        for region, scope in [("TX", "emea"), ("GA", "global"), ("CA", "namer")]:
+            c = canonicalize(_Loc("Remote (US)", "remote", None, region, "US", scope))
+            assert c.canonical_name == "Remote (US)", (
+                f"region={region} scope={scope} widened to {c.canonical_name!r}"
+            )
+
+    def test_guard_covers_every_country_not_just_curated_ones(self):
+        """H2: the guard keyed on _ISO2_TO_DISPLAY, which is 'do we have a
+        display name' (~55 curated), not 'is this a country'. Every other valid
+        ISO-2 escaped and got widened to its macro."""
+        for country, scope, stored in [
+            ("CZ", "eu", "Remote (Czechia)"),
+            ("GR", "eu", "Remote (Greece)"),
+            ("KW", "emea", "Remote (Kuwait)"),
+            ("Turkey", "emea", "Remote (Turkey)"),
+            ("United States & Canada", "namer", "Remote (United States & Canada)"),
+        ]:
+            c = canonicalize(_Loc(stored, "remote", None, None, country, scope))
+            assert c.canonical_name == stored, (
+                f"country={country!r} widened to {c.canonical_name!r}"
+            )
+
+    def test_a_blank_model_label_never_reaches_the_database(self):
+        """M1: CanonicalLocation.canonical_name has no min_length, and
+        region/country are no longer derived -- so a blank label would have been
+        written verbatim, rendering as an empty chip and making the row
+        unselectable in the filter."""
+        for kind, city, region, country, scope in [
+            ("country", None, None, "BR", None),
+            ("region", None, "NY", "US", None),
+            ("remote", None, None, "CZ", "eu"),
+            ("region", None, "Space Coast", "US", None),
+        ]:
+            c = canonicalize(_Loc("", kind, city, region, country, scope))
+            assert c.canonical_name, f"empty label for {kind}/{region}/{country}"
+
+    def test_still_renders_the_good_cases(self):
+        assert canonicalize(
+            _Loc("", "remote", None, None, "RU", "ru")).canonical_name == "Remote (Russia)"
+        assert canonicalize(
+            _Loc("", "remote", None, "AZ", "US", "us")).canonical_name == "Remote (AZ, US)"
+        assert canonicalize(
+            _Loc("", "city", "Austin", "TX", "US")).canonical_name == "Austin, TX, US"

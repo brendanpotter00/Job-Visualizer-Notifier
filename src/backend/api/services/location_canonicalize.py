@@ -31,10 +31,13 @@ Rules (lowest-risk, deterministic)
   (``amer``/``namer``/``latam``/``emea``/``eu``/``apac``), or a lowercase ISO-2
   country code. Unrecognised values fall back to the row's own country rather
   than being rejected, so a bad scope costs the scope, never the location.
-* canonical_name -> recomputed deterministically for EVERY kind. The label is a
-  pure function of the canonicalized tuple, so one physical place renders exactly
-  one way. This is safe because the eval scorer compares structured fields only
-  (``api/eval/scoring.py``) -- ``canonical_name`` is not part of the match.
+* canonical_name -> recomputed only where deriving cannot LOSE information:
+  ``city`` always, ``remote`` when the scope renders faithfully, and never for
+  ``region``/``country`` (whose stored label is routinely richer than their
+  tuple -- 'Space Coast' vs 'Florida'). Changing a label at all is safe because
+  the eval scorer compares structured fields only (``api/eval/scoring.py``) --
+  ``canonical_name`` is not part of the match. See render_canonical_name for the
+  prod evidence behind the narrowing.
 """
 
 from __future__ import annotations
@@ -439,6 +442,27 @@ def _scope_label(remote_scope: str, region: str | None, country: str | None) -> 
     return _ISO2_TO_DISPLAY.get(code, code)
 
 
+def _last_resort_label(
+    kind: str,
+    city: str | None,
+    region: str | None,
+    country: str | None,
+    remote_scope: str | None,
+) -> str:
+    """Something non-empty, for when the model supplied no label at all.
+
+    Only reached when `render_canonical_name` declined AND `canonical_name` is
+    blank. Less careful than the real renderer -- it may be wider than the truth
+    -- but an empty label is worse: it renders as a blank chip and makes the row
+    unselectable in the location filter.
+    """
+    parts = [p for p in (city, region, country) if p]
+    if kind == "remote":
+        scope = remote_scope or country
+        return f"Remote ({scope})" if scope else "Remote"
+    return ", ".join(parts) or kind
+
+
 def render_canonical_name(
     *,
     kind: str,
@@ -489,20 +513,37 @@ def render_canonical_name(
         # ISO-2 code with a real display name. Anything else (an unmappable
         # country string like 'Turkey', 'Canada/USA' or the literal 'Remote')
         # would come out as shouting junk, so keep whatever is stored.
-        if country == "US" and region:
-            return f"Remote ({_scope_label(scope, region, country)})"
+        # ORDER MATTERS, and this branch must come FIRST.
+        #
+        # A macro scope PLUS a country is contradictory data, and the macro is
+        # the WIDER of the two -- rendering it silently widens the role. Real
+        # rows: country=GB with scope='eu' would render "Remote (UK)" as
+        # "Remote (EU)", and the UK is not in the EU; country=US with
+        # scope='global' would promote a US role to worldwide.
+        #
+        # An earlier revision put the US-region branch above this one, which
+        # bypassed the guard entirely whenever a US row happened to carry a
+        # region: (region=TX, country=US, scope='emea') rendered
+        # "Remote (EMEA)" -- a worse falsehood than the one the guard exists to
+        # stop, and incoherent besides, since the same row WITHOUT a region was
+        # correctly left alone. Prod carries that shape (id=32300 is
+        # region=GA / country=US / scope='global').
+        #
+        # The guard is on `country` being present at all, NOT on it being in
+        # _ISO2_TO_DISPLAY. That map is "countries we have a display name for"
+        # (~55 curated entries), not "is this a country" -- keying on it let
+        # every other valid ISO-2 through (CZ, GR, KW would all widen to their
+        # macro), and let the unmappable strings through too ('Turkey',
+        # 'United States & Canada'), which are exactly the rows that are MORE
+        # specific than the macro.
         if scope in _MACRO_REGIONS:
-            # A macro scope PLUS a specific country is contradictory data, and
-            # the macro is the wider of the two -- rendering it silently widens
-            # the role. The 2026-09-10 dry-run found three such rows, one of
-            # them factually wrong: country=GB with scope='eu' would have
-            # rendered "Remote (UK)" as "Remote (EU)", and the UK is not in the
-            # EU. country=US with scope='global' would have promoted a US role
-            # to worldwide. Keep the stored label rather than pick a side.
-            if country and (country.upper() == "US" or country.upper() in _ISO2_TO_DISPLAY):
+            if country:
                 return None
             return f"Remote ({_scope_label(scope, region, country)})"
-        if scope.upper() == "US" or scope.upper() in _ISO2_TO_DISPLAY:
+
+        if country == "US" and region:
+            return f"Remote ({_scope_label(scope, region, country)})"
+        if scope.upper() in _ISO2_TO_DISPLAY:
             return f"Remote ({_scope_label(scope, region, country)})"
         return None
 
@@ -542,21 +583,23 @@ def canonicalize_parts(
         remote_scope, kind=kind, canon_country=canon_country
     )
 
-    # The label is a pure function of the canonicalized tuple, so one physical
-    # place renders exactly one way. Falls back to the model's own label only
-    # when there is too little structure to build one.
-    #
-    # This is safe to derive unconditionally because canonical_region now only
-    # drops a US region that RESTATES the country ('United States' -> None).
-    # An unrecognised-but-real region ('Space Coast', 'Bay Area') is KEPT, so
-    # deriving cannot silently promote a regional role to nationwide.
-    name = render_canonical_name(
-        kind=kind,
-        city=city,
-        region=canon_region,
-        country=canon_country,
-        remote_scope=canon_scope,
-    ) or canonical_name
+    # Prefer a derived label where deriving is safe (see render_canonical_name),
+    # otherwise keep the model's own. The last resort exists because
+    # CanonicalLocation.canonical_name has no min_length (unlike
+    # models.LocationSpec), so the model CAN hand us an empty string -- and for
+    # region/country kinds, which are no longer derived, that would otherwise be
+    # written to the database verbatim as an empty label.
+    name = (
+        render_canonical_name(
+            kind=kind,
+            city=city,
+            region=canon_region,
+            country=canon_country,
+            remote_scope=canon_scope,
+        )
+        or canonical_name
+        or _last_resort_label(kind, city, canon_region, canon_country, canon_scope)
+    )
 
     return CanonicalParts(
         canonical_name=name,
