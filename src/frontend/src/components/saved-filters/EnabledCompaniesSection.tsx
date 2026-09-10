@@ -1,105 +1,171 @@
-import { useState, useEffect, useMemo } from 'react';
-import Paper from '@mui/material/Paper';
+import { memo, useCallback, useState, useEffect, useMemo, type KeyboardEvent } from 'react';
 import Accordion from '@mui/material/Accordion';
 import AccordionSummary from '@mui/material/AccordionSummary';
 import AccordionDetails from '@mui/material/AccordionDetails';
-import Typography from '@mui/material/Typography';
-import Button from '@mui/material/Button';
-import Alert from '@mui/material/Alert';
-import Stack from '@mui/material/Stack';
 import Box from '@mui/material/Box';
-import Switch from '@mui/material/Switch';
+import Button from '@mui/material/Button';
+import Checkbox from '@mui/material/Checkbox';
+import Chip from '@mui/material/Chip';
 import FormControlLabel from '@mui/material/FormControlLabel';
+import Paper from '@mui/material/Paper';
+import Radio from '@mui/material/Radio';
+import RadioGroup from '@mui/material/RadioGroup';
+import Stack from '@mui/material/Stack';
+import TextField from '@mui/material/TextField';
+import Typography from '@mui/material/Typography';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { COMPANIES } from '../../config/companies';
 import { useEnabledCompanies } from '../../features/preferences/useEnabledCompanies';
-import { CompanySearchAddInput } from './CompanySearchAddInput';
-import { SelectedCompaniesPanel } from './SelectedCompaniesPanel';
-import { BrowseCompaniesAccordion } from './BrowseCompaniesAccordion';
-import { CompanyChipGrid } from './CompanyChipGrid';
+import { CompanyLogo } from '../shared/CompanyLogo/CompanyLogo';
+import { SectionSaveButton } from './SectionSaveButton';
 import { LoadingState } from '../shared/LoadingIndicator';
 import { extractErrorMessage } from '../../lib/errors';
 
+/**
+ * 'all'    — no stored list. The server treats an empty list as "every
+ *            company", so companies added later show up on their own.
+ * 'custom' — an explicit list, plus the auto-enroll flag for whether companies
+ *            added later join it (the server only consults that flag when the
+ *            list is non-empty).
+ */
+type CompanyMode = 'all' | 'custom';
+
+interface CompanyOption {
+  id: string;
+  name: string;
+}
+
+const SORTED_COMPANIES: CompanyOption[] = COMPANIES.map((c) => ({ id: c.id, name: c.name })).sort(
+  (a, b) => a.name.localeCompare(b.name)
+);
+const ALL_IDS = SORTED_COMPANIES.map((c) => c.id);
+
+function canonical(ids: string[]): string[] {
+  return [...new Set(ids)].sort();
+}
+
+interface CompanyChipProps {
+  id: string;
+  name: string;
+  selected: boolean;
+  onToggle: (id: string) => void;
+}
+
+/** Memoized so toggling one company re-renders one chip, not the whole grid. */
+const CompanyChip = memo(function CompanyChip({ id, name, selected, onToggle }: CompanyChipProps) {
+  return (
+    <Chip
+      label={name}
+      // The span wrapper is what receives MUI's `MuiChip-icon` class (and its
+      // margins); CompanyLogo has no className prop.
+      icon={
+        <Box component="span" sx={{ display: 'inline-flex' }}>
+          <CompanyLogo companyId={id} displayName={name} size={18} decorative />
+        </Box>
+      }
+      onClick={() => onToggle(id)}
+      color={selected ? 'primary' : 'default'}
+      variant={selected ? 'filled' : 'outlined'}
+      size="small"
+      clickable
+      aria-pressed={selected}
+      data-testid={`company-chip-${id}`}
+    />
+  );
+});
+
+/** Which companies feed the Recent Job Postings page. */
 export function EnabledCompaniesSection() {
   const { ids, autoEnroll, loading, error, save } = useEnabledCompanies();
 
-  const [draft, setDraft] = useState<string[]>([]);
+  const [mode, setMode] = useState<CompanyMode>('all');
+  const [draftIds, setDraftIds] = useState<string[]>([]);
   const [draftAutoEnroll, setDraftAutoEnroll] = useState(true);
-  const [isSaving, setIsSaving] = useState(false);
-  const [saveSuccess, setSaveSuccess] = useState(false);
+  const [filter, setFilter] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [success, setSuccess] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [searchInputValue, setSearchInputValue] = useState('');
 
+  // Re-seed the draft whenever the saved list (re)loads or a save lands. A
+  // non-empty saved list is the only thing that puts the section in 'custom'.
   useEffect(() => {
-    setDraft(ids ?? []);
-    // Clear a stale save error when ids change (successful save or external
-    // reload) so it can't shadow a newer slice-level error in the Alert.
+    const saved = ids ?? [];
+    setDraftIds(saved);
+    setMode(saved.length > 0 ? 'custom' : 'all');
     setSaveError(null);
   }, [ids]);
 
-  const savedAutoEnroll = autoEnroll ?? true;
+  // Checked by default. The stored flag only means anything alongside a
+  // non-empty list, so someone coming from "All companies" starts checked even
+  // if a stale `false` is on their row.
+  const savedAutoEnroll = (ids ?? []).length > 0 ? (autoEnroll ?? true) : true;
   useEffect(() => {
     setDraftAutoEnroll(savedAutoEnroll);
   }, [savedAutoEnroll]);
 
+  // A newer slice-level error must not be shadowed by a stale save error.
   useEffect(() => {
     if (error) setSaveError(null);
   }, [error]);
 
-  const sortedCompanies = useMemo(
-    () => [...COMPANIES].sort((a, b) => a.name.localeCompare(b.name)),
-    []
+  const draftSet = useMemo(() => new Set(draftIds), [draftIds]);
+  const selectedCount = useMemo(
+    () => SORTED_COMPANIES.filter((c) => draftSet.has(c.id)).length,
+    [draftSet]
   );
 
-  const draftSet = useMemo(() => new Set(draft), [draft]);
-
-  const selectedCompanies = useMemo(
-    () => sortedCompanies.filter((c) => draftSet.has(c.id)),
-    [sortedCompanies, draftSet]
+  const query = filter.trim().toLowerCase();
+  const visibleCompanies = useMemo(
+    () =>
+      query
+        ? SORTED_COMPANIES.filter((c) => c.name.toLowerCase().includes(query))
+        : SORTED_COMPANIES,
+    [query]
   );
 
-  const canonicalDraft = useMemo(() => [...new Set(draft)].sort(), [draft]);
-  const canonicalSaved = useMemo(() => [...(ids ?? [])].sort(), [ids]);
-  const isDirty =
-    canonicalDraft.join('|') !== canonicalSaved.join('|') || draftAutoEnroll !== savedAutoEnroll;
+  // What Save would persist: "All companies" is stored as an empty list.
+  const idsToSave = useMemo(() => (mode === 'all' ? [] : canonical(draftIds)), [mode, draftIds]);
+  const idsDirty = idsToSave.join('|') !== canonical(ids ?? []).join('|');
+  const autoEnrollDirty = mode === 'custom' && draftAutoEnroll !== savedAutoEnroll;
+  const dirty = idsDirty || autoEnrollDirty;
 
-  const handleSave = async () => {
-    setIsSaving(true);
-    setSaveSuccess(false);
+  // Any edit clears stale feedback so "Saved." never lingers over unsaved changes.
+  const touch = () => {
+    setSuccess(false);
     setSaveError(null);
-    try {
-      await save(canonicalDraft, draftAutoEnroll);
-      setSaveSuccess(true);
-    } catch (err) {
-      setSaveError(extractErrorMessage(err, 'Failed to save changes'));
-    } finally {
-      setIsSaving(false);
+  };
+
+  // Stable identity (the memoized chips depend on it). Inlines `touch()`.
+  const toggleId = useCallback((id: string) => {
+    setSuccess(false);
+    setSaveError(null);
+    setDraftIds((d) => (d.includes(id) ? d.filter((x) => x !== id) : [...d, id]));
+  }, []);
+
+  // Keyboard fast path: type a few letters, press Enter, the top match toggles
+  // and the filter clears so the next name can be typed straight away.
+  const handleFilterKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    const top = visibleCompanies[0];
+    if (query && top) {
+      toggleId(top.id);
+      setFilter('');
     }
   };
 
-  const handleSelectAll = () => {
-    setDraft(COMPANIES.map((c) => c.id));
-    setSaveSuccess(false);
-  };
-
-  const handleClear = () => {
-    setDraft([]);
-    setSaveSuccess(false);
-  };
-
-  const handleAddId = (id: string) => {
-    setSaveSuccess(false);
-    setDraft((d) => (d.includes(id) ? d : [...d, id]));
-  };
-
-  const handleRemoveId = (id: string) => {
-    setSaveSuccess(false);
-    setDraft((d) => d.filter((x) => x !== id));
-  };
-
-  const handleToggleId = (id: string) => {
-    setSaveSuccess(false);
-    setDraft((d) => (d.includes(id) ? d.filter((x) => x !== id) : [...d, id]));
+  const handleSave = async () => {
+    setSaving(true);
+    setSuccess(false);
+    setSaveError(null);
+    try {
+      await save(idsToSave, draftAutoEnroll);
+      setSuccess(true);
+    } catch (err) {
+      setSaveError(extractErrorMessage(err, 'Failed to save changes'));
+    } finally {
+      setSaving(false);
+    }
   };
 
   if (loading && ids === null) {
@@ -121,91 +187,123 @@ export function EnabledCompaniesSection() {
     >
       <AccordionSummary expandIcon={<ExpandMoreIcon />} sx={{ px: 4, py: 1 }}>
         <Typography variant="h6">Saved companies</Typography>
-        <Typography variant="body2" color="text.secondary" sx={{ ml: 1, alignSelf: 'center' }}>
-          {selectedCompanies.length} selected
+        <Typography
+          variant="body2"
+          color="text.secondary"
+          sx={{ ml: 1, alignSelf: 'center' }}
+          data-testid="saved-companies-summary"
+        >
+          {mode === 'all' ? 'All companies' : `${selectedCount} selected`}
         </Typography>
       </AccordionSummary>
       <AccordionDetails sx={{ px: 4, pb: 4, pt: 0 }}>
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-          Pick which companies show up in your Recent Job Postings feed. Leave empty to see all.
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+          Which companies appear in your Recent Job Postings feed.
         </Typography>
 
-        <Box sx={{ mb: 2 }}>
-          <CompanySearchAddInput
-            companies={sortedCompanies}
-            selectedIds={draftSet}
-            inputValue={searchInputValue}
-            onInputChange={setSearchInputValue}
-            onAdd={handleAddId}
-          />
-        </Box>
+        <RadioGroup
+          aria-label="Companies to show"
+          value={mode}
+          onChange={(_, value) => {
+            touch();
+            setMode(value as CompanyMode);
+          }}
+        >
+          <FormControlLabel value="all" control={<Radio />} label="All companies" />
+          <FormControlLabel value="custom" control={<Radio />} label="Only these companies" />
+        </RadioGroup>
 
-        <Box sx={{ mb: 3 }}>
-          <BrowseCompaniesAccordion
-            selectedCount={selectedCompanies.length}
-            totalCount={sortedCompanies.length}
-          >
-            <CompanyChipGrid
-              companies={sortedCompanies}
-              selectedIds={draftSet}
-              onToggle={handleToggleId}
-            />
-          </BrowseCompaniesAccordion>
-        </Box>
-
-        <Box sx={{ mb: 2 }}>
-          <FormControlLabel
-            control={
-              <Switch
-                checked={draftAutoEnroll}
-                onChange={(e) => {
-                  setSaveSuccess(false);
-                  setDraftAutoEnroll(e.target.checked);
-                }}
-                slotProps={{
-                  input: { 'aria-label': 'Auto-include newly added companies' },
-                }}
+        {mode === 'custom' && (
+          <Stack spacing={1.5} sx={{ mt: 1, pl: { xs: 0, sm: 4 } }}>
+            <Stack
+              direction={{ xs: 'column', sm: 'row' }}
+              spacing={1}
+              alignItems={{ xs: 'stretch', sm: 'center' }}
+            >
+              <TextField
+                size="small"
+                label="Find a company"
+                value={filter}
+                onChange={(e) => setFilter(e.target.value)}
+                onKeyDown={handleFilterKeyDown}
+                sx={{ flex: 1, maxWidth: { sm: 320 } }}
               />
-            }
-            label="Auto-include newly added companies"
-          />
-          <Typography variant="caption" color="text.secondary" display="block">
-            When on, companies we add later show up in your feed automatically. You can remove any
-            you don&apos;t want.
-          </Typography>
-        </Box>
+              <Box sx={{ flex: 1 }} />
+              <Stack direction="row" spacing={1} alignItems="center">
+                <Typography variant="body2" color="text.secondary" sx={{ mr: 1 }}>
+                  {selectedCount} selected
+                </Typography>
+                <Button
+                  size="small"
+                  aria-label="Select all companies"
+                  onClick={() => {
+                    touch();
+                    setDraftIds(ALL_IDS);
+                  }}
+                >
+                  Select all
+                </Button>
+                {/* aria-label keeps this distinct from the company chip named "Clear". */}
+                <Button
+                  size="small"
+                  aria-label="Clear selected companies"
+                  disabled={selectedCount === 0}
+                  onClick={() => {
+                    touch();
+                    setDraftIds([]);
+                  }}
+                >
+                  Clear
+                </Button>
+              </Stack>
+            </Stack>
 
-        <SelectedCompaniesPanel selectedCompanies={selectedCompanies} onRemove={handleRemoveId} />
+            {selectedCount === 0 && (
+              <Typography variant="caption" color="text.secondary">
+                Nothing picked yet — your feed still shows every company.
+              </Typography>
+            )}
 
-        <Stack direction="row" spacing={1} sx={{ mb: 3 }}>
-          <Button variant="outlined" size="small" onClick={handleSelectAll}>
-            Select All
-          </Button>
-          <Button
-            variant="outlined"
-            size="small"
-            onClick={handleClear}
-            disabled={draft.length === 0}
-          >
-            Clear
-          </Button>
-        </Stack>
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+              {visibleCompanies.map((c) => (
+                <CompanyChip
+                  key={c.id}
+                  id={c.id}
+                  name={c.name}
+                  selected={draftSet.has(c.id)}
+                  onToggle={toggleId}
+                />
+              ))}
+              {visibleCompanies.length === 0 && (
+                <Typography variant="body2" color="text.secondary">
+                  No companies match &ldquo;{filter.trim()}&rdquo;.
+                </Typography>
+              )}
+            </Box>
 
-        {saveSuccess && (
-          <Alert severity="success" sx={{ mb: 2 }}>
-            Preferences saved.
-          </Alert>
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={draftAutoEnroll}
+                  onChange={(e) => {
+                    touch();
+                    setDraftAutoEnroll(e.target.checked);
+                  }}
+                />
+              }
+              label="Auto-add new companies"
+            />
+          </Stack>
         )}
 
-        {(saveError || error) && (
-          <Alert severity="error" sx={{ mb: 2 }}>
-            {saveError ?? error}
-          </Alert>
-        )}
-
-        <Button variant="contained" onClick={handleSave} disabled={!isDirty || isSaving} fullWidth>
-          {isSaving ? 'Saving...' : 'Save Changes'}
-        </Button>
+        <SectionSaveButton
+          dirty={dirty}
+          saving={saving}
+          success={success}
+          error={saveError ?? error}
+          onSave={handleSave}
+          label="Save companies"
+        />
       </AccordionDetails>
     </Accordion>
   );
