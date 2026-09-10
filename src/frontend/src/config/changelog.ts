@@ -19,6 +19,18 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    id: 'add-tomo',
+    title: 'Added Tomo',
+    description:
+      "Tomo — a personal AI that lives in your text messages, learning what you are trying to get done and nudging you through it — is now tracked via its Ashby job board. It is a small, early team: four roles open, all in San Francisco, across Engineering, Design, and Growth and Ops. Worth knowing there is an unrelated mortgage lender also called Tomo; this is the AI one at tomo.ai.",
+    tags: ['new-companies'],
+    date: '2026-09-10',
+    link: {
+      to: ROUTES.ACCOUNT,
+      label: 'Add Tomo to your company preferences',
+    },
+  },
+  {
     id: 'saved-companies-simplified',
     title: 'Simpler company picker in Saved Filters',
     description:
