@@ -34,9 +34,16 @@ describe('HowItWorksSection', () => {
     });
   });
 
-  it('renders the apply-early beat verbatim from the claims inventory', () => {
+  it('renders the apply-early closer verbatim from content.ts', () => {
     renderSection();
-    expect(screen.getByText(LANDING_CONTENT.claims.apply_early_rolling.body)).toBeInTheDocument();
+    expect(screen.getByText(LANDING_CONTENT.howItWorks.closer.line)).toBeInTheDocument();
+  });
+
+  it('opens with the shared eyebrow and names the section by its heading', () => {
+    renderSection();
+    expect(screen.getByText(LANDING_CONTENT.howItWorks.eyebrow)).toBeInTheDocument();
+    const heading = screen.getByRole('heading', { level: 2 });
+    expect(screen.getByTestId('how-it-works')).toHaveAttribute('aria-labelledby', heading.id);
   });
 
   // The section exists to be the page's still stretch — it must not smuggle in

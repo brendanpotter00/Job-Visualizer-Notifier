@@ -62,11 +62,16 @@ describe('resolveExperienceTier', () => {
     ).toBe('fallback');
   });
 
-  it('mobile viewport → constrained full tier (fewer bodies, dpr 1.5)', () => {
-    expect(resolveExperienceTier({ ...CAPABLE, isMobileViewport: true })).toEqual({
-      tier: 'full',
+  // A phone-width canvas stacks the pile seven tiles high (fixed vertical FOV
+  // over a MIN_ARENA_WIDTH floor) and buries the hero copy, so phones get the
+  // static DOM grid regardless of how capable the hardware is (2026-09-10).
+  it('mobile viewport → fallback tier, even on capable hardware', () => {
+    expect(
+      resolveExperienceTier({ ...CAPABLE, isMobileViewport: true, hardwareConcurrency: 12 })
+    ).toEqual({
+      tier: 'fallback',
       bodyCount: CONSTRAINED_BODY_COUNT,
-      maxDpr: 1.5,
+      maxDpr: 1,
     });
   });
 

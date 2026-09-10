@@ -2,12 +2,14 @@ import { describe, it, expect, vi } from 'vitest';
 import { screen } from '@testing-library/react';
 import { renderWithProviders } from '../../../test/testUtils';
 import { LandingPage } from '../../../pages/LandingPage/LandingPage';
+import { LANDING_CONTENT } from '../../../pages/LandingPage/content';
 import type { LandingPrototypeProps } from '../../../pages/LandingPage/types';
 
 // Mock at the lazy boundary: vi.mock intercepts the dynamic import() inside
 // React.lazy, so the shell's own contract (fixture toggle, prop plumbing, the
-// Suspense boundary) is exercised without mounting the scene — which would drag
-// three/rapier into the test process and defeat the point of the boundary.
+// Suspense boundary, the document head) is exercised without mounting the
+// scene — which would drag three/rapier into the test process and defeat the
+// point of the boundary.
 vi.mock('../../../pages/LandingPage/prototypes/GravityPrototype/GravityPrototype', () => ({
   default: (props: LandingPrototypeProps) => (
     <div data-testid="landing-body">
@@ -56,5 +58,42 @@ describe('LandingPage', () => {
     const now = Number(/now=(\d+)/.exec(body.textContent ?? '')?.[1]);
     expect(jobs).toBeGreaterThan(0);
     expect(now).toBeGreaterThan(0);
+  });
+
+  // The head is the shell's job, not the scene's: React 19 hoists the title,
+  // description and canonical into <head> the moment the route mounts, so they
+  // exist before (and regardless of whether) the lazy scene chunk arrives.
+  it('puts the SEO head on the page: title, description, canonical, social card', async () => {
+    renderPage();
+    await screen.findByTestId('landing-body');
+    const { seo } = LANDING_CONTENT;
+    const canonical = `${seo.siteUrl}${seo.canonicalPath}`;
+    expect(document.title).toBe(seo.title);
+    expect(document.querySelector('meta[name="description"]')).toHaveAttribute(
+      'content',
+      seo.description
+    );
+    expect(document.querySelector('link[rel="canonical"]')).toHaveAttribute('href', canonical);
+    expect(document.querySelector('meta[property="og:url"]')).toHaveAttribute('content', canonical);
+    expect(document.querySelector('meta[property="og:image"]')).toHaveAttribute(
+      'content',
+      `${seo.siteUrl}${seo.ogImagePath}`
+    );
+    expect(document.querySelector('meta[name="twitter:card"]')).toHaveAttribute(
+      'content',
+      'summary_large_image'
+    );
+  });
+
+  it('embeds the JSON-LD graph with one FAQ question per content entry', async () => {
+    renderPage();
+    await screen.findByTestId('landing-body');
+    const script = screen.getByTestId('landing-json-ld');
+    expect(script).toHaveAttribute('type', 'application/ld+json');
+    const graph = JSON.parse(script.textContent ?? '') as {
+      '@graph': { '@type': string; mainEntity?: unknown[] }[];
+    };
+    const faq = graph['@graph'].find((node) => node['@type'] === 'FAQPage');
+    expect(faq?.mainEntity).toHaveLength(LANDING_CONTENT.faq.entries.length);
   });
 });

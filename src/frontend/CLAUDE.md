@@ -68,6 +68,7 @@ Backend-Scraper (api/clients/backendScraperClient.ts) is the only production cli
 - `/admin/location-normalization` - Admin Location Normalization (pages/AdminLocationNormalizationPage/AdminLocationNormalizationPage.tsx) - Admin-only location alias browser, health overview, integrity check, and problem-jobs table
 - `/location-pipeline` - Location Pipeline (pages/AdminLocationPipelinePage/AdminLocationPipelinePage.tsx) - Public pipeline visualization; admins get a sidebar link, everyone else reaches it via the Changelog
 - `/admin/feedback` - Admin Feedback (pages/AdminFeedbackPage/AdminFeedbackPage.tsx) - Admin-only table of user feedback submissions
+- `/landing` - Marketing landing page (pages/LandingPage/LandingPage.tsx) - Full-bleed, OUTSIDE RootLayout, unlisted (no nav entry). All copy lives in `pages/LandingPage/content.ts` and every claim traces to `docs/seo/positioning-brief.md`; the head (title/canonical/OG + JSON-LD) is `pages/LandingPage/seo/LandingSeo.tsx` via React 19 hoisting, and `index.html` carries the same title/description statically for crawlers that never run JS. Phones and reduced-motion get the DOM logo grid; only desktop mounts the lazy three/rapier scene. Review-round log: `docs/implementations/landingPagePrototypes/PLAN.md`
 - `/admin/custom-companies` - Admin Custom Companies (pages/AdminCustomCompaniesPage/AdminCustomCompaniesPage.tsx) - Admin-only oversight of user-added custom company boards
 
 **Key Algorithms:**

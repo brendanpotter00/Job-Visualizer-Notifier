@@ -1,27 +1,45 @@
 /**
  * Landing-page content config — the single source the page renders from.
  *
- * Every user-facing claim here traces to docs/seo/positioning-brief.md (§4–§8,
- * §10); the `evidence` field on each claim carries the breadcrumb. Sections
- * never hardcode claims, so copy edits happen here and nowhere else.
+ * Every user-facing claim here traces to docs/seo/positioning-brief.md (§4–§10)
+ * or to a dated owner decision; the `evidence` field on each claim carries the
+ * breadcrumb. Sections never hardcode claims, so copy edits happen here and
+ * nowhere else.
+ *
+ * House style (owner-directed 2026-08-09 and 2026-09-10): periods and commas,
+ * never em-dashes; as few words as the claim survives on. Every section opens
+ * the same way, a tiny eyebrow over a short heading, so the page reads as a
+ * column of quiet blocks rather than prose.
  */
 import { ROUTES } from '../../config/routes';
 
-export type ClaimId =
-  | 'straight_from_source'
-  | 'minutes_after_posting'
-  | 'no_reposts'
-  | 'curated_companies'
-  | 'thousands_weekly'
-  | 'apply_early_rolling';
+export interface LandingCta {
+  label: string;
+  to: string;
+}
 
-export interface LandingClaim {
-  id: ClaimId;
-  /** Short section heading. */
+/**
+ * The opening every section shares. The eyebrow names the section (it never
+ * sells), and the heading is the one line a skimming eye is guaranteed to read.
+ */
+export interface SectionIntro {
+  /** ≤ 3 words, rendered as a small uppercase overline. */
+  eyebrow: string;
+  /** ≤ 8 words. */
   heading: string;
-  /** One- to two-sentence body. */
-  body: string;
-  /** Traceability breadcrumb to the positioning brief (not rendered). */
+}
+
+/**
+ * The single h1, in two tones. `headline` is the black half (the anti-noise
+ * hook, brief §4 B1). `continuation` is the gray half of the SAME h1, which is
+ * where the query phrase and the number live (brief §9: "query phrase +
+ * differentiator + a number"). Splitting the tones lets the hook stay four
+ * words without the h1 losing its search phrase.
+ */
+export interface LandingHero {
+  headline: string;
+  continuation: string;
+  /** Traceability breadcrumb (not rendered). */
   evidence: string;
 }
 
@@ -36,6 +54,34 @@ export interface HowItWorksStep {
   label: string;
   /** ONE short line (≤ ~14 words). Never a second paragraph. */
   line: string;
+  /** Traceability breadcrumb (not rendered). */
+  evidence: string;
+}
+
+/**
+ * One row of the LinkedIn comparison. Both cells are ≤ 8 words and both must be
+ * checkable: the LinkedIn cell describes a product behaviour anyone can verify
+ * on LinkedIn today (a repost button, promoted listings), never a judgement.
+ */
+export interface ComparisonRow {
+  id: string;
+  /** ≤ 3 words. */
+  label: string;
+  linkedin: string;
+  onesecondswe: string;
+  /** Traceability breadcrumb (not rendered). */
+  evidence: string;
+}
+
+/**
+ * One tile in the proof strip: the number big, and under it the standalone
+ * subject-verb-number sentence (brief §10 P1) an answer engine can lift without
+ * context. The sentence is the quotable claim; the value is its skim target.
+ */
+export interface ProofStat {
+  id: string;
+  value: string;
+  sentence: string;
   /** Traceability breadcrumb (not rendered). */
   evidence: string;
 }
@@ -56,21 +102,6 @@ export interface LandingFeature {
   detail: string;
   /** Traceability breadcrumb (not rendered). */
   evidence: string;
-}
-
-export type HeroVariantId = 'source' | 'antiNoise';
-
-export interface HeroVariant {
-  id: HeroVariantId;
-  /** The single h1. Brief §9: query phrase + differentiator + a number. */
-  headline: string;
-  /** Fragment-stack subheadline (brief §11: 9–19 words, fragments not prose). */
-  subheadline: string;
-}
-
-export interface LandingCta {
-  label: string;
-  to: string;
 }
 
 export interface LandingFaqEntry {
@@ -104,32 +135,63 @@ export interface LandingHeaderContent {
   evidence: string;
 }
 
+/**
+ * What the document head says about the page (title, description, canonical,
+ * social card). Rendered by `LandingSeo`, and repeated into the JSON-LD there,
+ * so the entity + category line (brief §10 P3) reaches crawlers three ways.
+ */
+export interface LandingSeoContent {
+  /** Brief §9 title shape: keyword-first + freshness cue + brand suffix. */
+  title: string;
+  /** ≤ 160 characters, answer-first. */
+  description: string;
+  /** Absolute origin, no trailing slash. */
+  siteUrl: string;
+  /** Path of the canonical URL for this page. */
+  canonicalPath: string;
+  /** Path of the social-card image (1200×630), served from `public/`. */
+  ogImagePath: string;
+}
+
 export interface LandingContent {
   productName: string;
   /**
-   * Entity + category co-occurrence line (brief §10 P3) — rendered high on the
-   * page and reused wherever a one-liner describes the product.
+   * Entity + category co-occurrence line (brief §10 P3) — the one sentence that
+   * says what the product is. Rendered in the footer and reused in the head.
    */
   categoryLine: string;
-  /** The sticky top bar every prototype opens with. */
+  /** The sticky top bar the page opens with. */
   header: LandingHeaderContent;
-  heroVariants: Record<HeroVariantId, HeroVariant>;
-  /** SWE-flagship support line (brief §2). */
-  broadSupportLine: string;
-  /** The apply-early beat (brief §4) — supporting, never the hook. */
-  supportingBeat: string;
+  hero: LandingHero;
+  /** Primary = browse (contained); secondary = create account. Both render in
+   *  the hero and again in the closing block. */
+  ctas: { primary: LandingCta; secondary: LandingCta };
+  /** Overline + heading above the three live job cards. */
+  freshJobs: SectionIntro;
   /**
-   * Standalone liftable sentences (brief §10 P1) — rendered verbatim as a
-   * quotable block; subject-verb-number, no surrounding context needed.
+   * The LinkedIn comparison. Naming LinkedIn in shipped copy was on the brief's
+   * do-not-say list (§6) until the owner asked for exactly this section on
+   * 2026-09-10; the override is recorded there and in
+   * docs/marketing/business-context.md. Every row stays factual (brief §10 P4).
    */
-  quotableClaims: readonly string[];
-  claims: Record<ClaimId, LandingClaim>;
+  comparison: SectionIntro & {
+    columns: { linkedin: string; onesecondswe: string };
+    rows: readonly ComparisonRow[];
+    /** Traceability breadcrumb (not rendered). */
+    evidence: string;
+  };
   /**
-   * Mechanism, in three steps. Rendered as one section together with the
-   * apply-early beat (`claims.apply_early_rolling.body`) — the "how" and the
-   * "why you should care" belong to the same breath.
+   * Mechanism, in three steps, closed by the apply-early beat (brief §4) — the
+   * "how" and the "why you should care" belong to the same breath.
    */
-  howItWorks: { heading: string; steps: readonly HowItWorksStep[] };
+  howItWorks: SectionIntro & {
+    steps: readonly HowItWorksStep[];
+    closer: { line: string; evidence: string };
+  };
+  /** The quotable numbers (brief §10 P1), three tiles. */
+  proof: SectionIntro & { stats: readonly ProofStat[] };
+  /** Overline + heading above the curated-category grid. */
+  companies: SectionIntro;
   /**
    * The feature set as a skimmable matrix, in two tiers: `features` is live
    * today, `comingSoon` is not built yet and renders grayed out under
@@ -137,43 +199,32 @@ export interface LandingContent {
    * recorded in docs/marketing/business-context.md), which carved a narrow
    * exception into the "nothing unshipped on the landing page" stance: an
    * unshipped capability may appear ONLY inside a clearly-labeled, visually
-   * disabled tier. `nextUp` still closes the section, now reading as the coda
-   * after the roadmap rather than the whole answer to "what's next".
+   * disabled tier. `nextUp` closes the section as the coda after the roadmap.
    *
    * A cell GRADUATES by moving arrays and rewriting its copy present-tense in
-   * the same edit — `track_any_company` did on 2026-09-03, once custom company
-   * sources shipped on main. That is the only sanctioned way across; the tier
-   * is the status, so a cell can never be stale-by-flag in place.
+   * the same edit — `track_any_company` did on 2026-09-03. That is the only
+   * sanctioned way across; the tier is the status, so a cell can never be
+   * stale-by-flag in place.
    */
-  featureMatrix: {
-    heading: string;
+  featureMatrix: SectionIntro & {
     features: readonly LandingFeature[];
     /** Overline above the grayed tier. Must name the state, not imply it. */
     comingSoonLabel: string;
     comingSoon: readonly LandingFeature[];
     nextUp: LandingCta;
   };
-  /** Factual comparison beat (brief §10 P4). */
-  comparison: string;
-  /** Primary = browse (contained); secondary = create account (outlined). Both
-   *  render in the heroes and in the closing CTA block. */
-  ctas: { primary: LandingCta; secondary: LandingCta };
-  faq: readonly LandingFaqEntry[];
-  /**
-   * Footer nav only. The query-shaped "popular searches" stubs (brief §9) and
-   * the closing proof tagline were both cut on 2026-09-03 (owner-directed):
-   * the stubs all pointed at the same board because the category pages they
-   * were a placeholder for do not exist yet, and the tagline restated numbers
-   * the page had already made three times by the time a reader reached it.
-   * Reinstate `popularSearches` with 11.3, when the targets are real.
-   */
+  faq: SectionIntro & { entries: readonly LandingFaqEntry[] };
+  /** The last line before the footer, over the same two CTAs as the hero. */
+  closing: { heading: string; evidence: string };
+  /** Footer nav only. */
   footer: { links: readonly LandingCta[] };
+  seo: LandingSeoContent;
 }
 
 /**
- * Hand-picked household names for the fresh-jobs rail and live-activity stats
- * (brief §8 — Brendan edits). The broader logo wall draws from the full
- * COMPANIES registry; this list only decides who headlines.
+ * Hand-picked household names for the fresh-jobs rail (brief §8 — Brendan
+ * edits). The broader logo wall draws from the full COMPANIES registry; this
+ * list only decides who headlines.
  */
 export const TOP_COMPANY_IDS: readonly string[] = [
   'apple',
@@ -228,101 +279,121 @@ export const LANDING_CONTENT: LandingContent = {
     evidence:
       'owner-directed 2026-08-20 (a normal header: wordmark left, Log in / Sign up right). Both auth targets are the mock ACCOUNT route the hero CTAs already use; real Auth0 wiring is promotion-time work.',
   },
-  heroVariants: {
-    source: {
-      id: 'source',
-      headline: 'Software engineer jobs, minutes after they’re posted.',
-      subheadline:
-        'Straight from 130+ company career pages. Median 45 minutes from company post to your feed.',
-    },
-    antiNoise: {
-      id: 'antiNoise',
-      headline: 'No reposts. No stale listings. No noise.',
-      subheadline:
-        'A job board built for candidates. Less time spent job hunting, more time for everything else.',
-    },
+  hero: {
+    headline: 'No reposts. No stale listings. No noise.',
+    continuation:
+      'Software engineer jobs from 130+ curated career pages, minutes after they’re posted.',
+    evidence:
+      'headline: brief §4 B1 (owner favourite, 2026-08-09). continuation: brief §9 h1 shape (query phrase + differentiator + a number) and §5 curated_companies / minutes_after_posting.',
   },
-  broadSupportLine:
-    'Software engineering first, plus product, data science, hardware, and growth roles from the same boards.',
-  supportingBeat:
-    'Recruiters review applications on a rolling basis. Apply in the first hours and a human actually reads your resume. onesecondswe exists so you’re early, every time.',
-  quotableClaims: [
-    'onesecondswe surfaces new software engineering jobs a median of 45 minutes after companies post them on their own career pages.',
-    'onesecondswe scrapes 130+ curated tech companies’ career pages directly. No aggregator feeds, no reposts.',
-    'Every posting date on onesecondswe is the moment we first saw the job on the company’s board, so “posted 2 hours ago” means exactly that.',
-    'Thousands of new software engineering jobs are added every week, free.',
-  ],
-  claims: {
-    straight_from_source: {
-      id: 'straight_from_source',
-      heading: 'Straight from the source',
-      body: 'Every listing is scraped directly from the company’s own careers page, never from a reposted aggregator feed.',
-      evidence: 'brief §5 straight_from_source (interview Q1)',
-    },
-    minutes_after_posting: {
-      id: 'minutes_after_posting',
-      heading: 'Minutes, not weeks',
-      body: 'The median job here appears about 45 minutes after the company posts it, measured across tens of thousands of listings.',
-      evidence: 'brief §5 minutes_after_posting (prod median 0.76h)',
-    },
-    no_reposts: {
-      id: 'no_reposts',
-      heading: 'Freshness you can trust',
-      body: 'We timestamp the moment a job first appears on the company’s board. Reposts can’t fake it.',
-      evidence: 'brief §5 no_reposts (first_seen_at design)',
-    },
-    curated_companies: {
-      id: 'curated_companies',
-      heading: '130+ curated companies',
-      body: 'Hand-picked companies you’d actually want to work for, not a scrape of everything with a careers page.',
-      evidence: 'brief §5 curated_companies (interview Q1/Q4)',
-    },
-    thousands_weekly: {
-      id: 'thousands_weekly',
-      heading: 'Thousands of new roles weekly',
-      body: 'New listings stream in all week, every week, labeled by role and level so you can cut straight to yours.',
-      evidence: 'brief §5 thousands_weekly (prod ~2.7k/7d)',
-    },
-    apply_early_rolling: {
-      id: 'apply_early_rolling',
-      heading: 'Early applications get read',
-      body: 'Recruiters review on a rolling basis. The earlier you apply, the more likely a human sees your resume. Every job here links straight to the hiring managers and recruiters posting about it on LinkedIn, so you can message them within minutes of the role going up.',
-      evidence:
-        'brief §5 apply_early_rolling (interview Q1/Q2); second sentence owner-directed 2026-08-09, backed by the job card’s LinkedIn people-search link',
-    },
+  ctas: {
+    primary: { label: 'Browse jobs', to: ROUTES.RECENT_JOBS },
+    secondary: { label: 'Create free account', to: ROUTES.ACCOUNT },
+  },
+  freshJobs: {
+    eyebrow: 'Fresh jobs',
+    heading: 'What just went up.',
+  },
+  comparison: {
+    eyebrow: 'Why not LinkedIn',
+    heading: 'Built for the candidate, not the repost.',
+    columns: { linkedin: 'LinkedIn', onesecondswe: 'onesecondswe' },
+    rows: [
+      {
+        id: 'reposts',
+        label: 'Reposts',
+        linkedin: 'Reposting an old job resets its date.',
+        onesecondswe: 'Never. Dates are when we first saw them.',
+        evidence:
+          'brief §3 theme 1 + §5 no_reposts (first_seen_at design); LinkedIn "Repost job" creates a new posting with a new date.',
+      },
+      {
+        id: 'companies',
+        label: 'Companies',
+        linkedin: 'Anyone can post a job.',
+        onesecondswe: '130+ hand-picked companies, tracked at the source.',
+        evidence: 'brief §5 curated_companies (interview Q1/Q4)',
+      },
+      {
+        id: 'ranking',
+        label: 'Ranking',
+        linkedin: 'Promoted listings rank first.',
+        onesecondswe: 'Newest first. No paid placement, ever.',
+        evidence:
+          'business-context §core positioning (no repost mechanism exists and none will be sold); LinkedIn Promoted Jobs is a paid placement product. Board sorts by first_seen desc.',
+      },
+      {
+        id: 'source',
+        label: 'Source',
+        linkedin: 'Syndicated and re-listed feeds.',
+        onesecondswe: 'Read directly from each careers page.',
+        evidence: 'brief §5 straight_from_source + §10 P4 comparison framing',
+      },
+    ],
+    evidence:
+      'owner-directed 2026-09-10: "a section on why it is better than linkedin, like there are no reposts and the companies are already curated". Overrides brief §6 (LinkedIn by name); recorded there.',
   },
   howItWorks: {
-    heading: 'How it works',
+    eyebrow: 'How it works',
+    heading: 'Three steps. No middleman.',
     steps: [
       {
         id: 'monitor',
-        label: 'Monitor job boards',
-        line: 'We watch 130+ curated companies’ career pages continuously.',
+        label: 'Watch career pages',
+        line: 'We check 130+ company boards around the clock.',
         evidence: 'brief §5 straight_from_source + curated_companies',
       },
       {
         id: 'label',
         label: 'Label every role',
-        line: 'AI tags level, category, and location so filters actually mean something.',
+        line: 'AI tags level, category, and location, so filters mean something.',
         evidence: 'business-context §feature-set: AI-powered labeling, LIVE today',
       },
       {
         id: 'filters',
-        label: 'Set up custom filters',
-        line: 'Save your filters once and they apply on every visit, so you search less.',
+        label: 'Set your filters',
+        line: 'Save them once. They apply on every visit.',
         evidence: 'business-context §feature-set: saved filters, LIVE today',
       },
     ],
+    closer: {
+      line: 'Recruiters review on a rolling basis. Apply in the first hours and a human reads your resume.',
+      evidence: 'brief §4 supporting beat + §5 apply_early_rolling (interview Q1/Q2)',
+    },
+  },
+  proof: {
+    eyebrow: 'By the numbers',
+    heading: 'Measured, not promised.',
+    stats: [
+      {
+        id: 'median',
+        value: '45 min',
+        sentence:
+          'onesecondswe surfaces new jobs a median of 45 minutes after companies post them on their own career pages.',
+        evidence: 'brief §1 (prod median 0.76h, 2026-07-25 → 2026-08-09) + §10 P1',
+      },
+      {
+        id: 'companies',
+        value: '130+',
+        sentence: 'onesecondswe tracks 130+ curated tech companies’ career pages directly. No aggregator feeds.',
+        evidence: 'brief §5 curated_companies + §10 P1',
+      },
+      {
+        id: 'weekly',
+        value: 'Thousands',
+        sentence: 'Thousands of new software engineering jobs are added every week, free.',
+        evidence: 'brief §5 thousands_weekly (prod ~2.7k/7d) + §10 P1',
+      },
+    ],
+  },
+  companies: {
+    eyebrow: 'Companies',
+    heading: 'Browse curated companies',
   },
   featureMatrix: {
-    heading: 'Features',
+    eyebrow: 'Features',
+    heading: 'What you get.',
     features: [
-      {
-        id: 'source',
-        name: 'Straight from the source',
-        detail: 'Scraped from company career pages.',
-        evidence: 'brief §5 straight_from_source',
-      },
       {
         id: 'freshness',
         name: 'Seconds, not weeks',
@@ -337,10 +408,10 @@ export const LANDING_CONTENT: LandingContent = {
         evidence: 'business-context §feature-set: AI-powered labeling, LIVE today',
       },
       {
-        id: 'curated',
-        name: '130+ curated companies',
-        detail: 'Hand-picked, not a scrape of everything.',
-        evidence: 'brief §5 curated_companies',
+        id: 'saved_filters',
+        name: 'Saved filters',
+        detail: 'Your searches, ready on every visit.',
+        evidence: 'business-context §feature-set: saved filters, LIVE today',
       },
       {
         id: 'track_any_company',
@@ -350,10 +421,11 @@ export const LANDING_CONTENT: LandingContent = {
           'EPIC Custom company sources wdwb1cbnc2; SHIPPED on main 2026-09-02, graduated out of the coming-soon tier 2026-09-03. Rollout is flag-gated (VITE_CUSTOM_COMPANIES_ENABLED + backend CUSTOM_COMPANY_SOURCES_ENABLED), so the claim is true where the flags are on.',
       },
       {
-        id: 'saved_filters',
-        name: 'Saved filters',
-        detail: 'Your searches, ready on every visit.',
-        evidence: 'business-context §feature-set: saved filters, LIVE today',
+        id: 'reach_recruiter',
+        name: 'Reach the recruiter',
+        detail: 'One click to the people hiring, on LinkedIn.',
+        evidence:
+          'owner-directed 2026-08-09, backed by the job card’s LinkedIn people-search link. Moved out of the apply-early closer 2026-09-10 so that line could shrink.',
       },
       {
         id: 'free',
@@ -382,34 +454,41 @@ export const LANDING_CONTENT: LandingContent = {
       to: ROUTES.VOTE_FEATURES,
     },
   },
-  comparison:
-    'Unlike boards that syndicate and re-list jobs with reset dates, onesecondswe reads company career pages directly and never reposts.',
-  ctas: {
-    primary: { label: 'Browse jobs', to: ROUTES.RECENT_JOBS },
-    secondary: { label: 'Create free account', to: ROUTES.ACCOUNT },
+  faq: {
+    eyebrow: 'FAQ',
+    heading: 'Frequently asked questions',
+    entries: [
+      {
+        question: 'How fast do new jobs show up on onesecondswe?',
+        answer:
+          'A median of roughly 45 minutes after a company publishes the role on its own career page. onesecondswe continuously monitors 130+ company boards instead of waiting for jobs to be re-syndicated by aggregators.',
+      },
+      {
+        question: 'How is onesecondswe different from LinkedIn?',
+        answer:
+          'onesecondswe reads company career pages directly and never reposts, so every posting date is the moment we first saw the job. LinkedIn lets companies repost a role with a fresh date and ranks promoted listings first. onesecondswe also covers a curated set of 130+ companies rather than anyone who posts.',
+      },
+      {
+        question: 'Why do job postings on big boards look new but are actually old?',
+        answer:
+          'Aggregators re-syndicate listings and companies re-post roles, which resets the “posted” date without the job being new. onesecondswe never reposts: the date on every listing is when we first detected it on the employer’s own career page, so freshness is real, not recycled.',
+      },
+      {
+        question: 'How many companies and jobs does onesecondswe cover?',
+        answer:
+          '130+ curated tech companies, tracked at the source, with thousands of new software engineering jobs added weekly, plus product, data science, hardware, and growth roles from the same boards.',
+      },
+      {
+        question: 'Is onesecondswe free?',
+        answer:
+          'Yes. Browsing is free; a free account unlocks the full board, saved filters, and default time windows.',
+      },
+    ],
   },
-  faq: [
-    {
-      question: 'How fast do new jobs show up on onesecondswe?',
-      answer:
-        'A median of roughly 45 minutes after a company publishes the role on its own career page. onesecondswe continuously monitors 130+ company boards instead of waiting for jobs to be re-syndicated by aggregators.',
-    },
-    {
-      question: 'Why do job postings on big boards look new but are actually old?',
-      answer:
-        'Aggregators re-syndicate listings and companies re-post roles, which resets the “posted” date without the job being new. onesecondswe never reposts: the date on every listing is when we first detected it on the employer’s own career page, so freshness is real, not recycled.',
-    },
-    {
-      question: 'How many companies and jobs does onesecondswe cover?',
-      answer:
-        '130+ curated tech companies, tracked at the source, with thousands of new software engineering jobs added weekly, plus product, data science, hardware, and growth roles from the same boards.',
-    },
-    {
-      question: 'Is onesecondswe free?',
-      answer:
-        'Yes. Browsing is free; a free account unlocks the full board, saved filters, and default time windows.',
-    },
-  ],
+  closing: {
+    heading: 'Be early, every time.',
+    evidence: 'brief §4 supporting beat ("onesecondswe exists so you’re early, every time")',
+  },
   footer: {
     links: [
       { label: 'Browse jobs', to: ROUTES.RECENT_JOBS },
@@ -417,5 +496,13 @@ export const LANDING_CONTENT: LandingContent = {
       { label: 'Why this was built', to: ROUTES.WHY },
       { label: 'Create free account', to: ROUTES.ACCOUNT },
     ],
+  },
+  seo: {
+    title: 'Software Engineer Jobs, Minutes After They’re Posted | onesecondswe',
+    description:
+      'A free job board for software engineers. Jobs straight from 130+ curated company career pages, a median of 45 minutes after posting. No reposts, no noise.',
+    siteUrl: 'https://onesecondswe.dev',
+    canonicalPath: ROUTES.LANDING,
+    ogImagePath: '/og-image.png',
   },
 };
