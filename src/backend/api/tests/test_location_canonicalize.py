@@ -224,20 +224,24 @@ class TestRenderCanonicalName:
             kind="city", city="Austin", region="TX", country="US",
             remote_scope=None) == "Austin, TX, US"
 
-    def test_country_uses_display_name(self):
+    def test_country_and_region_are_NOT_derived(self):
+        """Their stored label is at least as specific as the tuple.
+
+        Deriving them destroyed real geography on prod data -- a dry-run of the
+        backfill planned 'Space Coast, FL, USA' -> 'Florida, US',
+        'San Francisco Bay Area' -> 'California, US' (colliding with
+        'Southern California'), 'Czechia' -> 'CZ' and 'Kuwait' -> 'KW'.
+        Returning None means the caller keeps what is stored.
+        """
         assert render_canonical_name(
             kind="country", city=None, region=None, country="BR",
-            remote_scope=None) == "Brazil"
-
-    def test_region_expands_us_state_code(self):
+            remote_scope=None) is None
         assert render_canonical_name(
             kind="region", city=None, region="NY", country="US",
-            remote_scope=None) == "New York, US"
-
-    def test_macro_region_without_country(self):
+            remote_scope=None) is None
         assert render_canonical_name(
             kind="region", city=None, region="EMEA", country=None,
-            remote_scope=None) == "EMEA"
+            remote_scope=None) is None
 
     def test_remote_us_stays_a_code(self):
         assert render_canonical_name(
@@ -294,11 +298,20 @@ class TestUsRegionDropOnlyWhenItRestatesTheCountry:
             )
 
     def test_kept_metros_stay_distinct_from_each_other(self):
-        names = {
-            canonicalize(_Loc("", "region", None, m, "US")).canonical_name
-            for m in ("Space Coast", "Bay Area", "Southern California")
-        }
-        assert len(names) == 3, f"metros collapsed to the same label: {names}"
+        """Both the tuple AND the label must stay distinct.
+
+        The tuple keeps them apart because the region survives; the label keeps
+        them apart because region rows are not derived. Either one collapsing
+        would merge three real places into one row.
+        """
+        metros = ("Space Coast", "Bay Area", "Southern California")
+        results = [
+            canonicalize(_Loc(f"{m}, US", "region", None, m, "US")) for m in metros
+        ]
+        assert len({r.region for r in results}) == 3, "regions collapsed"
+        assert len({r.canonical_name for r in results}) == 3, (
+            f"labels collapsed: {[r.canonical_name for r in results]}"
+        )
 
     def test_real_states_still_survive(self):
         assert canonical_region("Michigan", "US", "city") == "MI"
@@ -351,14 +364,26 @@ class TestReviewBlockers:
         labelled as that single state -- the stored scope said global while the
         label the user filters on said California."""
         for scope, want in [("global", "Remote (Global)"), ("emea", "Remote (EMEA)"),
-                            ("namer", "Remote (NAMER)")]:
-            c = canonicalize(_Loc("", "remote", None, "CA", "US", scope))
+                            ("namer", "Remote (North America)")]:
+            c = canonicalize(_Loc("", "remote", None, None, None, scope))
             assert c.canonical_name == want
 
     def test_us_state_scope_still_renders_the_state(self):
         c = canonicalize(_Loc("", "remote", None, "AZ", "US", "us"))
         assert c.canonical_name == "Remote (AZ, US)"
 
-    def test_dc_is_not_title_cased_to_capital_of(self):
-        c = canonicalize(_Loc("", "region", None, "DC", "US"))
-        assert c.canonical_name == "District of Columbia, US"
+    def test_macro_scope_never_overrides_a_specific_country(self):
+        """A macro scope PLUS a specific country is contradictory, and the macro
+        is the wider of the two. The backfill dry-run caught three such prod
+        rows, one factually wrong: country=GB with scope='eu' would have
+        rendered 'Remote (UK)' as 'Remote (EU)', and the UK is not in the EU.
+        """
+        for country, stored in [("GB", "Remote (UK)"), ("DE", "Remote (Germany)"),
+                                ("FR", "Remote (France)")]:
+            c = canonicalize(_Loc(stored, "remote", None, None, country, "eu"))
+            assert c.canonical_name == stored, (
+                f"country={country} label was widened to {c.canonical_name!r}"
+            )
+        # country=US + scope=global would have promoted a US role to worldwide.
+        c = canonicalize(_Loc("Remote", "remote", None, None, "US", "global"))
+        assert c.canonical_name == "Remote"

@@ -386,17 +386,18 @@ _ISO2_TO_DISPLAY: dict[str, str] = {}
 for _name, _code in _COUNTRY_NAME_TO_ISO2.items():
     _ISO2_TO_DISPLAY.setdefault(_code, _name.title())
 
-# .title() would render DC as "District Of Columbia" (capital "Of"), so the
-# handful of names with lowercase particles are spelled out.
-_STATE_NAME_OVERRIDES: dict[str, str] = {"DC": "District of Columbia"}
-
-_USPS_TO_STATE_NAME: dict[str, str] = {
-    _usps: _STATE_NAME_OVERRIDES.get(_usps, _state.title())
-    for _state, _usps in _US_STATE_NAME_TO_USPS.items()
+# How a macro-region token renders in a label. Readable names, not acronyms:
+# "Remote (NAMER)" is worse for a reader than "Remote (North America)", and the
+# label is what shows in the location filter.
+_MACRO_REGION_LABELS: dict[str, str] = {
+    "global": "Global",
+    "namer": "North America",
+    "amer": "Americas",
+    "latam": "Latin America",
+    "emea": "EMEA",
+    "apac": "APAC",
+    "eu": "EU",
 }
-
-# How a macro-region token renders in a label. Anything not listed is uppercased.
-_MACRO_REGION_LABELS: dict[str, str] = {"global": "Global"}
 
 
 def _render_city_name(city: str | None, region: str | None, country: str | None) -> str:
@@ -448,43 +449,64 @@ def render_canonical_name(
 ) -> str | None:
     """Derive the display label from the canonicalized structured columns.
 
-    Returns ``None`` when there is not enough structure to build a label, in
-    which case the caller keeps whatever the model supplied.
+    Returns ``None`` whenever the tuple cannot produce a label at least as
+    specific as the one already stored, in which case the caller KEEPS the
+    existing name.
 
-    Why this is now done for EVERY kind, not just ``city``: ``canonical_name``
-    used to be the model's own prose for region/country/remote rows, so the same
-    physical scope arrived under many labels while the uniqueness key
-    (kind, city, region, country, remote_scope) also varied -- prod ended up with
-    23 rows named "Remote (US)" and 14 named "Remote". Making the label a pure
-    function of the tuple means one scope renders exactly one way. It is safe to
-    change these labels because the eval scorer compares structured fields only
-    (see api/eval/scoring.py) -- ``canonical_name`` is not part of the match.
+    Scope: ``city`` always, ``remote`` only when the scope is one we can render
+    faithfully. ``region`` and ``country`` are deliberately NOT derived.
+
+    Why not derive everything (an earlier revision did, and a prod dry-run caught
+    it): ``canonical_name`` frequently carries information the tuple does not, so
+    deriving DESTROYS specificity and merges distinct places. Real rows from the
+    2026-09-10 dry-run:
+
+        Space Coast, FL, USA          -> Florida, US
+        San Francisco Bay Area        -> California, US      }  and these two now
+        Southern California, CA, USA  -> California, US      }  collide
+        Czechia                       -> CZ
+        Kuwait                        -> KW
+        Remote (United States & Canada) -> Remote (UNITED STATES & CANADA)
+        Remote                        -> Remote (REMOTE)
+
+    Those rows all have a valid region/country code; the NAME is simply richer
+    than the code. Collapsing "Space Coast" into "Florida" is the same class of
+    harm as dropping an unrecognised US region, which we already refuse to do.
+
+    Deriving was never what collapsed the duplicate "Remote (US)" rows anyway --
+    those 23 rows differed in their TUPLE (scope junk), so coercing the scope
+    vocabulary merges them via uq_locations_canonical no matter what the label
+    says. The derivation was cosmetic; on real data it was destructive.
     """
     if kind == "city":
         return _render_city_name(city, region, country) or None
 
-    if kind == "country":
-        if country:
-            return _ISO2_TO_DISPLAY.get(country, country)
-        return None
-
-    if kind == "region":
-        if region and country:
-            label = _USPS_TO_STATE_NAME.get(region, region) if country == "US" else region
-            return f"{label}, {country}"
-        if region:
-            return region
-        if country:
-            return _ISO2_TO_DISPLAY.get(country, country)
-        return None
-
     if kind == "remote":
-        if remote_scope:
-            return f"Remote ({_scope_label(remote_scope, region, country)})"
-        if country:
-            return f"Remote ({_scope_label(country.lower(), region, country)})"
-        return "Remote"
+        scope = remote_scope or (country.lower() if country else None)
+        if not scope:
+            return "Remote"
+        # Only render a scope we can express faithfully: a macro region, or an
+        # ISO-2 code with a real display name. Anything else (an unmappable
+        # country string like 'Turkey', 'Canada/USA' or the literal 'Remote')
+        # would come out as shouting junk, so keep whatever is stored.
+        if country == "US" and region:
+            return f"Remote ({_scope_label(scope, region, country)})"
+        if scope in _MACRO_REGIONS:
+            # A macro scope PLUS a specific country is contradictory data, and
+            # the macro is the wider of the two -- rendering it silently widens
+            # the role. The 2026-09-10 dry-run found three such rows, one of
+            # them factually wrong: country=GB with scope='eu' would have
+            # rendered "Remote (UK)" as "Remote (EU)", and the UK is not in the
+            # EU. country=US with scope='global' would have promoted a US role
+            # to worldwide. Keep the stored label rather than pick a side.
+            if country and (country.upper() == "US" or country.upper() in _ISO2_TO_DISPLAY):
+                return None
+            return f"Remote ({_scope_label(scope, region, country)})"
+        if scope.upper() == "US" or scope.upper() in _ISO2_TO_DISPLAY:
+            return f"Remote ({_scope_label(scope, region, country)})"
+        return None
 
+    # region / country: the stored label is at least as specific as the tuple.
     return None
 
 
