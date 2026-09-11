@@ -66,6 +66,10 @@
     "accomplishment": "A Chicago-based options market maker, it provides liquidity across equity indices, single stocks, energies, grains, interest rates, metals, and softs through proprietary in-house trading systems.",
     "blurb": "Belvedere Trading is a proprietary trading firm and market maker that provides liquidity across global derivatives markets using its own technology."
   },
+  "blacksmith": {
+    "blurb": "Blacksmith runs GitHub Actions CI on its own bare-metal fleet rather than rented cloud VMs, making builds substantially faster and cheaper.",
+    "accomplishment": "Reached roughly $10M ARR in under two years, running CI for 3,000+ companies on tens of millions of Firecracker VMs a month, on $58.5M raised."
+  },
   "block": {
     "accomplishment": "It is the parent of Square and Cash App, pioneering mobile card payments for small businesses and operating one of the most widely used consumer money apps.",
     "blurb": "Block is a financial technology company that builds payment, banking, and commerce tools for merchants and consumers."
