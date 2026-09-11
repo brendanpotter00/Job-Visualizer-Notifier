@@ -495,7 +495,7 @@ export const COMPANIES: Company[] = [
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2235575530%22%5D',
   }),
-  createBackendScraperCompany('resolve-ai', 'Resolve AI', 'https://careers.ashbyhq.com/Resolve AI', {
+  createBackendScraperCompany('resolve-ai', 'Resolve AI', 'https://jobs.ashbyhq.com/resolveai', {
     sourceAts: 'ashby',
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22102498863%22%5D',
