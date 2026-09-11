@@ -817,6 +817,14 @@ export const COMPANIES: Company[] = [
   createBackendScraperCompany('tavus', 'Tavus', 'https://jobs.ashbyhq.com/tavus', {
     sourceAts: 'ashby',
   }),
+  // Ashby serves this board under BOTH `Blacksmith` and `blacksmith` (verified,
+  // same 20 postings either way), so the capital in the careers URL is not a
+  // second board. The lowercase token is stored, matching every other entry —
+  // the skill's per-ATS table calls Ashby tokens case-sensitive, which is true
+  // in general even though this tenant tolerates both.
+  createBackendScraperCompany('blacksmith', 'Blacksmith', 'https://jobs.ashbyhq.com/Blacksmith', {
+    sourceAts: 'ashby',
+  }),
 
   // Gem (backend-scraper) — backend Procrastinate worker fetches from
   // api.gem.com/job_board/v0/<id>/job_posts/ on a 30-min cron. See
@@ -1085,6 +1093,7 @@ export const enum COMPANY_IDS {
   Atlassian = 'atlassian',
   Baseten = 'baseten',
   BasePower = 'base-power',
+  Blacksmith = 'blacksmith',
   Block = 'block',
   Box = 'box',
   BlueOrigin = 'blueorigin',

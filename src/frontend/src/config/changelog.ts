@@ -19,6 +19,18 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    id: 'add-blacksmith',
+    title: 'Added Blacksmith',
+    description:
+      "Blacksmith — which makes GitHub Actions run substantially faster and cheaper by owning its own fleet of bare-metal machines instead of renting generic cloud VMs — is now tracked via its Ashby job board. It runs CI for more than 3,000 companies, orchestrates tens of millions of Firecracker VMs a month, and reached roughly $10M in annual recurring revenue in under two years on $58.5M raised. Twenty roles are open, split between New York and San Francisco, seven of them in Engineering.",
+    tags: ['new-companies'],
+    date: '2026-09-11',
+    link: {
+      to: ROUTES.ACCOUNT,
+      label: 'Add Blacksmith to your company preferences',
+    },
+  },
+  {
     id: 'add-tavus',
     title: 'Added Tavus',
     description:
