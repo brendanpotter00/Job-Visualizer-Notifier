@@ -576,6 +576,10 @@
     "accomplishment": "Supabase is widely known as the open-source alternative to Firebase, building its entire platform around the standard PostgreSQL database.",
     "blurb": "Supabase is an open-source backend-as-a-service that gives developers a hosted Postgres database with authentication, storage, realtime, and auto-generated APIs."
   },
+  "tavus": {
+    "blurb": "Tavus builds real-time conversational video AI — models that let software see, hear and respond face to face, so an interaction with a machine feels like talking to a person.",
+    "accomplishment": "Raised a Series B backed by Sequoia Capital, and ships the replica and conversational-video APIs a lot of other products build their AI-avatar features on."
+  },
   "thinkingmachines": {
     "accomplishment": "Thinking Machines pursues a mission of building collaborative, customizable general intelligence and offers Tinker, an API for fine-tuning open-weight language models.",
     "blurb": "Thinking Machines is an artificial intelligence research and product lab founded by former OpenAI chief technology officer Mira Murati."
