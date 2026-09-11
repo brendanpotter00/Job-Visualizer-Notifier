@@ -19,6 +19,18 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    id: 'add-tavus',
+    title: 'Added Tavus',
+    description:
+      "Tavus — a research lab building what it calls AI Humans: real-time models that let a machine see, hear and respond face to face, so a conversation with software feels like a conversation with a person — is now tracked via its Ashby job board. It is Series B, backed by Sequoia among others. Fourteen roles are open, eight of them in Engineering, Product and Design, and eleven based in San Francisco with the rest remote.",
+    tags: ['new-companies'],
+    date: '2026-09-11',
+    link: {
+      to: ROUTES.ACCOUNT,
+      label: 'Add Tavus to your company preferences',
+    },
+  },
+  {
     id: 'add-tomo',
     title: 'Added Tomo',
     description:
