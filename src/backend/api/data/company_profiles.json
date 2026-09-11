@@ -588,6 +588,10 @@
     "accomplishment": "Together AI is recognized for fast, cost-efficient inference and for advancing open research like the FlashAttention and RedPajama open-dataset projects.",
     "blurb": "Together AI operates a cloud platform for running, fine-tuning, and training open-source generative AI models on high-performance GPU infrastructure."
   },
+  "tomo-ai": {
+    "blurb": "Tomo is a personal AI assistant that works entirely over text message, learning a user's goals and following up on them rather than waiting to be asked.",
+    "accomplishment": "Built the assistant around SMS rather than an app, betting that the highest-retention surface for a personal AI is the inbox people already live in."
+  },
   "trajectory": {
     "accomplishment": "Trajectory partners with AI-native companies to continuously post-train their models in production, turning live usage signals into ongoing model improvements.",
     "blurb": "Trajectory builds a continual-learning platform that post-trains large-scale agentic AI models on real product-usage signals so they improve over time."

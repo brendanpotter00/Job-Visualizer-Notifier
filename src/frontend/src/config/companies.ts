@@ -805,6 +805,16 @@ export const COMPANIES: Company[] = [
     sourceAts: 'ashby',
   }),
 
+  // The JVN id is `tomo-ai`, NOT `tomo`, and the distinction is load-bearing:
+  // `jobs.ashbyhq.com/tomo` is a DIFFERENT company — the Tomo mortgage lender,
+  // hiring Loan Officers and Underwriters — and it also returns HTTP 200, so a
+  // status code alone picks the wrong one. The board_token in the seed
+  // migration is `tomo.ai` (with the dot); verified live against the job UUID
+  // in the posting URL this was added from.
+  createBackendScraperCompany('tomo-ai', 'Tomo', 'https://jobs.ashbyhq.com/tomo.ai', {
+    sourceAts: 'ashby',
+  }),
+
   // Gem (backend-scraper) — backend Procrastinate worker fetches from
   // api.gem.com/job_board/v0/<id>/job_posts/ on a 30-min cron. See
   // docs/implementations/gemBackendMigration/PLAN.md.
@@ -1215,6 +1225,7 @@ export const enum COMPANY_IDS {
   ThinkingMachines = 'thinkingmachines',
   TikTok = 'tiktok',
   TogetherAI = 'togetherai',
+  TomoAI = 'tomo-ai',
   Town = 'town',
   Trajectory = 'trajectory',
   Traversal = 'traversal',
