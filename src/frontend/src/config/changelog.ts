@@ -19,6 +19,18 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    id: 'resolve-ai-board-move-2026-09',
+    title: 'Resolve AI is reading from its job board again',
+    description:
+      'Resolve AI renamed its Ashby job board, which broke the address this site was using to read it. Nothing was showing as changed, but nothing was updating either — the roles you saw were frozen at whatever was live before the rename. The site now reads the new address, so Resolve AI openings are current again. No roles were lost: the fourteen jobs on the new board are the same fourteen already listed here.',
+    tags: ['improvement'],
+    date: '2026-09-11',
+    link: {
+      to: ROUTES.SAVED_FILTERS,
+      label: 'Review your saved companies',
+    },
+  },
+  {
     id: 'add-blacksmith',
     title: 'Added Blacksmith',
     description:
