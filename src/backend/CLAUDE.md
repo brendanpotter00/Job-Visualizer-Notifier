@@ -359,7 +359,7 @@ src/backend/api/
     ├── heartbeat.py                 # Per-lane heartbeat tasks (bulk + interactive) backing /health/worker
     ├── enqueue_*_fan_out.py (×6)    # Fan-out tasks: enqueue per-company fetch for each ATS
     ├── enqueue_recipe_fan_out.py    # 7th fan-out: */30 over `ats='recipe'` PUBLISHED boards; defers `fetch_custom_company` on `recipe_fetch` with `visibility='public'`
-    ├── fetch_*_company.py (×6)      # Leaf tasks: fetch + upsert one company's jobs
+    ├── fetch_*_company.py (×7)      # Leaf tasks: fetch + upsert one company's jobs (includes fetch_custom_company.py for custom/recipe boards)
     ├── normalize_location.py        # Leaf task: normalize one job's free-text location via Claude Haiku
     └── scan_unnormalized.py         # Periodic safety-net task: find NULL-status jobs and defer normalize_location
 ```
