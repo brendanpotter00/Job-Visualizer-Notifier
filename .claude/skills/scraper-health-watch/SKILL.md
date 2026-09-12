@@ -207,14 +207,60 @@ ORDER BY l.company;
 > rows, `count(*) = N` requires a full window of N, and the FILTER `= N` requires
 > all N skipped.
 
-Alert **CRITICAL** (key `guard_latched:<company>`) on **any** row — a company that
-has run ≥4 times and written nothing to `job_listings` is dark regardless of what
-`jobs_seen` says, and (for `empty_scrape`) will NOT self-heal:
-`resolve_safety_guard`'s bounded auto-release counts `partial_scrape` only
-(`incremental.py:count_consecutive_partial_skips`), so `empty_scrape` latches
-forever until code is fixed. The 4-run floor (`GUARD_LATCH_MIN_RUNS`) is why a
-normally auto-releasing `partial_scrape` can never trip this: it releases by the
-3rd consecutive skip, so 4 consecutive skips means a non-releasing latch.
+A row here means the company runs and writes nothing, and (for `empty_scrape`)
+will NOT self-heal: `resolve_safety_guard`'s bounded auto-release counts
+`partial_scrape` only (`incremental.py:count_consecutive_partial_skips`), so
+`empty_scrape` latches forever until a human acts. The 4-run floor
+(`GUARD_LATCH_MIN_RUNS`) is why a normally auto-releasing `partial_scrape` can
+never trip this: it releases by the 3rd consecutive skip, so 4 consecutive skips
+means a non-releasing latch.
+
+**Before alerting, PROBE THE BOARD — a latch is not by itself a bug.** A row
+tells you the scraper wrote nothing; it does not tell you whether there was
+anything to write. Those are different incidents with opposite fixes, and the
+board's own API separates them in one request. For an ATS-backed company
+(`ats` in greenhouse/ashby/lever/gem — skip this for `script` and `recipe`,
+which have no single token to probe), fetch the endpoint in §6's probe table for
+the stored `board_token` and branch on the result:
+
+| Probe result | Meaning | Action |
+|---|---|---|
+| **404 / connection error** | the board moved or was deleted | **CRITICAL** `guard_latched:<company>`, and run §6 board research — this is PR-able |
+| **200 with > 0 jobs** | the board is serving roles we are not writing | **CRITICAL** `guard_latched:<company>`, text-only — a genuine scraper bug |
+| **200 with 0 jobs** | the scraper AGREES with the board | **NOT critical** — informational, see below |
+
+**Why 200-with-0-jobs must not page.** The scraper is correct: the company took
+its roles down and our zero matches theirs. Paging CRITICAL on every run for a
+company that is simply not hiring trains the reader to ignore the key that also
+fires for real outages, which is how the 2026-08-29 missed text happened. The
+alert-fatigue risk here is the actual hazard, not the empty board.
+
+MEASURED, 2026-09-11 — the case this rule was written from. `console` latched on
+`empty_scrape` and paged CRITICAL. Its careers page still showed 17 roles, and
+the first read of that was "the board is fine, our scraper broke". It was the
+opposite: **console.com/careers is a Framer page with 17 hand-written
+`jobs.ashbyhq.com/console/<uuid>` links**, and the board behind them is empty —
+posting API `{"jobs": [], "apiVersion": "1"}`, the embed GraphQL 0 postings, and
+a posting fetched **by id** returns `null`. Console removed the roles from Ashby
+and never updated their marketing site. The scraper was right the whole time.
+
+**Do not read a careers page to decide whether a board is alive.** A hardcoded
+link is indistinguishable from a live one, and `jobs.ashbyhq.com/<board>/<uuid>`
+answers **HTTP 200 for any path** because it is a JS shell — the same trap that
+makes `_prove_job_link` blind on iCIMS boards. Only the API answers this.
+
+**What the informational branch must say**, because suppressing the page has a
+real cost: the guard stays latched, so every OPEN row for that company is frozen
+— never refreshed, never closed — until a human closes them or disables the
+company. Emit key `board_empty:<company>` on the 72h informational cooldown
+(§4.3) carrying the frozen-row count and both facts that produced the verdict:
+the probe result AND the stored token. Phrase it as a decision to make, not an
+outage: *"console: Ashby board alive but empty (200, 0 jobs); 15 OPEN rows
+frozen by the guard — close them or disable the company."*
+
+Re-probe on every run. A company that comes back (200 with > 0 jobs) while still
+latched flips straight to CRITICAL, which is the case this branch must never
+swallow.
 
 **Check B — mass closures** (the 2026-03-29 incident closed 3,582 Apple jobs in
 ~6 minutes; see `docs/incidents/2026-03-29-mass-job-closure.md`):
@@ -292,9 +338,15 @@ Severity — highest wins, and it decides the alert cadence (§4):
 
 - **CRITICAL** — an active outage: worker heartbeat dead (C), coverage collapse
   (D), a mass closure (B), or a latched guard (A3 — a company that runs but writes
-  nothing). These **re-alert on every run until resolved** — never suppressed by
-  the 72h window (§4.2). A3 is text-only (no PR): a latched guard is a scraper
-  code bug a human must fix, not a board move the watchdog can repoint.
+  nothing) **whose board probe did not come back 200-with-0-jobs**. These
+  **re-alert on every run until resolved** — never suppressed by the 72h window
+  (§4.2). A3 is text-only when the board still serves jobs (a scraper code bug a
+  human must fix); a 404 probe makes it PR-able board research instead (§6).
+- **INFORMATIONAL — `board_empty:<company>`** — A3 latched AND the board probed
+  200 with 0 jobs. The scraper agrees with the board; the company stopped
+  hiring. Not an outage, so it takes the 72h cooldown (§4.3) rather than paging
+  every run. It still has to be said, because the latch freezes every OPEN row
+  for that company until a human closes them or disables it.
 - **DEGRADED** — per-company staleness / silent-zero (A) with the fleet still
   broadly healthy; carry the per-company list (id, ats, board_token, hours dark,
   signals). PR-able board moves dedupe on the open PR (§4.1).
@@ -324,8 +376,12 @@ Severity — highest wins, and it decides the alert cadence (§4):
    send.
 3. **Informational alerts keep the 72h cooldown** — these are known needs-human
    items, not live outages, so nagging adds nothing: keys `notfound:<company>`,
-   `drill:<scenario>`. Suppress the text if the same key was texted within 72h;
-   still record the finding in the heartbeat line.
+   `board_empty:<company>`, `drill:<scenario>`. Suppress the text if the same key
+   was texted within 72h; still record the finding in the heartbeat line.
+   `board_empty` sits here rather than under CRITICAL because the scraper is
+   behaving correctly — but note it is the one informational key that can flip:
+   if the board later probes 200 with > 0 jobs while the guard is still latched,
+   it becomes `guard_latched:<company>` and loses the cooldown.
 4. If everything found is a §4.1/§4.3 suppression (no CRITICAL active): append the
    heartbeat line with `suppressed=<ids/keys>` and end (weekly all-clear still
    applies, §9).
@@ -483,6 +539,11 @@ Fix PR: <url>
 - Non-PR findings get their own line (`worker heartbeat DEAD 47m`,
   `apple: guard-latched, 4/4 runs skipped (empty_scrape, 17 jobs) — scraper writing nothing`,
   `could not determine prod health (MCP error)`, `board not found — needs a human`).
+- A `board_empty` finding names the probe AND the consequence, so the reader can
+  tell it apart from a latch that IS a bug and knows what is being asked of them:
+  `console: Ashby board alive but empty (200, 0 jobs) — 15 OPEN rows frozen by the
+  guard; close them or disable the company`. Never write it as "dark" or
+  "broken" — the scraper is agreeing with the board.
 - **CRITICAL escalation (§4.2):** when a CRITICAL key is still active on a repeat
   run, lead with the elapsed duration and a day counter so each send is visibly
   worse and can never be mistaken for a prior text, e.g.
