@@ -138,10 +138,6 @@
     "accomplishment": "Coinbase became the first crypto-native company added to the S&P 500 and, in 2026, expanded into 24/7 commission-free stock and ETF trading alongside a record share of global crypto trading volume.",
     "blurb": "Coinbase operates the largest U.S. cryptocurrency exchange, letting individuals and institutions buy, sell, store, and trade crypto assets."
   },
-  "console": {
-    "accomplishment": "Console has raised over $29 million from Thrive Capital and DST Global and now resolves more than half of IT tickets automatically for customers including Ramp, Scale AI, Webflow, and Zip.",
-    "blurb": "Console builds AI agents that live in Slack and autonomously resolve internal IT help-desk tickets, freeing IT teams from repetitive support work."
-  },
   "crowdstrike": {
     "accomplishment": "At Fal.Con 2026, CrowdStrike unveiled Falcon IQ — agentic AI security built on NVIDIA's Nemotron models — and expanded Falcon to Google Cloud and Snowflake, sending its shares to record highs.",
     "blurb": "CrowdStrike builds the Falcon platform, a cloud-native cybersecurity suite that protects endpoints, cloud workloads, identity, and data through AI-driven detection and response."
@@ -623,6 +619,10 @@
   "twitch": {
     "accomplishment": "Twitch is the world's leading live-streaming service for gamers and a flagship part of Amazon, pioneering interactive features like Bits and channel subscriptions.",
     "blurb": "Twitch operates a live-streaming platform centered on gaming, esports, music, and creator content with real-time interactive chat."
+  },
+  "typesafe-ai": {
+    "blurb": "TypeSafe is an AI lab building models meant to run inside software rather than in a chat window — invoked, inspected and constrained like any other dependency.",
+    "accomplishment": "Founded by researchers out of OpenAI, Google Brain and Meta's FAIR to make model calls composable enough to build production systems on."
   },
   "unity3d": {
     "accomplishment": "Unity is one of the world's most widely used game engines, powering a large share of mobile and indie games.",
