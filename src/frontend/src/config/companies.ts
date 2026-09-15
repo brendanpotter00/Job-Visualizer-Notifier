@@ -610,11 +610,10 @@ export const COMPANIES: Company[] = [
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22100163306%22%5D',
   }),
-  createBackendScraperCompany('console', 'Console', 'https://console.com/careers', {
-    sourceAts: 'ashby',
-    recruiterLinkedInUrl:
-      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22104441547%22%5D',
-  }),
+  // `console` was removed here on 2026-09-15 (acquired by Palo Alto Networks,
+  // board emptied). The COMPANIES entry and its COMPANY_IDS member go; the
+  // `companies` row stays with enabled=FALSE — the unity3d/poke soft-disable
+  // precedent, see migration 7e2c9a4b51df.
   createBackendScraperCompany('workos', 'WorkOS', 'https://jobs.ashbyhq.com/workos', {
     sourceAts: 'ashby',
     recruiterLinkedInUrl:
@@ -815,6 +814,13 @@ export const COMPANIES: Company[] = [
     sourceAts: 'ashby',
   }),
   createBackendScraperCompany('tavus', 'Tavus', 'https://jobs.ashbyhq.com/tavus', {
+    sourceAts: 'ashby',
+  }),
+  // The id carries `-ai` because `typesafe` alone is ambiguous: Typesafe was the
+  // FORMER NAME OF LIGHTBEND, the Scala/Akka company. The bare token 404s too
+  // (`typesafe` and `typesafeai` both), so `typesafe-ai` is the only live slug
+  // as well as the unambiguous one.
+  createBackendScraperCompany('typesafe-ai', 'TypeSafe', 'https://jobs.ashbyhq.com/typesafe-ai', {
     sourceAts: 'ashby',
   }),
   // Ashby serves this board under BOTH `Blacksmith` and `blacksmith` (verified,
@@ -1116,7 +1122,6 @@ export const enum COMPANY_IDS {
   Cohere = 'cohere',
   Coinbase = 'coinbase',
   Composio = 'composio',
-  Console = 'console',
   CrowdStrike = 'crowdstrike',
   Crunchyroll = 'crunchyroll',
   Crusoe = 'crusoe',
@@ -1246,6 +1251,7 @@ export const enum COMPANY_IDS {
   Twilio = 'twilio',
   Turo = 'turo',
   Twitch = 'twitch',
+  TypeSafe = 'typesafe-ai',
   Vercel = 'vercel',
   Vizcom = 'vizcom',
   Wafer = 'wafer',

@@ -19,6 +19,18 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    id: 'add-typesafe-retire-console',
+    title: 'Added TypeSafe, retired Console',
+    description:
+      "TypeSafe — an AI lab building what it calls intelligence beyond chat: models meant to run inside software and be invoked, inspected and constrained like any other dependency, built by a small team out of OpenAI, Google Brain and Meta's FAIR — is now tracked via its Ashby job board. Five roles, all in San Francisco. Console has been retired in the same change: it was acquired by Palo Alto Networks and took its job board down, so there is nothing left to read. Its past postings are preserved rather than deleted, so if the board ever returns it can be switched back on without losing history.",
+    tags: ['new-companies'],
+    date: '2026-09-15',
+    link: {
+      to: ROUTES.ACCOUNT,
+      label: 'Add TypeSafe to your company preferences',
+    },
+  },
+  {
     id: 'resolve-ai-board-move-2026-09',
     title: 'Resolve AI is reading from its job board again',
     description:
