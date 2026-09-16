@@ -57,6 +57,9 @@ def collect_health(store: Store) -> dict[str, Any]:
         "unsent": unsent,
         "needs_human": needs_human,
         "failed_rows": inbox.get("failed", 0),
+        # Surfaced so the starvation is VISIBLE while staying unrepaired — both
+        # remedies change the live tick's claim order, which r11 declined.
+        "starved_null_recency": store.starved_null_recency(),
         "last_heartbeat_at": hb,
         "last_heartbeat_age_s": hb_age,
         "stage_timings": timings,

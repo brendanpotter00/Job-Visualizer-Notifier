@@ -61,6 +61,12 @@ _KNOB_SETTERS = {
     "judge_human_floor": lambda s, v: ec.set_judge_human_floor(s, float(v)),
     "judge_scope": lambda s, v: ec.set_judge_scope(s, str(v)),
     "judge_confidence_ceiling": lambda s, v: ec.set_judge_confidence_ceiling(s, float(v)),
+    "judge_subcategory_corrections": lambda s, v: ec.set_judge_subcategory_corrections(
+        s, _coerce_bool(v)
+    ),
+    "writeback_send_subcategories": lambda s, v: ec.set_writeback_send_subcategories(
+        s, _coerce_bool(v)
+    ),
     "opencode_model": lambda s, v: ec.set_opencode_model(s, str(v)),
     "enrich_per_tick_limit": lambda s, v: ec.set_enrich_per_tick_limit(s, int(v)),
 }

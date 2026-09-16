@@ -10,7 +10,7 @@ import httpx
 from job_enricher import cli
 from job_enricher.metrics import build_metrics_payload, drift_suspected
 from job_enricher.taxonomy import taxonomy_version
-from job_enricher.store import LAST_SCORECARD_HASH_KEY
+from job_enricher.store import LAST_SCORECARD_HASH_KEY, TICK_COUNTER_COLS
 
 
 def _run_tick(store, **counters):
@@ -33,6 +33,7 @@ def test_build_metrics_payload_shape(store):
     assert payload["counters"] == {
         "claimed": 6, "cleaned": 0, "classified": 6, "judged": 0, "corrected": 0,
         "needs_human": 0, "sent": 6, "errors": 0, "nulled_facets": 1,
+        "swe_classified": 0, "swe_subcat_evaluated": 0, "swe_subcategorized": 0,
     }
     assert payload["duration_s"] >= 0.0
     assert payload["stage_timings"] == [
@@ -49,6 +50,26 @@ def test_build_metrics_payload_shape(store):
     assert payload["enricher_version"]
     assert payload["drift_suspected"] is False
     assert payload["scorecard"] is None or scorecard_hash  # depends on repo scorecard state
+
+
+def test_every_tick_counter_column_leaves_the_laptop(store):
+    """⚠ THE DRIFT GUARD. The payload's counter set must BE `TICK_COUNTER_COLS` —
+    not a second hand-written list beside it.
+
+    That is exactly how the three v4 counters were lost: `bump_tick_counters`
+    wrote `swe_classified` / `swe_subcat_evaluated` / `swe_subcategorized` to the
+    ticks table correctly, and metrics-push silently dropped them, so JVN's
+    `subcategory_empty_drift` breaker read nothing at all. A missing key is not an
+    error on either side — nothing would ever have gone red."""
+    store.heartbeat()
+    _run_tick(store, classified=4, swe_classified=3,
+              swe_subcat_evaluated=2, swe_subcategorized=1)
+    payload, _ = build_metrics_payload(store)
+
+    assert set(payload["counters"]) == set(TICK_COUNTER_COLS)
+    assert payload["counters"]["swe_classified"] == 3
+    assert payload["counters"]["swe_subcat_evaluated"] == 2
+    assert payload["counters"]["swe_subcategorized"] == 1
 
 
 def test_build_metrics_payload_running_tick_and_explicit_id(store):

@@ -38,6 +38,13 @@ class Settings(BaseSettings):
     opencode_binary: str = "opencode"                 # OPENCODE_BINARY (PATH name or abs path)
     claude_binary: str = "claude"                     # CLAUDE_BINARY (headless `claude -p`)
     engine_timeout_seconds: float = Field(default=300.0, gt=0)  # ENGINE_TIMEOUT_SECONDS
+    # The subcategory-only backfill lane is a DIFFERENT lane with a different
+    # prompt size (title+tags only, no clean_description, but a much longer
+    # inlined rubric), so it deserves its own timeout. `build_engine(...,
+    # lane="backfill")` selects it. (Note: a `classify:engine_timeout_seconds`
+    # knob would be redundant — build_engine already passes
+    # `engine_timeout_seconds` to every engine at engines/base.py:162.)
+    backfill_timeout_seconds: float = Field(default=600.0, gt=0)  # BACKFILL_TIMEOUT_SECONDS
 
     @model_validator(mode="after")
     def _validate_edge(self) -> "Settings":

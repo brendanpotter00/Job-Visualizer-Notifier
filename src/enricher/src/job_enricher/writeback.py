@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 TRANSIENT_HTTP_STATUSES = frozenset({429, 500, 502, 503, 504})
 
 
-def _row_to_result(row: Any) -> dict[str, Any]:
+def _row_to_result(row: Any, send_subcategories: bool = False) -> dict[str, Any]:
     def _loads(v: str | None, default: Any) -> Any:
         if not v:
             return default
@@ -41,7 +41,7 @@ def _row_to_result(row: Any) -> dict[str, Any]:
         except (ValueError, TypeError):
             return default
 
-    return {
+    result = {
         "job_listing_id": row["job_listing_id"],
         "source_id": row["source_id"],
         "category": row["category"],
@@ -64,6 +64,43 @@ def _row_to_result(row: Any) -> dict[str, Any]:
             "notes": row["judge_notes"],
         },
     }
+    if send_subcategories:
+        # ⚠ THE DEFAULT IS None, NOT []. JVN must be able to tell "not evaluated"
+        # (NULL — the backfill queue) from "none apply" (`[]` — TERMINAL). The
+        # existing `_loads` helper already returns the default on a falsy or
+        # unparseable value, and '[]' parses to [], so all three states survive.
+        subcats = _loads(row["subcategories"], None)
+        result["subcategories"] = subcats
+        # ⚠ SHARED CONTRACT 1.2 A: `subcategory_confidence` MUST be null when the
+        # array is `[]` or null. Enforced again HERE because the contract is about
+        # what JVN RECEIVES: a confidence with no label behind it ships as a clean
+        # 200 and poisons subcategory-confidence calibration on the far side.
+        result["subcategory_confidence"] = (
+            row["subcategory_confidence"] if subcats else None
+        )
+        # ⚠ SHARED CONTRACT 1.2 A, THE THIRD KEY: `subcategory_source` MUST be
+        # present whenever the array is a list (INCLUDING `[]`) and null when the
+        # array is null. Omitting it left JVN's `enrichment_subcategory_source`
+        # NULL on every live-lane row, which silently disables the two things
+        # that column exists for — the PER-FIELD human lock (`= 'human'`) and a
+        # SCOPED rather than nuclear rollback — and does so as a clean 200.
+        # (The build plan's ENR-WB-1 *changes* text enumerates only two keys;
+        # §1.2 A is authoritative and wins.)
+        source = row["subcategory_source"] if subcats is not None else None
+        if subcats is not None and not source:
+            # A labelled row with no provenance is a LOCAL data bug, not
+            # something to invent a value for — every writer in this repo stamps
+            # the source alongside the array. Ship what we have, but never
+            # silently: this is the only place it becomes observable.
+            logger.warning(
+                "write-back: (source_id=%s, job_listing_id=%s) has subcategories "
+                "%r but NO subcategory_source; shipping null source (contract 1.2 A "
+                "requires one whenever the array is a list)",
+                row["source_id"], row["job_listing_id"], subcats,
+            )
+        result["subcategory_source"] = source
+    # When the knob is OFF all THREE keys are OMITTED ENTIRELY — not sent as null.
+    return result
 
 
 def _log_warnings(warnings: list[Any]) -> None:
@@ -154,8 +191,12 @@ def write_back(
     """
     from job_enricher.config import settings
 
+    from job_enricher import enrich_config as ec
+
     client = client or JVNClient()
     batch_size = batch_size or settings.writeback_batch_size
+    # Read ONCE per run, not inside the row loop.
+    send_subcategories = ec.get_writeback_send_subcategories(store)
 
     rows = store.enriched_unsent()
     if not rows:
@@ -173,7 +214,7 @@ def write_back(
     for start in range(0, len(rows), batch_size):
         chunk = rows[start : start + batch_size]
         chunk_pairs = [(r["source_id"], r["job_listing_id"]) for r in chunk]
-        payload = [_row_to_result(r) for r in chunk]
+        payload = [_row_to_result(r, send_subcategories) for r in chunk]
 
         result: dict[str, Any] | None = None
         last_error: Exception | None = None

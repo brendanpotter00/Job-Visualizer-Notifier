@@ -47,7 +47,8 @@ def test_health_reports_all_keys(store):
     _seed(store, "1")
     body = _client(store).get("/api/health").json()
     assert set(body) == {
-        "inbox", "unsent", "needs_human", "failed_rows", "last_heartbeat_at",
+        "inbox", "unsent", "needs_human", "failed_rows", "starved_null_recency",
+        "last_heartbeat_at",
         "last_heartbeat_age_s", "stage_timings", "classify_engine", "classify_model",
         "judge_engine", "judge_model", "opencode_model", "latest_tick",
     }

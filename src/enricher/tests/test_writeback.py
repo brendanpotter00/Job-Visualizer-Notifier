@@ -10,6 +10,7 @@ errors.
 import argparse
 import json
 import logging
+import os
 
 import httpx
 import pytest
@@ -278,3 +279,208 @@ def test_cmd_write_back_returns_zero_when_nothing_to_send(store, monkeypatch):
     monkeypatch.setattr(cli, "Store", lambda: store)
     rc = cli._cmd_write_back(argparse.Namespace())
     assert rc == 0
+
+
+# ---- ENR-WB-1: subcategories behind a knob, with NULL preserved --------------
+#
+# ⚠ WHY A KNOB, AND WHY THE ACCEPTANCE IS A READ-BACK.
+# JVN's `EnrichmentResultItem` (models.py:879, model_config at :906) sets
+# `alias_generator=to_camel, populate_by_name=True` and NOTHING else — no
+# `extra='forbid'`. Pydantic's default is `ignore`, so an EARLY `subcategories`
+# field is SILENTLY DROPPED and the row still counts as `written`. The failure is
+# not a 422 you would notice; it is a clean-looking success that persists nothing.
+# Every assertion below is therefore on the PARSED REQUEST BODY or on a READ-BACK
+# — never on `written: N`.
+
+from job_enricher import enrich_config as ec  # noqa: E402
+
+
+def _set_subcats(store, jid, value, source="classify", conf=None, source_id="greenhouse"):
+    with store.connect() as c:
+        c.execute(
+            "UPDATE enrichments SET subcategories=?, subcategory_source=?, "
+            "subcategory_confidence=? WHERE source_id=? AND job_listing_id=?",
+            (value, source, conf, source_id, jid),
+        )
+
+
+def test_payload_OMITS_both_keys_when_the_knob_is_off(store):
+    _seed(store, "1")
+    _set_subcats(store, "1", '["backend"]', conf=0.8)
+    client = FakeClient()
+    write_back(store, client=client)
+    item = client.calls[0][0]
+    assert "subcategories" not in item
+    assert "subcategory_confidence" not in item
+    assert "subcategory_source" not in item
+
+
+def test_payload_includes_both_keys_when_the_knob_is_on(store):
+    _seed(store, "1")
+    _set_subcats(store, "1", '["backend"]', conf=0.8)
+    ec.set_writeback_send_subcategories(store, True)
+    client = FakeClient()
+    write_back(store, client=client)
+    item = client.calls[0][0]
+    assert item["subcategories"] == ["backend"]
+    assert item["subcategory_confidence"] == 0.8
+    assert item["subcategory_source"] == "classify"
+
+
+def test_subcategory_source_ships_on_every_row_whose_array_is_a_list(store):
+    """⚠ SHARED CONTRACT 1.2 A, THE THIRD KEY. `subcategory_source` MUST be
+    present whenever the array is a list — INCLUDING `[]` — and null when the
+    array is null.
+
+    Without it JVN's `enrichment_subcategory_source` stays NULL for every
+    live-lane row, which silently disables BOTH things that column exists for:
+    the per-field human lock (`= 'human'`, the only reason a backfill does not
+    stomp a human correction) and a rollback scoped to one lane instead of
+    nuclear. It fails as a clean 200, so nothing downstream notices.
+    ASSERTED ON THE PARSED REQUEST BODY, never on `written: N`."""
+    _seed(store, "1")   # subcategories stays NULL -> source must be null
+    _seed(store, "2")
+    _set_subcats(store, "2", "[]", source="classify")       # evaluated, none apply
+    _seed(store, "3")
+    _set_subcats(store, "3", '["backend"]', source="judge")  # a judge label
+    ec.set_writeback_send_subcategories(store, True)
+    client = FakeClient()
+    write_back(store, client=client)
+    items = {i["job_listing_id"]: i for i in client.calls[0]}
+
+    assert items["1"]["subcategories"] is None
+    assert items["1"]["subcategory_source"] is None
+    # `[]` is a LIST: it carries a source, or the row's provenance is lost even
+    # though it left the backfill queue.
+    assert items["2"]["subcategories"] == []
+    assert items["2"]["subcategory_source"] == "classify"
+    assert items["3"]["subcategory_source"] == "judge"
+    for item in items.values():
+        assert "subcategory_source" in item
+
+
+def test_a_labelled_row_with_no_source_is_logged_not_shipped_silently(store, caplog):
+    """The one shape the contract cannot express. Post-fix every writer stamps a
+    source alongside the array, so this is unreachable — but if it ever happens
+    it must be VISIBLE rather than a clean 200 with a null provenance."""
+    import logging
+
+    _seed(store, "1")
+    _set_subcats(store, "1", '["backend"]', source=None, conf=0.8)
+    ec.set_writeback_send_subcategories(store, True)
+    client = FakeClient()
+    with caplog.at_level(logging.WARNING, logger="job_enricher.writeback"):
+        write_back(store, client=client)
+    assert "NO subcategory_source" in caplog.text
+    assert client.calls[0][0]["subcategory_source"] is None
+
+
+def test_the_three_column_states_map_to_null_empty_and_a_list(store):
+    """⚠ ASSERTED ON THE PARSED REQUEST BODY, and specifically that NULL is
+    NEITHER the string '[]' NOR []. Collapsing NULL into [] would tell JVN every
+    unevaluated row is 'evaluated, none apply' and drain the backfill queue."""
+    _seed(store, "1")   # subcategories stays NULL
+    _seed(store, "2")
+    _set_subcats(store, "2", "[]")
+    _seed(store, "3")
+    _set_subcats(store, "3", '["backend"]')
+    ec.set_writeback_send_subcategories(store, True)
+    client = FakeClient()
+    write_back(store, client=client)
+    by_id = {i["job_listing_id"]: i for i in client.calls[0]}
+
+    assert by_id["1"]["subcategories"] is None
+    assert by_id["1"]["subcategories"] != []
+    assert by_id["1"]["subcategories"] != "[]"
+    assert by_id["2"]["subcategories"] == []
+    assert by_id["3"]["subcategories"] == ["backend"]
+
+
+def _round_trip_helper(written_response, read_back_payload, expected):
+    """THE ASSERTION SHAPE, factored out so it can be pinned.
+
+    Takes what JVN CLAIMED (`{"written": N}`) and what a subsequent READ actually
+    returns. It ignores the claim entirely — a silent Pydantic drop inflates
+    exactly that count, which is the whole reason this exists."""
+    assert written_response.get("written", 0) >= 0      # deliberately not evidence
+    return (read_back_payload or {}).get("subcategories") == expected
+
+
+def test_written_count_alone_is_not_evidence():
+    """⚠ PINS THE ASSERTION SHAPE so nobody 'simplifies' the round trip into a
+    count check. JVN says `written: 1` for a request that carried the field, and
+    the read-back comes back WITHOUT it — that must FAIL."""
+    assert _round_trip_helper({"written": 1}, {"category": "software_engineering"},
+                              ["backend"]) is False
+    assert _round_trip_helper({"written": 1}, {"subcategories": ["backend"]},
+                              ["backend"]) is True
+
+
+@pytest.mark.network
+@pytest.mark.skipif(
+    not os.environ.get("JVN_BASE_URL_SCHEMA4"),
+    reason=(
+        "the certified round trip needs a LOCAL JVN that has shipped SCHEMA-4 "
+        "(EnrichmentResultItem.subcategories + the enrichment_writer column "
+        "write). Set JVN_BASE_URL_SCHEMA4 to run it."
+    ),
+)
+def test_subcategory_round_trip_read_back(store):
+    """THE CERTIFIED ROUND TRIP, enricher side.
+
+    ⚠ ASSERT ON THE READ, NEVER ON `written: N`. JVN's EnrichmentResultItem has
+    no `extra='forbid'`, so before SCHEMA-4 an unknown `subcategories` key is
+    SILENTLY DROPPED while the row still counts as written — a clean-looking
+    success that persists nothing.
+    """
+    import httpx
+
+    base = os.environ["JVN_BASE_URL_SCHEMA4"].rstrip("/")
+    _seed(store, "1")
+    _set_subcats(store, "1", '["backend"]', conf=0.8)
+    ec.set_writeback_send_subcategories(store, True)
+    result = write_back(store)
+    read_back = httpx.get(f"{base}/api/jobs/greenhouse/1", timeout=30.0).json()
+    assert _round_trip_helper(result, read_back, ["backend"])
+
+
+def test_jvn_warnings_about_a_soft_nulled_subcategory_are_logged(store, caplog):
+    _seed(store, "1")
+    _set_subcats(store, "1", '["backend"]')
+    ec.set_writeback_send_subcategories(store, True)
+    client = FakeClient([{
+        "written": 1, "failed": [],
+        "warnings": [{"source_id": "greenhouse", "job_listing_id": "1",
+                      "warnings": ["subcategory 'ai_ml' not in enum; soft-nulled"]}],
+    }])
+    with caplog.at_level(logging.WARNING):
+        write_back(store, client=client)
+    assert "soft-nulled" in caplog.text
+
+
+def test_the_writeback_knob_defaults_FALSE_and_rides_config_snapshot(store):
+    """⚠ SHIPS DARK. It may only be flipped ON after JVN has SCHEMA-4."""
+    assert ec.get_writeback_send_subcategories(store) is False
+    assert ec.config_snapshot(store)["writeback_send_subcategories"] is False
+    ec.set_writeback_send_subcategories(store, True)
+    assert ec.get_writeback_send_subcategories(store) is True
+
+
+def test_a_confidence_without_a_label_never_reaches_the_wire(store):
+    """⚠ SHARED CONTRACT 1.2 A at the wire boundary. A row whose subcategories are
+    NULL or `[]` must ship `subcategory_confidence: null` whatever the column
+    holds — otherwise JVN calibrates confidence over unlabelled rows, and the
+    write still looks like a clean `written: N`. ASSERTED ON THE PARSED REQUEST
+    BODY, never on the count."""
+    _seed(store, "1")
+    _seed(store, "2")
+    _set_subcats(store, "1", None, source=None, conf=0.7)     # never evaluated
+    _set_subcats(store, "2", "[]", conf=0.7)                  # none apply
+    ec.set_writeback_send_subcategories(store, True)
+    client = FakeClient()
+    write_back(store, client=client)
+    items = {i["job_listing_id"]: i for i in client.calls[0]}
+    assert items["1"]["subcategories"] is None
+    assert items["1"]["subcategory_confidence"] is None
+    assert items["2"]["subcategories"] == []
+    assert items["2"]["subcategory_confidence"] is None

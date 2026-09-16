@@ -6,8 +6,11 @@ POST /api/internal/enrichment/metrics wire contract (snake_case):
     "tick_uuid": str,                     # idempotency key (ticks.uuid)
     "started_at": ISO8601, "ended_at": ISO8601|null,
     "status": "ok"|"error"|"running", "notes": str|null,
-    "counters": {claimed, cleaned, classified, judged, corrected,
-                 needs_human, sent, errors, nulled_facets},
+    "counters": {...},                    # EVERY store.TICK_COUNTER_COLS column:
+                                          # claimed, cleaned, classified, judged,
+                                          # corrected, needs_human, sent, errors,
+                                          # nulled_facets, swe_classified,
+                                          # swe_subcat_evaluated, swe_subcategorized
     "duration_s": float,
     "taxonomy_version": str|null,
     "knobs": {...},                       # enrich_config snapshot (small)
@@ -32,7 +35,12 @@ from datetime import datetime, timezone
 from typing import Any
 
 from job_enricher import __version__
-from job_enricher.store import HEARTBEAT_KEY, LAST_SCORECARD_HASH_KEY, Store
+from job_enricher.store import (
+    HEARTBEAT_KEY,
+    LAST_SCORECARD_HASH_KEY,
+    TICK_COUNTER_COLS,
+    Store,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -109,13 +117,14 @@ def build_metrics_payload(
         return None, None
     tick_uuid = store.ensure_tick_uuid(int(tick["id"]))
 
-    counters = {
-        c: int(tick.get(c) or 0)
-        for c in (
-            "claimed", "cleaned", "classified", "judged", "corrected",
-            "needs_human", "sent", "errors", "nulled_facets",
-        )
-    }
+    # ⚠ DERIVED FROM `store.TICK_COUNTER_COLS`, NEVER RE-TYPED HERE. This used to
+    # be a second hand-written tuple, and the two lists drifted the moment v4
+    # added `swe_classified` / `swe_subcat_evaluated` / `swe_subcategorized`:
+    # bump_tick_counters wrote them to the ticks table correctly, this function
+    # dropped them, and JVN's `subcategory_empty_drift` breaker read NOTHING —
+    # silently, since a missing key is not an error on either side. The column
+    # set IS the wire contract; there is no second place to keep in step.
+    counters = {c: int(tick.get(c) or 0) for c in sorted(TICK_COUNTER_COLS)}
 
     try:
         from job_enricher import taxonomy as tax

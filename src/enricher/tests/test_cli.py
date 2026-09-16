@@ -15,6 +15,7 @@ import pytest
 
 from job_enricher import cli
 from job_enricher import enrich_config as ec
+from job_enricher import taxonomy as tax
 from job_enricher.clean import clean_description
 from job_enricher.store import HEARTBEAT_KEY
 from job_enricher.writeback import write_back
@@ -471,15 +472,18 @@ def test_apply_judge_verdicts_matches_composite_pair(store):
 
 
 # ---- judge-queue scoping ----------------------------------------------------
-def _seed_enriched(store, jid, conf, needs_human=False, category="software_engineering"):
+def _seed_enriched(store, jid, conf, needs_human=False, category="software_engineering",
+                   **extra):
     store.enqueue_inbox([_inbox_row(jid)])
     store.record_clean("greenhouse", jid, "clean " + jid)
-    store.record_enrichment({
+    e = {
         "job_listing_id": jid, "source_id": "greenhouse", "category": category,
         "level": "mid", "level_includes": "[]", "tags": "[]", "locations": "[]",
         "classify_confidence": conf, "classify_reasoning": "r", "taxonomy_version": "v1",
         "needs_human": needs_human,
-    })
+    }
+    e.update(extra)
+    store.record_enrichment(e)
 
 
 def _manifest_items(capsys):
@@ -737,8 +741,48 @@ def test_judge_queue_chunk_files_carry_current_classification(store, monkeypatch
     }
     assert item["current"] == {
         "category": "software_engineering", "level": "mid",
+        # ⚠ Present-and-None, not absent: the judge must see the facet it is
+        # invited to correct, and None is the "never evaluated, leave it alone"
+        # state the prompt names.
+        "subcategories": None,
         "level_includes": [], "tags": [], "locations": [], "confidence": 0.5,
     }
+
+
+def test_judge_queue_current_carries_subcategories_matching_the_eval_queue(
+    store, monkeypatch, capsys
+):
+    """⚠ PROD/EVAL PARITY. `_cmd_eval_run` puts `subcategories` in `current` and
+    build_judge_prompt invites a correction on it, so omitting it in prod would
+    have the judge RE-DERIVE the facet from the description here while VERIFYING
+    it in eval — _merge_judge's rails would be gating a blind guess, and the
+    judge-correction rate measured in eval would not be the one prod produces.
+    All three states have to survive the queue."""
+    _seed_enriched(store, "1", conf=0.5, subcategories='["backend"]')
+    _seed_enriched(store, "2", conf=0.5, subcategories="[]")
+    _seed_enriched(store, "3", conf=0.5)                       # never evaluated
+    monkeypatch.setattr(cli, "Store", lambda: store)
+
+    cli._cmd_judge_queue(argparse.Namespace(limit=None))
+    _, items = _manifest_items(capsys)
+    by_id = {i["job_listing_id"]: i["current"] for i in items}
+    assert by_id["1"]["subcategories"] == ["backend"]
+    assert by_id["2"]["subcategories"] == []          # evaluated, none apply
+    assert by_id["3"]["subcategories"] is None        # NOT [] — never evaluated
+    # the key exists on every row, whatever the state
+    assert all("subcategories" in c for c in by_id.values())
+
+
+def test_judge_queue_current_keys_match_the_eval_queue_exactly():
+    """The two `current` builders are hand-written dicts in different functions;
+    this pins them to the same key set so they cannot drift apart again."""
+    import inspect
+    prod = inspect.getsource(cli._cmd_judge_queue)
+    ev = inspect.getsource(cli._cmd_eval_run)
+    for key in ("category", "level", "subcategories", "level_includes",
+                "tags", "locations", "confidence"):
+        assert f'"{key}"' in prod, key
+        assert f'"{key}"' in ev, key
 
 
 # ---- batch=1 forced for local (non claude-code) engines at queue time --------
@@ -949,6 +993,259 @@ def test_reenrich_resets_only_older_versions(store, monkeypatch):
     assert status1 == "cleaned"   # re-queued for classify
 
 
+# ---- P0-3: an abandoned classify chunk is no longer silent --------------------
+def _write_chunk(store, jids):
+    import json as _json
+
+    chunk_dir = store.db_path.parent / "chunks"
+    chunk_dir.mkdir(parents=True, exist_ok=True)
+    path = chunk_dir / "classify-000.json"
+    path.write_text(_json.dumps([
+        {"job_listing_id": j, "source_id": "greenhouse", "title": "SWE",
+         "company": "acme", "raw_location": "SF", "clean_description": "x"}
+        for j in jids
+    ]))
+    return path
+
+
+class _ExplodingEngine:
+    name = "boom"
+
+    def classify(self, jobs):
+        from job_enricher.engines import EngineError
+
+        raise EngineError("timed out")
+
+
+def test_engine_error_bumps_errors_by_the_chunk_size_and_attempts_per_row(
+    store, monkeypatch, capsys
+):
+    """BEFORE P0-3 this path was a SILENT capacity leak: `except EngineError:
+    continue` left `errors` at 0 and `inbox.attempts` untouched, so the tick
+    closed status=ok having lost the whole chunk, and the same rows were
+    re-claimed and re-abandoned every tick forever."""
+    for jid in ("1", "2", "3"):
+        _seed_cleaned(store, jid)
+    chunk = _write_chunk(store, ["1", "2", "3"])
+    store.start_tick()
+    monkeypatch.setattr(cli, "Store", lambda: store)
+    monkeypatch.setattr(
+        "job_enricher.engines.build_engine", lambda *a, **kw: _ExplodingEngine()
+    )
+    rc = cli._cmd_classify_run(
+        argparse.Namespace(engine=None, chunk_file=str(chunk))
+    )
+    assert rc == 0
+    assert "abandoned=3" in capsys.readouterr().out
+    with store.connect() as c:
+        attempts = {
+            r["job_listing_id"]: r["attempts"]
+            for r in c.execute("SELECT job_listing_id, attempts FROM inbox")
+        }
+        errors = c.execute("SELECT errors FROM ticks ORDER BY id DESC").fetchone()["errors"]
+    assert attempts == {"1": 1, "2": 1, "3": 1}
+    assert errors == 3
+
+
+def test_repeated_abandonment_flips_a_row_terminal(store, monkeypatch, capsys):
+    _seed_cleaned(store, "1")
+    chunk = _write_chunk(store, ["1"])
+    store.start_tick()
+    monkeypatch.setattr(cli, "Store", lambda: store)
+    monkeypatch.setattr(
+        "job_enricher.engines.build_engine", lambda *a, **kw: _ExplodingEngine()
+    )
+    for _ in range(5):
+        cli._cmd_classify_run(argparse.Namespace(engine=None, chunk_file=str(chunk)))
+    with store.connect() as c:
+        assert c.execute("SELECT status FROM inbox").fetchone()["status"] == "failed"
+    assert store.jobs_needing_classify() == []
+    # ...and `unfail` brings it back
+    assert cli._cmd_unfail(argparse.Namespace(limit=None)) == 0
+    assert len(store.jobs_needing_classify()) == 1
+
+
+def _tick_errors(store):
+    with store.connect() as c:
+        return c.execute(
+            "SELECT errors FROM ticks ORDER BY id DESC"
+        ).fetchone()["errors"]
+
+
+def test_an_unreadable_classify_chunk_is_counted_not_silently_skipped(
+    store, monkeypatch, capsys, tmp_path
+):
+    """⚠ THE SECOND LOCUS of the P0-3 failure mode. A corrupt chunk `continue`d
+    with NO `errors` bump, so a whole lost chunk closed the tick
+    `status=ok errors=0` — indistinguishable from "there was nothing to do".
+    This is verbatim what the engine handler below it exists to kill."""
+    _seed_cleaned(store, "1")
+    chunk = tmp_path / "classify-000.json"
+    chunk.write_text("{not json at all", encoding="utf-8")
+    store.start_tick()
+    monkeypatch.setattr(cli, "Store", lambda: store)
+    monkeypatch.setattr(
+        "job_enricher.engines.build_engine", lambda *a, **kw: _ExplodingEngine()
+    )
+    rc = cli._cmd_classify_run(argparse.Namespace(engine=None, chunk_file=str(chunk)))
+    assert rc == 0
+    assert "unreadable_chunks=1" in capsys.readouterr().out
+    assert _tick_errors(store) == 1
+
+
+def test_a_missing_classify_chunk_file_is_counted_too(store, monkeypatch, capsys, tmp_path):
+    """OSError, not just a JSON decode error — the same `except`, the same
+    previously-silent `continue`."""
+    _seed_cleaned(store, "1")
+    store.start_tick()
+    monkeypatch.setattr(cli, "Store", lambda: store)
+    monkeypatch.setattr(
+        "job_enricher.engines.build_engine", lambda *a, **kw: _ExplodingEngine()
+    )
+    rc = cli._cmd_classify_run(
+        argparse.Namespace(engine=None, chunk_file=str(tmp_path / "gone.json"))
+    )
+    assert rc == 0
+    assert _tick_errors(store) == 1
+
+
+def test_a_lost_judge_chunk_is_counted_not_silently_skipped(
+    store, monkeypatch, capsys, tmp_path
+):
+    """Same shape in judge-run, both `continue`s. There is no un-fail path to run
+    here — the rows keep their classify verdict and stay unjudged — so making the
+    loss VISIBLE is the entire fix. `errors=0` said the chunk was never there."""
+    _seed_enriched(store, "1", conf=0.5)
+    chunk = tmp_path / "judge-000.json"
+    chunk.write_text("[[[", encoding="utf-8")
+    store.start_tick()
+    monkeypatch.setattr(cli, "Store", lambda: store)
+    monkeypatch.setattr(
+        "job_enricher.engines.build_engine", lambda *a, **kw: _ExplodingEngine()
+    )
+    rc = cli._cmd_judge_run(argparse.Namespace(engine=None, chunk_file=str(chunk)))
+    assert rc == 0
+    assert "lost_chunks=1" in capsys.readouterr().out
+    assert _tick_errors(store) == 1
+
+
+def test_a_judge_engine_failure_is_counted_too(store, monkeypatch, capsys, tmp_path):
+    """The other `continue` in the same loop: a READABLE chunk the engine then
+    fails on. Counting one and not the other would just move the blind spot."""
+    _seed_enriched(store, "1", conf=0.5)
+    chunk = tmp_path / "judge-000.json"
+    chunk.write_text(json.dumps([{"job_listing_id": "1", "source_id": "greenhouse"}]),
+                     encoding="utf-8")
+    store.start_tick()
+    monkeypatch.setattr(cli, "Store", lambda: store)
+    monkeypatch.setattr(
+        "job_enricher.engines.build_engine", lambda *a, **kw: _ExplodingJudgeEngine()
+    )
+    rc = cli._cmd_judge_run(argparse.Namespace(engine=None, chunk_file=str(chunk)))
+    assert rc == 0
+    assert "lost_chunks=1" in capsys.readouterr().out
+    assert _tick_errors(store) == 1
+
+
+class _ExplodingJudgeEngine:
+    name = "boom"
+
+    def judge(self, items):
+        from job_enricher.engines import EngineError
+
+        raise EngineError("timed out")
+
+
+def test_starved_null_recency_appears_in_collect_health(store):
+    from job_enricher.health import collect_health
+
+    _seed_cleaned(store, "1")
+    assert collect_health(store)["starved_null_recency"] == 1
+
+
+# ---- ENR-REN-1: reenrich is now guarded ---------------------------------------
+# WHY: at v7, `reenrich --taxonomy-below v7+<hash>` matches EVERY v6 row — the
+# whole corpus — and the command DELETEs each enrichment with no undo.
+
+
+def _reenrich_args(**kw):
+    base = dict(
+        taxonomy_below="v2+cur", dry_run=False, yes_i_mean_all=False, limit=None
+    )
+    base.update(kw)
+    return argparse.Namespace(**base)
+
+
+def _seed_two_old_rows(store):
+    _seed_enriched(store, "1", conf=0.9)
+    _seed_enriched(store, "2", conf=0.9)
+    with store.connect() as c:
+        c.execute("UPDATE enrichments SET taxonomy_version='v1+old'")
+
+
+def test_reenrich_dry_run_prints_the_count_and_mutates_nothing(store, monkeypatch, capsys):
+    _seed_two_old_rows(store)
+    monkeypatch.setattr(cli, "Store", lambda: store)
+    rc = cli._cmd_reenrich(_reenrich_args(dry_run=True))
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "2 rows match" in out and "nothing was modified" in out
+    with store.connect() as c:
+        assert c.execute("SELECT COUNT(*) FROM enrichments").fetchone()[0] == 2
+
+
+def test_reenrich_refuses_above_the_threshold_without_the_flag(store, monkeypatch, capsys):
+    _seed_two_old_rows(store)
+    monkeypatch.setattr(cli, "Store", lambda: store)
+    monkeypatch.setattr(cli, "REENRICH_CONFIRM_THRESHOLD", 1)
+    rc = cli._cmd_reenrich(_reenrich_args())
+    assert rc == 2
+    assert "REFUSING" in capsys.readouterr().err
+    with store.connect() as c:  # NOTHING was modified
+        assert c.execute("SELECT COUNT(*) FROM enrichments").fetchone()[0] == 2
+
+
+def test_reenrich_proceeds_above_the_threshold_with_the_flag(store, monkeypatch):
+    _seed_two_old_rows(store)
+    monkeypatch.setattr(cli, "Store", lambda: store)
+    monkeypatch.setattr(cli, "REENRICH_CONFIRM_THRESHOLD", 1)
+    assert cli._cmd_reenrich(_reenrich_args(yes_i_mean_all=True)) == 0
+    with store.connect() as c:
+        assert c.execute("SELECT COUNT(*) FROM enrichments").fetchone()[0] == 0
+
+
+def test_reenrich_below_the_threshold_proceeds(store, monkeypatch):
+    _seed_two_old_rows(store)
+    monkeypatch.setattr(cli, "Store", lambda: store)
+    assert cli._cmd_reenrich(_reenrich_args()) == 0
+    with store.connect() as c:
+        assert c.execute("SELECT COUNT(*) FROM enrichments").fetchone()[0] == 0
+
+
+def test_reenrich_limit_bounds_the_reset(store, monkeypatch):
+    _seed_two_old_rows(store)
+    monkeypatch.setattr(cli, "Store", lambda: store)
+    assert cli._cmd_reenrich(_reenrich_args(limit=1)) == 0
+    with store.connect() as c:
+        assert c.execute("SELECT COUNT(*) FROM enrichments").fetchone()[0] == 1
+
+
+def test_reenrich_leaves_same_n_different_hash_alone_and_warns(store, monkeypatch, caplog):
+    """Rubric-only edits move the hash and NOT the declared N — same-N-different-
+    hash is NOT below, so those rows are warned about and left alone."""
+    import logging
+
+    _seed_enriched(store, "1", conf=0.9)
+    with store.connect() as c:
+        c.execute("UPDATE enrichments SET taxonomy_version='v2+other'")
+    monkeypatch.setattr(cli, "Store", lambda: store)
+    with caplog.at_level(logging.WARNING):
+        assert cli._cmd_reenrich(_reenrich_args()) == 0
+    with store.connect() as c:
+        assert c.execute("SELECT COUNT(*) FROM enrichments").fetchone()[0] == 1
+    assert "different" in caplog.text
+
+
 # ---- golden-merge -------------------------------------------------------------
 def test_cmd_golden_merge_reports_counts(store, monkeypatch, capsys, tmp_path):
     import job_enricher.eval.golden as golden
@@ -1015,6 +1312,32 @@ def test_health_reports_failed_rows_and_excludes_them_from_unsent(store, monkeyp
     assert health["classify_engine"] == "ollama"
     assert health["judge_engine"] == "ollama"
     assert health["opencode_model"] == "qwen3:32b"
+
+
+def test_health_exits_2_when_a_taxonomy_file_is_missing(store, monkeypatch, tmp_path, capsys):
+    """⚠ THE DEPLOY SANITY CHECK, and until now only its happy path was tested.
+    `deploy.sh` step 6 runs `cli health`; if `SUBCATEGORIES.md` is absent the
+    backfill lane would label every row from an empty rubric and still report
+    success. This branch is the one guard against that."""
+    monkeypatch.setattr(cli, "Store", lambda: store)
+    monkeypatch.setattr(tax, "subcategory_rubric_path",
+                        lambda: tmp_path / "nope" / "SUBCATEGORIES.md")
+    rc = cli._cmd_health(argparse.Namespace())
+    out, err = capsys.readouterr()
+    assert rc == 2
+    assert "MISSING taxonomy file(s)" in err
+    assert "SUBCATEGORIES.md" in err
+    assert out == ""      # and NO health JSON: a caller must not read this as ok
+
+
+def test_health_reports_every_missing_file_not_just_the_first(store, monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr(cli, "Store", lambda: store)
+    monkeypatch.setattr(tax, "skill_path", lambda: tmp_path / "nope" / "SKILL.md")
+    monkeypatch.setattr(tax, "subcategory_rubric_path",
+                        lambda: tmp_path / "nope" / "SUBCATEGORIES.md")
+    assert cli._cmd_health(argparse.Namespace()) == 2
+    err = capsys.readouterr().err
+    assert "SKILL.md" in err and "SUBCATEGORIES.md" in err
 
 
 # ---- reset-knob clears an override back to the committed default ------------
@@ -1168,3 +1491,584 @@ def test_dashboard_warns_off_main_but_still_serves(monkeypatch, caplog):
     assert rc == 0
     assert calls.get("ran") is True
     assert "not main" in caplog.text
+
+
+# ---- P0-4: the scope importer -------------------------------------------------
+def test_scope_import_is_idempotent_and_prints_the_three_numbers(
+    store, monkeypatch, capsys, tmp_path
+):
+    _seed_enriched(store, "1", conf=0.9)
+    ndjson = tmp_path / "scope.ndjson"
+    ndjson.write_text(
+        '{"source_id":"greenhouse","job_listing_id":"1"}\n'
+        '{"source_id":"greenhouse","job_listing_id":"999"}\n'
+    )
+    monkeypatch.setattr(cli, "Store", lambda: store)
+    assert cli._cmd_subcategory_scope_import(argparse.Namespace(json_file=str(ndjson))) == 0
+    out = capsys.readouterr().out
+    assert "imported=2 matched_local=1 missing_local=1" in out
+    assert "PARAM_BACKFILL_DENOMINATOR" in out
+    # idempotent
+    assert cli._cmd_subcategory_scope_import(argparse.Namespace(json_file=str(ndjson))) == 0
+    assert "imported=2 matched_local=1" in capsys.readouterr().out
+
+
+def test_scope_import_refuses_an_empty_file(store, monkeypatch, capsys, tmp_path):
+    """⚠ A silently-empty scope makes --open-only a no-op that reports success."""
+    empty = tmp_path / "empty.ndjson"
+    empty.write_text("")
+    monkeypatch.setattr(cli, "Store", lambda: store)
+    assert cli._cmd_subcategory_scope_import(argparse.Namespace(json_file=str(empty))) == 2
+    assert "REFUSING" in capsys.readouterr().err
+
+
+def test_scope_import_refuses_a_missing_file(store, monkeypatch, tmp_path):
+    monkeypatch.setattr(cli, "Store", lambda: store)
+    assert cli._cmd_subcategory_scope_import(
+        argparse.Namespace(json_file=str(tmp_path / "nope.ndjson"))
+    ) == 2
+
+
+def test_scope_freshness_check_refuses_empty_and_stale(store):
+    assert "EMPTY" in cli.check_backfill_scope_freshness(store)
+    store.import_backfill_scope([("greenhouse", "1")])
+    assert cli.check_backfill_scope_freshness(store) is None
+    with store.connect() as c:  # backdate it
+        c.execute("UPDATE backfill_scope SET imported_at='2020-01-01T00:00:00+00:00'")
+    assert "old" in cli.check_backfill_scope_freshness(store)
+
+
+# ---- ENR-CLS-1: the absent-vs-empty sentinel + the tick counters ---------------
+def _swe_item(jid, **extra):
+    item = {
+        "job_listing_id": jid, "source_id": "greenhouse",
+        "category": "software_engineering", "level": "mid",
+        "level_includes": ["mid"], "tags": ["backend"], "locations": [],
+        "confidence": 0.9, "reasoning": "r",
+    }
+    item.update(extra)
+    return item
+
+
+def _record(store, items):
+    return cli.record_enrichment_items(store, items, "v7+abc", classify_model="haiku")
+
+
+def test_swe_row_with_a_list_records_it_with_source_classify(store):
+    _seed_cleaned(store, "1")
+    res = _record(store, [_swe_item("1", subcategories=["backend"])])
+    row = _enrichment(store, "1")
+    assert row["subcategories"] == '["backend"]'
+    assert row["subcategory_source"] == "classify"
+    assert res["subcategory_recorded"] == 1
+
+
+def test_non_swe_row_carrying_subcategories_is_nulled_and_flagged(store):
+    _seed_cleaned(store, "1")
+    res = _record(
+        store,
+        [_swe_item("1", category="business_ops", subcategories=["backend"])],
+    )
+    row = _enrichment(store, "1")
+    assert row["subcategories"] is None
+    assert row["needs_human"] == 1
+    assert res["nulled_facets"] == 1
+
+
+def test_ABSENT_key_on_an_swe_row_stays_NULL_with_no_source(store):
+    """⚠ THE TRI-STATE, HALF ONE. The model omitted the field, so the row must
+    stay in the backfill queue — NULL, and stamped with no provenance it never had."""
+    _seed_cleaned(store, "1")
+    res = _record(store, [_swe_item("1")])          # no `subcategories` key at all
+    row = _enrichment(store, "1")
+    assert row["subcategories"] is None
+    assert row["subcategory_source"] is None
+    assert res["subcategory_missing"] == 1
+    assert res["subcategory_recorded"] == 0
+
+
+def test_EXPLICIT_empty_list_on_an_swe_row_stores_the_string_bracket_bracket(store):
+    """⚠ THE TRI-STATE, HALF TWO — asserted ON THE DB, not on the counters. `[]`
+    is TERMINAL: the row leaves the backfill queue forever."""
+    _seed_cleaned(store, "1")
+    res = _record(store, [_swe_item("1", subcategories=[])])
+    row = _enrichment(store, "1")
+    assert row["subcategories"] == "[]"       # NOT None
+    assert row["subcategory_source"] == "classify"
+    assert res["subcategory_empty"] == 1
+
+
+@pytest.mark.parametrize("junk", [{"a": 1}, 7, True])
+def test_junk_subcategories_never_raises_and_nulls_the_field(store, junk):
+    _seed_cleaned(store, "1")
+    _record(store, [_swe_item("1", subcategories=junk)])
+    assert _enrichment(store, "1")["subcategories"] is None
+
+
+def test_dict_subcategory_confidence_coerces_to_none(store):
+    """The class of bug commit bf3be25 fixed: a dict confidence crashed the
+    sqlite bind and silently stalled classify."""
+    _seed_cleaned(store, "1")
+    _record(store, [_swe_item("1", subcategories=["backend"],
+                              subcategory_confidence={"backend": 0.9})])
+    assert _enrichment(store, "1")["subcategory_confidence"] is None
+
+
+def test_three_slugs_truncate_to_two_WITHOUT_needs_human(store):
+    _seed_cleaned(store, "1")
+    res = _record(
+        store,
+        [_swe_item("1", subcategories=["backend", "frontend", "security"])],
+    )
+    row = _enrichment(store, "1")
+    assert json.loads(row["subcategories"]) == ["backend", "frontend"]
+    assert row["needs_human"] == 0          # truncation is a rule, not a hallucination
+    assert res["subcategory_truncated"] == 1
+
+
+def test_full_stack_suppresses_backend(store):
+    _seed_cleaned(store, "1")
+    _record(store, [_swe_item("1", subcategories=["full_stack", "backend"])])
+    assert _enrichment(store, "1")["subcategories"] == '["full_stack"]'
+
+
+def test_needs_judge_does_NOT_fire_on_null_subcategories_alone(store):
+    """⚠ STANDING REGRESSION. Roughly half the corpus is software_engineering, so
+    a `SWE and subcategories IS NULL` clause in _needs_judge would route half of
+    it to the judge and blow up judge volume on a lane already at capacity."""
+    _seed_cleaned(store, "1")
+    _record(store, [_swe_item("1", confidence=0.99)])   # confident, no subcategories
+    row = _enrichment(store, "1")
+    assert row["subcategories"] is None
+    assert cli._needs_judge(row, ceiling=0.85) is False
+
+
+def test_a_three_row_batch_bumps_all_three_tick_counters(store):
+    """⚠ ASSERTED ON THE TICKS ROW. bump_tick_counters silently drops any key
+    absent from TICK_COUNTER_COLS, so the return value proves nothing."""
+    for jid in ("1", "2", "3"):
+        _seed_cleaned(store, jid)
+    store.start_tick()
+    _record(store, [
+        _swe_item("1", subcategories=["backend"]),   # labelled
+        _swe_item("2", subcategories=[]),            # evaluated, none apply
+        _swe_item("3"),                              # absent -> never evaluated
+    ])
+    with store.connect() as c:
+        row = c.execute("SELECT * FROM ticks ORDER BY id DESC").fetchone()
+    assert row["swe_classified"] == 3
+    assert row["swe_subcat_evaluated"] == 2
+    assert row["swe_subcategorized"] == 1
+
+
+def test_coerce_subcategories_field_preserves_none(store):
+    """⚠ The regression guard on the ONE line that would destroy the tri-state:
+    _coerce_json_field turns None into '[]'; _coerce_subcategories_field must not."""
+    assert cli._coerce_subcategories_field(None) is None
+    assert cli._coerce_json_field(None) == "[]"
+    assert cli._coerce_subcategories_field([]) == "[]"
+    assert cli._coerce_subcategories_field(["backend"]) == '["backend"]'
+
+
+# ---- ENR-CLS-2: the four subcategory rails in _merge_judge --------------------
+def _judge_base(subcategories=None, category="software_engineering"):
+    return {
+        "job_listing_id": "1", "source_id": "greenhouse",
+        "category": category, "level": "mid",
+        "level_includes": '["mid"]', "tags": "[]", "locations": "[]",
+        "subcategories": subcategories, "needs_human": False,
+    }
+
+
+def _verdict(conf, **corrections):
+    return {"passed": False, "confidence": conf, "corrections": corrections}
+
+
+def test_a_valid_subcategory_correction_at_0_9_applies():
+    merged = cli._merge_judge(
+        _judge_base('["backend"]'), _verdict(0.9, subcategories=["frontend"]), 0.6
+    )
+    assert merged["subcategories"] == '["frontend"]'
+    assert merged["rejected_corrections"] == 0
+
+
+def test_rail_B_a_correction_at_0_7_is_rejected_counted_and_NOT_needs_human():
+    """⚠ needs_human is reserved for the new_grad/entry equivalence — forcing it
+    here would flood the triage queue."""
+    merged = cli._merge_judge(
+        _judge_base('["backend"]'), _verdict(0.7, subcategories=["frontend"]), 0.6
+    )
+    assert merged["subcategories"] == '["backend"]'      # unchanged
+    assert merged["rejected_corrections"] == 1
+    assert merged["needs_human"] is False
+    assert "subcategories correction" in merged["judge_notes"]
+
+
+def test_rail_B_confidence_none_rejects():
+    merged = cli._merge_judge(
+        _judge_base('["backend"]'), _verdict(None, subcategories=["frontend"]), 0.6
+    )
+    assert merged["subcategories"] == '["backend"]'
+    assert merged["rejected_corrections"] == 1
+
+
+def test_rail_A_the_knob_off_drops_the_correction_at_any_confidence():
+    merged = cli._merge_judge(
+        _judge_base('["backend"]'), _verdict(0.99, subcategories=["frontend"]), 0.6,
+        subcategory_corrections=False,
+    )
+    assert merged["subcategories"] == '["backend"]'
+    assert "judge:subcategory_corrections is off" in merged["judge_notes"]
+
+
+def test_rail_D_a_category_off_swe_forces_empty_list_not_null():
+    """⚠ `[]`, NOT NULL — the row WAS evaluated and the answer is 'not
+    applicable', so it must LEAVE the backfill queue rather than sit in it."""
+    merged = cli._merge_judge(
+        _judge_base('["backend"]'),
+        _verdict(0.95, category="business_ops", subcategories=["backend"]),
+        0.6,
+    )
+    assert merged["category"] == "business_ops"
+    assert merged["subcategories"] == "[]"
+
+
+def test_rail_C_a_judge_pass_on_a_NULL_row_leaves_it_NULL():
+    """⚠ THE RAIL C REGRESSION. `is None`, not `== '[]'`. Turning 'never
+    evaluated' into 'evaluated, none apply' silently drains the backfill queue and
+    makes the coverage number that gates the 90% reveal a lie."""
+    merged = cli._merge_judge(
+        _judge_base(None), {"passed": True, "confidence": 0.9, "corrections": {}}, 0.6
+    )
+    assert merged["subcategories"] is None
+    assert merged["subcategories"] != "[]"
+
+
+def test_a_hallucinated_slug_from_the_judge_is_nulled_and_flags_needs_human():
+    merged = cli._merge_judge(
+        _judge_base('["backend"]'), _verdict(0.95, subcategories=["ai_ml"]), 0.6
+    )
+    assert merged["subcategories"] == "[]"   # the bad slug dropped, list emptied
+    assert merged["needs_human"] is True
+
+
+# ---- the judge's subcategory CONFIDENCE + SOURCE travel with the array -------
+# ⚠ `writeback._row_to_result` re-applies contract 1.2 A on the wire, so a stale
+# confidence is invisible in the payload. The STORED column is the corrupted one,
+# and `job_detail`, the eval artifacts and BF-12b's D2 drain all read THAT.
+# Every assertion below is therefore on the merge result or on a READ-BACK.
+
+def _judge_base_with_provenance(subcategories, conf, source,
+                                category="software_engineering"):
+    base = _judge_base(subcategories, category=category)
+    base["subcategory_confidence"] = conf
+    base["subcategory_source"] = source
+    return base
+
+
+def test_rail_D_forcing_empty_also_clears_the_stale_confidence_and_restamps_source():
+    """THE LIVE REPRO. classify stores (["backend"], 0.91, 'classify'); the judge
+    moves the category to business_ops; RAIL D forces `[]`. The row must NOT keep
+    ('[]', 0.91, 'classify') — contract 1.2 A requires a null confidence whenever
+    the array is `[]`, and the lane that wrote the row is now the judge."""
+    merged = cli._merge_judge(
+        _judge_base_with_provenance('["backend"]', 0.91, "classify"),
+        _verdict(0.95, category="business_ops", subcategories=["backend"]),
+        0.6,
+    )
+    assert merged["subcategories"] == "[]"
+    assert merged["subcategory_confidence"] is None
+    assert merged["subcategory_source"] == "judge"
+
+
+def test_a_label_change_clears_the_confidence_that_belonged_to_the_old_label():
+    """0.91 was measured against `backend`. After the judge moves the row to
+    `frontend` that number describes a label the row no longer carries."""
+    merged = cli._merge_judge(
+        _judge_base_with_provenance('["backend"]', 0.91, "classify"),
+        _verdict(0.9, subcategories=["frontend"]),
+        0.6,
+    )
+    assert merged["subcategories"] == '["frontend"]'
+    assert merged["subcategory_confidence"] is None
+    assert merged["subcategory_source"] == "judge"
+
+
+def test_an_unchanged_subcategory_keeps_classifys_confidence_AND_source():
+    """The other half of the rule: stamping every judged row 'judge' would break
+    a scoped rollback just as badly in the other direction — a row the judge
+    merely AGREED with was still written by classify."""
+    merged = cli._merge_judge(
+        _judge_base_with_provenance('["backend"]', 0.91, "classify"),
+        {"passed": True, "confidence": 0.95, "corrections": {}},
+        0.6,
+    )
+    assert merged["subcategories"] == '["backend"]'
+    assert merged["subcategory_confidence"] == 0.91
+    assert merged["subcategory_source"] == "classify"
+
+
+def test_a_rejected_correction_leaves_the_confidence_and_source_alone():
+    """RAIL B rejected the correction, so the array never moved — neither may
+    its provenance."""
+    merged = cli._merge_judge(
+        _judge_base_with_provenance('["backend"]', 0.91, "classify"),
+        _verdict(0.7, subcategories=["frontend"]),
+        0.6,
+    )
+    assert merged["subcategories"] == '["backend"]'
+    assert merged["subcategory_confidence"] == 0.91
+    assert merged["subcategory_source"] == "classify"
+
+
+def test_a_never_evaluated_row_the_judge_leaves_alone_carries_no_source():
+    """§1.2 A: source is absent/null when the array is null. A NULL row must not
+    pick up a provenance it never had, or the backfill lane cannot find it."""
+    merged = cli._merge_judge(
+        _judge_base_with_provenance(None, None, None),
+        {"passed": True, "confidence": 0.9, "corrections": {}}, 0.6,
+    )
+    assert merged["subcategories"] is None
+    assert merged["subcategory_confidence"] is None
+    assert merged["subcategory_source"] is None
+
+
+def test_record_judge_PERSISTS_the_cleared_confidence_and_the_judge_source(store):
+    """READ-BACK through the real UPDATE. `_merge_judge` computing the right
+    values is worth nothing if `record_judge`'s statement does not write them —
+    that was the second locus of the same bug."""
+    _seed_enriched(store, "1", conf=0.5, subcategories='["backend"]',
+                   subcategory_confidence=0.91, subcategory_source="classify")
+    assert _enrichment(store, "1")["subcategory_source"] == "classify"
+
+    cli.apply_judge_verdicts(
+        store,
+        [{"job_listing_id": "1", "source_id": "greenhouse", "passed": False,
+          "confidence": 0.95, "corrections": {"category": "business_ops"}}],
+        floor=0.6,
+    )
+    row = _enrichment(store, "1")
+    assert row["category"] == "business_ops"
+    assert row["subcategories"] == "[]"          # RAIL D: evaluated, none apply
+    assert row["subcategory_confidence"] is None  # NOT the stale 0.91
+    assert row["subcategory_source"] == "judge"   # NOT the stale 'classify'
+
+
+def test_record_judge_does_not_disturb_provenance_when_the_judge_agrees(store):
+    _seed_enriched(store, "1", conf=0.5, subcategories='["backend"]',
+                   subcategory_confidence=0.91, subcategory_source="classify")
+    cli.apply_judge_verdicts(
+        store,
+        [{"job_listing_id": "1", "source_id": "greenhouse", "passed": True,
+          "confidence": 0.95, "corrections": {}}],
+        floor=0.6,
+    )
+    row = _enrichment(store, "1")
+    assert row["subcategories"] == '["backend"]'
+    assert row["subcategory_confidence"] == 0.91
+    assert row["subcategory_source"] == "classify"
+
+
+def test_the_judge_source_is_one_of_the_five_declared_values():
+    """`taxonomy.SUBCATEGORY_SOURCES` is asserted cross-repo (SCHEMA-15 /
+    ENR-PAR-2); a source string this repo invents would pass every local test and
+    fail on the far side."""
+    merged = cli._merge_judge(
+        _judge_base_with_provenance('["backend"]', 0.91, "classify"),
+        _verdict(0.9, subcategories=["frontend"]), 0.6,
+    )
+    assert merged["subcategory_source"] in tax.SUBCATEGORY_SOURCES
+
+
+def test_the_knob_defaults_true_and_rides_config_snapshot(store):
+    assert ec.get_judge_subcategory_corrections(store) is True
+    assert ec.config_snapshot(store)["judge_subcategory_corrections"] is True
+    ec.set_judge_subcategory_corrections(store, False)
+    assert ec.get_judge_subcategory_corrections(store) is False
+    assert ec.config_snapshot(store)["judge_subcategory_corrections"] is False
+
+
+# ---- ENR-CLS-3: subcategories on BOTH eval artifacts --------------------------
+# ⚠ `_eval_classify_pred` and `_eval_post_judge_pred` are HAND-WRITTEN KEY LISTS.
+# A field absent from them is silently absent from every eval artifact, and every
+# subcategory metric reads 0.0 with no error anywhere. Under D3 this is the ONLY
+# channel that can tell you whether the compact section 1b is good enough.
+
+def test_classify_prediction_carries_both_subcategory_keys():
+    cp = cli._eval_classify_pred(
+        {"job_listing_id": "1", "source_id": "gh", "category": "software_engineering",
+         "level": "mid", "subcategories": ["backend"], "subcategory_confidence": 0.8},
+        "desc",
+    )
+    assert cp["subcategories"] == ["backend"]
+    assert cp["subcategory_confidence"] == 0.8
+
+
+def test_None_survives_as_None_through_BOTH_functions():
+    """⚠ NOT coerced to []. The eval must distinguish 'the model omitted it' from
+    'the model said none apply' — that distinction IS a metric."""
+    cp = cli._eval_classify_pred(
+        {"job_listing_id": "1", "source_id": "gh",
+         "category": "software_engineering", "level": "mid"},
+        "desc",
+    )
+    assert cp["subcategories"] is None
+    assert cp["subcategories"] != []
+
+    pj = cli._eval_post_judge_pred(
+        cp, {"passed": True, "confidence": 0.9, "corrections": {}}, 0.6
+    )
+    assert pj["subcategories"] is None
+    assert pj["subcategories"] != []
+
+
+def test_the_eval_artifact_mirrors_the_column_production_stores():
+    """⚠ EVAL/PROD PARITY ON THE CONFIDENCE. `_eval_post_judge_pred` runs the
+    SAME `_merge_judge` rails, so it must take the merge's own answer: a judge
+    that MOVES the label invalidates the classify confidence, and an artifact
+    that kept 0.8 would calibrate against a label the row no longer carries —
+    on exactly the corrected rows the artifact exists to measure."""
+    cp = cli._eval_classify_pred(
+        {"job_listing_id": "1", "source_id": "gh", "category": "software_engineering",
+         "level": "mid", "subcategories": ["backend"], "subcategory_confidence": 0.8},
+        "desc",
+    )
+    # judge leaves the label alone -> classify's confidence stands
+    kept = cli._eval_post_judge_pred(
+        cp, {"passed": True, "confidence": 0.95, "corrections": {}}, 0.6
+    )
+    assert kept["subcategories"] == ["backend"]
+    assert kept["subcategory_confidence"] == 0.8
+
+    # judge moves the label -> the old confidence goes with it
+    moved = cli._eval_post_judge_pred(
+        cp,
+        {"passed": False, "confidence": 0.95, "corrections": {"subcategories": ["frontend"]}},
+        0.6,
+    )
+    assert moved["subcategories"] == ["frontend"]
+    assert moved["subcategory_confidence"] is None
+
+
+def test_post_judge_prediction_reflects_a_correction_that_passed_the_rail():
+    cp = cli._eval_classify_pred(
+        {"job_listing_id": "1", "source_id": "gh", "category": "software_engineering",
+         "level": "mid", "subcategories": ["backend"]},
+        "desc",
+    )
+    pj = cli._eval_post_judge_pred(
+        cp,
+        {"passed": False, "confidence": 0.95,
+         "corrections": {"subcategories": ["full_stack"]}},
+        0.6,
+    )
+    assert pj["subcategories"] == ["full_stack"]
+
+
+def test_post_judge_prediction_is_empty_when_the_judge_moved_the_category_off_swe():
+    cp = cli._eval_classify_pred(
+        {"job_listing_id": "1", "source_id": "gh", "category": "software_engineering",
+         "level": "mid", "subcategories": ["backend"]},
+        "desc",
+    )
+    pj = cli._eval_post_judge_pred(
+        cp,
+        {"passed": False, "confidence": 0.95, "corrections": {"category": "growth"}},
+        0.6,
+    )
+    assert pj["category"] == "growth"
+    assert pj["subcategories"] == []
+
+
+def test_both_artifacts_have_the_key_even_when_the_model_said_nothing():
+    """The `jq '.[0] | has("subcategories")'` acceptance, in code."""
+    cp = cli._eval_classify_pred(
+        {"job_listing_id": "1", "source_id": "gh",
+         "category": "business_ops", "level": "mid"},
+        "desc",
+    )
+    pj = cli._eval_post_judge_pred(
+        cp, {"passed": True, "confidence": 0.9, "corrections": {}}, 0.6
+    )
+    assert "subcategories" in cp and "subcategory_confidence" in cp
+    assert "subcategories" in pj and "subcategory_confidence" in pj
+
+
+# ---- SHARED CONTRACT 1.2 A: no confidence without a label ---------------------
+# "`subcategory_confidence` MUST be null when the array is `[]` or null."
+# ⚠ These are SILENT-failure tests: the contradictory row persists fine, ships
+# fine and counts as `written`; the damage only shows up as subcategory-
+# confidence calibration measured over rows that carry no subcategory at all.
+
+def test_confidence_is_nulled_when_the_model_omitted_the_array(store):
+    """⚠ The observed model shape: no `subcategories` key, but a confidence
+    anyway. NULL array + 0.7 would be a confidence with nothing behind it."""
+    _seed_cleaned(store, "1")
+    _record(store, [_swe_item("1", subcategory_confidence=0.7)])
+    row = _enrichment(store, "1")
+    assert row["subcategories"] is None
+    assert row["subcategory_confidence"] is None
+
+
+def test_confidence_is_nulled_when_the_array_is_explicitly_empty(store):
+    _seed_cleaned(store, "1")
+    _record(store, [_swe_item("1", subcategories=[], subcategory_confidence=0.7)])
+    row = _enrichment(store, "1")
+    assert row["subcategories"] == "[]"          # the tri-state is untouched
+    assert row["subcategory_confidence"] is None
+
+
+def test_confidence_is_nulled_when_validation_empties_the_array(store):
+    """A non-SWE row carrying slugs is forced to NULL by validate_subcategories;
+    the confidence must follow the RESOLVED value, not the raw item."""
+    _seed_cleaned(store, "1")
+    _record(store, [_swe_item("1", category="business_ops",
+                              subcategories=["backend"], subcategory_confidence=0.7)])
+    row = _enrichment(store, "1")
+    assert row["subcategories"] is None
+    assert row["subcategory_confidence"] is None
+
+
+def test_confidence_survives_on_a_genuinely_labelled_row(store):
+    """The rule only nulls the contradiction — it must not eat a real value."""
+    _seed_cleaned(store, "1")
+    _record(store, [_swe_item("1", subcategories=["backend"],
+                              subcategory_confidence=0.82)])
+    row = _enrichment(store, "1")
+    assert row["subcategory_confidence"] == 0.82
+
+
+def test_eval_classify_prediction_obeys_the_same_rule():
+    absent = cli._eval_classify_pred(
+        {"job_listing_id": "1", "source_id": "gh", "category": "software_engineering",
+         "level": "mid", "subcategory_confidence": 0.7},
+        "desc",
+    )
+    assert absent["subcategories"] is None
+    assert absent["subcategory_confidence"] is None
+
+    empty = cli._eval_classify_pred(
+        {"job_listing_id": "1", "source_id": "gh", "category": "software_engineering",
+         "level": "mid", "subcategories": [], "subcategory_confidence": 0.7},
+        "desc",
+    )
+    assert empty["subcategories"] == []
+    assert empty["subcategory_confidence"] is None
+
+
+def test_eval_post_judge_confidence_clears_when_the_judge_clears_the_array():
+    """The judge moves the category off SWE, so the merged array becomes [] —
+    the confidence carried over from classify has to clear with it."""
+    cp = cli._eval_classify_pred(
+        {"job_listing_id": "1", "source_id": "gh", "category": "software_engineering",
+         "level": "mid", "subcategories": ["backend"], "subcategory_confidence": 0.9},
+        "desc",
+    )
+    assert cp["subcategory_confidence"] == 0.9
+    pj = cli._eval_post_judge_pred(
+        cp,
+        {"passed": False, "confidence": 0.95, "corrections": {"category": "growth"}},
+        0.6,
+    )
+    assert pj["subcategories"] == []
+    assert pj["subcategory_confidence"] is None

@@ -11,16 +11,19 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable
+from functools import partial
 from typing import Any, Protocol, runtime_checkable
 
 from job_enricher.engines.prompts import (
     build_classify_prompt,
     build_judge_prompt,
+    build_subcategory_prompt,
     extract_json_array,
 )
 
 CLASSIFY_LATENCY_FIELD = "classify_latency_ms"
 JUDGE_LATENCY_FIELD = "judge_latency_ms"
+SUBCATEGORY_LATENCY_FIELD = "subcategory_latency_ms"
 
 # Appended to the prompt on a retry when the first parse was empty/short. The
 # local open engines (qwen3 via ollama/opencode) sometimes emit an empty array
@@ -59,7 +62,17 @@ class ChunkEngine:
 
     name: str = "base"
 
-    def _call(self, prompt: str) -> str:  # pragma: no cover - abstract
+    # The per-call structured-output schema this engine wants for the
+    # subcategory-only lane. `None` = no constraint (the two subprocess engines,
+    # which have no structured-output flag at all). `OllamaEngine` overrides it
+    # with the enum-constrained schema. A response schema is an ENGINE
+    # CAPABILITY, so the engine owns it — the abstract base must never import a
+    # concrete engine to get at one.
+    subcategory_schema: dict[str, Any] | None = None
+
+    def _call(
+        self, prompt: str, *, response_schema: dict[str, Any] | None = None
+    ) -> str:  # pragma: no cover - abstract
         raise NotImplementedError
 
     def classify(self, jobs: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -68,11 +81,33 @@ class ChunkEngine:
     def judge(self, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
         return self._call_with_repair(items, build_judge_prompt, JUDGE_LATENCY_FIELD)
 
+    def subcategory(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """The subcategory-only lane (Tier 2).
+
+        Uses the EXISTING three-argument `_call_with_repair` plus the optional
+        `response_schema` seam, so it inherits that method's behaviour UNCHANGED
+        — in particular, identity is stamped ONLY when
+        `len(inputs) == 1 and len(results) == 1` (see :122-127). Nothing
+        positional is added here, and nothing may be: a reordered batch would
+        write row A's labels onto row B, the value would be non-NULL so the row
+        leaves the selector permanently, and the NULL tri-state cannot detect it.
+
+        `self.subcategory_schema` is the enum-constrained schema on ollama and
+        `None` on the two subprocess engines, which ignore it anyway."""
+        return self._call_with_repair(
+            rows,
+            build_subcategory_prompt,
+            SUBCATEGORY_LATENCY_FIELD,
+            response_schema=self.subcategory_schema,
+        )
+
     def _call_with_repair(
         self,
         inputs: list[dict[str, Any]],
         build_prompt: Callable[[list[dict[str, Any]]], str],
         latency_field: str,
+        *,
+        response_schema: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
         """Call the backend, then RECOVER dropped rows instead of losing them.
 
@@ -105,13 +140,22 @@ class ChunkEngine:
         prompt = build_prompt(inputs)
         first_error: EngineError | None = None
         try:
-            text, latency_ms = _timed(self._call, prompt)
+            text, latency_ms = _timed(
+                partial(self._call, prompt, response_schema=response_schema)
+            )
             results = [r for r in extract_json_array(text) if isinstance(r, dict)]
         except EngineError as exc:
             first_error, latency_ms, results = exc, 0, []
         if len(results) < len(inputs):
             try:
-                text2, latency2 = _timed(self._call, prompt + _RETRY_NUDGE)
+                # The RETRY carries the SAME schema. A repair attempt that
+                # dropped it would return unconstrained output on exactly the
+                # calls that already went wrong once.
+                text2, latency2 = _timed(
+                    partial(
+                        self._call, prompt + _RETRY_NUDGE, response_schema=response_schema
+                    )
+                )
                 results2 = [r for r in extract_json_array(text2) if isinstance(r, dict)]
                 if len(results2) > len(results):
                     results, latency_ms = results2, latency_ms + latency2
@@ -128,9 +172,11 @@ class ChunkEngine:
         return _attach_latency(results, latency_field, latency_ms)
 
 
-def _timed(fn, prompt: str) -> tuple[str, int]:
+def _timed(fn: Callable[[], str]) -> tuple[str, int]:
+    """Time a ZERO-ARG callable — callers bind the prompt (and any schema) with
+    functools.partial, so the timer never has to know the call's arity."""
     start = time.monotonic()
-    text = fn(prompt)
+    text = fn()
     return text, int((time.monotonic() - start) * 1000)
 
 
@@ -148,6 +194,7 @@ def build_engine(
     *,
     model: str,
     settings_obj: Any | None = None,
+    lane: str = "classify",
 ) -> InferenceEngine:
     """Construct an engine by knob value.
 
@@ -155,11 +202,20 @@ def build_engine(
     (e.g. qwen3:32b) for `ollama`/`opencode`. `settings_obj` overrides the global
     `config.settings` (used by tests). Import concretes lazily so importing the
     package never hard-requires httpx just to name an engine.
+
+    `lane` selects the timeout: the subcategory-only BACKFILL lane has a
+    different prompt size from classify (no clean_description, but a much longer
+    inlined rubric) and gets `backfill_timeout_seconds`. Every other lane keeps
+    `engine_timeout_seconds`, which is what this function has always passed.
     """
     if settings_obj is None:
         from job_enricher.config import settings as settings_obj
 
-    timeout = settings_obj.engine_timeout_seconds
+    timeout = (
+        settings_obj.backfill_timeout_seconds
+        if lane == "backfill"
+        else settings_obj.engine_timeout_seconds
+    )
     if kind == "claude-code":
         from job_enricher.engines.claude_code import ClaudeCodeEngine
 

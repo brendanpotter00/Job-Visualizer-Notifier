@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+from typing import Any
 
 from job_enricher.engines.base import ChunkEngine, EngineError
 
@@ -26,7 +27,13 @@ class ClaudeCodeEngine(ChunkEngine):
         self._binary = binary
         self._timeout = timeout
 
-    def _call(self, prompt: str) -> str:
+    def _call(
+        self, prompt: str, *, response_schema: dict[str, Any] | None = None
+    ) -> str:
+        # `response_schema` is ACCEPTED AND IGNORED: `claude -p` has no
+        # structured-output flag, so the constraint is NOT enforced here. The
+        # tolerant extract_json_array + taxonomy.validate_subcategories are what
+        # protect this path — which is exactly why those rules live in code.
         try:
             proc = subprocess.run(
                 [self._binary, "-p", prompt, "--model", self._model,

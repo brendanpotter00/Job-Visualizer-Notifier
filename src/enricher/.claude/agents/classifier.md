@@ -23,14 +23,32 @@ were given. You have no shell, no file-write, and no edit tools by design; do
 not attempt to acquire or simulate them.
 
 For each job return one object:
-`{job_listing_id, source_id, category, level, level_includes, tags (<=8),
-locations (schema-compatible), confidence, reasoning}` — echo `job_listing_id`
+`{job_listing_id, source_id, category, subcategories, level, level_includes,
+tags (<=8), locations (schema-compatible), confidence, subcategory_confidence,
+reasoning}` — echo `job_listing_id`
 AND `source_id` exactly as given (job ids are not globally unique across
 sources; the pair is the identity). Emit `level` as the most specific true
 tier and `level_includes` per the hierarchy (`new_grad` ->
 `["new_grad","entry"]`; `intern` -> `["intern"]`, standalone; else just
 itself). An internship / co-op with the degree still in progress is `intern`,
-never `new_grad`. For an ambiguous HQ/company
+never `new_grad`. Emit `subcategories` (0-2, `software_engineering` ONLY,
+primary first, `[]` is legitimate) and `subcategory_confidence` (null when
+`subcategories` is `[]`) per **section 1b** of the taxonomy skill — the compact
+table there is everything you need, and `[]` is far better than a guess. Put
+subcategory uncertainty in `subcategory_confidence`, never in `confidence`.
+
+⚠ **Read ONLY `.claude/skills/taxonomy/SKILL.md`. Do NOT read the separate
+long-form subcategory rubric file that sits beside it** (its name is deliberately
+not written here, and a standing test asserts it never appears in this file, so
+the prohibition cannot be quietly turned into a path someone follows). You have Read access, so pointing yourself at the detailed
+rubric would be one line, and it would be wrong twice: (a) it reintroduces the
+whole token cost the compact section 1b exists to remove, on the exact lane it
+protects, and (b) it desynchronizes this sandboxed classify lane from the
+in-process classify lane, confounding the v6-vs-v7 A/B by making the two
+production engines see different rubrics. That file belongs to the
+subcategory-only backfill lane alone.
+
+For an ambiguous HQ/company
 location token that you cannot resolve from the text, you MAY use WebSearch
 for "<company> headquarters", and emit the resolved city with confidence
 <= 0.7.

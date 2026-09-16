@@ -8,17 +8,51 @@ same local weights OpenCode would, minus the harness overhead.
 
 from __future__ import annotations
 
+from typing import Any
+
 import httpx
 
+from job_enricher import taxonomy as tax
 from job_enricher.engines.base import ChunkEngine, EngineError
 
 # Permissive schema: forces a JSON *array of objects* (so we never get an
-# object-wrapped result) while leaving the fields to the prompt.
+# object-wrapped result) while leaving the fields to the prompt. Deliberately
+# left permissive for classify/judge: constraining every classify field is a far
+# larger blast radius on the lane that is already at capacity, and that lane's
+# protection is validate_facets + validate_subcategories IN CODE.
 _ARRAY_SCHEMA = {"type": "array", "items": {"type": "object"}}
+
+# The subcategory-only lane's ENUM-CONSTRAINED schema. BUILT FROM
+# `sorted(tax.SUBCATEGORIES)` rather than a literal list so it can never drift
+# from the frozenset — ENR-PAR-1 asserts the enum equals that sorted list
+# exactly, INCLUDING ORDER, which is only meaningful because it is derived.
+_SUBCATEGORY_SCHEMA = {
+    "type": "array",
+    "items": {
+        "type": "object",
+        "properties": {
+            "job_listing_id": {"type": "string"},
+            "source_id": {"type": "string"},
+            "subcategories": {
+                "type": "array",
+                "maxItems": tax.MAX_SUBCATEGORIES,
+                "items": {"type": "string", "enum": sorted(tax.SUBCATEGORIES)},
+            },
+            "subcategory_confidence": {"type": ["number", "null"]},
+        },
+        "required": ["job_listing_id", "source_id", "subcategories"],
+    },
+}
 
 
 class OllamaEngine(ChunkEngine):
     name = "ollama"
+
+    # Overrides ChunkEngine.subcategory_schema (None). A response schema is an
+    # ENGINE CAPABILITY, so the engine owns it — this keeps `base.py`
+    # dependency-free instead of having the abstract base import a concrete
+    # engine (which would also drag httpx into every ChunkEngine import path).
+    subcategory_schema = _SUBCATEGORY_SCHEMA
 
     def __init__(
         self,
@@ -31,7 +65,9 @@ class OllamaEngine(ChunkEngine):
         self._base = base_url.rstrip("/")
         self._client = client or httpx.Client(timeout=timeout)
 
-    def _call(self, prompt: str) -> str:
+    def _call(
+        self, prompt: str, *, response_schema: dict[str, Any] | None = None
+    ) -> str:
         try:
             resp = self._client.post(
                 f"{self._base}/api/chat",
@@ -39,7 +75,7 @@ class OllamaEngine(ChunkEngine):
                     "model": self._model,
                     "messages": [{"role": "user", "content": prompt}],
                     "stream": False,
-                    "format": _ARRAY_SCHEMA,
+                    "format": response_schema or _ARRAY_SCHEMA,
                     "options": {"temperature": 0},
                 },
             )

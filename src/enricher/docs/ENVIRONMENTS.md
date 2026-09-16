@@ -87,6 +87,18 @@ changes; `git fetch` + fast-forward/checkout; `uv sync`; reloads the worker; run
 `cli health`. The single-flight lock is a second guard — a tick that starts during a checkout
 exits 75 ("lock held") rather than reading a half-updated tree.
 
+> ⚠ **Schema migrations run inside step 6's `cli health`, with the worker PARKED.**
+> `cli health` opens the DB, which runs `init_schema()`, which runs the migration
+> ladder. A long migration there is a parked-worker outage, not a slow command.
+> **Rehearse it first** (`scripts/rehearse_v4_migration.sh` — on a
+> `sqlite3 ".backup"` copy, never `cp`, because the DB is WAL-mode) and **split
+> the migration if it takes more than 30 s.** See
+> `docs/RUNBOOK-subcategory-backfill.md` §4.
+>
+> ⚠ **`init_schema` has no downgrade and `user_version` only moves forward**, so
+> the `.backup` copy IS the rollback artifact for a schema change. A `git`
+> rollback alone does NOT undo a migration.
+
 > **Deploying a changed default does NOT change a running knob.** Runtime knobs live in
 > prod's `meta` table (not git). An explicit knob (e.g. `classify:engine`, `classify:model`)
 > overrides the committed code default forever, so merging a new `*_DEFAULT` and deploying

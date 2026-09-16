@@ -106,8 +106,19 @@ breaks — but the enricher will no longer produce it). Re-enrichment is **manua
 `product_manager` / `business_ops`:
 
 ```sh
-uv run python -m job_enricher.cli reenrich --taxonomy-below v6+f2e477ef1e4b
+# ALWAYS COUNT FIRST. --dry-run mutates nothing.
+uv run python -m job_enricher.cli reenrich --taxonomy-below v6+f2e477ef1e4b --dry-run
+uv run python -m job_enricher.cli reenrich --taxonomy-below v6+f2e477ef1e4b --limit 100
 ```
+
+> ⚠️ **2026-08-20 (ENR-REN-1) — this command is now guarded, and the warning below understated it.**
+> `reenrich` DELETEs the enrichment and flips the inbox row back to `cleaned`, with no undo. It now:
+> counts first; supports `--dry-run` (mutates nothing); **REFUSES above `REENRICH_CONFIRM_THRESHOLD = 500`
+> matched rows unless you pass `--yes-i-mean-all`**; and accepts `--limit`.
+> **At v7 `--taxonomy-below v7+<hash>` matches EVERY v6 row — the whole ~19.4k corpus, roughly 40 days of
+> worker time.** Never paste the unguarded form. Same guard shape and flag name as `subcategory-reset`.
+> Note also: from v7 the hash covers `SUBCATEGORIES.md` too, so a **rubric-only edit moves the hash but not
+> the declared N — and same-N-different-hash is NOT below, so `reenrich` will never pick it up.**
 
 ⚠️ `--taxonomy-below v6` resets **every** pre-v6 row (all 1,967 existing enrichments are < v6), not just the
 79 — a full re-enrichment under the cleaner taxonomy. At ollama speed that's ~1,967 × ~90 s ≈ **~2 days** of

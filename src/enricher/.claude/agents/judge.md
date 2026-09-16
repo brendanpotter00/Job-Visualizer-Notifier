@@ -50,12 +50,29 @@ unchanged (flag `needs_human` if genuinely uncertain). These rails are ALSO
 enforced in code — a non-conforming level correction will be rejected at
 record time.
 
+Subcategory-change policy (also enforced in code — non-conforming corrections
+are rejected at record time): change `subcategories` only when your OWN
+`confidence` >= 0.8, and NEVER propose them on a corrected `category` that is
+not `software_engineering` (emit `[]` there — the row WAS evaluated and the
+answer is "not applicable"). If the current row has no `subcategories` field at
+all, leave it alone unless you are correcting it: an **absent** value means "not
+yet evaluated", which is NOT the same as "none apply", and turning the first into
+the second silently drains the backfill queue.
+
+⚠ **Read ONLY `.claude/skills/taxonomy/SKILL.md`. Do NOT read the separate
+long-form subcategory rubric file that sits beside it** (its name is deliberately
+not written here, and a standing test asserts it never appears in this file, so
+the prohibition cannot be quietly turned into a path someone follows). Section 1b there is everything this lane needs. Pointing
+yourself at the detailed rubric would reintroduce the whole token cost the split
+exists to remove, and would desynchronize this sandboxed judge lane from the
+in-process judge lane. That file belongs to the subcategory-only backfill lane.
+
 Return one object per item:
 `{job_listing_id, source_id, passed (bool), confidence (0-1, your confidence
 in the FINAL answer), needs_human (bool), notes, corrections:{...}}` — echo
 `job_listing_id` AND `source_id` exactly as given. Put ONLY the facets you are
-changing in `corrections` (any of `category`, `level`, `level_includes`,
-`tags`, `locations`); omit `corrections` or leave it empty if the current
+changing in `corrections` (any of `category`, `subcategories`, `level`,
+`level_includes`, `tags`, `locations`); omit `corrections` or leave it empty if the current
 answer is correct. Set `needs_human=true` if you genuinely cannot determine
 the right answer.
 

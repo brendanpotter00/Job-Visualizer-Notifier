@@ -227,9 +227,14 @@ class _ScriptedEngine(ChunkEngine):
     def __init__(self, script):
         self._script = list(script)
         self.calls = []
+        # Every `response_schema` this fake was handed, in call order — so the
+        # seam tests (and ENR-ENG-3 / ENR-PB-1) can assert the schema reaches
+        # BOTH the first attempt and the retry.
+        self.schemas = []
 
-    def _call(self, prompt):
+    def _call(self, prompt, *, response_schema=None):
         self.calls.append(prompt)
+        self.schemas.append(response_schema)
         item = self._script.pop(0)
         if isinstance(item, Exception):
             raise item
@@ -434,3 +439,312 @@ def test_repair_batch_gt1_does_not_positionally_stamp_wrong_id():
     assert ("gh", "1") in by                              # valid echo preserved
     assert ("WRONG", "999") in by                         # wrong echo NOT restamped
     assert ("gh", "2") not in by                          # never mis-attributed to input 2
+
+
+# ---- ENR-ENG-1: the response_schema seam -----------------------------------
+# ZERO behaviour change. `classify`/`judge` pass nothing, so their emitted bytes
+# are byte-identical to before — proved by
+# test_ollama_sends_structured_format_and_temperature_zero, which is UNCHANGED.
+
+_TEST_SCHEMA = {"type": "array", "items": {"type": "object", "properties": {"x": {"type": "string"}}}}
+
+
+def test_ollama_posts_a_supplied_schema_verbatim():
+    fake = _FakeClient(content=_CLASSIFY_JSON)
+    eng = OllamaEngine(model="qwen3:32b", client=fake)
+    eng._call("hi", response_schema=_TEST_SCHEMA)
+    _, body = fake.calls[0]
+    assert body["format"] == _TEST_SCHEMA
+
+
+def test_ollama_falls_back_to_the_permissive_schema_when_none_is_supplied():
+    fake = _FakeClient(content=_CLASSIFY_JSON)
+    OllamaEngine(model="qwen3:32b", client=fake)._call("hi")
+    _, body = fake.calls[0]
+    assert body["format"] == {"type": "array", "items": {"type": "object"}}
+
+
+def test_claude_code_accepts_response_schema_and_argv_is_byte_identical(monkeypatch):
+    """`claude -p` has NO structured-output flag, so the kwarg is accepted and
+    IGNORED. The argv must be byte-identical with and without it — a future
+    reader must not assume the constraint is enforced here."""
+    seen = []
+    monkeypatch.setattr(
+        cc_mod.subprocess, "run",
+        lambda cmd, **kw: (seen.append(list(cmd)), _fake_completed(stdout=_CLASSIFY_JSON))[1],
+    )
+    eng = ClaudeCodeEngine(model="haiku")
+    eng._call("hi")
+    eng._call("hi", response_schema=_TEST_SCHEMA)
+    assert seen[0] == seen[1]
+
+
+def test_opencode_accepts_response_schema_and_argv_is_byte_identical(monkeypatch):
+    seen = []
+    monkeypatch.setattr(
+        oc_mod.subprocess, "run",
+        lambda cmd, **kw: (seen.append(list(cmd)), _fake_completed(stdout=_CLASSIFY_JSON))[1],
+    )
+    eng = OpenCodeEngine(model="qwen3:32b")
+    eng._call("hi")
+    eng._call("hi", response_schema=_TEST_SCHEMA)
+    assert seen[0] == seen[1]
+
+
+def test_retry_attempt_receives_the_same_response_schema():
+    """THE RETRY MUST CARRY THE SCHEMA. A repair attempt that dropped it would
+    return unconstrained output on exactly the calls that already went wrong."""
+    eng = _ScriptedEngine([_arr(), _arr({"job_listing_id": "1", "source_id": "gh"})])
+    eng._call_with_repair(
+        [_JOB], build_classify_prompt, "classify_latency_ms",
+        response_schema=_TEST_SCHEMA,
+    )
+    assert len(eng.calls) == 2                     # first attempt + retry
+    assert eng.schemas == [_TEST_SCHEMA, _TEST_SCHEMA]
+
+
+def test_classify_and_judge_pass_no_schema():
+    """The no-regression proof at the seam: the two existing lanes send None."""
+    eng = _ScriptedEngine([_CLASSIFY_JSON])
+    eng.classify([_JOB])
+    assert eng.schemas == [None]
+
+
+def test_chunk_engine_declares_a_null_subcategory_schema():
+    assert ChunkEngine.subcategory_schema is None
+
+
+# ---- ENR-ENG-3: the enum-constrained subcategory schema --------------------
+def test_subcategory_schema_enum_is_the_sorted_frozenset_including_order():
+    """THE DRIFT GUARD, and the reason the schema is BUILT rather than typed."""
+    from job_enricher import taxonomy as tax
+    from job_enricher.engines.ollama import _SUBCATEGORY_SCHEMA
+
+    enum = _SUBCATEGORY_SCHEMA["items"]["properties"]["subcategories"]["items"]["enum"]
+    assert enum == sorted(tax.SUBCATEGORIES)
+    assert len(enum) == 17
+    assert _SUBCATEGORY_SCHEMA["items"]["properties"]["subcategories"]["maxItems"] == (
+        tax.MAX_SUBCATEGORIES
+    )
+
+
+def test_the_two_lanes_do_not_cross():
+    """THE TWO-SCHEMA TEST, both halves in ONE test: a subcategory call posts the
+    17-slug enum schema, and a classify call in the same file still posts the
+    permissive two-key array schema."""
+    from job_enricher.engines.ollama import _SUBCATEGORY_SCHEMA
+
+    sub_fake = _FakeClient(content=_CLASSIFY_JSON)
+    sub_eng = OllamaEngine(model="qwen3:32b", client=sub_fake)
+    sub_eng._call("prompt", response_schema=sub_eng.subcategory_schema)
+    _, sub_body = sub_fake.calls[0]
+    assert sub_body["format"] == _SUBCATEGORY_SCHEMA
+    assert (
+        sub_body["format"]["items"]["properties"]["subcategories"]["items"]["enum"][0]
+        == "ai_engineering"
+    )
+
+    cls_fake = _FakeClient(content=_CLASSIFY_JSON)
+    OllamaEngine(model="qwen3:32b", client=cls_fake).classify([_JOB])
+    _, cls_body = cls_fake.calls[0]
+    assert cls_body["format"] == {"type": "array", "items": {"type": "object"}}
+
+
+def test_subprocess_engines_declare_no_subcategory_schema():
+    assert ClaudeCodeEngine(model="haiku").subcategory_schema is None
+    assert OpenCodeEngine(model="qwen3:32b").subcategory_schema is None
+
+
+# ---- ENR-ENG-2: the classify/judge subcategory contract + the D3 guards -----
+#
+# ⚠ THE LENGTH BUDGET, WITH ITS MEASURED BASELINE.
+# v6 SKILL.md was 24,479 chars; the classify scaffold is ~1,729; a one-row job
+# block with a 3,000-char description is ~3,205; so the v6 batch=1 prompt was
+# 29,413 chars and SKILL.md was 83% of it. The compact section 1b is what v7 adds
+# to that lane — NOT the full rubric, which lives in SUBCATEGORIES.md.
+#
+# MEASURED at 15 slugs on the committed v7 files with the fixture below: 33,619
+# chars (+14.3% over v6; the rejected inline design would have been ~37,219 /
+# +26.5%).
+#
+# RE-MEASURED after the rebase onto `main`: 39,406. TWO independent causes, and
+# the bigger one is not this epic's:
+#   +5,041  main's MTS work (#21) landing in SKILL.md sections 1, 2 and 6.
+#     +579  the 15 -> 17 subcategory widening — two §1b table rows and two rails.
+# Rounded up to the next 500 per ENR-LAT-1's rule.
+#
+# ⚠ A FAILURE HERE MEANS SOMEONE MOVED DETAIL BACK INTO SECTION 1b. The fix is to
+# move it to SUBCATEGORIES.md, NOT to raise this constant. Raising it is correct
+# ONLY when SKILL.md legitimately grew, and only after re-measuring.
+_CLASSIFY_PROMPT_MAX_CHARS = 39_500
+
+_BUDGET_FIXTURE = {
+    "job_listing_id": "1", "source_id": "gh", "title": "Software Engineer",
+    "company": "Acme", "raw_location": "SF", "clean_description": "x" * 3000,
+}
+
+
+def test_classify_prompt_carries_the_subcategory_contract():
+    p = build_classify_prompt([_JOB])
+    assert "subcategories" in p
+    assert "subcategory_confidence" in p
+    assert "full_stack is exclusive" in p
+    assert "[] is a legitimate answer" in p
+
+
+def test_classify_prompt_carries_all_seventeen_slugs():
+    """Proves the COMPACT section 1b actually reaches the model through the
+    SKILL.md inlining — if it did not, every subcategory would be a guess."""
+    from job_enricher import taxonomy as tax
+
+    p = build_classify_prompt([_JOB])
+    for slug in tax.SUBCATEGORIES:
+        assert slug in p, slug
+
+
+def test_judge_prompt_names_subcategories_in_the_corrections_whitelist():
+    """⚠ The judge STRUCTURALLY CANNOT correct a facet not named there."""
+    p = build_judge_prompt([{**_JOB, "current": {}}])
+    corrections = p[p.index('"corrections"'):]
+    assert "subcategories" in corrections.split("<job_data>")[0]
+    assert ">= 0.8" in p
+    assert "not yet evaluated" in p
+
+
+def test_the_detailed_rubric_is_NOT_in_either_prompt():
+    """THE D3 GUARD. If SUBCATEGORIES.md's text reaches the classify or judge
+    prompt, the split has evaporated and every classify + judge call pays ~8k
+    chars for detail that lane does not use."""
+    from job_enricher import taxonomy as tax
+
+    rubric = tax.read_subcategory_rubric()
+    # a distinctive long line from the detailed rubric only
+    needle = "Silicon Validation Software Engineer"
+    assert needle in rubric
+    assert needle not in build_classify_prompt([_JOB])
+    assert needle not in build_judge_prompt([{**_JOB, "current": {}}])
+    assert rubric not in build_classify_prompt([_JOB])
+    assert rubric not in build_judge_prompt([{**_JOB, "current": {}}])
+
+
+def test_classify_prompt_stays_within_the_length_budget():
+    assert len(build_classify_prompt([_BUDGET_FIXTURE])) <= _CLASSIFY_PROMPT_MAX_CHARS
+
+
+def test_reset_taxonomy_cache_actually_clears_the_lru(tmp_path, monkeypatch):
+    """⚠ `_taxonomy_text` is lru_cache(maxsize=1), so a same-process rerun after a
+    SKILL.md edit silently scores the STALE rubric — the trap that would make a
+    v6-vs-v7 baseline capture report a delta of zero."""
+    from job_enricher import taxonomy as tax
+    from job_enricher.engines import prompts as pmod
+
+    pmod.reset_taxonomy_cache()
+    before = build_classify_prompt([_JOB])
+    assert "MARKER-NEW-RUBRIC" not in before
+
+    temp = tmp_path / "SKILL.md"
+    temp.write_text(tax.read_skill() + "\nMARKER-NEW-RUBRIC\n")
+    monkeypatch.setattr(tax, "SKILL_PATH", temp)
+
+    # still cached -> the OLD text
+    assert "MARKER-NEW-RUBRIC" not in build_classify_prompt([_JOB])
+    pmod.reset_taxonomy_cache()
+    assert "MARKER-NEW-RUBRIC" in build_classify_prompt([_JOB])
+    pmod.reset_taxonomy_cache()  # leave the cache clean for the next test
+
+
+# ---- ENR-PB-1: the subcategory-only lane -----------------------------------
+_SUB_ROWS = [
+    {"job_listing_id": str(i), "source_id": "gh", "title": f"Software Engineer {i}",
+     "company": "Acme", "tags": ["backend"],
+     "clean_description": f"UNIQUE-DESCRIPTION-TOKEN-{i} build things"}
+    for i in range(10)
+]
+
+
+def test_subcategory_prompt_renders_NO_description_substring():
+    """⚠ THE INJECTION-BOUNDARY REGRESSION, ASSERTED IN CODE. The row dict handed
+    to the model has nowhere to put `clean_description`, so the boundary is
+    structural — this test is what keeps it that way."""
+    from job_enricher.engines.prompts import build_subcategory_prompt
+
+    p = build_subcategory_prompt(_SUB_ROWS)
+    for row in _SUB_ROWS:
+        assert row["clean_description"] not in p
+        assert f"UNIQUE-DESCRIPTION-TOKEN-{row['job_listing_id']}" not in p
+    # the fields it IS allowed to see are there
+    assert "Software Engineer 0" in p
+    assert "backend" in p
+
+
+def test_the_rubric_is_amortized_not_repeated_per_row():
+    """⚠ At batch 1 AND at batch 20 the rubric appears exactly once."""
+    from job_enricher.engines.prompts import build_subcategory_prompt
+
+    assert build_subcategory_prompt(_SUB_ROWS[:1]).count("<subcategory_rubric>") == 1
+    assert build_subcategory_prompt(_SUB_ROWS * 2).count("<subcategory_rubric>") == 1
+
+
+def test_subcategory_prompt_carries_all_seventeen_slugs_AND_the_detailed_rubric():
+    """The mirror of ENR-ENG-2's 'not in classify' guard: the detailed text that
+    must NOT reach the classify lane MUST reach this one."""
+    from job_enricher import taxonomy as tax
+    from job_enricher.engines.prompts import build_subcategory_prompt
+
+    p = build_subcategory_prompt(_SUB_ROWS[:1])
+    for slug in tax.SUBCATEGORIES:
+        assert slug in p, slug
+    assert "Silicon Validation Software Engineer" in p  # detailed-rubric-only text
+
+
+def test_subcategory_demands_both_echoed_ids():
+    from job_enricher.engines.prompts import build_subcategory_prompt
+
+    p = build_subcategory_prompt(_SUB_ROWS[:1])
+    assert "BOTH are required on EVERY object" in p
+
+
+def test_subcategory_passes_the_schema_to_first_attempt_AND_retry():
+    from job_enricher.engines.ollama import _SUBCATEGORY_SCHEMA
+
+    class _WithSchema(_ScriptedEngine):
+        subcategory_schema = _SUBCATEGORY_SCHEMA
+
+    eng = _WithSchema([_arr(), _arr({"job_listing_id": "0", "source_id": "gh"})])
+    eng.subcategory(_SUB_ROWS[:1])
+    assert eng.schemas == [_SUBCATEGORY_SCHEMA, _SUBCATEGORY_SCHEMA]
+
+
+def test_ollama_subcategory_posts_the_enum_schema_and_claude_posts_nothing_extra(
+    monkeypatch,
+):
+    from job_enricher.engines.ollama import _SUBCATEGORY_SCHEMA
+
+    fake = _FakeClient(content=_arr({"job_listing_id": "0", "source_id": "gh",
+                                     "subcategories": ["backend"]}))
+    OllamaEngine(model="qwen3:32b", client=fake).subcategory(_SUB_ROWS[:1])
+    _, body = fake.calls[0]
+    assert body["format"] == _SUBCATEGORY_SCHEMA
+
+    seen = []
+    monkeypatch.setattr(
+        cc_mod.subprocess, "run",
+        lambda cmd, **kw: (seen.append(list(cmd)),
+                           _fake_completed(stdout=_arr({"job_listing_id": "0",
+                                                        "source_id": "gh",
+                                                        "subcategories": []})))[1],
+    )
+    ClaudeCodeEngine(model="haiku").subcategory(_SUB_ROWS[:1])
+    assert "--output-format" in seen[0] and "format" not in seen[0]
+
+
+def test_backfill_timeout_reaches_the_engine():
+    from job_enricher.config import Settings
+
+    s = Settings(engine_timeout_seconds=11.0, backfill_timeout_seconds=222.0)
+    classify_engine = build_engine("claude-code", model="haiku", settings_obj=s)
+    backfill_engine = build_engine(
+        "claude-code", model="haiku", settings_obj=s, lane="backfill"
+    )
+    assert classify_engine._timeout == 11.0
+    assert backfill_engine._timeout == 222.0

@@ -36,6 +36,9 @@ packages = ["src/job_enricher"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "--cov --cov-report=term-missing"
+markers = [
+    "network: hits a live host; skipped unless the step's env vars are set",
+]
 
 [tool.coverage.run]
 source = ["src/job_enricher"]

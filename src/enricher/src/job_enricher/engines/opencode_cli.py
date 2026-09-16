@@ -10,6 +10,7 @@ interface so it is a drop-in `classify:engine`/`judge:engine` value.
 from __future__ import annotations
 
 import subprocess
+from typing import Any
 
 from job_enricher.engines.base import ChunkEngine, EngineError
 
@@ -22,7 +23,13 @@ class OpenCodeEngine(ChunkEngine):
         self._binary = binary
         self._timeout = timeout
 
-    def _call(self, prompt: str) -> str:
+    def _call(
+        self, prompt: str, *, response_schema: dict[str, Any] | None = None
+    ) -> str:
+        # `response_schema` is ACCEPTED AND IGNORED: `opencode run` has no
+        # structured-output flag, so the constraint is NOT enforced here. The
+        # tolerant extract_json_array + taxonomy.validate_subcategories are what
+        # protect this path.
         try:
             proc = subprocess.run(
                 [self._binary, "run", "--model", f"ollama/{self._model}", prompt],

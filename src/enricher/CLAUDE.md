@@ -50,8 +50,15 @@ the deploy sanity check),
 knob setters (`set-classify-model`, `judge-toggle on|off`, `set-judge-floor`,
 `set-judge-scope all|low_confidence`, `set-judge-ceiling`, ...) and `reset-knob <meta:key>`
 (clear an override so it follows the committed default).
-Schema versioning: `PRAGMA user_version` (v1 = composite keys + provenance columns);
+Schema versioning: `PRAGMA user_version` (v1 = composite keys + provenance columns;
+**v4 = the subcategory columns + tick counters + `backfill_runs`/`backfill_scope`**);
 `init_schema` migrates older DBs automatically in one transaction.
+⚠ **A migration runs inside `deploy.sh` step 6's `cli health`, with the worker PARKED,
+and `init_schema` has NO downgrade** — rehearse on a `sqlite3 ".backup"` copy first
+(`scripts/rehearse_v4_migration.sh`; never `cp` a WAL DB) and split it if it exceeds 30 s.
+⚠ **`reenrich --taxonomy-below` is guarded**: it counts first, supports `--dry-run`, refuses
+above 500 matched rows without `--yes-i-mean-all`, and takes `--limit`. At v7 the unguarded
+form matches the ENTIRE corpus.
 
 ## Runtime knobs (meta table, read fresh each tick)
 `classify:model` (default haiku), `classify:batch_size` (3), `classify:fan_out` (12),

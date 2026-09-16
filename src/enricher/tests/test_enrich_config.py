@@ -88,6 +88,8 @@ def test_knob_meta_keys_cover_all_setters():
         ec.JUDGE_HUMAN_FLOOR_META_KEY,
         ec.JUDGE_SCOPE_META_KEY,
         ec.JUDGE_CONFIDENCE_CEILING_META_KEY,
+        ec.JUDGE_SUBCATEGORY_CORRECTIONS_META_KEY,
+        ec.WRITEBACK_SEND_SUBCATEGORIES_META_KEY,
         ec.OPENCODE_MODEL_META_KEY,
         ec.ENRICH_PER_TICK_LIMIT_META_KEY,
     }
@@ -104,3 +106,26 @@ def test_enrich_per_tick_limit_default_set_clamp_and_bad_meta(store):
     assert ec.reset_knob(store, ec.ENRICH_PER_TICK_LIMIT_META_KEY)
     assert ec.get_enrich_per_tick_limit(store) == 40
     assert ec.config_snapshot(store)["enrich_per_tick_limit"] == 40
+
+
+def test_judge_subcategory_corrections_defaults_true_and_toggles(store):
+    """ENR-CLS-2's knob. Default TRUE — the judge MAY correct subcategories under
+    four code-enforced rails — but the knob exists so the lift can be MEASURED
+    and killed in one command."""
+    assert ec.get_judge_subcategory_corrections(store) is True
+    ec.set_judge_subcategory_corrections(store, False)
+    assert ec.get_judge_subcategory_corrections(store) is False
+    ec.reset_knob(store, ec.JUDGE_SUBCATEGORY_CORRECTIONS_META_KEY)
+    assert ec.get_judge_subcategory_corrections(store) is True
+
+
+def test_writeback_send_subcategories_defaults_FALSE(store):
+    """⚠ ENR-WB-1 SHIPS DARK. It may only be flipped ON after JVN's
+    EnrichmentResultItem has the field (SCHEMA-4) AND enrichment_writer has
+    SUBCATEGORY_SLUGS + the column write — otherwise Pydantic's default `ignore`
+    drops it silently while the row still counts as written."""
+    assert ec.get_writeback_send_subcategories(store) is False
+    ec.set_writeback_send_subcategories(store, True)
+    assert ec.get_writeback_send_subcategories(store) is True
+    ec.reset_knob(store, ec.WRITEBACK_SEND_SUBCATEGORIES_META_KEY)
+    assert ec.get_writeback_send_subcategories(store) is False

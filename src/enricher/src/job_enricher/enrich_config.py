@@ -38,6 +38,28 @@ CLASSIFY_FANOUT_BOUNDS = (1, 20)
 # whose facets were nulled at ingest, and rows already flagged needs_human.
 JUDGE_ENABLED_DEFAULT = True
 JUDGE_ENABLED_META_KEY = "judge:enabled"
+# The judge MAY correct subcategories, under four code-enforced rails (see
+# cli._merge_judge). The knob exists so the lift can be MEASURED and KILLED in one
+# command — which matters more under D3, because the judge is working from the
+# compact section 1b too.
+JUDGE_SUBCATEGORY_CORRECTIONS_DEFAULT = True
+JUDGE_SUBCATEGORY_CORRECTIONS_META_KEY = "judge:subcategory_corrections"
+
+# ⚠ SHIPS DARK — default FALSE. When off, `_row_to_result` OMITS both subcategory
+# keys entirely.
+#
+# WHY A KNOB AND NOT JUST A FIELD: JVN's `EnrichmentResultItem` (models.py:879,
+# model_config at :906) sets `alias_generator=to_camel, populate_by_name=True`
+# and NOTHING else — no `extra='forbid'`. Pydantic's default is `ignore`, so an
+# EARLY `subcategories` field is SILENTLY DROPPED and the row still counts as
+# `written`. The failure is not a 422 you would notice; it is a clean-looking
+# success that persists nothing. The knob makes the deploy order reversible
+# without a code push.
+#
+# ⚠ It may only be flipped ON after JVN's EnrichmentResultItem has the field
+# (SCHEMA-4) AND enrichment_writer has SUBCATEGORY_SLUGS + the column write.
+WRITEBACK_SEND_SUBCATEGORIES_DEFAULT = False
+WRITEBACK_SEND_SUBCATEGORIES_META_KEY = "writeback:send_subcategories"
 
 JUDGE_MODEL_DEFAULT = "sonnet"
 JUDGE_MODEL_META_KEY = "judge:model"
@@ -137,6 +159,20 @@ def get_judge_enabled(store: _MetaStore) -> bool:
     return raw.strip().lower() in ("1", "true", "on", "yes")
 
 
+def get_judge_subcategory_corrections(store: _MetaStore) -> bool:
+    raw = store.get_meta(JUDGE_SUBCATEGORY_CORRECTIONS_META_KEY)
+    if raw is None:
+        return JUDGE_SUBCATEGORY_CORRECTIONS_DEFAULT
+    return raw.strip().lower() in ("1", "true", "on", "yes")
+
+
+def get_writeback_send_subcategories(store: _MetaStore) -> bool:
+    raw = store.get_meta(WRITEBACK_SEND_SUBCATEGORIES_META_KEY)
+    if raw is None:
+        return WRITEBACK_SEND_SUBCATEGORIES_DEFAULT
+    return raw.strip().lower() in ("1", "true", "on", "yes")
+
+
 def get_judge_model(store: _MetaStore) -> str:
     return _get_choice(store, JUDGE_MODEL_META_KEY, JUDGE_MODEL_DEFAULT, MODEL_CHOICES)
 
@@ -212,6 +248,16 @@ def set_judge_enabled(store: _MetaStore, value: bool) -> bool:
     return value
 
 
+def set_judge_subcategory_corrections(store: _MetaStore, value: bool) -> bool:
+    store.set_meta(JUDGE_SUBCATEGORY_CORRECTIONS_META_KEY, "on" if value else "off")
+    return value
+
+
+def set_writeback_send_subcategories(store: _MetaStore, value: bool) -> bool:
+    store.set_meta(WRITEBACK_SEND_SUBCATEGORIES_META_KEY, "on" if value else "off")
+    return value
+
+
 def set_judge_model(store: _MetaStore, value: str) -> str:
     if value not in MODEL_CHOICES:
         raise ValueError(f"invalid model {value!r}; expected one of {MODEL_CHOICES}")
@@ -280,6 +326,8 @@ def config_snapshot(store: _MetaStore) -> dict[str, object]:
         "judge_human_floor": get_judge_human_floor(store),
         "judge_scope": get_judge_scope(store),
         "judge_confidence_ceiling": get_judge_confidence_ceiling(store),
+        "judge_subcategory_corrections": get_judge_subcategory_corrections(store),
+        "writeback_send_subcategories": get_writeback_send_subcategories(store),
         "opencode_model": get_opencode_model(store),
         "enrich_per_tick_limit": get_enrich_per_tick_limit(store),
     }
@@ -300,6 +348,8 @@ KNOB_META_KEYS: frozenset[str] = frozenset(
         JUDGE_HUMAN_FLOOR_META_KEY,
         JUDGE_SCOPE_META_KEY,
         JUDGE_CONFIDENCE_CEILING_META_KEY,
+        JUDGE_SUBCATEGORY_CORRECTIONS_META_KEY,
+        WRITEBACK_SEND_SUBCATEGORIES_META_KEY,
         OPENCODE_MODEL_META_KEY,
         ENRICH_PER_TICK_LIMIT_META_KEY,
     }

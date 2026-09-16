@@ -44,7 +44,7 @@ HEARTBEAT_KEY = "heartbeat:last_poll_at"
 CURRENT_TICK_KEY = "current_tick_id"
 LAST_SCORECARD_HASH_KEY = "metrics:last_scorecard_hash"
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 # poison-row lifecycle: after this many per-row JVN rejections the inbox row is
 # moved to the terminal 'failed' status (excluded from every queue + write-back)
@@ -115,12 +115,36 @@ CREATE TABLE IF NOT EXISTS enrichments (
   tick_id            INTEGER,
   enriched_at      TEXT NOT NULL,
   sent_at          TEXT,
+  -- v4: SWE sub-specialties. subcategories is a JSON array and is TRI-STATE:
+  --   NULL = never evaluated  -- THIS IS THE BACKFILL QUEUE
+  --   '[]' = evaluated, no specialty applies -- TERMINAL, never re-queued
+  --   '["backend"]' = labelled, ORDERED, index 0 primary, MAX 2
+  -- The NULL/'[]' distinction is load-bearing and must never be collapsed.
+  subcategories          TEXT,
+  subcategory_confidence REAL,
+  -- one of taxonomy.SUBCATEGORY_SOURCES (rule|classify|backfill|judge|human):
+  -- the only thing that makes a rollback scoped instead of nuclear, and the
+  -- only way to tell the compact-rubric classify lane's labels apart from the
+  -- full-rubric backfill lane's.
+  subcategory_source     TEXT,
+  subcategory_attempts   INTEGER NOT NULL DEFAULT 0,
+  pre_judge_subcategories TEXT,   -- JSON array; mirrors the pre_judge_* trio above
+  subcategory_run_id     INTEGER, -- NULL = not written by a backfill run; scopes rollback to ONE run
+  subcategory_sent_at    TEXT,    -- NULL = this row's subcategory has not shipped to JVN (D2's drain walks this)
   PRIMARY KEY (source_id, job_listing_id),
   FOREIGN KEY (source_id, job_listing_id) REFERENCES inbox(source_id, job_listing_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_enrichments_unsent
   ON enrichments(sent_at) WHERE sent_at IS NULL;
+
+-- v4: the backfill selector's (category, attempts) predicate over the NULL queue.
+CREATE INDEX IF NOT EXISTS idx_enrichments_subcat_backlog
+  ON enrichments(category, subcategory_attempts) WHERE subcategories IS NULL;
+
+-- v4: D2's throttled drain — labelled rows that have not shipped to JVN yet.
+CREATE INDEX IF NOT EXISTS idx_enrichments_subcat_push
+  ON enrichments(subcategory_sent_at) WHERE subcategories IS NOT NULL AND subcategory_sent_at IS NULL;
 
 CREATE TABLE IF NOT EXISTS ticks (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -137,6 +161,12 @@ CREATE TABLE IF NOT EXISTS ticks (
   sent          INTEGER NOT NULL DEFAULT 0,
   errors        INTEGER NOT NULL DEFAULT 0,
   nulled_facets INTEGER NOT NULL DEFAULT 0,
+  -- v4: subcategory coverage per tick. All THREE are in TICK_COUNTER_COLS
+  -- below; bump_tick_counters SILENTLY DROPS any key absent from that frozenset,
+  -- so omitting one makes the drift breaker read 0 forever with no error.
+  swe_classified       INTEGER NOT NULL DEFAULT 0,  -- rows recorded as software_engineering
+  swe_subcat_evaluated INTEGER NOT NULL DEFAULT 0,  -- of those, subcategories non-NULL (INCLUDING [])
+  swe_subcategorized   INTEGER NOT NULL DEFAULT 0,  -- of those, the list is non-empty
   notes         TEXT
 );
 
@@ -161,12 +191,68 @@ CREATE TABLE IF NOT EXISTS meta (
   value      TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
+
+-- v4: ONE ledger, TWO lanes. `kind` is 'label' (the model run) or 'push' (the
+-- throttled drain to JVN), so the morning report reads one table. `taxonomy_version`
+-- and `rubric_version` are stamped SEPARATELY: without the second stamp a run
+-- cannot prove which rubric produced its labels.
+-- Created here, NOT in _migrate_v3_to_v4: init_schema runs the ladder and THEN
+-- executescript(_SCHEMA_SQL), and every table here is CREATE TABLE IF NOT EXISTS,
+-- so a new TABLE lands identically on a fresh DB and on an upgraded one. Only
+-- new COLUMNS on existing tables need ALTERs.
+CREATE TABLE IF NOT EXISTS backfill_runs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  uuid TEXT,
+  started_at TEXT NOT NULL,
+  ended_at TEXT,
+  status TEXT NOT NULL DEFAULT 'running',
+  kind TEXT NOT NULL DEFAULT 'label',
+  engine TEXT,
+  model TEXT,
+  taxonomy_version TEXT,
+  rubric_version TEXT,
+  deadline_at TEXT,
+  selected INTEGER NOT NULL DEFAULT 0,
+  rule_labelled INTEGER NOT NULL DEFAULT 0,
+  tag_labelled INTEGER NOT NULL DEFAULT 0,
+  model_labelled INTEGER NOT NULL DEFAULT 0,
+  empty_labelled INTEGER NOT NULL DEFAULT 0,
+  nulled_slugs INTEGER NOT NULL DEFAULT 0,
+  echo_mismatch INTEGER NOT NULL DEFAULT 0,
+  unanswered INTEGER NOT NULL DEFAULT 0,
+  transport_errors INTEGER NOT NULL DEFAULT 0,
+  parse_errors INTEGER NOT NULL DEFAULT 0,
+  errors INTEGER NOT NULL DEFAULT 0,
+  retired INTEGER NOT NULL DEFAULT 0,
+  model_calls INTEGER NOT NULL DEFAULT 0,
+  pushed INTEGER NOT NULL DEFAULT 0,
+  push_batches INTEGER NOT NULL DEFAULT 0,
+  push_rejected INTEGER NOT NULL DEFAULT 0,
+  push_skipped_human INTEGER NOT NULL DEFAULT 0,
+  push_nulled_by_jvn INTEGER NOT NULL DEFAULT 0,
+  pool_pressure_events INTEGER NOT NULL DEFAULT 0,
+  aborted_reason TEXT,
+  notes TEXT
+);
+
+-- v4: the point-in-time OPEN-SWE scope imported from JVN (P0-4). There is
+-- exactly ONE scope table; `backfill_roster` does not exist and must not appear.
+CREATE TABLE IF NOT EXISTS backfill_scope (
+  source_id TEXT NOT NULL,
+  job_listing_id TEXT NOT NULL,
+  imported_at TEXT NOT NULL,
+  PRIMARY KEY (source_id, job_listing_id)
+);
 """
 
-_TICK_COUNTER_COLS = frozenset(
+# bump_tick_counters filters counters.items() against this set and SILENTLY
+# DROPS anything absent — a counter missing from here is a metric that reads 0
+# forever with no error anywhere. All three v4 names are here deliberately.
+TICK_COUNTER_COLS = frozenset(
     {
         "claimed", "cleaned", "classified", "judged", "corrected",
         "needs_human", "sent", "errors", "nulled_facets",
+        "swe_classified", "swe_subcat_evaluated", "swe_subcategorized",
     }
 )
 
@@ -228,6 +314,8 @@ class Store:
                 _migrate_v1_to_v2(conn)
             if version < 3 and has_inbox:
                 _migrate_v2_to_v3(conn)
+            if version < 4 and has_inbox:
+                _migrate_v3_to_v4(conn)
             conn.executescript(_SCHEMA_SQL)
             conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
         finally:
@@ -424,8 +512,9 @@ class Store:
                 "INSERT INTO enrichments (job_listing_id, source_id, category, level, "
                 "level_includes, tags, locations, classify_confidence, classify_reasoning, "
                 "classify_latency_ms, taxonomy_version, needs_human, title_only, classify_model, "
+                "subcategories, subcategory_confidence, subcategory_source, "
                 "tick_id, enriched_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
                 "ON CONFLICT(source_id, job_listing_id) DO UPDATE SET "
                 "category=excluded.category, level=excluded.level, "
                 "level_includes=excluded.level_includes, tags=excluded.tags, "
@@ -440,6 +529,15 @@ class Store:
                 "judge_reasoning=NULL, judge_latency_ms=NULL, "
                 "judge_model=NULL, pre_judge_category=NULL, pre_judge_level=NULL, "
                 "pre_judge_tags=NULL, "
+                "subcategories=excluded.subcategories, "
+                "subcategory_confidence=excluded.subcategory_confidence, "
+                "subcategory_source=excluded.subcategory_source, "
+                # A re-classify is a FRESH evaluation: the attempt count resets
+                # and the pre-judge snapshot clears alongside the pre_judge_*
+                # resets just above. subcategory_run_id / subcategory_sent_at are
+                # deliberately NOT touched — a classify-lane label is not a
+                # backfill run and this write says nothing about what has shipped.
+                "subcategory_attempts=0, pre_judge_subcategories=NULL, "
                 "needs_human=excluded.needs_human, title_only=excluded.title_only, "
                 "sent_at=NULL",
                 (
@@ -448,6 +546,8 @@ class Store:
                     e.get("classify_confidence"), e.get("classify_reasoning"),
                     e.get("classify_latency_ms"),
                     e.get("taxonomy_version"), needs_human, title_only, e.get("classify_model"),
+                    e.get("subcategories"), e.get("subcategory_confidence"),
+                    e.get("subcategory_source"),
                     tick_id, now_iso(),
                 ),
             )
@@ -461,13 +561,18 @@ class Store:
         """Apply a judge verdict in place (corrections already merged into the
         category/level/tags/locations fields by the caller).
 
+        ⚠ The caller (`cli._merge_judge`) supplies `subcategories` TOGETHER with
+        `subcategory_confidence` and `subcategory_source`; all three are written
+        in one statement. A caller that omits them NULLs all three, which is the
+        correct reading of "this verdict carries no subcategory answer".
+
         Provenance: on the FIRST judge merge for a row (judged still 0) the
         current classify-stage category/level/tags are snapshotted into the
         pre_judge_* columns so judge deltas stay reconstructable; `judge_model`
         is stamped from the caller.
 
         If the verdict CHANGES a shipped facet (category/level/level_includes/
-        tags/locations) on a row that was ALREADY written back (`sent_at` set),
+        tags/locations/subcategories) on a row that was ALREADY written back (`sent_at` set),
         the correction is stranded unless we re-open it: clear `sent_at` and put
         the inbox row back to 'enriched' so the fix re-ships next tick (E9). A
         judge pass that changes nothing on a sent row leaves it sent."""
@@ -475,7 +580,8 @@ class Store:
         sid = j["source_id"]
         with self.connect() as conn:
             cur = conn.execute(
-                "SELECT category, level, level_includes, tags, locations, sent_at, judged "
+                "SELECT category, level, level_includes, tags, locations, "
+                "subcategories, sent_at, judged "
                 "FROM enrichments WHERE source_id = ? AND job_listing_id = ?",
                 (sid, jid),
             ).fetchone()
@@ -485,24 +591,49 @@ class Store:
                 or cur["level_includes"] != j.get("level_includes")
                 or cur["tags"] != j.get("tags")
                 or cur["locations"] != j.get("locations")
+                # WITHOUT THIS CLAUSE a subcategory-only judge correction on an
+                # already-sent row is STRANDED: `reopen` never fires, `sent_at`
+                # is never cleared, and the fix never re-ships.
+                or cur["subcategories"] != j.get("subcategories")
             )
             reopen = facet_changed and cur is not None and cur["sent_at"] is not None
             first_judge = cur is not None and not cur["judged"]
             snapshot_sql = ""
             snapshot_params: tuple[Any, ...] = ()
             if first_judge:
-                snapshot_sql = ", pre_judge_category=?, pre_judge_level=?, pre_judge_tags=?"
-                snapshot_params = (cur["category"], cur["level"], cur["tags"])
+                snapshot_sql = (
+                    ", pre_judge_category=?, pre_judge_level=?, pre_judge_tags=?, "
+                    "pre_judge_subcategories=?"
+                )
+                snapshot_params = (
+                    cur["category"], cur["level"], cur["tags"], cur["subcategories"]
+                )
             conn.execute(
+                # ⚠ subcategory_confidence AND subcategory_source are written in
+                # the SAME statement as subcategories. They used to be omitted
+                # here, which left two corrupt states behind every judge pass:
+                #   * a stale confidence measured against a label the judge just
+                #     replaced (or that RAIL D just forced to `[]` — the row kept
+                #     ('[]', 0.91, 'classify'), which contract 1.2 A forbids), and
+                #   * a source still reading 'classify' after the judge overwrote
+                #     the label, so a rollback scoped to the classify lane reverts
+                #     the wrong rows.
+                # `_merge_judge` computes both (it is the only place that knows
+                # the stored label AND the merged one); persisting them apart from
+                # the array is what made the corruption possible.
                 "UPDATE enrichments SET category=?, level=?, level_includes=?, tags=?, "
-                "locations=?, judged=1, judge_pass=?, judge_confidence=?, judge_notes=?, "
+                "locations=?, subcategories=?, subcategory_confidence=?, "
+                "subcategory_source=?, "
+                "judged=1, judge_pass=?, judge_confidence=?, judge_notes=?, "
                 "judge_reasoning=?, judge_latency_ms=?, "
                 "judge_model=?, needs_human=?" + snapshot_sql
                 + (", sent_at=NULL" if reopen else "") + " "
                 "WHERE source_id = ? AND job_listing_id = ?",
                 (
                     j.get("category"), j.get("level"), j.get("level_includes"),
-                    j.get("tags"), j.get("locations"), 1 if j.get("judge_pass") else 0,
+                    j.get("tags"), j.get("locations"), j.get("subcategories"),
+                    j.get("subcategory_confidence"), j.get("subcategory_source"),
+                    1 if j.get("judge_pass") else 0,
                     j.get("judge_confidence"), j.get("judge_notes"),
                     j.get("judge_reasoning"), j.get("judge_latency_ms"),
                     j.get("judge_model"),
@@ -607,6 +738,137 @@ class Store:
                 )
         return attempts, now_failed
 
+    def record_classify_failure(
+        self, pairs: list[tuple[str, str]],
+        max_attempts: int = MAX_WRITEBACK_ATTEMPTS,
+    ) -> list[tuple[str, str]]:
+        """THE MISSING UN-FAIL PATH (P0-3). Bump inbox.attempts on every row of a
+        chunk an engine call abandoned, and flip the row terminal at
+        `max_attempts`.
+
+        WITHOUT THIS, an engine timeout is a SILENT capacity leak: `_cmd_classify_run`
+        catches EngineError and `continue`s, so the chunk is skipped, `errors` is
+        never bumped, `inbox.attempts` is never touched, and the tick still closes
+        `status=ok / errors=0` — the same rows are re-claimed and re-abandoned
+        every tick forever. Mirrors record_writeback_failure's shape.
+
+        Returns the pairs that went terminal on THIS call. `cli unfail` brings
+        them back."""
+        newly_failed: list[tuple[str, str]] = []
+        if not pairs:
+            return newly_failed
+        with self.connect() as conn:
+            for sid, jid in pairs:
+                conn.execute(
+                    "UPDATE inbox SET attempts = attempts + 1 "
+                    "WHERE source_id = ? AND job_listing_id = ?",
+                    (sid, jid),
+                )
+                row = conn.execute(
+                    "SELECT attempts, status FROM inbox "
+                    "WHERE source_id = ? AND job_listing_id = ?",
+                    (sid, jid),
+                ).fetchone()
+                if row is None:
+                    continue
+                if int(row["attempts"]) >= max_attempts and row["status"] != "failed":
+                    conn.execute(
+                        "UPDATE inbox SET status = 'failed' "
+                        "WHERE source_id = ? AND job_listing_id = ?",
+                        (sid, jid),
+                    )
+                    newly_failed.append((sid, jid))
+                    logger.error(
+                        "classify: poison row (source_id=%s, job_listing_id=%s) hit "
+                        "%d abandoned chunks — moved to terminal status='failed'",
+                        sid, jid, int(row["attempts"]),
+                    )
+        return newly_failed
+
+    def unfail(self, limit: int | None = None) -> int:
+        """Return terminal 'failed' rows to the queue: status back to 'cleaned'
+        (or 'claimed' when there is no clean_description yet) and attempts to 0.
+
+        A terminal row is a JUDGEMENT, not a fact — the cause may have been a
+        transient engine outage. Without a way back, `status='failed'` is a
+        one-way drain on the corpus."""
+        sql = "SELECT source_id, job_listing_id, clean_description FROM inbox WHERE status='failed'"
+        params: tuple[Any, ...] = ()
+        if limit is not None:
+            sql += " LIMIT ?"
+            params = (limit,)
+        with self.connect() as conn:
+            rows = conn.execute(sql, params).fetchall()
+            for r in rows:
+                status = "cleaned" if r["clean_description"] else "claimed"
+                conn.execute(
+                    "UPDATE inbox SET status = ?, attempts = 0 "
+                    "WHERE source_id = ? AND job_listing_id = ?",
+                    (status, r["source_id"], r["job_listing_id"]),
+                )
+        return len(rows)
+
+    def starved_null_recency(self) -> int:
+        """Rows stuck at 'cleaned' with no posting-recency signal. They sort LAST
+        forever (jobs_needing_classify's ORDER BY at :360), so behind a queue
+        longer than the per-tick limit they are never reached.
+
+        SURFACED, NOT REPAIRED — both candidate remedies change the live tick's
+        claim order (or corrupt a provenance column), and r11 declined an order
+        change. See docs/RUNBOOK-subcategory-backfill.md §2.3."""
+        with self.connect() as conn:
+            return int(
+                conn.execute(
+                    "SELECT COUNT(*) AS n FROM inbox "
+                    "WHERE status='cleaned' AND first_seen_at IS NULL"
+                ).fetchone()["n"]
+            )
+
+    # ---- backfill scope (P0-4) --------------------------------------------
+    def import_backfill_scope(self, pairs: list[tuple[str, str]]) -> tuple[int, int]:
+        """Idempotent upsert of the OPEN-SWE scope on the composite key.
+
+        Returns (imported, matched_local) where `matched_local` is how many of
+        the imported pairs the local enrichments table actually has — that number
+        is `PARAM_BACKFILL_DENOMINATOR` and replaces the 8,126 placeholder
+        everywhere downstream, INCLUDING the 90% coverage gate."""
+        ts = now_iso()
+        with self.connect() as conn:
+            for sid, jid in pairs:
+                conn.execute(
+                    "INSERT INTO backfill_scope (source_id, job_listing_id, imported_at) "
+                    "VALUES (?, ?, ?) "
+                    "ON CONFLICT(source_id, job_listing_id) DO UPDATE SET "
+                    "imported_at=excluded.imported_at",
+                    (sid, jid, ts),
+                )
+            imported = int(
+                conn.execute("SELECT COUNT(*) AS n FROM backfill_scope").fetchone()["n"]
+            )
+            matched = int(
+                conn.execute(
+                    "SELECT COUNT(*) AS n FROM backfill_scope s JOIN enrichments e "
+                    "ON e.source_id = s.source_id AND e.job_listing_id = s.job_listing_id"
+                ).fetchone()["n"]
+            )
+        return imported, matched
+
+    def backfill_scope_age_hours(self) -> float | None:
+        """Hours since the NEWEST scope row was imported, or None when empty."""
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT MAX(imported_at) AS newest FROM backfill_scope"
+            ).fetchone()
+        if row is None or row["newest"] is None:
+            return None
+        try:
+            imported = datetime.fromisoformat(row["newest"])
+        except ValueError:
+            return None
+        if imported.tzinfo is None:
+            imported = imported.replace(tzinfo=timezone.utc)
+        return (datetime.now(timezone.utc) - imported).total_seconds() / 3600.0
+
     # ---- tick lifecycle ---------------------------------------------------
     def start_tick(self) -> int:
         ts = now_iso()
@@ -629,7 +891,7 @@ class Store:
         return int(raw) if raw is not None else None
 
     def bump_tick_counters(self, **counters: int) -> None:
-        cols = {c: v for c, v in counters.items() if c in _TICK_COUNTER_COLS}
+        cols = {c: v for c, v in counters.items() if c in TICK_COUNTER_COLS}
         if not cols:
             return
         tick_id = self.current_tick_id()
@@ -788,7 +1050,7 @@ class Store:
                 "i.raw_location, i.status, i.claimed_at, e.category, e.level, "
                 "e.classify_confidence, e.judged, e.judge_pass, "
                 "COALESCE(e.needs_human, 0) AS needs_human, e.tick_id, "
-                f"e.enriched_at, e.sent_at {join}{clause} "
+                f"e.subcategories, e.enriched_at, e.sent_at {join}{clause} "
                 "ORDER BY i.claimed_at DESC LIMIT ? OFFSET ?",
                 (*params, limit, offset),
             ).fetchall()
@@ -804,13 +1066,69 @@ class Store:
                 "e.judged, e.judge_pass, e.judge_confidence, e.judge_notes, "
                 "e.needs_human AS enr_needs_human, e.pre_judge_category, "
                 "e.pre_judge_level, e.pre_judge_tags, e.classify_model, "
-                "e.judge_model, e.tick_id, e.enriched_at, e.sent_at "
+                "e.judge_model, e.tick_id, e.subcategories, "
+                "e.subcategory_confidence, e.subcategory_source, "
+                "e.subcategory_attempts, e.pre_judge_subcategories, "
+                "e.subcategory_sent_at, e.enriched_at, e.sent_at "
                 "FROM inbox i LEFT JOIN enrichments e "
                 "ON e.source_id = i.source_id AND e.job_listing_id = i.job_listing_id "
                 "WHERE i.source_id = ? AND i.job_listing_id = ?",
                 (source_id, job_listing_id),
             ).fetchone()
         return dict(row) if row is not None else None
+
+
+def _migrate_v3_to_v4(conn: sqlite3.Connection) -> None:
+    """Add the v4 subcategory columns to enrichments and the three subcategory
+    counters to ticks.
+
+    ALTER-only — ten columns, no table rebuild, both primary keys unchanged —
+    and idempotent, so a half-applied migration re-runs cleanly. Existing rows
+    get ``subcategories IS NULL`` (never evaluated: THE BACKFILL QUEUE, and
+    emphatically not ``'[]'``) and ``subcategory_attempts = 0``.
+
+    The two new TABLES (backfill_runs, backfill_scope) are deliberately NOT here:
+    they live in _SCHEMA_SQL as CREATE TABLE IF NOT EXISTS, which executes after
+    this ladder on both a fresh and an upgraded DB. Only new COLUMNS need ALTERs.
+
+    Wrapped in one transaction; the version stamp is deferred to init_schema's
+    final PRAGMA exactly as v3 does."""
+    logger.info("store: migrating schema v3 -> v4 (subcategory columns + tick counters)")
+    enr_cols = {row["name"] for row in conn.execute("PRAGMA table_info(enrichments)")}
+    # A pre-v1 DB has no `ticks` table at all; _SCHEMA_SQL creates it (already
+    # carrying the v4 columns) right after this ladder, so there is nothing to
+    # ALTER. PRAGMA table_info on a missing table returns an empty set, which
+    # would otherwise make us try to ALTER a table that does not exist.
+    has_ticks = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='ticks'"
+    ).fetchone() is not None
+    tick_cols = {row["name"] for row in conn.execute("PRAGMA table_info(ticks)")}
+    enr_additions = [
+        ("subcategories", "TEXT"),
+        ("subcategory_confidence", "REAL"),
+        ("subcategory_source", "TEXT"),
+        ("subcategory_attempts", "INTEGER NOT NULL DEFAULT 0"),
+        ("pre_judge_subcategories", "TEXT"),
+        ("subcategory_run_id", "INTEGER"),
+        ("subcategory_sent_at", "TEXT"),
+    ]
+    tick_additions = [
+        ("swe_classified", "INTEGER NOT NULL DEFAULT 0"),
+        ("swe_subcat_evaluated", "INTEGER NOT NULL DEFAULT 0"),
+        ("swe_subcategorized", "INTEGER NOT NULL DEFAULT 0"),
+    ]
+    conn.execute("BEGIN")
+    try:
+        for name, coltype in enr_additions:
+            if name not in enr_cols:
+                conn.execute(f"ALTER TABLE enrichments ADD COLUMN {name} {coltype}")
+        for name, coltype in tick_additions:
+            if has_ticks and name not in tick_cols:
+                conn.execute(f"ALTER TABLE ticks ADD COLUMN {name} {coltype}")
+        conn.execute("COMMIT")
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
 
 
 def _migrate_v2_to_v3(conn: sqlite3.Connection) -> None:
