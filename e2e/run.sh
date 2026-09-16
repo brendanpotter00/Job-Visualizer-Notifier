@@ -20,6 +20,8 @@ if [ -z "$SECTION" ]; then
   echo "  company-name-search  ~\$0.27 REAL MONEY (~38-39 Browserbase Search calls)." >&2
   echo "                       --validate-only / --replay <file> are \$0 and need no key." >&2
   echo "  live-view            \$0. --live opens ONE real Browserbase session (~1 billed min)." >&2
+  echo "  subcategories        \$0, with no opt-in that changes that. Seeded rows, own" >&2
+  echo "                       stack on :8203/:3203, own database. No LLM, no browser hour." >&2
   echo >&2
   echo "the verify-onesecondswe skill is the \$0 front door to the same features:" >&2
   echo "  .claude/skills/verify-onesecondswe/helpers/name_search.sh   (\$0; --live ~\$0.27)" >&2
@@ -51,6 +53,10 @@ case "$SECTION" in
   live-view)
     echo "run.sh: COST — \$0. Unless --live is passed, which opens ONE real Browserbase" \
          "session (~1 billed browser-minute)." ;;
+  subcategories)
+    echo "run.sh: COST — \$0, unconditionally. Every fact it asserts is a property of" \
+         "one SQL operator over eleven seeded rows: no LLM call, no Browserbase" \
+         "session, no request to any host but its own stack." ;;
 esac
 
 # `company-name-search` brings its own runner and hands off BEFORE anything below
@@ -71,6 +77,19 @@ fi
 # the `--fast`/`--case` parsing below rejects its flags.
 if [ "$SECTION" = "live-view" ]; then
   exec bash "$SCRIPT_DIR/live-view/run.sh" "$@"
+fi
+
+# `subcategories` hands off for the reason `live-view` does NOT: it needs a
+# DIFFERENT stack. It SEEDS its fixtures, so it cannot share `jobscraper_e2e`
+# with the add-companies gate (one section's rows would change the other's
+# answers), and once the database is its own, sharing :8201/:3201 would only
+# mean the two gates could never run concurrently for no reason. It therefore
+# brings its own ports, pidfiles, env file and run lock, and it has no
+# `boards.py` for the pre-flight ladder below to import. The hand-off happens
+# here, above the `--fast`/`--case` parsing, so the section owns its own flags
+# (`--keep-up`) the same way live-view does.
+if [ "$SECTION" = "subcategories" ]; then
+  exec bash "$SCRIPT_DIR/subcategories/run.sh" "$@"
 fi
 
 FAST=0
