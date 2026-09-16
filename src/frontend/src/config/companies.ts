@@ -823,6 +823,14 @@ export const COMPANIES: Company[] = [
   createBackendScraperCompany('typesafe-ai', 'TypeSafe', 'https://jobs.ashbyhq.com/typesafe-ai', {
     sourceAts: 'ashby',
   }),
+  // The board slug is `david-ai` but the company's site is withdavid.ai, and
+  // NEITHER is guessable from the other — `withdavid`, `david`, `with-david`,
+  // `withdavidai` and `davidai` all 404. The slug came out of the careers page
+  // itself (`ashbyBaseJobBoardUrl`), and was confirmed by the job id in the URL
+  // this was added from resolving on that board.
+  createBackendScraperCompany('david-ai', 'David AI', 'https://www.withdavid.ai/jobs', {
+    sourceAts: 'ashby',
+  }),
   // Ashby serves this board under BOTH `Blacksmith` and `blacksmith` (verified,
   // same 20 postings either way), so the capital in the careers URL is not a
   // second board. The lowercase token is stored, matching every other entry —
@@ -1129,6 +1137,7 @@ export const enum COMPANY_IDS {
   Databricks = 'databricks',
   Decagon = 'decagon',
   Datadog = 'datadog',
+  DavidAI = 'david-ai',
   Discord = 'discord',
   Distyl = 'distyl',
   Dropbox = 'dropbox',
