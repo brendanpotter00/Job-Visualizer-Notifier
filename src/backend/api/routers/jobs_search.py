@@ -624,42 +624,6 @@ def search(
         # every cursor still validates, and the filter set has silently changed
         # underneath them. Fingerprinting the raw names cannot see that; fingerprinting
         # what they resolved to can, and turns it into the 409 restart below.
-        fingerprint = compute_filter_fingerprint(
-            {
-                "status": status,
-                "since": parsed_since.isoformat() if parsed_since else None,
-                "category": categories or [],
-                "level": levels or [],
-                "company": companies or [],
-                "location": locations or [],
-                "location_resolved": _fingerprint_location_descriptors(location_descriptors),
-                # The RESOLVED descriptors above are a proxy for the filter; the
-                # effective set the WHERE clause actually probes is the resolved
-                # ids, and a catalog INSERT can grow that set (a new row matching
-                # an existing selection's tier predicate) while the winning
-                # descriptor is unchanged. Fingerprinting the ids too means the
-                # cursor 409s the moment the probed set moves, instead of silently
-                # walking a different location filter mid-page. ``all_location_ids``
-                # is the FULL union (country tiers included), so this fingerprint
-                # is unchanged by the Wave-2 country/other split.
-                "location_ids": [str(location_id) for location_id in all_location_ids],
-                "include": include_terms or [],
-                "exclude": exclude_terms or [],
-                # The VISIBILITY SCOPE is part of the query, so it belongs in the
-                # fingerprint even though no request parameter carries it.
-                #
-                # Without it a cursor minted while signed in stays valid when
-                # replayed anonymously (a token that expires mid-walk does exactly
-                # this, unprompted): the reader's own private rows vanish from
-                # page N onward while every cursor keeps validating, and the walk
-                # silently enumerates neither scope completely — the precise
-                # failure the fingerprint exists to turn into a 409 restart. It
-                # also moves when the reader ADDS or REMOVES a custom company
-                # mid-walk, which is the same thing for the same reason.
-                "owned_sources": owned_source_ids or [],
-            }
-        )
-
         fingerprint_inputs: dict[str, str | Iterable[str] | None] = {
             "status": status,
             "since": parsed_since.isoformat() if parsed_since else None,
@@ -668,8 +632,30 @@ def search(
             "company": companies or [],
             "location": locations or [],
             "location_resolved": _fingerprint_location_descriptors(location_descriptors),
+            # The RESOLVED descriptors above are a proxy for the filter; the
+            # effective set the WHERE clause actually probes is the resolved
+            # ids, and a catalog INSERT can grow that set (a new row matching
+            # an existing selection's tier predicate) while the winning
+            # descriptor is unchanged. Fingerprinting the ids too means the
+            # cursor 409s the moment the probed set moves, instead of silently
+            # walking a different location filter mid-page. ``all_location_ids``
+            # is the FULL union (country tiers included), so this fingerprint
+            # is unchanged by the Wave-2 country/other split.
+            "location_ids": [str(location_id) for location_id in all_location_ids],
             "include": include_terms or [],
             "exclude": exclude_terms or [],
+            # The VISIBILITY SCOPE is part of the query, so it belongs in the
+            # fingerprint even though no request parameter carries it.
+            #
+            # Without it a cursor minted while signed in stays valid when
+            # replayed anonymously (a token that expires mid-walk does exactly
+            # this, unprompted): the reader's own private rows vanish from
+            # page N onward while every cursor keeps validating, and the walk
+            # silently enumerates neither scope completely — the precise
+            # failure the fingerprint exists to turn into a 409 restart. It
+            # also moves when the reader ADDS or REMOVES a custom company
+            # mid-walk, which is the same thing for the same reason.
+            "owned_sources": owned_source_ids or [],
         }
         # ONLY when the filter is ACTIVE. Present-but-empty would change the
         # fingerprint of every cursor in flight at deploy time, 409-ing every

@@ -1075,12 +1075,22 @@ def test_a_cursor_minted_without_subcategory_is_refused_once_one_is_added(
     assert "different filter set" in _detail(resp)
 
 
-# Captured by running `compute_filter_fingerprint` over the exact nine-key input
-# dict this router built BEFORE the subcategory param was added, for the filter
-# set `status=OPEN, category=software_engineering, company=google`. Pinned as a
-# literal so a change that starts always-including the subcategory key fails
-# here instead of 409-ing every in-flight cursor on deploy day.
-_PRE_CHANGE_FINGERPRINT = "a6107ca0"
+# Captured by running `compute_filter_fingerprint` over the exact ELEVEN-key
+# input dict this router built BEFORE the subcategory param was added, for the
+# filter set `status=OPEN, category=software_engineering, company=google` read
+# anonymously with no location filter. Pinned as a literal so a change that
+# starts always-including the subcategory key fails here instead of 409-ing
+# every in-flight cursor on deploy day.
+#
+# ELEVEN, NOT NINE, and the difference is why this constant moved. An earlier
+# value ("a6107ca0") was captured over a nine-key shape that omitted
+# `location_ids` and `owned_sources` — which was not main's shape, it was the
+# shape of a botched rebase that had left this branch's router computing the
+# fingerprint TWICE and keeping the second, shorter one. Capturing the constant
+# against the broken router is what made a real regression look pinned: the
+# visibility-scope key was gone from the fingerprint, so a cursor minted signed
+# in stayed valid replayed anonymously.
+_PRE_CHANGE_FINGERPRINT = "87cbbc6d"
 
 
 def _fingerprint_of(cursor: str) -> str:
@@ -1141,10 +1151,11 @@ def test_adding_the_subcategory_PARAM_did_not_churn_existing_cursors(
     the router was never involved.
 
     ``_PRE_CHANGE_FINGERPRINT`` was CAPTURED by RUNNING
-    ``compute_filter_fingerprint`` over the nine-key input shape this router
+    ``compute_filter_fingerprint`` over the eleven-key input shape this router
     built before the subcategory param existed. That matters: a hand-invented
     literal would pin the wrong value and this test would then assert the
-    opposite of what it is for.
+    opposite of what it is for — which is exactly what happened once already,
+    see the note on the constant.
     """
     from api.pagination import compute_filter_fingerprint
 
@@ -1160,9 +1171,11 @@ def test_adding_the_subcategory_PARAM_did_not_churn_existing_cursors(
         "deploy"
     )
 
-    # Provenance of the literal: the same nine-key shape the router built before
-    # the param existed. Pure-function, so it pins the CONSTANT; the assertion
-    # above pins the ROUTER.
+    # Provenance of the literal: the same ELEVEN-key shape the router built
+    # before the param existed. Pure-function, so it pins the CONSTANT; the
+    # assertion above pins the ROUTER. Both empty here — this request is
+    # anonymous and carries no location filter — but PRESENT, because an absent
+    # key and an empty list hash differently and the router always emits both.
     pre_change_inputs = {
         "status": "OPEN",
         "since": None,
@@ -1171,8 +1184,10 @@ def test_adding_the_subcategory_PARAM_did_not_churn_existing_cursors(
         "company": ["google"],
         "location": [],
         "location_resolved": [],
+        "location_ids": [],
         "include": [],
         "exclude": [],
+        "owned_sources": [],
     }
     assert compute_filter_fingerprint(pre_change_inputs) == _PRE_CHANGE_FINGERPRINT
 
