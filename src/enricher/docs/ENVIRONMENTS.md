@@ -164,3 +164,16 @@ prod is verified so rollback is just re-pointing launchd back.
   `~/Library/Logs/job-enricher.log` for a clean tick + `metrics-push`.
 - **Dev:** `cd ~/developer/personal/job-enricher`; `cat .checkout-role` = `dev`;
   `uv run pytest` passes; a `cli pull` does **not** reach real JVN.
+
+---
+
+## The SWE subcategory backfill
+
+Both lanes — `subcategory-backfill` (label) and `subcategory-push` (drain) — are
+**hand-launched from the PROD checkout**, not from launchd and not from the tick
+wrapper. Each takes its own lock (`data/.backfill.lock`,
+`data/.subcategory-push.lock`) so neither can collide with the live tick's
+`.tick.lock`.
+
+⚠ **The procedure is `docs/BACKFILL.md`. Read §1.1 first** — running from the dev
+checkout against the prod DB is the specific mistake that page exists to prevent.

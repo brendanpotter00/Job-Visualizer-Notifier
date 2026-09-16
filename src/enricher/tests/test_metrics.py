@@ -204,3 +204,87 @@ def test_cmd_metrics_push_updates_scorecard_hash_only_on_success(store, monkeypa
     cli._cmd_metrics_push(argparse.Namespace(tick_id=None, strict=False))
     assert store.get_meta(LAST_SCORECARD_HASH_KEY) is not None
     assert ok.payloads[0]["scorecard"] == {"n": 252}
+
+
+# ---------------------------------------------------------------------------
+# BF-11 — the two subcategory drift breakers
+# ---------------------------------------------------------------------------
+from job_enricher.metrics import (  # noqa: E402
+    SUBCAT_DRIFT_MIN_SWE,
+    subcategory_absent_drift,
+    subcategory_empty_drift,
+    window_counters,
+)
+
+
+def test_absent_drift_at_the_boundary():
+    assert subcategory_absent_drift({"swe_classified": 10, "swe_subcat_evaluated": 0})
+    # ⚠ FALSE one below the threshold ...
+    assert not subcategory_absent_drift({"swe_classified": 9, "swe_subcat_evaluated": 0})
+    # ... and FALSE the moment a single row was evaluated
+    assert not subcategory_absent_drift({"swe_classified": 10, "swe_subcat_evaluated": 1})
+
+
+def test_empty_drift_at_the_boundary():
+    assert subcategory_empty_drift(
+        {"swe_subcat_evaluated": 10, "swe_subcategorized": 0}
+    )
+    assert not subcategory_empty_drift(
+        {"swe_subcat_evaluated": 9, "swe_subcategorized": 0}
+    )
+    assert not subcategory_empty_drift(
+        {"swe_subcat_evaluated": 10, "swe_subcategorized": 1}
+    )
+
+
+def test_the_two_detectors_are_not_the_same_detector(store):
+    """⚠ COVERAGE vs YIELD. A wave that evaluated every SWE row and answered []
+    for all of them is INVISIBLE to the absent detector and caught by the empty
+    one — the exact blindness the draft's single breaker had."""
+    window = {
+        "swe_classified": 12, "swe_subcat_evaluated": 12, "swe_subcategorized": 0
+    }
+    assert subcategory_absent_drift(window) is False
+    assert subcategory_empty_drift(window) is True
+
+
+def test_window_spans_three_ticks(store):
+    """⚠ THE COVERAGE-GAP REGRESSION. 4/5/6 SWE rows across three ticks arms the
+    breaker where any single one of them would not."""
+    for n in (4, 5, 6):
+        store.start_tick()
+        store.bump_tick_counters(swe_classified=n)
+        store.end_tick(status="ok")
+    window = window_counters(store)
+    assert window["swe_classified"] == 15 >= SUBCAT_DRIFT_MIN_SWE
+    assert subcategory_absent_drift(window) is True
+    # a one-tick window would be silent on every one of them
+    assert subcategory_absent_drift(window_counters(store, n=1)) is False
+
+
+def test_window_counters_only_looks_back_n_ticks(store):
+    for n in (100, 1, 1, 1):
+        store.start_tick()
+        store.bump_tick_counters(swe_classified=n)
+        store.end_tick(status="ok")
+    assert window_counters(store, n=3)["swe_classified"] == 3
+
+
+def test_counters_are_not_silently_dropped(store):
+    """⚠ This is what catches a column missing from store._TICK_COUNTER_COLS:
+    all three appear in the payload AND reflect real increments asserted on the
+    ticks ROW."""
+    tid = store.start_tick()
+    store.bump_tick_counters(
+        classified=12, swe_classified=12, swe_subcat_evaluated=12,
+        swe_subcategorized=0,
+    )
+    store.end_tick(status="ok")
+    row = store.get_tick(tid)
+    assert (row["swe_classified"], row["swe_subcat_evaluated"]) == (12, 12)
+    payload, _ = build_metrics_payload(store)
+    for c in ("swe_classified", "swe_subcat_evaluated", "swe_subcategorized"):
+        assert c in payload["counters"]
+    assert payload["subcategory_empty_drift"] is True
+    assert payload["subcategory_absent_drift"] is False
+    assert payload["subcategory_window"]["swe_subcat_evaluated"] == 12

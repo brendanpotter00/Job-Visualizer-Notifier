@@ -92,6 +92,12 @@ def test_knob_meta_keys_cover_all_setters():
         ec.WRITEBACK_SEND_SUBCATEGORIES_META_KEY,
         ec.OPENCODE_MODEL_META_KEY,
         ec.ENRICH_PER_TICK_LIMIT_META_KEY,
+        ec.BACKFILL_ENABLED_META_KEY,
+        ec.BACKFILL_BATCH_SIZE_META_KEY,
+        ec.BACKFILL_MAX_ATTEMPTS_META_KEY,
+        ec.SUBCATEGORY_PUSH_BATCH_META_KEY,
+        ec.SUBCATEGORY_PUSH_DUTY_META_KEY,
+        ec.SUBCATEGORY_PUSH_MAX_SECONDS_META_KEY,
     }
 
 
@@ -129,3 +135,55 @@ def test_writeback_send_subcategories_defaults_FALSE(store):
     assert ec.get_writeback_send_subcategories(store) is True
     ec.reset_knob(store, ec.WRITEBACK_SEND_SUBCATEGORIES_META_KEY)
     assert ec.get_writeback_send_subcategories(store) is False
+
+
+# ---- BF-9: the backfill lane's three knobs ---------------------------------
+def test_backfill_enabled_defaults_FALSE(store):
+    """⚠ SHIPS DARK. The schema-only deploy must not be able to start labelling."""
+    assert ec.get_backfill_enabled(store) is False
+    assert ec.config_snapshot(store)["backfill_enabled"] is False
+    ec.set_backfill_enabled(store, True)
+    assert ec.get_backfill_enabled(store) is True
+    ec.reset_knob(store, ec.BACKFILL_ENABLED_META_KEY)
+    assert ec.get_backfill_enabled(store) is False
+
+
+def test_backfill_batch_size_default_bounds_and_bad_meta(store):
+    assert ec.get_backfill_batch_size(store) == 10
+    assert ec.set_backfill_batch_size(store, 4) == 4
+    assert ec.set_backfill_batch_size(store, 0) == 1        # clamped low
+    assert ec.set_backfill_batch_size(store, 999) == 25     # clamped high
+    store.set_meta(ec.BACKFILL_BATCH_SIZE_META_KEY, "nope")
+    assert ec.get_backfill_batch_size(store) == 10
+    assert ec.config_snapshot(store)["backfill_batch_size"] == 10
+
+
+def test_backfill_max_attempts_default_bounds_and_bad_meta(store):
+    assert ec.get_backfill_max_attempts(store) == 3
+    assert ec.set_backfill_max_attempts(store, 5) == 5
+    assert ec.set_backfill_max_attempts(store, 0) == 1
+    assert ec.set_backfill_max_attempts(store, 99) == 5
+    store.set_meta(ec.BACKFILL_MAX_ATTEMPTS_META_KEY, "nope")
+    assert ec.get_backfill_max_attempts(store) == 3
+    assert ec.config_snapshot(store)["backfill_max_attempts"] == 3
+
+
+def test_all_three_backfill_knobs_ride_the_config_snapshot(store):
+    snap = ec.config_snapshot(store)
+    for k in ("backfill_enabled", "backfill_batch_size", "backfill_max_attempts"):
+        assert k in snap, f"{k} missing from config_snapshot — it never rides /metrics"
+
+
+# ---- BF-12b: the drain's three rate knobs ----------------------------------
+def test_subcategory_push_knobs_defaults_and_bounds(store):
+    assert ec.get_subcategory_push_batch(store) == 250
+    assert ec.set_subcategory_push_batch(store, 900) == 500   # SCHEMA-14's ceiling
+    assert ec.set_subcategory_push_batch(store, 0) == 1
+    assert ec.get_subcategory_push_duty_pct(store) == 25
+    assert ec.set_subcategory_push_duty_pct(store, 99) == 50
+    assert ec.get_subcategory_push_max_seconds(store) == 3600
+    assert ec.set_subcategory_push_max_seconds(store, 99999) == 21600
+    snap = ec.config_snapshot(store)
+    for k in ("subcategory_push_batch", "subcategory_push_duty_pct",
+              "subcategory_push_max_seconds"):
+        assert k in snap

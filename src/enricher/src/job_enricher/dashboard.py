@@ -69,6 +69,18 @@ _KNOB_SETTERS = {
     ),
     "opencode_model": lambda s, v: ec.set_opencode_model(s, str(v)),
     "enrich_per_tick_limit": lambda s, v: ec.set_enrich_per_tick_limit(s, int(v)),
+    # BF-9 / OPS-4: without these three the night's lane cannot be toggled from
+    # the UI at all — _KNOB_SETTERS is the dashboard's ENTIRE write surface.
+    "backfill_enabled": lambda s, v: ec.set_backfill_enabled(s, _coerce_bool(v)),
+    "backfill_batch_size": lambda s, v: ec.set_backfill_batch_size(s, int(v)),
+    "backfill_max_attempts": lambda s, v: ec.set_backfill_max_attempts(s, int(v)),
+    "subcategory_push_batch": lambda s, v: ec.set_subcategory_push_batch(s, int(v)),
+    "subcategory_push_duty_pct": lambda s, v: ec.set_subcategory_push_duty_pct(
+        s, int(v)
+    ),
+    "subcategory_push_max_seconds": lambda s, v: ec.set_subcategory_push_max_seconds(
+        s, int(v)
+    ),
 }
 
 
@@ -115,12 +127,14 @@ def create_app(serve_static: bool | None = None) -> FastAPI:
     def jobs(
         status: str | None = None,
         needs_human: bool | None = None,
+        swe_without_subcategories: bool = False,
         limit: int = Query(50, ge=1, le=200),
         offset: int = Query(0, ge=0),
         store: Store = Depends(get_store),
     ) -> dict[str, Any]:
         rows, total = store.list_jobs(
-            status=status, needs_human=needs_human, limit=limit, offset=offset
+            status=status, needs_human=needs_human, limit=limit, offset=offset,
+            swe_without_subcategories=swe_without_subcategories,
         )
         return {"jobs": rows, "total": total, "limit": limit, "offset": offset}
 
@@ -151,6 +165,14 @@ def create_app(serve_static: bool | None = None) -> FastAPI:
                 "classify_fanout_bounds": list(ec.CLASSIFY_FANOUT_BOUNDS),
                 "enrich_per_tick_limit_bounds": list(ec.ENRICH_PER_TICK_LIMIT_BOUNDS),
                 "categories": sorted(tax.CATEGORIES),
+                # OPS-4: the live subcategory list, rendered in the Knobs panel.
+                "subcategories": sorted(tax.SUBCATEGORIES),
+                "backfill_batch_bounds": list(ec.BACKFILL_BATCH_SIZE_BOUNDS),
+                "backfill_max_attempts_bounds": list(ec.BACKFILL_MAX_ATTEMPTS_BOUNDS),
+                "subcategory_push_batch_bounds": list(
+                    ec.SUBCATEGORY_PUSH_BATCH_BOUNDS
+                ),
+                "subcategory_push_duty_bounds": list(ec.SUBCATEGORY_PUSH_DUTY_BOUNDS),
                 "levels": sorted(tax.LEVELS),
                 "taxonomy_version": tv,
             },

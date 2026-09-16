@@ -57,6 +57,72 @@ def drift_suspected(counters: dict[str, Any]) -> bool:
     return classified >= DRIFT_MIN_CLASSIFIED and nulled > DRIFT_NULLED_RATIO * classified
 
 
+# ---- BF-11: the two subcategory drift breakers -----------------------------
+# ⚠ `drift_suspected` above fires ONLY on `nulled_facets`. A classify wave that
+# emitted `[]` for every SWE row produces ZERO nulled facets, so the tick closes
+# `status=ok` and JVN's verdict banner stays green. This worker has a documented
+# history of ticks reporting `status=ok` while dead — a green banner is not
+# evidence. These two detectors are the ones that see it.
+#
+# ⚠ COUNTER SEMANTICS, stated once and used everywhere:
+#   `swe_subcat_evaluated` counts rows whose recorded subcategories value is
+#       NON-NULL, INCLUDING `[]`. This is COVERAGE, and it is the definition
+#       JVN's coverage tile already uses.
+#   `swe_subcategorized` counts rows whose recorded list is NON-EMPTY. This is
+#       YIELD.
+# They are DIFFERENT detectors and conflating them is what made the draft's
+# single breaker blind.
+
+# UNMEASURED — placeholder; set by BF-11
+#   Justified by the measured 4-27 SWE rows per tick (median ~17) over the last
+#   20 ticks on the live DB. ⚠ RE-MEASURE BEFORE SHIPPING: if the median moves
+#   the window moves with it, because the whole point is that the breaker is
+#   armed on essentially every tick-end rather than a quarter of them.
+SUBCAT_DRIFT_MIN_SWE = 10
+
+# UNMEASURED — placeholder; set by BF-11
+#   ⚠ A ROLLING WINDOW, NOT A SINGLE TICK. At 4-27 SWE rows per tick a
+#   single-tick N=10 threshold is SILENT on roughly a quarter of ticks. Three
+#   ticks at the median is ~51 SWE rows, so the breaker is armed at essentially
+#   every tick-end. Same measurement as SUBCAT_DRIFT_MIN_SWE; re-measure with it.
+SUBCAT_DRIFT_WINDOW_TICKS = 3
+
+_SUBCAT_COUNTERS = ("swe_classified", "swe_subcat_evaluated", "swe_subcategorized")
+
+
+def window_counters(store: Store, n: int = SUBCAT_DRIFT_WINDOW_TICKS) -> dict[str, int]:
+    """Sum the three subcategory counters over the last `n` ticks, INCLUDING the
+    one being closed (its row already exists, with status 'running')."""
+    totals = dict.fromkeys(_SUBCAT_COUNTERS, 0)
+    for tick in store.recent_ticks(limit=max(1, n)):
+        for col in _SUBCAT_COUNTERS:
+            totals[col] += int(tick.get(col) or 0)
+    return totals
+
+
+def subcategory_absent_drift(window: dict[str, Any]) -> bool:
+    """THE FIELD NEVER ARRIVED AT ALL — a broken prompt, schema or engine.
+
+    ⚠ An ABSOLUTE-ZERO test, deliberately not a ratio: "N SWE rows classified and
+    not one carried an evaluated subcategory field" is unambiguous, where a ratio
+    would either miss real drift or flap."""
+    classified = int(window.get("swe_classified") or 0)
+    evaluated = int(window.get("swe_subcat_evaluated") or 0)
+    return classified >= SUBCAT_DRIFT_MIN_SWE and evaluated == 0
+
+
+def subcategory_empty_drift(window: dict[str, Any]) -> bool:
+    """THE FIELD ARRIVED AND EVERY ANSWER WAS `[]` — a broken rubric.
+
+    ⚠ This is the detector that MATTERS, and the one the draft was missing,
+    because `'[]'` is TERMINAL: those rows leave the backfill queue permanently
+    and only BF-14 can bring them back. Also an absolute-zero test — a legitimate
+    `[]` rate is high and layer-dependent, so a ratio would flap."""
+    evaluated = int(window.get("swe_subcat_evaluated") or 0)
+    labelled = int(window.get("swe_subcategorized") or 0)
+    return evaluated >= SUBCAT_DRIFT_MIN_SWE and labelled == 0
+
+
 def _parse_iso(ts: str | None) -> datetime | None:
     if not ts:
         return None
@@ -144,6 +210,7 @@ def build_metrics_payload(
     ]
 
     scorecard, scorecard_hash = _fresh_scorecard(store)
+    window = window_counters(store)
 
     payload: dict[str, Any] = {
         "tick_uuid": tick_uuid,
@@ -161,5 +228,9 @@ def build_metrics_payload(
         "scorecard": scorecard,
         "enricher_version": __version__,
         "drift_suspected": drift_suspected(counters),
+        # BF-11: the rolling-window subcategory breakers, beside the per-tick one.
+        "subcategory_absent_drift": subcategory_absent_drift(window),
+        "subcategory_empty_drift": subcategory_empty_drift(window),
+        "subcategory_window": window,
     }
     return payload, scorecard_hash

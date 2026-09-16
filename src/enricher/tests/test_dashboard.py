@@ -51,6 +51,8 @@ def test_health_reports_all_keys(store):
         "last_heartbeat_at",
         "last_heartbeat_age_s", "stage_timings", "classify_engine", "classify_model",
         "judge_engine", "judge_model", "opencode_model", "latest_tick",
+        # BF-10: one edit to collect_health surfaces on cli health AND here.
+        "subcategory",
     }
     assert body["inbox"].get("enriched") == 1
     assert body["unsent"] == 1  # enriched-but-unsent row is write-back backlog
@@ -346,3 +348,76 @@ def test_knob_snapshot_and_setter_allowlist_agree(store):
     from job_enricher.enrich_config import config_snapshot
 
     assert set(config_snapshot(store)) == set(_KNOB_SETTERS)
+
+
+# ---- OPS-4 / BF-10: the backfill lane on the dashboard ----------------------
+def test_health_carries_the_subcategory_block(store):
+    _seed(store, "1")
+    block = _client(store).get("/api/health").json()["subcategory"]
+    for key in (
+        "eligible", "labelled", "empty", "stuck", "total_swe",
+        "local_coverage_pct", "shipped_coverage_pct", "pending_push",
+        "last_label_run", "last_push_run",
+    ):
+        assert key in block
+
+
+def test_every_new_backfill_knob_is_settable_from_the_dashboard(store):
+    """⚠ _KNOB_SETTERS is the dashboard's ENTIRE write surface — a knob missing
+    from it cannot be toggled at all."""
+    client = _client(store)
+    for key, value in (
+        ("backfill_enabled", True),
+        ("backfill_batch_size", 8),
+        ("backfill_max_attempts", 4),
+        ("subcategory_push_batch", 100),
+        ("subcategory_push_duty_pct", 10),
+        ("subcategory_push_max_seconds", 1800),
+    ):
+        resp = client.post("/api/knobs", json={"key": key, "value": value})
+        assert resp.status_code == 200, (key, resp.text)
+    snap = client.get("/api/knobs").json()["snapshot"]
+    assert snap["backfill_enabled"] is True
+    assert snap["subcategory_push_batch"] == 100
+
+
+def test_a_bad_backfill_knob_value_is_a_400_not_a_500(store):
+    resp = _client(store).post(
+        "/api/knobs", json={"key": "backfill_batch_size", "value": "not-an-int"}
+    )
+    assert resp.status_code == 400
+
+
+def test_knob_meta_lists_all_seventeen_subcategory_slugs(store):
+    from job_enricher import taxonomy as tax
+
+    meta = _client(store).get("/api/knobs").json().get("meta", {})
+    assert meta.get("subcategories") == sorted(tax.SUBCATEGORIES)
+    assert len(meta["subcategories"]) == 17
+
+
+def test_the_swe_without_subcategories_filter_returns_only_that_cohort(store):
+    """OPS-4's Jobs-panel filter: the backfill queue plus the TERMINAL [] rows."""
+    from job_enricher.store import now_iso
+
+    with store.connect() as c:
+        for jid, cat, subs in (
+            ("queued", "software_engineering", None),
+            ("empty", "software_engineering", "[]"),
+            ("labelled", "software_engineering", '["backend"]'),
+            ("notswe", "growth", None),
+        ):
+            c.execute(
+                "INSERT INTO inbox (job_listing_id, source_id, title, company, "
+                "raw_location, content_hash, claimed_at, status) "
+                "VALUES (?, 'gh', 'T', 'Acme', 'SF', ?, ?, 'sent')",
+                (jid, f"h-{jid}", now_iso()),
+            )
+            c.execute(
+                "INSERT INTO enrichments (job_listing_id, source_id, category, "
+                "subcategories, enriched_at) VALUES (?, 'gh', ?, ?, ?)",
+                (jid, cat, subs, now_iso()),
+            )
+    body = _client(store).get("/api/jobs?swe_without_subcategories=true").json()
+    assert {j["job_listing_id"] for j in body["jobs"]} == {"queued", "empty"}
+    assert body["total"] == 2

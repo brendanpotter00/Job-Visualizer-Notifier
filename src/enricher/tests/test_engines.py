@@ -748,3 +748,41 @@ def test_backfill_timeout_reaches_the_engine():
     )
     assert classify_engine._timeout == 11.0
     assert backfill_engine._timeout == 222.0
+
+
+# ---- BF-6: the standing negative guard against positional stamping ---------
+def test_call_with_repair_stamps_identity_only_at_batch_one():
+    """⚠ STANDING NEGATIVE GUARD, owned by BF-6. It exists to FAIL if anyone
+    re-adds positional id-stamping to base.py.
+
+    The draft proposed `positional_repair_on_count_match=True`, which stamps
+    identity by POSITION whenever the counts match. That assumes an order
+    guarantee nothing provides: a reordered response writes row A's labels onto
+    row B, the written value is non-NULL so the row leaves the backfill selector
+    PERMANENTLY, a rerun cannot fix it, and the NULL tri-state cannot detect it.
+    NO SUCH FLAG WAS ADDED, and this test is what keeps it that way."""
+    rows = [
+        {"job_listing_id": "1", "source_id": "gh", "title": "A", "company": "X"},
+        {"job_listing_id": "2", "source_id": "gh", "title": "B", "company": "X"},
+        {"job_listing_id": "3", "source_id": "gh", "title": "C", "company": "X"},
+    ]
+    wrong = _arr(
+        {"job_listing_id": "zzz", "source_id": "nope", "subcategories": ["backend"]},
+        {"job_listing_id": "yyy", "source_id": "nope", "subcategories": ["frontend"]},
+        {"job_listing_id": "xxx", "source_id": "nope", "subcategories": ["mobile"]},
+    )
+    eng = _ScriptedEngine([wrong])
+    out = eng._call_with_repair(rows, build_classify_prompt, "classify_latency_ms")
+    assert len(out) == 3
+    # NOTHING is stamped at batch > 1 — every result keeps its own wrong ids.
+    assert [o["job_listing_id"] for o in out] == ["zzz", "yyy", "xxx"]
+    assert [o["source_id"] for o in out] == ["nope", "nope", "nope"]
+
+
+def test_call_with_repair_still_stamps_at_batch_one():
+    """The paired positive: at len(inputs)==1 the lone output unambiguously
+    belongs to the lone input, so stamping there stays correct."""
+    eng = _ScriptedEngine([_arr({"job_listing_id": "wrong", "source_id": "wrong"})])
+    out = eng._call_with_repair([_JOB], build_classify_prompt, "classify_latency_ms")
+    assert out[0]["job_listing_id"] == "1"
+    assert out[0]["source_id"] == "gh"

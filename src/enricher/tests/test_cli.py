@@ -7,6 +7,7 @@ stale-file hygiene), a mocked pull->clean->record->write-back pipeline smoke,
 tick-end guards, and the run_eval gate return code."""
 
 import argparse
+from zoneinfo import ZoneInfo
 import json
 from pathlib import Path
 
@@ -2429,3 +2430,128 @@ def test_needs_judge_ignores_subcategories_entirely(store):
     row = _enrichment(store, "1")
     assert row["subcategories"] == "[]"          # EVALUATED, none apply
     assert cli._needs_judge(row, ceiling=0.85) is False
+
+
+# ---- BF-11: the subcategory breakers are WIRED to the tick's status ---------
+def test_all_empty_run_trips_the_breaker(store, monkeypatch):
+    """⚠ THE CERTIFIED ASSERTION. Bump the counters THROUGH
+    store.bump_tick_counters (never by hand-writing the ticks row) across three
+    ticks, run tick-end, and assert on the PERSISTED tick's STATUS. "Adds the
+    flag" is not enough — the flag riding in the /metrics payload while the tick
+    still closes ok is exactly the silent failure this exists to catch."""
+    monkeypatch.setattr(cli, "Store", lambda: store)
+    tid = None
+    for _ in range(3):
+        tid = store.start_tick()
+        store.bump_tick_counters(
+            swe_classified=12, swe_subcat_evaluated=12, swe_subcategorized=0
+        )
+        rc = cli._cmd_tick_end(
+            argparse.Namespace(status="ok", notes=None, tick_id=tid)
+        )
+        assert rc == 0
+    tick = store.get_tick(tid)
+    assert tick["status"] == "error"
+    assert "subcategory_empty_drift" in tick["notes"]
+
+
+def test_one_labelled_row_closes_ok(store, monkeypatch):
+    """The paired NEGATIVE — what proves the breaker is not just always-on."""
+    monkeypatch.setattr(cli, "Store", lambda: store)
+    tid = None
+    for _ in range(3):
+        tid = store.start_tick()
+        store.bump_tick_counters(
+            swe_classified=12, swe_subcat_evaluated=12, swe_subcategorized=1
+        )
+        cli._cmd_tick_end(argparse.Namespace(status="ok", notes=None, tick_id=tid))
+    assert store.get_tick(tid)["status"] == "ok"
+    assert not store.get_tick(tid)["notes"]
+
+
+def test_absent_drift_trips_the_breaker_and_names_itself(store, monkeypatch):
+    monkeypatch.setattr(cli, "Store", lambda: store)
+    tid = store.start_tick()
+    store.bump_tick_counters(swe_classified=12, swe_subcat_evaluated=0)
+    cli._cmd_tick_end(argparse.Namespace(status="ok", notes=None, tick_id=tid))
+    tick = store.get_tick(tid)
+    assert tick["status"] == "error"
+    assert "subcategory_absent_drift" in tick["notes"]
+    assert "subcategory_empty_drift" not in tick["notes"]
+
+
+def test_neither_subcategory_breaker_fires_on_a_healthy_window(store, monkeypatch):
+    monkeypatch.setattr(cli, "Store", lambda: store)
+    tid = store.start_tick()
+    store.bump_tick_counters(
+        swe_classified=12, swe_subcat_evaluated=12, swe_subcategorized=7
+    )
+    cli._cmd_tick_end(argparse.Namespace(status="ok", notes=None, tick_id=tid))
+    assert store.get_tick(tid)["status"] == "ok"
+
+
+def test_the_mass_nulling_breaker_still_fires_unchanged(store, monkeypatch):
+    """The existing breaker must be untouched by the second block."""
+    monkeypatch.setattr(cli, "Store", lambda: store)
+    tid = store.start_tick()
+    store.bump_tick_counters(classified=10, nulled_facets=6, swe_subcat_evaluated=5)
+    cli._cmd_tick_end(argparse.Namespace(status="ok", notes=None, tick_id=tid))
+    tick = store.get_tick(tid)
+    assert tick["status"] == "error"
+    assert "circuit breaker" in tick["notes"]
+
+
+# ---- BF-9: the night's run, at the CLI seam --------------------------------
+def test_subcategory_backfill_has_no_concurrency_flag():
+    """⚠ ARGPARSE ASSERTION, so the DELETED option cannot creep back.
+    _call_with_repair is strictly sequential, ChunkEngine has no parallel path,
+    and a threadpool would multiply SQLite write contention against the live
+    tick. The levers for wall time are --batch and the model tier."""
+    parser = cli.build_parser()
+    sub = parser._subparsers._group_actions[0].choices["subcategory-backfill"]
+    flags = {o for a in sub._actions for o in a.option_strings}
+    assert "--concurrency" not in flags
+    assert "--batch" in flags and "--until" in flags and "--dry-run" in flags
+
+
+def test_backfill_concurrency_is_not_a_knob_either():
+    assert not any("concurrency" in k for k in ec.KNOB_META_KEYS)
+
+
+def test_resolve_deadline_takes_the_next_occurrence_and_the_minimum():
+    from datetime import datetime, timedelta, timezone
+
+    # 03:00 UTC == 21:00 previous day in Chicago (CDT), so 09:00 local is ahead
+    now = datetime(2026, 8, 20, 3, 0, tzinfo=timezone.utc)
+    dl = cli.resolve_deadline("09:00", "America/Chicago", None, now=now)
+    assert dl is not None and now < dl <= now + timedelta(hours=24)
+    assert dl.astimezone(ZoneInfo("America/Chicago")).hour == 9
+
+    # --max-seconds wins when it is sooner
+    both = cli.resolve_deadline("09:00", "America/Chicago", 60, now=now)
+    assert both == now + timedelta(seconds=60)
+    assert cli.resolve_deadline(None, "America/Chicago", None, now=now) is None
+
+
+def test_subcategory_backfill_second_invocation_exits_75(store, monkeypatch, capsys):
+    import job_enricher.lock as lock_mod
+
+    monkeypatch.setattr(cli, "Store", lambda: store)
+    lock_path = store.db_path.parent / ".backfill.lock"
+    assert lock_mod.try_acquire(lock_path, stale_after_hours=12)[0]
+    rc = cli._cmd_subcategory_backfill(argparse.Namespace(
+        until=None, tz="America/Chicago", max_seconds=None, limit=1, batch=1,
+        model=None, open_only=False, dry_run=False, probe_json=None, notify=False,
+    ))
+    assert rc == 75
+    assert "skipped" in capsys.readouterr().out
+
+
+def test_subcategory_backfill_open_only_refuses_on_an_empty_scope(store, monkeypatch, capsys):
+    monkeypatch.setattr(cli, "Store", lambda: store)
+    rc = cli._cmd_subcategory_backfill(argparse.Namespace(
+        until=None, tz="America/Chicago", max_seconds=None, limit=1, batch=1,
+        model=None, open_only=True, dry_run=False, probe_json=None, notify=False,
+    ))
+    assert rc == 2
+    assert "REFUSED" in capsys.readouterr().err

@@ -6,6 +6,8 @@ The laptop makes only OUTBOUND HTTPS calls, authenticated with the existing
 
   GET  /pending?limit=N          claim a batch of unenriched OPEN jobs
   POST /results                  idempotent upsert of enrichment results
+  POST /subcategories            D2's slim bulk subcategory write-back (SCHEMA-14)
+  GET  /health                   trivial liveness GET — BF-16's RTT baseline
   GET  /sample?n=&stratify=      stratified raw sample for the eval golden set
   POST /metrics                  per-tick observability push (idempotent on tick_uuid)
   GET  /corrections?since=&limit= human admin corrections (feed for golden-merge)
@@ -131,6 +133,45 @@ class JVNClient:
                 content=json.dumps({"results": results}),
                 headers=self._headers(),
             )
+            resp.raise_for_status()
+            return resp.json()
+        finally:
+            if owns:
+                client.close()
+
+    def post_subcategories(
+        self, items: list[dict[str, Any]], client: httpx.Client | None = None
+    ) -> dict[str, Any]:
+        """D2's slim bulk write-back (`SCHEMA-14`).
+
+        ⚠ The endpoint is `extra='forbid'` — it has ONE client and no legacy
+        fleet, so an unknown key must 422 loudly rather than be dropped. Send the
+        six contract keys and nothing else. Max 500 items; above that the endpoint
+        422s. Returns {"written": n, "skipped": [...], "failed": [...],
+        "warnings": [...]}."""
+        owns = client is None
+        client = client or httpx.Client(timeout=self.timeout)
+        try:
+            resp = client.post(
+                self._url("subcategories"),
+                content=json.dumps({"items": items}),
+                headers=self._headers(),
+            )
+            resp.raise_for_status()
+            return resp.json()
+        finally:
+            if owns:
+                client.close()
+
+    def get_health(self, client: httpx.Client | None = None) -> dict[str, Any]:
+        """A trivial GET used as the network-RTT baseline in `BF-16`'s probe.
+
+        Reached through the same `_url` helper as everything else, so it carries
+        the same internal-key header."""
+        owns = client is None
+        client = client or httpx.Client(timeout=self.timeout)
+        try:
+            resp = client.get(self._url("health"), headers=self._headers())
             resp.raise_for_status()
             return resp.json()
         finally:

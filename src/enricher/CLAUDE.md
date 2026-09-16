@@ -48,6 +48,12 @@ the deploy sanity check),
 `eval` (`--gate`, `--gate-group`, `--facet`, `--tag`, `--allow-draft` = advisory only),
 `eval-run` (`--tag`, `--prompt {classify,backfill}`), `prelabel`, `review-build`,
 `review-render`, `review-apply`, `subcategory-weak-baseline`,
+`subcategory-backfill` (Tier-2 label run, own `.backfill.lock`, exit 75 if held),
+`subcategory-push` (throttled drain to JVN — exit 2 while `writeback:send_subcategories`
+is off), `subcategory-report` (the 09:00 artifact), `subcategory-reset` (scoped
+rollback), `subcategory-push-probe`, `subcategory-scope-import`,
+`set-backfill-enabled on|off` — ⚠ **all six run BY HAND from the prod checkout and
+none are in the tick wrapper; see `docs/BACKFILL.md`**,
 `reenrich`, `build-golden-set`,
 `golden-merge` (pull JVN admin corrections into golden/seed as `label_source='human'`;
 ⚠ **exits 2 when the live feed omits the v7 keys** `subcategories`/`taxonomy_version` —

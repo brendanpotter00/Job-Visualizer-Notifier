@@ -889,11 +889,13 @@ def test_a_backfill_subcategory_write_must_not_wipe_judge_state(store):
         "judge_pass": 1, "judge_confidence": 0.77, "judge_notes": "ok",
     })
     before = _enr(store, "1")
-    store.record_subcategories([{
-        "source_id": "greenhouse", "job_listing_id": "1",
-        "subcategories": '["backend"]', "subcategory_confidence": 0.7,
-        "subcategory_source": "backfill",
-    }])
+    # BF-8 landed a per-row keyword signature rather than the batch-of-dicts
+    # shape this placeholder guessed at in PR-C. Fixing the CALL is what the
+    # docstring above says to do; replacing it with raw SQL is what would turn
+    # the test back into a tautology.
+    store.record_subcategories(
+        "greenhouse", "1", ["backend"], confidence=0.7, source="backfill",
+    )
     after = _enr(store, "1")
     for key in (
         "judged", "judge_pass", "judge_confidence", "judge_notes",
@@ -1016,3 +1018,625 @@ def test_rehearse_script_uses_backup_not_cp_and_checks_all_ten_columns():
     assert "MIGRATION_V3_V4_SECONDS" in script
     assert "> 30" in script          # the split decision rule
     assert "ROLLBACK ARTIFACT" in script   # v3->v4 is a one-way door
+
+
+# ---------------------------------------------------------------------------
+# BF-1 — backfill ledger + provenance columns
+# ---------------------------------------------------------------------------
+
+# The EXACT column list BF-1 handed to ENR-ST-1. Asserted name by name so a
+# column the integrator drops fails HERE, loudly, rather than at 02:00 in the
+# middle of a run.
+_BF1_ENRICHMENT_COLS = (
+    "subcategories",
+    "subcategory_confidence",
+    "subcategory_source",
+    "subcategory_attempts",
+    "pre_judge_subcategories",
+    "subcategory_run_id",
+    "subcategory_sent_at",
+)
+_BF1_TICK_COLS = ("swe_classified", "swe_subcat_evaluated", "swe_subcategorized")
+
+
+def _cols(store, table):
+    with store.connect() as c:
+        return {r["name"] for r in c.execute(f"PRAGMA table_info({table})").fetchall()}
+
+
+def test_bf1_handed_columns_all_exist_by_name(store):
+    have = _cols(store, "enrichments")
+    for col in _BF1_ENRICHMENT_COLS:
+        assert col in have, f"enrichments.{col} missing — ENR-ST-1 dropped it"
+    tick_have = _cols(store, "ticks")
+    for col in _BF1_TICK_COLS:
+        assert col in tick_have, f"ticks.{col} missing — ENR-ST-1 dropped it"
+
+
+def test_bf1_both_partial_indexes_exist(store):
+    with store.connect() as c:
+        names = {r["name"] for r in c.execute("PRAGMA index_list(enrichments)").fetchall()}
+    assert "idx_enrichments_subcat_backlog" in names
+    assert "idx_enrichments_subcat_push" in names
+
+
+def test_bf1_backfill_runs_table_is_empty_and_shaped(store):
+    have = _cols(store, "backfill_runs")
+    for col in (
+        "kind", "engine", "model", "taxonomy_version", "rubric_version",
+        "deadline_at", "selected", "rule_labelled", "tag_labelled",
+        "model_labelled", "empty_labelled", "nulled_slugs", "echo_mismatch",
+        "unanswered", "transport_errors", "parse_errors", "errors", "retired",
+        "model_calls", "pushed", "push_batches", "push_rejected",
+        "push_skipped_human", "push_nulled_by_jvn", "pool_pressure_events",
+        "aborted_reason", "notes",
+    ):
+        assert col in have, f"backfill_runs.{col} missing"
+    with store.connect() as c:
+        assert c.execute("SELECT COUNT(*) AS n FROM backfill_runs").fetchone()["n"] == 0
+
+
+def test_bf1_all_three_tick_counters_really_increment(store):
+    """⚠ The _TICK_COUNTER_COLS silent-drop guard, end to end. A column added to
+    the DDL but not the frozenset makes BF-11's breakers read 0 forever."""
+    store.start_tick()
+    store.bump_tick_counters(
+        swe_classified=3, swe_subcat_evaluated=2, swe_subcategorized=1
+    )
+    tick = store.latest_tick()
+    assert tick["swe_classified"] == 3
+    assert tick["swe_subcat_evaluated"] == 2
+    assert tick["swe_subcategorized"] == 1
+
+
+def test_bf1_bump_backfill_counters_increments_and_warns_on_unknown(store, caplog):
+    run_id = store.start_backfill_run(kind="label")
+    with caplog.at_level("WARNING"):
+        store.bump_backfill_counters(
+            run_id, selected=5, echo_mismatch=2, not_a_real_counter=9
+        )
+    row = store.get_backfill_run(run_id)
+    assert row["selected"] == 5
+    assert row["echo_mismatch"] == 2
+    # dropped without raising ...
+    assert "not_a_real_counter" not in row
+    # ... but LOUDLY, unlike bump_tick_counters
+    assert any("not_a_real_counter" in r.getMessage() for r in caplog.records)
+
+
+def test_bf1_bump_backfill_counters_only_unknown_keys_is_a_noop(store, caplog):
+    run_id = store.start_backfill_run(kind="push")
+    with caplog.at_level("WARNING"):
+        store.bump_backfill_counters(run_id, nope=1)
+    assert store.get_backfill_run(run_id)["pushed"] == 0
+    assert caplog.records
+
+
+def test_bf1_run_ledger_round_trips_both_kinds(store):
+    label = store.start_backfill_run(
+        kind="label", engine="claude-code", model="haiku",
+        taxonomy_version="v7+abc123def456", rubric_version="rub-1",
+        deadline_at="2026-08-21T09:00:00-05:00",
+    )
+    push = store.start_backfill_run(kind="push")
+    lrow = store.get_backfill_run(label)
+    assert lrow["kind"] == "label"
+    assert lrow["engine"] == "claude-code"
+    assert lrow["model"] == "haiku"
+    assert lrow["taxonomy_version"] == "v7+abc123def456"
+    # ⚠ rubric_version is a SEPARATE stamp from taxonomy_version
+    assert lrow["rubric_version"] == "rub-1"
+    assert lrow["deadline_at"] == "2026-08-21T09:00:00-05:00"
+    assert lrow["status"] == "running"
+    assert lrow["ended_at"] is None
+    assert lrow["uuid"]
+
+    store.end_backfill_run(label, "aborted", aborted_reason="empty_rate", notes="n")
+    done = store.get_backfill_run(label)
+    assert done["status"] == "aborted"
+    assert done["aborted_reason"] == "empty_rate"
+    assert done["notes"] == "n"
+    assert done["ended_at"]
+
+    store.end_backfill_run(push, "ok")
+    assert store.get_backfill_run(push)["status"] == "ok"
+
+
+def test_bf1_latest_backfill_run_filters_by_lane(store):
+    push = store.start_backfill_run(kind="push")
+    label = store.start_backfill_run(kind="label")  # newer
+    assert store.latest_backfill_run()["id"] == label
+    assert store.latest_backfill_run(kind="label")["id"] == label
+    # ⚠ the push lane must not see the newer label run
+    assert store.latest_backfill_run(kind="push")["id"] == push
+
+
+def test_bf1_latest_backfill_run_is_none_on_a_fresh_db(store):
+    assert store.latest_backfill_run() is None
+    assert store.latest_backfill_run(kind="push") is None
+    assert store.get_backfill_run(999) is None
+
+
+def test_bf1_start_backfill_run_rejects_an_unknown_kind(store):
+    import pytest
+    with pytest.raises(ValueError):
+        store.start_backfill_run(kind="labelx")
+
+
+# ---------------------------------------------------------------------------
+# BF-4 — the selector: the scope join and the two overturned predicates
+# ---------------------------------------------------------------------------
+import pytest
+
+from job_enricher.store import ScopeUnavailableError, now_iso
+
+
+def _swe_row(
+    store, jid, *, status="sent", category="software_engineering", attempts=0,
+    subcategories=None, title_only=0, clean="a real description",
+    first_seen_at="2026-08-01T00:00:00+00:00", source_id="greenhouse",
+    tags='["python"]',
+):
+    """One inbox+enrichment pair in an arbitrary state, written directly so the
+    selector's tests do not depend on the write path they are meant to precede."""
+    with store.connect() as c:
+        c.execute(
+            "INSERT INTO inbox (job_listing_id, source_id, title, company, "
+            "raw_location, content_hash, claimed_at, status, clean_description, "
+            "first_seen_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (jid, source_id, f"Engineer {jid}", "acme", "SF", f"h-{jid}",
+             now_iso(), status, clean, first_seen_at),
+        )
+        c.execute(
+            "INSERT INTO enrichments (job_listing_id, source_id, category, tags, "
+            "subcategories, subcategory_attempts, title_only, enriched_at, sent_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (jid, source_id, category, tags, subcategories, attempts, title_only,
+             now_iso(), now_iso() if status == "sent" else None),
+        )
+
+
+def _ids(rows):
+    return [r["job_listing_id"] for r in rows]
+
+
+def test_bf4_selector_includes_title_only_rows(store):
+    """⚠ STANDING REGRESSION. `title_only = 0` is an OVERTURNED predicate: the
+    record replaces "those rows can never be labelled" with "title-first labels
+    1,081 of them". This fails if ENR-ST-2's predicate comes back."""
+    _swe_row(store, "plain", title_only=0)
+    _swe_row(store, "titleonly", title_only=1)
+    assert set(_ids(store.rows_needing_subcategory())) == {"plain", "titleonly"}
+
+
+def test_bf4_selector_includes_rows_with_an_empty_clean_description(store):
+    """⚠ STANDING REGRESSION. The backfill prompt never reads a description, so
+    requiring one is pointless AND re-excludes the same cohort."""
+    _swe_row(store, "has", clean="a real description")
+    _swe_row(store, "empty", clean="")
+    _swe_row(store, "null", clean=None)
+    assert set(_ids(store.rows_needing_subcategory())) == {"has", "empty", "null"}
+
+
+def test_bf4_selector_excludes_non_swe(store):
+    _swe_row(store, "swe")
+    _swe_row(store, "pm", category="product_manager")
+    _swe_row(store, "none", category=None)
+    assert _ids(store.rows_needing_subcategory()) == ["swe"]
+
+
+def test_bf4_selector_excludes_already_set_including_the_empty_array(store):
+    _swe_row(store, "null_", subcategories=None)
+    _swe_row(store, "real", subcategories='["backend"]')
+    # ⚠ '[]' is TERMINAL — evaluated, none apply. It must never be re-queued.
+    _swe_row(store, "empty_arr", subcategories="[]")
+    assert _ids(store.rows_needing_subcategory()) == ["null_"]
+
+
+def test_bf4_selector_excludes_rows_at_the_attempts_cap(store):
+    _swe_row(store, "fresh", attempts=0)
+    _swe_row(store, "two", attempts=2)
+    _swe_row(store, "capped", attempts=3)
+    _swe_row(store, "over", attempts=9)
+    assert set(_ids(store.rows_needing_subcategory(max_attempts=3))) == {"fresh", "two"}
+
+
+def test_bf4_selector_excludes_failed_and_cleaned_status(store):
+    _swe_row(store, "sent", status="sent")
+    _swe_row(store, "enriched", status="enriched")
+    _swe_row(store, "failed", status="failed")
+    # the ~262-row cohort mid-reclassification
+    _swe_row(store, "cleaned", status="cleaned")
+    assert set(_ids(store.rows_needing_subcategory())) == {"sent", "enriched"}
+
+
+def test_bf4_selector_is_newest_first_with_null_recency_last(store):
+    _swe_row(store, "old", first_seen_at="2026-01-01T00:00:00+00:00")
+    _swe_row(store, "new", first_seen_at="2026-08-19T00:00:00+00:00")
+    _swe_row(store, "legacy", first_seen_at=None)
+    assert _ids(store.rows_needing_subcategory()) == ["new", "old", "legacy"]
+    assert _ids(store.rows_needing_subcategory(limit=1)) == ["new"]
+
+
+def test_bf4_selector_never_selects_clean_description(store):
+    """The injection boundary starts HERE: the row handed onward has nowhere to
+    put a description."""
+    _swe_row(store, "a", clean="SECRET-INJECTION-PAYLOAD")
+    row = store.rows_needing_subcategory()[0]
+    assert "clean_description" not in row.keys()
+    assert "SECRET-INJECTION-PAYLOAD" not in json.dumps(
+        {k: row[k] for k in row.keys()}, default=str
+    )
+
+
+def test_bf4_open_only_returns_only_scoped_rows(store):
+    _swe_row(store, "in_scope")
+    _swe_row(store, "out_of_scope")
+    store.import_backfill_scope([("greenhouse", "in_scope")])
+    assert _ids(store.rows_needing_subcategory(open_only=True)) == ["in_scope"]
+    # without the flag the scope is irrelevant
+    assert set(_ids(store.rows_needing_subcategory())) == {"in_scope", "out_of_scope"}
+
+
+def test_bf4_open_only_refuses_on_an_empty_scope(store):
+    """⚠ A silently-empty scope would make --open-only a no-op that reports
+    success. It must RAISE, not return []."""
+    _swe_row(store, "a")
+    with pytest.raises(ScopeUnavailableError) as exc:
+        store.rows_needing_subcategory(open_only=True)
+    assert "EMPTY" in str(exc.value)
+
+
+def test_bf4_open_only_refuses_on_a_stale_scope(store):
+    _swe_row(store, "a")
+    store.import_backfill_scope([("greenhouse", "a")])
+    with store.connect() as c:
+        c.execute("UPDATE backfill_scope SET imported_at = '2026-01-01T00:00:00+00:00'")
+    with pytest.raises(ScopeUnavailableError) as exc:
+        store.rows_needing_subcategory(open_only=True)
+    assert "old" in str(exc.value)
+
+
+def test_bf4_a_row_bumped_every_pass_eventually_leaves_the_selector(store):
+    """⚠ THE ANTI-SPIN TEST. There are no claim semantics — the selector advances
+    only because a written row stops being NULL. A row that keeps FAILING is only
+    kept out of the loop by the attempts bump; without it the loop spins in place
+    while reporting progress."""
+    _swe_row(store, "poison")
+    for _ in range(5):
+        rows = store.rows_needing_subcategory(max_attempts=3)
+        if not rows:
+            break
+        with store.connect() as c:
+            c.execute(
+                "UPDATE enrichments SET subcategory_attempts = subcategory_attempts + 1 "
+                "WHERE job_listing_id = 'poison'"
+            )
+    assert store.rows_needing_subcategory(max_attempts=3) == []
+
+
+def test_bf4_backlog_counts_separate_coverage_from_yield(store):
+    _swe_row(store, "labelled", subcategories='["backend"]')
+    _swe_row(store, "empty_arr", subcategories="[]")
+    _swe_row(store, "queued")
+    _swe_row(store, "retired", attempts=3)
+    _swe_row(store, "notswe", category="growth")
+    counts = store.subcategory_backlog_counts(max_attempts=3)
+    assert counts["total_swe"] == 4
+    # coverage INCLUDES the terminal empty array ...
+    assert counts["evaluated"] == 2
+    # ... yield does not
+    assert counts["labelled"] == 1
+    assert counts["empty"] == 1
+    assert counts["eligible"] == 1
+    assert counts["retired"] == 1
+
+
+# ---------------------------------------------------------------------------
+# BF-8 — the backfill-only write concerns
+# ---------------------------------------------------------------------------
+_JUDGE_COLS = (
+    "judged", "judge_pass", "judge_confidence", "judge_notes", "judge_reasoning",
+    "judge_latency_ms", "judge_model",
+    "pre_judge_category", "pre_judge_level", "pre_judge_tags",
+    "pre_judge_subcategories",
+)
+
+
+def _enrichment(store, jid="1", source_id="greenhouse"):
+    with store.connect() as c:
+        return dict(
+            c.execute(
+                "SELECT * FROM enrichments WHERE source_id = ? AND job_listing_id = ?",
+                (source_id, jid),
+            ).fetchone()
+        )
+
+
+def test_bf8_record_subcategories_sets_every_field_and_stamps_the_run(store):
+    _swe_row(store, "1")
+    run = store.start_backfill_run(kind="label")
+    store.record_subcategories(
+        "greenhouse", "1", ["infrastructure_platform", "backend"],
+        confidence=0.82, source="backfill", run_id=run,
+    )
+    row = _enrichment(store)
+    assert json.loads(row["subcategories"]) == ["infrastructure_platform", "backend"]
+    assert row["subcategory_confidence"] == 0.82
+    assert row["subcategory_source"] == "backfill"
+    assert row["subcategory_run_id"] == run
+    assert row["subcategory_attempts"] == 1
+
+
+def test_bf8_bump_attempt_false_leaves_the_counter_alone(store):
+    _swe_row(store, "1", attempts=2)
+    store.record_subcategories("greenhouse", "1", ["backend"], source="rule",
+                               bump_attempt=False)
+    assert _enrichment(store)["subcategory_attempts"] == 2
+
+
+def test_bf8_confidence_is_forced_null_without_a_label(store):
+    _swe_row(store, "1")
+    store.record_subcategories("greenhouse", "1", [], confidence=0.9, source="backfill")
+    assert _enrichment(store)["subcategory_confidence"] is None
+    _swe_row(store, "2")
+    store.record_subcategories("greenhouse", "2", None, confidence=0.9)
+    assert _enrichment(store, "2")["subcategory_confidence"] is None
+
+
+def test_bf8_record_subcategories_leaves_every_judge_column_byte_identical(store):
+    """⚠ A subcategory is an ADDITIVE facet, unlike record_enrichment which
+    deliberately resets the judge because a re-classification has no judge yet.
+    Asserted COLUMN BY COLUMN."""
+    _swe_row(store, "1")
+    with store.connect() as c:
+        c.execute(
+            "UPDATE enrichments SET judged=1, judge_pass=1, judge_confidence=0.7, "
+            "judge_notes='n', judge_reasoning='r', judge_latency_ms=42, "
+            "judge_model='sonnet', pre_judge_category='growth', "
+            "pre_judge_level='senior', pre_judge_tags='[\"t\"]', "
+            "pre_judge_subcategories='[\"frontend\"]' WHERE job_listing_id='1'"
+        )
+    before = _enrichment(store)
+    store.record_subcategories("greenhouse", "1", ["backend"], 0.9, "backfill")
+    after = _enrichment(store)
+    for col in _JUDGE_COLS:
+        assert after[col] == before[col], f"{col} changed"
+
+
+def test_bf8_record_subcategories_never_reopens_a_sent_row(store):
+    """⚠ THE AMPLIFICATION REGRESSION. Clearing sent_at puts the row back into
+    enriched_unsent(), which takes limit=None and ships full clean_descriptions."""
+    _swe_row(store, "1", status="sent")
+    before = _enrichment(store)
+    unsent_before = len(store.enriched_unsent())
+    store.record_subcategories("greenhouse", "1", ["backend"], 0.9, "backfill")
+    after = _enrichment(store)
+    assert after["sent_at"] == before["sent_at"] is not None
+    with store.connect() as c:
+        assert c.execute(
+            "SELECT status FROM inbox WHERE job_listing_id='1'"
+        ).fetchone()["status"] == "sent"
+    assert len(store.enriched_unsent()) == unsent_before
+
+
+def test_bf8_record_subcategories_has_no_reopen_parameter_at_all(store):
+    """⚠ inspect.signature, so the DELETED behaviour cannot creep back."""
+    import inspect
+    params = inspect.signature(store.record_subcategories).parameters
+    assert "reopen" not in params
+    assert set(params) == {
+        "source_id", "job_listing_id", "subcategories", "confidence", "source",
+        "run_id", "bump_attempt",
+    }
+
+
+def test_bf8_record_subcategory_failure_bumps_attempts_and_stays_null(store):
+    _swe_row(store, "1")
+    store.record_subcategory_failure("greenhouse", "1")
+    row = _enrichment(store)
+    assert row["subcategories"] is None
+    assert row["subcategory_attempts"] == 1
+    assert row["subcategory_source"] is None
+    # still in the queue
+    assert _ids(store.rows_needing_subcategory()) == ["1"]
+
+
+def test_bf8_an_explicit_empty_array_is_terminal(store):
+    _swe_row(store, "1")
+    store.record_subcategories("greenhouse", "1", [], source="backfill")
+    assert _enrichment(store)["subcategories"] == "[]"
+    assert store.rows_needing_subcategory() == []
+
+
+def test_bf8_mark_sent_stamps_subcategory_sent_at_only_with_the_knob_on(store):
+    """⚠ BOTH DIRECTIONS. With the knob OFF _row_to_result omits the field, so
+    stamping anyway marks a live-lane row as pushed when nothing was sent — and
+    BF-12b's drain, whose cursor IS this column, skips it forever."""
+    from job_enricher import enrich_config as ec
+
+    _swe_row(store, "off", status="enriched")
+    store.record_subcategories("greenhouse", "off", ["backend"], 0.9, "classify")
+    ec.set_writeback_send_subcategories(store, False)
+    store.mark_sent([("greenhouse", "off")])
+    row = _enrichment(store, "off")
+    assert row["sent_at"] is not None
+    assert row["subcategory_sent_at"] is None
+
+    _swe_row(store, "on", status="enriched")
+    store.record_subcategories("greenhouse", "on", ["backend"], 0.9, "classify")
+    ec.set_writeback_send_subcategories(store, True)
+    store.mark_sent([("greenhouse", "on")])
+    assert _enrichment(store, "on")["subcategory_sent_at"] is not None
+
+
+def test_bf8_mark_sent_does_not_stamp_a_row_with_no_subcategories(store):
+    from job_enricher import enrich_config as ec
+
+    _swe_row(store, "1", status="enriched")
+    ec.set_writeback_send_subcategories(store, True)
+    store.mark_sent([("greenhouse", "1")])
+    row = _enrichment(store)
+    assert row["sent_at"] is not None
+    assert row["subcategory_sent_at"] is None
+
+
+def test_bf8_record_enrichment_zeroes_all_three_on_a_reclassify(store):
+    _swe_row(store, "1")
+    run = store.start_backfill_run(kind="label")
+    store.record_subcategories("greenhouse", "1", ["backend"], 0.9, "backfill",
+                               run_id=run)
+    with store.connect() as c:
+        c.execute("UPDATE enrichments SET subcategory_sent_at = '2026-08-20T00:00:00'")
+    store.record_enrichment({
+        "job_listing_id": "1", "source_id": "greenhouse",
+        "category": "software_engineering", "level": "mid",
+    })
+    row = _enrichment(store)
+    assert row["subcategory_attempts"] == 0
+    assert row["subcategory_run_id"] is None
+    assert row["subcategory_sent_at"] is None
+
+
+# ---------------------------------------------------------------------------
+# BF-14 — scoped rollback
+# ---------------------------------------------------------------------------
+def _labelled(store, jid, source, run_id=None, sent=False, attempts=1,
+              category="software_engineering"):
+    _swe_row(store, jid, category=category)
+    store.record_subcategories("greenhouse", jid, ["backend"], 0.7, source,
+                               run_id=run_id, bump_attempt=False)
+    with store.connect() as c:
+        c.execute(
+            "UPDATE enrichments SET subcategory_attempts = ?, "
+            "subcategory_sent_at = ? WHERE job_listing_id = ?",
+            (attempts, "2026-08-20T00:00:00+00:00" if sent else None, jid),
+        )
+
+
+def test_bf14_reset_by_run_id_touches_only_that_run(store):
+    _labelled(store, "n1", "backfill", run_id=1)
+    _labelled(store, "n2", "backfill", run_id=2)
+    affected, _ = store.reset_subcategories(run_id=2)
+    assert affected == 1
+    assert _enrichment(store, "n2")["subcategories"] is None
+    assert _enrichment(store, "n1")["subcategories"] is not None
+
+
+def test_bf14_judge_and_human_rows_survive_every_variant(store):
+    """⚠ THE FIXTURE WITH ALL FIVE SOURCES. The default tuple is the two machine
+    lanes; judge and human are reachable only by naming them explicitly."""
+    for src in ("rule", "backfill", "classify", "judge", "human"):
+        _labelled(store, src, src)
+    store.reset_subcategories()                       # default ('rule','backfill')
+    assert _enrichment(store, "rule")["subcategories"] is None
+    assert _enrichment(store, "backfill")["subcategories"] is None
+    for survivor in ("classify", "judge", "human"):
+        assert _enrichment(store, survivor)["subcategories"] is not None
+    store.reset_subcategories(sources=("rule", "backfill", "classify"))
+    for survivor in ("judge", "human"):
+        assert _enrichment(store, survivor)["subcategories"] is not None
+
+
+def test_bf14_source_rule_leaves_backfill_rows_alone(store):
+    _labelled(store, "r", "rule")
+    _labelled(store, "b", "backfill")
+    store.reset_subcategories(sources=("rule",))
+    assert _enrichment(store, "r")["subcategories"] is None
+    assert _enrichment(store, "b")["subcategories"] is not None
+
+
+def test_bf14_reset_leaves_every_neighbouring_column_byte_identical(store):
+    _labelled(store, "1", "backfill", run_id=1, sent=True)
+    with store.connect() as c:
+        c.execute(
+            "UPDATE enrichments SET judged=1, judge_pass=1, judge_confidence=0.6, "
+            "judge_notes='n', level='senior', tags='[\"t\"]', locations='[\"SF\"]'"
+        )
+    before = _enrichment(store)
+    store.reset_subcategories(run_id=1)
+    after = _enrichment(store)
+    for col in ("category", "level", "tags", "locations", "sent_at", *_JUDGE_COLS):
+        assert after[col] == before[col], f"{col} changed"
+    with store.connect() as c:
+        assert c.execute(
+            "SELECT status FROM inbox WHERE job_listing_id='1'"
+        ).fetchone()["status"] == "sent"
+
+
+def test_bf14_attempts_really_go_to_zero_and_the_row_requeues(store):
+    """⚠ THE RE-QUEUE ROUND TRIP. Without attempts=0 a capped row stays out of
+    the selector FOREVER and the reset silently fails."""
+    _labelled(store, "1", "backfill", run_id=1, attempts=3)
+    assert store.rows_needing_subcategory(max_attempts=3) == []
+    store.reset_subcategories(run_id=1)
+    assert _enrichment(store)["subcategory_attempts"] == 0
+    assert _ids(store.rows_needing_subcategory(max_attempts=3)) == ["1"]
+
+
+def test_bf14_subcategory_sent_at_is_cleared_so_the_drain_repushes(store):
+    _labelled(store, "1", "backfill", run_id=1, sent=True)
+    store.reset_subcategories(run_id=1)
+    assert _enrichment(store)["subcategory_sent_at"] is None
+
+
+def test_bf14_reports_the_already_pushed_count_separately(store):
+    _labelled(store, "pushed", "backfill", run_id=1, sent=True)
+    _labelled(store, "local", "backfill", run_id=1, sent=False)
+    affected, pushed = store.reset_subcategories(run_id=1, dry_run=True)
+    assert (affected, pushed) == (2, 1)
+    # ⚠ dry_run MUTATES NOTHING
+    assert _enrichment(store, "pushed")["subcategories"] is not None
+
+
+def test_bf14_reset_by_category(store):
+    _labelled(store, "swe", "backfill")
+    _labelled(store, "other", "backfill", category="growth")
+    affected, _ = store.reset_subcategories(category="software_engineering")
+    assert affected == 1
+    assert _enrichment(store, "other")["subcategories"] is not None
+
+
+def test_bf14_a_relabel_round_trip_reselects_the_same_rows(store):
+    for i in range(10):
+        _labelled(store, f"j{i}", "backfill", run_id=7)
+    assert store.rows_needing_subcategory() == []
+    store.reset_subcategories(run_id=7)
+    assert len(store.rows_needing_subcategory()) == 10
+
+
+# ---------------------------------------------------------------------------
+# RB-1 — the WHERE clause, proved against all five sources
+# ---------------------------------------------------------------------------
+def test_rb1_the_default_scoped_reset_touches_only_the_two_machine_lanes(store):
+    """⚠ A fixture with ALL FIVE contract sources. The default tuple is
+    ('rule','backfill'); 'classify' is a LIVE-lane label and survives, and
+    'judge'/'human' survive every variant. This is the whole safety net."""
+    for src in ("rule", "backfill", "classify", "judge", "human"):
+        _labelled(store, src, src, run_id=1)
+    affected, _ = store.reset_subcategories(dry_run=True)
+    assert affected == 2
+    store.reset_subcategories()
+    survived = {
+        src for src in ("rule", "backfill", "classify", "judge", "human")
+        if _enrichment(store, src)["subcategories"] is not None
+    }
+    assert survived == {"classify", "judge", "human"}
+
+
+def test_rb1_the_reset_count_equals_the_runs_labelled_plus_empty(store):
+    """The rehearsal's acceptance: the affected row count equals the sum of the
+    run's labelled + empty counters."""
+    run = store.start_backfill_run(kind="label")
+    for i in range(4):
+        _swe_row(store, f"lab{i}")
+        store.record_subcategories("greenhouse", f"lab{i}", ["backend"], 0.8,
+                                   "backfill", run_id=run)
+    for i in range(2):
+        _swe_row(store, f"emp{i}")
+        store.record_subcategories("greenhouse", f"emp{i}", [], None, "backfill",
+                                   run_id=run)
+    store.bump_backfill_counters(run, model_labelled=4, empty_labelled=2)
+    row = store.get_backfill_run(run)
+    affected, _ = store.reset_subcategories(run_id=run, dry_run=True)
+    assert affected == row["model_labelled"] + row["empty_labelled"] == 6

@@ -33,6 +33,8 @@ from job_enricher.health import collect_health
 from job_enricher.store import (
     LAST_SCORECARD_HASH_KEY,
     REPO_ROOT,
+    SCOPE_MAX_AGE_HOURS,
+    ScopeUnavailableError,
     Store,
     now_iso,
 )
@@ -118,7 +120,13 @@ def _cmd_tick_end(args: argparse.Namespace) -> int:
     of classified rows (with classified >= 10) closes status='error' regardless
     of the requested status — that ratio means taxonomy drift, not per-row
     hallucinations."""
-    from job_enricher.metrics import drift_suspected
+    from job_enricher import metrics as mx
+    from job_enricher.metrics import (
+        drift_suspected,
+        subcategory_absent_drift,
+        subcategory_empty_drift,
+        window_counters,
+    )
 
     store = Store()
     expected = args.tick_id if args.tick_id is not None else _env_int("ENRICH_TICK_ID")
@@ -138,6 +146,38 @@ def _cmd_tick_end(args: argparse.Namespace) -> int:
             breaker = (
                 f"mass-nulling circuit breaker: nulled_facets={tick['nulled_facets']} "
                 f"of classified={tick['classified']} (>50%) — taxonomy drift suspected"
+            )
+            logger.error("tick-end: %s", breaker)
+            status = "error"
+            notes = f"{notes} | {breaker}" if notes else breaker
+
+        # ⚠ BF-11: THE SECOND BREAKER BLOCK. Without this edit the two
+        # subcategory flags ride in the /metrics payload but never trip the tick
+        # status — the existing mass-nulling breaker works precisely because it
+        # is wired HERE. A rolling window over the last SUBCAT_DRIFT_WINDOW_TICKS
+        # ticks, INCLUDING the one being closed.
+        window = window_counters(store)
+        for fired, name, detail in (
+            (
+                subcategory_absent_drift(window),
+                "subcategory_absent_drift",
+                "the subcategories field never arrived (broken prompt, schema "
+                "or engine)",
+            ),
+            (
+                subcategory_empty_drift(window),
+                "subcategory_empty_drift",
+                "every evaluated SWE row answered [] (broken rubric) — ⚠ '[]' is "
+                "TERMINAL, those rows have LEFT the backfill queue",
+            ),
+        ):
+            if not fired:
+                continue
+            breaker = (
+                f"{name}: over the last {mx.SUBCAT_DRIFT_WINDOW_TICKS} ticks "
+                f"swe_classified={window['swe_classified']} "
+                f"swe_subcat_evaluated={window['swe_subcat_evaluated']} "
+                f"swe_subcategorized={window['swe_subcategorized']} — {detail}"
             )
             logger.error("tick-end: %s", breaker)
             status = "error"
@@ -2098,7 +2138,8 @@ def _enrichment_map(store: Store, ids: list[str]) -> dict[tuple[str, str], dict[
 # and jobs open and close overnight. The night's run refuses (exit 2) on a scope
 # older than this, or on an empty scope, because **a silently-empty scope makes
 # `--open-only` a no-op that reports success.**
-SCOPE_MAX_AGE_HOURS = 24
+# ONE number: re-exported from store, where `rows_needing_subcategory(open_only=True)`
+# enforces it structurally by raising ScopeUnavailableError.
 
 
 def _read_scope_ndjson(path: Path) -> list[tuple[str, str]]:
@@ -2164,16 +2205,336 @@ def check_backfill_scope_freshness(
     """None when the scope is fresh and non-empty; otherwise the refusal reason.
 
     Called by the night's run so a stale or empty scope is an EXIT 2, not a
-    silently successful no-op."""
-    age = store.backfill_scope_age_hours()
-    if age is None:
-        return "backfill_scope is EMPTY — re-run the export + import"
-    if age > max_age_hours:
-        return (
-            f"backfill_scope is {age:.1f}h old (> {max_age_hours}h) — jobs open "
-            f"and close overnight; re-run the export + import"
+    silently successful no-op. Delegates to the store so the CLI's pre-flight
+    and the selector's own refusal can never disagree."""
+    return store.scope_refusal_reason(max_age_hours)
+
+
+# ---- BF-9: the night's subcategory backfill run ----------------------------
+def resolve_deadline(
+    until: str | None,
+    tz: str,
+    max_seconds: int | None,
+    now: datetime | None = None,
+) -> datetime | None:
+    """`--until` is an ABSOLUTE local wall-clock time, resolved to its NEXT
+    occurrence in `zoneinfo.ZoneInfo(tz)` — Python >= 3.11, so DST-correct for
+    Central Time. Combined with `--max-seconds` as `min(...)`."""
+    from datetime import timedelta
+    from zoneinfo import ZoneInfo
+
+    candidates: list[datetime] = []
+    now = now or datetime.now(timezone.utc)
+    if until:
+        zone = ZoneInfo(tz)
+        hh, _, mm = until.partition(":")
+        local_now = now.astimezone(zone)
+        target = local_now.replace(
+            hour=int(hh), minute=int(mm or 0), second=0, microsecond=0
         )
-    return None
+        if target <= local_now:
+            target += timedelta(days=1)  # the NEXT occurrence
+        candidates.append(target.astimezone(timezone.utc))
+    if max_seconds:
+        candidates.append(now + timedelta(seconds=max_seconds))
+    return min(candidates) if candidates else None
+
+
+def _cmd_subcategory_backfill(args: argparse.Namespace) -> int:
+    """Label the SWE backlog's subcategories, off the live lane.
+
+    ⚠ There is NO `--concurrency` flag, deliberately, and there is no
+    `backfill:concurrency` knob. `ChunkEngine._call_with_repair` is strictly
+    sequential, nothing in `ChunkEngine` supports parallel chunks, and a
+    threadpool would multiply SQLite write contention against the live tick
+    (`busy_timeout` 5000 ms). The levers for wall time are `--batch` and the
+    model tier, both measured by `P0-5`. Do not re-add the option on a slow
+    night."""
+    import signal
+
+    from job_enricher import backfill as bfl
+    from job_enricher.engines import build_engine
+
+    store = Store()
+    if args.open_only:
+        refusal = check_backfill_scope_freshness(store)
+        if refusal is not None:
+            print(f"subcategory-backfill: REFUSED — {refusal}", file=sys.stderr)
+            return 2
+
+    lock_path = store.db_path.parent / bfl.BACKFILL_LOCK_NAME
+    acquired, reason = lock_mod.try_acquire(lock_path, stale_after_hours=12)
+    if not acquired:
+        print(f"subcategory-backfill: skipped — {reason}")
+        return 75
+
+    stop_path = store.db_path.parent / bfl.STOP_SENTINEL_NAME
+
+    def _on_signal(signum, _frame):
+        # ⚠ Finish the CHUNK in flight, then stop: the sentinel is honoured at
+        # the next chunk boundary, which is what protects a write in flight.
+        logger.warning("subcategory-backfill: signal %s — stopping after this chunk", signum)
+        try:
+            stop_path.touch()
+        except OSError:
+            pass
+
+    previous = [
+        (sig, signal.signal(sig, _on_signal))
+        for sig in (signal.SIGTERM, signal.SIGINT)
+    ]
+    try:
+        engine_kind, model = _stage_engine_model(
+            store, "classify", None, args.model
+        )
+        engine = build_engine(engine_kind, model=model)
+        deadline = resolve_deadline(args.until, args.tz, args.max_seconds)
+        probe_path = None
+        if args.dry_run:
+            probe_path = Path(args.probe_json) if args.probe_json else (
+                store.db_path.parent
+                / f"backfill-probe-{now_iso().replace(':', '-')}.json"
+            )
+        outcome = bfl.run_backfill(
+            store, engine, limit=args.limit, batch=args.batch,
+            max_attempts=None, open_only=args.open_only, deadline=deadline,
+            dry_run=args.dry_run, model=model, engine_name=engine_kind,
+            probe_path=probe_path, stop_path=stop_path,
+        )
+    finally:
+        for sig, handler in previous:
+            signal.signal(sig, handler)
+        lock_mod.release(lock_path)
+
+    head = f"subcategory-backfill: status={outcome.status}"
+    if outcome.aborted_reason:
+        head += f" ABORTED aborted_reason={outcome.aborted_reason}"
+    print(head)
+    if outcome.notes:
+        print(f"  {outcome.notes}")
+    print(f"  run_id={outcome.run_id} counters={json.dumps(outcome.counters)}")
+    if probe_path is not None:
+        print(f"  probe: {probe_path}")
+    if args.notify:
+        _notify(head)
+    return outcome.exit_code
+
+
+def _notify(message: str) -> None:
+    """Opt-in one-line SMS. ⚠ A send failure must NEVER change the exit code."""
+    script = Path.home() / ".claude" / "skills" / "message-brendan" / "send.sh"
+    try:
+        subprocess.run([str(script), message], timeout=30, check=False)
+    except (OSError, subprocess.SubprocessError) as exc:
+        logger.warning("notify: send failed (ignored): %s", exc)
+
+
+# ---- BF-10: the morning report ---------------------------------------------
+def _cmd_subcategory_report(args: argparse.Namespace) -> int:
+    """One ledger, both lanes, and the JVN-coverage reconciliation.
+
+    ⚠ Also WRITES `data/backfill-report-<run_id>.json`, so 09:00 has an artifact
+    even if the terminal is gone."""
+    from job_enricher import backfill as bfl
+
+    store = Store()
+    report = bfl.build_report(store, run_id=args.run_id, kind=args.kind)
+    rendered = bfl.render_report(report)
+    if args.json:
+        print(json.dumps(report, indent=2))
+    else:
+        print(rendered)
+    run_id = (
+        (report.get("label") or {}).get("run_id")
+        or (report.get("push") or {}).get("run_id")
+        or "none"
+    )
+    out = store.db_path.parent / f"backfill-report-{run_id}.json"
+    try:
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(report, indent=2), encoding="utf-8")
+        print(f"  (written to {out})")
+    except OSError as exc:
+        logger.warning("subcategory-report: could not write %s: %s", out, exc)
+    if args.notify:
+        first = rendered.splitlines()[0] if rendered else "subcategory-report"
+        _notify(first)
+    return 0
+
+
+# ---- BF-12b: the throttled drain to JVN ------------------------------------
+def _cmd_subcategory_push(args: argparse.Namespace) -> int:
+    """Drain labelled subcategories to JVN, paced from `BF-16`'s measurement.
+
+    ⚠ There is NO `--concurrency` flag and no concurrency knob. One in-flight
+    request = one of the pool's 15 slots; N=1 satisfies the 2026-05-17 incident's
+    invariant STRUCTURALLY and must not be traded for speed.
+
+    ⚠ `--probe` / `--slot-hold` ARE THE SEAM BETWEEN BF-16 AND THIS COMMAND.
+    Without one of them the printed sleep, rows/hour and ETA come from the
+    UNMEASURED `PUSH_SLOT_HOLD_CEILING_S = 5.0` placeholder, so the runbook step
+    'run the probe, fill in the table, then push' would produce an ETA unrelated
+    to the measurement. `--probe` is the one the runbook uses."""
+    import signal
+
+    from job_enricher import backfill as bfl
+
+    store = Store()
+    slot_hold, t_req_p95 = args.slot_hold, None
+    if args.probe:
+        try:
+            report = json.loads(Path(args.probe).read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            print(f"subcategory-push: refused — cannot read {args.probe}: {exc}")
+            return 2
+        probe_hold, t_req_p95, note = bfl.slot_hold_from_probe(report, args.batch)
+        if probe_hold is None:
+            # ⚠ REFUSE, never fall back. A silent fallback to the placeholder is
+            # precisely the defect --probe exists to close.
+            print(f"subcategory-push: refused — {args.probe}: {note}")
+            return 2
+        print(f"subcategory-push: {note}")
+        if slot_hold is None:
+            slot_hold = probe_hold
+    lock_path = store.db_path.parent / bfl.PUSH_LOCK_NAME
+    acquired, reason = lock_mod.try_acquire(lock_path, stale_after_hours=6)
+    if not acquired:
+        print(f"subcategory-push: skipped — {reason}")
+        return 75
+
+    stop_path = store.db_path.parent / bfl.PUSH_STOP_SENTINEL_NAME
+
+    def _on_signal(signum, _frame):
+        logger.warning("subcategory-push: signal %s — stopping after this batch", signum)
+        try:
+            stop_path.touch()
+        except OSError:
+            pass
+
+    previous = [
+        (sig, signal.signal(sig, _on_signal))
+        for sig in (signal.SIGTERM, signal.SIGINT)
+    ]
+    try:
+        outcome = bfl.push_subcategories(
+            store, limit=args.limit, batch=args.batch, duty_pct=args.duty,
+            max_seconds=args.max_seconds, dry_run=args.dry_run,
+            slot_hold_p95=slot_hold, t_req_p95=t_req_p95,
+            stop_path=stop_path,
+        )
+    finally:
+        for sig, handler in previous:
+            signal.signal(sig, handler)
+        lock_mod.release(lock_path)
+
+    head = f"subcategory-push: status={outcome.status}"
+    if outcome.aborted_reason:
+        head += f" ABORTED aborted_reason={outcome.aborted_reason}"
+    print(head)
+    if outcome.notes:
+        print(f"  {outcome.notes}")
+    print(f"  run_id={outcome.run_id} counters={json.dumps(outcome.counters)}")
+    print(f"  effective_sleep_at_end={outcome.effective_sleep}s")
+    if args.notify:
+        _notify(head)
+    return outcome.exit_code
+
+
+# ---- BF-16: measure the per-request write-back cost ------------------------
+def _cmd_subcategory_push_probe(args: argparse.Namespace) -> int:
+    """Measure T_req(B), T_ping and S(B) against PROD JVN, then DERIVE the pace.
+
+    ⚠ RUN FROM THE PROD CHECKOUT. Each POST re-writes rows JVN already holds, so
+    it is idempotent; nothing local is stamped."""
+    from job_enricher import backfill as bfl
+    from job_enricher.jvn_client import JVNClient
+
+    store = Store()
+    sizes = tuple(int(x) for x in str(args.sizes).split(",") if x.strip())
+    client = JVNClient(timeout=bfl.PUSH_HTTP_TIMEOUT_S)
+    report = bfl.push_probe(
+        store, client, batches=args.batches, sizes=sizes, duty_pct=args.duty,
+    )
+    out = Path(args.out) if args.out else (
+        store.db_path.parent
+        / f"subcategory-push-probe-{now_iso().replace(':', '-')}.json"
+    )
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(report, indent=2), encoding="utf-8")
+    print(json.dumps(report, indent=2))
+    print(f"subcategory-push-probe: wrote {out}")
+    print(
+        "⚠ Record the chosen (batch, duty_pct) pair in docs/BACKFILL.md WITH the "
+        "numbers that justified it, the derived rows/hour and the ETA."
+    )
+    return 0
+
+
+# ---- BF-14: scoped subcategory rollback ------------------------------------
+# ⚠ The SAME guard shape `reenrich` puts on its wide form, deliberately: the two
+# dangerous commands in this repo must behave identically under muscle memory.
+RESET_CONFIRM_THRESHOLD = 500
+
+# The five contract values, so `--source all` cannot silently miss a lane. Note
+# 'judge' and 'human' are reachable ONLY by naming them: `all` here means the two
+# MACHINE lanes plus 'classify', never a human correction.
+RESET_SOURCE_CHOICES = ("rule", "backfill", "classify", "all")
+_RESET_ALL_SOURCES = ("rule", "backfill", "classify")
+# ⚠ THE DEFAULT IS BOTH MACHINE LANES OF A RUN, never 'backfill' alone. A single
+# backfill run writes 'rule' rows (the free title/tag pass) AND 'backfill' rows
+# (the model pass) under the SAME run_id, so a default of 'backfill' would make
+# the runbook's `subcategory-reset --run-id <N>` silently leave every rule-pass
+# row of that run non-NULL and permanently out of `rows_needing_subcategory` —
+# the rollback reporting success while doing part of the job. Matches
+# `store.reset_subcategories`'s own default.
+_RESET_DEFAULT_SOURCES = ("rule", "backfill")
+
+
+def _cmd_subcategory_reset(args: argparse.Namespace) -> int:
+    """Un-write machine-written subcategories, scoped by run / source / category.
+
+    ⚠ THIS RESETS THE ENRICHER ONLY. Rows already drained by `subcategory-push`
+    are live in JVN Postgres and this command cannot un-write them — the JVN-side
+    statement is `ADM-15`. The printed already-pushed count IS the size of that
+    second half of the job."""
+    store = Store()
+    if args.source is None:
+        sources = _RESET_DEFAULT_SOURCES
+    elif args.source == "all":
+        sources = _RESET_ALL_SOURCES
+    else:
+        sources = (args.source,)
+    source_label = "+".join(sources) if args.source is None else args.source
+    affected, pushed = store.reset_subcategories(
+        run_id=args.run_id, sources=sources, category=args.category,
+        dry_run=True,
+    )
+    # COUNT FIRST, ALWAYS.
+    print(
+        f"subcategory-reset: {affected} rows match "
+        f"(run_id={args.run_id} source={source_label} category={args.category})"
+    )
+    print(
+        f"subcategory-reset: ⚠ {pushed} of them were ALREADY PUSHED to JVN. This "
+        f"command cannot un-write those — run ADM-15 on the JVN side or the "
+        f"rollback is only half done."
+    )
+    if args.dry_run:
+        print("subcategory-reset: --dry-run — nothing was modified")
+        return 0
+    if affected > RESET_CONFIRM_THRESHOLD and not args.yes_i_mean_all:
+        print(
+            f"subcategory-reset: REFUSING — {affected} rows exceeds "
+            f"{RESET_CONFIRM_THRESHOLD}. Re-run with --yes-i-mean-all if you "
+            f"really mean it, or scope it with --run-id. Nothing was modified.",
+            file=sys.stderr,
+        )
+        return 2
+    done, _ = store.reset_subcategories(
+        run_id=args.run_id, sources=sources, category=args.category,
+    )
+    print(f"subcategory-reset: reset {done} rows; they are back in the queue")
+    return 0
 
 
 # ---- unfail (P0-3: the way back from terminal 'failed') --------------------
@@ -2511,6 +2872,8 @@ def build_parser() -> argparse.ArgumentParser:
         ("set-judge-ceiling", "judge:confidence_ceiling", ec.set_judge_confidence_ceiling, float),
         ("set-opencode-model", "opencode:model", ec.set_opencode_model, str),
         ("set-enrich-per-tick-limit", "enrich:per_tick_limit", ec.set_enrich_per_tick_limit, int),
+        ("set-backfill-batch", "backfill:batch_size", ec.set_backfill_batch_size, int),
+        ("set-backfill-max-attempts", "backfill:max_attempts", ec.set_backfill_max_attempts, int),
     ]:
         sp = subs.add_parser(name, help=f"set {knob}")
         sp.add_argument("value", type=typ)
@@ -2814,6 +3177,124 @@ def build_parser() -> argparse.ArgumentParser:
     )
     ssi.add_argument("--json-file", required=True)
     ssi.set_defaults(func=_cmd_subcategory_scope_import)
+
+    sbf = subs.add_parser(
+        "subcategory-backfill",
+        help="Tier-2: label the SWE backlog's subcategories, off the live lane "
+             "(own .backfill.lock; exit 75 if held)",
+        description="⚠ There is deliberately NO --concurrency flag: "
+                    "_call_with_repair is strictly sequential, ChunkEngine has "
+                    "no parallel path, and a threadpool would multiply SQLite "
+                    "write contention against the live tick. The levers for "
+                    "wall time are --batch and the model tier.",
+    )
+    sbf.add_argument("--until", default=None,
+                     help="absolute local wall-clock stop time, e.g. 09:00")
+    sbf.add_argument("--tz", default="America/Chicago")
+    sbf.add_argument("--max-seconds", type=int, default=None)
+    sbf.add_argument("--limit", type=int, default=None)
+    sbf.add_argument("--batch", type=int, default=None)
+    sbf.add_argument("--model", default=None, choices=["haiku", "sonnet", "opus"])
+    sbf.add_argument("--open-only", action="store_true")
+    sbf.add_argument("--dry-run", action="store_true",
+                     help="run the FULL pipeline and write NOTHING; emit a probe JSON")
+    sbf.add_argument("--probe-json", default=None)
+    sbf.add_argument("--notify", action="store_true")
+    sbf.set_defaults(func=_cmd_subcategory_backfill)
+
+    sbe = subs.add_parser(
+        "set-backfill-enabled",
+        help="arm/disarm the Tier-2 backfill lane (default OFF — ships dark)",
+    )
+    sbe.add_argument("value", choices=["on", "off"])
+    sbe.set_defaults(
+        func=_cmd_set_knob, knob="backfill:enabled",
+        setter=lambda s, v: ec.set_backfill_enabled(s, v == "on"),
+    )
+
+    sre = subs.add_parser(
+        "subcategory-reset",
+        help="un-write machine-written subcategories, scoped by run/source/"
+             "category (never touches judge or human rows)",
+    )
+    sre.add_argument("--run-id", type=int, default=None)
+    sre.add_argument(
+        "--source", choices=list(RESET_SOURCE_CHOICES), default=None,
+        help="default: both machine lanes of a run (rule+backfill) — ⚠ a run "
+             "writes BOTH, so scoping to 'backfill' alone leaves its rule-pass "
+             "rows labelled; 'all' adds the live 'classify' lane. 'judge' and "
+             "'human' are unreachable by design.",
+    )
+    sre.add_argument("--category", default=None)
+    sre.add_argument("--dry-run", action="store_true")
+    sre.add_argument(
+        "--yes-i-mean-all", action="store_true",
+        help=f"required above {RESET_CONFIRM_THRESHOLD} affected rows",
+    )
+    sre.set_defaults(func=_cmd_subcategory_reset)
+
+    spp = subs.add_parser(
+        "subcategory-push-probe",
+        help="measure T_req/T_ping/S(B) against prod JVN and DERIVE the drain "
+             "pace (a measurement, not a push)",
+    )
+    spp.add_argument("--batches", type=int, default=3)
+    spp.add_argument("--sizes", default="50,100,250,500")
+    spp.add_argument("--duty", type=int, default=25)
+    spp.add_argument("--out", default=None)
+    spp.set_defaults(func=_cmd_subcategory_push_probe)
+
+    spu = subs.add_parser(
+        "subcategory-push",
+        help="drain labelled subcategories to JVN, paced (own "
+             ".subcategory-push.lock; exit 75 if held; exit 2 when "
+             "writeback:send_subcategories is off)",
+        description="⚠ No --concurrency flag and no concurrency knob: one "
+                    "in-flight request = one of the pool's 15 slots. See "
+                    "docs/incidents/2026-05-17-recent-jobs-pool-exhaustion.md.",
+    )
+    spu.add_argument("--limit", type=int, default=None)
+    spu.add_argument("--batch", type=int, default=None)
+    spu.add_argument("--duty", type=int, default=None)
+    spu.add_argument("--max-seconds", type=int, default=None)
+    spu.add_argument(
+        "--probe", default=None,
+        help="BF-16's subcategory-push-probe-*.json — the MEASURED S_p95 the "
+             "sleep, rows/hour and ETA are derived from. Without it (or "
+             "--slot-hold) they come from the UNMEASURED 5.0s placeholder and "
+             "the command says so, loudly.",
+    )
+    spu.add_argument(
+        "--slot-hold", type=float, default=None,
+        help="measured S_p95 in seconds, when you have the number but not the "
+             "probe file; overrides --probe's cell",
+    )
+    spu.add_argument("--dry-run", action="store_true")
+    spu.add_argument("--notify", action="store_true")
+    spu.set_defaults(func=_cmd_subcategory_push)
+
+    srp = subs.add_parser(
+        "subcategory-report",
+        help="the morning report: both lanes off one ledger, plus the "
+             "JVN-coverage reconciliation",
+    )
+    srp.add_argument("--run-id", type=int, default=None)
+    srp.add_argument("--kind", choices=["label", "push"], default=None)
+    srp.add_argument("--json", action="store_true")
+    srp.add_argument("--notify", action="store_true")
+    srp.set_defaults(func=_cmd_subcategory_report)
+
+    for name, knob, setter, typ in [
+        ("set-push-batch", "writeback:subcategory_push_batch",
+         ec.set_subcategory_push_batch, int),
+        ("set-push-duty", "writeback:subcategory_push_duty_pct",
+         ec.set_subcategory_push_duty_pct, int),
+        ("set-push-max-seconds", "writeback:subcategory_push_max_seconds",
+         ec.set_subcategory_push_max_seconds, int),
+    ]:
+        sp = subs.add_parser(name, help=f"set {knob}")
+        sp.add_argument("value", type=typ)
+        sp.set_defaults(func=_cmd_set_knob, knob=knob, setter=setter)
 
     uf = subs.add_parser(
         "unfail",

@@ -115,6 +115,51 @@ ENRICH_PER_TICK_LIMIT_DEFAULT = 40
 ENRICH_PER_TICK_LIMIT_META_KEY = "enrich:per_tick_limit"
 ENRICH_PER_TICK_LIMIT_BOUNDS = (1, 500)
 
+# ---- BF-9: the Tier-2 backfill lane ----------------------------------------
+# ⚠ SHIPS DARK. False is the committed default so the schema-only deploy (step 3
+# of the cross-repo order) cannot start labelling before the v7 gate has run.
+# Re-read from meta at every CHUNK boundary, so flipping it off stops the night's
+# run within seconds without a signal.
+BACKFILL_ENABLED_DEFAULT = False
+BACKFILL_ENABLED_META_KEY = "backfill:enabled"
+
+# The number of rows in ONE model call. ⚠ This is the lever for wall time, along
+# with the model tier — there is deliberately NO concurrency knob (see
+# backfill.run_backfill's docstring). The ceiling on this value is enforced at
+# 02:00 by BF-9's echo-mismatch breaker: a model that cannot echo ids reliably at
+# batch B means B is too high.
+BACKFILL_BATCH_SIZE_DEFAULT = 10
+BACKFILL_BATCH_SIZE_META_KEY = "backfill:batch_size"
+BACKFILL_BATCH_SIZE_BOUNDS = (1, 25)
+
+# Attempts before a row is RETIRED from the selector. Bumped on failure too, which
+# is the only reason the claim-free selector cannot spin in place.
+BACKFILL_MAX_ATTEMPTS_DEFAULT = 3
+BACKFILL_MAX_ATTEMPTS_META_KEY = "backfill:max_attempts"
+BACKFILL_MAX_ATTEMPTS_BOUNDS = (1, 5)
+
+# ---- BF-12b: the throttled drain to JVN ------------------------------------
+# ⚠ EVERY ONE OF THESE IS DERIVED FROM BF-16's MEASUREMENT, NOT INVENTED. The
+# draft's "200 per tick" was a guess and it is the number that produced the
+# two-week lag. The defaults here are the plan's placeholders; the runbook
+# records the measured pair and the arithmetic that justified it.
+SUBCATEGORY_PUSH_BATCH_DEFAULT = 250
+SUBCATEGORY_PUSH_BATCH_META_KEY = "writeback:subcategory_push_batch"
+SUBCATEGORY_PUSH_BATCH_BOUNDS = (1, 500)     # SCHEMA-14 422s above 500
+
+SUBCATEGORY_PUSH_DUTY_DEFAULT = 25
+SUBCATEGORY_PUSH_DUTY_META_KEY = "writeback:subcategory_push_duty_pct"
+SUBCATEGORY_PUSH_DUTY_BOUNDS = (1, 50)
+
+# ⚠ One hour, so an UNATTENDED run cannot drift into peak hours.
+SUBCATEGORY_PUSH_MAX_SECONDS_DEFAULT = 3600
+SUBCATEGORY_PUSH_MAX_SECONDS_META_KEY = "writeback:subcategory_push_max_seconds"
+SUBCATEGORY_PUSH_MAX_SECONDS_BOUNDS = (0, 21600)
+
+# ⚠ THERE IS NO CONCURRENCY KNOB, deliberately. One in-flight request = one of
+# the pool's 15 slots. See backfill.push_subcategories' comment naming
+# docs/incidents/2026-05-17-recent-jobs-pool-exhaustion.md.
+
 
 def _get_choice(store: _MetaStore, key: str, default: str, choices: tuple[str, ...]) -> str:
     raw = store.get_meta(key)
@@ -258,6 +303,88 @@ def set_writeback_send_subcategories(store: _MetaStore, value: bool) -> bool:
     return value
 
 
+def get_backfill_enabled(store: _MetaStore) -> bool:
+    raw = store.get_meta(BACKFILL_ENABLED_META_KEY)
+    if raw is None:
+        return BACKFILL_ENABLED_DEFAULT
+    return raw == "on"
+
+
+def set_backfill_enabled(store: _MetaStore, value: bool) -> bool:
+    store.set_meta(BACKFILL_ENABLED_META_KEY, "on" if value else "off")
+    return value
+
+
+def get_backfill_batch_size(store: _MetaStore) -> int:
+    return _get_bounded_int(
+        store, BACKFILL_BATCH_SIZE_META_KEY, BACKFILL_BATCH_SIZE_DEFAULT,
+        BACKFILL_BATCH_SIZE_BOUNDS,
+    )
+
+
+def set_backfill_batch_size(store: _MetaStore, value: int) -> int:
+    lo, hi = BACKFILL_BATCH_SIZE_BOUNDS
+    clamped = max(lo, min(hi, int(value)))
+    store.set_meta(BACKFILL_BATCH_SIZE_META_KEY, str(clamped))
+    return clamped
+
+
+def get_subcategory_push_batch(store: _MetaStore) -> int:
+    return _get_bounded_int(
+        store, SUBCATEGORY_PUSH_BATCH_META_KEY, SUBCATEGORY_PUSH_BATCH_DEFAULT,
+        SUBCATEGORY_PUSH_BATCH_BOUNDS,
+    )
+
+
+def set_subcategory_push_batch(store: _MetaStore, value: int) -> int:
+    lo, hi = SUBCATEGORY_PUSH_BATCH_BOUNDS
+    clamped = max(lo, min(hi, int(value)))
+    store.set_meta(SUBCATEGORY_PUSH_BATCH_META_KEY, str(clamped))
+    return clamped
+
+
+def get_subcategory_push_duty_pct(store: _MetaStore) -> int:
+    return _get_bounded_int(
+        store, SUBCATEGORY_PUSH_DUTY_META_KEY, SUBCATEGORY_PUSH_DUTY_DEFAULT,
+        SUBCATEGORY_PUSH_DUTY_BOUNDS,
+    )
+
+
+def set_subcategory_push_duty_pct(store: _MetaStore, value: int) -> int:
+    lo, hi = SUBCATEGORY_PUSH_DUTY_BOUNDS
+    clamped = max(lo, min(hi, int(value)))
+    store.set_meta(SUBCATEGORY_PUSH_DUTY_META_KEY, str(clamped))
+    return clamped
+
+
+def get_subcategory_push_max_seconds(store: _MetaStore) -> int:
+    return _get_bounded_int(
+        store, SUBCATEGORY_PUSH_MAX_SECONDS_META_KEY,
+        SUBCATEGORY_PUSH_MAX_SECONDS_DEFAULT, SUBCATEGORY_PUSH_MAX_SECONDS_BOUNDS,
+    )
+
+
+def set_subcategory_push_max_seconds(store: _MetaStore, value: int) -> int:
+    lo, hi = SUBCATEGORY_PUSH_MAX_SECONDS_BOUNDS
+    clamped = max(lo, min(hi, int(value)))
+    store.set_meta(SUBCATEGORY_PUSH_MAX_SECONDS_META_KEY, str(clamped))
+    return clamped
+
+
+def get_backfill_max_attempts(store: _MetaStore) -> int:
+    return _get_bounded_int(
+        store, BACKFILL_MAX_ATTEMPTS_META_KEY, BACKFILL_MAX_ATTEMPTS_DEFAULT,
+        BACKFILL_MAX_ATTEMPTS_BOUNDS,
+    )
+
+
+def set_backfill_max_attempts(store: _MetaStore, value: int) -> int:
+    lo, hi = BACKFILL_MAX_ATTEMPTS_BOUNDS
+    clamped = max(lo, min(hi, int(value)))
+    store.set_meta(BACKFILL_MAX_ATTEMPTS_META_KEY, str(clamped))
+    return clamped
+
+
 def set_judge_model(store: _MetaStore, value: str) -> str:
     if value not in MODEL_CHOICES:
         raise ValueError(f"invalid model {value!r}; expected one of {MODEL_CHOICES}")
@@ -330,6 +457,12 @@ def config_snapshot(store: _MetaStore) -> dict[str, object]:
         "writeback_send_subcategories": get_writeback_send_subcategories(store),
         "opencode_model": get_opencode_model(store),
         "enrich_per_tick_limit": get_enrich_per_tick_limit(store),
+        "backfill_enabled": get_backfill_enabled(store),
+        "backfill_batch_size": get_backfill_batch_size(store),
+        "backfill_max_attempts": get_backfill_max_attempts(store),
+        "subcategory_push_batch": get_subcategory_push_batch(store),
+        "subcategory_push_duty_pct": get_subcategory_push_duty_pct(store),
+        "subcategory_push_max_seconds": get_subcategory_push_max_seconds(store),
     }
 
 
@@ -352,6 +485,12 @@ KNOB_META_KEYS: frozenset[str] = frozenset(
         WRITEBACK_SEND_SUBCATEGORIES_META_KEY,
         OPENCODE_MODEL_META_KEY,
         ENRICH_PER_TICK_LIMIT_META_KEY,
+        BACKFILL_ENABLED_META_KEY,
+        BACKFILL_BATCH_SIZE_META_KEY,
+        BACKFILL_MAX_ATTEMPTS_META_KEY,
+        SUBCATEGORY_PUSH_BATCH_META_KEY,
+        SUBCATEGORY_PUSH_DUTY_META_KEY,
+        SUBCATEGORY_PUSH_MAX_SECONDS_META_KEY,
     }
 )
 

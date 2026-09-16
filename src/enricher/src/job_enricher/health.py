@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 import job_enricher.enrich_config as ec
+from job_enricher.backfill import health_subcategory_block
 from job_enricher.store import HEARTBEAT_KEY, Store
 
 
@@ -60,6 +61,10 @@ def collect_health(store: Store) -> dict[str, Any]:
         # Surfaced so the starvation is VISIBLE while staying unrepaired — both
         # remedies change the live tick's claim order, which r11 declined.
         "starved_null_recency": store.starved_null_recency(),
+        # BF-10: the subcategory lane's standing arithmetic. collect_health is
+        # the ONE function feeding both `cli health` and the dashboard's
+        # /api/health, so this single key surfaces on both.
+        "subcategory": health_subcategory_block(store),
         "last_heartbeat_at": hb,
         "last_heartbeat_age_s": hb_age,
         "stage_timings": timings,

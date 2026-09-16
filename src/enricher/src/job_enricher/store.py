@@ -26,6 +26,7 @@ stage_timings.tick_id -> ticks (a timing always belongs to a tick).
 
 from __future__ import annotations
 
+import json
 import logging
 import sqlite3
 import uuid as uuid_mod
@@ -43,6 +44,11 @@ DEFAULT_DB_PATH = REPO_ROOT / "data" / "enricher.db"
 HEARTBEAT_KEY = "heartbeat:last_poll_at"
 CURRENT_TICK_KEY = "current_tick_id"
 LAST_SCORECARD_HASH_KEY = "metrics:last_scorecard_hash"
+
+# The one category subcategories may hang off. Mirrors taxonomy.SUBCATEGORY_PARENT;
+# duplicated as a literal here so store.py stays import-free of the taxonomy
+# module (which reads files at import time). ENR-PAR-1 asserts the two match.
+SUBCATEGORY_PARENT_CATEGORY = "software_engineering"
 
 SCHEMA_VERSION = 4
 
@@ -255,6 +261,39 @@ TICK_COUNTER_COLS = frozenset(
         "swe_classified", "swe_subcat_evaluated", "swe_subcategorized",
     }
 )
+
+# The `backfill_runs` counter columns `bump_backfill_counters` may increment.
+# Same silent-drop SHAPE as _TICK_COUNTER_COLS above, but DELIBERATELY NOT the
+# same silent BEHAVIOUR: a dropped key here LOGS A WARNING. The tick version's
+# silence is the exact trap this workstream keeps hitting (a counter absent from
+# the frozenset reads 0 forever with no error anywhere), so the newer of the two
+# is loud on purpose.
+_BACKFILL_COUNTER_COLS = frozenset(
+    {
+        "selected", "rule_labelled", "tag_labelled", "model_labelled",
+        "empty_labelled", "nulled_slugs", "echo_mismatch", "unanswered",
+        "transport_errors", "parse_errors", "errors", "retired", "model_calls",
+        "pushed", "push_batches", "push_rejected", "push_skipped_human",
+        "push_nulled_by_jvn", "pool_pressure_events",
+    }
+)
+
+# `backfill_runs.kind` — ONE ledger, TWO lanes, so the morning report reads one
+# table: 'label' is BF-9's model run, 'push' is BF-12b's throttled drain.
+BACKFILL_RUN_KINDS: frozenset[str] = frozenset({"label", "push"})
+
+# ⚠ The scope is a POINT-IN-TIME export of JVN's OPEN-SWE jobs, and jobs open and
+# close overnight. `--open-only` REFUSES on a scope older than this (or an empty
+# one) rather than returning []: a silently-empty scope table makes --open-only a
+# no-op that reports success, and a stale scope is a WRONG scope.
+SCOPE_MAX_AGE_HOURS = 24
+
+
+class ScopeUnavailableError(RuntimeError):
+    """`open_only` was requested but `backfill_scope` is empty or stale.
+
+    Raised rather than returning [] so the caller exits 2. Returning an empty
+    list here would make the whole night's run a successful no-op."""
 
 # v0 column lists (kept verbatim for the rebuild data copy)
 _V0_INBOX_COLS = (
@@ -534,10 +573,15 @@ class Store:
                 "subcategory_source=excluded.subcategory_source, "
                 # A re-classify is a FRESH evaluation: the attempt count resets
                 # and the pre-judge snapshot clears alongside the pre_judge_*
-                # resets just above. subcategory_run_id / subcategory_sent_at are
-                # deliberately NOT touched — a classify-lane label is not a
-                # backfill run and this write says nothing about what has shipped.
+                # resets just above. ⚠ BF-8 item 6: `subcategory_run_id` and
+                # `subcategory_sent_at` reset TOO. The new value did not come
+                # from a backfill run (so the run stamp is a lie that would make
+                # BF-14's scoped rollback reset a row it never wrote), and it has
+                # not shipped to JVN (so a stale `subcategory_sent_at` would make
+                # BF-12b's drain skip the fresh label FOREVER — the cursor is
+                # exactly that column).
                 "subcategory_attempts=0, pre_judge_subcategories=NULL, "
+                "subcategory_run_id=NULL, subcategory_sent_at=NULL, "
                 "needs_human=excluded.needs_human, title_only=excluded.title_only, "
                 "sent_at=NULL",
                 (
@@ -690,15 +734,35 @@ class Store:
             return conn.execute(sql, params).fetchall()
 
     def mark_sent(self, pairs: Iterable[tuple[str, str]]) -> None:
-        """Mark rows sent, keyed by (source_id, job_listing_id) pairs."""
+        """Mark rows sent, keyed by (source_id, job_listing_id) pairs.
+
+        ⚠ BF-8 item 5: this ALSO stamps `subcategory_sent_at`, but only when the
+        row's `subcategories` is non-NULL **AND** the
+        `writeback:send_subcategories` knob is ON. The knob condition is
+        load-bearing and easy to miss: with the knob OFF `_row_to_result` OMITS
+        the field entirely, so stamping anyway would mark live-lane rows as
+        pushed when nothing was ever sent — and BF-12b's drain, whose cursor IS
+        this column, would skip them forever."""
+        from job_enricher import enrich_config as ec
+
         ts = now_iso()
+        send_subcategories = ec.get_writeback_send_subcategories(self)
         with self.connect() as conn:
             for sid, jid in pairs:
-                conn.execute(
-                    "UPDATE enrichments SET sent_at = ? "
-                    "WHERE source_id = ? AND job_listing_id = ?",
-                    (ts, sid, jid),
-                )
+                if send_subcategories:
+                    conn.execute(
+                        "UPDATE enrichments SET sent_at = ?, "
+                        "subcategory_sent_at = CASE WHEN subcategories IS NOT NULL "
+                        "THEN ? ELSE subcategory_sent_at END "
+                        "WHERE source_id = ? AND job_listing_id = ?",
+                        (ts, ts, sid, jid),
+                    )
+                else:
+                    conn.execute(
+                        "UPDATE enrichments SET sent_at = ? "
+                        "WHERE source_id = ? AND job_listing_id = ?",
+                        (ts, sid, jid),
+                    )
                 conn.execute(
                     "UPDATE inbox SET status = 'sent' "
                     "WHERE source_id = ? AND job_listing_id = ?",
@@ -869,6 +933,422 @@ class Store:
             imported = imported.replace(tzinfo=timezone.utc)
         return (datetime.now(timezone.utc) - imported).total_seconds() / 3600.0
 
+    # ---- subcategory write path (ENR-ST-2 base + BF-8's backfill concerns) -
+    def record_subcategories(
+        self,
+        source_id: str,
+        job_listing_id: str,
+        subcategories: list[str] | None,
+        confidence: float | None = None,
+        source: str | None = None,
+        run_id: int | None = None,
+        bump_attempt: bool = True,
+    ) -> None:
+        """Write ONE row's subcategory facet. An ADDITIVE write, nothing else.
+
+        `subcategories` is the tri-state: ``None`` stays the backfill queue,
+        ``[]`` is stored as the literal ``'[]'`` and is TERMINAL, a 1-2 element
+        list is a label. `confidence` is forced to NULL whenever the array is
+        empty or NULL — a confidence with no label behind it poisons calibration
+        on the far side.
+
+        ⚠ INVARIANT 1 — THIS METHOD NEVER TOUCHES `sent_at` OR `inbox.status`,
+        and it has NO `reopen` parameter at all. The draft's `reopen=True`
+        variant is DELETED along with the re-open drain it served. Clearing
+        `sent_at` puts the row back into `enriched_unsent()`, which takes
+        `limit=None`, and `_row_to_result` carries the full `clean_description`
+        — an unconditional re-open of the 11,144 already-sent prod SWE rows is
+        ~163 batches of full descriptions at Railway inside ONE tick.
+
+        ⚠ INVARIANT 2 — THIS METHOD NEVER TOUCHES ANY JUDGE OR `pre_judge_*`
+        COLUMN. A subcategory is an ADDITIVE facet, unlike `record_enrichment`,
+        which deliberately resets them all because a re-classification has no
+        judge yet.
+
+        `run_id` stamps `subcategory_run_id`, which is what makes BF-14's
+        rollback scoped to ONE run instead of all-or-nothing. `bump_attempt` is
+        True by default so the selector always advances (see
+        `rows_needing_subcategory`'s anti-spin note)."""
+        value = None if subcategories is None else json.dumps(list(subcategories))
+        conf = confidence if subcategories else None
+        with self.connect() as conn:
+            conn.execute(
+                "UPDATE enrichments SET subcategories = ?, "
+                "subcategory_confidence = ?, subcategory_source = ?, "
+                "subcategory_run_id = ?, "
+                "subcategory_attempts = subcategory_attempts + ? "
+                "WHERE source_id = ? AND job_listing_id = ?",
+                (
+                    value, conf, source, run_id, 1 if bump_attempt else 0,
+                    source_id, job_listing_id,
+                ),
+            )
+
+    def record_subcategory_failure(
+        self, source_id: str, job_listing_id: str
+    ) -> None:
+        """⚠ THE PARSE-FAILURE DISPOSITION: bump `subcategory_attempts` ONLY and
+        leave `subcategories` NULL.
+
+        This is the highest-value distinction in the write path. An explicit
+        `[]` from the model is a LEGITIMATE TERMINAL ANSWER — evaluated, no
+        specialty applies — and it removes the row from the queue permanently. A
+        FAILURE (unparseable output, an unanswered row, an echo mismatch, a row
+        whose every slug was invalid) must stay NULL so the row is retried and,
+        at the cap, retired VISIBLY. Writing `[]` on a failure is the silent
+        corruption this lane exists to avoid."""
+        with self.connect() as conn:
+            conn.execute(
+                "UPDATE enrichments "
+                "SET subcategory_attempts = subcategory_attempts + 1 "
+                "WHERE source_id = ? AND job_listing_id = ?",
+                (source_id, job_listing_id),
+            )
+
+    # ---- subcategory backlog selector (ENR-ST-2 base + BF-4's edits) ------
+    def rows_needing_subcategory(
+        self,
+        limit: int | None = None,
+        max_attempts: int = 3,
+        open_only: bool = False,
+    ) -> list[sqlite3.Row]:
+        """SWE rows whose `subcategories` is still NULL — THE BACKFILL QUEUE.
+
+        Joined to inbox so the caller has title/company beside the enrichment's
+        tags. `clean_description` is deliberately NOT selected: the row handed to
+        the prompt builder must have nowhere to put a description (see
+        `backfill.chunk_rows`).
+
+        ⚠ TWO PREDICATES ARE DELIBERATELY ABSENT, and the decision record
+        (docs/plans/2026-08-20-swe-subcategories.md) overturns both. Do not
+        restore them:
+
+          (a) `title_only = 0` — the record replaces "those rows can never be
+              labelled" with "title-first labels 1,081 of them; 747 remain". The
+              title_only SWE rows are precisely where the free rule pass pays.
+          (b) `clean_description IS NOT NULL AND TRIM(...) <> ''` — the backfill
+              prompt NEVER reads a description (the injection boundary, made
+              structural in `backfill.chunk_rows`), so requiring one is both
+              pointless and re-excludes the same cohort.
+
+        ⚠ KEPT AND DELIBERATE: `i.status IN ('sent','enriched')` excludes the
+        terminal 'failed' rows and the ~262-row 'cleaned' cohort that is
+        mid-reclassification. Note the direction — this EXCLUDES the poison
+        cohort rather than being BLOCKED by it. The discarded `SEL-1` design
+        vetoed the whole run while `classify_deferred > 0`, which would have
+        emitted an empty manifest forever, silently.
+
+        ⚠ THERE ARE NO CLAIM SEMANTICS, deliberately. Single-flight is BF-9's
+        `.backfill.lock`; a written row stops being NULL, so re-running the
+        selector after each chunk advances with no OFFSET, no claim column and no
+        checkpoint.
+
+        ⚠ THAT IS TRUE ONLY OF THE REAL RUN. A `--dry-run` writes nothing, so
+        nothing here retires and this selector returns the SAME head every pass;
+        `backfill.run_backfill` carries its own in-memory cursor and over-fetches
+        by its size to page past it. See the DRY-RUN PAGING note there.
+
+        ⚠ THAT IS ONLY SAFE BECAUSE `subcategory_attempts` IS BUMPED ON FAILURE
+        TOO (`record_subcategory_failure`). Without the failure bump a
+        permanently-failing row is re-selected forever and the loop spins in
+        place while reporting progress."""
+        if open_only:
+            reason = self.scope_refusal_reason()
+            if reason is not None:
+                raise ScopeUnavailableError(reason)
+        sql = (
+            "SELECT e.*, i.title AS title, i.company AS company, "
+            "i.first_seen_at AS first_seen_at "
+            "FROM enrichments e JOIN inbox i "
+            "ON i.source_id = e.source_id AND i.job_listing_id = e.job_listing_id "
+            "WHERE e.subcategories IS NULL "
+            "AND e.category = ? "
+            "AND e.subcategory_attempts < ? "
+            "AND i.status IN ('sent', 'enriched') "
+        )
+        params: list[Any] = [SUBCATEGORY_PARENT_CATEGORY, max_attempts]
+        if open_only:
+            sql += (
+                "AND EXISTS (SELECT 1 FROM backfill_scope s "
+                "WHERE s.source_id = e.source_id "
+                "AND s.job_listing_id = e.job_listing_id) "
+            )
+        sql += "ORDER BY i.first_seen_at IS NULL, i.first_seen_at DESC, e.enriched_at"
+        if limit is not None:
+            sql += " LIMIT ?"
+            params.append(limit)
+        with self.connect() as conn:
+            return conn.execute(sql, params).fetchall()
+
+    def scope_refusal_reason(
+        self, max_age_hours: float = SCOPE_MAX_AGE_HOURS
+    ) -> str | None:
+        """None when `backfill_scope` is fresh and non-empty; else the reason."""
+        age = self.backfill_scope_age_hours()
+        if age is None:
+            return "backfill_scope is EMPTY — re-run the export + import"
+        if age > max_age_hours:
+            return (
+                f"backfill_scope is {age:.1f}h old (> {max_age_hours}h) — jobs "
+                f"open and close overnight; re-run the export + import"
+            )
+        return None
+
+    def subcategory_backlog_counts(self, max_attempts: int = 3) -> dict[str, int]:
+        """The label lane's standing arithmetic over the SWE cohort.
+
+        `evaluated` is COVERAGE (non-NULL, INCLUDING `[]`) and `labelled` is
+        YIELD (non-empty). They are different numbers and conflating them is
+        what made the draft's single drift breaker blind."""
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT "
+                " COUNT(*) AS total_swe,"
+                " SUM(CASE WHEN e.subcategories IS NOT NULL THEN 1 ELSE 0 END)"
+                "   AS evaluated,"
+                " SUM(CASE WHEN e.subcategories IS NOT NULL "
+                "      AND e.subcategories NOT IN ('[]', '') THEN 1 ELSE 0 END)"
+                "   AS labelled,"
+                " SUM(CASE WHEN e.subcategories = '[]' THEN 1 ELSE 0 END) AS empty,"
+                " SUM(CASE WHEN e.subcategories IS NULL"
+                "      AND e.subcategory_attempts < ?"
+                "      AND i.status IN ('sent','enriched') THEN 1 ELSE 0 END)"
+                "   AS eligible,"
+                " SUM(CASE WHEN e.subcategories IS NULL"
+                "      AND e.subcategory_attempts >= ? THEN 1 ELSE 0 END)"
+                "   AS retired,"
+                " SUM(CASE WHEN e.subcategories IS NOT NULL"
+                "      AND e.subcategory_sent_at IS NULL"
+                "      AND e.sent_at IS NOT NULL THEN 1 ELSE 0 END)"
+                "   AS pending_push,"
+                " SUM(CASE WHEN e.subcategory_sent_at IS NOT NULL THEN 1 ELSE 0 END)"
+                "   AS shipped "
+                "FROM enrichments e JOIN inbox i "
+                "ON i.source_id = e.source_id AND i.job_listing_id = e.job_listing_id "
+                "WHERE e.category = ?",
+                (max_attempts, max_attempts, SUBCATEGORY_PARENT_CATEGORY),
+            ).fetchone()
+        return {k: int(row[k] or 0) for k in row.keys()}
+
+    # ---- BF-12b: the throttled drain's queue and cursor --------------------
+    def rows_needing_subcategory_push(self, limit: int | None = None) -> list[sqlite3.Row]:
+        """Labelled rows JVN has not been told about yet.
+
+        ⚠ THE `sent_at IS NOT NULL` CLAUSE MAKES THE TWO LANES DISJOINT BY
+        CONSTRUCTION: `sent_at IS NULL` belongs to the live write-back;
+        `sent_at IS NOT NULL AND subcategory_sent_at IS NULL` belongs to the
+        drain. Neither can ship the other's rows and there is no lock between
+        them. Same JOIN and the same `status != 'failed'` exclusion as
+        `enriched_unsent`.
+
+        `run_taxonomy_version` rides along from the run ledger: for a BACKFILLED
+        row the version that produced the subcategory is the RUN's, not the row's
+        classify-time `taxonomy_version`."""
+        sql = (
+            "SELECT e.*, b.taxonomy_version AS run_taxonomy_version "
+            "FROM enrichments e JOIN inbox i "
+            "ON i.source_id = e.source_id AND i.job_listing_id = e.job_listing_id "
+            "LEFT JOIN backfill_runs b ON b.id = e.subcategory_run_id "
+            "WHERE e.subcategories IS NOT NULL "
+            "AND e.subcategory_sent_at IS NULL "
+            "AND e.sent_at IS NOT NULL "
+            "AND i.status != 'failed' "
+            "ORDER BY e.enriched_at"
+        )
+        params: tuple[Any, ...] = ()
+        if limit is not None:
+            sql += " LIMIT ?"
+            params = (limit,)
+        with self.connect() as conn:
+            return conn.execute(sql, params).fetchall()
+
+    def mark_subcategory_sent(self, pairs: Iterable[tuple[str, str]]) -> None:
+        """⚠ STAMPS `subcategory_sent_at` ONLY. Never writes `sent_at`, never
+        writes `inbox.status` — those two writes are the entire difference between
+        this drain and the DELETED re-open drain it replaced."""
+        ts = now_iso()
+        with self.connect() as conn:
+            for sid, jid in pairs:
+                conn.execute(
+                    "UPDATE enrichments SET subcategory_sent_at = ? "
+                    "WHERE source_id = ? AND job_listing_id = ?",
+                    (ts, sid, jid),
+                )
+
+    # ---- BF-14: scoped rollback -------------------------------------------
+    def reset_subcategories(
+        self,
+        run_id: int | None = None,
+        sources: Iterable[str] = ("rule", "backfill"),
+        category: str | None = None,
+        limit: int | None = None,
+        dry_run: bool = False,
+    ) -> tuple[int, int]:
+        """Un-write machine-written subcategories. Returns (affected, already_pushed).
+
+        ⚠ THE ONLY THING THAT MAKES A SYSTEMATICALLY-WRONG NIGHT RECOVERABLE.
+        `'[]'` is TERMINAL in the tri-state, so a bad run does not leave rows
+        retryable — it removes them from the queue permanently.
+
+        ⚠ `subcategory_attempts = 0` IS LOAD-BEARING and easy to omit: without it
+        a row that hit the cap stays out of `rows_needing_subcategory` FOREVER and
+        the reset silently fails to re-queue it.
+
+        ⚠ `subcategory_sent_at = NULL` IS EQUALLY LOAD-BEARING now that BF-12b
+        uses it as the drain's cursor: leaving it set means the corrected label is
+        never pushed.
+
+        ⚠ NEVER touches a `'judge'`- or `'human'`-sourced row (they are simply not
+        in the default `sources`, and the caller must name them to reach them),
+        and never touches `category`, `level`, `tags`, `locations`, any judge
+        column, `sent_at`, `inbox.status`, or the schema.
+
+        The `sources` predicate accepts any of the FIVE values in the contract,
+        not a hardcoded 'backfill': a value written by one repo and unrecognised
+        by the reset's default tuple means the rollback silently misses rows.
+
+        `already_pushed` is the count of in-scope rows whose `subcategory_sent_at`
+        was non-NULL — ⚠ exactly the set JVN still holds. This command CANNOT
+        un-write those; the JVN-side statement is `ADM-15` and is a hard
+        prerequisite for calling the rollback complete."""
+        source_list = list(sources)
+        where = ["subcategory_source IN (%s)" % ",".join("?" * len(source_list))]
+        params: list[Any] = list(source_list)
+        if run_id is not None:
+            where.append("subcategory_run_id = ?")
+            params.append(run_id)
+        if category is not None:
+            where.append("category = ?")
+            params.append(category)
+        clause = " AND ".join(where)
+        with self.connect() as conn:
+            # COUNT FIRST, ALWAYS — before a single mutation, so the dry run and
+            # the caller's confirmation guard see the same true blast radius.
+            rowids = [
+                r["rowid"] for r in conn.execute(
+                    f"SELECT rowid FROM enrichments WHERE {clause} "
+                    f"ORDER BY rowid" + (" LIMIT ?" if limit is not None else ""),
+                    params + ([limit] if limit is not None else []),
+                ).fetchall()
+            ]
+            already_pushed = 0
+            if rowids:
+                ph = ",".join("?" * len(rowids))
+                already_pushed = int(
+                    conn.execute(
+                        f"SELECT COUNT(*) AS n FROM enrichments "
+                        f"WHERE rowid IN ({ph}) AND subcategory_sent_at IS NOT NULL",
+                        rowids,
+                    ).fetchone()["n"]
+                )
+                if not dry_run:
+                    conn.execute(
+                        f"UPDATE enrichments SET subcategories = NULL, "
+                        f"subcategory_confidence = NULL, subcategory_source = NULL, "
+                        f"subcategory_run_id = NULL, subcategory_attempts = 0, "
+                        f"subcategory_sent_at = NULL WHERE rowid IN ({ph})",
+                        rowids,
+                    )
+        return len(rowids), already_pushed
+
+    # ---- backfill run ledger (BF-1) ---------------------------------------
+    def start_backfill_run(
+        self,
+        kind: str = "label",
+        engine: str | None = None,
+        model: str | None = None,
+        taxonomy_version: str | None = None,
+        rubric_version: str | None = None,
+        deadline_at: str | None = None,
+    ) -> int:
+        """Open a `backfill_runs` row and return its id.
+
+        `rubric_version` is stamped SEPARATELY from `taxonomy_version` because
+        under D3 the subcategory rubric lives in its own file
+        (.claude/skills/taxonomy/SUBCATEGORIES.md): without the second stamp a
+        run cannot prove which rubric produced its labels."""
+        if kind not in BACKFILL_RUN_KINDS:
+            raise ValueError(
+                f"invalid backfill run kind {kind!r}; expected one of "
+                f"{sorted(BACKFILL_RUN_KINDS)}"
+            )
+        ts = now_iso()
+        with self.connect() as conn:
+            cur = conn.execute(
+                "INSERT INTO backfill_runs (uuid, started_at, kind, engine, model, "
+                "taxonomy_version, rubric_version, deadline_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    str(uuid_mod.uuid4()), ts, kind, engine, model,
+                    taxonomy_version, rubric_version, deadline_at,
+                ),
+            )
+        return int(cur.lastrowid)
+
+    def bump_backfill_counters(self, run_id: int, **counters: int) -> None:
+        """Increment run-ledger counters.
+
+        ⚠ Unknown keys are DROPPED — but a dropped key LOGS A WARNING, unlike
+        `bump_tick_counters`, which returns in silence. That silence is how a
+        counter can read 0 forever while the run looks healthy; this lane refuses
+        to repeat it."""
+        cols: dict[str, int] = {}
+        for key, value in counters.items():
+            if key in _BACKFILL_COUNTER_COLS:
+                cols[key] = value
+            else:
+                logger.warning(
+                    "bump_backfill_counters: dropping unknown counter %r "
+                    "(run_id=%s); add it to _BACKFILL_COUNTER_COLS and to the "
+                    "backfill_runs DDL or it will read 0 forever",
+                    key, run_id,
+                )
+        if not cols:
+            return
+        set_clause = ", ".join(f"{c} = {c} + ?" for c in cols)
+        params = list(cols.values()) + [run_id]
+        with self.connect() as conn:
+            conn.execute(
+                f"UPDATE backfill_runs SET {set_clause} WHERE id = ?", params
+            )
+
+    def end_backfill_run(
+        self,
+        run_id: int,
+        status: str,
+        aborted_reason: str | None = None,
+        notes: str | None = None,
+    ) -> None:
+        """Close a run row. `aborted_reason` is what the morning report prints
+        FIRST when a run did not finish cleanly."""
+        with self.connect() as conn:
+            conn.execute(
+                "UPDATE backfill_runs SET ended_at = ?, status = ?, "
+                "aborted_reason = ?, notes = ? WHERE id = ?",
+                (now_iso(), status, aborted_reason, notes, run_id),
+            )
+
+    def get_backfill_run(self, run_id: int) -> dict[str, Any] | None:
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM backfill_runs WHERE id = ?", (run_id,)
+            ).fetchone()
+        return dict(row) if row else None
+
+    def latest_backfill_run(self, kind: str | None = None) -> dict[str, Any] | None:
+        """Newest run row, optionally restricted to ONE lane. `kind='push'`
+        must never return a label run — the report reads one ledger and the
+        lane filter is what keeps the two apart."""
+        sql = "SELECT * FROM backfill_runs"
+        params: tuple[Any, ...] = ()
+        if kind is not None:
+            sql += " WHERE kind = ?"
+            params = (kind,)
+        sql += " ORDER BY id DESC LIMIT 1"
+        with self.connect() as conn:
+            row = conn.execute(sql, params).fetchone()
+        return dict(row) if row else None
+
     # ---- tick lifecycle ---------------------------------------------------
     def start_tick(self) -> int:
         ts = now_iso()
@@ -1022,6 +1502,7 @@ class Store:
         needs_human: bool | None = None,
         limit: int = 50,
         offset: int = 0,
+        swe_without_subcategories: bool = False,
     ) -> tuple[list[dict[str, Any]], int]:
         """Paginated inbox LEFT JOIN enrichments (a claimed/cleaned job may have
         no enrichment yet). Filter by inbox.status and/or the enrichment
@@ -1036,6 +1517,13 @@ class Store:
         if needs_human is not None:
             where.append("COALESCE(e.needs_human, 0) = ?")
             params.append(1 if needs_human else 0)
+        if swe_without_subcategories:
+            # OPS-4's Jobs-panel filter: the backfill queue, plus the TERMINAL
+            # '[]' rows, so an operator can eyeball what "no specialty applies"
+            # actually landed on.
+            where.append("e.category = ?")
+            params.append(SUBCATEGORY_PARENT_CATEGORY)
+            where.append("(e.subcategories IS NULL OR e.subcategories = '[]')")
         clause = (" WHERE " + " AND ".join(where)) if where else ""
         join = (
             "FROM inbox i LEFT JOIN enrichments e "
