@@ -22,6 +22,13 @@ from job_enricher import enrich_config as ec
 from job_enricher import lock as lock_mod
 from job_enricher import taxonomy as tax
 from job_enricher.clean import clean_description, truncate_for_agent
+from job_enricher.eval.params import (
+    PARAM_DRAW_SEED,
+    PARAM_PRELABEL_ERROR_RATE,
+    derive_audit_max,
+)
+
+UNMATCHED_WORKLIST_REL = "golden/review/unmatched-corrections.json"
 from job_enricher.health import collect_health
 from job_enricher.store import (
     LAST_SCORECARD_HASH_KEY,
@@ -1075,6 +1082,10 @@ def _cmd_eval_run(args: argparse.Namespace) -> int:
     batch = max(1, args.batch)
     do_judge = args.judge != "off"
 
+    if getattr(args, "prompt", "classify") == "backfill":
+        return _eval_run_backfill_lane(rows, engine_kind, classify_model, batch,
+                                       getattr(args, "tag", None))
+
     jobs: list[dict[str, Any]] = []
     clean_by_key: dict[tuple[str, str], str] = {}
     for r in rows:
@@ -1120,7 +1131,8 @@ def _cmd_eval_run(args: argparse.Namespace) -> int:
         for k in (( r["source_id"], r["job_listing_id"]) for r in rows)
         if k in classify_by_key
     ]
-    off_path = _predictions_path("off", engine_kind)
+    tag = getattr(args, "tag", None)
+    off_path = _predictions_path("off", engine_kind, tag)
     off_path.parent.mkdir(parents=True, exist_ok=True)
     off_path.write_text(json.dumps(judge_off, indent=2), encoding="utf-8")
     print(f"eval-run: wrote {len(judge_off)} classify predictions -> {off_path.name}")
@@ -1175,9 +1187,100 @@ def _cmd_eval_run(args: argparse.Namespace) -> int:
             # judge dropped the row — carry the classify label through as a pass
             verdict = {"passed": True, "confidence": cp.get("confidence"), "corrections": {}}
         judged.append(_eval_post_judge_pred(cp, verdict, floor))
-    on_path = _predictions_path(None, engine_kind)
+    on_path = _predictions_path(None, engine_kind, tag)
     on_path.write_text(json.dumps(judged, indent=2), encoding="utf-8")
     print(f"eval-run: wrote {len(judged)} judged predictions -> {on_path.name}")
+    return 0
+
+
+# ⚠ THE BACKFILL LANE IS A DIFFERENT TASK FROM THE CLASSIFY LANE, AND THE GATE
+# AS DESIGNED MEASURES ONLY THE FIRST. The live classify path sees title +
+# company + raw_location + the FULL cleaned description; the backfill path sees
+# title + company tags ONLY — the injection-boundary decision, taken because
+# claude_code.py's docstring reserves headless `claude -p` for trusted golden
+# text and job descriptions are untrusted. Without this lane roughly 8k rows
+# would ship on a prompt nothing ever measured.
+_BACKFILL_ROW_FIELDS = ("job_listing_id", "source_id", "title", "company", "tags")
+
+
+def _eval_run_backfill_lane(
+    rows: list[dict[str, Any]], engine_kind: str, model: str, batch: int,
+    tag: str | None,
+) -> int:
+    """Score the SUBCATEGORY-ONLY prompt the production backfill actually runs.
+
+    ⚠ IT CALLS `ChunkEngine.subcategory()` / `build_subcategory_prompt` — the
+    SAME code the production backfill uses — rather than a parallel eval-local
+    implementation. A hand-rolled input mode here would measure a prompt
+    production never runs, which is worse than not measuring it at all because
+    it looks like evidence.
+
+    ⚠ HONEST LIMITATION: company tags are ABSENT from the golden seed today
+    (the seed's `tags` field is a GOLD LABEL produced by an earlier draft run,
+    not company tags), so this lane is effectively TITLE-ONLY here and its
+    score is therefore a LOWER BOUND on the backfill's real quality.
+    """
+    from job_enricher.engines import EngineError, build_engine
+    from job_enricher.eval.report import _predictions_path
+
+    engine = build_engine(engine_kind, model=model, lane="backfill")
+    projected = [
+        {
+            "job_listing_id": r["job_listing_id"],
+            "source_id": r["source_id"],
+            "title": r.get("title"),
+            "company": r.get("company"),
+            # ⚠ NOT `r['tags']` — that is the gold label. Only a real
+            # `company_tags` field may feed this lane, and there is not one yet.
+            "tags": r.get("company_tags") or [],
+        }
+        for r in rows
+    ]
+    by_key: dict[tuple[Any, Any], dict[str, Any]] = {}
+    total = len(projected)
+    for i in range(0, total, batch):
+        chunk = projected[i : i + batch]
+        try:
+            items = engine.subcategory(chunk)
+        except EngineError as exc:
+            logger.error("eval-run[backfill]: chunk @%d failed: %s", i, exc)
+            items = []
+        for it in items:
+            by_key[(it.get("source_id"), it.get("job_listing_id"))] = it
+        print(f"  subcategory {min(i + batch, total)}/{total} "
+              f"[{engine_kind}/{model}]", file=sys.stderr)
+
+    covered = sum(1 for r in rows if (r["source_id"], r["job_listing_id"]) in by_key)
+    print(f"eval-run[backfill]: coverage {covered}/{total} "
+          f"(drops={total - covered}) [{engine_kind}]", file=sys.stderr)
+
+    preds = []
+    for r in rows:
+        it = by_key.get((r["source_id"], r["job_listing_id"]))
+        if it is None:
+            continue
+        subs, _bad, _warn = tax.validate_subcategories(
+            tax.SUBCATEGORY_PARENT, it.get("subcategories")
+        )
+        preds.append({
+            "job_listing_id": r["job_listing_id"],
+            "source_id": r["source_id"],
+            # the lane decides a SUBCATEGORY only; the gold parent is echoed
+            "category": r.get("category"),
+            "subcategories": subs,
+            "subcategory_confidence": _subcategory_confidence(
+                subs, it.get("subcategory_confidence")
+            ),
+            "subcategory_latency_ms": it.get("subcategory_latency_ms"),
+            # ⚠ EMPTY BY CONSTRUCTION — the projection has nowhere to put a
+            # description, which is the injection boundary made structural.
+            "clean_description": "",
+        })
+    path = _predictions_path("off", engine_kind, tag)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(preds, indent=2), encoding="utf-8")
+    print(f"eval-run[backfill]: wrote {len(preds)} subcategory predictions "
+          f"-> {path.name}")
     return 0
 
 
@@ -1487,8 +1590,206 @@ def _cmd_eval(args: argparse.Namespace) -> int:
     code = run_eval(
         golden_set=args.set, judge=args.judge, gate=args.gate, baseline=args.baseline,
         allow_draft=args.allow_draft, engine=args.engine, reasoning=args.reasoning,
+        tag=args.tag, facet=args.facet,
+        gate_groups=tuple(args.gate_group) if args.gate_group else None,
+        model=args.model, conf_threshold=args.conf_threshold,
     )
     return code
+
+
+# ---- prelabel / review (the D1 + D3 gold-pool bootstrap) -------------------
+def _cmd_prelabel(args: argparse.Namespace) -> int:
+    """Pre-label a drawn pool with an INDEPENDENT model, for human review.
+
+    Exit 2 is the independence refusal — see eval/prelabel.py's module
+    docstring for why a model agreeing with itself is not evidence."""
+    from job_enricher.eval.prelabel import IndependenceError, run_prelabel
+
+    try:
+        path = run_prelabel(
+            facet=args.facet, engine=args.engine, model=args.model,
+            under_test=args.under_test, seed=args.seed, draw=args.draw,
+            batch=args.batch, out=Path(args.out) if args.out else None,
+        )
+    except IndependenceError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+    data = json.loads(path.read_text(encoding="utf-8"))
+    print(
+        f"prelabel: facet={data['facet']} pool={data['pool_size']} "
+        f"model={data['prelabel_engine']}/{data['prelabel_model']} "
+        f"seed={data['seed']} -> {path}"
+    )
+    return 0
+
+
+def _cmd_review_build(args: argparse.Namespace) -> int:
+    from job_enricher.eval.prelabel import build_review
+
+    rpath, apath, header = build_review(
+        facet=args.facet, audit_rate=args.audit_rate, seed=args.seed,
+        prelabel_file=Path(args.prelabel_file) if args.prelabel_file else None,
+        out=Path(args.out) if args.out else None,
+    )
+    tc = header["tier_counts"]
+    print(
+        f"review-build: facet={header['facet']} tiers A={tc['A']} B={tc['B']} "
+        f"C={tc['C']} audit={header['audit_target']} "
+        f"(rate={header['audit_rate']}, independent="
+        f"{header['corroborator_independent']}, promote="
+        f"{header['promote_agreements']}) -> {rpath}"
+    )
+    print(f"review-build: non-audited agreements -> {apath}")
+    return 0
+
+
+def _cmd_review_render(args: argparse.Namespace) -> int:
+    from job_enricher.eval.prelabel import render_review_html, review_path
+
+    src = Path(args.review_file) if args.review_file else review_path(args.facet)
+    review = json.loads(src.read_text(encoding="utf-8"))
+    out = Path(args.out) if args.out else src.with_suffix(".html")
+    out.write_text(render_review_html(review), encoding="utf-8")
+    print(f"review-render: {len(review['entries'])} rows -> {out}")
+    return 0
+
+
+def _cmd_review_apply(args: argparse.Namespace) -> int:
+    from job_enricher.eval.prelabel import apply_review
+
+    result = apply_review(
+        facet=args.facet, threshold=args.threshold,
+        review_file=Path(args.review_file) if args.review_file else None,
+    )
+    v = result["verdict"]
+    print(
+        f"review-apply: facet={v['facet']} decided={result['decided']} "
+        f"audited={v['reviewed']} errors={v['errors']} "
+        f"error_rate={v['error_rate']} threshold={v['threshold']} "
+        f"passed={v['passed']} promoted={result['promoted']}"
+    )
+    if result["undecided"]:
+        print(
+            f"review-apply: {len(result['undecided'])} row(s) still UNDECIDED — "
+            f"{', '.join(result['undecided'][:10])}"
+            + (" …" if len(result["undecided"]) > 10 else "")
+        )
+    if not v["passed"]:
+        print(
+            "review-apply: audit NOT passed — nothing promoted, and "
+            "load_truth will drop every prelabel_agreed row. This is the "
+            "honest branch, not a failure to work around."
+        )
+    return 0
+
+
+# ---- the weak rule baseline (EV-11) ---------------------------------------
+# ⚠ G2: v7 must beat this on `subcategory_set_f1` by at least this much. A
+# model that cannot out-label a REGEX on the titles the regex can type has no
+# business shipping.
+#
+# ⚠ CORRECTION — IT IS NOT A DAY-ONE GATE. The rule labeler needs no human
+# labels, but SCORING it does: `score()` compares the rule's predictions against
+# `load_truth(facet='subcategory')`, which returns 0 rows until the EV-9b pool
+# run lands. On an empty pool every metric is 0.0 and "beat 0.0 by 0.10" is a
+# free pass. The card is therefore stamped `gate_ready` and the command fails
+# closed. See EVAL-V6-V7-PROTOCOL.md's G2 row: CANNOT RUN until P4.
+WEAK_BASELINE_MARGIN = 0.10
+
+
+def _cmd_subcategory_weak_baseline(args: argparse.Namespace) -> int:
+    """Run `subcategory_rules` over the gold-SWE pool and score it.
+
+    ⚠ CRITICAL SCOPING: ON THE GOLDEN POOL THIS USES `label_from_title` ONLY.
+    The seed's `tags` field is a gold LABEL produced by an earlier draft run —
+    it is what `score()` compares predictions against — so scoring the tag layer
+    against it is label leakage. It would make the weak baseline look
+    artificially strong and therefore make the gate artificially hard FOR THE
+    WRONG REASON. The tag layer's real contribution is unmeasurable on this pool
+    until company tags reach the seed (named follow-up: expose `details->'tags'`
+    in JVN's `_JOB_PROJECTION` plus a `company_tags` seed field; NOT blocking).
+    """
+    from job_enricher.eval.golden import SCORECARD_DIR, load_seed, load_truth
+    from job_enricher.eval.scoring import score
+    from job_enricher.subcategory_rules import label_from_title
+
+    rows = load_seed()
+    swe = [r for r in rows if r.get("category") == tax.SUBCATEGORY_PARENT]
+    predictions = [
+        {
+            "job_listing_id": r.get("job_listing_id"),
+            "source_id": r.get("source_id"),
+            # The rule labeler decides a SUBCATEGORY only — it never touches the
+            # category — so the gold parent is echoed through. That is what makes
+            # `subcategory_accuracy_given_parent_correct` readable here and keeps
+            # a spurious leak out of the artifact.
+            "category": r.get("category"),
+            "subcategories": label_from_title(r.get("title")),
+            # A rule has no confidence, and inventing one would pollute the
+            # subcategory calibration with a constant.
+            "subcategory_confidence": None,
+        }
+        for r in swe
+    ]
+    art_dir = REPO_ROOT / "golden" / "baselines" / "weak_rule"
+    art_dir.mkdir(parents=True, exist_ok=True)
+    art_path = art_dir / "predictions.weak_rule.json"
+    artifact = {
+        # ⚠ STAMPED so nobody later mistakes this for the PRODUCTION rule layer,
+        # which also runs the tag layer.
+        "input_mode": "title_only",
+        "generated_by": "job_enricher.subcategory_rules.label_from_title",
+        "row_set": "gold-SWE seed rows (category == software_engineering)",
+        "n": len(predictions),
+        "predictions": predictions,
+    }
+    art_path.write_text(json.dumps(artifact, indent=2), encoding="utf-8")
+
+    truth = load_truth(facet="subcategory")
+    card = score(predictions, truth).to_dict()
+    card["input_mode"] = "title_only"
+    card["gold_quality"] = "weak_rule"
+    card["baseline_kind"] = "weak_rule"
+    card["g2_margin"] = WEAK_BASELINE_MARGIN
+    # ⚠ THE CARD STATES WHETHER IT CAN GATE. Scoring against an EMPTY gold pool
+    # produces a full card of 0.0s that looks like a baseline and is not one:
+    # "beat 0.0 by 0.10" is a free pass, and `subcategory_set_f1: 0.0` alone
+    # does not say why. `gate_ready` is computed from the pool the card was
+    # scored on, so G2 has something to refuse on instead of a silent zero.
+    card["gate_ready"] = card["subcategory_n"] > 0
+    card["gate_blocked_reason"] = None if card["gate_ready"] else (
+        "the subcategory gold pool is EMPTY — load_truth(facet='subcategory') "
+        "returned 0 rows, so every metric on this card is a placeholder 0.0. "
+        "G2 cannot fire until the EV-9b pool run lands."
+    )
+    SCORECARD_DIR.mkdir(parents=True, exist_ok=True)
+    card_path = SCORECARD_DIR / "baseline.weak_rule.json"
+    card_path.write_text(json.dumps(card, indent=2), encoding="utf-8")
+
+    typed = sum(1 for p in predictions if p["subcategories"])
+    print(
+        f"subcategory-weak-baseline: {len(predictions)} gold-SWE rows, "
+        f"{typed} typed by the title layer -> {art_path}"
+    )
+    print(
+        f"subcategory-weak-baseline: scored over "
+        f"{card['subcategory_n']} gold subcategory row(s), "
+        f"set_f1={card['subcategory_set_f1']} -> {card_path}"
+    )
+    if not card["gate_ready"]:
+        print(
+            "subcategory-weak-baseline: ⚠ the subcategory gold pool is EMPTY, "
+            "so the scored card is a placeholder stamped gate_ready=false — G2 "
+            "CANNOT fire until EV-9b has run. The prediction artifact above is "
+            "complete and durable; re-run this command once the pool exists.",
+            file=sys.stderr,
+        )
+        # FAIL CLOSED: a placeholder card is not a baseline. Exit 2 so a run
+        # that produced no gate cannot read as one in a scrollback or CI log.
+        # `--allow-empty-pool` is how EV-11 commits the durable artifact today.
+        if not getattr(args, "allow_empty_pool", False):
+            return 2
+    return 0
 
 
 # ---- reenrich (MANUAL taxonomy re-processing) -----------------------------
@@ -1611,16 +1912,63 @@ def _version_below(current: str | None, threshold: str) -> bool:
 def _cmd_golden_merge(args: argparse.Namespace) -> int:
     """Pull human admin corrections from JVN and fold them into the golden
     seed as label_source='human' rows — the online path that turns triage work
-    into real ground truth for the regression gate."""
+    into real ground truth for the regression gate.
+
+    ⚠ EXITS 2 WHEN THE LIVE FEED OMITS THE v7 KEYS (`subcategories`,
+    `taxonomy_version`). Without that check the command's success line is a lie
+    by omission: if ADM-5 slips, every correction is silently pre-v7, the merge
+    reports matched/upgraded counts, exits 0 — and writes no subcategory gold
+    at all. `--allow-pre-v7` is the escape hatch for a deliberate
+    category-only merge; it still prints the violation."""
     from job_enricher.eval.golden import merge_corrections
-    from job_enricher.jvn_client import JVNClient
+    from job_enricher.jvn_client import JVNClient, missing_v7_correction_keys
 
     corrections = JVNClient().get_corrections(since=args.since, limit=args.limit)
+    # ⚠ INSPECT THE LIVE FEED, NOT JUST A FIXTURE. `missing_v7_correction_keys`
+    # existed with a unit test over literal dicts as its only caller, so a
+    # /corrections feed shipped without `subcategories`/`taxonomy_version`
+    # (i.e. ADM-5 slipping) produced a merge that printed matched=N upgraded=N,
+    # exited 0, and wrote ZERO subcategory gold. The check now runs on what JVN
+    # actually returned.
+    incomplete = {
+        f"{c.get('source_id')}/{c.get('job_listing_id')}": missing
+        for c in corrections
+        if (missing := missing_v7_correction_keys(c))
+    }
     report = merge_corrections(corrections)
     print(
         f"golden-merge: matched={report['matched']} upgraded={report['upgraded']} "
-        f"unmatched={report['unmatched']}"
+        f"unmatched={report['unmatched']} "
+        f"subcategory_upgraded={report['subcategory_upgraded']}"
     )
+    if report["unmatched"]:
+        # ⚠ NOT DISCARDED, PARKED — and the seed deliberately does NOT grow from
+        # this feed. Saying so on the line itself is what stops a reader from
+        # assuming the correction loop alone will reach GATE_MIN_N.
+        print(
+            f"golden-merge: unmatched={report['unmatched']} "
+            f"(parked in {UNMATCHED_WORKLIST_REL} — the seed does NOT grow "
+            "from this feed)"
+        )
+    if incomplete:
+        # ⚠ FAIL CLOSED. The feed violates the v7 contract, so this run CANNOT
+        # have written subcategory gold no matter what `upgraded` says. Exit 2
+        # rather than 0 so a slipped ADM-5 is a red command, not a green
+        # no-op. The category half of the merge above is real work and is kept
+        # — `--allow-pre-v7` is the documented escape hatch for exactly that
+        # case, and it still prints this line.
+        missing_keys = sorted({k for ks in incomplete.values() for k in ks})
+        named = ", ".join(list(incomplete)[:5]) + (" …" if len(incomplete) > 5 else "")
+        print(
+            f"golden-merge: v7 CONTRACT VIOLATION — {len(incomplete)}/"
+            f"{len(corrections)} correction(s) omit {missing_keys} "
+            f"({named}). ADM-5 has not shipped this feed, so "
+            f"subcategory_upgraded={report['subcategory_upgraded']} and no "
+            "subcategory gold can be written by this run.",
+            file=sys.stderr,
+        )
+        if not getattr(args, "allow_pre_v7", False):
+            return 2
     return 0
 
 
@@ -2300,6 +2648,36 @@ def build_parser() -> argparse.ArgumentParser:
         help="score the per-engine predictions.<engine>.json (from `eval-run`)",
     )
     ev.add_argument(
+        "--tag", default=None,
+        help="namespace the prediction + scorecard artifacts (predictions.<tag>.<engine>[.judge_off].json). REQUIRED for a taxonomy A/B: without it the v7 run OVERWRITES the v6 artifact",
+    )
+    ev.add_argument(
+        "--facet", default="all", choices=["all", "subcategory"],
+        help="'subcategory' scores the SUBCATEGORY pool and writes "
+             "scorecard.subcategory[.tag][.engine].json — it never touches "
+             "scorecard.json, which is the file metrics-push ships to JVN",
+    )
+    ev.add_argument(
+        "--gate-group", action="append", default=None,
+        choices=["category", "subcategory"],
+        help="repeatable. Each group gates on its OWN denominator and min-n; "
+             "one group refusing does not suppress the others",
+    )
+    ev.add_argument(
+        "--model", default=None,
+        help="the model under test, for the subcategory gate's independence "
+             "rail (it refuses when the pre-labeller equals it). REQUIRED for "
+             "any --gate run covering the subcategory group on a pre-labelled "
+             "pool: without it the model under test is unknown and the gate "
+             "refuses rather than passing on an unchecked rail",
+    )
+    ev.add_argument(
+        "--conf-threshold", type=float, default=0.80,
+        help="calibration split point. DEFAULT 0.80 for comparability with "
+             "every committed baseline; the 0.85 production ceiling is "
+             "reported separately as calibration_error_rate_below_at_ceiling",
+    )
+    ev.add_argument(
         "--reasoning", action="store_true",
         help="also print the per-row 'why' (predicted vs gold + classify/judge rationale)",
     )
@@ -2322,7 +2700,91 @@ def build_parser() -> argparse.ArgumentParser:
     er.add_argument("--classify-model", default=None,
                     help="override classify model/tier (default: knob for claude-code, else opencode:model)")
     er.add_argument("--judge-model", default=None, help="override judge model/tier")
+    er.add_argument(
+        "--prompt", default="classify", choices=["classify", "backfill"],
+        help="'backfill' runs the SUBCATEGORY-ONLY lane (title + company tags, "
+             "NO description) through the SAME build_subcategory_prompt "
+             "production uses — the lane the classify-only gate never measures",
+    )
+    er.add_argument(
+        "--tag", default=None,
+        help="namespace the prediction + scorecard artifacts (predictions.<tag>.<engine>[.judge_off].json). REQUIRED for a taxonomy A/B: without it the v7 run OVERWRITES the v6 artifact",
+    )
     er.set_defaults(func=_cmd_eval_run)
+
+    pl = subs.add_parser(
+        "prelabel",
+        help="pre-label a drawn golden pool with an INDEPENDENT model, for "
+             "human review (facet: category or subcategory)",
+    )
+    pl.add_argument("--facet", required=True, choices=["category", "subcategory"])
+    pl.add_argument("--engine", required=True, choices=list(ec.ENGINE_CHOICES))
+    pl.add_argument("--model", required=True)
+    pl.add_argument(
+        "--under-test", required=True,
+        help="the '<engine>:<model>' being evaluated. REQUIRED: the command "
+             "REFUSES (exit 2) when the pre-labeller equals it — a model "
+             "agreeing with itself is self-consistency, not evidence",
+    )
+    pl.add_argument("--seed", type=int, default=PARAM_DRAW_SEED)
+    pl.add_argument("--draw", type=int, default=None,
+                    help="draw N rows (seeded + stratified); default = the whole pool")
+    pl.add_argument("--batch", type=int, default=5)
+    pl.add_argument("--out", default=None)
+    pl.set_defaults(func=_cmd_prelabel)
+
+    rb = subs.add_parser(
+        "review-build",
+        help="turn a prelabel artifact into a tiered human worklist plus a "
+             "seeded, stratified audit sample",
+    )
+    rb.add_argument("--facet", required=True, choices=["category", "subcategory"])
+    rb.add_argument("--audit-rate", type=float, default=None,
+                    help="default 1.0 for category (the corroborator is NOT "
+                         "independent, so every drawn row is human-decided) "
+                         "and 0.15 for subcategory")
+    rb.add_argument("--seed", type=int, default=PARAM_DRAW_SEED)
+    rb.add_argument("--prelabel-file", default=None)
+    rb.add_argument("--out", default=None)
+    rb.set_defaults(func=_cmd_review_build)
+
+    rr = subs.add_parser(
+        "review-render",
+        help="render a review worklist as one self-contained static HTML page",
+    )
+    rr.add_argument("--facet", required=True, choices=["category", "subcategory"])
+    rr.add_argument("--review-file", default=None)
+    rr.add_argument("--out", default=None)
+    rr.set_defaults(func=_cmd_review_render)
+
+    ra = subs.add_parser(
+        "review-apply",
+        help="fold a REVIEWED worklist into golden/seed, write the audit "
+             "verdict, and enforce the promotion switch",
+    )
+    ra.add_argument("--facet", required=True, choices=["category", "subcategory"])
+    ra.add_argument(
+        "--threshold", type=float, default=derive_audit_max(PARAM_PRELABEL_ERROR_RATE),
+        help="PARAM_AUDIT_MAX — DERIVED from EV-2b's measured "
+             "PARAM_PRELABEL_ERROR_RATE, not invented. Defaults to the "
+             "conservative floor (0.05) while that measurement does not exist",
+    )
+    ra.add_argument("--review-file", default=None)
+    ra.set_defaults(func=_cmd_review_apply)
+
+    wb = subs.add_parser(
+        "subcategory-weak-baseline",
+        help="run the deterministic title labeler over the gold-SWE pool and "
+             "score it — the G2 baseline. ⚠ NEEDS a scored subcategory gold "
+             "pool: with an empty pool the card is an all-zeros placeholder "
+             "and the command exits 2",
+    )
+    wb.add_argument(
+        "--allow-empty-pool", action="store_true",
+        help="write the placeholder card anyway and exit 0 — the prediction "
+             "artifact is still durable, but the card CANNOT gate",
+    )
+    wb.set_defaults(func=_cmd_subcategory_weak_baseline)
 
     rn = subs.add_parser(
         "reenrich",
@@ -2384,6 +2846,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     gm.add_argument("--since", default=None, help="ISO timestamp lower bound")
     gm.add_argument("--limit", type=int, default=None)
+    gm.add_argument(
+        "--allow-pre-v7", action="store_true",
+        help="downgrade the v7 contract violation (corrections missing "
+             "subcategories/taxonomy_version) from exit 2 to a printed "
+             "warning — for a deliberate category-only merge before ADM-5 ships",
+    )
     gm.set_defaults(func=_cmd_golden_merge)
 
     mp = subs.add_parser(

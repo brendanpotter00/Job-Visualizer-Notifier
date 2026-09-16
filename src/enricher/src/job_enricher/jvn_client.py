@@ -160,9 +160,34 @@ class JVNClient:
         limit: int | None = None,
         client: httpx.Client | None = None,
     ) -> list[dict[str, Any]]:
-        """Fetch human admin corrections from JVN. Response shape:
-        {"corrections": [{job_listing_id, source_id, title, company, category,
-        level, tags, corrected_at}], "count": int}."""
+        """Fetch human admin corrections from JVN.
+
+        RESPONSE SHAPE (the contract this client depends on):
+
+            {"corrections": [{
+                 "job_listing_id": str, "source_id": str,
+                 "title": str, "company": str,
+                 "category": str, "level": str, "tags": list[str],
+                 "decision": str, "corrected_at": str,
+                 # --- added by ADM-5 (v7) ---
+                 "subcategories": list[str] | None,
+                 "taxonomy_version": str,
+             }], "count": int}
+
+        ⚠ THERE IS NO `description_html` IN THIS FEED, and that is why
+        `merge_corrections` does NOT append unmatched corrections as new seed
+        rows: an appended row would be classified TITLE-ONLY, which SKILL.md
+        answers at confidence <= 0.5 and `cli.TITLE_ONLY_MAX_CONFIDENCE` clamps
+        in code. See `merge_corrections`' docstring for all three reasons.
+
+        ⚠ THE `tags` HERE ARE ENRICHER-ORIGIN (JVN's job_tags is 100% written
+        by this pipeline), so they are not an independent signal.
+
+        `missing_v7_correction_keys` reports when `subcategories` /
+        `taxonomy_version` are absent — the shape ADM-5 must supply. A missing
+        key is a SILENT no-op otherwise: the merge would run, report matches,
+        and write no subcategory gold at all.
+        """
         params: dict[str, Any] = {}
         if since is not None:
             params["since"] = since
@@ -231,3 +256,15 @@ class JVNClient:
             # JVN builds -> None -> row sorts last, same as a legacy row.
             "first_seen_at": j.get("first_seen_at"),
         }
+
+
+# --- the /corrections contract (EV-16) --------------------------------------
+# ⚠ These two keys arrive with ADM-5. Until they do, `golden-merge` runs green
+# and writes NO subcategory gold — a perfect silent no-op. `missing_v7_correction_keys`
+# is what a test uses to turn that into a red build.
+CORRECTION_V7_KEYS: frozenset[str] = frozenset({"subcategories", "taxonomy_version"})
+
+
+def missing_v7_correction_keys(correction: dict[str, Any]) -> list[str]:
+    """Sorted list of v7 contract keys absent from one correction (empty = ok)."""
+    return sorted(k for k in CORRECTION_V7_KEYS if k not in correction)

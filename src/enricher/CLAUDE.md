@@ -45,8 +45,14 @@ refuses to close a tick it doesn't own), `pull`, `clean`, `classify-queue`/`reco
 `classify_model`/`judge_model` — the engine is authoritative for what's actually running;
 the Claude-tier model fields are inert unless the matching engine is `claude-code` —
 the deploy sanity check),
-`eval` (`--gate`, `--allow-draft` = advisory only), `reenrich`, `build-golden-set`,
-`golden-merge` (pull JVN admin corrections into golden/seed as `label_source='human'`),
+`eval` (`--gate`, `--gate-group`, `--facet`, `--tag`, `--allow-draft` = advisory only),
+`eval-run` (`--tag`, `--prompt {classify,backfill}`), `prelabel`, `review-build`,
+`review-render`, `review-apply`, `subcategory-weak-baseline`,
+`reenrich`, `build-golden-set`,
+`golden-merge` (pull JVN admin corrections into golden/seed as `label_source='human'`;
+⚠ **exits 2 when the live feed omits the v7 keys** `subcategories`/`taxonomy_version` —
+otherwise a slipped ADM-5 is a green merge that writes no subcategory gold; `--allow-pre-v7`
+downgrades it to a warning for a deliberate category-only merge),
 knob setters (`set-classify-model`, `judge-toggle on|off`, `set-judge-floor`,
 `set-judge-scope all|low_confidence`, `set-judge-ceiling`, ...) and `reset-knob <meta:key>`
 (clear an override so it follows the committed default).
@@ -119,15 +125,45 @@ placed behind the Cloudflare tunnel (`server.py`'s edge) — the knob-edit endpo
 unauthenticated. Never run it against the prod checkout.
 
 ## Evals
-`golden/seed/golden.json` (labels; only `label_source='human'` rows are ground truth — grow
-them via `cli golden-merge`) + the pure `eval/scoring.py` (hierarchy-aware: `level_exact` vs
-`level_filter_consistent`, category macro-F1 over supported classes, tag P/R/F1 + fair tag
+`golden/seed/golden.json` (labels) + the pure `eval/scoring.py` (hierarchy-aware: `level_exact`
+vs `level_filter_consistent`, category macro-F1 over supported classes, tag P/R/F1 + fair tag
 metrics, `judge_kappa_prejudge` (judge verdict vs PRE-judge correctness) + per-facet
 `judge_lift`, confidence calibration). `/enrich-eval` drives the same pipeline over the golden
-set and writes predictions; `cli eval --gate` fails on regression (human labels only, min 50
-scored rows, `tags_token_f1` gated — strict `tags_f1` is advisory). `cli eval --allow-draft`
-scores draft labels but is loudly ADVISORY and always exits 0. The scorer is pure so it runs
-here, in the personal dir, and in JVN identically.
+set and writes predictions; `cli eval --gate` fails on regression. `cli eval --allow-draft`
+scores draft labels but is loudly ADVISORY and always exits 0 — and those draft labels are
+judge-bootstrapped v6 OUTPUT, so they measure AGREEMENT WITH v6, not accuracy.
+
+**TWO FACETS, TWO POOLS, TWO DENOMINATORS.** Each gates on its own honest denominator and its
+own min-n, and one group refusing does not suppress the other (`--gate-group category`
+/ `--gate-group subcategory`, repeatable):
+
+| facet | pool | gated on | provenance tiers |
+|---|---|---|---|
+| category / level / tags / location | `load_truth(human_only=True)` | `label_source` | `human`, `draft` |
+| subcategory | `load_truth(facet='subcategory')` | `gold_subcategory_provenance` | `human`, `human_audited`, `prelabel_agreed` (needs a PASSING audit), `contract` (NEVER admitted), plus the `weak_rule` baseline artifact |
+
+⚠ **The subcategory facet is scored ONLY under a `software_engineering` gold parent.** A
+non-SWE gold row and an unlabelled one are SKIPPED, never counted wrong — that rule lives in
+the scorer, not the prompt. `subcategory_leak_rate` is the separate measurement over the
+non-SWE rows.
+
+**Bootstrap commands** (`docs/EVAL-GOLD-POOL.md` has the runbooks):
+`prelabel --facet {category,subcategory}` (an INDEPENDENT model; exits 2 when the pre-labeller
+equals `--under-test`), `review-build`, `review-render`, `review-apply`, and
+`subcategory-weak-baseline` (the G2 baseline — ⚠ **NOT a day-one gate.** The rule labeler
+needs zero human labels, but SCORING it needs a non-empty
+`load_truth(facet='subcategory')`, which is **0 rows until the `EV-9b` pool run lands**. On
+an empty pool the card is all 0.0s and "beat 0.0 by 0.10" is a free pass, so the card is
+stamped `gate_ready: false` and the command exits 2. See EVAL-V6-V7-PROTOCOL.md's P5/G2 rows).
+
+⚠ **THE HEADLINE CHANGE, once `EV-2b` runs:** the human CATEGORY pool goes from 21 to ≥50, so
+`cli eval --gate` becomes a REAL gate and `--allow-draft` stops being the only way to get a
+number. **Today it is still 21 and that run has not been performed.**
+
+⚠ **CORRECTION.** This section used to say the scorer "runs here, in the personal dir, and in
+JVN identically". Verified FALSE: `JVN/src/backend/api/eval/scoring.py` is an unrelated
+location-normalization scorer and nothing in JVN imports `job_enricher.eval.scoring`. **There
+is ONE gate and it runs here** — no second opinion, no cross-repo cross-check.
 
 ## Metrics push (observability channel)
 `cli metrics-push [--tick-id N] [--strict]` POSTs the latest (or given) tick to JVN

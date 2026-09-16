@@ -4,6 +4,23 @@
 `cli eval-run` · **Ground truth:** 21 human-corrected rows pulled from prod JVN
 (`job_enrichment.human_corrected_at`) · **Status:** ADVISORY (n=21 < the gate's 50-row floor).
 
+> ⚠ **Update (2026-08-20, v7 epic):** the ADVISORY status above is what `EV-2b`
+> retires. `PARAM_CAT_DRAW_N = 46` seeded, stratified rows are pre-labelled by an
+> INDEPENDENT model and human-decided, taking the pool from 21 to ≥55 and making
+> `cli eval --gate` a REAL gate for the first time. **That run has NOT been
+> performed** — see `docs/EVAL-GOLD-POOL.md`. Until it has, every number in this
+> file remains advisory.
+>
+> ⚠ **A load-bearing prior, restated:** production defaults `judge:engine=ollama`
+> while §1 of this very document measures the local judge as **NET-NEGATIVE on
+> category accuracy** (−5.3 pts, macro-F1 0.73 → 0.55, judge lift −0.053). Any
+> design that routes MORE rows to it amplifies a stage already known to hurt.
+>
+> ⚠ **The 71.8% / 73.5% confidence figures quoted downstream come from
+> `predictions.judge_off.json`, a 2026-07-08 CLAUDE-CODE artifact (252 rows) —
+> NOT the production engine.** `EV-2`'s ollama histogram is the control for any
+> judge-volume cost model. A v7 section is appended here once `EV-12` runs.
+
 > **Update (2026-07-12, post row-drop fix — PR #10):** GAP #3 (§3, §5) is **resolved** — `ollama`
 > and `opencode` now classify **21/21 (drops=0)**, up from 19/21; all three hard rows recovered.
 > The local-judge finding (GAP #1) was **re-verified live** on the fixed code and still holds

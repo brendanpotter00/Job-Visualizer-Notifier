@@ -1,0 +1,1167 @@
+{
+  "input_mode": "title_only",
+  "generated_by": "job_enricher.subcategory_rules.label_from_title",
+  "row_set": "gold-SWE seed rows (category == software_engineering)",
+  "n": 135,
+  "predictions": [
+    {
+      "job_listing_id": "7347389",
+      "source_id": "greenhouse",
+      "category": "software_engineering",
+      "subcategories": [
+        "ml_engineering"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "8001642",
+      "source_id": "greenhouse",
+      "category": "software_engineering",
+      "subcategories": [
+        "ml_engineering"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "4703144007",
+      "source_id": "greenhouse",
+      "category": "software_engineering",
+      "subcategories": [
+        "ml_engineering"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "7946244",
+      "source_id": "greenhouse",
+      "category": "software_engineering",
+      "subcategories": [
+        "ml_engineering",
+        "backend"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "137406397674332870",
+      "source_id": "google",
+      "category": "software_engineering",
+      "subcategories": [
+        "ml_engineering"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "156903",
+      "source_id": "uber",
+      "category": "software_engineering",
+      "subcategories": [
+        "ml_engineering",
+        "ai_engineering"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "7630245",
+      "source_id": "greenhouse",
+      "category": "software_engineering",
+      "subcategories": [
+        "ml_engineering"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "2e6b0ac8-83e9-4be5-a3aa-cf319f751728",
+      "source_id": "lever",
+      "category": "software_engineering",
+      "subcategories": [
+        "forward_deployed"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "05223b5a-5ff1-4fe7-9f97-4ef7fc68b8ef",
+      "source_id": "ashby",
+      "category": "software_engineering",
+      "subcategories": [
+        "forward_deployed"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "10445273",
+      "source_id": "amazon",
+      "category": "software_engineering",
+      "subcategories": [
+        "forward_deployed"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "7705525",
+      "source_id": "greenhouse",
+      "category": "software_engineering",
+      "subcategories": [],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "7927498",
+      "source_id": "greenhouse",
+      "category": "software_engineering",
+      "subcategories": [
+        "forward_deployed",
+        "ai_engineering"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "7280340",
+      "source_id": "greenhouse",
+      "category": "software_engineering",
+      "subcategories": [],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "05f6f18a-8393-474b-ba5b-46ad56d79da7",
+      "source_id": "ashby",
+      "category": "software_engineering",
+      "subcategories": [
+        "infrastructure_platform",
+        "frontend"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "1020d449-7819-40e0-a042-2d016ab76e9d",
+      "source_id": "ashby",
+      "category": "software_engineering",
+      "subcategories": [
+        "frontend"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "01f31ece-f3fe-4991-b6fb-b59f21faa8e9",
+      "source_id": "ashby",
+      "category": "software_engineering",
+      "subcategories": [
+        "full_stack"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "059ac93e-3fc9-42e9-a4f4-367c0fd5de14",
+      "source_id": "ashby",
+      "category": "software_engineering",
+      "subcategories": [
+        "forward_deployed",
+        "infrastructure_platform"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "07cde72b-a127-48a8-b01a-570de5768340",
+      "source_id": "ashby",
+      "category": "software_engineering",
+      "subcategories": [
+        "devops_sre"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "0e9297c6-e439-4bd0-ac65-a0bf43dc2f97",
+      "source_id": "ashby",
+      "category": "software_engineering",
+      "subcategories": [
+        "security"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "000392a0-3844-47c4-b580-d56d9a97620c",
+      "source_id": "lever",
+      "category": "software_engineering",
+      "subcategories": [],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "00207abc-49b7-465c-a219-f7c1140f8047",
+      "source_id": "ashby",
+      "category": "software_engineering",
+      "subcategories": [
+        "forward_deployed"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "00bede24-f74d-4447-ace1-48638965382e",
+      "source_id": "lever",
+      "category": "software_engineering",
+      "subcategories": [
+        "robotics_autonomy"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "01da8934-d3e3-4ebb-beb9-681b3c24fb9c",
+      "source_id": "ashby",
+      "category": "software_engineering",
+      "subcategories": [
+        "ai_engineering"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "0850626a-bf08-4c9f-8733-62159b19b0aa",
+      "source_id": "ashby",
+      "category": "software_engineering",
+      "subcategories": [],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "09adfe1d-f78c-4d58-9aad-04d84c6ef980",
+      "source_id": "ashby",
+      "category": "software_engineering",
+      "subcategories": [],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "0d80a5be-8860-46ea-9e67-c4a2bb53b1bf",
+      "source_id": "ashby",
+      "category": "software_engineering",
+      "subcategories": [],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "0ed80a29-6cca-42d7-b7e0-066d4fa7b37f",
+      "source_id": "ashby",
+      "category": "software_engineering",
+      "subcategories": [
+        "mobile"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "10390482",
+      "source_id": "amazon",
+      "category": "software_engineering",
+      "subcategories": [],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "10420574",
+      "source_id": "amazon",
+      "category": "software_engineering",
+      "subcategories": [],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "145474",
+      "source_id": "uber",
+      "category": "software_engineering",
+      "subcategories": [
+        "ml_engineering"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "19649848-0388-4311-a184-067d9ae77cf3",
+      "source_id": "lever",
+      "category": "software_engineering",
+      "subcategories": [
+        "ml_engineering",
+        "ai_engineering"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "3147714",
+      "source_id": "amazon",
+      "category": "software_engineering",
+      "subcategories": [
+        "ml_engineering"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "4385540007",
+      "source_id": "greenhouse",
+      "category": "software_engineering",
+      "subcategories": [
+        "ml_engineering"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "4995797007",
+      "source_id": "greenhouse",
+      "category": "software_engineering",
+      "subcategories": [
+        "ml_engineering"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "4a13c764-18c3-4076-ac87-29e05491be07",
+      "source_id": "ashby",
+      "category": "software_engineering",
+      "subcategories": [
+        "robotics_autonomy",
+        "ml_engineering"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "5248631008",
+      "source_id": "greenhouse",
+      "category": "software_engineering",
+      "subcategories": [
+        "ml_engineering"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "6954585002",
+      "source_id": "greenhouse",
+      "category": "software_engineering",
+      "subcategories": [
+        "ml_engineering",
+        "ai_engineering"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "7074776",
+      "source_id": "greenhouse",
+      "category": "software_engineering",
+      "subcategories": [
+        "ml_engineering"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "0a838e66-1ab0-4fc4-b4d3-4671c0352278",
+      "source_id": "lever",
+      "category": "software_engineering",
+      "subcategories": [],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "122258040807137990",
+      "source_id": "google",
+      "category": "software_engineering",
+      "subcategories": [
+        "ml_engineering"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "149007",
+      "source_id": "uber",
+      "category": "software_engineering",
+      "subcategories": [],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "154755",
+      "source_id": "uber",
+      "category": "software_engineering",
+      "subcategories": [],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "15844944-fb69-4b57-9531-e988650b20c6",
+      "source_id": "lever",
+      "category": "software_engineering",
+      "subcategories": [
+        "infrastructure_platform"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "124572938656457414",
+      "source_id": "google",
+      "category": "software_engineering",
+      "subcategories": [
+        "mobile"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "1469079",
+      "source_id": "greenhouse",
+      "category": "software_engineering",
+      "subcategories": [
+        "qa_testing"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "02528b0d-4935-43c3-87da-bc28a28a4c1e",
+      "source_id": "ashby",
+      "category": "software_engineering",
+      "subcategories": [],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "037547da-067c-46f7-b0d6-7b580d42ecda",
+      "source_id": "ashby",
+      "category": "software_engineering",
+      "subcategories": [],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "03ca61bb-e8f3-4fb4-8b2a-1295841fdf14",
+      "source_id": "ashby",
+      "category": "software_engineering",
+      "subcategories": [],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "050e9c0b-2087-4438-bc5e-54b0601a44dc",
+      "source_id": "lever",
+      "category": "software_engineering",
+      "subcategories": [],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "0859b54d-ae4e-4d82-9275-1cff7669d937",
+      "source_id": "ashby",
+      "category": "software_engineering",
+      "subcategories": [],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "0870ed34-7365-4b9f-a50a-481783b8c266",
+      "source_id": "ashby",
+      "category": "software_engineering",
+      "subcategories": [],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "08d510a4-c217-4967-a035-b5b8147e5c62",
+      "source_id": "ashby",
+      "category": "software_engineering",
+      "subcategories": [
+        "ml_engineering"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "0902f176-33a3-4233-be8a-1e22d1e8d23d",
+      "source_id": "ashby",
+      "category": "software_engineering",
+      "subcategories": [],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "0bd2f4bd-d46a-43cf-b923-74e56b17cb85",
+      "source_id": "ashby",
+      "category": "software_engineering",
+      "subcategories": [],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "0c9e3e0f-54df-4252-a17b-b506e954225b",
+      "source_id": "ashby",
+      "category": "software_engineering",
+      "subcategories": [
+        "growth_engineering",
+        "product_engineering"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "198150d6-789a-4ef8-999f-93a49656d4f1",
+      "source_id": "ashby",
+      "category": "software_engineering",
+      "subcategories": [],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "019a38ba-756c-4c5c-8742-756f101b38c4",
+      "source_id": "ashby",
+      "category": "software_engineering",
+      "subcategories": [
+        "backend"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "0356bbca-0bc4-4463-8ca6-ea2db04c0d83",
+      "source_id": "ashby",
+      "category": "software_engineering",
+      "subcategories": [
+        "backend"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "04780842-fd58-41d9-87a1-f65e818eebab",
+      "source_id": "ashby",
+      "category": "software_engineering",
+      "subcategories": [
+        "backend"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "05c0fde5-9553-4b1a-95ea-2b46f0e670bb",
+      "source_id": "lever",
+      "category": "software_engineering",
+      "subcategories": [
+        "backend"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "0a938c16-c497-4104-8196-137c38306d81",
+      "source_id": "gem",
+      "category": "software_engineering",
+      "subcategories": [
+        "backend"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "0b2dbe51-0d9f-47ee-9f24-82bff4654048",
+      "source_id": "lever",
+      "category": "software_engineering",
+      "subcategories": [
+        "backend"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "0c4bc66b-b75d-4499-b0ec-26acba862b4c",
+      "source_id": "lever",
+      "category": "software_engineering",
+      "subcategories": [
+        "ml_engineering",
+        "backend"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "0e59374f-f9b0-49d3-89b2-5b15961d87a2",
+      "source_id": "ashby",
+      "category": "software_engineering",
+      "subcategories": [
+        "backend"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "0246e75c-e283-464e-b3e3-0c79f2118fb7",
+      "source_id": "ashby",
+      "category": "software_engineering",
+      "subcategories": [
+        "frontend"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "0877d6bc-af0a-4fe4-8289-db2bd75c195d",
+      "source_id": "ashby",
+      "category": "software_engineering",
+      "subcategories": [
+        "frontend"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "034da7e1-9308-4a07-b32b-be23cf3ebe78",
+      "source_id": "ashby",
+      "category": "software_engineering",
+      "subcategories": [
+        "full_stack"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "0686875b-6d06-49aa-b9f2-772f756d5235",
+      "source_id": "lever",
+      "category": "software_engineering",
+      "subcategories": [
+        "full_stack"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "104327517237584582",
+      "source_id": "google",
+      "category": "software_engineering",
+      "subcategories": [
+        "full_stack"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "01d90134-1fc2-4a24-89b9-e79fe5b001ad",
+      "source_id": "ashby",
+      "category": "software_engineering",
+      "subcategories": [
+        "devops_sre"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "10772e1c-dfad-4161-9e9e-5f34728c4745",
+      "source_id": "ashby",
+      "category": "software_engineering",
+      "subcategories": [
+        "infrastructure_platform"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "1464036f-94d5-4dbd-aef8-fe99246a26d4",
+      "source_id": "ashby",
+      "category": "software_engineering",
+      "subcategories": [
+        "devops_sre"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "1502023458236548",
+      "source_id": "meta",
+      "category": "software_engineering",
+      "subcategories": [
+        "infrastructure_platform"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "1005527078709285",
+      "source_id": "meta",
+      "category": "software_engineering",
+      "subcategories": [],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "07f0834f-06ec-44c7-a24b-3efa08589d38",
+      "source_id": "lever",
+      "category": "software_engineering",
+      "subcategories": [
+        "embedded_systems"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "0fe711a6-fadf-4908-8f5c-243c5e22a03e",
+      "source_id": "ashby",
+      "category": "software_engineering",
+      "subcategories": [
+        "embedded_systems"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "4695889005",
+      "source_id": "greenhouse",
+      "category": "software_engineering",
+      "subcategories": [
+        "robotics_autonomy",
+        "ml_engineering"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "156669",
+      "source_id": "uber",
+      "category": "software_engineering",
+      "subcategories": [
+        "ml_engineering"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "e1daa4e0-c42a-45a7-b9ee-559b35bfe08a",
+      "source_id": "ashby",
+      "category": "software_engineering",
+      "subcategories": [
+        "data_engineering"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "7028089",
+      "source_id": "greenhouse",
+      "category": "software_engineering",
+      "subcategories": [
+        "data_engineering"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "546cbbe0-2afb-48f4-a935-aea10c25d797",
+      "source_id": "ashby",
+      "category": "software_engineering",
+      "subcategories": [
+        "data_engineering"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "08d82da1-0c72-44d1-91eb-7fa22dee3d39",
+      "source_id": "lever",
+      "category": "software_engineering",
+      "subcategories": [
+        "data_engineering"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "10425021",
+      "source_id": "amazon",
+      "category": "software_engineering",
+      "subcategories": [
+        "data_engineering"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "200662203-0836",
+      "source_id": "apple",
+      "category": "software_engineering",
+      "subcategories": [
+        "data_engineering",
+        "backend"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "200665540-3337",
+      "source_id": "apple",
+      "category": "software_engineering",
+      "subcategories": [
+        "data_engineering",
+        "backend"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "22228c5b-1683-49ef-9056-d2240ca92ce7",
+      "source_id": "ashby",
+      "category": "software_engineering",
+      "subcategories": [
+        "data_engineering"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "23662a5c-43c3-4754-a6e0-30f8cbf6d681",
+      "source_id": "ashby",
+      "category": "software_engineering",
+      "subcategories": [
+        "data_engineering"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "41d8e346-2919-40bf-b5f3-22e3b34ed34c",
+      "source_id": "ashby",
+      "category": "software_engineering",
+      "subcategories": [
+        "data_engineering"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "047114d7-36da-4053-90d4-72cbae3012a9",
+      "source_id": "ashby",
+      "category": "software_engineering",
+      "subcategories": [
+        "forward_deployed",
+        "data_engineering"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "0c14674d-bca3-485d-9bbe-af4026ee7c92",
+      "source_id": "ashby",
+      "category": "software_engineering",
+      "subcategories": [
+        "data_engineering"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "10382802",
+      "source_id": "amazon",
+      "category": "software_engineering",
+      "subcategories": [
+        "data_engineering"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "154583",
+      "source_id": "uber",
+      "category": "software_engineering",
+      "subcategories": [
+        "data_engineering"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "157149",
+      "source_id": "uber",
+      "category": "software_engineering",
+      "subcategories": [
+        "data_engineering"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "2e73bc78-684c-47c5-95df-e9973a10e0b6",
+      "source_id": "ashby",
+      "category": "software_engineering",
+      "subcategories": [
+        "data_engineering"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "4210320009",
+      "source_id": "greenhouse",
+      "category": "software_engineering",
+      "subcategories": [
+        "data_engineering",
+        "infrastructure_platform"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "4649903005",
+      "source_id": "greenhouse",
+      "category": "software_engineering",
+      "subcategories": [
+        "data_engineering"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "4803862007",
+      "source_id": "greenhouse",
+      "category": "software_engineering",
+      "subcategories": [
+        "data_engineering"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "5078991007",
+      "source_id": "greenhouse",
+      "category": "software_engineering",
+      "subcategories": [
+        "data_engineering"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "6107041",
+      "source_id": "greenhouse",
+      "category": "software_engineering",
+      "subcategories": [
+        "data_engineering"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "7530885289750677778",
+      "source_id": "tiktok",
+      "category": "software_engineering",
+      "subcategories": [
+        "data_engineering"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "7530891009901185298",
+      "source_id": "tiktok",
+      "category": "software_engineering",
+      "subcategories": [
+        "data_engineering"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "7530916762100435208",
+      "source_id": "tiktok",
+      "category": "software_engineering",
+      "subcategories": [
+        "data_engineering"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "7530924060991129864",
+      "source_id": "tiktok",
+      "category": "software_engineering",
+      "subcategories": [
+        "data_engineering"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "148478",
+      "source_id": "uber",
+      "category": "software_engineering",
+      "subcategories": [],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "29f2aa4d-80af-419f-83fc-a9053e03f433",
+      "source_id": "ashby",
+      "category": "software_engineering",
+      "subcategories": [],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "4595623005",
+      "source_id": "greenhouse",
+      "category": "software_engineering",
+      "subcategories": [],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "5103078008",
+      "source_id": "greenhouse",
+      "category": "software_engineering",
+      "subcategories": [
+        "data_engineering",
+        "infrastructure_platform"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "08ade360-a4bc-4584-9c40-04dc380276a5",
+      "source_id": "ashby",
+      "category": "software_engineering",
+      "subcategories": [
+        "ml_engineering",
+        "data_engineering"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "10413709",
+      "source_id": "amazon",
+      "category": "software_engineering",
+      "subcategories": [
+        "data_engineering"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "10427393",
+      "source_id": "amazon",
+      "category": "software_engineering",
+      "subcategories": [
+        "data_engineering"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "3753ba3b-3792-4ca7-82ee-8e7949eadb2e",
+      "source_id": "ashby",
+      "category": "software_engineering",
+      "subcategories": [
+        "data_engineering"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "4303f795-d0a5-41ed-8c78-0941780b6e54",
+      "source_id": "lever",
+      "category": "software_engineering",
+      "subcategories": [
+        "data_engineering"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "4439297101",
+      "source_id": "greenhouse",
+      "category": "software_engineering",
+      "subcategories": [
+        "data_engineering"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "0d0beb6b-61a2-40e3-9955-adcff9cbc92e",
+      "source_id": "ashby",
+      "category": "software_engineering",
+      "subcategories": [
+        "data_engineering",
+        "infrastructure_platform"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "200668991-0836",
+      "source_id": "apple",
+      "category": "software_engineering",
+      "subcategories": [],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "60226f73-954c-421c-b609-c377255b062e",
+      "source_id": "ashby_api",
+      "category": "software_engineering",
+      "subcategories": [
+        "forward_deployed"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "658fb613-3dcc-4932-9927-dadbf83f95cd",
+      "source_id": "ashby_api",
+      "category": "software_engineering",
+      "subcategories": [],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "7724fbe3-6a27-4418-9705-2dcc40751a16",
+      "source_id": "ashby_api",
+      "category": "software_engineering",
+      "subcategories": [],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "8a4dae00-8b1a-4440-9c9f-38ca3ce135f5",
+      "source_id": "ashby_api",
+      "category": "software_engineering",
+      "subcategories": [],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "a438f51d-cbca-4751-88c3-5de326833bba",
+      "source_id": "ashby_api",
+      "category": "software_engineering",
+      "subcategories": [
+        "devops_sre"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "bcbf0fb9-2405-497b-bbc9-e09d8f7a4963",
+      "source_id": "ashby_api",
+      "category": "software_engineering",
+      "subcategories": [
+        "infrastructure_platform"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "4884398101",
+      "source_id": "greenhouse_api",
+      "category": "software_engineering",
+      "subcategories": [
+        "security"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "8007449",
+      "source_id": "greenhouse_api",
+      "category": "software_engineering",
+      "subcategories": [],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "1970393556641257",
+      "source_id": "microsoft_scraper",
+      "category": "software_engineering",
+      "subcategories": [
+        "backend"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "1970393556874926",
+      "source_id": "microsoft_scraper",
+      "category": "software_engineering",
+      "subcategories": [],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "1970393556874927",
+      "source_id": "microsoft_scraper",
+      "category": "software_engineering",
+      "subcategories": [],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "6746dfde-8f8d-4a13-9961-7ae1e222a4c0",
+      "source_id": "ashby_api",
+      "category": "software_engineering",
+      "subcategories": [],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "4c577aae-1ad0-444b-9e15-2ad994333de4",
+      "source_id": "ashby_api",
+      "category": "software_engineering",
+      "subcategories": [],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "24e660d5-090d-4dc5-9a5f-274ba853e751",
+      "source_id": "ashby_api",
+      "category": "software_engineering",
+      "subcategories": [],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "6134374004",
+      "source_id": "greenhouse_api",
+      "category": "software_engineering",
+      "subcategories": [],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "19d8bcfd-e493-4b3a-b8fd-11a2a6502da2",
+      "source_id": "ashby_api",
+      "category": "software_engineering",
+      "subcategories": [
+        "ml_engineering"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "08609fa6-a47d-417a-be9b-ae9c7bec64c8",
+      "source_id": "ashby_api",
+      "category": "software_engineering",
+      "subcategories": [],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "1970393556637142",
+      "source_id": "microsoft_scraper",
+      "category": "software_engineering",
+      "subcategories": [
+        "devops_sre"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "a8abf746-17f5-45e3-a72e-085ccb8f2d74",
+      "source_id": "ashby_api",
+      "category": "software_engineering",
+      "subcategories": [
+        "infrastructure_platform"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "JR352082",
+      "source_id": "workday_api",
+      "category": "software_engineering",
+      "subcategories": [],
+      "subcategory_confidence": null
+    }
+  ]
+}

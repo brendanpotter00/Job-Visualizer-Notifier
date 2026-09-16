@@ -1246,6 +1246,74 @@ def test_reenrich_leaves_same_n_different_hash_alone_and_warns(store, monkeypatc
     assert "different" in caplog.text
 
 
+# ---- subcategory-weak-baseline (EV-11) ----------------------------------------
+def _weak_baseline_env(tmp_path, monkeypatch, rows):
+    import job_enricher.eval.golden as golden
+
+    seed = tmp_path / "golden.json"
+    seed.write_text(json.dumps(rows))
+    monkeypatch.setattr(golden, "SEED_FILE", seed)
+    monkeypatch.setattr(golden, "SCORECARD_DIR", tmp_path / "scorecards")
+    monkeypatch.setattr(cli, "REPO_ROOT", tmp_path)
+    return tmp_path / "scorecards" / "baseline.weak_rule.json"
+
+
+_WEAK_SWE_ROW = {
+    "job_listing_id": "1", "source_id": "greenhouse", "title": "Backend Engineer",
+    "category": "software_engineering", "level": "mid", "tags": [],
+    "label_source": "draft", "subcategories": None,
+    "gold_subcategory_provenance": None,
+}
+
+
+def test_weak_baseline_refuses_when_the_subcategory_pool_is_empty(
+    store, monkeypatch, capsys, tmp_path
+):
+    """⚠ NOT A DAY-ONE GATE. The rule labeler needs no human labels but SCORING
+    it does: with `load_truth(facet='subcategory')` empty, every metric is 0.0
+    and "beat 0.0 by 0.10" is a free pass. The card is stamped gate_ready=false
+    and the command fails closed."""
+    card_path = _weak_baseline_env(tmp_path, monkeypatch, [dict(_WEAK_SWE_ROW)])
+    rc = cli._cmd_subcategory_weak_baseline(argparse.Namespace())
+    assert rc == 2
+    assert "gate_ready=false" in capsys.readouterr().err
+    card = json.loads(card_path.read_text())
+    assert card["gate_ready"] is False
+    assert card["subcategory_n"] == 0
+    assert "EMPTY" in card["gate_blocked_reason"]
+
+
+def test_weak_baseline_allow_empty_pool_still_writes_the_durable_artifact(
+    store, monkeypatch, capsys, tmp_path
+):
+    card_path = _weak_baseline_env(tmp_path, monkeypatch, [dict(_WEAK_SWE_ROW)])
+    rc = cli._cmd_subcategory_weak_baseline(
+        argparse.Namespace(allow_empty_pool=True)
+    )
+    assert rc == 0
+    assert json.loads(card_path.read_text())["gate_ready"] is False
+    art = json.loads(
+        (tmp_path / "golden" / "baselines" / "weak_rule"
+         / "predictions.weak_rule.json").read_text()
+    )
+    assert art["predictions"][0]["subcategories"] == ["backend"]
+
+
+def test_weak_baseline_is_gate_ready_once_the_pool_exists(
+    store, monkeypatch, capsys, tmp_path
+):
+    card_path = _weak_baseline_env(tmp_path, monkeypatch, [dict(
+        _WEAK_SWE_ROW, subcategories=["backend"],
+        gold_subcategory_provenance="human",
+    )])
+    assert cli._cmd_subcategory_weak_baseline(argparse.Namespace()) == 0
+    card = json.loads(card_path.read_text())
+    assert card["gate_ready"] is True
+    assert card["gate_blocked_reason"] is None
+    assert card["subcategory_n"] == 1
+    assert card["subcategory_set_f1"] == 1.0     # the regex types this title
+
+
 # ---- golden-merge -------------------------------------------------------------
 def test_cmd_golden_merge_reports_counts(store, monkeypatch, capsys, tmp_path):
     import job_enricher.eval.golden as golden
@@ -1260,6 +1328,7 @@ def test_cmd_golden_merge_reports_counts(store, monkeypatch, capsys, tmp_path):
          "tags": [], "label_source": "draft"},
     ]))
     monkeypatch.setattr(golden, "SEED_FILE", seed)
+    monkeypatch.setattr(golden, "UNMATCHED_WORKLIST", tmp_path / "unmatched.json")
 
     class _CorrClient:
         def get_corrections(self, since=None, limit=None):
@@ -1276,9 +1345,21 @@ def test_cmd_golden_merge_reports_counts(store, monkeypatch, capsys, tmp_path):
     monkeypatch.setattr(jc, "JVNClient", lambda: _CorrClient())
 
     rc = cli._cmd_golden_merge(argparse.Namespace(since=None, limit=None))
-    assert rc == 0
-    out = capsys.readouterr().out
+    # ⚠ EXIT 2: this stubbed feed is PRE-v7 (no subcategories/taxonomy_version),
+    # so the run cannot have written subcategory gold. The category half still
+    # merged — the counts below are asserted on the same run.
+    assert rc == 2
+    captured = capsys.readouterr()
+    out = captured.out
     assert "matched=1" in out and "upgraded=1" in out and "unmatched=1" in out
+    assert "subcategory_upgraded=0" in out
+    assert "v7 CONTRACT VIOLATION" in captured.err
+    # EV-16: the printed line NAMES the parked worklist and says the seed does
+    # not grow from this feed.
+    assert "golden/review/unmatched-corrections.json" in out
+    assert "the seed does NOT grow from this feed" in out
+    assert len(json.loads(seed.read_text())) == 2   # the unmatched row is NOT appended
+    assert json.loads((tmp_path / "unmatched.json").read_text())[0]["job_listing_id"] == "missing"
 
     rows = json.loads(seed.read_text())
     row1 = next(r for r in rows if r["job_listing_id"] == "1")
@@ -1289,6 +1370,148 @@ def test_cmd_golden_merge_reports_counts(store, monkeypatch, capsys, tmp_path):
     assert row1["label_source"] == "human"
     # untouched row stays draft
     assert next(r for r in rows if r["job_listing_id"] == "2")["label_source"] == "draft"
+
+
+def _merge_seed(tmp_path, monkeypatch, rows):
+    import job_enricher.eval.golden as golden
+
+    seed = tmp_path / "golden.json"
+    seed.write_text(json.dumps(rows))
+    monkeypatch.setattr(golden, "SEED_FILE", seed)
+    monkeypatch.setattr(golden, "UNMATCHED_WORKLIST", tmp_path / "unmatched.json")
+    return seed
+
+
+def _stub_corrections(monkeypatch, corrections):
+    class _CorrClient:
+        def get_corrections(self, since=None, limit=None):
+            return corrections
+
+    import job_enricher.jvn_client as jc
+    monkeypatch.setattr(jc, "JVNClient", lambda: _CorrClient())
+
+
+_SWE_SEED_ROW = {
+    "job_listing_id": "1", "source_id": "greenhouse", "title": "SWE",
+    "category": "software_engineering", "level": "mid", "level_includes": ["mid"],
+    "tags": [], "label_source": "draft", "subcategories": None,
+    "gold_subcategory_provenance": None,
+}
+
+
+def test_golden_merge_refuses_a_pre_v7_feed_instead_of_a_green_no_op(
+    store, monkeypatch, capsys, tmp_path
+):
+    """⚠ THE CONTRACT RAIL, ON THE PRODUCTION PATH. `missing_v7_correction_keys`
+    used to have no caller outside a unit test over literal dicts, so a
+    /corrections feed shipped without `subcategories`/`taxonomy_version` (ADM-5
+    slipping) made golden-merge print matched=N upgraded=N, exit 0, and write
+    ZERO subcategory gold. It must exit 2 and name the missing keys."""
+    seed = _merge_seed(tmp_path, monkeypatch, [dict(_SWE_SEED_ROW)])
+    _stub_corrections(monkeypatch, [
+        {"job_listing_id": "1", "source_id": "greenhouse",
+         "category": "software_engineering", "level": "mid", "tags": ["python"],
+         "corrected_at": "t"},
+    ])
+    rc = cli._cmd_golden_merge(argparse.Namespace(since=None, limit=None))
+    assert rc == 2
+    cap = capsys.readouterr()
+    assert "subcategory_upgraded=0" in cap.out
+    assert "v7 CONTRACT VIOLATION" in cap.err
+    assert "'subcategories'" in cap.err and "'taxonomy_version'" in cap.err
+    assert "greenhouse/1" in cap.err
+    # the category half is still real work and still landed
+    assert json.loads(seed.read_text())[0]["label_source"] == "human"
+
+
+def test_golden_merge_refuses_a_half_v7_feed(store, monkeypatch, capsys, tmp_path):
+    """One key present is not the contract — `taxonomy_version` alone missing
+    means the gold row could not be stamped with the taxonomy it was labelled
+    under."""
+    _merge_seed(tmp_path, monkeypatch, [dict(_SWE_SEED_ROW)])
+    _stub_corrections(monkeypatch, [
+        {"job_listing_id": "1", "source_id": "greenhouse",
+         "category": "software_engineering", "level": "mid", "tags": [],
+         "subcategories": ["backend"]},
+    ])
+    assert cli._cmd_golden_merge(argparse.Namespace(since=None, limit=None)) == 2
+    assert "'taxonomy_version'" in capsys.readouterr().err
+
+
+def test_golden_merge_is_green_and_counts_subcategory_gold_on_a_v7_feed(
+    store, monkeypatch, capsys, tmp_path
+):
+    seed = _merge_seed(tmp_path, monkeypatch, [dict(_SWE_SEED_ROW)])
+    _stub_corrections(monkeypatch, [
+        {"job_listing_id": "1", "source_id": "greenhouse",
+         "category": "software_engineering", "level": "mid", "tags": [],
+         "subcategories": ["backend"], "taxonomy_version": "v7+abc123def456"},
+    ])
+    assert cli._cmd_golden_merge(argparse.Namespace(since=None, limit=None)) == 0
+    cap = capsys.readouterr()
+    assert "subcategory_upgraded=1" in cap.out
+    assert "CONTRACT VIOLATION" not in cap.err
+    row = json.loads(seed.read_text())[0]
+    assert row["subcategories"] == ["backend"]
+    assert row["gold_subcategory_provenance"] == "human"
+
+
+def test_golden_merge_allow_pre_v7_still_prints_the_violation(
+    store, monkeypatch, capsys, tmp_path
+):
+    """The escape hatch downgrades the exit code and NOTHING else — a
+    category-only merge before ADM-5 stays possible, and stays loud."""
+    _merge_seed(tmp_path, monkeypatch, [dict(_SWE_SEED_ROW)])
+    _stub_corrections(monkeypatch, [
+        {"job_listing_id": "1", "source_id": "greenhouse",
+         "category": "software_engineering", "level": "mid", "tags": []},
+    ])
+    rc = cli._cmd_golden_merge(
+        argparse.Namespace(since=None, limit=None, allow_pre_v7=True)
+    )
+    assert rc == 0
+    assert "v7 CONTRACT VIOLATION" in capsys.readouterr().err
+
+
+def test_golden_merge_on_an_empty_feed_is_green(store, monkeypatch, capsys, tmp_path):
+    """No corrections is not a contract violation — there is nothing to violate."""
+    _merge_seed(tmp_path, monkeypatch, [dict(_SWE_SEED_ROW)])
+    _stub_corrections(monkeypatch, [])
+    assert cli._cmd_golden_merge(argparse.Namespace(since=None, limit=None)) == 0
+    assert "CONTRACT VIOLATION" not in capsys.readouterr().err
+
+
+def test_golden_merge_nulls_subcategories_when_the_category_leaves_swe(
+    store, monkeypatch, capsys, tmp_path
+):
+    """⚠ The arrow never runs backwards: a correction moving a row off
+    software_engineering must clear its subcategories in the SAME write, or the
+    stale list scores as gold on a row that cannot have one."""
+    import job_enricher.eval.golden as golden
+
+    seed = tmp_path / "golden.json"
+    seed.write_text(json.dumps([
+        {"job_listing_id": "1", "source_id": "greenhouse", "title": "SWE",
+         "category": "software_engineering", "level": "mid", "tags": [],
+         "label_source": "draft", "subcategories": ["backend"],
+         "gold_subcategory_provenance": "human"},
+    ]))
+    monkeypatch.setattr(golden, "SEED_FILE", seed)
+    monkeypatch.setattr(golden, "UNMATCHED_WORKLIST", tmp_path / "unmatched.json")
+
+    class _CorrClient:
+        def get_corrections(self, since=None, limit=None):
+            return [{"job_listing_id": "1", "source_id": "greenhouse",
+                     "category": "data_scientist", "level": "mid", "tags": [],
+                     "subcategories": None, "taxonomy_version": "v7+abc123def456"}]
+
+    import job_enricher.jvn_client as jc
+    monkeypatch.setattr(jc, "JVNClient", lambda: _CorrClient())
+    assert cli._cmd_golden_merge(argparse.Namespace(since=None, limit=None)) == 0
+    row = json.loads(seed.read_text())[0]
+    assert row["category"] == "data_scientist"
+    assert row["subcategories"] == []
+    assert row["gold_subcategory_provenance"] == "contract"
 
 
 # ---- health: failed rows visible, excluded from unsent ----------------------
@@ -1450,13 +1673,22 @@ def test_eval_run_classify_coverage_counts_input_key_membership(
     )
     monkeypatch.setattr(
         "job_enricher.eval.report._predictions_path",
-        lambda judge, engine=None: tmp_path
-        / f"predictions.{engine}{'.judge_off' if judge == 'off' else ''}.json",
+        lambda judge, engine=None, tag=None: tmp_path
+        / (
+            ".".join(
+                ["predictions"]
+                + ([tag] if tag else [])
+                + ([engine] if engine else [])
+                + (["judge_off"] if judge == "off" else [])
+            )
+            + ".json"
+        ),
     )
 
     args = argparse.Namespace(
         engine="ollama", set="golden", judge="off", batch=2, limit=None,
         human_only=False, classify_model="fake-model", judge_model="fake-model",
+        tag=None,
     )
     rc = cli._cmd_eval_run(args)
 
@@ -2072,3 +2304,128 @@ def test_eval_post_judge_confidence_clears_when_the_judge_clears_the_array():
     )
     assert pj["subcategories"] == []
     assert pj["subcategory_confidence"] is None
+
+
+# ---- EV-13: the BACKFILL lane's eval ------------------------------------------
+class _FakeBackfillEngine:
+    """Captures the prompt `ChunkEngine.subcategory` would build, then replies."""
+
+    captured_prompts: list[str] = []
+
+    subcategory_schema = None
+
+    def subcategory(self, rows):
+        from job_enricher.engines.prompts import build_subcategory_prompt
+
+        _FakeBackfillEngine.captured_prompts.append(build_subcategory_prompt(rows))
+        return [
+            {"job_listing_id": r["job_listing_id"], "source_id": r["source_id"],
+             "subcategories": ["backend"], "subcategory_confidence": 0.7,
+             "subcategory_latency_ms": 11}
+            for r in rows
+        ]
+
+
+_BACKFILL_ROWS = [
+    {"source_id": "greenhouse", "job_listing_id": "1", "title": "Backend Engineer",
+     "company": "Acme", "raw_location": "SF", "label_source": "human",
+     "category": "software_engineering", "tags": ["THE-GOLD-TAG"],
+     "clean_description": "SECRET DESCRIPTION TEXT",
+     "description_html": "<p>SECRET DESCRIPTION TEXT</p>"},
+]
+
+
+def test_eval_run_backfill_lane_uses_the_production_builder_and_no_description(
+    store, monkeypatch, capsys, tmp_path
+):
+    """⚠ TWO ASSERTIONS IN ONE, both structural:
+
+    1. the lane calls ENR-PB-1's `build_subcategory_prompt`, not an eval-local
+       reimplementation — otherwise the eval measures a prompt production never
+       runs; and
+    2. the built prompt contains NO description text, which is the
+       prompt-injection boundary asserted in code rather than in a docstring.
+    """
+    _FakeBackfillEngine.captured_prompts.clear()
+    monkeypatch.setattr(cli, "Store", lambda: store)
+    monkeypatch.setattr(
+        "job_enricher.eval.golden.load_seed", lambda: [dict(r) for r in _BACKFILL_ROWS]
+    )
+    monkeypatch.setattr(
+        "job_enricher.engines.build_engine",
+        lambda kind, model=None, lane="classify": _FakeBackfillEngine(),
+    )
+    monkeypatch.setattr(
+        "job_enricher.eval.report._predictions_path",
+        lambda judge, engine=None, tag=None: tmp_path / f"predictions.{tag}.json",
+    )
+    args = argparse.Namespace(
+        engine="ollama", set="golden", judge="off", batch=1, limit=None,
+        human_only=False, classify_model="fake", judge_model="fake",
+        tag="v7-backfill", prompt="backfill",
+    )
+    assert cli._cmd_eval_run(args) == 0
+
+    prompt = _FakeBackfillEngine.captured_prompts[0]
+    assert "SECRET DESCRIPTION TEXT" not in prompt
+    assert "THE-GOLD-TAG" not in prompt          # the gold label never reaches it
+    assert "Backend Engineer" in prompt
+    assert "<subcategory_rubric>" in prompt      # the production builder's shape
+
+    preds = json.loads((tmp_path / "predictions.v7-backfill.json").read_text())
+    assert preds[0]["subcategories"] == ["backend"]
+    assert preds[0]["clean_description"] == ""   # empty BY CONSTRUCTION
+    assert preds[0]["category"] == "software_engineering"
+
+
+def test_eval_run_backfill_lane_writes_a_separately_tagged_artifact(
+    store, monkeypatch, capsys, tmp_path
+):
+    """⚠ The two lanes must produce DIFFERENT scorecards, or one gate is
+    silently governing a prompt it never saw."""
+    _FakeBackfillEngine.captured_prompts.clear()
+    monkeypatch.setattr(cli, "Store", lambda: store)
+    monkeypatch.setattr(
+        "job_enricher.eval.golden.load_seed", lambda: [dict(r) for r in _BACKFILL_ROWS]
+    )
+    monkeypatch.setattr(
+        "job_enricher.engines.build_engine",
+        lambda kind, model=None, lane="classify": _FakeBackfillEngine(),
+    )
+    from job_enricher.eval.report import _predictions_path
+
+    monkeypatch.setattr(
+        "job_enricher.eval.report._predictions_path",
+        lambda judge, engine=None, tag=None: tmp_path / _predictions_path(
+            judge, engine, tag
+        ).name,
+    )
+    args = argparse.Namespace(
+        engine="ollama", set="golden", judge="off", batch=1, limit=None,
+        human_only=False, classify_model="fake", judge_model="fake",
+        tag="v7-backfill", prompt="backfill",
+    )
+    assert cli._cmd_eval_run(args) == 0
+    assert (tmp_path / "predictions.v7-backfill.ollama.judge_off.json").exists()
+    assert not (tmp_path / "predictions.v7.ollama.judge_off.json").exists()
+
+
+def test_needs_judge_ignores_subcategories_entirely(store):
+    """⚠ EV-14: THE DECISION THAT STAYS CLOSED, pinned in code.
+
+    A `category == 'software_engineering' AND subcategories IS NULL` clause in
+    the OR-chain would route roughly half the corpus (126 of 273 golden rows are
+    SWE) to a judge measured NET-NEGATIVE on category accuracy (-5.3 pts,
+    macro-F1 0.73 -> 0.55). And `[]` is a legal EVALUATED answer that must never
+    be read as a nulled facet."""
+    import inspect
+
+    src = inspect.getsource(cli._needs_judge)
+    body = src.split('"""')[-1]
+    assert "subcategor" not in body, "a subcategory clause crept into _needs_judge"
+
+    _seed_cleaned(store, "1")
+    _record(store, [_swe_item("1", confidence=0.99, subcategories=[])])
+    row = _enrichment(store, "1")
+    assert row["subcategories"] == "[]"          # EVALUATED, none apply
+    assert cli._needs_judge(row, ceiling=0.85) is False
