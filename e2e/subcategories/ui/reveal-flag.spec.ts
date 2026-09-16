@@ -46,15 +46,19 @@ test.describe('SC-05 reveal flag', () => {
 
     // The control half of the case. Everything the OFF test asserts is an
     // absence, and an absence proves nothing unless the presence is shown too.
+    //
+    // There is no chevron any more — the tree renders every child immediately,
+    // so the CHILD ROWS are the subcategory control's whole signature.
+    await expect(
+      menu.getByRole('option', { name: 'Backend', exact: true }),
+      'with the flag on, the subcategory children must be on screen with no ' +
+        'expanding — the child rows ARE the subcategory control',
+    ).toBeVisible();
+    await expect(menu.getByRole('option', { name: 'Full Stack', exact: true })).toBeVisible();
     await expect(
       parentOption(menu, SWE).getByRole('button'),
-      'with the flag on, the Software Engineering row must carry an expand chevron — ' +
-        'that chevron IS the subcategory control',
-    ).toHaveCount(1);
-
-    await parentOption(menu, SWE).getByRole('button').click();
-    await expect(menu.getByRole('option', { name: 'Backend', exact: true })).toBeVisible();
-    await expect(menu.getByRole('option', { name: 'Full Stack', exact: true })).toBeVisible();
+      'the accordion is gone: no row may carry an expander',
+    ).toHaveCount(0);
   });
 
   test('SC-05 with the flag OFF the subcategory control is absent', async ({
@@ -70,13 +74,8 @@ test.describe('SC-05 reveal flag', () => {
         'not the category filter',
     ).toBeVisible();
     await expect(
-      parentOption(menu, SWE).getByRole('button'),
-      'the expand chevron is still rendered with the reveal flag off, so the ' +
-        'subcategory control is reachable before the rollout says it should be',
-    ).toHaveCount(0);
-    await expect(
       menu.getByRole('button'),
-      'NO row may carry a chevron with the flag off — with childOptions empty the ' +
+      'NO row may carry any control with the flag off — with childOptions empty the ' +
         'tree must render identically to the flat category control',
     ).toHaveCount(0);
     await expect(
