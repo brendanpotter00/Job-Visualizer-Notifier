@@ -309,6 +309,12 @@ def test_every_dimension_ands_together_on_a_hand_built_corpus(
     predicate would still exclude the row. Here each decoy is held out by exactly
     one clause, so deleting any single clause from the WHERE builder makes exactly
     one decoy leak into the result and this test names it.
+
+    EVERY dimension means every dimension, subcategory included. This is the
+    end-to-end proof that selecting several filters composes with AND rather
+    than OR — `subcategory` is the newest clause and the easiest one for a
+    refactor to drop, because on a corpus where every row happens to be labelled
+    the other predicates hide its absence.
     """
     austin = _insert_location(db_conn, canonical_name="Austin, TX, US", kind="city",
                               city="Austin", region="TX", country="US")
@@ -323,6 +329,7 @@ def test_every_dimension_ands_together_on_a_hand_built_corpus(
             "title": "New Grad Backend Engineer",
             "location": "Austin, TX",
             "enrichment_category": "software_engineering",
+            "enrichment_subcategories": ["backend"],
             "enrichment_level": "new_grad",
             "first_seen_at": BASE_TIME + timedelta(hours=10),
         }
@@ -336,6 +343,11 @@ def test_every_dimension_ands_together_on_a_hand_built_corpus(
     seed("keeper")
     seed("wrong-category", enrichment_category="growth")
     seed("null-category", enrichment_category=None)
+    # `frontend` rather than a random slug: it is one of the two slugs that WIDEN
+    # (into full_stack), so a widening accidentally made symmetric would let this
+    # decoy leak in under a `backend` filter.
+    seed("wrong-subcategory", enrichment_subcategories=["frontend"])
+    seed("null-subcategory", enrichment_subcategories=None)
     seed("wrong-level", enrichment_level="mid")
     seed("null-level", enrichment_level=None)
     seed("wrong-company", company="openai")
@@ -348,12 +360,13 @@ def test_every_dimension_ands_together_on_a_hand_built_corpus(
 
     # Baseline: every decoy really is in the table and really is visible, so the
     # assertion below is about the filters and not about a seeding mistake.
-    assert len(_search(client)["jobs"]) == 11, "all but the CLOSED row are visible"
+    assert len(_search(client)["jobs"]) == 13, "all but the CLOSED row are visible"
 
     body = _search(
         client,
         status="OPEN",
         category="software_engineering",
+        subcategory="backend",
         level="entry",                       # must expand to reach the new_grad keeper
         company=["stripe", "google"],
         location="Austin, TX, US",
