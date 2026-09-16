@@ -54,7 +54,7 @@ export function RecentJobsFilters() {
   const levelOptions = facets?.levels ?? FALLBACK_LEVELS;
   // `?? []` and NOT the fallback constant, deliberately. THIS SINGLE EXPRESSION
   // IS the shared contract's `flag && (facets?.subcategories?.length ?? 0) > 0`
-  // gate: an empty catalog renders no chevron at all, so a warm one-hour facets
+  // gate: an empty catalog renders no child rows at all, so a warm one-hour facets
   // cache plus a freshly flipped flag cannot produce a parent row that expands
   // into nothing.
   const subcategoryOptions = revealSubcategories ? (facets?.subcategories ?? []) : [];

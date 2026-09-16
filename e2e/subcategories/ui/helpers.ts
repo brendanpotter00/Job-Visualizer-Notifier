@@ -161,13 +161,14 @@ export async function withSearchResponse(page: Page, action: () => Promise<void>
 // testids. Three mechanics below are not obvious and are why these helpers
 // exist rather than inline clicks:
 //
-//  1. A PARENT option's accessible name is polluted by the chevron's
-//     `aria-label` — the computed name is "Software Engineering Expand
-//     Software Engineering", so an exact-name match misses it. Hence the
-//     anchored regex.
-//  2. COLLAPSED CHILDREN ARE NOT IN THE DOM. The parent must be expanded
-//     before a child can be clicked, and the chevron — not the row — is what
-//     expands it (the row click toggles the checkbox instead).
+//  1. A PARENT option's accessible name used to be polluted by the chevron's
+//     `aria-label`. The chevron is gone, but the anchored regex STAYS: a bare
+//     exact match on "Software Engineering" would also match nothing if the
+//     label ever regains a suffix, and the regex costs nothing.
+//  2. CHILDREN ARE ALWAYS IN THE DOM. There is no expand step — the menu opens
+//     with every subcategory rendered under its parent. `expandParent` is kept
+//     as a no-op shim so the specs read the same and a future re-introduction
+//     of an accordion has ONE place to change.
 //  3. The menu stays open after a click (it is a multi-select), so it has to
 //     be dismissed with Escape before the list underneath is interactable.
 
@@ -191,18 +192,15 @@ export function parentOption(menu: Locator, label: string): Locator {
   return menu.getByRole('option', { name: new RegExp(`^${label}`) });
 }
 
-/** The chevron inside a parent row. Only present when the parent HAS children,
- * which is exactly what makes its absence the reveal flag's UI signature. */
-export function expandToggle(menu: Locator, label: string): Locator {
-  return parentOption(menu, label).getByRole('button');
-}
-
-export async function expandParent(menu: Locator, label: string): Promise<void> {
-  const toggle = expandToggle(menu, label);
-  if ((await toggle.getAttribute('aria-expanded')) !== 'true') {
-    await toggle.click();
-  }
-  await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+/**
+ * NO-OP. The tree renders every child immediately — there is no accordion.
+ *
+ * Kept (rather than deleted from the four specs that call it) because it is the
+ * single seam where an expand step would go back if the control ever regains
+ * one. Deleting it would scatter that decision across every spec.
+ */
+export async function expandParent(_menu: Locator, _label: string): Promise<void> {
+  // nothing to do: children are always rendered.
 }
 
 export async function dismissMenu(page: Page): Promise<void> {

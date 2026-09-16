@@ -63,7 +63,7 @@ function renderPanel(
 }
 
 describe('CategoryLevelDefaults — the subcategory tree', () => {
-  it('renders NO chevron without onChangeSubcategory, even with the flag on and facets warm', async () => {
+  it('renders NO child rows without onChangeSubcategory, even with the flag on and facets warm', async () => {
     // THE PRE-FE-SF-3 STATE, and the reason the props are optional. A caller
     // with nowhere to store a subcategory must not be offered the control: the
     // selection would be emitted and silently dropped.
@@ -78,7 +78,7 @@ describe('CategoryLevelDefaults — the subcategory tree', () => {
     expect(within(listbox).queryByRole('option', { name: /Backend/ })).toBeNull();
   });
 
-  it('renders NO chevron when the handler is present but the flag is OFF', async () => {
+  it('renders NO child rows when the handler is present but the flag is OFF', async () => {
     const store = await seededStore({ reveal: false });
     const user = userEvent.setup();
     renderPanel(store, { subcategory: [], onChangeSubcategory: vi.fn() });
@@ -97,8 +97,9 @@ describe('CategoryLevelDefaults — the subcategory tree', () => {
     await user.click(screen.getByRole('combobox', { name: 'Job Category' }));
     const listbox = await screen.findByRole('listbox');
     const swe = within(listbox).getByRole('option', { name: /Software Engineering/ });
+    // The accordion is gone: the parent row has no button to press.
+    expect(within(swe).queryByRole('button')).toBeNull();
 
-    await user.click(within(swe).getByRole('button'));
     expect(within(listbox).getByRole('option', { name: /Backend/ })).toBeInTheDocument();
   });
 
@@ -112,7 +113,8 @@ describe('CategoryLevelDefaults — the subcategory tree', () => {
     await user.click(screen.getByRole('combobox', { name: 'Job Category' }));
     const listbox = await screen.findByRole('listbox');
     const swe = within(listbox).getByRole('option', { name: /Software Engineering/ });
-    await user.click(within(swe).getByRole('button'));
+    // The accordion is gone: the parent row has no button to press.
+    expect(within(swe).queryByRole('button')).toBeNull();
     await user.click(within(listbox).getByRole('option', { name: /Backend/ }));
 
     expect(onChangeCategory).toHaveBeenCalledWith(['software_engineering']);

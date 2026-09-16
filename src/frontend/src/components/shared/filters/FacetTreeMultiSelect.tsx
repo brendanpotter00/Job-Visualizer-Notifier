@@ -1,4 +1,4 @@
-import { useId, useState } from 'react';
+import { useId } from 'react';
 import {
   FormControl,
   InputLabel,
@@ -8,10 +8,7 @@ import {
   ListItemText,
   OutlinedInput,
   Tooltip,
-  IconButton,
 } from '@mui/material';
-import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
-import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import type { FacetOption } from '../../../types';
 
 /**
@@ -20,10 +17,9 @@ import type { FacetOption } from '../../../types';
  * UNMEASURED — placeholder; set by FE-UI-1
  *
  * There is no maxHeight on the flat `FacetMultiSelect` today because six
- * category rows fit anywhere. Six parents plus seventeen expanded children is
- * twenty-three rows, which overflows a phone viewport and most laptop ones. The
- * real number comes from eyeballing the mounted menu at 1440px and at 375px
- * against live facets data.
+ * category rows fit anywhere. Six parents plus seventeen children is twenty-three
+ * rows, and since the children are ALWAYS rendered that is the every-time height,
+ * not a worst case — it overflows a phone viewport and most laptop ones.
  */
 const MENU_MAX_HEIGHT = { xs: '60vh', sm: 400 };
 
@@ -33,8 +29,8 @@ export interface FacetTreeMultiSelectProps {
   options: FacetOption[];
   /**
    * Child (subcategory) options, each carrying its `parentSlug`. An EMPTY array
-   * makes this control render identically to the flat `FacetMultiSelect` — no
-   * chevron anywhere — which is how the reveal flag turns the tree off.
+   * makes this control render identically to the flat `FacetMultiSelect` — just
+   * the parent rows — which is how the reveal flag turns the tree off.
    */
   childOptions: FacetOption[];
   /** Selected parent slugs; empty/undefined renders as "All". */
@@ -71,10 +67,12 @@ export interface FacetTreeMultiSelectProps {
  *   predicate, so the two are only ever emitted consistently.
  * - Clicking a checked parent that owns selected children CLEARS those children
  *   and leaves the parent checked — one click WIDENS to the whole category. A
- *   second click then unchecks it. (A literally dead click is worse UX, and a
- *   `disabled` MenuItem would inherit MUI's `pointer-events: none` and kill the
- *   chevron inside it.)
- * - The chevron expands in place; collapsed children stay out of the DOM.
+ *   second click then unchecks it. (A literally dead click is worse UX.)
+ * - CHILDREN ARE ALWAYS RENDERED. There is no expand/collapse: the menu opens
+ *   showing every subcategory under its parent, indented. This replaced an
+ *   accordion — the chevron cost a click to reach the thing the menu exists to
+ *   offer, and hid seventeen options behind a control most readers never found.
+ *   Twenty-three rows scroll; `MENU_MAX_HEIGHT` is what makes that survivable.
  *
  * THREE UNDOCUMENTED MUI `SelectInput` MECHANICS ARE LOAD-BEARING HERE, all
  * three verified against @mui/material 7.3.6:
@@ -84,12 +82,12 @@ export interface FacetTreeMultiSelectProps {
  *    parent+children rows are therefore emitted as one FLAT array via
  *    `flatMap`, never as nested fragments.
  * 2. `child.props.onClick` FIRES BEFORE `setValueState`. A click anywhere inside
- *    a MenuItem — the chevron included — reaches the cloned `handleItemClick`
- *    and toggles the row. That is why the chevron stops propagation on click,
- *    mousedown AND keydown; miss any one and expanding a parent also selects it.
+ *    a MenuItem reaches the cloned `handleItemClick` and toggles the row. This
+ *    is why no interactive control may be nested inside a row: it would select
+ *    the row as a side effect. The old chevron needed three separate
+ *    stopPropagation handlers to survive it; removing it removed that trap.
  * 3. `renderValue` SHORT-CIRCUITS the display computation, so the closed field
- *    can show parent and child labels together even while the children are
- *    unrendered.
+ *    shows parent and child labels together from one flat merged array.
  *
  * The test file spies on `console.error` and asserts ZERO calls, which is what
  * makes a future MUI major breaking any of the three fail loudly.
@@ -114,11 +112,6 @@ export function FacetTreeMultiSelect({
   const selectedParents = value ?? [];
   const selectedChildren = childValue ?? [];
 
-  // Explicit user expand/collapse. A parent with NO entry here falls back to
-  // "expanded iff it owns a selected child", which is what auto-expands the
-  // right row on mount without an effect.
-  const [expandOverrides, setExpandOverrides] = useState<Record<string, boolean>>({});
-
   const childSlugs = new Set(childOptions.map((opt) => opt.slug));
   const parentOfChild = new Map(
     childOptions.map((opt) => [opt.slug, opt.parentSlug ?? ''] as const)
@@ -132,16 +125,6 @@ export function FacetTreeMultiSelect({
 
   const ownsSelectedChild = (parentSlug: string) =>
     selectedChildren.some((slug) => parentOfChild.get(slug) === parentSlug);
-
-  const isExpanded = (parentSlug: string) =>
-    expandOverrides[parentSlug] ?? ownsSelectedChild(parentSlug);
-
-  const toggleExpanded = (parentSlug: string) => {
-    setExpandOverrides((prev) => ({
-      ...prev,
-      [parentSlug]: !(prev[parentSlug] ?? ownsSelectedChild(parentSlug)),
-    }));
-  };
 
   // With NO children on offer this control IS the flat select, and it has to be
   // inert in both directions:
@@ -210,60 +193,20 @@ export function FacetTreeMultiSelect({
         {/* FLAT array — see mechanic 1 in the module comment. */}
         {options.flatMap((opt) => {
           const kids = childrenOf(opt.slug);
-          const expanded = isExpanded(opt.slug);
           const parentChecked = selectedParents.includes(opt.slug);
 
           const parentRow = (
-            <MenuItem
-              key={opt.slug}
-              value={opt.slug}
-              onKeyDown={(event) => {
-                if (kids.length === 0) return;
-                if (event.key === 'ArrowRight' && !expanded) {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  toggleExpanded(opt.slug);
-                } else if (event.key === 'ArrowLeft' && expanded) {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  toggleExpanded(opt.slug);
-                }
-              }}
-            >
+            <MenuItem key={opt.slug} value={opt.slug}>
               <Checkbox
                 checked={parentChecked}
                 indeterminate={parentChecked && ownsSelectedChild(opt.slug)}
                 size="small"
               />
               <ListItemText primary={opt.label} />
-              {kids.length > 0 && (
-                <IconButton
-                  size="small"
-                  edge="end"
-                  aria-label={`${expanded ? 'Collapse' : 'Expand'} ${opt.label}`}
-                  aria-expanded={expanded}
-                  // All THREE handlers stop propagation — see mechanic 2. The
-                  // cloned MenuItem onClick fires before MUI updates the
-                  // selection, so a chevron click that bubbles both expands the
-                  // row AND ticks its checkbox.
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    toggleExpanded(opt.slug);
-                  }}
-                  onMouseDown={(event) => event.stopPropagation()}
-                  onKeyDown={(event) => event.stopPropagation()}
-                >
-                  {expanded ? (
-                    <ExpandLessIcon fontSize="small" />
-                  ) : (
-                    <ExpandMoreIcon fontSize="small" />
-                  )}
-                </IconButton>
-              )}
             </MenuItem>
           );
 
-          if (!expanded || kids.length === 0) return [parentRow];
+          if (kids.length === 0) return [parentRow];
 
           return [
             parentRow,

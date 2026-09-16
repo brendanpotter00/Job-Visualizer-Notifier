@@ -96,7 +96,8 @@ async function tickBackend(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByRole('combobox', { name: 'Job Category' }));
   const listbox = await screen.findByRole('listbox');
   const parent = within(listbox).getByRole('option', { name: /Software Engineering/ });
-  await user.click(within(parent).getByRole('button'));
+  // The accordion is gone: the parent row has no button to press.
+  expect(within(parent).queryByRole('button')).toBeNull();
   await user.click(within(listbox).getByRole('option', { name: /Backend/ }));
   await user.keyboard('{Escape}');
 }

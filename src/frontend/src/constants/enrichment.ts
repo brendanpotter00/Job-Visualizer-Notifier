@@ -137,7 +137,7 @@ export const FALLBACK_LEVELS: FacetOption[] = [
  *
  * Used only where the live facets are unavailable. The filter bars deliberately
  * do NOT fall back to this list for the subcategory dimension — they use
- * `facets?.subcategories ?? []`, so an empty catalog renders no chevron rather
+ * `facets?.subcategories ?? []`, so an empty catalog renders no child rows rather
  * than a tree that expands into options the server has never heard of.
  */
 export const FALLBACK_SUBCATEGORIES: FacetOption[] = [
