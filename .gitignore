@@ -57,6 +57,7 @@ scripts/output/
 __pycache__/
 *.pyc
 .venv/
+.venv
 .env*.local
 
 # Local learning scratchpads (not part of PRs)

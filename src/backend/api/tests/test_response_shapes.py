@@ -14,6 +14,10 @@ EXPECTED_JOB_KEYS = {
     "status", "hasMatched", "aiMetadata", "firstSeenAt", "lastSeenAt",
     "consecutiveMisses", "detailsScraped", "locations",
     "category", "level", "tags", "enrichmentStatus",
+    # ORDERED SWE subcategory slugs, tri-state (null | [] | [..]). Serialized
+    # even when null — `null` (never evaluated) and `[]` (evaluated, nothing
+    # applies) are different facts about the row.
+    "subcategories",
 }
 
 # Expected camelCase keys from ScrapeRun (src/frontend/src/pages/QAPage/QAPage.tsx)
@@ -139,3 +143,189 @@ def test_scrape_runs_rejects_invalid_limit(client):
 def test_trigger_scrape_rejects_invalid_company(client):
     resp = client.post("/api/jobs-qa/trigger-scrape", params={"company": "a;b"})
     assert resp.status_code == 422
+
+
+# --- SWE subcategories on the enrichment write path -------------------------
+#
+# `EnrichmentResultItem` has NO `extra='forbid'`, so before the field existed
+# Pydantic's default `ignore` ACCEPTED an unknown `subcategories` key and threw
+# it away — while `POST /results` returned 200 and reported `written: N`. These
+# tests pin both halves of that: the field is declared, and the reason it had to
+# be is a silent drop that inflates exactly the number an operator would check.
+
+
+def test_unknown_key_is_ignored_not_rejected():
+    """The mechanism that made the drop silent, asserted directly.
+
+    This is what makes the round-trip test meaningful: without a declared field,
+    the round trip fails while the endpoint still returns 200 and `written: 1`.
+    """
+    from api.models import EnrichmentResultItem
+
+    item = EnrichmentResultItem(**{"jobListingId": "1", "sourceId": "s", "zzz": 1})
+    assert "zzz" not in item.model_dump()
+
+
+def test_result_item_declares_the_subcategory_triple():
+    from api.models import EnrichmentResultItem
+
+    item = EnrichmentResultItem(
+        **{
+            "jobListingId": "1",
+            "sourceId": "s",
+            "subcategories": ["backend"],
+            "subcategoryConfidence": 0.82,
+            "subcategorySource": "classify",
+        }
+    )
+    assert item.subcategories == ["backend"]
+    assert item.subcategory_confidence == 0.82
+    assert item.subcategory_source == "classify"
+
+
+def test_absent_subcategories_key_is_distinguishable_from_an_explicit_null():
+    """`model_fields_set` is the ONLY thing separating the two, and the
+    difference is whether an ordinary v6 tick NULLs the column on every row."""
+    from api.models import EnrichmentResultItem
+
+    absent = EnrichmentResultItem(**{"jobListingId": "1", "sourceId": "s"})
+    assert absent.subcategories is None
+    assert "subcategories" not in absent.model_fields_set
+
+    explicit = EnrichmentResultItem(
+        **{"jobListingId": "1", "sourceId": "s", "subcategories": None}
+    )
+    assert explicit.subcategories is None
+    assert "subcategories" in explicit.model_fields_set
+
+
+import pytest  # noqa: E402 — kept beside the parametrize that needs it
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "backend",                       # a bare string
+        {"primary": "backend"},          # a dict
+        [1, 2],                          # a list of non-strings
+        [],                              # evaluated, nothing applies
+        None,                            # never evaluated
+    ],
+)
+def test_malformed_subcategories_validate_without_raising(value):
+    """NEVER route the whole item to `failed[]`.
+
+    Same contract as `locations`: a malformed value degrades in the writer with
+    a warning, so the item's good category/level/tags still land. A stricter
+    type here would discard them at `model_validate`.
+    """
+    from api.models import EnrichmentResultItem
+
+    item = EnrichmentResultItem(
+        **{"jobListingId": "1", "sourceId": "s", "subcategories": value}
+    )
+    assert item.model_dump()["job_listing_id"] == "1"
+
+
+def test_missing_subcategories_key_validates():
+    from api.models import EnrichmentResultItem
+
+    EnrichmentResultItem(**{"jobListingId": "1", "sourceId": "s"})
+
+
+def test_job_facets_response_constructs_without_subcategories():
+    """A phase-1 backend must still be able to build the facets response."""
+    from api.models import JobFacetsResponse
+
+    resp = JobFacetsResponse(categories=[], levels=[])
+    assert resp.subcategories == []
+
+
+def test_subcategories_round_trip_through_results(client, db_conn, seed_taxonomy):
+    """⚠ THE CERTIFIED ROUND TRIP: POST /results -> GET the job -> the array is there.
+
+    NEVER assert on `written: N` here. `written` is exactly the number a silent
+    Pydantic drop inflates: before `EnrichmentResultItem.subcategories` existed,
+    this endpoint accepted the key, discarded it, persisted nothing, and reported
+    `written: 1`. The only honest proof is reading the value back out of the
+    public read path.
+    """
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from api.dependencies import get_db
+    from api.routers import internal_enrichment
+
+    _insert_job(db_conn, _make_job({"id": "rt-1", "source_id": "rt-src"}))
+    db_conn.commit()
+
+    internal_app = FastAPI()
+    internal_app.include_router(
+        internal_enrichment.router, prefix="/api/internal/enrichment"
+    )
+    internal_app.dependency_overrides[get_db] = lambda: db_conn
+    internal_client = TestClient(internal_app)
+
+    resp = internal_client.post(
+        "/api/internal/enrichment/results",
+        json={
+            "results": [
+                {
+                    "jobListingId": "rt-1",
+                    "sourceId": "rt-src",
+                    "category": "software_engineering",
+                    "level": "senior",
+                    "subcategories": ["backend"],
+                    "subcategorySource": "classify",
+                    "subcategoryConfidence": 0.82,
+                }
+            ]
+        },
+    )
+    assert resp.status_code == 200, resp.text
+
+    detail = client.get("/api/jobs/rt-src/rt-1")
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["subcategories"] == ["backend"]
+
+
+def test_all_three_subcategory_states_survive_to_the_SPA(client, db_conn):
+    """The tri-state has to survive all the way to the SPA: `null` (never
+    evaluated) is a different fact from `[]` (evaluated, nothing applies), which
+    is a different fact from a labelled array.
+
+    ⚠ ALL THREE ROWS IN ONE TEST, DELIBERATELY. Asserting only the `null` row is
+    a test that CANNOT FAIL: `JobListingResponse.subcategories` already defaults
+    to `None`, so ripping the alias/rename shim out of
+    `database.py::_row_to_job_dict` — making the route never read the column at
+    all — still leaves a lone null assertion green. The `[]` and `["backend"]`
+    rows are what make this file's copy of the check load-bearing; without them
+    it only pins the Pydantic default.
+
+    `test_database_service.py::TestSubcategorySerialization` is the deeper
+    service-level coverage; this one pins the same contract at the JSON edge.
+    """
+    for job_id, subcats in (
+        ("rt-tri-labelled", ["backend", "ai_engineering"]),
+        ("rt-tri-null", None),
+        ("rt-tri-empty", []),
+    ):
+        _insert_job(
+            db_conn,
+            _make_job(
+                {
+                    "id": job_id,
+                    "source_id": "rt-src",
+                    "enrichment_subcategories": subcats,
+                }
+            ),
+        )
+    db_conn.commit()
+
+    labelled = client.get("/api/jobs/rt-src/rt-tri-labelled").json()
+    never = client.get("/api/jobs/rt-src/rt-tri-null").json()
+    empty = client.get("/api/jobs/rt-src/rt-tri-empty").json()
+
+    assert labelled["subcategories"] == ["backend", "ai_engineering"]
+    assert never["subcategories"] is None
+    assert empty["subcategories"] == []

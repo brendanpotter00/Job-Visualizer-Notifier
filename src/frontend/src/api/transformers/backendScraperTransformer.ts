@@ -51,6 +51,11 @@ export function transformBackendJob(raw: BackendJobListing, companyId: string): 
     // -derived `tags` above stay the free-text-search fodder they always were.
     category: raw.category ?? null,
     level: raw.level ?? null,
+    // TRI-STATE — `?? null`, deliberately NOT `?? []`. `null`/absent means the
+    // row was never evaluated (it is still in the backfill queue); `[]` means
+    // it WAS evaluated and no specialty applies. Collapsing them here would
+    // throw away the distinction the server ships as `list[str] | None`.
+    subcategories: raw.subcategories ?? null,
     enrichmentTags: raw.tags ?? [],
     enrichmentStatus: raw.enrichmentStatus ?? null,
     raw, // Preserve full backend response for debugging

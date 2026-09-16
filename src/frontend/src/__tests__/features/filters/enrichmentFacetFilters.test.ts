@@ -4,7 +4,11 @@ import {
   matchesLevel,
   filterJobsByFilters,
 } from '../../../features/filters/utils/jobFilteringUtils';
-import { buildLevelExpansion, LEVEL_FILTER_EXPANSION } from '../../../constants/enrichment';
+import {
+  asExpansionFacets,
+  buildLevelExpansion,
+  LEVEL_FILTER_EXPANSION,
+} from '../../../constants/enrichment';
 import graphFiltersReducer, {
   setGraphCategory,
   setGraphLevel,
@@ -170,11 +174,33 @@ describe('buildLevelExpansion', () => {
       { slug: 'entry', label: 'Entry', sortOrder: 1, parentSlug: null },
       { slug: 'mid', label: 'Mid', sortOrder: 2, parentSlug: null },
     ];
-    expect(buildLevelExpansion(levels)).toEqual({ entry: ['entry', 'new_grad'] });
+    expect(buildLevelExpansion(asExpansionFacets(levels))).toEqual({ entry: ['entry', 'new_grad'] });
   });
 
   it('falls back to the static expansion when no edges exist', () => {
-    expect(buildLevelExpansion([])).toEqual(LEVEL_FILTER_EXPANSION);
+    expect(buildLevelExpansion(asExpansionFacets([]))).toEqual(LEVEL_FILTER_EXPANSION);
+  });
+
+  it('⚠ a subcategory facet list CANNOT be passed as a level hierarchy', () => {
+    // Both dimensions carry `parentSlug` and are structurally IDENTICAL, but
+    // the edge means the opposite thing in each: on levels it EXPANDS the
+    // filter (new_grad ⊂ entry), on subcategories it merely GROUPS them under
+    // software_engineering. Passing the second here would turn one Software
+    // Engineering selection into a fifteen-slug OR — silently widening every
+    // user's filter. The brand is what makes that a compile error rather than
+    // a clean-looking call.
+    const subcategories: FacetOption[] = [
+      { slug: 'backend', label: 'Backend', sortOrder: 1, parentSlug: 'software_engineering' },
+      { slug: 'frontend', label: 'Frontend', sortOrder: 6, parentSlug: 'software_engineering' },
+    ];
+    // @ts-expect-error — GROUPING edges are not EXPANSION edges. Drop the brand
+    // from buildLevelExpansion and `npm run type-check` fails HERE, on an
+    // unused @ts-expect-error: this assertion is the guard, not a comment.
+    const wrong = buildLevelExpansion(subcategories);
+    // What it WOULD have produced, spelled out so the hazard is concrete.
+    expect(wrong).toEqual({
+      software_engineering: ['software_engineering', 'backend', 'frontend'],
+    });
   });
 
   it('a standalone intern (parentSlug null) adds no expansion edge', () => {
@@ -183,6 +209,6 @@ describe('buildLevelExpansion', () => {
       { slug: 'new_grad', label: 'New Grad', sortOrder: 1, parentSlug: 'entry' },
       { slug: 'entry', label: 'Entry', sortOrder: 2, parentSlug: null },
     ];
-    expect(buildLevelExpansion(levels)).toEqual({ entry: ['entry', 'new_grad'] });
+    expect(buildLevelExpansion(asExpansionFacets(levels))).toEqual({ entry: ['entry', 'new_grad'] });
   });
 });

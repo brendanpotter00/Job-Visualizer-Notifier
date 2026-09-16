@@ -54,6 +54,9 @@ const PROXIED_ROUTES = [
   'enrichment/jobs/:sourceId/:jobId/correct', // POST
   'enrichment/jobs/:sourceId/:jobId/confirm', // POST
   'enrichment/jobs/:sourceId/:jobId/reenrich', // POST
+  // app settings (the SWE-subcategory reveal flag lives here)
+  'settings', // GET — the admin settings list
+  'settings/:key', // PUT — flip one allowlisted key
 ] as const;
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {

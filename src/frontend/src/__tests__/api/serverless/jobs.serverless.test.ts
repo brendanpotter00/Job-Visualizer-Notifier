@@ -118,6 +118,36 @@ describe('/api/jobs serverless function', () => {
       expect(mockRes.status).toHaveBeenCalledWith(200);
     });
 
+    it('forwards ?path=settings, the public flag read', async () => {
+      mockReq.query = { path: 'settings' };
+      fetchMock.mockResolvedValue(
+        mockJsonResponse(200, { sweSubcategoriesEnabled: false })
+      );
+
+      await handler(mockReq as VercelRequest, mockRes as VercelResponse);
+
+      expect(fetchMock.mock.calls[0][0]).toBe(
+        'http://localhost:8000/api/jobs/settings'
+      );
+      expect(mockRes.status).toHaveBeenCalledWith(200);
+    });
+
+    /**
+     * Regression guard for the shape of the allowlist edit itself. Adding
+     * 'settings' by REPLACING the set — rather than adding one member — would
+     * 404 the entire search endpoint at the proxy while every backend test
+     * stayed green.
+     */
+    it('still forwards ?path=search after settings was added', async () => {
+      mockReq.query = { path: 'search' };
+      fetchMock.mockResolvedValue(mockJsonResponse(200, SEARCH_PAGE));
+
+      await handler(mockReq as VercelRequest, mockRes as VercelResponse);
+
+      expect(forwardedUrl().pathname).toBe('/api/jobs/search');
+      expect(mockRes.status).toHaveBeenCalledWith(200);
+    });
+
     /**
      * The allowlist is a security boundary, not a typo guard: this proxy attaches
      * the internal key unconditionally, so anything it forwards clears the
@@ -136,6 +166,8 @@ describe('/api/jobs serverless function', () => {
     it.each<[string, string | string[]]>([
       ['an internal enrichment route', 'enrich'],
       ['a path too deep for the detail route', 'enrichment/next/deep'],
+      ['the internal prefix itself', 'internal'],
+      ['the internal pending route', 'internal/enrichment/pending'],
       ['a traversal out of the prefix', '../jobs-qa/scraper-health'],
       ['a different case spelling', 'Search'],
       ['a traversal smuggled through the array form', ['..', 'internal']],
