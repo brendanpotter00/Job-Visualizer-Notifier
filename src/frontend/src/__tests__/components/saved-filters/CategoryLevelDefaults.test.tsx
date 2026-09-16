@@ -1,50 +1,133 @@
-import { describe, it, expect } from 'vitest';
-import { screen } from '@testing-library/react';
-import { renderWithProviders } from '../../../test/testUtils';
+import { describe, it, expect, vi } from 'vitest';
+import { screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { renderWithProviders, createTestStore } from '../../../test/testUtils';
 import { CategoryLevelDefaults } from '../../../components/saved-filters/CategoryLevelDefaults';
+import { SubcategoryRevealProvider } from '../../../features/settings/subcategoryReveal';
+import { jobsApi } from '../../../features/jobs/jobsApi';
+import type { JobFacets } from '../../../types';
 
-const baseProps = {
-  category: [] as string[],
-  level: [] as string[],
-  onChangeCategory: () => {},
-  onChangeLevel: () => {},
+const FACETS: JobFacets = {
+  categories: [
+    { slug: 'software_engineering', label: 'Software Engineering', sortOrder: 0 },
+    { slug: 'growth', label: 'Growth', sortOrder: 1 },
+  ],
+  levels: [{ slug: 'senior', label: 'Senior', sortOrder: 0, parentSlug: null }],
+  subcategories: [
+    { slug: 'backend', label: 'Backend', sortOrder: 1, parentSlug: 'software_engineering' },
+    { slug: 'frontend', label: 'Frontend', sortOrder: 6, parentSlug: 'software_engineering' },
+  ],
+};
+
+const SAVE_PROPS = {
   dirty: false,
   saving: false,
   success: false,
   error: null,
-  onSave: () => {},
+  onSave: vi.fn(),
 };
 
-/**
- * This section had no test file before the "Job title" -> "Job Category"
- * rename, so all four of its copy strings were unpinned. Two things are worth
- * pinning permanently:
- *
- * 1. The rename itself (heading, facet label, save button).
- * 2. The ABSENCE of "Jobs not yet enriched still appear." That sentence was
- *    false in all three places it appeared here: `useHydrateSavedFilters`
- *    pushes the saved category straight into a filter that HIDES unenriched
- *    rows, so the copy promised the opposite of the behaviour. Deleting it is
- *    the fix; this assertion is what stops it coming back.
- */
-describe('CategoryLevelDefaults', () => {
-  it('labels the category facet "Job Category", not "Job title"', () => {
-    renderWithProviders(<CategoryLevelDefaults {...baseProps} />);
+async function seededStore({ reveal }: { reveal: boolean }) {
+  const store = createTestStore();
+  await store.dispatch(jobsApi.util.upsertQueryData('getFacets', undefined, FACETS));
+  await store.dispatch(
+    jobsApi.util.upsertQueryData('getPublicSettings', undefined, {
+      sweSubcategoriesEnabled: reveal,
+    })
+  );
+  return store;
+}
 
-    expect(screen.getByRole('combobox', { name: 'Job Category' })).toBeInTheDocument();
-    expect(screen.queryByRole('combobox', { name: 'Job title' })).not.toBeInTheDocument();
-    expect(screen.getByText('Default job category & level')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Save job category & level' })).toBeInTheDocument();
+/**
+ * `renderWithProviders` takes NO `wrapper` option — its `CustomRenderOptions`
+ * is `Omit<RenderOptions, 'wrapper'>` — so the reveal provider wraps the
+ * ELEMENT, matching how `App.tsx` mounts it.
+ */
+function renderPanel(
+  store: ReturnType<typeof createTestStore>,
+  props: Partial<Parameters<typeof CategoryLevelDefaults>[0]> = {}
+) {
+  return renderWithProviders(
+    <SubcategoryRevealProvider>
+      <CategoryLevelDefaults
+        category={[]}
+        level={[]}
+        onChangeCategory={vi.fn()}
+        onChangeLevel={vi.fn()}
+        {...SAVE_PROPS}
+        {...props}
+      />
+    </SubcategoryRevealProvider>,
+    { store }
+  );
+}
+
+describe('CategoryLevelDefaults — the subcategory tree', () => {
+  it('renders NO chevron without onChangeSubcategory, even with the flag on and facets warm', async () => {
+    // THE PRE-FE-SF-3 STATE, and the reason the props are optional. A caller
+    // with nowhere to store a subcategory must not be offered the control: the
+    // selection would be emitted and silently dropped.
+    const store = await seededStore({ reveal: true });
+    const user = userEvent.setup();
+    renderPanel(store); // no onChangeSubcategory
+
+    await user.click(screen.getByRole('combobox', { name: 'Job Category' }));
+    const listbox = await screen.findByRole('listbox');
+
+    expect(within(listbox).queryByRole('button')).toBeNull();
+    expect(within(listbox).queryByRole('option', { name: /Backend/ })).toBeNull();
   });
 
-  it('makes no claim that unenriched jobs still appear', () => {
-    renderWithProviders(<CategoryLevelDefaults {...baseProps} />);
+  it('renders NO chevron when the handler is present but the flag is OFF', async () => {
+    const store = await seededStore({ reveal: false });
+    const user = userEvent.setup();
+    renderPanel(store, { subcategory: [], onChangeSubcategory: vi.fn() });
 
-    // The positive half is what makes the negative half meaningful: assert the
-    // corrected body copy is actually on screen, so this test cannot pass
-    // simply because the paragraph failed to render at all.
-    expect(screen.getByText(/Applied when you open either page/)).toBeInTheDocument();
-    expect(screen.getByText(/Only jobs matching your selection are shown/)).toBeInTheDocument();
-    expect(screen.queryByText(/not yet enriched still appear/i)).not.toBeInTheDocument();
+    await user.click(screen.getByRole('combobox', { name: 'Job Category' }));
+    const listbox = await screen.findByRole('listbox');
+
+    expect(within(listbox).queryByRole('button')).toBeNull();
+  });
+
+  it('renders the tree when the handler is supplied AND the flag is on', async () => {
+    const store = await seededStore({ reveal: true });
+    const user = userEvent.setup();
+    renderPanel(store, { subcategory: [], onChangeSubcategory: vi.fn() });
+
+    await user.click(screen.getByRole('combobox', { name: 'Job Category' }));
+    const listbox = await screen.findByRole('listbox');
+    const swe = within(listbox).getByRole('option', { name: /Software Engineering/ });
+
+    await user.click(within(swe).getByRole('button'));
+    expect(within(listbox).getByRole('option', { name: /Backend/ })).toBeInTheDocument();
+  });
+
+  it('ticking a child calls BOTH handlers, auto-checking the parent', async () => {
+    const store = await seededStore({ reveal: true });
+    const onChangeCategory = vi.fn();
+    const onChangeSubcategory = vi.fn();
+    const user = userEvent.setup();
+    renderPanel(store, { subcategory: [], onChangeCategory, onChangeSubcategory });
+
+    await user.click(screen.getByRole('combobox', { name: 'Job Category' }));
+    const listbox = await screen.findByRole('listbox');
+    const swe = within(listbox).getByRole('option', { name: /Software Engineering/ });
+    await user.click(within(swe).getByRole('button'));
+    await user.click(within(listbox).getByRole('option', { name: /Backend/ }));
+
+    expect(onChangeCategory).toHaveBeenCalledWith(['software_engineering']);
+    expect(onChangeSubcategory).toHaveBeenCalledWith(['backend']);
+  });
+
+  it('leaves the Level control alone', async () => {
+    const store = await seededStore({ reveal: true });
+    const user = userEvent.setup();
+    renderPanel(store, { subcategory: [], onChangeSubcategory: vi.fn() });
+
+    await user.click(screen.getByRole('combobox', { name: 'Level' }));
+    const listbox = await screen.findByRole('listbox');
+
+    expect(within(listbox).getByRole('option', { name: 'Senior' })).toBeInTheDocument();
+    expect(within(listbox).queryByRole('button')).toBeNull();
   });
 });

@@ -67,6 +67,7 @@ function makeSavedFilters(overrides: Partial<SavedFilters> = {}): SavedFilters {
     locations: ['San Francisco, CA, US'],
     category: [],
     level: [],
+    subcategory: [],
     recentActiveKeywordListId: 'list-1',
     trendActiveKeywordListId: 'list-1',
     ...overrides,
@@ -126,6 +127,38 @@ describe('useHydrateSavedFilters', () => {
     expect(graph.filters.level).toEqual(['senior']);
     expect(recent.filters.category).toEqual(['software_engineering']);
     expect(recent.filters.level).toEqual(['senior']);
+  });
+
+  it('hydrates a saved subcategory onto BOTH slices', () => {
+    mockAuthState.isAuthenticated = true;
+    savedFiltersResult.data = makeSavedFilters({
+      category: ['software_engineering'],
+      subcategory: ['backend'],
+    });
+    keywordListsResult.data = [LIST];
+
+    const store = createTestStore();
+    renderHook(() => useHydrateSavedFilters(), { wrapper: makeWrapper(store) });
+
+    expect(store.getState().graphFilters.filters.subcategory).toEqual(['backend']);
+    expect(store.getState().recentJobsFilters.filters.subcategory).toEqual(['backend']);
+  });
+
+  it('hydrates a LEGACY payload to [] on both slices, not undefined', () => {
+    // Every stored row predates this feature; `validateSavedFilters` normalizes
+    // the missing key to `[]` before it ever reaches this hook. `[]` is what
+    // every consumer already reads as "no filter" — matchesSubcategory checks
+    // .length, stableList maps both to [], and the slice reducer normalizes []
+    // back to undefined on the user's next edit.
+    mockAuthState.isAuthenticated = true;
+    savedFiltersResult.data = makeSavedFilters({ subcategory: [] });
+    keywordListsResult.data = [LIST];
+
+    const store = createTestStore();
+    renderHook(() => useHydrateSavedFilters(), { wrapper: makeWrapper(store) });
+
+    expect(store.getState().graphFilters.filters.subcategory).toEqual([]);
+    expect(store.getState().recentJobsFilters.filters.subcategory).toEqual([]);
   });
 
   it('fires the logout reset exactly once on the auth true->false transition and resets API cache', () => {

@@ -130,6 +130,7 @@ def put_saved_filters(
             locations=body.locations,
             category=body.category,
             level=body.level,
+            subcategory=body.subcategory,
             recent_active_keyword_list_id=body.recent_active_keyword_list_id,
             trend_active_keyword_list_id=body.trend_active_keyword_list_id,
         )

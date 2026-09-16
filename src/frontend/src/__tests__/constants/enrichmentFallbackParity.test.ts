@@ -19,15 +19,24 @@
  * `taxonomy.json` is GENERATED from the migrations (`tools/generate_taxonomy_artifact.py`),
  * so this test is anchored to the database's own truth, not to a second hand-typed list.
  *
- * FE-CT-2 (PR-F) adds `FALLBACK_SUBCATEGORIES`. EXTEND THIS FILE THEN — the
- * artifact's `subcategories` arm is deliberately not asserted here, because
- * asserting an export that does not exist yet is a test that cannot fail.
+ * FE-CT-2 (PR-F) adds `FALLBACK_SUBCATEGORIES`, so the artifact's
+ * `subcategories` arm IS asserted here now. That arm is the one that catches a
+ * partial taxonomy widening: the backend grew the list from fifteen slugs to
+ * seventeen, and a frontend fallback left at fifteen would render a dropdown
+ * that silently omits two real specialties on every facets-fetch failure. The
+ * in-file `toHaveLength(17)` in `enrichment.test.ts` is deliberately a
+ * hand-typed literal; THIS test is the one anchored to the database's own
+ * truth.
  */
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, it, expect } from 'vitest';
-import { FALLBACK_CATEGORIES, FALLBACK_LEVELS } from '../../constants/enrichment';
+import {
+  FALLBACK_CATEGORIES,
+  FALLBACK_LEVELS,
+  FALLBACK_SUBCATEGORIES,
+} from '../../constants/enrichment';
 import type { FacetOption } from '../../types';
 
 interface ArtifactFacet {
@@ -45,6 +54,7 @@ const ARTIFACT_PATH = resolve(
 const artifact = JSON.parse(readFileSync(ARTIFACT_PATH, 'utf-8')) as {
   categories: ArtifactFacet[];
   levels: ArtifactFacet[];
+  subcategories: ArtifactFacet[];
 };
 
 /** Compare on slug + label + sortOrder; parentSlug only where the FE models it. */
@@ -86,6 +96,28 @@ describe('frontend fallback constants ↔ backend taxonomy.json', () => {
     // result set with no error to explain it.
     expect(FALLBACK_CATEGORIES.map((c) => c.slug)).not.toContain('project_manager');
     expect(artifact.categories.map((c) => c.slug)).not.toContain('project_manager');
+  });
+
+  it('FALLBACK_SUBCATEGORIES matches the artifact exactly, parentSlug included', () => {
+    // `parentSlug` is asserted because FacetTreeMultiSelect renders the tree off
+    // it: a subcategory whose parent drifted away from `software_engineering`
+    // would vanish from under the only parent that expands.
+    expect(fromFrontend(FALLBACK_SUBCATEGORIES, true)).toEqual(
+      fromArtifact(artifact.subcategories, true)
+    );
+  });
+
+  it('⚠ the fallback is not stuck at the PRE-WIDENING fifteen slugs', () => {
+    // Named explicitly rather than left to the deep-equal above, because this is
+    // the drift the epic actually shipped into: the backend widened the
+    // taxonomy to seventeen in a separate PR from the frontend fallback. A
+    // count typed out on BOTH sides is what makes a half-applied widening fail
+    // loudly instead of quietly dropping two options.
+    expect(FALLBACK_SUBCATEGORIES).toHaveLength(17);
+    expect(artifact.subcategories).toHaveLength(17);
+    expect(FALLBACK_SUBCATEGORIES.map((s) => s.slug)).toEqual(
+      expect.arrayContaining(['growth_engineering', 'product_engineering'])
+    );
   });
 
   it('the sort_order GAP at 3 survives — the seed is not renumbered', () => {
