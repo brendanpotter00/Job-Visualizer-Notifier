@@ -93,17 +93,16 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 #
-# down_revision is main's head. It was `536c1cddcd28` (PR #252's last revision)
-# while #252 was still open; #252 has since been SQUASH-MERGED (2026-09-04), and
-# the merge brought a reconciliation revision `776b9dbc68cc` that joined #252's
-# chain to main's. `536c1cddcd28` therefore already HAS a child now, so parenting
-# there would fork the graph into two heads and crash the backend in the lifespan
-# (`api/migrations.py` runs `command.upgrade(cfg, "head")` — singular — and
-# re-raises). The rule is unchanged and is the same one that made `4b5d40dbc774`
-# wrong before: parent on the CURRENT head, never on a revision that already has
-# a child. See api/tests/test_alembic_single_head.py.
+# down_revision is main's CURRENT head. This has now moved twice — `536c1cddcd28`
+# while #252 was open, then `776b9dbc68cc` after #252 squash-merged, now
+# `ee782e03fc06`. Each time the old parent gained a child and parenting there
+# would fork the graph into two heads, crashing the backend in the FastAPI
+# lifespan (`api/migrations.py` runs `command.upgrade(cfg, "head")` — singular —
+# and re-raises). One rule: parent on the CURRENT head, never on a revision that
+# already has a child. Re-check this every time main moves.
+# See api/tests/test_alembic_single_head.py.
 revision: str = '7c1a4f2b9e30'
-down_revision: Union[str, None] = '776b9dbc68cc'
+down_revision: Union[str, None] = 'ee782e03fc06'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

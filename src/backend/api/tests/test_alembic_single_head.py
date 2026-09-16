@@ -36,14 +36,15 @@ SWE-subcategories epic — the pinned merge order (SCHEMA-0)
 Recorded here rather than in a loose doc because this is the file that fails
 when the order is broken.
 
-**Order A (pinned, and what shipped).** PR #252 SQUASH-MERGED on 2026-09-04 and
-the merge brought `776b9dbc68cc`, a reconciliation revision joining #252's chain
-to main's. The epic's revisions stack on top of THAT — not on `536c1cddcd28`
-(#252's last revision), which now already has a child, and not on
-`4b5d40dbc774`, which always did. The rule is one rule: parent on the CURRENT
-head, never on a revision that already has a child.
+**Order A.** The epic parents on main's CURRENT head, and that head has moved
+THREE times already: `536c1cddcd28` while #252 was open, `776b9dbc68cc` after
+#252 squash-merged on 2026-09-04, and `ee782e03fc06` today. Each predecessor
+gained a child, so parenting on any of them now forks the graph.
 
-    ... -> 536c1cddcd28 -> 776b9dbc68cc
+One rule, re-checked every time main moves: parent on the CURRENT head, never on
+a revision that already has a child.
+
+    ... -> 536c1cddcd28 -> 776b9dbc68cc -> … -> ee782e03fc06
       -> <A> add_job_subcategories_structure      (SCHEMA-1)
       -> <B> add_app_settings                     (SCHEMA-2)
       -> <C> retire_project_manager_category      (SCHEMA-11)
