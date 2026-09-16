@@ -2593,10 +2593,10 @@ class TestTaxonomyParity:
         assert actual == expected  # {'entry': {'entry', 'new_grad'}}
 
     def test_subcategory_slug_set_shape(self):
-        """Fifteen slugs, lowercase, no whitespace, no duplicates."""
+        """Seventeen slugs, lowercase, no whitespace, no duplicates."""
         from api.services.enrichment_writer import SUBCATEGORY_SLUGS
 
-        assert len(SUBCATEGORY_SLUGS) == 15
+        assert len(SUBCATEGORY_SLUGS) == 17
         for slug in SUBCATEGORY_SLUGS:
             assert slug == slug.strip().lower()
             assert " " not in slug

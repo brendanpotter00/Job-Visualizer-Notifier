@@ -379,7 +379,7 @@ def test_job_subcategories_dimension_shape():
     assert table.c["sort_order"].nullable is False
     fk_targets = {fk.target_fullname for fk in table.c["parent_slug"].foreign_keys}
     assert fk_targets == {"job_categories.slug"}
-    # Deliberately unindexed: 15 rows, one parent.
+    # Deliberately unindexed: 17 rows, one parent.
     assert not table.indexes
 
 

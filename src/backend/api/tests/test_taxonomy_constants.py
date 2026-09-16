@@ -24,9 +24,12 @@ from api.services.enrichment_writer import (
     SUBCATEGORY_SOURCES,
 )
 
-# The canonical 15, in the exact order the seed migration writes them
-# (sort_order 0..14). Duplicated here ON PURPOSE — a test that derives its
-# expectation from the code under test asserts nothing.
+# The canonical 17, in the exact order the seed migration writes them
+# (sort_order 0..16). Duplicated here ON PURPOSE — a test that derives its
+# expectation from the code under test asserts nothing. `growth_engineering`
+# and `product_engineering` are the two the widening added; they are typed out
+# here by hand, NOT spliced into a list read from the frozenset, because the
+# independence is the whole assertion.
 EXPECTED_SUBCATEGORY_SLUGS = [
     "ai_engineering",
     "backend",
@@ -36,9 +39,11 @@ EXPECTED_SUBCATEGORY_SLUGS = [
     "forward_deployed",
     "frontend",
     "full_stack",
+    "growth_engineering",
     "infrastructure_platform",
     "ml_engineering",
     "mobile",
+    "product_engineering",
     "qa_testing",
     "quantitative",
     "robotics_autonomy",
@@ -46,8 +51,8 @@ EXPECTED_SUBCATEGORY_SLUGS = [
 ]
 
 
-def test_there_are_exactly_fifteen_subcategories() -> None:
-    assert len(SUBCATEGORY_SLUGS) == 15
+def test_there_are_exactly_seventeen_subcategories() -> None:
+    assert len(SUBCATEGORY_SLUGS) == 17
 
 
 def test_subcategory_slugs_match_the_canonical_list_exactly() -> None:

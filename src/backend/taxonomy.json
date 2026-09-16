@@ -131,45 +131,57 @@
       "parent_slug": "software_engineering"
     },
     {
+      "slug": "growth_engineering",
+      "label": "Growth Engineering",
+      "sort_order": 8,
+      "parent_slug": "software_engineering"
+    },
+    {
       "slug": "infrastructure_platform",
       "label": "Infrastructure & Platform",
-      "sort_order": 8,
+      "sort_order": 9,
       "parent_slug": "software_engineering"
     },
     {
       "slug": "ml_engineering",
       "label": "Machine Learning",
-      "sort_order": 9,
+      "sort_order": 10,
       "parent_slug": "software_engineering"
     },
     {
       "slug": "mobile",
       "label": "Mobile",
-      "sort_order": 10,
+      "sort_order": 11,
+      "parent_slug": "software_engineering"
+    },
+    {
+      "slug": "product_engineering",
+      "label": "Product Engineering",
+      "sort_order": 12,
       "parent_slug": "software_engineering"
     },
     {
       "slug": "qa_testing",
       "label": "QA & Testing",
-      "sort_order": 11,
+      "sort_order": 13,
       "parent_slug": "software_engineering"
     },
     {
       "slug": "quantitative",
       "label": "Quantitative & Trading Systems",
-      "sort_order": 12,
+      "sort_order": 14,
       "parent_slug": "software_engineering"
     },
     {
       "slug": "robotics_autonomy",
       "label": "Robotics & Autonomy",
-      "sort_order": 13,
+      "sort_order": 15,
       "parent_slug": "software_engineering"
     },
     {
       "slug": "security",
       "label": "Security",
-      "sort_order": 14,
+      "sort_order": 16,
       "parent_slug": "software_engineering"
     }
   ],

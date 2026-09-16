@@ -332,10 +332,10 @@ not a frontend redeploy.
   here is a **FILTER-EXPANSION** edge: `new_grad -> entry`, which is what makes
   "entry ⊇ new_grad" derivable from data on both sides.
 - **`job_subcategories`** — `slug` PK, `label`, `parent_slug` (FK → `job_categories.slug`,
-  NOT NULL, `'software_engineering'` on every row), `sort_order`. Fifteen SWE specialties.
+  NOT NULL, `'software_engineering'` on every row), `sort_order`. Seventeen SWE specialties.
   ⚠ **`parent_slug` here is a GROUPING edge, not an expansion edge**, and must never be fed
   into the level-expansion builder — doing so would turn one category selection into
-  fifteen subcategories. Deliberately unindexed (15 rows, one parent). **Ships EMPTY in
+  seventeen subcategories. Deliberately unindexed (17 rows, one parent). **Ships EMPTY in
   phase 1**: seeding it is what makes the public dropdown appear, so the seed is a
   user-visible publish and lands with the UI.
 

@@ -1102,7 +1102,7 @@ class FacetOption(BaseModel):
     #                        'software_engineering', and it exists so the
     #                        dropdown can render a tree. It must NEVER be fed
     #                        into the level-expansion builder, which would turn
-    #                        one category selection into fifteen subcategories.
+    #                        one category selection into seventeen subcategories.
     #   * job_categories  -> always NULL (the query selects `NULL AS parent_slug`).
     parent_slug: str | None = None
 

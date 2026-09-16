@@ -12,7 +12,7 @@ against the live schema and both repos:
   ``project_manager`` some time ago and nothing noticed, because every existing
   guard is intra-repo.
 
-This epic is about to widen that surface from 6 slugs to 21. Closing the
+This epic is about to widen that surface from 6 slugs to 23. Closing the
 existing drift first is what makes the new parity assertion meaningful instead
 of permanently red.
 

@@ -156,7 +156,7 @@ class TestArtifactShape:
 
     def test_subcategory_sort_order_is_dense_and_alphabetical(self, artifact):
         rows = sorted(artifact["subcategories"], key=lambda r: r["sort_order"])
-        assert [r["sort_order"] for r in rows] == list(range(15))
+        assert [r["sort_order"] for r in rows] == list(range(17))
         assert [r["slug"] for r in rows] == sorted(SUBCATEGORY_SLUGS)
 
     def test_the_three_dimensions_are_pairwise_disjoint(self, artifact):

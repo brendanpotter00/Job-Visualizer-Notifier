@@ -83,7 +83,12 @@ LEGACY_CATEGORY_SLUGS: frozenset[str] = frozenset()
 # already imports the facet slug sets from here.
 #
 # Label-alphabetical (which for this set is also slug-alphabetical), so
-# `sorted(SUBCATEGORY_SLUGS)` reproduces the seed's sort_order 0..14.
+# `sorted(SUBCATEGORY_SLUGS)` reproduces the seed's sort_order 0..16.
+#
+# SEVENTEEN, not fifteen: `growth_engineering` and `product_engineering` were
+# added by the subcategory-taxonomy widening. Inserting them shifts the
+# sort_order of every slug after them, which is why the seed is DERIVED from
+# `sorted(...)` on both sides rather than hand-numbered.
 SUBCATEGORY_SLUGS = frozenset(
     {
         "ai_engineering",
@@ -94,9 +99,11 @@ SUBCATEGORY_SLUGS = frozenset(
         "forward_deployed",
         "frontend",
         "full_stack",
+        "growth_engineering",
         "infrastructure_platform",
         "ml_engineering",
         "mobile",
+        "product_engineering",
         "qa_testing",
         "quantitative",
         "robotics_autonomy",

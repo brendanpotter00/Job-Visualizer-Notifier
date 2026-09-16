@@ -17,7 +17,7 @@ is exactly how the live drift survived: ``job_categories`` had 7 seeded rows,
 ``CATEGORY_SLUGS`` had 7, and the enricher's ``taxonomy.CATEGORIES`` had 6, for
 months, with every test green on both sides.
 
-This epic widens that surface from 6 slugs to 21. ``taxonomy.json`` is committed
+This epic widens that surface from 6 slugs to 23. ``taxonomy.json`` is committed
 so the enricher can VENDOR it with a recorded sha256 and assert set equality
 against its own constants.
 
@@ -55,8 +55,14 @@ from api.services.enrichment_writer import (  # noqa: E402
 
 ARTIFACT_PATH = _SRC_BACKEND / "taxonomy.json"
 
-# The display labels for the 15 subcategories. Sole origin until SCHEMA-7's seed
+# The display labels for the 17 subcategories. Sole origin until SCHEMA-7's seed
 # migration lands; asserted against that seed once it does.
+#
+# HAND-TYPED, and the second home for these labels after
+# ``enrichment_writer.SUBCATEGORY_SLUGS`` — every key here must be a slug there
+# and vice versa. ``build_artifact`` raises on a mismatch (a missing key is a
+# KeyError, an extra key trips the set assertion below) rather than emitting a
+# half-right artifact.
 SUBCATEGORY_LABELS = {
     "ai_engineering": "AI Engineering",
     "backend": "Backend",
@@ -66,9 +72,11 @@ SUBCATEGORY_LABELS = {
     "forward_deployed": "Forward Deployed",
     "frontend": "Frontend",
     "full_stack": "Full Stack",
+    "growth_engineering": "Growth Engineering",
     "infrastructure_platform": "Infrastructure & Platform",
     "ml_engineering": "Machine Learning",
     "mobile": "Mobile",
+    "product_engineering": "Product Engineering",
     "qa_testing": "QA & Testing",
     "quantitative": "Quantitative & Trading Systems",
     "robotics_autonomy": "Robotics & Autonomy",

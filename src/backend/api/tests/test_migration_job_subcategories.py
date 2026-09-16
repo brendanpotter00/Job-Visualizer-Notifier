@@ -8,7 +8,7 @@ assert everything is gone and the pre-existing tables survive.
 
 The load-bearing assertion is `job_subcategories` having EXACTLY ZERO rows.
 Phase 1 ships the dimension empty on purpose: seeding it is what makes the public
-dropdown appear, so a seed here would publish fifteen checkboxes that all return
+dropdown appear, so a seed here would publish seventeen checkboxes that all return
 "No jobs found".
 """
 
