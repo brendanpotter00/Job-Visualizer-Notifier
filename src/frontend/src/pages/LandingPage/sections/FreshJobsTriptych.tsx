@@ -4,8 +4,12 @@ import { Link as RouterLink } from 'react-router-dom';
 import type { Job } from '../../../types';
 import { RESPONSIVE } from '../../../config/responsive';
 import { ROUTES } from '../../../config/routes';
+import type { SectionIntro as SectionIntroContent } from '../content';
 import { FlippingCard, SlotCaption } from './FlippingCard';
+import { SectionIntro } from './SectionIntro';
 import { selectTriptychSlots, type TriptychSlot } from './triptychJobs';
+
+const HEADING_ID = 'landing-fresh-jobs-heading';
 
 /**
  * Phase step between adjacent slots (ms). Three slots at 0 / 1.5s / 3s against
@@ -18,6 +22,12 @@ interface FreshJobsTriptychProps {
   jobs: Job[];
   /** The fixtures' MOCK_NOW — see LandingPrototypeProps.now. */
   now: number;
+  /**
+   * Eyebrow + heading over the three cards. Optional so the triptych can be
+   * rendered bare; when given, it lives INSIDE the section so an all-empty
+   * fixture drops the heading together with the cards it would have labelled.
+   */
+  intro?: SectionIntroContent;
 }
 
 /**
@@ -36,28 +46,37 @@ interface FreshJobsTriptychProps {
  *
  * Stacks to a single column below `sm` via the standard Grid idiom.
  */
-export function FreshJobsTriptych({ jobs, now }: FreshJobsTriptychProps) {
+export function FreshJobsTriptych({ jobs, now, intro }: FreshJobsTriptychProps) {
   const slots = useMemo(() => selectTriptychSlots(jobs, now), [jobs, now]);
 
   if (slots.every((slot) => slot.jobs.length === 0)) return null;
 
   return (
-    <Grid container spacing={{ xs: 2, sm: 3 }} data-testid="fresh-jobs-triptych">
-      {slots.map((slot, i) => (
-        <Grid key={slot.id} size={{ xs: 12, sm: 4 }}>
-          {slot.jobs.length > 0 ? (
-            <FlippingCard
-              jobs={slot.jobs}
-              caption={slot.label}
-              phaseMs={i * PHASE_STEP_MS}
-              testId={slotTestId(slot.id)}
-            />
-          ) : (
-            <QuietSlot slot={slot} />
-          )}
-        </Grid>
-      ))}
-    </Grid>
+    <Box
+      component="section"
+      aria-labelledby={intro ? HEADING_ID : undefined}
+      data-testid="fresh-jobs-triptych"
+    >
+      {intro && (
+        <SectionIntro eyebrow={intro.eyebrow} heading={intro.heading} headingId={HEADING_ID} />
+      )}
+      <Grid container spacing={{ xs: 2, sm: 3 }}>
+        {slots.map((slot, i) => (
+          <Grid key={slot.id} size={{ xs: 12, sm: 4 }}>
+            {slot.jobs.length > 0 ? (
+              <FlippingCard
+                jobs={slot.jobs}
+                caption={slot.label}
+                phaseMs={i * PHASE_STEP_MS}
+                testId={slotTestId(slot.id)}
+              />
+            ) : (
+              <QuietSlot slot={slot} />
+            )}
+          </Grid>
+        ))}
+      </Grid>
+    </Box>
   );
 }
 

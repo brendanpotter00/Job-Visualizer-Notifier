@@ -11,8 +11,8 @@ describe('FAQSection', () => {
     expect(screen.getByRole('heading', { name: 'Frequently asked questions' })).toBeInTheDocument();
 
     const toggles = screen.getAllByRole('button');
-    expect(toggles).toHaveLength(LANDING_CONTENT.faq.length);
-    for (const entry of LANDING_CONTENT.faq) {
+    expect(toggles).toHaveLength(LANDING_CONTENT.faq.entries.length);
+    for (const entry of LANDING_CONTENT.faq.entries) {
       expect(screen.getByRole('button', { name: entry.question })).toHaveAttribute(
         'aria-expanded',
         'false'
@@ -27,7 +27,7 @@ describe('FAQSection', () => {
   it('keeps every answer in the DOM while its accordion is collapsed', () => {
     render(<FAQSection content={LANDING_CONTENT} />);
 
-    for (const entry of LANDING_CONTENT.faq) {
+    for (const entry of LANDING_CONTENT.faq.entries) {
       expect(screen.getByRole('button', { name: entry.question })).toHaveAttribute(
         'aria-expanded',
         'false'
@@ -40,7 +40,7 @@ describe('FAQSection', () => {
     const user = userEvent.setup();
     render(<FAQSection content={LANDING_CONTENT} />);
 
-    const [first, second] = LANDING_CONTENT.faq;
+    const [first, second] = LANDING_CONTENT.faq.entries;
     await user.click(screen.getByRole('button', { name: first.question }));
 
     expect(screen.getByRole('button', { name: first.question })).toHaveAttribute(

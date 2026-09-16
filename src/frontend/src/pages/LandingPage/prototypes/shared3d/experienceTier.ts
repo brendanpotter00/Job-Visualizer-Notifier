@@ -5,7 +5,15 @@
  *
  * Ladder (PLAN.md "Degradation ladder"):
  *   full desktop → full constrained (fewer bodies, lower DPR)
- *   → fallback (reduced-motion or no WebGL: DOM-only, scene chunk never loads).
+ *   → fallback (reduced-motion, no WebGL, or a phone-width viewport: DOM-only,
+ *     scene chunk never loads).
+ *
+ * Phones are a fallback tier since 2026-09-10, not a constrained-full one. The
+ * camera's vertical field of view spans a fixed ~6.9 world units of canvas
+ * height and the arena floor is MIN_ARENA_WIDTH wide, so on a narrow canvas
+ * the pile stacks seven tiles high — the full hero — and buries the copy and
+ * the CTAs. The brief (§9) always called for a static poster path on mobile;
+ * this is it, and it costs a phone zero bytes of three/rapier.
  */
 
 export type ExperienceTier = 'full' | 'fallback';
@@ -38,12 +46,11 @@ const LOW_END_MAX_CORES = 4;
 const LOW_END_MAX_MEMORY_GB = 4;
 
 export function resolveExperienceTier(input: ExperienceTierInput): ExperienceTierResult {
-  if (input.prefersReducedMotion || !input.webglSupported) {
+  if (input.prefersReducedMotion || !input.webglSupported || input.isMobileViewport) {
     // bodyCount still sizes the DOM fallback grid; maxDpr is moot without GL.
     return { tier: 'fallback', bodyCount: CONSTRAINED_BODY_COUNT, maxDpr: 1 };
   }
   const lowEnd =
-    input.isMobileViewport ||
     (input.hardwareConcurrency !== undefined &&
       input.hardwareConcurrency <= LOW_END_MAX_CORES) ||
     (input.deviceMemory !== undefined && input.deviceMemory <= LOW_END_MAX_MEMORY_GB);
