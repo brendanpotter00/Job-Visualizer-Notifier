@@ -19,6 +19,18 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    id: 'add-david-ai',
+    title: 'Added David AI',
+    description:
+      "David AI — which calls itself the first audio data research company, building the high-quality speech and audio datasets that AI labs train on — is now tracked via its Ashby job board. It was founded in 2024 by former Scale AI engineers and operators, counts most of the large tech companies and AI labs among its customers, and has raised $50M. Thirteen roles are open, all in San Francisco, five of them in Engineering.",
+    tags: ['new-companies'],
+    date: '2026-09-16',
+    link: {
+      to: ROUTES.ACCOUNT,
+      label: 'Add David AI to your company preferences',
+    },
+  },
+  {
     id: 'add-typesafe-retire-console',
     title: 'Added TypeSafe, retired Console',
     description:

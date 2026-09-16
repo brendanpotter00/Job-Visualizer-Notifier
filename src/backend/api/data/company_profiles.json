@@ -166,6 +166,10 @@
     "accomplishment": "Datadog is a leading observability platform, unifying metrics, traces, and logs so engineering teams can monitor cloud-scale systems in one place.",
     "blurb": "Datadog offers a cloud-based observability and security platform that monitors infrastructure, applications, logs, and user experience."
   },
+  "david-ai": {
+    "blurb": "David AI builds the speech and audio training datasets that AI labs use, treating dataset creation as a research problem rather than a labelling job.",
+    "accomplishment": "Founded in 2024 by former Scale AI engineers and operators; signed most of the large tech companies and AI labs as customers within a year and raised $50M."
+  },
   "decagon": {
     "accomplishment": "Decagon is known for its AI concierge platform, deploying conversational agents that resolve customer inquiries and execute tasks like refunds and cancellations.",
     "blurb": "Decagon builds enterprise AI agents that autonomously handle customer support across chat, email, and voice channels."
