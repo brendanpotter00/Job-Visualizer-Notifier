@@ -186,7 +186,9 @@ export const CHANGELOG: readonly ChangelogEntry[] = [
     link: {
       to: ROUTES.ACCOUNT,
       label: 'Add Parallel to your company preferences',
-
+    },
+  },
+  {
     id: 'swe-subcategories-2026-08',
     title: 'Software Engineering now opens up into fifteen specialties',
     description:
