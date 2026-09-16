@@ -1,4 +1,4 @@
-"""Phase 2 of the SWE-subcategories epic: SEED the 15 dimension rows.
+"""Phase 2 of the SWE-subcategories epic: SEED the 17 dimension rows.
 
 Scaffolded by ``alembic revision --autogenerate``; the generated
 ``upgrade``/``downgrade`` bodies came back **EMPTY**, and that emptiness is the
@@ -10,7 +10,7 @@ hand-added, exactly as ``0fa33aca5bda`` and ``0b61e444ea25`` do.
 WHY THIS IS A PUBLISH, NOT A SCHEMA CHANGE
 ------------------------------------------
 ``job_subcategories``' only consumer is ``get_facets`` -> the public filter
-dropdown. The moment rows exist here, fifteen checkboxes become available to
+dropdown. The moment rows exist here, seventeen checkboxes become available to
 every reader of ``GET /api/jobs/facets``. That is why SCHEMA-1 shipped the table
 EMPTY and this revision is deliberately separate: structure, the write path and
 the coverage counters all land and get verified against production while the
@@ -25,8 +25,13 @@ second.
 THE CANONICAL LIST
 ------------------
 Label-alphabetical, which for this set is also slug-alphabetical, so
-``sorted(enrichment_writer.SUBCATEGORY_SLUGS)`` reproduces ``sort_order`` 0..14
+``sorted(enrichment_writer.SUBCATEGORY_SLUGS)`` reproduces ``sort_order`` 0..16
 exactly. Every row's ``parent_slug`` is ``software_engineering``.
+
+SEVENTEEN, not fifteen: ``growth_engineering`` and ``product_engineering`` were
+added to the taxonomy before this seed ever ran anywhere. They insert at 8 and
+12, which shifts every slug after them — the reason this list is re-derived from
+the canonical order rather than appended to.
 
 ``quantitative`` is labelled **"Quantitative & Trading Systems"**. Some earlier
 draft mocks say "Quantitative & Trading"; the MOCK is the thing that gets
@@ -41,13 +46,13 @@ DEPLOY CONTEXT
 --------------
 ``SET LOCAL lock_timeout = '5s'`` first in both directions, same line and same
 reason as ``7c1a4f2b9e30`` — prod runs with no ``lock_timeout`` at all and this
-migration runs inside the FastAPI lifespan. ``job_subcategories`` has fifteen
+migration runs inside the FastAPI lifespan. ``job_subcategories`` has seventeen
 rows and one reader, so the lock is trivially short; the guard is here for
 consistency, not because this statement is the risky one.
 
 DOWNGRADE
 ---------
-Deletes exactly the fifteen slugs this migration inserted — never a bare
+Deletes exactly the seventeen slugs this migration inserted — never a bare
 ``DELETE FROM job_subcategories``, so a hand-added row would survive. The table
 itself belongs to ``7c1a4f2b9e30``.
 """
@@ -68,7 +73,7 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
-# The fifteen rows this migration seeds: (slug, label, sort_order, parent_slug).
+# The seventeen rows this migration seeds: (slug, label, sort_order, parent_slug).
 #
 # Exported so the parity test IMPORTS these rather than re-typing them — the
 # `ADDED_LEVELS` pattern at 0b61e444ea25:46-48. The parent stays in the tuple
@@ -82,13 +87,15 @@ ADDED_SUBCATEGORIES = [
     ("forward_deployed", "Forward Deployed", 5, "software_engineering"),
     ("frontend", "Frontend", 6, "software_engineering"),
     ("full_stack", "Full Stack", 7, "software_engineering"),
-    ("infrastructure_platform", "Infrastructure & Platform", 8, "software_engineering"),
-    ("ml_engineering", "Machine Learning", 9, "software_engineering"),
-    ("mobile", "Mobile", 10, "software_engineering"),
-    ("qa_testing", "QA & Testing", 11, "software_engineering"),
-    ("quantitative", "Quantitative & Trading Systems", 12, "software_engineering"),
-    ("robotics_autonomy", "Robotics & Autonomy", 13, "software_engineering"),
-    ("security", "Security", 14, "software_engineering"),
+    ("growth_engineering", "Growth Engineering", 8, "software_engineering"),
+    ("infrastructure_platform", "Infrastructure & Platform", 9, "software_engineering"),
+    ("ml_engineering", "Machine Learning", 10, "software_engineering"),
+    ("mobile", "Mobile", 11, "software_engineering"),
+    ("product_engineering", "Product Engineering", 12, "software_engineering"),
+    ("qa_testing", "QA & Testing", 13, "software_engineering"),
+    ("quantitative", "Quantitative & Trading Systems", 14, "software_engineering"),
+    ("robotics_autonomy", "Robotics & Autonomy", 15, "software_engineering"),
+    ("security", "Security", 16, "software_engineering"),
 ]
 
 # Query-time filter-expansion edges, as (widens_into, selected) pairs.

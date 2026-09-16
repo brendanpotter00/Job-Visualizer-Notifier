@@ -20,8 +20,8 @@ import type { FacetOption } from '../../../types';
  * UNMEASURED — placeholder; set by FE-UI-1
  *
  * There is no maxHeight on the flat `FacetMultiSelect` today because six
- * category rows fit anywhere. Six parents plus fifteen expanded children is
- * twenty-one rows, which overflows a phone viewport and most laptop ones. The
+ * category rows fit anywhere. Six parents plus seventeen expanded children is
+ * twenty-three rows, which overflows a phone viewport and most laptop ones. The
  * real number comes from eyeballing the mounted menu at 1440px and at 375px
  * against live facets data.
  */

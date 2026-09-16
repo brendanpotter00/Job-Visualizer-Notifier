@@ -294,7 +294,7 @@ def list_facets(conn: Connection = Depends(get_db)) -> JobFacetsResponse:
       every row), naming which parent row the option renders under.
 
     Feeding the subcategory edges into the level-expansion builder would turn
-    one category selection into fifteen, silently and with a 200.
+    one category selection into seventeen, silently and with a 200.
     """
     data = get_facets(conn)
     return JobFacetsResponse(

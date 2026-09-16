@@ -202,7 +202,7 @@ class TestAdminEnrichmentHealth:
         _seed_flagged_job(db_conn, job_id="c-fe", category="software_engineering",
                           subcategories=["frontend"])
         # PARTIAL means partial. Once SCHEMA-7 (PR-F) landed, the conftest
-        # fixture seeds all fifteen slugs to mirror prod — so INSERTing 'backend'
+        # fixture seeds all seventeen slugs to mirror prod — so INSERTing 'backend'
         # no longer creates a gap and this test silently asserted nothing. Remove
         # 'frontend' instead, which produces the gap under either fixture.
         cur = db_conn.cursor()

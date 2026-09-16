@@ -67,13 +67,15 @@ _SUBCATEGORY_SEED = [
     ("forward_deployed", "Forward Deployed", "software_engineering", 5),
     ("frontend", "Frontend", "software_engineering", 6),
     ("full_stack", "Full Stack", "software_engineering", 7),
-    ("infrastructure_platform", "Infrastructure & Platform", "software_engineering", 8),
-    ("ml_engineering", "Machine Learning", "software_engineering", 9),
-    ("mobile", "Mobile", "software_engineering", 10),
-    ("qa_testing", "QA & Testing", "software_engineering", 11),
-    ("quantitative", "Quantitative & Trading Systems", "software_engineering", 12),
-    ("robotics_autonomy", "Robotics & Autonomy", "software_engineering", 13),
-    ("security", "Security", "software_engineering", 14),
+    ("growth_engineering", "Growth Engineering", "software_engineering", 8),
+    ("infrastructure_platform", "Infrastructure & Platform", "software_engineering", 9),
+    ("ml_engineering", "Machine Learning", "software_engineering", 10),
+    ("mobile", "Mobile", "software_engineering", 11),
+    ("product_engineering", "Product Engineering", "software_engineering", 12),
+    ("qa_testing", "QA & Testing", "software_engineering", 13),
+    ("quantitative", "Quantitative & Trading Systems", "software_engineering", 14),
+    ("robotics_autonomy", "Robotics & Autonomy", "software_engineering", 15),
+    ("security", "Security", "software_engineering", 16),
 ]
 
 # Enrichment-side tables this module truncates itself so writer state never leaks
@@ -2691,7 +2693,7 @@ class TestTaxonomyParity:
         assert SUBCATEGORY_SLUGS == {
             slug for slug, _label, _order, _parent in sub_mig.ADDED_SUBCATEGORIES
         }
-        # sort_order is the contiguous set 0..14, so `sorted(SUBCATEGORY_SLUGS)`
+        # sort_order is the contiguous set 0..16, so `sorted(SUBCATEGORY_SLUGS)`
         # reproduces the seed order — a property `enrichment_monitor` and the
         # frontend fallback both lean on.
         assert sorted(SUBCATEGORY_SLUGS) == [

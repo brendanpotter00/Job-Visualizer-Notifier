@@ -231,7 +231,7 @@ def _load_seed_migration():
 
     Alembic revision files are not importable as a package, so read the module
     off disk the way `test_internal_enrichment.py` does. Importing rather than
-    re-typing the fifteen rows is the whole point: a copy in this file would be
+    re-typing the seventeen rows is the whole point: a copy in this file would be
     a seventh place the taxonomy can drift.
     """
     import importlib.util
@@ -252,7 +252,7 @@ def _load_seed_migration():
 def test_job_subcategories_seed_upgrade_and_downgrade(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The phase-2 seed publishes exactly the fifteen canonical rows.
+    """The phase-2 seed publishes exactly the seventeen canonical rows.
 
     Stamps SCHEMA-11 (so Alembic treats the structure migration as applied
     without re-running the ~30 seed migrations before it), upgrades through THIS
@@ -323,7 +323,7 @@ def test_job_subcategories_seed_upgrade_and_downgrade(
             )
             rows = cur.fetchall()
 
-            assert len(rows) == 15, f"expected exactly 15 seeded rows, got {len(rows)}"
+            assert len(rows) == 17, f"expected exactly 17 seeded rows, got {len(rows)}"
 
             # Byte-for-byte against the migration's own export — never re-typed.
             expected = [
@@ -336,8 +336,8 @@ def test_job_subcategories_seed_upgrade_and_downgrade(
             assert actual == expected
 
             assert all(r["parent_slug"] == "software_engineering" for r in rows)
-            # Contiguous 0..14, no gaps and no duplicates.
-            assert sorted(r["sort_order"] for r in rows) == list(range(15))
+            # Contiguous 0..16, no gaps and no duplicates.
+            assert sorted(r["sort_order"] for r in rows) == list(range(17))
         finally:
             verify.close()
 
@@ -345,7 +345,7 @@ def test_job_subcategories_seed_upgrade_and_downgrade(
 
         verify = psycopg2.connect(roundtrip_url, cursor_factory=RealDictCursor)
         try:
-            # Downgrade removes exactly those 15 rows and leaves the table.
+            # Downgrade removes exactly those 17 rows and leaves the table.
             assert _table_exists(verify, "job_subcategories")
             cur = verify.cursor()
             cur.execute("SELECT count(*) AS n FROM job_subcategories")

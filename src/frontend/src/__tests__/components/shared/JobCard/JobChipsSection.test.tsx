@@ -96,19 +96,22 @@ describe('JobChipsSection', () => {
         expect(screen.getByText('quantum widget wrangler')).toBeInTheDocument();
       });
 
-      it('leaves Remote and level untouched, and the chip COUNT unchanged', () => {
+      it('leaves level untouched, and the chip COUNT unchanged', () => {
         const { container } = render(
           <JobChipsSection
-            isRemote
             category="software_engineering"
             level="senior"
             subcategories={['backend']}
           />
         );
 
-        // Exactly three, same as today — Remote + one facet chip + level. THAT
-        // is the substitution, proven by arithmetic rather than by inspection.
-        expect(chipLabels(container)).toEqual(['Remote', 'Backend', 'Senior']);
+        // Exactly two, same as today — one facet chip + level. THAT is the
+        // substitution, proven by arithmetic rather than by inspection.
+        //
+        // No Remote chip: main moved it out of this component onto the location
+        // row, where a remote job already carries a `kind: 'remote'` tag. The
+        // arithmetic is what the assertion is for, and it holds at two.
+        expect(chipLabels(container)).toEqual(['Backend', 'Senior']);
       });
     });
 
@@ -120,14 +123,13 @@ describe('JobChipsSection', () => {
       it('is byte-identical to today: the CATEGORY chip, never the specialty', () => {
         const { container } = render(
           <JobChipsSection
-            isRemote
             category="software_engineering"
             level="senior"
             subcategories={['backend']}
           />
         );
 
-        expect(chipLabels(container)).toEqual(['Remote', 'Software Engineering', 'Senior']);
+        expect(chipLabels(container)).toEqual(['Software Engineering', 'Senior']);
         expect(screen.queryByText('Backend')).not.toBeInTheDocument();
       });
     });

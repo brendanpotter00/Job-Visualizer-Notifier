@@ -24,9 +24,11 @@ const CANONICAL_SLUGS = [
   'forward_deployed',
   'frontend',
   'full_stack',
+  'growth_engineering',
   'infrastructure_platform',
   'ml_engineering',
   'mobile',
+  'product_engineering',
   'qa_testing',
   'quantitative',
   'robotics_autonomy',
@@ -34,8 +36,8 @@ const CANONICAL_SLUGS = [
 ];
 
 describe('FALLBACK_SUBCATEGORIES', () => {
-  it('has exactly fifteen entries', () => {
-    expect(FALLBACK_SUBCATEGORIES).toHaveLength(15);
+  it('has exactly seventeen entries', () => {
+    expect(FALLBACK_SUBCATEGORIES).toHaveLength(17);
   });
 
   it('matches the canonical slug list IN ORDER', () => {
@@ -50,14 +52,15 @@ describe('FALLBACK_SUBCATEGORIES', () => {
     );
   });
 
-  it('carries sortOrder 0..14 with no gaps', () => {
+  it('carries sortOrder 0..16 with no gaps', () => {
     expect(FALLBACK_SUBCATEGORIES.map((o) => o.sortOrder)).toEqual(
-      Array.from({ length: 15 }, (_, i) => i)
+      Array.from({ length: 17 }, (_, i) => i)
     );
   });
 
   it('is in ascending label order', () => {
-    // Verified true for this set: Fo < Fr < Fu, Da < De, Ma < Mo, qa < qu.
+    // Verified true for this set: Fo < Fr < Fu < Gr, Da < De, Ma < Mo < Pr,
+    // Pr < QA, qa < qu.
     const labels = FALLBACK_SUBCATEGORIES.map((o) => o.label);
     const sorted = [...labels].sort((a, b) => a.localeCompare(b));
     expect(labels).toEqual(sorted);

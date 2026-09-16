@@ -190,9 +190,9 @@ export const CHANGELOG: readonly ChangelogEntry[] = [
   },
   {
     id: 'swe-subcategories-2026-08',
-    title: 'Software Engineering now opens up into fifteen specialties',
+    title: 'Software Engineering now opens up into seventeen specialties',
     description:
-      'The “Job category” filter has a new second level. Expand Software Engineering — on Recent Job Postings, on Company Hiring Trends, and in your saved-filter defaults — and you can now narrow to a specialty instead of taking the whole field: AI Engineering, Backend, Data Engineering, DevOps & Site Reliability, Embedded & Low-Level Systems, Forward Deployed, Frontend, Full Stack, Infrastructure & Platform, Machine Learning, Mobile, QA & Testing, Quantitative & Trading Systems, Robotics & Autonomy, and Security. Pick as many as you like; they combine the same way every other filter does. Frontend and Backend each also surface Full Stack roles, since those genuinely span both — picking Full Stack on its own stays exact. A job can carry up to two specialties, and its card shows them in place of the broader “Software Engineering” chip. Nothing you have saved changes: leave the filter alone and every Software Engineering job still shows up exactly as before.',
+      'The “Job category” filter has a new second level. Expand Software Engineering — on Recent Job Postings, on Company Hiring Trends, and in your saved-filter defaults — and you can now narrow to a specialty instead of taking the whole field: AI Engineering, Backend, Data Engineering, DevOps & Site Reliability, Embedded & Low-Level Systems, Forward Deployed, Frontend, Full Stack, Growth Engineering, Infrastructure & Platform, Machine Learning, Mobile, Product Engineering, QA & Testing, Quantitative & Trading Systems, Robotics & Autonomy, and Security. Pick as many as you like; they combine the same way every other filter does. Frontend and Backend each also surface Full Stack roles, since those genuinely span both — picking Full Stack on its own stays exact. A job can carry up to two specialties, and its card shows them in place of the broader “Software Engineering” chip. Nothing you have saved changes: leave the filter alone and every Software Engineering job still shows up exactly as before.',
     tags: ['feature'],
     date: SWE_SUBCATEGORIES_REVEAL_DATE,
     link: {

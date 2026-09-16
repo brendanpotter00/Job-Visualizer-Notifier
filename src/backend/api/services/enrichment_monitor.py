@@ -1181,7 +1181,7 @@ def get_facets(conn: Connection) -> dict[str, list[dict[str, Any]]]:
         # process running ahead of the migration must render today's flat
         # dropdown rather than 500 the catalog for every visitor.
         #
-        # PHASE 2 (SCHEMA-7) SEEDS THE FIFTEEN ROWS, so this arm now returns a
+        # PHASE 2 (SCHEMA-7) SEEDS THE SEVENTEEN ROWS, so this arm now returns a
         # populated list. Seeding IS the user-visible publish — the reveal flag
         # is a second, independent gate on the TREE, not on these options.
         #
@@ -1189,7 +1189,7 @@ def get_facets(conn: Connection) -> dict[str, list[dict[str, Any]]]:
         # row), NOT the filter-expansion edge `job_levels` uses for
         # new_grad ⊂ entry. Same field name on the wire, two meanings; the
         # frontend must never feed this one to the level-expansion builder,
-        # which would silently expand one category selection into fifteen.
+        # which would silently expand one category selection into seventeen.
         subcategories: list[dict[str, Any]] = []
         if _regclass(cur, "job_subcategories"):
             cur.execute(

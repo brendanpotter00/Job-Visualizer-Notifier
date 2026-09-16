@@ -96,7 +96,7 @@ export interface SearchJobsArgs {
    * filter. `filteredTotal` tracks the whole filter set and does reflect it, but
    * `countLast24h` / `countLast3h` are company-scoped and scoped to nothing else
    * by design (see the interface below). That asymmetry predates this field; a
-   * 15-way subdivision just makes the gap between "Past 24 Hours" and the
+   * 17-way subdivision just makes the gap between "Past 24 Hours" and the
    * visible rows much more noticeable. Nobody has decided whether to change it.
    */
   subcategory?: string[];

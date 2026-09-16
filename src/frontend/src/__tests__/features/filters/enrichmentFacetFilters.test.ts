@@ -277,7 +277,7 @@ describe('buildLevelExpansion', () => {
     // the edge means the opposite thing in each: on levels it EXPANDS the
     // filter (new_grad ⊂ entry), on subcategories it merely GROUPS them under
     // software_engineering. Passing the second here would turn one Software
-    // Engineering selection into a fifteen-slug OR — silently widening every
+    // Engineering selection into a seventeen-slug OR — silently widening every
     // user's filter. The brand is what makes that a compile error rather than
     // a clean-looking call.
     const subcategories: FacetOption[] = [

@@ -38,7 +38,7 @@ declare const EXPANSION_EDGE: unique symbol;
  * `facets.subcategories` is a `FacetOption[]` whose every entry carries
  * `parentSlug: 'software_engineering'`. Handed to the expansion builder it
  * type-checks perfectly and turns one Software Engineering selection into a
- * fifteen-slug OR — silently widening every user's filter. The brand is what
+ * seventeen-slug OR — silently widening every user's filter. The brand is what
  * stops that from being a plain assignment; reaching for
  * {@link asExpansionFacets} makes it a NAMED, greppable claim instead.
  */
@@ -120,7 +120,7 @@ export const FALLBACK_LEVELS: FacetOption[] = [
  * Fallback SWE subcategory options (mirrors SCHEMA-7's migration seed).
  *
  * LABEL-ALPHABETICAL, which for this set is also slug-alphabetical, with
- * `sortOrder` 0..14 and `parentSlug: 'software_engineering'` on every row.
+ * `sortOrder` 0..16 and `parentSlug: 'software_engineering'` on every row.
  *
  * BYTE-BOUND. This list must match, exactly, in six places:
  *   1. the backend seed migration's `ADDED_SUBCATEGORIES`
@@ -149,13 +149,15 @@ export const FALLBACK_SUBCATEGORIES: FacetOption[] = [
   { slug: 'forward_deployed', label: 'Forward Deployed', sortOrder: 5, parentSlug: 'software_engineering' },
   { slug: 'frontend', label: 'Frontend', sortOrder: 6, parentSlug: 'software_engineering' },
   { slug: 'full_stack', label: 'Full Stack', sortOrder: 7, parentSlug: 'software_engineering' },
-  { slug: 'infrastructure_platform', label: 'Infrastructure & Platform', sortOrder: 8, parentSlug: 'software_engineering' },
-  { slug: 'ml_engineering', label: 'Machine Learning', sortOrder: 9, parentSlug: 'software_engineering' },
-  { slug: 'mobile', label: 'Mobile', sortOrder: 10, parentSlug: 'software_engineering' },
-  { slug: 'qa_testing', label: 'QA & Testing', sortOrder: 11, parentSlug: 'software_engineering' },
-  { slug: 'quantitative', label: 'Quantitative & Trading Systems', sortOrder: 12, parentSlug: 'software_engineering' },
-  { slug: 'robotics_autonomy', label: 'Robotics & Autonomy', sortOrder: 13, parentSlug: 'software_engineering' },
-  { slug: 'security', label: 'Security', sortOrder: 14, parentSlug: 'software_engineering' },
+  { slug: 'growth_engineering', label: 'Growth Engineering', sortOrder: 8, parentSlug: 'software_engineering' },
+  { slug: 'infrastructure_platform', label: 'Infrastructure & Platform', sortOrder: 9, parentSlug: 'software_engineering' },
+  { slug: 'ml_engineering', label: 'Machine Learning', sortOrder: 10, parentSlug: 'software_engineering' },
+  { slug: 'mobile', label: 'Mobile', sortOrder: 11, parentSlug: 'software_engineering' },
+  { slug: 'product_engineering', label: 'Product Engineering', sortOrder: 12, parentSlug: 'software_engineering' },
+  { slug: 'qa_testing', label: 'QA & Testing', sortOrder: 13, parentSlug: 'software_engineering' },
+  { slug: 'quantitative', label: 'Quantitative & Trading Systems', sortOrder: 14, parentSlug: 'software_engineering' },
+  { slug: 'robotics_autonomy', label: 'Robotics & Autonomy', sortOrder: 15, parentSlug: 'software_engineering' },
+  { slug: 'security', label: 'Security', sortOrder: 16, parentSlug: 'software_engineering' },
 ];
 
 /**
@@ -167,7 +169,7 @@ export const FALLBACK_SUBCATEGORIES: FacetOption[] = [
  * `parentSlug` on a SUBCATEGORY is a GROUPING edge (every row's parent is
  * `software_engineering`), not a filter-expansion edge, and `full_stack` has TWO
  * expansion parents which one self-FK column cannot express. Deriving this from
- * `parentSlug` would expand a category selection into fifteen subcategories.
+ * `parentSlug` would expand a category selection into seventeen subcategories.
  *
  * SOLE EXPANDER FOR THE CLIENT PATH ONLY. The Recent page filters server-side
  * and sends its selection UNEXPANDED; `services/job_search.py` expands it there.

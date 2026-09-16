@@ -367,7 +367,7 @@ export interface RecentJobsFilters {
  *   - on `job_subcategories` it is a GROUPING edge (every subcategory's parent
  *     is `software_engineering`) and it must NEVER be fed into the
  *     level-expansion builder — doing so would silently expand a category
- *     selection into fifteen subcategories.
+ *     selection into seventeen subcategories.
  * `job_categories` rows carry `parentSlug: null`.
  */
 export interface FacetOption {
