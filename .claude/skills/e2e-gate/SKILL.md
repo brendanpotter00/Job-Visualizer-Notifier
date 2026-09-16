@@ -41,6 +41,7 @@ attempts this itself but a pre-set `PATH` wins.
 |---|---|
 | `add-companies` | `sections/add-companies.md` |
 | `company-name-search` | `sections/company-name-search.md` — **spends real money** (~$0.21/run) |
+| `subcategories` | `sections/subcategories.md` — $0, unconditionally |
 
 Adding a section: create `e2e/<section>/` (its own `PLAN.md`, `CASES.md`, `api/`, `ui/`),
 add a row here and to `e2e/README.md`, and write `sections/<section>.md`. Never grow
@@ -50,11 +51,15 @@ per-feature detail in this file.
 
 `run.sh` takes an exclusive run lock. If a gate is already in flight it **refuses to start**
 (`REFUSING TO START — another e2e run (pid N) is already in flight`, exit 2) rather than
-starting anyway. That refusal is correct behaviour, not a failure: two runs share one stack
-(`:8201`/`:3201`) and one pidfile directory, so the second one used to kill the first
-mid-test and make it report a screenful of failures it never had. Wait for the other run, or
-stop it. A lock whose owning process is genuinely gone is reclaimed automatically, with a
-line saying so.
+starting anyway. That refusal is correct behaviour, not a failure: `add-companies` and
+`live-view` share one stack (`:8201`/`:3201`) and one pidfile directory, so the second one used
+to kill the first mid-test and make it report a screenful of failures it never had. Wait for the
+other run, or stop it. A lock whose owning process is genuinely gone is reclaimed automatically,
+with a line saying so.
+
+**The lock is per-STACK, not global.** `subcategories` owns a different stack (`:8203`/`:3203`,
+its own database) and takes a lock keyed on its own section name, so it can run **alongside**
+the add-companies gate — it will only refuse a second copy of itself.
 
 ## What green means
 

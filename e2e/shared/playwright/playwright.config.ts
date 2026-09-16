@@ -3,7 +3,10 @@
 // names a board, a company, or a page.
 import { defineConfig, devices } from '@playwright/test';
 
-export const FRONTEND_BASE_URL = 'http://127.0.0.1:3201';
+// The section's own frontend, from the environment its run.sh exports.
+// Defaults to the port `add-companies` and `live-view` share.
+export const FRONTEND_BASE_URL =
+  process.env.E2E_FRONTEND_URL ?? `http://127.0.0.1:${process.env.E2E_FRONTEND_PORT ?? 3201}`;
 
 /**
  * Trace/video/screenshot policy: retain evidence ONLY on failure (PLAN.md

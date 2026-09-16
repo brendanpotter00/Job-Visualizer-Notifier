@@ -24,17 +24,24 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const frontendRoot = path.resolve(__dirname, '../../../src/frontend');
 
+// Ports come from the environment `stack_up.sh` exports, defaulting to the
+// pair that shipped. A section with its own stack (`subcategories` runs on
+// 8203/3203) reuses this config rather than forking it — see
+// `add-companies/PLAN.md` §1's rule 2.
+const FRONTEND_PORT = Number(process.env.E2E_FRONTEND_PORT ?? 3201);
+const BACKEND_PORT = Number(process.env.E2E_BACKEND_PORT ?? 8201);
+
 export default defineConfig({
   root: frontendRoot,
   plugins: [react()],
   server: {
     host: '127.0.0.1',
-    port: 3201,
+    port: FRONTEND_PORT,
     strictPort: true,
     open: false,
     proxy: {
       '/api': {
-        target: 'http://127.0.0.1:8201',
+        target: `http://127.0.0.1:${BACKEND_PORT}`,
         changeOrigin: true,
         secure: false,
       },

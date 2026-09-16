@@ -5,7 +5,10 @@
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PID_DIR="$SCRIPT_DIR/.pids"
+# Same parameterisation as stack_up.sh, same default. A section with its own
+# ports MUST also have its own pidfile directory, or tearing its stack down
+# would kill whichever stack the shared pidfiles happen to name.
+PID_DIR="${E2E_PID_DIR:-$SCRIPT_DIR/.pids}"
 
 _kill_pidfile() {
   local name="$1"

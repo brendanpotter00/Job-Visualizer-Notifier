@@ -29,6 +29,7 @@ values).
 from __future__ import annotations
 
 import logging
+import os
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -46,7 +47,19 @@ for _p in (str(_REPO_ROOT), str(_BACKEND_ROOT)):
 # api/tests/ does: as top-level `api.*` with src/backend on sys.path.
 from api.config import settings  # noqa: E402
 
-_EXPECTED_DB = "jobscraper_e2e"
+# The database this process is allowed to touch. Sections with their own
+# fixtures own their own database (`subcategories` seeds rows, so it runs on
+# `jobscraper_e2e_subcategories`), and the guard below is what keeps a
+# mis-exported env from pointing one section's stack at another's data — or at
+# the owner's. The DEFAULT is the shared clone, so `add-companies` and
+# `live-view` are unaffected, and the allowed shape is fenced either way: an
+# arbitrary value cannot be smuggled in through the environment.
+_EXPECTED_DB = os.environ.get("E2E_EXPECTED_DB", "jobscraper_e2e")
+if _EXPECTED_DB != "jobscraper_e2e" and not _EXPECTED_DB.startswith("jobscraper_e2e_"):
+    raise RuntimeError(
+        f"e2e_app refuses to start: E2E_EXPECTED_DB={_EXPECTED_DB!r} is not an e2e "
+        f"database name ('jobscraper_e2e' or 'jobscraper_e2e_<section>')."
+    )
 
 
 def _assert_e2e_database() -> None:
