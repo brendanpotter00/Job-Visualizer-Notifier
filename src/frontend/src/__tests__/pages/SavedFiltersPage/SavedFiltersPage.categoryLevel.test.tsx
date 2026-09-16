@@ -126,7 +126,7 @@ describe('SavedFiltersPage — the category/level section', () => {
     const user = userEvent.setup();
     await renderPage();
 
-    const save = screen.getByRole('button', { name: /Save job title & level/i });
+    const save = screen.getByRole('button', { name: /Save job category & level/i });
     expect(save).toBeDisabled();
 
     await tickBackend(user);
@@ -139,7 +139,7 @@ describe('SavedFiltersPage — the category/level section', () => {
     await renderPage();
 
     await tickBackend(user);
-    await user.click(screen.getByRole('button', { name: /Save job title & level/i }));
+    await user.click(screen.getByRole('button', { name: /Save job category & level/i }));
 
     await waitFor(() => expect(updateMock).toHaveBeenCalled());
     expect(updateMock.mock.calls[0][0]).toMatchObject({
@@ -159,7 +159,7 @@ describe('SavedFiltersPage — the category/level section', () => {
     await renderPage();
 
     await tickBackend(user);
-    const save = screen.getByRole('button', { name: /Save job title & level/i });
+    const save = screen.getByRole('button', { name: /Save job category & level/i });
     await waitFor(() => expect(save).toBeEnabled());
     await user.click(save);
 
