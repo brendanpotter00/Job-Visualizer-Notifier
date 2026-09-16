@@ -25,7 +25,7 @@ export interface ChangelogEntry {
  * NOT the day this code lands. The tree is invisible until an admin flips
  * `swe_subcategories_enabled`, which Brendan does by hand once `ADM-11`'s
  * coverage tile crosses 90%. This entry must merge in the SAME deploy as that
- * flip, so a reader who follows the link actually finds the chevron there.
+ * flip, so a reader who follows the link actually finds the specialties there.
  */
 const SWE_SUBCATEGORIES_REVEAL_DATE = '2026-08-20';
 

@@ -40,7 +40,7 @@ export function GraphFilters() {
   const categoryOptions = facets?.categories ?? FALLBACK_CATEGORIES;
   const levelOptions = facets?.levels ?? FALLBACK_LEVELS;
   // `?? []` rather than a fallback constant — the same gate as the Recent bar:
-  // an empty catalog renders no chevron, so a warm facets cache plus a freshly
+  // an empty catalog renders no child rows, so a warm facets cache plus a freshly
   // flipped flag cannot offer a parent that expands into nothing.
   const subcategoryOptions = revealSubcategories ? (facets?.subcategories ?? []) : [];
 

@@ -110,7 +110,11 @@ describe('FacetTreeMultiSelect', () => {
     expect(within(parentB).queryByRole('button')).toBeNull();
   });
 
-  it('(3) renders a collapsed chevron on a parent with children, and no child rows', async () => {
+  it('(3) a parent with children renders its child rows IMMEDIATELY, and no expander', async () => {
+    // THE ACCORDION IS GONE. The menu opens showing every child under its
+    // parent: no chevron to find, no click between the reader and the options
+    // the menu exists to offer. A button anywhere in a row would also re-open
+    // the MUI trap this control used to need three stopPropagation handlers for.
     const user = userEvent.setup();
     render(
       <FacetTreeMultiSelect
@@ -124,65 +128,11 @@ describe('FacetTreeMultiSelect', () => {
     );
 
     const listbox = await openMenu(user);
-    const parentA = within(listbox).getByRole('option', { name: /Category A/ });
-    const chevron = within(parentA).getByRole('button');
-
-    expect(chevron).toHaveAttribute('aria-expanded', 'false');
-    expect(within(listbox).queryByRole('option', { name: /Child A/ })).toBeNull();
-    expect(within(listbox).queryByRole('option', { name: /Child B/ })).toBeNull();
-  });
-
-  it('(4) clicking the chevron expands WITHOUT selecting the parent', async () => {
-    // THE regression this file exists for. MUI's cloned MenuItem onClick fires
-    // before the selection updates, so a chevron click that does not stop
-    // propagation both expands the row and ticks its checkbox.
-    const onChange = vi.fn();
-    const user = userEvent.setup();
-    render(
-      <FacetTreeMultiSelect
-        label="Job Category"
-        options={PARENTS}
-        childOptions={CHILDREN}
-        value={undefined}
-        childValue={undefined}
-        onChange={onChange}
-      />
-    );
-
-    const listbox = await openMenu(user);
-    const parentA = within(listbox).getByRole('option', { name: /Category A/ });
-    await user.click(within(parentA).getByRole('button'));
-
-    expect(onChange).not.toHaveBeenCalled();
-    expect(within(parentA).getByRole('button')).toHaveAttribute('aria-expanded', 'true');
     expect(within(listbox).getByRole('option', { name: /Child A/ })).toBeInTheDocument();
     expect(within(listbox).getByRole('option', { name: /Child B/ })).toBeInTheDocument();
-  });
 
-  it('(5) ArrowRight expands the focused parent and ArrowLeft collapses it', async () => {
-    const onChange = vi.fn();
-    const user = userEvent.setup();
-    render(
-      <FacetTreeMultiSelect
-        label="Job Category"
-        options={PARENTS}
-        childOptions={CHILDREN}
-        value={undefined}
-        childValue={undefined}
-        onChange={onChange}
-      />
-    );
-
-    const listbox = await openMenu(user);
     const parentA = within(listbox).getByRole('option', { name: /Category A/ });
-    parentA.focus();
-
-    await user.keyboard('{ArrowRight}');
-    expect(within(listbox).getByRole('option', { name: /Child A/ })).toBeInTheDocument();
-
-    await user.keyboard('{ArrowLeft}');
-    expect(within(listbox).queryByRole('option', { name: /Child A/ })).toBeNull();
-    expect(onChange).not.toHaveBeenCalled();
+    expect(within(parentA).queryByRole('button')).toBeNull();
   });
 
   it('(6) ticking a child AUTO-CHECKS its parent and emits both arrays', async () => {
@@ -200,8 +150,6 @@ describe('FacetTreeMultiSelect', () => {
     );
 
     const listbox = await openMenu(user);
-    const parentA = within(listbox).getByRole('option', { name: /Category A/ });
-    await user.click(within(parentA).getByRole('button'));
     await user.click(within(listbox).getByRole('option', { name: /Child A/ }));
 
     expect(onChange).toHaveBeenCalledTimes(1);
@@ -273,7 +221,7 @@ describe('FacetTreeMultiSelect', () => {
     expect(within(parentB).getByRole('checkbox')).toHaveAttribute('data-indeterminate', 'false');
   });
 
-  it('(9) mounting with a child pre-selected auto-expands that parent', async () => {
+  it('(9) a pre-selected child is checked, and its row needed no expanding', async () => {
     const user = userEvent.setup();
     render(
       <FacetTreeMultiSelect
@@ -281,15 +229,14 @@ describe('FacetTreeMultiSelect', () => {
         options={PARENTS}
         childOptions={CHILDREN}
         value={['parent_a']}
-        childValue={['child_b']}
+        childValue={['child_a']}
         onChange={vi.fn()}
       />
     );
 
     const listbox = await openMenu(user);
-    expect(within(listbox).getByRole('option', { name: /Child B/ })).toBeInTheDocument();
-    const parentA = within(listbox).getByRole('option', { name: /Category A/ });
-    expect(within(parentA).getByRole('button')).toHaveAttribute('aria-expanded', 'true');
+    const childA = within(listbox).getByRole('option', { name: /Child A/ });
+    expect(within(childA).getByRole('checkbox')).toBeChecked();
   });
 
   it('(10) renders the placeholder when nothing is selected, and labels when something is', () => {

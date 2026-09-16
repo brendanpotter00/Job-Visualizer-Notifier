@@ -21,7 +21,7 @@ export interface CategoryLevelDefaultsProps {
    * lazy: it lets this component land and typecheck on its own, before the
    * Saved Filters page has a `subcategory` field to give it and before the
    * backend column exists. With no handler the control degrades to exactly
-   * today's flat select — no chevron, no children, nothing new on screen.
+   * today's flat select — no children, nothing new on screen.
    *
    * Required props here would have forced this change and the page's into one
    * indivisible commit gated on a backend migration.
@@ -74,7 +74,7 @@ export function CategoryLevelDefaults({
   //                         control would silently discard the selection;
   //   - flag off         -> the feature is not revealed yet;
   //   - `?? []`, NOT the fallback constant -> an empty facets catalog must
-  //                         render NO chevron. This single expression IS the
+  //                         render NO child rows. This single expression IS the
   //                         shared contract's `flag && facets.length > 0` gate:
   //                         the facets query is cached for an hour with no
   //                         tags, so a warm pre-seed cache plus a freshly

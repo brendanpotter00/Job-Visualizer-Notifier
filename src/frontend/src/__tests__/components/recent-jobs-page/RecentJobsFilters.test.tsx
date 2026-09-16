@@ -392,7 +392,7 @@ describe('RecentJobsFilters — the subcategory tree', () => {
     expect(screen.getByRole('combobox', { name: 'Job Category' })).toBeInTheDocument();
   });
 
-  it('(b) shows a chevron on the SWE row and expands to its children', async () => {
+  it('(b) renders the SWE children immediately, with no expander', async () => {
     const store = await seedRecentStore();
     await seedFacetsAndFlag(store, { reveal: true });
     const user = userEvent.setup();
@@ -401,12 +401,13 @@ describe('RecentJobsFilters — the subcategory tree', () => {
     await user.click(screen.getByRole('combobox', { name: 'Job Category' }));
     const listbox = await screen.findByRole('listbox');
     const swe = within(listbox).getByRole('option', { name: /Software Engineering/ });
+    // The accordion is gone: the parent row has no button to press.
+    expect(within(swe).queryByRole('button')).toBeNull();
 
-    await user.click(within(swe).getByRole('button'));
 
     expect(within(listbox).getByRole('option', { name: /Backend/ })).toBeInTheDocument();
     expect(within(listbox).getByRole('option', { name: /Frontend/ })).toBeInTheDocument();
-    // Growth has no children, so it has no chevron.
+    // Growth has no children, so it contributes no child rows.
     const growth = within(listbox).getByRole('option', { name: /Growth/ });
     expect(within(growth).queryByRole('button')).toBeNull();
   });
@@ -420,7 +421,8 @@ describe('RecentJobsFilters — the subcategory tree', () => {
     await user.click(screen.getByRole('combobox', { name: 'Job Category' }));
     const listbox = await screen.findByRole('listbox');
     const swe = within(listbox).getByRole('option', { name: /Software Engineering/ });
-    await user.click(within(swe).getByRole('button'));
+    // The accordion is gone: the parent row has no button to press.
+    expect(within(swe).queryByRole('button')).toBeNull();
     await user.click(within(listbox).getByRole('option', { name: /Backend/ }));
 
     const filters = store.getState().recentJobsFilters.filters;
