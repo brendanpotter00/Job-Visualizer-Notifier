@@ -366,12 +366,12 @@ describe('GraphFilters — the subcategory tree', () => {
     );
   }
 
-  it('(a) exposes the control as a combobox named "Job category"', async () => {
+  it('(a) exposes the control as a combobox named "Job Category"', async () => {
     const store = await seedStore();
     await seedFacetsAndFlag(store, { reveal: true });
     renderBar(store);
 
-    expect(screen.getByRole('combobox', { name: 'Job category' })).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Job Category' })).toBeInTheDocument();
   });
 
   it('(b) shows a chevron on the SWE row and expands to its children', async () => {
@@ -380,7 +380,7 @@ describe('GraphFilters — the subcategory tree', () => {
     const user = userEvent.setup();
     renderBar(store);
 
-    await user.click(screen.getByRole('combobox', { name: 'Job category' }));
+    await user.click(screen.getByRole('combobox', { name: 'Job Category' }));
     const listbox = await screen.findByRole('listbox');
     const swe = within(listbox).getByRole('option', { name: /Software Engineering/ });
     await user.click(within(swe).getByRole('button'));
@@ -394,7 +394,7 @@ describe('GraphFilters — the subcategory tree', () => {
     const user = userEvent.setup();
     renderBar(store);
 
-    await user.click(screen.getByRole('combobox', { name: 'Job category' }));
+    await user.click(screen.getByRole('combobox', { name: 'Job Category' }));
     const listbox = await screen.findByRole('listbox');
     const swe = within(listbox).getByRole('option', { name: /Software Engineering/ });
     await user.click(within(swe).getByRole('button'));
@@ -411,7 +411,7 @@ describe('GraphFilters — the subcategory tree', () => {
     const user = userEvent.setup();
     renderBar(store);
 
-    await user.click(screen.getByRole('combobox', { name: 'Job category' }));
+    await user.click(screen.getByRole('combobox', { name: 'Job Category' }));
     const listbox = await screen.findByRole('listbox');
 
     expect(within(listbox).queryByRole('button')).toBeNull();

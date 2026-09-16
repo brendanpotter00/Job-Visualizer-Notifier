@@ -24,7 +24,7 @@ describe('CHANGELOG config', () => {
   });
 
   it('keeps the reveal announcement as its OWN entry', () => {
-    // Pinned deliberately. The "Job title" -> "Job category" RENAME is visible
+    // Pinned deliberately. The "Job title" -> "Job Category" RENAME is visible
     // the day its code merges; the subcategory TREE is invisible until an admin
     // flips the reveal flag, so one fused entry would have to announce a
     // feature nobody can see yet.

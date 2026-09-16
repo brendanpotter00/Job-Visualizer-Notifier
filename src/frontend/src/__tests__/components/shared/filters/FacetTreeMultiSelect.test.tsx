@@ -36,7 +36,7 @@ describe('FacetTreeMultiSelect', () => {
   });
 
   async function openMenu(user: ReturnType<typeof userEvent.setup>) {
-    await user.click(screen.getByRole('combobox', { name: 'Job category' }));
+    await user.click(screen.getByRole('combobox', { name: 'Job Category' }));
     return screen.findByRole('listbox');
   }
 
@@ -44,7 +44,7 @@ describe('FacetTreeMultiSelect', () => {
     const user = userEvent.setup();
     render(
       <FacetTreeMultiSelect
-        label="Job category"
+        label="Job Category"
         options={PARENTS}
         childOptions={[]}
         value={undefined}
@@ -53,7 +53,7 @@ describe('FacetTreeMultiSelect', () => {
       />
     );
 
-    expect(screen.getByRole('combobox', { name: 'Job category' })).toHaveTextContent('All');
+    expect(screen.getByRole('combobox', { name: 'Job Category' })).toHaveTextContent('All');
     const listbox = await openMenu(user);
 
     expect(within(listbox).getAllByRole('option')).toHaveLength(2);
@@ -69,7 +69,7 @@ describe('FacetTreeMultiSelect', () => {
     const user = userEvent.setup();
     render(
       <FacetTreeMultiSelect
-        label="Job category"
+        label="Job Category"
         options={PARENTS}
         childOptions={[]}
         value={['parent_a']}
@@ -78,7 +78,7 @@ describe('FacetTreeMultiSelect', () => {
       />
     );
 
-    const combobox = screen.getByRole('combobox', { name: 'Job category' });
+    const combobox = screen.getByRole('combobox', { name: 'Job Category' });
     expect(combobox).toHaveTextContent('Category A');
     expect(combobox).not.toHaveTextContent('child_a');
 
@@ -96,7 +96,7 @@ describe('FacetTreeMultiSelect', () => {
     const user = userEvent.setup();
     render(
       <FacetTreeMultiSelect
-        label="Job category"
+        label="Job Category"
         options={PARENTS}
         childOptions={CHILDREN}
         value={undefined}
@@ -114,7 +114,7 @@ describe('FacetTreeMultiSelect', () => {
     const user = userEvent.setup();
     render(
       <FacetTreeMultiSelect
-        label="Job category"
+        label="Job Category"
         options={PARENTS}
         childOptions={CHILDREN}
         value={undefined}
@@ -140,7 +140,7 @@ describe('FacetTreeMultiSelect', () => {
     const user = userEvent.setup();
     render(
       <FacetTreeMultiSelect
-        label="Job category"
+        label="Job Category"
         options={PARENTS}
         childOptions={CHILDREN}
         value={undefined}
@@ -164,7 +164,7 @@ describe('FacetTreeMultiSelect', () => {
     const user = userEvent.setup();
     render(
       <FacetTreeMultiSelect
-        label="Job category"
+        label="Job Category"
         options={PARENTS}
         childOptions={CHILDREN}
         value={undefined}
@@ -190,7 +190,7 @@ describe('FacetTreeMultiSelect', () => {
     const user = userEvent.setup();
     render(
       <FacetTreeMultiSelect
-        label="Job category"
+        label="Job Category"
         options={PARENTS}
         childOptions={CHILDREN}
         value={undefined}
@@ -216,7 +216,7 @@ describe('FacetTreeMultiSelect', () => {
     const user = userEvent.setup();
     render(
       <FacetTreeMultiSelect
-        label="Job category"
+        label="Job Category"
         options={PARENTS}
         childOptions={CHILDREN}
         value={['parent_a']}
@@ -237,7 +237,7 @@ describe('FacetTreeMultiSelect', () => {
     const user = userEvent.setup();
     render(
       <FacetTreeMultiSelect
-        label="Job category"
+        label="Job Category"
         options={PARENTS}
         childOptions={CHILDREN}
         value={['parent_a']}
@@ -256,7 +256,7 @@ describe('FacetTreeMultiSelect', () => {
     const user = userEvent.setup();
     render(
       <FacetTreeMultiSelect
-        label="Job category"
+        label="Job Category"
         options={PARENTS}
         childOptions={CHILDREN}
         value={['parent_a']}
@@ -277,7 +277,7 @@ describe('FacetTreeMultiSelect', () => {
     const user = userEvent.setup();
     render(
       <FacetTreeMultiSelect
-        label="Job category"
+        label="Job Category"
         options={PARENTS}
         childOptions={CHILDREN}
         value={['parent_a']}
@@ -295,7 +295,7 @@ describe('FacetTreeMultiSelect', () => {
   it('(10) renders the placeholder when nothing is selected, and labels when something is', () => {
     const { rerender } = render(
       <FacetTreeMultiSelect
-        label="Job category"
+        label="Job Category"
         options={PARENTS}
         childOptions={CHILDREN}
         value={undefined}
@@ -303,11 +303,11 @@ describe('FacetTreeMultiSelect', () => {
         onChange={vi.fn()}
       />
     );
-    expect(screen.getByRole('combobox', { name: 'Job category' })).toHaveTextContent('All');
+    expect(screen.getByRole('combobox', { name: 'Job Category' })).toHaveTextContent('All');
 
     rerender(
       <FacetTreeMultiSelect
-        label="Job category"
+        label="Job Category"
         options={PARENTS}
         childOptions={CHILDREN}
         value={['parent_a']}
@@ -316,7 +316,7 @@ describe('FacetTreeMultiSelect', () => {
       />
     );
     // Parents first, then children — and LABELS, never slugs.
-    expect(screen.getByRole('combobox', { name: 'Job category' })).toHaveTextContent(
+    expect(screen.getByRole('combobox', { name: 'Job Category' })).toHaveTextContent(
       'Category A, Child A'
     );
   });

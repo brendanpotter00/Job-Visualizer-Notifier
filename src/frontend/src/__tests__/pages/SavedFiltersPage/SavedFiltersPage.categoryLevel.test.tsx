@@ -93,7 +93,7 @@ async function renderPage() {
 
 /** Open the tree and tick Backend. */
 async function tickBackend(user: ReturnType<typeof userEvent.setup>) {
-  await user.click(screen.getByRole('combobox', { name: 'Job category' }));
+  await user.click(screen.getByRole('combobox', { name: 'Job Category' }));
   const listbox = await screen.findByRole('listbox');
   const parent = within(listbox).getByRole('option', { name: /Software Engineering/ });
   await user.click(within(parent).getByRole('button'));
@@ -115,7 +115,7 @@ describe('SavedFiltersPage — the category/level section', () => {
     // would be a TypeError for every existing user.
     await renderPage();
     expect(
-      await screen.findByRole('combobox', { name: 'Job category' })
+      await screen.findByRole('combobox', { name: 'Job Category' })
     ).toBeInTheDocument();
   });
 
