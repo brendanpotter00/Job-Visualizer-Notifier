@@ -379,7 +379,9 @@ src/backend/api/
 ├── routers/
 │   ├── jobs.py                  # Jobs list and detail endpoints
 │   ├── jobs_qa.py               # Stats, scrape runs, trigger scrape
+│   ├── jobs_search.py           # Recent Jobs server-side search (GET /api/jobs/search; optional auth)
 │   ├── users.py                 # User profile + enabled-companies endpoints (auth required)
+│   ├── user_companies.py        # Custom company sources: add/list/rename/delete (POST/GET/PATCH/DELETE /api/users/companies; auth required)
 │   ├── saved_filters.py         # Saved-filters, keyword-list CRUD, location search (auth required)
 │   ├── features.py              # Feature voting endpoints (list, upvote, remove upvote)
 │   ├── admin.py                 # Admin-only endpoints: user management, enrichment oversight, location normalization, and feedback
