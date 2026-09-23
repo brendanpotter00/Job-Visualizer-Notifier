@@ -31,6 +31,18 @@ const SWE_SUBCATEGORIES_REVEAL_DATE = '2026-08-20';
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    id: 'retire-yutori-2026-09',
+    title: 'Yutori has been retired',
+    description:
+      'Yutori took its public job board down. The company is still going — it is shipping and updating its product — it has simply stopped advertising open roles, and the careers link on its own site now points at a board that is no longer there. Rather than leave three frozen postings on this site that can never update or close, Yutori has been retired from the tracked list. Its history is preserved rather than deleted, so if the board comes back it can be switched on again without losing anything. If Yutori was in your saved companies you can safely leave it there; it simply no longer appears.',
+    tags: ['improvement'],
+    date: '2026-09-23',
+    link: {
+      to: ROUTES.SAVED_FILTERS,
+      label: 'Review your saved companies',
+    },
+  },
+  {
     id: 'add-david-ai',
     title: 'Added David AI',
     description:

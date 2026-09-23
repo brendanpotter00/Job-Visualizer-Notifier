@@ -797,9 +797,6 @@ export const COMPANIES: Company[] = [
   createBackendScraperCompany('town', 'Town', 'https://town.com/careers', {
     sourceAts: 'ashby',
   }),
-  createBackendScraperCompany('yutori', 'Yutori', 'https://jobs.ashbyhq.com/yutori', {
-    sourceAts: 'ashby',
-  }),
   createBackendScraperCompany('zed', 'Zed', 'https://zed.dev/jobs', {
     sourceAts: 'ashby',
   }),
@@ -1270,7 +1267,6 @@ export const enum COMPANY_IDS {
   WorkOS = 'workos',
   Workweave = 'workweave',
   Xai = 'xai',
-  Yutori = 'yutori',
   Zed = 'zed',
   Zoom = 'zoom',
   Zoox = 'zoox',
