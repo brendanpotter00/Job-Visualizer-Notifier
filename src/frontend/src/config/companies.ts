@@ -600,7 +600,13 @@ export const COMPANIES: Company[] = [
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2299351559%22%5D',
   }),
-  createBackendScraperCompany('workweave', 'Workweave', 'https://jobs.ashbyhq.com/workweave', {
+  // Rebranded to Weave / WeaveOS on ~2026-09-23; the Ashby board moved from
+  // slug `workweave` to `weave-os` and the old slug now 404s. The `id`, the
+  // COMPANY_IDS member and the display name stay put: `id` is the PK and the
+  // logo lookup key, and the logo art under public/logos/*/workweave.png is
+  // still the Workweave wordmark. Renaming the company is a separate,
+  // art-dependent change — see migration 593e96381b3e.
+  createBackendScraperCompany('workweave', 'Workweave', 'https://jobs.ashbyhq.com/weave-os', {
     sourceAts: 'ashby',
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22102726930%22%5D',
@@ -795,9 +801,6 @@ export const COMPANIES: Company[] = [
     sourceAts: 'ashby',
   }),
   createBackendScraperCompany('town', 'Town', 'https://town.com/careers', {
-    sourceAts: 'ashby',
-  }),
-  createBackendScraperCompany('yutori', 'Yutori', 'https://jobs.ashbyhq.com/yutori', {
     sourceAts: 'ashby',
   }),
   createBackendScraperCompany('zed', 'Zed', 'https://zed.dev/jobs', {
@@ -1270,7 +1273,6 @@ export const enum COMPANY_IDS {
   WorkOS = 'workos',
   Workweave = 'workweave',
   Xai = 'xai',
-  Yutori = 'yutori',
   Zed = 'zed',
   Zoom = 'zoom',
   Zoox = 'zoox',
