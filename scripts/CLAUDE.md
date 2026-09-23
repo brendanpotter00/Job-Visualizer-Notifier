@@ -206,8 +206,8 @@ zero-results template (HTTP 200, `totalRecords: 0`, `#search-no-search-results`)
 and the next request gets the real page. It ran at ~1 page in 10 from
 2026-09-22. `parser.extract_job_cards_from_list` waits for the list OR that
 block and raises `ZeroResultsPageError` for it. `scraper._load_page_cards`
-retries the SAME page `PAGE_MAX_ATTEMPTS` (5) times with growing backoff, on a
-fresh page each time. It never skips to the next page, and it raises
+tries the SAME page up to `PAGE_MAX_ATTEMPTS` (5) times in total, with growing
+backoff between attempts and a fresh page for each retry. It never skips to the next page, and it raises
 `JobSearchError` if every attempt fails. A walk is ~228 pages, so any
 fail-on-first-bad-page logic has `(1-p)^228` odds of finishing, which is
 effectively zero at p = 10%. That's why this took Apple fully dark

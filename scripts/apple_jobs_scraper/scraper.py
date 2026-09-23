@@ -21,6 +21,11 @@ from playwright.async_api import Page
 # docs/implementations/appleScraperHangFix/PLAN.md.
 _APPLE_GOTO_WAIT_UNTIL = "domcontentloaded"
 
+# Sleep used by the page walk's settle and retry backoff. It is a module
+# attribute so tests can patch it here instead of patching asyncio.sleep for
+# the whole process.
+_sleep = asyncio.sleep
+
 # Add shared module to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -312,7 +317,13 @@ class AppleJobsScraper(BaseScraper):
                 await self._random_delay()
 
         finally:
-            await page.close()
+            # After a failed page, this is a page _load_page_cards already
+            # closed. A second close is a no-op, but must never replace the
+            # JobSearchError that is propagating.
+            try:
+                await page.close()
+            except Exception as close_error:
+                logger.debug(f"Ignoring page.close() failure: {close_error}")
 
         # TRUNCATION GUARD. If Apple told us the board is N pages and we walked
         # far fewer — and we did not deliberately stop for max_jobs — the
@@ -354,7 +365,8 @@ class AppleJobsScraper(BaseScraper):
     async def _load_page_cards(
         self, page: Page, page_num: int
     ) -> Tuple[Page, List[Dict[str, Any]], int]:
-        """Navigate to one result page and extract its cards, retrying the SAME page.
+        """Navigate to one result page and extract its cards, trying the SAME page
+        up to ``PAGE_MAX_ATTEMPTS`` times in total.
 
         Apple's search backend intermittently serves its zero-results template
         (HTTP 200, ``totalRecords: 0``) for a page that has 20 listings, and a
@@ -391,7 +403,7 @@ class AppleJobsScraper(BaseScraper):
                     f"Page {page_num} attempt {attempt - 1}/{PAGE_MAX_ATTEMPTS} "
                     f"failed ({last_error}); retrying in {delay:.0f}s"
                 )
-                await asyncio.sleep(delay)
+                await _sleep(delay)
                 try:
                     await page.close()
                 except Exception as close_error:
@@ -407,7 +419,7 @@ class AppleJobsScraper(BaseScraper):
                 continue
 
             # Wait a bit for dynamic content to load
-            await asyncio.sleep(1)
+            await _sleep(1)
 
             try:
                 job_cards = await self.extract_job_cards(page)
@@ -428,6 +440,12 @@ class AppleJobsScraper(BaseScraper):
                 logger.info(f"Page {page_num} recovered on attempt {attempt}")
             return page, job_cards, attempt - 1
 
+        # The caller never receives this page (we raise instead of returning
+        # it), so close it here rather than leaving it to browser teardown.
+        try:
+            await page.close()
+        except Exception as close_error:
+            logger.debug(f"Ignoring page.close() failure: {close_error}")
         raise JobSearchError(
             f"SCRAPER PAGE FAILURE (apple): page {page_num} failed all "
             f"{PAGE_MAX_ATTEMPTS} attempts; last: {last_error}. Refusing to "

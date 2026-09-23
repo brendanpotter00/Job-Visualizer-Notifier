@@ -83,8 +83,8 @@ selector break or a block.
    `ZeroResultsPageError`. That subclasses `JobCardExtractionError`, so any
    caller that doesn't know it still treats the page as unreadable, never as
    "no more jobs".
-2. **`scraper.py`**: new `_load_page_cards` retries **the same page** up to
-   `PAGE_MAX_ATTEMPTS` (5) times, on a fresh Playwright page each time, with
+2. **`scraper.py`**: new `_load_page_cards` tries **the same page** up to
+   `PAGE_MAX_ATTEMPTS` (5) times in total, on a fresh Playwright page for each retry, with
    growing backoff (`PAGE_RETRY_BACKOFF_S` = 3/8/20/45s plus jitter). It
    retries navigation errors, unreadable lists, zero-results pages and empty
    lists alike. At a 10% per-attempt flake rate this leaves ~0.2% odds of
@@ -118,5 +118,6 @@ selector break or a block.
 - `(K page retries)` in the `Completed Apple scrape` log line. A handful per
   run is Apple's normal flake. Dozens means Apple's backend is degrading, or
   starting to throttle, and a slower `_random_delay` is the next lever.
-- `SCRAPER PAGE FAILURE (apple)` in the logs means one page failed 5 times
-  running over ~80s. That is no longer a one-off flake.
+- `SCRAPER PAGE FAILURE (apple)` in the logs means one page failed all 5
+  attempts in a row, over ~2 min (76–114s of backoff plus the page loads; up
+  to ~7 min if navigations time out). That is no longer a one-off flake.
