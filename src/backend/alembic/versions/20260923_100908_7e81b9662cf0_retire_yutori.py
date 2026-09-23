@@ -1,7 +1,7 @@
 """retire yutori (public job board removed; company stopped hiring publicly)
 
 Revision ID: 7e81b9662cf0
-Revises: c48b0f2e7d19
+Revises: 593e96381b3e
 Create Date: 2026-09-23 10:09:08.000000+00:00
 
 Hand-written data migration (the documented exception to the autogenerate-only
@@ -79,7 +79,7 @@ logger = logging.getLogger("alembic.runtime.migration")
 
 
 revision: str = '7e81b9662cf0'
-down_revision: Union[str, None] = 'c48b0f2e7d19'
+down_revision: Union[str, None] = '593e96381b3e'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
