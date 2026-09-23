@@ -31,6 +31,18 @@ const SWE_SUBCATEGORIES_REVEAL_DATE = '2026-08-20';
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    id: 'workweave-board-move-2026-09',
+    title: 'Workweave is live again after its board moved',
+    description:
+      'Workweave has rebranded to Weave, and in the process moved its Ashby job board to a new address. The old one started returning "not found" overnight, so for a few hours this site could not refresh Workweave listings — the twelve roles it was showing were frozen rather than current. It now reads from the new board, and those twelve roles are live and up to date again. Nothing closed and nothing was lost; the listings are the same postings, just at their new links. The company is still listed here under its old name for now, since that is what its logo still says.',
+    tags: ['improvement'],
+    date: '2026-09-23',
+    link: {
+      to: ROUTES.SAVED_FILTERS,
+      label: 'Review your saved companies',
+    },
+  },
+  {
     id: 'add-david-ai',
     title: 'Added David AI',
     description:
