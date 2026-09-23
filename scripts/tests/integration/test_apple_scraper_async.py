@@ -14,14 +14,18 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from apple_jobs_scraper.scraper import AppleJobsScraper
 from apple_jobs_scraper.parser import JobCardExtractionError, ZeroResultsPageError
 from apple_jobs_scraper.api_client import JobSearchError
-from apple_jobs_scraper.config import PAGE_MAX_ATTEMPTS
+from apple_jobs_scraper.config import PAGE_MAX_ATTEMPTS, PAGE_RETRY_BACKOFF_S
 
 
 @pytest.fixture
 def no_sleep():
-    """Skip real sleeps (settle + retry backoff) and expose them for asserts."""
+    """Skip the walk's real sleeps (settle + retry backoff) and expose them.
+
+    Patches the scraper's own ``_sleep`` hook, not ``asyncio.sleep``, which
+    would replace it for the whole process during the test.
+    """
     sleep = AsyncMock()
-    with patch("apple_jobs_scraper.scraper.asyncio.sleep", sleep):
+    with patch("apple_jobs_scraper.scraper._sleep", sleep):
         yield sleep
 
 
@@ -327,7 +331,9 @@ class TestZeroResultsFlakeRetry:
         backoffs = [c.args[0] for c in no_sleep.await_args_list if c.args[0] != 1]
         assert len(backoffs) == 3
         assert backoffs == sorted(backoffs)
-        assert backoffs[0] >= 3
+        # Each is its configured base times a 1.0–1.5x jitter.
+        for actual, base in zip(backoffs, PAGE_RETRY_BACKOFF_S):
+            assert 1.0 <= actual / base <= 1.5
 
     @pytest.mark.asyncio
     async def test_each_retry_uses_a_fresh_page(
@@ -402,6 +408,45 @@ class TestZeroResultsFlakeRetry:
         urls = [c.args[1] for c in scraper.navigate_to_page.await_args_list]
         assert scraper.build_search_url("", 3) not in urls
         assert urls.count(scraper.build_search_url("", 2)) == PAGE_MAX_ATTEMPTS
+
+    @pytest.mark.asyncio
+    async def test_exhausted_retries_close_every_page_they_opened(self, no_sleep):
+        """The last retry page is never handed back to the caller (we raise
+        instead), so _load_page_cards must close it itself."""
+        pages = [AsyncMock() for _ in range(PAGE_MAX_ATTEMPTS)]
+        context = AsyncMock()
+        context.new_page = AsyncMock(side_effect=pages)
+        scraper = self._scraper(context)
+
+        with patch(
+            "apple_jobs_scraper.scraper.extract_job_cards_from_list",
+            AsyncMock(side_effect=ZeroResultsPageError("zero-results")),
+        ):
+            with pytest.raises(JobSearchError, match="page 1 failed all"):
+                await scraper.scrape_query("", max_jobs=None)
+
+        for p in pages:
+            p.close.assert_awaited()
+
+    @pytest.mark.asyncio
+    async def test_close_failure_in_finally_does_not_mask_page_failure(
+        self, no_sleep
+    ):
+        """If the original page refuses a second close, the propagating
+        JobSearchError (which names the real cause) must survive."""
+        stubborn = AsyncMock()
+        stubborn.close = AsyncMock(side_effect=RuntimeError("close failed"))
+        others = [AsyncMock() for _ in range(PAGE_MAX_ATTEMPTS - 1)]
+        context = AsyncMock()
+        context.new_page = AsyncMock(side_effect=[stubborn, *others])
+        scraper = self._scraper(context)
+
+        with patch(
+            "apple_jobs_scraper.scraper.extract_job_cards_from_list",
+            AsyncMock(side_effect=ZeroResultsPageError("zero-results")),
+        ):
+            with pytest.raises(JobSearchError, match="SCRAPER PAGE FAILURE"):
+                await scraper.scrape_query("", max_jobs=None)
 
     @pytest.mark.asyncio
     async def test_page_one_failure_raises_instead_of_returning_empty(
