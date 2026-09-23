@@ -11,7 +11,7 @@ import asyncio
 import random
 import sys
 from pathlib import Path
-from typing import List, Dict, Any, Optional, AsyncIterator
+from typing import List, Dict, Any, Optional, AsyncIterator, Tuple
 from playwright.async_api import Page
 
 # Wait strategy for Apple's careers site. Apple emits continuous analytics
@@ -36,6 +36,8 @@ from .config import (
     LOCATION_FILTER,
     MAX_PAGES,
     PAGE_LOAD_TIMEOUT,
+    PAGE_MAX_ATTEMPTS,
+    PAGE_RETRY_BACKOFF_S,
     REQUEST_DELAY_MIN,
     REQUEST_DELAY_MAX,
     INCLUDE_TITLE_KEYWORDS,
@@ -48,6 +50,7 @@ from .parser import (
     get_total_pages,
     parse_card_posted_date,
     JobCardExtractionError,
+    ZeroResultsPageError,
 )
 from .api_client import (
     fetch_job_details,
@@ -156,10 +159,8 @@ class AppleJobsScraper(BaseScraper):
         the job list `<ul>` is server-rendered.
 
         Mirrors the base class's single-retry resilience so a transient
-        TLS/connection blip doesn't skip a full pagination step. Without
-        the retry, `scrape_query`'s outer consecutive_errors loop would
-        log the failure and walk to the next page number, silently
-        dropping ~20 jobs.
+        TLS/connection blip is absorbed here, cheaply, before it costs one
+        of `_load_page_cards`'s backed-off page attempts.
         """
         try:
             await page.goto(url, wait_until=_APPLE_GOTO_WAIT_UNTIL, timeout=timeout)
@@ -243,8 +244,7 @@ class AppleJobsScraper(BaseScraper):
         logger.info("Scraping Apple jobs with US location filter")
         all_jobs = []
         page_num = 1
-        consecutive_errors = 0
-        max_consecutive_errors = 3
+        page_retries = 0
 
         # Loud-truncation cross-check (see _TRUNCATION_PAGE_SLACK). Apple's own
         # advertised page count, read once on page 1; the number of pages we
@@ -260,45 +260,8 @@ class AppleJobsScraper(BaseScraper):
             while page_num <= MAX_PAGES:
                 logger.info(f"Scraping page {page_num}")
 
-                # Build URL with page number
-                url = self.build_search_url("", page_num)
-
-                try:
-                    # Navigate to page
-                    await self.navigate_to_page(page, url, PAGE_LOAD_TIMEOUT)
-                    consecutive_errors = 0
-                except Exception as nav_error:
-                    consecutive_errors += 1
-                    logger.warning(
-                        f"Navigation error on page {page_num} ({consecutive_errors}/{max_consecutive_errors}): {nav_error}"
-                    )
-                    if consecutive_errors >= max_consecutive_errors:
-                        logger.error(
-                            f"Too many consecutive navigation errors, stopping pagination. "
-                            f"Collected {len(all_jobs)} jobs before failure."
-                        )
-                        break
-                    # Create a fresh page — crashed pages can't be reused
-                    await page.close()
-                    page = await self.context.new_page()
-                    page_num += 1
-                    await self._random_delay()
-                    continue
-
-                # Wait a bit for dynamic content to load
-                await asyncio.sleep(1)
-
-                # Extract job cards from list page
-                try:
-                    job_cards = await self.extract_job_cards(page)
-                except JobCardExtractionError as e:
-                    # Critical extraction failure - stop pagination and log
-                    logger.error(f"Job card extraction failed on page {page_num}: {e}")
-                    break
-
-                if not job_cards:
-                    logger.info("No more jobs found")
-                    break
+                page, job_cards, retries = await self._load_page_cards(page, page_num)
+                page_retries += retries
 
                 logger.info(f"Found {len(job_cards)} jobs on page {page_num}")
 
@@ -354,7 +317,8 @@ class AppleJobsScraper(BaseScraper):
         # TRUNCATION GUARD. If Apple told us the board is N pages and we walked
         # far fewer — and we did not deliberately stop for max_jobs — the
         # pagination walk was truncated, whatever ended it (a broken next-page
-        # probe, exhausted nav retries, or the MAX_PAGES cap). RAISE rather than
+        # probe or the MAX_PAGES cap; an unloadable page already raised in
+        # _load_page_cards). RAISE rather than
         # return the short list: a truncated list is indistinguishable from
         # "these jobs are gone", so returning it lets the incremental close phase
         # reap the missing jobs the moment the truncation is mild enough (>85% of
@@ -381,8 +345,94 @@ class AppleJobsScraper(BaseScraper):
                 f"check_has_next_page against Apple's live pagination markup."
             )
 
-        logger.info(f"Completed Apple scrape: {len(all_jobs)} jobs collected")
+        logger.info(
+            f"Completed Apple scrape: {len(all_jobs)} jobs collected "
+            f"({page_retries} page retries)"
+        )
         return all_jobs
+
+    async def _load_page_cards(
+        self, page: Page, page_num: int
+    ) -> Tuple[Page, List[Dict[str, Any]], int]:
+        """Navigate to one result page and extract its cards, retrying the SAME page.
+
+        Apple's search backend intermittently serves its zero-results template
+        (HTTP 200, ``totalRecords: 0``) for a page that has 20 listings, and a
+        re-request gets the real page (see ``ZeroResultsPageError``). A nav
+        error, an unreadable list and an empty list are all retried here
+        with backoff. A single bad page used to abandon the whole ~228-page
+        walk, so nothing collected past it counted, and at Apple's
+        2026-09-22 flake rate no run ever finished. See
+        docs/incidents/2026-09-22-apple-zero-results-flake.md.
+
+        Never skips a page. The old nav-error path moved on to ``page_num + 1``,
+        silently dropping that page's ~20 jobs from a run that then looked
+        complete. When every attempt fails this raises ``JobSearchError`` rather
+        than returning a short list, because a missing page is indistinguishable
+        from "those jobs closed" to the incremental close phase; raising records
+        an errored run with no destructive phases (``JobSearchError``'s contract).
+
+        Each retry gets a fresh page: a page whose navigation crashed can't be
+        reused, and a fresh one costs nothing.
+
+        Returns ``(page, job_cards, retries_used)``. ``page`` may be a new page
+        object, so the caller must adopt it.
+        """
+        url = self.build_search_url("", page_num)
+        last_error: str = ""
+
+        for attempt in range(1, PAGE_MAX_ATTEMPTS + 1):
+            if attempt > 1:
+                backoff = PAGE_RETRY_BACKOFF_S[
+                    min(attempt - 2, len(PAGE_RETRY_BACKOFF_S) - 1)
+                ]
+                delay = backoff * random.uniform(1.0, 1.5)
+                logger.warning(
+                    f"Page {page_num} attempt {attempt - 1}/{PAGE_MAX_ATTEMPTS} "
+                    f"failed ({last_error}); retrying in {delay:.0f}s"
+                )
+                await asyncio.sleep(delay)
+                try:
+                    await page.close()
+                except Exception as close_error:
+                    # A crashed page may refuse to close; that must not cost
+                    # the retry.
+                    logger.debug(f"Ignoring page.close() failure: {close_error}")
+                page = await self.context.new_page()
+
+            try:
+                await self.navigate_to_page(page, url, PAGE_LOAD_TIMEOUT)
+            except Exception as nav_error:
+                last_error = f"navigation error: {nav_error}"
+                continue
+
+            # Wait a bit for dynamic content to load
+            await asyncio.sleep(1)
+
+            try:
+                job_cards = await self.extract_job_cards(page)
+            except ZeroResultsPageError:
+                last_error = "Apple served its zero-results template"
+                continue
+            except JobCardExtractionError as e:
+                last_error = f"job list unreadable: {e}"
+                continue
+
+            if not job_cards:
+                # We only request pages the Next button promised, so an empty
+                # list is never "end of board" — it is the same miss.
+                last_error = "job list rendered with no cards"
+                continue
+
+            if attempt > 1:
+                logger.info(f"Page {page_num} recovered on attempt {attempt}")
+            return page, job_cards, attempt - 1
+
+        raise JobSearchError(
+            f"SCRAPER PAGE FAILURE (apple): page {page_num} failed all "
+            f"{PAGE_MAX_ATTEMPTS} attempts; last: {last_error}. Refusing to "
+            f"return a partial board."
+        )
 
     async def _establish_session(self, page: Page) -> None:
         """Navigate to Apple jobs site to establish session for API calls"""

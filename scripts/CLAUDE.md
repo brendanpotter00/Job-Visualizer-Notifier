@@ -200,6 +200,21 @@ once it slips past the partial_scrape guard). The
 markup is pinned by `tests/unit/test_apple_pagination_markup.py` (per-PR) and
 `tests/e2e/test_apple_pagination_markup_e2e.py` (real DOM, `-m e2e`).
 
+**Apple's zero-results flake: retry the page, never abandon the walk.** Apple's
+search backend intermittently answers the unchanged US query with its
+zero-results template (HTTP 200, `totalRecords: 0`, `#search-no-search-results`)
+and the next request gets the real page. It ran at ~1 page in 10 from
+2026-09-22. `parser.extract_job_cards_from_list` waits for the list OR that
+block and raises `ZeroResultsPageError` for it. `scraper._load_page_cards`
+retries the SAME page `PAGE_MAX_ATTEMPTS` (5) times with growing backoff, on a
+fresh page each time. It never skips to the next page, and it raises
+`JobSearchError` if every attempt fails. A walk is ~228 pages, so any
+fail-on-first-bad-page logic has `(1-p)^228` odds of finishing, which is
+effectively zero at p = 10%. That's why this took Apple fully dark
+(`docs/incidents/2026-09-22-apple-zero-results-flake.md`). The
+`Completed Apple scrape: N jobs collected (K page retries)` log line is the
+early warning if the flake rate climbs.
+
 ## Microsoft Scraper Details
 
 The Microsoft scraper uses **Eightfold ATS JSON APIs**:
