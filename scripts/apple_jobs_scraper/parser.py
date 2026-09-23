@@ -62,6 +62,28 @@ class JobCardExtractionError(Exception):
     pass
 
 
+class ZeroResultsPageError(JobCardExtractionError):
+    """Apple served its zero-results template for a page that should have jobs.
+
+    Apple's search backend intermittently answers the same US-board query with
+    ``totalRecords: 0`` and renders ``#search-no-search-results`` ("There are
+    no results that match your search.") as a normal HTTP 200 page, and the
+    very next request for that page returns the real 20 listings. It is a
+    transient backend miss, not an empty board and not a markup change, so the
+    caller retries it. It subclasses ``JobCardExtractionError`` so any caller
+    that doesn't know about it still treats the page as unreadable, never as
+    "no more jobs". See docs/incidents/2026-09-22-apple-zero-results-flake.md.
+    """
+    pass
+
+
+# The result list, and Apple's zero-results block that replaces it. Waiting on
+# EITHER means a zero-results page is recognised as soon as it renders instead
+# of burning the whole selector timeout first.
+JOB_LIST_SELECTOR = 'ul[aria-label="Job Opportunities"]'
+NO_RESULTS_SELECTOR = "#search-no-search-results"
+
+
 async def extract_job_cards_from_list(page: Page) -> List[Dict[str, Any]]:
     """
     Extract job listings from Apple search results page
@@ -79,13 +101,19 @@ async def extract_job_cards_from_list(page: Page) -> List[Dict[str, Any]]:
     parse_errors = 0
 
     try:
-        # Wait for job listings to load
-        await page.wait_for_selector('ul[aria-label="Job Opportunities"]', timeout=10000)
+        # Wait for the job list OR Apple's zero-results block, whichever renders.
+        await page.wait_for_selector(
+            f"{JOB_LIST_SELECTOR}, {NO_RESULTS_SELECTOR}", timeout=10000
+        )
+
+        if await page.query_selector(JOB_LIST_SELECTOR) is None:
+            raise ZeroResultsPageError(
+                "Apple served its zero-results template "
+                f"({NO_RESULTS_SELECTOR}) instead of the job list"
+            )
 
         # Get all job list items
-        job_elements = await page.query_selector_all(
-            'ul[aria-label="Job Opportunities"] > li'
-        )
+        job_elements = await page.query_selector_all(f"{JOB_LIST_SELECTOR} > li")
 
         if not job_elements:
             # No job elements found - could indicate page structure changed

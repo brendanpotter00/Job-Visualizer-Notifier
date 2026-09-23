@@ -64,9 +64,8 @@ class TestNavigateToPage:
     @pytest.mark.asyncio
     async def test_navigate_to_page_retries_once_on_first_failure(self, scraper, page):
         """Mirrors BaseScraper.navigate_to_page: a single retry survives
-        transient TLS/connection blips. Without the retry,
-        scrape_query's outer consecutive_errors loop walks to the next
-        page number and silently drops the failed page's ~20 jobs.
+        transient TLS/connection blips cheaply, before they cost one of
+        `_load_page_cards`'s backed-off page attempts.
         """
         attempts = {"n": 0}
 
@@ -87,8 +86,8 @@ class TestNavigateToPage:
 
     @pytest.mark.asyncio
     async def test_navigate_to_page_propagates_second_failure(self, scraper, page):
-        """If both attempts fail, the exception must reach `scrape_query`
-        so its consecutive_errors loop can record and bound the failure.
+        """If both attempts fail, the exception must reach `_load_page_cards`
+        so its per-page retry can back off, retry, and bound the failure.
         Swallowing it here would let the scraper proceed against an
         unloaded page and produce empty job extractions silently.
         """

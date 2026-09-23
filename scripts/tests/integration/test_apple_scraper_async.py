@@ -12,8 +12,17 @@ from unittest.mock import AsyncMock, MagicMock, patch
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from apple_jobs_scraper.scraper import AppleJobsScraper
-from apple_jobs_scraper.parser import JobCardExtractionError
+from apple_jobs_scraper.parser import JobCardExtractionError, ZeroResultsPageError
 from apple_jobs_scraper.api_client import JobSearchError
+from apple_jobs_scraper.config import PAGE_MAX_ATTEMPTS
+
+
+@pytest.fixture
+def no_sleep():
+    """Skip real sleeps (settle + retry backoff) and expose them for asserts."""
+    sleep = AsyncMock()
+    with patch("apple_jobs_scraper.scraper.asyncio.sleep", sleep):
+        yield sleep
 
 
 @pytest.fixture
@@ -150,8 +159,13 @@ class TestScrapeQueryNoResults:
     """Tests for empty results"""
 
     @pytest.mark.asyncio
-    async def test_scrape_query_no_results(self, mock_context, mock_page):
-        """Empty page returns empty list"""
+    async def test_scrape_query_no_results(self, mock_context, mock_page, no_sleep):
+        """A page that never yields cards is retried, then RAISES.
+
+        It is never read as "board is empty": Apple's zero-results flake looks
+        exactly like this, and an empty return would hand the incremental
+        close phase a board with nothing on it.
+        """
         scraper = AppleJobsScraper(headless=True, detail_scrape=False)
         scraper.context = mock_context
         scraper.navigate_to_page = AsyncMock()
@@ -160,9 +174,10 @@ class TestScrapeQueryNoResults:
             "apple_jobs_scraper.scraper.extract_job_cards_from_list",
             AsyncMock(return_value=[]),
         ):
-            result = await scraper.scrape_query("", max_jobs=None)
+            with pytest.raises(JobSearchError, match="page 1 failed all"):
+                await scraper.scrape_query("", max_jobs=None)
 
-        assert result == []
+        assert scraper.navigate_to_page.await_count == PAGE_MAX_ATTEMPTS
 
 
 class TestScrapeQueryErrorRecovery:
@@ -170,14 +185,14 @@ class TestScrapeQueryErrorRecovery:
 
     @pytest.mark.asyncio
     async def test_scrape_query_navigation_error_recovery(
-        self, mock_context, mock_page, sample_job_cards
+        self, mock_context, mock_page, sample_job_cards, no_sleep
     ):
-        """Recovers from transient navigation errors"""
+        """A transient navigation error is retried on the SAME page."""
         scraper = AppleJobsScraper(headless=True, detail_scrape=False)
         scraper.context = mock_context
         scraper._random_delay = AsyncMock()
 
-        # First navigation fails, second succeeds
+        # First navigation fails, the retry succeeds
         scraper.navigate_to_page = AsyncMock(
             side_effect=[Exception("Network timeout"), None]
         )
@@ -191,12 +206,17 @@ class TestScrapeQueryErrorRecovery:
         ):
             result = await scraper.scrape_query("", max_jobs=None)
 
-        # Should have recovered and collected jobs from page 2
         assert len(result) == 2
+        # Page 1 both times: the old code skipped ahead to page 2 and silently
+        # dropped page 1's jobs.
+        urls = [c.args[1] for c in scraper.navigate_to_page.await_args_list]
+        assert urls == [scraper.build_search_url("", 1)] * 2
 
     @pytest.mark.asyncio
-    async def test_scrape_query_consecutive_errors_stops(self, mock_context, mock_page):
-        """Stops after 3 consecutive navigation errors"""
+    async def test_scrape_query_consecutive_errors_stops(
+        self, mock_context, mock_page, no_sleep
+    ):
+        """A page that never loads is retried PAGE_MAX_ATTEMPTS times, then raises."""
         scraper = AppleJobsScraper(headless=True, detail_scrape=False)
         scraper.context = mock_context
         scraper._random_delay = AsyncMock()
@@ -204,16 +224,16 @@ class TestScrapeQueryErrorRecovery:
         # All navigations fail
         scraper.navigate_to_page = AsyncMock(side_effect=Exception("Network error"))
 
-        result = await scraper.scrape_query("", max_jobs=None)
+        with pytest.raises(JobSearchError, match="navigation error"):
+            await scraper.scrape_query("", max_jobs=None)
 
-        # Should stop after max consecutive errors (3) and return empty list
-        assert result == []
-        # Should have attempted 3 times before stopping
-        assert scraper.navigate_to_page.call_count == 3
+        assert scraper.navigate_to_page.call_count == PAGE_MAX_ATTEMPTS
 
     @pytest.mark.asyncio
-    async def test_scrape_query_extraction_error_stops(self, mock_context, mock_page):
-        """Stops on JobCardExtractionError"""
+    async def test_scrape_query_extraction_error_stops(
+        self, mock_context, mock_page, no_sleep
+    ):
+        """A list that stays unreadable is retried, then raises. It never returns []."""
         scraper = AppleJobsScraper(headless=True, detail_scrape=False)
         scraper.context = mock_context
         scraper.navigate_to_page = AsyncMock()
@@ -222,9 +242,183 @@ class TestScrapeQueryErrorRecovery:
             "apple_jobs_scraper.scraper.extract_job_cards_from_list",
             AsyncMock(side_effect=JobCardExtractionError("Page structure changed")),
         ):
+            with pytest.raises(JobSearchError, match="Page structure changed"):
+                await scraper.scrape_query("", max_jobs=None)
+
+
+class TestZeroResultsFlakeRetry:
+    """Apple's search backend intermittently serves its zero-results template
+    for a page that has 20 jobs, and a re-request gets the real page.
+
+    From 2026-09-22 ~16:00Z this hit roughly 1 page in 10. Because one bad page
+    abandoned the whole ~228-page walk, no Apple run completed after that.
+    These tests pin the fix: retry the same page, never skip it, and fail
+    loudly only when every attempt misses.
+    See docs/incidents/2026-09-22-apple-zero-results-flake.md.
+    """
+
+    @staticmethod
+    def _scraper(mock_context):
+        scraper = AppleJobsScraper(headless=True, detail_scrape=False)
+        scraper.context = mock_context
+        scraper.navigate_to_page = AsyncMock()
+        scraper._random_delay = AsyncMock()
+        return scraper
+
+    @pytest.mark.asyncio
+    async def test_flaky_page_is_retried_and_walk_completes(
+        self, mock_context, mock_page, sample_job_cards, no_sleep
+    ):
+        """3-page board; page 2 flakes twice. Every page lands, no truncation."""
+        scraper = self._scraper(mock_context)
+        flake = ZeroResultsPageError("Apple served its zero-results template")
+
+        with patch(
+            "apple_jobs_scraper.scraper.extract_job_cards_from_list",
+            AsyncMock(
+                side_effect=[
+                    sample_job_cards,  # page 1
+                    flake,  # page 2, attempt 1
+                    flake,  # page 2, attempt 2
+                    sample_job_cards,  # page 2, attempt 3
+                    sample_job_cards,  # page 3
+                ]
+            ),
+        ), patch(
+            "apple_jobs_scraper.scraper.get_total_pages",
+            AsyncMock(return_value=3),
+        ), patch(
+            "apple_jobs_scraper.scraper.check_has_next_page",
+            AsyncMock(side_effect=[True, True, False]),
+        ):
             result = await scraper.scrape_query("", max_jobs=None)
 
-        assert result == []
+        assert len(result) == 6
+        urls = [c.args[1] for c in scraper.navigate_to_page.await_args_list]
+        assert urls == [
+            scraper.build_search_url("", 1),
+            scraper.build_search_url("", 2),
+            scraper.build_search_url("", 2),
+            scraper.build_search_url("", 2),
+            scraper.build_search_url("", 3),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_retries_back_off_increasingly(
+        self, mock_context, mock_page, sample_job_cards, no_sleep
+    ):
+        """Retry sleeps grow, so a throttling Apple gets breathing room."""
+        scraper = self._scraper(mock_context)
+        flake = ZeroResultsPageError("zero-results")
+
+        with patch(
+            "apple_jobs_scraper.scraper.extract_job_cards_from_list",
+            AsyncMock(side_effect=[flake, flake, flake, sample_job_cards]),
+        ), patch(
+            "apple_jobs_scraper.scraper.get_total_pages",
+            AsyncMock(return_value=1),
+        ), patch(
+            "apple_jobs_scraper.scraper.check_has_next_page",
+            AsyncMock(return_value=False),
+        ):
+            await scraper.scrape_query("", max_jobs=None)
+
+        # Drop the fixed 1s settle sleeps; what's left is the backoff.
+        backoffs = [c.args[0] for c in no_sleep.await_args_list if c.args[0] != 1]
+        assert len(backoffs) == 3
+        assert backoffs == sorted(backoffs)
+        assert backoffs[0] >= 3
+
+    @pytest.mark.asyncio
+    async def test_each_retry_uses_a_fresh_page(
+        self, mock_context, mock_page, sample_job_cards, no_sleep
+    ):
+        scraper = self._scraper(mock_context)
+
+        with patch(
+            "apple_jobs_scraper.scraper.extract_job_cards_from_list",
+            AsyncMock(side_effect=[ZeroResultsPageError("z"), sample_job_cards]),
+        ), patch(
+            "apple_jobs_scraper.scraper.get_total_pages",
+            AsyncMock(return_value=1),
+        ), patch(
+            "apple_jobs_scraper.scraper.check_has_next_page",
+            AsyncMock(return_value=False),
+        ):
+            await scraper.scrape_query("", max_jobs=None)
+
+        # 1 page for the walk + 1 fresh page for the retry
+        assert mock_context.new_page.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_retry_survives_a_page_that_refuses_to_close(
+        self, sample_job_cards, no_sleep
+    ):
+        """A crashed page can raise on close(); that must not cost the retry."""
+        crashed = AsyncMock()
+        crashed.close = AsyncMock(side_effect=Exception("Target crashed"))
+        fresh = AsyncMock()
+        context = AsyncMock()
+        context.new_page = AsyncMock(side_effect=[crashed, fresh])
+        scraper = self._scraper(context)
+
+        with patch(
+            "apple_jobs_scraper.scraper.extract_job_cards_from_list",
+            AsyncMock(side_effect=[ZeroResultsPageError("z"), sample_job_cards]),
+        ), patch(
+            "apple_jobs_scraper.scraper.get_total_pages",
+            AsyncMock(return_value=1),
+        ), patch(
+            "apple_jobs_scraper.scraper.check_has_next_page",
+            AsyncMock(return_value=False),
+        ):
+            result = await scraper.scrape_query("", max_jobs=None)
+
+        assert len(result) == 2
+        fresh.close.assert_awaited()
+
+    @pytest.mark.asyncio
+    async def test_persistent_zero_results_raises_and_never_skips_ahead(
+        self, mock_context, mock_page, sample_job_cards, no_sleep
+    ):
+        """Page 2 never recovers: raise, and never try page 3 with a hole behind it."""
+        scraper = self._scraper(mock_context)
+        flake = ZeroResultsPageError("zero-results")
+
+        with patch(
+            "apple_jobs_scraper.scraper.extract_job_cards_from_list",
+            AsyncMock(side_effect=[sample_job_cards] + [flake] * PAGE_MAX_ATTEMPTS),
+        ), patch(
+            "apple_jobs_scraper.scraper.get_total_pages",
+            AsyncMock(return_value=228),
+        ), patch(
+            "apple_jobs_scraper.scraper.check_has_next_page",
+            AsyncMock(return_value=True),
+        ):
+            with pytest.raises(JobSearchError, match="page 2 failed all") as exc:
+                await scraper.scrape_query("", max_jobs=None)
+
+        assert "zero-results template" in str(exc.value)
+        urls = [c.args[1] for c in scraper.navigate_to_page.await_args_list]
+        assert scraper.build_search_url("", 3) not in urls
+        assert urls.count(scraper.build_search_url("", 2)) == PAGE_MAX_ATTEMPTS
+
+    @pytest.mark.asyncio
+    async def test_page_one_failure_raises_instead_of_returning_empty(
+        self, mock_context, mock_page, no_sleep
+    ):
+        """Page 1 failing used to return [] (no page count read yet, so no
+        truncation check) and trip the empty_scrape guard, which the
+        health-watch then reported as a latched guard. It must raise like any
+        other page."""
+        scraper = self._scraper(mock_context)
+
+        with patch(
+            "apple_jobs_scraper.scraper.extract_job_cards_from_list",
+            AsyncMock(side_effect=ZeroResultsPageError("zero-results")),
+        ):
+            with pytest.raises(JobSearchError, match="page 1 failed all"):
+                await scraper.scrape_query("", max_jobs=None)
 
 
 class TestExtractJobCards:

@@ -75,6 +75,20 @@ JOBS_PER_PAGE = 20
 # the first place.
 MAX_PAGES = 300  # 300 * 20 = 6000 jobs max
 
+# Per-page retry for the list walk. Apple's search backend intermittently
+# answers an unchanged query with its zero-results template (HTTP 200,
+# ``totalRecords: 0``, ``#search-no-search-results``); an immediate re-request
+# gets the real page. From 2026-09-22 ~16:00Z this hit roughly 1 page in 10,
+# and because one bad page used to abandon the whole ~228-page walk, no run
+# completed for Apple from then on. A page is now retried up to
+# PAGE_MAX_ATTEMPTS times total, sleeping PAGE_RETRY_BACKOFF_S[i] (plus jitter)
+# before retry i+1; only when every attempt fails does the walk give up, and
+# then it raises rather than returning a short list. At a 10% per-attempt flake
+# rate, 5 attempts leave ~0.2% odds of losing a 228-page run.
+# See docs/incidents/2026-09-22-apple-zero-results-flake.md.
+PAGE_MAX_ATTEMPTS = 5
+PAGE_RETRY_BACKOFF_S = (3.0, 8.0, 20.0, 45.0)
+
 # Retry configuration
 MAX_RETRIES = 3
 RETRY_MIN_WAIT = 4  # seconds

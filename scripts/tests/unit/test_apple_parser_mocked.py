@@ -15,6 +15,9 @@ from apple_jobs_scraper.parser import (
     extract_job_cards_from_list,
     check_has_next_page,
     JobCardExtractionError,
+    ZeroResultsPageError,
+    JOB_LIST_SELECTOR,
+    NO_RESULTS_SELECTOR,
 )
 
 
@@ -133,6 +136,49 @@ class TestExtractJobCardsFromListEmpty:
         result = await extract_job_cards_from_list(mock_page)
 
         assert result == []
+
+
+class TestZeroResultsTemplate:
+    """Apple's search backend intermittently serves its zero-results template
+    (HTTP 200, ``#search-no-search-results``) for a page that has 20 jobs.
+
+    The parser must name that state distinctly, and recognise it as soon as it
+    renders rather than after a 10s timeout, so the scraper can retry the page
+    instead of abandoning the walk.
+    See docs/incidents/2026-09-22-apple-zero-results-flake.md.
+    """
+
+    @pytest.mark.asyncio
+    async def test_waits_for_list_or_zero_results_block(self, mock_page):
+        mock_page.wait_for_selector = AsyncMock()
+        mock_page.query_selector_all = AsyncMock(return_value=[])
+
+        await extract_job_cards_from_list(mock_page)
+
+        selector = mock_page.wait_for_selector.await_args.args[0]
+        assert JOB_LIST_SELECTOR in selector
+        assert NO_RESULTS_SELECTOR in selector
+
+    @pytest.mark.asyncio
+    async def test_zero_results_template_raises_distinct_error(self, mock_page):
+        """No list in the DOM after the wait = the zero-results block won."""
+        mock_page.wait_for_selector = AsyncMock()
+        mock_page.query_selector = AsyncMock(return_value=None)
+
+        with pytest.raises(ZeroResultsPageError, match="zero-results"):
+            await extract_job_cards_from_list(mock_page)
+
+        mock_page.query_selector.assert_awaited_once_with(JOB_LIST_SELECTOR)
+
+    @pytest.mark.asyncio
+    async def test_zero_results_is_still_an_extraction_error(self, mock_page):
+        """A caller that doesn't know the subclass must still treat the page
+        as unreadable, never as a legitimate "no more jobs"."""
+        mock_page.wait_for_selector = AsyncMock()
+        mock_page.query_selector = AsyncMock(return_value=None)
+
+        with pytest.raises(JobCardExtractionError):
+            await extract_job_cards_from_list(mock_page)
 
 
 class TestExtractJobCardsFromListError:
