@@ -380,6 +380,7 @@ src/backend/api/
 │   ├── jobs.py                  # Jobs list and detail endpoints
 │   ├── jobs_qa.py               # Stats, scrape runs, trigger scrape
 │   ├── users.py                 # User profile + enabled-companies endpoints (auth required)
+│   ├── user_companies.py        # Private custom-company CRUD (GET/POST/DELETE/PATCH /api/users/companies; auth required)
 │   ├── saved_filters.py         # Saved-filters, keyword-list CRUD, location search (auth required)
 │   ├── features.py              # Feature voting endpoints (list, upvote, remove upvote)
 │   ├── admin.py                 # Admin-only endpoints: user management, enrichment oversight, location normalization, and feedback

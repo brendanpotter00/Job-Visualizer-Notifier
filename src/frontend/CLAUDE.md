@@ -69,6 +69,7 @@ Backend-Scraper (api/clients/backendScraperClient.ts) is the only production cli
 - `/location-pipeline` - Location Pipeline (pages/AdminLocationPipelinePage/AdminLocationPipelinePage.tsx) - Public pipeline visualization; admins get a sidebar link, everyone else reaches it via the Changelog
 - `/admin/feedback` - Admin Feedback (pages/AdminFeedbackPage/AdminFeedbackPage.tsx) - Admin-only table of user feedback submissions
 - `/admin/custom-companies` - Admin Custom Companies (pages/AdminCustomCompaniesPage/AdminCustomCompaniesPage.tsx) - Admin-only oversight of user-added custom company boards
+- `/landing` - Landing Page (pages/LandingPage/LandingPage.tsx) - Marketing/showcase landing page with animated demo of the product
 
 **Key Algorithms:**
 - Time Bucketing: lib/timeBucketing.ts (dynamic bucket sizing for graph visualization)
