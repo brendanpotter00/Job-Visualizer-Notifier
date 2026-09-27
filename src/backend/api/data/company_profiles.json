@@ -23,6 +23,10 @@
     "accomplishment": "Amazon operates the world's largest e-commerce marketplace and AWS, the leading cloud computing platform, which together serve hundreds of millions of customers globally.",
     "blurb": "Amazon runs a global e-commerce marketplace plus Amazon Web Services, along with devices, streaming media, and logistics operations."
   },
+  "ando": {
+    "blurb": "Ando builds a team-messaging platform where AI agents are first-class teammates with their own identities, inboxes and durable memory, positioned as a ground-up Slack replacement.",
+    "accomplishment": "Came out of stealth in September 2026 with $20M in pre-seed and seed funding led by Accel, Index Ventures and Emergence Capital; founded by Thiel Fellow Sara Du, previously founder of Alloy Automation."
+  },
   "andurilindustries": {
     "accomplishment": "Anduril is known for its Lattice AI platform and autonomous systems, pioneering a software-first, commercially funded model for defense products.",
     "blurb": "Anduril builds autonomous defense technology, integrating hardware and AI software for military and national-security applications."
@@ -230,6 +234,10 @@
     "accomplishment": "Figure AI develops autonomous humanoid robots powered by its own AI for commercial use in manufacturing, logistics, and other workplaces.",
     "blurb": "Figure AI builds general-purpose humanoid robots designed to perform physical labor across manufacturing, logistics, and other workplaces."
   },
+  "firecrawl": {
+    "blurb": "Firecrawl builds a web-scraping and crawling API that turns any website into clean, LLM-ready markdown or structured data for AI agents and applications.",
+    "accomplishment": "Raised a $75M Series B led by Smash Capital in September 2026, a year after its $14.5M Series A, and launched Alexandria, a unified data interface for AI agents."
+  },
   "fireworksai": {
     "accomplishment": "Fireworks AI provides highly optimized, low-latency inference that lets developers deploy large language and multimodal models at production scale.",
     "blurb": "Fireworks AI provides a fast inference platform for running, fine-tuning, and serving open-source and custom generative AI models in production."
@@ -340,6 +348,10 @@
   "linear": {
     "accomplishment": "Linear is known for setting a benchmark in developer tooling speed and design, becoming a widely adopted alternative to legacy trackers like Jira.",
     "blurb": "Linear makes a fast, keyboard-driven issue tracking and project management tool purpose-built for software product and engineering teams."
+  },
+  "llamaindex": {
+    "blurb": "LlamaIndex builds the open-source framework and managed LlamaCloud platform for connecting LLMs to private data, specializing in agentic OCR and document understanding with LlamaParse.",
+    "accomplishment": "Grew out of the popular GPT Index open-source project (founded 2023 by Jerry Liu and Simon Suo) and raised a $19M Series A in 2025 with Databricks and KPMG among its backers."
   },
   "lyft": {
     "accomplishment": "Lyft is one of the largest ridesharing platforms in North America and a primary competitor to Uber in the on-demand mobility market.",

@@ -842,6 +842,24 @@ export const COMPANIES: Company[] = [
   createBackendScraperCompany('blacksmith', 'Blacksmith', 'https://jobs.ashbyhq.com/Blacksmith', {
     sourceAts: 'ashby',
   }),
+  // Identity proven, not inferred: the job id in the posting URL this was added
+  // from (e8168e8a-451e-41bb-9c13-8f24b4b84e50) resolves on the `llamaindex`
+  // board as "Member of Technical Staff, Infrastructure".
+  createBackendScraperCompany('llamaindex', 'LlamaIndex', 'https://www.llamaindex.ai/careers', {
+    sourceAts: 'ashby',
+  }),
+  // The agent-native team-messaging startup at ando.so (the board's own
+  // `publicWebsite`), NOT David Chang's 2016 Ando food-delivery app that Uber
+  // Eats acquired in 2018. The careers URL is the board itself: ando.so has no
+  // careers page (/careers and /jobs both 404).
+  createBackendScraperCompany('ando', 'Ando', 'https://jobs.ashbyhq.com/ando', {
+    sourceAts: 'ashby',
+  }),
+  // All 31 job ids linked from firecrawl.dev/careers resolve on the `firecrawl`
+  // board, so the careers page and the board are the same set.
+  createBackendScraperCompany('firecrawl', 'Firecrawl', 'https://www.firecrawl.dev/careers', {
+    sourceAts: 'ashby',
+  }),
 
   // Gem (backend-scraper) — backend Procrastinate worker fetches from
   // api.gem.com/job_board/v0/<id>/job_posts/ on a 30-min cron. See
@@ -1101,6 +1119,7 @@ export const enum COMPANY_IDS {
   Airtable = 'airtable',
   Aiuc = 'aiuc',
   Amazon = 'amazon',
+  Ando = 'ando',
   AndurilIndustries = 'andurilindustries',
   Anthropic = 'anthropic',
   ApexTechnologyInc = 'apex-technology-inc',
@@ -1155,6 +1174,7 @@ export const enum COMPANY_IDS {
   Fal = 'fal',
   Figma = 'figma',
   FigureAI = 'figureai',
+  Firecrawl = 'firecrawl',
   Fireflies = 'fireflies',
   Flint = 'flint',
   FireworksAI = 'fireworksai',
@@ -1185,6 +1205,7 @@ export const enum COMPANY_IDS {
   Light = 'light',
   Linear = 'linear',
   ListenLabs = 'listenlabs',
+  LlamaIndex = 'llamaindex',
   Lovable = 'lovable',
   Lyft = 'lyft',
   Mastra = 'mastra',

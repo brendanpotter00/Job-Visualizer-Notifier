@@ -31,6 +31,18 @@ const SWE_SUBCATEGORIES_REVEAL_DATE = '2026-08-20';
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    id: 'add-llamaindex-ando-firecrawl',
+    title: 'Added LlamaIndex, Ando and Firecrawl',
+    description:
+      "Three AI companies are now tracked via their Ashby job boards. LlamaIndex — the open-source framework for connecting LLMs to private data, now building agentic OCR and document intelligence with LlamaParse and LlamaCloud — raised a $19M Series A and shipped LiteParse, an open-source local parsing library, this year; it has nine roles open, mostly in San Francisco. Ando — a team-messaging platform rebuilt around AI agents as first-class teammates, pitched as a Slack replacement — came out of stealth on September 24 with $20M in pre-seed and seed funding from Accel, Index Ventures and Emergence Capital; it has six roles open in San Francisco. Firecrawl — the web-scraping and crawling API that turns websites into LLM-ready data for AI agents — raised a $75M Series B led by Smash Capital this month and launched Alexandria, a single API over web search, third-party data and its own index; it has 31 roles open across San Francisco and Toronto, eleven of them in Engineering.",
+    tags: ['new-companies'],
+    date: '2026-09-27',
+    link: {
+      to: ROUTES.ACCOUNT,
+      label: 'Add LlamaIndex, Ando and Firecrawl to your company preferences',
+    },
+  },
+  {
     id: 'retire-yutori-2026-09',
     title: 'Yutori has been retired',
     description:
