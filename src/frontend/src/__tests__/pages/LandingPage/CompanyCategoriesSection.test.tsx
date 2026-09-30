@@ -3,6 +3,7 @@ import { render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { ROUTES } from '../../../config/routes';
 import { COMPANY_CATEGORIES } from '../../../pages/LandingPage/companyCategories';
+import { LANDING_CONTENT } from '../../../pages/LandingPage/content';
 import { CompanyCategoriesSection } from '../../../pages/LandingPage/sections/CompanyCategoriesSection';
 
 /** Mirrors `VISIBLE_LOGOS` in the section — the head slice shown per card. */
@@ -11,7 +12,7 @@ const VISIBLE_LOGOS = 6;
 function renderSection() {
   return render(
     <MemoryRouter>
-      <CompanyCategoriesSection />
+      <CompanyCategoriesSection content={LANDING_CONTENT} />
     </MemoryRouter>
   );
 }
@@ -22,6 +23,7 @@ describe('CompanyCategoriesSection', () => {
     expect(
       screen.getByRole('heading', { name: 'Browse curated companies', level: 2 })
     ).toBeInTheDocument();
+    expect(screen.getByText(LANDING_CONTENT.companies.eyebrow)).toBeInTheDocument();
   });
 
   it('renders every category label and blurb', () => {

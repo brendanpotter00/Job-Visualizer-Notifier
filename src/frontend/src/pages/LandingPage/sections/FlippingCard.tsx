@@ -20,8 +20,10 @@ export function SlotCaption({ children }: { children: ReactNode }) {
   return (
     <Typography
       variant="overline"
-      component="h2"
-      sx={{ display: 'block', textAlign: 'center', color: 'text.secondary', mb: 1 }}
+      // h3, not h2: the triptych section owns the h2 above the row, and each
+      // slot's caption is a sub-heading of it.
+      component="h3"
+      sx={{ display: 'block', color: 'text.secondary', mb: 1 }}
     >
       {children}
     </Typography>

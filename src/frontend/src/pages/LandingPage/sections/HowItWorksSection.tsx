@@ -1,6 +1,9 @@
 import { Box, Divider, Grid, Typography } from '@mui/material';
 import { RESPONSIVE } from '../../../config/responsive';
 import type { LandingContent } from '../content';
+import { SectionIntro } from './SectionIntro';
+
+const HEADING_ID = 'landing-how-it-works-heading';
 
 interface HowItWorksSectionProps {
   content: LandingContent;
@@ -9,39 +12,27 @@ interface HowItWorksSectionProps {
 /**
  * "How it works" + the apply-early beat, merged into ONE quiet section.
  *
- * This is the page's tame stretch. The Gravity hero is a physics simulation and
- * the triptych above flips cards on a timer, so everything here is deliberately
+ * This is the page's tame stretch. The hero is a physics simulation and the
+ * triptych above flips cards on a timer, so everything here is deliberately
  * static text: three numbered steps on one horizontal line (stacking below
- * `sm`), then a single rule and one emphasized sentence pair. No cards, no
- * borders around steps, no icons, no motion.
+ * `sm`), then a single rule and one emphasized sentence. No cards, no borders
+ * around steps, no icons, no motion.
  *
- * Step order is the mechanism in causal order (monitor, label, filter) and it
+ * Step order is the mechanism in causal order (watch, label, filter) and it
  * ends on the reader's own action. The middle step is where AI-powered labeling
  * enters the landing page: as the reason filters are trustworthy, never as an
- * "AI" badge. A fourth "timestamp first sight" step was dropped as redundant
- * (2026-08-09) because the hero already owns the freshness story.
+ * "AI" badge.
  *
- * The closing beat reuses `claims.apply_early_rolling.body` verbatim rather than
- * introducing a second phrasing of the same claim, and wears the quotable
- * treatment (hairline rule + `quotableFontSize`) that the since-deleted Signal
- * prototype established for a liftable sentence — the one styling convention
- * worth keeping from it.
+ * The closer is the one emotional line on the page, the why behind all of the
+ * above. It wears the quotable treatment (hairline rule + `quotableFontSize`)
+ * because it is written to be lifted whole.
  */
 export function HowItWorksSection({ content }: HowItWorksSectionProps) {
-  const { heading, steps } = content.howItWorks;
+  const { eyebrow, heading, steps, closer } = content.howItWorks;
 
   return (
-    <Box component="section" data-testid="how-it-works">
-      <Typography
-        component="h2"
-        sx={{
-          fontSize: RESPONSIVE.landingProto.sectionTitleFontSize,
-          fontWeight: 600,
-          mb: RESPONSIVE.landingProto.sectionTitleMarginBottom,
-        }}
-      >
-        {heading}
-      </Typography>
+    <Box component="section" aria-labelledby={HEADING_ID} data-testid="how-it-works">
+      <SectionIntro eyebrow={eyebrow} heading={heading} headingId={HEADING_ID} />
 
       <Grid container spacing={RESPONSIVE.landingProto.stepsGridSpacing}>
         {steps.map((step, index) => (
@@ -67,7 +58,7 @@ export function HowItWorksSection({ content }: HowItWorksSectionProps) {
               component="h3"
               sx={{
                 fontSize: RESPONSIVE.landingProto.blockTitleFontSize,
-                fontWeight: 600,
+                fontWeight: 500,
                 mb: 1,
               }}
             >
@@ -87,9 +78,8 @@ export function HowItWorksSection({ content }: HowItWorksSectionProps) {
         ))}
       </Grid>
 
-      {/* The one emotional line on the page: why any of the above matters.
-          Capped well short of the lg container so it reads as a pull-quote at a
-          comfortable measure (~60ch) rather than a full-width paragraph; the
+      {/* Capped well short of the lg container so it reads as a pull-quote at
+          a comfortable measure (~60ch) rather than a full-width paragraph; the
           single hairline above it is the section's only rule. */}
       <Box sx={{ mt: RESPONSIVE.landingProto.sectionBlockGapY, maxWidth: 620 }}>
         <Divider sx={{ mb: 4 }} />
@@ -97,10 +87,10 @@ export function HowItWorksSection({ content }: HowItWorksSectionProps) {
           sx={{
             fontSize: RESPONSIVE.landingProto.quotableFontSize,
             fontWeight: 500,
-            lineHeight: 1.7,
+            lineHeight: 1.6,
           }}
         >
-          {content.claims.apply_early_rolling.body}
+          {closer.line}
         </Typography>
       </Box>
     </Box>

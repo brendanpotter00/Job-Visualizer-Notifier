@@ -271,14 +271,31 @@ export const RESPONSIVE = {
     headerWordmarkFontSize: { xs: '0.9375rem', sm: '1.0625rem' },
     /** Landing header: gap between the right-hand cluster items (theme units). */
     headerGap: { xs: 1, sm: 1.5 },
-    /** Hero h1 (rendered with fontWeight 600 like theme headings). */
-    heroHeadlineFontSize: { xs: '2rem', sm: '3.25rem' },
+    /**
+     * Hero h1 (rendered at weight 500, tight tracking). The h1 is two tones in
+     * one element (~20 words), so the phone size sits a notch under the old
+     * 2rem to keep it at about six lines.
+     */
+    heroHeadlineFontSize: { xs: '1.875rem', sm: '3.25rem' },
     /** Hero subheadline (fragment stack under the h1). */
     heroSubFontSize: { xs: '1rem', sm: '1.25rem' },
     /** Hero block vertical padding (theme units). */
     heroPaddingY: { xs: 8, sm: 14 },
-    /** Section h2 font size. */
-    sectionTitleFontSize: { xs: '1.375rem', sm: '1.75rem' },
+    /** Section h2 font size (rendered at weight 500, tight tracking). */
+    sectionTitleFontSize: { xs: '1.5rem', sm: '2rem' },
+    /**
+     * The uppercase overline every section opens with (`Eyebrow`), also the
+     * feature matrix's coming-soon tier label and the comparison's column
+     * heads. Deliberately the smallest type on the page — it names a thing, it
+     * is not content to read, so it must not compete with the heading under it.
+     */
+    eyebrowFontSize: { xs: '0.75rem', sm: '0.8125rem' },
+    /** Proof strip: the big number over each quotable sentence. */
+    statValueFontSize: { xs: '2.5rem', sm: '3.5rem' },
+    /** LinkedIn comparison: vertical padding on each ruled row (theme units). */
+    comparisonRowPaddingY: { xs: 2.5, sm: 3 },
+    /** Closing block: the one centred line over the final CTAs. */
+    closingHeadingFontSize: { xs: '1.75rem', sm: '2.5rem' },
     /**
      * Sub-heading inside a section (step label, matrix cell name, FAQ question,
      * category card title). Sits clearly above `bodyFontSize` at weight 600 so
@@ -316,12 +333,6 @@ export const RESPONSIVE = {
     matrixCellPaddingY: { xs: 3, sm: 5 },
     /** Feature matrix: right gutter inside each cell (the column separation). */
     matrixCellPaddingRight: { xs: 3, sm: 6 },
-    /**
-     * Feature matrix: the quiet overline that labels the grayed coming-soon
-     * tier. Deliberately the smallest type on the page — it names a state, it
-     * is not content to read, so it must not compete with the cell names.
-     */
-    matrixTierLabelFontSize: { xs: '0.75rem', sm: '0.8125rem' },
     /** FAQ: vertical padding on each accordion summary → taller, calmer rows. */
     faqRowPaddingY: { xs: 1, sm: 1.75 },
     /** Curated-category cards: interior padding. */

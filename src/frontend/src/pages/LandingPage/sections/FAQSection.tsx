@@ -2,6 +2,9 @@ import { Accordion, AccordionDetails, AccordionSummary, Box, Typography } from '
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { RESPONSIVE } from '../../../config/responsive';
 import type { LandingContent } from '../content';
+import { SectionIntro } from './SectionIntro';
+
+const HEADING_ID = 'landing-faq-heading';
 
 interface FAQSectionProps {
   content: LandingContent;
@@ -17,28 +20,23 @@ interface FAQSectionProps {
  * behind a click. MUI's `Collapse` keeps its children mounted by default (it
  * only collapses height/visibility), so this holds as long as nobody adds
  * `unmountOnExit` / `keepMounted={false}` to the transition slot. Covered by
- * FAQSection.test.tsx ("keeps every answer in the DOM while collapsed").
+ * FAQSection.test.tsx ("keeps every answer in the DOM while collapsed"). The
+ * same entries feed the FAQPage JSON-LD in `LandingSeo`, so the two can never
+ * drift apart.
  *
  * Styling stays monochrome: no elevation, no paper tint, hairline dividers, and
  * the expand chevron inherits the text color rather than MUI's grey
  * `action.active`.
  */
 export function FAQSection({ content }: FAQSectionProps) {
+  const { eyebrow, heading, entries } = content.faq;
+
   return (
-    <Box sx={{ maxWidth: 720, mx: 'auto' }}>
-      <Typography
-        variant="h2"
-        sx={{
-          fontSize: RESPONSIVE.landingProto.sectionTitleFontSize,
-          fontWeight: 600,
-          mb: RESPONSIVE.landingProto.sectionTitleMarginBottom,
-        }}
-      >
-        Frequently asked questions
-      </Typography>
+    <Box component="section" aria-labelledby={HEADING_ID} sx={{ maxWidth: 720 }}>
+      <SectionIntro eyebrow={eyebrow} heading={heading} headingId={HEADING_ID} />
       {/* Top hairline; each row draws its own bottom rule so the list closes. */}
       <Box sx={{ borderTop: '1px solid', borderColor: 'divider' }}>
-        {content.faq.map((entry) => (
+        {entries.map((entry) => (
           <Accordion
             key={entry.question}
             disableGutters
@@ -68,7 +66,7 @@ export function FAQSection({ content }: FAQSectionProps) {
                   slot), so the question renders as a span inside that heading. */}
               <Typography
                 component="span"
-                sx={{ fontSize: RESPONSIVE.landingProto.blockTitleFontSize, fontWeight: 600 }}
+                sx={{ fontSize: RESPONSIVE.landingProto.blockTitleFontSize, fontWeight: 500 }}
               >
                 {entry.question}
               </Typography>

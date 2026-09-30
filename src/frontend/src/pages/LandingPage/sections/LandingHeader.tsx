@@ -64,9 +64,9 @@ export function LandingHeader({ content }: LandingHeaderProps) {
           // Swallows the sentinel's 1px so the bar still starts flush with the
           // top of the page rather than one pixel down.
           mt: '-1px',
-          // Above the Gravity canvas and the HeroTrendline, which are plain
-          // absolutely-positioned layers at auto z-index: once the bar goes
-          // opaque, hero content has to pass UNDER it.
+          // Above the Gravity canvas, a plain absolutely-positioned layer at
+          // auto z-index: once the bar goes opaque, hero content has to pass
+          // UNDER it.
           zIndex: 10,
           borderBottom: '1px solid',
           borderColor: scrolled ? 'divider' : 'transparent',
@@ -157,7 +157,15 @@ export function LandingHeader({ content }: LandingHeaderProps) {
             {header.logIn.label}
           </Button>
 
-          <Button component={RouterLink} to={header.signUp.to} variant="contained" size="small">
+          <Button
+            component={RouterLink}
+            to={header.signUp.to}
+            variant="contained"
+            size="small"
+            // Pill, like the hero CTA: the two filled buttons on the page share
+            // one shape.
+            sx={{ borderRadius: 999, px: 2 }}
+          >
             {header.signUp.label}
           </Button>
         </Container>

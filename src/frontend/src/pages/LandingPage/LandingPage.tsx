@@ -4,6 +4,7 @@ import { useSearchParams } from 'react-router-dom';
 import { LoadingState } from '../../components/shared/LoadingIndicator';
 import { LANDING_CONTENT } from './content';
 import { MOCK_JOBS, MOCK_JOBS_SPARSE, MOCK_NOW } from './mockData';
+import { LandingSeo } from './seo/LandingSeo';
 
 /**
  * The landing scene, still behind React.lazy. The boundary is no longer about
@@ -23,8 +24,9 @@ const GravityPrototype = lazy(() => import('./prototypes/GravityPrototype/Gravit
  *
  * This was a four-tab prototype workspace until the 2026-09-03 consolidation;
  * the tab strip, the registry and the three losing designs are gone, and what
- * is left is a shell whose whole job is the lazy boundary and the fixture
- * toggle.
+ * is left is a shell whose whole job is the lazy boundary, the fixture toggle,
+ * and the document head (`LandingSeo`, rendered here rather than inside the
+ * lazy chunk so the title, canonical and JSON-LD exist before the scene loads).
  *
  * URL contract: `?data=sparse` swaps in the weekend-reality fixture. It
  * survived the consolidation because the sparse case is the one that breaks
@@ -35,7 +37,7 @@ const GravityPrototype = lazy(() => import('./prototypes/GravityPrototype/Gravit
  * ancestor, and its scroll-state IntersectionObserver deliberately passes no
  * `root` so it is clipped by that same overflow ancestor. Flattening this to a
  * document-level scroll is a real change to how the header behaves, so it is
- * left for the post-merge iteration pass rather than smuggled into a deletion.
+ * left for a later iteration pass rather than smuggled into a restyle.
  */
 export function LandingPage() {
   const [searchParams] = useSearchParams();
@@ -51,6 +53,7 @@ export function LandingPage() {
         bgcolor: 'background.default',
       }}
     >
+      <LandingSeo content={LANDING_CONTENT} />
       <Box sx={{ flex: 1, overflowY: 'auto' }}>
         <Suspense fallback={<LoadingState size={60} minHeight={400} caption="Loading…" />}>
           <GravityPrototype
