@@ -247,11 +247,6 @@ export const COMPANIES: Company[] = [
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2289816302%22%5D',
   }),
-  createBackendScraperCompany('hightouch', 'Hightouch', 'https://boards.greenhouse.io/hightouch', {
-    sourceAts: 'greenhouse',
-    recruiterLinkedInUrl:
-      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2242344868%22%5D',
-  }),
   createBackendScraperCompany('roblox', 'Roblox', 'https://boards.greenhouse.io/roblox', {
     sourceAts: 'greenhouse',
     recruiterLinkedInUrl:
@@ -648,7 +643,12 @@ export const COMPANIES: Company[] = [
   //   merge            -> ashby token `merge`             (2026-07-30)
   //   fireworksai      -> ashby token `fireworks`         (2026-08-05)
   //   thinkingmachines -> ashby token `thinkingmachines`  (2026-08-05)
+  //   hightouch        -> ashby token `hightouch-inc`     (2026-10-02)
   // Backend counterpart: the repoint migrations in src/backend/alembic/versions/.
+  // hightouch's token is `hightouch-inc`, NOT `hightouch`: the bare `hightouch`
+  // Ashby board also answers 200, but with a single 2021 posting left over from
+  // a board they abandoned. Verified live 2026-10-02 — `hightouch-inc` serves 82
+  // jobs, matching hightouch.com/careers exactly.
   createBackendScraperCompany('appliedintuition', 'Applied Intuition', 'https://jobs.ashbyhq.com/applied', {
     sourceAts: 'ashby',
     recruiterLinkedInUrl:
@@ -673,6 +673,11 @@ export const COMPANIES: Company[] = [
     sourceAts: 'ashby',
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22105913171%22%5D',
+  }),
+  createBackendScraperCompany('hightouch', 'Hightouch', 'https://jobs.ashbyhq.com/hightouch-inc', {
+    sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2242344868%22%5D',
   }),
 
   // Batch add (2026-09-02) — Ashby boards (every token verified live). Note the

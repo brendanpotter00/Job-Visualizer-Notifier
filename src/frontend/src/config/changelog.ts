@@ -31,6 +31,18 @@ const SWE_SUBCATEGORIES_REVEAL_DATE = '2026-08-20';
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    id: 'hightouch-board-move-2026-10',
+    title: 'Hightouch is live again after its board moved',
+    description:
+      'Hightouch moved its job board from Greenhouse to Ashby. The old board started returning "not found" this evening, so for a few hours this site could not refresh Hightouch listings — the 82 roles it was showing were frozen rather than current. It now reads from the new board, and those 82 roles are live and up to date again. Nothing closed and nothing was lost; the listings are the same postings, just at their new links.',
+    tags: ['improvement'],
+    date: '2026-10-02',
+    link: {
+      to: ROUTES.SAVED_FILTERS,
+      label: 'Review your saved companies',
+    },
+  },
+  {
     id: 'add-llamaindex-ando-firecrawl',
     title: 'Added LlamaIndex, Ando and Firecrawl',
     description:
