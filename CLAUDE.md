@@ -58,7 +58,7 @@ PYTHONPATH=. uvicorn src.backend.api.main:app --host 0.0.0.0 --port 8000 --reloa
   server-returned pages. The old `byCompanyId` map — the all-companies fan-out both
   pages once shared — was removed with the client-side walk; there is no store-wide
   index of every job any more, and re-adding one would put the whole corpus back in
-  memory (see Gotcha #7 / #10)
+  memory (see Gotcha #7)
 
 **Data Flow:**
 User selects company → `getJobsForCompany` RTK Query endpoint (src/frontend/src/features/jobs/jobsApi.ts) → Factory selects API client → Transform to normalized Job model → RTK Query cache update → Memoized selectors filter data → Components render
