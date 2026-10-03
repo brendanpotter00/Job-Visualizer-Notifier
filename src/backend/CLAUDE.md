@@ -387,7 +387,9 @@ src/backend/api/
 │   ├── feedback.py              # Public user-feedback submission (POST /api/feedback; optional auth)
 │   ├── companies.py             # Public curated-companies directory (GET /api/companies; no auth)
 │   ├── locations.py             # Public canonical-location search (GET /api/locations/search; internal-key auth)
-│   └── internal_enrichment.py  # Internal enrichment API (X-Internal-Key; GET /pending, POST /results, etc.)
+│   ├── jobs_search.py           # Recent-jobs server-side filtered read path (GET /api/jobs/search)
+│   ├── internal_enrichment.py  # Internal enrichment API (X-Internal-Key; GET /pending, POST /results, etc.)
+│   └── dev_reset.py             # Local-dev reset endpoint (registered only when DEV_RESET_ENABLED)
 ├── services/
 │   ├── database.py      # API query functions (reuses scripts/shared/database.py)
 │   ├── db_rows.py       # TypedDict definitions for raw DB row shapes
@@ -415,6 +417,7 @@ src/backend/api/
 │   ├── scraper_health.py    # Stale-scraper report query (used by GET /api/jobs-qa/scraper-health)
 │   ├── auto_scraper.py  # Background scheduled scraping (Google/Apple/Microsoft/Amazon/TikTok)
 │   ├── db_watchdog.py   # Daemon thread probing the DB; exits process after ~5-6 min unreachability so Railway restarts
+│   ├── worker_watchdog.py   # Daemon thread reading MAX(worker_heartbeats.at); exits when worker is wedged but DB is fine
 │   ├── ashby_client.py      # Ashby ATS HTTP client
 │   ├── eightfold_client.py  # Eightfold ATS HTTP client (SSRF allowlist lives here)
 │   ├── gem_client.py        # Gem ATS HTTP client
@@ -428,7 +431,11 @@ src/backend/api/
     ├── enqueue_recipe_fan_out.py    # 7th fan-out: */30 over `ats='recipe'` PUBLISHED boards; defers `fetch_custom_company` on `recipe_fetch` with `visibility='public'`
     ├── fetch_*_company.py (×7)      # Leaf tasks: fetch + upsert one company's jobs (includes fetch_custom_company.py for custom/recipe boards)
     ├── normalize_location.py        # Leaf task: normalize one job's free-text location via Claude Haiku
-    └── scan_unnormalized.py         # Periodic safety-net task: find NULL-status jobs and defer normalize_location
+    ├── scan_unnormalized.py         # Periodic safety-net task: find NULL-status jobs and defer normalize_location
+    ├── claim_custom_companies.py    # */15 bulk claim tick: marks due private boards for re-harvest; start_first_harvest defers the add-time first fetch onto the interactive lane
+    ├── discover_custom_company.py   # One-time discovery leaf task (custom_discovery queue): probes a pasted URL, builds a scraper recipe, closes the five-step checklist
+    ├── reap_ownerless_companies.py  # Periodic reaper: deletes visibility='user' companies with no user_companies rows left
+    └── reconcile_discovering.py     # Periodic reconciler: re-queues stale rows stuck in discovering state (wedged or SIGKILLed discovery runs)
 ```
 
 ## Evals
