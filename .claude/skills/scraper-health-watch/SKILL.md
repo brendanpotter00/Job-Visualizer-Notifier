@@ -95,6 +95,7 @@ Tunable constants (change here, nowhere else):
 | `HEARTBEAT_DEAD_MINUTES` | 15 | task writes every 5 min (`heartbeat.py:106`); app's own threshold is 10 min (`main.py:53`) |
 | `WARM_UP_HOURS` | 6 | reuses the staleness window — a company seeded less than one window ago has not had time to tick; see A1's warm-up guard |
 | `COVERAGE_MIN_FRACTION` | 0.5 | Check D floor — alert if fewer than half of enabled companies had a successful scrape in 24h. On the 2026-08-29 outage this read 5/133 (3.8%); anything under ~50% is a fleet-level failure, not per-company drift |
+| `VENDOR_MAINTENANCE_MIN_COMPANIES` | 2 | Check A2's vendor-maintenance branch — the smallest A2 cluster sharing one `ats` that can be read as a pod outage rather than a board move. One company alone is always the per-company path: a single zeroed board is far more likely to have moved than to be a vendor's maintenance window |
 | `GUARD_LATCH_MIN_RUNS` | 4 | Check A3 floor — the last N runs ALL guard-skipped (`skipped_update`) marks a latched-dark company. 4 = `SCRAPER_GUARD_MAX_CONSECUTIVE_SKIPS`(3, `incremental.py`) + 1, so a normally auto-releasing `partial_scrape` (which releases by the 3rd skip) can never reach it — only a non-releasing `empty_scrape` latch or a partial whose released run also fails. Validated on prod 2026-08-31: fires on apple (81 consecutive `empty_scrape` skips), zero other companies |
 
 > **A1 and A2 filter on `c.enabled` only — they do NOT filter on `c.visibility`**, so private
@@ -168,6 +169,65 @@ suppressing "never ran yet" in A1 blinds nothing. A company younger than
 (Both queries returned exactly the same true positives with zero false positives
 across 133 companies on 2026-07-25 and 2026-08-05. A 404-storm source writes ~6
 rows per tick, so A2's "last 3" can span minutes, not 90 — that is why A1 exists.)
+
+**A2 fired on a whole ATS at once? CHECK FOR A VENDOR MAINTENANCE WINDOW before
+calling it degraded.** When A2 returns a *cluster* of companies that all share one
+`ats`, the common cause is not N simultaneous board moves — it is one upstream pod
+going down for scheduled maintenance. That shape is self-healing, has no available
+human action, and recurs on the vendor's calendar, so paging for it every time is
+the alert-fatigue hazard §2's A3 branch and §4.2 both warn about.
+
+Confirm it with these five conditions — **all** must hold:
+
+| # | Condition | How to verify |
+|---|---|---|
+| 1 | A2 fired for ≥2 companies sharing one `ats` | the A2 result set |
+| 2 | **A1 is clean for every one of them** (fresh, <`STALE_AFTER_HOURS`) | A1 returned no rows for them |
+| 3 | The vendor serves a **maintenance page** | probe the live endpoint yourself; see the table below |
+| 4 | **Nothing was written or destroyed**: `closed_jobs = 0`, `new_jobs = 0`, `skipped_update = false` on every failed run | per-company 3h rollup |
+| 5 | A same-`ats` tenant on a **different pod/host** succeeded in the same tick | compare `provider_config` hosts against the A2 set |
+
+Condition 3 for Workday — the vendor states it outright in a redirect, so one
+request settles it. Do **not** follow the redirect (the maintenance host answers
+403 to non-browsers, which reads like a different failure); read the `location`
+header:
+
+```bash
+curl -sS -D - -o /dev/null -m 25 -X POST \
+  "https://<tenant>.<pod>.myworkdayjobs.com/wday/cxs/<tenant_slug>/<career_site_slug>/jobs" \
+  -H 'Content-Type: application/json' -H 'Accept: application/json' \
+  -d '{"appliedFacets":{},"limit":20,"offset":0,"searchText":""}' \
+  | grep -iE '^(HTTP/|location:)'
+```
+
+| Probe result | Meaning | Action |
+|---|---|---|
+| **303 → `community.workday.com/maintenance-page`** | vendor maintenance window | `vendor_maintenance:<ats>`, see §3 — **log-only**, no text, no PR |
+| **200 with > 0 jobs** | the pod is fine; our scraper is broken | real DEGRADED — normal per-company path |
+| **404 / connection error** | the board moved or was deleted | real DEGRADED — §6 board research, PR-able |
+
+**Why this is log-only and not a 72h informational text.** Workday takes its pods
+down on a **weekly** cadence, so a 72h cooldown expires *before* the next
+occurrence and the key texts every single week forever. MEASURED: the identical
+event — same 11 of 16 enabled Workday companies (`adobe blueorigin cisco
+crowdstrike disney gm intel nvidia paypal snap zoom`, every one on a `wd1` or
+`wd5` host), breaking at the 06:30Z tick after a clean 06:00Z tick, all five
+conditions above satisfied, `wd12`/`wd108` tenants (`capitalone expedia
+salesforce slack turo`) serving 200s throughout — fired on **three consecutive
+Saturdays**: 2026-09-19T07:03Z, 2026-09-26T07:03Z, 2026-10-03T07:00Z. The
+2026-09-26 window closed in about one hour (last error 07:32Z, clean from 08:00Z)
+and destroyed nothing. Three identical self-healing texts in three weeks is a
+reader being trained to swipe away the key that also carries real findings, which
+is the mechanism of the 2026-08-29 missed text.
+
+**The escalation backstop is what makes log-only safe, and it needs no new code.**
+Condition 2 is a ≤`STALE_AFTER_HOURS` clock, not an exemption: if the window
+outlasts 6h, **A1 fires on its own**, condition 2 breaks, the cluster stops
+qualifying for this branch, and it classifies as ordinary DEGRADED and texts. So
+a maintenance window that turns into a real outage alerts automatically. Likewise
+a vendor break that is *not* maintenance (condition 3) or that *destroys rows*
+(condition 4) never enters this branch at all. Re-probe every run — this branch is
+never inherited from a previous run's verdict.
 
 **Check A3 — latched guard** (a company whose recent runs ALL got guard-skipped —
 it runs, returns a non-zero count, and writes **nothing** to `job_listings`).
@@ -413,6 +473,18 @@ Severity — highest wins, and it decides the alert cadence (§4):
   level, not as a closure event; if it recurs for more than a week or two the
   fleet has outgrown `MASS_CLOSE_GLOBAL_PER_COMPANY` and that constant — not this
   run's verdict — is what needs changing.
+- **INFORMATIONAL (log-only) — `vendor_maintenance:<ats>`** — an A2 cluster of
+  ≥`VENDOR_MAINTENANCE_MIN_COMPANIES` companies sharing one `ats`, satisfying all
+  five conditions in A2's vendor-maintenance branch (A1 clean, vendor maintenance
+  page on a live probe, nothing written or closed, a same-`ats` tenant on another
+  pod healthy). The scraper is correct and the vendor is mid-window. **Recorded in
+  the heartbeat line, never texted, never a PR** — there is no human action for
+  another vendor's maintenance, and the window recurs weekly, so any cooldown
+  short enough to be useful also makes it a weekly false page. If the window
+  outlasts `STALE_AFTER_HOURS` the companies enter A1 and the run re-classifies
+  them as ordinary DEGRADED, which does text. Verified, never assumed: a cluster
+  that fails any of the five conditions is DEGRADED, not this.
+
 - **DEGRADED** — per-company staleness / silent-zero (A) with the fleet still
   broadly healthy; carry the per-company list (id, ats, board_token, hours dark,
   signals). PR-able board moves dedupe on the open PR (§4.1).
@@ -448,6 +520,10 @@ Severity — highest wins, and it decides the alert cadence (§4):
    behaving correctly — but note it is the one informational key that can flip:
    if the board later probes 200 with > 0 jobs while the guard is still latched,
    it becomes `guard_latched:<company>` and loses the cooldown.
+   **`vendor_maintenance:<ats>` is NOT in this group** — it is log-only (§3), so
+   it never texts and needs no `state.json` entry at all. A 72h cooldown cannot
+   gate a weekly recurrence: it expires before the next window and the key then
+   pages every week forever.
 4. If everything found is a §4.1/§4.3 suppression (no CRITICAL active): append the
    heartbeat line with `suppressed=<ids/keys>` and end (weekly all-clear still
    applies, §9).
@@ -544,14 +620,25 @@ Skip this phase entirely if no company reached `found`/`unsupported`/`gone`.
    for p in pathlib.Path('src/backend/alembic/versions').glob('*.py'):
        t = p.read_text()
        m = re.search(r"^revision(?::\s*\w+)?\s*=\s*['\"]([0-9a-f]+)['\"]", t, re.M)
-       d = re.search(r"^down_revision(?::[^=]*)?\s*=\s*['\"]([0-9a-f]+)['\"]", t, re.M)
        if m: revs[m.group(1)] = p.name
-       if d: downs.add(d.group(1))
+       # A MERGE migration writes a TUPLE: down_revision = ('abc', 'def').
+       # Capture the whole RHS and pull every hash out of it — matching only a
+       # single quoted string here (as this check used to) makes a merge's
+       # parents invisible, and an unseen parent is reported as a head. That
+       # read 9 phantom heads on a genuinely single-head main (2026-10-03),
+       # i.e. the check failed 100% of the time and verified nothing.
+       d = re.search(r"^down_revision(?::[^=]*)?\s*=\s*(.+)$", t, re.M)
+       if d: downs.update(re.findall(r"['\"]([0-9a-f]{8,})['\"]", d.group(1)))
    heads = [r for r in revs if r not in downs]
    print('HEADS:', [(h, revs[h]) for h in heads])
    raise SystemExit(0 if len(heads) == 1 else 1)
    EOF
    ```
+
+   If this prints more than one head, **confirm with real Alembic before
+   believing it** (`alembic heads`) — and if the extra "heads" are all files
+   whose names say `merge`, you are looking at a parser artifact, not a branched
+   history.
 
    Expected rowcounts for the stale-row close-out come from live SQL (read-only):
    `SELECT count(*) FROM job_listings WHERE company = '<id>' AND source_id = '<old_ats>_api' AND status = 'OPEN'`.
@@ -621,6 +708,11 @@ Fix PR: <url>
   `JVN health CRITICAL day 3: worker DEAD 61h — only 5/133 scraping. Restart Railway.`
   Derive elapsed from the finding itself (heartbeat `minutes_ago`, or
   `now - state.json.first_texted[key]`).
+- **A `vendor_maintenance:<ats>` finding is NEVER a line in the text** (§3) — it
+  is log-only. If it is the run's *only* finding, send nothing at all and let the
+  heartbeat line carry it. The weekly all-clear below is still evaluated: a run
+  whose sole finding is a vendor maintenance window is not `OK`, so it does not
+  send one either.
 - `[DRILL]` prefix in drill mode.
 - **Weekly all-clear:** if verdict is OK and `state.json.last_allclear` is
   missing or older than **6.5 days**, send
@@ -652,6 +744,14 @@ the fleet outgrowing the constant, and is the cue to raise
 `mass_closure=global(2310/1930,shrink=0.07)` when it fires and
 `mass_closure=churn(2310/1930,shrink=-0.03)` for the informational branch.
 
+`vendor_maintenance=` carries the log-only A2 cluster branch, naming the ats, the
+cluster size over the enabled count for that ats, and the pods, e.g.
+`vendor_maintenance=workday(11/16,wd1+wd5)` — or `none`. This is the field that
+makes a silent run auditable: because the branch never texts, the log line is the
+*only* record that 11 companies were dark and why it was correct not to page. A
+run carrying it reads `verdict=DEGRADED` with `stale=none`, which is the signature
+to look for.
+
 `guard_latched=` lists any Check A3 companies (comma-separated ids, or `none`) —
 a run where `guard_latched=apple` but `coverage` and `stale` look fine is exactly
 the 2026-08-28 blind spot reading correctly at last.
@@ -679,4 +779,6 @@ then end the turn immediately (headless: no further tool calls).
 | Global closure volume high, but per-company Check B empty AND corpus grew | NOT a mass closure — informational `close_volume_high:global` on the 72h cooldown. Never CRITICAL, never a PR. Recurring for >1–2 weeks means raise `MASS_CLOSE_GLOBAL_PER_COMPANY`, not mute the check |
 | Fleet size changed a lot since the thresholds were last reviewed | Nothing to do — the global closure alarm and Check D are both fleet-relative by construction. Only `MASS_CLOSE_COMPANY_MIN` is absolute, and Check B scales it per company |
 | Branch `fix/board-move-<date>` already exists | Suffix `-2`; if an OPEN PR exists for it, treat as dedupe hit instead |
+| A2 fires for a cluster of companies sharing one `ats` | Do NOT read it as N board moves. Run A2's five-condition vendor-maintenance check first; all five hold ⇒ log-only `vendor_maintenance:<ats>`, no text, no PR. Any condition unverified ⇒ ordinary DEGRADED |
+| A vendor maintenance window outlasts `STALE_AFTER_HOURS` | Nothing to do — the companies enter A1, condition 2 breaks, and the run classifies them DEGRADED and texts automatically. The log-only branch cannot hide a window that became an outage |
 | send.sh missing/broken | stderr `ALERT-SEND FAILED`; heartbeat records it; wrapper's own 72h-cooldown failure text is the backstop |
