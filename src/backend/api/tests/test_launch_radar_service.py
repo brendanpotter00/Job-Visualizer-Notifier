@@ -456,9 +456,26 @@ class TestLifecycle:
         new_rows, new_total = svc.list_cards(db_conn, "new", 25, 0)
         assert [r["id"] for r in new_rows] == [b] and new_total == 1
         archived, archived_total = svc.list_cards(db_conn, "archived", 25, 0)
-        # Most recently archived first (c was archived after a).
+        # The default sort (announced) on every tab: same announcement date, so
+        # newest posted first (c was posted after a).
         assert [r["id"] for r in archived] == [c, a] and archived_total == 2
-        assert svc.card_counts(db_conn) == {"new": 1, "archived": 2}
+        assert svc.list_cards(db_conn, "saved", 25, 0) == ([], 0)
+        assert svc.card_counts(db_conn) == {"new": 1, "saved": 0, "archived": 2}
+
+    def test_saved_tab_lists_newest_posted_first_and_counts(self, db_conn) -> None:
+        a, b, c, d = self._seed(db_conn, "a.ai", "b.ai", "c.ai", "d.ai")
+        # Saved in the order c, a: with equal announcement dates the tab still
+        # reads newest-POSTED first, not most-recently-saved.
+        svc.set_status(db_conn, c, "saved", "x@y.com")
+        svc.set_status(db_conn, a, "saved", "x@y.com")
+        svc.set_status(db_conn, d, "archived", "x@y.com")
+        saved, saved_total = svc.list_cards(db_conn, "saved", 25, 0)
+        assert [r["id"] for r in saved] == [c, a] and saved_total == 2
+        assert [r["id"] for r in svc.list_cards(db_conn, "saved", 1, 1)[0]] == [a]
+        new_rows, new_total = svc.list_cards(db_conn, "new", 25, 0)
+        assert [r["id"] for r in new_rows] == [b] and new_total == 1
+        # A card is in exactly one tab.
+        assert svc.card_counts(db_conn) == {"new": 1, "saved": 2, "archived": 1}
 
     def test_archive_restore_round_trip(self, db_conn) -> None:
         (card,) = self._seed(db_conn, "a.ai")
@@ -467,6 +484,46 @@ class TestLifecycle:
         assert row["updated_by"] == "admin@x.com"
         row = svc.set_status(db_conn, card, "new", "admin@x.com")
         assert row["status"] == "new" and row["archived_at"] is None
+
+    def test_save_unsave_round_trip(self, db_conn) -> None:
+        (card,) = self._seed(db_conn, "a.ai")
+        row = svc.set_status(db_conn, card, "saved", "admin@x.com")
+        assert row["status"] == "saved" and row["archived_at"] is None
+        assert row["updated_by"] == "admin@x.com"
+        assert row["payload"] is not None and row["domain"] == "a.ai"
+        row = svc.set_status(db_conn, card, "new", "other@x.com")  # Unsave
+        assert row["status"] == "new" and row["archived_at"] is None
+        assert row["updated_by"] == "other@x.com"
+
+    def test_archive_a_saved_card_then_restore_lands_in_new(self, db_conn) -> None:
+        (card,) = self._seed(db_conn, "a.ai")
+        svc.set_status(db_conn, card, "saved", "x")
+        row = svc.set_status(db_conn, card, "archived", "x")
+        assert row["status"] == "archived" and row["archived_at"] is not None
+        row = svc.set_status(db_conn, card, "new", "x")  # Restore -> New, not Saved
+        assert row["status"] == "new" and row["archived_at"] is None
+
+    def test_expected_from_makes_the_move_a_compare_and_swap(self, db_conn) -> None:
+        """Unsave and Restore both send ``new``: without ``from`` a stale Unsave (the
+        card was archived meanwhile) would restore an archived card."""
+        (card,) = self._seed(db_conn, "a.ai")
+        svc.set_status(db_conn, card, "saved", "x", expected_from="new")  # Save
+        svc.set_status(db_conn, card, "archived", "x", expected_from="saved")  # Archive elsewhere
+        before = _card(db_conn, card)
+        with pytest.raises(svc.Conflict, match="^card is archived, not saved; reload and try again$"):
+            svc.set_status(db_conn, card, "new", "stale@x.com", expected_from="saved")  # the stale Unsave
+        after = _card(db_conn, card)
+        assert after["status"] == "archived" and after["updated_at"] == before["updated_at"]
+        row = svc.set_status(db_conn, card, "new", "x", expected_from="archived")  # Restore
+        assert row["status"] == "new" and row["archived_at"] is None
+        # A ``from`` the target cannot be reached from is refused like any wrong move.
+        svc.set_status(db_conn, card, "archived", "x", expected_from="new")
+        with pytest.raises(svc.Conflict, match="^card is archived; only a new card can move to saved$"):
+            svc.set_status(db_conn, card, "saved", "x", expected_from="archived")
+        with pytest.raises(svc.Conflict, match="^card is already archived$"):
+            svc.set_status(db_conn, card, "archived", "x", expected_from="archived")
+        with pytest.raises(svc.NotFound):
+            svc.set_status(db_conn, 999_999, "saved", "x", expected_from="new")
 
     def test_wrong_state_transitions_conflict(self, db_conn) -> None:
         (card,) = self._seed(db_conn, "a.ai")
@@ -477,6 +534,80 @@ class TestLifecycle:
         svc.set_status(db_conn, card, "archived", "x")
         with pytest.raises(svc.Conflict):
             svc.set_status(db_conn, card, "archived", "x")
+
+    @pytest.mark.parametrize(
+        ("path", "target", "message"),
+        [
+            ((), "new", "card is already new"),
+            (("saved",), "saved", "card is already saved"),
+            (("archived",), "archived", "card is already archived"),
+            (("archived",), "saved", "card is archived; only a new card can move to saved"),
+            (("saved", "archived"), "saved", "card is archived; only a new card can move to saved"),
+        ],
+    )
+    def test_refused_transitions_are_conflicts_and_change_nothing(
+        self, db_conn, path: tuple[str, ...], target: str, message: str
+    ) -> None:
+        (card,) = self._seed(db_conn, "a.ai")
+        for step in path:
+            svc.set_status(db_conn, card, step, "first@x.com")
+        before = _card(db_conn, card)
+        with pytest.raises(svc.Conflict, match=f"^{message}$"):
+            svc.set_status(db_conn, card, target, "second@x.com")
+        after = _card(db_conn, card)
+        assert after["status"] == before["status"]
+        assert after["updated_by"] == before["updated_by"]
+        assert after["updated_at"] == before["updated_at"]
+
+    @pytest.mark.parametrize(
+        ("path", "target", "raced_to"),
+        [
+            (("archived",), "saved", "new"),  # Save missed, then a Restore landed
+            ((), "new", "saved"),  # Unsave of a new card missed, then a Save landed
+            ((), "new", "archived"),  # Restore of a new card missed, then an Archive landed
+            (("archived",), "archived", "new"),  # Archive missed, then a Restore landed
+        ],
+    )
+    def test_a_status_that_moved_after_the_missed_update_gets_a_generic_409(
+        self, db_conn, monkeypatch, path: tuple[str, ...], target: str, raced_to: str
+    ) -> None:
+        """Another request commits between the guarded UPDATE and the follow-up
+        read, leaving the card in a status the move IS allowed from. Naming it
+        would contradict the refusal ("card is new; only a new card can move
+        to saved"), so that case gets the generic message."""
+        (card,) = self._seed(db_conn, "a.ai")
+        for step in path:
+            svc.set_status(db_conn, card, step, "x")
+        real = svc._status_after_missed_update
+
+        def raced(conn: Any, cur: Any, card_id: int) -> str:
+            real(conn, cur, card_id)  # the real read (and its rollback)...
+            return raced_to  # ...but the card moved in between
+
+        monkeypatch.setattr(svc, "_status_after_missed_update", raced)
+        with pytest.raises(
+            svc.Conflict, match="^card changed while this request ran; reload and try again$"
+        ):
+            svc.set_status(db_conn, card, target, "y")
+        assert _card(db_conn, card)["updated_by"] != "y"  # nothing was written
+
+    def test_a_delete_that_raced_a_concurrent_archive_gets_a_generic_409(
+        self, db_conn, monkeypatch
+    ) -> None:
+        (card,) = self._seed(db_conn, "a.ai")  # new: the delete's UPDATE misses
+        monkeypatch.setattr(svc, "_status_after_missed_update", lambda *_: "archived")
+        with pytest.raises(
+            svc.Conflict, match="^card changed while this request ran; reload and try again$"
+        ):
+            svc.delete_card(db_conn, card, "x")
+        assert _card(db_conn, card)["status"] == "new"
+
+    def test_a_saved_card_cannot_be_deleted(self, db_conn) -> None:
+        (card,) = self._seed(db_conn, "a.ai")
+        svc.set_status(db_conn, card, "saved", "x")
+        with pytest.raises(svc.Conflict, match="archive it before deleting"):
+            svc.delete_card(db_conn, card, "x")
+        assert _card(db_conn, card)["status"] == "saved"
 
     def test_delete_tombstones_and_hides(self, db_conn) -> None:
         _insert_company(db_conn, "raindrop", "ashby", "raindrop")
@@ -491,7 +622,7 @@ class TestLifecycle:
         assert row["archived_at"] is None and row["deleted_at"] is not None
         assert row["domain"] == "raindrop.ai"  # the dedupe key survives
         assert svc.list_cards(db_conn, "archived", 25, 0) == ([], 0)
-        assert svc.card_counts(db_conn) == {"new": 0, "archived": 0}
+        assert svc.card_counts(db_conn) == {"new": 0, "saved": 0, "archived": 0}
 
     def test_deleted_and_missing_cards_are_not_found(self, db_conn) -> None:
         (card,) = self._seed(db_conn, "a.ai")
@@ -499,13 +630,27 @@ class TestLifecycle:
         svc.delete_card(db_conn, card, "x")
         for fn in (
             lambda: svc.set_status(db_conn, card, "new", "x"),
+            lambda: svc.set_status(db_conn, card, "saved", "x"),
             lambda: svc.set_status(db_conn, card, "archived", "x"),
+            lambda: svc.set_status(db_conn, 999_999, "saved", "x"),
             lambda: svc.delete_card(db_conn, card, "x"),
             lambda: svc.delete_card(db_conn, 999_999, "x"),
             lambda: svc.set_status(db_conn, 999_999, "archived", "x"),
         ):
             with pytest.raises(svc.NotFound):
                 fn()
+
+    def test_status_check_constraint_allows_saved_only_among_new_values(self, db_conn) -> None:
+        (card,) = self._seed(db_conn, "a.ai")
+        with db_conn.cursor() as cur:
+            cur.execute("UPDATE launch_radar_cards SET status = 'saved' WHERE id = %s", (card,))
+        db_conn.commit()
+        with db_conn.cursor() as cur:
+            with pytest.raises(psycopg2.errors.CheckViolation):
+                cur.execute(
+                    "UPDATE launch_radar_cards SET status = 'starred' WHERE id = %s", (card,)
+                )
+        db_conn.rollback()
 
     def test_tombstone_check_constraint_holds(self, db_conn) -> None:
         (card,) = self._seed(db_conn, "a.ai")
@@ -518,8 +663,146 @@ class TestLifecycle:
 
 
 # ---------------------------------------------------------------------------
+# Sorting the admin list (``list_cards(..., sort)``)
+# ---------------------------------------------------------------------------
+
+
+class TestSort:
+    """Every sort key, null placement and the tie-breaks: announced date DESC
+    NULLS LAST, then posted_at DESC, then id DESC, so paging is deterministic."""
+
+    def _card(
+        self,
+        db_conn: Any,
+        domain: str,
+        *,
+        announced: str | None = "2026-09-17",
+        talent: int | None = 50,
+        vc: int | None = 50,
+        posted: str = "2026-10-01T00:00:00Z",
+        event: bool = True,
+    ) -> int:
+        base = make_payload(domain=domain)
+        payload = stored_payload(
+            domain=domain,
+            event={**base["event"], "announced_at": announced} if event else None,
+            scores={**base["scores"], "talent": talent, "vc": vc},
+        )
+        card_id = svc.insert_card(db_conn, "run-0001", payload)["id"]
+        with db_conn.cursor() as cur:
+            cur.execute(
+                "UPDATE launch_radar_cards SET posted_at = %s WHERE id = %s", (posted, card_id)
+            )
+        db_conn.commit()
+        return card_id
+
+    def _ids(self, db_conn: Any, sort: str, status: str = "new") -> list[int]:
+        rows, _ = svc.list_cards(db_conn, status, 25, 0, sort)  # type: ignore[arg-type]
+        return [r["id"] for r in rows]
+
+    def test_announced_is_the_default_newest_first_and_undated_last(self, db_conn) -> None:
+        start_test_run(db_conn)
+        no_event = self._card(db_conn, "a.ai", event=False, posted="2026-10-05T00:00:00Z")
+        undated = self._card(db_conn, "b.ai", announced=None, posted="2026-10-04T00:00:00Z")
+        older = self._card(db_conn, "c.ai", announced="2026-09-01")
+        newer = self._card(db_conn, "d.ai", announced="2026-09-30")
+        expected = [newer, older, no_event, undated]  # the two nulls: newest posted first
+        assert self._ids(db_conn, "announced") == expected
+        rows, _ = svc.list_cards(db_conn, "new", 25, 0)  # no sort given
+        assert [r["id"] for r in rows] == expected
+
+    @pytest.mark.parametrize("key", ["talent", "vc"])
+    def test_score_sorts_highest_first_unscored_last_ties_by_announced(
+        self, db_conn, key: str
+    ) -> None:
+        start_test_run(db_conn)
+        other = "vc" if key == "talent" else "talent"
+
+        def card(domain: str, score: int | None, **kw: Any) -> int:
+            # The other score runs the opposite way, so a wrong column shows.
+            opposite = None if score is None else 100 - score
+            return self._card(db_conn, domain, **{key: score, other: opposite}, **kw)
+
+        low = card("a.ai", 10)
+        unscored = card("b.ai", None, announced="2026-09-30")
+        top = card("c.ai", 90)
+        tie_older = card("d.ai", 60, announced="2026-09-01")
+        tie_newer = card("e.ai", 60, announced="2026-09-20")
+        zero = card("f.ai", 0)  # a real 0 is a score, so it sorts above null
+        assert self._ids(db_conn, key) == [top, tie_newer, tie_older, low, zero, unscored]
+
+    def test_added_is_newest_posted_first_ties_by_announced_then_id(self, db_conn) -> None:
+        start_test_run(db_conn)
+        oldest = self._card(db_conn, "a.ai", posted="2026-10-01T00:00:00Z", announced="2026-09-30")
+        same_a = self._card(db_conn, "b.ai", posted="2026-10-03T00:00:00Z", announced="2026-09-01")
+        same_b = self._card(db_conn, "c.ai", posted="2026-10-03T00:00:00Z", announced="2026-09-10")
+        same_c = self._card(db_conn, "d.ai", posted="2026-10-03T00:00:00Z", announced="2026-09-10")
+        newest = self._card(db_conn, "e.ai", posted="2026-10-06T00:00:00Z", announced=None)
+        # same_b and same_c tie on posted AND announced: id DESC decides.
+        assert self._ids(db_conn, "added") == [newest, same_c, same_b, same_a, oldest]
+
+    @pytest.mark.parametrize("key", ["announced", "talent", "vc", "added"])
+    def test_full_ties_page_in_one_stable_order(self, db_conn, key: str) -> None:
+        """Identical sort values everywhere: id DESC alone orders the page, so
+        walking it one row at a time neither repeats nor skips a card."""
+        start_test_run(db_conn)
+        ids = [self._card(db_conn, f"t{i}.ai") for i in range(5)]
+        assert self._ids(db_conn, key) == sorted(ids, reverse=True)
+        walked = [
+            r["id"]
+            for offset in range(5)
+            for r in svc.list_cards(db_conn, "new", 1, offset, key)[0]  # type: ignore[arg-type]
+        ]
+        assert walked == sorted(ids, reverse=True)
+
+    @pytest.mark.parametrize("status", ["saved", "archived"])
+    def test_every_tab_takes_the_sort(self, db_conn, status: str) -> None:
+        start_test_run(db_conn)
+        low = self._card(db_conn, "a.ai", talent=10, announced="2026-09-30")
+        high = self._card(db_conn, "b.ai", talent=90, announced="2026-09-01")
+        kept_new = self._card(db_conn, "c.ai", talent=99)
+        for card_id in (low, high):
+            svc.set_status(db_conn, card_id, status, "x")  # type: ignore[arg-type]
+        assert self._ids(db_conn, "talent", status) == [high, low]
+        assert self._ids(db_conn, "announced", status) == [low, high]
+        assert self._ids(db_conn, "talent") == [kept_new]  # the New tab keeps only its own
+
+    def test_every_sort_key_has_a_fixed_order_clause(self) -> None:
+        assert set(svc._CARD_ORDER) == {"announced", "talent", "vc", "added"}
+        for clause in svc._CARD_ORDER.values():
+            assert clause.endswith("id DESC")
+            assert "%" not in clause  # nothing is formatted into it at request time
+
+
+# ---------------------------------------------------------------------------
 # Stats, seen, PR step, Monitors
 # ---------------------------------------------------------------------------
+
+
+class TestFindCards:
+    def test_status_filter_and_keyset_pages(self, db_conn) -> None:
+        start_test_run(db_conn)
+        ids = [
+            svc.insert_card(db_conn, "run-0001", stored_payload(domain=f"c{i}.ai"))["id"]
+            for i in range(5)
+        ]
+        svc.set_status(db_conn, ids[1], "archived", "x")
+        svc.set_status(db_conn, ids[2], "saved", "x")
+        svc.set_status(db_conn, ids[4], "archived", "x")
+        svc.delete_card(db_conn, ids[4], "x")
+        live = [r["id"] for r in svc.find_cards(db_conn, ["c0.ai", "c1.ai", "c2.ai", "c3.ai", "c4.ai"], False, 100)]
+        assert live == ids[:4]  # every live status by default; the tombstone never
+        assert [r["id"] for r in svc.find_cards(db_conn, [f"c{i}.ai" for i in range(5)], False, 100, [])] == live
+        no_archived = svc.find_cards(
+            db_conn, [f"c{i}.ai" for i in range(5)], False, 100, ["new", "saved"]
+        )
+        assert [r["id"] for r in no_archived] == [ids[0], ids[2], ids[3]]
+        # Keyset paging: id > after_id, at most limit, by id.
+        domains = [f"c{i}.ai" for i in range(5)]
+        page1 = svc.find_cards(db_conn, domains, False, 2)
+        page2 = svc.find_cards(db_conn, domains, False, 2, after_id=page1[-1]["id"])
+        page3 = svc.find_cards(db_conn, domains, False, 2, after_id=page2[-1]["id"])
+        assert [r["id"] for r in page1 + page2] == live and page3 == []
 
 
 class TestStatsSeenPr:
@@ -539,13 +822,18 @@ class TestStatsSeenPr:
         card = svc.insert_card(db_conn, "run-0001", stored_payload(domain="ghost.ai"))["id"]
         svc.set_status(db_conn, card, "archived", "x")
         svc.delete_card(db_conn, card, "x")
+        saved = svc.insert_card(db_conn, "run-0001", stored_payload(domain="kept.ai"))["id"]
+        svc.set_status(db_conn, saved, "saved", "x")
         out = svc.seen(
             db_conn,
-            ["HTTPS://www.Ghost.AI/about", "unseen.io", "NA"],
+            ["HTTPS://www.Ghost.AI/about", "kept.ai", "unseen.io", "NA"],
             ["raindrop ai", "Secret Co", "Nobody"],
         )
         assert out == {
-            "domains": {"ghost.ai": {"card_id": card, "status": "deleted"}},
+            "domains": {
+                "ghost.ai": {"card_id": card, "status": "deleted"},
+                "kept.ai": {"card_id": saved, "status": "saved"},
+            },
             "names": {"raindrop ai": "raindrop-ai"},
         }
 
@@ -575,6 +863,42 @@ class TestStatsSeenPr:
             svc.set_pr_url(db_conn, tracked, url)
         with pytest.raises(svc.NotFound):
             svc.set_pr_url(db_conn, 999_999, url)
+
+    def test_pr_candidates_include_saved_cards_first_never_archived_or_deleted(
+        self, db_conn
+    ) -> None:
+        start_test_run(db_conn)
+
+        def card(domain: str, posted: str) -> int:
+            card_id = svc.insert_card(db_conn, "run-0001", stored_payload(domain=domain))["id"]
+            with db_conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE launch_radar_cards SET posted_at = %s WHERE id = %s", (posted, card_id)
+                )
+            db_conn.commit()
+            return card_id
+
+        old_saved = card("oldsaved.ai", "2026-10-01T00:00:00Z")
+        new_old = card("oldnew.ai", "2026-10-02T00:00:00Z")
+        new_newest = card("newnew.ai", "2026-10-06T00:00:00Z")
+        saved_newer = card("newsaved.ai", "2026-10-03T00:00:00Z")
+        archived = card("archived.ai", "2026-10-07T00:00:00Z")
+        deleted = card("deleted.ai", "2026-10-07T01:00:00Z")
+        svc.set_status(db_conn, old_saved, "saved", "x")
+        svc.set_status(db_conn, saved_newer, "saved", "x")
+        svc.set_status(db_conn, archived, "archived", "x")
+        svc.set_status(db_conn, deleted, "archived", "x")
+        svc.delete_card(db_conn, deleted, "x")
+
+        # Saved first (the admin flagged them), each group newest posted first.
+        ids = [c["id"] for c in svc.pr_candidates(db_conn, 5)]
+        assert ids == [saved_newer, old_saved, new_newest, new_old]
+        assert archived not in ids and deleted not in ids
+        assert [c["id"] for c in svc.pr_candidates(db_conn, 1)] == [saved_newer]
+        # A saved card leaves the list like a new one once its PR is recorded.
+        url = "https://github.com/brendanpotter00/Job-Visualizer-Notifier/pull/401"
+        svc.set_pr_url(db_conn, saved_newer, url)
+        assert [c["id"] for c in svc.pr_candidates(db_conn, 1)] == [old_saved]
 
     def test_monitor_put_patch_and_reset_cursor_on_new_id(self, db_conn) -> None:
         t0 = datetime(2026, 10, 7, 7, tzinfo=timezone.utc)

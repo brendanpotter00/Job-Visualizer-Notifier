@@ -3,7 +3,6 @@
 import json
 
 import pytest
-
 from launch_radar.state import StateStore, iso, parse_iso
 
 

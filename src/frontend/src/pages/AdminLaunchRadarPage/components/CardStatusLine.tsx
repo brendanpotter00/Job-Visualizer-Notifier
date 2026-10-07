@@ -6,7 +6,17 @@ import Link from '@mui/material/Link';
 import Typography from '@mui/material/Typography';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import type { LaunchRadarCard } from '../../../features/admin/launchRadarTypes';
-import { formatShortDate } from '../format';
+import { RESPONSIVE } from '../../../config/responsive';
+import { cardToggleId, formatShortDate, jobBoardHref } from '../format';
+
+/** Tighter action buttons on a phone, so the line fits a narrow card. */
+const ACTION_SX = {
+  px: RESPONSIVE.launchRadar.actionPaddingX,
+  minWidth: RESPONSIVE.launchRadar.actionMinWidth,
+} as const;
+
+/** The lifecycle moves this line offers; `RadarCard` maps each to a PATCH. */
+export type CardAction = 'save' | 'unsave' | 'archive' | 'restore';
 
 interface CardStatusLineProps {
   card: LaunchRadarCard;
@@ -14,10 +24,12 @@ interface CardStatusLineProps {
   /** Id of the collapsible body, for the toggle's aria-controls. */
   bodyId: string;
   onToggle: () => void;
-  /** True while this card's archive/restore request is in flight. */
+  /**
+   * True while this card's status request is in flight, and after it
+   * succeeded: the card is leaving the list, so nothing on it may be pressed.
+   */
   busy: boolean;
-  onArchive: () => void;
-  onRestore: () => void;
+  onAction: (action: CardAction) => void;
   onDelete: () => void;
 }
 
@@ -30,9 +42,32 @@ function stopToggle(event: MouseEvent) {
 }
 
 /**
- * One line under the scores. Left: what the admin can do about this company
- * (merge the add-company PR, nothing because it is already tracked, or open
- * the job board by hand). Right: the lifecycle actions for the current tab.
+ * The right side's buttons for each tab, in order. Delete is separate. Read
+ * with `?? []`: the list response is checked for a known status, but a status
+ * this build does not know must render no actions, never crash the page.
+ */
+const ACTIONS: Record<LaunchRadarCard['status'], { action: CardAction; label: string }[]> = {
+  new: [
+    { action: 'save', label: 'Save' },
+    { action: 'archive', label: 'Archive' },
+  ],
+  saved: [
+    { action: 'unsave', label: 'Unsave' },
+    { action: 'archive', label: 'Archive' },
+  ],
+  archived: [{ action: 'restore', label: 'Restore' }],
+};
+
+/**
+ * One line under the scores. Left: "Already tracked" when the company is
+ * already on the site, otherwise a "Job board" link to open its board by hand
+ * (only an `http(s)` URL becomes a link); an archived card shows when it was
+ * archived. Right: the lifecycle actions for the card's tab (New: Save,
+ * Archive · Saved: Unsave, Archive · Archived: Restore, Delete).
+ *
+ * Every button and link names the company in its accessible name ("Save
+ * Lightfield", "Job board Lightfield"): a page holds 25 cards, and 25 buttons
+ * all called "Save" are indistinguishable in a screen reader's controls list.
  */
 export function CardStatusLine({
   card,
@@ -40,29 +75,15 @@ export function CardStatusLine({
   bodyId,
   onToggle,
   busy,
-  onArchive,
-  onRestore,
+  onAction,
   onDelete,
 }: CardStatusLineProps) {
-  let left: ReactNode;
+  let left: ReactNode = null;
   if (card.status === 'archived') {
     left = (
       <Typography component="span" variant="body2" color="text.secondary">
         Archived {formatShortDate(card.archivedAt)}
       </Typography>
-    );
-  } else if (card.prUrl) {
-    left = (
-      <Link
-        href={card.prUrl}
-        target="_blank"
-        rel="noopener noreferrer"
-        onClick={stopToggle}
-        variant="body2"
-        sx={{ color: 'success.main', fontWeight: 500 }}
-      >
-        Add-company PR ready
-      </Link>
     );
   } else if (card.trackedCompanyId) {
     left = (
@@ -71,33 +92,33 @@ export function CardStatusLine({
       </Typography>
     );
   } else {
-    const board = card.ats.boardUrl ?? card.careersUrl;
-    left = (
-      <Typography component="span" variant="body2" color="text.secondary">
-        No PR
-        {board && (
-          <>
-            {' · '}
-            <Link
-              href={board}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={stopToggle}
-              color="inherit"
-            >
-              Open job board
-            </Link>
-          </>
-        )}
-      </Typography>
-    );
+    const board = jobBoardHref(card.ats, card.careersUrl);
+    if (board) {
+      left = (
+        <Link
+          href={board}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={stopToggle}
+          variant="body2"
+          color="text.secondary"
+          aria-label={`Job board ${card.company}`}
+        >
+          Job board
+        </Link>
+      );
+    }
   }
 
   return (
+    // Left and right wrap as whole units: on a narrow card the actions drop
+    // to their own line (still on the right) rather than "Job board" or
+    // "Already tracked" breaking mid-label.
     <Box
       sx={{
-        gridColumn: '2 / -1',
+        gridColumn: '1 / -1',
         display: 'flex',
+        flexWrap: 'wrap',
         alignItems: 'center',
         justifyContent: 'space-between',
         gap: 1,
@@ -107,49 +128,43 @@ export function CardStatusLine({
         borderColor: 'divider',
       }}
     >
-      <Box sx={{ minWidth: 0 }}>{left}</Box>
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25, flexShrink: 0 }}>
-        {card.status === 'new' ? (
+      <Box sx={{ whiteSpace: 'nowrap' }}>{left}</Box>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25, flexShrink: 0, ml: 'auto' }}>
+        {(ACTIONS[card.status] ?? []).map(({ action, label }) => (
           <Button
+            key={action}
             size="small"
             color="inherit"
             disabled={busy}
+            aria-label={`${label} ${card.company}`}
+            sx={ACTION_SX}
             onClick={(e) => {
               stopToggle(e);
-              onArchive();
+              onAction(action);
             }}
           >
-            Archive
+            {label}
           </Button>
-        ) : (
-          <>
-            <Button
-              size="small"
-              color="inherit"
-              disabled={busy}
-              onClick={(e) => {
-                stopToggle(e);
-                onRestore();
-              }}
-            >
-              Restore
-            </Button>
-            <Button
-              size="small"
-              color="error"
-              disabled={busy}
-              onClick={(e) => {
-                stopToggle(e);
-                onDelete();
-              }}
-            >
-              Delete
-            </Button>
-          </>
+        ))}
+        {card.status === 'archived' && (
+          <Button
+            size="small"
+            color="error"
+            disabled={busy}
+            aria-label={`Delete ${card.company}`}
+            sx={ACTION_SX}
+            onClick={(e) => {
+              stopToggle(e);
+              onDelete();
+            }}
+          >
+            Delete
+          </Button>
         )}
         {/* The keyboard / screen-reader toggle. The header's own click is a
             mouse convenience; this button is the accessible control. */}
         <IconButton
+          id={cardToggleId(card.id)}
           size="small"
           aria-expanded={expanded}
           aria-controls={bodyId}

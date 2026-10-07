@@ -57,6 +57,7 @@ from ..models import (
     AdminSubcategoryResetResponse,
     FeedbackResponse,
     LaunchRadarCardOut,
+    LaunchRadarCardSort,
     LaunchRadarCardStatus,
     LaunchRadarCardsResponse,
     LaunchRadarCounts,
@@ -1052,8 +1053,9 @@ def admin_custom_company_attempts(
 # ---------------------------------------------------------------------------
 # Launch Radar — the startup cards the Parallel loop posts
 # (docs/implementations/launch-radar/CONTRACT.md §2.1). Deleted cards are
-# tombstones and never reach the client: every read filters on one of the two
-# live statuses, and a tombstone answers 404 to PATCH and DELETE.
+# tombstones and never reach the client: every read filters on one of the three
+# live statuses (new, saved, archived), and a tombstone answers 404 to PATCH and
+# DELETE.
 # ---------------------------------------------------------------------------
 
 
@@ -1077,12 +1079,17 @@ def admin_launch_radar_cards(
     status: LaunchRadarCardStatus = Query(),
     limit: int = Query(default=25, ge=1, le=_LAUNCH_RADAR_LIST_CAP),
     offset: int = Query(default=0, ge=0),
+    sort: LaunchRadarCardSort = Query(default="announced"),
     conn: Connection = Depends(get_db),
     _admin: TokenClaims = Depends(require_admin),
 ) -> LaunchRadarCardsResponse:
-    """One page of cards in one tab, both tab counts, and the header stats."""
+    """One page of cards in one tab, every tab's count, and the header stats.
+
+    ``sort`` picks the order (newest announcement, Talent, VC, or newest
+    added); any other value is a 422. It is a ``Literal`` that selects a fixed
+    ORDER BY in the service, never text spliced into SQL."""
     try:
-        rows, total = launch_radar.list_cards(conn, status, limit, offset)
+        rows, total = launch_radar.list_cards(conn, status, limit, offset, sort)
         counts = launch_radar.card_counts(conn)
         stats = launch_radar.run_stats(conn)
     except psycopg2.Error:
@@ -1091,8 +1098,11 @@ def admin_launch_radar_cards(
         raise HTTPException(status_code=500, detail="Failed to load launch radar cards")
     cards: list[LaunchRadarCardOut] = []
     for r in rows:
-        # One stored payload that no longer validates (an older shape after a
-        # schema change) must not blank the whole dashboard with a 500.
+        # A stored URL or event date that fails the input rules is nulled by the
+        # output model (LaunchRadarCardOut), never a reason to drop the card. This
+        # catch is the last resort for a payload of a different SHAPE (a missing
+        # key after a schema change): one such row must not blank the whole
+        # dashboard with a 500.
         try:
             cards.append(_launch_radar_card_out(r))
         except ValidationError:
@@ -1117,11 +1127,14 @@ def admin_set_launch_radar_status(
     conn: Connection = Depends(get_db),
     admin: TokenClaims = Depends(require_admin),
 ) -> LaunchRadarCardOut:
-    """Archive a new card (``archived``) or restore an archived one (``new``).
-    404 for a missing or deleted card, 409 when it is already in that state."""
+    """Move a card between tabs: Save (``saved``, from new), Unsave or Restore
+    (``new``, from saved or archived), Archive (``archived``, from new or
+    saved). 404 for a missing or deleted card, 409 for any other move (already
+    in that state, or archived -> saved), and 409 when the body's optional
+    ``from`` is not the card's current status (a click on a stale view)."""
     try:
         row = launch_radar.set_status(
-            conn, card_id, body.status, admin.get("email", "unknown")
+            conn, card_id, body.status, admin.get("email", "unknown"), body.from_status
         )
     except launch_radar.NotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc))
@@ -1142,7 +1155,7 @@ def admin_delete_launch_radar_card(
 ) -> Response:
     """Delete permanently: tombstone an ARCHIVED card (payload cleared, domain
     kept so the loop never posts it again). 404 missing or already deleted, 409
-    for a card that is still ``new`` (archive it first)."""
+    for a card that is still ``new`` or ``saved`` (archive it first)."""
     try:
         launch_radar.delete_card(conn, card_id, admin.get("email", "unknown"))
     except launch_radar.NotFound as exc:

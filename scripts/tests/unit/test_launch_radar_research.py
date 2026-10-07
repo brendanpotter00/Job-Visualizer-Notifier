@@ -3,11 +3,15 @@
 from types import SimpleNamespace as NS
 
 import pytest
-
 from launch_radar.leaders import Deadline, DeadlineReached, RetryLater
-from launch_radar.research import TaskFailed, brief_request, task_output, team_request, wait_task
+from launch_radar.research import (
+    TaskFailed,
+    brief_request,
+    task_output,
+    team_request,
+    wait_task,
+)
 from launch_radar.schemas import BRIEF_SCHEMA, TEAM_SCHEMA
-
 from tests.unit.launch_radar_fakes import FakeAPIStatusError, FakeParallel
 
 
@@ -105,3 +109,17 @@ def test_task_output_parses_json_strings_and_rejects_text():
     assert task_output(good) == ({"a": 1}, [1])
     assert task_output(NS(output=NS(content="free text", basis=None))) == (None, [])
     assert task_output(NS(output=None)) == (None, [])
+
+
+def test_brief_schema_founders_are_required_strict_and_lean():
+    founders = BRIEF_SCHEMA["properties"]["founders"]
+    assert "founders" in BRIEF_SCHEMA["required"]
+    assert set(BRIEF_SCHEMA["required"]) == set(BRIEF_SCHEMA["properties"])  # every field required
+    assert BRIEF_SCHEMA["additionalProperties"] is False
+    assert founders["type"] == "array" and "founders and current C-level leaders" in founders["description"]
+    item = founders["items"]
+    assert set(item["properties"]) == {"name", "title", "linkedin_url"}
+    assert item["required"] == ["name", "title", "linkedin_url"] and item["additionalProperties"] is False
+    assert item["properties"]["name"]["type"] == "string"
+    assert item["properties"]["linkedin_url"]["type"] == ["string", "null"]
+    assert len(BRIEF_SCHEMA["properties"]) == 12  # the brief already passes Parallel's recommended 10

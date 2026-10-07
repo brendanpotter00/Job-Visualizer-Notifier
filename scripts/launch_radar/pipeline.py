@@ -6,7 +6,9 @@ Spend rule: every billed Parallel call is preceded by a backend reservation
 reservation is never made again. If a create call fails in a way that may
 still have reached Parallel (a timeout or a dropped connection: the id was
 never saved), the retry is reserved AGAIN under a ``#retryN`` step, so the
-ledger over-counts a possible double charge instead of missing it.
+ledger over-counts a possible double charge instead of missing it. The pedigree
+group's ``add_runs`` follows the same rule, after first asking the group whether
+the earlier request landed (``CompanyJob.add_pedigree_runs``).
 """
 
 from __future__ import annotations
@@ -16,6 +18,7 @@ import socket
 import threading
 import time
 import uuid
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -29,21 +32,33 @@ from .backend_client import BackendClient, BudgetExceeded, DomainSeen
 from .card import build_payload, text
 from .domains import is_big_tech, is_hostname, normalize_domain
 from .leaders import (
+    BRIEF_LEADERS_ISSUE,
+    BriefLeader,
     Deadline,
     DeadlineReached,
     RetryLater,
     add_pedigree_runs,
+    brief_founders,
+    brief_leaders,
     collect_pedigree,
     create_pedigree_group,
     findall_request,
     pedigree_inputs,
+    pedigree_run_count,
     poll_findall,
     poll_group,
     select_leaders,
 )
 from .parallel_client import status_code_of
-from .research import TaskFailed, brief_request, create_task, task_output, team_request, wait_task
-from .resolve import resolve_missing_domains
+from .research import (
+    TaskFailed,
+    brief_request,
+    create_task,
+    task_output,
+    team_request,
+    wait_task,
+)
+from .resolve import MAX_LOOKUPS_PER_RUN, SEARCH_FAST_PRICE, resolve_missing_domains
 from .schemas import FINDALL_PRICE, TASK_PRICE, ceil_cost
 from .state import StateStore, iso, parse_iso, utc_now
 
@@ -52,12 +67,18 @@ Log = Callable[[str], None]
 EXIT_OK, EXIT_ERROR, EXIT_BUDGET, EXIT_INCOMPLETE = 0, 1, 2, 3
 CANCEL_FLOOR_USD = 0.10
 ADMIN_RUN_BUDGET_USD = 0.10
-STALE_AFTER = timedelta(days=3)
+STALE_AFTER = timedelta(days=3)  # a queued Monitor event with no progress for this long is dropped
+# The queue slot of the one-off ``backfill`` sweep's events. They are never dropped as stale: the
+# sweep is a deliberate, already-paid search of the past month, drained a few companies per run,
+# after any queued Monitor events (which do go stale).
+BACKFILL_SLOT = "backfill"
 MAX_WORKERS = 3
 MIN_START_S = 60.0  # do not start a new company with less time than this left
 MAX_RETRIES = 6  # invocations that hit a transient error before the card posts with the gap noted
 ATS_TIMEOUT_S = 20.0
 POST_RESERVE_S = 35.0  # time post_card needs (its client timeout is 30s)
+PEDIGREE_STEP = "task_group(pedigree)"  # the ledger step that covers the group and its runs
+PEDIGREE_RUNS_KEY = "pedigree_runs"  # the ``attempts`` key for ``add_runs``
 
 
 @dataclass
@@ -116,8 +137,13 @@ def dedupe(
     exclude: frozenset[str],
     now: datetime,
     log: Log,
+    reasons: Counter[str] | None = None,
 ) -> list[dict[str, Any]]:
-    """Queue items for the candidates that survive every filter, best first. No spend happens here."""
+    """Queue items for the candidates that survive every filter, best first. No spend happens here.
+
+    ``reasons``, when given, counts every skip by its reason (for a summary line).
+    """
+    skipped: Counter[str] = reasons if reasons is not None else Counter()
     local: list[tuple[str, dict[str, Any]]] = []
     taken = set(queued)
     for c in candidates:
@@ -136,6 +162,7 @@ def dedupe(
             reason = "already queued"
         if reason:
             log(f"skip {dom or name!r}: {reason}")
+            skipped[reason] += 1
             continue
         assert dom is not None
         taken.add(dom)
@@ -149,10 +176,12 @@ def dedupe(
         hit = seen["domains"].get(dom)
         if hit:
             log(f"skip {dom}: card {hit.get('card_id')} exists ({hit.get('status')})")
+            skipped["card exists"] += 1
             continue
         tracked = tracked_names.get((c.get("company_name") or "").lower())
         if tracked:
             log(f"skip {dom}: already tracked as {tracked}")
+            skipped["already tracked"] += 1
             continue
         items.append({"domain": dom, "company": text(c.get("company_name"), 200) or dom, "event": c,
                       "slot": c.get("slot"), "queued_at": iso(now)})
@@ -175,6 +204,26 @@ class CompanyJob:
 
     def save(self) -> None:
         self.deps.store.save_company(self.domain, self.st)
+
+    def load(self) -> dict[str, Any] | None:
+        return self.deps.store.load_company(self.domain)
+
+    def new_state(self) -> dict[str, Any]:
+        return {"domain": self.domain, "company": self.company, "reserved": {}, "ids": {}, "t0": {},
+                "issues": [], "started_at": iso(self.deps.now())}
+
+    def open_state(self) -> Outcome | None:
+        """Load the saved state, or start a new one; ``not_started`` when nothing is saved and
+        the run is stopping (a 402) or too close to its deadline to start paid work."""
+        loaded = self.load()
+        if loaded is None:
+            if self.stop.is_set():
+                return Outcome(self.domain, "not_started", "budget stop")
+            if self.deadline.remaining() < MIN_START_S:
+                return Outcome(self.domain, "not_started", "deadline")
+            loaded = self.new_state()
+        self.st = loaded
+        return None
 
     def reserve(self, step: str, est: float) -> None:
         """Reserve once per step for this company; the reservation survives a resume."""
@@ -226,15 +275,9 @@ class CompanyJob:
             self.st["issues"].append(msg)
 
     def run(self) -> Outcome:
-        loaded = self.deps.store.load_company(self.domain)
-        if loaded is None:
-            if self.stop.is_set():
-                return Outcome(self.domain, "not_started", "budget stop")
-            if self.deadline.remaining() < MIN_START_S:
-                return Outcome(self.domain, "not_started", "deadline")
-            loaded = {"domain": self.domain, "company": self.company, "reserved": {}, "ids": {}, "t0": {},
-                      "issues": [], "started_at": iso(self.deps.now())}
-        self.st = loaded
+        not_started = self.open_state()
+        if not_started is not None:
+            return not_started
         try:
             return self._research()
         except BudgetExceeded as e:
@@ -271,28 +314,23 @@ class CompanyJob:
             self.issue(f"findall ended {fa_run.status.status} ({getattr(fa_run.status, 'termination_reason', None)})")
         result = c.beta.findall.result(fid)
         leaders, dropped = self._leaders(result)
+        brief_out: tuple[dict[str, Any] | None, list[Any]] | None = None
+        if not self.st["leader_ids"]:
+            # FindAll confirmed no person: fall back to the brief's founders. The brief was
+            # created with FindAll at t=0, so the pedigree step waits for it here.
+            brief_out = self._wait("brief_run_id", brief_id, "brief", timings)
+            leaders = list(self.leaders_from_brief(brief_out[0]))
+            if leaders:
+                self.issue(BRIEF_LEADERS_ISSUE + (f"; {dropped} company page(s) dropped" if dropped else ""))
 
         # Pedigree: one Task Group, one base run per leader. A None entry is a leader
         # missing on resume; it keeps its index so row_id still joins the right person.
-        pedigree: dict[int, dict[str, Any]] = {}
-        present = {i for i, cd in enumerate(leaders) if cd is not None}
-        if present:
-            gid = self.billed("task_group(pedigree)", ceil_cost(len(present) * TASK_PRICE["base"]),
-                              "pedigree_group_id", lambda: create_pedigree_group(c, self.domain))
-            if not self.st.get("pedigree_runs_added"):
-                add_pedigree_runs(c, gid, pedigree_inputs(leaders, self.company, self.domain))
-                self.st["pedigree_runs_added"] = True
-                self.save()
-            poll_group(c, gid, self.deadline, d.sleep)
-            timings["pedigree_s"] = self.mark_done("pedigree_group_id")
-            pedigree, ped_issues = collect_pedigree(c, gid, len(leaders), expected=present)
-            for msg in ped_issues:
-                self.issue(msg)
-        elif not leaders:
+        pedigree = self.run_pedigree(leaders, timings)
+        if not leaders:
             self.issue("no leaders confirmed" + (f"; {dropped} company page(s) dropped" if dropped else ""))
 
         # Brief and team tally (created at t=0, usually finished by now).
-        brief, brief_basis = self._wait("brief_run_id", brief_id, "brief", timings)
+        brief, brief_basis = brief_out or self._wait("brief_run_id", brief_id, "brief", timings)
         team, _ = self._wait("team_run_id", team_id, "team tally", timings, key="team_s")
 
         raw_ats = (brief or {}).get("ats")
@@ -331,6 +369,75 @@ class CompanyJob:
         d.store.remove_from_queue(self.domain)
         d.store.delete_company(self.domain)
         return out
+
+    def leaders_from_brief(self, brief: dict[str, Any] | None) -> list[BriefLeader]:
+        """The brief's cleaned ``founders`` as leaders. Saved on first use, so a resume
+        runs the pedigree on exactly the same people in the same order (row_id = index)."""
+        saved = self.st.get("brief_leaders")
+        if saved is None:
+            saved = brief_founders(brief)
+            self.st["brief_leaders"] = saved
+            self.save()
+        return brief_leaders(saved)
+
+    def run_pedigree(self, leaders: list[Any], timings: dict[str, float]) -> dict[int, dict[str, Any]]:
+        """Reserve, create, fill and collect the pedigree Task Group (one base run per present
+        leader). Each step runs once: a saved group id and ``pedigree_runs_added`` survive a
+        resume, and an ambiguous ``add_runs`` failure is checked against the group before any
+        re-add (``add_pedigree_runs``)."""
+        c, d = self.client, self.deps
+        present = {i for i, cd in enumerate(leaders) if cd is not None}
+        if not present:
+            return {}
+        est = ceil_cost(len(present) * TASK_PRICE["base"])
+        gid = self.billed(PEDIGREE_STEP, est, "pedigree_group_id", lambda: create_pedigree_group(c, self.domain))
+        if not self.st.get("pedigree_runs_added"):
+            self.add_pedigree_runs(gid, leaders, est)
+        poll_group(c, gid, self.deadline, d.sleep)
+        timings["pedigree_s"] = self.mark_done("pedigree_group_id")
+        pedigree, ped_issues = collect_pedigree(c, gid, len(leaders), expected=present)
+        for msg in ped_issues:
+            self.issue(msg)
+        return pedigree
+
+    def add_pedigree_runs(self, gid: str, leaders: list[Any], est: float) -> None:
+        """``add_runs`` on the group, at most once per reservation.
+
+        Adding the runs is what bills, and Parallel adds them again on a second call. So an
+        attempt is recorded BEFORE the call, like ``billed``. When an earlier attempt failed
+        in a way that may still have reached Parallel (a timeout, a dropped connection), the
+        group is asked first (a free ``retrieve``): if it holds runs, that request landed and
+        they are marked added; if it holds none, the runs are added again under a fresh
+        ``task_group(pedigree)#retryN`` reservation, so the ledger over-counts a possible
+        double charge (the group may not show an accepted request yet) instead of missing it.
+        A refusal (a 4xx other than 408/429: nothing was added) does not count as an attempt.
+        """
+        c, d = self.client, self.deps
+        attempts = self.st.setdefault("attempts", {})
+        prior = int(attempts.get(PEDIGREE_RUNS_KEY, 0))
+        if prior:
+            held = pedigree_run_count(c, gid)
+            if held:
+                d.log(f"{self.domain}: pedigree group {gid} already holds {held} run(s) from an earlier "
+                      f"attempt; not adding them again")
+                self.st["pedigree_runs_added"] = True
+                self.save()
+                return
+            step = f"{PEDIGREE_STEP}#retry{prior}"
+            d.log(f"{self.domain}: re-adding the pedigree runs under {step}; group {gid} holds none")
+            self.reserve(step, est)
+        attempts[PEDIGREE_RUNS_KEY] = prior + 1
+        self.save()
+        try:
+            add_pedigree_runs(c, gid, pedigree_inputs(leaders, self.company, self.domain))
+        except Exception as e:
+            code = status_code_of(e)
+            if code is not None and 400 <= code < 500 and code not in (408, 429):
+                attempts[PEDIGREE_RUNS_KEY] = prior  # Parallel refused: nothing was added or billed
+                self.save()
+            raise
+        self.st["pedigree_runs_added"] = True
+        self.save()
 
     def _leaders(self, result: Any) -> tuple[list[Any], int]:
         kept, dropped = select_leaders(result)
@@ -412,7 +519,8 @@ def dry_run(opts: RunOptions, deps: Deps) -> int:
                  f"{ev.get('round') or ''} {ev.get('amount_usd') or ''}".rstrip())
     no_domain = sum(1 for ev in events if not normalize_domain(ev.get("company_domain")))
     if no_domain:
-        deps.log(f"dry run: {no_domain} event(s) have no domain; a real run looks each up with Entity Search ($0.005)")
+        deps.log(f"dry run: {no_domain} event(s) have no domain; a real run looks them up with the Search API "
+                 f"(${SEARCH_FAST_PRICE:.3f} each, at most {MAX_LOOKUPS_PER_RUN} per run)")
     deps.log(f"dry run: {len(events)} event(s), {len(items)} new candidate(s), {len(queue)} queued; nothing spent")
     return EXIT_OK
 
@@ -472,7 +580,7 @@ def _run_body(opts: RunOptions, deps: Deps, run_uuid: str, started: dict[str, An
         extra_notes.append(f"events truncated ({', '.join(truncated)})")
     counters.events_read = len(events)
     if client is not None and events:
-        # Most news events carry no website; dedupe needs one. Billed ($0.005 each), so
+        # Most news events carry no website; dedupe needs one. One Search API call each ($0.001),
         # reserved first. On the cap, stop before the cursors move: next run reads them again.
         try:
             resolve_missing_domains(events, client, lambda step, est: deps.backend.reserve(run_uuid, step, est), log)
@@ -493,7 +601,7 @@ def _run_body(opts: RunOptions, deps: Deps, run_uuid: str, started: dict[str, An
     for q in queue:
         if store.has_company(q["domain"]):
             resumed.append(q)
-        elif now - parse_iso(q["queued_at"]) > STALE_AFTER:
+        elif q.get("slot") != BACKFILL_SLOT and now - parse_iso(q["queued_at"]) > STALE_AFTER:
             log(f"drop {q['domain']}: queued {q['queued_at']} with no progress for 3 days")
             store.remove_from_queue(q["domain"])
             dropped += 1
@@ -501,6 +609,11 @@ def _run_body(opts: RunOptions, deps: Deps, run_uuid: str, started: dict[str, An
             fresh.append(q)
     if dropped:
         extra_notes.append(f"dropped {dropped} stale")
+    # Monitor events start before backfill items. A Monitor event is dropped once it has
+    # waited STALE_AFTER; a backfill item never is, so a long backfill queue ahead of it
+    # would otherwise hold every new event back until it went stale. Stable sort: each
+    # group keeps its queue (FIFO) order.
+    fresh.sort(key=lambda q: q.get("slot") == BACKFILL_SLOT)
     work = resumed + fresh[: max(0, opts.max_companies)]
     if work and client is None:
         client = deps.make_client()
@@ -542,19 +655,41 @@ def _run_body(opts: RunOptions, deps: Deps, run_uuid: str, started: dict[str, An
 
 
 # ---- admin subcommands (each opens and finishes its own backend run) ---------------------
-def _admin_run(deps: Deps, label: str, body: Callable[[str], str]) -> int:
+def admin_run(deps: Deps, label: str, body: Callable[[str], str], *, budget: float = ADMIN_RUN_BUDGET_USD,
+              counters: RunCounters | None = None) -> int:
+    """Open a backend run, call ``body(run_uuid)`` and finish the run with its notes.
+
+    A 402 finishes it ``stopped`` (exit 2); a deadline (``DeadlineReached``, state saved by
+    the body) finishes it ``stopped`` (exit 3); anything else, SIGTERM's SystemExit
+    included, finishes it ``error`` and re-raises, so the run row never stays "running".
+    ``counters`` lets the body report ``events_read`` / ``cards_posted``.
+    """
     run_uuid = uuid.uuid4().hex
-    deps.backend.start_run(run_uuid, deps.host, ADMIN_RUN_BUDGET_USD)
+    c = counters if counters is not None else RunCounters()
+    started = deps.backend.start_run(run_uuid, deps.host, budget)
+    deps.log(f"{label}: run {started.get('run_id')} · spend before ${float(started.get('total_spend_usd', 0)):.2f} "
+             f"of ${float(started.get('cap_usd', 0)):.2f} · budget ${budget:.2f}")
+
+    def finish(status: str, notes: str) -> None:
+        deps.backend.finish_run(run_uuid, status, c.events_read, c.cards_posted, notes[:500])
+
     try:
         notes = body(run_uuid)
     except BudgetExceeded as e:
-        deps.backend.finish_run(run_uuid, "stopped", 0, 0, f"{label}: {e}")
+        finish("stopped", f"{label}: {e}")
         deps.log(f"{label}: stopped on the budget: {e}")
         return EXIT_BUDGET
-    except Exception as e:
-        deps.backend.finish_run(run_uuid, "error", 0, 0, f"{label}: {type(e).__name__}: {e}")
+    except DeadlineReached as e:
+        finish("stopped", f"{label}: deadline while waiting on {e}; re-run to resume")
+        deps.log(f"{label}: deadline reached while waiting on {e}; state saved, re-run to resume")
+        return EXIT_INCOMPLETE
+    except BaseException as e:
+        try:
+            finish("error", f"{label}: {type(e).__name__}: {e}")
+        except Exception as fin_err:
+            deps.log(f"{label}: could not finish run {run_uuid}: {type(fin_err).__name__}: {fin_err}")
         raise
-    deps.backend.finish_run(run_uuid, "ok", 0, 0, notes)
+    finish("ok", notes)
     deps.log(f"{label}: {notes}")
     return EXIT_OK
 
@@ -564,7 +699,7 @@ def monitors_ensure(deps: Deps) -> int:
         created = mon.ensure(deps.make_client(), deps.backend, run_uuid, deps.now(), deps.log)
         return f"created {', '.join(created)}" if created else "all monitors already active"
 
-    return _admin_run(deps, "monitors-ensure", body)
+    return admin_run(deps, "monitors-ensure", body)
 
 
 def monitors_cancel(deps: Deps) -> int:
@@ -572,4 +707,4 @@ def monitors_cancel(deps: Deps) -> int:
         cancelled = mon.cancel_all(deps.make_client(), deps.backend, deps.log)
         return f"cancelled and confirmed {len(cancelled)} monitor(s)"
 
-    return _admin_run(deps, "monitors-cancel", body)
+    return admin_run(deps, "monitors-cancel", body)

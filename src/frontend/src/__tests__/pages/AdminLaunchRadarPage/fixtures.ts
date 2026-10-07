@@ -6,8 +6,9 @@ import type {
 /**
  * Cards shaped exactly like the backend's camelCase admin response
  * (CONTRACT.md §2.4 / §5.2), modelled on the plan's mock: Raindrop AI (full
- * data, already tracked), Ghost AI (no people data, PR ready) and Athennian
- * (archived, leaders without background, unverified board).
+ * data, already tracked), Ghost AI (no people data; the backend has an
+ * add-company PR on record, which the card does not show), Athennian
+ * (archived, leaders without background, unverified board) and Kestrel (saved).
  */
 export function makeRaindropCard(overrides: Partial<LaunchRadarCard> = {}): LaunchRadarCard {
   return {
@@ -228,13 +229,36 @@ export function makeAthennianCard(overrides: Partial<LaunchRadarCard> = {}): Lau
   });
 }
 
+export function makeKestrelCard(overrides: Partial<LaunchRadarCard> = {}): LaunchRadarCard {
+  return makeRaindropCard({
+    id: 4,
+    status: 'saved',
+    trackedCompanyId: null,
+    updatedBy: 'admin@example.com',
+    company: 'Kestrel Labs',
+    domain: 'kestrel.dev',
+    website: 'https://kestrel.dev',
+    oneLiner: 'Evals for voice agents',
+    ats: {
+      provider: 'greenhouse',
+      boardToken: 'kestrel',
+      boardUrl: 'https://job-boards.greenhouse.io/kestrel',
+      verified: true,
+      jobCount: 4,
+      checkedUrl: null,
+    },
+    careersUrl: 'https://kestrel.dev/careers',
+    ...overrides,
+  });
+}
+
 export function makeCardsResponse(
   overrides: Partial<LaunchRadarCardsResponse> = {}
 ): LaunchRadarCardsResponse {
   return {
     cards: [makeGhostCard(), makeRaindropCard()],
     total: 2,
-    counts: { new: 2, archived: 1 },
+    counts: { new: 2, saved: 1, archived: 1 },
     stats: {
       lastRun: {
         startedAt: '2026-10-07T01:31:00Z',

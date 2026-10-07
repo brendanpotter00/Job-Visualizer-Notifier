@@ -4,11 +4,14 @@ from datetime import datetime, timezone
 from types import SimpleNamespace as NS
 
 import pytest
-
 from launch_radar import monitors as mon
 from launch_radar.backend_client import BackendClient
-
-from tests.unit.launch_radar_fakes import FakeBackend, FakeParallel, monitor_content, stream_event
+from tests.unit.launch_radar_fakes import (
+    FakeBackend,
+    FakeParallel,
+    monitor_content,
+    stream_event,
+)
 
 NOW = datetime(2026, 10, 7, 7, 0, tzinfo=timezone.utc)
 

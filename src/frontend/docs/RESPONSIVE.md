@@ -75,6 +75,7 @@ sx={{ ...(isMobile && { '& .MuiChip-root': { height: RESPONSIVE.jobCard.chipHeig
 | `curatedCard.*` | curated-companies 1-up mobile card (grid size, wordmark, padding) |
 | `keywordCard.*` | saved-filters keyword-list card (padding + +/- chips) |
 | `statTile.*` | admin stat tiles |
+| `launchRadar.*` | admin Launch Radar tabs, sort toggles, card header and status-line actions |
 | `logoSize` | `CompanyLogo` numeric `size` |
 | `TABLE_SCROLL_SX` (named export) | wrap any wide `<TableContainer>` so it scrolls on mobile only |
 

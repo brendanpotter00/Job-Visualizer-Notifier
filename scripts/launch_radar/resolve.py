@@ -4,11 +4,8 @@ News articles rarely print a startup's website, so most events arrive without a
 domain, and dedupe needs one. For each such event the loop makes one Search API
 call (``mode="fast"``, about $0.001, reserved in the ledger first) and keeps the
 highest-ranked result whose host carries the company's name and is the company's
-own site, not a news, directory or social page.
-
-Entity Search was tried first and does not work for this: for ``companies`` it
-returns LinkedIn and Tracxn profile URLs, never the company's website (checked
-live on 2026-10-07 for finmid, OneByZero, SignSplit and Guardrail Technologies).
+own site, not a news, directory or social page. (Entity Search was tried first:
+for companies it returns LinkedIn/Tracxn profiles, never the website.)
 
 All event and search text is untrusted web data; it is only compared, never acted on.
 """
@@ -50,12 +47,15 @@ def name_key(name: object) -> str:
     return " ".join(w for w in words if w not in _SUFFIXES)
 
 
+def is_listing_site(dom: str) -> bool:
+    """A news, directory or social host: it describes a company but is not its website."""
+    return dom in NOT_A_COMPANY_SITE or any(dom.endswith("." + h) for h in NOT_A_COMPANY_SITE)
+
+
 def company_site(url: object) -> str | None:
     """The normalized domain of ``url`` when it can be a company's own website."""
     dom = normalize_domain(url)
-    if not dom or not is_hostname(dom) or is_big_tech(dom):
-        return None
-    if dom in NOT_A_COMPANY_SITE or any(dom.endswith("." + h) for h in NOT_A_COMPANY_SITE):
+    if not dom or not is_hostname(dom) or is_big_tech(dom) or is_listing_site(dom):
         return None
     return dom
 

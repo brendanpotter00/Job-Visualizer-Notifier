@@ -1,12 +1,16 @@
 """Free ATS board check against the public APIs (all mocked)."""
 
-from launch_radar.ats import ats_check, pr_ready, safe_http_url, safe_token
-
+from launch_radar.ats import check_board, pr_ready, safe_http_url, safe_token
 from tests.unit.launch_radar_fakes import ats_transport
 
 ASHBY = "https://api.ashbyhq.com/posting-api/job-board/Raindrop"
 GH = "https://boards-api.greenhouse.io/v1/boards/ghost/jobs"
 LEVER = "https://api.lever.co/v0/postings/acme?mode=json"
+
+
+def ats_check(*args, **kwargs):
+    """The card's ``ats`` block from ``check_board``."""
+    return check_board(*args, **kwargs).ats
 
 
 def test_ashby_verified_with_jobs():

@@ -14,7 +14,14 @@ from typing import Any, Callable
 
 from .backend_client import BackendClient
 from .parallel_client import status_code_of
-from .schemas import MONITOR_FREQUENCY, MONITOR_OUTPUT_SCHEMA, MONITOR_PRICE, MONITOR_PROCESSOR, MONITOR_QUERIES, ceil_cost
+from .schemas import (
+    MONITOR_FREQUENCY,
+    MONITOR_OUTPUT_SCHEMA,
+    MONITOR_PRICE,
+    MONITOR_PROCESSOR,
+    MONITOR_QUERIES,
+    ceil_cost,
+)
 from .state import iso, parse_iso
 
 Log = Callable[[str], None]

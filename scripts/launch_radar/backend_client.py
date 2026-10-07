@@ -16,6 +16,7 @@ import httpx
 
 PREFIX = "/api/internal/launch-radar"
 SEEN_CHUNK = 100
+CARDS_LIMIT = 500  # the backend's maximum for GET /cards
 GET_RETRIES = 2
 
 
@@ -43,6 +44,10 @@ class BudgetExceeded(RuntimeError):
 
 class DomainSeen(RuntimeError):
     """409 ``domain already posted`` from ``POST /cards``."""
+
+
+class CardGone(RuntimeError):
+    """404 from ``PUT /cards/{id}/payload``: the card is missing or was deleted."""
 
 
 def _detail(resp: httpx.Response) -> Any:
@@ -152,6 +157,43 @@ class BackendClient:
             raise DomainSeen(payload.get("domain"))
         if resp.status_code != 201:
             raise BackendError("POST", "/cards", resp.status_code, _detail(resp))
+        return resp.json()
+
+    def cards(
+        self, *, domains: Iterable[str] = (), missing_talent: bool = False, statuses: Iterable[str] = ()
+    ) -> list[dict[str, Any]]:
+        """``GET /cards``: live cards with their stored payload, by domain (chunks of 100)
+        and/or every card whose Talent score is null, limited to ``statuses`` (empty: every
+        live status). At least one of ``domains`` / ``missing_talent`` is needed. Every match
+        is returned: each query is paged by id (``after_id``) until a page comes back short,
+        so no cap hides a card."""
+        doms = list(dict.fromkeys(domains))
+        if not doms and not missing_talent:
+            raise ValueError("cards() needs domains or missing_talent")
+        base = [("missing_talent", "true")] if missing_talent else []
+        base += [("status", s) for s in dict.fromkeys(statuses)]
+        chunks = [[("domain", d) for d in doms[i:i + SEEN_CHUNK]] for i in range(0, len(doms), SEEN_CHUNK)] or [[]]
+        out: dict[int, dict[str, Any]] = {}
+        for chunk in chunks:
+            after_id = 0
+            while True:
+                params = chunk + base + [("limit", CARDS_LIMIT), ("after_id", after_id)]
+                page = self._json("GET", "/cards", (200,), params=params)["cards"]
+                for card in page:
+                    out[int(card["id"])] = card
+                if len(page) < CARDS_LIMIT:
+                    break
+                after_id = max(int(card["id"]) for card in page)
+        return [out[k] for k in sorted(out)]
+
+    def put_payload(self, card_id: int, payload: dict[str, Any]) -> dict[str, Any]:
+        """``PUT /cards/{id}/payload``: replace a live card's payload (status and posted_at stay)."""
+        path = f"/cards/{card_id}/payload"
+        resp = self._send("PUT", path, json={"payload": payload})
+        if resp.status_code == 404:
+            raise CardGone(f"card {card_id}")
+        if resp.status_code != 200:
+            raise BackendError("PUT", path, resp.status_code, _detail(resp))
         return resp.json()
 
     def set_pr(self, card_id: int, pr_url: str) -> dict[str, Any]:

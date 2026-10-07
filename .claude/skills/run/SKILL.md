@@ -118,76 +118,45 @@ your local backend on port 8000 instead of the production Railway backend.
 
 ## Local admin bypass
 
-View the admin pages (e.g. `/admin/launch-radar`) locally **without signing in through
-Auth0**. Two opt-in flags, one per side, both LOCAL-ONLY:
-
-| Side | Flag | Where it lives |
-|---|---|---|
-| Backend | `DEV_AUTH_BYPASS_EMAIL=<admin email>` | `src/backend/api/auth/dev_bypass.py` |
-| Frontend | `VITE_DEV_AUTH_BYPASS=1` | `src/frontend/src/config/auth.ts` |
+View the admin pages (e.g. `/admin/launch-radar`) locally **without Auth0**. Two LOCAL-ONLY
+flags: backend `DEV_AUTH_BYPASS_EMAIL=<admin email>` (`src/backend/api/auth/dev_bypass.py`)
+and frontend `VITE_DEV_AUTH_BYPASS=1` (`src/frontend/src/config/auth.ts`).
 
 ```bash
-# Backend (Mode 2, Step 3), with the bypass on. --host 127.0.0.1 keeps LAN clients
-# from reaching uvicorn directly (a direct hit from another machine is not loopback).
+# Backend (Mode 2, Step 3). --host 127.0.0.1: a LAN client hitting uvicorn directly is not loopback.
 source .venv/bin/activate
 DEV_AUTH_BYPASS_EMAIL=brendanpotter00@gmail.com \
   PYTHONPATH=. uvicorn src.backend.api.main:app --host 127.0.0.1 --port 8000 --reload
 # The boot log prints a WARNING: "DEV_AUTH_BYPASS_EMAIL is ON: ..."
 
-# Frontend, plain Vite (its /api/admin and /api/users proxies go to :8000).
-# vite.config.ts binds 127.0.0.1, so only this machine can reach the proxy.
+# Frontend, plain Vite (binds 127.0.0.1; its /api/admin and /api/users proxies go to :8000).
 VITE_DEV_AUTH_BYPASS=1 npm run dev -w src/frontend
 ```
 
-**Every local proxy in front of the backend must listen on 127.0.0.1 only.** A request
-that a proxy on this machine forwards to the backend arrives from 127.0.0.1 no matter who
-sent it to the proxy, so the backend's loopback check cannot tell a LAN client apart from
-you once a proxy is involved. A dev server bound to `0.0.0.0` would hand admin to anyone
-on the same Wi-Fi.
+- **Every local proxy in front of the backend must listen on 127.0.0.1 only.** What a proxy
+  on this machine forwards arrives as loopback whoever sent it, so a dev server on `0.0.0.0`
+  would hand admin to anyone on the same network. `vercel dev` defaults to `0.0.0.0:3000`
+  and `npm run dev:vercel` passes no `--listen`, so with the bypass on run
+  `VITE_DEV_AUTH_BYPASS=1 vercel dev --listen 127.0.0.1:3000` from the project root.
+- Leave `INTERNAL_API_KEY` **unset** on this backend: when set, the `X-Internal-Key`
+  middleware 401s every browser request through the proxy before the bypass is consulted.
+- **One-time admin grant.** The bypass only answers "who is this?"; `require_admin` still
+  checks `admins`. Load any page once (the first `/api/users` call creates your `users`
+  row), then:
 
-Leave `INTERNAL_API_KEY` **unset** on this local backend. When it is set, the global
-`X-Internal-Key` middleware answers 401 to every browser request that comes through the
-Vite proxy (which sends no key), before the bypass is ever consulted. With it unset the
-middleware is open, which is the normal local-dev mode (the backend logs a warning).
+  ```bash
+  docker exec jobscraper-postgres psql -U postgres -d jobscraper -c \
+    "INSERT INTO admins (user_id) SELECT id FROM users WHERE email='brendanpotter00@gmail.com' ON CONFLICT DO NOTHING"
+  ```
 
-It also works with Vercel Dev, but **only bound to loopback**. `vercel dev` listens on
-`0.0.0.0:3000` by default (`vercel dev --help`: `--listen [0.0.0.0:3000]`), and `npm run
-dev:vercel` passes no `--listen`, so do NOT use that script with the bypass on. Run it
-from the project root as:
-
-```bash
-VITE_DEV_AUTH_BYPASS=1 vercel dev --listen 127.0.0.1:3000
-```
-
-The Vercel proxies forward **no** `Authorization` header when the browser sends none and
-call the backend from localhost, so the backend sees a loopback client either way. That
-is exactly why the listen address matters.
-
-**One-time local admin grant.** The bypass makes you "signed in as" that email, but
-`require_admin` still checks the `admins` table. Load any page once (the first
-`/api/users` call creates your `users` row), then grant the row:
-
-```bash
-docker exec jobscraper-postgres psql -U postgres -d jobscraper -c \
-  "INSERT INTO admins (user_id) SELECT id FROM users WHERE email='brendanpotter00@gmail.com' ON CONFLICT DO NOTHING"
-```
-
-**Why it cannot reach production:**
-
-- **The backend refuses to start** if `DEV_AUTH_BYPASS_EMAIL` is set while any Railway marker
-  (`RAILWAY_ENVIRONMENT`, `RAILWAY_ENVIRONMENT_NAME`, `RAILWAY_PROJECT_ID`, `RAILWAY_SERVICE_ID`,
-  `RAILWAY_DEPLOYMENT_ID`) is present: the first line of the lifespan raises. The markers are
-  re-checked on every request as well.
-- The bypass is honoured **only** for a **loopback** client that sent **no `Authorization`
-  header at all**, with a `Host` header naming this machine (`localhost`, `127.0.0.1`,
-  `[::1]`; this keeps a DNS-rebinding page out). Any `Authorization` header (a real token, a
-  bad one, `Basic …`) takes the normal JWT path, so a bad token is still a 401. Loopback
-  means "this machine", not "you": see the 127.0.0.1-only rule for local proxies above.
-- It only answers "who is this?". `require_admin` still checks the `admins` table: an email
-  without a grant gets 403.
-- The Vite flag is honoured only when `import.meta.env.DEV` is true, which `vite build`
-  replaces with `false`, so production builds compile the branch out.
-- The Vercel proxies (`api/*.ts`) are unchanged; production behaviour does not move.
+**Why it cannot reach production:** the backend refuses to start if `DEV_AUTH_BYPASS_EMAIL`
+is set while any Railway marker (`RAILWAY_ENVIRONMENT`, `RAILWAY_ENVIRONMENT_NAME`,
+`RAILWAY_PROJECT_ID`, `RAILWAY_SERVICE_ID`, `RAILWAY_DEPLOYMENT_ID`) is present, and
+re-checks them per request; the bypass applies only to a **loopback** client with a local
+`Host` header (`localhost`, `127.0.0.1`, `[::1]`; keeps DNS rebinding out) that sent **no
+`Authorization` header at all** (any header, even a bad one, takes the JWT path); the Vite
+flag needs `import.meta.env.DEV`, which `vite build` compiles out; and the Vercel proxies
+forward auth exactly as before.
 
 ---
 

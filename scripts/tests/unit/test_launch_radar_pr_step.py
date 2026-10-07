@@ -8,7 +8,6 @@ import subprocess
 from pathlib import Path
 
 import pytest
-
 from launch_radar import pr_step
 from launch_radar.pr_step import StepError
 

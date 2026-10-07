@@ -4,9 +4,12 @@ import json
 
 import httpx
 import pytest
-
-from launch_radar.backend_client import BackendClient, BackendError, BudgetExceeded, DomainSeen
-
+from launch_radar.backend_client import (
+    BackendClient,
+    BackendError,
+    BudgetExceeded,
+    DomainSeen,
+)
 from tests.unit.launch_radar_fakes import FakeBackend
 
 
@@ -116,3 +119,22 @@ def test_finish_run_clips_notes():
     c.finish_run("run-gggggggg", "ok", 3, 1, "x" * 900)
     body = json.loads(fb.requests[-1].content)
     assert len(body["notes"]) == 500 and body["events_read"] == 3
+
+
+def test_cards_pages_by_id_until_a_short_page_and_passes_statuses(monkeypatch):
+    from launch_radar import backend_client
+
+    monkeypatch.setattr(backend_client, "CARDS_LIMIT", 2)
+    fb = FakeBackend()
+    for i, (dom, status) in enumerate((("a.ai", "new"), ("b.ai", "archived"), ("c.ai", "saved"),
+                                       ("d.ai", "new"), ("e.ai", "new")), start=1):
+        fb.cards[dom] = {"id": i, "status": status, "payload": {"scores": {"talent": None}},
+                         "tracked_company_id": None, "pr_url": None}
+    c = _client(fb)
+    got = c.cards(missing_talent=True, statuses=("new", "saved"))
+    assert [card["domain"] for card in got] == ["a.ai", "c.ai", "d.ai", "e.ai"]
+    assert [(q["after_id"], q["statuses"]) for q in fb.card_queries] == [
+        (0, {"new", "saved"}), (3, {"new", "saved"}), (5, {"new", "saved"})]
+    fb.card_queries.clear()
+    assert [card["domain"] for card in c.cards(missing_talent=True)] == ["a.ai", "b.ai", "c.ai", "d.ai", "e.ai"]
+    assert fb.card_queries[0]["statuses"] == {"new", "saved", "archived"}  # no status param: every live one

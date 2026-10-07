@@ -1,22 +1,25 @@
-"""FindAll leaders, is_person, and the pedigree Task Group join."""
+"""FindAll leaders, is_person, the brief's founders fallback, and the pedigree Task Group join."""
 
 from types import SimpleNamespace as NS
 
 import pytest
-
 from launch_radar.leaders import (
+    MAX_LEADERS,
+    BriefLeader,
     Deadline,
     DeadlineReached,
+    brief_founders,
+    brief_leaders,
     collect_pedigree,
     findall_request,
     is_person,
+    name_key,
     pedigree_inputs,
     pedigree_spec,
     poll_findall,
     select_leaders,
 )
 from launch_radar.schemas import PEDIGREE_SCHEMA
-
 from tests.unit.launch_radar_fakes import FakeParallel, candidate
 
 
@@ -137,3 +140,63 @@ def test_poll_findall_stops_at_the_deadline():
     with pytest.raises(DeadlineReached):
         poll_findall(p, fid, deadline, sleep)
     assert now[0] >= 25
+
+
+# ---- the brief's founders (the fallback when FindAll confirms no person) -------------------
+
+
+def test_brief_founders_cleans_dedupes_and_keeps_only_linkedin_urls():
+    brief = {"founders": [
+        {"name": "  Sam   Rivera ", "title": " Co-Founder &\nCEO ", "linkedin_url": "https://www.linkedin.com/in/sam"},
+        {"name": "sam rivera.", "title": "CTO", "linkedin_url": None},  # same person: dropped
+        {"name": "Priya Raman", "title": None, "linkedin_url": "javascript:alert(1)"},
+        {"name": "Ana Ito", "title": 7, "linkedin_url": "https://x.com/ana"},  # not LinkedIn
+        {"name": "Bo Li", "title": "COO", "linkedin_url": "linkedin.com/in/boli"},  # no scheme
+        {"name": "Cy Ng", "title": "CFO", "linkedin_url": "https://linkedin.com.evil.io/in/cy"},
+        {"name": "Di Wu", "title": "CPO", "linkedin_url": "http://linkedin.com/in/di-wu"},
+        {"name": "", "title": "CEO", "linkedin_url": None},  # no name
+        {"name": "   ", "title": "CEO", "linkedin_url": None},
+        {"name": None, "title": "CEO", "linkedin_url": None},
+        "Not An Object",
+    ]}
+    assert brief_founders(brief) == [
+        {"name": "Sam Rivera", "title": "Co-Founder & CEO", "linkedin_url": "https://www.linkedin.com/in/sam"},
+        {"name": "Priya Raman", "title": None, "linkedin_url": None},
+        {"name": "Ana Ito", "title": None, "linkedin_url": None},
+        {"name": "Bo Li", "title": "COO", "linkedin_url": None},
+        {"name": "Cy Ng", "title": "CFO", "linkedin_url": None},
+        {"name": "Di Wu", "title": "CPO", "linkedin_url": "http://linkedin.com/in/di-wu"},
+    ]
+
+
+@pytest.mark.parametrize("brief", [None, {}, {"founders": None}, {"founders": "Sam Rivera"}, {"founders": []}, "x"])
+def test_brief_founders_empty_when_missing_or_malformed(brief):
+    assert brief_founders(brief) == []
+
+
+def test_brief_founders_capped_at_the_leader_limit():
+    founders = [{"name": f"Person {i} Name", "title": "VP", "linkedin_url": None} for i in range(12)]
+    out = brief_founders({"founders": founders})
+    assert len(out) == MAX_LEADERS == 8
+    assert [f["name"] for f in out] == [f"Person {i} Name" for i in range(8)]
+
+
+def test_name_key_folds_case_punctuation_and_spacing():
+    assert name_key("  Sam  RIVERA.") == name_key("sam rivera") == "sam rivera"
+    assert name_key("O'Brien, Jo") == name_key("o brien jo")
+
+
+def test_brief_leaders_feed_the_pedigree_like_findall_people():
+    leaders = brief_leaders([
+        {"name": "Sam Rivera", "title": "Co-Founder & CEO", "linkedin_url": "https://www.linkedin.com/in/sam"},
+        {"name": "Priya Raman", "title": None, "linkedin_url": None},
+    ])
+    assert all(isinstance(ld, BriefLeader) for ld in leaders)
+    assert [ld.candidate_id for ld in leaders] == ["brief:sam rivera", "brief:priya raman"]
+    assert leaders[0].basis == [] and leaders[1].url is None
+    inputs = pedigree_inputs(leaders, "Raindrop AI", "raindrop.ai")
+    assert [(i["input"]["person_name"], i["input"]["current_title"], i["input"]["linkedin_url"], i["metadata"])
+            for i in inputs] == [
+        ("Sam Rivera", "Co-Founder & CEO", "https://www.linkedin.com/in/sam", {"row_id": "0"}),
+        ("Priya Raman", None, None, {"row_id": "1"}),
+    ]

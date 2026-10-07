@@ -1,17 +1,18 @@
 """End-to-end loop runs against the fake Parallel SDK and the fake backend.
 
-Covers: reserve-before-every-billed-call, dedupe (local + GET /seen), 409 on
-post, 402 budget stop and resume without paying twice, the deadline and
-resume, dry-run (no spend, no writes), and the cap floor that cancels Monitors.
+Covers: reserve-before-every-billed-call, the Search API domain lookup, dedupe
+(local + GET /seen), 409 on post, 402 budget stop and resume without paying twice,
+the deadline and resume, transient-error retries, ambiguous creates and add_runs,
+the brief-founders fallback, queue order and staleness (Monitor vs backfill items),
+dry-run (no spend, no writes), and the cap floor that cancels Monitors.
 """
 
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace as NS
 
 import httpx
 import pytest
-
 from launch_radar.backend_client import BackendClient
 from launch_radar.pipeline import (
     EXIT_BUDGET,
@@ -24,7 +25,6 @@ from launch_radar.pipeline import (
     run,
 )
 from launch_radar.state import StateStore
-
 from tests.unit.launch_radar_fakes import (
     FakeBackend,
     FakeParallel,
@@ -256,6 +256,14 @@ def test_dry_run_spends_and_writes_nothing(tmp_path):
     assert any("would research: raindrop.ai" in m for m in env.logs)
 
 
+def test_dry_run_prices_the_search_lookup_for_events_without_a_domain(tmp_path):
+    env = Env(tmp_path)  # "Mystery Co" arrives with no domain
+    assert env.run(dry_run=True) == EXIT_OK
+    assert env.billed() == Counter()
+    assert any("1 event(s) have no domain; a real run looks them up with the Search API ($0.001 each, "
+               "at most 10 per run)" in m for m in env.logs)
+
+
 def test_cap_floor_cancels_monitors_and_stops(tmp_path):
     env = Env(tmp_path)
     env.fb.spend.append({"run_id": 0, "step": "old", "domain": None, "amount_usd": 4.95, "accrued": False})
@@ -294,6 +302,44 @@ def test_stale_queue_item_is_dropped(tmp_path):
     assert env.run() == EXIT_OK
     assert env.store.load_queue() == [] and env.billed() == Counter()
     assert any("drop old.ai" in m for m in env.logs)
+
+
+def test_old_backfill_queue_item_is_kept_not_dropped_as_stale(tmp_path):
+    # The backfill sweep is a deliberate, already-paid one-off: its items wait in the queue
+    # however long it takes to research them. Only Monitor events go stale.
+    env = Env(tmp_path, events=[])
+    env.store.save_queue([
+        {"domain": "old.ai", "company": "Old", "event": {}, "slot": "seed", "queued_at": "2026-10-01T00:00:00Z"},
+        {"domain": "swept.ai", "company": "Swept", "event": {}, "slot": "backfill",
+         "queued_at": "2026-09-01T00:00:00Z"},
+    ])
+    assert env.run(max_companies=0) == EXIT_OK
+    assert [q["domain"] for q in env.store.load_queue()] == ["swept.ai"]
+    assert any("drop old.ai" in m for m in env.logs)
+    assert not any("drop swept.ai" in m for m in env.logs)
+    assert "dropped 1 stale" in next(iter(env.fb.runs.values()))["notes"]
+
+
+def test_monitor_events_start_before_queued_backfill_items(tmp_path):
+    # Three backfill items queued ahead of one Monitor event, one company a day. Backfill items
+    # never go stale but a Monitor event is dropped after 3 days, so it must not wait behind them.
+    env = Env(tmp_path, events=[])
+    queued = "2026-10-07T06:00:00Z"
+    env.store.save_queue(
+        [{"domain": f"swept{i}.ai", "company": f"Swept {i}", "event": {}, "slot": "backfill", "queued_at": queued}
+         for i in range(3)]
+        + [{"domain": "fresh.ai", "company": "Fresh", "event": {}, "slot": "seed", "queued_at": queued}])
+    researched: list[str] = []
+    for day in range(1, 5):
+        deps = env.deps()
+        deps.now = lambda day=day: NOW + timedelta(days=day)
+        before = set(env.fb.cards)
+        assert run(RunOptions(max_companies=1), deps) == EXIT_OK
+        researched += sorted(set(env.fb.cards) - before)
+    # The Monitor event first; the backfill items after it in their queue (FIFO) order.
+    assert researched == ["fresh.ai", "swept0.ai", "swept1.ai", "swept2.ai"]
+    assert not any(m.startswith("drop ") for m in env.logs)
+    assert env.store.load_queue() == []
 
 
 def test_exclude_skips_domains(tmp_path):
@@ -405,6 +451,70 @@ def test_refused_create_is_not_reserved_twice(tmp_path):
     assert not any("#retry" in s["step"] for s in env.fb.spend)
 
 
+def _flaky_add_runs(env, *, first_error, accepted=False):
+    """``task_group.add_runs`` whose first call raises ``first_error``; with ``accepted`` the
+    runs were added before the error (the response was lost after Parallel took them)."""
+    real = env.p.task_group.add_runs
+    calls = {"n": 0}
+
+    def add_runs(gid, inputs, default_task_spec):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            if accepted:
+                real(gid, inputs=inputs, default_task_spec=default_task_spec)
+            raise first_error
+        return real(gid, inputs=inputs, default_task_spec=default_task_spec)
+
+    env.p.task_group.add_runs = add_runs
+
+
+def test_pedigree_runs_accepted_before_an_ambiguous_failure_are_not_added_again(tmp_path):
+    env = Env(tmp_path)
+    _flaky_add_runs(env, first_error=ConnectionError("read timeout"), accepted=True)
+    assert env.run() == 1  # EXIT_ERROR: the company errored, its state is kept
+    assert env.store.load_company("raindrop.ai")["attempts"]["pedigree_runs"] == 1
+    assert env.run(max_companies=0) == EXIT_OK
+    # The group already held the runs, so they were marked added: no second add_runs, no new reservation.
+    assert sum(1 for _, k, _ in env.journal if k == "task_group.add_runs") == 1
+    assert not any("#retry" in s["step"] for s in env.fb.spend)
+    assert any("already holds 2 run(s)" in m for m in env.logs)
+    card = env.fb.cards["raindrop.ai"]["payload"]
+    assert card["scores"]["talent"] is not None and not any("pedigree" in i for i in card["issues"])
+    assert card["cost_usd"] == pytest.approx(0.1 + 0.025 + 0.1 + 0.02)
+
+
+def test_pedigree_runs_lost_to_an_ambiguous_failure_are_reserved_again_before_the_re_add(tmp_path):
+    env = Env(tmp_path)
+    _flaky_add_runs(env, first_error=ConnectionError("read timeout"))
+    assert env.run() == 1
+    assert env.run(max_companies=0) == EXIT_OK
+    steps = [s["step"] for s in env.fb.spend]
+    assert steps.count("task_group(pedigree)") == 1 and steps.count("task_group(pedigree)#retry1") == 1
+    retry = next(s for s in env.fb.spend if s["step"] == "task_group(pedigree)#retry1")
+    assert retry["amount_usd"] == pytest.approx(0.02) and retry["domain"] == "raindrop.ai"
+    # The group held no runs, so they were reserved again, THEN added once.
+    assert env.journal.index(("backend", "reserve", "task_group(pedigree)#retry1")) < env.journal.index(
+        ("parallel", "task_group.add_runs", 2))
+    assert sum(1 for _, k, _ in env.journal if k == "task_group.add_runs") == 1
+    card = env.fb.cards["raindrop.ai"]["payload"]
+    assert [ld["name"] for ld in card["leaders"]] == ["Sam Rivera", "Priya Raman"]
+    assert card["cost_usd"] == pytest.approx(0.1 + 0.025 + 0.1 + 0.02 + 0.02)
+    assert any("re-adding the pedigree runs under task_group(pedigree)#retry1" in m for m in env.logs)
+
+
+def test_refused_pedigree_runs_are_added_again_without_a_second_reservation(tmp_path):
+    from tests.unit.launch_radar_fakes import FakeAPIStatusError
+
+    env = Env(tmp_path)
+    _flaky_add_runs(env, first_error=FakeAPIStatusError(422))  # Parallel answered: nothing was added
+    assert env.run() == 1
+    assert env.store.load_company("raindrop.ai")["attempts"].get("pedigree_runs", 0) == 0
+    assert env.run(max_companies=0) == EXIT_OK
+    assert [s["step"] for s in env.fb.spend].count("task_group(pedigree)") == 1
+    assert not any("#retry" in s["step"] for s in env.fb.spend)
+    assert env.fb.cards["raindrop.ai"]["payload"]["scores"]["talent"] is not None
+
+
 def test_leader_missing_on_resume_keeps_pedigree_aligned(tmp_path):
     env = Env(tmp_path)
     env.p.findall_active_polls = -1
@@ -486,3 +596,107 @@ def test_unresolved_event_is_skipped_without_research_spend(tmp_path):
     assert env.run() == EXIT_OK
     assert env.billed() == Counter({"search": 1}) and env.fb.cards == {}
     assert any("skip 'Navra': no domain" in m for m in env.logs)
+
+
+# ---- the leaders fallback: the brief's founders when FindAll confirms no person ---------------
+FOUNDERS = [
+    {"name": "Sam Rivera", "title": "Co-Founder & CEO", "linkedin_url": "https://linkedin.com/in/example-sam-rivera"},
+    {"name": "sam  rivera", "title": "CEO", "linkedin_url": None},  # the same person again
+    {"name": "Priya Raman", "title": "Co-Founder & CTO", "linkedin_url": "https://x.com/priya"},
+    {"name": "", "title": "COO", "linkedin_url": None},
+]
+
+
+def _journal_results(env):
+    """Record each Task /result call in the journal, so a test can see what was waited on when."""
+    real = env.p.task_run.result
+
+    def result(run_id, **kw):
+        env.journal.append(("parallel", "task_run.result", env.p.task_run.step_of[run_id]))
+        return real(run_id, **kw)
+
+    env.p.task_run.result = result
+
+
+def test_findall_with_no_person_falls_back_to_the_brief_founders(tmp_path):
+    env = Env(tmp_path)
+    env.p.findall_candidates = [candidate("Raindrop AI", "https://www.linkedin.com/company/raindrop")]
+    env.p.brief_content = {**BRIEF, "founders": FOUNDERS}
+    _journal_results(env)
+    assert env.run() == EXIT_OK
+    env.assert_reserved_before_billed()
+    card = env.fb.cards["raindrop.ai"]["payload"]
+    assert [ld["name"] for ld in card["leaders"]] == ["Sam Rivera", "Priya Raman"]
+    assert card["leaders"][0]["linkedin_url"] == "https://linkedin.com/in/example-sam-rivera"
+    assert card["leaders"][1]["linkedin_url"] is None  # not a LinkedIn URL
+    assert card["leaders_dropped"] == 1 and card["scores"]["talent"] is not None
+    assert "leaders from the brief (FindAll found none); 1 company page(s) dropped" in card["issues"]
+    assert not any(i.startswith("no leaders confirmed") for i in card["issues"])
+    # The pedigree ran on the founders, after the brief came back.
+    add = next(r for k, r in env.p.requests if k == "task_group.add_runs")
+    assert [(i["input"]["person_name"], i["input"]["current_title"]) for i in add["inputs"]] == [
+        ("Sam Rivera", "Co-Founder & CEO"), ("Priya Raman", "Co-Founder & CTO")]
+    kinds = [(k, v) for _, k, v in env.journal]
+    assert kinds.index(("task_run.result", "brief")) < kinds.index(("task_group.create", "raindrop.ai"))
+    assert Counter(s["step"] for s in env.fb.spend)["task_group(pedigree)"] == 1
+    assert next(s for s in env.fb.spend if s["step"] == "task_group(pedigree)")["amount_usd"] == pytest.approx(0.02)
+    assert env.billed()["task_run.create(brief)"] == 1  # the brief was waited on once, never re-bought
+
+
+def test_no_fallback_when_findall_found_people(tmp_path):
+    env = Env(tmp_path)
+    env.p.brief_content = {**BRIEF, "founders": [{"name": "Other Founder", "title": "CEO", "linkedin_url": None}]}
+    assert env.run() == EXIT_OK
+    card = env.fb.cards["raindrop.ai"]["payload"]
+    assert [ld["name"] for ld in card["leaders"]] == ["Sam Rivera", "Priya Raman"]
+    add = next(r for k, r in env.p.requests if k == "task_group.add_runs")
+    assert "Other Founder" not in [i["input"]["person_name"] for i in add["inputs"]]
+    assert not any("leaders from the brief" in i for i in card["issues"])
+    assert "brief_leaders" not in (env.store.load_company("raindrop.ai") or {})
+
+
+def test_fallback_caps_founders_at_the_leader_limit(tmp_path):
+    env = Env(tmp_path)
+    env.p.findall_candidates = []
+    env.p.brief_content = {**BRIEF, "founders": [{"name": f"Person {i} Name", "title": "VP", "linkedin_url": None}
+                                                 for i in range(11)]}
+    assert env.run() == EXIT_OK
+    card = env.fb.cards["raindrop.ai"]["payload"]
+    assert len(card["leaders"]) == 8 and card["leaders_dropped"] == 0
+    assert "leaders from the brief (FindAll found none)" in card["issues"]
+    assert next(s for s in env.fb.spend if s["step"] == "task_group(pedigree)")["amount_usd"] == pytest.approx(0.08)
+
+
+def test_fallback_with_a_failed_brief_posts_no_leaders(tmp_path):
+    env = Env(tmp_path)
+    env.p.findall_candidates = []
+    env.p.task_failures = {"brief"}
+    assert env.run() == EXIT_OK
+    card = env.fb.cards["raindrop.ai"]["payload"]
+    assert card["leaders"] == [] and card["scores"]["talent"] is None
+    assert "no leaders confirmed" in card["issues"] and any(i.startswith("brief failed") for i in card["issues"])
+    assert env.billed()["task_group.create"] == 0
+
+
+def test_fallback_resumes_after_the_deadline_without_paying_twice(tmp_path):
+    env = Env(tmp_path)
+    env.p.findall_candidates = []
+    env.p.brief_content = {**BRIEF, "founders": FOUNDERS}
+    busy = {"on": True}
+    real_retrieve = env.p.task_group.retrieve
+    env.p.task_group.retrieve = lambda gid: NS(status=NS(is_active=True)) if busy["on"] else real_retrieve(gid)
+    assert env.run(deadline_s=120) == EXIT_INCOMPLETE
+    st = env.store.load_company("raindrop.ai")
+    assert [f["name"] for f in st["brief_leaders"]] == ["Sam Rivera", "Priya Raman"]
+    assert st["ids"]["pedigree_group_id"] == "tgrp_1" and st["pedigree_runs_added"] is True
+
+    busy["on"] = False
+    env.p.brief_content = {**BRIEF, "founders": []}  # a resume uses the SAVED founders, not a re-read
+    assert env.run(max_companies=0) == EXIT_OK
+    env.assert_reserved_before_billed()
+    card = env.fb.cards["raindrop.ai"]["payload"]
+    assert [ld["name"] for ld in card["leaders"]] == ["Sam Rivera", "Priya Raman"]
+    assert env.billed()["task_group.create"] == 1 and env.billed()["task_run.create(brief)"] == 1
+    assert sum(1 for _, k, _ in env.journal if k == "task_group.add_runs") == 1
+    steps = Counter(s["step"] for s in env.fb.spend)
+    assert steps["task_group(pedigree)"] == 1 and steps["task_run.create(brief)"] == 1

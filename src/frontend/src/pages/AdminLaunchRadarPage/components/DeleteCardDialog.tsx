@@ -14,6 +14,8 @@ interface DeleteCardDialogProps {
   /** The archived card to delete; `null` keeps the dialog closed. */
   card: Pick<LaunchRadarCard, 'id' | 'company' | 'domain'> | null;
   onClose: () => void;
+  /** Called once the delete succeeded, before `onClose`: the card has left the list. */
+  onDeleted?: (card: Pick<LaunchRadarCard, 'id' | 'company' | 'domain'>) => void;
 }
 
 /**
@@ -21,7 +23,7 @@ interface DeleteCardDialogProps {
  * tombstone row (domain only) so the loop never posts this company again —
  * which is exactly what the body tells the admin.
  */
-export function DeleteCardDialog({ card, onClose }: DeleteCardDialogProps) {
+export function DeleteCardDialog({ card, onClose, onDeleted }: DeleteCardDialogProps) {
   const [deleteCard, { isLoading, error, reset }] = useDeleteLaunchRadarCardMutation();
   // Keep the last card on screen while the dialog's exit transition runs, so
   // the title does not blank out as it fades. (Adjusting state during render is
@@ -44,6 +46,7 @@ export function DeleteCardDialog({ card, onClose }: DeleteCardDialogProps) {
     // stays open so the admin can retry or cancel.
     if (!('error' in result)) {
       reset();
+      onDeleted?.(card);
       onClose();
     }
   };

@@ -16,7 +16,9 @@ Requests and responses are snake_case. Status codes the loop relies on:
     PUT   /monitors/{slot}          200 upsert | 422 bad slot
     PATCH /monitors/{slot}          200 | 404 | 422
     GET   /seen                     200 | 422 when more than 100 values
+    GET   /cards                    200 | 422 no filter / more than 100 domains (refresh's lookup; keyset-paged)
     POST  /cards                    201 | 404 | 409 run not running / domain already posted | 422
+    PUT   /cards/{card_id}/payload  200 | 404 missing or deleted | 422 invalid or other domain
     PATCH /cards/{card_id}/pr       200 | 404 | 409
     GET   /pr-candidates            200
 
@@ -37,11 +39,14 @@ from ..dependencies import get_db
 from ..models import (
     LaunchRadarCardCreate,
     LaunchRadarCardCreated,
+    LaunchRadarCardStatus,
     LaunchRadarMonitorPatch,
     LaunchRadarMonitorPut,
     LaunchRadarMonitorRow,
     LaunchRadarMonitorSlot,
     LaunchRadarMonitorsOut,
+    LaunchRadarPayloadReplace,
+    LaunchRadarPayloadReplaced,
     LaunchRadarPrCandidate,
     LaunchRadarPrCandidatesOut,
     LaunchRadarPrSet,
@@ -53,6 +58,8 @@ from ..models import (
     LaunchRadarRunStart,
     LaunchRadarRunStarted,
     LaunchRadarSeenOut,
+    LaunchRadarStoredCard,
+    LaunchRadarStoredCardsOut,
 )
 from ..services import launch_radar as svc
 
@@ -196,6 +203,37 @@ def seen(
     return LaunchRadarSeenOut.model_validate(result)
 
 
+@router.get("/cards", response_model=LaunchRadarStoredCardsOut)
+def stored_cards(
+    domain: list[str] = Query(default_factory=list),
+    missing_talent: bool = False,
+    status: list[LaunchRadarCardStatus] = Query(default_factory=list),
+    after_id: int = Query(default=0, ge=0),
+    limit: int = Query(default=100, ge=1, le=500),
+    conn: Connection = Depends(get_db),
+) -> LaunchRadarStoredCardsOut:
+    """Live cards with their stored payload, for ``radar.py refresh``: by domain
+    (repeatable, normalized server-side) and/or every card whose Talent score is
+    null. At least one of those is required, so this never dumps the whole table.
+    ``status`` (repeatable; none = every live status) narrows it. Keyset-paged by
+    id: a page holds the cards with ``id > after_id``, at most ``limit``, and the
+    caller asks again from the last id until a page comes back short."""
+    if len(domain) > SEEN_MAX_VALUES:
+        raise HTTPException(
+            status_code=422, detail=f"at most {SEEN_MAX_VALUES} 'domain' values per request"
+        )
+    if not domain and not missing_talent:
+        raise HTTPException(status_code=422, detail="give at least one domain or missing_talent=true")
+    rows = _call(
+        conn,
+        "list cards",
+        lambda: svc.find_cards(conn, domain, missing_talent, limit, status, after_id),
+    )
+    return LaunchRadarStoredCardsOut(
+        cards=[LaunchRadarStoredCard.model_validate(r) for r in rows]
+    )
+
+
 @router.post("/cards", status_code=201, response_model=LaunchRadarCardCreated)
 def post_card(
     body: LaunchRadarCardCreate,
@@ -206,6 +244,21 @@ def post_card(
         conn, "post card", lambda: svc.insert_card(conn, body.run_uuid, payload)
     )
     return LaunchRadarCardCreated.model_validate(result)
+
+
+@router.put("/cards/{card_id}/payload", response_model=LaunchRadarPayloadReplaced)
+def replace_payload(
+    body: LaunchRadarPayloadReplace,
+    card_id: int = Path(ge=1),
+    conn: Connection = Depends(get_db),
+) -> LaunchRadarPayloadReplaced:
+    """``radar.py refresh``: replace a new/saved/archived card's payload, validated
+    like POST /cards. The card keeps its status and ``posted_at``."""
+    payload = body.payload.model_dump(mode="json")
+    result = _call(
+        conn, "replace card payload", lambda: svc.replace_payload(conn, card_id, payload)
+    )
+    return LaunchRadarPayloadReplaced.model_validate(result)
 
 
 @router.patch("/cards/{card_id}/pr", response_model=LaunchRadarPrSet)

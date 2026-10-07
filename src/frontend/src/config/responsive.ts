@@ -250,6 +250,34 @@ export const RESPONSIVE = {
     /** Internal vertical gap (sm restates the current 1.5 == 12px). */
     gap: { xs: 0.75, sm: 1.5 },
   } as const satisfies Record<string, ResponsiveValue>,
+  /**
+   * Admin Launch Radar (`pages/AdminLaunchRadarPage/`). `{ xs, sm }` sx tokens;
+   * each sm slot restates what the page renders on desktop today, so they only
+   * tighten the phone layout (the tab strip, the sort toggles, the card header
+   * and its status line), never the >= 600px one.
+   */
+  launchRadar: {
+    /** New/Saved/Archived tab min width. sm restates MUI's Tab default (90px);
+     *  three of those plus the counts do not fit a phone, so xs drops it. */
+    tabMinWidth: { xs: 0, sm: 90 },
+    /** Tab horizontal padding per side (sm restates MUI's Tab default, 2 == 16px). */
+    tabPaddingX: { xs: 1.5, sm: 2 },
+    /** Sort toggle horizontal padding per side (sm restates the page's 1.25 == 10px). */
+    sortButtonPaddingX: { xs: 1, sm: 1.25 },
+    /** Card header and body side padding (sm restates 1.75 == 14px). */
+    cardPaddingX: { xs: 1.5, sm: 1.75 },
+    /** Space between the company name and its domain. sm restates the inline
+     *  1 (8px); on a phone the domain sits on its own line under the name. */
+    domainMarginLeft: { xs: 0, sm: 1 },
+    /** Space above the one-liner. sm restates 0 (it sits right under the name);
+     *  on a phone it starts under the taller scores row and needs a gap. */
+    cardBodyMarginTop: { xs: 0.75, sm: 0 },
+    /** Status-line action button (Save, Archive…) horizontal padding per side.
+     *  sm restates the theme's MuiButton 16px (2). */
+    actionPaddingX: { xs: 0.75, sm: 2 },
+    /** Status-line action button min width. sm restates MUI's Button default (64px). */
+    actionMinWidth: { xs: 0, sm: 64 },
+  } as const satisfies Record<string, ResponsiveValue>,
   /** Raw-pixel sizes for numeric props (e.g. `CompanyLogo` `size`). */
   logoSize: { compact: 32, default: 44 },
   /**

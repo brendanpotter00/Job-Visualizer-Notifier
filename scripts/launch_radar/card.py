@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import math
 import re
+from datetime import date, datetime
 from typing import Any
 
 from .ats import pr_ready, safe_http_url
@@ -19,6 +20,8 @@ MAX_SOURCES = 40
 MAX_FACTS = 6
 MAX_SIGNALS = 4
 EVENT_TYPES = ("funding", "launch", "other")
+# Where a queued event came from: a daily Monitor, or the one-off ``backfill`` FindAll sweep.
+EVENT_ORIGINS = ("monitor", "findall_backfill")
 
 
 # ---- small coercions ------------------------------------------------------------
@@ -50,6 +53,72 @@ def texts(v: Any, limit: int = 300, max_items: int | None = None) -> list[str]:
 
 def dicts(v: Any) -> list[dict[str, Any]]:
     return [x for x in (v if isinstance(v, list) else []) if isinstance(x, dict)]
+
+
+def as_text(v: Any, limit: int = 300) -> str | None:
+    """A clipped string from a string, a number or a list of strings.
+
+    Parallel can return a number for a string field, and an integer as a float
+    (``2026.0``), so numbers are cast instead of dropped.
+    """
+    if v is None or isinstance(v, bool):
+        return None
+    if isinstance(v, (int, float)):
+        if not math.isfinite(v):
+            return None
+        return text(str(int(v)) if float(v).is_integer() else str(v), limit)
+    if isinstance(v, list):
+        return text(", ".join(t for t in (as_text(x, limit) for x in v) if t), limit)
+    return text(v, limit)
+
+
+# ---- dates ----------------------------------------------------------------------------
+_ISO_DATE = re.compile(r"^(\d{4})-(\d{2})-(\d{2})")
+_ISO_MONTH = re.compile(r"^(\d{4})-(\d{2})(?![\d-])")
+_DATE_FORMATS = ("%B %d, %Y", "%b %d, %Y", "%d %B %Y", "%Y/%m/%d")
+_MONTH_FORMATS = ("%B %Y", "%b %Y", "%Y/%m")
+
+
+def parse_date(v: Any) -> date | None:
+    """``YYYY-MM-DD`` (a datetime's date part too) or a written-out date; None otherwise."""
+    s = as_text(v, 40)
+    if not s:
+        return None
+    m = _ISO_DATE.match(s)
+    if m:
+        try:
+            return date(int(m[1]), int(m[2]), int(m[3]))
+        except ValueError:
+            return None
+    for fmt in _DATE_FORMATS:
+        try:
+            return datetime.strptime(s, fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+def announced_on(v: Any) -> str | None:
+    """An announcement date as the card stores it: ``YYYY-MM-DD``, or ``YYYY-MM`` when only
+    the month is known (``2026-09``, ``September 2026``); None for anything else (a year
+    alone, a quarter, free text). The backend accepts only these two shapes, and the admin
+    list sorts the text as a date (newest first)."""
+    day = parse_date(v)
+    if day is not None:
+        return day.isoformat()
+    s = as_text(v, 40)
+    if not s:
+        return None
+    m = _ISO_MONTH.match(s)
+    if m:
+        return f"{m[1]}-{m[2]}" if 1 <= int(m[2]) <= 12 else None
+    for fmt in _MONTH_FORMATS:
+        try:
+            month = datetime.strptime(s, fmt)
+        except ValueError:
+            continue
+        return f"{month.year:04d}-{month.month:02d}"
+    return None
 
 
 def profile_url(v: Any) -> str | None:
@@ -125,7 +194,8 @@ def build_leader(cd: Any, pedigree: dict[str, Any] | None) -> tuple[dict[str, An
     years = years if years is not None and 0 <= years <= 80 else None
     leader = {
         "name": name,
-        "title": text(o.get("current_title"), 200),
+        # A leader from the brief's founders (leaders.BriefLeader) carries the brief's title as a fallback.
+        "title": text(o.get("current_title"), 200) or text(_attr(cd, "fallback_title"), 200),
         "linkedin_url": linkedin,
         "profile_url": url,
         "summary": _summary(edu, roles, founded_raw),
@@ -204,17 +274,20 @@ def build_funding(brief: dict[str, Any] | None) -> dict[str, Any]:
 
 
 def build_event(company: str, monitor_event: dict[str, Any] | None, brief: dict[str, Any] | None) -> dict[str, Any] | None:
+    """The card's event: the Monitor (or backfill) event, else the brief's latest announcement,
+    else None. ``announced_at`` is normalized (``announced_on``) whichever it comes from."""
     if monitor_event:
         etype = monitor_event.get("event_type")
+        origin = monitor_event.get("origin")
         return {
             "type": etype if etype in EVENT_TYPES else "other",
             "headline": text(monitor_event.get("headline"), 300) or company,
             "source_url": safe_http_url(monitor_event.get("source_url")),
-            "announced_at": text(monitor_event.get("announced_at"), 20),
+            "announced_at": announced_on(monitor_event.get("announced_at")),
             "round": text(monitor_event.get("round"), 80),
             "amount_usd": text(monitor_event.get("amount_usd"), 40),
             "investors": text(monitor_event.get("investors"), 300),
-            "origin": "monitor",
+            "origin": origin if origin in EVENT_ORIGINS else "monitor",
         }
     la = (brief or {}).get("latest_announcement")
     if not isinstance(la, dict) or not text(la.get("headline")):
@@ -227,7 +300,7 @@ def build_event(company: str, monitor_event: dict[str, Any] | None, brief: dict[
         "type": kind,
         "headline": text(la.get("headline"), 300),
         "source_url": safe_http_url(la.get("url")),
-        "announced_at": text(la.get("announced_at"), 20),
+        "announced_at": announced_on(la.get("announced_at")),
         "round": text(lr.get("stage"), 80),
         "amount_usd": text(lr.get("amount_usd"), 40),
         "investors": ", ".join(investors)[:300] or None,
@@ -300,7 +373,10 @@ def build_payload(
         "funding": build_funding(brief),
         "notable_facts": texts(b.get("notable_facts"), 300, MAX_FACTS),
         "careers_url": safe_http_url(b.get("careers_url")),
-        "ats": {k: ats[k] for k in ("provider", "board_token", "board_url", "verified", "job_count", "checked_url")},
+        # The board check already builds both URLs from http(s) parts; filtered again here so every
+        # URL in the payload passes the same rule the backend enforces (a non-http(s) URL is a 422).
+        "ats": {**{k: ats[k] for k in ("provider", "board_token", "verified", "job_count")},
+                "board_url": safe_http_url(ats["board_url"]), "checked_url": safe_http_url(ats["checked_url"])},
         "pr_ready": pr_ready(ats),
         "sources": sources,
         "parallel_run_ids": {k: run_ids.get(k) for k in ("findall_id", "brief_run_id", "team_run_id",

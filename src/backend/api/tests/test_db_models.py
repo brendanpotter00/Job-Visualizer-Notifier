@@ -421,3 +421,30 @@ def test_app_settings_shape():
     assert table.c["updated_at"].nullable is False
     assert table.c["updated_by"].nullable is True
     assert not table.indexes
+
+
+def test_launch_radar_card_status_check_matches_its_migration():
+    """The card status CHECK lists every live status plus the tombstone, and the
+    hand-written revision that last changed it creates exactly the same text.
+
+    Autogenerate (and ``alembic check``) never compares CHECK constraints, so
+    without this pin the model and the database could disagree silently: the
+    model would accept 'saved' in ``create_all`` test schemas while a migrated
+    database refused it.
+    """
+    from pathlib import Path
+
+    from sqlalchemy import CheckConstraint
+
+    table = db_models.Base.metadata.tables["launch_radar_cards"]
+    (check,) = [
+        c
+        for c in table.constraints
+        if isinstance(c, CheckConstraint) and c.name == "ck_launch_radar_cards_status"
+    ]
+    sql = str(check.sqltext)
+    assert sql == "status IN ('new','saved','archived','deleted')"
+
+    versions = Path(__file__).resolve().parents[2] / "alembic" / "versions"
+    (revision,) = versions.glob("*_f0dc42c3d985_*.py")
+    assert f'"{sql}"' in revision.read_text()

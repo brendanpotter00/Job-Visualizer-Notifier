@@ -177,7 +177,7 @@ erDiagram
     launch_radar_cards {
         integer id PK
         text domain "UNIQUE, lower-case — the dedupe guard"
-        text status "new | archived | deleted (tombstone)"
+        text status "new | saved | archived | deleted (tombstone)"
         text tracked_company_id FK "SET NULL"
         jsonb payload "NULL only on a tombstone"
     }
@@ -420,9 +420,9 @@ against a `SUM`, and a float sum drifts.
   is set explicitly by every UPDATE.
 - **`launch_radar_cards`** — one row per normalized domain, **ever**: `UNIQUE(domain)`
   (`uq_launch_radar_cards_domain`) is the dedupe guard and `CHECK domain = lower(domain)`.
-  `status` CHECK `new/archived/deleted`. A delete is a **tombstone**: `payload`, `pr_url` and
-  `tracked_company_id` are cleared but the row and its domain stay, so the loop never posts that
-  company again; `CHECK (status = 'deleted') = (payload IS NULL)` and
+  `status` CHECK `new/saved/archived/deleted` (`saved` added by `f0dc42c3d985`). A delete is a
+  **tombstone**: `payload`, `pr_url` and `tracked_company_id` are cleared but the row and its
+  domain stay, so the loop never posts that company again; `CHECK (status = 'deleted') = (payload IS NULL)` and
   `CHECK status <> 'deleted' OR (pr_url IS NULL AND tracked_company_id IS NULL)` pin that.
   Scores, event type and cost live in `payload` (snake_case JSONB), deliberately not in columns,
   so a tombstone clears all of them at once. `tracked_company_id` FK `companies.id` SET NULL,

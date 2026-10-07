@@ -1,4 +1,4 @@
-"""Free ATS board check against the public job-board APIs (POC ``poc.py:752``).
+"""Free ATS board check against the public job-board APIs (from the POC's ``ats_check``).
 
 The provider, token and URLs come from a Parallel Task output, so they are
 untrusted: a token is only used when it is a plain slug, and only the three
@@ -90,18 +90,6 @@ class BoardCheck:
         """Nothing verified with jobs, and at least one candidate failed transiently, so
         "no board" is not a safe conclusion yet."""
         return not pr_ready(self.ats) and any(p.transient for p in self.problems)
-
-
-def ats_check(
-    provider: str | None,
-    token: str | None,
-    careers_url: str | None,
-    board_url: str | None = None,
-    *,
-    transport: httpx.BaseTransport | None = None,
-) -> dict[str, Any]:
-    """Verify the board; returns the card's ``ats`` block (CONTRACT §4). See ``check_board``."""
-    return check_board(provider, token, careers_url, board_url, transport=transport).ats
 
 
 def check_board(

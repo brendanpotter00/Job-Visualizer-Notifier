@@ -1,7 +1,14 @@
 """Card payload (CONTRACT §4): exact keys, float->int casts, untrusted-text handling."""
 
-from launch_radar.card import build_event, build_funding, build_leader, build_payload, build_team_stats, to_int
-
+from launch_radar.card import (
+    announced_on,
+    build_event,
+    build_funding,
+    build_leader,
+    build_payload,
+    build_team_stats,
+    to_int,
+)
 from tests.unit.launch_radar_fakes import basis, candidate
 
 PAYLOAD_KEYS = {
@@ -161,6 +168,26 @@ def test_untrusted_urls_in_brief_are_not_linked():
     assert p["careers_url"] is None
 
 
+def test_every_payload_url_is_http_or_null_whatever_the_inputs():
+    # The backend 422s a card with any non-http(s) URL, so the loop must null each one.
+    bad = "javascript:alert(1)"
+    pedigree = {**PEDIGREE, "content": {**PEDIGREE["content"], "linkedin_url": bad}}
+    p = _payload(
+        brief=dict(BRIEF, website_url=bad, careers_url="data:text/html,x"),
+        monitor_event={"event_type": "funding", "headline": "Raindrop raises", "source_url": bad},
+        leaders=[(candidate("Sam Rivera", bad), pedigree)],
+        ats=dict(ATS, board_url=bad, checked_url="ftp://api.example.com/x"),
+        brief_basis=[basis("one_liner", "high", (bad, "https://ok.example.com"))],
+    )
+    urls = [p["website"], p["careers_url"], p["event"]["source_url"], p["ats"]["board_url"],
+            p["ats"]["checked_url"], *(s["url"] for s in p["sources"]),
+            *(u for ld in p["leaders"] for u in (ld["linkedin_url"], ld["profile_url"]))]
+    assert all(u is None or u.startswith(("https://", "http://")) for u in urls), urls
+    assert p["ats"]["board_url"] is None and p["ats"]["checked_url"] is None
+    assert p["event"]["source_url"] is None and p["leaders"][0]["linkedin_url"] is None
+    assert p["ats"]["provider"] == "ashby" and p["ats"]["job_count"] == 9  # the rest of the block is kept
+
+
 def test_event_from_monitor_then_brief_then_none():
     mon = {"company_name": "Raindrop AI", "event_type": "funding", "round": "Series A", "amount_usd": "$35M",
            "investors": "CRV", "announced_at": "2026-09-17", "source_url": "https://news.example.com/r",
@@ -172,6 +199,25 @@ def test_event_from_monitor_then_brief_then_none():
     assert build_event("Raindrop AI", None, None) is None
     weird = build_event("X", dict(mon, event_type="acquisition", headline=None), None)
     assert weird["type"] == "other" and weird["headline"] == "X"
+
+
+def test_announced_on_is_an_iso_day_or_month_or_none():
+    assert announced_on("2026-09-17") == "2026-09-17"
+    assert announced_on("2026-09-17T10:00:00Z") == "2026-09-17"
+    assert announced_on("September 17, 2026") == "2026-09-17" and announced_on("Sep 17, 2026") == "2026-09-17"
+    assert announced_on("2026-09") == "2026-09"
+    assert announced_on("September 2026") == "2026-09" and announced_on("Sep 2026") == "2026-09"
+    for junk in (None, "", "2026", "Q3 2026", "last week", "2026-13", "2026-02-30", 2026.0, True, ["x"]):
+        assert announced_on(junk) is None, junk
+
+
+def test_event_dates_are_normalized_whatever_the_source():
+    mon = {"company_name": "Raindrop AI", "event_type": "funding", "headline": "Raindrop raises $35M",
+           "announced_at": "September 17, 2026"}
+    assert build_event("Raindrop AI", mon, None)["announced_at"] == "2026-09-17"
+    assert build_event("Raindrop AI", dict(mon, announced_at="last Tuesday"), None)["announced_at"] is None
+    brief = dict(BRIEF, latest_announcement={**BRIEF["latest_announcement"], "announced_at": "Sep 2026"})
+    assert build_event("Raindrop AI", None, brief)["announced_at"] == "2026-09"
 
 
 def test_funding_prior_rounds_split_investors():
@@ -197,3 +243,27 @@ def test_team_stats_keep_unknown_counts_as_none_not_zero():
     ts = build_team_stats({"profiles_found": 6.0, "ex_founders_with_exit": 0.0, "team_size_estimate": "x",
                            "schools": [], "prior_employers": [], "sample_names": []})
     assert ts["profiles_found"] == 6 and ts["ex_founders_with_exit"] == 0
+
+
+def test_team_tally_is_display_only_and_never_scored():
+    strong_team = dict(TEAM, ex_founders_with_exit=9, schools=[{"name": "Stanford", "count": 12}],
+                       prior_employers=[{"name": "OpenAI", "count": 15}])
+    with_team, without_team = _payload(team=strong_team), _payload(team=None)
+    assert with_team["team_stats"]["ex_founders_with_exit"] == 9 and without_team["team_stats"] is None
+    assert with_team["scores"] == without_team["scores"]
+
+
+def test_brief_leader_without_pedigree_keeps_the_brief_title_and_linkedin():
+    from launch_radar.leaders import BriefLeader
+
+    cd = BriefLeader(name="Sam Rivera", fallback_title="Co-Founder & CEO", linkedin_url="https://linkedin.com/in/sam")
+    leader, score_input = build_leader(cd, None)
+    assert leader["title"] == "Co-Founder & CEO"
+    assert leader["linkedin_url"] == "https://linkedin.com/in/sam" and leader["profile_url"] == leader["linkedin_url"]
+    assert leader["schools"] == [] and score_input["years"] is None
+    # The pedigree's own current title wins over the brief's.
+    leader, _ = build_leader(cd, PEDIGREE)
+    assert leader["title"] == "Co-Founder & CTO"
+    # A FindAll candidate has no fallback title.
+    leader, _ = build_leader(candidate("Priya Raman", "https://raindrop.ai/team"), None)
+    assert leader["title"] is None

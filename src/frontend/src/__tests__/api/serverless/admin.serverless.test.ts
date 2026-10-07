@@ -68,6 +68,62 @@ describe('/api/admin serverless function', () => {
     );
   });
 
+  it('forwards every Launch Radar list query param (status, limit, offset, sort)', async () => {
+    // The page's whole view is in these four: the tab, the page and the order.
+    // A proxy that dropped one would answer 200 with the wrong cards (the
+    // default sort, page 1) and no error anywhere.
+    mockReq.query = {
+      path: ['launch-radar', 'cards'],
+      status: 'saved',
+      limit: '25',
+      offset: '50',
+      sort: 'talent',
+    };
+    fetchMock.mockResolvedValue(mockJsonResponse(200, { cards: [] }));
+
+    await handler(mockReq as VercelRequest, mockRes as VercelResponse);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const target = new URL(fetchMock.mock.calls[0][0] as string);
+    expect(target.pathname).toBe('/api/admin/launch-radar/cards');
+    expect(Object.fromEntries(target.searchParams)).toEqual({
+      status: 'saved',
+      limit: '25',
+      offset: '50',
+      sort: 'talent',
+    });
+  });
+
+  it.each(['announced', 'talent', 'vc', 'added'])(
+    'forwards sort=%s to the Launch Radar list unchanged',
+    async (sort) => {
+      mockReq.query = { path: 'launch-radar/cards', status: 'new', sort };
+      fetchMock.mockResolvedValue(mockJsonResponse(200, { cards: [] }));
+
+      await handler(mockReq as VercelRequest, mockRes as VercelResponse);
+
+      const target = new URL(fetchMock.mock.calls[0][0] as string);
+      expect(target.searchParams.get('sort')).toBe(sort);
+      expect(target.searchParams.get('status')).toBe('new');
+    }
+  );
+
+  it('forwards a Launch Radar status PATCH with its { status, from } body', async () => {
+    // `from` is the backend's compare-and-swap guard; dropping it would let a
+    // stale Unsave restore an archived card instead of answering 409.
+    mockReq.method = 'PATCH';
+    mockReq.query = { path: ['launch-radar', 'cards', '4'] };
+    mockReq.body = { status: 'new', from: 'saved' };
+    fetchMock.mockResolvedValue(mockJsonResponse(200, { id: 4, status: 'new' }));
+
+    await handler(mockReq as VercelRequest, mockRes as VercelResponse);
+
+    const [url, fetchOptions] = fetchMock.mock.calls[0];
+    expect(new URL(url as string).pathname).toBe('/api/admin/launch-radar/cards/4');
+    expect(fetchOptions.method).toBe('PATCH');
+    expect(fetchOptions.body).toBe(JSON.stringify({ status: 'new', from: 'saved' }));
+  });
+
   it('forwards the Authorization header to the backend', async () => {
     // The whole /api/admin/* surface is admin-gated by require_admin. Losing
     // the Bearer token at the proxy returns 401 for every authenticated
@@ -238,10 +294,7 @@ runProxyAllowlistGuard({
       'enrichment/jobs/greenhouse:openai/q-1/correct',
       '/api/admin/enrichment/jobs/greenhouse:openai/q-1/correct',
     ],
-    [
-      'enrichment/jobs/custom:u-x/q-1/confirm',
-      '/api/admin/enrichment/jobs/custom:u-x/q-1/confirm',
-    ],
+    ['enrichment/jobs/custom:u-x/q-1/confirm', '/api/admin/enrichment/jobs/custom:u-x/q-1/confirm'],
     [
       'enrichment/jobs/custom:u-x/q-1/reenrich',
       '/api/admin/enrichment/jobs/custom:u-x/q-1/reenrich',
@@ -251,6 +304,9 @@ runProxyAllowlistGuard({
     // localhost:8000 — a failure that looks like a routing bug and isn't.
     ['custom-companies', '/api/admin/custom-companies'],
     ['custom-companies/attempts', '/api/admin/custom-companies/attempts'],
+    // Launch Radar: the list, and one card (PATCH status / DELETE).
+    ['launch-radar/cards', '/api/admin/launch-radar/cards'],
+    ['launch-radar/cards/12', '/api/admin/launch-radar/cards/12'],
   ],
   normalizes: ['/users//stats/', '/api/admin/users/stats'],
   methods: ['GET', 'POST', 'PUT', 'DELETE'],

@@ -5,6 +5,11 @@
   reserved amounts, start times). A saved id is never created again and a saved
   reservation is never reserved again, so a run cut off by the deadline resumes
   without paying twice.
+- ``backfill.json``: the one-off ``backfill`` sweep (its FindAll id, reservations and
+  progress), so a re-run resumes polling instead of paying for a second FindAll run.
+- ``refresh/<domain>.json``: a ``refresh`` in progress (the card it started from, the new
+  brief / pedigree ids and reservations); ``refresh_done.json``: the cards already
+  refreshed, which a later ``refresh`` skips, so a re-run never pays for one twice.
 - ``heartbeat.log``: one line per skill run (the wrapper checks its mtime).
 
 Writes are atomic (temp file + rename) so a killed process never leaves a
@@ -55,6 +60,9 @@ class StateStore:
         self.dir = state_dir
         self.queue_path = state_dir / "queue.json"
         self.companies_dir = state_dir / "companies"
+        self.backfill_path = state_dir / "backfill.json"
+        self.refresh_dir = state_dir / "refresh"
+        self.refresh_done_path = state_dir / "refresh_done.json"
         self.heartbeat_path = state_dir / "heartbeat.log"
         self._lock = threading.Lock()
 
@@ -106,6 +114,61 @@ class StateStore:
 
     def delete_company(self, domain: str) -> None:
         self._company_path(domain).unlink(missing_ok=True)
+
+    # ---- backfill ------------------------------------------------------------------
+    def load_backfill(self) -> dict[str, Any] | None:
+        try:
+            data = json.loads(self.backfill_path.read_text())
+        except FileNotFoundError:
+            return None
+        if not isinstance(data, dict):
+            raise ValueError(f"{self.backfill_path} is not a JSON object")
+        return data
+
+    def save_backfill(self, data: dict[str, Any]) -> None:
+        _atomic_write(self.backfill_path, data)
+
+    # ---- refresh -------------------------------------------------------------------
+    def _refresh_path(self, domain: str) -> Path:
+        if not is_hostname(domain):
+            raise ValueError(f"refusing to use {domain!r} as a state file name")
+        return self.refresh_dir / f"{domain}.json"
+
+    def refresh_domains(self) -> list[str]:
+        """Domains with a refresh in progress, sorted."""
+        if not self.refresh_dir.is_dir():
+            return []
+        return sorted(p.stem for p in self.refresh_dir.glob("*.json") if is_hostname(p.stem))
+
+    def load_refresh(self, domain: str) -> dict[str, Any] | None:
+        try:
+            data = json.loads(self._refresh_path(domain).read_text())
+        except FileNotFoundError:
+            return None
+        if not isinstance(data, dict):
+            raise ValueError(f"refresh state for {domain} is not a JSON object")
+        return data
+
+    def save_refresh(self, domain: str, data: dict[str, Any]) -> None:
+        _atomic_write(self._refresh_path(domain), data)
+
+    def delete_refresh(self, domain: str) -> None:
+        self._refresh_path(domain).unlink(missing_ok=True)
+
+    def load_refresh_done(self) -> dict[str, Any]:
+        try:
+            data = json.loads(self.refresh_done_path.read_text())
+        except FileNotFoundError:
+            return {}
+        if not isinstance(data, dict):
+            raise ValueError(f"{self.refresh_done_path} is not a JSON object")
+        return data
+
+    def mark_refresh_done(self, domain: str, record: dict[str, Any]) -> None:
+        with self._lock:  # refresh workers finish concurrently
+            done = self.load_refresh_done()
+            done[domain] = record
+            _atomic_write(self.refresh_done_path, done)
 
     # ---- heartbeat -------------------------------------------------------------------
     def heartbeat(self, status: str, note: str | None) -> str:

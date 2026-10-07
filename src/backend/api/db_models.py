@@ -1504,6 +1504,8 @@ class LaunchRadarCard(Base):
     # tracked_company_id cleared, row and domain kept), so the loop never posts
     # that domain again. Scores, event type and cost live in ``payload`` and not
     # in columns, so clearing the payload clears all of them at once.
+    # Lifecycle (``status``): new -> saved (Save) -> new (Unsave); new or saved
+    # -> archived (Archive) -> new (Restore); archived -> deleted (tombstone).
     __tablename__ = "launch_radar_cards"
 
     id = Column(Integer, primary_key=True)
@@ -1531,8 +1533,10 @@ class LaunchRadarCard(Base):
     __table_args__ = (
         UniqueConstraint("domain", name="uq_launch_radar_cards_domain"),
         CheckConstraint("domain = lower(domain)", name="ck_launch_radar_cards_domain_lower"),
+        # Autogenerate does not compare CHECKs: a change here needs a
+        # hand-written revision (``f0dc42c3d985`` added 'saved').
         CheckConstraint(
-            "status IN ('new','archived','deleted')",
+            "status IN ('new','saved','archived','deleted')",
             name="ck_launch_radar_cards_status",
         ),
         CheckConstraint(

@@ -8,8 +8,8 @@ import jwt as pyjwt
 import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi import HTTPException
-from starlette.requests import Request
 from jwt import PyJWKClientError
+from starlette.requests import Request
 
 # Generate test RSA keypair (module-level, reused across tests)
 _private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)

@@ -1,7 +1,7 @@
 """Deterministic scoring (CONTRACT §6.6).
 
 The rubric data and the point values are copied verbatim from the POC
-(``poc.py:570``). Two changes: the talent score is ``None`` (shown as a dash)
+(``poc.py``). Two changes: the talent score is ``None`` (shown as a dash)
 when no leader has any people data, never 0; and the VC score is ``None`` when
 the brief is missing or names no investor and no parseable amount. Reasons are
 written for a person reading the card.

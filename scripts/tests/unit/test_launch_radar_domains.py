@@ -1,7 +1,6 @@
 """Domain normalization: the shared vectors (CONTRACT §3) and the filters."""
 
 import pytest
-
 from launch_radar.domains import is_big_tech, is_hostname, normalize_domain
 
 

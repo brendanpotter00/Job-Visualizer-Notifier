@@ -21,7 +21,6 @@ from typing import Any, Callable
 from urllib.parse import parse_qs
 
 import httpx
-
 from launch_radar.domains import normalize_domain
 
 PREFIX = "/api/internal/launch-radar"
@@ -47,6 +46,18 @@ def candidate(name: str, url: str, *, matched: bool = True, cid: str | None = No
     return NS(candidate_id=cid or f"cand_{name.replace(' ', '_').lower()}", name=name, url=url,
               description=description, match_status="matched" if matched else "unmatched",
               output={}, basis=basis_list or [])
+
+
+def company_match(name: str, url: str, *, matched: bool = True, cid: str | None = None,
+                  announcement_url: str | None = None) -> NS:
+    """A backfill (``entity_type="companies"``) candidate with its match-condition outputs."""
+    cd = candidate(name, url, matched=matched, cid=cid, description=f"{name} is a startup.")
+    cd.output = {"early_stage_startup_check": {"value": "yes", "type": "match_condition", "is_matched": matched},
+                 "recent_announcement_check": {"value": "announced in the window", "type": "match_condition",
+                                               "is_matched": matched}}
+    if announcement_url:
+        cd.basis = [basis("recent_announcement_check", "high", (announcement_url,))]
+    return cd
 
 
 def stream_event(event_id: str, content: dict[str, Any] | str, event_date: str = "2026-10-06") -> NS:
@@ -103,24 +114,50 @@ class _FindAll:
         self.p = p
         self.ids = count(1)
         self.polls: dict[str, int] = {}
+        self.enrich_polls: dict[str, int] = {}  # fid -> retrieves since its enrich request
 
     def create(self, **req: Any) -> NS:
         fid = f"findall_{next(self.ids)}"
-        self.p.journal.append(("parallel", "findall.create", req["metadata"]["company"]))
+        meta = req.get("metadata") or {}
+        self.p.journal.append(("parallel", "findall.create", meta.get("company") or meta.get("step")))
         self.p.requests.append(("findall.create", req))
         self.polls[fid] = 0
         return NS(findall_id=fid)
 
+    def enrich(self, fid: str, *, output_schema: dict[str, Any], processor: str = "core") -> NS:
+        self.p.journal.append(("parallel", "findall.enrich", fid))
+        self.p.requests.append(("findall.enrich", {"findall_id": fid, "output_schema": output_schema,
+                                                   "processor": processor}))
+        self.enrich_polls[fid] = 0
+        return NS(objective="o", entity_type="companies", match_conditions=[], enrichments=[])
+
+    def _active(self, fid: str) -> bool:
+        if fid in self.enrich_polls:  # an enrichment requeues the run
+            self.enrich_polls[fid] += 1
+            polls, n = self.enrich_polls[fid], self.p.findall_enrich_active_polls
+        else:
+            self.polls[fid] = self.polls.get(fid, 0) + 1
+            polls, n = self.polls[fid], self.p.findall_active_polls
+        return False if n is None else (True if n < 0 else polls <= n)
+
     def retrieve(self, fid: str) -> NS:
-        self.polls[fid] = self.polls.get(fid, 0) + 1
-        n = self.p.findall_active_polls
-        active = False if n is None else (True if n < 0 else self.polls[fid] <= n)
+        active = self._active(fid)
         return NS(findall_id=fid, status=NS(status="running" if active else "completed", is_active=active,
                                              termination_reason=None if active else "low_match_rate"))
 
     def result(self, fid: str) -> NS:
-        return NS(candidates=list(self.p.findall_candidates))
-
+        if fid not in self.enrich_polls:
+            return NS(candidates=list(self.p.findall_candidates))
+        # After the enrich request: each matched candidate gains its enrichment fields
+        # (``findall_enrichment[candidate_id]``) as ``{"value": ..., "type": "enrichment"}``.
+        out = []
+        for cd in self.p.findall_candidates:
+            fields = self.p.findall_enrichment.get(cd.candidate_id)
+            if cd.match_status == "matched" and fields is not None:
+                cd = NS(**{**vars(cd), "output": {**(cd.output or {}), **{
+                    k: {"value": v, "type": "enrichment"} for k, v in fields.items()}}})
+            out.append(cd)
+        return NS(candidates=out)
 
 
 class _TaskRun:
@@ -155,7 +192,6 @@ class _TaskRun:
         return NS(run=NS(run_id=run_id, status="completed"),
                   output=NS(type="json", content=content, basis=self.p.brief_basis if step == "brief" else []))
 
-
     def retrieve(self, run_id: str) -> NS:
         if run_id not in self.step_of:
             raise FakeAPIStatusError(404)
@@ -183,7 +219,8 @@ class _TaskGroup:
         return NS(run_ids=[f"trun_g{i}" for i in range(len(inputs))])
 
     def retrieve(self, gid: str) -> NS:
-        return NS(status=NS(is_active=False, task_run_status_counts={"completed": len(self.inputs[gid])}))
+        n = len(self.inputs[gid])
+        return NS(status=NS(is_active=False, num_task_runs=n, task_run_status_counts={"completed": n} if n else {}))
 
     def get_runs(self, gid: str, include_input: bool = False, include_output: bool = False) -> list[NS]:
         events = []
@@ -215,7 +252,9 @@ class FakeParallel:
         self.task_group = _TaskGroup(self)
         # knobs
         self.findall_active_polls: int | None = None  # None = done at once; -1 = never done
+        self.findall_enrich_active_polls: int | None = None  # the same, after an enrich request
         self.findall_candidates: list[NS] = []
+        self.findall_enrichment: dict[str, dict[str, Any]] = {}  # candidate_id -> enrichment fields
         self.brief_content: dict[str, Any] | None = None
         self.brief_basis: list[NS] = []
         self.team_content: dict[str, Any] | None = None
@@ -235,8 +274,8 @@ class FakeParallel:
         return NS(search_id="search_1", results=list(hits))
 
     def billed_calls(self) -> list[tuple[str, str, Any]]:
-        billed = {"monitor.create", "findall.create", "task_run.create(brief)", "task_run.create(team)",
-                  "task_group.create", "search"}
+        billed = {"monitor.create", "findall.create", "findall.enrich", "task_run.create(brief)",
+                  "task_run.create(team)", "task_group.create", "search"}
         return [j for j in self.journal if j[0] == "parallel" and j[1] in billed]
 
 
@@ -252,6 +291,7 @@ class FakeBackend:
         self.tracked_names: dict[str, str] = {}  # lower(display_name) -> company id
         self.tracked_boards: dict[tuple[str, str], str] = {}  # (ats, lower(token)) -> company id
         self.requests: list[httpx.Request] = []
+        self.card_queries: list[dict[str, Any]] = []  # each GET /cards page: statuses, after_id, limit
         self.card_ids = count(1)
         self.run_ids = count(1)
 
@@ -374,6 +414,35 @@ class FakeBackend:
             r["cards_posted"] += 1
             self.journal.append(("backend", "post_card", p["domain"]))
             return self._json(201, {"id": cid, "tracked_company_id": tracked})
+        if method == "GET" and parts == ["cards"]:
+            q = parse_qs(request.url.query.decode())
+            doms = {normalize_domain(d) for d in q.get("domain", [])}
+            missing = q.get("missing_talent", ["false"])[0] == "true"
+            statuses = set(q.get("status", [])) or {"new", "saved", "archived"}
+            after_id = int(q.get("after_id", ["0"])[0])
+            limit = int(q.get("limit", ["100"])[0])
+            if not doms and not missing:
+                return self._json(422, {"detail": "give at least one domain or missing_talent=true"})
+            if not statuses <= {"new", "saved", "archived"} or not 1 <= limit <= 500:
+                return self._json(422, {"detail": "bad status or limit"})
+            self.card_queries.append({"statuses": statuses, "after_id": after_id, "limit": limit})
+            rows = sorted(((d, r) for d, r in self.cards.items() if r["status"] in statuses
+                           and r["id"] > after_id
+                           and (not doms or d in doms)
+                           and (not missing or (r["payload"].get("scores") or {}).get("talent") is None)),
+                          key=lambda dr: dr[1]["id"])[:limit]
+            return self._json(200, {"cards": [{"id": r["id"], "domain": d, "status": r["status"],
+                                               "payload": r["payload"]} for d, r in rows]})
+        if method == "PUT" and len(parts) == 3 and parts[0] == "cards" and parts[2] == "payload":
+            hit = next(((d, r) for d, r in self.cards.items() if r["id"] == int(parts[1])), None)
+            if hit is None or hit[1]["status"] == "deleted":
+                return self._json(404, {"detail": "card not found"})
+            if body["payload"]["domain"] != hit[0]:
+                return self._json(422, {"detail": "payload domain is not the card's domain"})
+            hit[1]["payload"] = body["payload"]
+            self.journal.append(("backend", "put_payload", hit[0]))
+            return self._json(200, {"id": hit[1]["id"], "domain": hit[0], "status": hit[1]["status"],
+                                    "posted_at": "x", "updated_at": "y"})
         if method == "PATCH" and len(parts) == 3 and parts[0] == "cards" and parts[2] == "pr":
             for row in self.cards.values():
                 if row["id"] == int(parts[1]):
@@ -383,9 +452,12 @@ class FakeBackend:
                     return self._json(200, {"id": row["id"], "pr_url": row["pr_url"]})
             return self._json(404, {"detail": "no such card"})
         if method == "GET" and parts == ["pr-candidates"]:
+            # As the backend: new or saved, no PR, untracked, pr_ready; saved first, then newest.
             limit = int(parse_qs(request.url.query.decode())["limit"][0])
-            rows = [(d, r) for d, r in self.cards.items()
-                    if r["status"] == "new" and not r["pr_url"] and not r["tracked_company_id"] and r["payload"]["pr_ready"]]
+            rows = sorted(((d, r) for d, r in self.cards.items()
+                           if r["status"] in ("new", "saved") and not r["pr_url"] and not r["tracked_company_id"]
+                           and r["payload"]["pr_ready"]),
+                          key=lambda dr: (dr[1]["status"] != "saved", -dr[1]["id"]))
             return self._json(200, {"cards": [{"id": r["id"], "domain": d, "company": r["payload"]["company"],
                                                "ats_provider": r["payload"]["ats"]["provider"],
                                                "board_token": r["payload"]["ats"]["board_token"],

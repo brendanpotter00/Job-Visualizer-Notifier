@@ -1,26 +1,35 @@
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
+import type { ScoreEmphasis } from '../format';
 
 interface ScoreBadgeProps {
   label: string;
   /** 0–100, or null when there was no data to score. */
   value: number | null;
+  /** `strong` / `muted` when the list is sorted by this score / the other one. */
+  emphasis?: ScoreEmphasis;
 }
 
 /**
  * A big tabular numeral over a 30x3 bar filled to `value%`, then a small label.
  * `null` means "no data", which is NOT the same claim as 0: it renders a grey
  * dash over an empty bar so a card with no people data never reads as a
- * zero-talent company.
+ * zero-talent company (whatever the emphasis).
  */
-export function ScoreBadge({ label, value }: ScoreBadgeProps) {
+export function ScoreBadge({ label, value, emphasis = 'normal' }: ScoreBadgeProps) {
   const hasValue = value != null;
   const pct = hasValue ? Math.max(0, Math.min(100, value)) : 0;
+  const numeralColor = !hasValue
+    ? 'text.disabled'
+    : emphasis === 'muted'
+      ? 'text.secondary'
+      : 'text.primary';
   return (
     <Box
       sx={{ textAlign: 'center', minWidth: 30 }}
       role="group"
       aria-label={hasValue ? `${label} score ${value}` : `${label}: No score`}
+      data-emphasis={emphasis}
     >
       <Typography
         component="div"
@@ -30,7 +39,7 @@ export function ScoreBadge({ label, value }: ScoreBadgeProps) {
           fontWeight: 600,
           lineHeight: 1,
           fontVariantNumeric: 'tabular-nums',
-          color: hasValue ? 'text.primary' : 'text.disabled',
+          color: numeralColor,
         }}
       >
         {hasValue ? value : '–'}

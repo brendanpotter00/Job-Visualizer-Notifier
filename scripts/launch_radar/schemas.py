@@ -1,8 +1,11 @@
 """Parallel request schemas, Monitor queries and price tables.
 
 Copied from the POC (``scripts/launch_radar_poc/poc.py`` and ``team_stats.py``)
-with one change: ``BRIEF_SCHEMA.ats`` gains a required ``board_url``.
-Prices are USD from parallel-docs ``raw/getting-started/pricing.md``.
+with two changes: ``BRIEF_SCHEMA.ats`` gains a required ``board_url``, and
+``BRIEF_SCHEMA`` gains a required ``founders`` list (the leaders fallback).
+``backfill_event_schema`` is new. Prices are USD from parallel-docs
+``raw/getting-started/pricing.md``; the Search API price used by the domain
+lookup is ``resolve.SEARCH_FAST_PRICE``.
 """
 
 from __future__ import annotations
@@ -21,7 +24,6 @@ FINDALL_PRICE = {  # (fixed, per_match)
     "core": (2.00, 0.15),
     "pro": (10.00, 1.00),
 }
-ENTITY_SEARCH_PRICE = 0.005
 
 
 def ceil_cost(x: float) -> float:
@@ -94,6 +96,44 @@ MONITOR_OUTPUT_SCHEMA: dict[str, Any] = {
     ],
     "additionalProperties": False,
 }
+
+
+def backfill_event_schema(start: str, end: str) -> dict[str, Any]:
+    """The ``backfill`` FindAll enrichment: one Monitor-shaped event per matched company.
+
+    Same nine fields as ``MONITOR_OUTPUT_SCHEMA``, all required, ``additionalProperties``
+    false, nullable where the answer can be unknown. The window is in the descriptions
+    because an enrichment only sees the candidate's name, url and description.
+    """
+    span = f"between {start} and {end} (inclusive)"
+    nullable = {"type": ["string", "null"]}
+    return {
+        "type": "object",
+        "properties": {
+            "company_name": {"type": "string", "description": "The company's name."},
+            "company_domain": {**nullable, "description": (
+                "The company's official website domain, e.g. example.com (no scheme, no path). Not a news, "
+                "LinkedIn, Crunchbase, investor or app-store page. null if unknown.")},
+            "event_type": {"type": "string", "enum": ["funding", "launch"], "description": (
+                f"What the company announced {span}: funding = a newly closed venture round, launch = a notable "
+                f"new product launch. If it announced several, use the most recent funding round, else the most "
+                f"notable launch.")},
+            "round": {**nullable, "description": "Funding stage as announced, e.g. Pre-seed, Seed, Series A, "
+                                                 "Series B. null for a launch."},
+            "amount_usd": {**nullable, "description": "Round size in USD as written, e.g. '$15M'. null for a "
+                                                      "launch or if undisclosed."},
+            "investors": {**nullable, "description": "Comma-separated investors in that round, lead investor(s) "
+                                                     "first. null if none named."},
+            "announced_at": {**nullable, "description": (
+                f"Date of that announcement, YYYY-MM-DD; it should fall {span}. null if unknown.")},
+            "source_url": {**nullable, "description": (
+                "URL of the press release or news article that announced it. null if none found.")},
+            "headline": {"type": "string", "description": "One-line headline summarizing the announcement."},
+        },
+        "required": list(MONITOR_OUTPUT_SCHEMA["required"]),
+        "additionalProperties": False,
+    }
+
 
 # Leader pedigree: one Task Group run per leader (processor base).
 PEDIGREE_SCHEMA: dict[str, Any] = {
@@ -252,10 +292,28 @@ BRIEF_SCHEMA: dict[str, Any] = {
             "required": ["provider", "board_token", "board_url"],
             "additionalProperties": False,
         },
+        # The leaders fallback: used only when FindAll confirms no person (CONTRACT §6.3 step 5.2).
+        "founders": {
+            "type": "array",
+            "description": "The company's founders and current C-level leaders, from the company's site, press "
+                           "releases or news; empty if none found.",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "The person's full name."},
+                    "title": {"type": ["string", "null"],
+                              "description": "Their title at the company, e.g. Co-Founder & CEO; null if unknown."},
+                    "linkedin_url": {"type": ["string", "null"],
+                                     "description": "Their LinkedIn profile URL; null if not found."},
+                },
+                "required": ["name", "title", "linkedin_url"],
+                "additionalProperties": False,
+            },
+        },
     },
     "required": [
         "one_liner", "website_url", "what_they_do", "latest_round", "prior_rounds", "total_raised_usd",
-        "latest_announcement", "notable_facts", "blurb", "careers_url", "ats",
+        "latest_announcement", "notable_facts", "blurb", "careers_url", "ats", "founders",
     ],
     "additionalProperties": False,
 }

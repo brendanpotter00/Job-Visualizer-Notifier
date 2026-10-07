@@ -1,5 +1,6 @@
-"""Leaders: FindAll (preview) for one domain, the ``is_person`` filter, and the
-pedigree Task Group (one ``base`` run per leader). No FindAll enrich.
+"""Leaders: FindAll (preview) for one domain, the ``is_person`` filter, the
+brief's ``founders`` fallback, and the pedigree Task Group (one ``base`` run per
+leader). No FindAll enrich.
 
 All candidate names, URLs and outputs are web data; they are passed to
 Parallel as input fields and stored on the card, never interpreted.
@@ -11,8 +12,11 @@ import json
 import re
 import threading
 import time
+from dataclasses import dataclass
 from typing import Any, Callable
 
+from .ats import safe_http_url
+from .card import text
 from .schemas import PEDIGREE_SCHEMA
 
 MATCH_LIMIT = 8
@@ -67,7 +71,7 @@ def is_person(cd: Any) -> bool:
 
 
 def findall_request(name: str, domain: str) -> dict[str, Any]:
-    """Objective and match condition as POC ``poc.py:858``, plus the one-person sentence."""
+    """Objective and match condition as the POC's leadership FindAll, plus the one-person sentence."""
     return {
         "objective": (f"Find the founders and current senior leadership team (CEO, CTO, other C-level "
                       f"executives, VPs and Heads of functions) of {name}, the company whose website is {domain}."),
@@ -110,6 +114,72 @@ def select_leaders(result: Any) -> tuple[list[Any], int]:
     return people[:MAX_LEADERS], len(matched) - len(people)
 
 
+# ---- the brief's founders: the fallback when FindAll confirms no person ---------------------
+LINKEDIN_URL = re.compile(r"^https?://([a-z0-9-]+\.)*linkedin\.com/", re.I)
+BRIEF_LEADERS_ISSUE = "leaders from the brief (FindAll found none)"
+
+
+def name_key(name: str) -> str:
+    """Case, punctuation and spacing folded: ``"Sam  Rivera"``, ``"sam rivera."`` are one person."""
+    return " ".join(re.sub(r"[^\w\s]", " ", name.casefold()).split())
+
+
+def brief_founders(brief: Any) -> list[dict[str, str | None]]:
+    """The brief's ``founders``, cleaned: entries without a name dropped, deduped by
+    ``name_key`` (first wins), at most ``MAX_LEADERS``, and ``linkedin_url`` kept only
+    when it is an http(s) LinkedIn URL (anything else becomes None)."""
+    raw = brief.get("founders") if isinstance(brief, dict) else None
+    out: list[dict[str, str | None]] = []
+    seen: set[str] = set()
+    for f in raw if isinstance(raw, list) else []:
+        if not isinstance(f, dict):
+            continue
+        name = text(f.get("name"), 200)
+        key = name_key(name) if name else ""
+        if not name or not key or key in seen:
+            continue
+        seen.add(key)
+        url = safe_http_url(f.get("linkedin_url"))
+        out.append({"name": name, "title": text(f.get("title"), 200),
+                    "linkedin_url": url if url and LINKEDIN_URL.match(url) else None})
+        if len(out) == MAX_LEADERS:
+            break
+    return out
+
+
+@dataclass(frozen=True)
+class BriefLeader:
+    """A leader from the brief's ``founders``. It carries the FindAll candidate attributes
+    the pipeline reads (``name``, ``url``, ``description``, ``candidate_id``, ``basis``), so
+    the pedigree Task Group and ``card.build_leader`` treat it like a FindAll person."""
+
+    name: str
+    fallback_title: str | None  # the brief's title; card.build_leader uses it when pedigree has none
+    linkedin_url: str | None
+
+    @property
+    def url(self) -> str | None:
+        return self.linkedin_url
+
+    @property
+    def description(self) -> str | None:
+        return self.fallback_title
+
+    @property
+    def candidate_id(self) -> str:
+        return f"brief:{name_key(self.name)}"
+
+    @property
+    def basis(self) -> list[Any]:
+        return []
+
+
+def brief_leaders(founders: list[dict[str, str | None]]) -> list[BriefLeader]:
+    """``BriefLeader`` objects from ``brief_founders`` output (or its saved copy on resume)."""
+    return [BriefLeader(name=str(f["name"]), fallback_title=f.get("title"), linkedin_url=f.get("linkedin_url"))
+            for f in founders if f.get("name")]
+
+
 def pedigree_inputs(leaders: list[Any], company: str, domain: str) -> list[dict[str, Any]]:
     """One run per leader; ``row_id`` is the leader's index. A ``None`` placeholder (a leader
     missing on resume) keeps its index but gets no run."""
@@ -146,7 +216,20 @@ def create_pedigree_group(client: Any, domain: str) -> str:
 
 
 def add_pedigree_runs(client: Any, group_id: str, inputs: list[dict[str, Any]]) -> None:
+    """Add the runs (this is the call that bills). Not idempotent: Parallel adds the runs
+    again on a second call, so the caller tracks attempts (``CompanyJob.add_pedigree_runs``)."""
     client.task_group.add_runs(group_id, inputs=inputs, default_task_spec=pedigree_spec())
+
+
+def pedigree_run_count(client: Any, group_id: str) -> int:
+    """How many runs the group holds: ``status.num_task_runs``, else the sum of
+    ``task_run_status_counts``. Free (a ``retrieve``)."""
+    status = client.task_group.retrieve(group_id).status
+    n = getattr(status, "num_task_runs", None)
+    if isinstance(n, int) and not isinstance(n, bool):
+        return n
+    counts = getattr(status, "task_run_status_counts", None) or {}
+    return sum(int(v) for v in counts.values())
 
 
 def poll_group(client: Any, group_id: str, deadline: Deadline, sleep: Callable[[float], None]) -> Any:

@@ -5,24 +5,27 @@ The SQL behind both Launch Radar surfaces:
 * the admin dashboard (``routers/admin.py``, ``require_admin``): ``list_cards``,
   ``card_counts``, ``run_stats``, ``set_status`` and ``delete_card``;
 * the loop (``routers/internal_launch_radar.py``, X-Internal-Key): runs, the
-  ledger (``reserve_spend``), Monitors, ``seen``, ``insert_card``, the PR step.
+  ledger (``reserve_spend``), Monitors, ``seen``, ``insert_card``, the
+  ``refresh`` pair (``find_cards``, ``replace_payload``), the PR step.
 
 Every function that writes OWNS ITS COMMIT, and rolls back before raising one of
 the domain errors below, so a route only has to roll back on a raw
 ``psycopg2.Error``. Money is ``NUMERIC`` in the database and ``Decimal`` here;
 it becomes ``float`` only at the response boundary (``usd``).
 
-Card lifecycle: new -> archived (archive) -> new (restore) or deleted (delete,
-only from archived). A delete is a TOMBSTONE: the payload, PR link and tracked
-company are cleared but the row and its domain stay, so the UNIQUE on
-``domain`` keeps the loop from ever posting that company again. Nothing here
-ever runs ``DELETE FROM launch_radar_cards``.
+Card lifecycle (``_ALLOWED_FROM``): new -> saved (save) -> new (unsave); new or
+saved -> archived (archive) -> new (restore) or deleted (delete, only from
+archived). A delete is a TOMBSTONE: the payload, PR link and tracked company
+are cleared but the row and its domain stay, so the UNIQUE on ``domain`` keeps
+the loop from ever posting that company again. Nothing here ever runs
+``DELETE FROM launch_radar_cards``.
 """
 
 from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Sequence
 from datetime import datetime
 from decimal import ROUND_HALF_UP, ROUND_UP, Decimal
 from typing import Any, Literal, TypedDict, cast
@@ -41,7 +44,46 @@ LEDGER_LOCK_KEY = 7_316_202_610_070_001
 
 _CENT_4 = Decimal("0.0001")
 
-CardStatus = Literal["new", "archived"]
+CardStatus = Literal["new", "saved", "archived"]
+
+# The live (non-deleted) statuses, in tab order. A tombstone is never listed.
+CARD_STATUSES: tuple[CardStatus, ...] = ("new", "saved", "archived")
+
+# The admin list's sort keys (``?sort=``), the same for every tab.
+CardSort = Literal["announced", "talent", "vc", "added"]
+
+# Announcement date, newest first. A card with no event (or an undated one)
+# sorts last. ``announced_at`` is stored as text, and the payload model admits
+# only an ISO date (``2026-09-17``) or year-month (``2026-09``), for which text
+# order is date order (a month sorts just after the days within it).
+_BY_ANNOUNCED = "(payload->'event'->>'announced_at') DESC NULLS LAST"
+
+# Sort key -> a FIXED ORDER BY clause. The request only ever picks a key from
+# this dict (the route validates ``sort`` as a ``Literal``); nothing from the
+# request is interpolated into SQL. Every clause ends in the same tie-breaks
+# (announced date, then posted_at, then id), so equal scores page in one stable
+# order and LIMIT/OFFSET never repeats or skips a card. A null score (no data)
+# sorts after every scored card.
+_CARD_ORDER: dict[CardSort, str] = {
+    "announced": f"{_BY_ANNOUNCED}, posted_at DESC, id DESC",
+    "talent": (
+        "(payload->'scores'->>'talent')::numeric DESC NULLS LAST, "
+        f"{_BY_ANNOUNCED}, posted_at DESC, id DESC"
+    ),
+    "vc": (
+        "(payload->'scores'->>'vc')::numeric DESC NULLS LAST, "
+        f"{_BY_ANNOUNCED}, posted_at DESC, id DESC"
+    ),
+    "added": f"posted_at DESC, {_BY_ANNOUNCED}, id DESC",
+}
+
+# Target status -> the statuses a card may move to it from. Every other move
+# (same state, archived -> saved, anything from deleted) is refused.
+_ALLOWED_FROM: dict[CardStatus, tuple[str, ...]] = {
+    "saved": ("new",),  # Save
+    "new": ("saved", "archived"),  # Unsave / Restore
+    "archived": ("new", "saved"),  # Archive
+}
 
 
 # ---------------------------------------------------------------------------
@@ -229,6 +271,21 @@ class CardCreated(TypedDict):
     tracked_company_id: str | None
 
 
+class StoredCard(TypedDict):
+    id: int
+    domain: str
+    status: str
+    payload: dict[str, Any]
+
+
+class PayloadReplaced(TypedDict):
+    id: int
+    domain: str
+    status: str
+    posted_at: datetime
+    updated_at: datetime
+
+
 class PrCandidate(TypedDict):
     id: int
     domain: str
@@ -256,17 +313,20 @@ _MONITOR_COLUMNS = (
 
 
 def list_cards(
-    conn: Connection, status: CardStatus, limit: int, offset: int
+    conn: Connection,
+    status: CardStatus,
+    limit: int,
+    offset: int,
+    sort: CardSort = "announced",
 ) -> tuple[list[CardRow], int]:
     """One page of cards with ``status`` plus the total with that status.
 
-    ``new`` is ordered newest-posted first; ``archived`` most-recently-archived
-    first. Only a single non-deleted status is ever selected, so a tombstone can
-    never reach the admin client.
+    Ordered by ``sort`` (``_CARD_ORDER``), the same way on every tab: newest
+    announcement, Talent or VC score (highest first, unscored last), or newest
+    posted. Only a single non-deleted status is ever selected, so a tombstone
+    can never reach the admin client.
     """
-    order = (
-        "posted_at DESC, id DESC" if status == "new" else "archived_at DESC, id DESC"
-    )
+    order = _CARD_ORDER[sort]
     with conn.cursor() as cur:
         cur.execute(
             f"SELECT {_CARD_COLUMNS} FROM launch_radar_cards "
@@ -283,12 +343,13 @@ def list_cards(
 
 
 def card_counts(conn: Connection) -> dict[str, int]:
-    """Counts for BOTH tabs, whatever the requested filter."""
-    counts = {"new": 0, "archived": 0}
+    """Counts for EVERY tab (new, saved, archived), whatever the requested filter."""
+    counts: dict[str, int] = {s: 0 for s in CARD_STATUSES}
     with conn.cursor() as cur:
         cur.execute(
             "SELECT status, count(*) AS n FROM launch_radar_cards "
-            "WHERE status IN ('new', 'archived') GROUP BY status"
+            "WHERE status = ANY(%s) GROUP BY status",
+            (list(CARD_STATUSES),),
         )
         for r in cur.fetchall():
             counts[r["status"]] = int(r["n"])
@@ -312,44 +373,77 @@ def run_stats(conn: Connection) -> RunStats:
     }
 
 
-def _raise_for_missed_transition(conn: Connection, cur: Any, card_id: int) -> None:
-    """After a guarded UPDATE matched no row: 404 if the card is missing or a
-    tombstone, otherwise 409 (it exists but is in the wrong state)."""
+# The 409 for a guarded UPDATE that missed because another request moved the
+# card between that UPDATE and the follow-up read: the status read back would
+# have allowed the move, so naming it would contradict the refusal.
+_RACED = "card changed while this request ran; reload and try again"
+
+
+def _status_after_missed_update(conn: Connection, cur: Any, card_id: int) -> str:
+    """After a guarded UPDATE matched no row: the card's current status, so the
+    caller can raise a 409 that names it. Raises ``NotFound`` (404) when the
+    card is missing or a tombstone. Rolls back either way.
+
+    The read is a separate statement, so another request can commit between the
+    UPDATE and it. A caller that gets back a status its UPDATE would have
+    accepted must raise the generic ``_RACED`` 409, never one naming that
+    status."""
     cur.execute("SELECT status FROM launch_radar_cards WHERE id = %s", (card_id,))
     row = cur.fetchone()
     conn.rollback()
     if row is None or row["status"] == "deleted":
         raise NotFound("card not found")
-    raise Conflict(f"card is {row['status']}")
+    return str(row["status"])
 
 
 def set_status(
-    conn: Connection, card_id: int, status: CardStatus, admin_email: str
+    conn: Connection,
+    card_id: int,
+    status: CardStatus,
+    admin_email: str,
+    expected_from: CardStatus | None = None,
 ) -> CardRow:
-    """Archive a ``new`` card, or restore (``status='new'``) an ``archived`` one."""
-    if status == "archived":
-        sql = (
-            "UPDATE launch_radar_cards SET status = 'archived', archived_at = now(), "
-            "updated_at = now(), updated_by = %s "
-            f"WHERE id = %s AND status = 'new' RETURNING {_CARD_COLUMNS}"
-        )
-    else:
-        sql = (
-            "UPDATE launch_radar_cards SET status = 'new', archived_at = NULL, "
-            "updated_at = now(), updated_by = %s "
-            f"WHERE id = %s AND status = 'archived' RETURNING {_CARD_COLUMNS}"
-        )
+    """Move a card between the live tabs, per ``_ALLOWED_FROM``: save (new ->
+    saved), unsave (saved -> new), archive (new or saved -> archived) and
+    restore (archived -> new). Any other move is a ``Conflict`` (409).
+
+    ``expected_from`` (the PATCH body's ``from``) makes the move a
+    compare-and-swap: the guarded UPDATE matches only a card still in that
+    status, so a click made on a stale view (an Unsave on a card someone has
+    since archived: both send ``new``) is a 409 naming the real status instead of
+    a move the admin never asked for. ``None`` keeps every allowed source."""
+    allowed = _ALLOWED_FROM[status]
+    sources = allowed if expected_from is None else tuple(s for s in allowed if s == expected_from)
+    # Only an archived card has an archived_at; every other target clears it.
+    archived_at = "now()" if status == "archived" else "NULL"
+    sql = (
+        f"UPDATE launch_radar_cards SET status = %s, archived_at = {archived_at}, "
+        "updated_at = now(), updated_by = %s "
+        f"WHERE id = %s AND status = ANY(%s) RETURNING {_CARD_COLUMNS}"
+    )
     with conn.cursor() as cur:
-        cur.execute(sql, (admin_email, card_id))
+        cur.execute(sql, (status, admin_email, card_id, list(sources)))
         row = cur.fetchone()
         if row is None:
-            _raise_for_missed_transition(conn, cur, card_id)
+            current = _status_after_missed_update(conn, cur, card_id)
+            if expected_from is not None and current != expected_from:
+                raise Conflict(
+                    f"card is {current}, not {expected_from}; reload and try again"
+                )
+            if current == status:
+                raise Conflict(f"card is already {status}")
+            if current in sources:
+                raise Conflict(_RACED)
+            raise Conflict(
+                f"card is {current}; only a {' or '.join(allowed)} card can move to {status}"
+            )
     conn.commit()
     return cast(CardRow, dict(row))
 
 
 def delete_card(conn: Connection, card_id: int, admin_email: str) -> None:
-    """Tombstone an ``archived`` card. A ``new`` card must be archived first."""
+    """Tombstone an ``archived`` card. A ``new`` or ``saved`` card must be
+    archived first (409)."""
     with conn.cursor() as cur:
         cur.execute(
             "UPDATE launch_radar_cards SET status = 'deleted', payload = NULL, "
@@ -359,7 +453,10 @@ def delete_card(conn: Connection, card_id: int, admin_email: str) -> None:
             (admin_email, card_id),
         )
         if cur.fetchone() is None:
-            _raise_for_missed_transition(conn, cur, card_id)
+            current = _status_after_missed_update(conn, cur, card_id)
+            if current == "archived":
+                raise Conflict(_RACED)
+            raise Conflict(f"card is {current}; archive it before deleting it permanently")
     conn.commit()
 
 
@@ -715,6 +812,74 @@ def insert_card(conn: Connection, run_uuid: str, payload: dict[str, Any]) -> Car
     return {"id": row["id"], "tracked_company_id": tracked}
 
 
+def find_cards(
+    conn: Connection,
+    domains: list[str],
+    missing_talent: bool,
+    limit: int,
+    statuses: Sequence[CardStatus] = CARD_STATUSES,
+    after_id: int = 0,
+) -> list[StoredCard]:
+    """Live cards with their stored payload, for the loop's ``refresh``: those in
+    ``statuses`` (default every live one; empty means the default too), whose
+    domain is in ``domains`` (normalized here, like ``seen``) when any are given,
+    and whose Talent score is null when ``missing_talent``. Tombstones are never
+    returned. One keyset page: ``id > after_id``, ordered by id, at most
+    ``limit``; the caller pages with the last id until a page comes back short."""
+    # Every clause is a fixed string; only the bound values come from the request.
+    clauses = ["status = ANY(%s)", "id > %s"]
+    params: list[Any] = [list(statuses or CARD_STATUSES), after_id]
+    if domains:
+        clauses.append("domain = ANY(%s)")
+        params.append(sorted({d for d in (normalize_domain(x) for x in domains) if d}))
+    if missing_talent:
+        # ->> yields SQL NULL for a JSON null as well as for a missing key.
+        clauses.append("(payload->'scores'->>'talent') IS NULL")
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT id, domain, status, payload FROM launch_radar_cards "
+            f"WHERE {' AND '.join(clauses)} ORDER BY id LIMIT %s",
+            (*params, limit),
+        )
+        rows = [cast(StoredCard, dict(r)) for r in cur.fetchall()]
+    conn.rollback()  # read-only
+    return rows
+
+
+def replace_payload(conn: Connection, card_id: int, payload: dict[str, Any]) -> PayloadReplaced:
+    """Replace a live card's payload (the loop's ``refresh``; ``payload`` is the
+    validated ``model_dump(mode='json')``).
+
+    404 when the card is missing or a tombstone; 422 (``InvalidDomain``) when the
+    payload's domain is not the card's. The status, ``posted_at``, ``pr_url``,
+    ``tracked_company_id``, ``run_id`` and ``updated_by`` are kept;
+    ``company_name`` follows the payload and ``updated_at`` moves.
+    """
+    with conn.cursor() as cur:
+        # Locked, so an admin delete cannot tombstone the card between the check and the write.
+        cur.execute(
+            "SELECT domain, status FROM launch_radar_cards WHERE id = %s FOR UPDATE",
+            (card_id,),
+        )
+        row = cur.fetchone()
+        if row is None or row["status"] == "deleted":
+            conn.rollback()
+            raise NotFound("card not found")
+        if payload["domain"] != row["domain"]:
+            conn.rollback()
+            raise InvalidDomain(
+                f"payload domain {payload['domain']!r} is not the card's domain {row['domain']!r}"
+            )
+        cur.execute(
+            "UPDATE launch_radar_cards SET payload = %s, company_name = %s, updated_at = now() "
+            "WHERE id = %s RETURNING id, domain, status, posted_at, updated_at",
+            (Json(payload), payload["company"], card_id),
+        )
+        out = cur.fetchone()
+    conn.commit()
+    return cast(PayloadReplaced, dict(out))
+
+
 def set_pr_url(conn: Connection, card_id: int, pr_url: str) -> tuple[int, str]:
     """Record the add-company PR the skill opened. 404 missing or deleted; 409
     when a PR is already recorded or the company is already tracked."""
@@ -744,7 +909,9 @@ def set_pr_url(conn: Connection, card_id: int, pr_url: str) -> tuple[int, str]:
 
 
 def pr_candidates(conn: Connection, limit: int) -> list[PrCandidate]:
-    """New, untracked, PR-less cards whose ATS board was verified (pr_ready)."""
+    """New or saved, untracked, PR-less cards whose ATS board was verified
+    (pr_ready). Saved cards come first (the admin flagged them), then newest
+    posted. Archived and deleted cards are never offered."""
     with conn.cursor() as cur:
         cur.execute(
             "SELECT id, domain, company_name, posted_at, "
@@ -752,9 +919,10 @@ def pr_candidates(conn: Connection, limit: int) -> list[PrCandidate]:
             "payload->'ats'->>'board_token' AS board_token, "
             "(payload->'ats'->>'job_count')::int AS job_count "
             "FROM launch_radar_cards "
-            "WHERE status = 'new' AND pr_url IS NULL AND tracked_company_id IS NULL "
+            "WHERE status IN ('new', 'saved') AND pr_url IS NULL "
+            "AND tracked_company_id IS NULL "
             "AND (payload->>'pr_ready')::boolean "
-            "ORDER BY posted_at DESC, id DESC LIMIT %s",
+            "ORDER BY (status = 'saved') DESC, posted_at DESC, id DESC LIMIT %s",
             (limit,),
         )
         rows = cur.fetchall()
@@ -775,6 +943,7 @@ def pr_candidates(conn: Connection, limit: int) -> list[PrCandidate]:
 
 __all__ = [
     "BudgetExceeded",
+    "CARD_STATUSES",
     "Conflict",
     "DomainSeen",
     "InvalidDomain",
@@ -783,6 +952,7 @@ __all__ = [
     "NotFound",
     "card_counts",
     "delete_card",
+    "find_cards",
     "finish_run",
     "insert_card",
     "list_cards",
@@ -791,6 +961,7 @@ __all__ = [
     "patch_monitor",
     "pr_candidates",
     "put_monitor",
+    "replace_payload",
     "reserve_spend",
     "run_stats",
     "seen",

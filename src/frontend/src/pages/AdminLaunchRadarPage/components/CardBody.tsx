@@ -4,7 +4,14 @@ import Collapse from '@mui/material/Collapse';
 import Link from '@mui/material/Link';
 import Typography from '@mui/material/Typography';
 import type { LaunchRadarCard, LaunchRadarRound } from '../../../features/admin/launchRadarTypes';
-import { boardLine, formatUsd, hostnameOf, roundLine, summarizeTally } from '../format';
+import {
+  boardLine,
+  formatUsd,
+  leadersFromBrief,
+  researchGaps,
+  roundLine,
+  summarizeTally,
+} from '../format';
 
 /** Bullets with a muted marker, the card body's only list style. */
 const BULLETS_SX = {
@@ -69,6 +76,13 @@ function TeamSection({ card }: { card: LaunchRadarCard }) {
   );
   return (
     <Section label="Team">
+      {/* Where these names came from, said quietly: the people search confirmed
+          nobody, so the leaders are the brief's founders. Not a research gap. */}
+      {leadersFromBrief(card.issues) && (
+        <Box component="li" sx={{ color: 'text.secondary' }}>
+          Leaders from the company brief
+        </Box>
+      )}
       {leaders.map((leader, i) => (
         <li key={`${leader.name}-${i}`}>
           <Box component="span" sx={{ fontWeight: 600 }}>
@@ -161,6 +175,7 @@ function FundingSection({ funding }: { funding: LaunchRadarCard['funding'] }) {
 /**
  * What went wrong during research (a step failed, ended early, or came back
  * empty). Shown so partial data never reads as "this startup has nothing".
+ * Provenance notes (`researchGaps` leaves them out) are not listed here.
  */
 function ResearchIssues({ issues }: { issues: string[] }) {
   return (
@@ -226,16 +241,20 @@ function WhyTheseScores({
 
 /**
  * The opened card: who runs it, who else works there, the money, three
- * highlights, why the scores are what they are, and a footer with the board,
- * the source and what the research cost. Indented under the company name.
+ * highlights, why the scores are what they are, and a footer with the board
+ * and what the research cost. The announcement link lives on the closed card's
+ * event line, so the footer does not repeat it. Aligned under the company name.
  */
 export function CardBody({ card }: { card: LaunchRadarCard }) {
-  const sourceHost = hostnameOf(card.event?.sourceUrl);
   const highlights = card.notableFacts.slice(0, 3);
-  const incomplete = card.issues.length > 0;
+  // A note on where data came from ("leaders from the brief …") rides in
+  // `issues` too, but it is not a gap: it must not raise the warning heading or
+  // turn a null score into "research incomplete".
+  const gaps = researchGaps(card.issues);
+  const incomplete = gaps.length > 0;
   return (
     <Box>
-      {incomplete && <ResearchIssues issues={card.issues} />}
+      {incomplete && <ResearchIssues issues={gaps} />}
       <TeamSection card={card} />
       {card.teamStats && <RestOfTeamSection stats={card.teamStats} />}
       <FundingSection funding={card.funding} />
@@ -263,19 +282,7 @@ export function CardBody({ card }: { card: LaunchRadarCard }) {
         }}
       >
         <span>{boardLine(card.ats)}</span>
-        <Box component="span" sx={{ display: 'flex', gap: 1.5 }}>
-          {card.event?.sourceUrl && sourceHost && (
-            <Link
-              href={card.event.sourceUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              color="inherit"
-            >
-              {sourceHost}
-            </Link>
-          )}
-          <span>{formatUsd(card.costUsd)} research</span>
-        </Box>
+        <span>{formatUsd(card.costUsd)} research</span>
       </Typography>
     </Box>
   );

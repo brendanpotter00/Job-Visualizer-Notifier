@@ -1,6 +1,6 @@
 # Launch Radar POC (Parallel API)
 
-A single script, `poc.py`. It has PEP 723 inline deps (`parallel-web>=1.3.5`, `httpx`), so nothing needs installing. The SDK reads the key from `PARALLEL_API_KEY`, and the script never prints it. Run every command from the repo root:
+The main script is `poc.py`; `pedigree_group.py` (pedigree via a Task Group) and `team_stats.py` (the team tally, two approaches) are follow-up experiments that import from it. `poc.py` has PEP 723 inline deps (`parallel-web>=1.3.5`, `httpx`), so nothing needs installing. The SDK reads the key from `PARALLEL_API_KEY`, and the script never prints it. Run every command from the repo root:
 
 ```bash
 zsh -ic 'cd <repo> && uv run scripts/launch_radar_poc/poc.py <subcommand> ...'

@@ -1,16 +1,13 @@
 """CLI: argument parsing, config errors name the variable only, heartbeat, set-pr guard."""
 
 import json
-from types import SimpleNamespace as NS
 
 import pytest
-
 from launch_radar import radar
 from launch_radar.backend_client import BackendClient
 from launch_radar.config import ConfigError, load_config
 from launch_radar.pipeline import Deps
 from launch_radar.state import StateStore
-
 from tests.unit.launch_radar_fakes import FakeBackend, FakeParallel
 
 

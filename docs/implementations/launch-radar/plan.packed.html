@@ -1881,28 +1881,34 @@ if (document.readyState === 'loading') document.addEventListener('DOMContentLoad
   .mui .tabs { display: flex; gap: 20px; border-bottom: 1px solid #e6e6e6; margin-bottom: 12px; }
   .mui .tab { padding: 8px 2px; font-weight: 500; color: #5f5f5f; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; }
   .mui .cnt { color: #8a8a8a; font-weight: 400; margin-left: 5px; }
-  .mui #tNew:checked ~ .tabs .tn, .mui #tArc:checked ~ .tabs .ta { color: #000; border-bottom-color: #000; }
-  .mui #tNew:checked ~ .parc, .mui #tArc:checked ~ .pnew { display: none; }
+  .mui #tNew:checked ~ .tabs .tn, .mui #tSav:checked ~ .tabs .ts, .mui #tArc:checked ~ .tabs .ta { color: #000; border-bottom-color: #000; }
+  .mui .pnew, .mui .psav, .mui .parc { display: none; }
+  .mui #tNew:checked ~ .pnew, .mui #tSav:checked ~ .psav, .mui #tArc:checked ~ .parc { display: block; }
+  .mui .sortrow { display: flex; justify-content: flex-end; align-items: center; gap: 8px; margin: -4px 0 10px; font-size: 12.5px; color: #5f5f5f; }
+  .mui .tg { display: inline-flex; border: 1px solid #d0d0d0; border-radius: 6px; overflow: hidden; }
+  .mui .tg span { padding: 2px 9px; color: #000; border-left: 1px solid #d0d0d0; }
+  .mui .tg span:first-child { border-left: 0; }
+  .mui .tg span.on { background: #ebebeb; font-weight: 500; }
 
   /* card, closed: name, what, event | the two scores | one status line */
   .mui details.card { border: 1px solid #e6e6e6; border-radius: 8px; margin-bottom: 10px; background: #fff; }
   .mui details.card[open] { border-color: #c4c4c4; }
-  .mui details.card > summary { list-style: none; display: grid; grid-template-columns: 32px 1fr auto; column-gap: 12px; padding: 12px 14px 10px; cursor: pointer; }
+  .mui details.card > summary { list-style: none; display: grid; grid-template-columns: 1fr auto; column-gap: 12px; padding: 12px 14px 10px; cursor: pointer; }
   .mui details.card > summary::-webkit-details-marker { display: none; }
-  .mui .logo { width: 32px; height: 32px; border-radius: 6px; background: #000; color: #fff; display: grid; place-items: center; font-weight: 700; font-size: 14px; }
   .mui .name { font-weight: 600; font-size: 15px; line-height: 1.3; }
   .mui .site { font-size: 12px; font-weight: 400; color: #5f5f5f; margin-left: 8px; }
   .mui .what { color: #5f5f5f; font-size: 12.5px; line-height: 1.4; }
-  .mui .event { font-size: 12.5px; margin-top: 6px; display: flex; gap: 10px; }
+  .mui .event { font-size: 12.5px; margin-top: 6px; display: flex; align-items: baseline; gap: 10px; }
   .mui .event b { font-weight: 600; }
   .mui .event .d { color: #8a8a8a; }
+  .mui .event a { font-size: 12px; color: #5f5f5f; }
   .mui .scores { display: flex; gap: 14px; text-align: center; padding-top: 1px; }
   .mui .sc .n { font-size: 22px; font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums; }
   .mui .sc .n.none { color: #b5b5b5; }
   .mui .sc .bar { width: 30px; height: 3px; background: #ececec; border-radius: 2px; margin: 6px auto 3px; overflow: hidden; }
   .mui .sc .bar i { display: block; height: 100%; background: #000; }
   .mui .sc .l { font-size: 11px; color: #5f5f5f; }
-  .mui .status { grid-column: 2 / -1; display: flex; align-items: center; justify-content: space-between; margin-top: 10px; padding-top: 8px; border-top: 1px solid #f0f0f0; font-size: 12.5px; }
+  .mui .status { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; margin-top: 10px; padding-top: 8px; border-top: 1px solid #f0f0f0; font-size: 12.5px; }
   .mui .st { color: #5f5f5f; }
   .mui .acts { display: flex; gap: 2px; align-items: center; }
   .mui .chev { color: #8a8a8a; font-size: 12px; display: inline-block; transition: transform .15s; margin-left: 4px; }
@@ -1914,7 +1920,7 @@ if (document.readyState === 'loading') document.addEventListener('DOMContentLoad
   .mui .btn.danger.fill { background: #c62828; border-color: #c62828; color: #fff; }
 
   /* card, open: short labelled lists, aligned under the name */
-  .mui .body { padding: 0 14px 12px 58px; }
+  .mui .body { padding: 0 14px 12px; }
   .mui .sec { margin-top: 10px; }
   .mui .lab { font-size: 12px; font-weight: 600; display: flex; justify-content: space-between; }
   .mui .lab span { font-weight: 400; color: #8a8a8a; }
@@ -1980,21 +1986,21 @@ if (document.readyState === 'loading') document.addEventListener('DOMContentLoad
   <doc-mock frame="none" w="480" label="/admin/launch-radar" caption="A tap on a card opens it, and a tap on a tab changes the list."><template>
 <div class="mui"><div class="page">
   <h4>Launch Radar</h4>
-  <p class="sub">Startups the Parallel loop found, newest first. Last run Oct 7 at 01:31 UTC on the server laptop. <span data-ref="spend">$0.42 of the $5.00 budget used.</span></p>
-  <input type="radio" name="tab" id="tNew" class="sw" checked><input type="radio" name="tab" id="tArc" class="sw">
-  <div class="tabs"><label for="tNew" class="tab tn">New<span class="cnt">2</span></label><label for="tArc" class="tab ta">Archived<span class="cnt">1</span></label></div>
+  <p class="sub">Startups the Parallel loop found. Last run Oct 7 at 01:31 UTC on the server laptop. <span data-ref="spend">$0.42 of the $5.00 budget used.</span></p>
+  <input type="radio" name="tab" id="tNew" class="sw" checked><input type="radio" name="tab" id="tSav" class="sw"><input type="radio" name="tab" id="tArc" class="sw">
+  <div class="tabs"><label for="tNew" class="tab tn">New<span class="cnt">2</span></label><label for="tSav" class="tab ts">Saved<span class="cnt">0</span></label><label for="tArc" class="tab ta">Archived<span class="cnt">1</span></label></div>
+  <div class="sortrow" data-ref="sort">Sort by <span class="tg"><span class="on">Announced</span><span>Talent</span><span>VC</span><span>Added</span></span></div>
 
   <div class="pnew">
     <details class="card">
       <summary>
-        <div class="logo">G</div>
         <div>
           <div class="name">Ghost AI<a class="site">ghost.ai</a></div>
           <div class="what">On-device personal AI computer</div>
-          <div class="event"><span>Seed <b>$11M</b></span><span class="d">Oct 5</span></div>
+          <div class="event"><span>Seed <b>$11M</b></span><span class="d">Oct 5</span><a>Announcement</a></div>
         </div>
         <div class="scores"><div class="sc" data-ref="nodata"><div class="n none">–</div><div class="bar"></div><div class="l">Talent</div></div><div class="sc"><div class="n">65</div><div class="bar"><i style="width:65%"></i></div><div class="l">VC</div></div></div>
-        <div class="status"><a class="ok" data-ref="pr">Add-company PR ready</a><span class="acts"><span class="btn" data-ref="archive">Archive</span><span class="chev">▾</span></span></div>
+        <div class="status"><a class="st" data-ref="board">Job board</a><span class="acts"><span class="btn" data-ref="save">Save</span><span class="btn" data-ref="archive">Archive</span><span class="chev">▾</span></span></div>
       </summary>
       <div class="body">
         <div class="sec"><div class="lab">Team</div>
@@ -2013,20 +2019,19 @@ if (document.readyState === 'loading') document.addEventListener('DOMContentLoad
         <details class="why"><summary>Why these scores</summary>
           <ul class="pts"><li>VC 65: Andreessen Horowitz led (tier 1), SV Angel joined (tier 2), round over $10M</li><li>Talent: no people data, so no score</li></ul>
         </details>
-        <div class="foot"><span>Ashby board, 1 open job</span><span class="links"><a>TechCrunch</a><span>$0.13 research</span></span></div>
+        <div class="foot"><span>Ashby board, 1 open job</span><span>$0.13 research</span></div>
       </div>
     </details>
 
     <details class="card" open>
       <summary>
-        <div class="logo">R</div>
         <div>
           <div class="name">Raindrop AI<a class="site" data-ref="site">raindrop.ai</a></div>
           <div class="what">Monitoring for AI agents</div>
-          <div class="event"><span>Series A <b>$35M</b></span><span class="d">Sep 17</span></div>
+          <div class="event"><span>Series A <b>$35M</b></span><span class="d">Sep 17</span><a data-ref="ann">Announcement</a></div>
         </div>
         <div class="scores" data-ref="talent"><div class="sc"><div class="n">49</div><div class="bar"><i style="width:49%"></i></div><div class="l">Talent</div></div><div class="sc"><div class="n">55</div><div class="bar"><i style="width:55%"></i></div><div class="l">VC</div></div></div>
-        <div class="status"><span class="st">Already tracked</span><span class="acts"><span class="btn">Archive</span><span class="chev">▾</span></span></div>
+        <div class="status"><span class="st">Already tracked</span><span class="acts"><span class="btn">Save</span><span class="btn">Archive</span><span class="chev">▾</span></span></div>
       </summary>
       <div class="body">
         <div class="sec"><div class="lab">Team</div>
@@ -2058,19 +2063,20 @@ if (document.readyState === 'loading') document.addEventListener('DOMContentLoad
             <li>VC 55: CRV led (tier 2), Lightspeed (tier 1) and Y Combinator joined, round over $20M</li>
           </ul>
         </details>
-        <div class="foot"><span>Ashby board, 9 open jobs</span><span class="links"><a>Series A post</a><span>$0.26 research</span></span></div>
+        <div class="foot"><span>Ashby board, 9 open jobs</span><span>$0.26 research</span></div>
       </div>
     </details>
   </div>
 
+  <div class="psav"><div class="empty">No saved cards.</div></div>
+
   <div class="parc">
     <details class="card">
       <summary>
-        <div class="logo">A</div>
         <div>
           <div class="name">Athennian<a class="site">athennian.com</a></div>
           <div class="what">Entity management for legal teams</div>
-          <div class="event"><span>Launch</span><span class="d">Oct 6</span></div>
+          <div class="event"><span>Launch</span><span class="d">Oct 6</span><a>Announcement</a></div>
         </div>
         <div class="scores"><div class="sc"><div class="n none">–</div><div class="bar"></div><div class="l">Talent</div></div><div class="sc"><div class="n">20</div><div class="bar"><i style="width:20%"></i></div><div class="l">VC</div></div></div>
         <div class="status"><span class="st">Archived Oct 7</span><span class="acts"><span class="btn">Restore</span><span class="btn danger">Delete</span></span></div>
@@ -2092,17 +2098,20 @@ if (document.readyState === 'loading') document.addEventListener('DOMContentLoad
             <li>Reported 10x ARR growth over two years (2022)</li>
             <li>Oct 2026 launch: Athennian Intelligence and an MCP server</li>
           </ul></div>
-        <div class="foot"><span>Rippling board, no PR</span><span class="links"><a>Open job board</a></span></div>
+        <div class="foot"><span>Other board, not verified</span><span>$0.24 research</span></div>
       </div>
     </details>
   </div>
 </div></div></template>
     <doc-pin ref="talent" anchor="tl" title="Talent and VC scores">Talent counts schools, employers, exits and years.</doc-pin>
     <doc-pin ref="nodata" anchor="l" title="Absent data is not 0">The talent score stays empty.</doc-pin>
-    <doc-pin ref="pr" anchor="r" title="Opens the add-company PR">The admin merges it on GitHub.</doc-pin>
+    <doc-pin ref="board" anchor="tr" title="Job board">Opens the board or the careers page. The page shows no PR.</doc-pin>
+    <doc-pin ref="save" anchor="tl" title="Save">Moves the card to the Saved tab.</doc-pin>
     <doc-pin ref="archive" anchor="tr" title="Archive">Moves the card to the Archived tab.</doc-pin>
+    <doc-pin ref="sort" anchor="r" title="Sort">The URL holds the sort, for example ?sort=talent.</doc-pin>
     <doc-pin ref="spend" anchor="r" title="From launch_radar_runs">The sum of all reservations. See 5.4.</doc-pin>
     <doc-pin ref="site" anchor="tr" title="Company website">From the brief Task. See 3.5.</doc-pin>
+    <doc-pin ref="ann" anchor="r" title="Announcement">Opens the news post or press release of the event in a new tab.</doc-pin>
     <doc-pin ref="team" anchor="r" offset="6,0" title="Rest of team">A tally of the non-founders. See 1.4.</doc-pin>
   </doc-mock>
 
@@ -2110,29 +2119,35 @@ if (document.readyState === 'loading') document.addEventListener('DOMContentLoad
     <p>The page reads cards through admin routes behind <code>require_admin</code>.</p>
     <doc-calls title="Read path" caption="Three admin guards protect the route, as on every admin page.">
 <script type="text/plain">
-+ <**AdminLaunchRadarPage**/>                          @ src/frontend/src/pages/AdminLaunchRadarPage/AdminLaunchRadarPage.tsx:1
++ <**AdminLaunchRadarPage**/>                          @ src/frontend/src/pages/AdminLaunchRadarPage/AdminLaunchRadarPage.tsx:98
     <AdminRoute>                                       @ src/frontend/src/components/auth/AdminRoute.tsx:33
-+   **useGetLaunchRadarCardsQuery**({ status, offset })   @ src/frontend/src/features/admin/adminApi.ts:1674
-+     GET /api/admin/launch-radar/cards                @ api/admin.ts:59   -- PROXIED_ROUTES + 'launch-radar/cards'
-+ **admin_launch_radar_cards**(status, limit, offset)  @ src/backend/api/routers/admin.py:1037
-    Depends(require_admin)                             @ src/backend/api/auth/dependencies.py:88
-+   **list_cards**(conn, status, limit, offset)        @ src/backend/api/services/launch_radar.py:40   -- limit ≤ 100, returns total
-+   **run_stats**(conn)                                @ src/backend/api/services/launch_radar.py:70   -- last run, spend of all runs
-~ ROUTES.ADMIN_LAUNCH_RADAR                            @ src/frontend/src/config/routes.ts:45
++   **useGetLaunchRadarCardsQuery**({ status, page, sort })   @ src/frontend/src/features/admin/adminApi.ts:1829
++     GET /api/admin/launch-radar/cards                @ api/admin.ts:61   -- PROXIED_ROUTES + 'launch-radar/cards'
++ **admin_launch_radar_cards**(status, limit, offset, sort)  @ src/backend/api/routers/admin.py:1078
+    Depends(require_admin)                             @ src/backend/api/auth/dependencies.py:98
++   **list_cards**(conn, status, limit, offset, sort)  @ src/backend/api/services/launch_radar.py:315   -- limit ≤ 100, returns total
++   **run_stats**(conn)                                @ src/backend/api/services/launch_radar.py:359   -- last run, spend of all runs
+~ ROUTES.ADMIN_LAUNCH_RADAR                            @ src/frontend/src/config/routes.ts:47
 ~ ADMIN_NAV_ITEMS + "Launch Radar"                     @ src/frontend/src/config/routes.ts:216
-~ <Route path=ADMIN_LAUNCH_RADAR> in <AdminRoute>      @ src/frontend/src/app/App.tsx:189
+~ <Route path=ADMIN_LAUNCH_RADAR> in <AdminRoute>      @ src/frontend/src/app/App.tsx:184
 </script>
     
-<script type="text/plain" data-excerpt="src/frontend/src/pages/AdminLaunchRadarPage/AdminLaunchRadarPage.tsx:1" data-start="1" data-sha="dd2a641b">
-import { useState } from 'react';
-import Box from '@mui/material/Box';
-import Container from '@mui/material/Container';
-import Pagination from '@mui/material/Pagination';
-import Tab from '@mui/material/Tab';
-import Tabs from '@mui/material/Tabs';
-import Typography from '@mui/material/Typography';
+<script type="text/plain" data-excerpt="src/frontend/src/pages/AdminLaunchRadarPage/AdminLaunchRadarPage.tsx:98" data-start="92" data-sha="5f0c8fd3">
+ * /admin/launch-radar — the startups the Parallel loop found, one card each.
+ * New / Saved / Archived tabs, sorted by the server (newest announcement,
+ * Talent, VC or newest added; the sort is in the URL as `?sort=`); save,
+ * unsave, archive and restore are one click, permanent delete (archived only)
+ * goes through a confirm dialog.
+ */
+export function AdminLaunchRadarPage() {
+  const [tab, setTab] = useState<LaunchRadarStatus>('new');
+  const [page, setPage] = useState(0);
+  const [pendingDelete, setPendingDelete] = useState<{
+    card: LaunchRadarCard;
+    index: number;
+  } | null>(null);
 </script>
-<script type="text/plain" data-excerpt="src/frontend/src/components/auth/AdminRoute.tsx:33" data-start="27" data-sha="dd2a641b">
+<script type="text/plain" data-excerpt="src/frontend/src/components/auth/AdminRoute.tsx:33" data-start="27" data-sha="5f0c8fd3">
  * leaves `user` null. Falling through to `Navigate to=/jobs` would be
  * indistinguishable from a real "not an admin" denial, so admins would
  * lose visibility into auth-layer outages. Instead we render an inline
@@ -2147,99 +2162,97 @@ export function AdminRoute({ children }: { children: React.ReactNode }) {
   if (authLoading) return <LoadingState fullPage />;
   if (!isAuthenticated) return <Navigate to={ROUTES.RECENT_JOBS} replace />;
 </script>
-<script type="text/plain" data-excerpt="src/frontend/src/features/admin/adminApi.ts:1674" data-start="1668" data-sha="dd2a641b">
-        }
-        return res.settings as unknown as AdminSettingRow[];
-      },
-      providesTags: ['AdminSettings'],
-    }),
+<script type="text/plain" data-excerpt="src/frontend/src/features/admin/adminApi.ts:1829" data-start="1823" data-sha="5f0c8fd3">
+    // (`status`: new / saved / archived) and sorted by the server (`sort`), so
+    // the page never holds an unbounded list. Save/unsave/archive/restore and
+    // permanent delete invalidate the one tag, which refetches both the visible
+    // page and the tab counts that ride on every list response.
+    // ─────────────────────────────────────────────────────────────────────────
 
-    updateAdminSetting: builder.mutation<AdminSettingRow, { key: string; value: unknown }>({
-      query: ({ key, value }) => ({
-        url: `/settings/${encodeURIComponent(key)}`,
-        method: 'PUT',
-        body: { value },
+    getLaunchRadarCards: builder.query<LaunchRadarCardsResponse, LaunchRadarCardsArgs>({
+      query: ({ status, page, rowsPerPage, sort }) => ({
+        url: '/launch-radar/cards',
+        params: { status, limit: rowsPerPage, offset: page * rowsPerPage, sort },
       }),
-      invalidatesTags: ['AdminSettings'],
+      transformResponse: (res: unknown): LaunchRadarCardsResponse => {
+        // Runtime guard — a 2xx body with the wrong shape (CDN error page,
 </script>
-<script type="text/plain" data-excerpt="api/admin.ts:59" data-start="53" data-sha="dd2a641b">
-  'enrichment/ticks', // GET
-  'enrichment/jobs/:sourceId/:jobId/correct', // POST
+<script type="text/plain" data-excerpt="api/admin.ts:61" data-start="55" data-sha="5f0c8fd3">
   'enrichment/jobs/:sourceId/:jobId/confirm', // POST
   'enrichment/jobs/:sourceId/:jobId/reenrich', // POST
   // app settings (the SWE-subcategory reveal flag lives here)
   'settings', // GET — the admin settings list
   'settings/:key', // PUT — flip one allowlisted key
   // launch radar (admin dashboard cards; the loop API under /api/internal/launch-radar/ is NEVER proxied)
-  'launch-radar/cards', // GET — list by status
-  'launch-radar/cards/:id', // PATCH (archive / restore) · DELETE (permanent, archived only)
+  'launch-radar/cards', // GET — one page of one tab (status, limit, offset, sort)
+  'launch-radar/cards/:id', // PATCH (save / unsave / archive / restore) · DELETE (permanent, archived only)
 ] as const;
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  const { path, ...queryParams } = req.query;
+
 </script>
-<script type="text/plain" data-excerpt="src/backend/api/routers/admin.py:1037" data-start="1031" data-sha="dd2a641b">
-            conn,
-            limit=limit,
-            offset=offset,
-            outcome=outcome,
-            user_id=user_id,
-            search=search,
-        )
-    except psycopg2.Error:
-        conn.rollback()
-        logger.exception("Failed to list custom-company add attempts for admin dashboard")
-        raise HTTPException(status_code=500, detail="Failed to load add attempts")
-    return AdminCustomCompanyAttemptsResponse(
-        attempts=[AdminCustomCompanyAttemptRow(**r) for r in data["attempts"]],
-</script>
-<script type="text/plain" data-excerpt="src/backend/api/auth/dependencies.py:88" data-start="82" data-sha="dd2a641b">
-        logger.debug(
-            "Ignoring unverifiable token on a public endpoint (treating as "
-            "anonymous): %s", exc,
-        )
-        return None
+<script type="text/plain" data-excerpt="src/backend/api/routers/admin.py:1078" data-start="1072" data-sha="5f0c8fd3">
+            "updated_by": row["updated_by"],
+        }
+    )
 
 
-async def get_current_user(
-    user: TokenClaims | None = Depends(get_optional_user),
-) -> TokenClaims:
+@router.get("/launch-radar/cards", response_model=LaunchRadarCardsResponse)
+def admin_launch_radar_cards(
+    status: LaunchRadarCardStatus = Query(),
+    limit: int = Query(default=25, ge=1, le=_LAUNCH_RADAR_LIST_CAP),
+    offset: int = Query(default=0, ge=0),
+    sort: LaunchRadarCardSort = Query(default="announced"),
+    conn: Connection = Depends(get_db),
+    _admin: TokenClaims = Depends(require_admin),
+</script>
+<script type="text/plain" data-excerpt="src/backend/api/auth/dependencies.py:98" data-start="92" data-sha="5f0c8fd3">
     """Require a valid authenticated user, raising 401 if absent."""
     if user is None:
         raise HTTPException(status_code=401, detail="Authentication required")
+    return user
+
+
+async def require_admin(
+    conn: Connection = Depends(get_db),
+    user: TokenClaims = Depends(get_current_user),
+) -> TokenClaims:
+    """Require an admin grant for the authenticated user.
+
+    Keyed by ``email`` (the stable identifier across provider switches) per the
 </script>
-<script type="text/plain" data-excerpt="src/backend/api/services/launch_radar.py:40" data-start="34" data-sha="dd2a641b">
+<script type="text/plain" data-excerpt="src/backend/api/services/launch_radar.py:315" data-start="309" data-sha="5f0c8fd3">
 
-logger = logging.getLogger(__name__)
-
-# ``pg_advisory_xact_lock`` key that serializes every reservation, so two
-# concurrent runs can never both pass the cap on the same stale SUM. An
-# arbitrary fixed constant; nothing else in this database takes it.
-LEDGER_LOCK_KEY = 7_316_202_610_070_001
-
-_CENT_4 = Decimal("0.0001")
-
-CardStatus = Literal["new", "archived"]
+# ---------------------------------------------------------------------------
+# Admin: cards
+# ---------------------------------------------------------------------------
 
 
+def list_cards(
+    conn: Connection,
+    status: CardStatus,
+    limit: int,
+    offset: int,
+    sort: CardSort = "announced",
+) -> tuple[list[CardRow], int]:
 </script>
-<script type="text/plain" data-excerpt="src/backend/api/services/launch_radar.py:70" data-start="64" data-sha="dd2a641b">
-class DomainSeen(Conflict):
-    """409: a card for this normalized domain was already posted (ever)."""
-
-    def __init__(self) -> None:
-        super().__init__("domain already posted")
-
-
-class InvalidDomain(LaunchRadarError):
-    """422: the payload's domain is not in normalized form."""
+<script type="text/plain" data-excerpt="src/backend/api/services/launch_radar.py:359" data-start="353" data-sha="5f0c8fd3">
+        )
+        for r in cur.fetchall():
+            counts[r["status"]] = int(r["n"])
+    return counts
 
 
-class BudgetExceeded(LaunchRadarError):
-    """402: the reservation would pass the run's budget or the global cap."""
+def run_stats(conn: Connection) -> RunStats:
+    """The header line: the newest run, total spend and the cap."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT started_at, ended_at, status, host FROM launch_radar_runs "
+            "ORDER BY started_at DESC, id DESC LIMIT 1"
+        )
 </script>
-<script type="text/plain" data-excerpt="src/frontend/src/config/routes.ts:45" data-start="39" data-sha="dd2a641b">
-  ADMIN_ENRICHMENT: '/admin/enrichment',
-  // Read-only oversight for user-added boards (E7). Behind `AdminRoute` only —
+<script type="text/plain" data-excerpt="src/frontend/src/config/routes.ts:47" data-start="41" data-sha="5f0c8fd3">
   // deliberately NOT gated on VITE_CUSTOM_COMPANIES_ENABLED, because the moment
   // you most want to inspect the feature is an environment where the
   // user-facing flag is off.
@@ -2251,8 +2264,10 @@ class BudgetExceeded(LaunchRadarError):
   // Full-bleed (outside RootLayout) — the marketing landing page. Deliberately
   // UNLISTED: reachable by direct URL only, with no nav entry anywhere, while
   // it is iterated on. Do NOT add it to a nav array.
+  LANDING: '/landing',
+  // The pre-consolidation path, kept ONLY so links already sent in texts and
 </script>
-<script type="text/plain" data-excerpt="src/frontend/src/config/routes.ts:216" data-start="210" data-sha="dd2a641b">
+<script type="text/plain" data-excerpt="src/frontend/src/config/routes.ts:216" data-start="210" data-sha="5f0c8fd3">
   {
     path: ROUTES.ADMIN_CUSTOM_COMPANIES,
     label: 'Custom Companies',
@@ -2267,7 +2282,12 @@ class BudgetExceeded(LaunchRadarError):
     path: ROUTES.ADMIN_FEEDBACK,
     label: 'User Feedback',
 </script>
-<script type="text/plain" data-excerpt="src/frontend/src/app/App.tsx:189" data-start="183" data-sha="dd2a641b">
+<script type="text/plain" data-excerpt="src/frontend/src/app/App.tsx:184" data-start="178" data-sha="5f0c8fd3">
+              <AdminRoute>
+                <AdminCustomCompaniesPage />
+              </AdminRoute>
+            }
+          />
           <Route
             path={ROUTES.ADMIN_LAUNCH_RADAR}
             element={
@@ -2276,24 +2296,12 @@ class BudgetExceeded(LaunchRadarError):
               </AdminRoute>
             }
           />
-          <Route
-            path={ROUTES.ADMIN_FEEDBACK}
-            element={
-              <AdminRoute>
-                <AdminFeedbackPage />
 </script></doc-calls>
   </doc-claim>
 
   <doc-claim>
     <p>The talent score counts schools, employers, exits and years.</p>
-    <doc-code src="scripts/launch_radar_poc/poc.py" lines="599-617" wrap caption="Each signal uses the confidence weight on line 617." file="scripts/launch_radar_poc/poc.py" start="599" sha="dd2a641b+wt"><script type="text/plain">        "lead_points": 15, "participant_points": 15, "extra_points": 0, "extra_cap": 0,
-        "names": ["Y Combinator", "YC"],
-    },
-}
-VC_AMOUNT_BONUS = [(50_000_000, 15), (20_000_000, 10), (10_000_000, 5)]
-VC_OTHER_NAMED_POINTS = 10
-
-TALENT_RUBRIC = {
+    <doc-code src="scripts/launch_radar/scoring.py" lines="48-66" wrap caption="Each signal uses the confidence weight on line 66." file="scripts/launch_radar/scoring.py" start="48" sha="5f0c8fd3+wt"><script type="text/plain">TALENT_RUBRIC: dict[str, dict[str, Any]] = {
     "top_school": {"points": 8, "cap": 24, "names": [
         "Stanford", "(?-i:MIT)", "Massachusetts Institute of Technology", "Harvard", "Berkeley",
         "Carnegie Mellon", "(?-i:CMU)", "Caltech", "California Institute of Technology", "Princeton", "Yale",
@@ -2304,26 +2312,39 @@ TALENT_RUBRIC = {
     ]},
     "top_employer": {"points": 10, "cap": 30, "names": [
         "OpenAI", "Anthropic", "DeepMind", "Google", "Meta", "Facebook", "Apple", "Stripe", "SpaceX", "Tesla",
-        "Microsoft", "Amazon", "(?-i:AWS)", "Nvidia", "Airbnb", "Uber", "Palantir", "Databricks", "Netflix",</script>
-      <doc-pin line="614" tone="info" title="An exit is the only founder signal">Founding a company with no exit scores 0.</doc-pin>
-      <doc-pin line="615" tone="info" title="10 or more years of experience"></doc-pin>
-      <doc-pin line="617" tone="warn" title="Medium confidence counts ×0.8"></doc-pin>
+        "Microsoft", "Amazon", "(?-i:AWS)", "Nvidia", "Airbnb", "Uber", "Palantir", "Databricks", "Netflix",
+        "Scale AI", "Figma", "Coinbase", "Jane Street", "Two Sigma", "Citadel", "Snowflake", "Datadog",
+        "Ramp", "Plaid", "Robinhood", "LinkedIn", "Twitter", "Dropbox", "Instacart", "DoorDash", "Brex",
+    ]},
+    "prior_exit": {"points": 15, "cap": 30},
+    "senior_experience": {"points": 5, "cap": 10, "min_years": 10},
+}
+CONFIDENCE_WEIGHT: dict[str | None, float] = {"high": 1.0, "medium": 0.8, "low": 0.5, None: 0.8}</script>
+      <doc-pin line="63" tone="info" title="An exit is the only founder signal">Founding a company with no exit scores 0.</doc-pin>
+      <doc-pin line="64" tone="info" title="10 or more years of experience"></doc-pin>
+      <doc-pin line="66" tone="warn" title="Medium confidence counts ×0.8"></doc-pin>
     </doc-code>
     <doc-note tone="info">The card shows the industry experience of each leader. The score does not use it.</doc-note>
   </doc-claim>
 
   <doc-claim>
     <p>A card with no people data shows no talent score.</p>
-    <doc-code diff file="scripts/launch_radar_poc/poc.py" lang="py" caption="In the POC, Ghost AI and Athennian got 0 because enrich returned nothing.">
-<script type="text/plain">
-@@ -698,2 +698,4 @@
--def score_talent(leaders: list[dict]) -> tuple[int, list[str]]:
-+def score_talent(leaders: list[dict]) -> tuple[int | None, list[str]]:
-+    if not any(ld.get("schools") or ld.get("prior_companies") for ld in leaders):
-+        return None, ["talent: no people data"]
-     reasons: list[str] = []
-</script>
-      <doc-pin line="700" tone="ok" title="The card shows “No people data”"></doc-pin>
+    <doc-code src="scripts/launch_radar/scoring.py" lines="163-177" caption="In the POC, Ghost AI and Athennian got 0 because enrich returned nothing." file="scripts/launch_radar/scoring.py" start="163" sha="5f0c8fd3+wt"><script type="text/plain">def has_people_data(leader: dict[str, Any]) -> bool:
+    return bool(leader.get("schools") or leader.get("prior_companies") or leader.get("founded_raw")
+                or leader.get("years") is not None)
+
+
+def score_talent(leaders: list[dict[str, Any]]) -> tuple[int | None, list[str]]:
+    """Points exactly as POC ``score_talent``; None when no leader has people data.
+
+    Each leader is ``{name, schools: [str], prior_companies: [str],
+    founded_raw: [{company, outcome, acquirer, exit_year}], years: int | None,
+    confidence: {field: "high" | "medium" | "low" | None}}``. Founding a company
+    scores nothing on its own; only an exit (``acquired`` or ``ipo``) counts.
+    """
+    if not any(has_people_data(ld) for ld in leaders):
+        return None, []</script>
+      <doc-pin line="176" tone="ok" title="The card shows “No people data”"></doc-pin>
     </doc-code>
   </doc-claim>
   <doc-claim>
@@ -2354,32 +2375,41 @@ TALENT_RUBRIC = {
 }
 </script>
     </doc-schema>
-    <doc-note tone="info"><strong>Option B</strong> Entity Search, then one base run for each person, found 5 of the same 6 people for $0.145. The plan uses this cheaper run.</doc-note>
+    <doc-note tone="info"><strong>Option B</strong> Entity Search, then one base run for each person, found 5 of the same 6 people for $0.145. The loop uses the pro run above.</doc-note>
   </doc-claim>
 </doc-claim>
 
 <!-- ═════ 2 · archive / delete ═════ -->
 <doc-claim>
-  <p>The admin can archive a card, restore it, or delete it.</p>
+  <p>The admin can save, archive, restore or delete a card.</p>
   <doc-machine name="card" caption="Tap a state to see its screen.">
 <script type="text/plain">
 machine card initial new
 state new             # In the New tab.
+state saved           # In the Saved tab.
 state archived        # In the Archived tab.
 state deleted  final  # Gone from the page.
 
-| new | archived | deleted |
+| saved | new | archived | deleted |
 
+new      -save->    saved    : Save
+saved    -unsave->  new      : Unsave
 new      -archive-> archived : Archive
+saved    -archive-> archived : Archive
 archived -delete->  deleted  : Delete permanently
 archived -restore-> new      : Restore
 </script>
     <div data-state="new"><doc-mock frame="none" w="460"><template>
 <div class="mui"><details class="card"><summary>
-  <div class="logo">A</div>
-  <div><div class="name">Athennian<a class="site">athennian.com</a></div><div class="what">Entity management for legal teams</div><div class="event"><span>Launch</span><span class="d">Oct 6</span></div></div>
+  <div><div class="name">Athennian<a class="site">athennian.com</a></div><div class="what">Entity management for legal teams</div><div class="event"><span>Launch</span><span class="d">Oct 6</span><a>Announcement</a></div></div>
   <div class="scores"><div class="sc"><div class="n none">–</div><div class="bar"></div><div class="l">Talent</div></div><div class="sc"><div class="n">20</div><div class="bar"><i style="width:20%"></i></div><div class="l">VC</div></div></div>
-  <div class="status"><span class="st">No PR (Rippling)</span><span class="acts"><span class="btn out">Archive</span><span class="chev">▾</span></span></div>
+  <div class="status"><a class="st">Job board</a><span class="acts"><span class="btn out">Save</span><span class="btn out">Archive</span><span class="chev">▾</span></span></div>
+</summary></details></div></template></doc-mock></div>
+    <div data-state="saved"><doc-mock frame="none" w="460"><template>
+<div class="mui"><details class="card"><summary>
+  <div><div class="name">Athennian<a class="site">athennian.com</a></div><div class="what">Entity management for legal teams</div><div class="event"><span>Launch</span><span class="d">Oct 6</span><a>Announcement</a></div></div>
+  <div class="scores"><div class="sc"><div class="n none">–</div><div class="bar"></div><div class="l">Talent</div></div><div class="sc"><div class="n">20</div><div class="bar"><i style="width:20%"></i></div><div class="l">VC</div></div></div>
+  <div class="status"><a class="st">Job board</a><span class="acts"><span class="btn out">Unsave</span><span class="btn out">Archive</span><span class="chev">▾</span></span></div>
 </summary></details></div></template></doc-mock></div>
     <div data-state="archived"><doc-mock frame="none" w="460"><template>
 <div class="mui">
@@ -2396,135 +2426,194 @@ archived -restore-> new      : Restore
 
   <doc-claim>
     <p>Each button calls one admin route behind <code>require_admin</code>.</p>
-    <doc-calls title="Archive · Restore · Delete" caption="updated_by gets the admin email, as in the settings route.">
+    <doc-calls title="Save · Unsave · Archive · Restore · Delete" caption="updated_by gets the admin email, as in the settings route.">
 <script type="text/plain">
-+ <**RadarCard**/> Archive · Restore · Delete             @ src/frontend/src/pages/AdminLaunchRadarPage/components/RadarCard.tsx:1
-+   **useSetLaunchRadarCardStatusMutation**()            @ src/frontend/src/features/admin/adminApi.ts:1674
-+     PATCH /api/admin/launch-radar/cards/:id           @ api/admin.ts:59   -- PROXIED_ROUTES + 'launch-radar/cards/:id'
-+   **useDeleteLaunchRadarCardMutation**()               @ src/frontend/src/features/admin/adminApi.ts:1674
-+     DELETE /api/admin/launch-radar/cards/:id          @ api/admin.ts:59   -- the same allowlist entry
-+ **admin_set_launch_radar_status**(id, body)           @ src/backend/api/routers/admin.py:1037   -- body { status: "archived" | "new" }
-    Depends(require_admin)                              @ src/backend/api/auth/dependencies.py:88
-+   **set_status**(conn, id, status, admin.get("email", "unknown"))   @ src/backend/api/services/launch_radar.py:60
-+ **admin_delete_launch_radar_card**(id)                @ src/backend/api/routers/admin.py:1037   -- 204, or 409 if not archived
-+   **delete_card**(conn, id, admin.get("email", "unknown"))   @ src/backend/api/services/launch_radar.py:80
++ <**RadarCard**/> Save · Unsave · Archive · Restore      @ src/frontend/src/pages/AdminLaunchRadarPage/components/RadarCard.tsx:63
++   **useSetLaunchRadarCardStatusMutation**()            @ src/frontend/src/features/admin/adminApi.ts:1869   -- body { status, from }
++     PATCH /api/admin/launch-radar/cards/:id           @ api/admin.ts:62   -- PROXIED_ROUTES + 'launch-radar/cards/:id'
++ <**DeleteCardDialog**/> Delete                         @ src/frontend/src/pages/AdminLaunchRadarPage/components/DeleteCardDialog.tsx:26
++   **useDeleteLaunchRadarCardMutation**()               @ src/frontend/src/features/admin/adminApi.ts:1893
++     DELETE /api/admin/launch-radar/cards/:id          @ api/admin.ts:62   -- the same allowlist entry
++ **admin_set_launch_radar_status**(id, body)           @ src/backend/api/routers/admin.py:1124   -- "from" makes the move a compare-and-swap
+    Depends(require_admin)                              @ src/backend/api/auth/dependencies.py:98
++   **set_status**(conn, id, status, email, from)       @ src/backend/api/services/launch_radar.py:399
++ **admin_delete_launch_radar_card**(id)                @ src/backend/api/routers/admin.py:1151   -- 204, or 409 if not archived
++   **delete_card**(conn, id, admin.get("email", "unknown"))   @ src/backend/api/services/launch_radar.py:444
 </script>
     
-<script type="text/plain" data-excerpt="src/frontend/src/pages/AdminLaunchRadarPage/components/RadarCard.tsx:1" data-start="1" data-sha="dd2a641b">
-import { useState } from 'react';
-import Accordion from '@mui/material/Accordion';
-import AccordionDetails from '@mui/material/AccordionDetails';
-import Alert from '@mui/material/Alert';
-import Box from '@mui/material/Box';
-import Link from '@mui/material/Link';
-import Typography from '@mui/material/Typography';
+<script type="text/plain" data-excerpt="src/frontend/src/pages/AdminLaunchRadarPage/components/RadarCard.tsx:63" data-start="57" data-sha="5f0c8fd3">
+
+/**
+ * One company the loop found. Closed: name + site, one-liner, the event and
+ * its announcement link, Talent and VC scores, and one status line with the
+ * lifecycle actions. Open: `CardBody`, aligned under the name.
+ */
+export function RadarCard({
+  card,
+  sort = DEFAULT_LAUNCH_RADAR_SORT,
+  onRequestDelete,
+  onLeave,
+}: RadarCardProps) {
+  const [expanded, setExpanded] = useState(false);
 </script>
-<script type="text/plain" data-excerpt="src/frontend/src/features/admin/adminApi.ts:1674" data-start="1668" data-sha="dd2a641b">
+<script type="text/plain" data-excerpt="src/frontend/src/features/admin/adminApi.ts:1869" data-start="1863" data-sha="5f0c8fd3">
         }
-        return res.settings as unknown as AdminSettingRow[];
+        return res as unknown as LaunchRadarCardsResponse;
       },
-      providesTags: ['AdminSettings'],
+      providesTags: ['LaunchRadarCards'],
     }),
 
-    updateAdminSetting: builder.mutation<AdminSettingRow, { key: string; value: unknown }>({
-      query: ({ key, value }) => ({
-        url: `/settings/${encodeURIComponent(key)}`,
-        method: 'PUT',
-        body: { value },
-      }),
-      invalidatesTags: ['AdminSettings'],
+    setLaunchRadarCardStatus: builder.mutation<LaunchRadarCard, LaunchRadarStatusMove>({
+      // `from` is the tab the card was clicked in. The backend applies the move
+      // only while the card is still there (409 otherwise): Unsave and Restore
+      // both send `status: 'new'`, so without it a stale Unsave would restore a
+      // card someone archived in another tab.
+      query: ({ id, status, from }) => ({
+        url: `/launch-radar/cards/${id}`,
 </script>
-<script type="text/plain" data-excerpt="api/admin.ts:59" data-start="53" data-sha="dd2a641b">
-  'enrichment/ticks', // GET
-  'enrichment/jobs/:sourceId/:jobId/correct', // POST
-  'enrichment/jobs/:sourceId/:jobId/confirm', // POST
+<script type="text/plain" data-excerpt="api/admin.ts:62" data-start="56" data-sha="5f0c8fd3">
   'enrichment/jobs/:sourceId/:jobId/reenrich', // POST
   // app settings (the SWE-subcategory reveal flag lives here)
   'settings', // GET — the admin settings list
   'settings/:key', // PUT — flip one allowlisted key
   // launch radar (admin dashboard cards; the loop API under /api/internal/launch-radar/ is NEVER proxied)
-  'launch-radar/cards', // GET — list by status
-  'launch-radar/cards/:id', // PATCH (archive / restore) · DELETE (permanent, archived only)
+  'launch-radar/cards', // GET — one page of one tab (status, limit, offset, sort)
+  'launch-radar/cards/:id', // PATCH (save / unsave / archive / restore) · DELETE (permanent, archived only)
 ] as const;
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  const { path, ...queryParams } = req.query;
+
+  // Canonical form only; the upstream URL below is built from THIS value, so
 </script>
-<script type="text/plain" data-excerpt="src/backend/api/routers/admin.py:1037" data-start="1031" data-sha="dd2a641b">
-            conn,
-            limit=limit,
-            offset=offset,
-            outcome=outcome,
-            user_id=user_id,
-            search=search,
-        )
-    except psycopg2.Error:
-        conn.rollback()
-        logger.exception("Failed to list custom-company add attempts for admin dashboard")
-        raise HTTPException(status_code=500, detail="Failed to load add attempts")
-    return AdminCustomCompanyAttemptsResponse(
-        attempts=[AdminCustomCompanyAttemptRow(**r) for r in data["attempts"]],
+<script type="text/plain" data-excerpt="src/frontend/src/pages/AdminLaunchRadarPage/components/DeleteCardDialog.tsx:26" data-start="20" data-sha="5f0c8fd3">
+
+/**
+ * Confirm before the one irreversible action on the page. The backend keeps a
+ * tombstone row (domain only) so the loop never posts this company again —
+ * which is exactly what the body tells the admin.
+ */
+export function DeleteCardDialog({ card, onClose, onDeleted }: DeleteCardDialogProps) {
+  const [deleteCard, { isLoading, error, reset }] = useDeleteLaunchRadarCardMutation();
+  // Keep the last card on screen while the dialog's exit transition runs, so
+  // the title does not blank out as it fades. (Adjusting state during render is
+  // React's sanctioned "remember the previous value" pattern.)
+  const [shown, setShown] = useState(card);
+  if (card && card !== shown) {
 </script>
-<script type="text/plain" data-excerpt="src/backend/api/auth/dependencies.py:88" data-start="82" data-sha="dd2a641b">
-        logger.debug(
-            "Ignoring unverifiable token on a public endpoint (treating as "
-            "anonymous): %s", exc,
-        )
-        return None
+<script type="text/plain" data-excerpt="src/frontend/src/features/admin/adminApi.ts:1893" data-start="1887" data-sha="5f0c8fd3">
+        // the invalidation refetch lands, so its old buttons cannot be pressed
+        // again into a 409 (and the counts move at once).
+        for (const action of dropLaunchRadarCard(getState(), id, status)) dispatch(action);
+      },
+    }),
+
+    deleteLaunchRadarCard: builder.mutation<void, { id: number }>({
+      query: ({ id }) => ({
+        url: `/launch-radar/cards/${id}`,
+        method: 'DELETE',
+      }),
+      invalidatesTags: ['LaunchRadarCards'],
+      async onQueryStarted({ id }, { dispatch, getState, queryFulfilled }) {
+</script>
+<script type="text/plain" data-excerpt="src/backend/api/routers/admin.py:1124" data-start="1118" data-sha="5f0c8fd3">
+            cap_usd=stats["cap_usd"],
+        ),
+    )
 
 
-async def get_current_user(
-    user: TokenClaims | None = Depends(get_optional_user),
-) -> TokenClaims:
+@router.patch("/launch-radar/cards/{card_id}", response_model=LaunchRadarCardOut)
+def admin_set_launch_radar_status(
+    body: LaunchRadarStatusUpdate,
+    card_id: int = Path(ge=1),
+    conn: Connection = Depends(get_db),
+    admin: TokenClaims = Depends(require_admin),
+) -> LaunchRadarCardOut:
+    """Move a card between tabs: Save (``saved``, from new), Unsave or Restore
+</script>
+<script type="text/plain" data-excerpt="src/backend/api/auth/dependencies.py:98" data-start="92" data-sha="5f0c8fd3">
     """Require a valid authenticated user, raising 401 if absent."""
     if user is None:
         raise HTTPException(status_code=401, detail="Authentication required")
+    return user
+
+
+async def require_admin(
+    conn: Connection = Depends(get_db),
+    user: TokenClaims = Depends(get_current_user),
+) -> TokenClaims:
+    """Require an admin grant for the authenticated user.
+
+    Keyed by ``email`` (the stable identifier across provider switches) per the
 </script>
-<script type="text/plain" data-excerpt="src/backend/api/services/launch_radar.py:60" data-start="54" data-sha="dd2a641b">
+<script type="text/plain" data-excerpt="src/backend/api/services/launch_radar.py:399" data-start="393" data-sha="5f0c8fd3">
+    conn.rollback()
+    if row is None or row["status"] == "deleted":
+        raise NotFound("card not found")
+    return str(row["status"])
 
 
-class NotFound(LaunchRadarError):
-    """404: the run / card / monitor does not exist (or the card is deleted)."""
-
-
-class Conflict(LaunchRadarError):
-    """409: the row exists but is in the wrong state for this operation."""
-
-
-class DomainSeen(Conflict):
-    """409: a card for this normalized domain was already posted (ever)."""
-
+def set_status(
+    conn: Connection,
+    card_id: int,
+    status: CardStatus,
+    admin_email: str,
+    expected_from: CardStatus | None = None,
+) -> CardRow:
 </script>
-<script type="text/plain" data-excerpt="src/backend/api/services/launch_radar.py:80" data-start="74" data-sha="dd2a641b">
+<script type="text/plain" data-excerpt="src/backend/api/routers/admin.py:1151" data-start="1145" data-sha="5f0c8fd3">
+        logger.exception("Failed to update launch radar card status")
+        raise HTTPException(status_code=500, detail="Failed to update card")
+    return _launch_radar_card_out(row)
 
-class BudgetExceeded(LaunchRadarError):
-    """402: the reservation would pass the run's budget or the global cap."""
 
-    def __init__(
-        self,
-        reason: Literal["run_budget", "cap"],
-        run_spend: Decimal,
-        total_spend: Decimal,
-        cap: Decimal,
-    ) -> None:
-        super().__init__(reason)
-        self.reason = reason
+@router.delete("/launch-radar/cards/{card_id}", status_code=204)
+def admin_delete_launch_radar_card(
+    card_id: int = Path(ge=1),
+    conn: Connection = Depends(get_db),
+    admin: TokenClaims = Depends(require_admin),
+) -> Response:
+    """Delete permanently: tombstone an ARCHIVED card (payload cleared, domain
+    kept so the loop never posts it again). 404 missing or already deleted, 409
+</script>
+<script type="text/plain" data-excerpt="src/backend/api/services/launch_radar.py:444" data-start="438" data-sha="5f0c8fd3">
+                f"card is {current}; only a {' or '.join(allowed)} card can move to {status}"
+            )
+    conn.commit()
+    return cast(CardRow, dict(row))
+
+
+def delete_card(conn: Connection, card_id: int, admin_email: str) -> None:
+    """Tombstone an ``archived`` card. A ``new`` or ``saved`` card must be
+    archived first (409)."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE launch_radar_cards SET status = 'deleted', payload = NULL, "
+            "pr_url = NULL, tracked_company_id = NULL, archived_at = NULL, "
 </script></doc-calls>
   </doc-claim>
 
   <doc-claim>
     <p>Delete permanently clears the card but keeps the domain.</p>
-    <doc-code title="services/launch_radar.py · delete_card · sketch" lang="sql">
-<script type="text/plain">
--- delete_card(id, email): only an archived card can go
-UPDATE launch_radar_cards
-SET    status = 'deleted',
-       payload = NULL, talent_score = NULL, vc_score = NULL, pr_url = NULL,
-       deleted_at = now(), updated_by = %(email)s
-WHERE  id = %(id)s AND status = 'archived'
-RETURNING id;            -- no row back: 409, the card is not archived
-</script>
-      <doc-pin line="4" tone="info" title="The research is gone"></doc-pin>
-      <doc-pin line="6" tone="warn" title="Only from the Archived tab"></doc-pin>
+    <doc-code src="src/backend/api/services/launch_radar.py" lines="444-460" wrap file="src/backend/api/services/launch_radar.py" start="444" sha="5f0c8fd3+wt"><script type="text/plain">def delete_card(conn: Connection, card_id: int, admin_email: str) -> None:
+    """Tombstone an ``archived`` card. A ``new`` or ``saved`` card must be
+    archived first (409)."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE launch_radar_cards SET status = 'deleted', payload = NULL, "
+            "pr_url = NULL, tracked_company_id = NULL, archived_at = NULL, "
+            "deleted_at = now(), updated_at = now(), updated_by = %s "
+            "WHERE id = %s AND status = 'archived' RETURNING id",
+            (admin_email, card_id),
+        )
+        if cur.fetchone() is None:
+            current = _status_after_missed_update(conn, cur, card_id)
+            if current == "archived":
+                raise Conflict(_RACED)
+            raise Conflict(f"card is {current}; archive it before deleting it permanently")
+    conn.commit()</script>
+      <doc-pin line="449" tone="info" title="The research is gone"></doc-pin>
+      <doc-pin line="452" tone="warn" title="Only from the Archived tab"></doc-pin>
     </doc-code>
     <doc-ask id="tomb">
       <p>After a permanent delete, can the loop post that company again?</p>
@@ -2542,9 +2631,9 @@ RETURNING id;            -- no row back: 409, the card is not archived
 <script type="text/plain">
 machine run initial events
 state events           # Monitor events arrive.
-state dedupe           # The loop compares the domain and name with the database.
+state dedupe           # The loop finds a missing domain, then compares the domain and name with the database.
 state stopped   final  # The loop stops for this company: seen, no domain, budget or error.
-state leaders          # FindAll finds the current leaders.
+state leaders          # FindAll finds the current leaders, else the brief gives the founders.
 state pedigree         # A Task Group finds each pedigree, one base run for each leader.
 state brief            # The loop reads the company brief. It started with FindAll.
 state ats              # The free ATS API confirms the board.
@@ -2563,14 +2652,14 @@ pedigree -done->   brief    : filled
 brief    -done->   ats      : token
 ats      -score->  posted   : POST 201
 </script>
-    <div data-state="events"><doc-mock frame="terminal" title="client.monitor.events · poc.py:315" w="470"><template><span class="dim">$</span> GET /v1/monitors/monitor_54af…/events
+    <div data-state="events"><doc-mock frame="terminal" title="client.monitor.events · poc.py:322" w="470"><template><span class="dim">$</span> GET /v1/monitors/monitor_54af…/events
 <span class="dim">  limit=100 include_completions=true</span>
 <span class="g">✓</span> 1 event_stream row · <b>61 s</b> after polling began
   Athennian · athennian.com · <b>launch</b>
   announced_at 2026-10-06 · event_date 2026-10-07
   basis confidence: <span class="g">high</span> on 9 of 9 fields
 <span class="dim">  cost: $0.01 per run on base · the GET is free</span></template></doc-mock></div>
-    <div data-state="dedupe"><doc-mock frame="terminal" title="normalize_domain · poc.py:155" w="470"><template><span class="dim">$</span> normalize_domain → GET /api/internal/launch-radar/seen
+    <div data-state="dedupe"><doc-mock frame="terminal" title="normalize_domain · poc.py:162" w="470"><template><span class="dim">$</span> normalize_domain → GET /api/internal/launch-radar/seen
   athennian.com               → <span class="g">new</span>   → research
   HTTPS://WWW.Raindrop.AI/…   → raindrop.ai → <span class="g">new</span> → research
   NA                          → <span class="r">no domain</span> → stop
@@ -2579,7 +2668,7 @@ ats      -score->  posted   : POST 201
   stop NA — no domain
   stop example.ai — 402 budget: $4.98 of $5.00
 <span class="dim">  $0 spent on these · next event</span></template></doc-mock></div>
-    <div data-state="leaders"><doc-mock frame="terminal" title="client.beta.findall.create · poc.py:881" w="470"><template><span class="dim">$</span> POST /v1beta/findall/runs  people · preview · limit 8
+    <div data-state="leaders"><doc-mock frame="terminal" title="client.beta.findall.create · poc.py:888" w="470"><template><span class="dim">$</span> POST /v1beta/findall/runs  people · preview · limit 8
 <span class="dim">  + POST /v1/tasks/runs (brief) at the same time</span>
 <span class="g">✓</span> completed · low_match_rate · <b>154 s</b> · <b>$0.10</b>
   <span class="g">matched</span>   Priya Raman  CEO and Co-Founder
@@ -2587,7 +2676,7 @@ ats      -score->  posted   : POST 201
   <span class="g">matched</span>   Taylor Brooks         COO &amp; Co-Founder
   <span class="dim">unmatched Morgan Hale    not at raindrop.ai</span>
   <span class="dim">unmatched Dana Whitfield</span>
-<span class="dim">  is_person: 3 of 3 · under 2 → one base run, $0.49 at most</span></template></doc-mock></div>
+<span class="dim">  is_person: 3 of 3 · none kept → the brief's founders</span></template></doc-mock></div>
     <div data-state="pedigree"><doc-mock frame="terminal" title="client.task_group · pedigree_group.py:52" w="470"><template><span class="dim">$</span> POST /v1/tasks/groups → tgrp_7beb…
 <span class="dim">$</span> POST /v1/tasks/groups/tgrp_7beb…/runs
 <span class="dim">  3 inputs · processor=base · PEDIGREE_SCHEMA · $0.03 reserved</span>
@@ -2596,14 +2685,14 @@ ats      -score->  posted   : POST 201
   Raman  UC Berkeley · Ledgerline → Northwind 2025
   Rivera    WPI · Apple visionOS, Google, SpaceX
 <span class="dim">  no FindAll enrich · talent 49, the same as core enrich</span></template></doc-mock></div>
-    <div data-state="brief"><doc-mock frame="terminal" title="client.task_run.result · poc.py:811" w="470"><template><span class="dim">$</span> GET /v1/tasks/runs/trun_be24…/result?timeout=300
+    <div data-state="brief"><doc-mock frame="terminal" title="client.task_run.result · poc.py:818" w="470"><template><span class="dim">$</span> GET /v1/tasks/runs/trun_be24…/result?timeout=300
 <span class="dim">  created at t=0 with processor=core, next to FindAll</span>
 <span class="y">!</span> spec warning: 25 properties, 10 recommended
 <span class="g">✓</span> completed · <b>124 s</b> run · <b>$0.025</b> · 10 sources
   Series A $35M · 2026-09-17 · lead CRV
   ats: ashby / Raindrop · careers raindrop.ai/careers
 <span class="g">✓</span> team tally (pro) · <b>167 s</b> · <b>$0.10</b> · 6 public profiles</template></doc-mock></div>
-    <div data-state="ats"><doc-mock frame="terminal" title="ats_check · poc.py:752" w="470"><template><span class="dim">$</span> GET api.ashbyhq.com/posting-api/job-board/Raindrop
+    <div data-state="ats"><doc-mock frame="terminal" title="ats_check · poc.py:759" w="470"><template><span class="dim">$</span> GET api.ashbyhq.com/posting-api/job-board/Raindrop
 <span class="g">✓</span> 200 · 9 jobs · free · approximately 1 s
   score_talent → <b>49</b> · score_vc → <b>55</b></template></doc-mock></div>
     <div data-state="posted"><doc-mock frame="terminal" title="post_card" w="470"><template><span class="dim">$</span> POST /api/internal/launch-radar/cards  → <span class="g">201</span>
@@ -2618,25 +2707,25 @@ ats      -score->  posted   : POST 201
     <doc-calls title="One loop run" caption="The brief, the team tally and FindAll start at the same time.">
 <script type="text/plain">
 + **/launch-radar-once**                                @ .claude/commands/launch-radar-once.md:1   -- headless, like health-watch-once
-+   POST /api/internal/launch-radar/runs                @ src/backend/api/routers/internal_launch_radar.py:4   -- spend so far, last_event_ids
-    client.monitor.events(id, limit=100)                @ scripts/launch_radar_poc/poc.py:315   -- each Monitor; stop at last_event_id
++   POST /api/internal/launch-radar/runs                @ src/backend/api/routers/internal_launch_radar.py:101   -- spend so far, active Monitors
+    client.monitor.events(id, limit=100)                @ scripts/launch_radar_poc/poc.py:322   -- each Monitor; stop at last_event_id
 +   **resolve_missing_domains**(events)                 @ scripts/launch_radar/resolve.py:87   -- Search fast, $0.001; events with no domain
-+   GET /api/internal/launch-radar/seen                 @ src/backend/api/routers/internal_launch_radar.py:17
-~   Ledger.reserve(step, est)                           @ scripts/launch_radar_poc/poc.py:107   -- before each billed create; 402 stops
-    client.beta.findall.create(people, preview)         @ scripts/launch_radar_poc/poc.py:881   -- $0.10
-    client.task_run.create(brief, core)                 @ scripts/launch_radar_poc/poc.py:907   -- $0.025
++   GET /api/internal/launch-radar/seen                 @ src/backend/api/routers/internal_launch_radar.py:188
+~   Ledger.reserve(step, est)                           @ scripts/launch_radar_poc/poc.py:114   -- before each billed create; 402 stops
+    client.beta.findall.create(people, preview)         @ scripts/launch_radar_poc/poc.py:888   -- $0.10
+    client.task_run.create(brief, core)                 @ scripts/launch_radar_poc/poc.py:914   -- $0.025
 +   client.task_run.create(team tally, pro)             @ scripts/launch_radar_poc/team_stats.py:84   -- $0.10; display only
-    _poll_findall() then findall.result()               @ scripts/launch_radar_poc/poc.py:915
-+   **is_person**(candidate)                            @ scripts/launch_radar_poc/poc.py:822
-    findall.create(people, base)                        @ scripts/launch_radar_poc/poc.py:942   -- under 2 persons; $0.25 + $0.03 a match
-+   client.task_group.add_runs(leaders, base)          @ scripts/launch_radar_poc/pedigree_group.py:53   -- one run for each leader; $0.01 each
-+   client.task_group.get_runs(include_output=True)    @ scripts/launch_radar_poc/pedigree_group.py:64   -- join on metadata, not order
-    task_run.result(api_timeout=300)                    @ scripts/launch_radar_poc/poc.py:811
-    ats_check(provider, token)                          @ scripts/launch_radar_poc/poc.py:752
-+   POST /api/internal/launch-radar/cards               @ src/backend/api/routers/internal_launch_radar.py:22
+    _poll_findall() then findall.result()               @ scripts/launch_radar_poc/poc.py:923
++   **select_leaders**(result)                          @ scripts/launch_radar/leaders.py:106   -- matched and is_person, at most 8
++   **brief_founders**(brief)                           @ scripts/launch_radar/leaders.py:127   -- no person kept: the brief's founders
++   client.task_group.add_runs(leaders, base)          @ scripts/launch_radar/leaders.py:221   -- one run for each leader; $0.01 each; each attempt saved first
++   client.task_group.get_runs(include_output=True)    @ scripts/launch_radar/leaders.py:276   -- join on metadata, not order
+    task_run.result(api_timeout=300)                    @ scripts/launch_radar_poc/poc.py:818
+    ats_check(provider, token)                          @ scripts/launch_radar_poc/poc.py:759
++   POST /api/internal/launch-radar/cards               @ src/backend/api/routers/internal_launch_radar.py:237
 </script>
     
-<script type="text/plain" data-excerpt=".claude/commands/launch-radar-once.md:1" data-start="1" data-sha="dd2a641b">
+<script type="text/plain" data-excerpt=".claude/commands/launch-radar-once.md:1" data-start="1" data-sha="5f0c8fd3">
 # /launch-radar-once — one headless Launch Radar run
 
 Headless one-shot for the LaunchAgent at
@@ -2645,34 +2734,37 @@ Headless one-shot for the LaunchAgent at
 The wrapper never passes `--dangerously-skip-permissions`.
 Not for interactive use — interactively, invoke the `launch-radar` skill instead.
 </script>
-<script type="text/plain" data-excerpt="src/backend/api/routers/internal_launch_radar.py:4" data-start="1" data-sha="dd2a641b">
-"""Internal Launch Radar endpoints: the loop's API.
+<script type="text/plain" data-excerpt="src/backend/api/routers/internal_launch_radar.py:101" data-start="95" data-sha="5f0c8fd3">
+    except psycopg2.Error:
+        conn.rollback()
+        logger.exception("launch radar %s failed", what)
+        raise HTTPException(status_code=500, detail=f"Failed to {what}")
 
-Mounted at /api/internal/launch-radar and protected ONLY by the global
-require_internal_key middleware (X-Internal-Key), like internal_enrichment, so
-there is no per-route auth here. The loop (``scripts/launch_radar/``) calls the
-backend directly with ``BACKEND_URL``; these routes are never proxied through a
-Vercel function (``api/tests/test_proxy_path_allowlists.py`` pins that no
-allowlist entry can reach ``internal``).
 
-Requests and responses are snake_case. Status codes the loop relies on:
+@router.post("/runs", status_code=201, response_model=LaunchRadarRunStarted)
+def start_run(
+    body: LaunchRadarRunStart,
+    conn: Connection = Depends(get_db),
+) -> LaunchRadarRunStarted:
+    result = _call(
+        conn,
 </script>
-<script type="text/plain" data-excerpt="scripts/launch_radar_poc/poc.py:315" data-start="309" data-sha="dd2a641b">
-    deadline = time.time() + args.max_wait
-    t0 = time.time()
-    polls = 0
-    all_rows: list[Any] = []
-    first_seen_at = None
-    while True:
-        polls += 1
+<script type="text/plain" data-excerpt="scripts/launch_radar_poc/poc.py:322" data-start="316" data-sha="5f0c8fd3">
         rows: list[Any] = []
         cursor = None
         while True:
             kw: dict[str, Any] = {"limit": 100, "include_completions": True}
             if cursor:
                 kw["cursor"] = cursor
+            page = c.monitor.events(mid, **kw)
+            rows.extend(page.events)
+            cursor = page.next_cursor
+            if not cursor or not page.events:
+                break
+        all_rows = rows
+        n_ev = sum(isinstance(r, MonitorEventStreamEvent) for r in rows)
 </script>
-<script type="text/plain" data-excerpt="scripts/launch_radar/resolve.py:87" data-start="81" data-sha="dd2a641b">
+<script type="text/plain" data-excerpt="scripts/launch_radar/resolve.py:87" data-start="81" data-sha="5f0c8fd3">
         dom = company_site(url)
         if dom and host_matches(event_name, dom):
             return dom
@@ -2687,67 +2779,67 @@ def resolve_missing_domains(events: list[dict[str, Any]], client: Any, reserve: 
     can stop before the Monitor cursors move (the events are then read again next run).
     """
 </script>
-<script type="text/plain" data-excerpt="src/backend/api/routers/internal_launch_radar.py:17" data-start="11" data-sha="dd2a641b">
+<script type="text/plain" data-excerpt="src/backend/api/routers/internal_launch_radar.py:188" data-start="182" data-sha="5f0c8fd3">
+) -> LaunchRadarMonitorRow:
+    changes = body.model_dump(include=body.model_fields_set)
+    row = _call(conn, "update monitor", lambda: svc.patch_monitor(conn, slot, changes))
+    return LaunchRadarMonitorRow.model_validate(row)
 
-    POST  /runs                     201, idempotent on run_uuid
-    POST  /runs/{run_uuid}/reserve  200 | 402 budget (detail object) | 404 | 409
-    POST  /runs/{run_uuid}/finish   200 | 404 | 409 already finished
-    GET   /monitors                 200
-    PUT   /monitors/{slot}          200 upsert | 422 bad slot
-    PATCH /monitors/{slot}          200 | 404 | 422
-    GET   /seen                     200 | 422 when more than 100 values
-    POST  /cards                    201 | 404 | 409 run not running / domain already posted | 422
-    PATCH /cards/{card_id}/pr       200 | 404 | 409
-    GET   /pr-candidates            200
 
-Every psycopg2 error rolls back and becomes a 500 with a generic detail.
+@router.get("/seen", response_model=LaunchRadarSeenOut)
+def seen(
+    domain: list[str] = Query(default_factory=list),
+    name: list[str] = Query(default_factory=list),
+    conn: Connection = Depends(get_db),
+) -> LaunchRadarSeenOut:
+    """Dedupe before spend: which domains already have a card (ANY status,
 </script>
-<script type="text/plain" data-excerpt="scripts/launch_radar_poc/poc.py:107" data-start="101" data-sha="dd2a641b">
-
-    def __init__(self, out_dir: Path, budget: float):
-        self.out_dir = out_dir
-        self.budget = budget
-        self.calls_path = out_dir / "calls.json"
-        self.spend_path = out_dir / "spend.json"
-        self.calls: list[dict] = read_json(self.calls_path, [])
+<script type="text/plain" data-excerpt="scripts/launch_radar_poc/poc.py:114" data-start="108" data-sha="5f0c8fd3">
         spend = read_json(self.spend_path, {})
         self.committed: float = float(spend.get("estimated_usd", 0.0))
 
     def remaining(self) -> float:
         return round(self.budget - self.committed, 6)
 
+    def reserve(self, step: str, est: float) -> float:
+        est = ceil_cost(est)
+        if est > self.remaining() + 1e-9:
+            raise BudgetExceeded(
+                f"[budget] refusing {step}: est ${est:.3f} > remaining ${self.remaining():.3f} "
+                f"(budget ${self.budget:.2f})"
+            )
 </script>
-<script type="text/plain" data-excerpt="scripts/launch_radar_poc/poc.py:881" data-start="875" data-sha="dd2a641b">
-                f"Evidence: the company's own website/team page, LinkedIn, press releases or news. Former "
-                f"employees, investors, board-only members and advisors do NOT match. If there is no "
-                f"evidence, the condition is not satisfied."),
-        }],
-        "generator": gen,
-        "match_limit": args.match_limit,
-        "metadata": {"poc": "launch-radar", "company": domain or name},
+<script type="text/plain" data-excerpt="scripts/launch_radar_poc/poc.py:888" data-start="882" data-sha="5f0c8fd3">
     }
     fa_id = state.get("findall_id")
     if not fa_id:
         est = ledger.reserve("findall.create", fixed + (0 if gen == "preview" else per * args.match_limit))
         f_req = write_json(out / "01-findall.request.json", findall_req)
         t0 = time.time()
+        run = c.beta.findall.create(**findall_req)
+        fa_id = run.findall_id
+        state.update({"findall_id": fa_id, "findall_generator": gen, "findall_t0": t0, "findall_est": est})
+        save_state()
+        write_json(out / "01-findall.response.json", run)
+        print(f"findall_id={fa_id}")
+    else:
 </script>
-<script type="text/plain" data-excerpt="scripts/launch_radar_poc/poc.py:907" data-start="901" data-sha="dd2a641b">
-            "company_name": name,
-            "company_domain": domain,
-            "context": args.context or "Startup; may have recently announced a funding round or product launch.",
-        },
-        "processor": brief_proc,
-        "task_spec": {"output_schema": {"type": "json", "json_schema": BRIEF_SCHEMA}},
-        "metadata": {"poc": "launch-radar", "company": domain or name},
+<script type="text/plain" data-excerpt="scripts/launch_radar_poc/poc.py:914" data-start="908" data-sha="5f0c8fd3">
     }
     brief_id = state.get("brief_run_id")
     if not brief_id:
         est = ledger.reserve("task_run.create(brief)", TASK_PRICE[brief_proc])
         write_json(out / "03-brief.request.json", brief_req)
         state["brief_t0"] = time.time()
+        tr = c.task_run.create(**brief_req)
+        brief_id = tr.run_id
+        state.update({"brief_run_id": brief_id, "brief_est": est})
+        save_state()
+        write_json(out / "03-brief.response.json", tr)
+        print(f"brief run_id={brief_id}")
+
 </script>
-<script type="text/plain" data-excerpt="scripts/launch_radar_poc/team_stats.py:84" data-start="78" data-sha="dd2a641b">
+<script type="text/plain" data-excerpt="scripts/launch_radar_poc/team_stats.py:84" data-start="78" data-sha="5f0c8fd3">
         "task_spec": {"output_schema": {"type": "json", "json_schema": A_SCHEMA}},
         "metadata": {"poc": "launch-radar-team", "company": args.domain, "option": "A"},
     }
@@ -2762,22 +2854,86 @@ Every psycopg2 error rolls back and becomes a 500 with a generic detail.
     write_json(out / "A-task.result.json", res)
     content = res.output.content
 </script>
-<script type="text/plain" data-excerpt="scripts/launch_radar_poc/poc.py:915" data-start="909" data-sha="dd2a641b">
-    brief_id = state.get("brief_run_id")
-    if not brief_id:
-        est = ledger.reserve("task_run.create(brief)", TASK_PRICE[brief_proc])
-        write_json(out / "03-brief.request.json", brief_req)
-        state["brief_t0"] = time.time()
-        tr = c.task_run.create(**brief_req)
-        brief_id = tr.run_id
-        state.update({"brief_run_id": brief_id, "brief_est": est})
+<script type="text/plain" data-excerpt="scripts/launch_radar_poc/poc.py:923" data-start="917" data-sha="5f0c8fd3">
         save_state()
         write_json(out / "03-brief.response.json", tr)
         print(f"brief run_id={brief_id}")
 
     # ---- 1b. wait for leadership ----------------------------------------------
+    fa_run = _poll_findall(c, fa_id, args.max_wait, "findall")
+    fa_res = c.beta.findall.result(fa_id)
+    write_json(out / "01-findall.result.json", fa_res)
+    matched = _matched(fa_res)
+    timings["findall_s"] = round(time.time() - state["findall_t0"], 1)
+    actual = fixed + per * len(matched)
+    if "findall_logged" not in state:
+        ledger.release(max(0.0, state["findall_est"] - ceil_cost(actual)))
 </script>
-<script type="text/plain" data-excerpt="scripts/launch_radar_poc/poc.py:822" data-start="816" data-sha="dd2a641b">
+<script type="text/plain" data-excerpt="scripts/launch_radar/leaders.py:106" data-start="100" data-sha="5f0c8fd3">
+        if not run.status.is_active:
+            return run
+        deadline.check(f"findall {findall_id}")
+        sleep(min(POLL_INTERVAL_S, max(0.0, deadline.remaining())))
+
+
+def select_leaders(result: Any) -> tuple[list[Any], int]:
+    """Matched candidates that pass ``is_person`` (at most 8), and how many matches it rejected.
+
+    ``match_limit`` is 8 on preview, so in practice the rejected count equals
+    matched minus kept (CONTRACT §6.3); the cap only guards an oversized result.
+    """
+    matched = [cd for cd in (result.candidates or []) if getattr(cd, "match_status", None) == "matched"]
+</script>
+<script type="text/plain" data-excerpt="scripts/launch_radar/leaders.py:127" data-start="121" data-sha="5f0c8fd3">
+
+def name_key(name: str) -> str:
+    """Case, punctuation and spacing folded: ``"Sam  Rivera"``, ``"sam rivera."`` are one person."""
+    return " ".join(re.sub(r"[^\w\s]", " ", name.casefold()).split())
+
+
+def brief_founders(brief: Any) -> list[dict[str, str | None]]:
+    """The brief's ``founders``, cleaned: entries without a name dropped, deduped by
+    ``name_key`` (first wins), at most ``MAX_LEADERS``, and ``linkedin_url`` kept only
+    when it is an http(s) LinkedIn URL (anything else becomes None)."""
+    raw = brief.get("founders") if isinstance(brief, dict) else None
+    out: list[dict[str, str | None]] = []
+    seen: set[str] = set()
+</script>
+<script type="text/plain" data-excerpt="scripts/launch_radar/leaders.py:221" data-start="215" data-sha="5f0c8fd3">
+    return str(client.task_group.create(metadata={"app": "launch-radar", "company": domain}).task_group_id)
+
+
+def add_pedigree_runs(client: Any, group_id: str, inputs: list[dict[str, Any]]) -> None:
+    """Add the runs (this is the call that bills). Not idempotent: Parallel adds the runs
+    again on a second call, so the caller tracks attempts (``CompanyJob.add_pedigree_runs``)."""
+    client.task_group.add_runs(group_id, inputs=inputs, default_task_spec=pedigree_spec())
+
+
+def pedigree_run_count(client: Any, group_id: str) -> int:
+    """How many runs the group holds: ``status.num_task_runs``, else the sum of
+    ``task_run_status_counts``. Free (a ``retrieve``)."""
+    status = client.task_group.retrieve(group_id).status
+</script>
+<script type="text/plain" data-excerpt="scripts/launch_radar/leaders.py:276" data-start="270" data-sha="5f0c8fd3">
+    Every index in ``expected`` (default: all ``n``) that yields no usable row gets an
+    issue, so a leader with no pedigree is never silently scored as "no people data".
+    """
+    rows: dict[int, dict[str, Any]] = {}
+    issues: list[str] = []
+    reported: set[int] = set()
+    for ev in client.task_group.get_runs(group_id, include_input=True, include_output=True):
+        etype = getattr(ev, "type", None)
+        if etype == "error":
+            err = getattr(ev, "error", None)
+            issues.append(f"pedigree stream error: {str(getattr(err, 'message', err))[:200]}")
+            continue
+        if etype != "task_run.state":
+</script>
+<script type="text/plain" data-excerpt="scripts/launch_radar_poc/poc.py:818" data-start="812" data-sha="5f0c8fd3">
+def _wait_task(c, run_id: str, max_wait: int) -> Any:
+    import parallel
+
+    t0 = time.time()
     while True:
         try:
             return c.task_run.result(run_id, api_timeout=min(300, max(30, max_wait)), timeout=400)
@@ -2787,102 +2943,38 @@ Every psycopg2 error rolls back and becomes a 500 with a generic detail.
                 if time.time() - t0 > max_wait:
                     raise TimeoutError(f"task {run_id} still running after {max_wait}s") from e
                 continue
-            raise
-
-
-def _matched(result: Any) -> list[Any]:
 </script>
-<script type="text/plain" data-excerpt="scripts/launch_radar_poc/poc.py:942" data-start="936" data-sha="dd2a641b">
-                             str(out / "01-findall.result.json")])
-        state["findall_logged"] = True
-        save_state()
-    print(f"leadership: {len(matched)} matched of {len(fa_res.candidates)} candidates")
-
-    # optional fallback: preview found too few -> one base run
-    if len(matched) < args.min_leaders and gen == "preview" and not state.get("findall_fallback_id"):
-        b_fixed, b_per = FINDALL_PRICE["base"]
-        try:
-            est = ledger.reserve("findall.create(base fallback)", b_fixed + b_per * args.match_limit)
-            req2 = dict(findall_req, generator="base")
-            write_json(out / "01b-findall-base.request.json", req2)
-            t0 = time.time()
-</script>
-<script type="text/plain" data-excerpt="scripts/launch_radar_poc/pedigree_group.py:53" data-start="47" data-sha="dd2a641b">
-               "processor": args.processor, "metadata": {"i": str(i)}} for i, ld in enumerate(leaders)]
-    write_json(out / "pedigree-group.request.json", {"default_task_spec": spec, "inputs": inputs})
-
-    c = client()
-    t0 = time.time()
-    group_id = c.task_group.create(metadata={"poc": "launch-radar-pedigree", "company": card["domain"]}).task_group_id
-    c.task_group.add_runs(group_id, inputs=inputs, default_task_spec=spec)
-    print(f"task group {group_id}: {len(inputs)} runs on {args.processor} "
-          f"est=${len(inputs) * PRICE[args.processor]:.3f}", flush=True)
-    while True:
-        st = c.task_group.retrieve(group_id).status
-        print(f"[{int(time.time() - t0)}s] {st.task_run_status_counts}", flush=True)
-        if not st.is_active or time.time() - t0 > args.max_wait:
-</script>
-<script type="text/plain" data-excerpt="scripts/launch_radar_poc/pedigree_group.py:64" data-start="58" data-sha="dd2a641b">
-        print(f"[{int(time.time() - t0)}s] {st.task_run_status_counts}", flush=True)
-        if not st.is_active or time.time() - t0 > args.max_wait:
-            break
-        time.sleep(10)
-
-    rows = []
-    for ev in c.task_group.get_runs(group_id, include_input=True, include_output=True):
-        if isinstance(ev, ErrorEvent):
-            print("stream error:", ev.error.message)
-            continue
-        if ev.run.status == "completed" and ev.output is not None:
-            i = int((ev.run.metadata or {}).get("i", -1))
-            basis = [{"field": b.field, "confidence": b.confidence, "citations": len(b.citations or [])}
-</script>
-<script type="text/plain" data-excerpt="scripts/launch_radar_poc/poc.py:811" data-start="805" data-sha="dd2a641b">
-              f"generated={(m.generated_candidates_count if m else None) or 0} "
-              f"matched={(m.matched_candidates_count if m else None) or 0} term={st.termination_reason}")
-        if not st.is_active or time.time() - t0 > max_wait:
-            return r
-        time.sleep(10)
-
-
-def _wait_task(c, run_id: str, max_wait: int) -> Any:
-    import parallel
-
-    t0 = time.time()
-    while True:
-        try:
-</script>
-<script type="text/plain" data-excerpt="scripts/launch_radar_poc/poc.py:752" data-start="746" data-sha="dd2a641b">
-        if v > capped:
-            reasons.append(f"talent: {k} capped at {TALENT_RUBRIC[k]['cap']}")
-    return int(min(100, round(total))), reasons
-
-
-# ---- ATS check (free public APIs) ------------------------------------------
-ATS_URL_PATTERNS = {
+<script type="text/plain" data-excerpt="scripts/launch_radar_poc/poc.py:759" data-start="753" data-sha="5f0c8fd3">
     "greenhouse": r"(?:boards|job-boards)(?:\.eu)?\.greenhouse\.io/(?:embed/job_board\?for=)?([A-Za-z0-9_-]+)",
     "ashby": r"jobs\.ashbyhq\.com/([A-Za-z0-9_.%-]+)",
     "lever": r"jobs\.lever\.co/([A-Za-z0-9_-]+)",
 }
 
 
+def ats_check(provider: str | None, token: str | None, careers_url: str | None, out_dir: Path) -> dict:
+    tried = []
+    candidates: list[tuple[str, str]] = []
+    if provider in ATS_URL_PATTERNS and token:
+        candidates.append((provider, token))
+    for prov, pat in ATS_URL_PATTERNS.items():
+        m = re.search(pat, careers_url or "")
 </script>
-<script type="text/plain" data-excerpt="src/backend/api/routers/internal_launch_radar.py:22" data-start="16" data-sha="dd2a641b">
-    PUT   /monitors/{slot}          200 upsert | 422 bad slot
-    PATCH /monitors/{slot}          200 | 404 | 422
-    GET   /seen                     200 | 422 when more than 100 values
-    POST  /cards                    201 | 404 | 409 run not running / domain already posted | 422
-    PATCH /cards/{card_id}/pr       200 | 404 | 409
-    GET   /pr-candidates            200
+<script type="text/plain" data-excerpt="src/backend/api/routers/internal_launch_radar.py:237" data-start="231" data-sha="5f0c8fd3">
+    )
+    return LaunchRadarStoredCardsOut(
+        cards=[LaunchRadarStoredCard.model_validate(r) for r in rows]
+    )
 
-Every psycopg2 error rolls back and becomes a 500 with a generic detail.
-"""
 
-from __future__ import annotations
-
-import logging
+@router.post("/cards", status_code=201, response_model=LaunchRadarCardCreated)
+def post_card(
+    body: LaunchRadarCardCreate,
+    conn: Connection = Depends(get_db),
+) -> LaunchRadarCardCreated:
+    payload = body.payload.model_dump(mode="json")
+    result = _call(
 </script></doc-calls>
-    <doc-note tone="info">poc.py moves to <code>scripts/launch_radar/radar.py</code>.</doc-note>
+    <doc-note tone="info">The POC code moves to <code>scripts/launch_radar/</code>. The loop has no base FindAll fallback.</doc-note>
   </doc-claim>
 
   <doc-claim>
@@ -2890,7 +2982,7 @@ import logging
     <doc-schema id="mon" lang="json" wrap title="Monitor · create once, then read events" caption="Real fixture: base, $0.01 for each run, 1 event 61 s after polling began.">
 <script type="text/plain">
 {
-  // POST /v1/monitors · client.monitor.create · poc.py:255
+  // POST /v1/monitors · client.monitor.create · poc.py:262
   "request": {
     "type": "event_stream",
     "frequency": "1d",               // every day; the POC ran "30d" and cancelled after run 1
@@ -2902,7 +2994,7 @@ import logging
     },
     "metadata": { "app": "launch-radar-poc" }
   },
-  // GET /v1/monitors/{id}/events?limit=100&include_completions=true · poc.py:315 · newest first
+  // GET /v1/monitors/{id}/events?limit=100&include_completions=true · poc.py:322 · newest first
   "response": {
     "events": [{
       "event_type": "event_stream",
@@ -2944,7 +3036,7 @@ import logging
     <doc-schema id="fa" lang="json" wrap title="FindAll · leadership" caption="Real fixture: preview, $0.10 flat, 154 s, 3 of 5 matched.">
 <script type="text/plain">
 {
-  // POST /v1beta/findall/runs · client.beta.findall.create · poc.py:881
+  // POST /v1beta/findall/runs · client.beta.findall.create · poc.py:888
   "request": {
     "objective": "Find the founders and current senior leadership team (CEO, CTO, other C-level executives, VPs and Heads of functions) of Raindrop AI, the company whose website is raindrop.ai.",
     "entity_type": "people",
@@ -2953,11 +3045,11 @@ import logging
       "description": "The person is a founder/co-founder of Raindrop AI (raindrop.ai) or currently holds a C-level … role at Raindrop AI (raindrop.ai). It must be this exact company … Former employees, investors, board-only members and advisors do NOT match. If there is no evidence, the condition is not satisfied."
       // + new sentence: "The candidate must be one person with a personal profile, not a company page."
     }],
-    "generator": "preview",          // $0.10 flat; the fallback uses base: $0.25 + $0.03 per match
+    "generator": "preview",          // $0.10 flat; no base fallback: with no person, the brief's founders
     "match_limit": 8,
     "metadata": { "poc": "launch-radar", "company": "raindrop.ai" }
   },
-  // GET /v1beta/findall/runs/{findall_id}/result · poc.py:916
+  // GET /v1beta/findall/runs/{findall_id}/result · poc.py:923
   "response": {
     "run": {
       "findall_id": "findall_cf4a57d0c7164d2daacad63cb889afea",
@@ -2979,29 +3071,20 @@ import logging
 }
 </script>
     </doc-schema>
-    <doc-note tone="risk"><strong>Ghost AI</strong> FindAll matched 8 company pages as people. After 3.3.1 drops them, one base run costs $0.49 at most.</doc-note>
+    <doc-note tone="risk"><strong>Ghost AI</strong> FindAll matched 8 company pages as people. After 3.3.1 drops them, the loop uses the founders from the brief.</doc-note>
 
-    <doc-claim at="scripts/launch_radar_poc/poc.py:822">
-      <p><b>poc.py:822</b> · is_person()</p>
-      <doc-code diff file="scripts/launch_radar_poc/poc.py" lang="py">
-<script type="text/plain">
-@@ -821,2 +821,13 @@
- def _matched(result: Any) -> list[Any]:
--    return [cd for cd in result.candidates if cd.match_status == "matched"]
-+    return [cd for cd in result.candidates if cd.match_status == "matched" and is_person(cd)]
-+
-+
-+COMPANY_PAGE = re.compile(
-+    r"tracxn\.com/.*/company/|crunchbase\.com/organization/|linkedin\.com/company/", re.I)
-+
-+
-+def is_person(cd: Any) -> bool:
-+    """Reject a 'person' whose profile is a company page (Ghost AI: 8 of 8)."""
-+    if COMPANY_PAGE.search(cd.url or ""):
-+        return False
-+    return len((cd.name or "").split()) >= 2
-</script>
-        <doc-pin line="832" tone="risk" title="All 8 Ghost AI matches stop here"></doc-pin>
+    <doc-claim at="scripts/launch_radar/leaders.py:106">
+      <p><b>leaders.py:106</b> · select_leaders()</p>
+      <doc-code src="scripts/launch_radar/leaders.py" lines="106-114" caption="is_person (line 67) refuses a company page and a one-word name." file="scripts/launch_radar/leaders.py" start="106" sha="5f0c8fd3+wt"><script type="text/plain">def select_leaders(result: Any) -> tuple[list[Any], int]:
+    """Matched candidates that pass ``is_person`` (at most 8), and how many matches it rejected.
+
+    ``match_limit`` is 8 on preview, so in practice the rejected count equals
+    matched minus kept (CONTRACT §6.3); the cap only guards an oversized result.
+    """
+    matched = [cd for cd in (result.candidates or []) if getattr(cd, "match_status", None) == "matched"]
+    people = [cd for cd in matched if is_person(cd)]
+    return people[:MAX_LEADERS], len(matched) - len(people)</script>
+        <doc-pin line="113" tone="risk" title="All 8 Ghost AI matches stop here"></doc-pin>
       </doc-code>
     </doc-claim>
   </doc-claim>
@@ -3017,13 +3100,13 @@ import logging
 
   // POST /v1/tasks/groups/{taskgroup_id}/runs · client.task_group.add_runs · pedigree_group.py:53
   "add_runs": {
-    "default_task_spec": { "output_schema": { "type": "json", "json_schema": { /* PEDIGREE_SCHEMA · poc.py:410 · 8 fields */ } } },
+    "default_task_spec": { "output_schema": { "type": "json", "json_schema": { /* PEDIGREE_SCHEMA · poc.py:417 · 8 fields */ } } },
     "inputs": [
       { "input": { "person_name": "Taylor Brooks", "current_title": "Chief Operating Officer & Co-Founder",
                    "linkedin_url": "https://linkedin.com/in/example-taylor-brooks",
                    "company_name": "Raindrop AI", "company_domain": "raindrop.ai" },
         "processor": "base",
-        "metadata": { "i": "1" } }       // the loop joins each result on metadata.i
+        "metadata": { "i": "1" } }       // the POC key; the loop sends row_id and joins on it
       /* … 2 more: Sam Rivera, Priya Raman */
     ]
   },
@@ -3060,7 +3143,7 @@ import logging
 
     <doc-claim at="scripts/launch_radar_poc/pedigree_group.py:52">
       <p><b>pedigree_group.py:52</b> · main()</p>
-      <doc-code src="scripts/launch_radar_poc/pedigree_group.py" lines="50-75" hl="52-53,64-73" caption="radar.py moves this into the loop and reserves $0.01 for each leader before line 52." file="scripts/launch_radar_poc/pedigree_group.py" start="50" sha="dd2a641b+wt"><script type="text/plain">    c = client()
+      <doc-code src="scripts/launch_radar_poc/pedigree_group.py" lines="50-75" hl="52-53,64-73" caption="leaders.py moves this into the loop, and the loop reserves $0.01 for each leader before line 52." file="scripts/launch_radar_poc/pedigree_group.py" start="50" sha="5f0c8fd3"><script type="text/plain">    c = client()
     t0 = time.time()
     group_id = c.task_group.create(metadata={"poc": "launch-radar-pedigree", "company": card["domain"]}).task_group_id
     c.task_group.add_runs(group_id, inputs=inputs, default_task_spec=spec)
@@ -3088,23 +3171,23 @@ import logging
     spend = {"task_group": round(len(rows) * PRICE[args.processor], 4)}  # failed runs are not billed</script>
         <doc-pin line="53" tone="ok" title="One add_runs call holds every leader"></doc-pin>
         <doc-pin line="59" tone="info" title="Poll every 10 s, 600 s at most"></doc-pin>
-        <doc-pin line="69" tone="warn" title="Results arrive in any order">The loop joins on metadata.i.</doc-pin>
+        <doc-pin line="69" tone="warn" title="Results arrive in any order">The loop joins on metadata.row_id.</doc-pin>
         <doc-pin line="75" tone="info" title="Parallel does not bill a failed run"></doc-pin>
       </doc-code>
     </doc-claim>
   </doc-claim>
 
   <doc-claim>
-    <p>One Task run writes the blurb, the website, the rounds and the ATS.</p>
+    <p>One Task run writes the blurb, the website, the founders, the rounds and the ATS.</p>
     <doc-schema id="brief" lang="json" wrap title="Task run · company brief" caption="Real fixture: core, $0.025, 124 s from create to done, 10 cited URLs.">
 <script type="text/plain">
 {
-  // POST /v1/tasks/runs · client.task_run.create · poc.py:907
+  // POST /v1/tasks/runs · client.task_run.create · poc.py:914
   "request": {
     "input": { "company_name": "Raindrop AI", "company_domain": "raindrop.ai",
                "context": "Raindrop (raindrop.ai) builds monitoring / observability for AI agents. It reportedly just announced a Series A; verify." },
     "processor": "core",
-    "task_spec": { "output_schema": { "type": "json", "json_schema": { /* BRIEF_SCHEMA · poc.py:485 */ } } },
+    "task_spec": { "output_schema": { "type": "json", "json_schema": { /* BRIEF_SCHEMA · poc.py:492 */ } } },
     "metadata": { "poc": "launch-radar", "company": "raindrop.ai" }
   },
   // 202 TaskRun at 01:20:36: no output yet
@@ -3113,7 +3196,7 @@ import logging
     "status": "queued",
     "warnings": [{ "type": "spec_validation_warning", "detail": { "total_properties": 25, "recommended_max_properties": 10 } }]
   },
-  // GET /v1/tasks/runs/{run_id}/result?timeout=300 · poc.py:811 · 408 = still running
+  // GET /v1/tasks/runs/{run_id}/result?timeout=300 · poc.py:818 · 408 = still running
   // the run completed at 01:22:40; poc.py read it at 277.8 s, after FindAll and enrich
   "result": {
     "output": {
@@ -3128,6 +3211,7 @@ import logging
         "ats": { "provider": "ashby", "board_token": "Raindrop" }
         // + new key ats.board_url: Athennian's basis named ats.rippling.com/athennian/jobs, but the schema had no field for it
         // + new key website_url: the official homepage. The card links it. The POC run did not ask for it.
+        // + new key founders: [{ name, title, linkedin_url }]: the leaders when FindAll keeps no person
         // … 4 more: what_they_do, prior_rounds, latest_announcement, notable_facts
       },
       "basis": [{ "field": "one_liner", "confidence": "high", "citations": [{ "url": "https://raindrop.ai/docs/introduction" }] } /* … 15 more */]
@@ -3152,17 +3236,11 @@ import logging
     <doc-pin ref="tracked2" anchor="br" title="companies has ashby / raindrop">No PR.</doc-pin>
     <doc-pin ref="nopr" anchor="br" title="Opens ats.rippling.com/athennian/jobs"></doc-pin>
   </doc-mock>
+  <doc-note tone="warn"><strong>Hidden for now</strong> The loop and the skill still open the PR. The admin page does not show the PR yet.</doc-note>
 
   <doc-claim>
     <p>The loop tests the board token against the free ATS API.</p>
-    <doc-code src="scripts/launch_radar_poc/poc.py" lines="763-786" hl="783-786" caption="pr_ready needs a verified board (poc.py:1044)." file="scripts/launch_radar_poc/poc.py" start="763" sha="dd2a641b+wt"><script type="text/plain">        candidates.append((provider, token))
-    for prov, pat in ATS_URL_PATTERNS.items():
-        m = re.search(pat, careers_url or "")
-        if m and (prov, m.group(1)) not in candidates:
-            candidates.append((prov, m.group(1)))
-    result = {"provider": provider, "board_token": token, "verified": False, "job_count": None,
-              "checked_url": None, "tried": tried}
-    with httpx.Client(timeout=20, follow_redirects=True) as h:
+    <doc-code src="scripts/launch_radar_poc/poc.py" lines="770-793" hl="790-793" caption="pr_ready needs a verified board (poc.py:1051)." file="scripts/launch_radar_poc/poc.py" start="770" sha="5f0c8fd3"><script type="text/plain">    with httpx.Client(timeout=20, follow_redirects=True) as h:
         for prov, tok in candidates:
             url = {
                 "greenhouse": f"https://boards-api.greenhouse.io/v1/boards/{tok}/jobs",
@@ -3178,27 +3256,44 @@ import logging
             jobs = (data.get("jobs") if isinstance(data, dict) else data) if data is not None else None
             n = len(jobs) if isinstance(jobs, list) else None
             tried.append({"provider": prov, "token": tok, "url": url, "status": r.status_code, "job_count": n})
-            write_json(out_dir / f"04-ats-{prov}.response.json",</script>
-      <doc-pin line="783" tone="ok" title="HTTP 200 and at least one job"></doc-pin>
+            write_json(out_dir / f"04-ats-{prov}.response.json",
+                       {"url": url, "status": r.status_code, "job_count": n,
+                        "sample_titles": [j.get("title") or j.get("text") for j in (jobs or [])[:10]
+                                          if isinstance(j, dict)]})
+            if r.status_code == 200 and n:
+                result.update({"provider": prov, "board_token": tok, "verified": True, "job_count": n,
+                               "checked_url": url})
+                break</script>
+      <doc-pin line="790" tone="ok" title="HTTP 200 and at least one job"></doc-pin>
     </doc-code>
   </doc-claim>
 
   <doc-claim>
     <p>The backend marks a card “Already tracked” when <code>companies</code> has its board.</p>
-    <doc-code title="services/launch_radar.py · insert_card · sketch" lang="sql" caption="The companies table has no domain column, so the match uses the ATS token.">
-<script type="text/plain">
--- insert_card(conn, body): one transaction, called by POST /cards
-SELECT id FROM companies
-WHERE  ats = %(ats_provider)s AND lower(board_token) = lower(%(board_token)s);
-
-INSERT INTO launch_radar_cards
-       (domain, company_name, status, tracked_company_id, payload, run_id, posted_at)
-VALUES (%(domain)s, %(company)s, 'new', %(tracked_id)s, %(payload)s, %(run_id)s, now())
-ON CONFLICT ON CONSTRAINT uq_launch_radar_cards_domain DO NOTHING
-RETURNING id;            -- no row back: DomainSeen, the route sends 409
-</script>
-      <doc-pin line="3" tone="ok" title="Raindrop: ashby / raindrop is raindrop-ai"></doc-pin>
-      <doc-pin line="8" tone="info" title="A second card for a domain stops here"></doc-pin>
+    <doc-code src="src/backend/api/services/launch_radar.py" lines="785-806" wrap caption="The companies table has no domain column, so the match uses the ATS token." file="src/backend/api/services/launch_radar.py" start="785" sha="5f0c8fd3+wt"><script type="text/plain">        tracked: str | None = None
+        ats = payload["ats"]
+        if ats.get("board_token"):
+            cur.execute(
+                "SELECT id FROM companies WHERE visibility = 'public' AND ats = %s "
+                "AND lower(board_token) = lower(%s) ORDER BY id LIMIT 1",
+                (ats["provider"], ats["board_token"]),
+            )
+            hit = cur.fetchone()
+            tracked = hit["id"] if hit else None
+        cur.execute(
+            "INSERT INTO launch_radar_cards (domain, company_name, status, "
+            "tracked_company_id, payload, run_id, posted_at, updated_at) "
+            "VALUES (%s, %s, 'new', %s, %s, %s, now(), now()) "
+            "ON CONFLICT ON CONSTRAINT uq_launch_radar_cards_domain DO NOTHING "
+            "RETURNING id",
+            (domain, payload["company"], tracked, Json(payload), run_id),
+        )
+        row = cur.fetchone()
+        if row is None:
+            conn.rollback()
+            raise DomainSeen()</script>
+      <doc-pin line="789" tone="ok" title="Raindrop: ashby / raindrop is raindrop-ai"></doc-pin>
+      <doc-pin line="799" tone="info" title="A second card for a domain stops here"></doc-pin>
     </doc-code>
   </doc-claim>
 
@@ -3206,41 +3301,47 @@ RETURNING id;            -- no row back: DomainSeen, the route sends 409
     <p>The loop opens the add-company PR from a temporary worktree.</p>
     <doc-calls title="Add-company PR" caption="The headless run reads the add-company skill file and does not use the Skill tool.">
 <script type="text/plain">
-+ launch-radar skill · PR step (card)                   @ .claude/skills/launch-radar/SKILL.md:1   -- only if trackedCompanyId is null
-+   git worktree add .claude/worktrees/radar-<id> origin/main   @ .claude/skills/scraper-health-watch/SKILL.md:528
-    add-company steps 0-3, 5, 6                         @ .claude/skills/add-company/SKILL.md:70   -- companies.ts, seed migration, changelog
-    scaffold_migration.py --id ghost-ai --display-name "Ghost AI" --ats ashby --board-token ghost   @ .claude/skills/add-company/scripts/scaffold_migration.py:161
-    current_head.py                                     @ .claude/skills/add-company/scripts/current_head.py:1   -- one Alembic head
-+   one Agent call: fetch-company-logo for this id      @ .claude/skills/add-company/SKILL.md:206   -- step 4; CI needs the logos
-+   gh pr create --label launch-radar                   @ .claude/skills/launch-radar/SKILL.md:1
-+   PATCH /api/internal/launch-radar/cards/:id/pr       @ src/backend/api/routers/internal_launch_radar.py:30
++ launch-radar skill · PR step (card)                   @ .claude/skills/launch-radar/SKILL.md:127   -- pr-candidates: untracked, saved cards first
++   pr_step.py worktree --card-id <id> --slug <slug>    @ scripts/launch_radar/pr_step.py:163   -- radar/add-<slug> from origin/main
+    add-company steps 0-3 and 5                         @ .claude/skills/add-company/SKILL.md:70   -- companies.ts, seed migration, changelog
++   pr_step.py scaffold (scaffold_migration.py)         @ scripts/launch_radar/pr_step.py:185
++   one Agent call: the logos through pr_step.py logo-*   @ scripts/launch_radar/pr_step.py:250   -- step 4; CI needs the logos
++   pr_step.py check-head (current_head.py)             @ scripts/launch_radar/pr_step.py:199   -- one Alembic head
++   pr_step.py publish (gh pr create --label launch-radar)   @ scripts/launch_radar/pr_step.py:373
++   PATCH /api/internal/launch-radar/cards/:id/pr       @ src/backend/api/routers/internal_launch_radar.py:264
 </script>
     
-<script type="text/plain" data-excerpt=".claude/skills/launch-radar/SKILL.md:1" data-start="1" data-sha="dd2a641b">
----
-name: launch-radar
-description: |
-  Launch Radar loop (runs daily via launchd). Polls three narrow Parallel
-  Monitors for startup funding rounds and launches, researches each new company
-  (leaders, pedigree, brief, team tally, free ATS check, deterministic scores)
-  within a database-capped Parallel budget, posts one card per company to the
-</script>
-<script type="text/plain" data-excerpt=".claude/skills/scraper-health-watch/SKILL.md:528" data-start="522" data-sha="dd2a641b">
-## §7 Phase 6 — Build the fix (throwaway worktree)
+<script type="text/plain" data-excerpt=".claude/skills/launch-radar/SKILL.md:127" data-start="121" data-sha="5f0c8fd3">
+   "incomplete after 4 invocations" (the next daily run resumes it) and continue.
+4. Exit 2 means the budget is spent: log it and continue to §2. Exit 1: log the last
+   `[radar]` error line and continue to §2 (the PR step reads cards already posted).
 
-Skip this phase entirely if no company reached `found`/`unsupported`/`gone`.
+Never pass a larger `--budget` or `--max-companies` than above in a headless run.
 
-1. From the repo checkout you run in:
-   `git fetch origin main` then
-   `git worktree add .claude/worktrees/health-watch-<YYYYMMDD-HHMM> origin/main -b fix/board-move-<YYYYMMDD>`
-   (suffix `-2` etc. on branch collision). Work **only** inside it; `git -C` or
-   `cd` there for every command below.
-2. **One batched migration for all companies in this run** (single-head
-   discipline: two open PRs that both chain off the same head cannot both merge
-   cleanly — this is why the run batches). Copy
-   `.claude/skills/scraper-health-watch/templates/migration_repoint.py.tmpl` to
+## §2 PR step — one card, at most one PR per run, 30-minute limit
+
+Skip §2 entirely if `radar.sh pr-candidates` fails. If 30 minutes pass inside §2, stop
+the step, run the cleanup (step 9), keep the card without a PR, log
+"PR step timed out", and go to §3.
+
+Every `pr_step.py` call prints JSON on success and `pr_step <cmd>: <reason>` on stderr
 </script>
-<script type="text/plain" data-excerpt=".claude/skills/add-company/SKILL.md:70" data-start="64" data-sha="dd2a641b">
+<script type="text/plain" data-excerpt="scripts/launch_radar/pr_step.py:163" data-start="157" data-sha="5f0c8fd3">
+        diff = run([*GIT, "-C", str(wt), "diff", "--name-only", "origin/main", "--", d]).stdout
+        if changed.strip() or diff.strip():
+            raise StepError(f"{d} in the worktree differs from origin/main; refusing to run it")
+
+
+# ---- subcommands ----------------------------------------------------------------------
+def cmd_worktree(card_id: str, slug: str) -> dict:
+    wt = card_dir(card_id)
+    _match(SLUG, slug, "slug")
+    if wt.exists():
+        raise StepError(f"{wt.name} already exists; run cleanup first")
+    run([*GIT, "-C", str(ROOT), "fetch", "origin", "main"])
+    branch = f"radar/add-{slug}"
+</script>
+<script type="text/plain" data-excerpt=".claude/skills/add-company/SKILL.md:70" data-start="64" data-sha="5f0c8fd3">
 
 The helper scripts in `scripts/` are **stdlib-only** — run them with plain
 `python3` (no venv needed).
@@ -3255,59 +3356,80 @@ The helper scripts in `scripts/` are **stdlib-only** — run them with plain
 |-----|----------------------------------------|
 | greenhouse | `https://boards-api.greenhouse.io/v1/boards/<token>/jobs` |
 </script>
-<script type="text/plain" data-excerpt=".claude/skills/add-company/scripts/scaffold_migration.py:161" data-start="155" data-sha="dd2a641b">
-    op.execute("DELETE FROM companies WHERE id = '{id}'")
-'''
+<script type="text/plain" data-excerpt="scripts/launch_radar/pr_step.py:185" data-start="179" data-sha="5f0c8fd3">
+
+def cmd_status(card_id: str) -> dict:
+    wt = existing_worktree(card_id)
+    return {"status": run([*GIT, "-C", str(wt), "status", "--short", "--untracked-files=all"]).stdout}
 
 
-def parse_args(argv: list[str]) -> argparse.Namespace:
-    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--id", required=True, help="company slug / primary key (e.g. reducto)")
-    p.add_argument("--display-name", required=True, help="display name (e.g. Reducto)")
-    p.add_argument("--ats", required=True, choices=VALID_ATS, help="originating ATS")
-    p.add_argument("--board-token", required=True, help="ATS board slug (verify live first)")
-    p.add_argument("--provider-config", help="JSON blob (required for eightfold/workday)")
-    p.add_argument("--down-revision", help="override parent revision (default: current single head)")
-    p.add_argument("--dry-run", action="store_true", help="print the migration instead of writing it")
+def cmd_scaffold(card_id: str, slug: str, display_name: str, ats: str, token: str) -> dict:
+    wt = existing_worktree(card_id)
+    _match(SLUG, slug, "slug")
+    _match(DISPLAY_NAME, display_name, "display name")
+    _match(TOKEN, token, "board token")
+    if ats not in ATS_NAMES:
+        raise StepError(f"refused ats: {ats!r} (greenhouse, ashby or lever only)")
 </script>
-<script type="text/plain" data-excerpt=".claude/skills/add-company/scripts/current_head.py:1" data-start="1" data-sha="dd2a641b">
-#!/usr/bin/env python3
-"""Print the single current Alembic head of the backend migration chain.
+<script type="text/plain" data-excerpt="scripts/launch_radar/pr_step.py:250" data-start="244" data-sha="5f0c8fd3">
+class _HttpsOnlyRedirects(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # type: ignore[no-untyped-def]
+        check_logo_url(newurl)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
 
-Each new company is seeded with a hand-written data migration in
-``src/backend/alembic/versions/``. Every such migration MUST chain off the
-current single head (``down_revision`` = this script's output). Chaining off the
-wrong revision creates a *multi-head*, which crash-loops the backend on boot
+
+def cmd_logo_fetch(card_id: str, name: str, url: str) -> dict:
+    existing_worktree(card_id)
+    if name not in LOGO_NAMES:
+        raise StepError(f"refused name {name!r}")
+    check_logo_url(url)
+    opener = urllib.request.build_opener(_HttpsOnlyRedirects())
+    req = urllib.request.Request(url, headers={"User-Agent": "jvn-launch-radar-logo/1"})
 </script>
-<script type="text/plain" data-excerpt=".claude/skills/add-company/SKILL.md:206" data-start="200" data-sha="dd2a641b">
-```
+<script type="text/plain" data-excerpt="scripts/launch_radar/pr_step.py:199" data-start="193" data-sha="5f0c8fd3">
+    script = wt / ".claude/skills/add-company/scripts/scaffold_migration.py"
+    out = run([sys.executable, "-I", str(script), "--id", slug, "--display-name", display_name,
+               "--ats", ats, "--board-token", token], cwd=wt).stdout
+    return {"output": out.strip()}
 
-`ROUTES` is already imported in `changelog.ts`. Use the real current date.
 
----
+def cmd_check_head(card_id: str) -> dict:
+    wt = existing_worktree(card_id)
+    assert_pinned(wt)
+    proc = run([sys.executable, "-I", str(wt / ".claude/skills/add-company/scripts/current_head.py")],
+               cwd=wt, check=False)
+    return {"exit": proc.returncode, "output": (proc.stdout + proc.stderr).strip()}
 
-## Step 4 — Logos (delegate to `fetch-company-logo`)
-
-The CI gate `src/frontend/src/__tests__/config/companyLogoAssets.test.ts` fails
-if either `icons/<id>.png` or `wordmarks/<id>.png` is missing. **Invoke the
-`fetch-company-logo` skill** for this `id` to generate them — it finds on-brand
-vector art, composites opaque tiles, and visually verifies. Do not hand-roll
-logos; use that skill.
 </script>
-<script type="text/plain" data-excerpt="src/backend/api/routers/internal_launch_radar.py:30" data-start="24" data-sha="dd2a641b">
-"""
+<script type="text/plain" data-excerpt="scripts/launch_radar/pr_step.py:373" data-start="367" data-sha="5f0c8fd3">
+        raise StepError("refused body file: must be in a radar worktree")
+    if not p.is_file() or p.stat().st_size > MAX_BODY_BYTES:
+        raise StepError("refused body file: missing or larger than 20 kB")
+    return p
 
-from __future__ import annotations
 
-import logging
-from collections.abc import Callable
-from typing import TypeVar
+def cmd_publish(card_id: str, title: str, body_file: str, draft: bool) -> dict:
+    wt = existing_worktree(card_id)
+    _match(TITLE, title, "PR title")
+    body = _body_file(body_file)
+    branch = run([*GIT, "-C", str(wt), "rev-parse", "--abbrev-ref", "HEAD"]).stdout.strip()
+    _match(BRANCH, branch, "branch")
+    run([*GIT, "-C", str(wt), "add", "-A"])
+</script>
+<script type="text/plain" data-excerpt="src/backend/api/routers/internal_launch_radar.py:264" data-start="258" data-sha="5f0c8fd3">
+    result = _call(
+        conn, "replace card payload", lambda: svc.replace_payload(conn, card_id, payload)
+    )
+    return LaunchRadarPayloadReplaced.model_validate(result)
 
-import psycopg2
-from fastapi import APIRouter, Depends, HTTPException, Path, Query
-from psycopg2.extensions import connection as Connection
 
-from ..dependencies import get_db
+@router.patch("/cards/{card_id}/pr", response_model=LaunchRadarPrSet)
+def set_pr(
+    body: LaunchRadarPrUpdate,
+    card_id: int = Path(ge=1),
+    conn: Connection = Depends(get_db),
+) -> LaunchRadarPrSet:
+    card, pr_url = _call(
 </script></doc-calls>
     <doc-ask id="autopr">
       <p>Does the loop open the PR by itself?</p>
@@ -3316,28 +3438,30 @@ from ..dependencies import get_db
     </doc-ask>
     <div data-if="autopr=auto"><doc-note tone="warn"><strong>Two Alembic heads</strong> An old seed PR can add a second head. Run <code>current_head.py</code> before the merge.</doc-note></div>
 
-    <doc-claim at=".claude/skills/launch-radar/SKILL.md:1">
-      <p><b>launch-radar/SKILL.md</b> · the PR step</p>
-      <doc-code title=".claude/skills/launch-radar/SKILL.md · PR step · sketch" lang="md">
-<script type="text/plain">
-## PR step — one card, at most one PR for each run, 30 min limit
+    <doc-claim at=".claude/skills/launch-radar/SKILL.md:127">
+      <p><b>launch-radar/SKILL.md:127</b> · the PR step</p>
+      <doc-code src=".claude/skills/launch-radar/SKILL.md" lines="127-145" lang="md" wrap file=".claude/skills/launch-radar/SKILL.md" start="127" sha="5f0c8fd3+wt"><script type="text/plain">## §2 PR step — one card, at most one PR per run, 30-minute limit
 
-1. Stop if the card has `trackedCompanyId` or `prUrl`.
-2. `git fetch origin main`, then
-   `git worktree add .claude/worktrees/radar-<id> origin/main -b radar/add-<slug>`.
-3. Search `src/frontend/src/config/companies.ts` in the worktree for the board token. If found, stop.
-4. Read `.claude/skills/add-company/SKILL.md`. Do steps 0, 0.5, 1, 2, 3, 5 and 6.
-   Do not use the Skill tool.
-5. Step 4 (logos): make the one Agent call of this run, for this id only. Wait for it.
-   If it fails, open the PR as a draft and write "logos missing" in the body.
-6. `python .claude/skills/add-company/scripts/current_head.py` must print one head.
-7. `gh pr create --label launch-radar` (no attribution footer).
-8. `PATCH /api/internal/launch-radar/cards/<id>/pr` with the PR URL.
-9. `git worktree remove .claude/worktrees/radar-<id>`.
-If 30 min pass, stop the step, keep the card without a PR, and log it.
-</script>
-        <doc-pin line="3" tone="ok" title="No PR for a tracked company"></doc-pin>
-        <doc-pin line="9" tone="warn" title="The only Agent call in a headless run"></doc-pin>
+Skip §2 entirely if `radar.sh pr-candidates` fails. If 30 minutes pass inside §2, stop
+the step, run the cleanup (step 9), keep the card without a PR, log
+"PR step timed out", and go to §3.
+
+Every `pr_step.py` call prints JSON on success and `pr_step <cmd>: <reason>` on stderr
+with exit 1 when it refuses a value or a step fails. A refusal is final for this run:
+log it, cleanup, go to §3. Never try to do the refused thing another way.
+
+### §2.1 Pick the card
+
+1. `scripts/launch_radar/radar.sh pr-candidates --limit 1`
+   It prints `{"cards": [{"id", "domain", "company", "ats_provider", "board_token",
+   "job_count", "posted_at"}]}`. The backend returns only `new` or `saved` cards (saved
+   first: the admin flagged them) that have no PR yet, are not already tracked (no
+   `companies` row with that ATS board), and whose board verified on
+   greenhouse/ashby/lever with at least one job. If the list is empty, log "no PR
+   candidate" and go to §3.</script>
+        <doc-pin line="129" tone="warn" title="30-minute limit"></doc-pin>
+        <doc-pin line="141" tone="ok" title="Saved cards come first"></doc-pin>
+        <doc-pin line="142" tone="ok" title="No PR for a tracked company"></doc-pin>
       </doc-code>
     </doc-claim>
   </doc-claim>
@@ -3359,10 +3483,11 @@ If 30 min pass, stop the step, keep the card without a PR, and log it.
     <label><input type="radio" name="where" value="own"> In its own repo on the server laptop <small>needs this repo too, for the add-company PR</small></label>
   </doc-ask>
   <div data-if="where=own"><doc-note tone="warn">Then two repos must change together.</doc-note></div>
+  <doc-note tone="info"><strong>Manual commands</strong> <code>backfill</code> uses FindAll to queue the startups of the last 30 days. <code>refresh</code> researches cards with no leaders again. <code>import</code> posts the cards from <code>export_cards.py</code> to production.</doc-note>
 
   <doc-claim>
     <p>launchd starts one headless Claude Code run each day.</p>
-    <doc-code src="scripts/health_watch/wrapper.sh" lines="124-140" hl="129-130" caption="The radar copies this wrapper. It changes line 130 and removes the skip flag." file="scripts/health_watch/wrapper.sh" start="124" sha="dd2a641b"><script type="text/plain">log "start (timeout=${TOTAL_TIMEOUT_SECS}s)"
+    <doc-code src="scripts/health_watch/wrapper.sh" lines="124-140" hl="129-130" caption="The radar copies this wrapper. It changes line 130 and removes the skip flag." file="scripts/health_watch/wrapper.sh" start="124" sha="5f0c8fd3"><script type="text/plain">log "start (timeout=${TOTAL_TIMEOUT_SECS}s)"
 cd "$PROJECT_DIR" || { log_err "cd to project dir failed"; exit 1; }
 
 BEAT_BEFORE=$(stat -f %m "$HEARTBEAT" 2>/dev/null || echo 0)
@@ -3390,44 +3515,45 @@ fi</script>
     <p>The loop posts a card with <code>X-Internal-Key</code>, not a user token.</p>
     <doc-calls title="Write path" caption="The loop calls Railway directly, as job-enricher does.">
 <script type="text/plain">
-+ **post_card**(card.json)                               @ scripts/launch_radar_poc/poc.py:1144   -- new subcommand, after the card write
-+   POST $JVN_BASE_URL/api/internal/launch-radar/cards   @ src/backend/api/routers/internal_launch_radar.py:22
++ **post_card**(run_uuid, payload)                       @ scripts/launch_radar/backend_client.py:154
++   POST $BACKEND_URL/api/internal/launch-radar/cards    @ src/backend/api/routers/internal_launch_radar.py:237
     require_internal_key(X-Internal-Key)                 @ src/backend/api/auth/internal_key.py:33
-+   **insert_card**(conn, body)                          @ src/backend/api/services/launch_radar.py:20   -- 409 on a seen domain; sets tracked_company_id
-~ app.include_router(internal_launch_radar)              @ src/backend/api/main.py:626
++   **_call**(conn, "post card", fn)                     @ src/backend/api/routers/internal_launch_radar.py:78   -- maps 402, 404, 409 and 422
++     **insert_card**(conn, run_uuid, payload)           @ src/backend/api/services/launch_radar.py:769   -- 409 on a seen domain; sets tracked_company_id
+~ app.include_router(internal_launch_radar)              @ src/backend/api/main.py:640
 </script>
     
-<script type="text/plain" data-excerpt="scripts/launch_radar_poc/poc.py:1144" data-start="1138" data-sha="dd2a641b">
-        "pr_ready": pr_ready,
-        "sources": sources[:40],
-        "parallel_run_ids": {
-            "findall_id": state.get("findall_id"),
-            "findall_fallback_id": state.get("findall_fallback_id"),
-            "enrich_on_findall_id": state.get("enrich_requested_for"),
-            "brief_task_run_id": brief_id,
-        },
-        "cost_usd": spend.get("actual_estimate_usd"),
-        "timings_s": timings,
-        "issues": issues,
-        "generated_at": now_iso(),
-    }
+<script type="text/plain" data-excerpt="scripts/launch_radar/backend_client.py:154" data-start="148" data-sha="5f0c8fd3">
+            params = [("domain", d) for d in doms[i:i + SEEN_CHUNK]] + [("name", n) for n in nms[i:i + SEEN_CHUNK]]
+            got = self._json("GET", "/seen", (200,), params=params)
+            out["domains"].update(got.get("domains") or {})
+            out["names"].update(got.get("names") or {})
+        return out
+
+    def post_card(self, run_uuid: str, payload: dict[str, Any]) -> dict[str, Any]:
+        resp = self._send("POST", "/cards", json={"run_uuid": run_uuid, "payload": payload})
+        if resp.status_code == 409 and _detail(resp) == "domain already posted":
+            raise DomainSeen(payload.get("domain"))
+        if resp.status_code != 201:
+            raise BackendError("POST", "/cards", resp.status_code, _detail(resp))
+        return resp.json()
 </script>
-<script type="text/plain" data-excerpt="src/backend/api/routers/internal_launch_radar.py:22" data-start="16" data-sha="dd2a641b">
-    PUT   /monitors/{slot}          200 upsert | 422 bad slot
-    PATCH /monitors/{slot}          200 | 404 | 422
-    GET   /seen                     200 | 422 when more than 100 values
-    POST  /cards                    201 | 404 | 409 run not running / domain already posted | 422
-    PATCH /cards/{card_id}/pr       200 | 404 | 409
-    GET   /pr-candidates            200
+<script type="text/plain" data-excerpt="src/backend/api/routers/internal_launch_radar.py:237" data-start="231" data-sha="5f0c8fd3">
+    )
+    return LaunchRadarStoredCardsOut(
+        cards=[LaunchRadarStoredCard.model_validate(r) for r in rows]
+    )
 
-Every psycopg2 error rolls back and becomes a 500 with a generic detail.
-"""
 
-from __future__ import annotations
-
-import logging
+@router.post("/cards", status_code=201, response_model=LaunchRadarCardCreated)
+def post_card(
+    body: LaunchRadarCardCreate,
+    conn: Connection = Depends(get_db),
+) -> LaunchRadarCardCreated:
+    payload = body.payload.model_dump(mode="json")
+    result = _call(
 </script>
-<script type="text/plain" data-excerpt="src/backend/api/auth/internal_key.py:33" data-start="27" data-sha="dd2a641b">
+<script type="text/plain" data-excerpt="src/backend/api/auth/internal_key.py:33" data-start="27" data-sha="5f0c8fd3">
 # railway.toml's healthcheckPath.
 _EXEMPT_PATHS = frozenset({"/health", "/health/worker"})
 
@@ -3442,71 +3568,77 @@ async def require_internal_key(
     - When ``settings.internal_api_key`` is None (local dev with no env var),
       pass every request through. A one-shot startup warning advertises that
 </script>
-<script type="text/plain" data-excerpt="src/backend/api/services/launch_radar.py:20" data-start="14" data-sha="dd2a641b">
+<script type="text/plain" data-excerpt="src/backend/api/routers/internal_launch_radar.py:78" data-start="72" data-sha="5f0c8fd3">
 
-Card lifecycle: new -> archived (archive) -> new (restore) or deleted (delete,
-only from archived). A delete is a TOMBSTONE: the payload, PR link and tracked
-company are cleared but the row and its domain stay, so the UNIQUE on
-``domain`` keeps the loop from ever posting that company again. Nothing here
-ever runs ``DELETE FROM launch_radar_cards``.
-"""
+_RUN_UUID_PATH = Path(pattern=r"^[A-Za-z0-9-]{8,64}$")
 
-from __future__ import annotations
+T = TypeVar("T")
 
-import logging
-import re
-from datetime import datetime
+
+def _call(conn: Connection, what: str, fn: Callable[[], T]) -> T:
+    """Run a service call, mapping its domain errors to status codes and any
+    psycopg2 error to a rolled-back generic 500."""
+    try:
+        return fn()
+    except svc.BudgetExceeded as exc:
+        raise HTTPException(status_code=402, detail=exc.detail())
 </script>
-<script type="text/plain" data-excerpt="src/backend/api/main.py:626" data-start="620" data-sha="dd2a641b">
-        dev_reset.router, prefix="/api/users/dev-reset", tags=["dev-reset"]
-    )
-app.include_router(
-    saved_filters.router, prefix="/api/users/saved-filters", tags=["saved-filters"]
+<script type="text/plain" data-excerpt="src/backend/api/services/launch_radar.py:769" data-start="763" data-sha="5f0c8fd3">
+    if run["status"] != "running":
+        conn.rollback()
+        raise Conflict(f"run is {run['status']}")
+    return int(run["id"])
+
+
+def insert_card(conn: Connection, run_uuid: str, payload: dict[str, Any]) -> CardCreated:
+    """Store one card (``payload`` is the snake_case ``model_dump(mode='json')``).
+
+    404 unknown run, 409 run not running, 422 (``InvalidDomain``) when the
+    domain is not normalized, 409 (``DomainSeen``) when the domain was ever
+    posted before. ``tracked_company_id`` is resolved here from the ATS board.
+    """
+</script>
+<script type="text/plain" data-excerpt="src/backend/api/main.py:640" data-start="634" data-sha="5f0c8fd3">
+    prefix="/api/internal/enrichment",
+    tags=["internal-enrichment"],
 )
+# Launch Radar's loop API. Like internal_enrichment, its ONLY gate is the global
+# require_internal_key middleware; the loop calls the backend directly and these
+# routes are never proxied (api/tests/test_proxy_path_allowlists.py).
 app.include_router(
-    user_companies.router, prefix="/api/users/companies", tags=["user-companies"]
+    internal_launch_radar.router,
+    prefix="/api/internal/launch-radar",
+    tags=["internal-launch-radar"],
 )
-app.include_router(features.router, prefix="/api/features", tags=["features"])
-app.include_router(companies.router, prefix="/api/companies", tags=["companies"])
-app.include_router(feedback.router, prefix="/api/feedback", tags=["feedback"])
-app.include_router(admin.router, prefix="/api/admin", tags=["admin"])
-app.include_router(
+
+
 </script></doc-calls>
 
-    <doc-claim at="src/backend/api/routers/internal_launch_radar.py:22">
-      <p><b>internal_launch_radar.py:22</b> · post_card()</p>
-      <doc-code title="routers/internal_launch_radar.py · sketch" lang="py" wrap>
-<script type="text/plain">
-router = APIRouter()  # global require_internal_key is the only auth
-
-
-@router.post("/runs", status_code=201)
-def start_run(body: RunStart, conn: Connection = Depends(get_db)) -> RunStarted:
-    return launch_radar.start_run(conn, body.run_uuid, body.host)  # spend so far, last_event_ids
-
-
-@router.post("/runs/{run_uuid}/reserve")
-def reserve(run_uuid: str, body: Reserve, conn: Connection = Depends(get_db)) -> dict[str, float]:
-    spent = launch_radar.reserve_spend(conn, run_uuid, body.est_usd)
-    if spent is None:
-        raise HTTPException(status_code=402, detail="launch radar budget reached")
-    return {"run_spend_usd": spent}
-
-
-@router.get("/seen")
-def seen(domain: str, name: str, conn: Connection = Depends(get_db)) -> SeenOut:
-    return launch_radar.seen(conn, normalize_domain(domain), name)
-
-
-@router.post("/cards", status_code=201)
-def post_card(body: LaunchRadarCardBody, conn: Connection = Depends(get_db)) -> CardPosted:
+    <doc-claim at="src/backend/api/routers/internal_launch_radar.py:78">
+      <p><b>internal_launch_radar.py:78</b> · _call()</p>
+      <doc-code src="src/backend/api/routers/internal_launch_radar.py" lines="78-98" wrap caption="Every internal route calls the service through _call." file="src/backend/api/routers/internal_launch_radar.py" start="78" sha="5f0c8fd3+wt"><script type="text/plain">def _call(conn: Connection, what: str, fn: Callable[[], T]) -> T:
+    """Run a service call, mapping its domain errors to status codes and any
+    psycopg2 error to a rolled-back generic 500."""
     try:
-        return launch_radar.insert_card(conn, body)  # owns its commit; {id, tracked_company_id}
-    except launch_radar.DomainSeen:
-        raise HTTPException(status_code=409, detail="domain already posted")
-</script>
-        <doc-pin line="13" tone="warn" title="402 stops every billed call"></doc-pin>
-        <doc-pin line="27" tone="info" title="The unique domain is the last guard"></doc-pin>
+        return fn()
+    except svc.BudgetExceeded as exc:
+        raise HTTPException(status_code=402, detail=exc.detail())
+    except svc.NotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except svc.Conflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except svc.InvalidDomain as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    except psycopg2.errors.UniqueViolation:
+        conn.rollback()
+        logger.warning("launch radar %s hit a unique constraint", what)
+        raise HTTPException(status_code=409, detail="conflicts with an existing row")
+    except psycopg2.Error:
+        conn.rollback()
+        logger.exception("launch radar %s failed", what)
+        raise HTTPException(status_code=500, detail=f"Failed to {what}")</script>
+        <doc-pin line="84" tone="warn" title="402 stops every billed call"></doc-pin>
+        <doc-pin line="88" tone="info" title="409: the unique domain is the last guard"></doc-pin>
       </doc-code>
     </doc-claim>
   </doc-claim>
@@ -3515,45 +3647,91 @@ def post_card(body: LaunchRadarCardBody, conn: Connection = Depends(get_db)) -> 
     <p>The loop researches and posts each company once.</p>
     <doc-calls title="Dedupe" caption="All checks run before FindAll, so a seen company costs $0.">
 <script type="text/plain">
-  client.monitor.events(id) until last_event_id                @ scripts/launch_radar_poc/poc.py:315   -- an event is read one time
-  normalize_domain("HTTPS://WWW.Raindrop.AI/blog/series-a/")   @ scripts/launch_radar_poc/poc.py:155   -- returns raindrop.ai
-+ seen_this_run.add(domain)                                    @ scripts/launch_radar_poc/poc.py:1161  -- two events, one domain: one research
-+ GET /api/internal/launch-radar/seen?domain=…&name=…          @ src/backend/api/routers/internal_launch_radar.py:17
-+   **seen**(conn, domain, name)                               @ src/backend/api/services/launch_radar.py:10   -- a card of any status, or a tracked display_name
-- out/seen.json                                                @ scripts/launch_radar_poc/poc.py:1157   -- the POC file; one laptop only
+  client.monitor.events(id) until last_event_id                @ scripts/launch_radar_poc/poc.py:322   -- an event is read one time
+  normalize_domain("HTTPS://WWW.Raindrop.AI/blog/series-a/")   @ scripts/launch_radar_poc/poc.py:162   -- returns raindrop.ai
++ **dedupe**(events)                                           @ scripts/launch_radar/pipeline.py:133  -- two events, one domain: one research
++ GET /api/internal/launch-radar/seen?domain=…&name=…          @ src/backend/api/routers/internal_launch_radar.py:188
++   **seen**(conn, domains, names)                             @ src/backend/api/services/launch_radar.py:720   -- a card of any status, or a tracked display_name
+- out/seen.json                                                @ scripts/launch_radar_poc/poc.py:1160   -- the POC file; one laptop only
 </script>
     
-<script type="text/plain" data-excerpt="scripts/launch_radar_poc/poc.py:315" data-start="309" data-sha="dd2a641b">
-    deadline = time.time() + args.max_wait
-    t0 = time.time()
-    polls = 0
-    all_rows: list[Any] = []
-    first_seen_at = None
-    while True:
-        polls += 1
+<script type="text/plain" data-excerpt="scripts/launch_radar_poc/poc.py:322" data-start="316" data-sha="5f0c8fd3">
         rows: list[Any] = []
         cursor = None
         while True:
             kw: dict[str, Any] = {"limit": 100, "include_completions": True}
             if cursor:
                 kw["cursor"] = cursor
+            page = c.monitor.events(mid, **kw)
+            rows.extend(page.events)
+            cursor = page.next_cursor
+            if not cursor or not page.events:
+                break
+        all_rows = rows
+        n_ev = sum(isinstance(r, MonitorEventStreamEvent) for r in rows)
 </script>
-<script type="text/plain" data-excerpt="scripts/launch_radar_poc/poc.py:155" data-start="149" data-sha="dd2a641b">
-        )
-
-
-def client():
-    from parallel import Parallel
-
-    # max_retries=0: a retried create can duplicate a billed run (no idempotency key).
+<script type="text/plain" data-excerpt="scripts/launch_radar_poc/poc.py:162" data-start="156" data-sha="5f0c8fd3">
     return Parallel().with_options(max_retries=0)
 
 
 # ---------------------------------------------------------------------------
 # Domain normalization / dedupe
 # ---------------------------------------------------------------------------
+def normalize_domain(value: str | None) -> str | None:
+    if not value or not isinstance(value, str):
+        return None
+    v = value.strip().lower()
+    if v in {"", "na", "n/a", "none", "null", "unknown"}:
+        return None
+    v = re.sub(r"^[a-z][a-z0-9+.-]*://", "", v)
 </script>
-<script type="text/plain" data-excerpt="scripts/launch_radar_poc/poc.py:1161" data-start="1155" data-sha="dd2a641b">
+<script type="text/plain" data-excerpt="scripts/launch_radar/pipeline.py:133" data-start="127" data-sha="5f0c8fd3">
+            score = 70
+    elif ev.get("event_type") == "launch":
+        score = 50
+    return score, ev.get("announced_at") or ""
+
+
+def dedupe(
+    candidates: list[dict[str, Any]],
+    backend: BackendClient,
+    queued: set[str],
+    exclude: frozenset[str],
+    now: datetime,
+    log: Log,
+</script>
+<script type="text/plain" data-excerpt="src/backend/api/routers/internal_launch_radar.py:188" data-start="182" data-sha="5f0c8fd3">
+) -> LaunchRadarMonitorRow:
+    changes = body.model_dump(include=body.model_fields_set)
+    row = _call(conn, "update monitor", lambda: svc.patch_monitor(conn, slot, changes))
+    return LaunchRadarMonitorRow.model_validate(row)
+
+
+@router.get("/seen", response_model=LaunchRadarSeenOut)
+def seen(
+    domain: list[str] = Query(default_factory=list),
+    name: list[str] = Query(default_factory=list),
+    conn: Connection = Depends(get_db),
+) -> LaunchRadarSeenOut:
+    """Dedupe before spend: which domains already have a card (ANY status,
+</script>
+<script type="text/plain" data-excerpt="src/backend/api/services/launch_radar.py:720" data-start="714" data-sha="5f0c8fd3">
+
+# ---------------------------------------------------------------------------
+# Loop: dedupe, cards, PR step
+# ---------------------------------------------------------------------------
+
+
+def seen(conn: Connection, domains: list[str], names: list[str]) -> Seen:
+    """Which of these companies the loop must not spend on.
+
+    ``domains``: every card for the normalized domain, in ANY status (a tombstone
+    counts: a deleted company is never re-posted). ``names``: input names whose
+    case-insensitive form matches a tracked public company's display name.
+    """
+</script>
+<script type="text/plain" data-excerpt="scripts/launch_radar_poc/poc.py:1160" data-start="1154" data-sha="5f0c8fd3">
+                      "issues": issues}, indent=2))
 
 
 # ---------------------------------------------------------------------------
@@ -3566,69 +3744,36 @@ def cmd_dedupe(args: argparse.Namespace) -> None:
     seen: dict = read_json(SEEN_FILE, {})
     accepted, rejected = [], []
     for item in data:
-        raw = item.get("domain") or item.get("company_domain")
-</script>
-<script type="text/plain" data-excerpt="src/backend/api/routers/internal_launch_radar.py:17" data-start="11" data-sha="dd2a641b">
-
-    POST  /runs                     201, idempotent on run_uuid
-    POST  /runs/{run_uuid}/reserve  200 | 402 budget (detail object) | 404 | 409
-    POST  /runs/{run_uuid}/finish   200 | 404 | 409 already finished
-    GET   /monitors                 200
-    PUT   /monitors/{slot}          200 upsert | 422 bad slot
-    PATCH /monitors/{slot}          200 | 404 | 422
-    GET   /seen                     200 | 422 when more than 100 values
-    POST  /cards                    201 | 404 | 409 run not running / domain already posted | 422
-    PATCH /cards/{card_id}/pr       200 | 404 | 409
-    GET   /pr-candidates            200
-
-Every psycopg2 error rolls back and becomes a 500 with a generic detail.
-</script>
-<script type="text/plain" data-excerpt="src/backend/api/services/launch_radar.py:10" data-start="4" data-sha="dd2a641b">
-
-* the admin dashboard (``routers/admin.py``, ``require_admin``): ``list_cards``,
-  ``card_counts``, ``run_stats``, ``set_status`` and ``delete_card``;
-* the loop (``routers/internal_launch_radar.py``, X-Internal-Key): runs, the
-  ledger (``reserve_spend``), Monitors, ``seen``, ``insert_card``, the PR step.
-
-Every function that writes OWNS ITS COMMIT, and rolls back before raising one of
-the domain errors below, so a route only has to roll back on a raw
-``psycopg2.Error``. Money is ``NUMERIC`` in the database and ``Decimal`` here;
-it becomes ``float`` only at the response boundary (``usd``).
-
-Card lifecycle: new -> archived (archive) -> new (restore) or deleted (delete,
-only from archived). A delete is a TOMBSTONE: the payload, PR link and tracked
-</script>
-<script type="text/plain" data-excerpt="scripts/launch_radar_poc/poc.py:1157" data-start="1151" data-sha="dd2a641b">
-    f_card = write_json(out / "card.json", card)
-    print(json.dumps({"card": f_card, "talent": talent, "vc": vc, "leaders": [l["name"] for l in leaders],
-                      "pr_ready": pr_ready, "ats": card["ats"], "spend": read_json(out / "spend.json", {}),
-                      "issues": issues}, indent=2))
-
-
-# ---------------------------------------------------------------------------
-# dedupe
-# ---------------------------------------------------------------------------
-def cmd_dedupe(args: argparse.Namespace) -> None:
-    data = json.loads(Path(args.candidates).read_text())
-    if isinstance(data, dict):
-        data = data.get("kept") or data.get("candidates") or [data]
 </script></doc-calls>
   </doc-claim>
 
   <doc-claim>
     <p>A database ledger stops all Parallel spend at $5.</p>
-    <doc-code title="services/launch_radar.py · reserve_spend · sketch" lang="sql" caption="The POC spent $0.13 to $0.20 for each company. The team tally adds $0.10.">
-<script type="text/plain">
--- reserve_spend(run_uuid, est): Ledger.reserve() calls it before each billed create
-UPDATE launch_radar_runs r
-SET    spend_usd = r.spend_usd + %(est)s
-WHERE  r.run_uuid = %(run_uuid)s
-  AND  r.spend_usd + %(est)s <= 1.00
-  AND  (SELECT coalesce(sum(spend_usd), 0) FROM launch_radar_runs) + %(est)s <= 5.00
-RETURNING r.spend_usd;   -- no row back: 402, the loop stops and logs "budget"
-</script>
-      <doc-pin line="5" tone="info" title="$1 for each run"></doc-pin>
-      <doc-pin line="6" tone="ok" title="$5 for all runs"></doc-pin>
+    <doc-code src="src/backend/api/services/launch_radar.py" lines="555-576" wrap caption="The POC spent $0.13 to $0.20 for each company. The team tally adds $0.10." file="src/backend/api/services/launch_radar.py" start="555" sha="5f0c8fd3+wt"><script type="text/plain">    with conn.cursor() as cur:
+        cur.execute("SELECT pg_advisory_xact_lock(%s)", (LEDGER_LOCK_KEY,))
+        cur.execute(
+            "SELECT id, status, budget_usd FROM launch_radar_runs "
+            "WHERE run_uuid = %s FOR UPDATE",
+            (run_uuid,),
+        )
+        run = cur.fetchone()
+        if run is None:
+            conn.rollback()
+            raise NotFound("run not found")
+        if run["status"] != "running":
+            conn.rollback()
+            raise Conflict(f"run is {run['status']}")
+        run_spend, total = _spend_totals(cur, run["id"])
+        if not accrued:
+            if run_spend + est > Decimal(run["budget_usd"]):
+                conn.rollback()
+                raise BudgetExceeded("run_budget", run_spend, total, cap)
+            if total + est > cap:
+                conn.rollback()
+                raise BudgetExceeded("cap", run_spend, total, cap)</script>
+      <doc-pin line="556" tone="info" title="One lock for all reservations"></doc-pin>
+      <doc-pin line="571" tone="info" title="$1 for each run"></doc-pin>
+      <doc-pin line="574" tone="ok" title="$5 for all runs"></doc-pin>
     </doc-code>
     <doc-note tone="warn"><strong>POC ledger bug</strong> <code>_save_spend</code> counts a $0 step at its estimate, so the POC shows $0.25 for Ghost AI, not $0.13. Use <code>is not None</code>.</doc-note>
   </doc-claim>
@@ -3636,85 +3781,77 @@ RETURNING r.spend_usd;   -- no row back: 402, the loop stops and logs "budget"
 
 <!-- ═════ shared · not changing ═════ -->
 <doc-claim aux="shared">
-  <p>Shared: two new tables and one card payload.</p>
-  <doc-schema id="table" lang="py" wrap title="src/backend/api/db_models.py · LaunchRadarRun, LaunchRadarCard · sketch" caption="Both tables follow EnrichmentTick, and Alembic autogenerates the migration.">
-<script type="text/plain">
-class LaunchRadarRun(Base):
-    # One row per loop run. Each billed Parallel call reserves its cost here first.
-    __tablename__ = "launch_radar_runs"
-
-    id = Column(Integer, primary_key=True)
-    run_uuid = Column(Text, nullable=False)                # idempotency key from the loop
-    host = Column(Text, nullable=True)                     # 'server-laptop'
-    status = Column(Text, nullable=False, server_default=text("'running'"))  # 'running' | 'ok' | 'stopped' | 'error'
-    spend_usd = Column(Float, nullable=False, server_default=text("0"))       # sum of reservations
-    last_event_ids = Column(JSONB, nullable=True)          # {monitor_id: newest event_id read}
-    started_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
-    ended_at = Column(TIMESTAMP(timezone=True), nullable=True)
-
-    __table_args__ = (UniqueConstraint("run_uuid", name="uq_launch_radar_runs_run_uuid"),)
-
-
-class LaunchRadarCard(Base):
-    # One row per company the loop posted, via POST /api/internal/launch-radar/cards.
+  <p>Shared: four new tables and one card payload.</p>
+  <doc-schema id="table" lang="py" wrap src="src/backend/api/db_models.py" lines="1501-1531" title="src/backend/api/db_models.py · LaunchRadarCard" caption="LaunchRadarRun, LaunchRadarSpend (the ledger) and LaunchRadarMonitor come before it, after EnrichmentTick." file="src/backend/api/db_models.py" start="1501" sha="5f0c8fd3+wt"><script type="text/plain">class LaunchRadarCard(Base):
+    # One row per normalized domain, EVER. The UNIQUE on ``domain`` is the dedupe
+    # guard: a deleted card is a TOMBSTONE (payload, pr_url and
+    # tracked_company_id cleared, row and domain kept), so the loop never posts
+    # that domain again. Scores, event type and cost live in ``payload`` and not
+    # in columns, so clearing the payload clears all of them at once.
+    # Lifecycle (``status``): new -> saved (Save) -> new (Unsave); new or saved
+    # -> archived (Archive) -> new (Restore); archived -> deleted (tombstone).
     __tablename__ = "launch_radar_cards"
 
     id = Column(Integer, primary_key=True)
-    domain = Column(Text, nullable=False)                  # normalized; the dedupe key
+    domain = Column(Text, nullable=False)
     company_name = Column(Text, nullable=False)
-    status = Column(Text, nullable=False, server_default=text("'new'"))  # 'new' | 'archived' | 'deleted'
-    tracked_company_id = Column(Text, nullable=True)       # companies.id when its board is tracked
-    talent_score = Column(Integer, nullable=True)          # NULL = no people data
-    vc_score = Column(Integer, nullable=True)              # NULL = no round data
-    pr_url = Column(Text, nullable=True)                   # set by PATCH …/cards/{id}/pr
-    payload = Column(JSONB, nullable=True)                 # the card; NULL after delete
-    run_id = Column(Integer, ForeignKey("launch_radar_runs.id"), nullable=True)
-    # … 6 more: event_type, cost_usd, posted_at, archived_at, deleted_at, updated_by
-
-    __table_args__ = (
-        UniqueConstraint("domain", name="uq_launch_radar_cards_domain"),
-        Index("idx_launch_radar_cards_status_posted", "status", "posted_at"),
+    status = Column(Text, nullable=False, server_default=text("'new'"))
+    tracked_company_id = Column(
+        Text,
+        ForeignKey("companies.id", ondelete="SET NULL"),
+        nullable=True,
     )
-</script>
-  </doc-schema>
+    pr_url = Column(Text, nullable=True)
+    payload = Column(JSONB, nullable=True)
+    run_id = Column(
+        Integer,
+        ForeignKey("launch_radar_runs.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    posted_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
+    updated_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
+    archived_at = Column(TIMESTAMP(timezone=True), nullable=True)
+    deleted_at = Column(TIMESTAMP(timezone=True), nullable=True)
+    updated_by = Column(Text, nullable=True)  # admin email (require_admin claims)</script></doc-schema>
 
   <doc-claim>
     <p>The card payload has one TypeScript type on the client.</p>
-    <doc-schema id="payload" lang="ts" wrap title="src/frontend/src/features/admin/adminApi.ts · LaunchRadarCard · sketch" caption="The API sends camelCase keys from a typed response model, not from the raw JSONB.">
-<script type="text/plain">
-interface Round {
-  stage: string | null; amountUsd: string | null; announcedAt: string | null;
-  leadInvestors: string[]; otherInvestors: string[];   // a prior round puts its investors in otherInvestors
-}
-
-export interface LaunchRadarCard {
+    <doc-schema id="payload" lang="ts" wrap src="src/frontend/src/features/admin/launchRadarTypes.ts" lines="104-139" title="src/frontend/src/features/admin/launchRadarTypes.ts · LaunchRadarCard" caption="The API sends camelCase keys from a typed response model, not from the raw JSONB." file="src/frontend/src/features/admin/launchRadarTypes.ts" start="104" sha="5f0c8fd3+wt"><script type="text/plain">export interface LaunchRadarCard {
   id: number;
-  domain: string;                       // 'raindrop.ai'
-  website: string;                      // brief website_url, else https://<domain>
-  company: string;
-  status: 'new' | 'archived';           // deleted rows never reach the client
-  trackedCompanyId: string | null;      // 'raindrop-ai': no PR
-  event: { type: 'funding' | 'launch' | 'other'; headline: string; sourceUrl: string | null;
-           announcedAt: string | null; origin: 'monitor' | 'task brief' } | null;
-  scores: { talent: number | null; vc: number | null; reasons: string[] };   // null = no data
-  oneLiner: string;
-  blurb: string;
-  leaders: { name: string; title: string | null; linkedinUrl: string | null;
-             schools: string[]; priorCompanies: string[]; foundedBefore: string[];
-             yearsExperience: number | null; industryExperience: string | null; signals: string[] }[];
-  teamStats: { profilesFound: number; teamSizeEstimate: string;   // display only; the score does not use it
-               schools: { name: string; count: number }[]; priorEmployers: { name: string; count: number }[];
-               exFoundersWithExit: number; sampleNames: string[] } | null;
-  funding: { latestRound: Round | null; priorRounds: Round[]; totalRaisedUsd: string | null };
-  ats: { provider: string; boardToken: string | null; boardUrl: string | null;
-         verified: boolean; jobCount: number | null };
+  /** Deleted rows never reach the client. */
+  status: LaunchRadarStatus;
+  trackedCompanyId: string | null;
   prUrl: string | null;
-  costUsd: number;
   postedAt: string;
-  // … 6 more: careersUrl, sources, whatTheyDo, notableFacts, parallelRunIds, timingsS
-}
-</script>
-    </doc-schema>
+  archivedAt: string | null;
+  updatedBy: string | null;
+  company: string;
+  domain: string;
+  website: string;
+  oneLiner: string | null;
+  whatTheyDo: string | null;
+  blurb: string | null;
+  event: LaunchRadarEvent | null;
+  /** `null` score = no data (rendered as a dash), never 0. */
+  scores: {
+    talent: number | null;
+    vc: number | null;
+    talentReasons: string[];
+    vcReasons: string[];
+  };
+  leaders: LaunchRadarLeader[];
+  leadersDropped: number;
+  teamStats: LaunchRadarTeamStats | null;
+  funding: {
+    latestRound: LaunchRadarRound | null;
+    priorRounds: LaunchRadarRound[];
+    totalRaisedUsd: string | null;
+  };
+  notableFacts: string[];
+  careersUrl: string | null;
+  ats: LaunchRadarAts;
+  prReady: boolean;
+  sources: { url: string; title: string | null; field: string | null }[];</script></doc-schema>
   </doc-claim>
 </doc-claim>
 

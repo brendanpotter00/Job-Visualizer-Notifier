@@ -2,14 +2,22 @@ import { describe, it, expect } from 'vitest';
 import {
   atsLabel,
   boardLine,
+  cardToggleId,
+  formatEventDate,
   formatMonthYear,
   formatRunLine,
   formatShortDate,
   formatUsd,
   hostnameOf,
+  jobBoardHref,
   joinWithAnd,
+  leadersFromBrief,
   listWithMore,
+  parseSort,
+  researchGaps,
   roundLine,
+  safeHttpUrl,
+  scoreEmphasis,
   summarizeTally,
 } from '../../../pages/AdminLaunchRadarPage/format';
 import type { LaunchRadarAts } from '../../../features/admin/launchRadarTypes';
@@ -35,6 +43,34 @@ describe('Launch Radar format helpers', () => {
       expect(formatShortDate(null)).toBe('');
       expect(formatShortDate('not a date')).toBe('');
       expect(formatMonthYear(undefined)).toBe('');
+    });
+  });
+
+  describe('formatEventDate', () => {
+    it('shows a day as "Sep 17" and a month-only date as "Sep 2026", never as the 1st', () => {
+      expect(formatEventDate('2026-09-17')).toBe('Sep 17');
+      expect(formatEventDate('2026-09')).toBe('Sep 2026');
+      expect(formatEventDate(null)).toBe('');
+      expect(formatEventDate('soon')).toBe('');
+    });
+  });
+
+  describe('provenance notes in issues', () => {
+    const NOTE = 'leaders from the brief (FindAll found none); 2 company page(s) dropped';
+
+    it('leaves the leaders-from-the-brief note out of the research gaps', () => {
+      expect(researchGaps([NOTE])).toEqual([]);
+      expect(researchGaps([NOTE, 'team tally failed: timeout'])).toEqual([
+        'team tally failed: timeout',
+      ]);
+      expect(researchGaps(['no leaders confirmed'])).toEqual(['no leaders confirmed']);
+    });
+
+    it('tells when the leaders came from the company brief', () => {
+      expect(leadersFromBrief([NOTE])).toBe(true);
+      expect(leadersFromBrief(['leaders from the brief (FindAll found none)'])).toBe(true);
+      expect(leadersFromBrief(['no leaders confirmed', 'brief failed: x'])).toBe(false);
+      expect(leadersFromBrief([])).toBe(false);
     });
   });
 
@@ -88,11 +124,19 @@ describe('Launch Radar format helpers', () => {
       expect(boardLine({ ...ATS, jobCount: null })).toBe('Ashby board');
     });
 
-    it('says "no PR" for an unverified provider and "No job board found" for none', () => {
+    it('says "not verified" for an unverified provider and "No job board found" for none', () => {
       expect(boardLine({ ...ATS, provider: 'workday', verified: false })).toBe(
-        'Workday board, no PR'
+        'Workday board, not verified'
       );
       expect(boardLine({ ...ATS, provider: 'none', verified: false })).toBe('No job board found');
+    });
+
+    it('never mentions a PR', () => {
+      for (const verified of [true, false]) {
+        for (const provider of ['ashby', 'workday', 'other', 'none'] as const) {
+          expect(boardLine({ ...ATS, provider, verified })).not.toMatch(/PR/);
+        }
+      }
     });
   });
 
@@ -101,6 +145,35 @@ describe('Launch Radar format helpers', () => {
     expect(hostnameOf('https://blog.raindrop.ai/a')).toBe('blog.raindrop.ai');
     expect(hostnameOf('nope')).toBeNull();
     expect(hostnameOf(null)).toBeNull();
+  });
+
+  it('jobBoardHref picks the first safe http(s) URL: the board, then the careers page', () => {
+    const board = 'https://jobs.ashbyhq.com/Raindrop';
+    const careers = 'https://raindrop.ai/careers';
+    expect(jobBoardHref({ ...ATS, boardUrl: board }, careers)).toBe(board);
+    expect(jobBoardHref({ ...ATS, boardUrl: null }, careers)).toBe(careers);
+    expect(jobBoardHref({ ...ATS, boardUrl: 'javascript:alert(1)' }, careers)).toBe(careers);
+    expect(
+      jobBoardHref({ ...ATS, boardUrl: 'data:text/html,x' }, 'javascript:alert(1)')
+    ).toBeNull();
+    expect(jobBoardHref({ ...ATS, boardUrl: null }, null)).toBeNull();
+  });
+
+  it('safeHttpUrl lets only absolute http(s) URLs through', () => {
+    expect(safeHttpUrl('https://www.globenewswire.com/news-release/2026/10/06/x.html')).toBe(
+      'https://www.globenewswire.com/news-release/2026/10/06/x.html'
+    );
+    expect(safeHttpUrl('http://businesswire.com/a')).toBe('http://businesswire.com/a');
+    expect(safeHttpUrl('HTTPS://Example.com/A')).toBe('https://example.com/A');
+    expect(safeHttpUrl('javascript:alert(1)')).toBeNull();
+    expect(safeHttpUrl(' javascript:alert(1)')).toBeNull();
+    expect(safeHttpUrl('data:text/html,<b>x</b>')).toBeNull();
+    expect(safeHttpUrl('ftp://example.com/a')).toBeNull();
+    expect(safeHttpUrl('/relative/path')).toBeNull();
+    expect(safeHttpUrl('nope')).toBeNull();
+    expect(safeHttpUrl('')).toBeNull();
+    expect(safeHttpUrl(null)).toBeNull();
+    expect(safeHttpUrl(undefined)).toBeNull();
   });
 
   it('joinWithAnd and listWithMore build the card list style', () => {
@@ -168,5 +241,32 @@ describe('Launch Radar format helpers', () => {
         })
       ).toEqual({ head: 'Round', tail: '.' });
     });
+  });
+
+  describe('parseSort', () => {
+    it.each(['announced', 'talent', 'vc', 'added'] as const)('reads %s', (key) => {
+      expect(parseSort(key)).toBe(key);
+    });
+
+    it.each([null, '', 'bogus', 'TALENT', ' talent', 'posted_at DESC'])(
+      'reads %j as the default (announced)',
+      (raw) => {
+        expect(parseSort(raw)).toBe('announced');
+      }
+    );
+  });
+
+  describe('scoreEmphasis', () => {
+    it('strengthens the sorted score and mutes the other; other sorts leave both alone', () => {
+      expect(scoreEmphasis('talent')).toEqual({ talent: 'strong', vc: 'muted' });
+      expect(scoreEmphasis('vc')).toEqual({ talent: 'muted', vc: 'strong' });
+      expect(scoreEmphasis('announced')).toEqual({ talent: 'normal', vc: 'normal' });
+      expect(scoreEmphasis('added')).toEqual({ talent: 'normal', vc: 'normal' });
+    });
+  });
+
+  it('cardToggleId is unique per card', () => {
+    expect(cardToggleId(7)).toBe('radar-card-7-toggle');
+    expect(cardToggleId(7)).not.toBe(cardToggleId(17));
   });
 });

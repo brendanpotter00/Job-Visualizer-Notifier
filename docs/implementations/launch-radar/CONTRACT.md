@@ -1,45 +1,26 @@
 # Launch Radar — implementation contract
 
-The single source of truth for the three parallel build units: **backend**, **frontend** and **loop**.
-Where this file and `plan.html` disagree, this file wins. `plan.html` is owned by the plan-sync agent and
-no build unit edits it. The decided design (16 points in the orchestrator brief) is not up for debate;
-this file only makes it concrete.
-
-Branch `claude/launch-radar` in the worktree
-`/Users/brendanpotter/Documents/develop/Job-Visualizer-Notifier/.claude/worktrees/env-plugin-setup-8f11ff`
-is level with `origin/main` (`dd2a641b`, checked 2026-10-07 with 0 commits ahead and 0 behind). Alembic head on main
-is `904d5bc44e4b`.
+The contract between the three parts of Launch Radar as shipped: the **backend** (tables, routes, status codes), the
+**frontend** (`/admin/launch-radar`) and the **loop** (`scripts/launch_radar/`). Where this file and `plan.html` (the
+approved design) disagree, this file wins. §9 lists the seams that must change together.
 
 ---
 
-## 0. Ground rules (every unit)
+## 0. Rules for every change
 
-- Work only inside the worktree above. **No git commit, push, PR or branch change.** The orchestrator commits.
-- Edit only the files your unit owns (§9). If you need a change in another unit's file, stop and report it.
-  Do not make the change yourself.
 - Never print, echo, log or `cat` a secret or a `.env` file. Python code never logs `INTERNAL_API_KEY` or
   `PARALLEL_API_KEY`. It may log only whether each one is set.
-- **No billed Parallel call in any build unit.** Only the later Validate phase may call billed endpoints, and it
-  runs them as `zsh -ic '<cmd>'` because `PARALLEL_API_KEY` is exported by `~/.zshrc`. All tests mock the
-  Parallel SDK. The loop imports `parallel` lazily inside `parallel_client.make_client()`, so the test suite runs
-  without the SDK installed.
+- **No billed Parallel call in tests.** All tests mock the Parallel SDK. The loop imports `parallel` lazily inside
+  `parallel_client.make_client()`, so the test suite runs without the SDK installed.
 - Fix the design when something fails. Do not widen types, catch and ignore errors, or relax constraints just
   to make an error go away.
-- Python environment: the worktree's `.venv` is a **broken symlink** (it points at `/Users/bpotter/...`). Use the main
-  checkout's venv by absolute path: `V=/Users/brendanpotter/Documents/develop/Job-Visualizer-Notifier/.venv/bin`
-  (`$V/python`, `$V/pytest`, `$V/mypy`, `$V/alembic`). `uv` is at `/opt/homebrew/bin/uv`.
-- Node: the worktree has no `node_modules`. **Only the frontend unit** runs `npm ci` (once, at the worktree root),
-  so two installs never race. The backend unit runs no npm commands.
-- The local Docker Postgres (`jobscraper-postgres`, :5432) holds DB `jobscraper` at a **different branch's**
-  revision (`7ccc685e2cd6`). Do not autogenerate against it, and do not migrate it (see §1.6).
 
 ---
 
-## 1. Database (backend unit)
+## 1. Database
 
-Models go in `src/backend/api/db_models.py`, appended after `EnrichmentTick`. Add `CheckConstraint` and
-`Numeric` to the `sqlalchemy` import. Money is `NUMERIC(10,4)`, not Float, because a cap compared with float
-sums drifts. psycopg2 returns `Decimal`; convert to `float` only at the response boundary.
+Models live in `src/backend/api/db_models.py`, after `EnrichmentTick`. Money is `NUMERIC(10,4)`, not Float, because
+a cap compared with float sums drifts. psycopg2 returns `Decimal`; convert to `float` only at the response boundary.
 
 ### 1.1 `launch_radar_runs`: one row per loop invocation
 
@@ -95,7 +76,7 @@ Index: `idx_launch_radar_spend_run_id (run_id)`. Total spend = `SUM(amount_usd)`
 | `id` | Integer PK | no | serial | |
 | `domain` | Text | no | | normalized (§4.1). `UNIQUE uq_launch_radar_cards_domain` is the dedupe guard. `CHECK ck_launch_radar_cards_domain_lower: domain = lower(domain)` |
 | `company_name` | Text | no | | kept on the tombstone so a log can name it |
-| `status` | Text | no | `'new'` | `CHECK ck_launch_radar_cards_status: status IN ('new','archived','deleted')` |
+| `status` | Text | no | `'new'` | `CHECK ck_launch_radar_cards_status: status IN ('new','saved','archived','deleted')` ('saved' added by the hand-written revision `f0dc42c3d985`; autogenerate does not compare CHECKs) |
 | `tracked_company_id` | Text FK → `companies.id` `ON DELETE SET NULL` | yes | | set by the backend at insert (§2.3) |
 | `pr_url` | Text | yes | | set by `PATCH …/cards/{id}/pr` |
 | `payload` | JSONB | yes | | the card (§4, snake_case). NULL only on a tombstone |
@@ -115,36 +96,24 @@ There are deliberately **no score, event_type or cost columns**. They live in `p
 
 ### 1.5 Lifecycle SQL (in `services/launch_radar.py`)
 
-- archive: `UPDATE … SET status='archived', archived_at=now(), updated_at=now(), updated_by=%s WHERE id=%s AND status='new' RETURNING …`
-- restore: `UPDATE … SET status='new', archived_at=NULL, updated_at=now(), updated_by=%s WHERE id=%s AND status='archived' RETURNING …`
+- Lifecycle: new → saved (save) → new (unsave); new or saved → archived (archive) → new (restore); archived → deleted. One guarded
+  UPDATE per move: `UPDATE … SET status=%s, archived_at=<now() for archived, else NULL>, updated_at=now(), updated_by=%s WHERE id=%s AND status = ANY(<allowed sources>) RETURNING …`
+  (save from `new`; unsave/restore to `new` from `saved` or `archived`; archive from `new` or `saved`). When the PATCH
+  body carries `from`, the allowed sources narrow to that one status (compare-and-swap), and a miss whose current status
+  is not `from` is a **409** naming it (`card is archived, not saved; reload and try again`).
 - delete (tombstone): `UPDATE … SET status='deleted', payload=NULL, pr_url=NULL, tracked_company_id=NULL, archived_at=NULL, deleted_at=now(), updated_at=now(), updated_by=%s WHERE id=%s AND status='archived' RETURNING id`
 - If no row comes back, run `SELECT status … WHERE id=%s`. A missing row or `status='deleted'` gives **404**. A row in the wrong
   state gives **409**. Never `DELETE FROM` a card.
 
-### 1.6 Migration: autogenerate against a scratch DB (recipe verified on this machine 2026-10-07)
+### 1.6 Migrations
 
-```bash
-V=/Users/brendanpotter/Documents/develop/Job-Visualizer-Notifier/.venv/bin
-U=postgresql://postgres:postgres@localhost:5432/lr_autogen
-cd /Users/brendanpotter/Documents/develop/Job-Visualizer-Notifier/.claude/worktrees/env-plugin-setup-8f11ff
-docker exec jobscraper-postgres psql -U postgres -qc "DROP DATABASE IF EXISTS lr_autogen" -c "CREATE DATABASE lr_autogen"
-# bootstrap every table EXCEPT the new ones (works whether or not db_models.py is already edited)
-(cd src/backend && $V/python -c "
-from sqlalchemy import create_engine
-from api.db_models import Base
-e = create_engine('$U'.replace('postgresql://', 'postgresql+psycopg2://'))
-Base.metadata.create_all(e, tables=[t for n, t in Base.metadata.tables.items() if not n.startswith('launch_radar_')])")
-DATABASE_URL=$U $V/alembic stamp head                      # -> 904d5bc44e4b
-DATABASE_URL=$U $V/alembic revision --autogenerate -m "launch radar tables"
-# review the file: 4 create_table + indexes, FKs and CHECKs present; no unrelated ops
-DATABASE_URL=$U $V/alembic upgrade head && DATABASE_URL=$U $V/alembic downgrade -1 && DATABASE_URL=$U $V/alembic upgrade head
-DATABASE_URL=$U $V/alembic check                           # "No new upgrade operations detected."
-$V/alembic heads                                           # exactly ONE head
-docker exec jobscraper-postgres psql -U postgres -qc "DROP DATABASE IF EXISTS lr_autogen"
-```
-
-Never hand-write the revision, and never add files under `scripts/shared/migrations/`. A plain `CREATE TABLE` revision needs no
-batch_alter collapsing.
+- `a67d3d0286a2` (`launch radar tables`, after `904d5bc44e4b`) creates the four tables. It was autogenerated against a
+  scratch database holding every other table.
+- `f0dc42c3d985` (`launch radar saved status`) adds `'saved'` to `ck_launch_radar_cards_status`. It is hand-written
+  because autogenerate does not compare CHECK constraints; its downgrade moves saved cards back to `new` first.
+  `api/tests/test_db_models.py` pins the model and the revision to the same CHECK text, and
+  `api/tests/test_migration_launch_radar_saved_status.py` round-trips it.
+- Never add files under `scripts/shared/migrations/`.
 
 ---
 
@@ -160,14 +129,18 @@ The service owns `commit()`.
 
 #### `GET /api/admin/launch-radar/cards`
 
-Query: `status: Literal['new','archived']` (required; anything else, `deleted` included, gives 422), `limit: int = 25 (1..100)`,
-`offset: int = 0 (>=0)`. Order: `new` by `posted_at DESC, id DESC`; `archived` by `archived_at DESC, id DESC`.
+Query: `status: Literal['new','saved','archived']` (required; anything else, `deleted` included, gives 422), `limit: int = 25 (1..100)`,
+`offset: int = 0 (>=0)`, `sort: Literal['announced','talent','vc','added'] = 'announced'` (anything else gives 422).
+Order, the same on every tab: `announced` by `(payload->'event'->>'announced_at') DESC NULLS LAST`; `talent` by
+`(payload->'scores'->>'talent')::numeric DESC NULLS LAST`; `vc` by `(payload->'scores'->>'vc')::numeric DESC NULLS LAST`;
+`added` by `posted_at DESC`. Every sort then breaks ties by the announced date `DESC NULLS LAST`, then `posted_at DESC`,
+then `id DESC`, so paging is deterministic. Each key maps to a fixed `ORDER BY` in the service; the request never reaches SQL text.
 
 ```json
 {
   "cards": [ /* LaunchRadarCard, §2.4 */ ],
   "total": 2,
-  "counts": { "new": 2, "archived": 1 },
+  "counts": { "new": 2, "saved": 0, "archived": 1 },
   "stats": {
     "lastRun": { "startedAt": "2026-10-07T01:31:00Z", "endedAt": "2026-10-07T01:36:12Z", "status": "ok", "host": "server-laptop" },
     "spendUsd": 0.46,
@@ -176,40 +149,38 @@ Query: `status: Literal['new','archived']` (required; anything else, `deleted` i
 }
 ```
 
-- `total` counts the rows with the requested status. `counts` always covers both tabs, whatever the filter.
+- `total` counts the rows with the requested status. `counts` always covers all three tabs, whatever the filter.
 - `lastRun` is the newest `launch_radar_runs` row by `started_at`, or `null` when there are no runs.
 - `spendUsd` is `SUM(launch_radar_spend.amount_usd)`, rounded to 4 places. `capUsd` is `settings.launch_radar_spend_cap_usd`.
-- Deleted rows are never selected. The query has `WHERE status IN ('new','archived')`, or the single requested status.
+- Deleted rows are never selected. The query has `WHERE status IN ('new','saved','archived')`, or the single requested status.
 
 #### `PATCH /api/admin/launch-radar/cards/{card_id}`
 
-`card_id: int` (ge=1). Body `{"status": "archived" | "new"}`, with `extra="forbid"`.
-- `"archived"` applies only to a `new` card, and `"new"` (Restore) only to an `archived` card.
-- 200 returns the updated `LaunchRadarCard`. 404 if the card is missing or deleted. 409 if the card is already in that state.
+`card_id: int` (ge=1). Body `{"status": "saved" | "archived" | "new", "from"?: "new" | "saved" | "archived"}`, with
+`extra="forbid"`. `from` is the status the client saw the card in: when sent, the move applies only while the card is
+still in it (Unsave and Restore both send `"new"`, so a stale Unsave could otherwise restore an archived card). The page
+sends it on every action; omitted, any allowed source moves (backward compatible).
+- `"saved"` (Save) applies only to a `new` card; `"archived"` to a `new` or `saved` card; `"new"` (Unsave / Restore) to a
+  `saved` or `archived` card.
+- 200 returns the updated `LaunchRadarCard`. 404 if the card is missing or deleted. 409 for any other move (already in that
+  state, `archived` → `saved`, or a `from` that is not the card's current status), with a detail naming the card's current status.
 
 #### `DELETE /api/admin/launch-radar/cards/{card_id}`
 
 Permanent delete (the tombstone in §1.5).
 - **204 No Content** with no body (FastAPI `Response(status_code=204)`).
-- 404 if the card is missing or already deleted. **409** if `status='new'`: a card must be archived first.
+- 404 if the card is missing or already deleted. **409** if `status` is `new` or `saved`: a card must be archived first.
 
 Router functions: `admin_launch_radar_cards`, `admin_set_launch_radar_status`, `admin_delete_launch_radar_card`.
-Service functions: `list_cards`, `run_stats`, `set_status`, `delete_card`.
+Service functions: `list_cards`, `card_counts`, `run_stats`, `set_status`, `delete_card`.
 
-### 2.2 Proxy allowlist (`api/admin.ts`, **owned by the backend unit**)
+### 2.2 Proxy allowlist (`api/admin.ts`)
 
-Add these two lines under a `// launch radar` comment in `PROXIED_ROUTES`. Change nothing else; the production proxy
-behaviour stays the same:
-
-```ts
-  // launch radar (admin dashboard cards; the loop's /api/internal/launch-radar/* is NEVER proxied)
-  'launch-radar/cards', // GET — list by status
-  'launch-radar/cards/:id', // PATCH (archive / restore) · DELETE (permanent, archived only)
-```
-
-`api/admin.ts` already forwards PATCH and DELETE (`METHODS_WITH_BODY`), and `forwardResponse` already handles a
-204. The backend unit owns this file because `src/backend/api/tests/test_proxy_path_allowlists.py` fails in both
-directions until the backend routes and the allowlist agree. One unit can then keep both green.
+Two entries in `PROXIED_ROUTES`, under a `// launch radar` comment: `'launch-radar/cards'` (GET) and
+`'launch-radar/cards/:id'` (PATCH, DELETE). The loop's `/api/internal/launch-radar/*` is never proxied. `api/admin.ts`
+forwards PATCH and DELETE bodies (`METHODS_WITH_BODY`), and `forwardResponse` handles a 204.
+`src/backend/api/tests/test_proxy_path_allowlists.py` fails in both directions unless the backend routes and the
+allowlist agree.
 
 ### 2.3 Internal routes (`src/backend/api/routers/internal_launch_radar.py`)
 
@@ -226,7 +197,9 @@ routes. The loop calls the backend directly (`BACKEND_URL`).
 | `PUT /monitors/{slot}` | `{"monitor_id", "query", "processor": "base", "frequency": "1d", "status": "active"\|"cancelled", "charged_through": iso}` | 200 `MonitorRow` (upsert by slot) | 422 bad slot |
 | `PATCH /monitors/{slot}` | any subset of `{"last_event_id": str, "status": "active"\|"cancelled", "charged_through": iso}` (at least 1 key) | 200 `MonitorRow` | 404 · 422 |
 | `GET /seen` | query `domain` (repeatable, 0..100) and `name` (repeatable, 0..100) | 200 `SeenOut` | 422 when more than 100 |
+| `GET /cards` | query `domain` (repeatable, 0..100, normalized server-side) and/or `missing_talent=true`; `status` (repeatable, `new`/`saved`/`archived`; none = every live status); `after_id` ≥0 (0); `limit` 1..500 (100) | 200 `{"cards": [{"id", "domain", "status", "payload"}]}`: live cards only, `id > after_id`, by id, payload as stored. Keyset-paged: the loop asks again from the last id until a page comes back short | 422 no filter / more than 100 domains / bad `status` |
 | `POST /cards` | `{"run_uuid": str, "payload": LaunchRadarPayload (§4)}` | **201** `{"id": int, "tracked_company_id": str \| null}` | 404 unknown run · 409 run not running · **409 domain already posted** · 422 payload invalid or domain not normalized |
+| `PUT /cards/{card_id}/payload` | `{"payload": LaunchRadarPayload (§4)}` (`extra="forbid"`; no run needed) | 200 `{"id", "domain", "status", "posted_at", "updated_at"}` | 404 missing or deleted · 422 payload invalid (URL rules included) or `payload.domain` ≠ the card's |
 | `PATCH /cards/{card_id}/pr` | `{"pr_url": str}`, matching `^https://github\.com/brendanpotter00/Job-Visualizer-Notifier/pull/\d+$` | 200 `{"id", "pr_url"}` | 404 missing/deleted · 409 `pr_url` already set, or card is tracked |
 | `GET /pr-candidates` | query `limit` 1..5 (default 1) | 200 `{"cards": [PrCandidate]}` | — |
 
@@ -247,7 +220,7 @@ Shapes (snake_case):
 { "slot": "seed", "monitor_id": "monitor_…", "query": "…", "processor": "base", "frequency": "1d",
   "status": "active", "last_event_id": "mevt_…" | null, "charged_through": "2026-10-07T07:00:00Z" }
 // SeenOut
-{ "domains": { "raindrop.ai": { "card_id": 1, "status": "new" | "archived" | "deleted" } },   // only seen ones
+{ "domains": { "raindrop.ai": { "card_id": 1, "status": "new" | "saved" | "archived" | "deleted" } },   // only seen ones
   "names":   { "Raindrop AI": "raindrop-ai" } }                                             // only names matching a tracked company
 // PrCandidate (from the row + payload)
 { "id": 4, "domain": "ghost.ai", "company": "Ghost AI", "ats_provider": "ashby",
@@ -278,8 +251,14 @@ Shapes (snake_case):
 `names` matches `lower(companies.display_name) = ANY(lower …)` with `visibility='public'`. Each input domain is
 normalized server-side first, and the response is keyed by the normalized form.
 
-**`GET /pr-candidates`**: `status='new' AND pr_url IS NULL AND tracked_company_id IS NULL AND (payload->>'pr_ready')::boolean`,
-newest `posted_at` first.
+**`PUT /cards/{card_id}/payload` (`replace_payload`)**, for `radar.py refresh`: `SELECT … FOR UPDATE` (so a delete cannot
+race it), 404 for a missing card or a tombstone, 422 when the payload's domain is not the card's, then
+`UPDATE … SET payload, company_name = payload.company, updated_at = now()`. Status, `posted_at`, `pr_url`,
+`tracked_company_id`, `run_id` and `updated_by` stay. `GET /cards` (`find_cards`) is its read-only lookup.
+
+**`GET /pr-candidates`**: `status IN ('new','saved') AND pr_url IS NULL AND tracked_company_id IS NULL AND (payload->>'pr_ready')::boolean`,
+saved cards first, then newest `posted_at` (`ORDER BY (status = 'saved') DESC, posted_at DESC, id DESC`). Archived and deleted
+cards are never offered.
 
 ### 2.4 `LaunchRadarCard`: admin response model (camelCase)
 
@@ -288,12 +267,20 @@ field name) and to serialize the admin response (by camelCase alias). The admin 
 plus the parsed payload:
 
 ```python
-LaunchRadarCardOut(id=row.id, status=row.status, tracked_company_id=row.tracked_company_id, pr_url=row.pr_url,
-                   posted_at=row.posted_at, archived_at=row.archived_at, updated_by=row.updated_by,
-                   **LaunchRadarPayload.model_validate(row.payload).model_dump())
+LaunchRadarCardOut.model_validate({**row["payload"], "id": row["id"], "status": row["status"],
+                                   "tracked_company_id": row["tracked_company_id"], "pr_url": row["pr_url"],
+                                   "posted_at": row["posted_at"], "archived_at": row["archived_at"],
+                                   "updated_by": row["updated_by"]})
 ```
 
 Its JSON is exactly the TypeScript `LaunchRadarCard` in §5.2.
+
+The URL rules (§4) and the `announced_at` shape are enforced on INPUT (`POST /cards`, `PUT /cards/{id}/payload`).
+`LaunchRadarCardOut` reads the stored payload through `tolerate_stored_payload` first: a stored URL that fails the rule is
+nulled (a source without a usable URL is dropped; `website`, never null, falls back to `https://<domain>`), a non-ISO
+`announced_at` is nulled, and the card is logged, so one old or hand-edited row is never skipped from the list (while
+`total` counts it) nor turns a committed PATCH into a 500. The stored row is not changed. Only a payload of a different
+shape (a missing key) is skipped from the list, and logged, so one such row cannot blank the dashboard.
 
 ### 2.5 Config (`src/backend/api/config.py`)
 
@@ -307,7 +294,7 @@ Its JSON is exactly the TypeScript `LaunchRadarCard` in §5.2.
 ## 3. Domain normalization (shared algorithm, two copies)
 
 The backend (`services/launch_radar.py::normalize_domain`) and the loop (`launch_radar/domains.py::normalize_domain`)
-each carry a copy, ported verbatim from POC `poc.py:155`:
+each carry a copy, ported verbatim from the POC's `normalize_domain`:
 
 1. Non-string or empty → None. Strip, then lowercase.
 2. `{"", "na", "n/a", "none", "null", "unknown"}` → None.
@@ -329,7 +316,12 @@ Both test suites must pass the same vectors:
 
 ## 4. Card payload the loop posts (snake_case, stored in `payload`)
 
-`LaunchRadarPayload` (Pydantic, `extra="forbid"` on input). Every key is required unless shown as nullable.
+`LaunchRadarPayload` (Pydantic, `extra="forbid"` on input). Every key is required unless shown as nullable. Every URL
+(`website`, `careers_url`, `event.source_url`, `ats.board_url`, `ats.checked_url`, `leaders[].linkedin_url`,
+`leaders[].profile_url`, `sources[].url`) must be an absolute `http(s)` URL with a host, no whitespace and at most 2000
+characters, or null where nullable; anything else is a 422. The loop's `safe_http_url` applies the same rule and nulls a
+failing value before it posts. `event.announced_at` must match `^[0-9]{4}-[0-9]{2}(-[0-9]{2})?$` or be null; the loop
+normalizes every event date with `card.announced_on` (the admin list sorts this text as a date).
 
 ```jsonc
 {
@@ -343,11 +335,11 @@ Both test suites must pass the same vectors:
     "type": "funding" | "launch" | "other",
     "headline": "…",
     "source_url": "https://…" | null,
-    "announced_at": "2026-09-17" | null,
+    "announced_at": "2026-09-17" | "2026-09" | null, // ISO day, or year-month when only the month is known (422 otherwise)
     "round": "Series A" | null,
     "amount_usd": "$35M" | null,
     "investors": "CRV, Lightspeed" | null,
-    "origin": "monitor" | "task brief"
+    "origin": "monitor" | "findall_backfill" | "task brief"   // findall_backfill: `radar.py backfill` (§6.3)
   } | null,
   "scores": {
     "talent": 49 | null,                           // null = no people data (never 0 for "no data")
@@ -359,7 +351,7 @@ Both test suites must pass the same vectors:
     "name": "Sam Rivera",
     "title": "Co-Founder & CTO" | null,
     "linkedin_url": "https://linkedin.com/in/example-sam-rivera" | null,
-    "profile_url": "https://…" | null,             // the FindAll candidate url
+    "profile_url": "https://…" | null,             // the FindAll candidate url (a brief leader: its LinkedIn URL)
     "summary": "WPI. Apple visionOS designer; interned at Google and SpaceX" | null,  // deterministic, built by the loop
     "schools": ["Worcester Polytechnic Institute BS Robotics"],
     "prior_companies": ["Apple (Designer)", "Google (Intern)"],
@@ -408,24 +400,22 @@ Both test suites must pass the same vectors:
 
 ---
 
-## 5. Frontend (frontend unit)
+## 5. Frontend
 
 ### 5.1 Route, nav and wiring
 
-- `src/frontend/src/config/routes.ts`: add `ADMIN_LAUNCH_RADAR: '/admin/launch-radar'` to `ROUTES` (after
-  `ADMIN_CUSTOM_COMPANIES`). Add `'Radar'` to `NavIconName`. In `ADMIN_NAV_ITEMS`, add
-  `{ path: ROUTES.ADMIN_LAUNCH_RADAR, label: 'Launch Radar', icon: 'Radar' }` right after the Custom Companies entry.
-- `src/frontend/src/components/layout/NavigationDrawer.tsx`: `import RadarIcon from '@mui/icons-material/Radar'`
-  (it is installed) and `Radar: RadarIcon` in `iconMap`.
-- `src/frontend/src/app/App.tsx`: `<Route path={ROUTES.ADMIN_LAUNCH_RADAR} element={<AdminRoute><AdminLaunchRadarPage /></AdminRoute>} />`
-  next to the other admin routes. Use an eager import, as the other admin pages do.
-- `src/frontend/vite.config.ts`: add a `'/api/admin'` proxy entry to `http://localhost:8000`
-  (`changeOrigin: true, secure: false`), the same shape as `/api/users`. Without it, plain `npm run dev` cannot reach the admin routes.
+- `src/frontend/src/config/routes.ts`: `ADMIN_LAUNCH_RADAR: '/admin/launch-radar'` in `ROUTES`, `'Radar'` in
+  `NavIconName`, and `{ path: ROUTES.ADMIN_LAUNCH_RADAR, label: 'Launch Radar', icon: 'Radar' }` in `ADMIN_NAV_ITEMS`
+  after Custom Companies. `NavigationDrawer.tsx` maps `Radar` to `@mui/icons-material/Radar`.
+- `src/frontend/src/app/App.tsx`: the `ROUTES.ADMIN_LAUNCH_RADAR` route wraps `AdminLaunchRadarPage` (eager import) in
+  `<AdminRoute>`, next to the other admin routes.
+- `src/frontend/vite.config.ts`: a `'/api/admin'` proxy entry to `http://localhost:8000`, the same shape as
+  `/api/users`, so plain `npm run dev` reaches the admin routes.
 
-### 5.2 Types (`src/frontend/src/features/admin/launchRadarTypes.ts`, new)
+### 5.2 Types (`src/frontend/src/features/admin/launchRadarTypes.ts`)
 
 ```ts
-export type LaunchRadarStatus = 'new' | 'archived';
+export type LaunchRadarStatus = 'new' | 'saved' | 'archived';
 export type LaunchRadarAtsProvider =
   'greenhouse' | 'ashby' | 'lever' | 'gem' | 'workday' | 'eightfold' | 'other' | 'none';
 
@@ -456,7 +446,7 @@ export interface LaunchRadarCard {
   event: {
     type: 'funding' | 'launch' | 'other'; headline: string; sourceUrl: string | null;
     announcedAt: string | null; round: string | null; amountUsd: string | null;
-    investors: string | null; origin: 'monitor' | 'task brief';
+    investors: string | null; origin: 'monitor' | 'findall_backfill' | 'task brief';
   } | null;
   scores: { talent: number | null; vc: number | null; talentReasons: string[]; vcReasons: string[] };
   leaders: LaunchRadarLeader[];
@@ -486,43 +476,49 @@ export interface LaunchRadarStats {
   capUsd: number;
 }
 export interface LaunchRadarCardsResponse {
-  cards: LaunchRadarCard[]; total: number; counts: { new: number; archived: number }; stats: LaunchRadarStats;
+  cards: LaunchRadarCard[]; total: number; counts: Record<LaunchRadarStatus, number>; stats: LaunchRadarStats;
 }
-export interface LaunchRadarCardsArgs { status: LaunchRadarStatus; page: number; rowsPerPage: number }
+export type LaunchRadarSort = 'announced' | 'talent' | 'vc' | 'added';
+export interface LaunchRadarCardsArgs { status: LaunchRadarStatus; page: number; rowsPerPage: number; sort: LaunchRadarSort }
 ```
 
 ### 5.3 RTK Query (`src/frontend/src/features/admin/adminApi.ts`)
 
-- Add `'LaunchRadarCards'` to `tagTypes`.
-- `getLaunchRadarCards: builder.query<LaunchRadarCardsResponse, LaunchRadarCardsArgs>`: `{ url: '/launch-radar/cards', params: { status, limit: rowsPerPage, offset: page * rowsPerPage } }`.
-  Add a `transformResponse` runtime guard in the style of `getAdminCustomCompanies`: `cards` is an array, `total` is a number,
-  `counts.new` and `counts.archived` are numbers, `stats.capUsd` is a number, and each card has `typeof id === 'number'` and
-  `typeof domain === 'string'`. `providesTags: ['LaunchRadarCards']`.
-- `setLaunchRadarCardStatus: builder.mutation<LaunchRadarCard, { id: number; status: LaunchRadarStatus }>`:
-  `{ url: `/launch-radar/cards/${id}`, method: 'PATCH', body: { status } }`, `invalidatesTags: ['LaunchRadarCards']`.
+- `'LaunchRadarCards'` is in `tagTypes`.
+- `getLaunchRadarCards: builder.query<LaunchRadarCardsResponse, LaunchRadarCardsArgs>`: `{ url: '/launch-radar/cards', params: { status, limit: rowsPerPage, offset: page * rowsPerPage, sort } }`
+  (`sort` is part of the args, so each sort is its own cache entry).
+  A `transformResponse` runtime guard in the style of `getAdminCustomCompanies`: `cards` is an array, `total` is a number,
+  `counts.new`, `counts.saved` and `counts.archived` are numbers, `stats.capUsd` is a number, and each card has `typeof id === 'number'`,
+  `typeof domain === 'string'` and a `status` of `new`, `saved` or `archived`. `providesTags: ['LaunchRadarCards']`.
+- `setLaunchRadarCardStatus: builder.mutation<LaunchRadarCard, { id: number; status: LaunchRadarStatus; from: LaunchRadarStatus }>`:
+  `{ url: `/launch-radar/cards/${id}`, method: 'PATCH', body: { status, from } }`, `invalidatesTags: ['LaunchRadarCards']`.
+  `from` is the card's tab when clicked (Save: `new`; Unsave: `saved`; Archive: `new` or `saved`; Restore: `archived`).
 - `deleteLaunchRadarCard: builder.mutation<void, { id: number }>`: `{ url: `/launch-radar/cards/${id}`, method: 'DELETE' }`,
   `invalidatesTags: ['LaunchRadarCards']`.
-- Export `useGetLaunchRadarCardsQuery`, `useSetLaunchRadarCardStatusMutation` and `useDeleteLaunchRadarCardMutation`.
+- Both mutations, once the request succeeds (`onQueryStarted` after `queryFulfilled`), remove the card from every cached
+  list (`updateQueryData`, `total - 1`) and move the tab counts, so the card leaves its old tab at once and its buttons
+  cannot be pressed again (into a 409 or 404) before the refetch lands.
+- Hooks: `useGetLaunchRadarCardsQuery`, `useSetLaunchRadarCardStatusMutation` and `useDeleteLaunchRadarCardMutation`.
 
 ### 5.4 Components (`src/frontend/src/pages/AdminLaunchRadarPage/`)
 
 | file | role |
 |---|---|
-| `AdminLaunchRadarPage.tsx` | `Container maxWidth="md"` with `py: RESPONSIVE.spacing.pageMarginY`. `Typography h4` "Launch Radar". The sub line reads: "Startups the Parallel loop found, newest first. Last run {Oct 7 at 01:31 UTC} on {host}. ${spend} of the ${cap} budget used." (or "No runs yet."). MUI `Tabs`: **New** and **Archived**, each with a count chip or a muted count. The page holds the tab, page index and `rowsPerPage = 25`, and keeps the last data to avoid a flash, as `AdminFeedbackPage` does. It shows `LoadingState` and `ErrorState`, and the empty states "No new cards." / "No archived cards.". It shows MUI `Pagination` when `total > rowsPerPage`. |
-| `components/RadarCard.tsx` | An MUI `Accordion` (outlined, `disableGutters`). The summary is a 3-column grid: a 32px black rounded square with the white first letter of `company`; the name plus a `website` link showing `domain` (`target="_blank" rel="noopener noreferrer"`); then `oneLiner` and the event line (`EventLine`). On the right sit two `ScoreBadge`s (Talent, VC). Below them is `CardStatusLine`. Action buttons call `event.stopPropagation()` so they never toggle the accordion. |
-| `components/ScoreBadge.tsx` | A 22px tabular numeral, a 30x3px bar filled to `value%`, and a small label. `null` renders a grey "–" with an empty bar (aria-label "No score"), never 0. |
-| `components/CardStatusLine.tsx` | One line. Left side, New tab: `prUrl` gives the success-colored link "Add-company PR ready". Otherwise `trackedCompanyId` gives the muted text "Already tracked". Otherwise "No PR" plus a link "Open job board" (`ats.boardUrl ?? careersUrl`, omitted if both are null). Archived tab: "Archived {Oct 7}". Right side, New tab: an `Archive` text button. Archived tab: a `Restore` button and a `Delete` button (error color) that opens the dialog. |
-| `components/CardBody.tsx` | Accordion details, indented under the name. **Research incomplete** (only when `issues` is non-empty, first, warning colour): one bullet per issue, so partial data never reads as "nothing found". **Team**: the leader bullets (bold name, muted title, `summary` line). When `leaders` is empty, the warning text "No leaders confirmed." is followed by "The people search returned company pages." if `leadersDropped > 0`. When leaders exist but none has `summary`, schools or prior companies, it shows the warning "No background data came back for these leaders". **Rest of team** (only when `teamStats`): the right label is "{profilesFound} public profiles" ("profile count unknown" when null); one bullet "Previously at Amazon (2), Twitter, … and N more" (top 6, count shown when >1); one bullet "{k} schools: …" (top 4 and "N more"); a muted "No prior exits found" when `exFoundersWithExit === 0` ("Prior exits unknown" when null). **Funding**: the right label is `totalRaisedUsd` + " total"; a bullet per round: "**{stage} {amountUsd}**, {Mon YYYY}. Led by {leads}, with {others}" (first 3 others, then "and N more"). **Highlights**: `notableFacts.slice(0, 3)`. **Why these scores**: a collapsed toggle (MUI `Collapse` or nested Accordion). Its bullets: "Talent {n}: {talentReasons.join('; ')}" or "Talent: no people data, so no score", and "VC {n}: {vcReasons.join('; ')}" or "VC: no funding data, so no score"; when the score is null AND `issues` is non-empty the line reads "Talent: not scored, research incomplete" (same for VC). **Footer**: left "{Ashby} board, {9} open jobs" (verified), "{Provider} board, no PR" (unverified with a provider), or "No job board found". Right: a link to `event.sourceUrl` labelled with its hostname, then "${costUsd.toFixed(2)} research". |
-| `components/EventLine.tsx` | funding: "{round ?? 'Funding'} **{amountUsd}**" then the muted date. launch: "Launch" then the date. other: the headline, truncated. |
+| `AdminLaunchRadarPage.tsx` | `Container maxWidth="md"` with `py: RESPONSIVE.spacing.pageMarginY`. `Typography h4` "Launch Radar". The sub line reads: "Startups the Parallel loop found. Last run {Oct 7 at 01:31 UTC} on {host}. ${spend} of the ${cap} budget used." (or "No runs yet."). MUI `Tabs`: **New**, **Saved** and **Archived** (a card is in exactly one), each with a muted count. On the same row, right-aligned (wrapping under the tabs on a narrow screen): "Sort by" and an exclusive small `ToggleButtonGroup` (`aria-label="Sort cards by"`): **Announced** / **Talent** / **VC** / **Added**. The sort lives in the URL (`?sort=talent`; the default `announced` is omitted), applies to every tab and resets to page 1 when it changes. The page holds the tab, page index and `rowsPerPage = 25`, and keeps the last data to avoid a flash, as `AdminFeedbackPage` does. When a card leaves the list (Save, Unsave, Archive, Restore, Delete) focus moves to the next card's toggle, or the tab panel when it was the last, and a polite live region announces it ("Saved Lightfield"). It shows `LoadingState` and `ErrorState`, and the empty states "No new cards." / "No saved cards." / "No archived cards.". It shows MUI `Pagination` when `total > rowsPerPage`. |
+| `components/RadarCard.tsx` | An MUI `Accordion` (outlined, `disableGutters`). The summary is a 2-column grid (no logo tile: we never fetch logos): the name plus a `website` link showing `domain` (`target="_blank" rel="noopener noreferrer"`; plain text unless `safeHttpUrl` passes it); then `oneLiner` and the event line (`EventLine`). On the right sit two `ScoreBadge`s (Talent, VC). Below them, across both columns, is `CardStatusLine`. Action buttons and links call `event.stopPropagation()` so they never toggle the accordion. |
+| `components/ScoreBadge.tsx` | A 22px tabular numeral, a 30x3px bar filled to `value%`, and a small label. `null` renders a grey "–" with an empty bar (aria-label "No score"), never 0. Sorted by Talent or VC, that score's numeral is full-strength (`text.primary`) and the other's is `text.secondary`; sorted by Announced or Added both look the same. |
+| `components/CardStatusLine.tsx` | One line. Left side, New and Saved tabs: `trackedCompanyId` gives the muted text "Already tracked". Otherwise a muted link "Job board" (`jobBoardHref`: the first of `ats.boardUrl`, `careersUrl` that is an `http(s)` URL; omitted if neither is). The add-company PR (`prUrl`) is not shown. Archived tab: "Archived {Oct 7}". Right side, New tab: `Save` and `Archive` text buttons. Saved tab: `Unsave` and `Archive`. Archived tab: a `Restore` button and a `Delete` button (error color) that opens the dialog. Every button and link carries the company in its accessible name (`aria-label="Save Lightfield"`, "Job board Lightfield"), so a list of cards never has two controls with the same name. An unknown status renders no actions rather than crashing. |
+| `components/CardBody.tsx` | Accordion details, aligned under the name (the header's 14px side padding). **Research incomplete** (only when `issues` holds a research gap, first, warning colour): one bullet per gap, so partial data never reads as "nothing found". A provenance note (`leaders from the brief …`, the payload has no field for it) is not a gap: it is left out of this block and of the "research incomplete" score lines, and the Team section shows it as a muted "Leaders from the company brief" line. **Team**: the leader bullets (bold name, muted title, `summary` line). When `leaders` is empty, the warning text "No leaders confirmed." is followed by "The people search returned company pages." if `leadersDropped > 0`. When leaders exist but none has `summary`, schools or prior companies, it shows the warning "No background data came back for these leaders". **Rest of team** (only when `teamStats`): the right label is "{profilesFound} public profiles" ("profile count unknown" when null); one bullet "Previously at Amazon (2), Twitter, … and N more" (top 6, count shown when >1); one bullet "{k} schools: …" (top 4 and "N more"); a muted "No prior exits found" when `exFoundersWithExit === 0` ("Prior exits unknown" when null). **Funding**: the right label is `totalRaisedUsd` + " total"; a bullet per round: "**{stage} {amountUsd}**, {Mon YYYY}. Led by {leads}, with {others}" (first 3 others, then "and N more"). **Highlights**: `notableFacts.slice(0, 3)`. **Why these scores**: a collapsed toggle (MUI `Collapse` or nested Accordion). Its bullets: "Talent {n}: {talentReasons.join('; ')}" or "Talent: no people data, so no score", and "VC {n}: {vcReasons.join('; ')}" or "VC: no funding data, so no score"; when the score is null AND `issues` holds a research gap the line reads "Talent: not scored, research incomplete" (same for VC). **Footer**: left "{Ashby} board, {9} open jobs" (verified), "{Provider} board, not verified" (unverified with a provider), or "No job board found". Right: "${costUsd.toFixed(2)} research". The source link is not repeated here: it is the "Announcement" link on the event line. |
+| `components/EventLine.tsx` | funding: "{round ?? 'Funding'} **{amountUsd}**" then the muted date ("Sep 17", or "Sep 2026" for a `YYYY-MM` date). launch: "Launch" then the date. other: the headline, truncated. Then a small muted "Announcement" link to `event.sourceUrl` (`target="_blank" rel="noopener noreferrer"`, hostname as `title`), shown only when the URL is absolute `http(s)` (`safeHttpUrl`), with `aria-label="Announcement {company}"`; its click stops propagation so it never toggles the card. |
 | `components/DeleteCardDialog.tsx` | MUI `Dialog`. Title "Delete {company} permanently?". Body "The card and its research go away. The loop will not post {domain} again." `Cancel` and a `Delete` button (contained, error color). It shows an error `Alert` if the mutation fails, and closes on success. |
-| `format.ts` | Pure helpers: `formatShortDate`, `formatRunLine`, `formatUsd`, `atsLabel`, `hostnameOf`, `summarizeTally`, `roundLine`. These are unit tested. |
+| `format.ts` | Pure, unit-tested helpers: dates (`formatShortDate`, `formatMonthYear`, `formatEventDate`), the header line (`formatRunLine`, `formatUsd`), the board (`atsLabel`, `boardLine`, `jobBoardHref`), links (`safeHttpUrl`, `hostnameOf`), lists (`joinWithAnd`, `listWithMore`, `summarizeTally`, `roundLine`), research notes (`researchGaps`, `leadersFromBrief`), the sort (`parseSort`, `scoreEmphasis`) and `cardToggleId`. Every `href` on a card goes through `safeHttpUrl` (the card's URLs are untrusted web data). |
 
 Style: match the existing MUI admin pages (theme typography and colors, `text.secondary` for muted text). No new CSS
 files and no new dependencies.
 
 ---
 
-## 6. Loop (loop unit)
+## 6. Loop
 
 ### 6.1 Module layout (`scripts/launch_radar/`, a package; relative imports only)
 
@@ -530,35 +526,48 @@ files and no new dependencies.
 |---|---|
 | `__init__.py` | empty |
 | `radar.py` | argparse CLI and `main()` (§6.2). Runs as `python -m scripts.launch_radar.radar` from the repo root |
-| `radar.sh` | `#!/bin/sh` launcher. `cd` to the repo root (its own `../..`). If `${LAUNCH_RADAR_ENV_FILE:-$HOME/.config/jvn-launch-radar/env}` exists, source it with `set -a`. Then `exec /opt/homebrew/bin/uv run --no-project --python '>=3.11' --with 'parallel-web>=1.3.5' --with 'httpx>=0.27' python -m scripts.launch_radar.radar "$@"`. Mode 755. The secrets exist only in this process tree, never in Claude's environment |
+| `radar.sh` | `#!/bin/sh` launcher. `cd` to the repo root (its own `../..`). If `${LAUNCH_RADAR_ENV_FILE:-$HOME/.config/jvn-launch-radar/env}` exists, source it with `set -a`. Then `exec uv run --no-project --python '>=3.11' --with 'parallel-web>=1.3.5' --with 'httpx>=0.27' python -m scripts.launch_radar.radar "$@"`, with `uv` found on `PATH`. Mode 755. The secrets exist only in this process tree, never in Claude's environment |
 | `config.py` | Reads `BACKEND_URL` (required), `INTERNAL_API_KEY` (required unless `BACKEND_URL` is a loopback URL), `PARALLEL_API_KEY` (required only by billed subcommands; the SDK reads it, our code only checks presence) and `LAUNCH_RADAR_STATE_DIR` (default `~/Library/Application Support/jvn-launch-radar`). A missing variable exits 1 with the variable's **name** only |
 | `backend_client.py` | `BackendClient` (httpx, timeout 30s, sends `X-Internal-Key` when set). One method per §2.3 route. `reserve()` raises `BudgetExceeded(reason, run_spend, total_spend, cap)` on 402, and `post_card()` raises `DomainSeen` on 409. A request is retried only if it is a GET (twice, on connection errors); POSTs are never retried |
 | `parallel_client.py` | `make_client()`: a lazy `from parallel import Parallel`, then `Parallel().with_options(max_retries=0)`. This is the **only** place that imports `parallel` at runtime (event-type narrowing uses `getattr(ev, "event_type", None)`, not an SDK import) |
-| `schemas.py` | `MONITOR_QUERIES` (§6.4), `MONITOR_OUTPUT_SCHEMA` (POC `poc.py:178`, verbatim), `PEDIGREE_SCHEMA` (POC `poc.py:410`), `BRIEF_SCHEMA` (POC `poc.py:485` **plus** `ats.board_url: string|null`, required), `TEAM_SCHEMA` (= `team_stats.py` `A_SCHEMA`), `ATS_ENUM`, and the price tables (`MONITOR_PRICE`, `TASK_PRICE`, `FINDALL_PRICE` from POC) |
+| `schemas.py` | `MONITOR_QUERIES` (§6.4), and from the POC: `MONITOR_OUTPUT_SCHEMA` (verbatim), `PEDIGREE_SCHEMA`, `BRIEF_SCHEMA` (**plus** `ats.board_url: string|null` and `founders: [{name, title|null, linkedin_url|null}]`, both required), `TEAM_SCHEMA` (= `team_stats.py` `A_SCHEMA`), `ATS_ENUM` and the price tables (`MONITOR_PRICE`, `TASK_PRICE`, `FINDALL_PRICE`). New: `backfill_event_schema` (§6.3, "Backfill") |
 | `domains.py` | `normalize_domain` (§3) and `BIG_TECH` (POC). `is_big_tech(domain)` |
 | `monitors.py` | ensure, read events newer than `last_event_id`, accrue scheduled executions, cancel all |
-| `leaders.py` | FindAll create/poll/result, `is_person` (§6.5), pedigree Task Group |
+| `leaders.py` | FindAll create/poll/result, `is_person` (§6.5), the brief-founders fallback (`brief_founders`, `BriefLeader`), pedigree Task Group |
 | `research.py` | brief Task (core), team-tally Task (pro), and `wait_task` (408 means still running; uses `api_timeout`) |
 | `scoring.py` | `VC_TIERS`, `VC_AMOUNT_BONUS`, `TALENT_RUBRIC` and `CONFIDENCE_WEIGHT`, copied verbatim from POC. `score_vc` and `score_talent` per §6.6 |
-| `ats.py` | `ats_check` (POC `poc.py:752`), minus the fixture writes. Returns `verified`, `job_count`, `checked_url` and `board_url` |
+| `ats.py` | `check_board`: the POC's `ats_check` minus the fixture writes. Returns the card's `ats` block (`verified`, `job_count`, `checked_url`, `board_url`) and the candidates that failed transiently. Also `safe_http_url` and `safe_token` |
 | `card.py` | `build_payload(...) -> dict` matching §4 exactly, with the float→int casts and `leader.summary` composition |
-| `state.py` | local resumable state under `LAUNCH_RADAR_STATE_DIR`: `queue.json` (pending candidates) and `companies/<domain>.json` (created Parallel ids and reserved amounts) |
-| `pipeline.py` | `research_company(...)` and the `run` orchestration (§6.3) |
+| `state.py` | local resumable state under `LAUNCH_RADAR_STATE_DIR`: `queue.json` (pending candidates), `companies/<domain>.json` (created Parallel ids and reserved amounts), `backfill.json`, `refresh/<domain>.json`, `refresh_done.json` and `heartbeat.log` |
+| `resolve.py` | the domain lookup for events without a website (§6.3, step 3b) |
+| `pipeline.py` | `CompanyJob` (one company's research) and the `run` orchestration (§6.3) |
+| `backfill.py` | `radar.py backfill` (§6.3, "Backfill") |
+| `refresh.py` | `radar.py refresh` (§6.3, "Refresh"): re-research cards that have no leaders |
+| `export_cards.py`, `importer.py` | `export_cards.py` writes the local cards to `docs/implementations/launch-radar/data/cards-<date>.json` (`launch-radar-cards/v1`); `radar.py import` posts them (§6.2) |
+| `pr_step.py` | the PR step's only entry point (§6.7, §6.8) |
 | `wrapper.sh`, `com.bp.jvn-launch-radar.plist.template`, `install_launch_agent.sh`, `README.md` | §6.8 |
 
 The POC (`scripts/launch_radar_poc/`) stays **untouched** as a read-only reference. Its code is copied into the modules
 above with these changes: Ledger → backend reservations, `out/seen.json` → `GET /seen`, enrich → Task Group, fixtures
-→ none, `score_talent` → nullable, and `is_person` added. Do not import from `launch_radar_poc`.
+→ none, `score_talent` → nullable, `is_person` added, and the base FindAll fallback replaced by the brief's founders.
+Do not import from `launch_radar_poc`.
 
 ### 6.2 CLI (`radar.py`)
 
 ```
 monitors-ensure                     create any missing active Monitor (one per slot); billed $0.01 each, reserved first
 run [--max-companies N=3] [--budget USD=1.00] [--exclude d1,d2] [--deadline-s 540] [--dry-run]
+backfill [--days 30] [--limit 20] [--generator base] [--exclude d1,d2] [--deadline-s 540] [--dry-run] [--new]
+                                    one-off FindAll sweep of the past month into the queue (§6.3, "Backfill")
 monitors-cancel                     cancel every active Monitor, then PATCH status=cancelled; free
 pr-candidates [--limit 1]           print GET /pr-candidates as JSON
 set-pr --card-id N --pr-url URL     PATCH /cards/{id}/pr
 heartbeat --status ok|error [--note TEXT]   append one line to $STATE_DIR/heartbeat.log (the skill's final step)
+import --file PATH [--dry-run]      POST /cards for each card in an export_cards.py file (launch-radar-cards/v1) under
+                                    one backend run; no Parallel call, nothing reserved; 409 = skip; --dry-run: GET /seen only
+refresh (--domains d1,d2 | --missing-talent) [--include-archived] [--budget USD=1.00] [--deadline-s 540] [--dry-run]
+                                    re-research cards with no leaders (§6.3, "Refresh"); --dry-run: GET /cards only;
+                                    archived cards only with --include-archived
 ```
 
 Exit codes: `0` done · `2` stopped on the budget (402 or the cancel floor) · `3` incomplete, so re-run to resume · `1` error.
@@ -577,31 +586,39 @@ own backend run (`budget_usd = 0.10`), so every reservation belongs to a run.
 3. **Read events.** For each active monitor, page `client.monitor.events(id, limit=100)` (newest first, `next_cursor`) until
    the page holds `last_event_id`. Keep only `event_type == "event_stream"` rows. Parse `output.content` the way POC
    `_parse_content` does. Remember the newest `event_id` per slot.
-3b. **Find missing domains** (added after the live validation on 2026-10-07: every Monitor event arrived with
-   `company_domain: null`, because news articles rarely print a website). For each event with no domain (at most 10 a run),
-   reserve `search(domain:<name>)` at $0.001, then call the Search API (`mode="fast"`, `max_results=8`) and keep the
-   highest-ranked result whose host carries the company name and is not a news, directory or social site
-   (`resolve.py`). Entity Search was tried first and returns only LinkedIn/Tracxn URLs. A cap refusal here stops the
-   run before the cursors move, so the events are read again next run.
+3b. **Find missing domains** (in the live validation every Monitor event arrived with `company_domain: null`). For each
+   event with no domain (at most 10 a run), reserve `search(domain:<name>)` at $0.001, then call the Search API
+   (`mode="fast"`, `max_results=8`) and keep the highest-ranked result whose host carries the company name and is not a
+   news, directory or social site (`resolve.py`; Entity Search returns only LinkedIn/Tracxn URLs for companies). A cap
+   refusal here stops the run before the cursors move, so the events are read again next run.
 4. **Dedupe** before any spend: `normalize_domain`; drop on no domain, `BIG_TECH`, `--exclude`, a domain already in the local
    queue or this run, or a `GET /seen` hit (domain seen, or name tracked). Append the survivors to `queue.json` with the event.
    Then `PATCH /monitors/{slot} last_event_id`, so the events are never read again (the candidates are already persisted locally).
 5. **Research the queue.** Resumed companies (those with a state file) always continue. Up to `--max-companies` new ones
-   start their first billed call. A `ThreadPoolExecutor(max_workers=3)` runs `research_company` per domain:
+   start their first billed call, queued Monitor events before backfill items (stable: queue order within each), because
+   only a Monitor event goes stale. A `ThreadPoolExecutor(max_workers=3)` runs one `CompanyJob` per domain:
    1. Reserve, then create, all three at the same time: FindAll (`entity_type="people"`, generator `preview`, `match_limit=8`,
-      objective and match condition as in POC `poc.py:858`, plus the sentence "The candidate must be one person with a personal
+      objective and match condition as in the POC's leadership FindAll, plus the sentence "The candidate must be one person with a personal
       profile, not a company page."), the brief Task (`core`, `BRIEF_SCHEMA`, input `{company_name, company_domain, context: event headline}`),
       and the team-tally Task (`pro`, `TEAM_SCHEMA`; input asks for current employees who are **not** founders, co-founders or
       C-level executives, because the founders' names are not known yet). Save each id to the state file **before** the next create.
    2. Poll FindAll (`retrieve` every 10s until `is_active` is false), then `result`. Keep the candidates that are matched **and**
       pass `is_person`, at most 8. `leaders_dropped` = matched minus kept. **No base fallback and no FindAll enrich.**
+      **Brief fallback** (added 2026-10-07): when that keeps **zero** people, wait for the brief (created at t=0) and use its
+      `founders` instead: entries without a name dropped, deduped by normalized name, at most 8, `linkedin_url` kept only when it
+      is an http(s) LinkedIn URL. They are saved to the state file (a resume reuses them) and the pedigree runs on them as usual.
+      The leader model has no `source` field, so the card says so in `issues`: `leaders from the brief (FindAll found none)`.
    3. Pedigree, when there is at least one leader: reserve `len × TASK_PRICE['base']`, then one Task Group (`task_group.create`,
       `add_runs` with `default_task_spec = PEDIGREE_SCHEMA` and inputs `{person_name, current_title, linkedin_url, company_name, company_domain}`,
-      processor `base`, `metadata={"row_id": str(i)}`). Poll the group status every 10s, then `get_runs(include_input=True, include_output=True)`.
+      processor `base`, `metadata={"row_id": str(i)}`). `add_runs` bills and is not idempotent, so each attempt is recorded
+      before the call; after an ambiguous failure the group is asked first (`retrieve` → `num_task_runs`): runs present =
+      marked added, none = reserve `task_group(pedigree)#retryN` and add again. Poll the group status every 10s, then `get_runs(include_input=True, include_output=True)`.
       Join on `run.metadata["row_id"]`, never on stream order. Confidence for each field comes from `basis[].field.split('.')[0]`.
    4. Wait for the brief and the team tally (`wait_task`). On failure, set the output to None and add a string to `issues`.
-   5. `ats_check(brief.ats.provider, brief.ats.board_token, brief.careers_url)` against the free public APIs. If the brief gave
-      a `board_url`, that is the board URL; otherwise use the public board URL for a verified token.
+   5. `check_board(brief.ats.provider, brief.ats.board_token, brief.careers_url, brief.ats.board_url)` against the free
+      public APIs. If the brief gave a `board_url`, that is the board URL; otherwise use the public board URL for a verified
+      token. A transient failure (HTTP 429/5xx, a dropped connection) here or while collecting a paid result keeps the
+      company queued (exit 3); after `MAX_RETRIES` (6) such invocations the card posts with the gap in `issues`.
    6. Score (§6.6), `build_payload`, `POST /cards`. A 409 `DomainSeen` is logged as a skip, not an error. Remove the company from
       the queue and its state file.
    - On a 402 `BudgetExceeded`: stop starting new work. The in-flight companies keep their ids and resume next time. The run
@@ -609,12 +626,40 @@ own backend run (`budget_usd = 0.10`), so every reservation belongs to a run.
    - **Deadline**: every poll loop checks `--deadline-s` (default 540, under the Bash tool's 600s cap). Past it, save the state,
      stop, finish the run `stopped`, and exit 3. The next `run` resumes from the saved ids and **never re-creates or
      re-reserves** a saved step.
-   - A queue item older than 3 days with no progress is dropped and logged.
+   - A queue item older than 3 days with no progress is dropped and logged, except a `backfill` sweep item (slot
+     `backfill`), which waits however long the queue takes.
 6. `POST /runs/{uuid}/finish` (`ok` when the queue is empty, otherwise `stopped`, or `error` on an exception) and print one
    summary line per company.
 
-Estimates use `ceil_cost` from POC (round up to $0.001). A full company costs about $0.10 + $0.025 + $0.10 + $0.01 × leaders,
-roughly $0.27 to $0.31.
+Estimates use the POC's `ceil_cost` (round up to $0.001). A full company costs $0.10 + $0.025 + $0.10 + $0.01 × leaders
+(at most 8), so $0.225 to $0.305.
+
+**Refresh (`radar.py refresh`, `refresh.py`; added 2026-10-07).** Applies the brief fallback to cards posted before it
+existed. `GET /cards` selects the cards (`--domains`, or `--missing-talent` = every card whose `scores.talent` is null),
+new and saved only unless `--include-archived`, paged through to the end (`after_id`) so no cap hides a card;
+a card that already has leaders is skipped (its Talent score cannot be recomputed from the stored card), and so is one in
+`$STATE_DIR/refresh_done.json`. One backend run, then for each card: reserve and create a new brief (`core`, with `founders`),
+all up front so they research in parallel; then, per card, wait for it, reserve and run the pedigree Task Group on its
+founders, rescore deterministically and `PUT /cards/{id}/payload`. Kept: event, team tally, ATS block (`pr_ready`), FindAll id,
+`leaders_dropped`. Replaced: the brief's fields, leaders, scores, sources and the brief/leader/pedigree issues; `cost_usd` and
+`timings_s` add the refresh's own. A failed brief leaves the card unchanged. State lives in `refresh/<domain>.json`
+(saved ids and reservations, never re-created or re-reserved; always resumed first); a 402 stops new work (exit 2), the
+deadline exits 3. `--dry-run` reads `GET /cards` and prints the cards and the estimate ($0.025 + $0.01 per founder each).
+
+**Backfill (one-off, `radar.py backfill`, `backfill.py`; added 2026-10-07).** Monitors see only events after they are
+created, so the past month is swept once and fed into steps 3b-4 above; the next `run` researches it in step 5. It opens
+and finishes its own backend run (`budget_usd` = the most it can reserve). (a) Reserve `findall.create(backfill)` =
+`0.25 + 0.03 × --limit` (generator `base`), then one FindAll run: `entity_type="companies"`, conditions
+`early_stage_startup_check` (independent private startup, not big tech or public) and `recent_announcement_check`
+(a newly closed pre-seed to Series B round or a notable launch, dated inside the window; both dates are written into
+the text), `match_limit = --limit`. Save the `findall_id` before anything else. (b) Poll until inactive; reserve
+`findall.enrich(backfill)` = `0.01 × matches`, then `enrich(processor="base")` with a flat, all-required,
+`additionalProperties: false` schema of the nine `MONITOR_OUTPUT_SCHEMA` fields (nullable where unknown). (c) Each
+enriched match becomes a Monitor-shaped event with `origin: "findall_backfill"` (numbers cast to text; rows dated
+outside the window dropped), then 3b (domain lookup) and 4 (dedupe, append to `queue.json`). Reservations above $1 are
+split into $1 rows. `backfill.json` holds the id, the reservations and the progress, so a re-run after a crash, a 402
+or the deadline resumes polling and never creates or enriches twice; a finished backfill is not re-run without `--new`.
+`--dry-run` prints both requests and the estimate and makes no call at all.
 
 ### 6.4 Monitors (three, narrow)
 
@@ -643,12 +688,12 @@ def is_person(cd) -> bool:
 
 ### 6.6 Scoring (deterministic, `scoring.py`)
 
-- **VC**: the points are exactly POC `score_vc` (`poc.py:647`): tier lead/participant points, extra-investor points and the amount
+- **VC**: the points are exactly the POC's `score_vc`: tier lead/participant points, extra-investor points and the amount
   bonus (> $10M / $20M / $50M). Prior rounds' `investors` count as participants. It returns **None** when the brief is missing or
   there are no named investors and no parseable amount. The reasons are human readable: `"{Name} led (tier 1)"`,
   `"{Name} joined (tier 2)"`, `"Y Combinator joined"`, `"+{n} more tier-1 investors"`, `"named investors, none tiered"`,
   `"round over $20M"`.
-- **Talent**: the points are exactly POC `score_talent` (`poc.py:698`): top school 8 (cap 24), top employer 10 (cap 30), **prior exit**
+- **Talent**: the points are exactly the POC's `score_talent`: top school 8 (cap 24), top employer 10 (cap 30), **prior exit**
   15 (cap 30, and only `outcome in {acquired, ipo}`; founding without an exit scores 0), 10+ years 5 (cap 10). Each signal is
   multiplied by `CONFIDENCE_WEIGHT` (high 1.0, **medium 0.8**, low 0.5, missing 0.8). It returns **None** when no leader has any of
   schools, prior companies, structured founded-before entries or years. Reasons look like `"{name}: top school (Berkeley)"`,
@@ -664,16 +709,14 @@ def is_person(cd) -> bool:
   - **§1 Run**: `scripts/launch_radar/radar.sh monitors-ensure`, then `radar.sh run --max-companies 3 --budget 1.00` with Bash
     timeout 600000. Re-run while the exit code is 3, at most 4 invocations. Exit 2 means the budget is spent, so log it and continue
     to §2.
-  - **§2 PR step**, ported from plan.html's PR-step sketch:
-    1. `radar.sh pr-candidates --limit 1`, and stop if it returns none.
-    2. `git fetch origin main` and `git worktree add .claude/worktrees/radar-<id> origin/main -b radar/add-<slug>`.
-    3. In the worktree, grep `src/frontend/src/config/companies.ts` for the token; if found, stop and clean up.
-    4. Read `.claude/skills/add-company/SKILL.md` and do steps 0, 0.5, 1, 2, 3, 5 and 6. Do not use the Skill tool.
-    5. Step 4 (logos) is the run's one Agent call; if it fails, open a draft PR with "logos missing" in the body.
-    6. `current_head.py` must show one head.
-    7. `gh pr create --label launch-radar` with no attribution footer.
-    8. `radar.sh set-pr --card-id <id> --pr-url <url>`, then `git worktree remove … --force`.
-    9. A 30-minute limit applies to the whole PR step.
+  - **§2 PR step** (at most one PR, 30-minute limit): `radar.sh pr-candidates --limit 1` (new or saved cards, saved
+    first; stop on none), then check every value against fixed patterns. Everything else goes through
+    `scripts/launch_radar/pr_step.py`: `worktree` (a temporary worktree on `radar/add-<slug>` from `origin/main`), the
+    add-company steps 0, 0.5, 1, 2 (`pr_step.py scaffold`), 3 and 5, the logos as the run's one Agent call
+    (`logo-setup`, `logo-fetch`, `logo-normalize`, `logo-tile`; if they fail, a draft PR with "logos missing"),
+    `check-head` (one Alembic head), `publish` (commits only the add-company files, pushes, `gh pr create --label
+    launch-radar`, no attribution footer), then `radar.sh set-pr` and, always, `cleanup`. Add-company step 6 (npm checks)
+    is left to the PR's CI. The admin page does not show the PR yet; `set-pr` keeps the card from being offered again.
   - **§3**: `radar.sh heartbeat --status ok|error --note …` is the **final** step.
 - `.claude/commands/launch-radar-once.md`: a headless one-shot that mirrors `.claude/commands/health-watch-once.md`. Read the skill
   file relative to the checkout (do not use the Skill tool), no `ScheduleWakeup` or `/loop`, no background Bash, no sleep loops,
@@ -687,24 +730,7 @@ def is_person(cd) -> bool:
   - `STATE_DIR="$HOME/Library/Application Support/jvn-launch-radar"`.
   - No texting.
   - The wrapper does **not** source or export any secret (`radar.sh` does that itself).
-  - The command is:
-
-  ```sh
-  "$CLAUDE_BIN" -p /launch-radar-once \
-    --allowedTools "Read(./**)" "Edit(./.claude/worktrees/radar-*/**)" "Write(./.claude/worktrees/radar-*/**)" "Agent" \
-      "WebSearch" "WebFetch" \
-      "Bash(scripts/launch_radar/radar.sh monitors-ensure)" \
-      "Bash(scripts/launch_radar/radar.sh run --max-companies 3 --budget 1.00)" \
-      "Bash(scripts/launch_radar/radar.sh run --max-companies 0 --budget 1.00)" \
-      "Bash(scripts/launch_radar/radar.sh pr-candidates --limit 1)" \
-      "Bash(scripts/launch_radar/radar.sh set-pr:*)" "Bash(scripts/launch_radar/radar.sh heartbeat:*)" \
-      "Bash(scripts/launch_radar/pr_step.py:*)" \
-    --disallowedTools "Read(~/.config/jvn-launch-radar/**)" "Read(~/.ssh/**)" "Read(~/.aws/**)" \
-      "Read(~/.zshrc)" "Read(~/.zprofile)" "Read(~/.zshenv)" "Read(~/.bash_profile)" "Read(~/.bashrc)" \
-      "Read(~/.netrc)" "Read(~/.config/gh/**)" "Read(./**/.env)" "Read(./**/.env.*)" "Read(./.vercel/**)" \
-      "Edit(./.claude/worktrees/*/.git)" "Write(./.claude/worktrees/*/.git)" \
-      "Bash(env:*)" "Bash(printenv:*)"
-  ```
+  - The command passes the `--allowedTools` / `--disallowedTools` lists of the `ALLOWED_TOOLS` block.
 
   **Never `--dangerously-skip-permissions`.** The exact list lives in one place, a `ALLOWED_TOOLS` block in `wrapper.sh`, and
   `SKILL.md` §0 quotes it verbatim. A unit test (`test_launch_radar_wrapper.py`) fails if the skip flag appears, if the
@@ -714,8 +740,7 @@ def is_person(cd) -> bool:
   `scripts/launch_radar/pr_step.py` (stdlib, no secrets, in the main checkout the session cannot write) is the PR
   step's only entry point: it validates every value, runs git with hooks and fsmonitor off, checks the temp
   worktree's `.git` pointer and that the scripts it runs there match `origin/main`, commits only the add-company files
-  and pushes only `HEAD:refs/heads/radar/add-<slug>`. The headless PR step does not run `npm ci`/type-check/tests;
-  the PR's CI does. When the skill records `status=error`, the wrapper exits 98 so the failure reaches the `.err` log.
+  and pushes only `HEAD:refs/heads/radar/add-<slug>`. When the skill records `status=error`, the wrapper exits 98 so the failure reaches the `.err` log.
 - `com.bp.jvn-launch-radar.plist.template`:
   - Label `com.bp.jvn-launch-radar`.
   - `ProgramArguments`: `/bin/sh __PROJECT_DIR__/scripts/launch_radar/wrapper.sh`.
@@ -730,12 +755,12 @@ def is_person(cd) -> bool:
 
 ---
 
-## 7. Local-only admin auth bypass (design point 13)
+## 7. Local-only admin auth bypass
 
-### 7.1 Backend (backend unit)
+### 7.1 Backend
 
 - **Env var:** `DEV_AUTH_BYPASS_EMAIL=<admin email>` → `settings.dev_auth_bypass_email`.
-- **New module `src/backend/api/auth/dev_bypass.py`:**
+- **Module `src/backend/api/auth/dev_bypass.py`:**
   - `RAILWAY_MARKERS = ("RAILWAY_ENVIRONMENT", "RAILWAY_ENVIRONMENT_NAME", "RAILWAY_PROJECT_ID", "RAILWAY_SERVICE_ID", "RAILWAY_DEPLOYMENT_ID")`.
   - `def running_on_railway() -> bool`: returns true if any marker is a non-empty value in `os.environ`.
   - `def enforce_dev_auth_bypass_guard() -> None`: if the var is set and `running_on_railway()`, **raise `RuntimeError`** (the
@@ -749,7 +774,8 @@ def is_person(cd) -> bool:
     3. the request has **no `Authorization` header at all** (check the raw header, because `HTTPBearer(auto_error=False)` also
        yields None for a malformed one);
     4. `request.client` is present and `ipaddress.ip_address(request.client.host).is_loopback`. A `ValueError` (for example
-       `"testclient"`) means not loopback.
+       `"testclient"`) means not loopback;
+    5. the `Host` header names this machine (`localhost`, `127.0.0.1`, `[::1]`), which keeps a DNS-rebinding page out.
 
     Otherwise it returns None.
 - **`src/backend/api/main.py`:** call `enforce_dev_auth_bypass_guard()` as the **first** line of `lifespan`, before
@@ -762,13 +788,13 @@ def is_person(cd) -> bool:
   - ignored without the var;
   - honoured for `127.0.0.1` and `::1` with no header (call `dev_bypass_claims` with a hand-built Starlette `Request` scope, and run
     one route-level test with `TestClient(app, client=("127.0.0.1", 50000))`; starlette 1.0.0 supports `client=`);
-  - rejected for a non-loopback client (`10.0.0.5`, `"testclient"`);
+  - rejected for a non-loopback client (`10.0.0.5`, `"testclient"`) and for a non-local `Host` header;
   - a real `Authorization: Bearer x` still goes to `validate_token` (patch it) and an invalid token still returns 401;
   - an `Authorization: Basic …` header disables the bypass;
   - `enforce_dev_auth_bypass_guard` raises with each Railway marker set (monkeypatch env) and does not raise without the var;
   - `require_admin` with bypass claims gives 403 when the email is not in `admins` and 200 when it is.
 
-### 7.2 Frontend (frontend unit)
+### 7.2 Frontend
 
 - **Flag:** `VITE_DEV_AUTH_BYPASS=1`. In `src/frontend/src/config/auth.ts`, add `devAdminBypassEnabled: boolean` to `AuthConfig`:
   ```ts
@@ -799,9 +825,9 @@ def is_person(cd) -> bool:
     `getTokenOrNull` gives null.
   - An `authService` test: `fetchCurrentUser(null)` sends no `Authorization` header.
 
-### 7.3 Docs (backend unit)
+### 7.3 Docs
 
-In `.claude/skills/run/SKILL.md`, add a `## Local admin bypass` section (after Mode 2) covering:
+`.claude/skills/run/SKILL.md` § Local admin bypass (after Mode 2) covers:
 - both flags, with `DEV_AUTH_BYPASS_EMAIL=brendanpotter00@gmail.com` on the uvicorn command and `VITE_DEV_AUTH_BYPASS=1 npm run dev -w src/frontend`;
 - that it works with plain Vite (the `/api/admin` and `/api/users` proxies go to :8000) and with `vercel dev` (the proxies forward
   no `Authorization` when none is sent);
@@ -812,110 +838,40 @@ In `.claude/skills/run/SKILL.md`, add a `## Local admin bypass` section (after M
 
 ---
 
-## 8. Test and check commands per unit
+## 8. Checks
 
-`V=/Users/brendanpotter/Documents/develop/Job-Visualizer-Notifier/.venv/bin`. Postgres must be up (`jobscraper-postgres`).
-Backend tests build their own per-worker schema, so the foreign revision on DB `jobscraper` does not matter.
+Backend tests need Postgres (`docker compose up -d postgres`) and build their own per-worker schema; point
+`TEST_DATABASE_URL` and `DATABASE_URL` at a throwaway database.
 
-**Backend**
+**Backend** (from `src/backend`, with its `.venv`)
 ```bash
-cd <worktree>/src/backend
-$V/mypy                                                     # must be clean (CI gate)
-$V/pytest api/tests/test_launch_radar_service.py api/tests/test_launch_radar_admin.py \
-          api/tests/test_internal_launch_radar.py api/tests/test_dev_auth_bypass.py \
-          api/tests/test_proxy_path_allowlists.py api/tests/test_alembic_single_head.py \
-          api/tests/test_main_lifespan.py api/tests/test_auth.py api/tests/test_dependencies.py
-$V/pytest                                                   # full backend suite before handing back
-cd <worktree> && $V/alembic heads                           # exactly one head
-cd <worktree>/scripts && $V/pytest tests/integration/test_alembic_parity.py
+mypy                                                         # must be clean (CI gate)
+pytest api/tests/test_launch_radar_service.py api/tests/test_launch_radar_admin.py \
+       api/tests/test_internal_launch_radar.py api/tests/test_migration_launch_radar_saved_status.py \
+       api/tests/test_dev_auth_bypass.py api/tests/test_auth.py api/tests/test_db_models.py \
+       api/tests/test_proxy_path_allowlists.py api/tests/test_alembic_single_head.py
+cd ../.. && alembic heads                                    # exactly one head
 ```
 
-**Frontend** (run `npm ci` once at the worktree root first)
+**Frontend** (from the repo root)
 ```bash
-cd <worktree>
-npm run type-check                                          # zero errors
-npx -w src/frontend eslint src --max-warnings 149           # CI gate; add no new warnings
-npm test -- --run                                           # full Vitest suite, including admin.serverless and routes/nav tests
-npm run build                                               # proves the dev bypass compiles out (grep dist for VITE_DEV_AUTH_BYPASS → none)
+npm run type-check && npm run lint && npm test -w src/frontend -- --run
+npm run build      # the dev bypass compiles out: grep dist for VITE_DEV_AUTH_BYPASS finds nothing
 ```
 
 **Loop**
 ```bash
-cd <worktree>/scripts && $V/pytest tests/unit -k launch_radar   # SDK fully faked; no network (httpx.MockTransport)
-cd <worktree> && sh -n scripts/launch_radar/wrapper.sh && sh -n scripts/launch_radar/radar.sh && sh -n scripts/launch_radar/install_launch_agent.sh
+cd scripts && ../src/backend/.venv/bin/python -m pytest tests/unit -k launch_radar   # SDK faked; no network
+uv run --with ruff ruff check --select F,E9,I scripts/launch_radar scripts/tests/unit/test_launch_radar_*.py scripts/tests/unit/launch_radar_fakes.py
+sh -n scripts/launch_radar/wrapper.sh && sh -n scripts/launch_radar/radar.sh && sh -n scripts/launch_radar/install_launch_agent.sh
 plutil -lint scripts/launch_radar/com.bp.jvn-launch-radar.plist.template
 ```
 
-There is no Python linter gate in CI (no ruff config). `mypy` covers only `src/backend/api`.
+`mypy` covers only `src/backend/api`; ruff is not a CI gate (there is no ruff config).
 
 ---
 
-## 9. File ownership (no overlap)
-
-Paths are relative to the worktree root. "new" = create, "edit" = modify an existing file. Nobody edits `plan.html`,
-`plan.packed.html`, `scripts/launch_radar_poc/**`, `.gitignore` or `.claude/launch.json`.
-
-### Backend unit
-- edit `src/backend/api/db_models.py`
-- new `src/backend/alembic/versions/<autogen>_launch_radar_tables.py`
-- edit `src/backend/api/models.py` (append the Launch Radar models)
-- new `src/backend/api/services/launch_radar.py`
-- edit `src/backend/api/routers/admin.py`
-- new `src/backend/api/routers/internal_launch_radar.py`
-- edit `src/backend/api/main.py` (include the router; call the bypass guard first in lifespan)
-- edit `src/backend/api/config.py`
-- new `src/backend/api/auth/dev_bypass.py`
-- edit `src/backend/api/auth/dependencies.py`
-- new `src/backend/api/tests/test_launch_radar_service.py`
-- new `src/backend/api/tests/test_launch_radar_admin.py`
-- new `src/backend/api/tests/test_internal_launch_radar.py`
-- new `src/backend/api/tests/test_dev_auth_bypass.py`
-- edit (only if needed) `src/backend/api/tests/test_auth.py`, `src/backend/api/tests/test_dependencies.py`, `src/backend/api/tests/test_main_lifespan.py`
-- edit `api/admin.ts` (the two allowlist lines in §2.2 only)
-- edit `src/backend/CLAUDE.md` (routes, env vars, tables), `src/backend/docs/database-schema.md` (four tables)
-- edit `.claude/skills/run/SKILL.md` (`## Local admin bypass`)
-
-### Frontend unit
-- edit `src/frontend/src/config/routes.ts`
-- edit `src/frontend/src/components/layout/NavigationDrawer.tsx`
-- edit `src/frontend/src/app/App.tsx`
-- edit `src/frontend/src/features/admin/adminApi.ts`
-- new `src/frontend/src/features/admin/launchRadarTypes.ts`
-- new `src/frontend/src/pages/AdminLaunchRadarPage/AdminLaunchRadarPage.tsx`
-- new `src/frontend/src/pages/AdminLaunchRadarPage/format.ts`
-- new `src/frontend/src/pages/AdminLaunchRadarPage/components/{RadarCard,ScoreBadge,CardStatusLine,CardBody,EventLine,DeleteCardDialog}.tsx`
-- edit `src/frontend/src/config/auth.ts`
-- edit `src/frontend/src/vite-env.d.ts`
-- edit `src/frontend/src/features/auth/useAuth.ts`
-- edit `src/frontend/src/features/auth/useCurrentUser.ts`
-- edit `src/frontend/src/features/auth/authService.ts`
-- edit `src/frontend/src/components/shared/AuthProviders.tsx`
-- edit `src/frontend/vite.config.ts` (the `/api/admin` dev proxy)
-- new `src/frontend/src/__tests__/pages/AdminLaunchRadarPage/{AdminLaunchRadarPage,RadarCard,format}.test.ts(x)`
-- new `src/frontend/src/__tests__/features/admin/launchRadarApi.test.ts`
-- new `src/frontend/src/__tests__/config/authDevBypass.test.ts`
-- new `src/frontend/src/__tests__/features/auth/useAuthDevAdminBypass.test.ts`
-- edit (only if they break or need a case) existing tests under `src/frontend/src/__tests__/` for routes/nav, `config/auth`,
-  `features/auth/*`, `components/shared/AuthProviders` and `features/admin/adminApi`. This does **not** include
-  `__tests__/api/serverless/admin.serverless.test.ts`, which nobody edits.
-- edit `src/frontend/CLAUDE.md` (one line for the page and the flag)
-- runs `npm ci` (generates `node_modules`, which is never committed)
-
-### Loop unit
-- new `scripts/launch_radar/__init__.py`, `radar.py`, `radar.sh`, `config.py`, `backend_client.py`, `parallel_client.py`,
-  `schemas.py`, `domains.py`, `monitors.py`, `leaders.py`, `research.py`, `scoring.py`, `ats.py`, `card.py`, `state.py`, `pipeline.py`
-- new `scripts/launch_radar/wrapper.sh`, `com.bp.jvn-launch-radar.plist.template`, `install_launch_agent.sh`, `README.md`
-- new `scripts/tests/unit/launch_radar_fakes.py` (the fake Parallel client and backend transport)
-- new `scripts/tests/unit/test_launch_radar_{domains,scoring,leaders,research,ats,card,state,pipeline,backend_client,monitors,cli,wrapper}.py`
-- edit `scripts/requirements-dev.txt` (add `httpx>=0.27`, which the tests import; the runtime gets it from `radar.sh`'s `uv --with`)
-- new `.claude/skills/launch-radar/SKILL.md`
-- new `.claude/commands/launch-radar-once.md`
-- edit `CLAUDE.md` (root): a "Launch Radar" entry under Common Tasks pointing at the skill
-- edit `scripts/CLAUDE.md`: one line in Shared/Architecture pointing at `scripts/launch_radar/README.md`
-
----
-
-## 10. Cross-unit seams (the parts that must agree)
+## 9. Seams (the parts that must agree)
 
 | seam | producer → consumer | pinned in |
 |---|---|---|
@@ -924,4 +880,4 @@ Paths are relative to the worktree root. "new" = create, "edit" = modify an exis
 | internal JSON (snake_case) and status codes 402/409 | backend ↔ loop | §2.3 |
 | card payload | loop → backend (validated, stored) → frontend (camelCase) | §4, §2.4, §5.2 |
 | `normalize_domain` vectors | backend and loop | §3 |
-| bypass: no `Authorization` header and a loopback client | frontend → backend | §7 |
+| bypass: no `Authorization` header, a loopback client and a local `Host` | frontend → backend | §7 |

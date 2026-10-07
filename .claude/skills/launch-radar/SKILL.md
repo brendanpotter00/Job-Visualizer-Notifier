@@ -106,8 +106,9 @@ set to `600000`.
      for; `monitors-ensure` only creates missing slots, so its failure must never skip
      the run. (Exit 1 still makes the heartbeat `--status error`.)
 2. `scripts/launch_radar/radar.sh run --max-companies 3 --budget 1.00`
-   - Accrues yesterday's Monitor executions, reads new events, dedupes them against the
-     backend, then researches up to 3 new companies and posts one card each.
+   - Accrues yesterday's Monitor executions, reads new events, looks up missing domains,
+     dedupes against the backend, then researches up to 3 new companies (queued Monitor
+     events before `backfill` items) and posts one card each.
    - If the spend cap is nearly reached it cancels the Monitors itself and exits 2.
    - If it logs `no active monitors`, put "no active monitors" in the heartbeat note: the
      radar is idle (only queued companies can still be researched) until
@@ -137,10 +138,11 @@ log it, cleanup, go to §3. Never try to do the refused thing another way.
 
 1. `scripts/launch_radar/radar.sh pr-candidates --limit 1`
    It prints `{"cards": [{"id", "domain", "company", "ats_provider", "board_token",
-   "job_count", "posted_at"}]}`. The backend only returns cards that are `new`, have no
-   PR yet, are not already tracked (no `companies` row with that ATS board), and whose
-   board verified on greenhouse/ashby/lever with at least one job. If the list is empty,
-   log "no PR candidate" and go to §3.
+   "job_count", "posted_at"}]}`. The backend returns only `new` or `saved` cards (saved
+   first: the admin flagged them) that have no PR yet, are not already tracked (no
+   `companies` row with that ATS board), and whose board verified on
+   greenhouse/ashby/lever with at least one job. If the list is empty, log "no PR
+   candidate" and go to §3.
 
 ### §2.2 Check the values before using them
 
@@ -219,8 +221,9 @@ Let `WT=.claude/worktrees/radar-<id>` (you never `cd` into it; `pr_step.py` take
    (`companies.ts`, `changelog.ts`, the one seed migration, `company_profiles.json`,
    the logo PNGs) and refuses anything else, pushes `radar/add-<slug>`, opens the PR
    with the `launch-radar` label and prints `pr_url`.
-8. `scripts/launch_radar/radar.sh set-pr --card-id <id> --pr-url <pr_url>` (the card then
-   shows "Add-company PR ready"; a 409 means another run already recorded one — log it).
+8. `scripts/launch_radar/radar.sh set-pr --card-id <id> --pr-url <pr_url>` (records the
+   PR so the card is never offered again; the admin page does not show PRs yet. A 409
+   means another run already recorded one — log it).
 9. Cleanup, always, whether the step succeeded or not:
    `scripts/launch_radar/pr_step.py cleanup --card-id <id>`.
 

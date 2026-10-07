@@ -24,7 +24,7 @@ BIG_TECH = {
 
 
 def normalize_domain(value: object) -> str | None:
-    """Ported verbatim from POC ``poc.py:155``."""
+    """Ported verbatim from the POC (``poc.py``)."""
     if not value or not isinstance(value, str):
         return None
     v = value.strip().lower()

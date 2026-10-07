@@ -6,11 +6,13 @@ import { createApi, fetchBaseQuery } from '@reduxjs/toolkit/query/react';
 // declaring a second wire-identical one) is what makes a backend rename a
 // compile error in both places at once.
 import type { DiscoveryStep } from '../userCompanies/userCompaniesApi';
-import type {
-  LaunchRadarCard,
-  LaunchRadarCardsArgs,
-  LaunchRadarCardsResponse,
-  LaunchRadarStatus,
+import {
+  LAUNCH_RADAR_STATUSES,
+  type LaunchRadarCard,
+  type LaunchRadarCardsArgs,
+  type LaunchRadarCardsResponse,
+  type LaunchRadarStatus,
+  type LaunchRadarStatusMove,
 } from './launchRadarTypes';
 
 export type SignupProvider = 'google' | 'email' | 'other';
@@ -1405,9 +1407,7 @@ export const adminApi = createApi({
             ...(sort ? { sort } : {}),
             ...(sortDir ? { sortDir } : {}),
             ...(subcategory ? { subcategory } : {}),
-            ...(subcategoryState && subcategoryState !== 'any'
-              ? { subcategoryState }
-              : {}),
+            ...(subcategoryState && subcategoryState !== 'any' ? { subcategoryState } : {}),
           },
         }),
         transformResponse: (res: unknown): EnrichmentNeedsHumanResponse => {
@@ -1820,15 +1820,16 @@ export const adminApi = createApi({
 
     // ─────────────────────────────────────────────────────────────────────────
     // Launch Radar — cards the Parallel loop posts. Server-paginated per tab
-    // (`status`), so the page never holds an unbounded list. Archive/restore
-    // and permanent delete invalidate the one tag, which refetches both the
-    // visible page and the tab counts that ride on every list response.
+    // (`status`: new / saved / archived) and sorted by the server (`sort`), so
+    // the page never holds an unbounded list. Save/unsave/archive/restore and
+    // permanent delete invalidate the one tag, which refetches both the visible
+    // page and the tab counts that ride on every list response.
     // ─────────────────────────────────────────────────────────────────────────
 
     getLaunchRadarCards: builder.query<LaunchRadarCardsResponse, LaunchRadarCardsArgs>({
-      query: ({ status, page, rowsPerPage }) => ({
+      query: ({ status, page, rowsPerPage, sort }) => ({
         url: '/launch-radar/cards',
-        params: { status, limit: rowsPerPage, offset: page * rowsPerPage },
+        params: { status, limit: rowsPerPage, offset: page * rowsPerPage, sort },
       }),
       transformResponse: (res: unknown): LaunchRadarCardsResponse => {
         // Runtime guard — a 2xx body with the wrong shape (CDN error page,
@@ -1840,6 +1841,7 @@ export const adminApi = createApi({
           typeof res.total !== 'number' ||
           !isRecord(res.counts) ||
           typeof res.counts.new !== 'number' ||
+          typeof res.counts.saved !== 'number' ||
           typeof res.counts.archived !== 'number' ||
           !isRecord(res.stats) ||
           typeof res.stats.capUsd !== 'number'
@@ -1848,8 +1850,14 @@ export const adminApi = createApi({
         }
         for (const card of res.cards) {
           // ``id`` is the React key and the mutation target; ``domain`` is the
-          // card's identity in the delete dialog.
-          if (!isRecord(card) || typeof card.id !== 'number' || typeof card.domain !== 'string') {
+          // card's identity in the delete dialog; ``status`` picks the card's
+          // actions, so a status this build does not know is a malformed card.
+          if (
+            !isRecord(card) ||
+            typeof card.id !== 'number' ||
+            typeof card.domain !== 'string' ||
+            !LAUNCH_RADAR_STATUSES.includes(card.status as LaunchRadarStatus)
+          ) {
             throw new Error('Invalid /api/admin/launch-radar/cards response: malformed card');
           }
         }
@@ -1858,16 +1866,28 @@ export const adminApi = createApi({
       providesTags: ['LaunchRadarCards'],
     }),
 
-    setLaunchRadarCardStatus: builder.mutation<
-      LaunchRadarCard,
-      { id: number; status: LaunchRadarStatus }
-    >({
-      query: ({ id, status }) => ({
+    setLaunchRadarCardStatus: builder.mutation<LaunchRadarCard, LaunchRadarStatusMove>({
+      // `from` is the tab the card was clicked in. The backend applies the move
+      // only while the card is still there (409 otherwise): Unsave and Restore
+      // both send `status: 'new'`, so without it a stale Unsave would restore a
+      // card someone archived in another tab.
+      query: ({ id, status, from }) => ({
         url: `/launch-radar/cards/${id}`,
         method: 'PATCH',
-        body: { status },
+        body: { status, from },
       }),
       invalidatesTags: ['LaunchRadarCards'],
+      async onQueryStarted({ id, status }, { dispatch, getState, queryFulfilled }) {
+        try {
+          await queryFulfilled;
+        } catch {
+          return; // refused: the card stays where it is and shows the error
+        }
+        // The card has left its tab. Drop it from every cached list NOW, before
+        // the invalidation refetch lands, so its old buttons cannot be pressed
+        // again into a 409 (and the counts move at once).
+        for (const action of dropLaunchRadarCard(getState(), id, status)) dispatch(action);
+      },
     }),
 
     deleteLaunchRadarCard: builder.mutation<void, { id: number }>({
@@ -1876,9 +1896,48 @@ export const adminApi = createApi({
         method: 'DELETE',
       }),
       invalidatesTags: ['LaunchRadarCards'],
+      async onQueryStarted({ id }, { dispatch, getState, queryFulfilled }) {
+        try {
+          await queryFulfilled;
+        } catch {
+          return; // the dialog shows the error; nothing moved
+        }
+        for (const action of dropLaunchRadarCard(getState(), id, null)) dispatch(action);
+      },
     }),
   }),
 });
+
+type AdminApiState = Parameters<typeof adminApi.util.selectCachedArgsForQuery>[0];
+
+/**
+ * The cache updates that take card `id` out of every cached Launch Radar list
+ * once it has moved to `to` (`null`: deleted). The card leaves each list that
+ * holds it, every list of its old tab loses one from `total` and every list of
+ * the new tab gains one, and the tab counts (on every list) move with it. The
+ * invalidation refetch that follows replaces all of this with the server's
+ * view; until it lands, the card is simply gone. Nothing happens when no
+ * cached list holds the card (its old tab is then unknown).
+ */
+function dropLaunchRadarCard(state: AdminApiState, id: number, to: LaunchRadarStatus | null) {
+  const cached = adminApi.util.selectCachedArgsForQuery(state, 'getLaunchRadarCards');
+  const from = cached.find((args) =>
+    adminApi.endpoints.getLaunchRadarCards
+      .select(args)(state)
+      .data?.cards.some((card) => card.id === id)
+  )?.status;
+  if (from === undefined) return [];
+  return cached.map((args) =>
+    adminApi.util.updateQueryData('getLaunchRadarCards', args, (draft) => {
+      const at = draft.cards.findIndex((card) => card.id === id);
+      if (at !== -1) draft.cards.splice(at, 1);
+      if (args.status === from) draft.total = Math.max(0, draft.total - 1);
+      else if (args.status === to) draft.total += 1;
+      draft.counts[from] = Math.max(0, draft.counts[from] - 1);
+      if (to) draft.counts[to] += 1;
+    })
+  );
+}
 
 export const {
   useListAdminFeedbackQuery,
