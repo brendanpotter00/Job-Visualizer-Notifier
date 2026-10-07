@@ -323,6 +323,9 @@ export const COMPANIES: Company[] = [
   }),
 
   // Lever companies (migrated to backend-scraper)
+  createBackendScraperCompany('bluecore-energy', 'Bluecore Energy', 'https://jobs.lever.co/bluecore-energy', {
+    sourceAts: 'lever',
+  }),
   createBackendScraperCompany('palantir', 'Palantir', 'https://jobs.lever.co/palantir', {
     sourceAts: 'lever',
     recruiterLinkedInUrl:
@@ -1137,6 +1140,7 @@ export const enum COMPANY_IDS {
   Blacksmith = 'blacksmith',
   Block = 'block',
   Box = 'box',
+  BluecoreEnergy = 'bluecore-energy',
   BlueOrigin = 'blueorigin',
   Brex = 'brex',
   Braintrust = 'braintrust',

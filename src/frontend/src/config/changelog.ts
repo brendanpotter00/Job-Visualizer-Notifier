@@ -31,6 +31,18 @@ const SWE_SUBCATEGORIES_REVEAL_DATE = '2026-08-20';
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    id: 'add-bluecore-energy',
+    title: 'Added Bluecore Energy',
+    description:
+      'Bluecore Energy — a nuclear startup building a compact 10 MW reactor mounted on a barge, so clean power can be towed to ports, coastal data centres and other sites that cannot wait on new grid infrastructure — is now tracked via its Lever job board. It raised a $50M seed led by Silverton Partners in September 2026, has secured its first barge, and is building a non-fuelled prototype reactor module at its Port of Long Beach headquarters. Its open roles are mostly hard engineering: reactor physics and shielding, nuclear fuel systems and chemistry controls.',
+    tags: ['new-companies'],
+    date: '2026-10-07',
+    link: {
+      to: ROUTES.ACCOUNT,
+      label: 'Add Bluecore Energy to your company preferences',
+    },
+  },
+  {
     id: 'hightouch-board-move-2026-10',
     title: 'Hightouch is live again after its board moved',
     description:
