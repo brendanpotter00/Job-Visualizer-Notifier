@@ -131,9 +131,49 @@ function useAuthBypass(): AuthResult {
   return BYPASS_AUTH_RESULT;
 }
 
+const DEV_ADMIN_BYPASS_USER: User = {
+  sub: 'dev-bypass|local',
+  name: 'Local admin (dev bypass)',
+};
+
+// LOCAL-ONLY admin bypass (VITE_DEV_AUTH_BYPASS=1 under the vite dev server;
+// see config/auth.ts). "Signed in" so nothing redirects to Auth0, but there is
+// NO token: `getToken` rejects with `NotAuthenticatedError`, which
+// `getTokenOrNull()` turns into null, so RTK Query sends no Authorization
+// header and the local backend's DEV_AUTH_BYPASS_EMAIL decides who this is
+// (loopback, header-less requests only). Admin rights still come from the
+// backend's admins table via /api/users — this grants nothing by itself.
+// Module-stable for the same referential-identity reason as BYPASS_AUTH_RESULT.
+export const DEV_ADMIN_BYPASS_RESULT: AuthResult = {
+  isEnabled: true,
+  isAuthenticated: true,
+  isLoading: false,
+  user: DEV_ADMIN_BYPASS_USER,
+  login: async () => {
+    // No-op — already "signed in" through the local backend bypass.
+  },
+  logout: () => {
+    // No-op — the bypass is controlled by the env var, not runtime state.
+    console.info('[useAuth] Logout ignored: local dev admin bypass is active.');
+  },
+  getToken: async () => {
+    throw new NotAuthenticatedError('Local dev admin bypass sends no token');
+  },
+};
+
+// Like useAuthBypass, calls no hook that needs Auth0/Google context.
+export function useAuthDevAdminBypass(): AuthResult {
+  return DEV_ADMIN_BYPASS_RESULT;
+}
+
 // Module-level dispatch: the env var is inlined at build time, so exactly one
 // implementation is bound for the life of the bundle. This keeps hook rules
 // satisfied (no runtime conditional hook calls) and guarantees useAuth0() /
 // useGoogleCredential() are never invoked in bypass builds where their
-// providers are not mounted.
-export const useAuth = AUTH_CONFIG.bypassEnabled ? useAuthBypass : useAuthReal;
+// providers are not mounted. config/auth.ts throws if both bypass flags are
+// set, so the order of the two bypass checks below never decides anything.
+export const useAuth = AUTH_CONFIG.devAdminBypassEnabled
+  ? useAuthDevAdminBypass
+  : AUTH_CONFIG.bypassEnabled
+    ? useAuthBypass
+    : useAuthReal;

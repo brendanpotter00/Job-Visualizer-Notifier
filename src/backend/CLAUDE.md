@@ -45,7 +45,7 @@ clean before committing (mirrors the frontend's "Zero TypeScript Errors Required
 ## Prerequisites
 
 - PostgreSQL running on localhost:5432 (use `docker compose up -d postgres` from project root)
-- Database: `jobscraper` (created on first lifespan/migration run). Key tables include `job_listings`, `scrape_runs`, `users`, `user_enabled_companies`, `user_saved_filters`, `user_keyword_lists`, `admins`, `features`, `feature_upvotes`, `companies`, `locations`, `job_locations`, `job_enrichment`, `job_categories`, `job_levels`, `job_subcategories`, `app_settings`, `feedback`, `worker_heartbeats`, and others — see `src/backend/docs/database-schema.md` for the full schema.
+- Database: `jobscraper` (created on first lifespan/migration run). Key tables include `job_listings`, `scrape_runs`, `users`, `user_enabled_companies`, `user_saved_filters`, `user_keyword_lists`, `admins`, `features`, `feature_upvotes`, `companies`, `locations`, `job_locations`, `job_enrichment`, `job_categories`, `job_levels`, `job_subcategories`, `app_settings`, `feedback`, `worker_heartbeats`, the four `launch_radar_*` tables, and others — see `src/backend/docs/database-schema.md` for the full schema.
 - Python 3.13+ with dependencies from `src/backend/api/requirements.txt`
 
 ## Configuration
@@ -88,6 +88,8 @@ All configuration via environment variables:
 | `COMPANY_NAME_SEARCH_ENABLED` | Accept a typed company **name** in the add box, not only a URL. Off (default) → `POST /api/companies/search-by-name` returns **503** and the box stays URL-only. On → one Browserbase **Search** call per attempt (~$0.007; the plan includes 1,000 free), then free deterministic scoring of all 25 results via `resolve_ats_url` — no model call, no browser. Needs `BROWSERBASE_API_KEY`. **Independent of `CAPTURE_USE_BROWSERBASE`**: that buys Browsers for discovery, this buys the Search API — different products, separately priced. Pair with the build-time `VITE_COMPANY_NAME_SEARCH_ENABLED`, backend first | `false` |
 | `BROWSERBASE_API_KEY` / `BROWSERBASE_PROJECT_ID` | Browserbase credentials. Read by discovery's optional hosted-browser path (`CAPTURE_USE_BROWSERBASE`) and by name search (`COMPANY_NAME_SEARCH_ENABLED`, which needs only the key) | *(optional)* |
 | `DEV_RESET_ENABLED` | **LOCAL DEVELOPMENT ONLY. Never set this in Railway.** Registers `GET/POST /api/users/dev-reset` (`routers/dev_reset.py`), which deletes every `visibility='user'` company the caller owns and everything it owns — jobs, freshness/location/tag/enrichment sidecars, `company_scripts`, `company_harvests`, `scrape_runs`, `user_companies`, and the `company_add_attempts` audit (so the 20/month quota is refunded too). It exists because the add flow is only testable once per board: after the first add the endpoint answers "you already track this". **Off means the router is NOT registered** — the path 404s like one that was never written, rather than 403ing and advertising itself. **The flag is not the real guard**: the endpoint independently re-derives at call time that `DATABASE_URL` parses to a **loopback** host (`services/dev_reset.assert_local_database` — parsed with libpq's own `parse_dsn`, not substring-matched and not `urlsplit` alone, because a DSN's `?host=`/`?hostaddr=` parameter overrides the URL authority and would otherwise read as "localhost" while connecting to production; fail-closed on anything unparseable) **and** asks the live connection where it actually is (`assert_local_connection` — `conn.info.host` plus `SELECT inet_server_addr()`), 403ing otherwise, so setting this on the wrong machine still deletes nothing. It is also **never proxied** — absent from every `PROXIED_ROUTES` in `api/*.ts` and pinned in `NOT_PROXIED` by `api/tests/test_proxy_path_allowlists.py`, so the QA page calls the backend origin directly. Scoped to the caller by default (`?scope=mine`); **`?scope=all` clears every user's and requires an `admins` grant** (two of its DELETEs have no WHERE clause). CLI equivalent: `scripts/one_off/dev_reset_custom_companies.py` | `false` |
+| `DEV_AUTH_BYPASS_EMAIL` | **LOCAL DEVELOPMENT ONLY. Never set this in Railway** — the app refuses to start (the lifespan's first line, `auth/dev_bypass.enforce_dev_auth_bypass_guard`, raises) if it is set while any Railway marker (`RAILWAY_ENVIRONMENT`, `RAILWAY_ENVIRONMENT_NAME`, `RAILWAY_PROJECT_ID`, `RAILWAY_SERVICE_ID`, `RAILWAY_DEPLOYMENT_ID`) is present. When set locally, a request with **no `Authorization` header at all** from a **loopback** client with a local `Host` header is treated as this email (`get_optional_user` → `dev_bypass_claims`), so the admin pages work without Auth0. Any local proxy in front of the backend (`vercel dev`, vite) must listen on 127.0.0.1 only, since everything it forwards arrives as loopback. `require_admin` still checks `admins`; any `Authorization` header takes the normal JWT path. Pairs with the frontend's `VITE_DEV_AUTH_BYPASS=1`; how-to in `.claude/skills/run/SKILL.md` § Local admin bypass | *(unset)* |
+| `LAUNCH_RADAR_SPEND_CAP_USD` | Total Parallel spend cap for Launch Radar across every loop run (USD, `gt=0, le=50`). Enforced by the ledger (`services/launch_radar.reserve_spend`) before every billed call; nothing the loop sends can raise it | `5.0` |
 
 **Table names are env-agnostic.** All environments share bare names (`job_listings`, `scrape_runs`, `users`, `user_enabled_companies`). Test isolation uses per-worker Postgres **schemas** via `PYTEST_SCHEMA=test_<hex>` + `SET search_path`; inside the schema the table names are the same as prod. See `docs/implementations/envAgnosticTables/PLAN.md`.
 
@@ -343,6 +345,13 @@ filter set in SQL and pages the *result*. Router `routers/jobs_search.py`, SQL
 - `GET /api/admin/locations/problem-jobs` - Jobs with problematic location data (requires admin)
 - `POST /api/admin/locations/re-normalize-all` - Break-glass: reset all normalization_status to NULL and re-queue (requires admin)
 
+
+**Launch Radar (`/api/admin/launch-radar/*`, requires admin; `/api/internal/launch-radar/*`, X-Internal-Key):** the Parallel-driven startup radar (`docs/implementations/launch-radar/CONTRACT.md`). The loop (`scripts/launch_radar/`) posts one card per normalized domain; the admin page reads them. SQL in `services/launch_radar.py`.
+- `GET /api/admin/launch-radar/cards?status=new|archived&limit&offset` — one tab's page + `total`, `counts` for both tabs, and `stats` (`lastRun`, `spendUsd`, `capUsd`). `status=deleted` is a 422: deleted rows never reach the client.
+- `PATCH /api/admin/launch-radar/cards/{id}` `{"status": "archived"|"new"}` — Archive (new only) / Restore (archived only); 404 missing or deleted, 409 already in that state.
+- `DELETE /api/admin/launch-radar/cards/{id}` — 204; permanent delete of an ARCHIVED card only (409 for `new`). It is a **tombstone**: payload, PR link and tracked company are cleared, the row and its `domain` stay, so `UNIQUE(domain)` keeps the loop from ever posting that company again. Nothing runs `DELETE FROM launch_radar_cards`.
+- Internal (snake_case, never proxied, called by the loop directly at `BACKEND_URL`): `POST /runs` (201, idempotent on `run_uuid`), `POST /runs/{uuid}/reserve` (the **ledger**: one transaction under `pg_advisory_xact_lock`; **402** `{"detail": {"reason": "run_budget"|"cap", ...}}` past the run budget or the global cap; `accrued=true` rows — Monitor executions already billed — are always recorded and report `over_cap`), `POST /runs/{uuid}/finish`, `GET /monitors`, `PUT|PATCH /monitors/{slot}` (slots `seed`, `series_a_plus`, `launch`), `GET /seen?domain=&name=` (dedupe before spend; tombstones count; ≤100 each), `POST /cards` (201; **409** `domain already posted`; 422 for a non-normalized domain or an invalid payload; resolves `tracked_company_id` from the public ATS board), `PATCH /cards/{id}/pr`, `GET /pr-candidates`.
+
 **Features Router (`/api/features`):**
 - `GET /api/features` - List all features with upvote counts, current user's vote state, and `completedAt` (null = open candidate, set = shipped) (optional auth)
 - `POST /api/features/{feature_id}/upvote` - Add upvote for a feature (requires Bearer token)
@@ -375,6 +384,7 @@ src/backend/api/
 │   ├── jwt.py           # JWT validation dispatcher (Auth0 + Google issuer routing)
 │   ├── google_jwt.py    # Google One Tap token validation via Google JWKS
 │   ├── internal_key.py  # X-Internal-Key middleware (server-to-server auth for proxied routes)
+│   ├── dev_bypass.py    # LOCAL-ONLY admin auth bypass (DEV_AUTH_BYPASS_EMAIL); refuses to boot on Railway
 │   └── claims.py        # Typed claim helpers extracted from validated JWT payloads
 ├── routers/
 │   ├── jobs.py                  # Jobs list and detail endpoints
@@ -387,7 +397,8 @@ src/backend/api/
 │   ├── feedback.py              # Public user-feedback submission (POST /api/feedback; optional auth)
 │   ├── companies.py             # Public curated-companies directory (GET /api/companies; no auth)
 │   ├── locations.py             # Public canonical-location search (GET /api/locations/search; internal-key auth)
-│   └── internal_enrichment.py  # Internal enrichment API (X-Internal-Key; GET /pending, POST /results, etc.)
+│   ├── internal_enrichment.py  # Internal enrichment API (X-Internal-Key; GET /pending, POST /results, etc.)
+│   └── internal_launch_radar.py # Launch Radar loop API (X-Internal-Key; runs, spend ledger, monitors, seen, cards)
 ├── services/
 │   ├── database.py      # API query functions (reuses scripts/shared/database.py)
 │   ├── db_rows.py       # TypedDict definitions for raw DB row shapes
@@ -403,6 +414,7 @@ src/backend/api/
 │   ├── enrichment_monitor.py    # Admin enrichment triage queries (needs-human queue, ticks, recent)
 │   ├── enrichment_writer.py     # Write-back path for enrichment results and corrections
 │   ├── app_settings.py      # Allowlisted runtime settings (key/value, JSONB) + the public flag read
+│   ├── launch_radar.py      # Launch Radar cards (lifecycle + tombstone), runs, spend ledger, monitors, normalize_domain
 │   ├── llm_client.py        # Shared Anthropic API client wrapper
 │   ├── location_normalization.py  # Tier-1/Tier-2 normalization pipeline entry point
 │   ├── location_canonicalize.py   # Claude Haiku prompt + schema for Tier-2 canonicalization

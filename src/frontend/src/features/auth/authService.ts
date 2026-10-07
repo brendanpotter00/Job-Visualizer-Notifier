@@ -91,14 +91,18 @@ function parseUserResponse(raw: unknown): User {
   return obj as unknown as User;
 }
 
-export async function fetchCurrentUser(token: string, signal?: AbortSignal): Promise<User> {
-  const response = await fetch('/api/users', {
-    headers: {
-      Authorization: `Bearer ${token}`,
-      Accept: 'application/json',
-    },
-    signal,
-  });
+/**
+ * `token === null` is the LOCAL-ONLY dev admin bypass (see config/auth.ts):
+ * the request goes out with no Authorization header at all, and the local
+ * backend's DEV_AUTH_BYPASS_EMAIL resolves the user. A null token never comes
+ * from the normal signed-in path, which always has one.
+ */
+export async function fetchCurrentUser(token: string | null, signal?: AbortSignal): Promise<User> {
+  const headers: Record<string, string> =
+    token === null
+      ? { Accept: 'application/json' }
+      : { Authorization: `Bearer ${token}`, Accept: 'application/json' };
+  const response = await fetch('/api/users', { headers, signal });
 
   if (!response.ok) {
     const detail = await extractErrorDetail(response);
@@ -117,14 +121,14 @@ export async function fetchCurrentUser(token: string, signal?: AbortSignal): Pro
  * Throws on a non-2xx so the caller can log-and-swallow (a failed visit count
  * must never break the app).
  */
-export async function recordVisit(token: string): Promise<void> {
-  const response = await fetch('/api/users/visit', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      Accept: 'application/json',
-    },
-  });
+export async function recordVisit(token: string | null): Promise<void> {
+  // null only under the local dev admin bypass (see fetchCurrentUser): no
+  // Authorization header, so the local backend's DEV_AUTH_BYPASS_EMAIL decides.
+  const headers: Record<string, string> =
+    token === null
+      ? { Accept: 'application/json' }
+      : { Authorization: `Bearer ${token}`, Accept: 'application/json' };
+  const response = await fetch('/api/users/visit', { method: 'POST', headers });
 
   if (!response.ok) {
     const detail = await extractErrorDetail(response);

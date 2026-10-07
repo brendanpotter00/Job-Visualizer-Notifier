@@ -6,6 +6,12 @@ import { createApi, fetchBaseQuery } from '@reduxjs/toolkit/query/react';
 // declaring a second wire-identical one) is what makes a backend rename a
 // compile error in both places at once.
 import type { DiscoveryStep } from '../userCompanies/userCompaniesApi';
+import type {
+  LaunchRadarCard,
+  LaunchRadarCardsArgs,
+  LaunchRadarCardsResponse,
+  LaunchRadarStatus,
+} from './launchRadarTypes';
 
 export type SignupProvider = 'google' | 'email' | 'other';
 
@@ -789,6 +795,7 @@ export const adminApi = createApi({
     'EnrichmentRecent',
     'AdminCustomCompanies',
     'AdminCustomCompanyAttempts',
+    'LaunchRadarCards',
 
     'AdminSettings',
   ],
@@ -1810,6 +1817,66 @@ export const adminApi = createApi({
       },
       providesTags: ['AdminCustomCompanyAttempts'],
     }),
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Launch Radar — cards the Parallel loop posts. Server-paginated per tab
+    // (`status`), so the page never holds an unbounded list. Archive/restore
+    // and permanent delete invalidate the one tag, which refetches both the
+    // visible page and the tab counts that ride on every list response.
+    // ─────────────────────────────────────────────────────────────────────────
+
+    getLaunchRadarCards: builder.query<LaunchRadarCardsResponse, LaunchRadarCardsArgs>({
+      query: ({ status, page, rowsPerPage }) => ({
+        url: '/launch-radar/cards',
+        params: { status, limit: rowsPerPage, offset: page * rowsPerPage },
+      }),
+      transformResponse: (res: unknown): LaunchRadarCardsResponse => {
+        // Runtime guard — a 2xx body with the wrong shape (CDN error page,
+        // serializer regression) would otherwise render "No new cards." and
+        // zeroed tab counts with no error signal.
+        if (
+          !isRecord(res) ||
+          !Array.isArray(res.cards) ||
+          typeof res.total !== 'number' ||
+          !isRecord(res.counts) ||
+          typeof res.counts.new !== 'number' ||
+          typeof res.counts.archived !== 'number' ||
+          !isRecord(res.stats) ||
+          typeof res.stats.capUsd !== 'number'
+        ) {
+          throw new Error('Invalid /api/admin/launch-radar/cards response');
+        }
+        for (const card of res.cards) {
+          // ``id`` is the React key and the mutation target; ``domain`` is the
+          // card's identity in the delete dialog.
+          if (!isRecord(card) || typeof card.id !== 'number' || typeof card.domain !== 'string') {
+            throw new Error('Invalid /api/admin/launch-radar/cards response: malformed card');
+          }
+        }
+        return res as unknown as LaunchRadarCardsResponse;
+      },
+      providesTags: ['LaunchRadarCards'],
+    }),
+
+    setLaunchRadarCardStatus: builder.mutation<
+      LaunchRadarCard,
+      { id: number; status: LaunchRadarStatus }
+    >({
+      query: ({ id, status }) => ({
+        url: `/launch-radar/cards/${id}`,
+        method: 'PATCH',
+        body: { status },
+      }),
+      invalidatesTags: ['LaunchRadarCards'],
+    }),
+
+    deleteLaunchRadarCard: builder.mutation<void, { id: number }>({
+      query: ({ id }) => ({
+        url: `/launch-radar/cards/${id}`,
+        method: 'DELETE',
+      }),
+      invalidatesTags: ['LaunchRadarCards'],
+    }),
   }),
 });
 
@@ -1837,6 +1904,9 @@ export const {
   useReenrichEnrichmentJobMutation,
   useGetAdminCustomCompaniesQuery,
   useGetAdminCustomCompanyAttemptsQuery,
+  useGetLaunchRadarCardsQuery,
+  useSetLaunchRadarCardStatusMutation,
+  useDeleteLaunchRadarCardMutation,
 
   useGetAdminSettingsQuery,
   useUpdateAdminSettingMutation,

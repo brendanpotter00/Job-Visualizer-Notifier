@@ -39,6 +39,19 @@ describe('authService', () => {
       });
     });
 
+    it('sends NO Authorization header for a null token (local dev admin bypass)', async () => {
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockResolvedValue(new Response(JSON.stringify(mockUser), { status: 200 }));
+
+      await fetchCurrentUser(null);
+
+      const [url, init] = fetchSpy.mock.calls[0];
+      expect(url).toBe('/api/users');
+      expect(init?.headers).toEqual({ Accept: 'application/json' });
+      expect(new Headers(init?.headers).has('Authorization')).toBe(false);
+    });
+
     it('returns parsed user data', async () => {
       vi.spyOn(globalThis, 'fetch').mockResolvedValue(
         new Response(JSON.stringify(mockUser), { status: 200 })
@@ -254,6 +267,19 @@ describe('authService', () => {
           Authorization: 'Bearer my-token',
           Accept: 'application/json',
         },
+      });
+    });
+
+    it('sends no Authorization header for a null token (local dev admin bypass)', async () => {
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockResolvedValue(new Response(null, { status: 204 }));
+
+      await recordVisit(null);
+
+      expect(fetchSpy).toHaveBeenCalledWith('/api/users/visit', {
+        method: 'POST',
+        headers: { Accept: 'application/json' },
       });
     });
 

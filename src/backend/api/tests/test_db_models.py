@@ -41,6 +41,11 @@ def test_all_tables_present():
         "company_scripts",
         "company_harvests",
         "company_add_attempts",
+        # Launch Radar (docs/implementations/launch-radar/CONTRACT.md §1).
+        "launch_radar_runs",
+        "launch_radar_spend",
+        "launch_radar_monitors",
+        "launch_radar_cards",
     }, f"Unexpected metadata.tables: {sorted(names)}"
 
 

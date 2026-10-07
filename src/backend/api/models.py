@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Annotated, Any, Literal
 
 from pydantic import (
+    AwareDatetime,
     BaseModel,
     ConfigDict,
     Field,
@@ -2256,3 +2257,369 @@ class AdminCustomCompanyAttemptsResponse(BaseModel):
     # true when the rollup hit its 200-row cap (mirrors AdminUserVisitsResponse).
     users_truncated: bool = False
     schema_present: bool = True
+
+
+# ---------------------------------------------------------------------------
+# Launch Radar (docs/implementations/launch-radar/CONTRACT.md §2 and §4)
+# ---------------------------------------------------------------------------
+#
+# ONE set of nested payload models serves both directions. The loop POSTs the
+# card payload in snake_case, which these accept BY FIELD NAME
+# (``populate_by_name``) and reject on any unknown key (``extra="forbid"``); the
+# admin dashboard receives the same models serialized BY ALIAS, i.e. camelCase.
+# The payload is stored as ``model_dump(mode="json")`` (snake_case) in
+# ``launch_radar_cards.payload``.
+
+_LR_PAYLOAD_CONFIG = ConfigDict(
+    alias_generator=to_camel, populate_by_name=True, extra="forbid"
+)
+
+LaunchRadarAtsProvider = Literal[
+    "greenhouse", "ashby", "lever", "gem", "workday", "eightfold", "other", "none"
+]
+LaunchRadarCardStatus = Literal["new", "archived"]
+LaunchRadarRunStatus = Literal["running", "ok", "stopped", "error"]
+LaunchRadarMonitorSlot = Literal["seed", "series_a_plus", "launch"]
+LaunchRadarMonitorStatus = Literal["active", "cancelled"]
+
+
+class LaunchRadarEvent(BaseModel):
+    model_config = _LR_PAYLOAD_CONFIG
+
+    type: Literal["funding", "launch", "other"]
+    headline: str
+    source_url: str | None = None
+    announced_at: str | None = None
+    round: str | None = None
+    amount_usd: str | None = None
+    investors: str | None = None
+    origin: Literal["monitor", "task brief"]
+
+
+class LaunchRadarScores(BaseModel):
+    model_config = _LR_PAYLOAD_CONFIG
+
+    # null = no data to score (no people data / no funding data), never 0.
+    talent: int | None = Field(default=None, ge=0, le=100)
+    vc: int | None = Field(default=None, ge=0, le=100)
+    talent_reasons: list[str]
+    vc_reasons: list[str]
+
+
+class LaunchRadarLeader(BaseModel):
+    model_config = _LR_PAYLOAD_CONFIG
+
+    name: str = Field(min_length=1)
+    title: str | None = None
+    linkedin_url: str | None = None
+    profile_url: str | None = None
+    summary: str | None = None
+    schools: list[str]
+    prior_companies: list[str]
+    founded_before: list[str]
+    years_experience: int | None = Field(default=None, ge=0)
+    industry_experience: str | None = None
+    signals: list[str] = Field(max_length=4)
+
+
+class LaunchRadarTally(BaseModel):
+    model_config = _LR_PAYLOAD_CONFIG
+
+    name: str
+    count: int = Field(ge=0)
+
+
+class LaunchRadarTeamStats(BaseModel):
+    model_config = _LR_PAYLOAD_CONFIG
+
+    profiles_found: int | None = Field(ge=0)  # None = unknown, never coerced to 0
+    team_size_estimate: str
+    schools: list[LaunchRadarTally]
+    prior_employers: list[LaunchRadarTally]
+    ex_founders_with_exit: int | None = Field(ge=0)  # None = unknown
+    sample_names: list[str]
+
+
+class LaunchRadarRound(BaseModel):
+    model_config = _LR_PAYLOAD_CONFIG
+
+    stage: str | None = None
+    amount_usd: str | None = None
+    announced_at: str | None = None
+    lead_investors: list[str]
+    other_investors: list[str]
+
+
+class LaunchRadarFunding(BaseModel):
+    model_config = _LR_PAYLOAD_CONFIG
+
+    latest_round: LaunchRadarRound | None = None
+    prior_rounds: list[LaunchRadarRound]
+    total_raised_usd: str | None = None
+
+
+class LaunchRadarAts(BaseModel):
+    model_config = _LR_PAYLOAD_CONFIG
+
+    provider: LaunchRadarAtsProvider
+    board_token: str | None = None
+    board_url: str | None = None
+    verified: bool
+    job_count: int | None = Field(default=None, ge=0)
+    checked_url: str | None = None
+
+
+class LaunchRadarSource(BaseModel):
+    model_config = _LR_PAYLOAD_CONFIG
+
+    url: str = Field(min_length=1)
+    title: str | None = None
+    field: str | None = None
+
+
+class LaunchRadarParallelRunIds(BaseModel):
+    model_config = _LR_PAYLOAD_CONFIG
+
+    findall_id: str | None = None
+    brief_run_id: str | None = None
+    team_run_id: str | None = None
+    pedigree_group_id: str | None = None
+
+
+class LaunchRadarPayload(BaseModel):
+    """The card the loop posts (§4). ``domain`` must already be normalized; the
+    route re-normalizes it server-side and 422s on any difference."""
+
+    model_config = _LR_PAYLOAD_CONFIG
+
+    company: str = Field(min_length=1, max_length=200)
+    domain: str = Field(min_length=3, max_length=253)
+    website: str = Field(min_length=1)
+    one_liner: str | None = None
+    what_they_do: str | None = None
+    blurb: str | None = None
+    event: LaunchRadarEvent | None = None
+    scores: LaunchRadarScores
+    leaders: list[LaunchRadarLeader] = Field(max_length=8)
+    leaders_dropped: int = Field(ge=0)
+    team_stats: LaunchRadarTeamStats | None = None
+    funding: LaunchRadarFunding
+    notable_facts: list[str] = Field(max_length=6)
+    careers_url: str | None = None
+    ats: LaunchRadarAts
+    pr_ready: bool
+    sources: list[LaunchRadarSource] = Field(max_length=40)
+    parallel_run_ids: LaunchRadarParallelRunIds
+    cost_usd: float = Field(ge=0)
+    timings_s: dict[str, float]
+    issues: list[str]
+    generated_at: datetime
+
+
+class LaunchRadarCardOut(LaunchRadarPayload):
+    """GET/PATCH /api/admin/launch-radar/cards — the row columns plus the parsed
+    payload, camelCase on the wire (the TS ``LaunchRadarCard``). Deleted rows
+    never reach this model, so ``status`` is only ``new`` or ``archived``."""
+
+    id: int
+    status: LaunchRadarCardStatus
+    tracked_company_id: str | None = None
+    pr_url: str | None = None
+    posted_at: datetime
+    archived_at: datetime | None = None
+    updated_by: str | None = None
+
+
+class LaunchRadarLastRun(BaseModel):
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    started_at: datetime
+    ended_at: datetime | None = None
+    status: LaunchRadarRunStatus
+    host: str | None = None
+
+
+class LaunchRadarStats(BaseModel):
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    last_run: LaunchRadarLastRun | None = None
+    spend_usd: float
+    cap_usd: float
+
+
+class LaunchRadarCounts(BaseModel):
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    new: int = Field(ge=0)
+    archived: int = Field(ge=0)
+
+
+class LaunchRadarCardsResponse(BaseModel):
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    cards: list[LaunchRadarCardOut] = Field(default_factory=list)
+    # Rows with the requested status, BEFORE limit/offset. Drives the pager.
+    total: int = Field(ge=0)
+    # ALWAYS both tabs, whatever the filter.
+    counts: LaunchRadarCounts
+    stats: LaunchRadarStats
+
+
+class LaunchRadarStatusUpdate(BaseModel):
+    """PATCH /api/admin/launch-radar/cards/{id} body: Archive or Restore."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: LaunchRadarCardStatus
+
+
+# --- Internal (loop-facing) shapes: snake_case, no alias generator ----------
+
+
+class LaunchRadarRunStart(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    run_uuid: str = Field(pattern=r"^[A-Za-z0-9-]{8,64}$")
+    host: str | None = Field(default=None, max_length=64)
+    budget_usd: float = Field(gt=0, le=5)
+
+
+class LaunchRadarReserve(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    step: str = Field(min_length=1, max_length=64)
+    est_usd: float = Field(gt=0, le=1)
+    domain: str | None = Field(default=None, max_length=253)
+    accrued: bool = False
+
+
+class LaunchRadarRunFinish(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["ok", "stopped", "error"]
+    events_read: int = Field(ge=0)
+    cards_posted: int = Field(ge=0)
+    notes: str | None = Field(default=None, max_length=500)
+
+
+class LaunchRadarMonitorPut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    monitor_id: str = Field(min_length=1, max_length=128)
+    query: str = Field(min_length=1, max_length=2000)
+    processor: Literal["base"]
+    frequency: Literal["1d"]
+    status: LaunchRadarMonitorStatus
+    charged_through: AwareDatetime
+
+
+class LaunchRadarMonitorPatch(BaseModel):
+    """Any non-empty subset of the three keys. A key that is sent must carry a
+    value: none of the three may be cleared to null through this route."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    last_event_id: str | None = Field(default=None, min_length=1, max_length=128)
+    status: LaunchRadarMonitorStatus | None = None
+    charged_through: AwareDatetime | None = None
+
+    @model_validator(mode="after")
+    def _non_empty_and_non_null(self) -> "LaunchRadarMonitorPatch":
+        if not self.model_fields_set:
+            raise ValueError("at least one of last_event_id, status, charged_through")
+        nulls = sorted(k for k in self.model_fields_set if getattr(self, k) is None)
+        if nulls:
+            raise ValueError(f"cannot be null: {', '.join(nulls)}")
+        return self
+
+
+class LaunchRadarCardCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    run_uuid: str = Field(pattern=r"^[A-Za-z0-9-]{8,64}$")
+    payload: LaunchRadarPayload
+
+
+class LaunchRadarPrUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    pr_url: str = Field(
+        pattern=r"^https://github\.com/brendanpotter00/Job-Visualizer-Notifier/pull/\d+$"
+    )
+
+
+class LaunchRadarMonitorRow(BaseModel):
+    slot: LaunchRadarMonitorSlot
+    monitor_id: str
+    query: str
+    processor: str
+    frequency: str
+    status: LaunchRadarMonitorStatus
+    last_event_id: str | None
+    charged_through: datetime
+
+
+class LaunchRadarMonitorsOut(BaseModel):
+    monitors: list[LaunchRadarMonitorRow]
+
+
+class LaunchRadarRunStarted(BaseModel):
+    run_id: int
+    run_uuid: str
+    budget_usd: float
+    run_spend_usd: float
+    total_spend_usd: float
+    cap_usd: float
+    remaining_usd: float
+    monitors: list[LaunchRadarMonitorRow]
+
+
+class LaunchRadarReserved(BaseModel):
+    reserved_usd: float
+    run_spend_usd: float
+    total_spend_usd: float
+    cap_usd: float
+    over_cap: bool
+
+
+class LaunchRadarRunFinished(BaseModel):
+    run_id: int
+    status: Literal["ok", "stopped", "error"]
+    run_spend_usd: float
+    total_spend_usd: float
+
+
+class LaunchRadarSeenCard(BaseModel):
+    card_id: int
+    status: Literal["new", "archived", "deleted"]
+
+
+class LaunchRadarSeenOut(BaseModel):
+    # Only the seen domains (keyed by the normalized form) and only the names
+    # that match a tracked public company (input name -> companies.id).
+    domains: dict[str, LaunchRadarSeenCard]
+    names: dict[str, str]
+
+
+class LaunchRadarCardCreated(BaseModel):
+    id: int
+    tracked_company_id: str | None
+
+
+class LaunchRadarPrSet(BaseModel):
+    id: int
+    pr_url: str
+
+
+class LaunchRadarPrCandidate(BaseModel):
+    id: int
+    domain: str
+    company: str
+    ats_provider: LaunchRadarAtsProvider
+    board_token: str | None
+    job_count: int | None
+    posted_at: datetime
+
+
+class LaunchRadarPrCandidatesOut(BaseModel):
+    cards: list[LaunchRadarPrCandidate]

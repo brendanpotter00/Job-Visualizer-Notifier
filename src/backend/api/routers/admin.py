@@ -8,6 +8,7 @@ import psycopg2
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response
 from procrastinate import exceptions as procrastinate_exceptions
 from psycopg2.extensions import connection as Connection
+from pydantic import ValidationError
 
 from ..auth.dependencies import TokenClaims, require_admin
 from ..config import settings
@@ -55,6 +56,13 @@ from ..models import (
     AdminSubcategoryResetRequest,
     AdminSubcategoryResetResponse,
     FeedbackResponse,
+    LaunchRadarCardOut,
+    LaunchRadarCardStatus,
+    LaunchRadarCardsResponse,
+    LaunchRadarCounts,
+    LaunchRadarLastRun,
+    LaunchRadarStats,
+    LaunchRadarStatusUpdate,
 )
 from ..services.admin_service import (
     LastAdminError,
@@ -90,6 +98,7 @@ from ..services.enrichment_monitor import (
     reset_subcategories,
 )
 from ..services.app_settings import SettingError, get_settings, set_setting
+from ..services import launch_radar
 from ..services.location_monitor import get_health, get_integrity
 from ..services.location_normalization import normalize_string
 from ..services.user_service import (
@@ -117,6 +126,9 @@ _FEEDBACK_LIST_CAP = 200
 # without bound, which is why both endpoints paginate server-side.
 _CUSTOM_COMPANIES_LIST_CAP = 200
 _CUSTOM_ATTEMPTS_LIST_CAP = 200
+
+# Hard cap on the Launch Radar card page size (same unbounded-reads rule).
+_LAUNCH_RADAR_LIST_CAP = 100
 
 
 @router.get("/users", response_model=AdminUsersListResponse)
@@ -1035,3 +1047,110 @@ def admin_custom_company_attempts(
         users_truncated=data["users_truncated"],
         schema_present=data["schema_present"],
     )
+
+
+# ---------------------------------------------------------------------------
+# Launch Radar — the startup cards the Parallel loop posts
+# (docs/implementations/launch-radar/CONTRACT.md §2.1). Deleted cards are
+# tombstones and never reach the client: every read filters on one of the two
+# live statuses, and a tombstone answers 404 to PATCH and DELETE.
+# ---------------------------------------------------------------------------
+
+
+def _launch_radar_card_out(row: launch_radar.CardRow) -> LaunchRadarCardOut:
+    return LaunchRadarCardOut.model_validate(
+        {
+            **(row["payload"] or {}),
+            "id": row["id"],
+            "status": row["status"],
+            "tracked_company_id": row["tracked_company_id"],
+            "pr_url": row["pr_url"],
+            "posted_at": row["posted_at"],
+            "archived_at": row["archived_at"],
+            "updated_by": row["updated_by"],
+        }
+    )
+
+
+@router.get("/launch-radar/cards", response_model=LaunchRadarCardsResponse)
+def admin_launch_radar_cards(
+    status: LaunchRadarCardStatus = Query(),
+    limit: int = Query(default=25, ge=1, le=_LAUNCH_RADAR_LIST_CAP),
+    offset: int = Query(default=0, ge=0),
+    conn: Connection = Depends(get_db),
+    _admin: TokenClaims = Depends(require_admin),
+) -> LaunchRadarCardsResponse:
+    """One page of cards in one tab, both tab counts, and the header stats."""
+    try:
+        rows, total = launch_radar.list_cards(conn, status, limit, offset)
+        counts = launch_radar.card_counts(conn)
+        stats = launch_radar.run_stats(conn)
+    except psycopg2.Error:
+        conn.rollback()
+        logger.exception("Failed to list launch radar cards for admin dashboard")
+        raise HTTPException(status_code=500, detail="Failed to load launch radar cards")
+    cards: list[LaunchRadarCardOut] = []
+    for r in rows:
+        # One stored payload that no longer validates (an older shape after a
+        # schema change) must not blank the whole dashboard with a 500.
+        try:
+            cards.append(_launch_radar_card_out(r))
+        except ValidationError:
+            logger.exception("Skipping launch radar card %s: stored payload does not validate", r["id"])
+    last_run = stats["last_run"]
+    return LaunchRadarCardsResponse(
+        cards=cards,
+        total=total,
+        counts=LaunchRadarCounts(**counts),
+        stats=LaunchRadarStats(
+            last_run=LaunchRadarLastRun.model_validate(last_run) if last_run else None,
+            spend_usd=stats["spend_usd"],
+            cap_usd=stats["cap_usd"],
+        ),
+    )
+
+
+@router.patch("/launch-radar/cards/{card_id}", response_model=LaunchRadarCardOut)
+def admin_set_launch_radar_status(
+    body: LaunchRadarStatusUpdate,
+    card_id: int = Path(ge=1),
+    conn: Connection = Depends(get_db),
+    admin: TokenClaims = Depends(require_admin),
+) -> LaunchRadarCardOut:
+    """Archive a new card (``archived``) or restore an archived one (``new``).
+    404 for a missing or deleted card, 409 when it is already in that state."""
+    try:
+        row = launch_radar.set_status(
+            conn, card_id, body.status, admin.get("email", "unknown")
+        )
+    except launch_radar.NotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except launch_radar.Conflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except psycopg2.Error:
+        conn.rollback()
+        logger.exception("Failed to update launch radar card status")
+        raise HTTPException(status_code=500, detail="Failed to update card")
+    return _launch_radar_card_out(row)
+
+
+@router.delete("/launch-radar/cards/{card_id}", status_code=204)
+def admin_delete_launch_radar_card(
+    card_id: int = Path(ge=1),
+    conn: Connection = Depends(get_db),
+    admin: TokenClaims = Depends(require_admin),
+) -> Response:
+    """Delete permanently: tombstone an ARCHIVED card (payload cleared, domain
+    kept so the loop never posts it again). 404 missing or already deleted, 409
+    for a card that is still ``new`` (archive it first)."""
+    try:
+        launch_radar.delete_card(conn, card_id, admin.get("email", "unknown"))
+    except launch_radar.NotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except launch_radar.Conflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except psycopg2.Error:
+        conn.rollback()
+        logger.exception("Failed to delete launch radar card")
+        raise HTTPException(status_code=500, detail="Failed to delete card")
+    return Response(status_code=204)

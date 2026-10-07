@@ -11,6 +11,7 @@ let mockAuthConfig = {
   googleClientId: 'test-google-client-id',
   isEnabled: true,
   bypassEnabled: false,
+  devAdminBypassEnabled: false,
 };
 
 vi.mock('../../../config/auth', () => ({
@@ -67,6 +68,7 @@ describe('AuthProviders', () => {
       googleClientId: 'test-google-client-id',
       isEnabled: true,
       bypassEnabled: false,
+      devAdminBypassEnabled: false,
     };
     auth0ProviderProps.current = {};
   });
@@ -101,6 +103,25 @@ describe('AuthProviders', () => {
 
     // In bypass mode, real providers must NOT mount — preview URLs can't
     // complete OAuth and empty clientIds would throw.
+    expect(screen.queryByTestId('google-oauth-provider')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('auth0-provider')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('google-one-tap-rendered')).not.toBeInTheDocument();
+    expect(screen.getByText('child')).toBeInTheDocument();
+  });
+
+  it('short-circuits above real providers in local dev admin bypass mode', async () => {
+    // VITE_DEV_AUTH_BYPASS: no Auth0 redirect locally — useAuth dispatches to a
+    // token-less impl and the local backend authenticates the request.
+    mockAuthConfig.devAdminBypassEnabled = true;
+    mockAuthConfig.isEnabled = true;
+    const { AuthProviders } = await import('../../../components/shared/AuthProviders');
+
+    render(
+      <AuthProviders>
+        <div>child</div>
+      </AuthProviders>
+    );
+
     expect(screen.queryByTestId('google-oauth-provider')).not.toBeInTheDocument();
     expect(screen.queryByTestId('auth0-provider')).not.toBeInTheDocument();
     expect(screen.queryByTestId('google-one-tap-rendered')).not.toBeInTheDocument();

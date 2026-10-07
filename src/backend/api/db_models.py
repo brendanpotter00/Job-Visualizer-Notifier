@@ -19,6 +19,7 @@ from __future__ import annotations
 from sqlalchemy import (
     BigInteger,
     Boolean,
+    CheckConstraint,
     Column,
     DDL,
     Float,
@@ -26,6 +27,7 @@ from sqlalchemy import (
     ForeignKeyConstraint,
     Index,
     Integer,
+    Numeric,
     PrimaryKeyConstraint,
     TIMESTAMP,
     Text,
@@ -1401,4 +1403,145 @@ class EnrichmentTick(Base):
     __table_args__ = (
         UniqueConstraint("tick_uuid", name="uq_enrichment_ticks_tick_uuid"),
         Index("idx_enrichment_ticks_started_at", "started_at"),
+    )
+
+
+# --- Launch Radar ------------------------------------------------------------
+# The Parallel-driven startup radar (docs/implementations/launch-radar/). A
+# local loop (scripts/launch_radar/) researches newly funded / launched startups
+# and posts one card per company through /api/internal/launch-radar/*; the admin
+# dashboard reads them through /api/admin/launch-radar/*. Money is NUMERIC, not
+# Float: the spend cap is compared against a SUM, and a float sum drifts.
+
+
+class LaunchRadarRun(Base):
+    # One row per loop invocation. ``run_uuid`` is the loop's idempotency key, so
+    # a retried POST /runs returns the same row instead of opening a second one.
+    __tablename__ = "launch_radar_runs"
+
+    id = Column(Integer, primary_key=True)
+    run_uuid = Column(Text, nullable=False)
+    host = Column(Text, nullable=True)
+    status = Column(Text, nullable=False, server_default=text("'running'"))
+    # The run's own cap (the loop's --budget). The global cap is a setting.
+    budget_usd = Column(Numeric(10, 4), nullable=False)
+    events_read = Column(Integer, nullable=False, server_default=text("0"))
+    cards_posted = Column(Integer, nullable=False, server_default=text("0"))
+    notes = Column(Text, nullable=True)
+    started_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
+    ended_at = Column(TIMESTAMP(timezone=True), nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("run_uuid", name="uq_launch_radar_runs_run_uuid"),
+        CheckConstraint(
+            "status IN ('running','ok','stopped','error')",
+            name="ck_launch_radar_runs_status",
+        ),
+        CheckConstraint("budget_usd > 0", name="ck_launch_radar_runs_budget"),
+        Index("idx_launch_radar_runs_started_at", "started_at"),
+    )
+
+
+class LaunchRadarSpend(Base):
+    # The spend ledger: one APPEND-ONLY row per reservation. Total spend is
+    # SUM(amount_usd) over the whole table and run spend the SUM for one run_id;
+    # no counter is stored anywhere else, so there is nothing to drift.
+    # ``accrued`` marks a cost already incurred (scheduled Monitor executions),
+    # which is recorded even past the cap because the money is already spent.
+    __tablename__ = "launch_radar_spend"
+
+    id = Column(Integer, primary_key=True)
+    run_id = Column(
+        Integer,
+        ForeignKey("launch_radar_runs.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    step = Column(Text, nullable=False)
+    domain = Column(Text, nullable=True)
+    amount_usd = Column(Numeric(10, 4), nullable=False)
+    accrued = Column(Boolean, nullable=False, server_default=text("false"))
+    created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
+
+    __table_args__ = (
+        CheckConstraint("amount_usd > 0", name="ck_launch_radar_spend_amount"),
+        Index("idx_launch_radar_spend_run_id", "run_id"),
+    )
+
+
+class LaunchRadarMonitor(Base):
+    # The three narrow Parallel event_stream Monitors, one per slot, and each
+    # one's read cursor (``last_event_id``). ``charged_through``: scheduled
+    # executions before this instant are already in the ledger.
+    __tablename__ = "launch_radar_monitors"
+
+    slot = Column(Text, primary_key=True)
+    monitor_id = Column(Text, nullable=False)
+    query = Column(Text, nullable=False)
+    processor = Column(Text, nullable=False)
+    frequency = Column(Text, nullable=False)
+    status = Column(Text, nullable=False, server_default=text("'active'"))
+    last_event_id = Column(Text, nullable=True)
+    charged_through = Column(TIMESTAMP(timezone=True), nullable=False)
+    created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
+    updated_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("monitor_id", name="uq_launch_radar_monitors_monitor_id"),
+        CheckConstraint(
+            "slot IN ('seed','series_a_plus','launch')",
+            name="ck_launch_radar_monitors_slot",
+        ),
+        CheckConstraint(
+            "status IN ('active','cancelled')",
+            name="ck_launch_radar_monitors_status",
+        ),
+    )
+
+
+class LaunchRadarCard(Base):
+    # One row per normalized domain, EVER. The UNIQUE on ``domain`` is the dedupe
+    # guard: a deleted card is a TOMBSTONE (payload, pr_url and
+    # tracked_company_id cleared, row and domain kept), so the loop never posts
+    # that domain again. Scores, event type and cost live in ``payload`` and not
+    # in columns, so clearing the payload clears all of them at once.
+    __tablename__ = "launch_radar_cards"
+
+    id = Column(Integer, primary_key=True)
+    domain = Column(Text, nullable=False)
+    company_name = Column(Text, nullable=False)
+    status = Column(Text, nullable=False, server_default=text("'new'"))
+    tracked_company_id = Column(
+        Text,
+        ForeignKey("companies.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    pr_url = Column(Text, nullable=True)
+    payload = Column(JSONB, nullable=True)
+    run_id = Column(
+        Integer,
+        ForeignKey("launch_radar_runs.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    posted_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
+    updated_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
+    archived_at = Column(TIMESTAMP(timezone=True), nullable=True)
+    deleted_at = Column(TIMESTAMP(timezone=True), nullable=True)
+    updated_by = Column(Text, nullable=True)  # admin email (require_admin claims)
+
+    __table_args__ = (
+        UniqueConstraint("domain", name="uq_launch_radar_cards_domain"),
+        CheckConstraint("domain = lower(domain)", name="ck_launch_radar_cards_domain_lower"),
+        CheckConstraint(
+            "status IN ('new','archived','deleted')",
+            name="ck_launch_radar_cards_status",
+        ),
+        CheckConstraint(
+            "(status = 'deleted') = (payload IS NULL)",
+            name="ck_launch_radar_cards_tombstone",
+        ),
+        CheckConstraint(
+            "status <> 'deleted' OR (pr_url IS NULL AND tracked_company_id IS NULL)",
+            name="ck_launch_radar_cards_tombstone_clean",
+        ),
+        Index("idx_launch_radar_cards_status_posted", "status", "posted_at"),
     )

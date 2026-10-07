@@ -4,11 +4,12 @@ import logging
 
 import jwt
 from jwt import PyJWKClientError
-from fastapi import Depends, HTTPException
+from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from psycopg2.extensions import connection as Connection
 
 from .claims import TokenClaims
+from .dev_bypass import dev_bypass_claims
 from .jwt import validate_token
 from ..dependencies import get_db
 from ..services.admin_service import is_admin_by_email
@@ -25,11 +26,20 @@ __all__ = ["TokenClaims", "get_optional_user", "get_optional_user_lenient",
 
 
 async def get_optional_user(
+    request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(_bearer_scheme),
 ) -> TokenClaims | None:
-    """Extract and validate a JWT token if present, returning claims or None."""
+    """Extract and validate a JWT token if present, returning claims or None.
+
+    With no bearer credentials, the LOCAL-ONLY dev bypass
+    (``auth/dev_bypass.py``, ``DEV_AUTH_BYPASS_EMAIL``) may supply claims; it
+    returns None — anonymous, exactly as before — unless the setting is on, the
+    process is not on Railway, the request has no ``Authorization`` header at
+    all and the client is loopback. A real ``Authorization`` header always takes
+    the normal ``validate_token`` path below.
+    """
     if credentials is None:
-        return None
+        return dev_bypass_claims(request)
     try:
         return validate_token(credentials.credentials)
     except jwt.ExpiredSignatureError:

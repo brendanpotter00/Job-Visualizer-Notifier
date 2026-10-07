@@ -57,6 +57,9 @@ const PROXIED_ROUTES = [
   // app settings (the SWE-subcategory reveal flag lives here)
   'settings', // GET — the admin settings list
   'settings/:key', // PUT — flip one allowlisted key
+  // launch radar (admin dashboard cards; the loop API under /api/internal/launch-radar/ is NEVER proxied)
+  'launch-radar/cards', // GET — list by status
+  'launch-radar/cards/:id', // PATCH (archive / restore) · DELETE (permanent, archived only)
 ] as const;
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {

@@ -147,6 +147,40 @@ erDiagram
         timestamptz at "NOT NULL default now(), indexed"
         text lane "NOT NULL default 'bulk' — 'bulk' | 'interactive'"
     }
+
+    launch_radar_runs ||--o{ launch_radar_spend : "ledger rows (CASCADE)"
+    launch_radar_runs ||--o{ launch_radar_cards : "posted by (SET NULL)"
+    companies ||--o{ launch_radar_cards : "tracked_company_id (SET NULL)"
+
+    launch_radar_runs {
+        integer id PK
+        text run_uuid "UNIQUE, the loop's idempotency key"
+        text status "running | ok | stopped | error"
+        numeric budget_usd "NUMERIC(10,4), > 0"
+        timestamptz started_at "indexed"
+    }
+
+    launch_radar_spend {
+        integer id PK
+        integer run_id FK "CASCADE, indexed"
+        numeric amount_usd "NUMERIC(10,4), > 0"
+        boolean accrued "default false"
+    }
+
+    launch_radar_monitors {
+        text slot PK "seed | series_a_plus | launch"
+        text monitor_id "UNIQUE"
+        text last_event_id "read cursor"
+        timestamptz charged_through
+    }
+
+    launch_radar_cards {
+        integer id PK
+        text domain "UNIQUE, lower-case — the dedupe guard"
+        text status "new | archived | deleted (tombstone)"
+        text tracked_company_id FK "SET NULL"
+        jsonb payload "NULL only on a tombstone"
+    }
 ```
 
 > **"Soft link" (dotted lines)** means the column holds another table's key value but is
@@ -362,6 +396,38 @@ prunes rows older than 24h. Indexed on `at`, and on `(lane, at)` for the per-lan
 a queue only that lane drains, so a fresh row proves *that* worker is dequeuing.
 `/health/worker` 503s if either lane goes stale; without the tag, one dead worker would
 hide behind the other's ticks.
+
+### Launch Radar: `launch_radar_runs` / `launch_radar_spend` / `launch_radar_monitors` / `launch_radar_cards`
+The Parallel-driven startup radar (`docs/implementations/launch-radar/CONTRACT.md` §1). SQL in
+`services/launch_radar.py`; read by `/api/admin/launch-radar/*`, written by the loop through
+`/api/internal/launch-radar/*`. Money is **NUMERIC(10,4)**, never Float: the cap is compared
+against a `SUM`, and a float sum drifts.
+
+- **`launch_radar_runs`** — one row per loop invocation. `run_uuid` UNIQUE
+  (`uq_launch_radar_runs_run_uuid`) makes `POST /runs` idempotent. `status` CHECK in
+  `running/ok/stopped/error`; `budget_usd` CHECK `> 0` is that run's own cap. `events_read`,
+  `cards_posted` (incremented per accepted card), `notes`, `started_at` (indexed), `ended_at`.
+- **`launch_radar_spend`** — the ledger, **append-only**, one row per reservation (`step`,
+  `domain`, `amount_usd` CHECK `> 0`). Total spend = `SUM(amount_usd)` over the table; run spend
+  = the sum for one `run_id` (FK CASCADE, indexed). No counter is stored anywhere else.
+  `accrued = true` marks money already spent (scheduled Monitor executions), recorded even past
+  the cap. Every reservation runs under `pg_advisory_xact_lock`, so two runs cannot both pass
+  the cap on the same stale SUM. The global cap is the `LAUNCH_RADAR_SPEND_CAP_USD` setting.
+- **`launch_radar_monitors`** — the three Parallel event_stream Monitors, keyed by `slot`
+  (CHECK `seed/series_a_plus/launch`); `monitor_id` UNIQUE; `status` CHECK `active/cancelled`;
+  `last_event_id` is the read cursor (reset when a slot gets a new monitor);
+  `charged_through` = scheduled executions before it are already in the ledger. `updated_at`
+  is set explicitly by every UPDATE.
+- **`launch_radar_cards`** — one row per normalized domain, **ever**: `UNIQUE(domain)`
+  (`uq_launch_radar_cards_domain`) is the dedupe guard and `CHECK domain = lower(domain)`.
+  `status` CHECK `new/archived/deleted`. A delete is a **tombstone**: `payload`, `pr_url` and
+  `tracked_company_id` are cleared but the row and its domain stay, so the loop never posts that
+  company again; `CHECK (status = 'deleted') = (payload IS NULL)` and
+  `CHECK status <> 'deleted' OR (pr_url IS NULL AND tracked_company_id IS NULL)` pin that.
+  Scores, event type and cost live in `payload` (snake_case JSONB), deliberately not in columns,
+  so a tombstone clears all of them at once. `tracked_company_id` FK `companies.id` SET NULL,
+  `run_id` FK SET NULL; `posted_at`, `updated_at`, `archived_at`, `deleted_at`, `updated_by`
+  (admin email). Index `(status, posted_at)`.
 
 ## Notes on conventions
 

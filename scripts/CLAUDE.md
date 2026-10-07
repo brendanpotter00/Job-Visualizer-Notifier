@@ -100,6 +100,7 @@ pip install -r scripts/requirements-dev.txt      # Install dev dependencies (tes
 - `shared/batch_writer.py` - Buffered batch writing utility
 - `shared/utils.py` - Shared utilities (timestamps)
 - `shared/constants.py` - Shared constants (table names, etc.)
+- `launch_radar/` - Launch Radar loop (Parallel API startup finder; not a scraper). Runbook: `launch_radar/README.md`
 - Schema is managed by Alembic in `src/backend/alembic/` (see `src/backend/CLAUDE.md` § Schema migrations).
 
 **Testing:**

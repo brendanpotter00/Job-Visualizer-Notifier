@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Template for ~/Library/LaunchAgents/com.bp.jvn-launch-radar.plist.
+     scripts/launch_radar/install_launch_agent.sh replaces __PROJECT_DIR__,
+     __CLAUDE_BIN__ and __HOME__; do not install this file by hand.
+
+     Daily at 07:00 local time. StartCalendarInterval is wall-clock anchored and
+     fires once on wake if the Mac slept through the slot. The wrapper's 90-min
+     cap and single-flight lock keep a wedged run from blocking the next day.
+
+     No secrets here: radar.sh reads ~/.config/jvn-launch-radar/env itself. -->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.bp.jvn-launch-radar</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/sh</string>
+        <string>__PROJECT_DIR__/scripts/launch_radar/wrapper.sh</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>__PROJECT_DIR__</string>
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>7</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+    <key>RunAtLoad</key>
+    <false/>
+    <key>StandardOutPath</key>
+    <string>__HOME__/Library/Logs/jvn-launch-radar.log</string>
+    <key>StandardErrorPath</key>
+    <string>__HOME__/Library/Logs/jvn-launch-radar.err</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <key>PROJECT_DIR</key>
+        <string>__PROJECT_DIR__</string>
+        <key>CLAUDE_BIN</key>
+        <string>__CLAUDE_BIN__</string>
+    </dict>
+</dict>
+</plist>

@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { AUTH_CONFIG } from '../../config/auth';
 import { useAuth } from './useAuth';
 import { fetchCurrentUser, type User } from './authService';
 import { extractErrorMessage } from '../../lib/errors';
@@ -21,7 +22,11 @@ export function useCurrentUser() {
     setLoading(true);
     setError(null);
     try {
-      const token = await getToken();
+      // Local dev admin bypass: there is no token to get (getToken rejects by
+      // design), so ask /api/users header-less and let the local backend's
+      // DEV_AUTH_BYPASS_EMAIL resolve the user — AdminRoute then reads the
+      // real isAdmin from the backend. Bound at build time like useAuth.
+      const token = AUTH_CONFIG.devAdminBypassEnabled ? null : await getToken();
       const fetchedUser = await fetchCurrentUser(token, controller.signal);
       if (!controller.signal.aborted) {
         setUser(fetchedUser);

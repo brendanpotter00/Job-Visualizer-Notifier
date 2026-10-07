@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { AUTH_CONFIG } from '../../config/auth';
 import { useAuth } from './useAuth';
 import { recordVisit } from './authService';
 
@@ -32,7 +33,9 @@ export function useRecordVisit(): void {
 
     const send = async () => {
       try {
-        const token = await getToken();
+        // Local dev admin bypass: getToken rejects by design (there is no
+        // token), so send the visit header-less, exactly like useCurrentUser.
+        const token = AUTH_CONFIG.devAdminBypassEnabled ? null : await getToken();
         await recordVisit(token);
       } catch (err) {
         console.error('[useRecordVisit] failed to record visit', err);
