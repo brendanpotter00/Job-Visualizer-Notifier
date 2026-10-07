@@ -1,6 +1,6 @@
 {
   "format": "launch-radar-cards/v1",
-  "exported_at": "2026-10-07T16:07:53.563302Z",
+  "exported_at": "2026-10-07T17:20:42.629661Z",
   "source": "local",
   "cards": [
     {
@@ -9401,6 +9401,1511 @@
           "team_run_id": "trun_7507573b92ea4ababe715ce86ddd7d9b",
           "brief_run_id": "trun_5fe612b2ad9c4e7580ac71410ede411c",
           "pedigree_group_id": "tgrp_05177ca9bc6a4f03bb69af0b0987f665"
+        }
+      }
+    },
+    {
+      "domain": "veridue.ai",
+      "status": "new",
+      "posted_at": "2026-10-07T17:11:12.932489Z",
+      "payload": {
+        "ats": {
+          "provider": "none",
+          "verified": false,
+          "board_url": null,
+          "job_count": null,
+          "board_token": null,
+          "checked_url": null
+        },
+        "blurb": "Veridue’s $4M pre-seed, led by Episode 1 Ventures, backs a team combining energy M&A experience with agentic-AI expertise. The company says its platform enables investors to screen 100× more opportunities and complete transactions 10× faster.",
+        "event": {
+          "type": "funding",
+          "round": "Pre-Seed",
+          "origin": "findall_backfill",
+          "headline": "Veridue launches its AI-native energy-infrastructure due diligence and M&A platform alongside a $4M pre-seed round.",
+          "investors": "Episode 1 Ventures, High-Tech Gründerfonds (HTGF), Pi Labs, Cameron Hepburn, Jeremy Palmer",
+          "amount_usd": "$4M",
+          "source_url": "https://veridue.ai/blog/veridue-launches-4m-pre-seed",
+          "announced_at": "2026-09-08"
+        },
+        "domain": "veridue.ai",
+        "issues": [],
+        "scores": {
+          "vc": 10,
+          "talent": 23,
+          "vc_reasons": [
+            "named investors, none tiered"
+          ],
+          "talent_reasons": [
+            "Daniel Csonth: top school (Yale)",
+            "Daniel Csonth: 10+ years",
+            "Xander van den Eelaart: 10+ years",
+            "Ian Crawley: top school (Oxford)",
+            "Ian Crawley: 10+ years",
+            "experience capped at 10",
+            "medium-confidence facts count at 80%"
+          ]
+        },
+        "company": "Veridue",
+        "funding": {
+          "latest_round": {
+            "stage": "Pre-seed",
+            "amount_usd": "$4M",
+            "announced_at": "2026-09-08",
+            "lead_investors": [
+              "Episode 1 Ventures"
+            ],
+            "other_investors": [
+              "HTGF",
+              "Pi Labs",
+              "Cameron Hepburn",
+              "Jeremy Palmer"
+            ]
+          },
+          "prior_rounds": [],
+          "total_raised_usd": "$4M"
+        },
+        "leaders": [
+          {
+            "name": "Daniel Csonth",
+            "title": "CEO & Founder, Veridue AI",
+            "schools": [
+              "Yale University Master of Environmental Management (MEM) Climate Tech Investing | AI & ML | Energy Transition",
+              "University College London BSc Economics"
+            ],
+            "signals": [
+              "Reports more than $10 billion in energy M&A due diligence at McKinsey, over six years, and experience investing in solar and heat-pump platforms.",
+              "His profile cites building a startup from $0 to $1 million ARR in six months; he also says he was Triptease’s first product manager and helped scale it from seed to Series B.",
+              "Founded Siisu, a machine-learning startup focused on wearables and IoT data; it was selected for the New Entrepreneurs Foundation."
+            ],
+            "summary": "Yale University. Ex-McKinsey & Company, Inclusive Prosperity Capital, Triptease",
+            "profile_url": "https://linkedin.com/in/danielcsonth",
+            "linkedin_url": "https://linkedin.com/in/danielcsonth",
+            "founded_before": [
+              "Siisu (unknown)"
+            ],
+            "prior_companies": [
+              "McKinsey & Company (Senior Engagement Manager)",
+              "McKinsey & Company (Associate)",
+              "Inclusive Prosperity Capital (Investment Associate)",
+              "McKinsey & Company (Product Manager)",
+              "Triptease (Product Manager)",
+              "Siisu (Founder)",
+              "UBS Investment Bank (Analyst, Investment Banking Division Extra Series)"
+            ],
+            "years_experience": 15,
+            "industry_experience": "Csonth has spent about a decade in the energy-transition sector, working in energy M&A advisory and private-equity investing. His experience includes more than $10 billion of energy M&A due diligence at McKinsey and investments in solar and heat-pump platforms; at Veridue, he applies that transaction and sector experience to renewable-energy and data-center deals."
+          },
+          {
+            "name": "Xander van den Eelaart",
+            "title": "CTO & Cofounder",
+            "schools": [
+              "Utrecht University Master's Mathematics",
+              "Utrecht University Bachelor's Mathematics, Astrophysics"
+            ],
+            "signals": [
+              "At Shell, developed a predictive-maintenance model credited with saving over $10 million in avoided energy-asset downtime.",
+              "At SCOR, deployed an in-house agentic AI assistant to accelerate risk modeling, contract review, and underwriting.",
+              "At SCOR, led a data-science methodology for identifying underestimated reinsurance risks that was implemented by six major insurance carriers."
+            ],
+            "summary": "Utrecht University. Ex-SCOR, Proximity Designs, Shell",
+            "profile_url": "https://linkedin.com/in/xeelaart",
+            "linkedin_url": "https://linkedin.com/in/xeelaart",
+            "founded_before": [],
+            "prior_companies": [
+              "SCOR (Head of Data Science – Property and Casualty)",
+              "SCOR (Data Scientist)",
+              "Proximity Designs (Data Scientist)",
+              "Shell (Data Scientist)",
+              "Progressive Planning (Founding Engineer)"
+            ],
+            "years_experience": 12,
+            "industry_experience": "His experience spans data science and AI for energy and energy infrastructure, including work at Shell and Veridue, as well as risk modeling and underwriting in insurance and reinsurance at SCOR. He has also applied data science to agriculture and smallholder-farmer services at Proximity Designs."
+          },
+          {
+            "name": "Ian Crawley",
+            "title": "Head of Legal at Veridue AI",
+            "schools": [
+              "St John's College, Oxford University Bachelor's Jurisprudence (law)"
+            ],
+            "signals": [
+              "Admitted as a solicitor in England and Wales on 15 October 2007.",
+              "Co-founded Lodeum, an online financial-modelling training provider."
+            ],
+            "summary": "St John's College, Oxford University. Ex-Aviva Investors, IFM Investors, The Co-operative Group",
+            "profile_url": "https://linkedin.com/in/ian-crawley-3610151b",
+            "linkedin_url": "https://linkedin.com/in/ian-crawley-3610151b",
+            "founded_before": [
+              "Lodeum (operating)"
+            ],
+            "prior_companies": [
+              "Aviva Investors (Associate Director - Infrastructure Equity)",
+              "Aviva Investors (Senior Counsel)",
+              "IFM Investors (Commercial Associate)",
+              "The Co-operative Group (Acquisitions & Disposals)",
+              "Addleshaw Goddard (Associate)"
+            ],
+            "years_experience": 19,
+            "industry_experience": "Crawley has a legal and commercial background spanning M&A, investments, and infrastructure equity. At Veridue, he applies that experience to AI-powered due diligence for renewable-energy developers and investors."
+          }
+        ],
+        "sources": [
+          {
+            "url": "https://veridue.ai/",
+            "field": "one_liner",
+            "title": "AI-Powered M&A Due Diligence for Renewable Energy | Veridue"
+          },
+          {
+            "url": "https://platform.tracxn.com/a/d/company/6904cbd728706d4bcfa17462/veridue?utm_source=parallel&utm_medium=ai#a:about",
+            "field": "prior_rounds",
+            "title": "Veridue"
+          },
+          {
+            "url": "https://veridue.ai/blog/veridue-launches-4m-pre-seed",
+            "field": "prior_rounds",
+            "title": "Veridue launches AI-native due diligence and M&A platform"
+          },
+          {
+            "url": "https://jobs.pilabs.vc/companies/veridue-ai-2",
+            "field": "ats",
+            "title": "Veridue AI. | Pi Labs Job Board"
+          },
+          {
+            "url": "https://veridue.ai/careers",
+            "field": "careers_url",
+            "title": "Veridue AI."
+          },
+          {
+            "url": "https://veridue.ai/blog/founders-q-a-how-we-built-an-ai-platform-you-can-trust-for-high-stakes-energy-infrastructure-m-a",
+            "field": "blurb",
+            "title": "Founders Q&A: Building trustworthy AI for energy M&A | Veridue"
+          },
+          {
+            "url": "https://linkedin.com/in/danielcsonth",
+            "field": "years_experience",
+            "title": "linkedin.com"
+          },
+          {
+            "url": "https://yale2020.yale.edu/candidates-degrees/school-forestry-environmental-studies",
+            "field": "education",
+            "title": "Candidates for Degrees | Yale 2020"
+          },
+          {
+            "url": "https://rocketreach.co/xander-van-den-eelaart-email_283355537",
+            "field": "years_experience",
+            "title": "Xander van Den Eelaart Email & Phone Number | Veridue ..."
+          },
+          {
+            "url": "https://linkedin.com/in/xeelaart",
+            "field": "linkedin_url",
+            "title": "linkedin.com"
+          },
+          {
+            "url": "https://linkedin.com/in/ian-crawley-3610151b",
+            "field": "years_experience",
+            "title": "linkedin.com"
+          },
+          {
+            "url": "https://find-and-update.company-information.service.gov.uk/officers/4vxQ_MN-n21nLq33w9MBBlDMpzs/appointments",
+            "field": "founded_before",
+            "title": "Ian CRAWLEY personal appointments - Find and update company information - GOV.UK"
+          },
+          {
+            "url": "https://linkedin.com/company/lodeum",
+            "field": "founded_before",
+            "title": "Lodeum - LinkedIn"
+          },
+          {
+            "url": "https://solicitors.lawsociety.org.uk/person/96473/ian-crawley",
+            "field": "notable_signals",
+            "title": "Ian Crawley - The Law Society"
+          },
+          {
+            "url": "http://linkedin.com/in/danielcsonth",
+            "field": "current_leader_at_company",
+            "title": "Daniel Csonth"
+          }
+        ],
+        "website": "https://veridue.ai",
+        "cost_usd": 0.255,
+        "pr_ready": false,
+        "one_liner": "Veridue is an AI-native M&A and due-diligence platform for renewable-energy infrastructure and data-center transactions.",
+        "timings_s": {
+          "team_s": 8907.3,
+          "brief_s": 8907.3,
+          "findall_s": 293.1,
+          "pedigree_s": 141.8
+        },
+        "team_stats": {
+          "schools": [
+            {
+              "name": "University of Groningen",
+              "count": 1
+            },
+            {
+              "name": "USI Università della Svizzera italiana",
+              "count": 1
+            },
+            {
+              "name": "Università degli Studi di Milano",
+              "count": 1
+            },
+            {
+              "name": "Imperial College London",
+              "count": 1
+            },
+            {
+              "name": "King's College London",
+              "count": 1
+            },
+            {
+              "name": "Università Bocconi",
+              "count": 1
+            },
+            {
+              "name": "University of Oxford",
+              "count": 1
+            }
+          ],
+          "sample_names": [
+            "Thomas Tiotto",
+            "Melchior Villet",
+            "Ian Crawley"
+          ],
+          "profiles_found": 3,
+          "prior_employers": [
+            {
+              "name": "Kyndryl",
+              "count": 1
+            },
+            {
+              "name": "Artificialy",
+              "count": 1
+            },
+            {
+              "name": "IDSIA",
+              "count": 1
+            },
+            {
+              "name": "KPMG Italy",
+              "count": 1
+            },
+            {
+              "name": "Baringa",
+              "count": 1
+            },
+            {
+              "name": "capture.energy",
+              "count": 1
+            },
+            {
+              "name": "Loro Piana",
+              "count": 1
+            },
+            {
+              "name": "Farfetch",
+              "count": 1
+            },
+            {
+              "name": "Aviva Investors",
+              "count": 1
+            },
+            {
+              "name": "IFM Investors",
+              "count": 1
+            },
+            {
+              "name": "Addleshaw Goddard",
+              "count": 1
+            }
+          ],
+          "team_size_estimate": "10-15",
+          "ex_founders_with_exit": 0
+        },
+        "careers_url": "https://veridue.ai/careers",
+        "generated_at": "2026-10-07T17:11:12Z",
+        "what_they_do": "Veridue provides deal-pipeline management, project screening, due diligence and data-room tools for infrastructure investors, IPPs, lenders, banks, insurers, developers and transaction advisors working in renewable energy and data centers. The platform aims to help buyers identify better assets and move through deals faster, while helping developers prepare projects for investment and financing.",
+        "notable_facts": [
+          "The platform was developed and validated over two years with renewable-energy and data-center developers, IPPs and infrastructure investors.",
+          "Veridue says investors can screen 100× more opportunities and complete transactions 10× faster.",
+          "The company says it can deliver full red-flag due diligence in 24 hours, compared with weeks or months using traditional processes.",
+          "Developers get a free institutional-grade virtual data room with self-organizing features.",
+          "The company lists SOC 2 Type II and ISO 27001, and says it does not train AI on customer data."
+        ],
+        "leaders_dropped": 0,
+        "parallel_run_ids": {
+          "findall_id": "findall_cf4a57d0c7164d2d8e90d4b6bb456d62",
+          "team_run_id": "trun_7507573b92ea4aba9992526c77508606",
+          "brief_run_id": "trun_c90235d2655a48ad8409101d4c2bf9ee",
+          "pedigree_group_id": "tgrp_d014ecac1d8b488e9a20f274f9a18238"
+        }
+      }
+    },
+    {
+      "domain": "jaipurrobotics.com",
+      "status": "new",
+      "posted_at": "2026-10-07T17:12:17.927152Z",
+      "payload": {
+        "ats": {
+          "provider": "other",
+          "verified": false,
+          "board_url": "https://jaipurrobotics.com/careers",
+          "job_count": null,
+          "board_token": null,
+          "checked_url": null
+        },
+        "blurb": "Founded by Ermes Zamboni and Nikhil Prakash, whose backgrounds span mechanical engineering, deep learning, and industrial deployment, Jaipur Robotics has grown to a 40-person team with R&D centres in Switzerland and Asia. After earlier funding from TiVentures and Venture Kick, it raised a €4.3M seed round co-led by EquityPitcher Ventures and HTGF; its standout proof point is reporting more than 80% fewer unplanned shutdowns at customer plants.",
+        "event": {
+          "type": "funding",
+          "round": "Seed",
+          "origin": "findall_backfill",
+          "headline": "Jaipur Robotics announced a €4.3M Seed round led by EquityPitcher Ventures and High-Tech Gründerfonds.",
+          "investors": "EquityPitcher Ventures, High-Tech Gründerfonds (HTGF)",
+          "amount_usd": "$5.0M",
+          "source_url": "https://jaipurrobotics.com/2026/09/07/waste-to-energy-ai-jaipur-robotics-raises-eur-4-3m-to-bring-computer-vision-to-waste-plants-worldwide",
+          "announced_at": "2026-09-07"
+        },
+        "domain": "jaipurrobotics.com",
+        "issues": [],
+        "scores": {
+          "vc": 10,
+          "talent": 10,
+          "vc_reasons": [
+            "named investors, none tiered"
+          ],
+          "talent_reasons": [
+            "Nikhil Prakash: top school (ETH Zurich, Indian Institute of Technology)",
+            "Nikhil Prakash: 10+ years",
+            "medium-confidence facts count at 80%"
+          ]
+        },
+        "company": "Jaipur Robotics AG",
+        "funding": {
+          "latest_round": {
+            "stage": "Seed",
+            "amount_usd": "$5.0M (announced as €4.3M)",
+            "announced_at": "2026-09-07",
+            "lead_investors": [
+              "EquityPitcher Ventures",
+              "High-Tech Gründerfonds (HTGF)"
+            ],
+            "other_investors": []
+          },
+          "prior_rounds": [
+            {
+              "stage": "Seed",
+              "amount_usd": "CHF 150,000",
+              "announced_at": "2025-07-22",
+              "lead_investors": [],
+              "other_investors": [
+                "Venture Kick"
+              ]
+            },
+            {
+              "stage": "Pre-seed",
+              "amount_usd": "$800,000",
+              "announced_at": "2025-03-13",
+              "lead_investors": [],
+              "other_investors": [
+                "TiVentures SA"
+              ]
+            }
+          ],
+          "total_raised_usd": "Nearly $6M"
+        },
+        "leaders": [
+          {
+            "name": "Ermes Zamboni",
+            "title": "Co-Founder & CEO",
+            "schools": [
+              "Politecnico di Milano MSc Mechanical Engineering",
+              "Politecnico di Milano Bachelor's degree Mechanical Engineering",
+              "ETH Zürich MSc studies (completion not shown) Mechanical Engineering"
+            ],
+            "signals": [
+              "Named to the 2025 Forbes Italia Under 30 list in the Technology category.",
+              "Previously led a university startup focused on automating waste sorting.",
+              "Managed a team of 10 and a $1 million budget across multiple departments."
+            ],
+            "summary": "Politecnico di Milano. Ex-Geberit, UNITECH International Society, Politecnico di Milano",
+            "profile_url": "https://linkedin.com/in/ermeszamboni",
+            "linkedin_url": "https://linkedin.com/in/ermeszamboni",
+            "founded_before": [],
+            "prior_companies": [
+              "Geberit (GPS Engineer – Operations Development Program)",
+              "Geberit (CFD Engineering Intern)",
+              "UNITECH International Society (Unitech Ambassador)",
+              "Politecnico di Milano (Undergraduate Student Researcher)"
+            ],
+            "years_experience": 6,
+            "industry_experience": "His background combines mechanical engineering and manufacturing/plant operations, including production-system work and a CFD internship at Geberit. At Jaipur Robotics, he applies AI, computer vision, and automation to waste sorting and waste-to-energy and other industrial operations."
+          },
+          {
+            "name": "Nikhil Prakash",
+            "title": "Co-Founder and CTO",
+            "schools": [
+              "ETH Zurich PhD Deep Learning",
+              "Indian Institute of Technology, Bombay",
+              "BIT Sindri"
+            ],
+            "signals": [
+              "Jaipur Robotics profile identifies it as Techstars '24 and says it is backed by Techstars.",
+              "Previously developed computer-vision algorithms for satellites at the Indian Space Organization.",
+              "Spent two years at Pano AI through its scale-up phase."
+            ],
+            "summary": "ETH Zurich. Ex-Pano AI, Colorado School of Mines, ETH Zürich",
+            "profile_url": "https://linkedin.com/in/nprksh",
+            "linkedin_url": "https://linkedin.com/in/nprksh",
+            "founded_before": [],
+            "prior_companies": [
+              "Pano AI (Computer Vision and Geospatial Scientist)",
+              "Colorado School of Mines (Postdoctoral Researcher)",
+              "ETH Zürich (Doctoral Researcher)",
+              "ISRO - Indian Space Research Organization (Scientist/Engineer 'SC')",
+              "National Institute of Technology Rourkela (Assistant Professor)",
+              "Indian Institute of Technology, Bombay (Master's Student (with teaching assistantship))"
+            ],
+            "years_experience": 13,
+            "industry_experience": "His background spans computer vision, deep learning, geospatial science, and satellite applications, including work at ISRO and Pano AI. At Jaipur Robotics, he applies AI and edge-vision systems to waste recognition and waste-to-energy operations."
+          }
+        ],
+        "sources": [
+          {
+            "url": "https://jaipurrobotics.com/2026/09/07/waste-to-energy-ai-jaipur-robotics-raises-eur-4-3m-to-bring-computer-vision-to-waste-plants-worldwide",
+            "field": "one_liner",
+            "title": "Waste-to-Energy AI: Jaipur Robotics raises EUR 4.3M to bring computer vision to waste plants worldwide – Jaipur Robotics"
+          },
+          {
+            "url": "https://jaipurrobotics.com/about-us",
+            "field": "website_url",
+            "title": "About Jaipur Robotics | AI for Waste-to-Energy Plants"
+          },
+          {
+            "url": "https://jaipurrobotics.com/2025/07/22/jaipur-robotics-secures-chf-150000-from-venture-kick-to-boost-waste-to-energy-with-ai-vision",
+            "field": "prior_rounds",
+            "title": "Jaipur Robotics secures CHF 150K from Venture Kick | Jaipur Robotics"
+          },
+          {
+            "url": "https://tracxn.com/a/d/company/65abec53ba415b200f2d41ea/jaipur%20robotics#a:about",
+            "field": "prior_rounds",
+            "title": "Jaipur Robotics"
+          },
+          {
+            "url": "https://www.eu-startups.com/2025/03/cash-for-trash-jaipur-robotics-secures-e725k-to-power-ai-waste-solutions/",
+            "field": "prior_rounds",
+            "title": "Cash for trash: Jaipur Robotics secures €725k to power AI waste solutions | EU-Startups"
+          },
+          {
+            "url": "https://jaipurrobotics.com/careers",
+            "field": "ats",
+            "title": "Careers – Jaipur Robotics"
+          },
+          {
+            "url": "http://inc42.com/buzz/deeptech-startup-jaipur-robotics-raises-e4-3-mn-eyes-india-expansion",
+            "field": "total_raised_usd",
+            "title": "Deeptech Startup Jaipur Robotics Raises €4.3 Mn, Eyes India Expansion"
+          },
+          {
+            "url": "https://jaipurrobotics.com/products",
+            "field": "what_they_do",
+            "title": "Products – Jaipur Robotics"
+          },
+          {
+            "url": "https://seedtable.com/companies/jaipur-robotics/funding-rounds/seed-2026-09",
+            "field": "latest_round",
+            "title": "Jaipur Robotics Raises 5.0M USD in Seed Funding | Seedtable"
+          },
+          {
+            "url": "https://jaipurrobotics.com/2025/03/13/jaipur-robotics-secures-800000-pre-seed-funding",
+            "field": "prior_rounds.1",
+            "title": "Jaipur Robotics secures $800,000 Pre-Seed funding – Jaipur Robotics"
+          },
+          {
+            "url": "https://linkedin.com/in/ermeszamboni",
+            "field": "years_experience",
+            "title": "linkedin.com"
+          },
+          {
+            "url": "https://jaipurrobotics.com/about-us/",
+            "field": "education",
+            "title": "About Jaipur Robotics | AI for Waste-to-Energy Plants"
+          },
+          {
+            "url": "https://jaipurrobotics.com/news/jaipur-robotics-raises-eu4-3-million-to-use-ai-in-waste-disposal-facilities",
+            "field": "notable_signals",
+            "title": "Jaipur Robotics raises €4.3 million to use AI in waste ..."
+          },
+          {
+            "url": "https://linkedin.com/in/nprksh",
+            "field": "years_experience",
+            "title": "linkedin.com"
+          },
+          {
+            "url": "https://rocketreach.co/ermes-zamboni-email_753305958",
+            "field": "current_leader_at_company",
+            "title": "Ermes Zamboni Email & Phone Number | Jaipur Robotics | Techstars '24 Co-Founder and CEO Contact Information"
+          },
+          {
+            "url": "https://jaipurrobotics.com/2024/10/29/news-test-post-3",
+            "field": "current_leader_at_company",
+            "title": "Jaipur Robotics co-founders on how they are revolutionizing ..."
+          }
+        ],
+        "website": "https://jaipurrobotics.com/",
+        "cost_usd": 0.245,
+        "pr_ready": false,
+        "one_liner": "Jaipur Robotics is a Swiss industrial AI company building computer-vision and automation solutions for waste-to-energy, cement, and biomass plants.",
+        "timings_s": {
+          "team_s": 212.6,
+          "brief_s": 148.4,
+          "findall_s": 8518.1,
+          "pedigree_s": 141.6
+        },
+        "team_stats": {
+          "schools": [
+            {
+              "name": "Politecnico di Milano",
+              "count": 2
+            },
+            {
+              "name": "Barcelona School of Economics",
+              "count": 1
+            },
+            {
+              "name": "EUFH Europäische Fachhochschule",
+              "count": 1
+            },
+            {
+              "name": "Indian Institute of Technology (Indian School of Mines), Dhanbad",
+              "count": 1
+            },
+            {
+              "name": "Lovely Professional University",
+              "count": 1
+            },
+            {
+              "name": "Scuola universitaria professionale della Svizzera italiana (SUPSI)",
+              "count": 1
+            },
+            {
+              "name": "The University of Sheffield",
+              "count": 1
+            },
+            {
+              "name": "Tilburg University",
+              "count": 1
+            },
+            {
+              "name": "Università degli Studi di Milano",
+              "count": 1
+            },
+            {
+              "name": "University of Essex",
+              "count": 1
+            },
+            {
+              "name": "University of Massachusetts Lowell",
+              "count": 1
+            },
+            {
+              "name": "Visvesvaraya Technological University",
+              "count": 1
+            }
+          ],
+          "sample_names": [
+            "Mara Santarsiero",
+            "Rinoob Babu",
+            "Luca Ribaldone",
+            "Pranav Goel",
+            "Julie Pham",
+            "Paul-Pawel Stukan",
+            "Gavin Budd",
+            "Vineet Kumar",
+            "Achyuth Reddy",
+            "Toby Dukes",
+            "Luca Dipasquale",
+            "Anna Dell’Aquila"
+          ],
+          "profiles_found": 12,
+          "prior_employers": [
+            {
+              "name": "Bytebeam",
+              "count": 2
+            },
+            {
+              "name": "AMFG",
+              "count": 1
+            },
+            {
+              "name": "Bioggio Pharma Manufacture SA",
+              "count": 1
+            },
+            {
+              "name": "DreamVu Inc.",
+              "count": 1
+            },
+            {
+              "name": "dunnhumby",
+              "count": 1
+            },
+            {
+              "name": "Enteria Energietechnik GmbH",
+              "count": 1
+            },
+            {
+              "name": "EverestEngineering",
+              "count": 1
+            },
+            {
+              "name": "Greystar",
+              "count": 1
+            },
+            {
+              "name": "Juniper Networks",
+              "count": 1
+            },
+            {
+              "name": "Kerry",
+              "count": 1
+            },
+            {
+              "name": "McAfee",
+              "count": 1
+            },
+            {
+              "name": "Nationwide Building Society",
+              "count": 1
+            },
+            {
+              "name": "Pilgrim's Food Masters",
+              "count": 1
+            },
+            {
+              "name": "Reedsy",
+              "count": 1
+            },
+            {
+              "name": "The North Face",
+              "count": 1
+            },
+            {
+              "name": "Timberland",
+              "count": 1
+            },
+            {
+              "name": "VF Corporation",
+              "count": 1
+            },
+            {
+              "name": "Yellow",
+              "count": 1
+            }
+          ],
+          "team_size_estimate": "approximately 40",
+          "ex_founders_with_exit": 0
+        },
+        "careers_url": "https://jaipurrobotics.com/careers",
+        "generated_at": "2026-10-07T17:12:17Z",
+        "what_they_do": "Jaipur Robotics develops computer-vision and AI systems for industrial operators, especially waste-to-energy plants. Its platform detects hazardous and non-compliant waste, analyzes material composition and calorific value, and supports crane automation and bunker management; the company also serves or targets cement and biomass plants.",
+        "notable_facts": [
+          "The company says its European waste-to-energy dataset contains more than 50 million labelled images.",
+          "Its system analyzes more than 5 million tonnes of waste annually and reports 99% hazardous-material detection accuracy.",
+          "Jaipur Robotics reports over 80% fewer unplanned shutdowns and more than €1M in annual added value per plant from improved waste mixing.",
+          "The company reported a 40-person team and two R&D centres, in Switzerland and Asia.",
+          "Its product includes real-time crane tracking, autonomous crane movement, and visual management of waste bunkers."
+        ],
+        "leaders_dropped": 1,
+        "parallel_run_ids": {
+          "findall_id": "findall_cf4a57d0c7164d2daf2d3d0e8e9b41ea",
+          "team_run_id": "trun_7507573b92ea4aba8e8a7b8c6e5aebfb",
+          "brief_run_id": "trun_5fe612b2ad9c4e75aa3a1fbddc254f1c",
+          "pedigree_group_id": "tgrp_ebc632f0d5e447e4b932553e7930c5ac"
+        }
+      }
+    },
+    {
+      "domain": "stepfun.com",
+      "status": "new",
+      "posted_at": "2026-10-07T17:14:10.947663Z",
+      "payload": {
+        "ats": {
+          "provider": "other",
+          "verified": false,
+          "board_url": "https://app.mokahr.com/social-recruitment/step/94904#/",
+          "job_count": null,
+          "board_token": null,
+          "checked_url": null
+        },
+        "blurb": "StepFun’s leadership includes CEO and co-founder Daxin Jiang, CTO and co-founder Yibo Zhu, and chief scientist Xiangyu Zhang. The company has reported a $717M+ Series B+ and a roughly $2.5B pre-IPO financing; its standout technical bet is Step 5 Preview, a 600B-parameter model with 27B active per token and a one-million-token context window.",
+        "event": {
+          "type": "launch",
+          "round": null,
+          "origin": "findall_backfill",
+          "headline": "StepFun launched Step 5 Preview, its new flagship model for agentic work.",
+          "investors": null,
+          "amount_usd": null,
+          "source_url": "https://www.stepfun.com/step-5-preview",
+          "announced_at": "2026-09-20"
+        },
+        "domain": "stepfun.com",
+        "issues": [],
+        "scores": {
+          "vc": 25,
+          "talent": 32,
+          "vc_reasons": [
+            "named investors, none tiered",
+            "round over $50M"
+          ],
+          "talent_reasons": [
+            "Daxin Jiang: top employer (Microsoft)",
+            "Daxin Jiang: 10+ years",
+            "Yibo Zhu: top school (Tsinghua)",
+            "Yibo Zhu: top employer (Google, Microsoft)",
+            "Yibo Zhu: 10+ years",
+            "medium-confidence facts count at 80%"
+          ]
+        },
+        "company": "StepFun",
+        "funding": {
+          "latest_round": {
+            "stage": "Pre-IPO",
+            "amount_usd": "Approximately $2.5B",
+            "announced_at": "2026-05-08",
+            "lead_investors": [],
+            "other_investors": [
+              "Huaqin Technology",
+              "Longcheer Holdings",
+              "OmniVision Integrated Circuits Group",
+              "ZTE"
+            ]
+          },
+          "prior_rounds": [
+            {
+              "stage": "Series B+",
+              "amount_usd": "$717M+",
+              "announced_at": "2026-01-26",
+              "lead_investors": [],
+              "other_investors": [
+                "Pudong Venture Capital",
+                "China Life Insurance",
+                "Xiamen International Trade Group",
+                "Huaqin",
+                "Tencent",
+                "Qiming Venture Partners",
+                "5Y Capital"
+              ]
+            },
+            {
+              "stage": "Series B",
+              "amount_usd": null,
+              "announced_at": "2024-12-23",
+              "lead_investors": [],
+              "other_investors": [
+                "Shanghai State-owned Capital Investment",
+                "Qiming Venture Partners",
+                "5Y Capital",
+                "Tencent"
+              ]
+            },
+            {
+              "stage": "Series A",
+              "amount_usd": null,
+              "announced_at": "2024-02-19",
+              "lead_investors": [],
+              "other_investors": [
+                "Not disclosed in reviewed sources"
+              ]
+            },
+            {
+              "stage": "Angel",
+              "amount_usd": null,
+              "announced_at": "2023-06-01",
+              "lead_investors": [],
+              "other_investors": [
+                "Not disclosed in reviewed sources"
+              ]
+            }
+          ],
+          "total_raised_usd": "$4.42B"
+        },
+        "leaders": [
+          {
+            "name": "Daxin Jiang",
+            "title": "Co-Founder & CEO",
+            "schools": [
+              "University of Science and Technology of China Bachelor's degree",
+              "Institute of Software, Chinese Academy of Sciences Master's degree",
+              "State University of New York at Buffalo PhD Computer Science"
+            ],
+            "signals": [
+              "Named an IEEE Fellow in 2024.",
+              "Published more than 100 papers, with over 8,000 citations.",
+              "Won the SIGKDD Best Application Paper Award in 2008 and was runner-up for the award in 2004."
+            ],
+            "summary": "University of Science and Technology of China. Ex-Microsoft, Microsoft Research Asia, Nanyang Technological University",
+            "profile_url": "https://linkedin.com/in/daxin-jiang-00006124",
+            "linkedin_url": "https://linkedin.com/in/daxin-jiang-00006124",
+            "founded_before": [],
+            "prior_companies": [
+              "Microsoft (Vice President; General Manager, WebXT S+D)",
+              "Microsoft (Partner Chief Scientist)",
+              "Microsoft (Principal Dev Manager)",
+              "Microsoft (Senior Dev Manager)",
+              "Microsoft Research Asia (Lead Researcher / Researcher / Associate Researcher)",
+              "Nanyang Technological University (Assistant Professor)"
+            ],
+            "years_experience": 21,
+            "industry_experience": "Jiang’s career spans academic research and senior Microsoft roles in machine learning, data mining, information retrieval, and NLP, including leading teams building Bing search and AI technologies. He now leads StepFun, which develops multimodal foundation models."
+          },
+          {
+            "name": "Yibo Zhu",
+            "title": "Co-founder and Chief Technology Officer (CTO)",
+            "schools": [
+              "University of California, Santa Barbara PhD Computer Science",
+              "Tsinghua University Bachelor's degree Electrical and Electronics Engineering"
+            ],
+            "signals": [
+              "Received the Microsoft Research Ph.D. Fellowship in 2015.",
+              "Co-authored the SIGCOMM 2015 paper on large-scale RDMA congestion control, which received the SIGCOMM Test-of-Time Award.",
+              "StepFun LLM and VLM models ranked in the LMSYS Chatbot Arena top 10 in January 2025; he also lists an open-weights video-generation model."
+            ],
+            "summary": "University of California, Santa Barbara. Ex-Google, ByteDance, Microsoft",
+            "profile_url": "https://linkedin.com/in/yibo-zhu-66494750",
+            "linkedin_url": "https://linkedin.com/in/yibo-zhu-66494750",
+            "founded_before": [],
+            "prior_companies": [
+              "Google (Senior Staff Software Engineer)",
+              "ByteDance (Staff-level Research Scientist, later Director of Engineering (promoted in 2021))",
+              "Microsoft (Senior Researcher II)",
+              "Microsoft Research (Research Intern)",
+              "Microsoft Research Asia (Intern)"
+            ],
+            "years_experience": 13,
+            "industry_experience": "His experience spans distributed systems, datacenter networking, cloud infrastructure, and machine-learning systems. He moved from Microsoft research and Azure networking work to leading large-scale AI infrastructure at ByteDance and Google, then co-founded StepFun."
+          }
+        ],
+        "sources": [
+          {
+            "url": "https://tracxn.com/a/d/company/588a6404e4b0dd9cce376bcd/stepfun#a:about",
+            "field": "one_liner",
+            "title": "StepFun"
+          },
+          {
+            "url": "https://www.caplight.com/company/stepfun",
+            "field": "prior_rounds",
+            "title": "StepFun | Valuation, Funding Rounds & Stock Price | Caplight"
+          },
+          {
+            "url": "https://www.yicaiglobal.com/news/stepfun-to-raise-nearly-usd25-billion-as-chinese-ai-startup-advances-hong-kong-ipo",
+            "field": "founders",
+            "title": "StepFun to Raise Nearly USD2.5 Billion as Chinese AI Startup Advances Hong Kong IPO"
+          },
+          {
+            "url": "https://www.stepfun.com/",
+            "field": "ats",
+            "title": "阶跃星辰"
+          },
+          {
+            "url": "https://app.mokahr.com/social-recruitment/step/94904",
+            "field": "ats",
+            "title": "Moka"
+          },
+          {
+            "url": "https://www.stepfun.com/step-5-preview",
+            "field": "what_they_do",
+            "title": "阶跃星辰"
+          },
+          {
+            "url": "https://www.thestandard.com.hk/finance/article/331515/Stepfun-Chinas-AI-Six-Tigers-finishes-new-US25b-funding-round-for-HK-IPO",
+            "field": "blurb",
+            "title": "Stepfun, China's AI Six Tigers, finishes new US$2.5b funding round for HK IPO"
+          },
+          {
+            "url": "https://news.qq.com/rain/a/20260920A05HHH00",
+            "field": "latest_announcement",
+            "title": "阶跃发布旗舰模型Step 5 Preview,位居全球开源模型前三_腾讯新闻"
+          },
+          {
+            "url": "https://linkedin.com/in/daxin-jiang-00006124",
+            "field": "founders.0",
+            "title": "Daxin Jiang - Co-Founder, CEO of StepFun AI"
+          },
+          {
+            "url": "https://scholar.google.com/citations?hl=en&user=pZgFp1kAAAAJ",
+            "field": "founders.1",
+            "title": "Yibo Zhu"
+          },
+          {
+            "url": "https://linkedin.com/in/binxing-jiao-1711722b",
+            "field": "founders.2",
+            "title": "Binxing Jiao - VP at StepFun | 领英 - 领英 (中国)"
+          },
+          {
+            "url": "https://pandaily.com/microsoft-global-partner-jiang-daxin-starts-a-large-scale-modeling-business",
+            "field": "education",
+            "title": "Microsoft Global Partner Jiang Daxin Starts A Large-scale Modeling Business - Pandaily"
+          },
+          {
+            "url": "https://aga.ustc.edu.cn/info/1197/35852.htm",
+            "field": "education",
+            "title": "两位校友入选\"2025年度AI人物\""
+          },
+          {
+            "url": "https://ai.techbuzzchina.com/profile/jiang-daxin",
+            "field": "notable_signals",
+            "title": "JIANG Daxin (姜大昕) — China AI Atlas"
+          },
+          {
+            "url": "https://linkedin.com/in/yibo-zhu-66494750",
+            "field": "years_experience",
+            "title": "linkedin.com"
+          },
+          {
+            "url": "http://www.yibozhu.com/",
+            "field": "founded_before",
+            "title": "Yibo's Homepage"
+          },
+          {
+            "url": "http://yibozhu.com/doc/CV_YiboZhu.pdf",
+            "field": "founded_before",
+            "title": "Yibo Zhu"
+          },
+          {
+            "url": "https://ai.techbuzzchina.com/profile/zhu-yibo",
+            "field": "current_title",
+            "title": "ZHU Yibo (朱亦博) — China AI Atlas"
+          },
+          {
+            "url": "https://openreview.net/profile?id=~Daxin_Jiang2",
+            "field": "current_leader_at_company",
+            "title": "Daxin Jiang"
+          },
+          {
+            "url": "https://www2.yicaiglobal.com/news/stepfun-to-raise-nearly-usd25-billion-as-chinese-ai-startup-advances-hong-kong-ipo",
+            "field": "current_leader_at_company",
+            "title": "StepFun to Raise Nearly USD2.5 Billion as Chinese AI Startup Advances Hong Kong IPO"
+          }
+        ],
+        "website": "https://www.stepfun.com/",
+        "cost_usd": 0.245,
+        "pr_ready": false,
+        "one_liner": "StepFun is a Shanghai-based Chinese AI company developing multimodal large language models and other foundation models.",
+        "timings_s": {
+          "team_s": 325.3,
+          "brief_s": 325.4,
+          "findall_s": 173.3,
+          "pedigree_s": 152.2
+        },
+        "team_stats": {
+          "schools": [
+            {
+              "name": "University of California, San Diego",
+              "count": 2
+            },
+            {
+              "name": "Tsinghua University",
+              "count": 2
+            },
+            {
+              "name": "Shanghai Jiao Tong University",
+              "count": 2
+            },
+            {
+              "name": "Carnegie Mellon University",
+              "count": 1
+            },
+            {
+              "name": "University of Sydney",
+              "count": 1
+            },
+            {
+              "name": "Stanford University",
+              "count": 1
+            },
+            {
+              "name": "Arizona State University",
+              "count": 1
+            },
+            {
+              "name": "Harvard University",
+              "count": 1
+            },
+            {
+              "name": "Chinese University of Hong Kong",
+              "count": 1
+            },
+            {
+              "name": "Technical University of Munich",
+              "count": 1
+            },
+            {
+              "name": "University of Hong Kong",
+              "count": 1
+            },
+            {
+              "name": "Hong Kong University of Science and Technology",
+              "count": 1
+            },
+            {
+              "name": "Northeastern University",
+              "count": 1
+            }
+          ],
+          "sample_names": [
+            "Yi Wang",
+            "Cherry Gong",
+            "Tongjun Zhang",
+            "Yiyun Zhang",
+            "Xing Chen",
+            "Boyang Wang",
+            "Jiacheng Lu",
+            "Yijia Duan",
+            "Haoling Xie",
+            "Feng Yang",
+            "Qiwen Lu",
+            "Boya Wu",
+            "Runze Liu",
+            "Shuhan W.",
+            "Dan (Danielle) Ma",
+            "Yuanwei Lu",
+            "Frank Li",
+            "Rita Liu"
+          ],
+          "profiles_found": 18,
+          "prior_employers": [
+            {
+              "name": "Meituan",
+              "count": 2
+            },
+            {
+              "name": "Microsoft / Microsoft Research Asia",
+              "count": 2
+            },
+            {
+              "name": "Tencent",
+              "count": 1
+            },
+            {
+              "name": "Pinduoduo",
+              "count": 1
+            },
+            {
+              "name": "Baidu",
+              "count": 1
+            },
+            {
+              "name": "Nutanix",
+              "count": 1
+            },
+            {
+              "name": "Z.ai",
+              "count": 1
+            },
+            {
+              "name": "Farfetch",
+              "count": 1
+            },
+            {
+              "name": "Ping An Life Insurance",
+              "count": 1
+            }
+          ],
+          "team_size_estimate": "130–150",
+          "ex_founders_with_exit": 0
+        },
+        "careers_url": "https://app.mokahr.com/social-recruitment/step/94904#/",
+        "generated_at": "2026-10-07T17:14:10Z",
+        "what_they_do": "StepFun develops the Step family of multimodal foundation models, along with speech and audio models, and offers access through its AI Studio and API platform. Its models target developers and product teams building AI applications, including agentic workflows, software engineering, professional knowledge work, and finance.",
+        "notable_facts": [
+          "Step 5 Preview is a sparse MoE model with 600B total parameters, 27B active per token, a one-million-token context window, and vision input.",
+          "Step 5 Preview is available through StepFun products and API; the company announced open weights for October 15, 2026.",
+          "StepFun’s StepCodeBench spans 553 repositories, 9 task categories, 20 application domains, and 33 programming languages; Step 5 Preview reports a 49.0% avg@4 score.",
+          "StepAudio 3 includes models for real-time voice interaction, speech synthesis, voice generation, music generation, and speech recognition."
+        ],
+        "leaders_dropped": 1,
+        "parallel_run_ids": {
+          "findall_id": "findall_cf4a57d0c7164d2d94463dddaf486ca8",
+          "team_run_id": "trun_7507573b92ea4abaa53585da5e99c995",
+          "brief_run_id": "trun_5fe612b2ad9c4e75a3df81aeeadf8128",
+          "pedigree_group_id": "tgrp_edc37b68bffb4bfe8a85a530c37a4e1c"
+        }
+      }
+    },
+    {
+      "domain": "composio.dev",
+      "status": "new",
+      "posted_at": "2026-10-07T17:17:34.599488Z",
+      "payload": {
+        "ats": {
+          "provider": "ashby",
+          "verified": true,
+          "board_url": "https://jobs.ashbyhq.com/composio",
+          "job_count": 29,
+          "board_token": "composio",
+          "checked_url": "https://api.ashbyhq.com/posting-api/job-board/composio"
+        },
+        "blurb": "Co-founded by Soham Ganatra and Karan Vaidya, Composio is hiring for a team building infrastructure for AI agents. After a $4M seed co-led by Together Fund and Elevation Capital, it raised a $25M Series A led by Lightspeed, bringing disclosed funding to $29M; its platform supports 1,500+ apps and handles 100M+ actions a week.",
+        "event": {
+          "type": "launch",
+          "round": null,
+          "origin": "findall_backfill",
+          "headline": "Composio launches Shared Connections, letting teams share access to connected app accounts across their organization without sharing credentials.",
+          "investors": null,
+          "amount_usd": null,
+          "source_url": "https://composio.dev/blog/introducing-composio-shared-connections",
+          "announced_at": "2026-09-14"
+        },
+        "domain": "composio.dev",
+        "issues": [
+          "leaders from the brief (FindAll found none); 1 company page(s) dropped"
+        ],
+        "scores": {
+          "vc": 70,
+          "talent": 22,
+          "vc_reasons": [
+            "Lightspeed led (tier 1)",
+            "SV Angel joined (tier 2)",
+            "round over $20M"
+          ],
+          "talent_reasons": [
+            "Soham Ganatra: top school (Indian Institute of Technology)",
+            "Karan Vaidya: top school (Indian Institute of Technology)",
+            "Karan Vaidya: top employer (Google)",
+            "medium-confidence facts count at 80%"
+          ]
+        },
+        "company": "Composio",
+        "funding": {
+          "latest_round": {
+            "stage": "Series A",
+            "amount_usd": "$25M",
+            "announced_at": "2025-07-22",
+            "lead_investors": [
+              "Lightspeed Venture Partners"
+            ],
+            "other_investors": [
+              "Guillermo Rauch",
+              "Dharmesh Shah",
+              "Gokul Rajaram",
+              "Soham Mazumdar",
+              "SV Angel",
+              "Blitzscaling Ventures",
+              "Operator Partners",
+              "Agent Fund by Yohei Nakajima",
+              "Elevation Capital",
+              "Together Fund"
+            ]
+          },
+          "prior_rounds": [
+            {
+              "stage": "Seed",
+              "amount_usd": "$4M",
+              "announced_at": "2024",
+              "lead_investors": [],
+              "other_investors": [
+                "Together Fund (co-lead)",
+                "Elevation Capital (co-lead)"
+              ]
+            }
+          ],
+          "total_raised_usd": "$29M"
+        },
+        "leaders": [
+          {
+            "name": "Soham Ganatra",
+            "title": "Co-Founder & CEO",
+            "schools": [
+              "Indian Institute of Technology, Bombay B.Tech Computer Science"
+            ],
+            "signals": [
+              "Previously co-founded Cogno AI and was a Founding Engineer at Bureau.",
+              "Composio announced $29 million in total funding, including its Series A."
+            ],
+            "summary": "Indian Institute of Technology, Bombay. Ex-Bureau, Cogno AI",
+            "profile_url": "https://linkedin.com/in/soham-ganatra",
+            "linkedin_url": "https://linkedin.com/in/soham-ganatra",
+            "founded_before": [
+              "Cogno AI (unknown)"
+            ],
+            "prior_companies": [
+              "Bureau (Founding Engineer)",
+              "Cogno AI (Co-Founder)"
+            ],
+            "years_experience": 7,
+            "industry_experience": "His experience spans software engineering and developer tools, followed by building AI-agent infrastructure that connects agents to applications and enables them to take actions."
+          },
+          {
+            "name": "Karan Vaidya",
+            "title": "Co-Founder & CTO at Composio",
+            "schools": [
+              "Indian Institute of Technology, Bombay B.Tech. Computer Science Engineering"
+            ],
+            "signals": [
+              "Composio’s co-founders secured $25 million in Series A funding led by Lightspeed Venture Partners.",
+              "At Rubrik, worked on distributed systems and databases, including Cassandra and CockroachDB.",
+              "Google Ads summer intern; worked on ad-serving user experience and data-processing systems."
+            ],
+            "summary": "Indian Institute of Technology, Bombay. Ex-ByteLearn.com, Nirvana Insurance, Dark Horse Capital",
+            "profile_url": "https://linkedin.com/in/kaavee315",
+            "linkedin_url": "https://linkedin.com/in/kaavee315",
+            "founded_before": [
+              "Dark Horse Capital (unknown)"
+            ],
+            "prior_companies": [
+              "ByteLearn.com (Product Advisor)",
+              "Nirvana Insurance (Founding PM/Engineer)",
+              "Dark Horse Capital (Cofounder)",
+              "Rubrik, Inc. (Software Engineer)",
+              "Google (Summer Intern)",
+              "American Express (Summer Intern)"
+            ],
+            "years_experience": 9,
+            "industry_experience": "His experience spans software infrastructure and insurtech, including distributed-systems engineering at Rubrik and founding product/engineering work at Nirvana Insurance. At Composio, he works on AI-agent tool execution and integrations."
+          }
+        ],
+        "sources": [
+          {
+            "url": "https://composio.dev/",
+            "field": "one_liner",
+            "title": "Composio"
+          },
+          {
+            "url": "https://linkedin.com/company/composiohq",
+            "field": "website_url",
+            "title": null
+          },
+          {
+            "url": "https://together.fund/perspectives/insights/investing-in-composio-building-the-learning-layer-for-agentic-ai",
+            "field": "prior_rounds",
+            "title": "Investing in Composio: Building the Learning Layer for Agentic AI | Together"
+          },
+          {
+            "url": "https://www.moneycontrol.com/news/business/startup/agentic-ai-startup-composio-raises-24-million-in-series-a-round-from-lightspeed-elevation-and-together-12982215.html",
+            "field": "prior_rounds",
+            "title": "Agentic AI startup Composio raises $24 million in Series A ..."
+          },
+          {
+            "url": "https://stepconference.com/sf/2026/speakers/soham-ganatra",
+            "field": "founders",
+            "title": "Soham Ganatra — CEO at COMPOSIO"
+          },
+          {
+            "url": "https://kvaidya.com/",
+            "field": "founders",
+            "title": "Karan Vaidya"
+          },
+          {
+            "url": "https://linkedin.com/in/soham-ganatra",
+            "field": "founders",
+            "title": "Soham Ganatra (Hiring) - Composio | LinkedIn"
+          },
+          {
+            "url": "https://linkedin.com/in/kaavee315",
+            "field": "founders",
+            "title": "Karan Vaidya - Co-founder, Composio | A16Z Scout"
+          },
+          {
+            "url": "https://jobs.ashbyhq.com/composio",
+            "field": "ats",
+            "title": "Composio Jobs"
+          },
+          {
+            "url": "https://composio.dev/careers",
+            "field": "careers_url",
+            "title": "Composio Jobs"
+          },
+          {
+            "url": "https://stepsf.com/speakers/soham-ganatra",
+            "field": "blurb",
+            "title": "Soham Ganatra — CEO at COMPOSIO | Step San Francisco 2026 Speaker"
+          },
+          {
+            "url": "https://composio.dev/blog/introducing-composio-shared-connections",
+            "field": "notable_facts",
+            "title": "Introducing Composio Shared Connections | Composio"
+          },
+          {
+            "url": "https://api.ashbyhq.com/posting-api/job-board/composio",
+            "field": "notable_facts",
+            "title": "Job Board"
+          },
+          {
+            "url": "http://prnewswire.com/news-releases/composio-raises-29m-to-solve-ais-learning-problem-building-skills-that-actually-improve-over-time-302510684.html",
+            "field": "latest_round",
+            "title": null
+          },
+          {
+            "url": "https://composio.dev/blog/series-a",
+            "field": "latest_round",
+            "title": "We raised $29M to build skills that evolve with your agents | Composio"
+          },
+          {
+            "url": "https://composio.dev/blog/build-reactive-integrations-with-webhook-triggers",
+            "field": "latest_announcement",
+            "title": "Build reactive integrations with Composio webhook triggers | Composio"
+          },
+          {
+            "url": "https://rocketreach.co/soham-ganatra-email_57042195",
+            "field": "education",
+            "title": "Soham Ganatra Email & Phone Number"
+          },
+          {
+            "url": "https://www.stackforce.co/talent/karan-vaidya-co-founder-691dbc0f49510e72af568445",
+            "field": "years_experience",
+            "title": "Karan Vaidya - Co-Founder | Stackforce"
+          },
+          {
+            "url": "https://acr.iitbombay.org/allstory/alumni-startup-spotlight-2",
+            "field": "education",
+            "title": "ALUMNI STARTUP SPOTLIGHT - Indian Institute of Technology Bombay"
+          }
+        ],
+        "website": "https://composio.dev",
+        "cost_usd": 0.245,
+        "pr_ready": true,
+        "one_liner": "Composio is an integration layer that connects AI agents to apps so they can authenticate, access tools, and take actions.",
+        "timings_s": {
+          "team_s": 379.3,
+          "brief_s": 217.3,
+          "findall_s": 82.2,
+          "pedigree_s": 162.1
+        },
+        "team_stats": {
+          "schools": [
+            {
+              "name": "Indian Institute of Technology Bombay",
+              "count": 2
+            },
+            {
+              "name": "Stanford University",
+              "count": 1
+            },
+            {
+              "name": "Indian Institute of Technology Delhi",
+              "count": 1
+            },
+            {
+              "name": "Indian Institute of Technology Kanpur",
+              "count": 1
+            },
+            {
+              "name": "Massachusetts Institute of Technology",
+              "count": 1
+            },
+            {
+              "name": "Harvard College",
+              "count": 1
+            },
+            {
+              "name": "Christ University",
+              "count": 1
+            },
+            {
+              "name": "Ashoka University",
+              "count": 1
+            }
+          ],
+          "sample_names": [
+            "Sushant Hiray",
+            "Palash Kala",
+            "Sarthak Agrawal",
+            "Andrew Radford",
+            "Archit Mishra",
+            "Ummunaz Yanik",
+            "Manas Garudapalli",
+            "Vinayak Agarwal",
+            "Dhawal Upadhyay",
+            "Sarah Simionescu",
+            "Nishant Gupta",
+            "Rahul Lingala",
+            "Apoorv Taneja",
+            "Anshu Garg",
+            "Balaji Sundaravadivel",
+            "Shawn Esquivel",
+            "Sujay Choubey",
+            "Pranav Boddupalli",
+            "Isabella Rivera",
+            "Jeevesh Jain",
+            "Samvit Jatia",
+            "Chandan Nale",
+            "Abir Taheer",
+            "Jitesh Luthra",
+            "Rohan Prabhu"
+          ],
+          "profiles_found": 25,
+          "prior_employers": [
+            {
+              "name": "Rubrik",
+              "count": 3
+            },
+            {
+              "name": "Databricks",
+              "count": 2
+            },
+            {
+              "name": "Nirvana Insurance",
+              "count": 2
+            },
+            {
+              "name": "D. E. Shaw",
+              "count": 2
+            },
+            {
+              "name": "Samsung Electronics",
+              "count": 2
+            },
+            {
+              "name": "Blume Ventures",
+              "count": 2
+            },
+            {
+              "name": "Rippling",
+              "count": 2
+            },
+            {
+              "name": "Google",
+              "count": 2
+            },
+            {
+              "name": "CRED",
+              "count": 2
+            },
+            {
+              "name": "Salesforce",
+              "count": 1
+            },
+            {
+              "name": "RingCentral",
+              "count": 1
+            },
+            {
+              "name": "Cursor",
+              "count": 1
+            },
+            {
+              "name": "Razorpay",
+              "count": 1
+            }
+          ],
+          "team_size_estimate": "Approximately 80",
+          "ex_founders_with_exit": 1
+        },
+        "careers_url": "https://composio.dev/careers",
+        "generated_at": "2026-10-07T17:17:34Z",
+        "what_they_do": "Composio connects AI assistants and developer-built agents to more than 1,500 apps, with managed authentication, tool access, triggers, and execution infrastructure. It lets users put assistants such as Claude and ChatGPT to work across business software, while developers can use its platform to add integrations to their own agents without building and maintaining each connector.",
+        "notable_facts": [
+          "Supports connections to more than 1,500 apps, including Gmail, Slack, Notion, GitHub, and Salesforce.",
+          "Says its platform powers more than 100 million AI-agent actions each week.",
+          "Its Shared Connections feature lets teams make an app account available across their organization without sharing account credentials.",
+          "Composio says it is SOC 2 Type II compliant and lists ISO 27001:2022+ among its security controls.",
+          "Its website lists Glean, Zoom, AWS, and Google in its “Trusted by” section."
+        ],
+        "leaders_dropped": 1,
+        "parallel_run_ids": {
+          "findall_id": "findall_cf4a57d0c7164d2da44d27883637204c",
+          "team_run_id": "trun_7507573b92ea4abab68ad5bd458ccb47",
+          "brief_run_id": "trun_5fe612b2ad9c4e759e406b4706c89036",
+          "pedigree_group_id": "tgrp_c9ea706b5f124a08a271f89b83bf49f7"
         }
       }
     }
