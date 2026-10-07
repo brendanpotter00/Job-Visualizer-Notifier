@@ -425,12 +425,12 @@ def test_app_settings_shape():
 
 def test_launch_radar_card_status_check_matches_its_migration():
     """The card status CHECK lists every live status plus the tombstone, and the
-    hand-written revision that last changed it creates exactly the same text.
+    revision that creates the table (``33ff7e590a46``) has exactly the same text.
 
-    Autogenerate (and ``alembic check``) never compares CHECK constraints, so
-    without this pin the model and the database could disagree silently: the
-    model would accept 'saved' in ``create_all`` test schemas while a migrated
-    database refused it.
+    Autogenerate (and ``alembic check``) never compares the CHECKs of an existing
+    table, so without this pin the model and the database could disagree
+    silently: the model would accept a status in ``create_all`` test schemas
+    while a migrated database refused it.
     """
     from pathlib import Path
 
@@ -446,5 +446,14 @@ def test_launch_radar_card_status_check_matches_its_migration():
     assert sql == "status IN ('new','saved','archived','deleted')"
 
     versions = Path(__file__).resolve().parents[2] / "alembic" / "versions"
-    (revision,) = versions.glob("*_f0dc42c3d985_*.py")
+    (revision,) = versions.glob("*_33ff7e590a46_*.py")
     assert f'"{sql}"' in revision.read_text()
+
+
+def test_launch_radar_tracked_company_id_is_a_soft_link():
+    """House style: ``tracked_company_id`` names a ``companies`` row without a
+    foreign key (companies is truncated freely in tests and migrations delete
+    its rows), so nothing ON DELETE-s it and a deleted company's id lingers."""
+    column = db_models.Base.metadata.tables["launch_radar_cards"].c["tracked_company_id"]
+    assert not column.foreign_keys
+    assert column.nullable is True

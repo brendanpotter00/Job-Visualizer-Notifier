@@ -296,16 +296,14 @@ describe('/api/features serverless function', () => {
   });
 
   describe('Error Handling', () => {
-    it('should return 502 with error details on network error', async () => {
+    it('should return a generic 502 without leaking the error on network error', async () => {
       mockReq.query = {};
       const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
       fetchMock.mockRejectedValue(new Error('ECONNREFUSED'));
       await handler(mockReq as VercelRequest, mockRes as VercelResponse);
       expect(mockRes.status).toHaveBeenCalledWith(502);
-      expect(mockRes.json).toHaveBeenCalledWith({
-        error: 'Upstream backend unavailable',
-        details: 'ECONNREFUSED',
-      });
+      expect(mockRes.json).toHaveBeenCalledWith({ error: 'Upstream backend unavailable' });
+      expect(JSON.stringify(vi.mocked(mockRes.json!).mock.calls)).not.toContain('ECONNREFUSED');
       expect(errorSpy).toHaveBeenCalledWith(
         '[api/features] Upstream fetch failed:',
         expect.any(Error)
@@ -319,10 +317,8 @@ describe('/api/features serverless function', () => {
       fetchMock.mockRejectedValue('string error');
       await handler(mockReq as VercelRequest, mockRes as VercelResponse);
       expect(mockRes.status).toHaveBeenCalledWith(502);
-      expect(mockRes.json).toHaveBeenCalledWith({
-        error: 'Upstream backend unavailable',
-        details: 'string error',
-      });
+      expect(mockRes.json).toHaveBeenCalledWith({ error: 'Upstream backend unavailable' });
+      expect(JSON.stringify(vi.mocked(mockRes.json!).mock.calls)).not.toContain('string error');
       errorSpy.mockRestore();
     });
 
@@ -483,5 +479,11 @@ runProxyAllowlistGuard({
     [['resume-match-ai', 'upvote'], '/api/features/resume-match-ai/upvote'],
   ],
   normalizes: ['/resume-match-ai//upvote/', '/api/features/resume-match-ai/upvote'],
+  // `:id/upvote` with an id that needs encoding: a raw template splice would
+  // hand `fetch` a literal space here, and only the exact string tells.
+  encodes: [
+    ['resume match/upvote', 'https://backend.test/api/features/resume%20match/upvote'],
+    [['é-feature', 'upvote'], 'https://backend.test/api/features/%C3%A9-feature/upvote'],
+  ],
   methods: ['GET', 'POST', 'DELETE'],
 });

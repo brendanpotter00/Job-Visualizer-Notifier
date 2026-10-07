@@ -226,6 +226,20 @@ describe('/api/jobs serverless function', () => {
       expect(forwardedUrl().pathname).toBe('/api/jobs/workday:tenant/REQ-9');
     });
 
+    it('forwards a detail route whose job id is literally `internal`', async () => {
+      // `internal` is only refused as the ROUTER segment right after `/api` —
+      // the one position that selects the JWT-less `/api/internal/*` router.
+      // Here it is data under `/api/jobs`, and 404ing it would hide a real row.
+      mockReq.query = { path: 'greenhouse:acme/internal' };
+      fetchMock.mockResolvedValue(mockJsonResponse(200, { id: 'internal' }));
+
+      await handler(mockReq as VercelRequest, mockRes as VercelResponse);
+
+      expect(fetchMock.mock.calls[0][0]).toBe(
+        'http://localhost:8000/api/jobs/greenhouse:acme/internal'
+      );
+    });
+
     it('404s a detail route whose source id would traverse the prefix', async () => {
       // The by-id widen must not reopen the traversal hole: `..` as a segment is
       // rejected in canonicalization before the `:source/:job` pattern is tried.

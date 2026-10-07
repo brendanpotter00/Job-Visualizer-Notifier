@@ -229,7 +229,9 @@ class Settings(BaseSettings):
     dev_reset_enabled: bool = False
 
     # LOCAL DEVELOPMENT ONLY. Never set this in Railway — the app REFUSES TO START
-    # if it is set while any Railway env marker is present
+    # if it is set while any Railway env marker is present, or while
+    # ``database_url`` names a host that is not local (localhost, a loopback IP,
+    # or the docker-compose ``postgres`` service)
     # (``auth/dev_bypass.enforce_dev_auth_bypass_guard``, the first line of the
     # lifespan). When set locally, a request with NO ``Authorization`` header from a
     # LOOPBACK client is treated as this email, so the admin dashboard can be viewed

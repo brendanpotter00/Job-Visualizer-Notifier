@@ -150,7 +150,7 @@ erDiagram
 
     launch_radar_runs ||--o{ launch_radar_spend : "ledger rows (CASCADE)"
     launch_radar_runs ||--o{ launch_radar_cards : "posted by (SET NULL)"
-    companies ||--o{ launch_radar_cards : "tracked_company_id (SET NULL)"
+    companies ||..o{ launch_radar_cards : "tracked_company_id (soft link, no FK)"
 
     launch_radar_runs {
         integer id PK
@@ -178,16 +178,16 @@ erDiagram
         integer id PK
         text domain "UNIQUE, lower-case — the dedupe guard"
         text status "new | saved | archived | deleted (tombstone)"
-        text tracked_company_id FK "SET NULL"
+        text tracked_company_id "nullable, soft link -> companies.id"
         jsonb payload "NULL only on a tombstone"
     }
 ```
 
 > **"Soft link" (dotted lines)** means the column holds another table's key value but is
 > *not* a declared foreign key — there is no referential-integrity constraint or cascade.
-> `user_enabled_companies.company_id`, `job_listings.company`, and `scrape_runs.company`
-> are all plain `Text` matched by convention, so a company id can appear in these tables
-> without (or after) a corresponding `companies` row. The
+> `user_enabled_companies.company_id`, `job_listings.company`, `scrape_runs.company` and
+> `launch_radar_cards.tracked_company_id` are all plain `Text` matched by convention, so a
+> company id can appear in these tables without (or after) a corresponding `companies` row. The
 > `user_saved_filters.recent_active_keyword_list_id` / `trend_active_keyword_list_id`
 > pointers are likewise plain `Text` (not FKs) because they may hold the synthetic
 > built-in id `'builtin-swe'`, which has no `user_keyword_lists` row; the service layer
@@ -420,14 +420,16 @@ against a `SUM`, and a float sum drifts.
   is set explicitly by every UPDATE.
 - **`launch_radar_cards`** — one row per normalized domain, **ever**: `UNIQUE(domain)`
   (`uq_launch_radar_cards_domain`) is the dedupe guard and `CHECK domain = lower(domain)`.
-  `status` CHECK `new/saved/archived/deleted` (`saved` added by `f0dc42c3d985`). A delete is a
+  `status` CHECK `new/saved/archived/deleted` (all four tables come from revision `33ff7e590a46`). A delete is a
   **tombstone**: `payload`, `pr_url` and `tracked_company_id` are cleared but the row and its
   domain stay, so the loop never posts that company again; `CHECK (status = 'deleted') = (payload IS NULL)` and
   `CHECK status <> 'deleted' OR (pr_url IS NULL AND tracked_company_id IS NULL)` pin that.
   Scores, event type and cost live in `payload` (snake_case JSONB), deliberately not in columns,
-  so a tombstone clears all of them at once. `tracked_company_id` FK `companies.id` SET NULL,
-  `run_id` FK SET NULL; `posted_at`, `updated_at`, `archived_at`, `deleted_at`, `updated_by`
-  (admin email). Index `(status, posted_at)`.
+  so a tombstone clears all of them at once. `tracked_company_id` is a soft link to
+  `companies.id` (no FK, house style): resolved once at insert and never nulled when that
+  company row is deleted, so a stale id keeps the card "Already tracked". `run_id` FK SET
+  NULL; `posted_at`, `updated_at`, `archived_at`, `deleted_at`, `updated_by` (admin email).
+  Index `(status, posted_at)`.
 
 ## Notes on conventions
 

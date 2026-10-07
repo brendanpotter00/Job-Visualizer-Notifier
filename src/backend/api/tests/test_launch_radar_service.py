@@ -436,6 +436,21 @@ class TestInsertCard:
         )
         assert out["tracked_company_id"] is None
 
+    def test_tracked_id_outlives_its_company_row(self, db_conn) -> None:
+        """A soft link (no FK): deleting the company does not fail and does not
+        null the card's id, so the card keeps reading as tracked and is never
+        offered for an add-company PR. Harmless, and pinned so it stays chosen."""
+        _insert_company(db_conn, "raindrop", "ashby", "raindrop")
+        start_test_run(db_conn)
+        card = svc.insert_card(db_conn, "run-0001", stored_payload())["id"]
+        with db_conn.cursor() as cur:
+            cur.execute("DELETE FROM companies WHERE id = 'raindrop'")
+        db_conn.commit()
+        rows, total = svc.list_cards(db_conn, "new", 25, 0)
+        assert total == 1 and rows[0]["id"] == card
+        assert rows[0]["tracked_company_id"] == "raindrop"
+        assert svc.pr_candidates(db_conn, 5) == []
+
 
 # ---------------------------------------------------------------------------
 # Lifecycle: list / archive / restore / delete (tombstone)

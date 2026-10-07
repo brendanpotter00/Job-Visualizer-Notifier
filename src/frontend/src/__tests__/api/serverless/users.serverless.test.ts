@@ -375,7 +375,7 @@ describe('/api/users serverless function', () => {
   });
 
   describe('Error Handling', () => {
-    it('should return 502 with error details on network error', async () => {
+    it('should return a generic 502 without leaking the error on network error', async () => {
       mockReq.query = {};
       const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
@@ -384,10 +384,8 @@ describe('/api/users serverless function', () => {
       await handler(mockReq as VercelRequest, mockRes as VercelResponse);
 
       expect(mockRes.status).toHaveBeenCalledWith(502);
-      expect(mockRes.json).toHaveBeenCalledWith({
-        error: 'Upstream backend unavailable',
-        details: 'ECONNREFUSED',
-      });
+      expect(mockRes.json).toHaveBeenCalledWith({ error: 'Upstream backend unavailable' });
+      expect(JSON.stringify(vi.mocked(mockRes.json!).mock.calls)).not.toContain('ECONNREFUSED');
       expect(errorSpy).toHaveBeenCalledWith(
         '[api/users] Upstream fetch failed:',
         expect.any(Error)
@@ -404,10 +402,8 @@ describe('/api/users serverless function', () => {
       await handler(mockReq as VercelRequest, mockRes as VercelResponse);
 
       expect(mockRes.status).toHaveBeenCalledWith(502);
-      expect(mockRes.json).toHaveBeenCalledWith({
-        error: 'Upstream backend unavailable',
-        details: 'string error',
-      });
+      expect(mockRes.json).toHaveBeenCalledWith({ error: 'Upstream backend unavailable' });
+      expect(JSON.stringify(vi.mocked(mockRes.json!).mock.calls)).not.toContain('string error');
       errorSpy.mockRestore();
     });
 
@@ -606,5 +602,15 @@ runProxyAllowlistGuard({
     ['companies/u-abc123/jobs', '/api/users/companies/u-abc123/jobs'],
   ],
   normalizes: ['/companies//jobs/', '/api/users/companies/jobs'],
+  // Every dynamic route, with an id that needs encoding: a raw template splice
+  // would hand `fetch` a literal space here, and only the exact string tells.
+  encodes: [
+    ['companies/u abc', 'https://backend.test/api/users/companies/u%20abc'],
+    ['companies/u abc/jobs', 'https://backend.test/api/users/companies/u%20abc/jobs'],
+    [
+      'saved-filters/keyword-lists/kl 42',
+      'https://backend.test/api/users/saved-filters/keyword-lists/kl%2042',
+    ],
+  ],
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
 });

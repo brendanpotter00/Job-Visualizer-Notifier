@@ -1,6 +1,43 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { TRAVERSAL_VECTORS, UNKNOWN_BUT_HARMLESS, type PathValue } from './proxyAttackVectors';
+import {
+  DOT_SEGMENT_SPELLINGS,
+  NFKC_HAZARD_SEGMENTS,
+  TRAVERSAL_VECTORS,
+  UNENCODABLE_SEGMENTS,
+  UNKNOWN_BUT_HARMLESS,
+  type PathValue,
+} from './proxyAttackVectors';
+
+/**
+ * Every segment spelling that must never be forwarded from ANY position:
+ * dot segments in every encoding and their NFKC / `;` / whitespace look-alikes,
+ * segments that only become URL-restructuring after NFKC folding, and lone
+ * surrogates that `encodeURIComponent` throws on.
+ */
+const UNFORWARDABLE_SEGMENT_SPELLINGS = [
+  ...DOT_SEGMENT_SPELLINGS,
+  ...NFKC_HAZARD_SEGMENTS,
+  ...UNENCODABLE_SEGMENTS,
+];
+
+/**
+ * Assert the proxy made NO upstream call, and — belt and braces, since that is
+ * the actual harm — that nothing it did send carried the internal key.
+ */
+export function expectNoKeyedUpstreamCall(fetchMock: ReturnType<typeof vi.fn>): void {
+  expect(fetchMock).not.toHaveBeenCalled();
+  for (const [, init] of fetchMock.mock.calls) {
+    const headers = ((init as RequestInit | undefined)?.headers ?? {}) as Record<string, string>;
+    expect(Object.keys(headers).map((k) => k.toLowerCase())).not.toContain('x-internal-key');
+  }
+}
+
+/** `legitimate` path entry → its non-empty segments. */
+function segmentsOf(pathValue: PathValue): string[] {
+  const joined = Array.isArray(pathValue) ? pathValue.join('/') : pathValue;
+  return joined.split('/').filter((segment) => segment.length > 0);
+}
 
 /**
  * The `?path=` allowlist guard, instantiated once per internal-key proxy.
@@ -35,6 +72,18 @@ export interface ProxyGuardSpec {
    * have 307'd.
    */
   normalizes: [path: PathValue, expectedUpstreamPath: string];
+  /**
+   * Legitimate paths whose DYNAMIC segments need percent-encoding (a space, a
+   * non-ASCII letter), each with the EXACT string the proxy must hand to
+   * `fetch`, against `BACKEND_API_URL=https://backend.test`.
+   *
+   * Compared as the raw string, not the parsed pathname, on purpose: `fetch`'s
+   * own URL parser would encode a raw space too, so a pathname comparison
+   * cannot tell `buildUpstreamUrl` from a proxy that went back to splicing the
+   * path into a template literal. Only a proxy with a `:id` or `*` route has
+   * anything to put here.
+   */
+  encodes?: Array<[path: PathValue, exactUpstreamUrl: string]>;
   /** Methods the proxy accepts, exercised against `legitimate[0]`. */
   methods: string[];
   /**
@@ -91,7 +140,7 @@ export function runProxyAllowlistGuard(spec: ProxyGuardSpec): void {
       it.each(TRAVERSAL_VECTORS)('anonymous GET %s', async (_label, pathValue) => {
         await spec.handler(makeReq({ path: pathValue }), mockRes as VercelResponse);
 
-        expect(fetchMock).not.toHaveBeenCalled();
+        expectNoKeyedUpstreamCall(fetchMock);
         expect(mockRes.status).toHaveBeenCalledWith(404);
         expect(mockRes.json).toHaveBeenCalledWith({ detail: 'Not Found' });
       });
@@ -155,6 +204,55 @@ export function runProxyAllowlistGuard(spec: ProxyGuardSpec): void {
         expect(fetchMock).not.toHaveBeenCalled();
       });
     });
+
+    // The traversal corpus above is mostly whole paths that miss the allowlist
+    // on SHAPE alone, so it cannot tell whether a `:id` or `*` position is
+    // safe. This substitutes every encoding depth of `.` / `..` — plus their
+    // Unicode look-alikes and the lone surrogates `encodeURIComponent` throws on
+    // — into every segment of every legitimate path. Literal positions are
+    // refused by the allowlist; dynamic positions are where the canonicalizer
+    // and `buildUpstreamUrl` have to hold — a `%252e%252e` that slipped into
+    // `:id/upvote` reached `/api/upvote` with the internal key attached, and a
+    // lone surrogate there threw out of the handler as a 500. (Skipped for a
+    // proxy whose only route is the bare prefix — `feedback` — since there is
+    // no segment to substitute.)
+    const withSegments = spec.legitimate.filter(([pathValue]) => segmentsOf(pathValue).length);
+
+    if (withSegments.length > 0) {
+      describe('no segment of any legitimate path accepts a dot-segment, look-alike or unencodable spelling', () => {
+        it.each(withSegments)(
+          'every unforwardable spelling in every segment of %s',
+          async (pathValue) => {
+            const segments = segmentsOf(pathValue);
+            const forwarded: string[] = [];
+
+            for (let i = 0; i < segments.length; i++) {
+              for (const dot of UNFORWARDABLE_SEGMENT_SPELLINGS) {
+                // Replace the segment, and also climb from it — the wildcard shape.
+                const replaced = segments.map((s, j) => (j === i ? dot : s)).join('/');
+                const climbed = [...segments.slice(0, i + 1), dot, dot, dot, 'internal', 'x'].join(
+                  '/'
+                );
+                for (const mutated of [replaced, climbed]) {
+                  fetchMock.mockClear();
+                  (mockRes.status as ReturnType<typeof vi.fn>).mockClear();
+                  await spec.handler(
+                    makeReq({ path: mutated }, { headers: spec.headers ?? {} }),
+                    mockRes as VercelResponse
+                  );
+                  if (fetchMock.mock.calls.length) forwarded.push(mutated);
+                  else expect(mockRes.status).toHaveBeenCalledWith(404);
+                }
+              }
+            }
+
+            // Collected rather than failing on the first, so a regression names
+            // every spelling that got through at once.
+            expect(forwarded).toEqual([]);
+          }
+        );
+      });
+    }
 
     describe('the refusal leaks nothing', () => {
       it.each(UNKNOWN_BUT_HARMLESS)(
@@ -231,6 +329,21 @@ export function runProxyAllowlistGuard(spec: ProxyGuardSpec): void {
         // a method are still pinned, because their non-GET cases would fail.
         expect((fetchMock.mock.calls[0][1] as RequestInit).method ?? 'GET').toBe(method);
       });
+
+      if (spec.encodes?.length) {
+        it.each(spec.encodes)(
+          'percent-encodes the dynamic segments of %s itself (exact upstream URL)',
+          async (pathValue, exactUrl) => {
+            await spec.handler(
+              makeReq({ path: pathValue }, { headers: spec.headers ?? {} }),
+              mockRes as VercelResponse
+            );
+
+            expect(fetchMock).toHaveBeenCalledTimes(1);
+            expect(fetchMock.mock.calls[0][0]).toBe(exactUrl);
+          }
+        );
+      }
 
       it('normalizes a sloppy spelling instead of 404ing it', async () => {
         const [pathValue, expectedPath] = spec.normalizes;

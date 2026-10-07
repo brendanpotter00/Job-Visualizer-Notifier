@@ -163,8 +163,20 @@ runProxyAllowlistGuard({
   legitimate: [
     ['', '/api/jobs'],
     ['facets', '/api/jobs/facets'],
+    // The `:source/:job` detail route: two dynamic segments, so the guard's
+    // dot-spelling sweep exercises the canonicalizer here, not the allowlist.
+    // `%252e%252e/internal` used to forward as `/api/jobs/%2e%2e/internal`,
+    // which `fetch` collapsed to `/api/internal`.
+    ['microsoft/abc-123', '/api/jobs/microsoft/abc-123'],
+    ['workday:tenant/REQ-9', '/api/jobs/workday:tenant/REQ-9'],
   ],
   normalizes: [['facets', ''], '/api/jobs/facets'],
+  // `:source/:job` with ids that need encoding: a raw template splice would
+  // hand `fetch` a literal space here, and only the exact string tells.
+  encodes: [
+    ['greenhouse:acme/REQ 9', 'https://backend.test/api/jobs/greenhouse:acme/REQ%209'],
+    [['custom:u x', 'Zürich 1'], 'https://backend.test/api/jobs/custom:u%20x/Z%C3%BCrich%201'],
+  ],
   // GET only: `api/jobs.ts` never forwards a body or a method, so every other
   // verb reaches the backend as a GET. The guard still proves a POST body on a
   // traversal path is refused.

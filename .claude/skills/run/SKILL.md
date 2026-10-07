@@ -152,7 +152,9 @@ VITE_DEV_AUTH_BYPASS=1 npm run dev -w src/frontend
 **Why it cannot reach production:** the backend refuses to start if `DEV_AUTH_BYPASS_EMAIL`
 is set while any Railway marker (`RAILWAY_ENVIRONMENT`, `RAILWAY_ENVIRONMENT_NAME`,
 `RAILWAY_PROJECT_ID`, `RAILWAY_SERVICE_ID`, `RAILWAY_DEPLOYMENT_ID`) is present, and
-re-checks them per request; the bypass applies only to a **loopback** client with a local
+re-checks them per request; it also refuses to start when `DATABASE_URL` is not a local
+database (`localhost`, a loopback IP or the docker-compose `postgres` service, `?host=`
+overrides included), so pointing this backend at the production DB fails at boot; the bypass applies only to a **loopback** client with a local
 `Host` header (`localhost`, `127.0.0.1`, `[::1]`; keeps DNS rebinding out) that sent **no
 `Authorization` header at all** (any header, even a bad one, takes the JWT path); the Vite
 flag needs `import.meta.env.DEV`, which `vite build` compiles out; and the Vercel proxies

@@ -1512,11 +1512,13 @@ class LaunchRadarCard(Base):
     domain = Column(Text, nullable=False)
     company_name = Column(Text, nullable=False)
     status = Column(Text, nullable=False, server_default=text("'new'"))
-    tracked_company_id = Column(
-        Text,
-        ForeignKey("companies.id", ondelete="SET NULL"),
-        nullable=True,
-    )
+    # Soft link (house style — no FK) to ``companies.id``: companies is truncated
+    # freely in tests, and seed downgrades / retire migrations delete its rows.
+    # Resolved once, at insert, from the card's ATS board. Nothing nulls it when
+    # that company row is deleted, so the stale id lingers and the card keeps
+    # reading "Already tracked" (and is never offered for an add-company PR),
+    # which is harmless.
+    tracked_company_id = Column(Text, nullable=True)
     pr_url = Column(Text, nullable=True)
     payload = Column(JSONB, nullable=True)
     run_id = Column(
@@ -1533,8 +1535,9 @@ class LaunchRadarCard(Base):
     __table_args__ = (
         UniqueConstraint("domain", name="uq_launch_radar_cards_domain"),
         CheckConstraint("domain = lower(domain)", name="ck_launch_radar_cards_domain_lower"),
-        # Autogenerate does not compare CHECKs: a change here needs a
-        # hand-written revision (``f0dc42c3d985`` added 'saved').
+        # Autogenerate does not compare the CHECKs of an existing table, so
+        # ``alembic check`` cannot see a change here: ``api/tests/test_db_models.py``
+        # pins this text against the revision that creates the table.
         CheckConstraint(
             "status IN ('new','saved','archived','deleted')",
             name="ck_launch_radar_cards_status",

@@ -2,9 +2,9 @@
 
 Pins every fence: ignored without the setting; honoured only for a loopback
 client with no ``Authorization`` header; never on Railway (startup refuses, and
-the per-request check refuses too); a real bearer token still goes through
-``validate_token``; and ``require_admin`` still checks the ``admins`` table for
-the bypass email.
+the per-request check refuses too); never against a database that is not local
+(startup refuses); a real bearer token still goes through ``validate_token``;
+and ``require_admin`` still checks the ``admins`` table for the bypass email.
 """
 
 from __future__ import annotations
@@ -32,6 +32,9 @@ from .test_launch_radar_service import _launch_radar_isolation  # noqa: F401
 EMAIL = "dev-admin@example.com"
 CARDS = "/api/admin/launch-radar/cards?status=new"
 LOCAL = "http://localhost:8000"  # TestClient's default Host is "testserver", which the bypass refuses
+LOCAL_DB = "postgresql://postgres:postgres@localhost:5432/jobscraper"
+# Nothing here ever connects to it: the guard only parses the string.
+REMOTE_DB = "postgresql://admin:s3cret-pw@prod-db.example.com:5432/railway"
 
 
 @pytest.fixture(autouse=True)
@@ -40,6 +43,9 @@ def _no_railway_and_bypass_reset(monkeypatch) -> Iterator[None]:
         monkeypatch.delenv(name, raising=False)
     prev = settings.dev_auth_bypass_email
     settings.dev_auth_bypass_email = None
+    # The startup guard reads settings.database_url; pin a local one so these
+    # tests do not depend on whatever DATABASE_URL the run was started with.
+    monkeypatch.setattr(settings, "database_url", LOCAL_DB)
     yield
     settings.dev_auth_bypass_email = prev
 
@@ -155,6 +161,93 @@ def test_lifespan_refuses_to_start_on_railway(bypass_on, monkeypatch) -> None:
     from api import main as api_main
 
     monkeypatch.setenv("RAILWAY_PROJECT_ID", "proj")
+    with patch.object(api_main, "apply_alembic_migrations_with_retry") as migrate, \
+            patch.object(api_main, "init_pool") as init_pool:
+        with pytest.raises(RuntimeError, match="DEV_AUTH_BYPASS_EMAIL"):
+            with TestClient(api_main.app):
+                pass
+        migrate.assert_not_called()
+        init_pool.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Startup guard: the database must be local
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        LOCAL_DB,
+        "postgresql://postgres:postgres@127.0.0.1:5432/jvn_launch_radar",
+        "postgresql://postgres:postgres@127.0.0.2/jobscraper",
+        "postgresql://postgres:postgres@[::1]:5432/jobscraper",
+        "postgresql://postgres:postgres@LOCALHOST:5432/jobscraper",
+        "postgresql+psycopg2://postgres:postgres@localhost:5432/jobscraper",
+        "postgres://postgres:postgres@localhost/jobscraper",
+        # docker-compose.yml's service name, for a backend inside that network.
+        "postgresql://postgres:postgres@postgres:5432/jobscraper",
+        "postgresql://postgres:postgres@localhost:5432/jobscraper?host=127.0.0.1",
+        "host=localhost dbname=jobscraper user=postgres",
+    ],
+)
+def test_local_database_urls_are_local(url: str) -> None:
+    assert dev_bypass.non_local_database_reason(url) is None
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        REMOTE_DB,
+        "postgresql://u:p@monorail.proxy.rlwy.net:41234/railway",
+        "postgresql://u:p@10.0.0.5:5432/jobscraper",
+        # libpq lets a query parameter override the authority: the URL says
+        # localhost but connects elsewhere.
+        "postgresql://u:p@localhost:5432/db?host=prod.railway.internal",
+        "postgresql://u:p@localhost:5432/db?hostaddr=10.0.0.5",
+        # A userinfo section ends at the LAST "@": the real host is evil.example.
+        "postgresql://localhost@evil.example/db",
+        "postgresql://u:p@localhost.evil.com/db",
+        "postgresql://u:p@postgres.railway.internal:5432/railway",
+        "host=prod.example.com dbname=jobscraper",
+        # Fail closed: no host at all (a Unix socket), or nothing parseable.
+        "postgresql:///jobscraper",
+        "not a database url",
+    ],
+)
+def test_non_local_database_urls_are_refused(url: str) -> None:
+    assert dev_bypass.non_local_database_reason(url) is not None
+
+
+def test_guard_raises_for_a_remote_database(bypass_on, monkeypatch) -> None:
+    monkeypatch.setattr(settings, "database_url", REMOTE_DB)
+    with pytest.raises(RuntimeError) as exc:
+        dev_bypass.enforce_dev_auth_bypass_guard()
+    message = str(exc.value)
+    assert "DEV_AUTH_BYPASS_EMAIL" in message and "prod-db.example.com" in message
+    assert "s3cret-pw" not in message  # names the host, never the URL
+    assert EMAIL not in message
+
+
+def test_guard_raises_for_a_host_query_parameter(bypass_on, monkeypatch) -> None:
+    monkeypatch.setattr(
+        settings, "database_url", "postgresql://u:p@localhost:5432/db?host=prod.railway.internal"
+    )
+    with pytest.raises(RuntimeError, match="prod.railway.internal"):
+        dev_bypass.enforce_dev_auth_bypass_guard()
+
+
+def test_guard_ignores_a_remote_database_without_the_setting(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "database_url", REMOTE_DB)
+    dev_bypass.enforce_dev_auth_bypass_guard()  # no bypass, nothing to refuse
+
+
+def test_lifespan_refuses_to_start_against_a_remote_database(bypass_on, monkeypatch) -> None:
+    """A laptop backend pointed at the production database with the bypass on
+    never gets as far as migrations or the pool."""
+    from api import main as api_main
+
+    monkeypatch.setattr(settings, "database_url", REMOTE_DB)
     with patch.object(api_main, "apply_alembic_migrations_with_retry") as migrate, \
             patch.object(api_main, "init_pool") as init_pool:
         with pytest.raises(RuntimeError, match="DEV_AUTH_BYPASS_EMAIL"):
