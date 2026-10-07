@@ -78,3 +78,6 @@ iphone-*.png
 # pytest-cov data file, written at the repo root by a local backend run
 .coverage
 .coverage.*
+
+# Launch Radar proof-of-concept fixtures (raw Parallel responses, includes people data)
+scripts/launch_radar_poc/out/

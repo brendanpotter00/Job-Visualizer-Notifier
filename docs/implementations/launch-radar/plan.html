@@ -1,0 +1,1025 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Launch Radar Plan</title>
+<link rel="stylesheet" href="htmlplan.css">
+<script src="htmlplan.js" defer></script>
+<style data-mock-shared>
+  .mui { font: 13.5px/1.5 Helvetica, Arial, sans-serif; color: #000; background: #fff; }
+  .mui * { box-sizing: border-box; }
+  .mui .page { padding: 18px 22px 20px; }
+  .mui h4 { font-size: 1.45rem; font-weight: 600; margin: 0; letter-spacing: -0.01em; }
+  .mui .sub { color: #5f5f5f; font-size: 12.5px; margin: 3px 0 14px; max-width: 400px; }
+  .mui .sw { display: none; }
+  .mui .tabs { display: flex; gap: 20px; border-bottom: 1px solid #e6e6e6; margin-bottom: 12px; }
+  .mui .tab { padding: 8px 2px; font-weight: 500; color: #5f5f5f; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+  .mui .cnt { color: #8a8a8a; font-weight: 400; margin-left: 5px; }
+  .mui #tNew:checked ~ .tabs .tn, .mui #tArc:checked ~ .tabs .ta { color: #000; border-bottom-color: #000; }
+  .mui #tNew:checked ~ .parc, .mui #tArc:checked ~ .pnew { display: none; }
+
+  /* card, closed: name, what, event | the two scores | one status line */
+  .mui details.card { border: 1px solid #e6e6e6; border-radius: 8px; margin-bottom: 10px; background: #fff; }
+  .mui details.card[open] { border-color: #c4c4c4; }
+  .mui details.card > summary { list-style: none; display: grid; grid-template-columns: 32px 1fr auto; column-gap: 12px; padding: 12px 14px 10px; cursor: pointer; }
+  .mui details.card > summary::-webkit-details-marker { display: none; }
+  .mui .logo { width: 32px; height: 32px; border-radius: 6px; background: #000; color: #fff; display: grid; place-items: center; font-weight: 700; font-size: 14px; }
+  .mui .name { font-weight: 600; font-size: 15px; line-height: 1.3; }
+  .mui .site { font-size: 12px; font-weight: 400; color: #5f5f5f; margin-left: 8px; }
+  .mui .what { color: #5f5f5f; font-size: 12.5px; line-height: 1.4; }
+  .mui .event { font-size: 12.5px; margin-top: 6px; display: flex; gap: 10px; }
+  .mui .event b { font-weight: 600; }
+  .mui .event .d { color: #8a8a8a; }
+  .mui .scores { display: flex; gap: 14px; text-align: center; padding-top: 1px; }
+  .mui .sc .n { font-size: 22px; font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums; }
+  .mui .sc .n.none { color: #b5b5b5; }
+  .mui .sc .bar { width: 30px; height: 3px; background: #ececec; border-radius: 2px; margin: 6px auto 3px; overflow: hidden; }
+  .mui .sc .bar i { display: block; height: 100%; background: #000; }
+  .mui .sc .l { font-size: 11px; color: #5f5f5f; }
+  .mui .status { grid-column: 2 / -1; display: flex; align-items: center; justify-content: space-between; margin-top: 10px; padding-top: 8px; border-top: 1px solid #f0f0f0; font-size: 12.5px; }
+  .mui .st { color: #5f5f5f; }
+  .mui .acts { display: flex; gap: 2px; align-items: center; }
+  .mui .chev { color: #8a8a8a; font-size: 12px; display: inline-block; transition: transform .15s; margin-left: 4px; }
+  .mui details[open] > summary .chev { transform: rotate(180deg); }
+  .mui .btn { display: inline-flex; align-items: center; min-height: 28px; padding: 2px 10px; border-radius: 6px; border: 1px solid transparent; font-weight: 500; font-size: 12.5px; background: none; color: #000; white-space: nowrap; }
+  .mui .btn.out { border-color: #000; }
+  .mui .btn.danger { color: #c62828; }
+  .mui .btn.danger.out { border-color: #c62828; }
+  .mui .btn.danger.fill { background: #c62828; border-color: #c62828; color: #fff; }
+
+  /* card, open: short labelled lists, aligned under the name */
+  .mui .body { padding: 0 14px 12px 58px; }
+  .mui .sec { margin-top: 10px; }
+  .mui .lab { font-size: 12px; font-weight: 600; display: flex; justify-content: space-between; }
+  .mui .lab span { font-weight: 400; color: #8a8a8a; }
+  .mui ul.pts { margin: 3px 0 0; padding-left: 16px; }
+  .mui ul.pts li { margin: 3px 0; }
+  .mui ul.pts li::marker { color: #b5b5b5; }
+  .mui .who { font-weight: 600; }
+  .mui .role { color: #5f5f5f; margin-left: 4px; }
+  .mui .sig { display: block; color: #3d3d3d; font-size: 12.5px; }
+  .mui .warn { color: #a15c00; }
+  .mui .muted { color: #5f5f5f; }
+  .mui details.why { margin-top: 10px; }
+  .mui details.why > summary { cursor: pointer; font-size: 12px; color: #5f5f5f; list-style: none; }
+  .mui details.why > summary::-webkit-details-marker { display: none; }
+  .mui details.why > summary::before { content: "+ "; }
+  .mui details.why[open] > summary::before { content: "\2212  "; }
+  .mui details.why ul { font-size: 12.5px; color: #5f5f5f; }
+  .mui .foot { display: flex; justify-content: space-between; gap: 10px; margin-top: 12px; padding-top: 8px; border-top: 1px solid #f0f0f0; font-size: 12px; color: #5f5f5f; }
+  .mui .foot .links { display: flex; gap: 12px; }
+  .mui a { color: #000; text-decoration: underline; text-underline-offset: 2px; text-decoration-color: #bdbdbd; }
+  .mui a.ok { color: #2e7d32; font-weight: 500; text-decoration-color: currentColor; }
+
+  /* archive list, delete dialog, PR rows */
+  .mui .ov { font-size: 12px; font-weight: 600; color: #5f5f5f; }
+  .mui .row { display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; align-items: center; padding: 10px 14px; border: 1px solid #e6e6e6; border-radius: 8px; margin-bottom: 8px; }
+  .mui .row small { color: #5f5f5f; font-size: 12.5px; }
+  .mui .empty { color: #8a8a8a; padding: 18px 0; text-align: center; }
+  .mui .dlg { border: 1px solid #e6e6e6; border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.14); padding: 16px 18px; max-width: 360px; margin: 8px auto; background: #fff; }
+  .mui .dlg h6 { font-size: 1.05rem; margin: 0 0 6px; font-weight: 600; }
+  .mui .dlg p { margin: 0 0 12px; color: #5f5f5f; font-size: 13px; }
+  .mui .dlg .ft { display: flex; justify-content: flex-end; gap: 8px; }
+</style>
+<body>
+
+<header>
+  <h1>Launch Radar Cards in the Admin Dashboard</h1>
+  <doc-changes new="15" changed="10"></doc-changes>
+  <details class="thread"><summary>Why · 15 requests</summary>
+    <doc-quote via="prompt" from="the user">I have an idea to use parallels, API, to create a dashboard, to possibly promote, uh, Companies um, into my personal project. … you would use the monitor API, I believe. For launches or series A … or, um, Top startup product or funding announcements … then I would do research on the company, ideally use the find all API to get the people, and then I think the highest indication of, Success would be talent or pedigree, ideally.</doc-quote>
+    <doc-quote via="prompt" from="the user">Of course, You could score it by top VC firms, but the main meat, right? I want to build this as a demo for parallel. I need to be focusing on how we use it for parallel, right?</doc-quote>
+    <doc-quote via="prompt" from="the user">after you monitor, grab the event, grab all the people, you could say, okay, this company, uh, you can give it a score for, like, the funding, VC, whatever, and then, like, people, and then you can, uh, use the extractor task, um, endpoint private task in point to do research on the company, get a little blurb. Um, mainly, the blurb would focus on like the talent, the rounds. And maybe something impressive or what they do.</doc-quote>
+    <doc-quote via="prompt" from="the user">And then it would appear as a card with an accordion, probably, to go on to detail … And then this would all be driven by a loop on clawed code, where Claude Coke can hit an endpoint and upload this object to our database, and then our project just reads from the database.</doc-quote>
+    <doc-quote via="prompt" from="the user">there's a skill in my repo to add a company with a logo. So we could. Uh, have a PR in that card linked and ready to go to just merge. … And if they don't have a job board, That's easily parsable. Then that's, then it would just say, like, no PR available or, or it would give me the job board link</doc-quote>
+    <doc-quote via="prompt" from="the user">And obviously, there'd be duping done.</doc-quote>
+    <doc-quote via="prompt" from="the user">the place the cards would be posted would be an admin, uh, gated link with a dashboard. And then, uh, I would be able to archive the card. It would go into an archive list and then I could permanently delete it from there. And it should be a very simple UI.</doc-quote>
+    <doc-quote via="prompt" from="the user">the main things we're looking for are talent density, and... Uh, DC, Pedigree, and Uh, for talent density, that means, like, the schools, the people went to, the companies they worked for, the industry experience that they have. Or previously founded companies and exited.</doc-quote>
+    <doc-quote via="prompt" from="the user">I wonder if you'd have to do research on said people with a task API.</doc-quote>
+    <doc-quote via="prompt" from="the user">I am concerned with interactive mock ups of the frontend adn lifecycle of how we will call the parallel api and in what order and expected inputs and outputs.</doc-quote>
+    <doc-quote via="prompt" from="the user">5$ and I thought of a way to optimize if it works use leadership</doc-quote>
+    <doc-quote via="prompt" from="the user">we just want to make sure we dont post the same company twice</doc-quote>
+    <doc-quote via="prompt" from="the user">the dashboard will be in this repo</doc-quote>
+    <doc-quote via="prompt" from="the user">Should it be in its own repo running on this laptop since has to be driven by Claude code? I'm not sure.</doc-quote>
+    <doc-quote via="prompt" from="the user">we can run it on this laptop to test but we would have it run on my "server" laptop which is always on</doc-quote>
+  </details>
+</header>
+
+<main>
+<doc-plan>
+
+<!-- ═════ 1 · the page ═════ -->
+<doc-claim>
+  <p>The admin sees each new company as one card on an admin page.</p>
+  <doc-mock frame="none" w="480" label="/admin/launch-radar" caption="A tap on a card opens it, and a tap on a tab changes the list."><template>
+<div class="mui"><div class="page">
+  <h4>Launch Radar</h4>
+  <p class="sub">Startups the Parallel loop found, newest first. Last run Oct 7 at 01:31 UTC on the server laptop. <span data-ref="spend">$0.42 of the $5.00 budget used.</span></p>
+  <input type="radio" name="tab" id="tNew" class="sw" checked><input type="radio" name="tab" id="tArc" class="sw">
+  <div class="tabs"><label for="tNew" class="tab tn">New<span class="cnt">2</span></label><label for="tArc" class="tab ta">Archived<span class="cnt">1</span></label></div>
+
+  <div class="pnew">
+    <details class="card">
+      <summary>
+        <div class="logo">G</div>
+        <div>
+          <div class="name">Ghost AI<a class="site">ghost.ai</a></div>
+          <div class="what">On-device personal AI computer</div>
+          <div class="event"><span>Seed <b>$11M</b></span><span class="d">Oct 5</span></div>
+        </div>
+        <div class="scores"><div class="sc" data-ref="nodata"><div class="n none">–</div><div class="bar"></div><div class="l">Talent</div></div><div class="sc"><div class="n">65</div><div class="bar"><i style="width:65%"></i></div><div class="l">VC</div></div></div>
+        <div class="status"><a class="ok" data-ref="pr">Add-company PR ready</a><span class="acts"><span class="btn" data-ref="archive">Archive</span><span class="chev">▾</span></span></div>
+      </summary>
+      <div class="body">
+        <div class="sec"><div class="lab">Team</div>
+          <ul class="pts">
+            <li><span class="warn">No leaders confirmed.</span> <span class="muted">The people search returned company pages.</span></li>
+            <li>Named in coverage: Zain Javaid (founder, CEO), Nicholas Chua, Yifei Chen, Gautam Sharda</li>
+          </ul></div>
+        <div class="sec"><div class="lab">Funding</div>
+          <ul class="pts"><li><b>Seed $11M</b>, Oct 2026. Led by Andreessen Horowitz, with SV Angel, Abstract, Audacious and Nova</li></ul></div>
+        <div class="sec"><div class="lab">Highlights</div>
+          <ul class="pts">
+            <li>Core is a $3,499 AI computer, and personal data stays at home</li>
+            <li>Runs all day, building context across apps, files and devices</li>
+            <li>Team left top quant shops and universities to join</li>
+          </ul></div>
+        <details class="why"><summary>Why these scores</summary>
+          <ul class="pts"><li>VC 65: Andreessen Horowitz led (tier 1), SV Angel joined (tier 2), round over $10M</li><li>Talent: no people data, so no score</li></ul>
+        </details>
+        <div class="foot"><span>Ashby board, 1 open job</span><span class="links"><a>TechCrunch</a><span>$0.13 research</span></span></div>
+      </div>
+    </details>
+
+    <details class="card" open>
+      <summary>
+        <div class="logo">R</div>
+        <div>
+          <div class="name">Raindrop AI<a class="site" data-ref="site">raindrop.ai</a></div>
+          <div class="what">Monitoring for AI agents</div>
+          <div class="event"><span>Series A <b>$35M</b></span><span class="d">Sep 17</span></div>
+        </div>
+        <div class="scores" data-ref="talent"><div class="sc"><div class="n">49</div><div class="bar"><i style="width:49%"></i></div><div class="l">Talent</div></div><div class="sc"><div class="n">55</div><div class="bar"><i style="width:55%"></i></div><div class="l">VC</div></div></div>
+        <div class="status"><span class="st">Already tracked</span><span class="acts"><span class="btn">Archive</span><span class="chev">▾</span></span></div>
+      </summary>
+      <div class="body">
+        <div class="sec"><div class="lab">Team</div>
+          <ul class="pts">
+            <li><span class="who">Priya Raman</span><span class="role">CEO</span><span class="sig">Berkeley CS. Co-founded Ledgerline, acquired by Northwind</span></li>
+            <li><span class="who">Taylor Brooks</span><span class="role">COO</span><span class="sig">Berkeley EECS. Co-founded Ledgerline, acquired by Northwind</span></li>
+            <li><span class="who">Sam Rivera</span><span class="role">CTO</span><span class="sig">WPI. Apple visionOS designer; interned at Google and SpaceX</span></li>
+          </ul></div>
+        <div class="sec"><div class="lab"><b data-ref="team">Rest of team</b><span>6 public profiles</span></div>
+          <ul class="pts">
+            <li>Previously at Amazon (2), Twitter, Ledgerline, Zoho, Yammer and 9 more</li>
+            <li>8 schools, one person each: UC Davis, UCSB, Villanova, Virginia Tech and 4 more</li>
+            <li class="muted">No top-school grads and no prior exits found</li>
+          </ul></div>
+        <div class="sec"><div class="lab">Funding <span>$50M total</span></div>
+          <ul class="pts">
+            <li><b>Series A $35M</b>, Sep 2026. Led by CRV, with Lightspeed and Y Combinator</li>
+            <li><b>Seed $15M</b>. Lightspeed, Figma Ventures, Vercel Ventures and 8 more</li>
+          </ul></div>
+        <div class="sec"><div class="lab">Highlights</div>
+          <ul class="pts">
+            <li>Team built fraud models at Robinhood and Pinterest’s recommender systems</li>
+            <li>Simulations replay production traffic to catch agent regressions before release</li>
+            <li>Moved from startup customers to enterprises in healthcare and logistics</li>
+          </ul></div>
+        <details class="why"><summary>Why these scores</summary>
+          <ul class="pts">
+            <li>Talent 49: two Berkeley grads with a prior exit (Ledgerline, acquired by Northwind), Apple experience, a CEO with 10+ years. Medium-confidence facts count at 80%.</li>
+            <li>VC 55: CRV led (tier 2), Lightspeed (tier 1) and Y Combinator joined, round over $20M</li>
+          </ul>
+        </details>
+        <div class="foot"><span>Ashby board, 9 open jobs</span><span class="links"><a>Series A post</a><span>$0.26 research</span></span></div>
+      </div>
+    </details>
+  </div>
+
+  <div class="parc">
+    <details class="card">
+      <summary>
+        <div class="logo">A</div>
+        <div>
+          <div class="name">Athennian<a class="site">athennian.com</a></div>
+          <div class="what">Entity management for legal teams</div>
+          <div class="event"><span>Launch</span><span class="d">Oct 6</span></div>
+        </div>
+        <div class="scores"><div class="sc"><div class="n none">–</div><div class="bar"></div><div class="l">Talent</div></div><div class="sc"><div class="n">20</div><div class="bar"><i style="width:20%"></i></div><div class="l">VC</div></div></div>
+        <div class="status"><span class="st">Archived Oct 7</span><span class="acts"><span class="btn">Restore</span><span class="btn danger">Delete</span></span></div>
+      </summary>
+      <div class="body">
+        <div class="sec"><div class="lab">Team</div>
+          <ul class="pts">
+            <li><span class="who">Jordan M.</span><span class="role">CEO, founder</span></li>
+            <li><span class="who">Kai Nakamura</span><span class="role">Co-founder</span></li>
+            <li><span class="who">Robin Hart</span><span class="role">COO</span></li>
+            <li><span class="who">Elena Cruz</span><span class="role">SVP Revenue</span></li>
+            <li class="warn">No background data came back for these leaders</li>
+          </ul></div>
+        <div class="sec"><div class="lab">Funding</div>
+          <ul class="pts"><li><b>Series B $33M</b>, Mar 2022. Led by Centana Growth Partners</li></ul></div>
+        <div class="sec"><div class="lab">Highlights</div>
+          <ul class="pts">
+            <li>Manages 500,000+ entities across 150+ countries</li>
+            <li>Reported 10x ARR growth over two years (2022)</li>
+            <li>Oct 2026 launch: Athennian Intelligence and an MCP server</li>
+          </ul></div>
+        <div class="foot"><span>Rippling board, no PR</span><span class="links"><a>Open job board</a></span></div>
+      </div>
+    </details>
+  </div>
+</div></div></template>
+    <doc-pin ref="talent" anchor="tl" title="Talent and VC scores">Talent counts schools, employers, exits and years.</doc-pin>
+    <doc-pin ref="nodata" anchor="l" title="Absent data is not 0">The talent score stays empty.</doc-pin>
+    <doc-pin ref="pr" anchor="r" title="Opens the add-company PR">The admin merges it on GitHub.</doc-pin>
+    <doc-pin ref="archive" anchor="tr" title="Archive">Moves the card to the Archived tab.</doc-pin>
+    <doc-pin ref="spend" anchor="r" title="From launch_radar_runs">The sum of all reservations. See 5.4.</doc-pin>
+    <doc-pin ref="site" anchor="tr" title="Company website">From the brief Task. See 3.5.</doc-pin>
+    <doc-pin ref="team" anchor="r" offset="6,0" title="Rest of team">A tally of the non-founders. See 1.4.</doc-pin>
+  </doc-mock>
+
+  <doc-claim>
+    <p>The page reads cards through admin routes behind <code>require_admin</code>.</p>
+    <doc-calls title="Read path" caption="Three admin guards protect the route, as on every admin page.">
+<script type="text/plain">
++ <**AdminLaunchRadarPage**/>                          @ src/frontend/src/pages/AdminLaunchRadarPage/AdminLaunchRadarPage.tsx:1
+    <AdminRoute>                                       @ src/frontend/src/components/auth/AdminRoute.tsx:33
++   **useGetLaunchRadarCardsQuery**({ status, offset })   @ src/frontend/src/features/admin/adminApi.ts:1674
++     GET /api/admin/launch-radar/cards                @ api/admin.ts:59   -- PROXIED_ROUTES + 'launch-radar/cards'
++ **admin_launch_radar_cards**(status, limit, offset)  @ src/backend/api/routers/admin.py:1037
+    Depends(require_admin)                             @ src/backend/api/auth/dependencies.py:88
++   **list_cards**(conn, status, limit, offset)        @ src/backend/api/services/launch_radar.py:40   -- limit ≤ 100, returns total
++   **run_stats**(conn)                                @ src/backend/api/services/launch_radar.py:70   -- last run, spend of all runs
+~ ROUTES.ADMIN_LAUNCH_RADAR                            @ src/frontend/src/config/routes.ts:45
+~ ADMIN_NAV_ITEMS + "Launch Radar"                     @ src/frontend/src/config/routes.ts:216
+~ <Route path=ADMIN_LAUNCH_RADAR> in <AdminRoute>      @ src/frontend/src/app/App.tsx:189
+</script>
+    </doc-calls>
+  </doc-claim>
+
+  <doc-claim>
+    <p>The talent score counts schools, employers, exits and years.</p>
+    <doc-code src="scripts/launch_radar_poc/poc.py" lines="599-617" wrap caption="Each signal uses the confidence weight on line 617.">
+      <doc-pin line="614" tone="info" title="An exit is the only founder signal">Founding a company with no exit scores 0.</doc-pin>
+      <doc-pin line="615" tone="info" title="10 or more years of experience"></doc-pin>
+      <doc-pin line="617" tone="warn" title="Medium confidence counts ×0.8"></doc-pin>
+    </doc-code>
+    <doc-note tone="info">The card shows the industry experience of each leader. The score does not use it.</doc-note>
+  </doc-claim>
+
+  <doc-claim>
+    <p>A card with no people data shows no talent score.</p>
+    <doc-code diff file="scripts/launch_radar_poc/poc.py" lang="py" caption="In the POC, Ghost AI and Athennian got 0 because enrich returned nothing.">
+<script type="text/plain">
+@@ -698,2 +698,4 @@
+-def score_talent(leaders: list[dict]) -> tuple[int, list[str]]:
++def score_talent(leaders: list[dict]) -> tuple[int | None, list[str]]:
++    if not any(ld.get("schools") or ld.get("prior_companies") for ld in leaders):
++        return None, ["talent: no people data"]
+     reasons: list[str] = []
+</script>
+      <doc-pin line="700" tone="ok" title="The card shows “No people data”"></doc-pin>
+    </doc-code>
+  </doc-claim>
+  <doc-claim>
+    <p>A second Task run tallies the schools and employers of the team.</p>
+    <doc-schema id="team" lang="json" wrap title="Task run · team tally" caption="Real fixture: pro, $0.10, 167 s. The talent score does not use it.">
+<script type="text/plain">
+{
+  // POST /v1/tasks/runs · client.task_run.create · team_stats.py:84 · created next to the brief
+  "request": {
+    "input": "Company: Raindrop AI (raindrop.ai). Find current employees of this exact company who are NOT its founders (Sam Rivera, Taylor Brooks, Priya Raman). … tally the universities they attended and their notable previous employers. … Do not guess: only count facts you found.",
+    "processor": "pro",
+    "task_spec": { "output_schema": { "type": "json", "json_schema": { /* A_SCHEMA · team_stats.py:47 */ } } }
+  },
+  // GET /v1/tasks/runs/trun_7507…/result · 167 s later
+  "result": {
+    "output": {
+      "content": {
+        "profiles_found": 6.0,                      // integers arrive as floats: cast them
+        "team_size_estimate": "approximately 10-20",
+        "schools": [{ "name": "University of California, Davis", "count": 1.0 } /* … 7 more, 1 each */],
+        "prior_employers": [{ "name": "Amazon", "count": 2.0 }, { "name": "Ledgerline", "count": 1.0 } /* … 12 more */],
+        "ex_founders_with_exit": 0.0,
+        "sample_names": ["Alex Moreno", "Jesse Park", "Rowan Ellis", "Avery Quinn", "Drew Carter", "Chris Doe"]
+      },
+      "basis": [{ "field": "sample_names", "confidence": "medium", "citations": [/* 6 profiles */] } /* … 33 more */]
+    }
+  }
+}
+</script>
+    </doc-schema>
+    <doc-note tone="info"><strong>Option B</strong> Entity Search, then one base run for each person, found 5 of the same 6 people for $0.145. The plan uses this cheaper run.</doc-note>
+  </doc-claim>
+</doc-claim>
+
+<!-- ═════ 2 · archive / delete ═════ -->
+<doc-claim>
+  <p>The admin can archive a card, restore it, or delete it.</p>
+  <doc-machine name="card" caption="Tap a state to see its screen.">
+<script type="text/plain">
+machine card initial new
+state new             # In the New tab.
+state archived        # In the Archived tab.
+state deleted  final  # Gone from the page.
+
+| new | archived | deleted |
+
+new      -archive-> archived : Archive
+archived -delete->  deleted  : Delete permanently
+archived -restore-> new      : Restore
+</script>
+    <div data-state="new"><doc-mock frame="none" w="460"><template>
+<div class="mui"><details class="card"><summary>
+  <div class="logo">A</div>
+  <div><div class="name">Athennian<a class="site">athennian.com</a></div><div class="what">Entity management for legal teams</div><div class="event"><span>Launch</span><span class="d">Oct 6</span></div></div>
+  <div class="scores"><div class="sc"><div class="n none">–</div><div class="bar"></div><div class="l">Talent</div></div><div class="sc"><div class="n">20</div><div class="bar"><i style="width:20%"></i></div><div class="l">VC</div></div></div>
+  <div class="status"><span class="st">No PR (Rippling)</span><span class="acts"><span class="btn out">Archive</span><span class="chev">▾</span></span></div>
+</summary></details></div></template></doc-mock></div>
+    <div data-state="archived"><doc-mock frame="none" w="460"><template>
+<div class="mui">
+  <div class="ov" style="margin-bottom:6px">Archived<span class="cnt">1</span></div>
+  <div class="row"><div><b>Athennian</b><br><small>athennian.com, archived Oct 7 by brendanpotter00@gmail.com</small></div><div class="acts"><span class="btn">Restore</span><span class="btn danger out">Delete permanently</span></div></div>
+</div></template></doc-mock></div>
+    <div data-state="deleted"><doc-mock frame="none" w="460"><template>
+<div class="mui">
+  <div class="dlg"><h6>Delete Athennian permanently?</h6><p>The card and its research go away. The loop will not post athennian.com again.</p><div class="ft"><span class="btn">Cancel</span><span class="btn danger fill">Delete</span></div></div>
+  <div class="ov" style="margin-top:10px">Archived<span class="cnt">0</span></div>
+  <div class="empty">No archived cards.</div>
+</div></template></doc-mock></div>
+  </doc-machine>
+
+  <doc-claim>
+    <p>Each button calls one admin route behind <code>require_admin</code>.</p>
+    <doc-calls title="Archive · Restore · Delete" caption="updated_by gets the admin email, as in the settings route.">
+<script type="text/plain">
++ <**RadarCard**/> Archive · Restore · Delete             @ src/frontend/src/pages/AdminLaunchRadarPage/components/RadarCard.tsx:1
++   **useSetLaunchRadarCardStatusMutation**()            @ src/frontend/src/features/admin/adminApi.ts:1674
++     PATCH /api/admin/launch-radar/cards/:id           @ api/admin.ts:59   -- PROXIED_ROUTES + 'launch-radar/cards/:id'
++   **useDeleteLaunchRadarCardMutation**()               @ src/frontend/src/features/admin/adminApi.ts:1674
++     DELETE /api/admin/launch-radar/cards/:id          @ api/admin.ts:59   -- the same allowlist entry
++ **admin_set_launch_radar_status**(id, body)           @ src/backend/api/routers/admin.py:1037   -- body { status: "archived" | "new" }
+    Depends(require_admin)                              @ src/backend/api/auth/dependencies.py:88
++   **set_status**(conn, id, status, admin.get("email", "unknown"))   @ src/backend/api/services/launch_radar.py:60
++ **admin_delete_launch_radar_card**(id)                @ src/backend/api/routers/admin.py:1037   -- 204, or 409 if not archived
++   **delete_card**(conn, id, admin.get("email", "unknown"))   @ src/backend/api/services/launch_radar.py:80
+</script>
+    </doc-calls>
+  </doc-claim>
+
+  <doc-claim>
+    <p>Delete permanently clears the card but keeps the domain.</p>
+    <doc-code title="services/launch_radar.py · delete_card · sketch" lang="sql">
+<script type="text/plain">
+-- delete_card(id, email): only an archived card can go
+UPDATE launch_radar_cards
+SET    status = 'deleted',
+       payload = NULL, talent_score = NULL, vc_score = NULL, pr_url = NULL,
+       deleted_at = now(), updated_by = %(email)s
+WHERE  id = %(id)s AND status = 'archived'
+RETURNING id;            -- no row back: 409, the card is not archived
+</script>
+      <doc-pin line="4" tone="info" title="The research is gone"></doc-pin>
+      <doc-pin line="6" tone="warn" title="Only from the Archived tab"></doc-pin>
+    </doc-code>
+    <doc-ask id="tomb">
+      <p>After a permanent delete, can the loop post that company again?</p>
+      <label><input type="radio" name="tomb" value="keep" checked> No. The row stays with only the domain</label>
+      <label><input type="radio" name="tomb" value="free"> Yes. <code>DELETE FROM</code> removes the row</label>
+    </doc-ask>
+    <div data-if="tomb=free"><doc-note tone="warn">Then claim 5.3 lets the domain through again.</doc-note></div>
+  </doc-claim>
+</doc-claim>
+
+<!-- ═════ 3 · the Parallel lifecycle ═════ -->
+<doc-claim>
+  <p>Parallel turns each new Monitor event into a researched, scored card.</p>
+  <doc-machine name="run" caption="Events is the real Monitor run, and the other states are the Raindrop run.">
+<script type="text/plain">
+machine run initial events
+state events           # Monitor events arrive.
+state dedupe           # The loop compares the domain and name with the database.
+state stopped   final  # The loop stops for this company: seen, no domain, budget or error.
+state leaders          # FindAll finds the current leaders.
+state pedigree         # A Task Group finds each pedigree, one base run for each leader.
+state brief            # The loop reads the company brief. It started with FindAll.
+state ats              # The free ATS API confirms the board.
+state posted    final  # The card is in the New tab.
+
+| events  | dedupe  | leaders  |
+| .       | stopped | pedigree |
+| posted  | ats     | brief    |
+
+events   -event->  dedupe   : 1 event
+dedupe   -seen->   stopped  : seen
+dedupe   -new->    leaders  : new
+leaders  -found->  pedigree : leaders
+pedigree -halt->   stopped  : $ cap
+pedigree -done->   brief    : filled
+brief    -done->   ats      : token
+ats      -score->  posted   : POST 201
+</script>
+    <div data-state="events"><doc-mock frame="terminal" title="client.monitor.events · poc.py:315" w="470"><template><span class="dim">$</span> GET /v1/monitors/monitor_54af…/events
+<span class="dim">  limit=100 include_completions=true</span>
+<span class="g">✓</span> 1 event_stream row · <b>61 s</b> after polling began
+  Athennian · athennian.com · <b>launch</b>
+  announced_at 2026-10-06 · event_date 2026-10-07
+  basis confidence: <span class="g">high</span> on 9 of 9 fields
+<span class="dim">  cost: $0.01 per run on base · the GET is free</span></template></doc-mock></div>
+    <div data-state="dedupe"><doc-mock frame="terminal" title="normalize_domain · poc.py:155" w="470"><template><span class="dim">$</span> normalize_domain → GET /api/internal/launch-radar/seen
+  athennian.com               → <span class="g">new</span>   → research
+  HTTPS://WWW.Raindrop.AI/…   → raindrop.ai → <span class="g">new</span> → research
+  NA                          → <span class="r">no domain</span> → stop
+<span class="dim">  cost: $0 · no Parallel call</span></template></doc-mock></div>
+    <div data-state="stopped"><doc-mock frame="terminal" title="launch-radar log · the next day" w="470"><template>  skip raindrop.ai — card 1 exists (posted 2026-10-07)
+  stop NA — no domain
+  stop example.ai — 402 budget: $4.98 of $5.00
+<span class="dim">  $0 spent on these · next event</span></template></doc-mock></div>
+    <div data-state="leaders"><doc-mock frame="terminal" title="client.beta.findall.create · poc.py:881" w="470"><template><span class="dim">$</span> POST /v1beta/findall/runs  people · preview · limit 8
+<span class="dim">  + POST /v1/tasks/runs (brief) at the same time</span>
+<span class="g">✓</span> completed · low_match_rate · <b>154 s</b> · <b>$0.10</b>
+  <span class="g">matched</span>   Priya Raman  CEO and Co-Founder
+  <span class="g">matched</span>   Sam Rivera            Co-Founder &amp; CTO
+  <span class="g">matched</span>   Taylor Brooks         COO &amp; Co-Founder
+  <span class="dim">unmatched Morgan Hale    not at raindrop.ai</span>
+  <span class="dim">unmatched Dana Whitfield</span>
+<span class="dim">  is_person: 3 of 3 · under 2 → one base run, $0.49 at most</span></template></doc-mock></div>
+    <div data-state="pedigree"><doc-mock frame="terminal" title="client.task_group · pedigree_group.py:52" w="470"><template><span class="dim">$</span> POST /v1/tasks/groups → tgrp_7beb…
+<span class="dim">$</span> POST /v1/tasks/groups/tgrp_7beb…/runs
+<span class="dim">  3 inputs · processor=base · PEDIGREE_SCHEMA · $0.03 reserved</span>
+<span class="g">✓</span> 3 of 3 leaders completed · <b>142 s</b> · <b>$0.03</b>
+  Brooks    UC Berkeley EECS · Ledgerline → Northwind 2025
+  Raman  UC Berkeley · Ledgerline → Northwind 2025
+  Rivera    WPI · Apple visionOS, Google, SpaceX
+<span class="dim">  no FindAll enrich · talent 49, the same as core enrich</span></template></doc-mock></div>
+    <div data-state="brief"><doc-mock frame="terminal" title="client.task_run.result · poc.py:811" w="470"><template><span class="dim">$</span> GET /v1/tasks/runs/trun_be24…/result?timeout=300
+<span class="dim">  created at t=0 with processor=core, next to FindAll</span>
+<span class="y">!</span> spec warning: 25 properties, 10 recommended
+<span class="g">✓</span> completed · <b>124 s</b> run · <b>$0.025</b> · 10 sources
+  Series A $35M · 2026-09-17 · lead CRV
+  ats: ashby / Raindrop · careers raindrop.ai/careers
+<span class="g">✓</span> team tally (pro) · <b>167 s</b> · <b>$0.10</b> · 6 public profiles</template></doc-mock></div>
+    <div data-state="ats"><doc-mock frame="terminal" title="ats_check · poc.py:752" w="470"><template><span class="dim">$</span> GET api.ashbyhq.com/posting-api/job-board/Raindrop
+<span class="g">✓</span> 200 · 9 jobs · free · approximately 1 s
+  score_talent → <b>49</b> · score_vc → <b>55</b></template></doc-mock></div>
+    <div data-state="posted"><doc-mock frame="terminal" title="post_card" w="470"><template><span class="dim">$</span> POST /api/internal/launch-radar/cards  → <span class="g">201</span>
+  {"id": 1, "trackedCompanyId": "raindrop-ai"}
+  no PR: companies already has ashby / raindrop
+  total $0.26 · 4.9 min = FindAll 154 s + Task Group 142 s
+<span class="dim">  the brief and the team tally ran alongside, off the critical path</span></template></doc-mock></div>
+  </doc-machine>
+
+  <doc-claim>
+    <p>Each run calls Parallel in a fixed order.</p>
+    <doc-calls title="One loop run" caption="The brief, the team tally and FindAll start at the same time.">
+<script type="text/plain">
++ **/launch-radar-once**                                @ .claude/commands/launch-radar-once.md:1   -- headless, like health-watch-once
++   POST /api/internal/launch-radar/runs                @ src/backend/api/routers/internal_launch_radar.py:4   -- spend so far, last_event_ids
+    client.monitor.events(id, limit=100)                @ scripts/launch_radar_poc/poc.py:315   -- each Monitor; stop at last_event_id
++   **resolve_missing_domains**(events)                 @ scripts/launch_radar/resolve.py:87   -- Search fast, $0.001; events with no domain
++   GET /api/internal/launch-radar/seen                 @ src/backend/api/routers/internal_launch_radar.py:17
+~   Ledger.reserve(step, est)                           @ scripts/launch_radar_poc/poc.py:107   -- before each billed create; 402 stops
+    client.beta.findall.create(people, preview)         @ scripts/launch_radar_poc/poc.py:881   -- $0.10
+    client.task_run.create(brief, core)                 @ scripts/launch_radar_poc/poc.py:907   -- $0.025
++   client.task_run.create(team tally, pro)             @ scripts/launch_radar_poc/team_stats.py:84   -- $0.10; display only
+    _poll_findall() then findall.result()               @ scripts/launch_radar_poc/poc.py:915
++   **is_person**(candidate)                            @ scripts/launch_radar_poc/poc.py:822
+    findall.create(people, base)                        @ scripts/launch_radar_poc/poc.py:942   -- under 2 persons; $0.25 + $0.03 a match
++   client.task_group.add_runs(leaders, base)          @ scripts/launch_radar_poc/pedigree_group.py:53   -- one run for each leader; $0.01 each
++   client.task_group.get_runs(include_output=True)    @ scripts/launch_radar_poc/pedigree_group.py:64   -- join on metadata, not order
+    task_run.result(api_timeout=300)                    @ scripts/launch_radar_poc/poc.py:811
+    ats_check(provider, token)                          @ scripts/launch_radar_poc/poc.py:752
++   POST /api/internal/launch-radar/cards               @ src/backend/api/routers/internal_launch_radar.py:22
+</script>
+    </doc-calls>
+    <doc-note tone="info">poc.py moves to <code>scripts/launch_radar/radar.py</code>.</doc-note>
+  </doc-claim>
+
+  <doc-claim>
+    <p>The Monitor returns each event as nine JSON fields.</p>
+    <doc-schema id="mon" lang="json" wrap title="Monitor · create once, then read events" caption="Real fixture: base, $0.01 for each run, 1 event 61 s after polling began.">
+<script type="text/plain">
+{
+  // POST /v1/monitors · client.monitor.create · poc.py:255
+  "request": {
+    "type": "event_stream",
+    "frequency": "1d",               // every day; the POC ran "30d" and cancelled after run 1
+    "processor": "base",             // lite returned 0 events; Monitor takes only lite or base
+    "settings": {
+      "query": "Startups announcing a newly closed seed, Series A or later venture funding round, and notable AI startup product launches, as reported in press releases or tech/business news. One specific company per event.",
+      "include_backfill": true,
+      "output_schema": { "type": "json", "json_schema": { /* 9 fields, all required */ } }
+    },
+    "metadata": { "app": "launch-radar-poc" }
+  },
+  // GET /v1/monitors/{id}/events?limit=100&include_completions=true · poc.py:315 · newest first
+  "response": {
+    "events": [{
+      "event_type": "event_stream",
+      "event_id": "mevt_3ea6c07edcbfe5b82ddc2a929590e700a5da74c01c6a9b211c6a9b21",   // the loop stores the newest one
+      "event_date": "2026-10-07",    // the run date, not the news date
+      "output": {
+        "type": "json",
+        "content": {
+          "company_name": "Athennian",
+          "company_domain": "athennian.com",
+          "event_type": "launch",
+          "round": null,
+          "announced_at": "2026-10-06",
+          "headline": "Athennian launches AI-powered Intelligence and MCP capabilities for governance work",
+          "source_url": "https://www.athennian.com/news/athennian-launches-intelligence-and-mcp-to-complete-complex-governance-work-inside-and-outside-athennian"
+          // … 2 more: amount_usd, investors
+        },
+        "basis": [{ "field": "event_type", "confidence": "high", "citations": [ /* 1 */ ] } /* … 8 more */]
+      }
+      // … 1 more: event_group_id
+    }]
+  }
+}
+</script>
+    </doc-schema>
+    <doc-ask id="source">
+      <p>Which source finds new companies each day?</p>
+      <label><input type="radio" name="source" value="three" checked> Three narrow Monitors on base, daily <small>seed, Series A and later, launches; $0.03 a day</small></label>
+      <label><input type="radio" name="source" value="one"> One Monitor on base, daily, as in the POC <small>$0.01 a day; 1 event in 2 runs</small></label>
+      <label><input type="radio" name="source" value="findall"> One Monitor and a daily FindAll preview of companies <small>$0.11 a day; 10 companies at most</small></label>
+    </doc-ask>
+    <doc-note tone="warn"><strong>Low recall</strong> The POC Monitor found 1 event in 2 runs. It did not find Raindrop.</doc-note>
+    <div data-if="source=three"><doc-note tone="info">Each Monitor gets one narrow query and its own stored <code>event_id</code>.</doc-note></div>
+    <div data-if="source=findall"><doc-note tone="info">FindAll matches go to the dedupe step, as events do.</doc-note></div>
+  </doc-claim>
+
+  <doc-claim>
+    <p>FindAll returns the founders and executives of one domain.</p>
+    <doc-schema id="fa" lang="json" wrap title="FindAll · leadership" caption="Real fixture: preview, $0.10 flat, 154 s, 3 of 5 matched.">
+<script type="text/plain">
+{
+  // POST /v1beta/findall/runs · client.beta.findall.create · poc.py:881
+  "request": {
+    "objective": "Find the founders and current senior leadership team (CEO, CTO, other C-level executives, VPs and Heads of functions) of Raindrop AI, the company whose website is raindrop.ai.",
+    "entity_type": "people",
+    "match_conditions": [{
+      "name": "current_leader_at_company",
+      "description": "The person is a founder/co-founder of Raindrop AI (raindrop.ai) or currently holds a C-level … role at Raindrop AI (raindrop.ai). It must be this exact company … Former employees, investors, board-only members and advisors do NOT match. If there is no evidence, the condition is not satisfied."
+      // + new sentence: "The candidate must be one person with a personal profile, not a company page."
+    }],
+    "generator": "preview",          // $0.10 flat; the fallback uses base: $0.25 + $0.03 per match
+    "match_limit": 8,
+    "metadata": { "poc": "launch-radar", "company": "raindrop.ai" }
+  },
+  // GET /v1beta/findall/runs/{findall_id}/result · poc.py:916
+  "response": {
+    "run": {
+      "findall_id": "findall_cf4a57d0c7164d2daacad63cb889afea",
+      "status": { "status": "completed", "is_active": false, "termination_reason": "low_match_rate",
+                  "metrics": { "generated_candidates_count": 5, "matched_candidates_count": 3 } }
+    },
+    "candidates": [
+      { "name": "Sam Rivera", "url": "https://linkedin.com/in/example-sam-rivera", "match_status": "matched",
+        "output": { "current_leader_at_company": { "type": "match_condition", "is_matched": true,
+          "value": "Co-Founder & CTO at Raindrop (raindrop.ai); explicitly listed as a co-founder; current, started 2023-10 (present). …" } },
+        "basis": [{ "field": "current_leader_at_company", "confidence": "medium", "citations": [ /* linkedin, raindrop.ai/blog, ycombinator.com */ ] }] },
+      { "name": "Taylor Brooks", "match_status": "matched" },
+      { "name": "Priya Raman", "match_status": "matched" },
+      { "name": "Morgan Hale", "url": "https://example.org/morgan-hale", "match_status": "unmatched" },
+      { "name": "Dana Whitfield", "match_status": "unmatched" }
+    ]
+    // … 1 more: last_event_id
+  }
+}
+</script>
+    </doc-schema>
+    <doc-note tone="risk"><strong>Ghost AI</strong> FindAll matched 8 company pages as people. After 3.3.1 drops them, one base run costs $0.49 at most.</doc-note>
+
+    <doc-claim at="scripts/launch_radar_poc/poc.py:822">
+      <p><b>poc.py:822</b> · is_person()</p>
+      <doc-code diff file="scripts/launch_radar_poc/poc.py" lang="py">
+<script type="text/plain">
+@@ -821,2 +821,13 @@
+ def _matched(result: Any) -> list[Any]:
+-    return [cd for cd in result.candidates if cd.match_status == "matched"]
++    return [cd for cd in result.candidates if cd.match_status == "matched" and is_person(cd)]
++
++
++COMPANY_PAGE = re.compile(
++    r"tracxn\.com/.*/company/|crunchbase\.com/organization/|linkedin\.com/company/", re.I)
++
++
++def is_person(cd: Any) -> bool:
++    """Reject a 'person' whose profile is a company page (Ghost AI: 8 of 8)."""
++    if COMPANY_PAGE.search(cd.url or ""):
++        return False
++    return len((cd.name or "").split()) >= 2
+</script>
+        <doc-pin line="832" tone="risk" title="All 8 Ghost AI matches stop here"></doc-pin>
+      </doc-code>
+    </doc-claim>
+  </doc-claim>
+
+  <doc-claim>
+    <p>A Task Group finds the pedigree of each leader, one base run each.</p>
+    <doc-schema id="pedigree" lang="json" wrap title="Task Group · pedigree" caption="Real fixture: base, $0.01 for each leader, $0.03 for 3 of 3, 142 s.">
+<script type="text/plain">
+{
+  // POST /v1/tasks/groups · client.task_group.create · pedigree_group.py:52 · after is_person
+  "create": { "metadata": { "poc": "launch-radar-pedigree", "company": "raindrop.ai" } },
+  // → { "taskgroup_id": "tgrp_7beb0223fcfa46809156a0899127c585" }
+
+  // POST /v1/tasks/groups/{taskgroup_id}/runs · client.task_group.add_runs · pedigree_group.py:53
+  "add_runs": {
+    "default_task_spec": { "output_schema": { "type": "json", "json_schema": { /* PEDIGREE_SCHEMA · poc.py:410 · 8 fields */ } } },
+    "inputs": [
+      { "input": { "person_name": "Taylor Brooks", "current_title": "Chief Operating Officer & Co-Founder",
+                   "linkedin_url": "https://linkedin.com/in/example-taylor-brooks",
+                   "company_name": "Raindrop AI", "company_domain": "raindrop.ai" },
+        "processor": "base",
+        "metadata": { "i": "1" } }       // the loop joins each result on metadata.i
+      /* … 2 more: Sam Rivera, Priya Raman */
+    ]
+  },
+
+  // GET /v1/tasks/groups/{taskgroup_id}/runs?include_input=true&include_output=true · pedigree_group.py:64 · SSE, any order
+  "result": {
+    "run_id": "srun_7beb0223fcfa46807aad048bfa815c16",
+    "output": {
+      "content": {
+        "current_title": "Chief Operating Officer & Co-Founder",
+        "education": [{ "school": "UC Berkeley", "degree": null,
+                        "field": "Electrical Engineering and Computer Science (EECS)", "grad_year": null }],
+        "prior_roles": [{ "company": "Ledgerline", "title": "Co-Founder", "years": "2019-2023" } /* … 5 more; enrich found 9 */],
+        "founded_before": [{ "company": "Ledgerline", "outcome": "acquired", "acquirer": "Northwind", "exit_year": "2025" }],
+        "years_experience": "8",       // a string, as the schema asks: cast it
+        "industry_experience_summary": "Brooks’s experience spans decentralized-finance derivatives, including co-founding Ledgerline, …"
+        // … 2 more: linkedin_url, notable_signals
+      },
+      "basis": [{ "field": "founded_before", "confidence": "medium", "citations": [ /* 2 */ ] } /* … 17 more */]
+    }
+  }
+}
+</script>
+    </doc-schema>
+    <doc-note tone="info"><strong>Base against core enrich</strong> Base found the same schools, the same Ledgerline exit and the same top employers. It found fewer prior roles, and the years differ. The talent score stays 49.</doc-note>
+    <doc-ask id="people">
+      <p>How does the loop research the pedigree of each leader?</p>
+      <label><input type="radio" name="people" value="group" checked> A Task Group, one base run for each leader <small>$0.01 a leader; no FindAll enrich</small></label>
+      <label><input type="radio" name="people" value="groupcore"> A Task Group, one core run for each leader <small>$0.025 a leader; more prior roles</small></label>
+      <label><input type="radio" name="people" value="hybrid"> FindAll enrich after is_person, then a Task Group for gaps <small>core, $0.025 a leader; enrich filled 3 of 15</small></label>
+    </doc-ask>
+    <div data-if="people=groupcore"><doc-note tone="info">Then 3.4.1 sends <code>processor="core"</code>, and the reservation is $0.025 for each leader.</doc-note></div>
+    <div data-if="people=hybrid"><doc-note tone="warn">Then the loop calls enrich first, and 3.4.1 gets only the leaders with no data.</doc-note></div>
+
+    <doc-claim at="scripts/launch_radar_poc/pedigree_group.py:52">
+      <p><b>pedigree_group.py:52</b> · main()</p>
+      <doc-code src="scripts/launch_radar_poc/pedigree_group.py" lines="50-75" hl="52-53,64-73" caption="radar.py moves this into the loop and reserves $0.01 for each leader before line 52.">
+        <doc-pin line="53" tone="ok" title="One add_runs call holds every leader"></doc-pin>
+        <doc-pin line="59" tone="info" title="Poll every 10 s, 600 s at most"></doc-pin>
+        <doc-pin line="69" tone="warn" title="Results arrive in any order">The loop joins on metadata.i.</doc-pin>
+        <doc-pin line="75" tone="info" title="Parallel does not bill a failed run"></doc-pin>
+      </doc-code>
+    </doc-claim>
+  </doc-claim>
+
+  <doc-claim>
+    <p>One Task run writes the blurb, the website, the rounds and the ATS.</p>
+    <doc-schema id="brief" lang="json" wrap title="Task run · company brief" caption="Real fixture: core, $0.025, 124 s from create to done, 10 cited URLs.">
+<script type="text/plain">
+{
+  // POST /v1/tasks/runs · client.task_run.create · poc.py:907
+  "request": {
+    "input": { "company_name": "Raindrop AI", "company_domain": "raindrop.ai",
+               "context": "Raindrop (raindrop.ai) builds monitoring / observability for AI agents. It reportedly just announced a Series A; verify." },
+    "processor": "core",
+    "task_spec": { "output_schema": { "type": "json", "json_schema": { /* BRIEF_SCHEMA · poc.py:485 */ } } },
+    "metadata": { "poc": "launch-radar", "company": "raindrop.ai" }
+  },
+  // 202 TaskRun at 01:20:36: no output yet
+  "created": {
+    "run_id": "trun_be2438dfbde7437da97a61b49d0b23ac",
+    "status": "queued",
+    "warnings": [{ "type": "spec_validation_warning", "detail": { "total_properties": 25, "recommended_max_properties": 10 } }]
+  },
+  // GET /v1/tasks/runs/{run_id}/result?timeout=300 · poc.py:811 · 408 = still running
+  // the run completed at 01:22:40; poc.py read it at 277.8 s, after FindAll and enrich
+  "result": {
+    "output": {
+      "type": "json",
+      "content": {
+        "one_liner": "Raindrop is a monitoring and reliability platform that detects silent failures in production AI agents.",
+        "latest_round": { "stage": "Series A", "amount_usd": "$35M", "announced_at": "2026-09-17",
+                          "lead_investors": ["CRV"], "other_investors": ["Lightspeed Venture Partners", "Y Combinator", "…"] },
+        "total_raised_usd": "$50M",
+        "blurb": "Raindrop says its team has built fraud transformer models at Robinhood, pioneered Pinterest’s recommender systems, … With a $15M seed and a $35M Series A ($50M total), …",
+        "careers_url": "https://www.raindrop.ai/careers/",
+        "ats": { "provider": "ashby", "board_token": "Raindrop" }
+        // + new key ats.board_url: Athennian's basis named ats.rippling.com/athennian/jobs, but the schema had no field for it
+        // + new key website_url: the official homepage. The card links it. The POC run did not ask for it.
+        // … 4 more: what_they_do, prior_rounds, latest_announcement, notable_facts
+      },
+      "basis": [{ "field": "one_liner", "confidence": "high", "citations": [{ "url": "https://raindrop.ai/docs/introduction" }] } /* … 15 more */]
+    }
+  }
+}
+</script>
+    </doc-schema>
+  </doc-claim>
+</doc-claim>
+
+<!-- ═════ 4 · PR ═════ -->
+<doc-claim>
+  <p>A card links an add-company PR for a new company on Greenhouse, Ashby or Lever.</p>
+  <doc-mock frame="none" w="460" caption="ats_check tests only Greenhouse, Ashby and Lever."><template>
+<div class="mui">
+  <div class="row"><div><b>Ghost AI</b><br><small>Ashby board ghost, 1 open job</small></div><a class="ok" data-ref="ready">Add-company PR ready</a></div>
+  <div class="row"><div><b>Raindrop AI</b><br><small>Ashby board Raindrop, 9 open jobs</small></div><span class="st" data-ref="tracked2">Already tracked</span></div>
+  <div class="row"><div><b>Athennian</b><br><small>Rippling board, not checked</small></div><a data-ref="nopr">No PR. Open job board</a></div>
+</div></template>
+    <doc-pin ref="ready" anchor="tr" title="Opens the GitHub PR">The loop never merges it.</doc-pin>
+    <doc-pin ref="tracked2" anchor="br" title="companies has ashby / raindrop">No PR.</doc-pin>
+    <doc-pin ref="nopr" anchor="br" title="Opens ats.rippling.com/athennian/jobs"></doc-pin>
+  </doc-mock>
+
+  <doc-claim>
+    <p>The loop tests the board token against the free ATS API.</p>
+    <doc-code src="scripts/launch_radar_poc/poc.py" lines="763-786" hl="783-786" caption="pr_ready needs a verified board (poc.py:1044).">
+      <doc-pin line="783" tone="ok" title="HTTP 200 and at least one job"></doc-pin>
+    </doc-code>
+  </doc-claim>
+
+  <doc-claim>
+    <p>The backend marks a card “Already tracked” when <code>companies</code> has its board.</p>
+    <doc-code title="services/launch_radar.py · insert_card · sketch" lang="sql" caption="The companies table has no domain column, so the match uses the ATS token.">
+<script type="text/plain">
+-- insert_card(conn, body): one transaction, called by POST /cards
+SELECT id FROM companies
+WHERE  ats = %(ats_provider)s AND lower(board_token) = lower(%(board_token)s);
+
+INSERT INTO launch_radar_cards
+       (domain, company_name, status, tracked_company_id, payload, run_id, posted_at)
+VALUES (%(domain)s, %(company)s, 'new', %(tracked_id)s, %(payload)s, %(run_id)s, now())
+ON CONFLICT ON CONSTRAINT uq_launch_radar_cards_domain DO NOTHING
+RETURNING id;            -- no row back: DomainSeen, the route sends 409
+</script>
+      <doc-pin line="3" tone="ok" title="Raindrop: ashby / raindrop is raindrop-ai"></doc-pin>
+      <doc-pin line="8" tone="info" title="A second card for a domain stops here"></doc-pin>
+    </doc-code>
+  </doc-claim>
+
+  <doc-claim>
+    <p>The loop opens the add-company PR from a temporary worktree.</p>
+    <doc-calls title="Add-company PR" caption="The headless run reads the add-company skill file and does not use the Skill tool.">
+<script type="text/plain">
++ launch-radar skill · PR step (card)                   @ .claude/skills/launch-radar/SKILL.md:1   -- only if trackedCompanyId is null
++   git worktree add .claude/worktrees/radar-<id> origin/main   @ .claude/skills/scraper-health-watch/SKILL.md:528
+    add-company steps 0-3, 5, 6                         @ .claude/skills/add-company/SKILL.md:70   -- companies.ts, seed migration, changelog
+    scaffold_migration.py --id ghost-ai --display-name "Ghost AI" --ats ashby --board-token ghost   @ .claude/skills/add-company/scripts/scaffold_migration.py:161
+    current_head.py                                     @ .claude/skills/add-company/scripts/current_head.py:1   -- one Alembic head
++   one Agent call: fetch-company-logo for this id      @ .claude/skills/add-company/SKILL.md:206   -- step 4; CI needs the logos
++   gh pr create --label launch-radar                   @ .claude/skills/launch-radar/SKILL.md:1
++   PATCH /api/internal/launch-radar/cards/:id/pr       @ src/backend/api/routers/internal_launch_radar.py:30
+</script>
+    </doc-calls>
+    <doc-ask id="autopr">
+      <p>Does the loop open the PR by itself?</p>
+      <label><input type="radio" name="autopr" value="auto" checked> Yes, when the ATS API returns jobs <small>1 PR for each run at most</small></label>
+      <label><input type="radio" name="autopr" value="manual"> No. The card shows the board; the admin runs /add-company <small>claim 4.3 goes</small></label>
+    </doc-ask>
+    <div data-if="autopr=auto"><doc-note tone="warn"><strong>Two Alembic heads</strong> An old seed PR can add a second head. Run <code>current_head.py</code> before the merge.</doc-note></div>
+
+    <doc-claim at=".claude/skills/launch-radar/SKILL.md:1">
+      <p><b>launch-radar/SKILL.md</b> · the PR step</p>
+      <doc-code title=".claude/skills/launch-radar/SKILL.md · PR step · sketch" lang="md">
+<script type="text/plain">
+## PR step — one card, at most one PR for each run, 30 min limit
+
+1. Stop if the card has `trackedCompanyId` or `prUrl`.
+2. `git fetch origin main`, then
+   `git worktree add .claude/worktrees/radar-<id> origin/main -b radar/add-<slug>`.
+3. Search `src/frontend/src/config/companies.ts` in the worktree for the board token. If found, stop.
+4. Read `.claude/skills/add-company/SKILL.md`. Do steps 0, 0.5, 1, 2, 3, 5 and 6.
+   Do not use the Skill tool.
+5. Step 4 (logos): make the one Agent call of this run, for this id only. Wait for it.
+   If it fails, open the PR as a draft and write "logos missing" in the body.
+6. `python .claude/skills/add-company/scripts/current_head.py` must print one head.
+7. `gh pr create --label launch-radar` (no attribution footer).
+8. `PATCH /api/internal/launch-radar/cards/<id>/pr` with the PR URL.
+9. `git worktree remove .claude/worktrees/radar-<id>`.
+If 30 min pass, stop the step, keep the card without a PR, and log it.
+</script>
+        <doc-pin line="3" tone="ok" title="No PR for a tracked company"></doc-pin>
+        <doc-pin line="9" tone="warn" title="The only Agent call in a headless run"></doc-pin>
+      </doc-code>
+    </doc-claim>
+  </doc-claim>
+</doc-claim>
+
+<!-- ═════ 5 · the loop ═════ -->
+<doc-claim>
+  <p>A daily loop on the server laptop runs the pipeline.</p>
+  <doc-mock frame="terminal" title="~/Library/Logs/jvn-launch-radar.log" w="480"><template><span class="dim">2026-10-08 07:00</span> start (timeout=5400s) host=server-laptop
+<span class="dim">2026-10-08 07:00</span> run 2 · spend before $0.42 of $5.00
+<span class="dim">2026-10-08 07:00</span> 3 monitors · 2 new events · $0.03 reserved
+<span class="dim">2026-10-08 07:00</span> skip raindrop.ai — card 1 exists
+<span class="dim">2026-10-08 07:00</span> skip athennian.com — card 3 exists
+<span class="dim">2026-10-08 07:00</span> 0 cards · run $0.03 · total $0.45 of $5.00
+<span class="dim">2026-10-08 07:00</span> <span class="g">heartbeat ok</span></template></doc-mock>
+  <doc-ask id="where">
+    <p>Where does the loop live?</p>
+    <label><input type="radio" name="where" value="repo" checked> In this repo, as a skill and a launchd job <small>test here, then install on the server laptop</small></label>
+    <label><input type="radio" name="where" value="own"> In its own repo on the server laptop <small>needs this repo too, for the add-company PR</small></label>
+  </doc-ask>
+  <div data-if="where=own"><doc-note tone="warn">Then two repos must change together.</doc-note></div>
+
+  <doc-claim>
+    <p>launchd starts one headless Claude Code run each day.</p>
+    <doc-code src="scripts/health_watch/wrapper.sh" lines="124-140" hl="129-130" caption="The radar copies this wrapper. It changes line 130 and removes the skip flag.">
+      <doc-pin line="130" tone="risk" title="The radar runs /launch-radar-once here, with an allowlist">The radar does not copy the skip flag.</doc-pin>
+      <doc-pin line="137" tone="ok" title="No heartbeat line means a failed run"></doc-pin>
+    </doc-code>
+    <doc-note tone="risk"><strong>Permissions</strong> Line 130 skips all permission checks. The radar reads web text and holds the internal key, so a prompt injection can act with no check. Give the radar an allowlist with <code>--allowedTools</code> or a settings file.</doc-note>
+    <doc-note tone="info">Read <code>PROJECT_DIR</code> and <code>CLAUDE_BIN</code> from the plist. Test with <code>claude -p /launch-radar-once</code>, then install on the server laptop.</doc-note>
+  </doc-claim>
+
+  <doc-claim>
+    <p>The loop posts a card with <code>X-Internal-Key</code>, not a user token.</p>
+    <doc-calls title="Write path" caption="The loop calls Railway directly, as job-enricher does.">
+<script type="text/plain">
++ **post_card**(card.json)                               @ scripts/launch_radar_poc/poc.py:1144   -- new subcommand, after the card write
++   POST $JVN_BASE_URL/api/internal/launch-radar/cards   @ src/backend/api/routers/internal_launch_radar.py:22
+    require_internal_key(X-Internal-Key)                 @ src/backend/api/auth/internal_key.py:33
++   **insert_card**(conn, body)                          @ src/backend/api/services/launch_radar.py:20   -- 409 on a seen domain; sets tracked_company_id
+~ app.include_router(internal_launch_radar)              @ src/backend/api/main.py:626
+</script>
+    </doc-calls>
+
+    <doc-claim at="src/backend/api/routers/internal_launch_radar.py:22">
+      <p><b>internal_launch_radar.py:22</b> · post_card()</p>
+      <doc-code title="routers/internal_launch_radar.py · sketch" lang="py" wrap>
+<script type="text/plain">
+router = APIRouter()  # global require_internal_key is the only auth
+
+
+@router.post("/runs", status_code=201)
+def start_run(body: RunStart, conn: Connection = Depends(get_db)) -> RunStarted:
+    return launch_radar.start_run(conn, body.run_uuid, body.host)  # spend so far, last_event_ids
+
+
+@router.post("/runs/{run_uuid}/reserve")
+def reserve(run_uuid: str, body: Reserve, conn: Connection = Depends(get_db)) -> dict[str, float]:
+    spent = launch_radar.reserve_spend(conn, run_uuid, body.est_usd)
+    if spent is None:
+        raise HTTPException(status_code=402, detail="launch radar budget reached")
+    return {"run_spend_usd": spent}
+
+
+@router.get("/seen")
+def seen(domain: str, name: str, conn: Connection = Depends(get_db)) -> SeenOut:
+    return launch_radar.seen(conn, normalize_domain(domain), name)
+
+
+@router.post("/cards", status_code=201)
+def post_card(body: LaunchRadarCardBody, conn: Connection = Depends(get_db)) -> CardPosted:
+    try:
+        return launch_radar.insert_card(conn, body)  # owns its commit; {id, tracked_company_id}
+    except launch_radar.DomainSeen:
+        raise HTTPException(status_code=409, detail="domain already posted")
+</script>
+        <doc-pin line="13" tone="warn" title="402 stops every billed call"></doc-pin>
+        <doc-pin line="27" tone="info" title="The unique domain is the last guard"></doc-pin>
+      </doc-code>
+    </doc-claim>
+  </doc-claim>
+
+  <doc-claim>
+    <p>The loop researches and posts each company once.</p>
+    <doc-calls title="Dedupe" caption="All checks run before FindAll, so a seen company costs $0.">
+<script type="text/plain">
+  client.monitor.events(id) until last_event_id                @ scripts/launch_radar_poc/poc.py:315   -- an event is read one time
+  normalize_domain("HTTPS://WWW.Raindrop.AI/blog/series-a/")   @ scripts/launch_radar_poc/poc.py:155   -- returns raindrop.ai
++ seen_this_run.add(domain)                                    @ scripts/launch_radar_poc/poc.py:1161  -- two events, one domain: one research
++ GET /api/internal/launch-radar/seen?domain=…&name=…          @ src/backend/api/routers/internal_launch_radar.py:17
++   **seen**(conn, domain, name)                               @ src/backend/api/services/launch_radar.py:10   -- a card of any status, or a tracked display_name
+- out/seen.json                                                @ scripts/launch_radar_poc/poc.py:1157   -- the POC file; one laptop only
+</script>
+    </doc-calls>
+  </doc-claim>
+
+  <doc-claim>
+    <p>A database ledger stops all Parallel spend at $5.</p>
+    <doc-code title="services/launch_radar.py · reserve_spend · sketch" lang="sql" caption="The POC spent $0.13 to $0.20 for each company. The team tally adds $0.10.">
+<script type="text/plain">
+-- reserve_spend(run_uuid, est): Ledger.reserve() calls it before each billed create
+UPDATE launch_radar_runs r
+SET    spend_usd = r.spend_usd + %(est)s
+WHERE  r.run_uuid = %(run_uuid)s
+  AND  r.spend_usd + %(est)s <= 1.00
+  AND  (SELECT coalesce(sum(spend_usd), 0) FROM launch_radar_runs) + %(est)s <= 5.00
+RETURNING r.spend_usd;   -- no row back: 402, the loop stops and logs "budget"
+</script>
+      <doc-pin line="5" tone="info" title="$1 for each run"></doc-pin>
+      <doc-pin line="6" tone="ok" title="$5 for all runs"></doc-pin>
+    </doc-code>
+    <doc-note tone="warn"><strong>POC ledger bug</strong> <code>_save_spend</code> counts a $0 step at its estimate, so the POC shows $0.25 for Ghost AI, not $0.13. Use <code>is not None</code>.</doc-note>
+  </doc-claim>
+</doc-claim>
+
+<!-- ═════ shared · not changing ═════ -->
+<doc-claim aux="shared">
+  <p>Shared: two new tables and one card payload.</p>
+  <doc-schema id="table" lang="py" wrap title="src/backend/api/db_models.py · LaunchRadarRun, LaunchRadarCard · sketch" caption="Both tables follow EnrichmentTick, and Alembic autogenerates the migration.">
+<script type="text/plain">
+class LaunchRadarRun(Base):
+    # One row per loop run. Each billed Parallel call reserves its cost here first.
+    __tablename__ = "launch_radar_runs"
+
+    id = Column(Integer, primary_key=True)
+    run_uuid = Column(Text, nullable=False)                # idempotency key from the loop
+    host = Column(Text, nullable=True)                     # 'server-laptop'
+    status = Column(Text, nullable=False, server_default=text("'running'"))  # 'running' | 'ok' | 'stopped' | 'error'
+    spend_usd = Column(Float, nullable=False, server_default=text("0"))       # sum of reservations
+    last_event_ids = Column(JSONB, nullable=True)          # {monitor_id: newest event_id read}
+    started_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
+    ended_at = Column(TIMESTAMP(timezone=True), nullable=True)
+
+    __table_args__ = (UniqueConstraint("run_uuid", name="uq_launch_radar_runs_run_uuid"),)
+
+
+class LaunchRadarCard(Base):
+    # One row per company the loop posted, via POST /api/internal/launch-radar/cards.
+    __tablename__ = "launch_radar_cards"
+
+    id = Column(Integer, primary_key=True)
+    domain = Column(Text, nullable=False)                  # normalized; the dedupe key
+    company_name = Column(Text, nullable=False)
+    status = Column(Text, nullable=False, server_default=text("'new'"))  # 'new' | 'archived' | 'deleted'
+    tracked_company_id = Column(Text, nullable=True)       # companies.id when its board is tracked
+    talent_score = Column(Integer, nullable=True)          # NULL = no people data
+    vc_score = Column(Integer, nullable=True)              # NULL = no round data
+    pr_url = Column(Text, nullable=True)                   # set by PATCH …/cards/{id}/pr
+    payload = Column(JSONB, nullable=True)                 # the card; NULL after delete
+    run_id = Column(Integer, ForeignKey("launch_radar_runs.id"), nullable=True)
+    # … 6 more: event_type, cost_usd, posted_at, archived_at, deleted_at, updated_by
+
+    __table_args__ = (
+        UniqueConstraint("domain", name="uq_launch_radar_cards_domain"),
+        Index("idx_launch_radar_cards_status_posted", "status", "posted_at"),
+    )
+</script>
+  </doc-schema>
+
+  <doc-claim>
+    <p>The card payload has one TypeScript type on the client.</p>
+    <doc-schema id="payload" lang="ts" wrap title="src/frontend/src/features/admin/adminApi.ts · LaunchRadarCard · sketch" caption="The API sends camelCase keys from a typed response model, not from the raw JSONB.">
+<script type="text/plain">
+interface Round {
+  stage: string | null; amountUsd: string | null; announcedAt: string | null;
+  leadInvestors: string[]; otherInvestors: string[];   // a prior round puts its investors in otherInvestors
+}
+
+export interface LaunchRadarCard {
+  id: number;
+  domain: string;                       // 'raindrop.ai'
+  website: string;                      // brief website_url, else https://<domain>
+  company: string;
+  status: 'new' | 'archived';           // deleted rows never reach the client
+  trackedCompanyId: string | null;      // 'raindrop-ai': no PR
+  event: { type: 'funding' | 'launch' | 'other'; headline: string; sourceUrl: string | null;
+           announcedAt: string | null; origin: 'monitor' | 'task brief' } | null;
+  scores: { talent: number | null; vc: number | null; reasons: string[] };   // null = no data
+  oneLiner: string;
+  blurb: string;
+  leaders: { name: string; title: string | null; linkedinUrl: string | null;
+             schools: string[]; priorCompanies: string[]; foundedBefore: string[];
+             yearsExperience: number | null; industryExperience: string | null; signals: string[] }[];
+  teamStats: { profilesFound: number; teamSizeEstimate: string;   // display only; the score does not use it
+               schools: { name: string; count: number }[]; priorEmployers: { name: string; count: number }[];
+               exFoundersWithExit: number; sampleNames: string[] } | null;
+  funding: { latestRound: Round | null; priorRounds: Round[]; totalRaisedUsd: string | null };
+  ats: { provider: string; boardToken: string | null; boardUrl: string | null;
+         verified: boolean; jobCount: number | null };
+  prUrl: string | null;
+  costUsd: number;
+  postedAt: string;
+  // … 6 more: careersUrl, sources, whatTheyDo, notableFacts, parallelRunIds, timingsS
+}
+</script>
+    </doc-schema>
+  </doc-claim>
+</doc-claim>
+
+<doc-claim aux="scope">
+  <p>Not changing: the add-company skill, the job pages, the Python scrapers.</p>
+  <ul>
+    <li>The add-company skill. The radar only reads it.</li>
+    <li>The <code>companies</code> table, until the admin merges a PR.</li>
+    <li>The Python scrapers and scraper-health-watch.</li>
+    <li>The Vercel proxies for internal routes. The loop calls Railway directly.</li>
+    <li>The public job pages.</li>
+    <li>Gem, Workday and Eightfold boards get no PR, only the board link.</li>
+  </ul>
+</doc-claim>
+
+</doc-plan>
+</main>
+</body>
+</html>
