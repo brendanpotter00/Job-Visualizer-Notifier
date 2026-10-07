@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import handler from '../../../../../../api/admin';
-import { runProxyAllowlistGuard } from './proxyAllowlistGuard';
+import { expectNoKeyedUpstreamCall, runProxyAllowlistGuard } from './proxyAllowlistGuard';
+import { WILDCARD_TAIL_ESCAPES } from './proxyAttackVectors';
 
 function mockJsonResponse(status: number, body: unknown) {
   const serialized = JSON.stringify(body);
@@ -66,6 +67,62 @@ describe('/api/admin serverless function', () => {
       'http://localhost:8000/api/admin/users/stats',
       expect.any(Object)
     );
+  });
+
+  it('forwards every Launch Radar list query param (status, limit, offset, sort)', async () => {
+    // The page's whole view is in these four: the tab, the page and the order.
+    // A proxy that dropped one would answer 200 with the wrong cards (the
+    // default sort, page 1) and no error anywhere.
+    mockReq.query = {
+      path: ['launch-radar', 'cards'],
+      status: 'saved',
+      limit: '25',
+      offset: '50',
+      sort: 'talent',
+    };
+    fetchMock.mockResolvedValue(mockJsonResponse(200, { cards: [] }));
+
+    await handler(mockReq as VercelRequest, mockRes as VercelResponse);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const target = new URL(fetchMock.mock.calls[0][0] as string);
+    expect(target.pathname).toBe('/api/admin/launch-radar/cards');
+    expect(Object.fromEntries(target.searchParams)).toEqual({
+      status: 'saved',
+      limit: '25',
+      offset: '50',
+      sort: 'talent',
+    });
+  });
+
+  it.each(['announced', 'talent', 'vc', 'added'])(
+    'forwards sort=%s to the Launch Radar list unchanged',
+    async (sort) => {
+      mockReq.query = { path: 'launch-radar/cards', status: 'new', sort };
+      fetchMock.mockResolvedValue(mockJsonResponse(200, { cards: [] }));
+
+      await handler(mockReq as VercelRequest, mockRes as VercelResponse);
+
+      const target = new URL(fetchMock.mock.calls[0][0] as string);
+      expect(target.searchParams.get('sort')).toBe(sort);
+      expect(target.searchParams.get('status')).toBe('new');
+    }
+  );
+
+  it('forwards a Launch Radar status PATCH with its { status, from } body', async () => {
+    // `from` is the backend's compare-and-swap guard; dropping it would let a
+    // stale Unsave restore an archived card instead of answering 409.
+    mockReq.method = 'PATCH';
+    mockReq.query = { path: ['launch-radar', 'cards', '4'] };
+    mockReq.body = { status: 'new', from: 'saved' };
+    fetchMock.mockResolvedValue(mockJsonResponse(200, { id: 4, status: 'new' }));
+
+    await handler(mockReq as VercelRequest, mockRes as VercelResponse);
+
+    const [url, fetchOptions] = fetchMock.mock.calls[0];
+    expect(new URL(url as string).pathname).toBe('/api/admin/launch-radar/cards/4');
+    expect(fetchOptions.method).toBe('PATCH');
+    expect(fetchOptions.body).toBe(JSON.stringify({ status: 'new', from: 'saved' }));
   });
 
   it('forwards the Authorization header to the backend', async () => {
@@ -238,10 +295,7 @@ runProxyAllowlistGuard({
       'enrichment/jobs/greenhouse:openai/q-1/correct',
       '/api/admin/enrichment/jobs/greenhouse:openai/q-1/correct',
     ],
-    [
-      'enrichment/jobs/custom:u-x/q-1/confirm',
-      '/api/admin/enrichment/jobs/custom:u-x/q-1/confirm',
-    ],
+    ['enrichment/jobs/custom:u-x/q-1/confirm', '/api/admin/enrichment/jobs/custom:u-x/q-1/confirm'],
     [
       'enrichment/jobs/custom:u-x/q-1/reenrich',
       '/api/admin/enrichment/jobs/custom:u-x/q-1/reenrich',
@@ -251,8 +305,19 @@ runProxyAllowlistGuard({
     // localhost:8000 — a failure that looks like a routing bug and isn't.
     ['custom-companies', '/api/admin/custom-companies'],
     ['custom-companies/attempts', '/api/admin/custom-companies/attempts'],
+    // Launch Radar: the list, and one card (PATCH status / DELETE).
+    ['launch-radar/cards', '/api/admin/launch-radar/cards'],
+    ['launch-radar/cards/12', '/api/admin/launch-radar/cards/12'],
   ],
   normalizes: ['/users//stats/', '/api/admin/users/stats'],
+  encodes: [
+    ['users/u 1/visits', 'https://backend.test/api/admin/users/u%201/visits'],
+    ['launch-radar/cards/card 12', 'https://backend.test/api/admin/launch-radar/cards/card%2012'],
+    [
+      'locations/aliases/emea / remote',
+      'https://backend.test/api/admin/locations/aliases/emea%20/%20remote',
+    ],
+  ],
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
 });
 
@@ -315,6 +380,142 @@ describe('api/admin — the locations/aliases wildcard cannot be climbed', () =>
     await handler(req, mockRes as VercelResponse);
 
     expect(fetchMock).not.toHaveBeenCalled();
+    expect(mockRes.status).toHaveBeenCalledWith(404);
+  });
+
+  describe.each(WILDCARD_TAIL_ESCAPES)('encoded climb: %s', (_label, tail) => {
+    const pathValue = `locations/aliases/${tail}`;
+
+    it.each([
+      ['anonymous GET', 'GET', {}],
+      ['admin GET', 'GET', { authorization: 'Bearer admin-token' }],
+      ['admin PUT with a body', 'PUT', { authorization: 'Bearer admin-token' }],
+    ] as const)(
+      '%s is refused before the internal key is attached',
+      async (_who, method, headers) => {
+        const req = {
+          method,
+          query: { path: pathValue },
+          headers,
+          body: method === 'PUT' ? { locations: [] } : undefined,
+        } as unknown as VercelRequest;
+
+        await handler(req, mockRes as VercelResponse);
+
+        expectNoKeyedUpstreamCall(fetchMock);
+        expect(mockRes.status).toHaveBeenCalledWith(404);
+        expect(mockRes.json).toHaveBeenCalledWith({ detail: 'Not Found' });
+      }
+    );
+  });
+
+  it('the exact production reproduction never reaches /api/internal/launch-radar/monitors', async () => {
+    // Verbatim from the verifier: the client sent `%25252e%25252e`, Vercel
+    // decoded it once, and this is what `req.query.path` held. Before the fix
+    // it canonicalized to `%2e%2e` (not `..`, so it passed), matched the
+    // wildcard, and `fetch` collapsed it to GET /api/internal/launch-radar/monitors
+    // with X-Internal-Key set.
+    const req = {
+      method: 'GET',
+      query: {
+        path: 'locations/aliases/%252e%252e/%252e%252e/%252e%252e/internal/launch-radar/monitors',
+      },
+      headers: {},
+      body: undefined,
+    } as unknown as VercelRequest;
+
+    await handler(req, mockRes as VercelResponse);
+
+    expectNoKeyedUpstreamCall(fetchMock);
+    expect(mockRes.status).toHaveBeenCalledWith(404);
+  });
+
+  it.each([
+    // [label, req.query.path as Vercel delivers it, exact upstream URL]
+    [
+      'an alias key with a space and a comma',
+      'locations/aliases/Austin, TX',
+      'https://backend.test/api/admin/locations/aliases/Austin,%20TX',
+    ],
+    [
+      'a unicode alias key',
+      'locations/aliases/São Paulo',
+      'https://backend.test/api/admin/locations/aliases/S%C3%A3o%20Paulo',
+    ],
+    [
+      'a multi-segment unicode alias key',
+      'locations/aliases/Zürich / Remote',
+      'https://backend.test/api/admin/locations/aliases/Z%C3%BCrich%20/%20Remote',
+    ],
+    [
+      'an array-form alias key',
+      ['locations', 'aliases', 'München'],
+      'https://backend.test/api/admin/locations/aliases/M%C3%BCnchen',
+    ],
+  ])('forwards %s with each segment percent-encoded by the proxy', async (_label, path, url) => {
+    // The proxy encodes each validated segment itself rather than handing a raw
+    // string to `fetch`'s URL parser, so the backend receives exactly the
+    // segment that was validated. Compared as the EXACT string passed to
+    // `fetch`, not the parsed pathname, so it proves the proxy did the encoding.
+    const req = {
+      method: 'PUT',
+      query: { path },
+      headers: { authorization: 'Bearer admin-token' },
+      body: { locations: [] },
+    } as unknown as VercelRequest;
+
+    await handler(req, mockRes as VercelResponse);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][0]).toBe(url);
+    const resolved = new URL(fetchMock.mock.calls[0][0] as string);
+    expect(resolved.pathname.startsWith('/api/admin/locations/aliases/')).toBe(true);
+    // Round-trips to the key the admin typed — what the backend's
+    // `{raw_text:path}` converter will hand the handler after Uvicorn decodes.
+    const tail = decodeURIComponent(
+      resolved.pathname.slice('/api/admin/locations/aliases/'.length)
+    );
+    expect(tail).toBe(
+      (Array.isArray(path) ? path.join('/') : path).replace('locations/aliases/', '')
+    );
+  });
+
+  it('forwards an alias whose raw text is "Internal" — data, not the internal router', async () => {
+    // Only the router segment right after `/api` is refused as `internal`. An
+    // alias key is data inside `/api/admin/locations/aliases/`, and 404ing it
+    // would make a real location string impossible to normalize.
+    const req = {
+      method: 'PUT',
+      query: { path: 'locations/aliases/Internal' },
+      headers: { authorization: 'Bearer admin-token' },
+      body: { locations: [] },
+    } as unknown as VercelRequest;
+
+    await handler(req, mockRes as VercelResponse);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      'https://backend.test/api/admin/locations/aliases/Internal'
+    );
+  });
+
+  it.each([
+    'locations/aliases/../../../internal/launch-radar/monitors',
+    'locations/aliases/../../Internal/enrichment/pending',
+    'locations/aliases/\u2025/\u2025/\u2025/internal/enrichment/pending',
+    'locations/aliases/..;/..;/..;/internal/enrichment/pending',
+    'locations/aliases/\uFF0E\uFF0E\uFF0F\uFF0E\uFF0E\uFF0F\uFF0E\uFF0E\uFF0Finternal',
+  ])('still refuses a climb to the internal router: %s', async (pathValue) => {
+    const req = {
+      method: 'GET',
+      query: { path: pathValue },
+      headers: {},
+      body: undefined,
+    } as unknown as VercelRequest;
+
+    await handler(req, mockRes as VercelResponse);
+
+    expectNoKeyedUpstreamCall(fetchMock);
     expect(mockRes.status).toHaveBeenCalledWith(404);
   });
 

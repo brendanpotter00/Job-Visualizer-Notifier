@@ -228,6 +228,22 @@ class Settings(BaseSettings):
     # grant.
     dev_reset_enabled: bool = False
 
+    # LOCAL DEVELOPMENT ONLY. Never set this in Railway — the app REFUSES TO START
+    # if it is set while any Railway env marker is present, or while
+    # ``database_url`` names a host that is not local (localhost, a loopback IP,
+    # or the docker-compose ``postgres`` service)
+    # (``auth/dev_bypass.enforce_dev_auth_bypass_guard``, the first line of the
+    # lifespan). When set locally, a request with NO ``Authorization`` header from a
+    # LOOPBACK client is treated as this email, so the admin dashboard can be viewed
+    # without Auth0. ``require_admin`` still checks the ``admins`` table for it, and a
+    # real ``Authorization`` header always takes the normal JWT path.
+    dev_auth_bypass_email: str | None = None
+
+    # Launch Radar: the TOTAL Parallel spend cap across every loop run, in USD.
+    # Enforced by the ledger in ``services/launch_radar.reserve_spend`` before every
+    # billed call. Set only by the operator; nothing the loop sends can raise it.
+    launch_radar_spend_cap_usd: float = Field(default=5.0, gt=0, le=50)
+
     # PostHog analytics
     posthog_project_token: str | None = None
     posthog_host: str = "https://us.i.posthog.com"

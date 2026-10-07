@@ -116,6 +116,52 @@ your local backend on port 8000 instead of the production Railway backend.
 
 ---
 
+## Local admin bypass
+
+View the admin pages (e.g. `/admin/launch-radar`) locally **without Auth0**. Two LOCAL-ONLY
+flags: backend `DEV_AUTH_BYPASS_EMAIL=<admin email>` (`src/backend/api/auth/dev_bypass.py`)
+and frontend `VITE_DEV_AUTH_BYPASS=1` (`src/frontend/src/config/auth.ts`).
+
+```bash
+# Backend (Mode 2, Step 3). --host 127.0.0.1: a LAN client hitting uvicorn directly is not loopback.
+source .venv/bin/activate
+DEV_AUTH_BYPASS_EMAIL=brendanpotter00@gmail.com \
+  PYTHONPATH=. uvicorn src.backend.api.main:app --host 127.0.0.1 --port 8000 --reload
+# The boot log prints a WARNING: "DEV_AUTH_BYPASS_EMAIL is ON: ..."
+
+# Frontend, plain Vite (binds 127.0.0.1; its /api/admin and /api/users proxies go to :8000).
+VITE_DEV_AUTH_BYPASS=1 npm run dev -w src/frontend
+```
+
+- **Every local proxy in front of the backend must listen on 127.0.0.1 only.** What a proxy
+  on this machine forwards arrives as loopback whoever sent it, so a dev server on `0.0.0.0`
+  would hand admin to anyone on the same network. `vercel dev` defaults to `0.0.0.0:3000`
+  and `npm run dev:vercel` passes no `--listen`, so with the bypass on run
+  `VITE_DEV_AUTH_BYPASS=1 vercel dev --listen 127.0.0.1:3000` from the project root.
+- Leave `INTERNAL_API_KEY` **unset** on this backend: when set, the `X-Internal-Key`
+  middleware 401s every browser request through the proxy before the bypass is consulted.
+- **One-time admin grant.** The bypass only answers "who is this?"; `require_admin` still
+  checks `admins`. Load any page once (the first `/api/users` call creates your `users`
+  row), then:
+
+  ```bash
+  docker exec jobscraper-postgres psql -U postgres -d jobscraper -c \
+    "INSERT INTO admins (user_id) SELECT id FROM users WHERE email='brendanpotter00@gmail.com' ON CONFLICT DO NOTHING"
+  ```
+
+**Why it cannot reach production:** the backend refuses to start if `DEV_AUTH_BYPASS_EMAIL`
+is set while any Railway marker (`RAILWAY_ENVIRONMENT`, `RAILWAY_ENVIRONMENT_NAME`,
+`RAILWAY_PROJECT_ID`, `RAILWAY_SERVICE_ID`, `RAILWAY_DEPLOYMENT_ID`) is present, and
+re-checks them per request; it also refuses to start when `DATABASE_URL` is not a local
+database (`localhost`, a loopback IP or the docker-compose `postgres` service, `?host=`
+overrides included), so pointing this backend at the production DB fails at boot; the bypass applies only to a **loopback** client with a local
+`Host` header (`localhost`, `127.0.0.1`, `[::1]`; keeps DNS rebinding out) that sent **no
+`Authorization` header at all** (any header, even a bad one, takes the JWT path); the Vite
+flag needs `import.meta.env.DEV`, which `vite build` compiles out; and the Vercel proxies
+forward auth exactly as before.
+
+---
+
 ## Mode 3 — Scrapers only
 
 ```bash

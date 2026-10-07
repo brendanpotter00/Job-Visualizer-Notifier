@@ -21,6 +21,7 @@ import { AdminEnrichmentPage } from '../pages/AdminEnrichmentPage/AdminEnrichmen
 import { AdminLocationPipelinePage } from '../pages/AdminLocationPipelinePage/AdminLocationPipelinePage.tsx';
 import { AdminCustomCompaniesPage } from '../pages/AdminCustomCompaniesPage/AdminCustomCompaniesPage.tsx';
 import { AdminFeedbackPage } from '../pages/AdminFeedbackPage/AdminFeedbackPage.tsx';
+import { AdminLaunchRadarPage } from '../pages/AdminLaunchRadarPage/AdminLaunchRadarPage.tsx';
 import { lazy, Suspense } from 'react';
 import { LoadingState } from '../components/shared/LoadingIndicator';
 
@@ -176,6 +177,14 @@ function AppContent() {
             element={
               <AdminRoute>
                 <AdminCustomCompaniesPage />
+              </AdminRoute>
+            }
+          />
+          <Route
+            path={ROUTES.ADMIN_LAUNCH_RADAR}
+            element={
+              <AdminRoute>
+                <AdminLaunchRadarPage />
               </AdminRoute>
             }
           />

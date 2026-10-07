@@ -9,7 +9,9 @@ export function AuthProviders({ children }: { children: React.ReactNode }) {
   // Bypass short-circuits above real providers: dynamic preview URLs can't
   // complete real OAuth callbacks, and mounting Auth0Provider / GoogleOAuthProvider
   // with empty clientIds throws. useAuth module-dispatches to a fake impl.
-  if (AUTH_CONFIG.bypassEnabled) {
+  // The local dev admin bypass likewise needs no provider: useAuth dispatches
+  // to a token-less impl and the local backend authenticates the request.
+  if (AUTH_CONFIG.bypassEnabled || AUTH_CONFIG.devAdminBypassEnabled) {
     return <>{children}</>;
   }
   if (!AUTH_CONFIG.isEnabled) {

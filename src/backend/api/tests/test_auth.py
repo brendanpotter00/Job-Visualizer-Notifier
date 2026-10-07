@@ -9,6 +9,7 @@ import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi import HTTPException
 from jwt import PyJWKClientError
+from starlette.requests import Request
 
 # Generate test RSA keypair (module-level, reused across tests)
 _private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
@@ -326,6 +327,16 @@ class TestEnvVarGuards:
             google_jwt_module._get_google_jwks_client()
 
 
+def _request() -> Request:
+    """A bare HTTP request (no headers, non-loopback client). get_optional_user
+    takes the Request so the local-only dev bypass can inspect it; with the
+    bypass setting unset it is never consulted for anything else."""
+    return Request(
+        {"type": "http", "method": "GET", "path": "/", "headers": [],
+         "client": ("10.0.0.5", 50000)}
+    )
+
+
 class TestAuthDependencies:
     """Tests for get_optional_user and get_current_user FastAPI dependencies."""
 
@@ -341,7 +352,7 @@ class TestAuthDependencies:
         """get_optional_user returns None when no Bearer token is present."""
         from api.auth.dependencies import get_optional_user
 
-        result = self._run(get_optional_user(None))
+        result = self._run(get_optional_user(_request(), None))
         assert result is None
 
     def test_optional_user_returns_claims_for_valid_token(self):
@@ -352,7 +363,7 @@ class TestAuthDependencies:
         token = _encode_token(payload)
         creds = MagicMock()
         creds.credentials = token
-        result = self._run(get_optional_user(creds))
+        result = self._run(get_optional_user(_request(), creds))
         assert result["sub"] == "auth0|abc123"
 
     def test_optional_user_raises_401_on_expired_token(self):
@@ -364,7 +375,7 @@ class TestAuthDependencies:
         creds = MagicMock()
         creds.credentials = token
         with pytest.raises(HTTPException) as exc_info:
-            self._run(get_optional_user(creds))
+            self._run(get_optional_user(_request(), creds))
         assert exc_info.value.status_code == 401
         assert "expired" in exc_info.value.detail.lower()
 
@@ -375,7 +386,7 @@ class TestAuthDependencies:
         creds = MagicMock()
         creds.credentials = "not.a.valid.jwt"
         with pytest.raises(HTTPException) as exc_info:
-            self._run(get_optional_user(creds))
+            self._run(get_optional_user(_request(), creds))
         assert exc_info.value.status_code == 401
         assert "invalid" in exc_info.value.detail.lower()
 
@@ -395,7 +406,7 @@ class TestAuthDependencies:
             side_effect=PyJWKClientError("connection failed"),
         ):
             with pytest.raises(HTTPException) as exc_info:
-                self._run(get_optional_user(creds))
+                self._run(get_optional_user(_request(), creds))
             assert exc_info.value.status_code == 503
             assert "unavailable" in exc_info.value.detail.lower()
 

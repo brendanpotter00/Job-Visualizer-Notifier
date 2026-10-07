@@ -302,3 +302,54 @@ def test_every_proxy_uses_the_shared_allowlist() -> None:
             f"the injected X-Internal-Key across a same-origin 3xx, and "
             f"Starlette's redirect_slashes=True turns a trailing slash into one"
         )
+
+
+# The splice that shipped the double-encoded-dot escape: a resolved path pasted
+# into a template literal after the backend origin, e.g.
+#   `${backendUrl}/api/admin/${targetPath}`
+# `fetch`'s WHATWG URL parser then re-reads whatever the segment holds (`%2e%2e`
+# as `..`). Also caught: the same splice by `+` concatenation.
+_UPSTREAM_SPLICE = re.compile(r"\$\{[^}]*\}/api/|\+\s*['\"`]/api/")
+
+
+def test_every_proxy_builds_its_upstream_url_through_build_upstream_url() -> None:
+    """The second half of the bug, pinned directly.
+
+    ``resolveProxyPath`` validates the path; ``buildUpstreamUrl`` is what makes
+    the URL ``fetch`` parses match what was validated — it percent-encodes each
+    segment and refuses anything that would land outside the proxy's prefix or
+    on the ``/api/internal`` router. A proxy that resolves correctly and then
+    splices the result into a template literal reopens the escape the encoder
+    closed, and every handler-level test that compares only the PARSED pathname
+    stays green (``fetch``'s parser encodes a raw space just the same).
+
+    Scans every ``api/*.ts`` that calls ``fetch(`` — not only the known list —
+    so a new proxy is held to the rule the day it lands.
+    """
+    fetching = sorted(
+        path.stem for path in API_DIR.glob("*.ts") if "fetch(" in path.read_text()
+    )
+    # Not vacuous: if detection breaks, this fails instead of checking nothing.
+    assert set(ALL_KEY_INJECTING_PROXIES) <= set(fetching), (
+        f"expected every key-injecting proxy to call fetch(); found {fetching}"
+    )
+
+    for name in fetching:
+        src = (API_DIR / f"{name}.ts").read_text()
+        assert "buildUpstreamUrl(" in src, (
+            f"api/{name}.ts calls fetch() but never builds its URL with "
+            f"buildUpstreamUrl() from api/utils/proxyPath.ts — the only builder "
+            f"that encodes each validated segment and asserts the result stays "
+            f"under the proxy's prefix"
+        )
+        assert "buildUpstreamUrlWithEncoder" not in src, (
+            f"api/{name}.ts uses buildUpstreamUrlWithEncoder, the TEST SEAM that "
+            f"lets a caller swap out the segment encoder. Proxies call "
+            f"buildUpstreamUrl()."
+        )
+        splices = _UPSTREAM_SPLICE.findall(src)
+        assert not splices, (
+            f"api/{name}.ts splices a path into an upstream URL by hand "
+            f"({splices}). Pass the resolved path to buildUpstreamUrl() instead — "
+            f"a hand-built URL is re-parsed by fetch, which reads `%2e%2e` as `..`"
+        )

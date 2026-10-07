@@ -1,10 +1,14 @@
 """Pydantic response models with camelCase serialization for frontend compatibility."""
 
 import json
+import logging
+import re
 from datetime import datetime
 from typing import Annotated, Any, Literal
 
 from pydantic import (
+    AfterValidator,
+    AwareDatetime,
     BaseModel,
     ConfigDict,
     Field,
@@ -13,6 +17,8 @@ from pydantic import (
     model_validator,
 )
 from pydantic.alias_generators import to_camel
+
+logger = logging.getLogger(__name__)
 
 # Closed set of signup provider tokens derived from
 # ``_signup_provider_from_auth0_id`` in ``services.admin_service``. Keeping
@@ -2256,3 +2262,561 @@ class AdminCustomCompanyAttemptsResponse(BaseModel):
     # true when the rollup hit its 200-row cap (mirrors AdminUserVisitsResponse).
     users_truncated: bool = False
     schema_present: bool = True
+
+
+# ---------------------------------------------------------------------------
+# Launch Radar (docs/implementations/launch-radar/CONTRACT.md §2 and §4)
+# ---------------------------------------------------------------------------
+#
+# ONE set of nested payload models serves both directions. The loop POSTs the
+# card payload in snake_case, which these accept BY FIELD NAME
+# (``populate_by_name``) and reject on any unknown key (``extra="forbid"``); the
+# admin dashboard receives the same models serialized BY ALIAS, i.e. camelCase.
+# The payload is stored as ``model_dump(mode="json")`` (snake_case) in
+# ``launch_radar_cards.payload``.
+
+_LR_PAYLOAD_CONFIG = ConfigDict(
+    alias_generator=to_camel, populate_by_name=True, extra="forbid"
+)
+
+# Every URL in the payload is research data from the web that the admin page
+# renders as a link, so each one must be an absolute http(s) URL (or null where
+# nullable): a ``javascript:`` or ``data:`` value is a 422 on INPUT (POST /cards,
+# PUT /cards/{id}/payload). Same rule as the loop's ``safe_http_url``
+# (scripts/launch_radar/ats.py), which nulls such a value before posting, so the
+# loop never sends one: a scheme of http or https, a host, no whitespace, at most
+# 2000 characters. On OUTPUT a stored value that fails the rule is nulled instead
+# (``tolerate_stored_payload``), and the page's ``safeHttpUrl`` filters again
+# before rendering an href.
+_LR_HTTP_URL_RE = re.compile(r"^https?://[^/?#\s]+", re.IGNORECASE)
+_LR_URL_MAX = 2000
+
+# ``event.announced_at``: an ISO date, or a year-month when only the month is
+# known (the loop's ``card.announced_on`` writes exactly these). The admin list
+# sorts this text as a date (services/launch_radar.py ``_BY_ANNOUNCED``), which is
+# only right because every value has this shape. ASCII digits only.
+_LR_ANNOUNCED_PATTERN = r"^[0-9]{4}-[0-9]{2}(-[0-9]{2})?$"
+_LR_ANNOUNCED_RE = re.compile(_LR_ANNOUNCED_PATTERN)
+
+
+def is_launch_radar_http_url(value: object) -> bool:
+    return (
+        isinstance(value, str)
+        and len(value) <= _LR_URL_MAX
+        and not any(c.isspace() for c in value)
+        and _LR_HTTP_URL_RE.match(value) is not None
+    )
+
+
+def _launch_radar_http_url(value: str) -> str:
+    if not is_launch_radar_http_url(value):
+        raise ValueError("must be an absolute http(s) URL")
+    return value
+
+
+LaunchRadarHttpUrl = Annotated[str, AfterValidator(_launch_radar_http_url)]
+
+# Every URL field of the payload, as a dotted path (``[]`` = each list item).
+# ``tolerate_stored_payload`` handles exactly these; a test walks the models and
+# fails if a URL field is added without being listed here.
+LAUNCH_RADAR_URL_PATHS = frozenset(
+    {
+        "website",
+        "careers_url",
+        "event.source_url",
+        "ats.board_url",
+        "ats.checked_url",
+        "leaders[].linkedin_url",
+        "leaders[].profile_url",
+        "sources[].url",
+    }
+)
+
+
+def _null_bad_url(
+    obj: dict[str, Any], key: str, path: str, changed: list[str]
+) -> dict[str, Any]:
+    value = obj.get(key)
+    if value is None or is_launch_radar_http_url(value):
+        return obj
+    changed.append(path)
+    return {**obj, key: None}
+
+
+def tolerate_stored_payload(payload: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
+    """A stored payload made safe to SERIALIZE, and the paths it changed.
+
+    The input rules (http(s) URLs, the ``announced_at`` shape) guard what the loop
+    may store; a row stored before a rule existed, or edited by hand, must not
+    take the admin page down with it (skipped from the list while ``total``
+    still counts it, or a 500 after a status change already committed). So on
+    the way out a failing value is replaced, never raised on: a nullable URL or
+    the event date becomes null, a source without a usable URL is dropped, and
+    ``website`` (never null in the contract) falls back to ``https://<domain>``,
+    the same default the loop uses when the brief has no site. The input dict is
+    not modified.
+    """
+    changed: list[str] = []
+    out = dict(payload)
+    website = out.get("website")
+    if not is_launch_radar_http_url(website):
+        fallback = f"https://{out.get('domain')}"
+        if isinstance(out.get("domain"), str) and is_launch_radar_http_url(fallback):
+            out["website"] = fallback
+            changed.append("website")
+    out = _null_bad_url(out, "careers_url", "careers_url", changed)
+    event = out.get("event")
+    if isinstance(event, dict):
+        event = _null_bad_url(event, "source_url", "event.source_url", changed)
+        announced = event.get("announced_at")
+        if announced is not None and not (
+            isinstance(announced, str) and _LR_ANNOUNCED_RE.match(announced)
+        ):
+            event = {**event, "announced_at": None}
+            changed.append("event.announced_at")
+        out["event"] = event
+    ats = out.get("ats")
+    if isinstance(ats, dict):
+        for key in ("board_url", "checked_url"):
+            ats = _null_bad_url(ats, key, f"ats.{key}", changed)
+        out["ats"] = ats
+    leaders = out.get("leaders")
+    if isinstance(leaders, list):
+        fixed: list[Any] = []
+        for leader in leaders:
+            if isinstance(leader, dict):
+                for key in ("linkedin_url", "profile_url"):
+                    leader = _null_bad_url(leader, key, f"leaders[].{key}", changed)
+            fixed.append(leader)
+        out["leaders"] = fixed
+    sources = out.get("sources")
+    if isinstance(sources, list):
+        kept = [
+            s
+            for s in sources
+            if not (isinstance(s, dict) and not is_launch_radar_http_url(s.get("url")))
+        ]
+        if len(kept) != len(sources):
+            changed.append("sources[].url")
+        out["sources"] = kept
+    return out, changed
+
+LaunchRadarAtsProvider = Literal[
+    "greenhouse", "ashby", "lever", "gem", "workday", "eightfold", "other", "none"
+]
+# The live (non-deleted) statuses: the dashboard's New / Saved / Archived tabs.
+LaunchRadarCardStatus = Literal["new", "saved", "archived"]
+# GET /api/admin/launch-radar/cards ?sort=: newest announcement (default),
+# highest Talent score, highest VC score, newest added. Each maps to a fixed
+# ORDER BY in services/launch_radar.py (_CARD_ORDER).
+LaunchRadarCardSort = Literal["announced", "talent", "vc", "added"]
+LaunchRadarRunStatus = Literal["running", "ok", "stopped", "error"]
+LaunchRadarMonitorSlot = Literal["seed", "series_a_plus", "launch"]
+LaunchRadarMonitorStatus = Literal["active", "cancelled"]
+
+
+class LaunchRadarEvent(BaseModel):
+    model_config = _LR_PAYLOAD_CONFIG
+
+    type: Literal["funding", "launch", "other"]
+    headline: str
+    source_url: LaunchRadarHttpUrl | None = None
+    # ``YYYY-MM-DD`` or ``YYYY-MM`` (see ``_LR_ANNOUNCED_PATTERN``); null = undated.
+    announced_at: str | None = Field(default=None, pattern=_LR_ANNOUNCED_PATTERN)
+    round: str | None = None
+    amount_usd: str | None = None
+    investors: str | None = None
+    # monitor = a daily Monitor event; findall_backfill = the loop's one-off FindAll
+    # sweep of the past N days (``radar.py backfill``); task brief = no event, so the
+    # brief's latest announcement.
+    origin: Literal["monitor", "findall_backfill", "task brief"]
+
+
+class LaunchRadarScores(BaseModel):
+    model_config = _LR_PAYLOAD_CONFIG
+
+    # null = no data to score (no people data / no funding data), never 0.
+    talent: int | None = Field(default=None, ge=0, le=100)
+    vc: int | None = Field(default=None, ge=0, le=100)
+    talent_reasons: list[str]
+    vc_reasons: list[str]
+
+
+class LaunchRadarLeader(BaseModel):
+    model_config = _LR_PAYLOAD_CONFIG
+
+    name: str = Field(min_length=1)
+    title: str | None = None
+    linkedin_url: LaunchRadarHttpUrl | None = None
+    profile_url: LaunchRadarHttpUrl | None = None
+    summary: str | None = None
+    schools: list[str]
+    prior_companies: list[str]
+    founded_before: list[str]
+    years_experience: int | None = Field(default=None, ge=0)
+    industry_experience: str | None = None
+    signals: list[str] = Field(max_length=4)
+
+
+class LaunchRadarTally(BaseModel):
+    model_config = _LR_PAYLOAD_CONFIG
+
+    name: str
+    count: int = Field(ge=0)
+
+
+class LaunchRadarTeamStats(BaseModel):
+    model_config = _LR_PAYLOAD_CONFIG
+
+    profiles_found: int | None = Field(ge=0)  # None = unknown, never coerced to 0
+    team_size_estimate: str
+    schools: list[LaunchRadarTally]
+    prior_employers: list[LaunchRadarTally]
+    ex_founders_with_exit: int | None = Field(ge=0)  # None = unknown
+    sample_names: list[str]
+
+
+class LaunchRadarRound(BaseModel):
+    model_config = _LR_PAYLOAD_CONFIG
+
+    stage: str | None = None
+    amount_usd: str | None = None
+    announced_at: str | None = None
+    lead_investors: list[str]
+    other_investors: list[str]
+
+
+class LaunchRadarFunding(BaseModel):
+    model_config = _LR_PAYLOAD_CONFIG
+
+    latest_round: LaunchRadarRound | None = None
+    prior_rounds: list[LaunchRadarRound]
+    total_raised_usd: str | None = None
+
+
+class LaunchRadarAts(BaseModel):
+    model_config = _LR_PAYLOAD_CONFIG
+
+    provider: LaunchRadarAtsProvider
+    board_token: str | None = None
+    board_url: LaunchRadarHttpUrl | None = None
+    verified: bool
+    job_count: int | None = Field(default=None, ge=0)
+    checked_url: LaunchRadarHttpUrl | None = None
+
+
+class LaunchRadarSource(BaseModel):
+    model_config = _LR_PAYLOAD_CONFIG
+
+    url: LaunchRadarHttpUrl
+    title: str | None = None
+    field: str | None = None
+
+
+class LaunchRadarParallelRunIds(BaseModel):
+    model_config = _LR_PAYLOAD_CONFIG
+
+    findall_id: str | None = None
+    brief_run_id: str | None = None
+    team_run_id: str | None = None
+    pedigree_group_id: str | None = None
+
+
+class LaunchRadarPayload(BaseModel):
+    """The card the loop posts (§4). ``domain`` must already be normalized; the
+    route re-normalizes it server-side and 422s on any difference."""
+
+    model_config = _LR_PAYLOAD_CONFIG
+
+    company: str = Field(min_length=1, max_length=200)
+    domain: str = Field(min_length=3, max_length=253)
+    website: LaunchRadarHttpUrl
+    one_liner: str | None = None
+    what_they_do: str | None = None
+    blurb: str | None = None
+    event: LaunchRadarEvent | None = None
+    scores: LaunchRadarScores
+    leaders: list[LaunchRadarLeader] = Field(max_length=8)
+    leaders_dropped: int = Field(ge=0)
+    team_stats: LaunchRadarTeamStats | None = None
+    funding: LaunchRadarFunding
+    notable_facts: list[str] = Field(max_length=6)
+    careers_url: LaunchRadarHttpUrl | None = None
+    ats: LaunchRadarAts
+    pr_ready: bool
+    sources: list[LaunchRadarSource] = Field(max_length=40)
+    parallel_run_ids: LaunchRadarParallelRunIds
+    cost_usd: float = Field(ge=0)
+    timings_s: dict[str, float]
+    issues: list[str]
+    generated_at: datetime
+
+
+class LaunchRadarCardOut(LaunchRadarPayload):
+    """GET/PATCH /api/admin/launch-radar/cards — the row columns plus the parsed
+    payload, camelCase on the wire (the TS ``LaunchRadarCard``). Deleted rows
+    never reach this model, so ``status`` is ``new``, ``saved`` or ``archived``.
+
+    An OUTPUT model: the stored payload is read through ``tolerate_stored_payload``
+    first, so a URL or event date that fails the input rules is nulled (and
+    logged) rather than failing the whole card."""
+
+    id: int
+    status: LaunchRadarCardStatus
+    tracked_company_id: str | None = None
+    pr_url: str | None = None
+    posted_at: datetime
+    archived_at: datetime | None = None
+    updated_by: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _tolerate_stored_values(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        fixed, changed = tolerate_stored_payload(data)
+        if changed:
+            logger.warning(
+                "launch radar card %s: stored payload values fail the input rules and were "
+                "replaced for display: %s",
+                data.get("id"),
+                ", ".join(sorted(set(changed))),
+            )
+        return fixed
+
+
+class LaunchRadarLastRun(BaseModel):
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    started_at: datetime
+    ended_at: datetime | None = None
+    status: LaunchRadarRunStatus
+    host: str | None = None
+
+
+class LaunchRadarStats(BaseModel):
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    last_run: LaunchRadarLastRun | None = None
+    spend_usd: float
+    cap_usd: float
+
+
+class LaunchRadarCounts(BaseModel):
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    new: int = Field(ge=0)
+    saved: int = Field(ge=0)
+    archived: int = Field(ge=0)
+
+
+class LaunchRadarCardsResponse(BaseModel):
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    cards: list[LaunchRadarCardOut] = Field(default_factory=list)
+    # Rows with the requested status, BEFORE limit/offset. Drives the pager.
+    total: int = Field(ge=0)
+    # ALWAYS every tab (new, saved, archived), whatever the filter.
+    counts: LaunchRadarCounts
+    stats: LaunchRadarStats
+
+
+class LaunchRadarStatusUpdate(BaseModel):
+    """PATCH /api/admin/launch-radar/cards/{id} body: Save (``saved``, from new),
+    Unsave or Restore (``new``, from saved or archived) and Archive
+    (``archived``, from new or saved). Any other move is a 409.
+
+    ``from`` (optional) is the status the client saw the card in. When it is
+    sent the move is a compare-and-swap: it applies only while the card is still
+    in that status, else 409. Unsave and Restore both send ``status: "new"``, so
+    without it a stale Unsave (the card was archived meanwhile) would restore an
+    archived card. Omitted (an older client), the move applies from any allowed
+    status, as before."""
+
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    status: LaunchRadarCardStatus
+    from_status: LaunchRadarCardStatus | None = Field(default=None, alias="from")
+
+
+# --- Internal (loop-facing) shapes: snake_case, no alias generator ----------
+
+
+class LaunchRadarRunStart(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    run_uuid: str = Field(pattern=r"^[A-Za-z0-9-]{8,64}$")
+    host: str | None = Field(default=None, max_length=64)
+    budget_usd: float = Field(gt=0, le=5)
+
+
+class LaunchRadarReserve(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    step: str = Field(min_length=1, max_length=64)
+    est_usd: float = Field(gt=0, le=1)
+    domain: str | None = Field(default=None, max_length=253)
+    accrued: bool = False
+
+
+class LaunchRadarRunFinish(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["ok", "stopped", "error"]
+    events_read: int = Field(ge=0)
+    cards_posted: int = Field(ge=0)
+    notes: str | None = Field(default=None, max_length=500)
+
+
+class LaunchRadarMonitorPut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    monitor_id: str = Field(min_length=1, max_length=128)
+    query: str = Field(min_length=1, max_length=2000)
+    processor: Literal["base"]
+    frequency: Literal["1d"]
+    status: LaunchRadarMonitorStatus
+    charged_through: AwareDatetime
+
+
+class LaunchRadarMonitorPatch(BaseModel):
+    """Any non-empty subset of the three keys. A key that is sent must carry a
+    value: none of the three may be cleared to null through this route."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    last_event_id: str | None = Field(default=None, min_length=1, max_length=128)
+    status: LaunchRadarMonitorStatus | None = None
+    charged_through: AwareDatetime | None = None
+
+    @model_validator(mode="after")
+    def _non_empty_and_non_null(self) -> "LaunchRadarMonitorPatch":
+        if not self.model_fields_set:
+            raise ValueError("at least one of last_event_id, status, charged_through")
+        nulls = sorted(k for k in self.model_fields_set if getattr(self, k) is None)
+        if nulls:
+            raise ValueError(f"cannot be null: {', '.join(nulls)}")
+        return self
+
+
+class LaunchRadarCardCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    run_uuid: str = Field(pattern=r"^[A-Za-z0-9-]{8,64}$")
+    payload: LaunchRadarPayload
+
+
+class LaunchRadarPayloadReplace(BaseModel):
+    """PUT /cards/{card_id}/payload body (the loop's ``refresh``): the whole new
+    payload, validated exactly like a POST /cards payload."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    payload: LaunchRadarPayload
+
+
+class LaunchRadarPrUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    pr_url: str = Field(
+        pattern=r"^https://github\.com/brendanpotter00/Job-Visualizer-Notifier/pull/\d+$"
+    )
+
+
+class LaunchRadarMonitorRow(BaseModel):
+    slot: LaunchRadarMonitorSlot
+    monitor_id: str
+    query: str
+    processor: str
+    frequency: str
+    status: LaunchRadarMonitorStatus
+    last_event_id: str | None
+    charged_through: datetime
+
+
+class LaunchRadarMonitorsOut(BaseModel):
+    monitors: list[LaunchRadarMonitorRow]
+
+
+class LaunchRadarRunStarted(BaseModel):
+    run_id: int
+    run_uuid: str
+    budget_usd: float
+    run_spend_usd: float
+    total_spend_usd: float
+    cap_usd: float
+    remaining_usd: float
+    monitors: list[LaunchRadarMonitorRow]
+
+
+class LaunchRadarReserved(BaseModel):
+    reserved_usd: float
+    run_spend_usd: float
+    total_spend_usd: float
+    cap_usd: float
+    over_cap: bool
+
+
+class LaunchRadarRunFinished(BaseModel):
+    run_id: int
+    status: Literal["ok", "stopped", "error"]
+    run_spend_usd: float
+    total_spend_usd: float
+
+
+class LaunchRadarSeenCard(BaseModel):
+    card_id: int
+    status: Literal["new", "saved", "archived", "deleted"]
+
+
+class LaunchRadarSeenOut(BaseModel):
+    # Only the seen domains (keyed by the normalized form) and only the names
+    # that match a tracked public company (input name -> companies.id).
+    domains: dict[str, LaunchRadarSeenCard]
+    names: dict[str, str]
+
+
+class LaunchRadarCardCreated(BaseModel):
+    id: int
+    tracked_company_id: str | None
+
+
+class LaunchRadarPayloadReplaced(BaseModel):
+    id: int
+    domain: str
+    status: LaunchRadarCardStatus
+    posted_at: datetime
+    updated_at: datetime
+
+
+class LaunchRadarStoredCard(BaseModel):
+    """GET /cards row: a live card and its stored (snake_case) payload, for the
+    loop's ``refresh``. The payload is returned as stored, not re-validated."""
+
+    id: int
+    domain: str
+    status: LaunchRadarCardStatus
+    payload: dict[str, Any]
+
+
+class LaunchRadarStoredCardsOut(BaseModel):
+    cards: list[LaunchRadarStoredCard]
+
+
+class LaunchRadarPrSet(BaseModel):
+    id: int
+    pr_url: str
+
+
+class LaunchRadarPrCandidate(BaseModel):
+    id: int
+    domain: str
+    company: str
+    ats_provider: LaunchRadarAtsProvider
+    board_token: str | None
+    job_count: int | None
+    posted_at: datetime
+
+
+class LaunchRadarPrCandidatesOut(BaseModel):
+    cards: list[LaunchRadarPrCandidate]

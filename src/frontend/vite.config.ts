@@ -31,6 +31,13 @@ export default defineConfig({
         changeOrigin: true,
         secure: false,
       },
+      // Admin routes (e.g. the Launch Radar dashboard). Same shape as /api/users,
+      // so plain `npm run dev` reaches the local backend's /api/admin/*.
+      '/api/admin': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+        secure: false,
+      },
       // Workday proxy removed - use `vercel dev` for local Workday testing
       // The serverless function (api/workday.ts) handles dynamic routing for multiple Workday tenants
     },

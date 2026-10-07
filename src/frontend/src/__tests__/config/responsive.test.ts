@@ -47,6 +47,18 @@ const SM_DESKTOP: Record<string, number | string> = {
   'keywordCard.contentPadding': 2,
   'statTile.padding': 2.5,
   'statTile.gap': 1.5,
+  // Launch Radar: MUI's Tab defaults (90px min, 16px sides), the page's sort
+  // toggle padding, the card's 14px sides, the inline domain's 8px, the
+  // one-liner flush under the name, and the theme's MuiButton 16px / MUI's
+  // 64px Button minimum on the status-line actions.
+  'launchRadar.tabMinWidth': 90,
+  'launchRadar.tabPaddingX': 2,
+  'launchRadar.sortButtonPaddingX': 1.25,
+  'launchRadar.cardPaddingX': 1.75,
+  'launchRadar.domainMarginLeft': 1,
+  'launchRadar.cardBodyMarginTop': 0,
+  'launchRadar.actionPaddingX': 2,
+  'launchRadar.actionMinWidth': 64,
   // Landing prototypes are NEW surfaces: the `sm` slot IS the desktop design
   // value (no pre-existing layout to preserve); pinned so it can't drift.
   'landingProto.headerHeight': 64,

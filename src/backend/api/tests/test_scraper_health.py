@@ -567,8 +567,11 @@ class TestProxyAllowlistInvariant:
         assert "function canonicalizeProxyPath" in src
         assert "decodeURIComponent" in src
         for guard in (
-            "'..'",  # traversal
-            "'.'",  # './scrape-runs' is not a spelling we accept
+            # '.' and '..' in every spelling (%2e, %252e after the one decode is
+            # refused as leftover '%', NFKC look-alikes, ';' path params): one regex.
+            r"DOT_SEGMENT = /^(?:\.|%2e)+$/i",
+            "function isDotSegment",
+            "function buildUpstreamUrl",  # per-segment encoding + prefix assertion
             "STRUCTURAL_HAZARDS",  # the character-class gate itself
             r"[\\?#",  # backslash separator, query injection, fragment truncation
             r"\u0000-\u001F",  # NUL truncation and every other C0 control

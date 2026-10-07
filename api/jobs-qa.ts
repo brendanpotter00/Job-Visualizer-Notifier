@@ -2,7 +2,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { getBackendUrl } from './utils/backendUrl';
 import { forwardResponse } from './utils/forwardResponse';
 import { getInternalKeyHeader } from './utils/internalKey';
-import { PROXY_REJECTION, resolveProxyPath } from './utils/proxyPath';
+import { PROXY_REJECTION, buildUpstreamUrl, resolveProxyPath } from './utils/proxyPath';
 
 const METHODS_WITH_BODY = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
@@ -110,9 +110,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const queryString = params.toString() ? `?${params.toString()}` : '';
 
   // targetPath is one of the two PROXIED_PATHS literals at this point —
-  // never raw client input — so the upstream URL cannot be steered.
-  const backendUrl = getBackendUrl(req);
-  const targetUrl = `${backendUrl}/api/jobs-qa/${targetPath}${queryString}`;
+  // never raw client input — so the upstream URL cannot be steered. Built
+  // through the shared encoder + prefix assertion anyway (see
+  // buildUpstreamUrl): one way to build an upstream URL, not eight.
+  const targetUrl = buildUpstreamUrl(getBackendUrl(req), '/api/jobs-qa', targetPath, queryString);
+  if (targetUrl === null) {
+    res.status(PROXY_REJECTION.status).json(PROXY_REJECTION.body);
+    return;
+  }
 
   const headers: Record<string, string> = {
     Accept: 'application/json',

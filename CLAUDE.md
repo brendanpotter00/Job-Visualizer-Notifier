@@ -80,6 +80,9 @@ Backend-Scraper (src/frontend/src/api/clients/backendScraperClient.ts) is the on
 **Adding a Company:**
 Use the `add-company` skill (`.claude/skills/add-company/`, `/add-company`) — the single source of truth for onboarding a company end-to-end: the `companies.ts` entry + `COMPANY_IDS`, the single-head-safe backend `companies` seed migration (Greenhouse/Ashby/Lever/Gem, plus the Eightfold/Workday `provider_config` variants), the `changelog.ts` announcement, and brand logos via the `fetch-company-logo` skill.
 
+**Launch Radar (new-startup finder):**
+Use the `launch-radar` skill (`.claude/skills/launch-radar/`, headless `/launch-radar-once`) — runs the Parallel-powered loop in `scripts/launch_radar/` (three narrow Monitors → domain lookup → dedupe → FindAll leaders, else the brief's founders → pedigree Task Group → brief + team tally → free ATS check → deterministic scores), posts one card per company to `/admin/launch-radar`, and opens at most one add-company PR per run (never merges; the admin page does not show PRs yet). Spend is capped by a backend ledger (`LAUNCH_RADAR_SPEND_CAP_USD`, $5 total). Runs daily via launchd (`com.bp.jvn-launch-radar`) with an explicit `--allowedTools` allowlist; the one-off `backfill`, `refresh` and `import` commands and the runbook are in `scripts/launch_radar/README.md`.
+
 **Checking Scraper Health:**
 Use the `scraper-health-watch` skill (`.claude/skills/scraper-health-watch/`) — detects dead/stale scrape sources, mass closures, and worker death against prod; researches moved boards and opens a fix PR (never merges); texts Brendan only when something is wrong. Runs daily via launchd (`com.bp.jvn-health-watch`); ops runbook in `scripts/health_watch/README.md`.
 

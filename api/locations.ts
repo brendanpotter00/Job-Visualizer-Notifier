@@ -2,7 +2,7 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { getBackendUrl } from "./utils/backendUrl";
 import { forwardResponse } from "./utils/forwardResponse";
 import { getInternalKeyHeader } from "./utils/internalKey";
-import { PROXY_REJECTION, resolveProxyPath } from "./utils/proxyPath";
+import { PROXY_REJECTION, buildUpstreamUrl, resolveProxyPath } from "./utils/proxyPath";
 
 /**
  * Public proxy for canonical-location search — forwards to the backend
@@ -20,7 +20,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // one implementation of this control rather than eight. Behaviour is
   // unchanged except that a sloppy spelling (`search/`, the array form) is now
   // normalized and forwarded instead of 404ing a legitimate caller.
-  if (resolveProxyPath(path, ["search"]) === null) {
+  const sub = resolveProxyPath(path, ["search"]);
+  if (sub === null) {
     res.status(PROXY_REJECTION.status).json(PROXY_REJECTION.body);
     return;
   }
@@ -30,8 +31,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (limit) params.set("limit", String(limit));
   if (openOnly) params.set("openOnly", String(openOnly));
 
-  const backendUrl = getBackendUrl(req);
-  const url = `${backendUrl}/api/locations/search?${params}`;
+  // Built through the same encoder + prefix assertion as every other proxy
+  // (see buildUpstreamUrl), even though the only reachable sub-path is the
+  // literal `search` — one way to build an upstream URL, not eight. The `?` is
+  // always present, as it always was here.
+  const url = buildUpstreamUrl(getBackendUrl(req), "/api/locations", sub, `?${params}`);
+  if (url === null) {
+    res.status(PROXY_REJECTION.status).json(PROXY_REJECTION.body);
+    return;
+  }
 
   try {
     const response = await fetch(url, {

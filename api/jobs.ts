@@ -2,7 +2,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { getBackendUrl } from './utils/backendUrl';
 import { forwardResponse } from './utils/forwardResponse';
 import { getInternalKeyHeader } from './utils/internalKey';
-import { PROXY_REJECTION, resolveProxyPath } from './utils/proxyPath';
+import { PROXY_REJECTION, buildUpstreamUrl, resolveProxyPath } from './utils/proxyPath';
 
 /**
  * Opaque keyset-pagination token minted by the backend's `GET /api/jobs`.
@@ -111,9 +111,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (level) params.set('level', String(level));
   }
 
-  const backendUrl = getBackendUrl(req);
   const queryString = params.size ? `?${params}` : '';
-  const url = `${backendUrl}/api/jobs${sub ? `/${sub}` : ''}${queryString}`;
+  // Encodes each validated segment and refuses anything that would not land
+  // under /api/jobs — see buildUpstreamUrl. This matters here because of the
+  // `:source/:job` detail route: two free-form segments, and a double-encoded
+  // `%252e%252e` in one of them used to reach `/api/<anything>` once `fetch`
+  // collapsed it. Checked BEFORE the key is attached.
+  const url = buildUpstreamUrl(getBackendUrl(req), '/api/jobs', sub, queryString);
+  if (url === null) {
+    res.status(PROXY_REJECTION.status).json(PROXY_REJECTION.body);
+    return;
+  }
 
   // Forwarded ONLY when the caller sent one, so an anonymous request stays
   // anonymous on the wire — the backend's private-company guard keys off the

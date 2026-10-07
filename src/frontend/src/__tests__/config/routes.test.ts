@@ -99,14 +99,24 @@ describe('routes config', () => {
       expect(item?.icon).toBe('Feedback');
     });
 
-    it('includes a "Custom Companies" item between "Scraper Runs" and "User Feedback"', () => {
+    it('includes a "Custom Companies" item right after "Scraper Runs"', () => {
       const labels = ADMIN_NAV_ITEMS.map((i) => i.label);
       const item = ADMIN_NAV_ITEMS.find((i) => i.path === ROUTES.ADMIN_CUSTOM_COMPANIES);
       expect(item).toBeDefined();
       expect(item?.label).toBe('Custom Companies');
       expect(item?.icon).toBe('Construction');
       expect(labels.indexOf('Custom Companies')).toBe(labels.indexOf('Scraper Runs') + 1);
-      expect(labels.indexOf('Custom Companies')).toBe(labels.indexOf('User Feedback') - 1);
+    });
+
+    it('includes a "Launch Radar" item between "Custom Companies" and "User Feedback"', () => {
+      expect(ROUTES.ADMIN_LAUNCH_RADAR).toBe('/admin/launch-radar');
+      const labels = ADMIN_NAV_ITEMS.map((i) => i.label);
+      const item = ADMIN_NAV_ITEMS.find((i) => i.path === ROUTES.ADMIN_LAUNCH_RADAR);
+      expect(item).toBeDefined();
+      expect(item?.label).toBe('Launch Radar');
+      expect(item?.icon).toBe('Radar');
+      expect(labels.indexOf('Launch Radar')).toBe(labels.indexOf('Custom Companies') + 1);
+      expect(labels.indexOf('Launch Radar')).toBe(labels.indexOf('User Feedback') - 1);
     });
 
     it('every ADMIN_NAV_ITEMS path matches a ROUTES value', () => {

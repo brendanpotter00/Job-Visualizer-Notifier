@@ -2,7 +2,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { getBackendUrl } from './utils/backendUrl';
 import { forwardResponse } from './utils/forwardResponse';
 import { getInternalKeyHeader } from './utils/internalKey';
-import { PROXY_REJECTION, resolveProxyPath } from './utils/proxyPath';
+import { PROXY_REJECTION, buildUpstreamUrl, resolveProxyPath } from './utils/proxyPath';
 
 const METHODS_WITH_BODY = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
@@ -21,8 +21,12 @@ const METHODS_WITH_BODY = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
  * declares `PUT /locations/aliases/{raw_text:path}` with a `:path` converter
  * because real location strings ("EMEA / Remote") carry literal slashes, so the
  * key genuinely spans several segments. The prefix is still fixed, and the
- * canonicalizer has already rejected `.`/`..` and every URL-restructuring
- * character, so the wildcard cannot escape `/api/admin/locations/aliases/`.
+ * canonicalizer has already rejected dot segments in every encoding, any
+ * residual `%`, and every URL-restructuring character; `buildUpstreamUrl` then
+ * encodes each segment and re-checks the parsed result, so the wildcard cannot
+ * escape `/api/admin/locations/aliases/`. It once did: double-encoded dots
+ * (`%252e%252e`) survived a single decode and `fetch` collapsed them, reaching
+ * `/api/internal/launch-radar/monitors` with the internal key.
  */
 const PROXIED_ROUTES = [
   // users
@@ -57,6 +61,9 @@ const PROXIED_ROUTES = [
   // app settings (the SWE-subcategory reveal flag lives here)
   'settings', // GET — the admin settings list
   'settings/:key', // PUT — flip one allowlisted key
+  // launch radar (admin dashboard cards; the loop API under /api/internal/launch-radar/ is NEVER proxied)
+  'launch-radar/cards', // GET — one page of one tab (status, limit, offset, sort)
+  'launch-radar/cards/:id', // PATCH (save / unsave / archive / restore) · DELETE (permanent, archived only)
 ] as const;
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -78,8 +85,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
   const queryString = params.size ? `?${params}` : '';
 
-  const backendUrl = getBackendUrl(req);
-  const targetUrl = `${backendUrl}/api/admin${targetPath ? `/${targetPath}` : ''}${queryString}`;
+  // Encodes each validated segment and refuses anything that would not land
+  // under /api/admin — see buildUpstreamUrl. Checked BEFORE the key is attached.
+  const targetUrl = buildUpstreamUrl(getBackendUrl(req), '/api/admin', targetPath, queryString);
+  if (targetUrl === null) {
+    res.status(PROXY_REJECTION.status).json(PROXY_REJECTION.body);
+    return;
+  }
 
   const headers: Record<string, string> = {
     Accept: 'application/json',
