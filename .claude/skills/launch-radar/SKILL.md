@@ -80,6 +80,8 @@ copy matches):
   --disallowedTools "Read(~/.config/jvn-launch-radar/**)" "Read(~/.ssh/**)" "Read(~/.aws/**)" \
     "Read(~/.zshrc)" "Read(~/.zprofile)" "Read(~/.zshenv)" "Read(~/.bash_profile)" "Read(~/.bashrc)" \
     "Read(~/.netrc)" "Read(~/.config/gh/**)" "Read(./**/.env)" "Read(./**/.env.*)" "Read(./.vercel/**)" \
+    "Read(./.git/**)" "Read(./.idea/**)" "Read(./.vscode/**)" "Read(./.mcp.json)" "Read(./.claude/settings*.json)" \
+    "Read(./.playwright/**)" "Read(./.playwright-mcp/**)" \
     "Edit(./.claude/worktrees/*/.git)" "Write(./.claude/worktrees/*/.git)" \
     "Bash(env:*)" "Bash(printenv:*)"
 ```

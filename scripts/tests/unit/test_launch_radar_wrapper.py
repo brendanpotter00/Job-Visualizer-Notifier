@@ -99,6 +99,9 @@ def test_secrets_are_denied_and_not_handled_by_the_wrapper():
     disallowed = disallowed[disallowed.index("--disallowedTools") + 1:]
     assert "Read(~/.config/jvn-launch-radar/**)" in disallowed
     for denied in ("Read(~/.ssh/**)", "Read(~/.zshrc)", "Read(./**/.env)", "Read(./**/.env.*)",
+                   # in-checkout files that can hold credentials (IDE run configs, MCP config, git remotes)
+                   "Read(./.git/**)", "Read(./.idea/**)", "Read(./.vscode/**)", "Read(./.mcp.json)",
+                   "Read(./.claude/settings*.json)", "Read(./.playwright-mcp/**)",
                    "Write(./.claude/worktrees/*/.git)", "Edit(./.claude/worktrees/*/.git)"):
         assert denied in disallowed, denied
     assert "Bash(env:*)" in disallowed and "Bash(printenv:*)" in disallowed
