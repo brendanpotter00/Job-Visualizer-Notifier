@@ -102,4 +102,16 @@ describe('LaunchRadarHowItWorksPage', () => {
     expect(screen.getByText('$0.025')).toBeInTheDocument();
     expect(screen.getByText(/about \$26/)).toBeInTheDocument();
   });
+
+  it('compares the cost with an Opus agent in its own section of the cost accordion', async () => {
+    const user = userEvent.setup();
+    render(<LaunchRadarHowItWorksPage />);
+    await user.click(screen.getByRole('button', { name: 'Cost' }));
+    expect(await screen.findByText('An Opus agent: about $1.90 per company')).toBeVisible();
+    expect(screen.getByText('Opus agent')).toBeInTheDocument();
+    expect(screen.getByText('~$1.90')).toBeInTheDocument();
+    expect(screen.getByText(/23 searches and 36 page fetches/)).toBeInTheDocument();
+    expect(screen.getByText(/Opyn's sale was not the founders' exit/)).toBeInTheDocument();
+    expect(screen.getByText(/1 usable team profile to Parallel's 6/)).toBeInTheDocument();
+  });
 });
