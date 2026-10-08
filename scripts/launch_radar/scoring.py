@@ -238,7 +238,6 @@ TEAM_EMPLOYER_POINTS = 25
 TEAM_FULL_SHARE = Fraction(1, 2)  # full school / employer points at a share of one half (see score_team)
 TEAM_FULL_SAMPLE = 5  # fewer profiles count proportionally (3 of 5 = 60%); the rest follows the leaders
 TALENT_BASES = ("leaders", "team", "both")
-TALENT_KEYS = ("talent", "talent_leaders", "talent_team", "talent_basis", "talent_reasons", "talent_team_reasons")
 
 
 def half_up(x: float | Fraction) -> int:
@@ -363,7 +362,7 @@ def _talent_fields(leaders: int | None, talent_reasons: list[str], team_stats: A
 
 
 def talent_scores(leader_inputs: list[dict[str, Any]], team_stats: dict[str, Any] | None) -> dict[str, Any]:
-    """The six talent fields of a card's ``scores`` (``TALENT_KEYS``)."""
+    """The six talent fields of a card's ``scores``."""
     leaders_raw, reasons = score_talent(leader_inputs)
     return _talent_fields(leaders_part(leaders_raw), reasons, team_stats)
 

@@ -412,7 +412,8 @@ normalizes every event date with `card.announced_on` (the admin list sorts this 
 `radar.py rescore` converts it); `"both"` ⇒ both parts set and `talent = talent_leaders + talent_team`; `"leaders"` /
 `"team"` ⇒ that part set, the other null, and `talent = 2 × part`. So the breakdown on a card always adds up. The four
 blend keys are optional with defaults, so every payload stored or exported before the blend
-(`data/cards-2026-10-07.json` included) still validates and imports unchanged.
+still validates and imports unchanged. `data/cards-2026-10-07.json` is the blended re-export
+(its cards carry all four keys).
 
 ## 5. Frontend
 
@@ -784,7 +785,8 @@ def is_person(cd) -> bool:
   - `STATE_DIR="$HOME/Library/Application Support/jvn-launch-radar"`.
   - No texting.
   - The wrapper does **not** source or export any secret (`radar.sh` does that itself).
-  - The command passes the `--allowedTools` / `--disallowedTools` lists of the `ALLOWED_TOOLS` block.
+  - The command passes `--permission-mode dontAsk --setting-sources project` (the host's user and local
+    settings cannot widen the list) and the `--allowedTools` / `--disallowedTools` lists of the `ALLOWED_TOOLS` block.
 
   **Never `--dangerously-skip-permissions`.** The exact list lives in one place, a `ALLOWED_TOOLS` block in `wrapper.sh`, and
   `SKILL.md` §0 quotes it verbatim. A unit test (`test_launch_radar_wrapper.py`) fails if the skip flag appears, if the

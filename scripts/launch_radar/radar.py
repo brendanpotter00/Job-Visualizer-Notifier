@@ -137,7 +137,7 @@ def build_parser() -> argparse.ArgumentParser:
     bf.add_argument("--dry-run", action="store_true", help="print the requests and the estimate; call nothing")
     bf.add_argument("--new", action="store_true", help="start a new (paid) sweep after a finished one")
     sub.add_parser("monitors-cancel", help="cancel every active Monitor and confirm")
-    hb =sub.add_parser("heartbeat", help="append the run's final heartbeat line")
+    hb = sub.add_parser("heartbeat", help="append the run's final heartbeat line")
     hb.add_argument("--status", choices=["ok", "error"], required=True)
     hb.add_argument("--note")
     im = sub.add_parser("import", help="post cards exported by export_cards.py (no Parallel calls)")

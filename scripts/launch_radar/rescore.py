@@ -55,7 +55,7 @@ def _talent_detail(scores: dict[str, Any]) -> str:
 
 
 def describe(company: str, old: dict[str, Any], new: dict[str, Any]) -> str:
-    """``Lightfield: talent 70→72 (leaders 37 + team 35), vc 100→100``."""
+    """``Lightfield: talent 70→67 (leaders 37 + team 30), vc 100→100``."""
     return (f"{company}: talent {_num(old.get('talent'))}→{_num(new.get('talent'))}{_talent_detail(new)}, "
             f"vc {_num(old.get('vc'))}→{_num(new.get('vc'))}")
 

@@ -42,7 +42,8 @@ Headless entry point: `.claude/commands/launch-radar-once.md` -> this file.
    `BACKEND_URL`, `INTERNAL_API_KEY` and `PARALLEL_API_KEY`). `radar.sh` loads that file
    into its own process; you never need its contents.
 3. **Bash only through the allowlist.** In headless mode the session runs with the
-   `--allowedTools` list below and anything else is denied. Do not try to work around a
+   `--allowedTools` list below and anything else is denied (`--permission-mode dontAsk
+   --setting-sources project`, so the host's own settings cannot widen it). Do not try to work around a
    denial; record it and move on. There is no `--dangerously-skip-permissions` here and
    there must never be one. There is no generic `git`, `gh`, `curl`, `python`, `pip` or
    `npm` entry because each of those can run code or upload a local file.
@@ -61,6 +62,7 @@ copy matches):
 
 ```sh
 "$CLAUDE_BIN" -p /launch-radar-once \
+  --permission-mode dontAsk --setting-sources project \
   --allowedTools "Read(./**)" \
     "Bash(scripts/launch_radar/radar.sh monitors-ensure)" \
     "Bash(scripts/launch_radar/radar.sh run --max-companies 3 --budget 1.00)" \

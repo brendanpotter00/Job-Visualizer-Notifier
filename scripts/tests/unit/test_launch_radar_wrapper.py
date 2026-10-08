@@ -62,6 +62,11 @@ EXPECTED_BASH = {
 def test_wrapper_invokes_claude_with_an_allowlist():
     block = _allowlist_block()
     assert '"$CLAUDE_BIN" -p /launch-radar-once' in block
+    # The host's user/local settings (a default mode such as auto, allow rules) must not
+    # widen the list: unlisted tools are denied and only the tracked project settings load.
+    tokens = shlex.split(block.replace("\\\n", " "))
+    assert tokens[tokens.index("--permission-mode") + 1] == "dontAsk"
+    assert tokens[tokens.index("--setting-sources") + 1] == "project"
     tools = _allowed_tools()
     # The run drives the loop and posts cards, nothing else: no file writes, no
     # subagent, no web tools (the loop does its own research through radar.sh).

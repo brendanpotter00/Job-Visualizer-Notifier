@@ -223,7 +223,7 @@ part is rounded before it is doubled, so a leaders-only card can sit 1 above `ra
 makes **no Parallel call**, opens no backend run and reserves nothing:
 
 ```sh
-scripts/launch_radar/radar.sh rescore --all --dry-run    # prints "company: talent 70→72 (leaders 37 + team 35), vc 100→100"
+scripts/launch_radar/radar.sh rescore --all --dry-run    # prints "company: talent 70→67 (leaders 37 + team 30), vc 100→100"
 scripts/launch_radar/radar.sh rescore --all              # or: --domains a.ai,b.io
 ```
 
@@ -235,7 +235,9 @@ team half is scored from `team_stats`, and VC from the stored `funding`. A card 
 second run is a no-op; the event date is normalized on the way. A deleted card (404) is
 counted; any other backend error is counted and the command exits 1 after the summary
 line `rescore: changed N, unchanged M, gone G, errors E`. After importing cards into
-production, run the same command with production's env file to convert them.
+production, run the same command with production's env file to convert them. Do not run
+`rescore` while a `refresh` is running: its `PUT` replaces the whole payload, so it would
+undo the refresh's new leaders.
 
 ## Moving local cards to production
 

@@ -113,9 +113,12 @@ cd "$PROJECT_DIR" || { log_err "cd to project dir failed"; exit 1; }
 
 BEAT_BEFORE=$(stat -f %m "$HEARTBEAT" 2>/dev/null || echo 0)
 
+# dontAsk + project-only settings: the host's user and local settings (a default mode,
+# allow rules) must not widen this list. Anything not allowed below is denied.
 # ALLOWED_TOOLS-BEGIN (tests/unit/test_launch_radar_wrapper.py parses this block)
 run_bounded launch-radar "$TOTAL_TIMEOUT_SECS" \
   "$CLAUDE_BIN" -p /launch-radar-once \
+  --permission-mode dontAsk --setting-sources project \
   --allowedTools "Read(./**)" \
     "Bash(scripts/launch_radar/radar.sh monitors-ensure)" \
     "Bash(scripts/launch_radar/radar.sh run --max-companies 3 --budget 1.00)" \
