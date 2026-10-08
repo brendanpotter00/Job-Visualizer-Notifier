@@ -319,6 +319,20 @@ export const MONITORS_PER_DAY_USD = 0.03;
 /** The daily run researches at most this many new companies. */
 export const COMPANIES_PER_DAY = 3;
 
+/**
+ * The same Raindrop card, researched by a Claude Opus 5.5 agent with web search and web
+ * fetch instead of Parallel (measured 2026-10-08, priced at the Opus 5.5 API rates).
+ */
+export const OPUS_AGENT = {
+  usdPerCompany: 1.9,
+  searches: 23,
+  fetches: 36,
+  color: '#e8590c',
+};
+
+/** The Parallel bar beside the Opus agent's: the cost bar's first colour. */
+export const PARALLEL_COLOR = '#3b5bdb';
+
 /** "$0.10", "$0.025", "$0.005": whole cents when exact, else to a tenth of a cent. */
 export function formatUsd(usd: number): string {
   const cents = usd * 100;
