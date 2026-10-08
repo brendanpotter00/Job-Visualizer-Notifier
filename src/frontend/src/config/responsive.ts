@@ -278,6 +278,18 @@ export const RESPONSIVE = {
     /** Status-line action button min width. sm restates MUI's Button default (64px). */
     actionMinWidth: { xs: 0, sm: 64 },
   } as const satisfies Record<string, ResponsiveValue>,
+  /**
+   * The public Launch Radar explainer (`pages/LaunchRadarHowItWorksPage/`). A NEW
+   * surface, so each `sm` slot IS the desktop design value.
+   */
+  launchRadarHowItWorks: {
+    /** The step-details panel on the right. On a phone it takes the whole width. */
+    panelWidth: { xs: '100vw', sm: 560 },
+    /** Padding inside the step-details panel. */
+    panelPadding: { xs: 2, sm: 3 },
+    /** Request-body code size; one step smaller on a phone so more of each line fits. */
+    codeFontSize: { xs: '0.75rem', sm: '0.8125rem' },
+  } as const satisfies Record<string, ResponsiveValue>,
   /** Raw-pixel sizes for numeric props (e.g. `CompanyLogo` `size`). */
   logoSize: { compact: 32, default: 44 },
   /**

@@ -119,6 +119,14 @@ describe('routes config', () => {
       expect(labels.indexOf('Launch Radar')).toBe(labels.indexOf('User Feedback') - 1);
     });
 
+    it('keeps the public "How it works" page out of every nav array', () => {
+      expect(ROUTES.LAUNCH_RADAR_HOW_IT_WORKS).toBe('/launch-radar/how-it-works');
+      expect(ROUTES.LAUNCH_RADAR_HOW_IT_WORKS.startsWith('/admin')).toBe(false);
+      for (const group of [PRIMARY_NAV_ITEMS, INFO_NAV_ITEMS, ADMIN_NAV_ITEMS]) {
+        expect(group.map((i) => i.path as string)).not.toContain(ROUTES.LAUNCH_RADAR_HOW_IT_WORKS);
+      }
+    });
+
     it('every ADMIN_NAV_ITEMS path matches a ROUTES value', () => {
       const routeValues = new Set<string>(Object.values(ROUTES));
       for (const item of ADMIN_NAV_ITEMS) {
