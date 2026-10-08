@@ -40,7 +40,6 @@ const TABS: Record<LaunchRadarStatus, { label: string; empty: string }> = {
 };
 
 const SORT_LABEL: Record<LaunchRadarSort, string> = {
-  announced: 'Announced',
   talent: 'Talent',
   vc: 'VC',
   added: 'Added',

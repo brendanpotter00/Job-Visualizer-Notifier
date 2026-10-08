@@ -1,7 +1,17 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { MemoryRouter } from 'react-router-dom';
 import { LaunchRadarHowItWorksPage } from '../../../pages/LaunchRadarHowItWorksPage/LaunchRadarHowItWorksPage';
+
+/** The page links back to Launch Radar, so it needs a router. */
+function renderPage() {
+  return render(
+    <MemoryRouter>
+      <LaunchRadarHowItWorksPage />
+    </MemoryRouter>
+  );
+}
 
 function box(name: RegExp) {
   return screen.getByRole('button', { name });
@@ -13,7 +23,7 @@ function panel() {
 
 describe('LaunchRadarHowItWorksPage', () => {
   it('shows the goal, both ways in, and every step as a box', () => {
-    render(<LaunchRadarHowItWorksPage />);
+    renderPage();
     expect(
       screen.getByRole('heading', { level: 1, name: 'How Launch Radar works' })
     ).toBeInTheDocument();
@@ -21,6 +31,10 @@ describe('LaunchRadarHowItWorksPage', () => {
     expect(screen.getByText(/I scroll X or LinkedIn/)).toBeInTheDocument();
     expect(screen.getByText('Daily Claude Code')).toBeInTheDocument();
     expect(screen.getByText('Backfill')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Launch Radar' })).toHaveAttribute(
+      'href',
+      '/admin/launch-radar'
+    );
     for (const name of [
       /Find new startups/,
       /Find past startups/,
@@ -38,7 +52,7 @@ describe('LaunchRadarHowItWorksPage', () => {
 
   it('opens a box in the side panel with its facts and request body', async () => {
     const user = userEvent.setup();
-    render(<LaunchRadarHowItWorksPage />);
+    renderPage();
     await user.click(box(/Find past startups/));
 
     expect(box(/Find past startups/)).toHaveAttribute('aria-expanded', 'true');
@@ -55,7 +69,7 @@ describe('LaunchRadarHowItWorksPage', () => {
 
   it('switches to another box, and a second click on the same box closes the panel', async () => {
     const user = userEvent.setup();
-    render(<LaunchRadarHowItWorksPage />);
+    renderPage();
     await user.click(box(/Find new startups/));
     await user.click(box(/Tally the rest of the team/));
     expect(box(/Find new startups/)).toHaveAttribute('aria-expanded', 'false');
@@ -67,7 +81,7 @@ describe('LaunchRadarHowItWorksPage', () => {
 
   it('explains the scoring on the free last step', async () => {
     const user = userEvent.setup();
-    render(<LaunchRadarHowItWorksPage />);
+    renderPage();
     await user.click(box(/Score and post the card/));
     const side = panel();
     expect(within(side).getByText('A prior exit (acquired or IPO)')).toBeInTheDocument();
@@ -79,7 +93,7 @@ describe('LaunchRadarHowItWorksPage', () => {
 
   it('closes on Escape and on Close, and gives focus back to the box', async () => {
     const user = userEvent.setup();
-    render(<LaunchRadarHowItWorksPage />);
+    renderPage();
     await user.click(box(/Research the company/));
     await waitFor(() => expect(screen.getByRole('button', { name: 'Close' })).toHaveFocus());
     await user.keyboard('{Escape}');
@@ -93,7 +107,7 @@ describe('LaunchRadarHowItWorksPage', () => {
 
   it('breaks the cost down by step', async () => {
     const user = userEvent.setup();
-    render(<LaunchRadarHowItWorksPage />);
+    renderPage();
     await user.click(screen.getByRole('button', { name: 'Cost' }));
     expect(await screen.findByText('About $0.28 per company')).toBeVisible();
     expect(
@@ -105,7 +119,7 @@ describe('LaunchRadarHowItWorksPage', () => {
 
   it('compares the cost with an Opus agent in its own section of the cost accordion', async () => {
     const user = userEvent.setup();
-    render(<LaunchRadarHowItWorksPage />);
+    renderPage();
     await user.click(screen.getByRole('button', { name: 'Cost' }));
     expect(await screen.findByText('An Opus agent: about $1.90 per company')).toBeVisible();
     expect(screen.getByText('Opus agent')).toBeInTheDocument();

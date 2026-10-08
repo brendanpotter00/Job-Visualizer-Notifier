@@ -60,7 +60,7 @@ describe('adminApi — Launch Radar endpoints', () => {
           status: 'archived',
           page: 2,
           rowsPerPage: 25,
-          sort: 'announced',
+          sort: 'talent',
         })
       );
 
@@ -72,25 +72,25 @@ describe('adminApi — Launch Radar endpoints', () => {
       expect(url.searchParams.get('status')).toBe('archived');
       expect(url.searchParams.get('limit')).toBe('25');
       expect(url.searchParams.get('offset')).toBe('50');
-      expect(url.searchParams.get('sort')).toBe('announced');
+      expect(url.searchParams.get('sort')).toBe('talent');
       expect(req.headers.get('Authorization')).toBe('Bearer tok');
     });
 
-    it.each(['announced', 'talent', 'vc', 'added'] as const)(
+    it.each(['talent', 'vc', 'added'] as const)(
       'sends sort=%s, and each sort is its own cache entry',
       async (sort) => {
         fetchMock.mockImplementation(async () => jsonResponse(makeCardsResponse()));
         const store = makeStore();
         const args = { status: 'new', page: 0, rowsPerPage: 25 } as const;
         await store.dispatch(
-          adminApi.endpoints.getLaunchRadarCards.initiate({ ...args, sort: 'announced' })
+          adminApi.endpoints.getLaunchRadarCards.initiate({ ...args, sort: 'talent' })
         );
         await store.dispatch(adminApi.endpoints.getLaunchRadarCards.initiate({ ...args, sort }));
         const sorts = fetchMock.mock.calls.map((c) =>
           new URL((c[0] as Request).url).searchParams.get('sort')
         );
         // The same args are served from the cache; a different sort is a new request.
-        expect(sorts).toEqual(sort === 'announced' ? ['announced'] : ['announced', sort]);
+        expect(sorts).toEqual(sort === 'talent' ? ['talent'] : ['talent', sort]);
       }
     );
 
@@ -102,7 +102,7 @@ describe('adminApi — Launch Radar endpoints', () => {
           status: 'new',
           page: 0,
           rowsPerPage: 25,
-          sort: 'announced',
+          sort: 'talent',
         })
       );
       expect(requestAt(fetchMock, 0).headers.has('Authorization')).toBe(false);
@@ -168,7 +168,7 @@ describe('adminApi — Launch Radar endpoints', () => {
           status: 'new',
           page: 0,
           rowsPerPage: 25,
-          sort: 'announced',
+          sort: 'talent',
         })
       );
       expect(result.data).toBeUndefined();
@@ -192,7 +192,7 @@ describe('adminApi — Launch Radar endpoints', () => {
         status: 'new',
         page: 0,
         rowsPerPage: 25,
-        sort: 'announced',
+        sort: 'talent',
       })
     );
     expect(result.error).toBeUndefined();
@@ -207,7 +207,7 @@ describe('adminApi — Launch Radar endpoints', () => {
         status: 'saved',
         page: 0,
         rowsPerPage: 25,
-        sort: 'announced',
+        sort: 'talent',
       })
     );
     expect(result.data?.counts).toEqual({ new: 2, saved: 1, archived: 1 });
@@ -266,7 +266,7 @@ describe('adminApi — Launch Radar endpoints', () => {
         status: 'new',
         page: 0,
         rowsPerPage: 25,
-        sort: 'announced',
+        sort: 'talent',
       })
     );
     await sub;
@@ -308,7 +308,7 @@ describe('adminApi — Launch Radar endpoints', () => {
       });
     }
 
-    const NEW_ARGS = { status: 'new', page: 0, rowsPerPage: 25, sort: 'announced' } as const;
+    const NEW_ARGS = { status: 'new', page: 0, rowsPerPage: 25, sort: 'talent' } as const;
 
     function cached(store: ReturnType<typeof makeStore>) {
       return adminApi.endpoints.getLaunchRadarCards.select(NEW_ARGS)(store.getState()).data;

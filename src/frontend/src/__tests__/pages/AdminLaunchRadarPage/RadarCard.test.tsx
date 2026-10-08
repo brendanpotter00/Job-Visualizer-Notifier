@@ -612,7 +612,12 @@ describe('RadarCard', () => {
     const user = userEvent.setup();
     const base = makeRaindropCard();
     // An older card may still carry the tally's prior-exit count; it is never shown.
-    const legacyStats = { ...base.teamStats!, schools: [], priorEmployers: [], exFoundersWithExit: 1 };
+    const legacyStats = {
+      ...base.teamStats!,
+      schools: [],
+      priorEmployers: [],
+      exFoundersWithExit: 1,
+    };
     renderCard(makeRaindropCard({ teamStats: legacyStats }));
     await user.click(toggle('Raindrop AI'));
     const rest = screen.getByRole('region', { name: 'Rest of team' });
@@ -883,9 +888,9 @@ describe('RadarCard', () => {
     it.each([
       ['talent', 'strong', 'muted'],
       ['vc', 'muted', 'strong'],
-      ['announced', 'normal', 'normal'],
       ['added', 'normal', 'normal'],
-      [undefined, 'normal', 'normal'],
+      // No sort given: the page default, Talent.
+      [undefined, 'strong', 'muted'],
     ] as const)('sort=%s: Talent %s, VC %s', (sort, talent, vc) => {
       renderCard(makeRaindropCard(), vi.fn(), { sort });
       expect(screen.getByRole('group', { name: 'Talent score 49' })).toHaveAttribute(

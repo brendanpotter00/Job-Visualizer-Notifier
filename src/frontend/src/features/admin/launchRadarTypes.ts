@@ -16,21 +16,16 @@ export const LAUNCH_RADAR_STATUSES: readonly LaunchRadarStatus[] = ['new', 'save
 
 /**
  * The list's sort keys (`?sort=` on the API and in the page URL), the same for
- * every tab: newest announcement (the default), highest Talent score, highest
- * VC score, newest added. Unscored cards sort last; ties go to the newest
- * announcement.
+ * every tab: highest Talent score (the default), highest VC score, newest
+ * added. Unscored cards sort last; ties go to the newest announcement. The API
+ * also accepts `announced` (newest announcement), which the page no longer offers.
  */
-export type LaunchRadarSort = 'announced' | 'talent' | 'vc' | 'added';
+export type LaunchRadarSort = 'talent' | 'vc' | 'added';
 
 /** Every sort key, in the order the page offers them. */
-export const LAUNCH_RADAR_SORTS: readonly LaunchRadarSort[] = [
-  'announced',
-  'talent',
-  'vc',
-  'added',
-];
+export const LAUNCH_RADAR_SORTS: readonly LaunchRadarSort[] = ['talent', 'vc', 'added'];
 
-export const DEFAULT_LAUNCH_RADAR_SORT: LaunchRadarSort = 'announced';
+export const DEFAULT_LAUNCH_RADAR_SORT: LaunchRadarSort = 'talent';
 
 export type LaunchRadarAtsProvider =
   | 'greenhouse'

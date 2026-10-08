@@ -257,8 +257,9 @@ export function talentBreakdown(scores: LaunchRadarScores, incomplete: boolean):
 }
 
 /**
- * The page URL's `?sort=` as a sort key. Absent, empty, a stale bookmark or a
- * typo all read as the default (newest announcement), never as an error.
+ * The page URL's `?sort=` as a sort key. Absent, empty, a stale bookmark (such
+ * as the retired `announced`) or a typo all read as the default (highest Talent),
+ * never as an error.
  */
 export function parseSort(raw: string | null): LaunchRadarSort {
   return LAUNCH_RADAR_SORTS.find((key) => key === raw) ?? DEFAULT_LAUNCH_RADAR_SORT;
