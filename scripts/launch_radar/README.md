@@ -24,7 +24,7 @@ Python loop plus the launchd shell around it. The design is in
 | `backend_client.py` | The backend's internal routes (`/api/internal/launch-radar/*`, `X-Internal-Key`) |
 | `state.py` | Resumable local state: `queue.json`, `companies/<domain>.json`, `backfill.json`, `refresh/<domain>.json`, `refresh_done.json`, `heartbeat.log` |
 | `wrapper.sh` | launchd entry: 90-min cap, process-group kill, single-flight lock, heartbeat check (exit 97 if it did not advance, 98 if the skill recorded `status=error`), `--allowedTools` allowlist |
-| `com.bp.jvn-launch-radar.plist.template` · `install_launch_agent.sh` | The daily 07:00 LaunchAgent |
+| `com.bp.jvn-launch-radar.plist.template` · `install_launch_agent.sh` | The daily 19:00 LaunchAgent |
 | `.claude/commands/launch-radar-once.md` | The headless shim the wrapper runs (`claude -p /launch-radar-once`) |
 
 ## How spend is capped
@@ -122,7 +122,7 @@ write.
    tail -3 "$HOME/Library/Application Support/jvn-launch-radar/heartbeat.log"
    ```
 
-6. **Install the LaunchAgent** (daily 07:00): `sh scripts/launch_radar/install_launch_agent.sh`
+6. **Install the LaunchAgent** (daily 19:00): `sh scripts/launch_radar/install_launch_agent.sh`
    (add `--claude-bin /path/to/claude` if `claude` is not on `PATH`).
 
 ## Backfill: the past month, once
@@ -216,6 +216,23 @@ Deterministic (`scoring.py`, CONTRACT §6.6). **VC** (0-100) comes from the brie
 pre-blend card whose `talent` is the raw 0-94 leader score; `rescore` converts it. A lone
 part is rounded before it is doubled, so a leaders-only card can sit 1 above `raw × 100 / 94`
 (accepted: it keeps the validated `talent == 2 × part`).
+
+## AI Talent grade (free)
+
+The rule blend above counts a fixed list of names. After each run posts its cards, the nightly
+skill has **one Claude subagent per new card** grade Talent against
+`.claude/skills/launch-radar-grade/rubric.md`: leaders 0-40, industry fit 0-25, team density
+relative to the team's size 0-25, track record 0-10. The grade becomes the card's Talent; the
+rule score is kept as `talent_rules` and is the fallback when a grade is missing or invalid.
+No Parallel call is made. Procedure, prompts and the backtest: the `launch-radar-grade` skill.
+
+```sh
+scripts/launch_radar/radar.sh grade-export --ungraded --dir .launch-radar-grades   # or --all / --domains
+# ... one subagent per .launch-radar-grades/inputs/<id>.json writes .launch-radar-grades/grades/<id>.json
+scripts/launch_radar/radar.sh grade-apply --dir .launch-radar-grades --dry-run     # validate + print; then without --dry-run
+```
+
+`rescore` keeps a grade; `refresh` drops it (new leaders), so the next night re-grades the card.
 
 ## Rescoring cards (free)
 

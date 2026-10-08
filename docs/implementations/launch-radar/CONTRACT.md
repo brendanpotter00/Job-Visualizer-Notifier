@@ -759,7 +759,32 @@ def is_person(cd) -> bool:
   when any weight was below 1.
 - `rescored_scores(payload)` is the same computation on a stored card, for `rescore` (§6.3): the leaders' part is
   carried, the team part (which reads the carried leaders' part when `n < 5`) and VC are recomputed from the card's
-  `team_stats` and `funding`.
+  `team_stats` and `funding`. A card with an AI grade keeps it (§6.6.1).
+
+#### 6.6.1 AI Talent grade (`grade.py`, skill `launch-radar-grade`)
+
+The rule blend above counts a fixed list of names, so it misses industry fit (Boeing and
+Embry-Riddle for an aircraft company) and team density relative to size. After a run posts its
+cards, the nightly skill has **one Claude subagent per card** grade Talent against
+`.claude/skills/launch-radar-grade/rubric.md` (`v1`): leaders 0-40, industry fit 0-25, team
+density for its size 0-25, track record 0-10, summed to 0-100, with a confidence and 1-6 reasons.
+Graders read only the rubric and the card's input file (no web); the card text is untrusted.
+
+- `radar.sh grade-export (--ungraded | --all | --domains) --dir D` writes `D/inputs/<id>.json`
+  (company, what it does, stage, leaders' histories, the team tally; no URLs, no team names).
+  `--ungraded` = new and saved cards with no grade under the current `RUBRIC_VERSION`.
+- Each grader's JSON reply goes to `D/grades/<id>.json`. `radar.sh grade-apply --dir D [--dry-run]`
+  validates it (`parse_grade`: the four parts in range, `score` = their sum, 1-6 reasons of at most
+  300 chars) and PUTs the card: `scores.talent` = the grade, `scores.talent_ai` = the grade's
+  parts/confidence/industry/reasons/`rubric_version`/`graded_at`, `scores.talent_rules` = the rule
+  blend's Talent (its parts and reasons stay). Missing or invalid grade: the card keeps its rule
+  score and is picked up again the next night.
+- The backend validates the same bounds (`LaunchRadarTalentAi`): with a grade, `talent` must equal
+  its score and the rule breakdown must add up to `talent_rules`; without one both fields are
+  absent from the stored payload and the API (an ungraded card is byte-for-byte unchanged).
+- `rescore` keeps a grade (`with_ai_grade` over the recomputed rules); `refresh` (new leaders)
+  drops it. Changing the rubric means bumping `v1` in both `rubric.md` and `RUBRIC_VERSION`, after
+  which every card re-grades.
 
 ### 6.7 Skill and slash command
 

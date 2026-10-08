@@ -55,8 +55,14 @@ EXPECTED_BASH = {
     "Bash(scripts/launch_radar/radar.sh monitors-ensure)",
     "Bash(scripts/launch_radar/radar.sh run --max-companies 3 --budget 1.00)",
     "Bash(scripts/launch_radar/radar.sh run --max-companies 0 --budget 1.00)",
+    "Bash(scripts/launch_radar/radar.sh grade-export --ungraded --dir .launch-radar-grades)",
+    "Bash(scripts/launch_radar/radar.sh grade-apply --dir .launch-radar-grades)",
     "Bash(scripts/launch_radar/radar.sh heartbeat:*)",
 }
+
+# The run's only write: a grader's JSON reply, which grade-apply validates. Agent is for
+# the one-subagent-per-card graders (they inherit this allowlist).
+EXPECTED_OTHER = {"Read(./**)", "Edit(./.launch-radar-grades/grades/**)", "Agent"}
 
 
 def test_wrapper_invokes_claude_with_an_allowlist():
@@ -68,15 +74,18 @@ def test_wrapper_invokes_claude_with_an_allowlist():
     assert tokens[tokens.index("--permission-mode") + 1] == "dontAsk"
     assert tokens[tokens.index("--setting-sources") + 1] == "project"
     tools = _allowed_tools()
-    # The run drives the loop and posts cards, nothing else: no file writes, no
-    # subagent, no web tools (the loop does its own research through radar.sh).
-    assert set(tools) == {"Read(./**)"} | EXPECTED_BASH
+    # The run drives the loop, posts cards and grades their Talent: no web tools (the
+    # loop does its own research through radar.sh), and writes only the graders' replies.
+    assert set(tools) == EXPECTED_OTHER | EXPECTED_BASH
+    assert not any(t.startswith(("WebSearch", "WebFetch", "Write(")) for t in tools)
     for t in tools:
         assert t != "Bash", "bare Bash is not allowed"
         assert not re.fullmatch(r"Bash\(\s*\*?\s*\)", t), f"wildcard Bash: {t}"
         assert not t.startswith("Bash(*"), f"wildcard Bash: {t}"
         if t.startswith(("Read", "Glob", "Grep")):
             assert t.endswith("(./**)"), f"file reads must stay in the checkout: {t}"
+        if t.startswith("Edit("):
+            assert t == "Edit(./.launch-radar-grades/grades/**)", f"writes must stay in the grades dir: {t}"
 
 
 @pytest.mark.parametrize("tool", ["git", "gh", "curl", "wget", "python", "python3", "pip", "npm", "npx", "cd",
@@ -125,7 +134,7 @@ def test_wrapper_takes_paths_from_the_plist_environment():
     for key in ("PROJECT_DIR", "CLAUDE_BIN", "PATH"):
         assert f"<key>{key}</key>" in plist
     assert "__PROJECT_DIR__/scripts/launch_radar/wrapper.sh" in plist
-    assert "<key>Hour</key>\n        <integer>7</integer>" in plist
+    assert "<key>Hour</key>\n        <integer>19</integer>" in plist  # 7pm local
 
 
 def test_skill_quotes_the_same_allowlist():

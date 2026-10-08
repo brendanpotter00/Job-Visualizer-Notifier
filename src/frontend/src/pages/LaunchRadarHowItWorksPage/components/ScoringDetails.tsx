@@ -130,6 +130,24 @@ export function ScoringDetails() {
         ]}
       />
 
+      <Heading>AI grade, which replaces the rules once a card is graded</Heading>
+      <RulesTable
+        head={['A Claude agent judges', 'Max']}
+        rows={[
+          ['The leaders: roles, employers, exits, years', '40'],
+          ['Industry fit: experience in what the company builds', '25'],
+          ['The team: strong backgrounds for its size', '25'],
+          ['Track record: exits, shipped work, research', '10'],
+        ]}
+      />
+      <Notes
+        items={[
+          'One agent per card, reading only the research above, against a fixed rubric.',
+          'It counts industry leaders too, like Boeing for an aircraft company.',
+          'The rules score above stays on the card as a fallback.',
+        ]}
+      />
+
       <Box sx={{ mt: 2.5 }}>
         <Formula>
           <b>VC</b> = best investor + extra investors + round size, up to 100

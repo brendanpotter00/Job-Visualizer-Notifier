@@ -22,6 +22,13 @@ Run from the repo root as ``python -m scripts.launch_radar.radar`` (the
                                       recompute the scores of existing cards from what they store
                                       (free: no Parallel calls, no run, nothing reserved); PUT only
                                       the cards whose scores changed. Every live status is selected
+  grade-export (--ungraded | --all | --domains d1,d2) [--include-archived] --dir DIR
+                                      write each card's AI-grading input to DIR/inputs/<card_id>.json
+                                      (free; clears DIR first). The launch-radar-grade skill's
+                                      subagents write DIR/grades/<card_id>.json
+  grade-apply --dir DIR [--dry-run]   validate each grade and PUT it into the card's scores
+                                      (talent = the grade; the rule blend moves to talent_rules);
+                                      writes DIR/results.json. Free
 
 Exit codes: 0 done · 1 error · 2 stopped on the budget · 3 incomplete (re-run to resume).
 
@@ -42,6 +49,9 @@ from typing import Callable, Sequence
 from .backend_client import BackendClient, BackendError
 from .backfill import GENERATORS, BackfillOptions, backfill
 from .config import ConfigError, load_config, state_dir_from
+from .grade import ExportOptions
+from .grade import apply as grade_apply
+from .grade import export as grade_export
 from .domains import normalize_domain
 from .importer import ImportFileError, import_cards, load_export
 from .leaders import abort_all_deadlines
@@ -159,6 +169,17 @@ def build_parser() -> argparse.ArgumentParser:
     which.add_argument("--domains", type=_domain_list("--domains"), help="comma-separated card domains")
     which.add_argument("--all", dest="all_cards", action="store_true", help="every live card (new, saved, archived)")
     rs.add_argument("--dry-run", action="store_true", help="print the old and new scores; write nothing")
+    ge = sub.add_parser("grade-export", help="write each card's AI-grading input file (free)")
+    which = ge.add_mutually_exclusive_group(required=True)
+    which.add_argument("--domains", type=_domain_list("--domains"), help="comma-separated card domains")
+    which.add_argument("--all", dest="all_cards", action="store_true", help="every live card, graded or not")
+    which.add_argument("--ungraded", action="store_true",
+                       help="new and saved cards with no grade under the current rubric version")
+    ge.add_argument("--include-archived", action="store_true", help="also archived cards")
+    ge.add_argument("--dir", type=Path, required=True, help="working directory (cleared first)")
+    ga = sub.add_parser("grade-apply", help="validate the AI grades and write them to the cards (free)")
+    ga.add_argument("--dir", type=Path, required=True, help="the grade-export directory")
+    ga.add_argument("--dry-run", action="store_true", help="validate and print old/new Talent; write nothing")
     return p
 
 
@@ -211,6 +232,12 @@ def main(argv: Sequence[str] | None = None, *, deps: Deps | None = None) -> int:
         if args.cmd == "rescore":
             return rescore(RescoreOptions(domains=args.domains or frozenset(), all_cards=args.all_cards,
                                           dry_run=args.dry_run), deps)
+        if args.cmd == "grade-export":
+            return grade_export(ExportOptions(dir=args.dir, domains=args.domains or frozenset(),
+                                              all_cards=args.all_cards, ungraded=args.ungraded,
+                                              include_archived=args.include_archived), deps)
+        if args.cmd == "grade-apply":
+            return grade_apply(args.dir, deps, dry_run=args.dry_run, graded_at=iso(utc_now()))
     except (BackendError, MonitorCancelError) as e:
         log(f"error: {e}")
         return EXIT_ERROR

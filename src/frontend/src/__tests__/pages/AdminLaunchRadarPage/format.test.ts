@@ -253,6 +253,40 @@ describe('Launch Radar format helpers', () => {
       ...over,
     });
 
+    it('an AI-graded card: the grade, its four parts, its reasons and the rule score it replaced', () => {
+      const out = talentBreakdown(
+        scores({
+          talent: 74,
+          talentRules: 21,
+          talentAi: {
+            score: 74,
+            parts: { leaders: 29, industry: 20, team: 20, trackRecord: 5 },
+            confidence: 'high',
+            industry: 'unmanned cargo aircraft',
+            reasons: ['VP Engineering: 10 years at Boeing, then Zipline', 'No prior exits'],
+            rubricVersion: 'v1',
+            gradedAt: '2026-10-08T22:33:09Z',
+          },
+        }),
+        false
+      );
+      expect(out).toEqual({
+        line: 'Talent 74: AI grade, high confidence, judged as unmanned cargo aircraft',
+        parts: [
+          'Leaders 29/40 · industry fit 20/25 · team 20/25 · track record 5/10',
+          'VP Engineering: 10 years at Boeing, then Zipline',
+          'No prior exits',
+          'Rule-based score: 21',
+        ],
+      });
+    });
+
+    it('a null or absent grade falls back to the rule-based blend', () => {
+      expect(talentBreakdown(scores({ talentAi: null, talentRules: null }), false).line).toBe(
+        'Talent 74: leaders 37 + team 37 (each out of 50)'
+      );
+    });
+
     it('both parts: the sum, then one line per part', () => {
       expect(talentBreakdown(scores({}), false)).toEqual({
         line: 'Talent 74: leaders 37 + team 37 (each out of 50)',

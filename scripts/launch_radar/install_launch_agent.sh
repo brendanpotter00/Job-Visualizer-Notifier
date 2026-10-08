@@ -1,5 +1,5 @@
 #!/bin/sh
-# Install (or reinstall) the Launch Radar LaunchAgent (daily at 07:00).
+# Install (or reinstall) the Launch Radar LaunchAgent (daily at 19:00).
 # Run from the checkout launchd should use (its path becomes PROJECT_DIR):
 #
 #   sh scripts/launch_radar/install_launch_agent.sh [--claude-bin /path/to/claude]
@@ -37,7 +37,7 @@ fi
 case "$PROJECT_DIR$CLAUDE_BIN$HOME" in
   *'|'*) echo "paths must not contain '|'" >&2; exit 1 ;;
 esac
-# radar.sh resolves uv from the plist's PATH; warn now rather than at 07:00.
+# radar.sh resolves uv from the plist's PATH; warn now rather than at 19:00.
 PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin" command -v uv >/dev/null 2>&1 || \
   echo "warning: uv not found in /opt/homebrew/bin or /usr/local/bin; radar.sh will exit 1 until it is installed" >&2
 [ -f "$HOME/.config/jvn-launch-radar/env" ] || \

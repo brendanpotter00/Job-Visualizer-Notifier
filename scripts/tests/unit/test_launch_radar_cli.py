@@ -32,7 +32,7 @@ def test_subcommands_are_exactly_the_loop_and_its_one_off_tools():
     candidates or records a PR on a card."""
     sub = next(a for a in radar.build_parser()._actions if a.dest == "cmd")
     assert set(sub.choices) == {"monitors-ensure", "run", "backfill", "monitors-cancel", "heartbeat",
-                                "import", "refresh", "rescore"}
+                                "import", "refresh", "rescore", "grade-export", "grade-apply"}
 
 
 def test_config_errors_name_the_variable_only():
