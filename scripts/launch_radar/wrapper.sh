@@ -13,15 +13,13 @@
 #     main. The session gets an explicit --allowedTools allowlist (the
 #     ALLOWED_TOOLS block below is the ONE place it is defined; SKILL.md §0
 #     quotes it) and anything outside it is denied in headless mode. Every Bash
-#     entry is a FIXED command or one of two fixed entry points:
-#       - scripts/launch_radar/radar.sh with the exact headless arguments
-#         (so the per-run limits of 3 companies / $1.00 are not just prose);
-#       - scripts/launch_radar/pr_step.py, which validates every value and runs
-#         git / gh / pip / the logo scripts itself with fixed argv lists.
-#     There is deliberately NO generic git, gh, curl, python, pip or npm entry:
-#     each of those can run code or send a local file anywhere. File tools are
-#     scoped to this checkout, writes to the temp radar-* worktrees only, and
-#     the env file, dotfiles and .env files are denied outright.
+#     entry is scripts/launch_radar/radar.sh with the exact headless arguments
+#     (so the per-run limits of 3 companies / $1.00 are not just prose), plus
+#     the heartbeat. The run only drives the loop and posts cards: it opens no
+#     PR, so there is NO git, gh, curl, python, pip or npm entry (each of those
+#     can run code or send a local file anywhere), no Edit/Write, no Agent and
+#     no web tools. Reads are scoped to this checkout, and the env file,
+#     dotfiles and .env files are denied outright.
 #   * This wrapper never sources or exports a secret. radar.sh loads
 #     ~/.config/jvn-launch-radar/env into its own process tree only.
 #   * No texting: failures land in ~/Library/Logs/jvn-launch-radar.err and the
@@ -115,23 +113,22 @@ cd "$PROJECT_DIR" || { log_err "cd to project dir failed"; exit 1; }
 
 BEAT_BEFORE=$(stat -f %m "$HEARTBEAT" 2>/dev/null || echo 0)
 
+# dontAsk + project-only settings: the host's user and local settings (a default mode,
+# allow rules) must not widen this list. Anything not allowed below is denied.
 # ALLOWED_TOOLS-BEGIN (tests/unit/test_launch_radar_wrapper.py parses this block)
 run_bounded launch-radar "$TOTAL_TIMEOUT_SECS" \
   "$CLAUDE_BIN" -p /launch-radar-once \
-  --allowedTools "Read(./**)" "Edit(./.claude/worktrees/radar-*/**)" "Write(./.claude/worktrees/radar-*/**)" "Agent" \
-    "WebSearch" "WebFetch" \
+  --permission-mode dontAsk --setting-sources project \
+  --allowedTools "Read(./**)" \
     "Bash(scripts/launch_radar/radar.sh monitors-ensure)" \
     "Bash(scripts/launch_radar/radar.sh run --max-companies 3 --budget 1.00)" \
     "Bash(scripts/launch_radar/radar.sh run --max-companies 0 --budget 1.00)" \
-    "Bash(scripts/launch_radar/radar.sh pr-candidates --limit 1)" \
-    "Bash(scripts/launch_radar/radar.sh set-pr:*)" "Bash(scripts/launch_radar/radar.sh heartbeat:*)" \
-    "Bash(scripts/launch_radar/pr_step.py:*)" \
+    "Bash(scripts/launch_radar/radar.sh heartbeat:*)" \
   --disallowedTools "Read(~/.config/jvn-launch-radar/**)" "Read(~/.ssh/**)" "Read(~/.aws/**)" \
     "Read(~/.zshrc)" "Read(~/.zprofile)" "Read(~/.zshenv)" "Read(~/.bash_profile)" "Read(~/.bashrc)" \
     "Read(~/.netrc)" "Read(~/.config/gh/**)" "Read(./**/.env)" "Read(./**/.env.*)" "Read(./.vercel/**)" \
     "Read(./.git/**)" "Read(./.idea/**)" "Read(./.vscode/**)" "Read(./.mcp.json)" "Read(./.claude/settings*.json)" \
     "Read(./.playwright/**)" "Read(./.playwright-mcp/**)" \
-    "Edit(./.claude/worktrees/*/.git)" "Write(./.claude/worktrees/*/.git)" \
     "Bash(env:*)" "Bash(printenv:*)"
 # ALLOWED_TOOLS-END
 STATUS=$RUN_BOUNDED_STATUS
@@ -145,7 +142,7 @@ if [ "$STATUS" -eq 0 ] && [ "$BEAT_AFTER" -le "$BEAT_BEFORE" ]; then
 fi
 
 # claude exits 0 even when the skill recorded a failed run (radar.sh exit 1, a
-# company erroring every day, a 422 on a card, a failed PR step). Surface that
+# company erroring every day, a 422 on a card). Surface that
 # in the .err log and launchd's exit status instead of only in heartbeat.log.
 # The line is "<iso-ts> status=<ok|error> <note>": read field 2 only, so a note
 # that happens to contain the text "status=error" cannot trip it.

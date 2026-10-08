@@ -424,6 +424,8 @@ against a `SUM`, and a float sum drifts.
   **tombstone**: `payload`, `pr_url` and `tracked_company_id` are cleared but the row and its
   domain stay, so the loop never posts that company again; `CHECK (status = 'deleted') = (payload IS NULL)` and
   `CHECK status <> 'deleted' OR (pr_url IS NULL AND tracked_company_id IS NULL)` pin that.
+  `pr_url` is **legacy and unused**: the add-company PR step that wrote it was removed, and the
+  column was kept (only the tombstone still clears it) so the removal needed no migration.
   Scores, event type and cost live in `payload` (snake_case JSONB), deliberately not in columns,
   so a tombstone clears all of them at once. `tracked_company_id` is a soft link to
   `companies.id` (no FK, house style): resolved once at insert and never nulled when that

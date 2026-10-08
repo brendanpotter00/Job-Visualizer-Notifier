@@ -6,13 +6,20 @@ when no leader has any people data, never 0; and the VC score is ``None`` when
 the brief is missing or names no investor and no parseable amount. Reasons are
 written for a person reading the card.
 
+Talent is a 50/50 blend (``talent_scores``): up to 50 points from the leaders
+(``score_talent``'s 0-94, rescaled) plus up to 50 from the rest of the team (the
+``team_stats`` tally, ``score_team``). A part with no data is missing, never 0:
+when only one part is known it is doubled, and when neither is, Talent is None.
+
 Inputs come from Parallel outputs and are untrusted: they are only ever matched
 against these fixed name lists, never evaluated.
 """
 
 from __future__ import annotations
 
+import math
 import re
+from fractions import Fraction
 from typing import Any
 
 # ---- scoring rubric (data, verbatim from the POC) ----------------------------
@@ -219,3 +226,174 @@ def score_talent(leaders: list[dict[str, Any]]) -> tuple[int | None, list[str]]:
     if CONFIDENCE_WEIGHT["low"] in weights_used:
         reasons.append("low-confidence facts count at 50%")
     return int(min(100, round(total))), reasons
+
+
+# ---- the 50/50 talent blend -------------------------------------------------------------
+PART_MAX = 50  # each part of the blend: the leaders and the team
+LEADERS_MAX = sum(spec["cap"] for spec in TALENT_RUBRIC.values())  # score_talent's ceiling (94)
+# The team's half is schools + employers only. Prior exits are a leaders' signal (``score_talent``):
+# the team tally no longer asks for them, and an old card's ``ex_founders_with_exit`` is ignored.
+TEAM_SCHOOL_POINTS = 25
+TEAM_EMPLOYER_POINTS = 25
+TEAM_FULL_SHARE = Fraction(1, 2)  # full school / employer points at a share of one half (see score_team)
+TEAM_FULL_SAMPLE = 5  # fewer profiles count proportionally (3 of 5 = 60%); the rest follows the leaders
+TALENT_BASES = ("leaders", "team", "both")
+
+
+def half_up(x: float | Fraction) -> int:
+    """Round half up (``round`` is banker's rounding: 12.5 -> 12, which no reader could explain)."""
+    return math.floor(x + Fraction(1, 2))
+
+
+def leaders_part(leaders_raw: int | None) -> int | None:
+    """``score_talent``'s 0-94 rescaled to the leaders' 0-50 half of the blend."""
+    return None if leaders_raw is None else half_up(Fraction(leaders_raw * PART_MAX, LEADERS_MAX))
+
+
+def _plural(n: int, word: str) -> str:
+    return f"{n} {word}" if n == 1 else f"{n} {word}s"
+
+
+def _tally(v: Any) -> list[tuple[str, int]]:
+    """``[(name, count)]`` from a stored tally; anything malformed is dropped."""
+    out = []
+    for item in v if isinstance(v, list) else []:
+        if not isinstance(item, dict):
+            continue
+        name, count = item.get("name"), item.get("count")
+        if isinstance(name, str) and isinstance(count, int) and not isinstance(count, bool) and count >= 0:
+            out.append((name, count))
+    return out
+
+
+def _count(v: Any) -> int | None:
+    return v if isinstance(v, int) and not isinstance(v, bool) and v >= 0 else None
+
+
+def _side_line(noun: str, hits: int, listed: int, profiles: str, pts: int) -> str:
+    """``15 of the 48 schools listed across 33 profiles are top schools (+9)``: what was counted, said plainly."""
+    if listed == 1:
+        return (f"the 1 {noun} listed across {profiles} is a top {noun} (+{pts})" if hits
+                else f"the 1 {noun} listed across {profiles} is not a top {noun}")
+    where = f"the {listed} {noun}s listed across {profiles}"
+    if not hits:
+        return f"none of {where} is a top {noun}"
+    return f"{hits} of {where} " + (f"is a top {noun}" if hits == 1 else f"are top {noun}s") + f" (+{pts})"
+
+
+def score_team(team_stats: dict[str, Any] | None, leaders: int | None = None) -> tuple[int | None, list[str]]:
+    """The team's 0-50 half of Talent from the card's ``team_stats`` tally.
+
+    Shares, not headcount. The tally lists schools and employers, not people (one person
+    can list two schools), so a side's share is its top-list entries over
+    ``max(profiles found, entries listed on that side)``: double counting cannot inflate it,
+    and profiles with nothing listed still count when the list is short. Schools 25 and
+    employers 25, full points at a share of one half. Prior exits are not part of it (they
+    are a leaders' signal); an old tally's ``ex_founders_with_exit`` is ignored. Each side is
+    rounded once and the part is the sum of the shown integers, so the reason lines add up.
+
+    Missing data is not 0. A side with nothing listed is missing: the other side is scaled
+    up to the full 50. Fewer than 5 profiles count proportionally and the
+    rest of the part follows ``leaders`` (the leaders' 0-50 part), so as the sample goes to
+    0 the card tends to the leaders-only card; with no leaders' part the rest is 0. The tally
+    is weighted 1.0: the pipeline does not keep its confidence. None when there is no tally,
+    no profile was found, or the tally lists no school and no employer at all.
+    """
+    if not isinstance(team_stats, dict):
+        return None, ["no team tally on this card"]
+    n = _count(team_stats.get("profiles_found"))
+    if not n:
+        return None, ["no public profiles found for the rest of the team"]
+    sides = [(tally, key, points, noun)
+             for tally, key, points, noun in (
+                 (_tally(team_stats.get("schools")), "top_school", TEAM_SCHOOL_POINTS, "school"),
+                 (_tally(team_stats.get("prior_employers")), "top_employer", TEAM_EMPLOYER_POINTS, "employer"))
+             if sum(c for _, c in tally)]
+    if not sides:
+        return None, ["the team tally lists no schools or employers"]
+    # Both sides listed: 25 + 25 = 50 and the scale is 1. One side missing: that side is scaled up to 50.
+    scale = Fraction(PART_MAX, sum(points for _, _, points, _ in sides))
+    reasons: list[str] = []
+    raw = 0
+    profiles = _plural(n, "profile")
+    for tally, key, points, noun in sides:
+        listed = sum(c for _, c in tally)
+        hits = sum(c for name, c in tally if _match_any(name, TALENT_RUBRIC[key]["names"]))
+        share = Fraction(hits, max(n, listed))
+        pts = half_up(points * scale * min(Fraction(1), share / TEAM_FULL_SHARE))
+        raw += pts
+        reasons.append(_side_line(noun, hits, listed, profiles, pts))
+    if len(sides) == 1:
+        present = sides[0][3]
+        missing = "employer" if present == "school" else "school"
+        reasons.append(f"no {missing} data listed: {present}s are scaled to 50")
+    if n >= TEAM_FULL_SAMPLE:
+        return raw, reasons
+    shrink = Fraction(n, TEAM_FULL_SAMPLE)
+    pct = half_up(shrink * 100)
+    if leaders is None:
+        reasons.append(f"only {profiles} found: counts at {pct}%")
+        return half_up(shrink * raw), reasons
+    reasons.append(f"only {profiles} found: counts at {pct}%, the other {100 - pct}% follows the leaders' part ({leaders})")
+    return half_up(shrink * raw + (1 - shrink) * leaders), reasons
+
+
+def blend_talent(leaders: int | None, team: int | None) -> tuple[int | None, str | None]:
+    """``(talent, talent_basis)``: the sum of both parts, or a lone part doubled (missing data
+    is not evidence of a weak team, so it is never scored as 0), or ``(None, None)``.
+
+    A doubled part is rounded before it is doubled, so a leaders-only card can sit 1 above
+    the direct rescale (raw 48: ``2 * half_up(48 * 50 / 94)`` = 52, ``48 * 100 / 94`` = 51.06).
+    Accepted: it keeps the stored invariant ``talent == 2 * part`` the backend validates."""
+    if leaders is not None and team is not None:
+        return leaders + team, "both"
+    if leaders is not None:
+        return 2 * leaders, "leaders"
+    if team is not None:
+        return 2 * team, "team"
+    return None, None
+
+
+def _talent_fields(leaders: int | None, talent_reasons: list[str], team_stats: Any) -> dict[str, Any]:
+    team, team_reasons = score_team(team_stats, leaders)
+    talent, basis = blend_talent(leaders, team)
+    return {"talent": talent, "talent_leaders": leaders, "talent_team": team, "talent_basis": basis,
+            "talent_reasons": talent_reasons, "talent_team_reasons": team_reasons}
+
+
+def talent_scores(leader_inputs: list[dict[str, Any]], team_stats: dict[str, Any] | None) -> dict[str, Any]:
+    """The six talent fields of a card's ``scores``."""
+    leaders_raw, reasons = score_talent(leader_inputs)
+    return _talent_fields(leaders_part(leaders_raw), reasons, team_stats)
+
+
+def funding_brief(funding: Any) -> dict[str, Any] | None:
+    """A stored card's ``funding`` block in the shape ``score_vc`` reads (a brief's rounds)."""
+    if not isinstance(funding, dict):
+        return None
+    prior = []
+    for rnd in funding.get("prior_rounds") or []:
+        if isinstance(rnd, dict):
+            names = [x for x in (rnd.get("lead_investors") or []) + (rnd.get("other_investors") or [])
+                     if isinstance(x, str)]
+            prior.append({"investors": ", ".join(names)})
+    return {"latest_round": funding.get("latest_round"), "prior_rounds": prior}
+
+
+def rescored_scores(payload: dict[str, Any]) -> dict[str, Any]:
+    """A stored card's ``scores`` recomputed from what the card itself stores (no Parallel call).
+
+    The leaders' part is carried, not recomputed: the card does not keep the pedigree
+    confidence ``score_talent`` weighs by, and a rescore never changes leader inputs. A
+    blended card carries ``talent_leaders``; a legacy card (no ``talent_basis``) stored
+    ``score_talent``'s raw 0-94 as ``talent``, which is rescaled exactly. The team part
+    is scored from ``team_stats`` and the VC score from ``funding``.
+    """
+    old = payload.get("scores") if isinstance(payload.get("scores"), dict) else {}
+    if old.get("talent_basis") in TALENT_BASES:
+        leaders = _count(old.get("talent_leaders"))
+    else:
+        leaders = leaders_part(_count(old.get("talent")))
+    talent_reasons = [r for r in old.get("talent_reasons") or [] if isinstance(r, str)]
+    vc, vc_reasons = score_vc(funding_brief(payload.get("funding")))
+    return {**_talent_fields(leaders, talent_reasons, payload.get("team_stats")), "vc": vc, "vc_reasons": vc_reasons}

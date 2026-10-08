@@ -8,11 +8,13 @@ import { createApi, fetchBaseQuery } from '@reduxjs/toolkit/query/react';
 import type { DiscoveryStep } from '../userCompanies/userCompaniesApi';
 import {
   LAUNCH_RADAR_STATUSES,
+  LAUNCH_RADAR_TALENT_BASES,
   type LaunchRadarCard,
   type LaunchRadarCardsArgs,
   type LaunchRadarCardsResponse,
   type LaunchRadarStatus,
   type LaunchRadarStatusMove,
+  type LaunchRadarTalentBasis,
 } from './launchRadarTypes';
 
 export type SignupProvider = 'google' | 'email' | 'other';
@@ -1842,9 +1844,7 @@ export const adminApi = createApi({
           !isRecord(res.counts) ||
           typeof res.counts.new !== 'number' ||
           typeof res.counts.saved !== 'number' ||
-          typeof res.counts.archived !== 'number' ||
-          !isRecord(res.stats) ||
-          typeof res.stats.capUsd !== 'number'
+          typeof res.counts.archived !== 'number'
         ) {
           throw new Error('Invalid /api/admin/launch-radar/cards response');
         }
@@ -1852,11 +1852,19 @@ export const adminApi = createApi({
           // ``id`` is the React key and the mutation target; ``domain`` is the
           // card's identity in the delete dialog; ``status`` picks the card's
           // actions, so a status this build does not know is a malformed card.
+          // ``scores.talentBasis`` picks the sentence that explains the Talent
+          // number: null or absent (a legacy card, or a backend that predates
+          // the blend) is fine, a basis this build does not know is malformed.
           if (
             !isRecord(card) ||
             typeof card.id !== 'number' ||
             typeof card.domain !== 'string' ||
-            !LAUNCH_RADAR_STATUSES.includes(card.status as LaunchRadarStatus)
+            !LAUNCH_RADAR_STATUSES.includes(card.status as LaunchRadarStatus) ||
+            !isRecord(card.scores) ||
+            (card.scores.talentBasis != null &&
+              !LAUNCH_RADAR_TALENT_BASES.includes(
+                card.scores.talentBasis as LaunchRadarTalentBasis
+              ))
           ) {
             throw new Error('Invalid /api/admin/launch-radar/cards response: malformed card');
           }

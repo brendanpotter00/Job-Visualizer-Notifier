@@ -280,6 +280,35 @@ class FakeParallel:
 
 
 # ---- FakeBackend ----------------------------------------------------------------------------
+def leaders_part_missing(payload: dict[str, Any]) -> bool:
+    """The backend's ``missing_talent``: the leaders' part of Talent is null (``talent_leaders``
+    on a blended card, ``talent`` on a legacy one with no ``talent_basis``)."""
+    scores = payload.get("scores") or {}
+    if scores.get("talent_basis") is None:
+        return scores.get("talent") is None
+    return scores.get("talent_leaders") is None
+
+
+def scores_problem(scores: Any) -> str | None:
+    """The backend's ``LaunchRadarScores`` consistency rule, or None when the breakdown adds up.
+    Only the talent breakdown is checked here (the fake does not validate whole payloads)."""
+    if not isinstance(scores, dict):
+        return None
+    talent, lead, team = scores.get("talent"), scores.get("talent_leaders"), scores.get("talent_team")
+    basis = scores.get("talent_basis")
+    if basis is None:
+        ok = lead is None and team is None
+    elif basis == "both":
+        ok = lead is not None and team is not None and talent == lead + team
+    elif basis == "leaders":
+        ok = lead is not None and team is None and talent == 2 * lead
+    elif basis == "team":
+        ok = team is not None and lead is None and talent == 2 * team
+    else:
+        ok = False
+    return None if ok else f"inconsistent talent breakdown: {basis} {talent} = {lead} + {team}"
+
+
 class FakeBackend:
     def __init__(self, journal: list[tuple[str, str, Any]] | None = None, cap: float = 5.0) -> None:
         self.journal = journal if journal is not None else []
@@ -403,14 +432,15 @@ class FakeBackend:
             p = body["payload"]
             if normalize_domain(p["domain"]) != p["domain"]:
                 return self._json(422, {"detail": "domain not normalized"})
+            if (bad := scores_problem(p.get("scores"))) is not None:
+                return self._json(422, {"detail": bad})
             if p["domain"] in self.cards:
                 self.journal.append(("backend", "post_card_409", p["domain"]))
                 return self._json(409, {"detail": "domain already posted"})
             tok = (p["ats"].get("board_token") or "").lower()
             tracked = self.tracked_boards.get((p["ats"]["provider"], tok)) if tok else None
             cid = next(self.card_ids)
-            self.cards[p["domain"]] = {"id": cid, "status": "new", "payload": p, "tracked_company_id": tracked,
-                                       "pr_url": None}
+            self.cards[p["domain"]] = {"id": cid, "status": "new", "payload": p, "tracked_company_id": tracked}
             r["cards_posted"] += 1
             self.journal.append(("backend", "post_card", p["domain"]))
             return self._json(201, {"id": cid, "tracked_company_id": tracked})
@@ -418,18 +448,19 @@ class FakeBackend:
             q = parse_qs(request.url.query.decode())
             doms = {normalize_domain(d) for d in q.get("domain", [])}
             missing = q.get("missing_talent", ["false"])[0] == "true"
+            every = q.get("all", ["false"])[0] == "true"
             statuses = set(q.get("status", [])) or {"new", "saved", "archived"}
             after_id = int(q.get("after_id", ["0"])[0])
             limit = int(q.get("limit", ["100"])[0])
-            if not doms and not missing:
-                return self._json(422, {"detail": "give at least one domain or missing_talent=true"})
+            if not doms and not missing and not every:
+                return self._json(422, {"detail": "give at least one domain, missing_talent=true or all=true"})
+            self.card_queries.append({"statuses": statuses, "after_id": after_id, "limit": limit, "all": every})
             if not statuses <= {"new", "saved", "archived"} or not 1 <= limit <= 500:
                 return self._json(422, {"detail": "bad status or limit"})
-            self.card_queries.append({"statuses": statuses, "after_id": after_id, "limit": limit})
             rows = sorted(((d, r) for d, r in self.cards.items() if r["status"] in statuses
                            and r["id"] > after_id
                            and (not doms or d in doms)
-                           and (not missing or (r["payload"].get("scores") or {}).get("talent") is None)),
+                           and (not missing or leaders_part_missing(r["payload"]))),
                           key=lambda dr: dr[1]["id"])[:limit]
             return self._json(200, {"cards": [{"id": r["id"], "domain": d, "status": r["status"],
                                                "payload": r["payload"]} for d, r in rows]})
@@ -439,30 +470,12 @@ class FakeBackend:
                 return self._json(404, {"detail": "card not found"})
             if body["payload"]["domain"] != hit[0]:
                 return self._json(422, {"detail": "payload domain is not the card's domain"})
+            if (bad := scores_problem(body["payload"].get("scores"))) is not None:
+                return self._json(422, {"detail": bad})
             hit[1]["payload"] = body["payload"]
             self.journal.append(("backend", "put_payload", hit[0]))
             return self._json(200, {"id": hit[1]["id"], "domain": hit[0], "status": hit[1]["status"],
                                     "posted_at": "x", "updated_at": "y"})
-        if method == "PATCH" and len(parts) == 3 and parts[0] == "cards" and parts[2] == "pr":
-            for row in self.cards.values():
-                if row["id"] == int(parts[1]):
-                    if row["pr_url"] or row["tracked_company_id"]:
-                        return self._json(409, {"detail": "pr already set"})
-                    row["pr_url"] = body["pr_url"]
-                    return self._json(200, {"id": row["id"], "pr_url": row["pr_url"]})
-            return self._json(404, {"detail": "no such card"})
-        if method == "GET" and parts == ["pr-candidates"]:
-            # As the backend: new or saved, no PR, untracked, pr_ready; saved first, then newest.
-            limit = int(parse_qs(request.url.query.decode())["limit"][0])
-            rows = sorted(((d, r) for d, r in self.cards.items()
-                           if r["status"] in ("new", "saved") and not r["pr_url"] and not r["tracked_company_id"]
-                           and r["payload"]["pr_ready"]),
-                          key=lambda dr: (dr[1]["status"] != "saved", -dr[1]["id"]))
-            return self._json(200, {"cards": [{"id": r["id"], "domain": d, "company": r["payload"]["company"],
-                                               "ats_provider": r["payload"]["ats"]["provider"],
-                                               "board_token": r["payload"]["ats"]["board_token"],
-                                               "job_count": r["payload"]["ats"]["job_count"], "posted_at": "x"}
-                                              for d, r in rows[:limit]]})
         return self._json(404, {"detail": f"unrouted {method} {path}"})
 
 

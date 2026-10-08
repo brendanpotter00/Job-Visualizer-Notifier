@@ -43,7 +43,7 @@ from .pipeline import (
 )
 from .resolve import (
     MAX_LOOKUPS_PER_RUN,
-    SEARCH_FAST_PRICE,
+    SEARCH_PRICE,
     is_listing_site,
     resolve_missing_domains,
 )
@@ -129,7 +129,7 @@ def enrich_estimate(matches: int) -> float:
 def run_budget(generator: str, limit: int) -> float:
     """The most one invocation can reserve (the create, an enrichment and a domain lookup for
     every possible match), rounded up to the cent. It is the backend run's budget."""
-    most = create_estimate(generator, limit) + enrich_estimate(limit) + limit * SEARCH_FAST_PRICE
+    most = create_estimate(generator, limit) + enrich_estimate(limit) + limit * SEARCH_PRICE
     return math.ceil(round(most * 100, 6)) / 100
 
 
@@ -308,7 +308,7 @@ def _dry_run(st: dict[str, Any], budget: float, log: Callable[[str], None]) -> i
         f"in rows {chunks(create_est)}")
     log(f"dry run: enrichment up to {limit} x ${TASK_PRICE[ENRICH_PROCESSOR]:.3f} = ${enrich_estimate(limit):.3f} "
         f"(reserved for the actual match count before the call); domain lookups up to {limit} x "
-        f"${SEARCH_FAST_PRICE:.3f}")
+        f"${SEARCH_PRICE:.3f}")
     log(f"dry run: at most ${budget:.2f} (the backend run's budget); nothing called, spent or written")
     return EXIT_OK
 
@@ -417,7 +417,7 @@ class _Backfill:
 
         # Known and accepted: the domain lookups are not recorded in backfill.json, so a re-run
         # after a crash, a 402 or the deadline between here and _finish looks them up (and pays
-        # for them) again. Each is ~$0.001 and still reserved first, so the ledger stays exact;
+        # for them) again. Each is $0.005 and still reserved first, so the ledger stays exact;
         # only the few cents are repeated.
         resolve_missing_domains(events, client, reserve_search, log, limit=max(MAX_LOOKUPS_PER_RUN, len(events)))
         queue = d.store.load_queue()
@@ -454,15 +454,15 @@ class _Backfill:
         matches = int(st.get("matches") or 0)
         fixed, per_match = FINDALL_PRICE[st["generator"]]
         enrich_price = TASK_PRICE[ENRICH_PROCESSOR] if st["enrich_requested"] else 0.0
-        spent = fixed + per_match * matches + enrich_price * matches + SEARCH_FAST_PRICE * searches
-        reserved = sum(float(v) for v in st["reserved"].values()) + SEARCH_FAST_PRICE * searches
+        spent = fixed + per_match * matches + enrich_price * matches + SEARCH_PRICE * searches
+        reserved = sum(float(v) for v in st["reserved"].values()) + SEARCH_PRICE * searches
         skips = ", ".join(f"{reason} {n}" for reason, n in skipped.most_common()) or "none"
         log(f"backfill {fid}: {_settings(st)}")
         log(f"backfill {fid}: matched {matches} · kept {kept} · queued {len(items)}")
         log(f"backfill {fid}: skipped: {skips}")
         log(f"backfill {fid}: spend (estimate) FindAll ${fixed:.2f} + {matches} x ${per_match:.2f}, enrichment "
             f"{matches if enrich_price else 0} x ${enrich_price:.3f}, {searches} domain lookup(s) x "
-            f"${SEARCH_FAST_PRICE:.3f} = ${spent:.3f} (reserved ${reserved:.3f})")
+            f"${SEARCH_PRICE:.3f} = ${spent:.3f} (reserved ${reserved:.3f})")
         for it in items:
             ev = it["event"]
             facts = " ".join(str(ev[k]) for k in ("event_type", "round", "amount_usd", "announced_at") if ev.get(k))

@@ -123,7 +123,6 @@ describe('adminApi — Launch Radar endpoints', () => {
         'a null counts.saved',
         { ...makeCardsResponse(), counts: { new: 2, saved: null, archived: 1 } },
       ],
-      ['missing stats.capUsd', { ...makeCardsResponse(), stats: { spendUsd: 0 } }],
       [
         'a card without a numeric id',
         { ...makeCardsResponse(), cards: [{ ...makeRaindropCard(), id: '1' }] },
@@ -144,6 +143,22 @@ describe('adminApi — Launch Radar endpoints', () => {
         'a card without a status',
         { ...makeCardsResponse(), cards: [{ ...makeRaindropCard(), status: undefined }] },
       ],
+      [
+        'a card without scores',
+        { ...makeCardsResponse(), cards: [{ ...makeRaindropCard(), scores: null }] },
+      ],
+      [
+        'a card with a Talent basis this build does not know',
+        {
+          ...makeCardsResponse(),
+          cards: [
+            {
+              ...makeRaindropCard(),
+              scores: { ...makeRaindropCard().scores, talentBasis: 'founders' },
+            },
+          ],
+        },
+      ],
     ])('rejects %s', async (_label, body) => {
       vi.spyOn(console, 'error').mockImplementation(() => {});
       fetchMock.mockResolvedValue(jsonResponse(body));
@@ -159,6 +174,29 @@ describe('adminApi — Launch Radar endpoints', () => {
       expect(result.data).toBeUndefined();
       expect(result.error).toBeDefined();
     });
+  });
+
+  it.each([
+    ['legacy (null basis)', { talentLeaders: null, talentTeam: null, talentBasis: null }],
+    ['a backend that predates the blend (no basis key)', {}],
+  ])('accepts a card whose Talent has no breakdown: %s', async (_label, blend) => {
+    const { talent, vc, talentReasons, vcReasons } = makeRaindropCard().scores;
+    const card = {
+      ...makeRaindropCard(),
+      scores: { talent, vc, talentReasons, vcReasons, ...blend },
+    };
+    fetchMock.mockResolvedValue(jsonResponse({ ...makeCardsResponse(), cards: [card] }));
+    const store = makeStore();
+    const result = await store.dispatch(
+      adminApi.endpoints.getLaunchRadarCards.initiate({
+        status: 'new',
+        page: 0,
+        rowsPerPage: 25,
+        sort: 'announced',
+      })
+    );
+    expect(result.error).toBeUndefined();
+    expect(result.data?.cards[0].scores.talent).toBe(49);
   });
 
   it('reads every tab count, saved included', async () => {

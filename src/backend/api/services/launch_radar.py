@@ -6,7 +6,7 @@ The SQL behind both Launch Radar surfaces:
   ``card_counts``, ``run_stats``, ``set_status`` and ``delete_card``;
 * the loop (``routers/internal_launch_radar.py``, X-Internal-Key): runs, the
   ledger (``reserve_spend``), Monitors, ``seen``, ``insert_card``, the
-  ``refresh`` pair (``find_cards``, ``replace_payload``), the PR step.
+  ``refresh`` pair (``find_cards``, ``replace_payload``).
 
 Every function that writes OWNS ITS COMMIT, and rolls back before raising one of
 the domain errors below, so a route only has to roll back on a raw
@@ -15,9 +15,10 @@ it becomes ``float`` only at the response boundary (``usd``).
 
 Card lifecycle (``_ALLOWED_FROM``): new -> saved (save) -> new (unsave); new or
 saved -> archived (archive) -> new (restore) or deleted (delete, only from
-archived). A delete is a TOMBSTONE: the payload, PR link and tracked company
-are cleared but the row and its domain stay, so the UNIQUE on ``domain`` keeps
-the loop from ever posting that company again. Nothing here ever runs
+archived). A delete is a TOMBSTONE: the payload and tracked company (and the
+legacy, unused ``pr_url``; see ``db_models.LaunchRadarCard``) are cleared but the
+row and its domain stay, so the UNIQUE on ``domain`` keeps the loop from ever
+posting that company again. Nothing here ever runs
 ``DELETE FROM launch_radar_cards``.
 """
 
@@ -196,7 +197,6 @@ class CardRow(TypedDict):
     company_name: str
     status: str
     tracked_company_id: str | None
-    pr_url: str | None
     payload: dict[str, Any] | None
     run_id: int | None
     posted_at: datetime
@@ -286,18 +286,8 @@ class PayloadReplaced(TypedDict):
     updated_at: datetime
 
 
-class PrCandidate(TypedDict):
-    id: int
-    domain: str
-    company: str
-    ats_provider: str
-    board_token: str | None
-    job_count: int | None
-    posted_at: datetime
-
-
 _CARD_COLUMNS = (
-    "id, domain, company_name, status, tracked_company_id, pr_url, payload, "
+    "id, domain, company_name, status, tracked_company_id, payload, "
     "run_id, posted_at, updated_at, archived_at, deleted_at, updated_by"
 )
 
@@ -445,6 +435,9 @@ def delete_card(conn: Connection, card_id: int, admin_email: str) -> None:
     """Tombstone an ``archived`` card. A ``new`` or ``saved`` card must be
     archived first (409)."""
     with conn.cursor() as cur:
+        # ``pr_url`` is legacy (nothing writes it since the PR step was removed), but a
+        # row written before that may still hold one, and the tombstone CHECK
+        # (ck_launch_radar_cards_tombstone_clean) requires it cleared.
         cur.execute(
             "UPDATE launch_radar_cards SET status = 'deleted', payload = NULL, "
             "pr_url = NULL, tracked_company_id = NULL, archived_at = NULL, "
@@ -713,7 +706,7 @@ def patch_monitor(conn: Connection, slot: str, changes: dict[str, Any]) -> Monit
 
 
 # ---------------------------------------------------------------------------
-# Loop: dedupe, cards, PR step
+# Loop: dedupe, cards
 # ---------------------------------------------------------------------------
 
 
@@ -812,6 +805,19 @@ def insert_card(conn: Connection, run_uuid: str, payload: dict[str, Any]) -> Car
     return {"id": row["id"], "tracked_company_id": tracked}
 
 
+# A card with no leaders' part of Talent (``missing_talent``). A blended card
+# (``talent_basis`` set) carries the part as ``talent_leaders``; a legacy card
+# (scored before the 50/50 blend, no ``talent_basis``) has only the leaders' raw
+# score, as ``talent``. ->> yields SQL NULL for a JSON null as well as for a
+# missing key. Not ``talent IS NULL``: a team-only card has a Talent number but no
+# leader data, which is what ``refresh --missing-talent`` exists to find.
+_MISSING_LEADERS_PART = (
+    "(CASE WHEN (payload->'scores'->>'talent_basis') IS NULL"
+    " THEN (payload->'scores'->>'talent') IS NULL"
+    " ELSE (payload->'scores'->>'talent_leaders') IS NULL END)"
+)
+
+
 def find_cards(
     conn: Connection,
     domains: list[str],
@@ -820,10 +826,12 @@ def find_cards(
     statuses: Sequence[CardStatus] = CARD_STATUSES,
     after_id: int = 0,
 ) -> list[StoredCard]:
-    """Live cards with their stored payload, for the loop's ``refresh``: those in
-    ``statuses`` (default every live one; empty means the default too), whose
-    domain is in ``domains`` (normalized here, like ``seen``) when any are given,
-    and whose Talent score is null when ``missing_talent``. Tombstones are never
+    """Live cards with their stored payload, for the loop's ``refresh`` and
+    ``rescore``: those in ``statuses`` (default every live one; empty means the
+    default too), whose domain is in ``domains`` (normalized here, like ``seen``)
+    when any are given, and with no leaders' part of Talent when ``missing_talent``
+    (``_MISSING_LEADERS_PART``). With neither filter it is every live card: the
+    route only allows that behind an explicit ``all=true``. Tombstones are never
     returned. One keyset page: ``id > after_id``, ordered by id, at most
     ``limit``; the caller pages with the last id until a page comes back short."""
     # Every clause is a fixed string; only the bound values come from the request.
@@ -833,8 +841,7 @@ def find_cards(
         clauses.append("domain = ANY(%s)")
         params.append(sorted({d for d in (normalize_domain(x) for x in domains) if d}))
     if missing_talent:
-        # ->> yields SQL NULL for a JSON null as well as for a missing key.
-        clauses.append("(payload->'scores'->>'talent') IS NULL")
+        clauses.append(_MISSING_LEADERS_PART)
     with conn.cursor() as cur:
         cur.execute(
             "SELECT id, domain, status, payload FROM launch_radar_cards "
@@ -851,7 +858,7 @@ def replace_payload(conn: Connection, card_id: int, payload: dict[str, Any]) -> 
     validated ``model_dump(mode='json')``).
 
     404 when the card is missing or a tombstone; 422 (``InvalidDomain``) when the
-    payload's domain is not the card's. The status, ``posted_at``, ``pr_url``,
+    payload's domain is not the card's. The status, ``posted_at``,
     ``tracked_company_id``, ``run_id`` and ``updated_by`` are kept;
     ``company_name`` follows the payload and ``updated_at`` moves.
     """
@@ -880,67 +887,6 @@ def replace_payload(conn: Connection, card_id: int, payload: dict[str, Any]) -> 
     return cast(PayloadReplaced, dict(out))
 
 
-def set_pr_url(conn: Connection, card_id: int, pr_url: str) -> tuple[int, str]:
-    """Record the add-company PR the skill opened. 404 missing or deleted; 409
-    when a PR is already recorded or the company is already tracked."""
-    with conn.cursor() as cur:
-        cur.execute(
-            "UPDATE launch_radar_cards SET pr_url = %s, updated_at = now() "
-            "WHERE id = %s AND status <> 'deleted' AND pr_url IS NULL "
-            "AND tracked_company_id IS NULL RETURNING id, pr_url",
-            (pr_url, card_id),
-        )
-        row = cur.fetchone()
-        if row is None:
-            cur.execute(
-                "SELECT status, pr_url, tracked_company_id FROM launch_radar_cards "
-                "WHERE id = %s",
-                (card_id,),
-            )
-            existing = cur.fetchone()
-            conn.rollback()
-            if existing is None or existing["status"] == "deleted":
-                raise NotFound("card not found")
-            if existing["pr_url"] is not None:
-                raise Conflict("pr_url already set")
-            raise Conflict("company is already tracked")
-    conn.commit()
-    return int(row["id"]), str(row["pr_url"])
-
-
-def pr_candidates(conn: Connection, limit: int) -> list[PrCandidate]:
-    """New or saved, untracked, PR-less cards whose ATS board was verified
-    (pr_ready). Saved cards come first (the admin flagged them), then newest
-    posted. Archived and deleted cards are never offered."""
-    with conn.cursor() as cur:
-        cur.execute(
-            "SELECT id, domain, company_name, posted_at, "
-            "payload->'ats'->>'provider' AS ats_provider, "
-            "payload->'ats'->>'board_token' AS board_token, "
-            "(payload->'ats'->>'job_count')::int AS job_count "
-            "FROM launch_radar_cards "
-            "WHERE status IN ('new', 'saved') AND pr_url IS NULL "
-            "AND tracked_company_id IS NULL "
-            "AND (payload->>'pr_ready')::boolean "
-            "ORDER BY (status = 'saved') DESC, posted_at DESC, id DESC LIMIT %s",
-            (limit,),
-        )
-        rows = cur.fetchall()
-    conn.rollback()  # read-only
-    return [
-        {
-            "id": r["id"],
-            "domain": r["domain"],
-            "company": r["company_name"],
-            "ats_provider": r["ats_provider"],
-            "board_token": r["board_token"],
-            "job_count": r["job_count"],
-            "posted_at": r["posted_at"],
-        }
-        for r in rows
-    ]
-
-
 __all__ = [
     "BudgetExceeded",
     "CARD_STATUSES",
@@ -959,13 +905,11 @@ __all__ = [
     "list_monitors",
     "normalize_domain",
     "patch_monitor",
-    "pr_candidates",
     "put_monitor",
     "replace_payload",
     "reserve_spend",
     "run_stats",
     "seen",
-    "set_pr_url",
     "set_status",
     "start_run",
 ]

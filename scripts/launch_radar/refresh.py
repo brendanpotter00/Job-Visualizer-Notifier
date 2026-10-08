@@ -1,7 +1,7 @@
 """``radar.py refresh``: re-research the leaders of cards that have none.
 
-A card has no leaders (and so no Talent score) when FindAll ``preview`` confirmed no
-person for it. ``run`` now falls back to the brief's ``founders`` in that case; this
+A card has no leaders (and so no leaders' part of Talent: ``--missing-talent`` selects
+these) when FindAll ``preview`` confirmed no person for it. ``run`` now falls back to the brief's ``founders`` in that case; this
 command applies the same fallback to cards posted before it existed. Per card it re-runs
 only what that needs:
 
@@ -10,13 +10,14 @@ only what that needs:
    reserved first;
 3. a deterministic rescore and ``PUT /cards/{id}/payload``.
 
-Kept from the card: the event, the team tally, the ATS block (and so ``pr_ready``), the
-FindAll id and ``leaders_dropped``. Replaced: the brief's fields, the leaders, both scores,
+Kept from the card: the event, the team tally (scored again as Talent's team part), the ATS
+block, the FindAll id and ``leaders_dropped``. Replaced: the brief's
+fields, the leaders, both scores,
 the sources, and the issues about the brief, the leaders and the pedigree. ``cost_usd``
 and ``timings_s`` add the refresh's own. A card whose new brief fails is left as it was.
 
 Only a card with **no** leaders is refreshed; one that has FindAll leaders is skipped (its
-Talent score cannot be recomputed from the stored card), and so is an archived card unless
+leaders' points cannot be recomputed from the stored card; ``rescore`` carries them), and so is an archived card unless
 ``--include-archived`` is given. ``GET /cards`` is paged through to the end, so no page cap
 hides a card that still needs a refresh behind ones already done. All briefs are reserved and
 created first, so they research in parallel, then a pool finishes each card. Like
@@ -96,13 +97,14 @@ def refreshed_payload(
     kept_issues = [i for i in old.get("issues") or [] if isinstance(i, str) and not i.startswith(REPLACED_ISSUES)]
     new = build_payload(
         company=old["company"], domain=old["domain"], monitor_event=None, brief=brief, brief_basis=brief_basis,
-        leaders=leaders, leaders_dropped=int(old.get("leaders_dropped") or 0), team=None, ats=old["ats"],
+        leaders=leaders, leaders_dropped=int(old.get("leaders_dropped") or 0),
+        # The stored tally goes back in (build_team_stats is idempotent) so the new Talent includes the team.
+        team=old.get("team_stats"), ats=old["ats"],
         run_ids={**(old.get("parallel_run_ids") or {}), **run_ids},
         cost_usd=float(old.get("cost_usd") or 0) + added_cost,
         timings={**(old.get("timings_s") or {}), **timings},
         issues=list(dict.fromkeys(kept_issues + issues)), generated_at=generated_at,
     )
-    new["team_stats"] = old.get("team_stats")
     if isinstance(old.get("event"), dict):
         # Kept as it was, except the date, which the backend now accepts only as an ISO date
         # (or year-month): a card posted before that rule is normalized here, never rejected.
@@ -110,7 +112,6 @@ def refreshed_payload(
     if not safe_http_url(brief.get("website_url")) and old.get("website"):
         new["website"] = old["website"]
     new["careers_url"] = new["careers_url"] or old.get("careers_url")
-    new["pr_ready"] = bool(old.get("pr_ready"))
     return new
 
 

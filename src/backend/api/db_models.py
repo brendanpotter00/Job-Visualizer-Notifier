@@ -1516,9 +1516,12 @@ class LaunchRadarCard(Base):
     # freely in tests, and seed downgrades / retire migrations delete its rows.
     # Resolved once, at insert, from the card's ATS board. Nothing nulls it when
     # that company row is deleted, so the stale id lingers and the card keeps
-    # reading "Already tracked" (and is never offered for an add-company PR),
-    # which is harmless.
+    # reading "Already tracked", which is harmless.
     tracked_company_id = Column(Text, nullable=True)
+    # LEGACY, unused: the add-company PR the loop used to open for a card. That PR
+    # step was removed; nothing writes or reads this any more except the tombstone,
+    # which still clears it (ck_launch_radar_cards_tombstone_clean). Kept rather
+    # than dropped so the removal needs no migration.
     pr_url = Column(Text, nullable=True)
     payload = Column(JSONB, nullable=True)
     run_id = Column(

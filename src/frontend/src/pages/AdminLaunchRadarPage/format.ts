@@ -8,8 +8,8 @@ import {
   type LaunchRadarAts,
   type LaunchRadarAtsProvider,
   type LaunchRadarRound,
+  type LaunchRadarScores,
   type LaunchRadarSort,
-  type LaunchRadarStats,
   type LaunchRadarTally,
 } from '../../features/admin/launchRadarTypes';
 
@@ -70,28 +70,9 @@ export function leadersFromBrief(issues: readonly string[]): boolean {
   return issues.some((issue) => issue.startsWith(LEADERS_FROM_BRIEF));
 }
 
-/** "$0.46" — two decimals, the precision the header and footer show. */
+/** "$0.46" — two decimals, the precision the card footer shows. */
 export function formatUsd(amount: number): string {
   return `$${amount.toFixed(2)}`;
-}
-
-/**
- * The header's sub line after the fixed lead sentence:
- * "Last run Oct 7 at 01:31 UTC on server-laptop. $0.46 of the $5.00 budget used."
- * A run that did not end `ok` says so ("… (stopped)."); no runs at all reads
- * "No runs yet." The spend sentence is always present — it is the cap the loop
- * stops at, so it matters before the first run too.
- */
-export function formatRunLine(stats: LaunchRadarStats): string {
-  const spend = `${formatUsd(stats.spendUsd)} of the ${formatUsd(stats.capUsd)} budget used.`;
-  const run = stats.lastRun;
-  const started = parseDate(run?.startedAt);
-  if (!run || !started) return `No runs yet. ${spend}`;
-  const hh = String(started.getUTCHours()).padStart(2, '0');
-  const mm = String(started.getUTCMinutes()).padStart(2, '0');
-  const host = run.host ? ` on ${run.host}` : '';
-  const state = run.status === 'ok' ? '' : ` (${run.status})`;
-  return `Last run ${formatShortDate(run.startedAt)} at ${hh}:${mm} UTC${host}${state}. ${spend}`;
 }
 
 /**
@@ -209,6 +190,70 @@ export function roundLine(round: LaunchRadarRound): { head: string; tail: string
     investors = listWithMore(others, 3);
   }
   return { head, tail: `${datePart}.${investors ? ` ${investors}` : ''}` };
+}
+
+/** The most each half of the Talent blend (the leaders, the rest of the team) can add. */
+export const TALENT_PART_MAX = 50;
+
+/** "Why these scores": the Talent bullet and, for a blended card, its two parts. */
+export interface TalentBreakdown {
+  line: string;
+  /** `Leaders …` then `Team …`; empty for an unscored or legacy card. */
+  parts: string[];
+}
+
+/** "Leaders 37: reasons", or "Team: why there is no team part" for a missing one. */
+function talentPart(
+  label: string,
+  value: number | null,
+  reasons: readonly string[],
+  scoredWithoutReasons: string
+): string {
+  if (value == null)
+    return `${label}: ${reasons.length > 0 ? reasons.join('; ') : 'no people data'}`;
+  return `${label} ${value}: ${reasons.length > 0 ? reasons.join('; ') : scoredWithoutReasons}`;
+}
+
+/**
+ * The Talent bullet of "Why these scores". Talent is a 50/50 blend (CONTRACT
+ * §6.6): "Talent 74: leaders 37 + team 37 (each out of 50)", or a lone part
+ * doubled ("Talent 38: leaders 19 of 50, doubled: no team data"), with one
+ * sub-bullet per part. A legacy card (no `talentBasis`, scored before the blend)
+ * keeps the one line it always had; so does an unscored card.
+ */
+export function talentBreakdown(scores: LaunchRadarScores, incomplete: boolean): TalentBreakdown {
+  const { talent, talentBasis: basis } = scores;
+  if (talent == null) {
+    return {
+      line: incomplete
+        ? 'Talent: not scored, research incomplete'
+        : 'Talent: no people data, so no score',
+      parts: [],
+    };
+  }
+  if (basis == null)
+    return { line: `Talent ${talent}: ${scores.talentReasons.join('; ')}`, parts: [] };
+  const leaders = talentPart(
+    'Leaders',
+    scores.talentLeaders,
+    scores.talentReasons,
+    'no top school, top employer, exit or 10+ years'
+  );
+  const team = talentPart(
+    'Team',
+    scores.talentTeam,
+    scores.talentTeamReasons,
+    'nothing the rubric counts'
+  );
+  let line: string;
+  if (basis === 'both') {
+    line = `Talent ${talent}: leaders ${scores.talentLeaders} + team ${scores.talentTeam} (each out of ${TALENT_PART_MAX})`;
+  } else if (basis === 'leaders') {
+    line = `Talent ${talent}: leaders ${scores.talentLeaders} of ${TALENT_PART_MAX}, doubled: no team data`;
+  } else {
+    line = `Talent ${talent}: team ${scores.talentTeam} of ${TALENT_PART_MAX}, doubled: no leader data`;
+  }
+  return { line, parts: [leaders, team] };
 }
 
 /**

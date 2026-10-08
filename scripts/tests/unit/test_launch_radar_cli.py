@@ -1,6 +1,4 @@
-"""CLI: argument parsing, config errors name the variable only, heartbeat, set-pr guard."""
-
-import json
+"""CLI: argument parsing, config errors name the variable only, heartbeat."""
 
 import pytest
 from launch_radar import radar
@@ -23,11 +21,18 @@ def test_parser_defaults_and_exclude_normalization():
 
 
 @pytest.mark.parametrize("argv", [["run", "--budget", "0"], ["run", "--budget", "6"], ["run", "--max-companies", "-1"],
-                                  ["run", "--exclude", "localhost"], ["pr-candidates", "--limit", "9"],
-                                  ["heartbeat", "--status", "maybe"]])
+                                  ["run", "--exclude", "localhost"], ["heartbeat", "--status", "maybe"]])
 def test_parser_rejects_bad_values(argv):
     with pytest.raises(SystemExit):
         radar.build_parser().parse_args(argv)
+
+
+def test_subcommands_are_exactly_the_loop_and_its_one_off_tools():
+    """The add-company PR step was removed: the CLI has no command that reads PR
+    candidates or records a PR on a card."""
+    sub = next(a for a in radar.build_parser()._actions if a.dest == "cmd")
+    assert set(sub.choices) == {"monitors-ensure", "run", "backfill", "monitors-cancel", "heartbeat",
+                                "import", "refresh", "rescore"}
 
 
 def test_config_errors_name_the_variable_only():
@@ -62,7 +67,7 @@ def test_config_refuses_cleartext_backend_off_loopback():
 def test_main_reports_missing_config_by_name(monkeypatch, capsys):
     for k in ("BACKEND_URL", "INTERNAL_API_KEY", "PARALLEL_API_KEY"):
         monkeypatch.delenv(k, raising=False)
-    assert radar.main(["pr-candidates"]) == 1
+    assert radar.main(["rescore", "--all"]) == 1
     assert "config: BACKEND_URL is not set" in capsys.readouterr().err
 
 
@@ -80,29 +85,31 @@ def test_heartbeat_needs_no_backend(monkeypatch, tmp_path, capsys):
     assert (tmp_path / "heartbeat.log").read_text().strip().endswith("status=ok posted 1")
 
 
-def test_set_pr_validates_the_url_before_calling_the_backend(tmp_path, capsys):
-    fb = FakeBackend()
-    assert radar.main(["set-pr", "--card-id", "1", "--pr-url", "https://evil.example.com/pull/1"],
-                      deps=_deps(tmp_path, fb)) == 1
-    assert fb.requests == []
-
-
-def test_pr_candidates_and_set_pr_roundtrip(tmp_path, capsys):
-    fb = FakeBackend()
-    fb.cards["ghost.ai"] = {"id": 4, "status": "new", "tracked_company_id": None, "pr_url": None,
-                            "payload": {"company": "Ghost AI", "pr_ready": True,
-                                        "ats": {"provider": "ashby", "board_token": "ghost", "job_count": 1}}}
-    assert radar.main(["pr-candidates"], deps=_deps(tmp_path, fb)) == 0
-    out = json.loads(capsys.readouterr().out)
-    assert out["cards"][0]["id"] == 4 and out["cards"][0]["board_token"] == "ghost"
-    url = "https://github.com/brendanpotter00/Job-Visualizer-Notifier/pull/412"
-    assert radar.main(["set-pr", "--card-id", "4", "--pr-url", url], deps=_deps(tmp_path, fb)) == 0
-    assert fb.cards["ghost.ai"]["pr_url"] == url
-    # a second PR for the same card is refused (409) and reported as an error
-    assert radar.main(["set-pr", "--card-id", "4", "--pr-url", url], deps=_deps(tmp_path, fb)) == 1
-
-
 def test_run_dry_run_through_main(tmp_path, capsys):
     fb = FakeBackend()
     assert radar.main(["run", "--dry-run"], deps=_deps(tmp_path, fb)) == 0
     assert fb.runs == {}
+
+
+def test_rescore_parser_needs_exactly_one_selector():
+    a = radar.build_parser().parse_args(["rescore", "--all", "--dry-run"])
+    assert a.all_cards and a.dry_run and a.domains is None
+    a = radar.build_parser().parse_args(["rescore", "--domains", "https://www.Graph.ai, b.io"])
+    assert a.domains == frozenset({"graph.ai", "b.io"}) and not a.all_cards and not a.dry_run
+    for argv in (["rescore"], ["rescore", "--dry-run"], ["rescore", "--all", "--domains", "a.ai"],
+                 ["rescore", "--domains", "localhost"]):
+        with pytest.raises(SystemExit):
+            radar.build_parser().parse_args(argv)
+
+
+def test_rescore_loads_config_without_the_parallel_key(monkeypatch):
+    asked: list[bool] = []
+
+    def fake_load_config(*, need_parallel):
+        asked.append(need_parallel)
+        raise ConfigError("BACKEND_URL")  # stop before any backend call
+
+    monkeypatch.setattr(radar, "load_config", fake_load_config)
+    assert radar.main(["rescore", "--all"]) == 1
+    assert radar.main(["rescore", "--domains", "a.ai", "--dry-run"]) == 1
+    assert asked == [False, False]

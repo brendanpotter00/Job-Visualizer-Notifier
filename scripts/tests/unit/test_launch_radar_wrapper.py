@@ -50,29 +50,31 @@ def test_no_skip_permissions_flag_anywhere():
 
 
 # Every Bash entry the headless session may run. Exact radar.sh commands pin the
-# per-run limits (3 companies, $1.00); pr_step.py validates its own arguments.
+# per-run limits (3 companies, $1.00).
 EXPECTED_BASH = {
     "Bash(scripts/launch_radar/radar.sh monitors-ensure)",
     "Bash(scripts/launch_radar/radar.sh run --max-companies 3 --budget 1.00)",
     "Bash(scripts/launch_radar/radar.sh run --max-companies 0 --budget 1.00)",
-    "Bash(scripts/launch_radar/radar.sh pr-candidates --limit 1)",
-    "Bash(scripts/launch_radar/radar.sh set-pr:*)",
     "Bash(scripts/launch_radar/radar.sh heartbeat:*)",
-    "Bash(scripts/launch_radar/pr_step.py:*)",
 }
 
 
 def test_wrapper_invokes_claude_with_an_allowlist():
     block = _allowlist_block()
     assert '"$CLAUDE_BIN" -p /launch-radar-once' in block
+    # The host's user/local settings (a default mode such as auto, allow rules) must not
+    # widen the list: unlisted tools are denied and only the tracked project settings load.
+    tokens = shlex.split(block.replace("\\\n", " "))
+    assert tokens[tokens.index("--permission-mode") + 1] == "dontAsk"
+    assert tokens[tokens.index("--setting-sources") + 1] == "project"
     tools = _allowed_tools()
-    assert {t for t in tools if t.startswith("Bash")} == EXPECTED_BASH
+    # The run drives the loop and posts cards, nothing else: no file writes, no
+    # subagent, no web tools (the loop does its own research through radar.sh).
+    assert set(tools) == {"Read(./**)"} | EXPECTED_BASH
     for t in tools:
         assert t != "Bash", "bare Bash is not allowed"
         assert not re.fullmatch(r"Bash\(\s*\*?\s*\)", t), f"wildcard Bash: {t}"
         assert not t.startswith("Bash(*"), f"wildcard Bash: {t}"
-        if t.startswith(("Edit(", "Write(")):
-            assert t.endswith("(./.claude/worktrees/radar-*/**)"), f"writes must stay in radar worktrees: {t}"
         if t.startswith(("Read", "Glob", "Grep")):
             assert t.endswith("(./**)"), f"file reads must stay in the checkout: {t}"
 
@@ -86,11 +88,16 @@ def test_no_generic_code_or_upload_entry(tool):
             assert not t[len("Bash("):].startswith(tool), f"{t} hands the session a free {tool}"
 
 
-def test_pushing_and_pr_creation_only_through_pr_step():
-    pr_step = (LR / "pr_step.py").read_text()
-    assert 'f"HEAD:refs/heads/{branch}"' in pr_step  # explicit refspec: never radar/x:main
-    assert "core.hooksPath=/dev/null" in pr_step and "core.fsmonitor=false" in pr_step
-    assert os.stat(LR / "pr_step.py").st_mode & stat.S_IXUSR
+@pytest.mark.parametrize("path", [ROOT / ".claude" / "skills" / "launch-radar" / "SKILL.md",
+                                  ROOT / ".claude" / "commands" / "launch-radar-once.md"])
+def test_skill_runs_only_radar_sh(path):
+    """The add-company PR step was removed (it opened PRs on its own). The skill and its
+    headless command may point at no loop entry point but radar.sh (plus the runbook and
+    the wrapper), and never at a temporary worktree or the add-company skill."""
+    text = path.read_text()
+    assert set(re.findall(r"scripts/launch_radar/[\w.]+", text)) <= {
+        "scripts/launch_radar/radar.sh", "scripts/launch_radar/README.md", "scripts/launch_radar/wrapper.sh"}
+    assert ".claude/worktrees" not in text and "add-company" not in text
 
 
 def test_secrets_are_denied_and_not_handled_by_the_wrapper():
@@ -101,8 +108,7 @@ def test_secrets_are_denied_and_not_handled_by_the_wrapper():
     for denied in ("Read(~/.ssh/**)", "Read(~/.zshrc)", "Read(./**/.env)", "Read(./**/.env.*)",
                    # in-checkout files that can hold credentials (IDE run configs, MCP config, git remotes)
                    "Read(./.git/**)", "Read(./.idea/**)", "Read(./.vscode/**)", "Read(./.mcp.json)",
-                   "Read(./.claude/settings*.json)", "Read(./.playwright-mcp/**)",
-                   "Write(./.claude/worktrees/*/.git)", "Edit(./.claude/worktrees/*/.git)"):
+                   "Read(./.claude/settings*.json)", "Read(./.playwright-mcp/**)"):
         assert denied in disallowed, denied
     assert "Bash(env:*)" in disallowed and "Bash(printenv:*)" in disallowed
     code = "\n".join(_code_lines(WRAPPER))

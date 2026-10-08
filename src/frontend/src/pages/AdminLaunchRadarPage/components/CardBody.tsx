@@ -11,6 +11,7 @@ import {
   researchGaps,
   roundLine,
   summarizeTally,
+  talentBreakdown,
 } from '../format';
 
 /** Bullets with a muted marker, the card body's only list style. */
@@ -126,19 +127,11 @@ function RestOfTeamSection({ stats }: { stats: NonNullable<LaunchRadarCard['team
           {summarizeTally(stats.schools, 4)}
         </li>
       )}
-      {stats.exFoundersWithExit == null ? (
+      {/* The tally is schools and employers only: prior exits are checked on the leaders. */}
+      {schoolCount === 0 && stats.priorEmployers.length === 0 && (
         <Box component="li" sx={{ color: 'text.secondary' }}>
-          Prior exits unknown
+          No schools or employers listed
         </Box>
-      ) : stats.exFoundersWithExit === 0 ? (
-        <Box component="li" sx={{ color: 'text.secondary' }}>
-          No prior exits found
-        </Box>
-      ) : (
-        <li>
-          {stats.exFoundersWithExit} former{' '}
-          {stats.exFoundersWithExit === 1 ? 'founder' : 'founders'} with an exit
-        </li>
       )}
     </Section>
   );
@@ -204,12 +197,7 @@ function WhyTheseScores({
   incomplete: boolean;
 }) {
   const [open, setOpen] = useState(false);
-  const talent =
-    scores.talent == null
-      ? incomplete
-        ? 'Talent: not scored, research incomplete'
-        : 'Talent: no people data, so no score'
-      : `Talent ${scores.talent}: ${scores.talentReasons.join('; ')}`;
+  const talent = talentBreakdown(scores, incomplete);
   const vc =
     scores.vc == null
       ? incomplete
@@ -231,7 +219,16 @@ function WhyTheseScores({
       </Link>
       <Collapse in={open} unmountOnExit>
         <Typography component="ul" variant="body2" color="text.secondary" sx={BULLETS_SX}>
-          <li>{talent}</li>
+          <li>
+            {talent.line}
+            {talent.parts.length > 0 && (
+              <Box component="ul" aria-label="Talent parts" sx={BULLETS_SX}>
+                {talent.parts.map((part, i) => (
+                  <li key={i}>{part}</li>
+                ))}
+              </Box>
+            )}
+          </li>
           <li>{vc}</li>
         </Typography>
       </Collapse>

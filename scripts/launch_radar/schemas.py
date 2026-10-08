@@ -5,7 +5,7 @@ with two changes: ``BRIEF_SCHEMA.ats`` gains a required ``board_url``, and
 ``BRIEF_SCHEMA`` gains a required ``founders`` list (the leaders fallback).
 ``backfill_event_schema`` is new. Prices are USD from parallel-docs
 ``raw/getting-started/pricing.md``; the Search API price used by the domain
-lookup is ``resolve.SEARCH_FAST_PRICE``.
+lookup is ``resolve.SEARCH_PRICE``.
 """
 
 from __future__ import annotations
@@ -318,7 +318,10 @@ BRIEF_SCHEMA: dict[str, Any] = {
     "additionalProperties": False,
 }
 
-# Team tally (non-founders): one Task run on pro. Display only, never scored.
+# Team tally (non-founders): one Task run on pro. Scored as Talent's team half (scoring.score_team):
+# schools and prior employers only. Prior exits are checked on the leaders (PEDIGREE_SCHEMA.founded_before),
+# not the team, so the tally does not ask for them (cards before 2026-10-07 may still carry
+# ``ex_founders_with_exit``; it is ignored).
 TALLY = {"type": "array", "items": {"type": "object", "properties": {
     "name": {"type": "string"}, "count": {"type": "integer"}},
     "required": ["name", "count"], "additionalProperties": False}}
@@ -333,12 +336,9 @@ TEAM_SCHEMA: dict[str, Any] = {
                     "Universities attended by those employees, with how many attended each. Most common first."},
         "prior_employers": {**TALLY, "description":
                             "Notable previous employers of those employees, with counts. Most common first."},
-        "ex_founders_with_exit": {"type": "integer", "description":
-                                  "How many of them previously founded a company that was acquired or IPO'd."},
         "sample_names": {"type": "array", "items": {"type": "string"}, "description":
                          "Names of the employees counted (at most 25), so the tally can be checked."},
     },
-    "required": ["profiles_found", "team_size_estimate", "schools", "prior_employers",
-                 "ex_founders_with_exit", "sample_names"],
+    "required": ["profiles_found", "team_size_estimate", "schools", "prior_employers", "sample_names"],
     "additionalProperties": False,
 }

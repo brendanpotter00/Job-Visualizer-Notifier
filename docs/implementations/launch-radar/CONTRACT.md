@@ -4,6 +4,12 @@ The contract between the three parts of Launch Radar as shipped: the **backend**
 **frontend** (`/admin/launch-radar`) and the **loop** (`scripts/launch_radar/`). Where this file and `plan.html` (the
 approved design) disagree, this file wins. §9 lists the seams that must change together.
 
+**Removed: the add-company PR step** (2026-10-07). The design's last stage, where the loop turned one verified card a
+day into an add-company pull request, is gone: it opened PRs (#333, #334) on its own, and tracking a company is a human
+call made from the admin page. The loop now only researches and posts cards. What is left of it: the legacy
+`launch_radar_cards.pr_url` column (§1.4, unused, kept so the removal needed no migration) and the tolerated legacy
+payload flag `pr_ready` (§4).
+
 ---
 
 ## 0. Rules for every change
@@ -77,8 +83,8 @@ Index: `idx_launch_radar_spend_run_id (run_id)`. Total spend = `SUM(amount_usd)`
 | `domain` | Text | no | | normalized (§4.1). `UNIQUE uq_launch_radar_cards_domain` is the dedupe guard. `CHECK ck_launch_radar_cards_domain_lower: domain = lower(domain)` |
 | `company_name` | Text | no | | kept on the tombstone so a log can name it |
 | `status` | Text | no | `'new'` | `CHECK ck_launch_radar_cards_status: status IN ('new','saved','archived','deleted')` (autogenerate does not compare the CHECKs of an existing table, so `api/tests/test_db_models.py` pins this text against revision `33ff7e590a46`) |
-| `tracked_company_id` | Text, soft link to `companies.id` (no FK, house style) | yes | | set by the backend at insert (§2.3). Nothing nulls it when that company row is deleted, so a stale id keeps the card "Already tracked" and out of `GET /pr-candidates` (harmless) |
-| `pr_url` | Text | yes | | set by `PATCH …/cards/{id}/pr` |
+| `tracked_company_id` | Text, soft link to `companies.id` (no FK, house style) | yes | | set by the backend at insert (§2.3). Nothing nulls it when that company row is deleted, so a stale id keeps the card "Already tracked" (harmless) |
+| `pr_url` | Text | yes | | **legacy, unused**: written by the removed add-company PR step. Nothing reads or writes it now except the tombstone, which still clears it (the CHECK below). Kept so the removal needed no migration |
 | `payload` | JSONB | yes | | the card (§4, snake_case). NULL only on a tombstone |
 | `run_id` | Integer FK → `launch_radar_runs.id` `ON DELETE SET NULL` | yes | | |
 | `posted_at` | TIMESTAMP(tz) | no | `now()` | |
@@ -154,6 +160,8 @@ then `id DESC`, so paging is deterministic. Each key maps to a fixed `ORDER BY` 
 - `total` counts the rows with the requested status. `counts` always covers all three tabs, whatever the filter.
 - `lastRun` is the newest `launch_radar_runs` row by `started_at`, or `null` when there are no runs.
 - `spendUsd` is `SUM(launch_radar_spend.amount_usd)`, rounded to 4 places. `capUsd` is `settings.launch_radar_spend_cap_usd`.
+- The admin page no longer shows `stats` (the sub line under the heading was removed 2026-10-07). The backend still sends
+  it, unchanged; the client neither types nor checks it.
 - Deleted rows are never selected. The query has `WHERE status IN ('new','saved','archived')`, or the single requested status.
 
 #### `PATCH /api/admin/launch-radar/cards/{card_id}`
@@ -199,11 +207,9 @@ routes. The loop calls the backend directly (`BACKEND_URL`).
 | `PUT /monitors/{slot}` | `{"monitor_id", "query", "processor": "base", "frequency": "1d", "status": "active"\|"cancelled", "charged_through": iso}` | 200 `MonitorRow` (upsert by slot) | 422 bad slot |
 | `PATCH /monitors/{slot}` | any subset of `{"last_event_id": str, "status": "active"\|"cancelled", "charged_through": iso}` (at least 1 key) | 200 `MonitorRow` | 404 · 422 |
 | `GET /seen` | query `domain` (repeatable, 0..100) and `name` (repeatable, 0..100) | 200 `SeenOut` | 422 when more than 100 |
-| `GET /cards` | query `domain` (repeatable, 0..100, normalized server-side) and/or `missing_talent=true`; `status` (repeatable, `new`/`saved`/`archived`; none = every live status); `after_id` ≥0 (0); `limit` 1..500 (100) | 200 `{"cards": [{"id", "domain", "status", "payload"}]}`: live cards only, `id > after_id`, by id, payload as stored. Keyset-paged: the loop asks again from the last id until a page comes back short | 422 no filter / more than 100 domains / bad `status` |
+| `GET /cards` | query `domain` (repeatable, 0..100, normalized server-side) and/or `missing_talent=true` (no **leaders' part** of Talent: `scores.talent_leaders` null on a blended card, `scores.talent` null on a pre-blend one, so a team-only card with a Talent number is still found), or `all=true` (every live card, `rescore --all`; takes no other filter); `status` (repeatable, `new`/`saved`/`archived`; none = every live status); `after_id` ≥0 (0); `limit` 1..500 (100) | 200 `{"cards": [{"id", "domain", "status", "payload"}]}`: live cards only, `id > after_id`, by id, payload as stored. Keyset-paged: the loop asks again from the last id until a page comes back short | 422 no filter / `all=true` with `domain` or `missing_talent` / more than 100 domains / bad `status` |
 | `POST /cards` | `{"run_uuid": str, "payload": LaunchRadarPayload (§4)}` | **201** `{"id": int, "tracked_company_id": str \| null}` | 404 unknown run · 409 run not running · **409 domain already posted** · 422 payload invalid or domain not normalized |
 | `PUT /cards/{card_id}/payload` | `{"payload": LaunchRadarPayload (§4)}` (`extra="forbid"`; no run needed) | 200 `{"id", "domain", "status", "posted_at", "updated_at"}` | 404 missing or deleted · 422 payload invalid (URL rules included) or `payload.domain` ≠ the card's |
-| `PATCH /cards/{card_id}/pr` | `{"pr_url": str}`, matching `^https://github\.com/brendanpotter00/Job-Visualizer-Notifier/pull/\d+$` | 200 `{"id", "pr_url"}` | 404 missing/deleted · 409 `pr_url` already set, or card is tracked |
-| `GET /pr-candidates` | query `limit` 1..5 (default 1) | 200 `{"cards": [PrCandidate]}` | — |
 
 Shapes (snake_case):
 
@@ -224,9 +230,6 @@ Shapes (snake_case):
 // SeenOut
 { "domains": { "raindrop.ai": { "card_id": 1, "status": "new" | "saved" | "archived" | "deleted" } },   // only seen ones
   "names":   { "Raindrop AI": "raindrop-ai" } }                                             // only names matching a tracked company
-// PrCandidate (from the row + payload)
-{ "id": 4, "domain": "ghost.ai", "company": "Ghost AI", "ats_provider": "ashby",
-  "board_token": "ghost", "job_count": 1, "posted_at": "…" }
 ```
 
 **Ledger semantics** (`reserve_spend`, one transaction):
@@ -255,12 +258,8 @@ normalized server-side first, and the response is keyed by the normalized form.
 
 **`PUT /cards/{card_id}/payload` (`replace_payload`)**, for `radar.py refresh`: `SELECT … FOR UPDATE` (so a delete cannot
 race it), 404 for a missing card or a tombstone, 422 when the payload's domain is not the card's, then
-`UPDATE … SET payload, company_name = payload.company, updated_at = now()`. Status, `posted_at`, `pr_url`,
+`UPDATE … SET payload, company_name = payload.company, updated_at = now()`. Status, `posted_at`,
 `tracked_company_id`, `run_id` and `updated_by` stay. `GET /cards` (`find_cards`) is its read-only lookup.
-
-**`GET /pr-candidates`**: `status IN ('new','saved') AND pr_url IS NULL AND tracked_company_id IS NULL AND (payload->>'pr_ready')::boolean`,
-saved cards first, then newest `posted_at` (`ORDER BY (status = 'saved') DESC, posted_at DESC, id DESC`). Archived and deleted
-cards are never offered.
 
 ### 2.4 `LaunchRadarCard`: admin response model (camelCase)
 
@@ -270,7 +269,7 @@ plus the parsed payload:
 
 ```python
 LaunchRadarCardOut.model_validate({**row["payload"], "id": row["id"], "status": row["status"],
-                                   "tracked_company_id": row["tracked_company_id"], "pr_url": row["pr_url"],
+                                   "tracked_company_id": row["tracked_company_id"],
                                    "posted_at": row["posted_at"], "archived_at": row["archived_at"],
                                    "updated_by": row["updated_by"]})
 ```
@@ -343,11 +342,15 @@ normalizes every event date with `card.announced_on` (the admin list sorts this 
     "investors": "CRV, Lightspeed" | null,
     "origin": "monitor" | "findall_backfill" | "task brief"   // findall_backfill: `radar.py backfill` (§6.3)
   } | null,
-  "scores": {
-    "talent": 49 | null,                           // null = no people data (never 0 for "no data")
+  "scores": {                                     // Talent is a 50/50 blend (§6.6)
+    "talent": 49 | null,                           // 0-100: the parts summed, or a lone part doubled; null = no data on either
     "vc": 55 | null,                               // null = brief missing or no investors and no amount
-    "talent_reasons": ["Priya Raman: top school (Berkeley)", "…"],
-    "vc_reasons": ["CRV led (tier 2)", "Lightspeed joined (tier 1)", "round over $20M"]
+    "talent_reasons": ["Priya Raman: top school (Berkeley)", "…"],   // the leaders' part
+    "vc_reasons": ["CRV led (tier 2)", "Lightspeed joined (tier 1)", "round over $20M"],
+    "talent_leaders": 24 | null,                   // 0-50, optional (default null): null = no leader people data
+    "talent_team": 25 | null,                      // 0-50, optional (default null): null = no usable team tally
+    "talent_basis": "both" | "leaders" | "team" | null,  // optional (default null); null with a talent = pre-blend card
+    "talent_team_reasons": ["3 of the 3 employers listed across 6 profiles are top employers (+25)", "…"]  // optional (default [])
   },
   "leaders": [{
     "name": "Sam Rivera",
@@ -363,13 +366,14 @@ normalizes every event date with `card.announced_on` (the admin list sorts this 
     "signals": ["…"]                               // notable_signals, at most 4
   }],
   "leaders_dropped": 0,                            // FindAll matches is_person() rejected (company pages)
-  "team_stats": {                                  // the "pro" team-tally Task; null if it failed. Display only
+  "team_stats": {                                  // the "pro" team-tally Task; null if it failed. Scored as Talent's team part (§6.6)
     "profiles_found": 6 | null,                    // every count is cast float -> int; null = unknown (never 0)
     "team_size_estimate": "approximately 10-20",
     "schools": [{ "name": "University of California, Davis", "count": 1 }],
     "prior_employers": [{ "name": "Amazon", "count": 2 }],
-    "ex_founders_with_exit": 0 | null,             // null = unknown
     "sample_names": ["…"]
+    // No prior exits: the team is not checked for them (the leaders are, §6.6). A card tallied before 2026-10-07
+    // may carry "ex_founders_with_exit": int | null; it still validates (optional), is dropped on store and never scored.
   } | null,
   "funding": {
     "latest_round": Round | null,
@@ -386,7 +390,8 @@ normalizes every event date with `card.announced_on` (the admin list sorts this 
     "job_count": 9 | null,
     "checked_url": "https://api.ashbyhq.com/posting-api/job-board/Raindrop" | null
   },
-  "pr_ready": true,                                // verified && provider in {greenhouse, ashby, lever} && job_count >= 1
+  // no "pr_ready": it fed the removed PR step. An older payload that still carries it validates; the flag is
+  // excluded from every dump, so it is neither re-stored nor sent to the admin page (like team_stats.ex_founders_with_exit)
   "sources": [{ "url": "https://…", "title": "…" | null, "field": "one_liner" | null }],   // at most 40, deduped by url
   "parallel_run_ids": { "findall_id": "…" | null, "brief_run_id": "…" | null,
                         "team_run_id": "…" | null, "pedigree_group_id": "…" | null },
@@ -401,6 +406,14 @@ normalizes every event date with `card.announced_on` (the admin list sorts this 
 ```
 
 ---
+
+**Talent consistency (validated by `LaunchRadarScores`, 422 otherwise).** `talent_basis` null ⇒ `talent_leaders` and
+`talent_team` null (a **pre-blend** card when `talent` is set: its `talent` is the leaders' raw 0-94 rubric score, and
+`radar.py rescore` converts it); `"both"` ⇒ both parts set and `talent = talent_leaders + talent_team`; `"leaders"` /
+`"team"` ⇒ that part set, the other null, and `talent = 2 × part`. So the breakdown on a card always adds up. The four
+blend keys are optional with defaults, so every payload stored or exported before the blend
+still validates and imports unchanged. `data/cards-2026-10-07.json` is the blended re-export
+(its cards carry all four keys).
 
 ## 5. Frontend
 
@@ -435,7 +448,6 @@ export interface LaunchRadarCard {
   id: number;
   status: LaunchRadarStatus;                 // deleted rows never reach the client
   trackedCompanyId: string | null;
-  prUrl: string | null;
   postedAt: string;
   archivedAt: string | null;
   updatedBy: string | null;
@@ -450,19 +462,23 @@ export interface LaunchRadarCard {
     announcedAt: string | null; round: string | null; amountUsd: string | null;
     investors: string | null; origin: 'monitor' | 'findall_backfill' | 'task brief';
   } | null;
-  scores: { talent: number | null; vc: number | null; talentReasons: string[]; vcReasons: string[] };
+  scores: {
+    talent: number | null; vc: number | null; talentReasons: string[]; vcReasons: string[];
+    talentLeaders: number | null; talentTeam: number | null;
+    talentBasis: 'leaders' | 'team' | 'both' | null;   // null + a talent = pre-blend card (read with `== null`)
+    talentTeamReasons: string[];
+  };
   leaders: LaunchRadarLeader[];
   leadersDropped: number;
   teamStats: {
     profilesFound: number | null; teamSizeEstimate: string; schools: LaunchRadarTally[];
-    priorEmployers: LaunchRadarTally[]; exFoundersWithExit: number | null; sampleNames: string[];
+    priorEmployers: LaunchRadarTally[]; sampleNames: string[];
   } | null;
   funding: { latestRound: LaunchRadarRound | null; priorRounds: LaunchRadarRound[]; totalRaisedUsd: string | null };
   notableFacts: string[];
   careersUrl: string | null;
   ats: { provider: LaunchRadarAtsProvider; boardToken: string | null; boardUrl: string | null;
          verified: boolean; jobCount: number | null; checkedUrl: string | null };
-  prReady: boolean;
   sources: { url: string; title: string | null; field: string | null }[];
   parallelRunIds: { findallId: string | null; briefRunId: string | null;
                     teamRunId: string | null; pedigreeGroupId: string | null };
@@ -471,14 +487,8 @@ export interface LaunchRadarCard {
   issues: string[];
   generatedAt: string;
 }
-export interface LaunchRadarStats {
-  lastRun: { startedAt: string; endedAt: string | null; status: 'running' | 'ok' | 'stopped' | 'error';
-             host: string | null } | null;
-  spendUsd: number;
-  capUsd: number;
-}
-export interface LaunchRadarCardsResponse {
-  cards: LaunchRadarCard[]; total: number; counts: Record<LaunchRadarStatus, number>; stats: LaunchRadarStats;
+export interface LaunchRadarCardsResponse {   // the backend also sends `stats`; the page does not read it
+  cards: LaunchRadarCard[]; total: number; counts: Record<LaunchRadarStatus, number>;
 }
 export type LaunchRadarSort = 'announced' | 'talent' | 'vc' | 'added';
 export interface LaunchRadarCardsArgs { status: LaunchRadarStatus; page: number; rowsPerPage: number; sort: LaunchRadarSort }
@@ -490,7 +500,7 @@ export interface LaunchRadarCardsArgs { status: LaunchRadarStatus; page: number;
 - `getLaunchRadarCards: builder.query<LaunchRadarCardsResponse, LaunchRadarCardsArgs>`: `{ url: '/launch-radar/cards', params: { status, limit: rowsPerPage, offset: page * rowsPerPage, sort } }`
   (`sort` is part of the args, so each sort is its own cache entry).
   A `transformResponse` runtime guard in the style of `getAdminCustomCompanies`: `cards` is an array, `total` is a number,
-  `counts.new`, `counts.saved` and `counts.archived` are numbers, `stats.capUsd` is a number, and each card has `typeof id === 'number'`,
+  `counts.new`, `counts.saved` and `counts.archived` are numbers, and each card has `typeof id === 'number'`,
   `typeof domain === 'string'` and a `status` of `new`, `saved` or `archived`. `providesTags: ['LaunchRadarCards']`.
 - `setLaunchRadarCardStatus: builder.mutation<LaunchRadarCard, { id: number; status: LaunchRadarStatus; from: LaunchRadarStatus }>`:
   `{ url: `/launch-radar/cards/${id}`, method: 'PATCH', body: { status, from } }`, `invalidatesTags: ['LaunchRadarCards']`.
@@ -506,14 +516,18 @@ export interface LaunchRadarCardsArgs { status: LaunchRadarStatus; page: number;
 
 | file | role |
 |---|---|
-| `AdminLaunchRadarPage.tsx` | `Container maxWidth="md"` with `py: RESPONSIVE.spacing.pageMarginY`. `Typography h4` "Launch Radar". The sub line reads: "Startups the Parallel loop found. Last run {Oct 7 at 01:31 UTC} on {host}. ${spend} of the ${cap} budget used." (or "No runs yet."). MUI `Tabs`: **New**, **Saved** and **Archived** (a card is in exactly one), each with a muted count. On the same row, right-aligned (wrapping under the tabs on a narrow screen): "Sort by" and an exclusive small `ToggleButtonGroup` (`aria-label="Sort cards by"`): **Announced** / **Talent** / **VC** / **Added**. The sort lives in the URL (`?sort=talent`; the default `announced` is omitted), applies to every tab and resets to page 1 when it changes. The page holds the tab, page index and `rowsPerPage = 25`, and keeps the last data to avoid a flash, as `AdminFeedbackPage` does. When a card leaves the list (Save, Unsave, Archive, Restore, Delete) focus moves to the next card's toggle, or the tab panel when it was the last, and a polite live region announces it ("Saved Lightfield"). It shows `LoadingState` and `ErrorState`, and the empty states "No new cards." / "No saved cards." / "No archived cards.". It shows MUI `Pagination` when `total > rowsPerPage`. |
+| `AdminLaunchRadarPage.tsx` | `Container maxWidth="md"` with `py: RESPONSIVE.spacing.pageMarginY`. `Typography h4` "Launch Radar", with no sub line under it (the last-run / host / budget line was removed 2026-10-07). MUI `Tabs`: **New**, **Saved** and **Archived** (a card is in exactly one), each with a muted count. On the same row, right-aligned (wrapping under the tabs on a narrow screen): "Sort by" and an exclusive small `ToggleButtonGroup` (`aria-label="Sort cards by"`): **Announced** / **Talent** / **VC** / **Added**. The sort lives in the URL (`?sort=talent`; the default `announced` is omitted), applies to every tab and resets to page 1 when it changes. The page holds the tab, page index and `rowsPerPage = 25`, and keeps the last data to avoid a flash, as `AdminFeedbackPage` does. When a card leaves the list (Save, Unsave, Archive, Restore, Delete) focus moves to the next card's toggle, or the tab panel when it was the last, and a polite live region announces it ("Saved Lightfield"). It shows `LoadingState` and `ErrorState`, and the empty states "No new cards." / "No saved cards." / "No archived cards.". It shows MUI `Pagination` when `total > rowsPerPage`. |
 | `components/RadarCard.tsx` | An MUI `Accordion` (outlined, `disableGutters`). The summary is a 2-column grid (no logo tile: we never fetch logos): the name plus a `website` link showing `domain` (`target="_blank" rel="noopener noreferrer"`; plain text unless `safeHttpUrl` passes it); then `oneLiner` and the event line (`EventLine`). On the right sit two `ScoreBadge`s (Talent, VC). Below them, across both columns, is `CardStatusLine`. Action buttons and links call `event.stopPropagation()` so they never toggle the accordion. |
 | `components/ScoreBadge.tsx` | A 22px tabular numeral, a 30x3px bar filled to `value%`, and a small label. `null` renders a grey "–" with an empty bar (aria-label "No score"), never 0. Sorted by Talent or VC, that score's numeral is full-strength (`text.primary`) and the other's is `text.secondary`; sorted by Announced or Added both look the same. |
-| `components/CardStatusLine.tsx` | One line. Left side, New and Saved tabs: `trackedCompanyId` gives the muted text "Already tracked". Otherwise a muted link "Job board" (`jobBoardHref`: the first of `ats.boardUrl`, `careersUrl` that is an `http(s)` URL; omitted if neither is). The add-company PR (`prUrl`) is not shown. Archived tab: "Archived {Oct 7}". Right side, New tab: `Save` and `Archive` text buttons. Saved tab: `Unsave` and `Archive`. Archived tab: a `Restore` button and a `Delete` button (error color) that opens the dialog. Every button and link carries the company in its accessible name (`aria-label="Save Lightfield"`, "Job board Lightfield"), so a list of cards never has two controls with the same name. An unknown status renders no actions rather than crashing. |
-| `components/CardBody.tsx` | Accordion details, aligned under the name (the header's 14px side padding). **Research incomplete** (only when `issues` holds a research gap, first, warning colour): one bullet per gap, so partial data never reads as "nothing found". A provenance note (`leaders from the brief …`, the payload has no field for it) is not a gap: it is left out of this block and of the "research incomplete" score lines, and the Team section shows it as a muted "Leaders from the company brief" line. **Team**: the leader bullets (bold name, muted title, `summary` line). When `leaders` is empty, the warning text "No leaders confirmed." is followed by "The people search returned company pages." if `leadersDropped > 0`. When leaders exist but none has `summary`, schools or prior companies, it shows the warning "No background data came back for these leaders". **Rest of team** (only when `teamStats`): the right label is "{profilesFound} public profiles" ("profile count unknown" when null); one bullet "Previously at Amazon (2), Twitter, … and N more" (top 6, count shown when >1); one bullet "{k} schools: …" (top 4 and "N more"); a muted "No prior exits found" when `exFoundersWithExit === 0` ("Prior exits unknown" when null). **Funding**: the right label is `totalRaisedUsd` + " total"; a bullet per round: "**{stage} {amountUsd}**, {Mon YYYY}. Led by {leads}, with {others}" (first 3 others, then "and N more"). **Highlights**: `notableFacts.slice(0, 3)`. **Why these scores**: a collapsed toggle (MUI `Collapse` or nested Accordion). Its bullets: "Talent {n}: {talentReasons.join('; ')}" or "Talent: no people data, so no score", and "VC {n}: {vcReasons.join('; ')}" or "VC: no funding data, so no score"; when the score is null AND `issues` holds a research gap the line reads "Talent: not scored, research incomplete" (same for VC). **Footer**: left "{Ashby} board, {9} open jobs" (verified), "{Provider} board, not verified" (unverified with a provider), or "No job board found". Right: "${costUsd.toFixed(2)} research". The source link is not repeated here: it is the "Announcement" link on the event line. |
+| `components/CardStatusLine.tsx` | One line. Left side, New and Saved tabs: `trackedCompanyId` gives the muted text "Already tracked". Otherwise a muted link "Job board" (`jobBoardHref`: the first of `ats.boardUrl`, `careersUrl` that is an `http(s)` URL; omitted if neither is). Archived tab: "Archived {Oct 7}". Right side, New tab: `Save` and `Archive` text buttons. Saved tab: `Unsave` and `Archive`. Archived tab: a `Restore` button and a `Delete` button (error color) that opens the dialog. Every button and link carries the company in its accessible name (`aria-label="Save Lightfield"`, "Job board Lightfield"), so a list of cards never has two controls with the same name. An unknown status renders no actions rather than crashing. |
+| `components/CardBody.tsx` | Accordion details, aligned under the name (the header's 14px side padding). **Research incomplete** (only when `issues` holds a research gap, first, warning colour): one bullet per gap, so partial data never reads as "nothing found". A provenance note (`leaders from the brief …`, the payload has no field for it) is not a gap: it is left out of this block and of the "research incomplete" score lines, and the Team section shows it as a muted "Leaders from the company brief" line. **Team**: the leader bullets (bold name, muted title, `summary` line). When `leaders` is empty, the warning text "No leaders confirmed." is followed by "The people search returned company pages." if `leadersDropped > 0`. When leaders exist but none has `summary`, schools or prior companies, it shows the warning "No background data came back for these leaders". **Rest of team** (only when `teamStats`): the right label is "{profilesFound} public profiles" ("profile count unknown" when null); one bullet "Previously at Amazon (2), Twitter, … and N more" (top 6, count shown when >1); one bullet "{k} schools: …" (top 4 and "N more"); a muted "No schools or employers listed" when both lists are empty. Schools and employers only: there is no prior-exit line (the team is not checked for prior exits; the leaders are), and an old card's `exFoundersWithExit` is never shown. **Funding**: the right label is `totalRaisedUsd` + " total"; a bullet per round: "**{stage} {amountUsd}**, {Mon YYYY}. Led by {leads}, with {others}" (first 3 others, then "and N more"). **Highlights**: `notableFacts.slice(0, 3)`. **Why these scores**: a collapsed toggle (MUI `Collapse` or nested Accordion). Its bullets: the Talent line from `format.talentBreakdown`: "Talent 74: leaders 37 + team 37 (each out of 50)" (or
+"Talent 38: leaders 19 of 50, doubled: no team data" / "Talent 24: team 12 of 50, doubled: no leader data") with two
+sub-bullets "Leaders 37: {talentReasons.join('; ')}" and "Team 37: {talentTeamReasons.join('; ')}" (a missing part shows
+its reason, "Leaders: no people data" when there is none); a pre-blend card (`talentBasis` null) keeps the single line
+"Talent {n}: {talentReasons.join('; ')}"; "Talent: no people data, so no score" when Talent is null; and "VC {n}: {vcReasons.join('; ')}" or "VC: no funding data, so no score"; when the score is null AND `issues` holds a research gap the line reads "Talent: not scored, research incomplete" (same for VC). **Footer**: left "{Ashby} board, {9} open jobs" (verified), "{Provider} board, not verified" (unverified with a provider), or "No job board found". Right: "${costUsd.toFixed(2)} research". The source link is not repeated here: it is the "Announcement" link on the event line. |
 | `components/EventLine.tsx` | funding: "{round ?? 'Funding'} **{amountUsd}**" then the muted date ("Sep 17", or "Sep 2026" for a `YYYY-MM` date). launch: "Launch" then the date. other: the headline, truncated. Then a small muted "Announcement" link to `event.sourceUrl` (`target="_blank" rel="noopener noreferrer"`, hostname as `title`), shown only when the URL is absolute `http(s)` (`safeHttpUrl`), with `aria-label="Announcement {company}"`; its click stops propagation so it never toggles the card. |
 | `components/DeleteCardDialog.tsx` | MUI `Dialog`. Title "Delete {company} permanently?". Body "The card and its research go away. The loop will not post {domain} again." `Cancel` and a `Delete` button (contained, error color). It shows an error `Alert` if the mutation fails, and closes on success. |
-| `format.ts` | Pure, unit-tested helpers: dates (`formatShortDate`, `formatMonthYear`, `formatEventDate`), the header line (`formatRunLine`, `formatUsd`), the board (`atsLabel`, `boardLine`, `jobBoardHref`), links (`safeHttpUrl`, `hostnameOf`), lists (`joinWithAnd`, `listWithMore`, `summarizeTally`, `roundLine`), research notes (`researchGaps`, `leadersFromBrief`), the sort (`parseSort`, `scoreEmphasis`) and `cardToggleId`. Every `href` on a card goes through `safeHttpUrl` (the card's URLs are untrusted web data). |
+| `format.ts` | Pure, unit-tested helpers: dates (`formatShortDate`, `formatMonthYear`, `formatEventDate`), money (`formatUsd`, the footer's research cost), the board (`atsLabel`, `boardLine`, `jobBoardHref`), links (`safeHttpUrl`, `hostnameOf`), lists (`joinWithAnd`, `listWithMore`, `summarizeTally`, `roundLine`), research notes (`researchGaps`, `leadersFromBrief`), the sort (`parseSort`, `scoreEmphasis`) and `cardToggleId`. Every `href` on a card goes through `safeHttpUrl` (the card's URLs are untrusted web data). |
 
 Style: match the existing MUI admin pages (theme typography and colors, `text.secondary` for muted text). No new CSS
 files and no new dependencies.
@@ -532,21 +546,21 @@ files and no new dependencies.
 | `config.py` | Reads `BACKEND_URL` (required), `INTERNAL_API_KEY` (required unless `BACKEND_URL` is a loopback URL), `PARALLEL_API_KEY` (required only by billed subcommands; the SDK reads it, our code only checks presence) and `LAUNCH_RADAR_STATE_DIR` (default `~/Library/Application Support/jvn-launch-radar`). A missing variable exits 1 with the variable's **name** only |
 | `backend_client.py` | `BackendClient` (httpx, timeout 30s, sends `X-Internal-Key` when set). One method per §2.3 route. `reserve()` raises `BudgetExceeded(reason, run_spend, total_spend, cap)` on 402, and `post_card()` raises `DomainSeen` on 409. A request is retried only if it is a GET (twice, on connection errors); POSTs are never retried |
 | `parallel_client.py` | `make_client()`: a lazy `from parallel import Parallel`, then `Parallel().with_options(max_retries=0)`. This is the **only** place that imports `parallel` at runtime (event-type narrowing uses `getattr(ev, "event_type", None)`, not an SDK import) |
-| `schemas.py` | `MONITOR_QUERIES` (§6.4), and from the POC: `MONITOR_OUTPUT_SCHEMA` (verbatim), `PEDIGREE_SCHEMA`, `BRIEF_SCHEMA` (**plus** `ats.board_url: string|null` and `founders: [{name, title|null, linkedin_url|null}]`, both required), `TEAM_SCHEMA` (= `team_stats.py` `A_SCHEMA`), `ATS_ENUM` and the price tables (`MONITOR_PRICE`, `TASK_PRICE`, `FINDALL_PRICE`). New: `backfill_event_schema` (§6.3, "Backfill") |
+| `schemas.py` | `MONITOR_QUERIES` (§6.4), and from the POC: `MONITOR_OUTPUT_SCHEMA` (verbatim), `PEDIGREE_SCHEMA`, `BRIEF_SCHEMA` (**plus** `ats.board_url: string|null` and `founders: [{name, title|null, linkedin_url|null}]`, both required), `TEAM_SCHEMA` (= `team_stats.py` `A_SCHEMA` minus `ex_founders_with_exit`, removed 2026-10-07: the team is not checked for prior exits, the leaders are), `ATS_ENUM` and the price tables (`MONITOR_PRICE`, `TASK_PRICE`, `FINDALL_PRICE`). New: `backfill_event_schema` (§6.3, "Backfill") |
 | `domains.py` | `normalize_domain` (§3) and `BIG_TECH` (POC). `is_big_tech(domain)` |
 | `monitors.py` | ensure, read events newer than `last_event_id`, accrue scheduled executions, cancel all |
 | `leaders.py` | FindAll create/poll/result, `is_person` (§6.5), the brief-founders fallback (`brief_founders`, `BriefLeader`), pedigree Task Group |
 | `research.py` | brief Task (core), team-tally Task (pro), and `wait_task` (408 means still running; uses `api_timeout`) |
-| `scoring.py` | `VC_TIERS`, `VC_AMOUNT_BONUS`, `TALENT_RUBRIC` and `CONFIDENCE_WEIGHT`, copied verbatim from POC. `score_vc` and `score_talent` per §6.6 |
-| `ats.py` | `check_board`: the POC's `ats_check` minus the fixture writes. Returns the card's `ats` block (`verified`, `job_count`, `checked_url`, `board_url`) and the candidates that failed transiently. Also `safe_http_url` and `safe_token` |
+| `scoring.py` | `VC_TIERS`, `VC_AMOUNT_BONUS`, `TALENT_RUBRIC` and `CONFIDENCE_WEIGHT`, copied verbatim from POC. `score_vc`, `score_talent`, and the Talent blend (`score_team`, `blend_talent`, `talent_scores`, `rescored_scores`) per §6.6 |
+| `ats.py` | `check_board`: the POC's `ats_check` minus the fixture writes. Returns the card's `ats` block (`verified`, `job_count`, `checked_url`, `board_url`) and the candidates that failed transiently. Also `board_has_jobs` (verified with at least one job; a transient failure only counts when this is false), `safe_http_url` and `safe_token` |
 | `card.py` | `build_payload(...) -> dict` matching §4 exactly, with the float→int casts and `leader.summary` composition |
 | `state.py` | local resumable state under `LAUNCH_RADAR_STATE_DIR`: `queue.json` (pending candidates), `companies/<domain>.json` (created Parallel ids and reserved amounts), `backfill.json`, `refresh/<domain>.json`, `refresh_done.json` and `heartbeat.log` |
 | `resolve.py` | the domain lookup for events without a website (§6.3, step 3b) |
 | `pipeline.py` | `CompanyJob` (one company's research) and the `run` orchestration (§6.3) |
 | `backfill.py` | `radar.py backfill` (§6.3, "Backfill") |
 | `refresh.py` | `radar.py refresh` (§6.3, "Refresh"): re-research cards that have no leaders |
+| `rescore.py` | `radar.py rescore` (§6.3, "Rescore"): recompute stored cards' scores, free |
 | `export_cards.py`, `importer.py` | `export_cards.py` writes the local cards to `docs/implementations/launch-radar/data/cards-<date>.json` (`launch-radar-cards/v1`); `radar.py import` posts them (§6.2) |
-| `pr_step.py` | the PR step's only entry point (§6.7, §6.8) |
 | `wrapper.sh`, `com.bp.jvn-launch-radar.plist.template`, `install_launch_agent.sh`, `README.md` | §6.8 |
 
 The POC (`scripts/launch_radar_poc/`) stays **untouched** as a read-only reference. Its code is copied into the modules
@@ -562,14 +576,16 @@ run [--max-companies N=3] [--budget USD=1.00] [--exclude d1,d2] [--deadline-s 54
 backfill [--days 30] [--limit 20] [--generator base] [--exclude d1,d2] [--deadline-s 540] [--dry-run] [--new]
                                     one-off FindAll sweep of the past month into the queue (§6.3, "Backfill")
 monitors-cancel                     cancel every active Monitor, then PATCH status=cancelled; free
-pr-candidates [--limit 1]           print GET /pr-candidates as JSON
-set-pr --card-id N --pr-url URL     PATCH /cards/{id}/pr
 heartbeat --status ok|error [--note TEXT]   append one line to $STATE_DIR/heartbeat.log (the skill's final step)
 import --file PATH [--dry-run]      POST /cards for each card in an export_cards.py file (launch-radar-cards/v1) under
                                     one backend run; no Parallel call, nothing reserved; 409 = skip; --dry-run: GET /seen only
 refresh (--domains d1,d2 | --missing-talent) [--include-archived] [--budget USD=1.00] [--deadline-s 540] [--dry-run]
                                     re-research cards with no leaders (§6.3, "Refresh"); --dry-run: GET /cards only;
                                     archived cards only with --include-archived
+rescore (--domains d1,d2 | --all) [--dry-run]
+                                    recompute stored cards' scores from what they store (§6.3, "Rescore"); FREE: no
+                                    Parallel client, no backend run, nothing reserved; every live status;
+                                    --dry-run: GET /cards only
 ```
 
 Exit codes: `0` done · `2` stopped on the budget (402 or the cancel floor) · `3` incomplete, so re-run to resume · `1` error.
@@ -589,8 +605,9 @@ own backend run (`budget_usd = 0.10`), so every reservation belongs to a run.
    the page holds `last_event_id`. Keep only `event_type == "event_stream"` rows. Parse `output.content` the way POC
    `_parse_content` does. Remember the newest `event_id` per slot.
 3b. **Find missing domains** (in the live validation every Monitor event arrived with `company_domain: null`). For each
-   event with no domain (at most 10 a run), reserve `search(domain:<name>)` at $0.001, then call the Search API
-   (`mode="fast"`, `max_results=8`) and keep the highest-ranked result whose host carries the company name and is not a
+   event with no domain (at most 10 a run), reserve `search(domain:<name>)` at $0.005, then call the Search API
+   (`mode="advanced"`, Search's default and best-ranked mode, $5 per 1k requests; `max_results=8`, inside the 10 results
+   the price includes; not latency-sensitive, so not `fast`) and keep the highest-ranked result whose host carries the company name and is not a
    news, directory or social site (`resolve.py`; Entity Search returns only LinkedIn/Tracxn URLs for companies). A cap
    refusal here stops the run before the cursors move, so the events are read again next run.
 4. **Dedupe** before any spend: `normalize_domain`; drop on no domain, `BIG_TECH`, `--exclude`, a domain already in the local
@@ -637,16 +654,27 @@ Estimates use the POC's `ceil_cost` (round up to $0.001). A full company costs $
 (at most 8), so $0.225 to $0.305.
 
 **Refresh (`radar.py refresh`, `refresh.py`; added 2026-10-07).** Applies the brief fallback to cards posted before it
-existed. `GET /cards` selects the cards (`--domains`, or `--missing-talent` = every card whose `scores.talent` is null),
+existed. `GET /cards` selects the cards (`--domains`, or `--missing-talent` = every card with no leaders' part of Talent),
 new and saved only unless `--include-archived`, paged through to the end (`after_id`) so no cap hides a card;
-a card that already has leaders is skipped (its Talent score cannot be recomputed from the stored card), and so is one in
+a card that already has leaders is skipped (its leaders' part cannot be recomputed from the stored card), and so is one in
 `$STATE_DIR/refresh_done.json`. One backend run, then for each card: reserve and create a new brief (`core`, with `founders`),
 all up front so they research in parallel; then, per card, wait for it, reserve and run the pedigree Task Group on its
-founders, rescore deterministically and `PUT /cards/{id}/payload`. Kept: event, team tally, ATS block (`pr_ready`), FindAll id,
+founders, rescore deterministically (the kept team tally is scored as Talent's team part) and `PUT /cards/{id}/payload`.
+Kept: event, team tally, ATS block, FindAll id,
 `leaders_dropped`. Replaced: the brief's fields, leaders, scores, sources and the brief/leader/pedigree issues; `cost_usd` and
 `timings_s` add the refresh's own. A failed brief leaves the card unchanged. State lives in `refresh/<domain>.json`
 (saved ids and reservations, never re-created or re-reserved; always resumed first); a 402 stops new work (exit 2), the
 deadline exits 3. `--dry-run` reads `GET /cards` and prints the cards and the estimate ($0.025 + $0.01 per founder each).
+
+**Rescore (`radar.py rescore`, `rescore.py`; added 2026-10-07).** Free: recomputes the scores of existing cards from
+what each card stores, with no Parallel client, no backend run and no reservation. `GET /cards` (`--domains`, or
+`all=true` for `--all`), every live status, paged by `after_id`. Per card (`scoring.rescored_scores`): the **leaders'
+part is carried**, not recomputed, because the card does not keep the pedigree confidence the rubric weighs by
+(`talent_leaders` on a blended card; a pre-blend card's raw `talent` rescaled, `half_up(talent × 50 / 94)`, which is
+exact); the team part is scored from `team_stats`; VC is recomputed from the stored `funding`. The event date is
+normalized (`card.announced_on`), and `PUT /cards/{id}/payload` runs only when `scores` changed, so a second run is a
+no-op. A 404 is counted as gone; any other backend error is counted and exits 1 after the summary
+`rescore: changed N, unchanged M, gone G, errors E`. `--dry-run` prints the same per-card lines and writes nothing.
 
 **Backfill (one-off, `radar.py backfill`, `backfill.py`; added 2026-10-07).** Monitors see only events after they are
 created, so the past month is swept once and fed into steps 3b-4 above; the next `run` researches it in step 5. It opens
@@ -695,31 +723,56 @@ def is_person(cd) -> bool:
   there are no named investors and no parseable amount. The reasons are human readable: `"{Name} led (tier 1)"`,
   `"{Name} joined (tier 2)"`, `"Y Combinator joined"`, `"+{n} more tier-1 investors"`, `"named investors, none tiered"`,
   `"round over $20M"`.
-- **Talent**: the points are exactly the POC's `score_talent`: top school 8 (cap 24), top employer 10 (cap 30), **prior exit**
+- **Talent** is a **50/50 blend** (`talent_scores`; `half_up(x) = floor(x + 0.5)` everywhere, never banker's `round`):
+  up to 50 points from the leaders plus up to 50 from the rest of the team.
+  - **Blend** (`blend_talent`): both parts → `talent = leaders + team`, `talent_basis = "both"`; one part → that part
+    doubled, basis `"leaders"` / `"team"` (missing data is not evidence of a weak team, so it is never scored as 0);
+    neither → `talent = null`, basis null.
+  - **Leaders part, 0-50** = `half_up(leaders_raw × 50 / LEADERS_MAX)`, `LEADERS_MAX` = the sum of the rubric caps (94),
+    where `leaders_raw` is `score_talent` below (null stays null). Reasons: `talent_reasons`.
+  - **Team part, 0-50** (`score_team(team_stats, leaders)`), with `n = profiles_found`. The tally lists schools and
+    employers, **not people** (one person can list two schools), so on each side `listed` = the summed counts of its
+    entries and `hits` = the summed counts of the entries matching the top-school (or top-employer) names, and the share
+    is `hits / max(n, listed)`: double counting cannot inflate it, and profiles with nothing listed still count when the
+    list is short. Components: `half_up(25 × s × min(1, share / 0.5))` for schools and `half_up(25 × s × min(1, share /
+    0.5))` for employers (shares, full points at one half). **No exits component**: prior exits are a leaders' signal
+    (the rubric below), so the team tally does not ask for them, and an older card's `ex_founders_with_exit` is ignored
+    (revised 2026-10-07; it was 15 + 20 + exits 0/10/15). Each component is **rounded once** and the part is the **sum
+    of the shown integers**, so the reason lines add up. `s` is 1 when both sides list something; a side with nothing
+    listed is **missing, not 0**: `s = 50 / 25 = 2`, so the other side is scaled up to 50. **Small samples**: with `n < 5` the summed
+    part counts `n / 5` and the rest **follows the leaders' part** `L`: `half_up(n/5 × raw + (1 − n/5) × L)`, so as `n`
+    goes to 0 the card tends to the leaders-only card (2L), never to L + 0; with no leaders' part the rest is 0 (stated).
+    Weight 1.0: the pipeline does not keep the tally's confidence. **Null** with no tally, `n` null or 0, or neither side
+    listing anything. Reasons (`talent_team_reasons`):
+    `"15 of the 48 schools listed across 33 profiles are top schools (+16)"`, `"none of the 7 schools listed across 24
+    profiles is a top school"`, `"no school data listed: employers are scaled to 50"`,
+    `"only 3 profiles found: counts at 60%, the other 40% follows the leaders' part (13)"` (`"…counts at 60%"` with no
+    leaders' part), or for a null part `"no public profiles found for the rest of the team"` /
+    `"the team tally lists no schools or employers"` / `"no team tally on this card"`.
+  - **Rounding note**: a lone part is rounded before it is doubled, so a leaders-only card can sit 1 above the direct
+    rescale (raw 48: `2 × half_up(48 × 50/94)` = 52 vs 51.06). Accepted: it keeps the validated `talent == 2 × part`.
+- **Leader rubric** (`score_talent`, the leaders part's raw score): the points are exactly the POC's `score_talent`: top school 8 (cap 24), top employer 10 (cap 30), **prior exit**
   15 (cap 30, and only `outcome in {acquired, ipo}`; founding without an exit scores 0), 10+ years 5 (cap 10). Each signal is
   multiplied by `CONFIDENCE_WEIGHT` (high 1.0, **medium 0.8**, low 0.5, missing 0.8). It returns **None** when no leader has any of
   schools, prior companies, structured founded-before entries or years. Reasons look like `"{name}: top school (Berkeley)"`,
   `"{name}: prior exit (Ledgerline, acquired by Northwind)"` and `"{name}: 10+ years"`, plus `"medium-confidence facts count at 80%"`
   when any weight was below 1.
-- The team tally never feeds a score.
+- `rescored_scores(payload)` is the same computation on a stored card, for `rescore` (§6.3): the leaders' part is
+  carried, the team part (which reads the carried leaders' part when `n < 5`) and VC are recomputed from the card's
+  `team_stats` and `funding`.
 
 ### 6.7 Skill and slash command
 
 - `.claude/skills/launch-radar/SKILL.md` has three parts:
-  - **§0 Hard rules**: never merge; at most **1 PR per run**; never print secrets; never `Read` `~/.config/jvn-launch-radar/`;
-    Bash only through the allowlist; no `--dangerously-skip-permissions`.
+  - **§0 Hard rules**: no pull requests and no repo changes (no `git`, `gh`, Edit, Write or Agent); never print secrets;
+    never `Read` `~/.config/jvn-launch-radar/`; Bash only through the allowlist; no `--dangerously-skip-permissions`.
   - **§1 Run**: `scripts/launch_radar/radar.sh monitors-ensure`, then `radar.sh run --max-companies 3 --budget 1.00` with Bash
     timeout 600000. Re-run while the exit code is 3, at most 4 invocations. Exit 2 means the budget is spent, so log it and continue
     to §2.
-  - **§2 PR step** (at most one PR, 30-minute limit): `radar.sh pr-candidates --limit 1` (new or saved cards, saved
-    first; stop on none), then check every value against fixed patterns. Everything else goes through
-    `scripts/launch_radar/pr_step.py`: `worktree` (a temporary worktree on `radar/add-<slug>` from `origin/main`), the
-    add-company steps 0, 0.5, 1, 2 (`pr_step.py scaffold`), 3 and 5, the logos as the run's one Agent call
-    (`logo-setup`, `logo-fetch`, `logo-normalize`, `logo-tile`; if they fail, a draft PR with "logos missing"),
-    `check-head` (one Alembic head), `publish` (commits only the add-company files, pushes, `gh pr create --label
-    launch-radar`, no attribution footer), then `radar.sh set-pr` and, always, `cleanup`. Add-company step 6 (npm checks)
-    is left to the PR's CI. The admin page does not show the PR yet; `set-pr` keeps the card from being offered again.
-  - **§3**: `radar.sh heartbeat --status ok|error --note …` is the **final** step.
+  - **§2**: `radar.sh heartbeat --status ok|error --note …` is the **final** step.
+
+  (The PR step that sat between the run and the heartbeat, opening at most one add-company PR per run, was removed on
+  2026-10-07; see the note at the top.)
 - `.claude/commands/launch-radar-once.md`: a headless one-shot that mirrors `.claude/commands/health-watch-once.md`. Read the skill
   file relative to the checkout (do not use the Skill tool), no `ScheduleWakeup` or `/loop`, no background Bash, no sleep loops,
   the heartbeat last, then end the turn.
@@ -732,17 +785,16 @@ def is_person(cd) -> bool:
   - `STATE_DIR="$HOME/Library/Application Support/jvn-launch-radar"`.
   - No texting.
   - The wrapper does **not** source or export any secret (`radar.sh` does that itself).
-  - The command passes the `--allowedTools` / `--disallowedTools` lists of the `ALLOWED_TOOLS` block.
+  - The command passes `--permission-mode dontAsk --setting-sources project` (the host's user and local
+    settings cannot widen the list) and the `--allowedTools` / `--disallowedTools` lists of the `ALLOWED_TOOLS` block.
 
   **Never `--dangerously-skip-permissions`.** The exact list lives in one place, a `ALLOWED_TOOLS` block in `wrapper.sh`, and
   `SKILL.md` §0 quotes it verbatim. A unit test (`test_launch_radar_wrapper.py`) fails if the skip flag appears, if the
-  two copies differ, or if any Bash entry is not one of the exact `radar.sh` commands or `pr_step.py`. There is no
-  generic `git`, `gh`, `curl`, `python`, `pip` or `npm` entry: each of those can run code the session wrote or upload a
-  local file (`curl -T`, `gh pr create --body-file ~/.ssh/...`), and a `git push` prefix allows `radar/x:main`.
-  `scripts/launch_radar/pr_step.py` (stdlib, no secrets, in the main checkout the session cannot write) is the PR
-  step's only entry point: it validates every value, runs git with hooks and fsmonitor off, checks the temp
-  worktree's `.git` pointer and that the scripts it runs there match `origin/main`, commits only the add-company files
-  and pushes only `HEAD:refs/heads/radar/add-<slug>`. When the skill records `status=error`, the wrapper exits 98 so the failure reaches the `.err` log.
+  two copies differ, or if the allowed list is anything but `Read(./**)` and the exact `radar.sh` commands
+  (`monitors-ensure`, the two `run` lines, `heartbeat:*`). There is no generic `git`, `gh`, `curl`, `python`, `pip` or
+  `npm` entry, since each of those can run code or upload a local file (`curl -T ~/.ssh/...`),
+  and no Edit, Write, Agent or web tool: the run only drives the loop. When the skill records `status=error`, the wrapper
+  exits 98 so the failure reaches the `.err` log.
 - `com.bp.jvn-launch-radar.plist.template`:
   - Label `com.bp.jvn-launch-radar`.
   - `ProgramArguments`: `/bin/sh __PROJECT_DIR__/scripts/launch_radar/wrapper.sh`.

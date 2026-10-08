@@ -25,7 +25,7 @@ import { RESPONSIVE } from '../../config/responsive';
 import { RadarCard } from './components/RadarCard';
 import type { CardAction } from './components/CardStatusLine';
 import { DeleteCardDialog } from './components/DeleteCardDialog';
-import { cardToggleId, formatRunLine, parseSort } from './format';
+import { cardToggleId, parseSort } from './format';
 
 /** Server page size. The list is never unbounded: each tab is paged by the API. */
 const ROWS_PER_PAGE = 25;
@@ -118,8 +118,8 @@ export function AdminLaunchRadarPage() {
   // Query's `data` still holds the OTHER tab's response until the new fetch
   // resolves; `currentData` is this arg's result only (undefined while it
   // loads). So the list reads `currentData` and never renders another tab's
-  // cards, live buttons and all, under this tab's heading; the header (counts,
-  // last run, spend) is global and may show the latest response. `last` holds
+  // cards, live buttons and all, under this tab's heading; the tab counts are
+  // global and may show the latest response. `last` holds
   // the last resolved list per status so paging or re-sorting within a tab
   // does not flash (state adjusted during render, guarded, as in AdminFeedbackPage).
   const [last, setLast] = useState<{ status: LaunchRadarStatus; data: LaunchRadarCardsResponse }>();
@@ -199,12 +199,8 @@ export function AdminLaunchRadarPage() {
 
   return (
     <Container maxWidth="md" sx={{ py: RESPONSIVE.spacing.pageMarginY }}>
-      <Typography variant="h4" component="h1">
+      <Typography variant="h4" component="h1" sx={{ mb: 2 }}>
         Launch Radar
-      </Typography>
-      <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, mb: 2, maxWidth: 560 }}>
-        Startups the Parallel loop found.
-        {header && ` ${formatRunLine(header.stats)}`}
       </Typography>
 
       {/* Desktop (md+): the tabs and the sort share one row over one divider.
