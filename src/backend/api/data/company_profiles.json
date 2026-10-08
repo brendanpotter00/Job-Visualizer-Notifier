@@ -15,6 +15,10 @@
     "accomplishment": "Airtable popularized the no-code database, enabling non-technical teams to create relational apps and workflows without writing code.",
     "blurb": "Airtable offers a cloud collaboration platform that blends spreadsheet simplicity with database power for building custom apps."
   },
+  "aiuc": {
+    "blurb": "AIUC (Artificial Intelligence Underwriting Company) builds the AIUC-1 security, safety and reliability standard and offers audits, certification and insurance for enterprise AI agents.",
+    "accomplishment": "Raised a $40M Series A led by Ribbit Capital after a $15M seed led by Nat Friedman's NFDG, and signed launch customers including Cursor, Lovable, Harvey and ElevenLabs."
+  },
   "akunacapital": {
     "accomplishment": "Akuna Capital is a leading options market maker that trades exclusively with its own capital and builds its own low-latency technology and quantitative models.",
     "blurb": "Akuna Capital is a proprietary trading firm specializing in options market making across global exchanges."
@@ -102,6 +106,10 @@
     "accomplishment": "Capital One is a major U.S. bank and one of the country's largest credit card issuers.",
     "blurb": "Capital One is a diversified bank offering credit cards, consumer and commercial banking, and auto loans."
   },
+  "cartesia": {
+    "blurb": "Cartesia builds real-time voice AI infrastructure, including Sonic text-to-speech, Ink speech-to-text and Line for building voice agents, on state space model architectures.",
+    "accomplishment": "Founded in 2023 by Stanford AI Lab researchers behind state space models; raised a $64M Series A led by Kleiner Perkins in March 2025 and another $100M in October 2025, $191M in total."
+  },
   "cerebras": {
     "accomplishment": "Cerebras went public on Nasdaq in May 2026 in a $5.55 billion IPO, underpinned by a multi-billion-dollar compute agreement with OpenAI for its wafer-scale inference.",
     "blurb": "Cerebras Systems builds wafer-scale AI chips and a fast-inference cloud that runs large language models far faster than GPU-based systems."
@@ -114,6 +122,10 @@
     "accomplishment": "In 2026 Cisco launched the Silicon One G300, a next-generation AI networking chip aimed at rivaling Nvidia and Broadcom, alongside an agentic AI platform for automating and defending enterprise infrastructure.",
     "blurb": "Cisco is the world's largest networking-equipment maker, building the routers, switches, security, and collaboration technology that run the internet and enterprise networks."
   },
+  "clarify": {
+    "blurb": "Clarify builds an AI-native CRM that connects to email, calendar and call data to automate data entry, deal tracking and follow-ups, aimed at early-stage startups and venture investors.",
+    "accomplishment": "Seattle-based, founded in 2024 by Patrick Thompson, Ondrej Hrebicek and Austin Hay; raised a $15M Series A in June 2025 backed by USVP, Gradient Ventures and Madrona, bringing total funding to about $22M."
+  },
   "clay": {
     "accomplishment": "Clay reached a $7 billion valuation in an August 2026 round led by Wellington Management, up from $3.1 billion a year earlier, with customers including OpenAI, Anthropic, and Canva.",
     "blurb": "Clay operates a go-to-market platform that pulls data from 150+ sources and uses AI agents to research prospects, enrich records, and personalize sales outreach at scale."
@@ -122,6 +134,10 @@
     "accomplishment": "CLEAR pioneered tokenless biometric screening and operates expedited identity lanes across many U.S. airports and sports venues.",
     "blurb": "CLEAR (Clear Secure) operates a biometric identity verification platform used at airports, stadiums, and other venues."
   },
+  "clickhouse": {
+    "blurb": "ClickHouse builds an open-source columnar database and managed ClickHouse Cloud for real-time analytics, now extending into Postgres and LLM observability.",
+    "accomplishment": "Raised a $400M Series D led by Dragoneer in January 2026 (reported ~$15B valuation) and acquired Langfuse; customers include Meta, Sony, Tesla and Capital One."
+  },
   "clickup": {
     "accomplishment": "ClickUp consolidates tasks, documents, goals, and chat into a single workspace marketed as an app to replace many separate work tools.",
     "blurb": "ClickUp offers an all-in-one productivity platform combining project management, tasks, docs, and collaboration tools."
@@ -129,6 +145,10 @@
   "cloudflare": {
     "accomplishment": "Cloudflare operates one of the world's largest networks, protecting and accelerating a substantial share of internet websites and applications.",
     "blurb": "Cloudflare provides a global content delivery network, web security, and edge computing services."
+  },
+  "coderabbit": {
+    "blurb": "CodeRabbit offers an AI code review platform that automatically reviews pull requests in Git platforms, IDEs and the CLI to help teams ship faster with fewer bugs.",
+    "accomplishment": "Raised a $60M Series B in September 2025 led by Scale Venture Partners with NVentures (NVIDIA) and CRV participating, at a $550M valuation and bringing total funding to $88M."
   },
   "cognition": {
     "accomplishment": "Cognition created Devin, an autonomous AI software engineer that can plan, write, test, and ship code.",
@@ -141,6 +161,10 @@
   "coinbase": {
     "accomplishment": "Coinbase became the first crypto-native company added to the S&P 500 and, in 2026, expanded into 24/7 commission-free stock and ETF trading alongside a record share of global crypto trading volume.",
     "blurb": "Coinbase operates the largest U.S. cryptocurrency exchange, letting individuals and institutions buy, sell, store, and trade crypto assets."
+  },
+  "composio": {
+    "blurb": "Composio builds infrastructure that lets AI agents connect to and act in work tools such as GitHub, Gmail, Slack and Salesforce, with managed authentication.",
+    "accomplishment": "Raised a $25M Series A led by Lightspeed in 2025, with Elevation Capital and Together Fund participating, and reports more than 100,000 developers using the platform."
   },
   "crowdstrike": {
     "accomplishment": "At Fal.Con 2026, CrowdStrike unveiled Falcon IQ — agentic AI security built on NVIDIA's Nemotron models — and expanded Falcon to Google Cloud and Snowflake, sending its shares to record highs.",
@@ -218,6 +242,10 @@
     "accomplishment": "Expedia is one of the world's largest online travel companies, anchoring a brand family that includes Hotels.com, Vrbo, and Orbitz.",
     "blurb": "Expedia operates online travel booking platforms where travelers compare and reserve flights, hotels, car rentals, and vacation packages."
   },
+  "fable-security": {
+    "blurb": "Fable Security builds a human risk management platform that spots risky employee behavior across identity, cloud and productivity systems and delivers AI-driven interventions in Slack and email.",
+    "accomplishment": "Founded in 2024 by Abnormal AI founding members Nicole Jiang and Sanny Liao; emerged from stealth in July 2025 with $31M from Greylock and Redpoint across seed and Series A rounds."
+  },
   "factory": {
     "accomplishment": "Factory raised a $150M Series C led by Khosla Ventures in April 2026 at a $1.5B valuation, after its Droids took the top spot on the Terminal Bench coding-agent benchmark; NVIDIA, Adobe, EY, Palo Alto Networks, and Adyen run them across their engineering organizations.",
     "blurb": "Factory is an AI research lab building autonomous software-engineering agents called Droids, which plan, write, test, and review code alongside enterprise engineering teams."
@@ -238,6 +266,10 @@
     "blurb": "Firecrawl builds a web-scraping and crawling API that turns any website into clean, LLM-ready markdown or structured data for AI agents and applications.",
     "accomplishment": "Raised a $75M Series B led by Smash Capital in September 2026, a year after its $14.5M Series A, and launched Alexandria, a unified data interface for AI agents."
   },
+  "fireflies": {
+    "blurb": "Fireflies.ai builds an AI meeting assistant that records, transcribes and summarizes meetings, with action items, search and CRM integrations for teams.",
+    "accomplishment": "Reached a $1B valuation in June 2025 with 20M+ users across 500,000 organizations, profitable since 2023 and without new capital raised since its 2021 Series A."
+  },
   "fireworksai": {
     "accomplishment": "Fireworks AI provides highly optimized, low-latency inference that lets developers deploy large language and multimodal models at production scale.",
     "blurb": "Fireworks AI provides a fast inference platform for running, fine-tuning, and serving open-source and custom generative AI models in production."
@@ -250,6 +282,10 @@
     "accomplishment": "Flow Engineering's platform modernizes hardware design for aerospace, robotics, automotive, and nuclear teams, enabling live requirements traceability and AI-assisted engineering.",
     "blurb": "Flow Engineering builds a collaborative systems-engineering platform that unifies requirements and engineering models for hardware development teams."
   },
+  "gamma": {
+    "blurb": "Gamma is an AI-powered platform for creating presentations, documents and websites from a simple prompt, positioned as a modern alternative to PowerPoint.",
+    "accomplishment": "Raised a $68M Series B led by Andreessen Horowitz at a $2.1B valuation after passing $100M in annual recurring revenue with about 50 employees and over two years of profitability."
+  },
   "gem": {
     "accomplishment": "Gem is a talent engagement and recruiting CRM that recruiting teams use to build and manage hiring pipelines.",
     "blurb": "Gem provides an AI-powered recruiting platform combining candidate relationship management, sourcing, analytics, and applicant tracking for hiring teams."
@@ -261,6 +297,10 @@
   "gigaml": {
     "accomplishment": "It deploys AI support agents for large consumer brands such as DoorDash and meets SOC 2, GDPR, ISO 27001, and HIPAA compliance standards.",
     "blurb": "GigaML builds enterprise AI voice and chat agents that resolve customer-support issues at scale with human-like conversations."
+  },
+  "gimlet": {
+    "blurb": "Gimlet Labs builds a multi-silicon inference cloud that splits AI workloads across GPUs, CPUs and other chips, mapping each stage to the hardware best suited to run it.",
+    "accomplishment": "Raised a $300M Series B led by Andreessen Horowitz at a $3B valuation in September 2026, after an $80M Series A led by Menlo Ventures earlier that year."
   },
   "github": {
     "blurb": "GitHub hosts the majority of the world's open-source code and the collaboration tools built around it — pull requests, Actions CI, and Copilot.",
@@ -285,6 +325,10 @@
     "boardToken": "google",
     "displayName": "Google"
   },
+  "gradial": {
+    "blurb": "Gradial builds an agentic AI platform for enterprise marketing teams that automates CMS content authoring, campaign building, QA, and brand and compliance checks.",
+    "accomplishment": "Seattle-based; raised a $65M Series C led by Insight Partners in June 2026 and over $110M in 16 months, with customers including AWS, T-Mobile, Vanguard and U.S. Bank."
+  },
   "granola": {
     "accomplishment": "It blends a user's own notes with AI-generated detail into shareable summaries and is widely adopted by founders, investors, and recruiters.",
     "blurb": "Granola is an AI notepad that transcribes and summarizes meetings by capturing device audio without joining calls as a bot."
@@ -300,6 +344,10 @@
   "harvey": {
     "accomplishment": "Its AI platform serves law firms and in-house legal teams worldwide, counting much of the Am Law 100 among its customers.",
     "blurb": "Harvey builds domain-specific AI for legal and professional services, automating contract analysis, due diligence, compliance, and litigation work."
+  },
+  "heygen": {
+    "blurb": "HeyGen offers an AI video platform that turns scripts, slides and prompts into videos with realistic avatars and translation in 175+ languages.",
+    "accomplishment": "Surpassed $200M in annual recurring revenue in June 2026, doubling in eight months, with 30M+ users and a $60M Series A led by Benchmark in 2024."
   },
   "hightouch": {
     "accomplishment": "It pioneered the Reverse ETL category and the Composable CDP, letting companies activate customer data directly from their warehouse without copying it into a separate system.",
@@ -341,6 +389,10 @@
     "accomplishment": "Its LangChain framework is among the most widely adopted open-source toolkits for LLM apps, complemented by LangGraph for agent orchestration and LangSmith for observability.",
     "blurb": "LangChain builds open-source frameworks and tools for developing applications and agents powered by large language models."
   },
+  "legora": {
+    "blurb": "Legora is a Stockholm-founded collaborative AI workspace that helps lawyers and law firms with legal research, document review and drafting.",
+    "accomplishment": "Raised a $550M Series D led by Accel at a $5.55B valuation in March 2026, and serves more than 800 customers across 50+ markets, including tens of thousands of lawyers."
+  },
   "light": {
     "accomplishment": "Light is recognized for pioneering an AI-powered general ledger designed to unify and automate financial operations across multiple countries and currencies.",
     "blurb": "Light builds an AI-native general ledger and ERP platform that automates accounting, tax, payments, and reporting for global multinational companies."
@@ -349,13 +401,25 @@
     "accomplishment": "Linear is known for setting a benchmark in developer tooling speed and design, becoming a widely adopted alternative to legacy trackers like Jira.",
     "blurb": "Linear makes a fast, keyboard-driven issue tracking and project management tool purpose-built for software product and engineering teams."
   },
+  "listenlabs": {
+    "blurb": "Listen Labs offers an AI research platform that runs and analyzes customer interviews at scale over voice and video, helping companies learn what their customers want.",
+    "accomplishment": "Raised a $69M Series B in January 2026 led by Ribbit Capital with Sequoia participating, and has run over one million interviews for customers including Microsoft and Robinhood."
+  },
   "llamaindex": {
     "blurb": "LlamaIndex builds the open-source framework and managed LlamaCloud platform for connecting LLMs to private data, specializing in agentic OCR and document understanding with LlamaParse.",
     "accomplishment": "Grew out of the popular GPT Index open-source project (founded 2023 by Jerry Liu and Simon Suo) and raised a $19M Series A in 2025 with Databricks and KPMG among its backers."
   },
+  "lovable": {
+    "blurb": "Lovable is a Stockholm-based vibe-coding platform that lets people build and deploy full software applications from natural-language prompts, without traditional programming.",
+    "accomplishment": "Founded in 2023 by Anton Osika and Fabian Hedin; raised a $400M Series C at a $13.3B valuation in August 2026 led by Menlo Ventures, after passing $200M ARR in late 2025."
+  },
   "lyft": {
     "accomplishment": "Lyft is one of the largest ridesharing platforms in North America and a primary competitor to Uber in the on-demand mobility market.",
     "blurb": "Lyft operates a ridesharing marketplace connecting passengers with drivers through its mobile app across North America."
+  },
+  "mastra": {
+    "blurb": "Mastra builds an open-source TypeScript framework and platform for building, deploying and monitoring AI agents, with workflows, memory, evals and observability.",
+    "accomplishment": "Founded by the team behind Gatsby, Mastra raised a $22M Series A led by Spark Capital in April 2026, bringing total funding to $35M, with customers including Brex and PayPal."
   },
   "merge": {
     "accomplishment": "Merge is one of the most widely adopted unified API platforms, letting B2B software teams ship many third-party integrations through one normalized interface.",
@@ -424,6 +488,10 @@
     "accomplishment": "OpenEvidence is used regularly by more than 40% of U.S. physicians and, backed by Sequoia and Google Ventures, raised $250 million at a $12 billion valuation in January 2026 — doubling its valuation in three months.",
     "blurb": "OpenEvidence builds an AI medical-search platform — often called \"ChatGPT for doctors\" — that gives physicians instant, evidence-backed answers at the point of care."
   },
+  "openrouter": {
+    "blurb": "OpenRouter provides a unified API and marketplace that lets developers access hundreds of AI models from many providers through a single endpoint with routing and fallbacks.",
+    "accomplishment": "Raised a $40M seed and Series A led by Andreessen Horowitz and Menlo Ventures in 2025, then a $113M Series B led by CapitalG at a $1.3B valuation in May 2026."
+  },
   "optiver": {
     "accomplishment": "Optiver is one of the world's leading market makers, trading and quoting prices across exchanges around the globe.",
     "blurb": "Optiver is a proprietary trading firm and global market maker providing liquidity across equities, options, futures, and other asset classes."
@@ -464,6 +532,10 @@
     "accomplishment": "Plaid is core financial infrastructure, providing the connectivity that lets fintech apps and banks securely link to users' bank accounts and financial data.",
     "blurb": "Plaid provides a fintech data network and APIs that let applications securely connect to users' bank accounts and financial data."
   },
+  "ploy": {
+    "blurb": "Ploy is an AI growth platform whose agents build and run a company's website and marketing, from page design and copy to campaigns, optimization and CRM syncing.",
+    "accomplishment": "Founded by Webflow co-founder and former CTO Bryant Chou, Ploy came out of stealth in June 2026 with a $27M seed round led by First Round Capital and Y Combinator."
+  },
   "poke": {
     "accomplishment": "Poke is known for making AI agents as accessible as sending a text, proactively handling email, calendar, and everyday tasks via iMessage and SMS.",
     "blurb": "Poke, by The Interaction Company of California, is an AI personal assistant that operates through text messaging to manage tasks on a user's behalf."
@@ -471,6 +543,10 @@
   "posthog": {
     "accomplishment": "PostHog is known as a leading open-source, all-in-one product analytics suite that developers can self-host with full access to their own data.",
     "blurb": "PostHog provides an open-source product analytics platform combining event tracking, session replay, feature flags, experimentation, and more for developers."
+  },
+  "profound": {
+    "blurb": "Profound builds an AI marketing platform that tracks and improves how brands appear in answers from ChatGPT, Perplexity, Gemini and Google AI Overviews.",
+    "accomplishment": "Founded in 2024 by James Cadwallader and Dylan Babbs; raised a $180M Series D at a $1.8B valuation in September 2026 co-led by Sequoia and Kleiner Perkins, with over $335M raised in total."
   },
   "pylon-labs": {
     "accomplishment": "Pylon serves fast-growing software companies as a modern alternative to legacy help desks, consolidating omnichannel B2B support into a single inbox.",
@@ -499,6 +575,10 @@
   "replit": {
     "accomplishment": "Replit raised $400 million at a $9 billion valuation in 2026 — roughly tripling its valuation in six months — alongside the launch of Agent 4, which runs parallel coding agents on a single project.",
     "blurb": "Replit is a browser-based coding platform whose AI Agent builds and deploys full software projects from natural-language prompts."
+  },
+  "resend": {
+    "blurb": "Resend provides an email API for developers to build, test and send transactional and marketing emails, and maintains the open-source React Email library.",
+    "accomplishment": "Raised an $18M Series A led by Andreessen Horowitz in December 2024 after a Y Combinator seed, with 200,000+ developers signed up and React Email at 300,000 weekly downloads."
   },
   "resolve-ai": {
     "accomplishment": "Founded by co-creators of OpenTelemetry, Resolve AI is deployed in production at major technology, financial, and consumer companies to reduce incident resolution time, and ranked #1 on Harmonic's Hot 25 Startups list for Q3 2026.",
@@ -540,6 +620,10 @@
     "accomplishment": "Sentry is a widely adopted error-tracking and performance-monitoring platform, rooted in open source and supporting dozens of programming languages and frameworks.",
     "blurb": "Sentry makes application monitoring software that helps developers detect, diagnose, and fix errors and performance issues across web, mobile, and backend apps."
   },
+  "serval": {
+    "blurb": "Serval is an AI-native IT service management platform whose agents resolve employee help-desk tickets and build IT automations for companies.",
+    "accomplishment": "Raised a $75M Series B led by Sequoia at a $1B valuation in December 2025, three months after a $47M Series A led by Redpoint, for $127M raised in total."
+  },
   "sesame": {
     "accomplishment": "Founded by Oculus co-founder Brendan Iribe, Sesame created a Conversational Speech Model that produces emotionally expressive, natural-sounding voice assistants.",
     "blurb": "Sesame builds lifelike conversational voice AI companions and lightweight wearable glasses designed to access them throughout the day."
@@ -548,9 +632,17 @@
     "accomplishment": "Co-founded by former Salesforce co-CEO Bret Taylor and ex-Google Labs lead Clay Bavor, Sierra powers customer-facing AI agents for major enterprise brands.",
     "blurb": "Sierra builds a platform that lets businesses create branded conversational AI agents for customer service, sales, and operations across chat, voice, and messaging."
   },
+  "sieve": {
+    "blurb": "Sieve is a multimodal data lab that curates high-quality video, audio, image, text and 3D training datasets for the frontier AI labs building foundation models.",
+    "accomplishment": "Y Combinator alum that raised about $4M in seed funding in November 2022 led by Matrix Partners, with Swift Ventures and AI Grant also participating."
+  },
   "siftstack": {
     "accomplishment": "Sift offers an observability stack purpose-built for mission-critical hardware, serving aerospace, defense, and robotics teams working with high-cardinality sensor data.",
     "blurb": "Sift builds an observability platform that ingests, stores, and analyzes hardware sensor telemetry at scale for engineering teams."
+  },
+  "simile": {
+    "blurb": "Simile builds AI models of human behavior that let enterprises simulate how customers and employees will respond to products, pricing and policy changes before launching them.",
+    "accomplishment": "Spun out of Stanford research by Joon Sung Park, Percy Liang and Michael Bernstein; raised a $100M Series A led by Index Ventures in February 2026 and a $200M+ Series B at a $2B valuation led by Greenoaks in July 2026."
   },
   "slack": {
     "accomplishment": "Slack is a leading team-collaboration platform known for popularizing channel-based workplace messaging, and is part of Salesforce.",
@@ -592,6 +684,10 @@
     "accomplishment": "Supabase is widely known as the open-source alternative to Firebase, building its entire platform around the standard PostgreSQL database.",
     "blurb": "Supabase is an open-source backend-as-a-service that gives developers a hosted Postgres database with authentication, storage, realtime, and auto-generated APIs."
   },
+  "taste-labs": {
+    "blurb": "Taste Labs builds the data and infrastructure layer that helps AI models and agents judge subjective quality, starting with design, to reduce generic AI output.",
+    "accomplishment": "Emerged from stealth in June 2026 with an $18.5M seed round co-led by CRV and Amplify Partners, founded by former Exa growth lead Thais Castello Branco."
+  },
   "tavus": {
     "blurb": "Tavus builds real-time conversational video AI — models that let software see, hear and respond face to face, so an interaction with a machine feels like talking to a person.",
     "accomplishment": "Raised a Series B backed by Sequoia Capital, and ships the replica and conversational-video APIs a lot of other products build their AI-avatar features on."
@@ -611,6 +707,10 @@
   "tomo-ai": {
     "blurb": "Tomo is a personal AI assistant that works entirely over text message, learning a user's goals and following up on them rather than waiting to be asked.",
     "accomplishment": "Built the assistant around SMS rather than an app, betting that the highest-retention surface for a personal AI is the inbox people already live in."
+  },
+  "town": {
+    "blurb": "Town builds a personal AI assistant, called a Townie, that learns how you work from your email, calendar and other tools and handles tasks like drafting emails, briefings and inbox management.",
+    "accomplishment": "Raised a $55M Series A led by Andreessen Horowitz in June 2026, with Forerunner Ventures and First Round participating, founded by former Plaid CTO Jean-Denis Greze and ex-Google AI director Tony Vincent."
   },
   "trajectory": {
     "accomplishment": "Trajectory partners with AI-native companies to continuously post-train their models in production, turning live usage signals into ongoing model improvements.",
@@ -679,6 +779,10 @@
   "xai": {
     "accomplishment": "xAI develops Grok, an AI assistant integrated with the X platform, and was founded by Elon Musk.",
     "blurb": "xAI is an artificial intelligence company building advanced AI models and the Grok conversational assistant."
+  },
+  "zed": {
+    "blurb": "Zed is an open-source, high-performance code editor written in Rust, built for real-time collaboration between developers and AI agents.",
+    "accomplishment": "Built by the creators of Atom and Electron, Zed Industries raised a $32M Series B led by Sequoia Capital in August 2025, bringing total funding to over $42M."
   },
   "zoom": {
     "accomplishment": "Zoom's built-in AI Companion assistant reached general availability with version 3.0 as the company repositioned from video conferencing into a broader AI-first Workplace platform.",

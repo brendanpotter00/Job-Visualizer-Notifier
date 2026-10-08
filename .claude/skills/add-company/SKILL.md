@@ -28,7 +28,7 @@ mode: read-write
 
 # Add a Company
 
-Onboarding one company means **four edits plus logos**, all keyed by a single
+Onboarding one company means **five edits plus logos**, all keyed by a single
 lowercase `id` (the slug, e.g. `reducto`, `spacex`, `happyrobot.ai`):
 
 | # | What | File |
@@ -37,7 +37,7 @@ lowercase `id` (the slug, e.g. `reducto`, `spacex`, `happyrobot.ai`):
 | 2 | Backend seed migration (one `companies` row) | `src/backend/alembic/versions/<ts>_<rev>_seed_<id>_company.py` |
 | 3 | Changelog announcement (top entry) | `src/frontend/src/config/changelog.ts` |
 | 4 | Brand logos (icon + wordmark) | `src/frontend/public/logos/{icons,wordmarks}/<id>.png` |
-| 5 | *(optional)* curated blurb | `src/backend/api/data/company_profiles.json` |
+| 5 | Curated blurb + accomplishment | `src/backend/api/data/company_profiles.json` |
 
 > **Canonical reference commits** — copy these patterns exactly:
 > `246b24e` *Add Reducto (Ashby) company + changelog entry (#157)* (single company),
@@ -59,8 +59,8 @@ skill, but see **Step 7** for the one step a new script company still owes.)
 - **`sourceAts`** — one of `greenhouse | ashby | lever | gem | eightfold | workday`.
 - **`board_token`** — the ATS board slug. **Often equals `id`, but verify live**
   (step 0). For eightfold/workday you also need a `provider_config` blob.
-- *(optional)* a one-line recruiter LinkedIn search URL; a curated blurb +
-  accomplishment.
+- *(optional)* a one-line recruiter LinkedIn search URL.
+- a curated blurb + accomplishment (step 5 — required).
 
 The helper scripts in `scripts/` are **stdlib-only** — run them with plain
 `python3` (no venv needed).
@@ -213,9 +213,9 @@ logos; use that skill.
 
 ---
 
-## Step 5 — Curated blurb *(optional)*
+## Step 5 — Curated blurb + accomplishment
 
-For a richer Curated Companies card, add the `id` to
+Every public company needs a Curated Companies description. Add the `id` to
 `src/backend/api/data/company_profiles.json`:
 
 ```json
@@ -223,8 +223,9 @@ For a richer Curated Companies card, add the `id` to
 ```
 
 `companies_seed.py` upserts `blurb`/`accomplishment` onto the row on every boot.
-Optional — the curated page falls back gracefully if absent (Reducto #157 shipped
-without one).
+Required. The page renders a company without one, but it shows a bare card — in
+Oct 2026, 26 companies had shipped that way and needed a backfill. Keep keys
+sorted; one plain sentence each; only facts you found in a source.
 
 ---
 
@@ -242,6 +243,7 @@ Checklist before declaring done:
 - [ ] seed migration present, `down_revision` == current head, **single head**
 - [ ] confirmed what the board's posted date actually is (step 0.5)
 - [ ] `changelog.ts` top entry (recent achievement / reason, today's date)
+- [ ] `company_profiles.json` entry with `blurb` + `accomplishment`
 - [ ] `icons/<id>.png` + `wordmarks/<id>.png` committed (logo skill)
 - [ ] `npm run type-check` + `npm test` green
 - [ ] **script-scraped company only:** careers hosts registered (step 7)
