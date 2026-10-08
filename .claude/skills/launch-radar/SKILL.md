@@ -67,7 +67,7 @@ copy matches):
 ```sh
 "$CLAUDE_BIN" -p /launch-radar-once \
   --permission-mode dontAsk --setting-sources project \
-  --allowedTools "Read(./**)" "Edit(./.launch-radar-grades/grades/**)" "Agent" \
+  --allowedTools "Read(./**)" "Edit(./.launch-radar-grades/grades/**)" "Agent(launch-radar-grader)" \
     "Bash(scripts/launch_radar/radar.sh monitors-ensure)" \
     "Bash(scripts/launch_radar/radar.sh run --max-companies 3 --budget 1.00)" \
     "Bash(scripts/launch_radar/radar.sh run --max-companies 0 --budget 1.00)" \
@@ -130,8 +130,8 @@ Follow `.claude/skills/launch-radar-grade/SKILL.md` (read it in full) with
 1. `scripts/launch_radar/radar.sh grade-export --ungraded --dir .launch-radar-grades`
    (free; also picks up any card an earlier night failed to grade). No input files: skip
    to §3.
-2. One subagent per input file, exactly as that skill's step 2 says (Agent tool,
-   `run_in_background: false`, at most 6 at a time). Save each reply verbatim with Write
+2. One `launch-radar-grader` subagent per input file, exactly as that skill's step 2
+   says (`run_in_background: false`, at most 6 at a time). Save each reply verbatim with Write
    to `.launch-radar-grades/grades/<id>.json`. Never edit a grade.
 3. `scripts/launch_radar/radar.sh grade-apply --dir .launch-radar-grades`. Log
    `applied N, missing M, invalid K`. A missing or invalid grade is not an error: that

@@ -8,8 +8,9 @@ grade is validated before it reaches the backend:
 
 - ``grade-export`` writes ``<dir>/inputs/<card_id>.json``: only what the rubric reads
   (what the company does, its leaders' histories, the team tally). No URLs, no team
-  member names. It clears ``<dir>`` first, so a stale grade can never be applied to a
-  card it was not written for.
+  member names. It first removes its own ``inputs/``, ``grades/`` and ``results.json``
+  (nothing else in ``<dir>``), so a stale grade can never be applied to a card it was
+  not written for.
 - ``grade-apply`` reads ``<dir>/grades/<card_id>.json`` (what each subagent returned),
   validates it, re-reads the card, merges the grade into its ``scores`` and PUTs the
   payload (``PUT /cards/{id}/payload``; status and posted_at stay). It also writes
@@ -107,8 +108,10 @@ def export(opts: ExportOptions, deps: Deps) -> int:
         cards = deps.backend.cards(domains=sorted(opts.domains), statuses=statuses)
     else:
         cards = deps.backend.cards(all_cards=True, statuses=statuses)
-    if opts.dir.exists():
-        shutil.rmtree(opts.dir)
+    for sub in ("inputs", "grades"):  # only what this command owns, never the rest of --dir
+        if (opts.dir / sub).is_dir():
+            shutil.rmtree(opts.dir / sub)
+    (opts.dir / "results.json").unlink(missing_ok=True)
     (opts.dir / "inputs").mkdir(parents=True)
     (opts.dir / "grades").mkdir()
     written = skipped = 0
@@ -191,9 +194,9 @@ def describe(company: str, old: dict[str, Any], new: dict[str, Any]) -> str:
 def apply(dir_: Path, deps: Deps, *, dry_run: bool, graded_at: str) -> int:
     log = deps.log
     inputs = sorted((dir_ / "inputs").glob("*.json"), key=lambda p: int(p.stem)) if (dir_ / "inputs").is_dir() else []
-    if not inputs:
-        log(f"grade-apply: no inputs under {dir_ / 'inputs'} (run grade-export first)")
-        return EXIT_ERROR
+    if not inputs:  # a quiet night: nothing new to grade is not a failure
+        log(f"grade-apply: nothing to grade (no inputs under {dir_ / 'inputs'})")
+        return EXIT_OK
     applied = missing = invalid = gone = errors = 0
     rows: list[dict[str, Any]] = []
     for in_path in inputs:

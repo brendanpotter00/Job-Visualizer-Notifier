@@ -60,9 +60,17 @@ EXPECTED_BASH = {
     "Bash(scripts/launch_radar/radar.sh heartbeat:*)",
 }
 
-# The run's only write: a grader's JSON reply, which grade-apply validates. Agent is for
-# the one-subagent-per-card graders (they inherit this allowlist).
-EXPECTED_OTHER = {"Read(./**)", "Edit(./.launch-radar-grades/grades/**)", "Agent"}
+# The run's only write: a grader's JSON reply, which grade-apply validates. Agent is scoped
+# to the one-subagent-per-card grader, whose only tool is Read (see the test below).
+EXPECTED_OTHER = {"Read(./**)", "Edit(./.launch-radar-grades/grades/**)", "Agent(launch-radar-grader)"}
+
+
+def test_the_grader_agent_can_only_read():
+    """A grader reads untrusted card text, so it must not get the run's Bash commands."""
+    text = (ROOT / ".claude" / "agents" / "launch-radar-grader.md").read_text()
+    front = text.split("---")[1]
+    assert re.search(r"^name: launch-radar-grader$", front, re.M)
+    assert re.search(r"^tools: Read$", front, re.M)
 
 
 def test_wrapper_invokes_claude_with_an_allowlist():
@@ -78,6 +86,7 @@ def test_wrapper_invokes_claude_with_an_allowlist():
     # loop does its own research through radar.sh), and writes only the graders' replies.
     assert set(tools) == EXPECTED_OTHER | EXPECTED_BASH
     assert not any(t.startswith(("WebSearch", "WebFetch", "Write(")) for t in tools)
+    assert "Agent" not in tools, "a bare Agent hands the graders the run's Bash commands"
     for t in tools:
         assert t != "Bash", "bare Bash is not allowed"
         assert not re.fullmatch(r"Bash\(\s*\*?\s*\)", t), f"wildcard Bash: {t}"

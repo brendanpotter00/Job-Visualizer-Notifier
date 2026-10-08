@@ -191,3 +191,18 @@ def test_cli_wires_both_commands(env, tmp_path):
     assert radar.main(["grade-apply", "--dir", str(d), "--dry-run"], deps=env.deps()) == EXIT_OK
     with pytest.raises(SystemExit):
         radar.main(["grade-export", "--dir", str(d)], deps=env.deps())  # needs a selector
+
+
+def test_export_removes_only_its_own_files(env, tmp_path):
+    d = tmp_path / "scratch"
+    d.mkdir()
+    (d / "keep.txt").write_text("someone else's file")
+    assert run_export(env, d, domains=frozenset({"light.ai"})) == EXIT_OK
+    assert (d / "keep.txt").read_text() == "someone else's file"
+
+
+def test_apply_with_nothing_to_grade_is_not_a_failure(env, tmp_path):
+    d = tmp_path / "g"
+    assert run_export(env, d, domains=frozenset({"quiet.ai"})) == EXIT_OK  # no people data: no inputs
+    assert apply(d, env.deps(), dry_run=False, graded_at="x") == EXIT_OK
+    assert env.logs[-1].startswith("grade-apply: nothing to grade")

@@ -2501,14 +2501,13 @@ class LaunchRadarScores(BaseModel):
     talent_ai: LaunchRadarTalentAi | None = None
 
     @model_serializer(mode="wrap")
-    def _omit_absent_grade(self, handler: Any) -> Any:
+    def _omit_absent_grade(self, handler: Any) -> dict[str, Any]:
         """Leave the two grade fields out when there is no grade, so an ungraded card
         is stored and served exactly as before (and ``rescore`` stays idempotent)."""
-        data = handler(self)
-        if isinstance(data, dict):
-            for key in ("talent_rules", "talentRules", "talent_ai", "talentAi"):
-                if key in data and data[key] is None:
-                    del data[key]
+        data: dict[str, Any] = handler(self)  # a model always serializes to a dict
+        for key in ("talent_rules", "talentRules", "talent_ai", "talentAi"):
+            if key in data and data[key] is None:
+                del data[key]
         return data
 
     @model_validator(mode="after")

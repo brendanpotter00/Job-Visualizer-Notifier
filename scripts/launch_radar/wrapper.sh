@@ -20,8 +20,9 @@
 #     gh, curl, python, pip or npm entry (each of those can run code or send a
 #     local file anywhere) and no web tools. The only write is a grader's JSON
 #     reply, into .launch-radar-grades/grades/ (gitignored), which grade-apply
-#     validates before anything reaches the backend; Agent is there for the
-#     one-subagent-per-card graders, which inherit this same list. Reads are
+#     validates before anything reaches the backend. Agent is scoped to the
+#     one-subagent-per-card grader (.claude/agents/launch-radar-grader.md),
+#     whose only tool is Read, so card text it reads cannot reach Bash. Reads are
 #     scoped to this checkout, and the env file, dotfiles and .env files are
 #     denied outright.
 #   * This wrapper never sources or exports a secret. radar.sh loads
@@ -123,7 +124,7 @@ BEAT_BEFORE=$(stat -f %m "$HEARTBEAT" 2>/dev/null || echo 0)
 run_bounded launch-radar "$TOTAL_TIMEOUT_SECS" \
   "$CLAUDE_BIN" -p /launch-radar-once \
   --permission-mode dontAsk --setting-sources project \
-  --allowedTools "Read(./**)" "Edit(./.launch-radar-grades/grades/**)" "Agent" \
+  --allowedTools "Read(./**)" "Edit(./.launch-radar-grades/grades/**)" "Agent(launch-radar-grader)" \
     "Bash(scripts/launch_radar/radar.sh monitors-ensure)" \
     "Bash(scripts/launch_radar/radar.sh run --max-companies 3 --budget 1.00)" \
     "Bash(scripts/launch_radar/radar.sh run --max-companies 0 --budget 1.00)" \
