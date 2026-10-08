@@ -536,10 +536,6 @@
     "blurb": "Ploy is an AI growth platform whose agents build and run a company's website and marketing, from page design and copy to campaigns, optimization and CRM syncing.",
     "accomplishment": "Founded by Webflow co-founder and former CTO Bryant Chou, Ploy came out of stealth in June 2026 with a $27M seed round led by First Round Capital and Y Combinator."
   },
-  "poke": {
-    "accomplishment": "Poke is known for making AI agents as accessible as sending a text, proactively handling email, calendar, and everyday tasks via iMessage and SMS.",
-    "blurb": "Poke, by The Interaction Company of California, is an AI personal assistant that operates through text messaging to manage tasks on a user's behalf."
-  },
   "posthog": {
     "accomplishment": "PostHog is known as a leading open-source, all-in-one product analytics suite that developers can self-host with full access to their own data.",
     "blurb": "PostHog provides an open-source product analytics platform combining event tracking, session replay, feature flags, experimentation, and more for developers."
@@ -739,10 +735,6 @@
   "typesafe-ai": {
     "blurb": "TypeSafe is an AI lab building models meant to run inside software rather than in a chat window — invoked, inspected and constrained like any other dependency.",
     "accomplishment": "Founded by researchers out of OpenAI, Google Brain and Meta's FAIR to make model calls composable enough to build production systems on."
-  },
-  "unity3d": {
-    "accomplishment": "Unity is one of the world's most widely used game engines, powering a large share of mobile and indie games.",
-    "blurb": "Unity builds a cross-platform real-time 3D engine and toolset for creating and operating games and interactive content."
   },
   "vercel": {
     "accomplishment": "Vercel created and maintains Next.js, one of the most popular React frameworks for building web applications.",
