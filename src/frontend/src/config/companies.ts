@@ -865,6 +865,12 @@ export const COMPANIES: Company[] = [
   createBackendScraperCompany('firecrawl', 'Firecrawl', 'https://www.firecrawl.dev/careers', {
     sourceAts: 'ashby',
   }),
+  // Identity proven, not inferred: the `siena` board's own postings list
+  // talent@siena.cx as the contact, matching the siena.cx company this was
+  // added from (the AI customer-experience startup, not any other Siena).
+  createBackendScraperCompany('siena', 'Siena', 'https://jobs.ashbyhq.com/siena', {
+    sourceAts: 'ashby',
+  }),
 
   // Gem (backend-scraper) — backend Procrastinate worker fetches from
   // api.gem.com/job_board/v0/<id>/job_posts/ on a 30-min cron. See
@@ -1262,6 +1268,7 @@ export const enum COMPANY_IDS {
   Sesame = 'sesame',
   Sentry = 'sentry',
   Serval = 'serval',
+  Siena = 'siena',
   Sierra = 'sierra',
   Sieve = 'sieve',
   SiftStack = 'siftstack',

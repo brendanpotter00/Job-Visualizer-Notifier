@@ -544,6 +544,10 @@
     "accomplishment": "Founded by Oculus co-founder Brendan Iribe, Sesame created a Conversational Speech Model that produces emotionally expressive, natural-sounding voice assistants.",
     "blurb": "Sesame builds lifelike conversational voice AI companions and lightweight wearable glasses designed to access them throughout the day."
   },
+  "siena": {
+    "accomplishment": "Siena raised a $17M Series A led by York IE in October 2026, bringing total funding to roughly $30M, to build what it calls the Agent of Record for consumer brands.",
+    "blurb": "Siena builds an AI customer-experience platform for consumer and ecommerce brands, running agents for support, shopping, social, and quality assurance off one shared view of each customer."
+  },
   "sierra": {
     "accomplishment": "Co-founded by former Salesforce co-CEO Bret Taylor and ex-Google Labs lead Clay Bavor, Sierra powers customer-facing AI agents for major enterprise brands.",
     "blurb": "Sierra builds a platform that lets businesses create branded conversational AI agents for customer service, sales, and operations across chat, voice, and messaging."

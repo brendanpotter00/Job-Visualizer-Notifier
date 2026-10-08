@@ -31,6 +31,18 @@ const SWE_SUBCATEGORIES_REVEAL_DATE = '2026-08-20';
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    id: 'add-siena',
+    title: 'Added Siena',
+    description:
+      'Siena — an AI customer-experience platform for consumer and ecommerce brands, where agents handle support, shopping, social and quality assurance from one shared view of each customer — is now tracked via its Ashby job board. It raised a $17M Series A led by York IE on October 6, bringing total funding to roughly $30M, and is putting the money into agents that act more independently. Seven roles are open, including two software-engineering roles, spread across Toronto, Argentina, Austin, New York and remote Europe.',
+    tags: ['new-companies'],
+    date: '2026-10-08',
+    link: {
+      to: ROUTES.ACCOUNT,
+      label: 'Add Siena to your company preferences',
+    },
+  },
+  {
     id: 'hightouch-board-move-2026-10',
     title: 'Hightouch is live again after its board moved',
     description:
