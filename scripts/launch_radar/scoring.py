@@ -388,12 +388,29 @@ def rescored_scores(payload: dict[str, Any]) -> dict[str, Any]:
     blended card carries ``talent_leaders``; a legacy card (no ``talent_basis``) stored
     ``score_talent``'s raw 0-94 as ``talent``, which is rescaled exactly. The team part
     is scored from ``team_stats`` and the VC score from ``funding``.
+
+    An AI grade (``talent_ai``) is carried too: the rescored rule blend goes to
+    ``talent_rules`` and ``talent`` stays the grade, so a rescore never undoes a grade.
     """
     old = payload.get("scores") if isinstance(payload.get("scores"), dict) else {}
+    ai = old.get("talent_ai") if isinstance(old.get("talent_ai"), dict) else None
     if old.get("talent_basis") in TALENT_BASES:
         leaders = _count(old.get("talent_leaders"))
-    else:
-        leaders = leaders_part(_count(old.get("talent")))
+    else:  # a legacy card's raw leader score is in talent_rules once it has a grade
+        leaders = leaders_part(_count(old.get("talent_rules") if ai else old.get("talent")))
     talent_reasons = [r for r in old.get("talent_reasons") or [] if isinstance(r, str)]
     vc, vc_reasons = score_vc(funding_brief(payload.get("funding")))
-    return {**_talent_fields(leaders, talent_reasons, payload.get("team_stats")), "vc": vc, "vc_reasons": vc_reasons}
+    scores = {**_talent_fields(leaders, talent_reasons, payload.get("team_stats")), "vc": vc, "vc_reasons": vc_reasons}
+    return with_ai_grade(scores, ai) if ai else scores
+
+
+def with_ai_grade(scores: dict[str, Any], grade: dict[str, Any]) -> dict[str, Any]:
+    """``scores`` with an AI Talent grade (CONTRACT §6.6.1): ``talent`` becomes the grade's
+    score and the rule-based blend moves to ``talent_rules``; its parts and reasons stay.
+
+    Idempotent: a card that already has a grade keeps its ``talent_rules`` (re-grading
+    never turns the previous grade into the "rules" number)."""
+    rules = scores.get("talent_rules") if isinstance(scores.get("talent_ai"), dict) else scores.get("talent")
+    ai = {k: grade[k] for k in ("score", "parts", "confidence", "industry", "reasons", "rubric_version",
+                                 "graded_at")}
+    return {**scores, "talent": ai["score"], "talent_rules": rules, "talent_ai": ai}

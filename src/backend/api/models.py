@@ -14,6 +14,7 @@ from pydantic import (
     Field,
     StringConstraints,
     field_validator,
+    model_serializer,
     model_validator,
 )
 from pydantic.alias_generators import to_camel
@@ -2439,6 +2440,40 @@ LaunchRadarTalentBasis = Literal["leaders", "team", "both"]
 LAUNCH_RADAR_TALENT_PART_MAX = 50
 
 
+class LaunchRadarTalentAiParts(BaseModel):
+    """The four rubric dimensions of an AI Talent grade (CONTRACT §6.6.1); they sum to its score."""
+
+    model_config = _LR_PAYLOAD_CONFIG
+
+    leaders: int = Field(ge=0, le=40)
+    industry: int = Field(ge=0, le=25)
+    team: int = Field(ge=0, le=25)
+    track_record: int = Field(ge=0, le=10)
+
+
+class LaunchRadarTalentAi(BaseModel):
+    """An AI Talent grade: a Claude subagent read the card's people data against the rubric
+    (``.claude/skills/launch-radar-grade/rubric.md``). The loop validates it before it posts;
+    this re-checks the same bounds, because the text is model output about web research."""
+
+    model_config = _LR_PAYLOAD_CONFIG
+
+    score: int = Field(ge=0, le=100)
+    parts: LaunchRadarTalentAiParts
+    confidence: Literal["high", "medium", "low"]
+    industry: str = Field(min_length=1, max_length=80)
+    reasons: list[Annotated[str, Field(min_length=1, max_length=300)]] = Field(min_length=1, max_length=6)
+    rubric_version: str = Field(pattern=r"^v[0-9]{1,3}$")
+    graded_at: str = Field(max_length=40)
+
+    @model_validator(mode="after")
+    def _parts_add_up(self) -> "LaunchRadarTalentAi":
+        p = self.parts
+        if self.score != p.leaders + p.industry + p.team + p.track_record:
+            raise ValueError("talent_ai.score must equal the sum of its parts")
+        return self
+
+
 class LaunchRadarScores(BaseModel):
     """A card's scores. ``talent`` is a 50/50 blend: up to 50 points from the
     leaders (``talent_leaders``) plus up to 50 from the rest of the team's tally
@@ -2460,11 +2495,33 @@ class LaunchRadarScores(BaseModel):
     talent_team: int | None = Field(default=None, ge=0, le=LAUNCH_RADAR_TALENT_PART_MAX)
     talent_basis: LaunchRadarTalentBasis | None = None
     talent_team_reasons: list[str] = Field(default_factory=list)
+    # The AI grade (CONTRACT §6.6.1). With one, ``talent`` IS the grade and the rule blend
+    # above adds up to ``talent_rules`` instead; without one, ``talent_rules`` is null.
+    talent_rules: int | None = Field(default=None, ge=0, le=100)
+    talent_ai: LaunchRadarTalentAi | None = None
+
+    @model_serializer(mode="wrap")
+    def _omit_absent_grade(self, handler: Any) -> dict[str, Any]:
+        """Leave the two grade fields out when there is no grade, so an ungraded card
+        is stored and served exactly as before (and ``rescore`` stays idempotent)."""
+        data: dict[str, Any] = handler(self)  # a model always serializes to a dict
+        for key in ("talent_rules", "talentRules", "talent_ai", "talentAi"):
+            if key in data and data[key] is None:
+                del data[key]
+        return data
 
     @model_validator(mode="after")
     def _talent_adds_up(self) -> "LaunchRadarScores":
-        """The breakdown on a card always adds up to its Talent number."""
+        """The breakdown on a card always adds up to its Talent number: the AI grade's score
+        when the card has one (the rule blend then adds up to ``talent_rules``), else the
+        rule blend's."""
         leaders, team, talent = self.talent_leaders, self.talent_team, self.talent
+        if self.talent_ai is not None:
+            if talent != self.talent_ai.score:
+                raise ValueError(f"talent must be the AI grade's score {self.talent_ai.score}, got {talent}")
+            talent = self.talent_rules
+        elif self.talent_rules is not None:
+            raise ValueError("talent_rules is only set alongside talent_ai")
         if self.talent_basis is None:
             if leaders is not None or team is not None:
                 raise ValueError("talent_leaders / talent_team need a talent_basis")

@@ -113,7 +113,28 @@ export const LAUNCH_RADAR_TALENT_BASES: readonly LaunchRadarTalentBasis[] = [
 ];
 
 /**
- * A card's scores. Talent is a 50/50 blend: up to 50 from the leaders
+ * An AI Talent grade (CONTRACT §6.6.1): a Claude subagent read the card's people
+ * data against a fixed rubric. The four parts add up to `score` (the backend
+ * guarantees it): leaders 0-40, industry fit 0-25, team density for its size
+ * 0-25, track record 0-10.
+ */
+export interface LaunchRadarTalentAi {
+  score: number;
+  parts: { leaders: number; industry: number; team: number; trackRecord: number };
+  confidence: 'high' | 'medium' | 'low';
+  /** The industry the grader judged the people against, in a few words. */
+  industry: string;
+  reasons: string[];
+  rubricVersion: string;
+  gradedAt: string;
+}
+
+/**
+ * A card's scores. With an AI grade (`talentAi`), `talent` IS the grade and
+ * the rule-based blend below adds up to `talentRules` instead. Both fields are
+ * absent on an ungraded card (and from a backend that predates the grade).
+ *
+ * Without a grade, Talent is a 50/50 blend: up to 50 from the leaders
  * (`talentLeaders`, explained by `talentReasons`) plus up to 50 from the rest of
  * the team's tally (`talentTeam`, explained by `talentTeamReasons`). A part with
  * no data is `null` and the other is doubled (`talentBasis` says which). The
@@ -133,6 +154,8 @@ export interface LaunchRadarScores {
   talentTeam: number | null;
   talentBasis: LaunchRadarTalentBasis | null;
   talentTeamReasons: string[];
+  talentRules?: number | null;
+  talentAi?: LaunchRadarTalentAi | null;
 }
 
 export interface LaunchRadarCard {

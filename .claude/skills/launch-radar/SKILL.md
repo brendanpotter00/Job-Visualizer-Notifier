@@ -4,8 +4,9 @@ description: |
   Launch Radar loop (runs daily via launchd). Polls three narrow Parallel
   Monitors for startup funding rounds and launches, researches each new company
   (leaders, pedigree, brief, team tally, free ATS check, deterministic scores)
-  within a database-capped Parallel budget, and posts one card per company to the
-  admin Launch Radar page. It never opens a pull request: deciding to track a
+  within a database-capped Parallel budget, posts one card per company to the
+  admin Launch Radar page, then has one AI subagent per new card grade its Talent
+  (launch-radar-grade). It never opens a pull request: deciding to track a
   company is Brendan's call, from the admin page. Headless via launchd, or invoke
   interactively.
 trigger_phrases:
@@ -17,6 +18,8 @@ required_tools:
   - Bash
   - Read
   - Grep
+  - Write
+  - Agent
 mode: read-write   # backend cards only; no repo changes, no PRs
 ---
 
@@ -33,10 +36,11 @@ Headless entry point: `.claude/commands/launch-radar-once.md` -> this file.
 ## §0 Hard rules (non-negotiable — read before anything else)
 
 1. **No pull requests, no repo changes.** The run never opens, pushes or merges
-   anything, never edits a file in the checkout, and never runs `git` or `gh`. Its only
-   writes are the cards and run records the loop posts to the backend, and the
-   heartbeat line. In headless mode this is enforced, not just asked: the allowlist has
-   no `git`, `gh`, Edit, Write or Agent entry.
+   anything, never edits a tracked file, and never runs `git` or `gh`. Its only writes
+   are the cards and run records the loop posts to the backend, the graders' JSON
+   replies under `.launch-radar-grades/grades/` (gitignored), and the heartbeat line. In
+   headless mode this is enforced, not just asked: the allowlist has no `git` or `gh`
+   entry, and its one Edit entry is that grades directory.
 2. **Never print secrets.** Never run `env`, `printenv`, `set`, or `echo $…` on a key.
    Never `Read` anything under `~/.config/jvn-launch-radar/` (the env file holding
    `BACKEND_URL`, `INTERNAL_API_KEY` and `PARALLEL_API_KEY`). `radar.sh` loads that file
@@ -63,10 +67,12 @@ copy matches):
 ```sh
 "$CLAUDE_BIN" -p /launch-radar-once \
   --permission-mode dontAsk --setting-sources project \
-  --allowedTools "Read(./**)" \
+  --allowedTools "Read(./**)" "Edit(./.launch-radar-grades/grades/**)" "Agent(launch-radar-grader)" \
     "Bash(scripts/launch_radar/radar.sh monitors-ensure)" \
     "Bash(scripts/launch_radar/radar.sh run --max-companies 3 --budget 1.00)" \
     "Bash(scripts/launch_radar/radar.sh run --max-companies 0 --budget 1.00)" \
+    "Bash(scripts/launch_radar/radar.sh grade-export --ungraded --dir .launch-radar-grades)" \
+    "Bash(scripts/launch_radar/radar.sh grade-apply --dir .launch-radar-grades)" \
     "Bash(scripts/launch_radar/radar.sh heartbeat:*)" \
   --disallowedTools "Read(~/.config/jvn-launch-radar/**)" "Read(~/.ssh/**)" "Read(~/.aws/**)" \
     "Read(~/.zshrc)" "Read(~/.zprofile)" "Read(~/.zshenv)" "Read(~/.bash_profile)" "Read(~/.bashrc)" \
@@ -82,8 +88,8 @@ prefixes). Read/Glob/Grep work inside the checkout only.
 `radar.sh` exit codes: `0` done · `1` error · `2` stopped on the budget · `3` incomplete
 (state saved; re-run to resume).
 
-Keep a short run log in your head as you go (exit codes, cards posted). §2 writes it into
-the heartbeat.
+Keep a short run log in your head as you go (exit codes, cards posted, cards graded). §3
+writes it into the heartbeat.
 
 ## §1 Run the loop
 
@@ -116,14 +122,32 @@ set to `600000`.
 
 Never pass a larger `--budget` or `--max-companies` than above in a headless run.
 
-## §2 Heartbeat (FINAL step)
+## §2 Grade the new cards' Talent
+
+Follow `.claude/skills/launch-radar-grade/SKILL.md` (read it in full) with
+`<dir>` = `.launch-radar-grades`:
+
+1. `scripts/launch_radar/radar.sh grade-export --ungraded --dir .launch-radar-grades`
+   (free; also picks up any card an earlier night failed to grade). No input files: skip
+   to §3.
+2. One `launch-radar-grader` subagent per input file, exactly as that skill's step 2
+   says (`run_in_background: false`, at most 6 at a time). Save each reply verbatim with Write
+   to `.launch-radar-grades/grades/<id>.json`. Never edit a grade.
+3. `scripts/launch_radar/radar.sh grade-apply --dir .launch-radar-grades`. Log
+   `applied N, missing M, invalid K`. A missing or invalid grade is not an error: that
+   card keeps its rule-based Talent and is graded again tomorrow. Exit 1 (a backend
+   write failed) makes the heartbeat `--status error`.
+
+Grading spends no Parallel money and never changes a card's status.
+
+## §3 Heartbeat (FINAL step)
 
 `scripts/launch_radar/radar.sh heartbeat --status <ok|error> --note "<one line>"`
 
 - `--status error` if any `radar.sh` call exited 1; otherwise `ok` (a budget stop, exit 2,
   is `ok`).
-- The note is one plain line built from your run log, e.g. `run exit 0, 2 cards` or
-  `run exit 2 (budget), 0 cards`. Do not paste web text into it.
+- The note is one plain line built from your run log, e.g. `run exit 0, 2 cards, 2 graded`
+  or `run exit 2 (budget), 0 cards`. Do not paste web text into it.
 
 The wrapper treats a run whose heartbeat did not advance as failed (exit 97) and a
 heartbeat with `--status error` as failed too (exit 98, logged to the `.err` file), so

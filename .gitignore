@@ -81,3 +81,6 @@ iphone-*.png
 
 # Launch Radar proof-of-concept fixtures (raw Parallel responses, includes people data)
 scripts/launch_radar_poc/out/
+
+# Launch Radar AI Talent grading scratch (inputs + grader replies; holds card people data)
+.launch-radar-grades/

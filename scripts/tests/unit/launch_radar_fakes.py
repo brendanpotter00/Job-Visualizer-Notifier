@@ -296,6 +296,14 @@ def scores_problem(scores: Any) -> str | None:
         return None
     talent, lead, team = scores.get("talent"), scores.get("talent_leaders"), scores.get("talent_team")
     basis = scores.get("talent_basis")
+    ai = scores.get("talent_ai")
+    if ai is not None:  # an AI grade (§6.6.1): talent is its score; the rule blend adds up to talent_rules
+        p = ai.get("parts") or {}
+        if talent != ai.get("score") or ai.get("score") != sum(p.values()):
+            return f"inconsistent AI grade: talent {talent}, score {ai.get('score')}, parts {p}"
+        talent = scores.get("talent_rules")
+    elif scores.get("talent_rules") is not None:
+        return "talent_rules without talent_ai"
     if basis is None:
         ok = lead is None and team is None
     elif basis == "both":

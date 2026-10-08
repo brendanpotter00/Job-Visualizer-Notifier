@@ -142,6 +142,33 @@ class TestList:
             "talentTeamReasons": ["15 of the 19 schools listed across 33 profiles are top schools (+14)"],
         }
 
+    def test_ai_grade_is_camel_case(self, client, db_conn) -> None:
+        start_test_run(db_conn)
+        scores = {
+            "talent": 66, "vc": 70, "talent_reasons": ["Karan Vaidya: top employer (Google)"],
+            "vc_reasons": ["Lightspeed led (tier 1)"], "talent_leaders": 12, "talent_team": 22,
+            "talent_basis": "both", "talent_team_reasons": ["7 of the 9 schools listed are top schools (+14)"],
+            "talent_rules": 34,
+            "talent_ai": {
+                "score": 66, "parts": {"leaders": 26, "industry": 18, "team": 19, "track_record": 3},
+                "confidence": "high", "industry": "AI agent integration infrastructure",
+                "reasons": ["Team: Rubrik x3, Databricks x2"], "rubric_version": "v1",
+                "graded_at": "2026-10-08T22:33:09Z",
+            },
+        }
+        svc.insert_card(db_conn, "run-0001", stored_payload(scores=scores))
+        (c,) = client.get(BASE, params={"status": "new"}).json()["cards"]
+        assert c["scores"]["talent"] == 66 and c["scores"]["talentRules"] == 34
+        assert c["scores"]["talentAi"] == {
+            "score": 66,
+            "parts": {"leaders": 26, "industry": 18, "team": 19, "trackRecord": 3},
+            "confidence": "high",
+            "industry": "AI agent integration infrastructure",
+            "reasons": ["Team: Rubrik x3, Databricks x2"],
+            "rubricVersion": "v1",
+            "gradedAt": "2026-10-08T22:33:09Z",
+        }
+
     def test_tabs_counts_order_and_paging(self, client, db_conn) -> None:
         a, b, c = _seed_cards(db_conn, "a.ai", "b.ai", "c.ai")
         svc.set_status(db_conn, a, "archived", "x")

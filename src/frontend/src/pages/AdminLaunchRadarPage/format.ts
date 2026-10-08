@@ -215,14 +215,26 @@ function talentPart(
 }
 
 /**
- * The Talent bullet of "Why these scores". Talent is a 50/50 blend (CONTRACT
- * §6.6): "Talent 74: leaders 37 + team 37 (each out of 50)", or a lone part
+ * The Talent bullet of "Why these scores". An AI-graded card (§6.6.1) shows the
+ * grade's four parts, its reasons and the rule-based score it replaced. Otherwise
+ * Talent is a 50/50 blend (CONTRACT §6.6): "Talent 74: leaders 37 + team 37 (each out of 50)", or a lone part
  * doubled ("Talent 38: leaders 19 of 50, doubled: no team data"), with one
  * sub-bullet per part. A legacy card (no `talentBasis`, scored before the blend)
  * keeps the one line it always had; so does an unscored card.
  */
 export function talentBreakdown(scores: LaunchRadarScores, incomplete: boolean): TalentBreakdown {
-  const { talent, talentBasis: basis } = scores;
+  const { talent, talentBasis: basis, talentAi: ai } = scores;
+  if (ai != null && talent != null) {
+    const p = ai.parts;
+    return {
+      line: `Talent ${talent}: AI grade, ${ai.confidence} confidence, judged as ${ai.industry}`,
+      parts: [
+        `Leaders ${p.leaders}/40 · industry fit ${p.industry}/25 · team ${p.team}/25 · track record ${p.trackRecord}/10`,
+        ...ai.reasons,
+        `Rule-based score: ${scores.talentRules ?? 'none (no people data)'}`,
+      ],
+    };
+  }
   if (talent == null) {
     return {
       line: incomplete

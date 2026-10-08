@@ -15,11 +15,16 @@
 #     quotes it) and anything outside it is denied in headless mode. Every Bash
 #     entry is scripts/launch_radar/radar.sh with the exact headless arguments
 #     (so the per-run limits of 3 companies / $1.00 are not just prose), plus
-#     the heartbeat. The run only drives the loop and posts cards: it opens no
-#     PR, so there is NO git, gh, curl, python, pip or npm entry (each of those
-#     can run code or send a local file anywhere), no Edit/Write, no Agent and
-#     no web tools. Reads are scoped to this checkout, and the env file,
-#     dotfiles and .env files are denied outright.
+#     the heartbeat and the two AI-grade commands. The run drives the loop,
+#     posts cards and grades their Talent: it opens no PR, so there is NO git,
+#     gh, curl, python, pip or npm entry (each of those can run code or send a
+#     local file anywhere) and no web tools. The only write is a grader's JSON
+#     reply, into .launch-radar-grades/grades/ (gitignored), which grade-apply
+#     validates before anything reaches the backend. Agent is scoped to the
+#     one-subagent-per-card grader (.claude/agents/launch-radar-grader.md),
+#     whose only tool is Read, so card text it reads cannot reach Bash. Reads are
+#     scoped to this checkout, and the env file, dotfiles and .env files are
+#     denied outright.
 #   * This wrapper never sources or exports a secret. radar.sh loads
 #     ~/.config/jvn-launch-radar/env into its own process tree only.
 #   * No texting: failures land in ~/Library/Logs/jvn-launch-radar.err and the
@@ -119,10 +124,12 @@ BEAT_BEFORE=$(stat -f %m "$HEARTBEAT" 2>/dev/null || echo 0)
 run_bounded launch-radar "$TOTAL_TIMEOUT_SECS" \
   "$CLAUDE_BIN" -p /launch-radar-once \
   --permission-mode dontAsk --setting-sources project \
-  --allowedTools "Read(./**)" \
+  --allowedTools "Read(./**)" "Edit(./.launch-radar-grades/grades/**)" "Agent(launch-radar-grader)" \
     "Bash(scripts/launch_radar/radar.sh monitors-ensure)" \
     "Bash(scripts/launch_radar/radar.sh run --max-companies 3 --budget 1.00)" \
     "Bash(scripts/launch_radar/radar.sh run --max-companies 0 --budget 1.00)" \
+    "Bash(scripts/launch_radar/radar.sh grade-export --ungraded --dir .launch-radar-grades)" \
+    "Bash(scripts/launch_radar/radar.sh grade-apply --dir .launch-radar-grades)" \
     "Bash(scripts/launch_radar/radar.sh heartbeat:*)" \
   --disallowedTools "Read(~/.config/jvn-launch-radar/**)" "Read(~/.ssh/**)" "Read(~/.aws/**)" \
     "Read(~/.zshrc)" "Read(~/.zprofile)" "Read(~/.zshenv)" "Read(~/.bash_profile)" "Read(~/.bashrc)" \

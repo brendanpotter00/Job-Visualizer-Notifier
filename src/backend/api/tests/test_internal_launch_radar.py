@@ -750,3 +750,61 @@ class TestTalentBlend:
     )
     def test_all_validation(self, api, params) -> None:
         assert api.get(f"{BASE}/cards", params=params).status_code == 422
+
+
+def _graded(score: int = 66, rules: int | None = 34, **ai_overrides: Any) -> dict[str, Any]:
+    """A blended card (rules: leaders 12 + team 22 = 34) carrying an AI Talent grade (§6.6.1)."""
+    ai = {
+        "score": score,
+        "parts": {"leaders": 26, "industry": 18, "team": 19, "track_record": 3},
+        "confidence": "high",
+        "industry": "AI agent integration infrastructure",
+        "reasons": ["Both founders hold IIT Bombay CS degrees", "Team: Rubrik x3, Databricks x2"],
+        "rubric_version": "v1",
+        "graded_at": "2026-10-08T22:33:09Z",
+        **ai_overrides,
+    }
+    return {**_blended(34, 12, 22, "both"), "talent": score, "talent_rules": rules, "talent_ai": ai}
+
+
+class TestTalentAiGrade:
+    """The AI Talent grade (CONTRACT §6.6.1): ``talent`` is the grade, the rule blend adds up
+    to ``talent_rules``, and a card with no grade is stored exactly as before."""
+
+    def test_graded_scores_round_trip_through_post_and_put(self, api, db_conn) -> None:
+        _start(api)
+        card_id = _post_card(api).json()["id"]
+        assert api.put(f"{BASE}/cards/{card_id}/payload",
+                       json={"payload": make_payload(scores=_graded())}).status_code == 200
+        assert _card(db_conn, card_id)["payload"]["scores"] == _graded()
+
+    def test_an_ungraded_card_stores_no_grade_keys(self, api, db_conn) -> None:
+        _start(api)
+        card_id = _post_card(api, make_payload(scores=_blended(72, 37, 35, "both"))).json()["id"]
+        stored = _card(db_conn, card_id)["payload"]["scores"]
+        assert "talent_rules" not in stored and "talent_ai" not in stored
+
+    @pytest.mark.parametrize(
+        "scores",
+        [
+            {**_graded(), "talent": 34},  # talent must be the grade's score
+            _graded(score=67),  # the grade's score must equal the sum of its parts
+            _graded(rules=35),  # the rule blend must still add up, to talent_rules
+            {**_blended(72, 37, 35, "both"), "talent_rules": 72},  # talent_rules only with a grade
+            _graded(confidence="certain"),
+            _graded(reasons=[]),
+            _graded(reasons=["x"] * 7),
+            _graded(reasons=["x" * 301]),
+            _graded(rubric_version="latest"),
+            _graded(parts={"leaders": 41, "industry": 18, "team": 19, "track_record": 3}),
+            _graded(parts={"leaders": 26, "industry": 18, "team": 19}),
+            _graded(extra="field"),  # unknown key
+        ],
+    )
+    def test_inconsistent_grade_is_422(self, api, db_conn, scores) -> None:
+        _start(api)
+        card_id = _post_card(api).json()["id"]
+        before = _card(db_conn, card_id)
+        assert api.put(f"{BASE}/cards/{card_id}/payload",
+                       json={"payload": make_payload(scores=scores)}).status_code == 422
+        assert _card(db_conn, card_id) == before
