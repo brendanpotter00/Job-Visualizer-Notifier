@@ -59,6 +59,10 @@ const SM_DESKTOP: Record<string, number | string> = {
   'launchRadar.cardBodyMarginTop': 0,
   'launchRadar.actionPaddingX': 2,
   'launchRadar.actionMinWidth': 64,
+  // The Launch Radar explainer is a NEW surface: `sm` IS the desktop design value.
+  'launchRadarHowItWorks.panelWidth': 560,
+  'launchRadarHowItWorks.panelPadding': 3,
+  'launchRadarHowItWorks.codeFontSize': '0.8125rem',
   // Landing prototypes are NEW surfaces: the `sm` slot IS the desktop design
   // value (no pre-existing layout to preserve); pinned so it can't drift.
   'landingProto.headerHeight': 64,

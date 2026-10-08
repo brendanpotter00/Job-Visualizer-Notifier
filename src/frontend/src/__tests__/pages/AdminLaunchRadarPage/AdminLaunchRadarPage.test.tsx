@@ -151,6 +151,11 @@ describe('AdminLaunchRadarPage', () => {
     // No sub line under the heading: the run, host and budget are not shown.
     expect(screen.queryByText(/Startups the Parallel loop found/)).not.toBeInTheDocument();
     expect(screen.queryByText(/budget used|Last run|No runs yet/)).not.toBeInTheDocument();
+    // The one link under the heading: the public explainer, which has no sidebar entry.
+    expect(screen.getByRole('link', { name: 'How it works' })).toHaveAttribute(
+      'href',
+      '/launch-radar/how-it-works'
+    );
 
     const newTab = screen.getByRole('tab', { name: 'New 2' });
     expect(newTab).toHaveAttribute('aria-selected', 'true');

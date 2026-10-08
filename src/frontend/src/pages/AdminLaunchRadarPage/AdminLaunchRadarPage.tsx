@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link as RouterLink, useSearchParams } from 'react-router-dom';
 import Box from '@mui/material/Box';
 import Container from '@mui/material/Container';
+import Link from '@mui/material/Link';
 import Pagination from '@mui/material/Pagination';
 import Tab from '@mui/material/Tab';
 import Tabs from '@mui/material/Tabs';
@@ -22,6 +23,7 @@ import { LoadingState } from '../../components/shared/LoadingIndicator';
 import { ErrorState } from '../../components/shared/ErrorDisplay';
 import { extractErrorMessage } from '../../lib/errors';
 import { RESPONSIVE } from '../../config/responsive';
+import { ROUTES } from '../../config/routes';
 import { RadarCard } from './components/RadarCard';
 import type { CardAction } from './components/CardStatusLine';
 import { DeleteCardDialog } from './components/DeleteCardDialog';
@@ -199,9 +201,18 @@ export function AdminLaunchRadarPage() {
 
   return (
     <Container maxWidth="md" sx={{ py: RESPONSIVE.spacing.pageMarginY }}>
-      <Typography variant="h4" component="h1" sx={{ mb: 2 }}>
+      <Typography variant="h4" component="h1" sx={{ mb: 0.5 }}>
         Launch Radar
       </Typography>
+      {/* The only way in to the public explainer: it has no sidebar entry. */}
+      <Link
+        component={RouterLink}
+        to={ROUTES.LAUNCH_RADAR_HOW_IT_WORKS}
+        variant="body2"
+        sx={{ display: 'inline-block', mb: 2 }}
+      >
+        How it works
+      </Link>
 
       {/* Desktop (md+): the tabs and the sort share one row over one divider.
           Narrower: they stack, the divider under the tabs (where the selected

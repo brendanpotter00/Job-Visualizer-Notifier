@@ -19,6 +19,7 @@ import { AdminUsersPage } from '../pages/AdminUsersPage/AdminUsersPage.tsx';
 import { AdminLocationNormalizationPage } from '../pages/AdminLocationNormalizationPage/AdminLocationNormalizationPage.tsx';
 import { AdminEnrichmentPage } from '../pages/AdminEnrichmentPage/AdminEnrichmentPage.tsx';
 import { AdminLocationPipelinePage } from '../pages/AdminLocationPipelinePage/AdminLocationPipelinePage.tsx';
+import { LaunchRadarHowItWorksPage } from '../pages/LaunchRadarHowItWorksPage/LaunchRadarHowItWorksPage.tsx';
 import { AdminCustomCompaniesPage } from '../pages/AdminCustomCompaniesPage/AdminCustomCompaniesPage.tsx';
 import { AdminFeedbackPage } from '../pages/AdminFeedbackPage/AdminFeedbackPage.tsx';
 import { AdminLaunchRadarPage } from '../pages/AdminLaunchRadarPage/AdminLaunchRadarPage.tsx';
@@ -160,6 +161,9 @@ function AppContent() {
           {/* Public route — not admin-gated. Admins get a sidebar link
               (ADMIN_NAV_ITEMS); everyone else arrives via the Changelog card. */}
           <Route path={ROUTES.LOCATION_PIPELINE} element={<AdminLocationPipelinePage />} />
+          {/* Public route — not admin-gated and not in the sidebar. The Launch Radar
+              page links to it under its title; anyone can open it by URL. */}
+          <Route path={ROUTES.LAUNCH_RADAR_HOW_IT_WORKS} element={<LaunchRadarHowItWorksPage />} />
           <Route
             path={ROUTES.ADMIN_ENRICHMENT}
             element={
@@ -239,10 +243,7 @@ function AppContent() {
             whole shell (drawer, page hooks, its network calls) for a URL that
             is replaced on the first effect is work nobody ever sees. */}
         {CUSTOM_COMPANIES_CONFIG.isEnabled && (
-          <Route
-            path={`${ROUTES.MY_COMPANIES_LEGACY}/*`}
-            element={<LegacyMyCompaniesRedirect />}
-          />
+          <Route path={`${ROUTES.MY_COMPANIES_LEGACY}/*`} element={<LegacyMyCompaniesRedirect />} />
         )}
       </Routes>
     </>
