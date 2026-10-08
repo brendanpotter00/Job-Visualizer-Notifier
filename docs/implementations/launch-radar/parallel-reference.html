@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Launch Radar on Parallel</title>
+<style>
+  :root {
+    --bg: #fbfbfa; --surface: #ffffff; --ink: #16181d; --ink-2: #4a4f5a; --ink-3: #7a808c;
+    --line: #e4e5e8; --accent: #1f5fbf; --ok: #1d7a46; --warn: #a2620a; --risk: #b42318;
+    --ok-bg: #eaf6ef; --warn-bg: #fdf4e3; --risk-bg: #fdecea; --code-bg: #f2f3f5;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #121417; --surface: #1a1d22; --ink: #eceef2; --ink-2: #b5bac4; --ink-3: #8a909c;
+      --line: #2c3038; --accent: #7aa7ff; --ok: #5fd08e; --warn: #f0b45a; --risk: #ff8a7d;
+      --ok-bg: #16281e; --warn-bg: #2b2112; --risk-bg: #2e1715; --code-bg: #23272e;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 15px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; }
+  main { max-width: 980px; margin: 0 auto; padding: 32px 16px 80px; }
+  h1 { font-size: 30px; line-height: 1.2; margin: 0 0 6px; letter-spacing: -0.01em; }
+  h2 { font-size: 21px; margin: 44px 0 6px; padding-top: 12px; border-top: 1px solid var(--line); }
+  h3 { font-size: 16px; margin: 24px 0 6px; }
+  p { margin: 8px 0; max-width: 76ch; }
+  .lede { color: var(--ink-2); max-width: 76ch; }
+  .muted { color: var(--ink-3); }
+  code { font: 12.5px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--code-bg);
+         padding: 1px 5px; border-radius: 4px; }
+  nav.toc { margin: 18px 0 8px; display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 14px; }
+  nav.toc a { color: var(--accent); text-decoration: none; }
+  nav.toc a:hover { text-decoration: underline; }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin: 20px 0 6px; }
+  .stat { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; }
+  .stat b { display: block; font-size: 22px; line-height: 1.2; font-variant-numeric: tabular-nums; }
+  .stat span { font-size: 13px; color: var(--ink-2); }
+  .callout { border-radius: 8px; padding: 12px 14px; margin: 14px 0; border: 1px solid var(--line); background: var(--surface); }
+  .callout.risk { background: var(--risk-bg); border-color: transparent; }
+  .callout.warn { background: var(--warn-bg); border-color: transparent; }
+  .callout.ok { background: var(--ok-bg); border-color: transparent; }
+  .callout strong:first-child { display: block; margin-bottom: 2px; }
+  .table-wrap { overflow-x: auto; margin: 10px 0 4px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+  table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+  th, td { text-align: left; vertical-align: top; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+  th { font-weight: 600; color: var(--ink-2); background: var(--code-bg); white-space: nowrap; }
+  tr:last-child td { border-bottom: 0; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  tr.total td { font-weight: 600; background: var(--code-bg); }
+  .tag { display: inline-block; font-size: 12px; padding: 0 7px; border-radius: 10px; white-space: nowrap; }
+  .tag.ok { background: var(--ok-bg); color: var(--ok); }
+  .tag.warn { background: var(--warn-bg); color: var(--warn); }
+  .tag.risk { background: var(--risk-bg); color: var(--risk); }
+  ol.flow { padding-left: 20px; } ol.flow li { margin: 4px 0; }
+  ul { padding-left: 20px; } li { margin: 3px 0; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 720px) { .two { grid-template-columns: 1fr; } h1 { font-size: 25px; } }
+  footer { margin-top: 48px; font-size: 13px; color: var(--ink-3); }
+</style>
+</head>
+<body>
+<main>
+
+<h1>Launch Radar on the Parallel API</h1>
+<p class="lede">How each Parallel call is configured and why, how each one fails and what the code does about it, how we know the output is good (and where we don't yet), and what everything costs — per call, per company, and in total. Numbers come from the local spend ledger and the live runs on 2026-10-06/07, not from estimates alone.</p>
+
+<nav class="toc">
+  <a href="#cost">Cost</a><a href="#pipeline">Calls and settings</a><a href="#quality">Quality and benchmarks</a>
+  <a href="#failures">Failure modes</a><a href="#verify">Checking the settings</a><a href="#todo">Gaps and next steps</a>
+</nav>
+
+<div class="stats">
+  <div class="stat"><b>$0.26</b><span>average research cost per company (28 cards, range $0.235–$0.31)</span></div>
+  <div class="stat"><b>~$9.50</b><span>total Parallel spend so far (ledger $8.48 + POC/experiments ≈ $1.04)</span></div>
+  <div class="stat"><b>~4–5 min</b><span>wall clock per company when a run is not interrupted</span></div>
+  <div class="stat"><b>$0.03/day</b><span>standing cost of the three daily Monitors</span></div>
+</div>
+
+<div class="callout risk">
+  <strong>Act before turning the loop on in production: the spend cap is lifetime, not monthly.</strong>
+  <code>LAUNCH_RADAR_SPEND_CAP_USD</code> defaults to <b>$5.00 total, forever</b> (the setting allows up to $50). At ~$0.26 a company plus $0.03/day for the Monitors, the loop stops itself after about 19 companies — roughly a week at 3 companies a day — and the cap also cancels the Monitors. Either raise it on Railway knowing it is a lifetime budget, or change the ledger to a rolling monthly cap.
+</div>
+
+<!-- ───────────────────────────── COST ───────────────────────────── -->
+<h2 id="cost">Cost</h2>
+
+<h3>Unit prices (Parallel pricing as documented)</h3>
+<div class="table-wrap"><table>
+  <tr><th>API</th><th>Setting we use</th><th class="num">Price</th><th>How it is billed</th></tr>
+  <tr><td>Monitor (<code>event_stream</code>)</td><td><code>base</code>, frequency <code>1d</code></td><td class="num">$0.010</td><td>per execution (per check); first run at creation</td></tr>
+  <tr><td>FindAll (leaders)</td><td>generator <code>preview</code>, <code>match_limit 8</code></td><td class="num">$0.10</td><td>flat per run; preview has no per-match fee</td></tr>
+  <tr><td>FindAll (backfill)</td><td>generator <code>base</code>, <code>match_limit 20</code></td><td class="num">$0.25 + $0.03/match</td><td>fixed + per match</td></tr>
+  <tr><td>FindAll enrich (backfill)</td><td>Task processor <code>base</code></td><td class="num">$0.01/match</td><td>Task price × matches</td></tr>
+  <tr><td>Task (company brief)</td><td>processor <code>core</code></td><td class="num">$0.025</td><td>per successful run (failed runs are not billed)</td></tr>
+  <tr><td>Task (team tally)</td><td>processor <code>pro</code></td><td class="num">$0.10</td><td>per successful run</td></tr>
+  <tr><td>Task Group (leader pedigree)</td><td>processor <code>base</code>, one run per leader</td><td class="num">$0.01/leader</td><td>per successful run</td></tr>
+  <tr><td>Search (domain lookup)</td><td>mode <code>advanced</code> (the default, best-ranked), 8 results</td><td class="num">$0.005</td><td>per request ($5 per 1k; up to 10 results included); only for events with no website</td></tr>
+  <tr><td class="muted">Other tiers, for reference</td><td class="muted">Task <code>lite</code> / <code>ultra</code>; FindAll <code>core</code> / <code>pro</code>; Monitor <code>lite</code></td><td class="num muted">$0.005 / $0.30; $2+$0.15 / $10+$1; $0.003</td><td class="muted">not used</td></tr>
+</table></div>
+
+<h3>Per company (real averages over 28 researched companies)</h3>
+<div class="table-wrap"><table>
+  <tr><th>Step</th><th class="num">Avg cost</th><th class="num">Share</th><th>Note</th></tr>
+  <tr><td>FindAll preview — leaders</td><td class="num">$0.100</td><td class="num">38%</td><td>fixed; runs for every company</td></tr>
+  <tr><td>Task <code>pro</code> — team tally</td><td class="num">$0.100</td><td class="num">38%</td><td>Talent's team half (up to 50 of 100); the biggest optional saving</td></tr>
+  <tr><td>Task Group <code>base</code> — pedigree</td><td class="num">$0.026</td><td class="num">10%</td><td>~2.6 leaders × $0.01 (median 2)</td></tr>
+  <tr><td>Task <code>core</code> — company brief</td><td class="num">$0.025</td><td class="num">10%</td><td>website, rounds, investors, ATS, founders</td></tr>
+  <tr><td>Refresh (11 of 28 cards)</td><td class="num">$0.010</td><td class="num">4%</td><td>one-off: a second brief + pedigree when FindAll found nobody (now built into the first pass)</td></tr>
+  <tr><td>Search — domain lookup</td><td class="num">≤ $0.005</td><td class="num">≤ 2%</td><td>only events without a website, $0.005 each on <code>advanced</code> (these 28 were looked up on <code>fast</code>, &lt;$0.001)</td></tr>
+  <tr class="total"><td>Total</td><td class="num">$0.261</td><td class="num">100%</td><td>observed range $0.235–$0.31</td></tr>
+</table></div>
+<p class="muted">With the founders fallback built into the first pass, a new company costs ≈ $0.25: $0.10 + $0.10 + $0.025 + ~$0.026.</p>
+
+<h3>What has been spent</h3>
+<div class="two">
+<div class="table-wrap"><table>
+  <tr><th>Ledger step (local dev runs)</th><th class="num">Calls</th><th class="num">Spend</th></tr>
+  <tr><td>FindAll preview (leaders)</td><td class="num">28</td><td class="num">$2.80</td></tr>
+  <tr><td>Task pro (team tally)</td><td class="num">28</td><td class="num">$2.80</td></tr>
+  <tr><td>Task core (brief, incl. 11 refreshes)</td><td class="num">39</td><td class="num">$0.975</td></tr>
+  <tr><td>FindAll base (past-month backfill)</td><td class="num">1</td><td class="num">$0.85</td></tr>
+  <tr><td>Task Group base (pedigree)</td><td class="num">28</td><td class="num">$0.74</td></tr>
+  <tr><td>FindAll enrich (backfill)</td><td class="num">1</td><td class="num">$0.20</td></tr>
+  <tr><td>Monitor create + trigger</td><td class="num">9</td><td class="num">$0.09</td></tr>
+  <tr><td>Domain lookups (4 Entity Search, 4 Search)</td><td class="num">8</td><td class="num">$0.024</td></tr>
+  <tr class="total"><td>Ledger total</td><td class="num">142</td><td class="num">$8.48</td></tr>
+</table></div>
+<div class="table-wrap"><table>
+  <tr><th>Outside the ledger (POC and experiments)</th><th class="num">Spend</th></tr>
+  <tr><td>POC pipeline on Raindrop, Ghost AI, Athennian + 2 test Monitors</td><td class="num">≈ $0.74</td></tr>
+  <tr><td>Team-tally test: option A (pro Task) vs B (Entity Search + base Task Group)</td><td class="num">≈ $0.25</td></tr>
+  <tr><td>Pedigree test: Task Group base on 3 leaders</td><td class="num">$0.03</td></tr>
+  <tr><td>Domain resolver probes (Entity Search vs Search)</td><td class="num">≈ $0.03</td></tr>
+  <tr class="total"><td>Experiments total</td><td class="num">≈ $1.04</td></tr>
+  <tr class="total"><td>Grand total</td><td class="num">≈ $9.52</td></tr>
+</table></div>
+</div>
+<p class="muted">All figures are the ledger's reserved estimates (rounded up before each call). They have not been reconciled against Parallel's invoice — see <a href="#verify">Checking the settings</a>.</p>
+
+<h3>Projected production cost</h3>
+<div class="table-wrap"><table>
+  <tr><th>Scenario</th><th class="num">Per day</th><th class="num">Per 30 days</th></tr>
+  <tr><td>Monitors only (3 × $0.01, daily)</td><td class="num">$0.03</td><td class="num">$0.90</td></tr>
+  <tr><td>+ 3 new companies a day (≈ $0.25 each)</td><td class="num">$0.78</td><td class="num">≈ $23</td></tr>
+  <tr><td>+ 5 new companies a day</td><td class="num">$1.28</td><td class="num">≈ $38</td></tr>
+  <tr><td>Same, without the team tally ($0.15 each)</td><td class="num">$0.48 / $0.78</td><td class="num">≈ $14 / $23</td></tr>
+  <tr><td>One-off past-month backfill (20 companies found, then researched)</td><td colspan="2" class="num">$1.05 discovery + ≈ $5 research</td></tr>
+</table></div>
+<p>Spend controls already in the code: every billed call reserves its estimate in the backend ledger <em>before</em> it is made; the backend refuses (HTTP 402) past the cap; each run also has its own <code>--budget</code>; the Monitors' own executions are charged to the ledger once a day; reaching the cap cancels the Monitors.</p>
+
+<!-- ───────────────────────────── PIPELINE ───────────────────────────── -->
+<h2 id="pipeline">Calls, settings and why</h2>
+<ol class="flow">
+  <li><b>Monitor events.</b> Three narrow <code>event_stream</code> Monitors (seed, Series A+, AI launches), <code>base</code>, daily, <code>include_backfill</code>, a 9-field output schema. The loop polls <code>GET events</code> once a day (no webhook: the loop runs on a laptop with no public URL).</li>
+  <li><b>Domain lookup.</b> For events with no website: one Search call (<code>advanced</code>, the default and best-ranked mode; the lookup is not latency-sensitive); keep the top result whose host carries the company name and is not a news/directory/social site.</li>
+  <li><b>Dedupe</b> against every card ever posted (free; before any spend).</li>
+  <li><b>In parallel:</b> FindAll <code>preview</code> for founders/C-level/VPs of that exact domain (then an <code>is_person</code> filter); the <code>core</code> brief Task; the <code>pro</code> team-tally Task.</li>
+  <li><b>Founders fallback:</b> if FindAll keeps nobody, use the brief's <code>founders</code>.</li>
+  <li><b>Pedigree:</b> a Task Group, one <code>base</code> run per leader.</li>
+  <li><b>Free ATS check</b> (Greenhouse/Ashby/Lever public APIs), <b>deterministic scoring</b>, <b>POST the card</b>.</li>
+</ol>
+
+<div class="table-wrap"><table>
+  <tr><th>Call</th><th>Chosen setting</th><th>Alternatives tried</th><th>Evidence behind the choice</th></tr>
+  <tr><td>Monitor</td><td><code>base</code>, 3 narrow queries, daily</td><td><code>lite</code>; one broad query</td><td><code>lite</code> + broad query: 0 events. <code>base</code> broad: 1 event in 2 runs. Three narrow <code>base</code>: 4–6 events per backfill. Series A+ fired in both runs, seed in one of two, launches in neither.</td></tr>
+  <tr><td>Domain lookup</td><td>Search <code>advanced</code> ($0.005)</td><td>Entity Search ($0.005); Search <code>fast</code> ($0.001)</td><td>Entity Search returned only LinkedIn/Tracxn pages: 0 of 4 company sites. Search on <code>fast</code>: 4 of 4 correct (finmid.com, onebyzero.io, signsplit.com, guardrail.tech), hand-checked. Moved to <code>advanced</code>, Search's default and best-ranked mode: the lookup runs once per event and does not need to be fast.</td></tr>
+  <tr><td>Leaders</td><td>FindAll <code>preview</code>, limit 8, domain in the condition</td><td>FindAll <code>base</code> ($0.25 + $0.03/match); Entity Search people</td><td>Raindrop: 3 of 3 founders, rejected Raindrop.io's founder. Weak recall on newer companies (0 people for 11 of 28) — fixed with the brief's founders, not a pricier generator.</td></tr>
+  <tr><td>Pedigree</td><td>Task Group, <code>base</code> per leader</td><td>FindAll enrich on <code>core</code>; Task Group <code>core</code></td><td>Enrich filled 3 of 15 leaders. <code>base</code> vs <code>core</code> on Raindrop's 3 founders: same schools, same exit, same top employers, same talent score (49); thinner prior-role lists; 40% of the cost.</td></tr>
+  <tr><td>Company brief</td><td>Task <code>core</code>, structured JSON</td><td>—</td><td>Rounds, investors and ATS token correct on Raindrop; ATS token confirmed live (Ashby, 9 jobs). Every field carries <code>basis</code> citations + confidence.</td></tr>
+  <tr><td>Team tally</td><td>Task <code>pro</code> ($0.10)</td><td>Entity Search + <code>base</code> per person (~$0.15–0.31)</td><td>Same 5 of 6 people on Raindrop; A is cheaper and simpler. Scored as Talent's team half.</td></tr>
+  <tr><td>Backfill</td><td>FindAll <code>base</code>, limit 20, + <code>base</code> enrichment</td><td>Monitor (cannot look back)</td><td>20 matches in the Sep 7–Oct 7 window, all kept after the date check; all researched.</td></tr>
+</table></div>
+
+<h3>Scoring (deterministic, in code — no model)</h3>
+<div class="two">
+<div>
+<p><b>Talent</b> (0–100) is a 50/50 blend: <b>leaders</b> (0–50) + <b>team</b> (0–50). Both known: the sum. One known: that half doubled (missing data is not a weak team). Neither: null.</p>
+<p><b>Leaders</b>: top school +8 each (cap 24); top-tier employer +10 each (cap 30); prior founder <em>with an exit</em> (acquired/IPO) +15 each (cap 30); 10+ years +5 each (cap 10), weighted by Parallel's field confidence (high ×1.0, medium ×0.8, low ×0.5). That 0–94 is rescaled ×50/94. Founding without an exit scores 0.</p>
+<p><b>Team</b>, from the tally of <i>n</i> profiles. The tally lists schools and employers, not people, so a side's share is its top-list entries over max(<i>n</i>, entries listed). Top schools 25 × min(1, share/0.5); top employers 25 × min(1, share/0.5); each rounded once and summed, so the shown points add up. No prior exits: those are checked on the leaders, not the team (an older card's tally count is ignored). A side with nothing listed is missing, not 0: the other side is scaled to 50. Under 5 profiles the team counts <i>n</i>/5 and the rest follows the leaders' half. Null with no profiles or no background listed. <code>radar.sh rescore</code> recomputes stored cards for $0.</p>
+</div>
+<div>
+<p><b>VC</b> (0–100): tier-1 lead 60 / participant 45; tier-2 lead 35 / participant 25; Y Combinator 15; extra investors in a tier add up to a cap; round size bonus +15 (≥$50M), +10 (≥$20M), +5 (≥$10M); named but untiered investors +10.</p>
+</div>
+</div>
+
+<!-- ───────────────────────────── QUALITY ───────────────────────────── -->
+<h2 id="quality">How we know the quality is good — and where we don't yet</h2>
+<div class="callout warn"><strong>Honest status</strong>The settings were chosen from head-to-head comparisons on real companies and hand-checks against a known company (Raindrop). There is no labeled benchmark set yet, so accuracy is evidenced, not measured. Treat the scores as a ranking aid, not ground truth.</div>
+
+<div class="table-wrap"><table>
+  <tr><th>Check</th><th>What it shows</th><th>Strength</th></tr>
+  <tr><td>Known-company spot check (Raindrop)</td><td>Founders, schools, the Opyn exit, Series A $35M led by CRV — all matched public sources.</td><td><span class="tag ok">real ground truth</span> but n = 1</td></tr>
+  <tr><td>Head-to-head on the same inputs</td><td><code>base</code> vs <code>core</code> pedigree; Entity Search vs Search; option A vs B team tally; <code>lite</code> vs <code>base</code> Monitor.</td><td><span class="tag ok">same inputs</span> small samples</td></tr>
+  <tr><td>Deterministic checks</td><td>ATS board token verified against the live public board API; domain normalization; date/URL validation.</td><td><span class="tag ok">exact</span></td></tr>
+  <tr><td>Citations + confidence (<code>basis</code>)</td><td>Every Task/FindAll field cites URLs with a confidence; the score down-weights medium/low.</td><td><span class="tag warn">self-reported</span></td></tr>
+  <tr><td>Known weak spots seen live</td><td>A seed date that looked guessed (Raindrop "2025-12-01"); interns counted as top-employer signals; a round year "2013" on one card.</td><td><span class="tag warn">needs an eval</span></td></tr>
+</table></div>
+
+<h3>How to benchmark it properly (recommended)</h3>
+<ol class="flow">
+  <li><b>Gold set.</b> 20–30 companies with hand-verified facts: founders and titles, schools, prior employers, exits, latest round (amount, date, lead), website, ATS board. Mix famous and obscure, US and EU, funding and launch.</li>
+  <li><b>Record once, replay forever.</b> Save each Parallel response as a fixture (the loop already writes request/response JSON); score fixtures offline so re-scoring costs $0.</li>
+  <li><b>Metrics per field:</b> leader recall and precision (vs gold founders), school/employer/exit accuracy, round amount within 10%, date within 7 days, website exact, ATS exact; plus the share of fields with high confidence that are wrong (calibration).</li>
+  <li><b>Processor sweep:</b> run the gold set on <code>base</code> / <code>core</code> / <code>pro</code> per step and plot accuracy vs cost; keep the cheapest setting within ~2 points of the best.</li>
+  <li><b>Regression gate:</b> re-run the gold set before changing any setting, prompt or schema (the repo already does this for location parsing in <code>src/backend/api/eval/</code>).</li>
+  <li><b>Score sanity:</b> check that the talent/VC ranking matches a human ranking of the gold set (rank correlation), not just field accuracy.</li>
+</ol>
+
+<!-- ───────────────────────────── FAILURES ───────────────────────────── -->
+<h2 id="failures">Failure modes</h2>
+<div class="table-wrap"><table>
+  <tr><th>Failure</th><th>Seen?</th><th>How it shows</th><th>What the code does</th><th>Residual risk</th></tr>
+  <tr><td><b>Monitor low recall</b></td><td><span class="tag risk">yes</span></td><td>Seed and launch Monitors often return 0 events; backfill is a small same-day sample; Monitors cannot look back.</td><td>Three narrow queries on <code>base</code>; one-off <code>backfill</code> via FindAll for history.</td><td>Misses companies; tune queries with the gold set.</td></tr>
+  <tr><td><b>Events with no website</b></td><td><span class="tag risk">yes, most</span></td><td><code>company_domain: null</code> → dedupe drops everything (0 cards in the first real run).</td><td>Search-based lookup (≤10 a run); host must carry the company name.</td><td>Similar names can pick a sibling site (onebyzero.io vs .ai); the brief's <code>website_url</code> is the second check.</td></tr>
+  <tr><td><b>Name ambiguity</b></td><td><span class="tag warn">yes</span></td><td>"Ghost AI", "Raindrop" match several companies.</td><td>The domain is in the FindAll match condition and the Task inputs.</td><td>Low once the domain is right.</td></tr>
+  <tr><td><b>FindAll finds no people</b></td><td><span class="tag risk">yes, 11/28</span></td><td>Preview checks only 5–10 candidates; obscure teams have few indexed profiles.</td><td>Fallback to the brief's founders → Task Group pedigree.</td><td>Thin data for tiny teams.</td></tr>
+  <tr><td><b>Company pages matched as people</b></td><td><span class="tag risk">yes</span></td><td>Ghost AI: 8 of 8 "leaders" were Tracxn company pages.</td><td><code>is_person</code> drops company-page URLs before any spend on them.</td><td>New directory sites may slip through.</td></tr>
+  <tr><td><b>FindAll enrich returns nothing</b></td><td><span class="tag risk">yes</span></td><td>3 of 15 leaders filled.</td><td>Not used; Task Group per leader instead.</td><td>—</td></tr>
+  <tr><td><b>Model guesses / stale facts</b></td><td><span class="tag warn">yes</span></td><td>A guessed-looking date; interns counted as employers; old round years.</td><td>Confidence weighting; ISO date validation; scores are deterministic and explained per card.</td><td>Needs the gold-set eval.</td></tr>
+  <tr><td><b>Type drift in JSON output</b></td><td><span class="tag warn">yes</span></td><td>Integers arrive as floats (<code>6.0</code>); a string field returned as int.</td><td>Defensive casting everywhere output is read.</td><td>Low.</td></tr>
+  <tr><td><b>Large schema warning</b></td><td><span class="tag warn">yes</span></td><td><code>spec_validation_warning</code>: 25+ properties vs 10 recommended (brief).</td><td>Kept (one call is cheaper than two); fields are flat and all required.</td><td>Possible quality loss on late fields; test splitting the brief in the eval.</td></tr>
+  <tr><td><b>Long-running work</b></td><td><span class="tag ok">handled</span></td><td><code>result</code> returns 408 while running; FindAll <code>base</code> took &gt;9 min; headless Bash is capped at 10 min.</td><td>Poll with a server-side timeout; stop at 540 s (exit 3) and resume from saved run ids.</td><td>—</td></tr>
+  <tr><td><b>Double billing on retry</b></td><td><span class="tag ok">handled</span></td><td>A create that times out after Parallel accepted it, then a retry, bills twice.</td><td>SDK retries off; attempt tracking; an ambiguous retry is reserved again as <code>#retryN</code>; Task Group runs check the group before re-adding.</td><td>Rare; visible in the ledger.</td></tr>
+  <tr><td><b>Runaway spend</b></td><td><span class="tag ok">handled</span></td><td>—</td><td>Reserve-before-call ledger, global cap (402), per-run budget, cap cancels Monitors.</td><td>Cap is lifetime — see the warning at the top.</td></tr>
+  <tr><td><b>Untrusted web text</b></td><td><span class="tag ok">handled</span></td><td>Card text comes from the open web (prompt-injection and XSS surface).</td><td>Loop treats output as data; launchd wrapper uses an <code>--allowedTools</code> allowlist; only http(s) links render; URLs validated on input.</td><td>Keep the allowlist tight.</td></tr>
+  <tr><td><b>Rate limits</b></td><td><span class="tag ok">not hit</span></td><td>FindAll 300 creates/hour; Entity Search 600/min.</td><td>Max 3 companies in parallel; ≤10 lookups a run.</td><td>—</td></tr>
+</table></div>
+
+<!-- ───────────────────────────── VERIFY ───────────────────────────── -->
+<h2 id="verify">How to know the settings are correct</h2>
+<ul>
+  <li><b>Request shapes are pinned by tests.</b> Every call's parameters (processor, generator, schema rules like <code>additionalProperties: false</code>, match conditions, date window) are asserted against fakes in <code>scripts/tests/unit/test_launch_radar_*.py</code>, and were checked against the installed <code>parallel-web</code> 1.3.5 SDK signatures and the OpenAPI spec in your docs folder.</li>
+  <li><b>Dry runs print the exact requests and costs</b> before any spend: <code>radar.sh run --dry-run</code>, <code>backfill --dry-run</code>, <code>refresh --dry-run</code>, <code>import --dry-run</code>.</li>
+  <li><b>The ledger is the audit trail.</b> One row per billed call (step, company, estimate, run). Compare it monthly with the Parallel dashboard usage; a gap means an estimate is wrong or a call billed without a reservation.</li>
+  <li><b>Monitor health.</b> <code>radar.sh monitors-cancel</code> confirms cancellation; the run log reports events per Monitor each day — a Monitor at 0 events for a week needs a new query.</li>
+  <li><b>Live smoke test</b> after any change: <code>refresh --domains &lt;one known company&gt;</code> (≈ $0.05) and compare the card with the gold facts.</li>
+</ul>
+
+<!-- ───────────────────────────── GAPS ───────────────────────────── -->
+<h2 id="todo">Gaps and next steps</h2>
+<ol class="flow">
+  <li><b>Decide the production cap model</b> (lifetime vs monthly) and set <code>LAUNCH_RADAR_SPEND_CAP_USD</code> on Railway accordingly.</li>
+  <li><b>Build the gold-set eval</b> before tuning anything else; it turns "looks right" into numbers.</li>
+  <li><b>Tune the seed and launch Monitor queries</b> (they rarely fire); measure events/day per Monitor for a week.</li>
+  <li><b>Reconcile ledger vs invoice</b> after the first production month.</li>
+  <li><b>Keep the team tally</b> (38% of per-company cost): it is now Talent's team half; dropping it would leave every card scored on its leaders alone (doubled).</li>
+</ol>
+
+<footer>Sources: local ledger <code>launch_radar_spend</code> and 28 cards in <code>jvn_launch_radar</code> (2026-10-07); POC logs in <code>scripts/launch_radar_poc/out/</code>; Parallel pricing from <code>parallel-coding-interview/parallel-docs</code>; code in <code>scripts/launch_radar/</code>. Estimates are the ledger's rounded-up reservations, not invoice figures.</footer>
+</main>
+</body>
+</html>

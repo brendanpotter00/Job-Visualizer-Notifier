@@ -11,7 +11,13 @@ import type {
 } from '../../../features/admin/launchRadarTypes';
 import { RadarCard } from '../../../pages/AdminLaunchRadarPage/components/RadarCard';
 import type { CardAction } from '../../../pages/AdminLaunchRadarPage/components/CardStatusLine';
-import { makeAthennianCard, makeGhostCard, makeKestrelCard, makeRaindropCard } from './fixtures';
+import {
+  makeAthennianCard,
+  makeGhostCard,
+  makeKestrelCard,
+  makeRaindropCard,
+  unblendedScores,
+} from './fixtures';
 
 // Node's built-in `Request` requires absolute URLs; RTK Query passes relative
 // ones. Same shim as the other admin page tests.
@@ -214,29 +220,6 @@ describe('RadarCard', () => {
     expect(within(talent).getByLabelText('No score')).toBeInTheDocument();
   });
 
-  it.each([
-    ['on record', makeGhostCard],
-    ['not on record', () => makeGhostCard({ prUrl: null })],
-  ])('shows no add-company PR UI, open or closed, with a PR %s', async (_label, make) => {
-    const user = userEvent.setup();
-    renderCard(make());
-    const card = screen.getByTestId('radar-card-2');
-    const expectNoPr = () => {
-      expect(within(card).queryByText(/PR/)).not.toBeInTheDocument();
-      for (const link of within(card).queryAllByRole('link')) {
-        expect(link).not.toHaveAttribute('href', expect.stringContaining('github.com'));
-      }
-    };
-    expectNoPr();
-    await user.click(toggle('Ghost AI'));
-    expectNoPr();
-    // An untracked company keeps its job board link.
-    expect(within(card).getByRole('link', { name: 'Job board Ghost AI' })).toHaveAttribute(
-      'href',
-      'https://jobs.ashbyhq.com/ghost'
-    );
-  });
-
   it('links "Job board" for an untracked company, and shows nothing when there is no board', () => {
     const { unmount } = render(
       <Provider store={makeStore()}>
@@ -333,7 +316,6 @@ describe('RadarCard', () => {
           careersUrl: data,
           event: { ...base.event!, sourceUrl: bad },
           ats: { ...base.ats, boardUrl: data, checkedUrl: bad },
-          prUrl: bad,
           leaders: base.leaders.map((l) => ({ ...l, linkedinUrl: bad, profileUrl: data })),
           sources: [{ url: bad, title: 'x', field: null }],
         })
@@ -372,7 +354,9 @@ describe('RadarCard', () => {
     expect(within(rest).getByText('6 public profiles')).toBeInTheDocument();
     expect(within(rest).getByText('Previously at Amazon (2) and Twitter')).toBeInTheDocument();
     expect(within(rest).getByText('2 schools: UC Davis and UCSB')).toBeInTheDocument();
-    expect(within(rest).getByText('No prior exits found')).toBeInTheDocument();
+    // Schools and employers only: prior exits are a leaders' signal, never a team line.
+    expect(within(rest).queryByText(/exit|founder/i)).not.toBeInTheDocument();
+    expect(within(rest).queryByText('No schools or employers listed')).not.toBeInTheDocument();
 
     // Funding
     const funding = screen.getByRole('region', { name: 'Funding' });
@@ -396,10 +380,16 @@ describe('RadarCard', () => {
     await user.click(why);
     expect(why).toHaveAttribute('aria-expanded', 'true');
     expect(
-      screen.getByText(
-        'Talent 49: Priya Raman: top school (Berkeley); Priya Raman: prior exit (Ledgerline, acquired by Northwind)'
-      )
+      screen.getByText('Talent 49: leaders 24 + team 25 (each out of 50)')
     ).toBeInTheDocument();
+    expect(
+      within(screen.getByRole('list', { name: 'Talent parts' }))
+        .getAllByRole('listitem')
+        .map((li) => li.textContent)
+    ).toEqual([
+      'Leaders 24: Priya Raman: top school (Berkeley); Priya Raman: prior exit (Ledgerline, acquired by Northwind)',
+      'Team 25: the 1 school listed across 6 profiles is not a top school; 3 of the 3 employers listed across 6 profiles are top employers (+25)',
+    ]);
     expect(
       screen.getByText('VC 55: CRV led (tier 2); Lightspeed joined (tier 1); round over $20M')
     ).toBeInTheDocument();
@@ -454,7 +444,7 @@ describe('RadarCard', () => {
     const user = userEvent.setup();
     renderCard(
       makeGhostCard({
-        scores: { talent: null, vc: null, talentReasons: [], vcReasons: [] },
+        scores: unblendedScores({ talent: null, vc: null, talentReasons: [], vcReasons: [] }),
         issues: ['brief failed: task trun_1: failed (processor error)', 'no leaders confirmed'],
       })
     );
@@ -493,6 +483,90 @@ describe('RadarCard', () => {
     expect(screen.queryByText(/research incomplete/)).not.toBeInTheDocument();
   });
 
+  describe('the Talent breakdown: one badge, both halves under "Why these scores"', () => {
+    async function openWhy(card: LaunchRadarCard) {
+      const user = userEvent.setup();
+      renderCard(card);
+      await user.click(toggle(card.company));
+      await user.click(screen.getByRole('button', { name: /why these scores/i }));
+    }
+    const parts = () =>
+      within(screen.getByRole('list', { name: 'Talent parts' }))
+        .getAllByRole('listitem')
+        .map((li) => li.textContent);
+    const base = makeRaindropCard().scores;
+
+    it('a leaders-only card: the leaders doubled, the team says why it is missing', async () => {
+      const card = makeRaindropCard({
+        scores: {
+          ...base,
+          talent: 38,
+          talentLeaders: 19,
+          talentTeam: null,
+          talentBasis: 'leaders',
+          talentTeamReasons: ['no public profiles found for the rest of the team'],
+        },
+      });
+      await openWhy(card);
+      expect(screen.getByRole('group', { name: 'Talent score 38' })).toHaveTextContent('38');
+      expect(
+        screen.getByText('Talent 38: leaders 19 of 50, doubled: no team data')
+      ).toBeInTheDocument();
+      expect(parts()).toEqual([
+        'Leaders 19: Priya Raman: top school (Berkeley); Priya Raman: prior exit (Ledgerline, acquired by Northwind)',
+        'Team: no public profiles found for the rest of the team',
+      ]);
+    });
+
+    it('a team-only card: the team doubled, the leaders have no people data', async () => {
+      const card = makeRaindropCard({
+        scores: {
+          ...base,
+          talent: 24,
+          talentLeaders: null,
+          talentReasons: [],
+          talentTeam: 12,
+          talentBasis: 'team',
+        },
+      });
+      await openWhy(card);
+      expect(screen.getByRole('group', { name: 'Talent score 24' })).toHaveTextContent('24');
+      expect(
+        screen.getByText('Talent 24: team 12 of 50, doubled: no leader data')
+      ).toBeInTheDocument();
+      expect(parts()).toEqual([
+        'Leaders: no people data',
+        'Team 12: the 1 school listed across 6 profiles is not a top school; 3 of the 3 employers listed across 6 profiles are top employers (+25)',
+      ]);
+    });
+
+    it('a legacy card (scored before the blend) keeps its one line and no parts', async () => {
+      const card = makeRaindropCard({
+        scores: unblendedScores({
+          talent: 49,
+          vc: 55,
+          talentReasons: base.talentReasons,
+          vcReasons: base.vcReasons,
+        }),
+      });
+      await openWhy(card);
+      expect(screen.getByRole('group', { name: 'Talent score 49' })).toHaveTextContent('49');
+      expect(
+        screen.getByText(
+          'Talent 49: Priya Raman: top school (Berkeley); Priya Raman: prior exit (Ledgerline, acquired by Northwind)'
+        )
+      ).toBeInTheDocument();
+      expect(screen.queryByRole('list', { name: 'Talent parts' })).not.toBeInTheDocument();
+    });
+
+    it('the card shows one Talent number, never the parts', () => {
+      renderCard(makeRaindropCard());
+      expect(screen.getAllByRole('group', { name: /^Talent/ })).toHaveLength(1);
+      expect(screen.getByRole('group', { name: 'Talent score 49' })).toHaveTextContent('49');
+      expect(screen.queryByText(/leaders 24/)).not.toBeInTheDocument();
+    });
+  });
+
   it('still lists the real gaps when a provenance note rides along', async () => {
     const user = userEvent.setup();
     renderCard(
@@ -527,17 +601,24 @@ describe('RadarCard', () => {
   it('renders unknown team counts as unknown, never as zero', async () => {
     const user = userEvent.setup();
     const base = makeRaindropCard();
-    renderCard(
-      makeRaindropCard({
-        teamStats: { ...base.teamStats!, profilesFound: null, exFoundersWithExit: null },
-      })
-    );
+    renderCard(makeRaindropCard({ teamStats: { ...base.teamStats!, profilesFound: null } }));
     await user.click(toggle('Raindrop AI'));
     const rest = screen.getByRole('region', { name: 'Rest of team' });
     expect(within(rest).getByText('profile count unknown')).toBeInTheDocument();
-    expect(within(rest).getByText('Prior exits unknown')).toBeInTheDocument();
-    expect(within(rest).queryByText('No prior exits found')).not.toBeInTheDocument();
     expect(within(rest).queryByText(/0 public profiles/)).not.toBeInTheDocument();
+  });
+
+  it('says so when the team tally lists no schools or employers', async () => {
+    const user = userEvent.setup();
+    const base = makeRaindropCard();
+    // An older card may still carry the tally's prior-exit count; it is never shown.
+    const legacyStats = { ...base.teamStats!, schools: [], priorEmployers: [], exFoundersWithExit: 1 };
+    renderCard(makeRaindropCard({ teamStats: legacyStats }));
+    await user.click(toggle('Raindrop AI'));
+    const rest = screen.getByRole('region', { name: 'Rest of team' });
+    expect(within(rest).getByText('6 public profiles')).toBeInTheDocument();
+    expect(within(rest).getByText('No schools or employers listed')).toBeInTheDocument();
+    expect(within(rest).queryByText(/exit|founder/i)).not.toBeInTheDocument();
   });
 
   it('saves on Save without toggling the accordion', async () => {

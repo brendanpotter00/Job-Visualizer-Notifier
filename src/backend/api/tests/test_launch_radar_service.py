@@ -95,7 +95,6 @@ def make_payload(domain: str = "raindrop.ai", **overrides: Any) -> dict[str, Any
             "team_size_estimate": "approximately 10-20",
             "schools": [{"name": "UC Davis", "count": 1}],
             "prior_employers": [{"name": "Amazon", "count": 2}],
-            "ex_founders_with_exit": 0,
             "sample_names": ["A Person"],
         },
         "funding": {
@@ -119,7 +118,6 @@ def make_payload(domain: str = "raindrop.ai", **overrides: Any) -> dict[str, Any
             "job_count": 9,
             "checked_url": "https://api.ashbyhq.com/posting-api/job-board/Raindrop",
         },
-        "pr_ready": True,
         "sources": [{"url": "https://techcrunch.com/raindrop", "title": None, "field": None}],
         "parallel_run_ids": {
             "findall_id": "findall_1",
@@ -438,8 +436,8 @@ class TestInsertCard:
 
     def test_tracked_id_outlives_its_company_row(self, db_conn) -> None:
         """A soft link (no FK): deleting the company does not fail and does not
-        null the card's id, so the card keeps reading as tracked and is never
-        offered for an add-company PR. Harmless, and pinned so it stays chosen."""
+        null the card's id, so the card keeps reading as tracked. Harmless, and
+        pinned so it stays chosen."""
         _insert_company(db_conn, "raindrop", "ashby", "raindrop")
         start_test_run(db_conn)
         card = svc.insert_card(db_conn, "run-0001", stored_payload())["id"]
@@ -449,7 +447,6 @@ class TestInsertCard:
         rows, total = svc.list_cards(db_conn, "new", 25, 0)
         assert total == 1 and rows[0]["id"] == card
         assert rows[0]["tracked_company_id"] == "raindrop"
-        assert svc.pr_candidates(db_conn, 5) == []
 
 
 # ---------------------------------------------------------------------------
@@ -851,69 +848,6 @@ class TestStatsSeenPr:
             },
             "names": {"raindrop ai": "raindrop-ai"},
         }
-
-    def test_pr_candidates_and_set_pr(self, db_conn) -> None:
-        _insert_company(db_conn, "tracked", "ashby", "tracked")
-        start_test_run(db_conn)
-        ready = svc.insert_card(db_conn, "run-0001", stored_payload(domain="ready.ai"))["id"]
-        svc.insert_card(db_conn, "run-0001", stored_payload(domain="notready.ai", pr_ready=False))
-        tracked_payload = make_payload(domain="tracked.ai")
-        tracked_payload["ats"] = {**tracked_payload["ats"], "board_token": "tracked"}
-        tracked = svc.insert_card(
-            db_conn,
-            "run-0001",
-            LaunchRadarPayload.model_validate(tracked_payload).model_dump(mode="json"),
-        )["id"]
-        cands = svc.pr_candidates(db_conn, 5)
-        assert [c["id"] for c in cands] == [ready]
-        assert cands[0]["ats_provider"] == "ashby" and cands[0]["job_count"] == 9
-        assert cands[0]["board_token"] == "Raindrop" and cands[0]["company"] == "Raindrop AI"
-
-        url = "https://github.com/brendanpotter00/Job-Visualizer-Notifier/pull/400"
-        assert svc.set_pr_url(db_conn, ready, url) == (ready, url)
-        assert svc.pr_candidates(db_conn, 5) == []
-        with pytest.raises(svc.Conflict):
-            svc.set_pr_url(db_conn, ready, url)
-        with pytest.raises(svc.Conflict):
-            svc.set_pr_url(db_conn, tracked, url)
-        with pytest.raises(svc.NotFound):
-            svc.set_pr_url(db_conn, 999_999, url)
-
-    def test_pr_candidates_include_saved_cards_first_never_archived_or_deleted(
-        self, db_conn
-    ) -> None:
-        start_test_run(db_conn)
-
-        def card(domain: str, posted: str) -> int:
-            card_id = svc.insert_card(db_conn, "run-0001", stored_payload(domain=domain))["id"]
-            with db_conn.cursor() as cur:
-                cur.execute(
-                    "UPDATE launch_radar_cards SET posted_at = %s WHERE id = %s", (posted, card_id)
-                )
-            db_conn.commit()
-            return card_id
-
-        old_saved = card("oldsaved.ai", "2026-10-01T00:00:00Z")
-        new_old = card("oldnew.ai", "2026-10-02T00:00:00Z")
-        new_newest = card("newnew.ai", "2026-10-06T00:00:00Z")
-        saved_newer = card("newsaved.ai", "2026-10-03T00:00:00Z")
-        archived = card("archived.ai", "2026-10-07T00:00:00Z")
-        deleted = card("deleted.ai", "2026-10-07T01:00:00Z")
-        svc.set_status(db_conn, old_saved, "saved", "x")
-        svc.set_status(db_conn, saved_newer, "saved", "x")
-        svc.set_status(db_conn, archived, "archived", "x")
-        svc.set_status(db_conn, deleted, "archived", "x")
-        svc.delete_card(db_conn, deleted, "x")
-
-        # Saved first (the admin flagged them), each group newest posted first.
-        ids = [c["id"] for c in svc.pr_candidates(db_conn, 5)]
-        assert ids == [saved_newer, old_saved, new_newest, new_old]
-        assert archived not in ids and deleted not in ids
-        assert [c["id"] for c in svc.pr_candidates(db_conn, 1)] == [saved_newer]
-        # A saved card leaves the list like a new one once its PR is recorded.
-        url = "https://github.com/brendanpotter00/Job-Visualizer-Notifier/pull/401"
-        svc.set_pr_url(db_conn, saved_newer, url)
-        assert [c["id"] for c in svc.pr_candidates(db_conn, 1)] == [old_saved]
 
     def test_monitor_put_patch_and_reset_cursor_on_new_id(self, db_conn) -> None:
         t0 = datetime(2026, 10, 7, 7, tzinfo=timezone.utc)

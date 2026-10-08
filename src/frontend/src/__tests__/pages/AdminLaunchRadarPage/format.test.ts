@@ -5,7 +5,6 @@ import {
   cardToggleId,
   formatEventDate,
   formatMonthYear,
-  formatRunLine,
   formatShortDate,
   formatUsd,
   hostnameOf,
@@ -19,8 +18,9 @@ import {
   safeHttpUrl,
   scoreEmphasis,
   summarizeTally,
+  talentBreakdown,
 } from '../../../pages/AdminLaunchRadarPage/format';
-import type { LaunchRadarAts } from '../../../features/admin/launchRadarTypes';
+import type { LaunchRadarAts, LaunchRadarScores } from '../../../features/admin/launchRadarTypes';
 
 const ATS: LaunchRadarAts = {
   provider: 'ashby',
@@ -78,37 +78,6 @@ describe('Launch Radar format helpers', () => {
     expect(formatUsd(0.46)).toBe('$0.46');
     expect(formatUsd(5)).toBe('$5.00');
     expect(formatUsd(0.1349)).toBe('$0.13');
-  });
-
-  describe('formatRunLine', () => {
-    const stats = {
-      lastRun: {
-        startedAt: '2026-10-07T01:31:00Z',
-        endedAt: null,
-        status: 'ok' as const,
-        host: 'server-laptop',
-      },
-      spendUsd: 0.46,
-      capUsd: 5,
-    };
-
-    it('names the run time in UTC, the host and the spend of the cap', () => {
-      expect(formatRunLine(stats)).toBe(
-        'Last run Oct 7 at 01:31 UTC on server-laptop. $0.46 of the $5.00 budget used.'
-      );
-    });
-
-    it('flags a run that did not end ok and omits a missing host', () => {
-      expect(
-        formatRunLine({ ...stats, lastRun: { ...stats.lastRun, status: 'stopped', host: null } })
-      ).toBe('Last run Oct 7 at 01:31 UTC (stopped). $0.46 of the $5.00 budget used.');
-    });
-
-    it('says "No runs yet." when there is no run', () => {
-      expect(formatRunLine({ lastRun: null, spendUsd: 0, capUsd: 5 })).toBe(
-        'No runs yet. $0.00 of the $5.00 budget used.'
-      );
-    });
   });
 
   it('atsLabel capitalizes every provider', () => {
@@ -262,6 +231,112 @@ describe('Launch Radar format helpers', () => {
       expect(scoreEmphasis('vc')).toEqual({ talent: 'muted', vc: 'strong' });
       expect(scoreEmphasis('announced')).toEqual({ talent: 'normal', vc: 'normal' });
       expect(scoreEmphasis('added')).toEqual({ talent: 'normal', vc: 'normal' });
+    });
+  });
+
+  describe('talentBreakdown', () => {
+    const scores = (over: Partial<LaunchRadarScores>): LaunchRadarScores => ({
+      talent: 74,
+      vc: 100,
+      talentReasons: [
+        'Keith Peiris: top school (Stanford)',
+        'Keith Peiris: prior exit (Tome, acquired)',
+      ],
+      vcReasons: [],
+      talentLeaders: 37,
+      talentTeam: 37,
+      talentBasis: 'both',
+      talentTeamReasons: [
+        '15 of the 19 schools listed across 33 profiles are top schools (+23)',
+        '9 of the 19 employers listed across 33 profiles are top employers (+14)',
+      ],
+      ...over,
+    });
+
+    it('both parts: the sum, then one line per part', () => {
+      expect(talentBreakdown(scores({}), false)).toEqual({
+        line: 'Talent 74: leaders 37 + team 37 (each out of 50)',
+        parts: [
+          'Leaders 37: Keith Peiris: top school (Stanford); Keith Peiris: prior exit (Tome, acquired)',
+          'Team 37: 15 of the 19 schools listed across 33 profiles are top schools (+23); 9 of the 19 employers listed across 33 profiles are top employers (+14)',
+        ],
+      });
+    });
+
+    it('leaders only: doubled, and the team part says why it is missing', () => {
+      const out = talentBreakdown(
+        scores({
+          talent: 38,
+          talentLeaders: 19,
+          talentTeam: null,
+          talentBasis: 'leaders',
+          talentTeamReasons: ['the team tally lists no schools or employers'],
+        }),
+        false
+      );
+      expect(out.line).toBe('Talent 38: leaders 19 of 50, doubled: no team data');
+      expect(out.parts[1]).toBe('Team: the team tally lists no schools or employers');
+    });
+
+    it('team only: doubled, and a leaders part with no reasons reads "no people data"', () => {
+      const out = talentBreakdown(
+        scores({
+          talent: 24,
+          talentLeaders: null,
+          talentReasons: [],
+          talentTeam: 12,
+          talentBasis: 'team',
+        }),
+        false
+      );
+      expect(out.line).toBe('Talent 24: team 12 of 50, doubled: no leader data');
+      expect(out.parts[0]).toBe('Leaders: no people data');
+    });
+
+    it('a scored part with no reasons still says why it is 0', () => {
+      const out = talentBreakdown(
+        scores({ talent: 12, talentLeaders: 0, talentReasons: [], talentTeam: 12 }),
+        false
+      );
+      expect(out.parts[0]).toBe('Leaders 0: no top school, top employer, exit or 10+ years');
+    });
+
+    it('legacy (no basis): the one line it always had, no parts', () => {
+      const legacy = scores({
+        talent: 70,
+        talentLeaders: null,
+        talentTeam: null,
+        talentBasis: null,
+        talentTeamReasons: [],
+      });
+      expect(talentBreakdown(legacy, false)).toEqual({
+        line: 'Talent 70: Keith Peiris: top school (Stanford); Keith Peiris: prior exit (Tome, acquired)',
+        parts: [],
+      });
+    });
+
+    it('a backend that predates the blend (fields absent) reads as legacy', () => {
+      const old = {
+        talent: 49,
+        vc: 10,
+        talentReasons: ['A: 10+ years'],
+        vcReasons: [],
+      } as unknown as LaunchRadarScores;
+      expect(talentBreakdown(old, false)).toEqual({ line: 'Talent 49: A: 10+ years', parts: [] });
+    });
+
+    it('no Talent: no people data, or research incomplete', () => {
+      const none = scores({
+        talent: null,
+        talentLeaders: null,
+        talentTeam: null,
+        talentBasis: null,
+      });
+      expect(talentBreakdown(none, false)).toEqual({
+        line: 'Talent: no people data, so no score',
+        parts: [],
+      });
+      expect(talentBreakdown(none, true).line).toBe('Talent: not scored, research incomplete');
     });
   });
 

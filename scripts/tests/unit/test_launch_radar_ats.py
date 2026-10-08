@@ -1,6 +1,6 @@
 """Free ATS board check against the public APIs (all mocked)."""
 
-from launch_radar.ats import check_board, pr_ready, safe_http_url, safe_token
+from launch_radar.ats import board_has_jobs, check_board, safe_http_url, safe_token
 from tests.unit.launch_radar_fakes import ats_transport
 
 ASHBY = "https://api.ashbyhq.com/posting-api/job-board/Raindrop"
@@ -18,14 +18,14 @@ def test_ashby_verified_with_jobs():
     ats = ats_check("ashby", "Raindrop", "https://raindrop.ai/careers", None, transport=t)
     assert ats == {"provider": "ashby", "board_token": "Raindrop", "board_url": "https://jobs.ashbyhq.com/Raindrop",
                    "verified": True, "job_count": 9, "checked_url": ASHBY}
-    assert pr_ready(ats)
+    assert board_has_jobs(ats)
 
 
 def test_board_from_careers_url_when_token_missing():
     t = ats_transport({GH: (200, {"jobs": [{"title": "eng"}]})})
     ats = ats_check("other", None, "https://job-boards.greenhouse.io/ghost", None, transport=t)
     assert ats["provider"] == "greenhouse" and ats["board_token"] == "ghost" and ats["job_count"] == 1
-    assert pr_ready(ats)
+    assert board_has_jobs(ats)
 
 
 def test_lever_list_response_and_brief_board_url_kept():
@@ -34,17 +34,17 @@ def test_lever_list_response_and_brief_board_url_kept():
     assert ats["verified"] and ats["job_count"] == 2 and ats["board_url"] == "https://jobs.lever.co/acme"
 
 
-def test_not_found_is_unverified_and_not_pr_ready():
+def test_not_found_is_unverified_and_has_no_jobs():
     ats = ats_check("ashby", "Missing", None, None, transport=ats_transport({}))
     assert ats["verified"] is False and ats["job_count"] is None and ats["checked_url"] is None
-    assert not pr_ready(ats)
+    assert not board_has_jobs(ats)
 
 
-def test_empty_board_is_verified_but_not_pr_ready():
+def test_empty_board_is_verified_but_has_no_jobs():
     t = ats_transport({GH: (200, {"jobs": []})})
     ats = ats_check("greenhouse", "ghost", None, None, transport=t)
     assert ats["verified"] is True and ats["job_count"] == 0
-    assert not pr_ready(ats)
+    assert not board_has_jobs(ats)
 
 
 def test_gem_and_workday_are_never_called():
@@ -59,7 +59,7 @@ def test_gem_and_workday_are_never_called():
     ats = ats_check("workday", "nvidia", "https://nvidia.wd5.myworkdayjobs.com/x", "https://nvidia.wd5.myworkdayjobs.com/x",
                     transport=httpx.MockTransport(handler))
     assert calls == []
-    assert ats["provider"] == "workday" and not ats["verified"] and not pr_ready(ats)
+    assert ats["provider"] == "workday" and not ats["verified"] and not board_has_jobs(ats)
     assert ats["board_url"] == "https://nvidia.wd5.myworkdayjobs.com/x"
 
 

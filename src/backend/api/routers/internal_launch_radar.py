@@ -16,11 +16,10 @@ Requests and responses are snake_case. Status codes the loop relies on:
     PUT   /monitors/{slot}          200 upsert | 422 bad slot
     PATCH /monitors/{slot}          200 | 404 | 422
     GET   /seen                     200 | 422 when more than 100 values
-    GET   /cards                    200 | 422 no filter / more than 100 domains (refresh's lookup; keyset-paged)
+    GET   /cards                    200 | 422 no filter / all=true with a filter / more than 100 domains
+                                    (refresh's and rescore's lookup; keyset-paged)
     POST  /cards                    201 | 404 | 409 run not running / domain already posted | 422
     PUT   /cards/{card_id}/payload  200 | 404 missing or deleted | 422 invalid or other domain
-    PATCH /cards/{card_id}/pr       200 | 404 | 409
-    GET   /pr-candidates            200
 
 Every psycopg2 error rolls back and becomes a 500 with a generic detail.
 """
@@ -47,10 +46,6 @@ from ..models import (
     LaunchRadarMonitorsOut,
     LaunchRadarPayloadReplace,
     LaunchRadarPayloadReplaced,
-    LaunchRadarPrCandidate,
-    LaunchRadarPrCandidatesOut,
-    LaunchRadarPrSet,
-    LaunchRadarPrUpdate,
     LaunchRadarReserve,
     LaunchRadarReserved,
     LaunchRadarRunFinish,
@@ -207,23 +202,31 @@ def seen(
 def stored_cards(
     domain: list[str] = Query(default_factory=list),
     missing_talent: bool = False,
+    all_cards: bool = Query(default=False, alias="all"),
     status: list[LaunchRadarCardStatus] = Query(default_factory=list),
     after_id: int = Query(default=0, ge=0),
     limit: int = Query(default=100, ge=1, le=500),
     conn: Connection = Depends(get_db),
 ) -> LaunchRadarStoredCardsOut:
-    """Live cards with their stored payload, for ``radar.py refresh``: by domain
-    (repeatable, normalized server-side) and/or every card whose Talent score is
-    null. At least one of those is required, so this never dumps the whole table.
-    ``status`` (repeatable; none = every live status) narrows it. Keyset-paged by
-    id: a page holds the cards with ``id > after_id``, at most ``limit``, and the
-    caller asks again from the last id until a page comes back short."""
+    """Live cards with their stored payload, for ``radar.py refresh`` and
+    ``radar.py rescore``: by domain (repeatable, normalized server-side) and/or
+    every card with no leaders' part of Talent (``missing_talent``), or every live
+    card behind the explicit ``all=true`` (``rescore --all``), which takes no other
+    filter. One of those is required, so the whole table is never dumped by
+    accident. ``status`` (repeatable; none = every live status) narrows it.
+    Keyset-paged by id: a page holds the cards with ``id > after_id``, at most
+    ``limit``, and the caller asks again from the last id until a page comes back
+    short."""
     if len(domain) > SEEN_MAX_VALUES:
         raise HTTPException(
             status_code=422, detail=f"at most {SEEN_MAX_VALUES} 'domain' values per request"
         )
-    if not domain and not missing_talent:
-        raise HTTPException(status_code=422, detail="give at least one domain or missing_talent=true")
+    if all_cards and (domain or missing_talent):
+        raise HTTPException(status_code=422, detail="all=true takes no domain or missing_talent")
+    if not domain and not missing_talent and not all_cards:
+        raise HTTPException(
+            status_code=422, detail="give at least one domain, missing_talent=true or all=true"
+        )
     rows = _call(
         conn,
         "list cards",
@@ -259,26 +262,3 @@ def replace_payload(
         conn, "replace card payload", lambda: svc.replace_payload(conn, card_id, payload)
     )
     return LaunchRadarPayloadReplaced.model_validate(result)
-
-
-@router.patch("/cards/{card_id}/pr", response_model=LaunchRadarPrSet)
-def set_pr(
-    body: LaunchRadarPrUpdate,
-    card_id: int = Path(ge=1),
-    conn: Connection = Depends(get_db),
-) -> LaunchRadarPrSet:
-    card, pr_url = _call(
-        conn, "set PR url", lambda: svc.set_pr_url(conn, card_id, body.pr_url)
-    )
-    return LaunchRadarPrSet(id=card, pr_url=pr_url)
-
-
-@router.get("/pr-candidates", response_model=LaunchRadarPrCandidatesOut)
-def pr_candidates(
-    limit: int = Query(default=1, ge=1, le=5),
-    conn: Connection = Depends(get_db),
-) -> LaunchRadarPrCandidatesOut:
-    rows = _call(conn, "list PR candidates", lambda: svc.pr_candidates(conn, limit))
-    return LaunchRadarPrCandidatesOut(
-        cards=[LaunchRadarPrCandidate.model_validate(r) for r in rows]
-    )

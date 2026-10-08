@@ -142,17 +142,15 @@ describe('AdminLaunchRadarPage', () => {
     expect(screen.getByRole('progressbar')).toBeInTheDocument();
   });
 
-  it('renders the header line, the tab counts and the New cards', async () => {
+  it('renders the heading, the tab counts and the New cards', async () => {
     const { lists } = fakeBackend();
     renderPage();
 
     expect(await screen.findByText('Raindrop AI')).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Launch Radar', level: 1 })).toBeInTheDocument();
-    expect(
-      screen.getByText(
-        'Startups the Parallel loop found. Last run Oct 7 at 01:31 UTC on server-laptop. $0.46 of the $5.00 budget used.'
-      )
-    ).toBeInTheDocument();
+    // No sub line under the heading: the run, host and budget are not shown.
+    expect(screen.queryByText(/Startups the Parallel loop found/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/budget used|Last run|No runs yet/)).not.toBeInTheDocument();
 
     const newTab = screen.getByRole('tab', { name: 'New 2' });
     expect(newTab).toHaveAttribute('aria-selected', 'true');
@@ -177,23 +175,16 @@ describe('AdminLaunchRadarPage', () => {
     expect(first.searchParams.get('sort')).toBe('announced');
   });
 
-  it('says "No runs yet." before the first run', async () => {
+  it('says "No new cards." when the New tab is empty', async () => {
     fakeBackend({
       list: () =>
         jsonResponse(
-          makeCardsResponse({
-            cards: [],
-            total: 0,
-            counts: { new: 0, saved: 0, archived: 0 },
-            stats: { lastRun: null, spendUsd: 0, capUsd: 5 },
-          })
+          makeCardsResponse({ cards: [], total: 0, counts: { new: 0, saved: 0, archived: 0 } })
         ),
     });
     renderPage();
     expect(await screen.findByText('No new cards.')).toBeInTheDocument();
-    expect(
-      screen.getByText(/No runs yet\. \$0\.00 of the \$5\.00 budget used\./)
-    ).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'New 0' })).toHaveAttribute('aria-selected', 'true');
   });
 
   it('switches to the Archived tab and fetches that list', async () => {

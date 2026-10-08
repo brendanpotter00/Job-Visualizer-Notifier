@@ -48,7 +48,7 @@ EVENT = {"event_type": "funding", "headline": "Graph Safety raises $4M seed", "s
          "announced_at": "2026-09-02", "round": "Seed", "amount_usd": "$4M", "investors": None,
          "origin": "findall_backfill"}
 TEAM = {"profiles_found": 3, "team_size_estimate": "5-10", "schools": [{"name": "MIT", "count": 1}],
-        "prior_employers": [], "ex_founders_with_exit": 0, "sample_names": ["A B"]}
+        "prior_employers": [], "sample_names": ["A B"]}
 
 
 def card_payload(domain: str, *, leaders=(), dropped=2, issues=("no leaders confirmed; 2 company page(s) dropped",
@@ -84,7 +84,7 @@ class Env:
 
     def add_card(self, domain, card_id, *, status="new", **kw):
         self.fb.cards[domain] = {"id": card_id, "status": status, "payload": card_payload(domain, **kw),
-                                 "tracked_company_id": None, "pr_url": None}
+                                 "tracked_company_id": None}
 
     def deps(self):
         backend = BackendClient("http://backend.test", "k", transport=self.fb.transport())
@@ -117,7 +117,8 @@ def test_missing_talent_refresh_rebuilds_leaders_and_scores_and_puts_the_payload
     env = Env(tmp_path)
     old = env.fb.cards["graph.ai"]["payload"]
     env.add_card("people.ai", 10, leaders=[(candidate("Ana Ito", "https://linkedin.com/in/ana"), None)], dropped=0)
-    env.fb.cards["people.ai"]["payload"]["scores"]["talent"] = 30  # scored: never selected
+    # Its leaders' part is scored: never selected by --missing-talent.
+    env.fb.cards["people.ai"]["payload"]["scores"].update(talent_leaders=15, talent=21, talent_basis="both")
     env.add_card("has-leaders.ai", 11, leaders=[(candidate("Bo Li", "https://linkedin.com/in/bo"), None)])
     env.add_card("deleted.ai", 12, status="deleted")
 
@@ -132,13 +133,21 @@ def test_missing_talent_refresh_rebuilds_leaders_and_scores_and_puts_the_payload
     assert new["leaders"][0]["title"] == "CEO" and new["leaders"][1]["title"] == "CTO"
     add = next(r for k, r in env.p.requests if k == "task_group.add_runs")
     assert [i["input"]["person_name"] for i in add["inputs"]] == ["Sam Rivera", "Priya Raman"]
-    # Rescored from the new data.
-    # Stanford 8 + Stripe 10 + 10+ years 5, all high confidence.
-    assert new["scores"]["talent"] == 23 and any("Stanford" in r for r in new["scores"]["talent_reasons"])
+    # Rescored from the new data. Leaders: Stanford 8 + Stripe 10 + 10+ years 5, all high confidence:
+    # 23 of 94 -> 12 of 50. Team (the kept tally): no employers listed, so schools (25) are scaled
+    # to 50; MIT on 1 of 3 profiles -> 50 * (1/3) / (1/2) = 33.3 -> 33. 3 profiles count 60% and the
+    # other 40% follows the leaders' 12: 19.8 + 4.8 = 24.6 -> 25. Talent 12 + 25.
+    s = new["scores"]
+    assert (s["talent_leaders"], s["talent_team"], s["talent"], s["talent_basis"]) == (12, 25, 37, "both")
+    assert any("Stanford" in r for r in s["talent_reasons"])
+    assert s["talent_team_reasons"] == ["the 1 school listed across 3 profiles is a top school (+33)",
+                                        "no employer data listed: schools are scaled to 50",
+                                        "only 3 profiles found: counts at 60%, "
+                                        "the other 40% follows the leaders' part (12)"]
     assert new["scores"]["vc"] is not None and new["scores"]["vc"] > (old["scores"]["vc"] or 0)
     assert new["one_liner"] == "Safety graphs for AI agents"
     # Kept from the card.
-    for key in ("event", "team_stats", "ats", "pr_ready", "leaders_dropped", "company", "domain"):
+    for key in ("event", "team_stats", "ats", "leaders_dropped", "company", "domain"):
         assert new[key] == old[key], key
     assert new["parallel_run_ids"] == {"findall_id": "findall_old", "brief_run_id": "trun_1",
                                        "team_run_id": "trun_team", "pedigree_group_id": "tgrp_1"}
@@ -155,7 +164,7 @@ def test_missing_talent_refresh_rebuilds_leaders_and_scores_and_puts_the_payload
     assert env.store.load_refresh_done()["graph.ai"]["outcome"] == "refreshed"
     assert env.store.refresh_domains() == []
     assert any("skip has-leaders.ai: has 1 leader(s) from FindAll" in m for m in env.logs)
-    assert env.fb.cards["people.ai"]["payload"]["scores"]["talent"] == 30
+    assert env.fb.cards["people.ai"]["payload"]["scores"]["talent"] == 21
 
 
 def test_explicit_domains_and_unknown_domains(tmp_path):
@@ -169,15 +178,16 @@ def test_explicit_domains_and_unknown_domains(tmp_path):
 
 def test_a_finished_refresh_is_never_bought_again(tmp_path):
     env = Env(tmp_path)
-    env.p.brief_content = {**NEW_BRIEF, "founders": []}  # the brief names nobody: talent stays null
+    env.p.brief_content = {**NEW_BRIEF, "founders": []}  # the brief names nobody: the leaders' part stays null
     assert env.refresh() == EXIT_OK
     new = env.fb.cards["graph.ai"]["payload"]
-    assert new["leaders"] == [] and new["scores"]["talent"] is None
+    assert new["leaders"] == [] and new["scores"]["talent_leaders"] is None
+    assert (new["scores"]["talent_basis"], new["scores"]["talent"]) == ("team", 40)  # the team's 33 x 60% = 20, doubled
     assert "no leaders confirmed; 2 company page(s) dropped" in new["issues"]
     assert env.billed() == Counter({"task_run.create(brief)": 1})
 
     runs_before = len(env.fb.runs)
-    assert env.refresh() == EXIT_OK  # still talent-null, but already refreshed
+    assert env.refresh() == EXIT_OK  # still no leaders' part, but already refreshed
     assert env.refresh(domains=frozenset({"graph.ai"})) == EXIT_OK
     assert env.billed() == Counter({"task_run.create(brief)": 1})
     assert len(env.fb.runs) == runs_before  # nothing to do: no backend run opened

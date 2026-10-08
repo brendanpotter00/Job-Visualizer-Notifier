@@ -58,7 +58,7 @@ from .research import (
     team_request,
     wait_task,
 )
-from .resolve import MAX_LOOKUPS_PER_RUN, SEARCH_FAST_PRICE, resolve_missing_domains
+from .resolve import MAX_LOOKUPS_PER_RUN, SEARCH_PRICE, resolve_missing_domains
 from .schemas import FINDALL_PRICE, TASK_PRICE, ceil_cost
 from .state import StateStore, iso, parse_iso, utc_now
 
@@ -520,7 +520,7 @@ def dry_run(opts: RunOptions, deps: Deps) -> int:
     no_domain = sum(1 for ev in events if not normalize_domain(ev.get("company_domain")))
     if no_domain:
         deps.log(f"dry run: {no_domain} event(s) have no domain; a real run looks them up with the Search API "
-                 f"(${SEARCH_FAST_PRICE:.3f} each, at most {MAX_LOOKUPS_PER_RUN} per run)")
+                 f"(${SEARCH_PRICE:.3f} each, at most {MAX_LOOKUPS_PER_RUN} per run)")
     deps.log(f"dry run: {len(events)} event(s), {len(items)} new candidate(s), {len(queue)} queued; nothing spent")
     return EXIT_OK
 
@@ -580,7 +580,7 @@ def _run_body(opts: RunOptions, deps: Deps, run_uuid: str, started: dict[str, An
         extra_notes.append(f"events truncated ({', '.join(truncated)})")
     counters.events_read = len(events)
     if client is not None and events:
-        # Most news events carry no website; dedupe needs one. One Search API call each ($0.001),
+        # Most news events carry no website; dedupe needs one. One Search API call each ($0.005),
         # reserved first. On the cap, stop before the cursors move: next run reads them again.
         try:
             resolve_missing_domains(events, client, lambda step, est: deps.backend.reserve(run_uuid, step, est), log)

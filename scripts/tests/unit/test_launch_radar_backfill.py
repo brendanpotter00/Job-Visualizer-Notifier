@@ -97,8 +97,7 @@ class Env:
         }
         self.p.search_results = {"Mystery Labs": [NS(url="https://www.crunchbase.com/organization/mystery-labs"),
                                                   NS(url="https://mysterylabs.dev/")]}
-        self.fb.cards["seen.co"] = {"id": 9, "status": "archived", "payload": None, "tracked_company_id": None,
-                                    "pr_url": None}
+        self.fb.cards["seen.co"] = {"id": 9, "status": "archived", "payload": None, "tracked_company_id": None}
 
     def deps(self, ats=None):
         backend = BackendClient("http://backend.test", "k", transport=self.fb.transport())
@@ -160,7 +159,7 @@ def test_enrich_request_is_a_flat_monitor_shaped_schema():
 def test_estimates_and_reservation_chunks():
     assert create_estimate("base", 20) == 0.85 and create_estimate("preview", 10) == 0.1
     assert enrich_estimate(7) == 0.07
-    assert run_budget("base", 20) == 1.07  # 0.85 + 20 x 0.01 + 20 x 0.001
+    assert run_budget("base", 20) == 1.15  # 0.85 + 20 x 0.01 + 20 x 0.005
     assert chunks(0.85) == [0.85] and chunks(1.0) == [1.0] and chunks(1.15) == [1.0, 0.15]
     assert chunks(2.0) == [1.0, 1.0]
 
@@ -247,7 +246,7 @@ def test_backfill_queues_the_survivors_and_reserves_before_every_billed_call(tmp
                          ("parallel", "findall.enrich")]
     spend = {s["step"]: s["amount_usd"] for s in env.fb.spend}
     assert spend[CREATE_STEP] == 0.85 and spend[ENRICH_STEP] == 0.07  # 7 matches x $0.01
-    assert spend["search(domain:mystery labs)"] == 0.001
+    assert spend["search(domain:mystery labs)"] == 0.005
     # the requests Parallel received
     create = next(r for k, r in env.p.requests if k == "findall.create")
     assert create == create_request(START, END, "base", 20)
@@ -265,14 +264,15 @@ def test_backfill_queues_the_survivors_and_reserves_before_every_billed_call(tmp
     assert queue[2]["event"]["source_url"] == "https://news.example.com/navra"
     # the backend run and the summary
     row = next(iter(env.fb.runs.values()))
-    assert row["status"] == "ok" and row["events_read"] == 7 and row["budget"] == 1.07
+    assert row["status"] == "ok" and row["events_read"] == 7 and row["budget"] == 1.15
     assert "matched 7, kept 5, queued 3" in row["notes"]
     assert any("matched 7 · kept 5 · queued 3" in m for m in env.logs)
     skipped = next(m for m in env.logs if "skipped:" in m)
     for reason in ("not enriched 1", "announced outside the window 1", "big tech 1", "card exists 1"):
         assert reason in skipped
-    # $0.25 + 7 x $0.03 + 7 x $0.01 + 1 x $0.001; reserved $0.85 + $0.07 + $0.001
-    assert any("spend (estimate)" in m and "= $0.531 (reserved $0.921)" in m for m in env.logs)
+    # $0.25 + 7 x $0.03 + 7 x $0.01 + 1 x $0.005; reserved $0.85 + $0.07 + $0.005
+    assert any("spend (estimate)" in m and "1 domain lookup(s) x $0.005 = $0.535 (reserved $0.925)" in m
+               for m in env.logs)
     assert "queued: navra.io (Navra) launch 2026-09-30" in env.logs
     st = env.store.load_backfill()
     assert st["findall_id"] == "findall_1" and st["finished_at"] and st["summary"]["queued"] == 3
@@ -390,7 +390,8 @@ def test_dry_run_prints_the_requests_and_calls_nothing(tmp_path):
     out = "\n".join(env.logs)
     assert '"entity_type": "companies"' in out and '"generator": "base"' in out and '"match_limit": 20' in out
     assert "between 2026-09-07 and 2026-10-07 (inclusive)" in out
-    assert '"processor": "base"' in out and "$0.850" in out and "at most $1.07" in out
+    assert '"processor": "base"' in out and "$0.850" in out and "at most $1.15" in out
+    assert "domain lookups up to 20 x $0.005" in out
 
 
 def test_dry_run_of_a_backfill_in_progress_says_it_would_resume(tmp_path):

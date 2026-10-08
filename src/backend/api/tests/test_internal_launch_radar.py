@@ -32,7 +32,6 @@ from .test_launch_radar_service import (  # noqa: F401  (autouse isolation fixtu
 
 BASE = "/api/internal/launch-radar"
 RUN = "run-0001"
-PR_URL = "https://github.com/brendanpotter00/Job-Visualizer-Notifier/pull/412"
 
 
 @pytest.fixture(scope="module")
@@ -90,7 +89,6 @@ class TestInternalKeyGate:
             for method, path in (
                 ("get", "/monitors"),
                 ("get", "/seen"),
-                ("get", "/pr-candidates"),
                 ("post", "/runs"),
                 ("post", "/cards"),
                 ("get", "/cards?missing_talent=true"),
@@ -440,61 +438,6 @@ class TestCardsAndSeen:
         assert api.get(f"{BASE}/seen", params=params).status_code == 200
 
 
-class TestPrStep:
-    def test_pr_candidates_and_set_pr(self, api, db_conn) -> None:
-        _start(api)
-        card_id = _post_card(api).json()["id"]
-        _post_card(api, make_payload(domain="later.ai", pr_ready=False))
-        cands = api.get(f"{BASE}/pr-candidates", params={"limit": 5}).json()["cards"]
-        assert len(cands) == 1
-        c = cands[0]
-        assert {k: c[k] for k in ("id", "domain", "company", "ats_provider", "board_token", "job_count")} == {
-            "id": card_id,
-            "domain": "raindrop.ai",
-            "company": "Raindrop AI",
-            "ats_provider": "ashby",
-            "board_token": "Raindrop",
-            "job_count": 9,
-        }
-        resp = api.patch(f"{BASE}/cards/{card_id}/pr", json={"pr_url": PR_URL})
-        assert resp.status_code == 200 and resp.json() == {"id": card_id, "pr_url": PR_URL}
-        assert api.patch(f"{BASE}/cards/{card_id}/pr", json={"pr_url": PR_URL}).status_code == 409
-        assert api.get(f"{BASE}/pr-candidates").json() == {"cards": []}
-
-    def test_set_pr_errors(self, api, db_conn) -> None:
-        _insert_company(db_conn, "raindrop", "ashby", "raindrop")
-        _start(api)
-        tracked = _post_card(api).json()["id"]
-        assert api.patch(f"{BASE}/cards/{tracked}/pr", json={"pr_url": PR_URL}).status_code == 409
-        assert api.patch(f"{BASE}/cards/999999/pr", json={"pr_url": PR_URL}).status_code == 404
-        for url in (
-            "https://github.com/someone-else/Job-Visualizer-Notifier/pull/1",
-            "https://github.com/brendanpotter00/Job-Visualizer-Notifier/pull/1/files",
-            "http://github.com/brendanpotter00/Job-Visualizer-Notifier/pull/1",
-        ):
-            assert api.patch(f"{BASE}/cards/{tracked}/pr", json={"pr_url": url}).status_code == 422
-        # A deleted card is 404.
-        other = _post_card(api, make_payload(domain="other.ai")).json()["id"]
-        svc.set_status(db_conn, other, "archived", "x")
-        svc.delete_card(db_conn, other, "x")
-        assert api.patch(f"{BASE}/cards/{other}/pr", json={"pr_url": PR_URL}).status_code == 404
-
-    def test_pr_candidates_offer_a_saved_card_first(self, api, db_conn) -> None:
-        _start(api)
-        newer = _post_card(api, make_payload(domain="newer.ai")).json()["id"]
-        saved = _post_card(api, make_payload(domain="saved.ai")).json()["id"]
-        archived = _post_card(api, make_payload(domain="archived.ai")).json()["id"]
-        svc.set_status(db_conn, saved, "saved", "admin@x.com")
-        svc.set_status(db_conn, archived, "archived", "admin@x.com")
-        cands = api.get(f"{BASE}/pr-candidates", params={"limit": 5}).json()["cards"]
-        assert [c["id"] for c in cands] == [saved, newer]
-        assert api.get(f"{BASE}/pr-candidates").json()["cards"][0]["id"] == saved
-
-    @pytest.mark.parametrize("limit", [0, 6])
-    def test_pr_candidates_limit_bounds(self, api, limit) -> None:
-        assert api.get(f"{BASE}/pr-candidates", params={"limit": limit}).status_code == 422
-
-
 class TestRefreshRoutes:
     """``radar.py refresh``: GET /cards (the lookup) and PUT /cards/{id}/payload."""
 
@@ -514,9 +457,6 @@ class TestRefreshRoutes:
         _insert_company(db_conn, "raindrop", "ashby", "raindrop")
         _start(api)
         card_id = _post_card(api).json()["id"]
-        with db_conn.cursor() as cur:  # a tracked card never gets a PR via the API; set one to see it kept
-            cur.execute("UPDATE launch_radar_cards SET pr_url = %s WHERE id = %s", (PR_URL, card_id))
-        db_conn.commit()
         if status != "new":
             svc.set_status(db_conn, card_id, status, "admin@x.com")
         before = _card(db_conn, card_id)
@@ -533,9 +473,9 @@ class TestRefreshRoutes:
         assert after["status"] == status and after["posted_at"] == before["posted_at"]
         assert after["updated_at"] > before["updated_at"]
         assert after["company_name"] == "Raindrop Labs"
-        for kept in ("tracked_company_id", "pr_url", "run_id", "archived_at", "updated_by", "domain"):
+        for kept in ("tracked_company_id", "run_id", "archived_at", "updated_by", "domain"):
             assert after[kept] == before[kept], kept
-        assert after["tracked_company_id"] == "raindrop" and after["pr_url"] == PR_URL
+        assert after["tracked_company_id"] == "raindrop"
 
     def test_put_needs_no_running_run(self, api, db_conn) -> None:
         _start(api)
@@ -654,3 +594,159 @@ class TestRefreshRoutes:
         assert api.get(f"{BASE}/cards", params={"missing_talent": "true", "limit": 500}).json() == {"cards": []}
         for bad in ({"status": "deleted"}, {"status": "starred"}, {"after_id": -1}):
             assert api.get(f"{BASE}/cards", params={"missing_talent": "true", **bad}).status_code == 422
+
+
+def _blended(talent: int | None, leaders: int | None, team: int | None, basis: str | None) -> dict[str, Any]:
+    """A card's scores in the 50/50 Talent blend (CONTRACT §6.6)."""
+    return {
+        "talent": talent,
+        "vc": 55,
+        "talent_reasons": ["Sam Rivera: top employer (Apple)"] if leaders is not None else [],
+        "vc_reasons": ["CRV led (tier 2)"],
+        "talent_leaders": leaders,
+        "talent_team": team,
+        "talent_basis": basis,
+        "talent_team_reasons": ["2 of the 2 employers listed across 6 profiles are top employers (+13)"] if team is not None
+        else ["no public profiles found for the rest of the team"],
+    }
+
+
+class TestTalentBlend:
+    """The 50/50 Talent blend: the leaders' half plus the team's half, in the payload
+    (optional fields, so a legacy card still validates) and in GET /cards."""
+
+    def test_legacy_scores_still_validate_with_the_blend_fields_defaulted(self, api, db_conn) -> None:
+        _start(api)
+        card_id = _post_card(api).json()["id"]  # make_payload's scores have no blend fields
+        stored = _card(db_conn, card_id)["payload"]["scores"]
+        assert stored == {
+            "talent": 49, "vc": 55, "talent_reasons": ["Sam Rivera: top employer (Apple)"],
+            "vc_reasons": ["CRV led (tier 2)"], "talent_leaders": None, "talent_team": None,
+            "talent_basis": None, "talent_team_reasons": [],
+        }
+
+    @pytest.mark.parametrize(
+        "scores",
+        [
+            _blended(72, 37, 35, "both"),
+            _blended(38, 19, None, "leaders"),
+            _blended(24, None, 12, "team"),
+            _blended(100, 50, 50, "both"),
+            _blended(0, 0, 0, "both"),
+            _blended(None, None, None, None),
+        ],
+    )
+    def test_blended_scores_round_trip_through_post_and_put(self, api, db_conn, scores) -> None:
+        _start(api)
+        card_id = _post_card(api, make_payload(scores=scores)).json()["id"]
+        assert _card(db_conn, card_id)["payload"]["scores"] == scores
+        moved = {**scores, "vc": 60}
+        assert api.put(f"{BASE}/cards/{card_id}/payload",
+                       json={"payload": make_payload(scores=moved)}).status_code == 200
+        assert _card(db_conn, card_id)["payload"]["scores"] == moved
+
+    @pytest.mark.parametrize(
+        "scores",
+        [
+            _blended(71, 37, 35, "both"),  # does not add up
+            _blended(37, 37, None, "both"),  # both needs both parts
+            _blended(37, 19, None, "leaders"),  # a lone part is doubled
+            _blended(38, 19, 0, "leaders"),  # the other part must be missing, not 0
+            _blended(24, 12, None, "team"),  # team basis needs the team part
+            _blended(49, 37, None, None),  # parts need a basis
+            _blended(49, None, 12, None),
+            _blended(102, 51, 51, "both"),  # each part is at most 50
+            _blended(-2, -1, None, "leaders"),
+            {**_blended(72, 37, 35, "both"), "talent_basis": "founders"},
+            {**_blended(72, 37, 35, "both"), "talent_team_score": 35},  # unknown key
+        ],
+    )
+    def test_inconsistent_blend_is_422(self, api, db_conn, scores) -> None:
+        _start(api)
+        assert _post_card(api, make_payload(scores=scores)).status_code == 422
+        card_id = _post_card(api).json()["id"]
+        before = _card(db_conn, card_id)
+        assert api.put(f"{BASE}/cards/{card_id}/payload",
+                       json={"payload": make_payload(scores=scores)}).status_code == 422
+        assert _card(db_conn, card_id) == before
+
+    def test_team_stats_need_no_exit_count_and_an_old_one_is_dropped(self, api, db_conn) -> None:
+        """The team tally is schools and employers only (prior exits are a leaders' signal).
+        A payload without ``ex_founders_with_exit`` validates; an older one that still
+        carries it (stored rows, export files) validates too, and the count is not stored."""
+        _start(api)
+        assert "ex_founders_with_exit" not in make_payload()["team_stats"]
+        card_id = _post_card(api).json()["id"]
+        assert "ex_founders_with_exit" not in _card(db_conn, card_id)["payload"]["team_stats"]
+
+        legacy = make_payload(domain="legacy.ai")
+        legacy["team_stats"]["ex_founders_with_exit"] = 1
+        legacy_id = _post_card(api, legacy).json()["id"]
+        stored = _card(db_conn, legacy_id)["payload"]["team_stats"]
+        assert "ex_founders_with_exit" not in stored and stored["profiles_found"] == 6
+        legacy["team_stats"]["ex_founders_with_exit"] = None  # "unknown" in the old shape
+        resp = api.put(f"{BASE}/cards/{legacy_id}/payload", json={"payload": legacy})
+        assert resp.status_code == 200, resp.text
+        assert "ex_founders_with_exit" not in _card(db_conn, legacy_id)["payload"]["team_stats"]
+
+    def test_an_old_pr_ready_flag_validates_and_is_dropped(self, api, db_conn) -> None:
+        """``pr_ready`` fed the add-company PR step, which was removed. A new payload
+        does not carry it; an older one that still does (stored rows, export files)
+        validates on POST and PUT, and the flag is not stored."""
+        _start(api)
+        assert "pr_ready" not in make_payload()
+        legacy = make_payload(domain="legacy.ai", pr_ready=True)
+        legacy_id = _post_card(api, legacy).json()["id"]
+        assert "pr_ready" not in _card(db_conn, legacy_id)["payload"]
+        replaced = make_payload(domain="legacy.ai", pr_ready=False)
+        resp = api.put(f"{BASE}/cards/{legacy_id}/payload", json={"payload": replaced})
+        assert resp.status_code == 200, resp.text
+        assert "pr_ready" not in _card(db_conn, legacy_id)["payload"]
+
+    def test_missing_talent_means_no_leaders_part(self, api, db_conn) -> None:
+        """``missing_talent`` finds cards with no leader data: a legacy card with a null
+        Talent, or a blended card with a null leaders' part, even when the team part
+        gives it a Talent number. Never a card that has the leaders' part."""
+        _start(api)
+        ids = {}
+        for name, scores in {
+            "legacy_scored": _blended(49, None, None, None) | {"talent_reasons": ["x"]},
+            "legacy_null": _blended(None, None, None, None),
+            "both": _blended(72, 37, 35, "both"),
+            "leaders_only": _blended(38, 19, None, "leaders"),
+            "team_only": _blended(24, None, 12, "team"),
+        }.items():
+            ids[name] = _post_card(api, make_payload(domain=f"{name.replace('_', '-')}.ai",
+                                                     scores=scores)).json()["id"]
+        missing = api.get(f"{BASE}/cards", params={"missing_talent": "true"}).json()["cards"]
+        assert [c["id"] for c in missing] == [ids["legacy_null"], ids["team_only"]]
+
+    def test_all_returns_every_live_card_paged(self, api, db_conn) -> None:
+        _start(api)
+        ids = [_post_card(api, make_payload(domain=f"c{i}.ai")).json()["id"] for i in range(4)]
+        svc.set_status(db_conn, ids[1], "saved", "x")
+        svc.set_status(db_conn, ids[2], "archived", "x")
+        svc.delete_card(db_conn, ids[2], "x")  # a tombstone is never returned
+
+        def get(*params: tuple[str, Any]) -> list[int]:
+            resp = api.get(f"{BASE}/cards", params=[("all", "true"), *params])
+            assert resp.status_code == 200, resp.text
+            return [c["id"] for c in resp.json()["cards"]]
+
+        live = [ids[0], ids[1], ids[3]]
+        assert get() == live
+        assert get(("status", "saved")) == [ids[1]]
+        assert get(("limit", 2)) == live[:2]
+        assert get(("limit", 2), ("after_id", ids[1])) == [ids[3]]
+
+    @pytest.mark.parametrize(
+        "params",
+        [
+            [("all", "false")],
+            [("all", "true"), ("domain", "raindrop.ai")],
+            [("all", "true"), ("missing_talent", "true")],
+            [("all", "maybe")],
+        ],
+    )
+    def test_all_validation(self, api, params) -> None:
+        assert api.get(f"{BASE}/cards", params=params).status_code == 422

@@ -30,7 +30,6 @@ PUBLIC_BOARD_URLS = {
     "ashby": "https://jobs.ashbyhq.com/{tok}",
     "lever": "https://jobs.lever.co/{tok}",
 }
-PR_PROVIDERS = frozenset(API_URLS)
 ATS_PROVIDERS = ("greenhouse", "ashby", "lever", "gem", "workday", "eightfold", "other", "none")
 
 _TOKEN = re.compile(r"^[A-Za-z0-9_.%-]{1,100}$")
@@ -89,7 +88,7 @@ class BoardCheck:
     def transient_failure(self) -> bool:
         """Nothing verified with jobs, and at least one candidate failed transiently, so
         "no board" is not a safe conclusion yet."""
-        return not pr_ready(self.ats) and any(p.transient for p in self.problems)
+        return not board_has_jobs(self.ats) and any(p.transient for p in self.problems)
 
 
 def check_board(
@@ -165,5 +164,6 @@ def check_board(
     return BoardCheck(result, problems)
 
 
-def pr_ready(ats: dict[str, Any]) -> bool:
-    return bool(ats["verified"] and ats["provider"] in PR_PROVIDERS and (ats["job_count"] or 0) >= 1)
+def board_has_jobs(ats: dict[str, Any]) -> bool:
+    """A board on one of the checked providers answered with at least one job."""
+    return bool(ats["verified"] and ats["provider"] in API_URLS and (ats["job_count"] or 0) >= 1)

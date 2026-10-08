@@ -64,27 +64,83 @@ class TestList:
         assert set(body["stats"]["lastRun"]) == {"startedAt", "endedAt", "status", "host"}
         c = body["cards"][0]
         assert c["id"] == card and c["status"] == "new"
-        assert c["trackedCompanyId"] is None and c["prUrl"] is None and c["archivedAt"] is None
+        assert c["trackedCompanyId"] is None and c["archivedAt"] is None
+        assert "prUrl" not in c and "prReady" not in c  # the removed add-company PR step's fields
         assert c["domain"] == "raindrop.ai" and c["oneLiner"] == "Monitoring for AI agents"
         assert c["event"]["sourceUrl"] == "https://techcrunch.com/raindrop"
-        assert c["scores"] == {
+        assert c["scores"] == {  # a legacy card (scored before the blend): no parts, no basis
             "talent": 49,
             "vc": 55,
             "talentReasons": ["Sam Rivera: top employer (Apple)"],
             "vcReasons": ["CRV led (tier 2)"],
+            "talentLeaders": None,
+            "talentTeam": None,
+            "talentBasis": None,
+            "talentTeamReasons": [],
         }
         assert c["leaders"][0]["priorCompanies"] == ["Apple (Designer)"]
         assert c["leaders"][0]["yearsExperience"] == 8
         assert c["leadersDropped"] == 1
-        assert c["teamStats"]["exFoundersWithExit"] == 0
+        # Schools and employers only: the team tally no longer counts prior exits.
+        assert set(c["teamStats"]) == {
+            "profilesFound", "teamSizeEstimate", "schools", "priorEmployers", "sampleNames",
+        }
         assert c["funding"]["latestRound"]["leadInvestors"] == ["CRV"]
-        assert c["ats"]["jobCount"] == 9 and c["prReady"] is True
+        assert c["ats"]["jobCount"] == 9
         assert c["parallelRunIds"]["findallId"] == "findall_1"
         assert c["timingsS"] == {"findall_s": 154.0}  # dict keys are data, not aliased
         assert c["costUsd"] == 0.3
         assert c["generatedAt"].startswith("2026-10-07T01:36:00")
         assert "postedAt" in c and "updatedBy" in c
         assert not any("_" in k for k in c if k != "timingsS")
+
+    def test_a_stored_team_exit_count_is_never_sent(self, client, db_conn) -> None:
+        """A card stored before the team tally dropped prior exits still lists, and its
+        old ``ex_founders_with_exit`` stays out of the response (the page ignores it)."""
+        start_test_run(db_conn)
+        legacy = stored_payload()
+        legacy["team_stats"]["ex_founders_with_exit"] = 2
+        svc.insert_card(db_conn, "run-0001", legacy)
+        (c,) = client.get(BASE, params={"status": "new"}).json()["cards"]
+        assert "exFoundersWithExit" not in c["teamStats"]
+        assert c["teamStats"]["priorEmployers"] == [{"name": "Amazon", "count": 2}]
+
+    def test_a_stored_pr_flag_is_never_sent(self, client, db_conn) -> None:
+        """A card stored while the add-company PR step existed still lists: its old
+        ``pr_ready`` validates and stays out of the response, and so does a PR link
+        left in the legacy ``pr_url`` column."""
+        start_test_run(db_conn)
+        legacy = stored_payload()
+        legacy["pr_ready"] = True
+        card = svc.insert_card(db_conn, "run-0001", legacy)["id"]
+        with db_conn.cursor() as cur:
+            cur.execute(
+                "UPDATE launch_radar_cards SET pr_url = %s WHERE id = %s",
+                ("https://github.com/brendanpotter00/Job-Visualizer-Notifier/pull/333", card),
+            )
+        db_conn.commit()
+        (c,) = client.get(BASE, params={"status": "new"}).json()["cards"]
+        assert c["id"] == card and "prReady" not in c and "prUrl" not in c
+
+    def test_blended_talent_is_camel_case(self, client, db_conn) -> None:
+        start_test_run(db_conn)
+        scores = {
+            "talent": 72, "vc": 55, "talent_reasons": ["Sam Rivera: top employer (Apple)"],
+            "vc_reasons": ["CRV led (tier 2)"], "talent_leaders": 37, "talent_team": 35,
+            "talent_basis": "both", "talent_team_reasons": ["15 of the 19 schools listed across 33 profiles are top schools (+14)"],
+        }
+        svc.insert_card(db_conn, "run-0001", stored_payload(scores=scores))
+        (c,) = client.get(BASE, params={"status": "new"}).json()["cards"]
+        assert c["scores"] == {
+            "talent": 72,
+            "vc": 55,
+            "talentReasons": ["Sam Rivera: top employer (Apple)"],
+            "vcReasons": ["CRV led (tier 2)"],
+            "talentLeaders": 37,
+            "talentTeam": 35,
+            "talentBasis": "both",
+            "talentTeamReasons": ["15 of the 19 schools listed across 33 profiles are top schools (+14)"],
+        }
 
     def test_tabs_counts_order_and_paging(self, client, db_conn) -> None:
         a, b, c = _seed_cards(db_conn, "a.ai", "b.ai", "c.ai")

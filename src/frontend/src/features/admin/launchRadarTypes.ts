@@ -87,8 +87,6 @@ export interface LaunchRadarTeamStats {
   teamSizeEstimate: string;
   schools: LaunchRadarTally[];
   priorEmployers: LaunchRadarTally[];
-  /** null = unknown; only 0 means "no prior exits found". */
-  exFoundersWithExit: number | null;
   sampleNames: string[];
 }
 
@@ -101,12 +99,47 @@ export interface LaunchRadarAts {
   checkedUrl: string | null;
 }
 
+/**
+ * Which halves of the Talent blend `talent` stands on: both summed, or one
+ * doubled because the other had no data.
+ */
+export type LaunchRadarTalentBasis = 'leaders' | 'team' | 'both';
+
+/** Every Talent basis. The list response is checked against it. */
+export const LAUNCH_RADAR_TALENT_BASES: readonly LaunchRadarTalentBasis[] = [
+  'leaders',
+  'team',
+  'both',
+];
+
+/**
+ * A card's scores. Talent is a 50/50 blend: up to 50 from the leaders
+ * (`talentLeaders`, explained by `talentReasons`) plus up to 50 from the rest of
+ * the team's tally (`talentTeam`, explained by `talentTeamReasons`). A part with
+ * no data is `null` and the other is doubled (`talentBasis` says which). The
+ * backend guarantees the parts add up to `talent`.
+ *
+ * `talentBasis: null` with a number in `talent` is a LEGACY card, scored before
+ * the blend: `talent` is the leaders' raw rubric score and there are no parts.
+ * Read the basis with `== null`, so a backend that predates the blend (the field
+ * absent) reads as legacy too.
+ */
+export interface LaunchRadarScores {
+  talent: number | null;
+  vc: number | null;
+  talentReasons: string[];
+  vcReasons: string[];
+  talentLeaders: number | null;
+  talentTeam: number | null;
+  talentBasis: LaunchRadarTalentBasis | null;
+  talentTeamReasons: string[];
+}
+
 export interface LaunchRadarCard {
   id: number;
   /** Deleted rows never reach the client. */
   status: LaunchRadarStatus;
   trackedCompanyId: string | null;
-  prUrl: string | null;
   postedAt: string;
   archivedAt: string | null;
   updatedBy: string | null;
@@ -118,12 +151,7 @@ export interface LaunchRadarCard {
   blurb: string | null;
   event: LaunchRadarEvent | null;
   /** `null` score = no data (rendered as a dash), never 0. */
-  scores: {
-    talent: number | null;
-    vc: number | null;
-    talentReasons: string[];
-    vcReasons: string[];
-  };
+  scores: LaunchRadarScores;
   leaders: LaunchRadarLeader[];
   leadersDropped: number;
   teamStats: LaunchRadarTeamStats | null;
@@ -135,7 +163,6 @@ export interface LaunchRadarCard {
   notableFacts: string[];
   careersUrl: string | null;
   ats: LaunchRadarAts;
-  prReady: boolean;
   sources: { url: string; title: string | null; field: string | null }[];
   parallelRunIds: {
     findallId: string | null;
@@ -149,25 +176,15 @@ export interface LaunchRadarCard {
   generatedAt: string;
 }
 
-export interface LaunchRadarLastRun {
-  startedAt: string;
-  endedAt: string | null;
-  status: 'running' | 'ok' | 'stopped' | 'error';
-  host: string | null;
-}
-
-export interface LaunchRadarStats {
-  lastRun: LaunchRadarLastRun | null;
-  spendUsd: number;
-  capUsd: number;
-}
-
+/**
+ * One tab's page. The backend also sends `stats` (last run, spend, cap); the
+ * page no longer shows them, so the client neither types nor checks that field.
+ */
 export interface LaunchRadarCardsResponse {
   cards: LaunchRadarCard[];
   total: number;
   /** Every tab's count, whatever tab was requested. */
   counts: Record<LaunchRadarStatus, number>;
-  stats: LaunchRadarStats;
 }
 
 /**

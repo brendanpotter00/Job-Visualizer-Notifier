@@ -1066,7 +1066,6 @@ def _launch_radar_card_out(row: launch_radar.CardRow) -> LaunchRadarCardOut:
             "id": row["id"],
             "status": row["status"],
             "tracked_company_id": row["tracked_company_id"],
-            "pr_url": row["pr_url"],
             "posted_at": row["posted_at"],
             "archived_at": row["archived_at"],
             "updated_by": row["updated_by"],

@@ -50,8 +50,7 @@ BRIEF = {
     "notable_facts": ["f1"], "blurb": "b", "careers_url": "https://raindrop.ai/careers",
     "ats": {"provider": "ashby", "board_token": "Raindrop", "board_url": None},
 }
-TEAM = {"profiles_found": 6.0, "team_size_estimate": "10-20", "schools": [], "prior_employers": [],
-        "ex_founders_with_exit": 0.0, "sample_names": []}
+TEAM = {"profiles_found": 6.0, "team_size_estimate": "10-20", "schools": [], "prior_employers": [], "sample_names": []}
 
 
 class Env:
@@ -115,7 +114,7 @@ def test_full_run_posts_one_card(tmp_path):
     env = Env(tmp_path)
     assert env.run() == EXIT_OK
     env.assert_reserved_before_billed()
-    # search: "Mystery Co" arrives with no domain, so the run looks it up ($0.001; no match here).
+    # search: "Mystery Co" arrives with no domain, so the run looks it up ($0.005; no match here).
     assert env.billed() == Counter({"search": 1, "findall.create": 1, "task_run.create(brief)": 1,
                                     "task_run.create(team)": 1, "task_group.create": 1})
     card = env.fb.cards["raindrop.ai"]["payload"]
@@ -124,7 +123,7 @@ def test_full_run_posts_one_card(tmp_path):
     assert card["leaders_dropped"] == 1
     assert card["scores"]["vc"] == 55 and card["scores"]["talent"] is not None
     assert card["event"]["origin"] == "monitor" and card["event"]["round"] == "Series A"
-    assert card["ats"]["verified"] and card["pr_ready"] is True
+    assert card["ats"]["verified"] and card["ats"]["job_count"] >= 1
     assert card["team_stats"]["profiles_found"] == 6
     assert card["cost_usd"] == pytest.approx(0.1 + 0.025 + 0.1 + 0.02)
     assert card["parallel_run_ids"]["pedigree_group_id"] == "tgrp_1"
@@ -144,8 +143,7 @@ def test_seen_domain_and_tracked_name_are_skipped_before_spend(tmp_path):
         stream_event("mevt_2", monitor_content("Raindrop AI", "raindrop.ai")),
         stream_event("mevt_1", monitor_content("Ashby Tracked", "tracked.io")),
     ])
-    env.fb.cards["raindrop.ai"] = {"id": 4, "status": "deleted", "payload": None, "tracked_company_id": None,
-                                   "pr_url": None}
+    env.fb.cards["raindrop.ai"] = {"id": 4, "status": "deleted", "payload": None, "tracked_company_id": None}
     env.fb.tracked_names["ashby tracked"] = "ashby-tracked"
     assert env.run() == EXIT_OK
     assert env.billed() == Counter()
@@ -165,8 +163,7 @@ def test_409_on_post_is_a_skip_not_an_error(tmp_path):
         return original(request)
 
     env.fb.handle = handler
-    env.fb.cards["raindrop.ai"] = {"id": 1, "status": "archived", "payload": {}, "tracked_company_id": None,
-                                   "pr_url": None}
+    env.fb.cards["raindrop.ai"] = {"id": 1, "status": "archived", "payload": {}, "tracked_company_id": None}
     assert env.run() == EXIT_OK
     assert ("backend", "post_card_409", "raindrop.ai") in env.journal
     assert any(m.startswith("seen") and "raindrop.ai" in m for m in env.logs)
@@ -189,7 +186,7 @@ def test_budget_refusal_stops_and_resume_never_pays_twice(tmp_path):
     # Next run: resumes the saved ids; FindAll and the brief are neither re-created nor re-reserved.
     assert env.run(budget=1.0) == EXIT_OK
     env.assert_reserved_before_billed()
-    # search: "Mystery Co" arrives with no domain, so the run looks it up ($0.001; no match here).
+    # search: "Mystery Co" arrives with no domain, so the run looks it up ($0.005; no match here).
     assert env.billed() == Counter({"search": 1, "findall.create": 1, "task_run.create(brief)": 1,
                                     "task_run.create(team)": 1, "task_group.create": 1})
     steps = Counter(s["step"] for s in env.fb.spend)
@@ -230,7 +227,7 @@ def test_deadline_saves_state_and_next_run_resumes(tmp_path):
 
     env.p.findall_active_polls = None
     assert env.run(max_companies=0) == EXIT_OK  # resumed companies continue even with 0 new ones
-    # search: "Mystery Co" arrives with no domain, so the run looks it up ($0.001; no match here).
+    # search: "Mystery Co" arrives with no domain, so the run looks it up ($0.005; no match here).
     assert env.billed() == Counter({"search": 1, "findall.create": 1, "task_run.create(brief)": 1,
                                     "task_run.create(team)": 1, "task_group.create": 1})
     assert Counter(s["step"] for s in env.fb.spend)["findall.create"] == 1
@@ -260,7 +257,7 @@ def test_dry_run_prices_the_search_lookup_for_events_without_a_domain(tmp_path):
     env = Env(tmp_path)  # "Mystery Co" arrives with no domain
     assert env.run(dry_run=True) == EXIT_OK
     assert env.billed() == Counter()
-    assert any("1 event(s) have no domain; a real run looks them up with the Search API ($0.001 each, "
+    assert any("1 event(s) have no domain; a real run looks them up with the Search API ($0.005 each, "
                "at most 10 per run)" in m for m in env.logs)
 
 
@@ -280,7 +277,7 @@ def test_failed_brief_still_posts_a_card_with_issues(tmp_path):
     assert env.run() == EXIT_OK
     card = env.fb.cards["raindrop.ai"]["payload"]
     assert card["one_liner"] is None and card["scores"]["vc"] is None
-    assert card["ats"]["provider"] == "none" and card["pr_ready"] is False
+    assert card["ats"]["provider"] == "none" and not card["ats"]["verified"]
     assert any(i.startswith("brief failed") for i in card["issues"])
     assert card["event"]["origin"] == "monitor"
 
@@ -401,14 +398,15 @@ def test_ats_outage_is_retried_instead_of_posting_no_board(tmp_path):
     assert run(RunOptions(), env.deps(ats=down)) == EXIT_INCOMPLETE
     assert env.fb.cards == {} and env.store.has_company("raindrop.ai")
     assert env.run(max_companies=0) == EXIT_OK
-    assert env.fb.cards["raindrop.ai"]["payload"]["pr_ready"] is True
+    ats = env.fb.cards["raindrop.ai"]["payload"]["ats"]
+    assert ats["verified"] is True and ats["job_count"] == 9
 
 
 def test_missing_board_is_recorded_as_an_issue(tmp_path):
     env = Env(tmp_path)
     assert run(RunOptions(), env.deps(ats=ats_transport({}))) == EXIT_OK
     card = env.fb.cards["raindrop.ai"]["payload"]
-    assert card["pr_ready"] is False
+    assert card["ats"]["verified"] is False
     assert "ATS check ashby/Raindrop: HTTP 404" in card["issues"]
 
 

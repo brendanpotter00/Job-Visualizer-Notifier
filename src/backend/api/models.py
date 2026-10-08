@@ -2432,14 +2432,60 @@ class LaunchRadarEvent(BaseModel):
     origin: Literal["monitor", "findall_backfill", "task brief"]
 
 
+# Which parts of the Talent blend a card's ``talent`` stands on (CONTRACT §6.6):
+# both halves summed, or one half doubled because the other had no data.
+LaunchRadarTalentBasis = Literal["leaders", "team", "both"]
+# Each half of the Talent blend (the leaders, the rest of the team) is 0-50.
+LAUNCH_RADAR_TALENT_PART_MAX = 50
+
+
 class LaunchRadarScores(BaseModel):
+    """A card's scores. ``talent`` is a 50/50 blend: up to 50 points from the
+    leaders (``talent_leaders``) plus up to 50 from the rest of the team's tally
+    (``talent_team``); a part with no data is null (missing, never 0) and the other
+    is doubled, which ``talent_basis`` records. ``talent_basis`` null with a
+    non-null ``talent`` is a LEGACY card scored before the blend: its ``talent`` is
+    the leaders' raw rubric score (0-94) and it has no parts. The four blend fields
+    default so a legacy payload (stored rows, older export files) still validates.
+    """
+
     model_config = _LR_PAYLOAD_CONFIG
 
     # null = no data to score (no people data / no funding data), never 0.
     talent: int | None = Field(default=None, ge=0, le=100)
     vc: int | None = Field(default=None, ge=0, le=100)
-    talent_reasons: list[str]
+    talent_reasons: list[str]  # the leaders' part
     vc_reasons: list[str]
+    talent_leaders: int | None = Field(default=None, ge=0, le=LAUNCH_RADAR_TALENT_PART_MAX)
+    talent_team: int | None = Field(default=None, ge=0, le=LAUNCH_RADAR_TALENT_PART_MAX)
+    talent_basis: LaunchRadarTalentBasis | None = None
+    talent_team_reasons: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _talent_adds_up(self) -> "LaunchRadarScores":
+        """The breakdown on a card always adds up to its Talent number."""
+        leaders, team, talent = self.talent_leaders, self.talent_team, self.talent
+        if self.talent_basis is None:
+            if leaders is not None or team is not None:
+                raise ValueError("talent_leaders / talent_team need a talent_basis")
+            return self
+        if self.talent_basis == "both":
+            if leaders is None or team is None:
+                raise ValueError("talent_basis 'both' needs talent_leaders and talent_team")
+            expected = leaders + team
+        else:
+            present, absent = (leaders, team) if self.talent_basis == "leaders" else (team, leaders)
+            if present is None or absent is not None:
+                raise ValueError(
+                    f"talent_basis {self.talent_basis!r} needs talent_{self.talent_basis} "
+                    "and no other part"
+                )
+            expected = 2 * present
+        if talent != expected:
+            raise ValueError(
+                f"talent must be {expected} for talent_basis {self.talent_basis!r}, got {talent}"
+            )
+        return self
 
 
 class LaunchRadarLeader(BaseModel):
@@ -2472,7 +2518,11 @@ class LaunchRadarTeamStats(BaseModel):
     team_size_estimate: str
     schools: list[LaunchRadarTally]
     prior_employers: list[LaunchRadarTally]
-    ex_founders_with_exit: int | None = Field(ge=0)  # None = unknown
+    # LEGACY, ignored: the team tally no longer asks for prior exits (the leaders are
+    # checked for them, not the team). Optional so an older payload that still carries it
+    # (stored rows, export files) validates under ``extra="forbid"``; ``exclude`` keeps it
+    # out of every dump, so it is neither re-stored nor sent to the admin page.
+    ex_founders_with_exit: int | None = Field(default=None, ge=0, exclude=True)
     sample_names: list[str]
 
 
@@ -2543,7 +2593,11 @@ class LaunchRadarPayload(BaseModel):
     notable_facts: list[str] = Field(max_length=6)
     careers_url: LaunchRadarHttpUrl | None = None
     ats: LaunchRadarAts
-    pr_ready: bool
+    # LEGACY, ignored: fed the add-company PR step, which was removed. Optional so an
+    # older payload that still carries it (stored rows, export files) validates under
+    # ``extra="forbid"``; ``exclude`` keeps it out of every dump, so it is neither
+    # re-stored nor sent to the admin page.
+    pr_ready: bool | None = Field(default=None, exclude=True)
     sources: list[LaunchRadarSource] = Field(max_length=40)
     parallel_run_ids: LaunchRadarParallelRunIds
     cost_usd: float = Field(ge=0)
@@ -2564,7 +2618,6 @@ class LaunchRadarCardOut(LaunchRadarPayload):
     id: int
     status: LaunchRadarCardStatus
     tracked_company_id: str | None = None
-    pr_url: str | None = None
     posted_at: datetime
     archived_at: datetime | None = None
     updated_by: str | None = None
@@ -2715,14 +2768,6 @@ class LaunchRadarPayloadReplace(BaseModel):
     payload: LaunchRadarPayload
 
 
-class LaunchRadarPrUpdate(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    pr_url: str = Field(
-        pattern=r"^https://github\.com/brendanpotter00/Job-Visualizer-Notifier/pull/\d+$"
-    )
-
-
 class LaunchRadarMonitorRow(BaseModel):
     slot: LaunchRadarMonitorSlot
     monitor_id: str
@@ -2801,22 +2846,3 @@ class LaunchRadarStoredCard(BaseModel):
 
 class LaunchRadarStoredCardsOut(BaseModel):
     cards: list[LaunchRadarStoredCard]
-
-
-class LaunchRadarPrSet(BaseModel):
-    id: int
-    pr_url: str
-
-
-class LaunchRadarPrCandidate(BaseModel):
-    id: int
-    domain: str
-    company: str
-    ats_provider: LaunchRadarAtsProvider
-    board_token: str | None
-    job_count: int | None
-    posted_at: datetime
-
-
-class LaunchRadarPrCandidatesOut(BaseModel):
-    cards: list[LaunchRadarPrCandidate]

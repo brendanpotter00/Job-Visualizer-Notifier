@@ -21,7 +21,7 @@ from tests.unit.launch_radar_fakes import FakeBackend
 def _payload(domain, company=None, **over):
     p = {"company": company or domain.split(".")[0].title(), "domain": domain, "website": f"https://{domain}",
          "ats": {"provider": "ashby", "board_token": None, "verified": False, "job_count": None},
-         "pr_ready": False, "cost_usd": 0.29, "issues": [], "generated_at": "2026-10-07T06:56:34Z"}
+         "cost_usd": 0.29, "issues": [], "generated_at": "2026-10-07T06:56:34Z"}
     p.update(over)
     return p
 
@@ -83,7 +83,7 @@ def test_import_posts_every_payload_verbatim_under_one_finished_run(tmp_path):
 def test_import_skips_a_409_duplicate_and_rerun_is_a_no_op(tmp_path):
     fb, logs = FakeBackend(), []
     fb.cards["alpha.ai"] = {"id": 99, "status": "archived", "payload": _payload("alpha.ai"),
-                            "tracked_company_id": None, "pr_url": None}
+                            "tracked_company_id": None}
     path = _write(tmp_path, _doc(("alpha.ai", "new"), ("beta.io", "new")))
     assert radar.main(["import", "--file", str(path)], deps=_deps(tmp_path, fb.transport(), logs)) == EXIT_OK
     assert fb.cards["alpha.ai"]["id"] == 99 and "beta.io" in fb.cards
@@ -143,7 +143,7 @@ def test_a_non_409_error_stops_with_a_partial_summary(tmp_path):
         return fb.handle(request)
 
     fb.cards["gamma.dev"] = {"id": 7, "status": "new", "payload": _payload("gamma.dev"),
-                             "tracked_company_id": None, "pr_url": None}
+                             "tracked_company_id": None}
     doc = _doc(("alpha.ai", "new"), ("gamma.dev", "new"), ("beta.io", "saved"), ("delta.co", "new"))
     rc = radar.main(["import", "--file", str(_write(tmp_path, doc))],
                     deps=_deps(tmp_path, httpx.MockTransport(handler), logs))
@@ -193,7 +193,7 @@ def test_a_failed_run_start_posts_nothing(tmp_path):
 def test_dry_run_reads_seen_and_posts_nothing(tmp_path):
     fb, logs, no_parallel = FakeBackend(), [], _NoParallel()
     fb.cards["alpha.ai"] = {"id": 1, "status": "new", "payload": _payload("alpha.ai"),
-                            "tracked_company_id": None, "pr_url": None}
+                            "tracked_company_id": None}
     path = _write(tmp_path, _doc(("alpha.ai", "new"), ("beta.io", "saved")))
     rc = radar.main(["import", "--file", str(path), "--dry-run"],
                     deps=_deps(tmp_path, fb.transport(), logs, no_parallel))

@@ -13,8 +13,8 @@ import re
 from datetime import date, datetime
 from typing import Any
 
-from .ats import pr_ready, safe_http_url
-from .scoring import score_talent, score_vc
+from .ats import safe_http_url
+from .scoring import score_vc, talent_scores
 
 MAX_SOURCES = 40
 MAX_FACTS = 6
@@ -219,6 +219,10 @@ def build_leader(cd: Any, pedigree: dict[str, Any] | None) -> tuple[dict[str, An
 
 # ---- other blocks ----------------------------------------------------------------------
 def build_team_stats(team: dict[str, Any] | None) -> dict[str, Any] | None:
+    """The card's ``team_stats`` from the tally Task's output. Idempotent: a stored card's
+    ``team_stats`` passes through unchanged (``refresh`` rebuilds a card from it), except that
+    an old card's ``ex_founders_with_exit`` is dropped: the team is not checked for prior
+    exits (the leaders are), so the field is no longer written."""
     if not isinstance(team, dict):
         return None
 
@@ -240,7 +244,6 @@ def build_team_stats(team: dict[str, Any] | None) -> dict[str, Any] | None:
         "team_size_estimate": text(team.get("team_size_estimate"), 80) or "unknown",
         "schools": tally(team.get("schools")),
         "prior_employers": tally(team.get("prior_employers")),
-        "ex_founders_with_exit": count_or_none(team.get("ex_founders_with_exit")),
         "sample_names": texts(team.get("sample_names"), 120, 25),
     }
 
@@ -350,7 +353,8 @@ def build_payload(
     generated_at: str,
 ) -> dict[str, Any]:
     built = [build_leader(cd, ped) for cd, ped in leaders]
-    talent, talent_reasons = score_talent([s for _, s in built])
+    team_stats = build_team_stats(team)
+    talent = talent_scores([s for _, s in built], team_stats)
     vc, vc_reasons = score_vc(brief)
     b = brief or {}
     sources = dedupe_sources(
@@ -366,10 +370,13 @@ def build_payload(
         "what_they_do": text(b.get("what_they_do"), 2000),
         "blurb": text(b.get("blurb"), 1500),
         "event": build_event(company, monitor_event, brief),
-        "scores": {"talent": talent, "vc": vc, "talent_reasons": talent_reasons, "vc_reasons": vc_reasons},
+        "scores": {"talent": talent["talent"], "vc": vc, "talent_reasons": talent["talent_reasons"],
+                   "vc_reasons": vc_reasons, "talent_leaders": talent["talent_leaders"],
+                   "talent_team": talent["talent_team"], "talent_basis": talent["talent_basis"],
+                   "talent_team_reasons": talent["talent_team_reasons"]},
         "leaders": [ld for ld, _ in built],
         "leaders_dropped": int(leaders_dropped),
-        "team_stats": build_team_stats(team),
+        "team_stats": team_stats,
         "funding": build_funding(brief),
         "notable_facts": texts(b.get("notable_facts"), 300, MAX_FACTS),
         "careers_url": safe_http_url(b.get("careers_url")),
@@ -377,7 +384,6 @@ def build_payload(
         # URL in the payload passes the same rule the backend enforces (a non-http(s) URL is a 422).
         "ats": {**{k: ats[k] for k in ("provider", "board_token", "verified", "job_count")},
                 "board_url": safe_http_url(ats["board_url"]), "checked_url": safe_http_url(ats["checked_url"])},
-        "pr_ready": pr_ready(ats),
         "sources": sources,
         "parallel_run_ids": {k: run_ids.get(k) for k in ("findall_id", "brief_run_id", "team_run_id",
                                                          "pedigree_group_id")},

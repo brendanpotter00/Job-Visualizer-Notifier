@@ -54,8 +54,7 @@ def test_post_card_409_duplicate_is_domain_seen():
     fb = FakeBackend()
     c = _client(fb)
     c.start_run("run-dddddddd", "h", 1.0)
-    payload = {"domain": "raindrop.ai", "ats": {"provider": "none", "board_token": None}, "company": "R",
-               "pr_ready": False}
+    payload = {"domain": "raindrop.ai", "ats": {"provider": "none", "board_token": None}, "company": "R"}
     assert c.post_card("run-dddddddd", payload)["id"] == 1
     with pytest.raises(DomainSeen):
         c.post_card("run-dddddddd", payload)
@@ -129,7 +128,7 @@ def test_cards_pages_by_id_until_a_short_page_and_passes_statuses(monkeypatch):
     for i, (dom, status) in enumerate((("a.ai", "new"), ("b.ai", "archived"), ("c.ai", "saved"),
                                        ("d.ai", "new"), ("e.ai", "new")), start=1):
         fb.cards[dom] = {"id": i, "status": status, "payload": {"scores": {"talent": None}},
-                         "tracked_company_id": None, "pr_url": None}
+                         "tracked_company_id": None}
     c = _client(fb)
     got = c.cards(missing_talent=True, statuses=("new", "saved"))
     assert [card["domain"] for card in got] == ["a.ai", "c.ai", "d.ai", "e.ai"]
@@ -138,3 +137,34 @@ def test_cards_pages_by_id_until_a_short_page_and_passes_statuses(monkeypatch):
     fb.card_queries.clear()
     assert [card["domain"] for card in c.cards(missing_talent=True)] == ["a.ai", "b.ai", "c.ai", "d.ai", "e.ai"]
     assert fb.card_queries[0]["statuses"] == {"new", "saved", "archived"}  # no status param: every live one
+
+
+def test_cards_all_sends_the_explicit_opt_in_and_pages(monkeypatch):
+    from launch_radar import backend_client
+
+    monkeypatch.setattr(backend_client, "CARDS_LIMIT", 2)
+    fb = FakeBackend()
+    for i, dom in enumerate(("a.ai", "b.ai", "c.ai"), start=1):
+        fb.cards[dom] = {"id": i, "status": "archived" if i == 2 else "new", "payload": {"scores": {"talent": 4}},
+                         "tracked_company_id": None}
+    c = _client(fb)
+    assert [card["domain"] for card in c.cards(all_cards=True)] == ["a.ai", "b.ai", "c.ai"]
+    params = [r.url.params for r in fb.requests]
+    assert all(p.get("all") == "true" and "missing_talent" not in p and "domain" not in p for p in params)
+    assert [q["after_id"] for q in fb.card_queries] == [0, 2]
+    for bad in ({"all_cards": True, "domains": ["a.ai"]}, {"all_cards": True, "missing_talent": True}, {}):
+        with pytest.raises(ValueError):
+            c.cards(**bad)
+
+
+def test_missing_talent_means_the_leaders_part_is_null():
+    fb = FakeBackend()
+    rows = {
+        "legacy-null.ai": {"talent": None},  # legacy card, no leader data: selected
+        "legacy-scored.ai": {"talent": 30},
+        "team-only.ai": {"talent": 12, "talent_leaders": None, "talent_team": 6, "talent_basis": "team"},  # selected
+        "both.ai": {"talent": 18, "talent_leaders": 12, "talent_team": 6, "talent_basis": "both"},
+    }
+    for i, (dom, scores) in enumerate(rows.items(), start=1):
+        fb.cards[dom] = {"id": i, "status": "new", "payload": {"scores": scores}, "tracked_company_id": None}
+    assert [card["domain"] for card in _client(fb).cards(missing_talent=True)] == ["legacy-null.ai", "team-only.ai"]

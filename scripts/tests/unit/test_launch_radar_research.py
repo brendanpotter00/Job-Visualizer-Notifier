@@ -33,6 +33,14 @@ def test_team_request_pro_excludes_founders_by_role():
     assert req["task_spec"]["output_schema"]["json_schema"] is TEAM_SCHEMA
 
 
+def test_team_tally_asks_for_schools_and_employers_not_prior_exits():
+    # Prior exits are checked on the leaders (the pedigree's founded_before), not the team.
+    assert set(TEAM_SCHEMA["properties"]) == set(TEAM_SCHEMA["required"]) == {
+        "profiles_found", "team_size_estimate", "schools", "prior_employers", "sample_names"}
+    text = (team_request("Raindrop AI", "raindrop.ai")["input"] + str(TEAM_SCHEMA)).lower()
+    assert "exit" not in text and "ipo" not in text and "acquired" not in text
+
+
 def test_wait_task_retries_408_then_returns():
     p = FakeParallel()
     p.brief_content = {"one_liner": "x"}

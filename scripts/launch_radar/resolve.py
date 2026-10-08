@@ -2,10 +2,12 @@
 
 News articles rarely print a startup's website, so most events arrive without a
 domain, and dedupe needs one. For each such event the loop makes one Search API
-call (``mode="fast"``, about $0.001, reserved in the ledger first) and keeps the
+call (``mode="advanced"``, $0.005, reserved in the ledger first) and keeps the
 highest-ranked result whose host carries the company's name and is the company's
-own site, not a news, directory or social page. (Entity Search was tried first:
-for companies it returns LinkedIn/Tracxn profiles, never the website.)
+own site, not a news, directory or social page. ``advanced`` is Search's default
+and best-ranked mode; the lookup is not latency-sensitive (a few seconds once per
+event), so it does not use ``fast``. (Entity Search was tried first: for companies
+it returns LinkedIn/Tracxn profiles, never the website.)
 
 All event and search text is untrusted web data; it is only compared, never acted on.
 """
@@ -23,7 +25,8 @@ Log = Callable[[str], None]
 Reserve = Callable[[str, float], Any]
 
 MAX_LOOKUPS_PER_RUN = 10
-SEARCH_FAST_PRICE = 0.001  # $1 per 1k requests; 10 results included
+SEARCH_MODE = "advanced"  # Search's default, best-ranked mode (``basic`` / ``advanced``: $5 per 1k requests)
+SEARCH_PRICE = 0.005  # per request in SEARCH_MODE; 10 results included, and MAX_RESULTS stays under that
 MAX_RESULTS = 8
 
 # Hosts that describe a company but are not its website.
@@ -96,12 +99,12 @@ def resolve_missing_domains(events: list[dict[str, Any]], client: Any, reserve: 
         log(f"domain lookup: {len(missing)} events have no domain; looking up the first {limit} only")
     for ev in missing[:limit]:
         name = str(ev["company_name"])[:120]
-        reserve(f"search(domain:{name_key(name)[:40]})", ceil_cost(SEARCH_FAST_PRICE))
+        reserve(f"search(domain:{name_key(name)[:40]})", ceil_cost(SEARCH_PRICE))
         context = str(ev.get("headline") or "")[:200]
         resp = client.search(
             objective=f"The official company website (homepage) of the startup {name}. Context: {context}",
             search_queries=[f"{name} official website", f"{name} startup"],
-            mode="fast",
+            mode=SEARCH_MODE,
             advanced_settings={"max_results": MAX_RESULTS},
         )
         results = list(getattr(resp, "results", None) or [])

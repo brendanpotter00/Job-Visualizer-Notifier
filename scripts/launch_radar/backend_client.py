@@ -160,17 +160,22 @@ class BackendClient:
         return resp.json()
 
     def cards(
-        self, *, domains: Iterable[str] = (), missing_talent: bool = False, statuses: Iterable[str] = ()
+        self, *, domains: Iterable[str] = (), missing_talent: bool = False, all_cards: bool = False,
+        statuses: Iterable[str] = (),
     ) -> list[dict[str, Any]]:
         """``GET /cards``: live cards with their stored payload, by domain (chunks of 100)
-        and/or every card whose Talent score is null, limited to ``statuses`` (empty: every
-        live status). At least one of ``domains`` / ``missing_talent`` is needed. Every match
-        is returned: each query is paged by id (``after_id``) until a page comes back short,
-        so no cap hides a card."""
+        and/or every card with no leaders' part of Talent (``missing_talent``), or every live
+        card (``all_cards``, the explicit ``all=true`` opt-in), limited to ``statuses`` (empty:
+        every live status). Exactly one of ``all_cards`` / (``domains`` and/or
+        ``missing_talent``) is needed. Every match is returned: each query is paged by id
+        (``after_id``) until a page comes back short, so no cap hides a card."""
         doms = list(dict.fromkeys(domains))
-        if not doms and not missing_talent:
-            raise ValueError("cards() needs domains or missing_talent")
+        if all_cards and (doms or missing_talent):
+            raise ValueError("cards(all_cards=True) takes no domains or missing_talent")
+        if not doms and not missing_talent and not all_cards:
+            raise ValueError("cards() needs domains, missing_talent or all_cards")
         base = [("missing_talent", "true")] if missing_talent else []
+        base += [("all", "true")] if all_cards else []
         base += [("status", s) for s in dict.fromkeys(statuses)]
         chunks = [[("domain", d) for d in doms[i:i + SEEN_CHUNK]] for i in range(0, len(doms), SEEN_CHUNK)] or [[]]
         out: dict[int, dict[str, Any]] = {}
@@ -195,9 +200,3 @@ class BackendClient:
         if resp.status_code != 200:
             raise BackendError("PUT", path, resp.status_code, _detail(resp))
         return resp.json()
-
-    def set_pr(self, card_id: int, pr_url: str) -> dict[str, Any]:
-        return self._json("PATCH", f"/cards/{card_id}/pr", (200,), json={"pr_url": pr_url})
-
-    def pr_candidates(self, limit: int = 1) -> list[dict[str, Any]]:
-        return list(self._json("GET", "/pr-candidates", (200,), params={"limit": limit})["cards"])

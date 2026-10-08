@@ -68,8 +68,9 @@ def test_resolve_fills_only_missing_domains_and_reserves_first():
     resolve_missing_domains(events, client, reserve, lambda m: None)
     assert events[0]["company_domain"] == "melius.com" and events[0]["domain_source"] == "search"
     assert events[1]["company_domain"] == "kept.io" and "domain_source" not in events[1]
-    assert len(client.calls) == 1 and client.calls[0][2] == "fast"
-    assert order == [("reserve", "search(domain:melius)", 0.001)]
+    # Search's default, best-ranked mode at $0.005 a request: the lookup is not latency-sensitive.
+    assert len(client.calls) == 1 and client.calls[0][2] == "advanced"
+    assert order == [("reserve", "search(domain:melius)", 0.005)]
 
 
 def test_resolve_caps_lookups_per_run_and_says_so():

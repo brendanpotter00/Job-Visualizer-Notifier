@@ -13,7 +13,7 @@ from tests.unit.launch_radar_fakes import basis, candidate
 
 PAYLOAD_KEYS = {
     "company", "domain", "website", "one_liner", "what_they_do", "blurb", "event", "scores", "leaders",
-    "leaders_dropped", "team_stats", "funding", "notable_facts", "careers_url", "ats", "pr_ready", "sources",
+    "leaders_dropped", "team_stats", "funding", "notable_facts", "careers_url", "ats", "sources",
     "parallel_run_ids", "cost_usd", "timings_s", "issues", "generated_at",
 }
 LEADER_KEYS = {"name", "title", "linkedin_url", "profile_url", "summary", "schools", "prior_companies",
@@ -56,7 +56,7 @@ PEDIGREE = {
 TEAM = {"profiles_found": 6.0, "team_size_estimate": "approximately 10-20",
         "schools": [{"name": "University of California, Davis", "count": 1.0}],
         "prior_employers": [{"name": "Amazon", "count": 2.0}, {"name": "bad", "count": "n/a"}],
-        "ex_founders_with_exit": 0.0, "sample_names": ["X Y"]}
+        "sample_names": ["X Y"]}
 
 
 def _payload(**over):
@@ -76,13 +76,14 @@ def test_payload_has_exactly_the_contract_keys():
     p = _payload()
     assert set(p) == PAYLOAD_KEYS
     assert set(p["leaders"][0]) == LEADER_KEYS
-    assert set(p["scores"]) == {"talent", "vc", "talent_reasons", "vc_reasons"}
+    assert set(p["scores"]) == {"talent", "vc", "talent_reasons", "vc_reasons", "talent_leaders", "talent_team",
+                                "talent_basis", "talent_team_reasons"}
     assert set(p["funding"]) == {"latest_round", "prior_rounds", "total_raised_usd"}
     assert set(p["funding"]["latest_round"]) == ROUND_KEYS
     assert set(p["parallel_run_ids"]) == {"findall_id", "brief_run_id", "team_run_id", "pedigree_group_id"}
     assert set(p["team_stats"]) == {"profiles_found", "team_size_estimate", "schools", "prior_employers",
-                                    "ex_founders_with_exit", "sample_names"}
-    assert p["pr_ready"] is True
+                                    "sample_names"}
+    assert p["ats"]["verified"] is True
     assert p["website"] == "https://www.raindrop.ai"
     assert p["what_they_do"] == "Raindrop watches agents in production."
     assert len(p["notable_facts"]) == 6
@@ -94,7 +95,6 @@ def test_float_counts_are_cast_to_int():
     p = _payload()
     ts = p["team_stats"]
     assert ts["profiles_found"] == 6 and isinstance(ts["profiles_found"], int)
-    assert ts["ex_founders_with_exit"] == 0 and isinstance(ts["ex_founders_with_exit"], int)
     assert ts["schools"] == [{"name": "University of California, Davis", "count": 1}]
     assert ts["prior_employers"] == [{"name": "Amazon", "count": 2}]  # the non-numeric row is dropped
     assert isinstance(ts["prior_employers"][0]["count"], int)
@@ -139,15 +139,26 @@ def test_leader_without_pedigree_has_no_data_and_null_talent():
     ld = p["leaders"][0]
     assert ld["summary"] is None and ld["schools"] == [] and ld["years_experience"] is None
     assert ld["linkedin_url"] is None
-    assert p["scores"]["talent"] is None
+    # No leader data: the leaders' part is missing, so the team's part (17) is doubled.
+    s = p["scores"]
+    assert (s["talent_leaders"], s["talent_team"], s["talent_basis"], s["talent"]) == (None, 17, "team", 34)
     assert p["scores"]["vc"] == 55
+    p = _payload(leaders=[(candidate("Sam Rivera", "https://x.com/ben"), None)], team=None)
+    assert p["scores"]["talent"] is None and p["scores"]["talent_basis"] is None
 
 
 def test_scores_from_rubric():
     p = _payload()
-    # Ben: top employers Apple + Google (high, 10) + prior exit (medium 15*0.8 = 12) -> 22.
-    assert p["scores"]["talent"] == 22
-    assert "Sam Rivera: prior exit (Ledgerline, acquired by Northwind)" in p["scores"]["talent_reasons"]
+    s = p["scores"]
+    # Sam: top employers Apple + Google (high, 10) + prior exit (medium 15*0.8 = 12) -> 22 of 94 -> 12 of 50.
+    assert s["talent_leaders"] == 12
+    assert "Sam Rivera: prior exit (Ledgerline, acquired by Northwind)" in s["talent_reasons"]
+    # Team: Amazon on 2 of 6 profiles (2 employers listed) -> 25 * (2/6) / (1/2) = 16.7 -> 17; UC Davis is not
+    # a top school.
+    assert s["talent_team"] == 17
+    assert s["talent_team_reasons"] == ["the 1 school listed across 6 profiles is not a top school",
+                                        "2 of the 2 employers listed across 6 profiles are top employers (+17)"]
+    assert (s["talent"], s["talent_basis"]) == (29, "both")
 
 
 def test_sources_deduped_and_unsafe_urls_dropped():
@@ -232,25 +243,65 @@ def test_team_stats_none_when_task_failed():
     assert build_team_stats(None) is None
     p = _payload(team=None, brief=None, leaders=[], ats=dict(ATS, verified=False, job_count=None))
     assert p["team_stats"] is None and p["one_liner"] is None and p["event"] is None
-    assert p["scores"] == {"talent": None, "vc": None, "talent_reasons": [], "vc_reasons": []}
-    assert p["pr_ready"] is False
+    assert p["scores"] == {"talent": None, "vc": None, "talent_reasons": [], "vc_reasons": [],
+                           "talent_leaders": None, "talent_team": None, "talent_basis": None,
+                           "talent_team_reasons": ["no team tally on this card"]}
+    assert p["ats"]["verified"] is False
 
 
 def test_team_stats_keep_unknown_counts_as_none_not_zero():
     ts = build_team_stats({"profiles_found": "several", "team_size_estimate": "10-20", "schools": [],
                            "prior_employers": [], "sample_names": []})
-    assert ts["profiles_found"] is None and ts["ex_founders_with_exit"] is None
-    ts = build_team_stats({"profiles_found": 6.0, "ex_founders_with_exit": 0.0, "team_size_estimate": "x",
+    assert ts["profiles_found"] is None
+    ts = build_team_stats({"profiles_found": 6.0, "team_size_estimate": "x",
                            "schools": [], "prior_employers": [], "sample_names": []})
-    assert ts["profiles_found"] == 6 and ts["ex_founders_with_exit"] == 0
+    assert ts["profiles_found"] == 6
 
 
-def test_team_tally_is_display_only_and_never_scored():
-    strong_team = dict(TEAM, ex_founders_with_exit=9, schools=[{"name": "Stanford", "count": 12}],
+def test_an_old_tallys_prior_exits_are_dropped_and_never_scored():
+    # The team is not checked for prior exits (the leaders are). A tally from before that change
+    # still carries ex_founders_with_exit: build_team_stats drops it and the team part ignores it.
+    old = dict(TEAM, ex_founders_with_exit=9)
+    assert "ex_founders_with_exit" not in build_team_stats(old)
+    assert build_team_stats(old) == build_team_stats(TEAM)
+    assert _payload(team=old)["scores"] == _payload(team=TEAM)["scores"]
+    assert not any("exit" in r for r in _payload(team=old)["scores"]["talent_team_reasons"])
+
+
+def test_the_team_tally_counts_toward_talent():
+    strong_team = dict(TEAM, schools=[{"name": "Stanford", "count": 12}],
                        prior_employers=[{"name": "OpenAI", "count": 15}])
     with_team, without_team = _payload(team=strong_team), _payload(team=None)
-    assert with_team["team_stats"]["ex_founders_with_exit"] == 9 and without_team["team_stats"] is None
-    assert with_team["scores"] == without_team["scores"]
+    assert with_team["team_stats"]["schools"] == [{"name": "Stanford", "count": 12}]
+    assert without_team["team_stats"] is None
+    # Leaders' part is the same either way; the strong team fills its half, a missing tally doubles the leaders.
+    assert with_team["scores"]["talent_leaders"] == without_team["scores"]["talent_leaders"] == 12
+    assert (with_team["scores"]["talent_team"], with_team["scores"]["talent"]) == (50, 62)
+    assert (without_team["scores"]["talent_basis"], without_team["scores"]["talent"]) == ("leaders", 24)
+    assert with_team["scores"]["talent_reasons"] == without_team["scores"]["talent_reasons"]
+
+
+def test_build_team_stats_is_idempotent_on_its_own_output():
+    once = build_team_stats(TEAM)
+    assert build_team_stats(once) == once
+    assert build_team_stats(build_team_stats({"profiles_found": None, "schools": "junk"})) == \
+        build_team_stats({"profiles_found": None, "schools": "junk"})
+
+
+def test_payload_talent_breakdown_adds_up_for_every_basis():
+    cases = [
+        _payload(),  # both
+        _payload(team=None),  # leaders only
+        _payload(leaders=[(candidate("Sam Rivera", "https://x.com/ben"), None)]),  # team only
+        _payload(leaders=[], team=None),  # neither
+    ]
+    assert [p["scores"]["talent_basis"] for p in cases] == ["both", "leaders", "team", None]
+    expected = {"both": lambda lead, team: lead + team, "leaders": lambda lead, team: 2 * lead,
+                "team": lambda lead, team: 2 * team, None: lambda lead, team: None}
+    for p in cases:
+        s = p["scores"]
+        assert s["talent"] == expected[s["talent_basis"]](s["talent_leaders"], s["talent_team"])
+    assert cases[1]["scores"]["talent_team"] is None and cases[2]["scores"]["talent_leaders"] is None
 
 
 def test_brief_leader_without_pedigree_keeps_the_brief_title_and_linkedin():

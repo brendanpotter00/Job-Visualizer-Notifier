@@ -1,13 +1,29 @@
 import type {
   LaunchRadarCard,
   LaunchRadarCardsResponse,
+  LaunchRadarScores,
 } from '../../../features/admin/launchRadarTypes';
+
+/**
+ * Scores with no Talent breakdown: a legacy card (scored before the 50/50
+ * blend) when `talent` is a number, an unscored one when it is null.
+ */
+export function unblendedScores(
+  scores: Pick<LaunchRadarScores, 'talent' | 'vc' | 'talentReasons' | 'vcReasons'>
+): LaunchRadarScores {
+  return {
+    ...scores,
+    talentLeaders: null,
+    talentTeam: null,
+    talentBasis: null,
+    talentTeamReasons: [],
+  };
+}
 
 /**
  * Cards shaped exactly like the backend's camelCase admin response
  * (CONTRACT.md §2.4 / §5.2), modelled on the plan's mock: Raindrop AI (full
- * data, already tracked), Ghost AI (no people data; the backend has an
- * add-company PR on record, which the card does not show), Athennian
+ * data, already tracked), Ghost AI (no people data), Athennian
  * (archived, leaders without background, unverified board) and Kestrel (saved).
  */
 export function makeRaindropCard(overrides: Partial<LaunchRadarCard> = {}): LaunchRadarCard {
@@ -15,7 +31,6 @@ export function makeRaindropCard(overrides: Partial<LaunchRadarCard> = {}): Laun
     id: 1,
     status: 'new',
     trackedCompanyId: 'raindrop',
-    prUrl: null,
     postedAt: '2026-10-07T01:36:00Z',
     archivedAt: null,
     updatedBy: null,
@@ -35,6 +50,9 @@ export function makeRaindropCard(overrides: Partial<LaunchRadarCard> = {}): Laun
       investors: 'CRV, Lightspeed',
       origin: 'monitor',
     },
+    // Talent 49 = leaders 24 + team 25 (the team: 3 of the 6 profiles came from
+    // Amazon or Twitter, half the profiles, so the full 25 employer points; no
+    // top school, so 0 of the 25 school points).
     scores: {
       talent: 49,
       vc: 55,
@@ -43,6 +61,13 @@ export function makeRaindropCard(overrides: Partial<LaunchRadarCard> = {}): Laun
         'Priya Raman: prior exit (Ledgerline, acquired by Northwind)',
       ],
       vcReasons: ['CRV led (tier 2)', 'Lightspeed joined (tier 1)', 'round over $20M'],
+      talentLeaders: 24,
+      talentTeam: 25,
+      talentBasis: 'both',
+      talentTeamReasons: [
+        'the 1 school listed across 6 profiles is not a top school',
+        '3 of the 3 employers listed across 6 profiles are top employers (+25)',
+      ],
     },
     leaders: [
       {
@@ -84,7 +109,6 @@ export function makeRaindropCard(overrides: Partial<LaunchRadarCard> = {}): Laun
         { name: 'Twitter', count: 1 },
         { name: 'Amazon', count: 2 },
       ],
-      exFoundersWithExit: 0,
       sampleNames: ['Alex Moreno'],
     },
     funding: {
@@ -121,7 +145,6 @@ export function makeRaindropCard(overrides: Partial<LaunchRadarCard> = {}): Laun
       jobCount: 9,
       checkedUrl: 'https://api.ashbyhq.com/posting-api/job-board/Raindrop',
     },
-    prReady: true,
     sources: [{ url: 'https://www.raindrop.ai', title: 'Raindrop', field: 'one_liner' }],
     parallelRunIds: {
       findallId: 'findall_1',
@@ -141,7 +164,6 @@ export function makeGhostCard(overrides: Partial<LaunchRadarCard> = {}): LaunchR
   return makeRaindropCard({
     id: 2,
     trackedCompanyId: null,
-    prUrl: 'https://github.com/brendanpotter00/Job-Visualizer-Notifier/pull/400',
     company: 'Ghost AI',
     domain: 'ghost.ai',
     website: 'https://ghost.ai',
@@ -161,6 +183,10 @@ export function makeGhostCard(overrides: Partial<LaunchRadarCard> = {}): LaunchR
       vc: 65,
       talentReasons: [],
       vcReasons: ['Andreessen Horowitz led (tier 1)'],
+      talentLeaders: null,
+      talentTeam: null,
+      talentBasis: null,
+      talentTeamReasons: ['no team tally on this card'],
     },
     leaders: [],
     leadersDropped: 3,
@@ -199,7 +225,12 @@ export function makeAthennianCard(overrides: Partial<LaunchRadarCard> = {}): Lau
       investors: null,
       origin: 'monitor',
     },
-    scores: { talent: null, vc: 20, talentReasons: [], vcReasons: ['round over $10M'] },
+    scores: unblendedScores({
+      talent: null,
+      vc: 20,
+      talentReasons: [],
+      vcReasons: ['round over $10M'],
+    }),
     leaders: [
       {
         name: 'Robin Hart',
@@ -259,16 +290,6 @@ export function makeCardsResponse(
     cards: [makeGhostCard(), makeRaindropCard()],
     total: 2,
     counts: { new: 2, saved: 1, archived: 1 },
-    stats: {
-      lastRun: {
-        startedAt: '2026-10-07T01:31:00Z',
-        endedAt: '2026-10-07T01:36:12Z',
-        status: 'ok',
-        host: 'server-laptop',
-      },
-      spendUsd: 0.46,
-      capUsd: 5,
-    },
     ...overrides,
   };
 }
