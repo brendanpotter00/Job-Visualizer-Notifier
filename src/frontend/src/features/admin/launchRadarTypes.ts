@@ -204,6 +204,14 @@ export interface LaunchRadarCard {
   timingsS: Record<string, number>;
   issues: string[];
   generatedAt: string;
+  /**
+   * The add-company pull request the nightly loop opened for this card, and its
+   * number. Both are null unless that PR is open-tracked by the backend (any
+   * tab: unsaving a card does not hide a PR that already exists), and absent
+   * from a backend that predates the PR step. Never the legacy `pr_url` column.
+   */
+  prUrl?: string | null;
+  prNumber?: number | null;
 }
 
 /**

@@ -7,24 +7,41 @@
 #   * CLAUDE_BIN and PROJECT_DIR come from the environment the plist sets
 #     (install_launch_agent.sh fills them in). Nothing user-specific is
 #     hard-coded here, so the same file runs on this laptop and the server one.
-#   * NO --dangerously-skip-permissions. The radar reads web text and runs with
-#     the backend's internal key in reach (inside radar.sh), so a prompt
-#     injection must not get a free shell, a way to upload a file, or a push to
-#     main. The session gets an explicit --allowedTools allowlist (the
-#     ALLOWED_TOOLS block below is the ONE place it is defined; SKILL.md §0
-#     quotes it) and anything outside it is denied in headless mode. Every Bash
-#     entry is scripts/launch_radar/radar.sh with the exact headless arguments
-#     (so the per-run limits of 3 companies / $1.00 are not just prose), plus
-#     the heartbeat and the two AI-grade commands. The run drives the loop,
-#     posts cards and grades their Talent: it opens no PR, so there is NO git,
-#     gh, curl, python, pip or npm entry (each of those can run code or send a
-#     local file anywhere) and no web tools. The only write is a grader's JSON
-#     reply, into .launch-radar-grades/grades/ (gitignored), which grade-apply
-#     validates before anything reaches the backend. Agent is scoped to the
-#     one-subagent-per-card grader (.claude/agents/launch-radar-grader.md),
-#     whose only tool is Read, so card text it reads cannot reach Bash. Reads are
-#     scoped to this checkout, and the env file, dotfiles and .env files are
-#     denied outright.
+#   * NO --dangerously-skip-permissions. The radar reads web text, has the
+#     backend's internal key in reach (inside radar.sh) and opens add-company PRs
+#     for Saved cards, so a prompt injection must not get a free shell, a way to
+#     upload a file, a merge, or a push to main. The session gets an explicit
+#     --allowedTools allowlist (the ALLOWED_TOOLS block below is the ONE place it
+#     is defined; SKILL.md §0 quotes it) and anything outside it is denied in
+#     headless mode:
+#       - Bash: scripts/launch_radar/radar.sh with the exact headless arguments
+#         (so the per-run limits of 3 companies / $1.00 are not just prose), the
+#         grade and heartbeat commands, the PR-queue commands (pr-next,
+#         pr-refresh, pr-check, pr-report), and scripts/launch_radar/pr_step.py.
+#         pr_step.py is the ONLY way to git, gh and the logo scripts: it takes a
+#         card id and argparse choices, validates every value, runs fixed argv
+#         with no shell, pushes only HEAD:refs/heads/radar/card-<id> with a lease,
+#         and never merges. There is NO git, gh, curl, python, pip or npm entry
+#         (each of those can run code or send a local file anywhere).
+#       - Agent: only the grader (.claude/agents/launch-radar-grader.md, tool:
+#         Read) and the scout (.claude/agents/launch-radar-scout.md, tools:
+#         WebSearch, WebFetch). Neither gets Bash.
+#       - WebSearch / WebFetch: for the scout's research and logo URLs. The
+#         allowlist is session-wide, so the skill forbids the main session to
+#         call them (a residual risk, see the README's design notes).
+#       - Writes: only a grader's JSON reply into .launch-radar-grades/grades/
+#         and a scout's JSON reply into .launch-radar-pr/scout/ (both
+#         gitignored); grade-apply and pr_step.py parse them before use. No write
+#         on the PR worktrees under .claude/worktrees/.
+#     Reads are scoped to this checkout, and the env file, dotfiles and .env
+#     files are denied outright.
+#   * The clock. Each run gets a run id; "<start_epoch> <run_id>" goes into
+#     $STATE_DIR/session_started_at and the session starts with
+#     LAUNCH_RADAR_RUN_ID set (not a secret). radar.sh pr-next / pr-refresh and
+#     pr_step.py use it to stop starting PRs well before the 90-min kill. The
+#     file is deleted on exit, so an interactive run is never refused.
+#   * A killed session or any non-zero session exit appends a status=error line
+#     to the heartbeat log itself (the session never got to write one).
 #   * This wrapper never sources or exports a secret. radar.sh loads
 #     ~/.config/jvn-launch-radar/env into its own process tree only.
 #   * No texting: failures land in ~/Library/Logs/jvn-launch-radar.err and the
@@ -38,6 +55,7 @@ set -u
 STATE_DIR="$HOME/Library/Application Support/jvn-launch-radar"
 HEARTBEAT="$STATE_DIR/heartbeat.log"
 LOCK_DIR="$STATE_DIR/.run.lock"
+SESSION_FILE="$STATE_DIR/session_started_at"
 TOTAL_TIMEOUT_SECS="${JVN_RADAR_TIMEOUT_SECS:-5400}"   # 90 min hard cap
 
 log()     { echo "[wrapper] $(date -u +%FT%TZ) $*"; }
@@ -59,7 +77,9 @@ if ! mkdir "$LOCK_DIR" 2>/dev/null; then
     exit 0
   fi
 fi
-trap 'rmdir "$LOCK_DIR" 2>/dev/null || true' EXIT
+# The lock is ours from here on, so any session_started_at is ours too: delete it on
+# exit so a later interactive run never inherits this run's clock.
+trap 'rm -f "$SESSION_FILE"; rmdir "$LOCK_DIR" 2>/dev/null || true' EXIT
 
 # --- process-group control (from scripts/health_watch/wrapper.sh) -------------
 group_alive()  { kill -0 "-$1" 2>/dev/null; }
@@ -118,18 +138,30 @@ cd "$PROJECT_DIR" || { log_err "cd to project dir failed"; exit 1; }
 
 BEAT_BEFORE=$(stat -f %m "$HEARTBEAT" 2>/dev/null || echo 0)
 
+# The clock for the PR step (saved-pr/PLAN.md §4.4): "<start_epoch> <run_id>". The
+# clock applies only while LAUNCH_RADAR_RUN_ID equals the id in this file.
+START_EPOCH=$(date +%s)
+RUN_ID="${START_EPOCH}-$$"
+printf '%s %s\n' "$START_EPOCH" "$RUN_ID" > "$SESSION_FILE"
+
 # dontAsk + project-only settings: the host's user and local settings (a default mode,
 # allow rules) must not widen this list. Anything not allowed below is denied.
 # ALLOWED_TOOLS-BEGIN (tests/unit/test_launch_radar_wrapper.py parses this block)
 run_bounded launch-radar "$TOTAL_TIMEOUT_SECS" \
-  "$CLAUDE_BIN" -p /launch-radar-once \
+  env LAUNCH_RADAR_RUN_ID="$RUN_ID" "$CLAUDE_BIN" -p /launch-radar-once \
   --permission-mode dontAsk --setting-sources project \
   --allowedTools "Read(./**)" "Edit(./.launch-radar-grades/grades/**)" "Agent(launch-radar-grader)" \
+    "Agent(launch-radar-scout)" "WebSearch" "WebFetch" "Edit(./.launch-radar-pr/scout/**)" \
     "Bash(scripts/launch_radar/radar.sh monitors-ensure)" \
     "Bash(scripts/launch_radar/radar.sh run --max-companies 3 --budget 1.00)" \
     "Bash(scripts/launch_radar/radar.sh run --max-companies 0 --budget 1.00)" \
     "Bash(scripts/launch_radar/radar.sh grade-export --ungraded --dir .launch-radar-grades)" \
     "Bash(scripts/launch_radar/radar.sh grade-apply --dir .launch-radar-grades)" \
+    "Bash(scripts/launch_radar/radar.sh pr-next)" \
+    "Bash(scripts/launch_radar/radar.sh pr-refresh)" \
+    "Bash(scripts/launch_radar/radar.sh pr-check:*)" \
+    "Bash(scripts/launch_radar/radar.sh pr-report:*)" \
+    "Bash(scripts/launch_radar/pr_step.py:*)" \
     "Bash(scripts/launch_radar/radar.sh heartbeat:*)" \
   --disallowedTools "Read(~/.config/jvn-launch-radar/**)" "Read(~/.ssh/**)" "Read(~/.aws/**)" \
     "Read(~/.zshrc)" "Read(~/.zprofile)" "Read(~/.zshenv)" "Read(~/.bash_profile)" "Read(~/.bashrc)" \
@@ -140,11 +172,19 @@ run_bounded launch-radar "$TOTAL_TIMEOUT_SECS" \
 # ALLOWED_TOOLS-END
 STATUS=$RUN_BOUNDED_STATUS
 
+# A killed or failed session never wrote its heartbeat: write an error line for it, so
+# heartbeat.log says "look now" and does not keep showing yesterday's ok (D11). Same
+# "<iso-ts> status=<ok|error> <note>" shape as radar.sh heartbeat.
+if [ "$STATUS" -ne 0 ]; then
+  echo "$(date -u +%FT%TZ) status=error wrapper: session exit $STATUS" >> "$HEARTBEAT"
+fi
+
 # The skill's LAST step appends a heartbeat line. Exit 0 without the file's
 # mtime advancing means the session ended early or wedged.
 BEAT_AFTER=$(stat -f %m "$HEARTBEAT" 2>/dev/null || echo 0)
 if [ "$STATUS" -eq 0 ] && [ "$BEAT_AFTER" -le "$BEAT_BEFORE" ]; then
   log_err "claude exited 0 but heartbeat did not advance — marking failed"
+  echo "$(date -u +%FT%TZ) status=error wrapper: session exit 0 without a heartbeat" >> "$HEARTBEAT"
   STATUS=97
 fi
 

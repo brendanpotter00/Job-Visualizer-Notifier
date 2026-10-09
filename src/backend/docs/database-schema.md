@@ -151,6 +151,7 @@ erDiagram
     launch_radar_runs ||--o{ launch_radar_spend : "ledger rows (CASCADE)"
     launch_radar_runs ||--o{ launch_radar_cards : "posted by (SET NULL)"
     companies ||..o{ launch_radar_cards : "tracked_company_id (soft link, no FK)"
+    launch_radar_cards ||--o| launch_radar_pr_requests : "add-company PR (CASCADE, one per card)"
 
     launch_radar_runs {
         integer id PK
@@ -180,6 +181,15 @@ erDiagram
         text status "new | saved | archived | deleted (tombstone)"
         text tracked_company_id "nullable, soft link -> companies.id"
         jsonb payload "NULL only on a tombstone"
+    }
+
+    launch_radar_pr_requests {
+        integer id PK
+        integer card_id FK "UNIQUE, CASCADE"
+        text status "queued | in_progress | open | failed | no_board | already_tracked | cancelled"
+        integer attempts "default 0, >= 0"
+        text pr_url "nullable, this repo's PR URL; set iff status = open"
+        timestamptz requested_at "FIFO queue order"
     }
 ```
 
@@ -397,7 +407,7 @@ a queue only that lane drains, so a fresh row proves *that* worker is dequeuing.
 `/health/worker` 503s if either lane goes stale; without the tag, one dead worker would
 hide behind the other's ticks.
 
-### Launch Radar: `launch_radar_runs` / `launch_radar_spend` / `launch_radar_monitors` / `launch_radar_cards`
+### Launch Radar: `launch_radar_runs` / `launch_radar_spend` / `launch_radar_monitors` / `launch_radar_cards` / `launch_radar_pr_requests`
 The Parallel-driven startup radar (`docs/implementations/launch-radar/CONTRACT.md` §1). SQL in
 `services/launch_radar.py`; read by `/api/admin/launch-radar/*`, written by the loop through
 `/api/internal/launch-radar/*`. Money is **NUMERIC(10,4)**, never Float: the cap is compared
@@ -424,14 +434,31 @@ against a `SUM`, and a float sum drifts.
   **tombstone**: `payload`, `pr_url` and `tracked_company_id` are cleared but the row and its
   domain stay, so the loop never posts that company again; `CHECK (status = 'deleted') = (payload IS NULL)` and
   `CHECK status <> 'deleted' OR (pr_url IS NULL AND tracked_company_id IS NULL)` pin that.
-  `pr_url` is **legacy and unused**: the add-company PR step that wrote it was removed, and the
-  column was kept (only the tombstone still clears it) so the removal needed no migration.
+  `pr_url` is **legacy and unused**: the first add-company PR step that wrote it was removed, and the
+  column was kept (only the tombstone still clears it) so the removal needed no migration. PR
+  tracking now lives in `launch_radar_pr_requests`, which never reads it.
   Scores, event type and cost live in `payload` (snake_case JSONB), deliberately not in columns,
   so a tombstone clears all of them at once. `tracked_company_id` is a soft link to
   `companies.id` (no FK, house style): resolved once at insert and never nulled when that
   company row is deleted, so a stale id keeps the card "Already tracked". `run_id` FK SET
   NULL; `posted_at`, `updated_at`, `archived_at`, `deleted_at`, `updated_by` (admin email).
   Index `(status, posted_at)`.
+- **`launch_radar_pr_requests`** — the add-company PR the nightly loop opens for a **Saved**
+  card (revision `b7c4d1370996`; `docs/implementations/launch-radar/saved-pr/PLAN.md`, CONTRACT
+  §1.7). One row per card, ever: `card_id` FK → `launch_radar_cards.id` `ON DELETE CASCADE`,
+  `UNIQUE` (`uq_launch_radar_pr_requests_card_id`). Saving a card inserts it `queued` (or
+  re-queues a `cancelled` one); Unsave / Archive cancel a `queued` one; the card's tombstone
+  deletes it explicitly (the card row stays, so the cascade never fires). The loop moves it
+  through `/api/internal/launch-radar/pr-requests/*`: `status` CHECK
+  `queued/in_progress/open/failed/no_board/already_tracked/cancelled`; `attempts` CHECK `>= 0`
+  (+1 per claim, at most 3; an `env_error` gives one back); `last_reason` a fixed reason code;
+  `retry_after` (a re-queued failure waits 12 h), `claimed_at` (a claim older than 2 h is
+  recovered), `finished_at`, `requested_at` (FIFO), `updated_at`. `pr_url` CHECK matches only
+  `https://github.com/brendanpotter00/Job-Visualizer-Notifier/pull/<n>`, with `pr_number`
+  set together (`pr_pair` CHECK) and `(status = 'open') = (pr_url IS NOT NULL)`; a partial
+  UNIQUE index on `pr_url` keeps one PR off two cards. Index `(status, requested_at)` is the
+  queue scan. No branch column: the branch is always `radar/card-<card_id>`. The admin card's
+  `prUrl` / `prNumber` come from an `open` row only.
 
 ## Notes on conventions
 

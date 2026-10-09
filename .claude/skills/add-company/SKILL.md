@@ -39,6 +39,11 @@ lowercase `id` (the slug, e.g. `reducto`, `spacex`, `happyrobot.ai`):
 | 4 | Brand logos (icon + wordmark) | `src/frontend/public/logos/{icons,wordmarks}/<id>.png` |
 | 5 | Curated blurb + accomplishment | `src/backend/api/data/company_profiles.json` |
 
+> The nightly Launch Radar applies this same procedure, unattended, to every card saved on
+> `/admin/launch-radar` through `scripts/launch_radar/pr_step.py` (templated files and the
+> pinned `scripts/`, Greenhouse / Ashby / Lever / Gem only; it opens the PR, never merges).
+> Changing a file layout or a script here can change what it writes.
+
 > **Canonical reference commits** — copy these patterns exactly:
 > `246b24e` *Add Reducto (Ashby) company + changelog entry (#157)* (single company),
 > `80494df` *Add Sierra (Ashby) company and changelog entry (#135)*,

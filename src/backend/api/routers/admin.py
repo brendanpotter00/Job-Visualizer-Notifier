@@ -1069,6 +1069,10 @@ def _launch_radar_card_out(row: launch_radar.CardRow) -> LaunchRadarCardOut:
             "posted_at": row["posted_at"],
             "archived_at": row["archived_at"],
             "updated_by": row["updated_by"],
+            # The open PR request's link only (null otherwise); set after the
+            # payload so a stray key in a stored payload can never supply it.
+            "pr_url": row["open_pr_url"],
+            "pr_number": row["open_pr_number"],
         }
     )
 

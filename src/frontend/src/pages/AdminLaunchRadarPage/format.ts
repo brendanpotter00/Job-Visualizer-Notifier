@@ -7,6 +7,7 @@ import {
   LAUNCH_RADAR_SORTS,
   type LaunchRadarAts,
   type LaunchRadarAtsProvider,
+  type LaunchRadarCard,
   type LaunchRadarRound,
   type LaunchRadarScores,
   type LaunchRadarSort,
@@ -132,6 +133,34 @@ export function safeHttpUrl(url: string | null | undefined): string | null {
  */
 export function jobBoardHref(ats: LaunchRadarAts, careersUrl: string | null): string | null {
   return safeHttpUrl(ats.boardUrl) ?? safeHttpUrl(careersUrl);
+}
+
+/**
+ * A pull request of this repository, nothing else (no fragment, no query, no
+ * trailing path). A SEAM: the same pattern as the backend's DB CHECK and
+ * `LAUNCH_RADAR_PR_URL_RE` (models.py), `pr_queue.py` and `pr_step.py`
+ * (CONTRACT §9). The backend never sends another URL; this is the last gate.
+ */
+const PR_URL_RE = /^https:\/\/github\.com\/brendanpotter00\/Job-Visualizer-Notifier\/pull\/(\d+)$/;
+
+/**
+ * The card's "View PR #N" link: its add-company PR when the URL is exactly a
+ * pull request of this repository (and so a safe `https` URL); else null (no
+ * link renders).
+ */
+export function prHref(card: Pick<LaunchRadarCard, 'prUrl'>): string | null {
+  const url = card.prUrl;
+  return url && PR_URL_RE.test(url) ? safeHttpUrl(url) : null;
+}
+
+/**
+ * "View PR #123", or null when `prHref` is null. The number is read from the
+ * URL the link opens, so the label can never name a different PR than the
+ * link (the backend derives `prNumber` from the same URL).
+ */
+export function prLabel(card: Pick<LaunchRadarCard, 'prUrl'>): string | null {
+  const match = PR_URL_RE.exec(card.prUrl ?? '');
+  return match ? `View PR #${match[1]}` : null;
 }
 
 /** "techcrunch.com" from a URL (leading `www.` dropped); null if it does not parse. */

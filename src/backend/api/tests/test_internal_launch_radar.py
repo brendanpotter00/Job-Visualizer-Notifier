@@ -22,11 +22,18 @@ from api.dependencies import get_db
 from api.routers import internal_launch_radar
 from api.services import launch_radar as svc
 
+from api.db_models import LaunchRadarPrRequest
+from api.models import LAUNCH_RADAR_PR_URL_PATTERN
+
 from .test_launch_radar_service import (  # noqa: F401  (autouse isolation fixture)
+    _PR,
     _card,
+    _force_pr,
     _insert_company,
     _launch_radar_isolation,
+    _pr_row,
     make_payload,
+    saved_card,
     stored_payload,
 )
 
@@ -93,6 +100,11 @@ class TestInternalKeyGate:
                 ("post", "/cards"),
                 ("get", "/cards?missing_talent=true"),
                 ("put", "/cards/1/payload"),
+                ("post", "/pr-requests/next"),
+                ("get", "/pr-requests"),
+                ("get", "/pr-requests/1"),
+                ("post", "/pr-requests/1/result"),
+                ("post", "/pr-requests/1/requeue"),
             ):
                 resp = getattr(api, method)(f"{BASE}{path}")
                 assert resp.status_code == 401, path
@@ -808,3 +820,270 @@ class TestTalentAiGrade:
         assert api.put(f"{BASE}/cards/{card_id}/payload",
                        json={"payload": make_payload(scores=scores)}).status_code == 422
         assert _card(db_conn, card_id) == before
+
+
+# ---------------------------------------------------------------------------
+# The add-company PR queue (PLAN §3.3)
+# ---------------------------------------------------------------------------
+
+_PR_KEYS = {
+    "card_id",
+    "status",
+    "attempts",
+    "pr_url",
+    "pr_number",
+    "last_reason",
+    "requested_at",
+    "retry_after",
+    "claimed_at",
+    "finished_at",
+}
+
+
+def _next(api: TestClient):
+    return api.post(f"{BASE}/pr-requests/next", json={})
+
+
+def _result(api: TestClient, card_id: int, **body: Any):
+    return api.post(f"{BASE}/pr-requests/{card_id}/result", json=body)
+
+
+def _claimed_card(api: TestClient, db_conn: Any, domain: str = "a.ai") -> int:
+    card = saved_card(db_conn, domain)
+    resp = _next(api)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["card_id"] == card
+    return card
+
+
+def test_the_pr_url_pattern_matches_the_db_check() -> None:
+    """The seam: models.py's regex is the one the DB CHECK enforces."""
+    check = next(
+        c
+        for c in LaunchRadarPrRequest.__table__.constraints
+        if c.name == "ck_launch_radar_pr_requests_pr_url"
+    )
+    assert f"'{LAUNCH_RADAR_PR_URL_PATTERN}'" in str(check.sqltext)
+
+
+class TestPrNext:
+    def test_nothing_claimable_is_204_with_no_body(self, api) -> None:
+        resp = _next(api)
+        assert resp.status_code == 204 and resp.content == b""
+
+    def test_claim_is_200_snake_case_and_marks_the_row(self, api, db_conn) -> None:
+        card = saved_card(db_conn, "raindrop.ai")
+        resp = _next(api)
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert set(body) == {
+            "card_id",
+            "domain",
+            "company",
+            "website",
+            "careers_url",
+            "one_liner",
+            "what_they_do",
+            "ats",
+            "latest_round",
+            "attempts",
+            "requested_at",
+        }
+        assert body["card_id"] == card and body["attempts"] == 1
+        assert body["ats"] == {
+            "provider": "ashby",
+            "board_token": "Raindrop",
+            "board_url": "https://jobs.ashbyhq.com/Raindrop",
+            "verified": True,
+            "job_count": 9,
+        }
+        assert body["latest_round"] == {
+            "round": "Series A",
+            "amount_usd": "$35M",
+            "announced_at": "2026-09-17",
+        }
+        assert (_pr_row(db_conn, card) or {})["status"] == "in_progress"
+        assert _next(api).status_code == 204
+
+    @pytest.mark.parametrize("body", [{"card_id": 1}, {"extra": True}, None])
+    def test_the_body_must_be_an_empty_object(self, api, db_conn, body) -> None:
+        saved_card(db_conn)
+        resp = api.post(f"{BASE}/pr-requests/next", json=body)
+        assert resp.status_code == 422
+        assert _next(api).status_code == 200  # nothing was claimed by the refusal
+
+
+class TestPrGet:
+    def test_get_returns_the_row_and_card_status(self, api, db_conn) -> None:
+        card = _claimed_card(api, db_conn)
+        resp = api.get(f"{BASE}/pr-requests/{card}")
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert set(body) == _PR_KEYS | {"card_status"}
+        assert body["status"] == "in_progress" and body["card_status"] == "saved"
+
+    def test_missing_or_deleted_is_404(self, api, db_conn) -> None:
+        assert api.get(f"{BASE}/pr-requests/999").status_code == 404
+        card = _claimed_card(api, db_conn)
+        svc.set_status(db_conn, card, "archived", "x")
+        svc.delete_card(db_conn, card, "x")
+        assert api.get(f"{BASE}/pr-requests/{card}").status_code == 404
+
+    @pytest.mark.parametrize("card_id", ["0", "-1", "abc", "2147483648"])
+    def test_bad_card_id_is_422(self, api, card_id: str) -> None:
+        assert api.get(f"{BASE}/pr-requests/{card_id}").status_code == 422
+
+
+class TestPrResult:
+    def test_open_then_repeat_then_other_url(self, api, db_conn) -> None:
+        card = _claimed_card(api, db_conn)
+        resp = _result(api, card, outcome="open", pr_url=_PR.format(n=412))
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert set(body) == _PR_KEYS
+        assert body["status"] == "open" and body["pr_number"] == 412
+        again = _result(api, card, outcome="open", pr_url=_PR.format(n=412))
+        assert again.status_code == 200 and again.json() == body
+        other = _result(api, card, outcome="open", pr_url=_PR.format(n=413))
+        assert other.status_code == 409
+
+    def test_a_pr_already_on_another_card_is_409(self, api, db_conn) -> None:
+        a = _claimed_card(api, db_conn, "a.ai")
+        assert _result(api, a, outcome="open", pr_url=_PR.format(n=9)).status_code == 200
+        b = _claimed_card(api, db_conn, "b.ai")
+        resp = _result(api, b, outcome="open", pr_url=_PR.format(n=9))
+        assert resp.status_code == 409
+        assert "another card" in resp.json()["detail"]
+
+    def test_failed_retryable_requeues_and_env_error_refunds(self, api, db_conn) -> None:
+        a = _claimed_card(api, db_conn, "a.ai")
+        resp = _result(api, a, outcome="failed", reason="gh_error")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "queued" and resp.json()["attempts"] == 1
+        assert resp.json()["retry_after"] is not None
+        b = _claimed_card(api, db_conn, "b.ai")
+        resp = _result(api, b, outcome="failed", reason="env_error")
+        assert resp.json()["status"] == "queued" and resp.json()["attempts"] == 0
+
+    @pytest.mark.parametrize(
+        ("body", "status"),
+        [
+            ({"outcome": "failed", "reason": "pr_closed"}, "failed"),
+            ({"outcome": "no_board", "reason": "unsupported_ats"}, "no_board"),
+            ({"outcome": "already_tracked"}, "already_tracked"),
+            ({"outcome": "already_tracked", "pr_url": None, "reason": None}, "already_tracked"),
+        ],
+    )
+    def test_final_outcomes(self, api, db_conn, body: dict[str, Any], status: str) -> None:
+        card = _claimed_card(api, db_conn)
+        resp = _result(api, card, **body)
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["status"] == status and resp.json()["finished_at"] is not None
+
+    def test_cancelled_needs_an_unsaved_card(self, api, db_conn) -> None:
+        card = _claimed_card(api, db_conn)
+        assert _result(api, card, outcome="cancelled").status_code == 409
+        svc.set_status(db_conn, card, "new", "x")
+        resp = _result(api, card, outcome="cancelled")
+        assert resp.status_code == 200 and resp.json()["status"] == "cancelled"
+
+    def test_not_in_progress_is_409_and_missing_is_404(self, api, db_conn) -> None:
+        card = saved_card(db_conn)  # queued, never claimed
+        resp = _result(api, card, outcome="failed", reason="other")
+        assert resp.status_code == 409 and "not in_progress" in resp.json()["detail"]
+        assert _result(api, 999, outcome="already_tracked").status_code == 404
+
+    @pytest.mark.parametrize(
+        "body",
+        [
+            # open: URL host / repo / path / scheme / shape
+            {"outcome": "open", "pr_url": "https://gitlab.com/brendanpotter00/Job-Visualizer-Notifier/pull/1"},
+            {"outcome": "open", "pr_url": "https://github.com/someone/Job-Visualizer-Notifier/pull/1"},
+            {"outcome": "open", "pr_url": "https://github.com/brendanpotter00/other/pull/1"},
+            {"outcome": "open", "pr_url": "https://github.com/brendanpotter00/Job-Visualizer-Notifier/issues/1"},
+            {"outcome": "open", "pr_url": "http://github.com/brendanpotter00/Job-Visualizer-Notifier/pull/1"},
+            {"outcome": "open", "pr_url": "https://github.com/brendanpotter00/Job-Visualizer-Notifier/pull/1/files"},
+            {"outcome": "open", "pr_url": "https://github.com/brendanpotter00/Job-Visualizer-Notifier/pull/"},
+            {"outcome": "open", "pr_url": "https://github.com/brendanpotter00/Job-Visualizer-Notifier/pull/0"},
+            {"outcome": "open", "pr_url": "https://github.com/brendanpotter00/Job-Visualizer-Notifier/pull/99999999999"},
+            {"outcome": "open", "pr_url": "https://github.com/brendanpotter00/Job-Visualizer-Notifier/pull/1\n"},
+            # open: missing URL / with a reason
+            {"outcome": "open"},
+            {"outcome": "open", "pr_url": None},
+            {"outcome": "open", "pr_url": "https://github.com/brendanpotter00/Job-Visualizer-Notifier/pull/1", "reason": "other"},
+            # a URL on any other outcome
+            {"outcome": "failed", "reason": "other", "pr_url": "https://github.com/brendanpotter00/Job-Visualizer-Notifier/pull/1"},
+            {"outcome": "already_tracked", "pr_url": "https://github.com/brendanpotter00/Job-Visualizer-Notifier/pull/1"},
+            # reason required / forbidden / mismatched / unknown
+            {"outcome": "failed"},
+            {"outcome": "no_board"},
+            {"outcome": "failed", "reason": "board_empty"},
+            {"outcome": "no_board", "reason": "git_error"},
+            {"outcome": "no_board", "reason": "env_error"},
+            {"outcome": "cancelled", "reason": "other"},
+            {"outcome": "already_tracked", "reason": "board_empty"},
+            {"outcome": "failed", "reason": "abandoned"},
+            {"outcome": "failed", "reason": "made_up"},
+            # outcome / shape
+            {"outcome": "merged"},
+            {"outcome": "in_progress"},
+            {},
+            {"outcome": "already_tracked", "extra": True},
+        ],
+    )
+    def test_bad_body_is_422_and_changes_nothing(self, api, db_conn, body: dict[str, Any]) -> None:
+        card = _claimed_card(api, db_conn)
+        before = _pr_row(db_conn, card)
+        resp = _result(api, card, **body)
+        assert resp.status_code == 422, resp.text
+        assert _pr_row(db_conn, card) == before
+
+
+class TestPrRequeueAndList:
+    def test_requeue_a_finished_request(self, api, db_conn) -> None:
+        card = saved_card(db_conn)
+        _force_pr(db_conn, card, "no_board")
+        resp = api.post(f"{BASE}/pr-requests/{card}/requeue", json={})
+        assert resp.status_code == 200, resp.text
+        assert set(resp.json()) == _PR_KEYS
+        assert resp.json()["status"] == "queued" and resp.json()["attempts"] == 0
+
+    def test_requeue_refusals(self, api, db_conn) -> None:
+        card = saved_card(db_conn)  # queued
+        assert api.post(f"{BASE}/pr-requests/{card}/requeue", json={}).status_code == 409
+        _force_pr(db_conn, card, "open")
+        assert api.post(f"{BASE}/pr-requests/{card}/requeue", json={}).status_code == 409
+        assert api.post(f"{BASE}/pr-requests/999/requeue", json={}).status_code == 404
+        _force_pr(db_conn, card, "failed")
+        resp = api.post(f"{BASE}/pr-requests/{card}/requeue", json={"force": True})
+        assert resp.status_code == 422
+        assert (_pr_row(db_conn, card) or {})["status"] == "failed"
+
+    def test_requeue_an_unsaved_card_is_409(self, api, db_conn) -> None:
+        card = saved_card(db_conn)
+        _force_pr(db_conn, card, "failed")
+        svc.set_status(db_conn, card, "archived", "x")
+        assert api.post(f"{BASE}/pr-requests/{card}/requeue", json={}).status_code == 409
+
+    def test_list_with_status_filter_and_limit(self, api, db_conn) -> None:
+        a = saved_card(db_conn, "a.ai")
+        b = saved_card(db_conn, "b.ai")
+        _force_pr(db_conn, a, "open")
+        resp = api.get(f"{BASE}/pr-requests")
+        assert resp.status_code == 200
+        rows = resp.json()["requests"]
+        assert [r["card_id"] for r in rows] == [a, b]
+        assert set(rows[0]) == _PR_KEYS | {"domain", "company"}
+        assert rows[0]["domain"] == "a.ai" and rows[0]["pr_url"] == _PR.format(n=500 + a)
+        opened = api.get(f"{BASE}/pr-requests", params={"status": "open"}).json()["requests"]
+        assert [r["card_id"] for r in opened] == [a]
+        both = api.get(
+            f"{BASE}/pr-requests", params=[("status", "open"), ("status", "queued"), ("limit", "1")]
+        ).json()["requests"]
+        assert [r["card_id"] for r in both] == [a]
+
+    @pytest.mark.parametrize(
+        "params", [{"limit": "0"}, {"limit": "501"}, {"status": "merged"}, {"status": "saved"}]
+    )
+    def test_list_validation_422(self, api, params: dict[str, str]) -> None:
+        assert api.get(f"{BASE}/pr-requests", params=params).status_code == 422

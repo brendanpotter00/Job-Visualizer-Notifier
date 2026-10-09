@@ -20,6 +20,23 @@ legacy, unused ``pr_url``; see ``db_models.LaunchRadarCard``) are cleared but th
 row and its domain stay, so the UNIQUE on ``domain`` keeps the loop from ever
 posting that company again. Nothing here ever runs
 ``DELETE FROM launch_radar_cards``.
+
+Add-company PR requests (``launch_radar_pr_requests``, one row per card; see
+docs/implementations/launch-radar/saved-pr/PLAN.md §2.1). They move in the SAME
+transaction as the card: Save queues a row (or re-queues a ``cancelled`` one;
+a ``failed`` / ``no_board`` / ``already_tracked`` / ``open`` row is left alone);
+Unsave and Archive cancel a row that is still ``queued`` (an ``in_progress`` or
+finished row is left alone); Restore does nothing; the tombstone deletes the row.
+The admin list and a status move return the PR link of an ``open`` request only
+(``open_pr_url`` / ``open_pr_number``); the legacy ``pr_url`` column never feeds it.
+
+The loop drives the request through the internal routes (PLAN §2.2):
+``claim_next_pr`` (queued -> in_progress, one attempt; recovers stale claims
+first), ``report_pr`` (in_progress -> open / already_tracked / no_board /
+cancelled / failed, or back to queued for a retryable or ``env_error`` failure),
+``get_pr_request`` (the pre-publish check) and ``list_pr_requests``.
+``requeue_pr`` is the interactive way back from a finished request: re-saving a
+card never retries one.
 """
 
 from __future__ import annotations
@@ -31,10 +48,24 @@ from datetime import datetime
 from decimal import ROUND_HALF_UP, ROUND_UP, Decimal
 from typing import Any, Literal, TypedDict, cast
 
+import psycopg2.errors
 from psycopg2.extensions import connection as Connection
 from psycopg2.extras import Json
 
 from ..config import settings
+from ..models import (
+    LAUNCH_RADAR_PR_ABANDONED_REASON,
+    LAUNCH_RADAR_PR_FAILED_REASONS,
+    LAUNCH_RADAR_PR_NO_BOARD_REASONS,
+    LAUNCH_RADAR_PR_REFUNDED_REASON,
+    LAUNCH_RADAR_PR_RETRYABLE_REASONS,
+    LAUNCH_RADAR_PR_URL_RE,
+    LaunchRadarPrOutcome,
+    LaunchRadarPrReason,
+    LaunchRadarPrStatus,
+    launch_radar_pr_number,
+    tolerate_stored_payload,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -57,25 +88,26 @@ CardSort = Literal["announced", "talent", "vc", "added"]
 # sorts last. ``announced_at`` is stored as text, and the payload model admits
 # only an ISO date (``2026-09-17``) or year-month (``2026-09``), for which text
 # order is date order (a month sorts just after the days within it).
-_BY_ANNOUNCED = "(payload->'event'->>'announced_at') DESC NULLS LAST"
+_BY_ANNOUNCED = "(c.payload->'event'->>'announced_at') DESC NULLS LAST"
 
-# Sort key -> a FIXED ORDER BY clause. The request only ever picks a key from
-# this dict (the route validates ``sort`` as a ``Literal``); nothing from the
-# request is interpolated into SQL. Every clause ends in the same tie-breaks
+# Sort key -> a FIXED ORDER BY clause, on the card alias ``c`` (``list_cards``
+# joins the PR-request table, which has its own ``id`` and ``status``). The
+# request only ever picks a key from this dict (the route validates ``sort`` as
+# a ``Literal``); nothing from the request is interpolated into SQL. Every clause ends in the same tie-breaks
 # (announced date, then posted_at, then id), so equal scores page in one stable
 # order and LIMIT/OFFSET never repeats or skips a card. A null score (no data)
 # sorts after every scored card.
 _CARD_ORDER: dict[CardSort, str] = {
-    "announced": f"{_BY_ANNOUNCED}, posted_at DESC, id DESC",
+    "announced": f"{_BY_ANNOUNCED}, c.posted_at DESC, c.id DESC",
     "talent": (
-        "(payload->'scores'->>'talent')::numeric DESC NULLS LAST, "
-        f"{_BY_ANNOUNCED}, posted_at DESC, id DESC"
+        "(c.payload->'scores'->>'talent')::numeric DESC NULLS LAST, "
+        f"{_BY_ANNOUNCED}, c.posted_at DESC, c.id DESC"
     ),
     "vc": (
-        "(payload->'scores'->>'vc')::numeric DESC NULLS LAST, "
-        f"{_BY_ANNOUNCED}, posted_at DESC, id DESC"
+        "(c.payload->'scores'->>'vc')::numeric DESC NULLS LAST, "
+        f"{_BY_ANNOUNCED}, c.posted_at DESC, c.id DESC"
     ),
-    "added": f"posted_at DESC, {_BY_ANNOUNCED}, id DESC",
+    "added": f"c.posted_at DESC, {_BY_ANNOUNCED}, c.id DESC",
 }
 
 # Target status -> the statuses a card may move to it from. Every other move
@@ -204,6 +236,9 @@ class CardRow(TypedDict):
     archived_at: datetime | None
     deleted_at: datetime | None
     updated_by: str | None
+    # The card's add-company PR, only while its request is ``open`` (else None).
+    open_pr_url: str | None
+    open_pr_number: int | None
 
 
 class LastRunRow(TypedDict):
@@ -291,6 +326,16 @@ _CARD_COLUMNS = (
     "run_id, posted_at, updated_at, archived_at, deleted_at, updated_by"
 )
 
+# The same columns on the card alias ``c``, plus the open PR request's link
+# (``r`` is LEFT JOINed on ``r.status = 'open'``, so both are NULL otherwise).
+_CARD_COLUMNS_WITH_PR = (
+    ", ".join(f"c.{col.strip()}" for col in _CARD_COLUMNS.split(","))
+    + ", r.pr_url AS open_pr_url, r.pr_number AS open_pr_number"
+)
+_OPEN_PR_JOIN = (
+    "LEFT JOIN launch_radar_pr_requests r ON r.card_id = c.id AND r.status = 'open'"
+)
+
 _MONITOR_COLUMNS = (
     "slot, monitor_id, query, processor, frequency, status, last_event_id, "
     "charged_through"
@@ -314,13 +359,15 @@ def list_cards(
     Ordered by ``sort`` (``_CARD_ORDER``), the same way on every tab: newest
     announcement, Talent or VC score (highest first, unscored last), or newest
     posted. Only a single non-deleted status is ever selected, so a tombstone
-    can never reach the admin client.
+    can never reach the admin client. Each row carries its ``open`` PR request's
+    link (``open_pr_url`` / ``open_pr_number``, else None); the UNIQUE on
+    ``card_id`` keeps the join to at most one request per card.
     """
     order = _CARD_ORDER[sort]
     with conn.cursor() as cur:
         cur.execute(
-            f"SELECT {_CARD_COLUMNS} FROM launch_radar_cards "
-            f"WHERE status = %s ORDER BY {order} LIMIT %s OFFSET %s",
+            f"SELECT {_CARD_COLUMNS_WITH_PR} FROM launch_radar_cards c {_OPEN_PR_JOIN} "
+            f"WHERE c.status = %s ORDER BY {order} LIMIT %s OFFSET %s",
             (status, limit, offset),
         )
         rows = [cast(CardRow, dict(r)) for r in cur.fetchall()]
@@ -401,7 +448,10 @@ def set_status(
     compare-and-swap: the guarded UPDATE matches only a card still in that
     status, so a click made on a stale view (an Unsave on a card someone has
     since archived: both send ``new``) is a 409 naming the real status instead of
-    a move the admin never asked for. ``None`` keeps every allowed source."""
+    a move the admin never asked for. ``None`` keeps every allowed source.
+
+    The card's PR request moves in the same transaction (``_move_pr_request``),
+    and the returned row carries the open request's link."""
     allowed = _ALLOWED_FROM[status]
     sources = allowed if expected_from is None else tuple(s for s in allowed if s == expected_from)
     # Only an archived card has an archived_at; every other target clears it.
@@ -412,6 +462,11 @@ def set_status(
         f"WHERE id = %s AND status = ANY(%s) RETURNING {_CARD_COLUMNS}"
     )
     with conn.cursor() as cur:
+        # Lock the card first, so the status it moves FROM is known (Unsave and
+        # Restore both target ``new``, and only Unsave touches the PR request)
+        # and no other request can move it before the guarded UPDATE below.
+        cur.execute("SELECT status FROM launch_radar_cards WHERE id = %s FOR UPDATE", (card_id,))
+        before = cur.fetchone()
         cur.execute(sql, (status, admin_email, card_id, list(sources)))
         row = cur.fetchone()
         if row is None:
@@ -427,13 +482,53 @@ def set_status(
             raise Conflict(
                 f"card is {current}; only a {' or '.join(allowed)} card can move to {status}"
             )
+        # The guarded UPDATE matched, so ``before`` is the locked source status.
+        _move_pr_request(cur, card_id, str(before["status"]), status)
+        cur.execute(
+            "SELECT pr_url, pr_number FROM launch_radar_pr_requests "
+            "WHERE card_id = %s AND status = 'open'",
+            (card_id,),
+        )
+        pr = cur.fetchone()
     conn.commit()
-    return cast(CardRow, dict(row))
+    out = dict(row)
+    out["open_pr_url"] = pr["pr_url"] if pr else None
+    out["open_pr_number"] = pr["pr_number"] if pr else None
+    return cast(CardRow, out)
+
+
+def _move_pr_request(cur: Any, card_id: int, from_status: str, to_status: CardStatus) -> None:
+    """The PR request side of a card move (PLAN §2.1), in the caller's transaction.
+
+    * Save (new -> saved): insert a ``queued`` row, or re-queue a ``cancelled``
+      one. Any other existing row (``failed``, ``no_board``, ``already_tracked``,
+      ``open``, ``queued``, ``in_progress``) is left alone: re-saving is not a
+      retry (that is ``radar.sh pr-requeue``).
+    * Unsave (saved -> new) and Archive (new/saved -> archived): cancel a row that
+      is still ``queued``. An ``in_progress`` one is left for the loop's
+      ``pr-check`` to cancel before it publishes; finished rows stay.
+    * Restore (archived -> new): nothing.
+    """
+    if to_status == "saved":
+        cur.execute(
+            "INSERT INTO launch_radar_pr_requests (card_id) VALUES (%s) "
+            "ON CONFLICT (card_id) DO UPDATE SET status = 'queued', requested_at = now(), "
+            "retry_after = NULL, finished_at = NULL, updated_at = now() "
+            "WHERE launch_radar_pr_requests.status = 'cancelled'",
+            (card_id,),
+        )
+    elif to_status == "archived" or (to_status == "new" and from_status == "saved"):
+        cur.execute(
+            "UPDATE launch_radar_pr_requests SET status = 'cancelled', finished_at = now(), "
+            "updated_at = now() WHERE card_id = %s AND status = 'queued'",
+            (card_id,),
+        )
 
 
 def delete_card(conn: Connection, card_id: int, admin_email: str) -> None:
     """Tombstone an ``archived`` card. A ``new`` or ``saved`` card must be
-    archived first (409)."""
+    archived first (409). Its PR request row, in any state, is deleted in the
+    same transaction (the card row stays, so the FK's CASCADE never fires)."""
     with conn.cursor() as cur:
         # ``pr_url`` is legacy (nothing writes it since the PR step was removed), but a
         # row written before that may still hold one, and the tombstone CHECK
@@ -450,6 +545,7 @@ def delete_card(conn: Connection, card_id: int, admin_email: str) -> None:
             if current == "archived":
                 raise Conflict(_RACED)
             raise Conflict(f"card is {current}; archive it before deleting it permanently")
+        cur.execute("DELETE FROM launch_radar_pr_requests WHERE card_id = %s", (card_id,))
     conn.commit()
 
 
@@ -887,6 +983,379 @@ def replace_payload(conn: Connection, card_id: int, payload: dict[str, Any]) -> 
     return cast(PayloadReplaced, dict(out))
 
 
+# ---------------------------------------------------------------------------
+# Loop: add-company PR requests (PLAN §2.2, §3.1)
+# ---------------------------------------------------------------------------
+
+# Attempts before a retryable failure becomes final; an ``env_error`` does not
+# use one (D8).
+MAX_PR_ATTEMPTS = 3
+# How long a retryable (or ``env_error``) failure waits before it is claimable.
+PR_RETRY_AFTER = "12 hours"
+# An ``in_progress`` claim older than this was killed mid-run (the wrapper's hard
+# limit is 90 minutes); the next claim recovers it.
+STALE_PR_AFTER = "2 hours"
+
+PR_URL_RE = LAUNCH_RADAR_PR_URL_RE
+PrReason = LaunchRadarPrReason
+PrOutcome = LaunchRadarPrOutcome
+PrRequestStatus = LaunchRadarPrStatus
+
+_PR_COLS = (
+    "card_id",
+    "status",
+    "attempts",
+    "pr_url",
+    "pr_number",
+    "last_reason",
+    "requested_at",
+    "retry_after",
+    "claimed_at",
+    "finished_at",
+)
+_PR_COLUMNS = ", ".join(_PR_COLS)
+_PR_COLUMNS_R = ", ".join(f"r.{c}" for c in _PR_COLS)
+
+
+class PrRequestRow(TypedDict):
+    card_id: int
+    status: str
+    attempts: int
+    pr_url: str | None
+    pr_number: int | None
+    last_reason: str | None
+    requested_at: datetime
+    retry_after: datetime | None
+    claimed_at: datetime | None
+    finished_at: datetime | None
+
+
+class PrRequestState(PrRequestRow):
+    card_status: str
+
+
+class PrRequestListed(PrRequestRow):
+    domain: str
+    company: str
+
+
+class PrClaimAts(TypedDict):
+    provider: str | None
+    board_token: str | None
+    board_url: str | None
+    verified: bool
+    job_count: int | None
+
+
+class PrClaimRound(TypedDict):
+    round: str | None
+    amount_usd: str | None
+    announced_at: str | None
+
+
+class PrClaim(TypedDict):
+    card_id: int
+    domain: str
+    company: str
+    website: str
+    careers_url: str | None
+    one_liner: str | None
+    what_they_do: str | None
+    ats: PrClaimAts
+    latest_round: PrClaimRound | None
+    attempts: int
+    requested_at: datetime
+
+
+def _pr_row(row: Any) -> PrRequestRow:
+    return cast(PrRequestRow, {c: row[c] for c in _PR_COLS})
+
+
+def _text(value: object) -> str | None:
+    return value if isinstance(value, str) else None
+
+
+def _obj(value: object) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
+def _claim_from(row: Any) -> PrClaim:
+    """The claim's fields, read from the card's stored payload. The payload goes
+    through ``tolerate_stored_payload`` first, so every URL is http(s) or null."""
+    payload, _ = tolerate_stored_payload(_obj(row["payload"]))
+    ats = _obj(payload.get("ats"))
+    job_count = ats.get("job_count")
+    latest = _obj(payload.get("funding")).get("latest_round")
+    website = _text(payload.get("website")) or f"https://{row['domain']}"
+    return {
+        "card_id": int(row["card_id"]),
+        "domain": str(row["domain"]),
+        "company": _text(payload.get("company")) or str(row["company_name"]),
+        "website": website,
+        "careers_url": _text(payload.get("careers_url")),
+        "one_liner": _text(payload.get("one_liner")),
+        "what_they_do": _text(payload.get("what_they_do")),
+        "ats": {
+            "provider": _text(ats.get("provider")),
+            "board_token": _text(ats.get("board_token")),
+            "board_url": _text(ats.get("board_url")),
+            "verified": ats.get("verified") is True,
+            "job_count": (
+                job_count
+                if isinstance(job_count, int) and not isinstance(job_count, bool)
+                else None
+            ),
+        },
+        "latest_round": (
+            {
+                "round": _text(latest.get("stage")),
+                "amount_usd": _text(latest.get("amount_usd")),
+                "announced_at": _text(latest.get("announced_at")),
+            }
+            if isinstance(latest, dict)
+            else None
+        ),
+        "attempts": int(row["attempts"]),
+        "requested_at": row["requested_at"],
+    }
+
+
+def claim_next_pr(conn: Connection) -> PrClaim | None:
+    """Claim the oldest claimable request (``queued``, card ``saved``, no pending
+    ``retry_after``), FIFO on ``requested_at, id``: it becomes ``in_progress``
+    with one more attempt. None when nothing is claimable.
+
+    The same transaction first tidies the queue:
+    1. stale recovery: an ``in_progress`` claim older than ``STALE_PR_AFTER`` (a
+       run killed mid-PR) goes back to ``queued``, or to ``failed`` once it has
+       used ``MAX_PR_ATTEMPTS``; either way ``last_reason = 'abandoned'``;
+    2. a queued request whose saved card is already tracked becomes
+       ``already_tracked``;
+    3. a queued request whose card is no longer saved becomes ``cancelled``
+       (the card hooks already do this; defensive).
+
+    The pick is ``FOR UPDATE OF r SKIP LOCKED``, so two concurrent claims never
+    get the same card."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE launch_radar_pr_requests SET "
+            "status = CASE WHEN attempts >= %s THEN 'failed' ELSE 'queued' END, "
+            "finished_at = CASE WHEN attempts >= %s THEN now() ELSE NULL END, "
+            "last_reason = %s, retry_after = NULL, updated_at = now() "
+            "WHERE status = 'in_progress' AND claimed_at < now() - %s::interval",
+            (MAX_PR_ATTEMPTS, MAX_PR_ATTEMPTS, LAUNCH_RADAR_PR_ABANDONED_REASON, STALE_PR_AFTER),
+        )
+        cur.execute(
+            "UPDATE launch_radar_pr_requests r SET status = 'already_tracked', "
+            "retry_after = NULL, finished_at = now(), updated_at = now() "
+            "FROM launch_radar_cards c WHERE c.id = r.card_id AND r.status = 'queued' "
+            "AND c.status = 'saved' AND c.tracked_company_id IS NOT NULL"
+        )
+        cur.execute(
+            "UPDATE launch_radar_pr_requests r SET status = 'cancelled', "
+            "retry_after = NULL, finished_at = now(), updated_at = now() "
+            "FROM launch_radar_cards c WHERE c.id = r.card_id AND r.status = 'queued' "
+            "AND c.status <> 'saved'"
+        )
+        cur.execute(
+            "SELECT r.id FROM launch_radar_pr_requests r "
+            "JOIN launch_radar_cards c ON c.id = r.card_id "
+            "WHERE r.status = 'queued' AND c.status = 'saved' "
+            "AND (r.retry_after IS NULL OR r.retry_after <= now()) "
+            "ORDER BY r.requested_at, r.id LIMIT 1 "
+            "FOR UPDATE OF r SKIP LOCKED"
+        )
+        picked = cur.fetchone()
+        if picked is None:
+            conn.commit()  # keep the tidy-up
+            return None
+        cur.execute(
+            "UPDATE launch_radar_pr_requests r SET status = 'in_progress', "
+            "attempts = r.attempts + 1, claimed_at = now(), updated_at = now() "
+            "FROM launch_radar_cards c WHERE c.id = r.card_id AND r.id = %s "
+            "RETURNING r.card_id, r.attempts, r.requested_at, "
+            "c.domain, c.company_name, c.payload",
+            (picked["id"],),
+        )
+        row = cur.fetchone()
+    conn.commit()
+    return _claim_from(row)
+
+
+def get_pr_request(conn: Connection, card_id: int) -> PrRequestState:
+    """The card's request and the card's status (the loop's ``pr-check``).
+    ``NotFound`` when there is no request or the card is deleted."""
+    with conn.cursor() as cur:
+        cur.execute(
+            f"SELECT {_PR_COLUMNS_R}, c.status AS card_status "
+            "FROM launch_radar_pr_requests r JOIN launch_radar_cards c ON c.id = r.card_id "
+            "WHERE r.card_id = %s",
+            (card_id,),
+        )
+        row = cur.fetchone()
+    conn.rollback()  # read-only
+    if row is None or row["card_status"] == "deleted":
+        raise NotFound("no PR request for this card")
+    return cast(PrRequestState, dict(row))
+
+
+def _report_update(
+    outcome: PrOutcome, pr_url: str | None, reason: PrReason | None, attempts: int
+) -> tuple[str, tuple[Any, ...]]:
+    """The SET clause and its values for a report on an ``in_progress`` row.
+    Every SQL string is fixed; only the bound values vary."""
+    finished = "retry_after = NULL, finished_at = now(), updated_at = now()"
+    if outcome == "open":
+        if pr_url is None:
+            raise ValueError("outcome open needs pr_url")
+        number = launch_radar_pr_number(pr_url)
+        return (
+            f"status = 'open', pr_url = %s, pr_number = %s, last_reason = NULL, {finished}",
+            (pr_url, number),
+        )
+    if outcome in ("already_tracked", "cancelled"):
+        return f"status = %s, last_reason = NULL, {finished}", (outcome,)
+    if outcome == "no_board":
+        if reason not in LAUNCH_RADAR_PR_NO_BOARD_REASONS:
+            raise ValueError(f"no_board needs a no-board reason, not {reason}")
+        return f"status = 'no_board', last_reason = %s, {finished}", (reason,)
+    if reason not in LAUNCH_RADAR_PR_FAILED_REASONS:
+        raise ValueError(f"failed needs a failed reason, not {reason}")
+    requeue = (
+        "status = 'queued', last_reason = %s, retry_after = now() + %s::interval, "
+        "finished_at = NULL, updated_at = now()"
+    )
+    if reason == LAUNCH_RADAR_PR_REFUNDED_REASON:
+        # The environment broke before anything was pushed: give the attempt back.
+        return (
+            f"{requeue}, attempts = GREATEST(attempts - 1, 0)",
+            (reason, PR_RETRY_AFTER),
+        )
+    if reason in LAUNCH_RADAR_PR_RETRYABLE_REASONS and attempts < MAX_PR_ATTEMPTS:
+        return requeue, (reason, PR_RETRY_AFTER)
+    return f"status = 'failed', last_reason = %s, {finished}", (reason,)
+
+
+def report_pr(
+    conn: Connection,
+    card_id: int,
+    outcome: PrOutcome,
+    pr_url: str | None,
+    reason: PrReason | None,
+) -> PrRequestRow:
+    """Record the loop's outcome for a claimed (``in_progress``) request (PLAN §2.2).
+
+    * ``open``: ``pr_url`` and ``pr_number`` (parsed from the URL) are stored. A
+      repeat of the same ``open`` report is a no-op (a retried request whose first
+      response was lost); a different URL on an ``open`` row is a 409.
+    * ``already_tracked`` / ``no_board`` / ``cancelled``: final. ``cancelled`` is
+      accepted only when the card is no longer ``saved`` (409 otherwise).
+    * ``failed``: a terminal reason (or a retryable one on the last attempt) is
+      final; a retryable one re-queues for ``PR_RETRY_AFTER``; ``env_error`` also
+      re-queues and gives the attempt back (never below 0).
+
+    404 when there is no request or the card is deleted; 409 from any status
+    other than ``in_progress``, and when the PR is already recorded for another
+    card."""
+    with conn.cursor() as cur:
+        cur.execute(
+            f"SELECT {_PR_COLUMNS_R}, c.status AS card_status "
+            "FROM launch_radar_pr_requests r JOIN launch_radar_cards c ON c.id = r.card_id "
+            "WHERE r.card_id = %s FOR UPDATE OF r",
+            (card_id,),
+        )
+        row = cur.fetchone()
+        if row is None or row["card_status"] == "deleted":
+            conn.rollback()
+            raise NotFound("no PR request for this card")
+        current = str(row["status"])
+        if current == "open" and outcome == "open":
+            conn.rollback()
+            if pr_url == row["pr_url"]:
+                return _pr_row(row)
+            raise Conflict("request is already open with a different PR")
+        if current != "in_progress":
+            conn.rollback()
+            raise Conflict(f"request is {current}, not in_progress")
+        if outcome == "cancelled" and row["card_status"] == "saved":
+            conn.rollback()
+            raise Conflict("card is still saved; only an unsaved card's request can be cancelled")
+        try:
+            assignments, values = _report_update(outcome, pr_url, reason, int(row["attempts"]))
+        except ValueError:
+            conn.rollback()
+            raise
+        try:
+            cur.execute(
+                f"UPDATE launch_radar_pr_requests SET {assignments} "
+                f"WHERE card_id = %s RETURNING {_PR_COLUMNS}",
+                (*values, card_id),
+            )
+        except psycopg2.errors.UniqueViolation:
+            conn.rollback()
+            raise Conflict("this PR is already recorded for another card")
+        out = cur.fetchone()
+    conn.commit()
+    return _pr_row(out)
+
+
+def requeue_pr(conn: Connection, card_id: int) -> PrRequestRow:
+    """``radar.sh pr-requeue`` (interactive only): put a finished request
+    (``failed``, ``no_board``, ``already_tracked``, ``cancelled``) back in the
+    queue with ``attempts = 0``, a fresh ``requested_at`` and no pending retry,
+    reason or finish time. 404 no request or card deleted; 409 when the request
+    is ``queued``, ``in_progress`` or ``open``, or the card is not ``saved``.
+
+    The card is locked before the request, the same order as ``set_status``."""
+    with conn.cursor() as cur:
+        cur.execute("SELECT status FROM launch_radar_cards WHERE id = %s FOR UPDATE", (card_id,))
+        card = cur.fetchone()
+        cur.execute(
+            "SELECT status FROM launch_radar_pr_requests WHERE card_id = %s FOR UPDATE",
+            (card_id,),
+        )
+        req = cur.fetchone()
+        if card is None or card["status"] == "deleted" or req is None:
+            conn.rollback()
+            raise NotFound("no PR request for this card")
+        if req["status"] in ("queued", "in_progress", "open"):
+            conn.rollback()
+            raise Conflict(f"request is {req['status']}; only a finished request can be re-queued")
+        if card["status"] != "saved":
+            conn.rollback()
+            raise Conflict(f"card is {card['status']}; only a saved card's request can be re-queued")
+        cur.execute(
+            "UPDATE launch_radar_pr_requests SET status = 'queued', attempts = 0, "
+            "requested_at = now(), retry_after = NULL, last_reason = NULL, "
+            "finished_at = NULL, updated_at = now() "
+            f"WHERE card_id = %s RETURNING {_PR_COLUMNS}",
+            (card_id,),
+        )
+        out = cur.fetchone()
+    conn.commit()
+    return _pr_row(out)
+
+
+def list_pr_requests(
+    conn: Connection, statuses: Sequence[PrRequestStatus], limit: int
+) -> list[PrRequestListed]:
+    """Requests in ``statuses`` (empty = every status), oldest ``requested_at``
+    first, with the card's domain and company name (``pr-status`` and
+    ``pr-refresh``). Read-only."""
+    clauses = "WHERE r.status = ANY(%s) " if statuses else ""
+    params: tuple[Any, ...] = (list(statuses), limit) if statuses else (limit,)
+    with conn.cursor() as cur:
+        cur.execute(
+            f"SELECT {_PR_COLUMNS_R}, c.domain, c.company_name AS company "
+            "FROM launch_radar_pr_requests r JOIN launch_radar_cards c ON c.id = r.card_id "
+            f"{clauses}ORDER BY r.requested_at, r.id LIMIT %s",
+            params,
+        )
+        rows = [cast(PrRequestListed, dict(r)) for r in cur.fetchall()]
+    conn.rollback()  # read-only
+    return rows
+
+
 __all__ = [
     "BudgetExceeded",
     "CARD_STATUSES",
@@ -895,18 +1364,34 @@ __all__ = [
     "InvalidDomain",
     "LEDGER_LOCK_KEY",
     "LaunchRadarError",
+    "MAX_PR_ATTEMPTS",
     "NotFound",
+    "PR_RETRY_AFTER",
+    "PR_URL_RE",
+    "PrClaim",
+    "PrOutcome",
+    "PrReason",
+    "PrRequestListed",
+    "PrRequestRow",
+    "PrRequestState",
+    "PrRequestStatus",
+    "STALE_PR_AFTER",
     "card_counts",
+    "claim_next_pr",
     "delete_card",
     "find_cards",
     "finish_run",
+    "get_pr_request",
     "insert_card",
     "list_cards",
     "list_monitors",
+    "list_pr_requests",
     "normalize_domain",
     "patch_monitor",
     "put_monitor",
     "replace_payload",
+    "report_pr",
+    "requeue_pr",
     "reserve_spend",
     "run_stats",
     "seen",

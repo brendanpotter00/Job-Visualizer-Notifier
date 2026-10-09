@@ -2668,6 +2668,11 @@ class LaunchRadarCardOut(LaunchRadarPayload):
     payload, camelCase on the wire (the TS ``LaunchRadarCard``). Deleted rows
     never reach this model, so ``status`` is ``new``, ``saved`` or ``archived``.
 
+    ``pr_url`` / ``pr_number`` (``prUrl`` / ``prNumber``) are the add-company PR
+    the nightly loop opened for the card: set only while its request in
+    ``launch_radar_pr_requests`` is ``open``, whatever the card's tab, and null
+    otherwise. The legacy ``launch_radar_cards.pr_url`` column never feeds them.
+
     An OUTPUT model: the stored payload is read through ``tolerate_stored_payload``
     first, so a URL or event date that fails the input rules is nulled (and
     logged) rather than failing the whole card."""
@@ -2678,6 +2683,8 @@ class LaunchRadarCardOut(LaunchRadarPayload):
     posted_at: datetime
     archived_at: datetime | None = None
     updated_by: str | None = None
+    pr_url: str | None = None
+    pr_number: int | None = None
 
     @model_validator(mode="before")
     @classmethod
@@ -2903,3 +2910,180 @@ class LaunchRadarStoredCard(BaseModel):
 
 class LaunchRadarStoredCardsOut(BaseModel):
     cards: list[LaunchRadarStoredCard]
+
+
+# --- Add-company PR requests (docs/implementations/launch-radar/saved-pr/PLAN.md §3.3)
+#
+# The PR URL pattern is a SEAM: the DB CHECK ``ck_launch_radar_pr_requests_pr_url``
+# (db_models.LaunchRadarPrRequest), this regex, the loop's ``radar.py`` and
+# ``pr_step.py`` and the page's ``format.ts`` must all accept exactly this repo's
+# pull-request URLs. ``test_internal_launch_radar.py`` pins this copy to the CHECK.
+# Match it with ``fullmatch`` (``launch_radar_pr_number``), never ``match``.
+LAUNCH_RADAR_PR_URL_PATTERN = (
+    r"^https://github\.com/brendanpotter00/Job-Visualizer-Notifier/pull/[0-9]+$"
+)
+LAUNCH_RADAR_PR_URL_RE = re.compile(LAUNCH_RADAR_PR_URL_PATTERN)
+# ``pr_number`` is an INTEGER column.
+LAUNCH_RADAR_PR_NUMBER_MAX = 2_147_483_647
+
+LaunchRadarPrStatus = Literal[
+    "queued", "in_progress", "open", "failed", "no_board", "already_tracked", "cancelled"
+]
+LaunchRadarPrOutcome = Literal["open", "failed", "no_board", "already_tracked", "cancelled"]
+# A fixed reason code, never web text. Grouped by what it does to the request:
+LaunchRadarPrReason = Literal[
+    # no_board (final)
+    "board_not_found",
+    "board_empty",
+    "unsupported_ats",
+    # failed, terminal
+    "unsafe_value",
+    "pr_closed",
+    # failed, retryable (re-queued for 12 h until the attempts run out)
+    "step_refused",
+    "multi_head",
+    "git_error",
+    "gh_error",
+    "timeout",
+    "other",
+    # failed, refunded: the environment broke before any push; the attempt is
+    # given back and the request re-queued
+    "env_error",
+    # set only by the claim's stale recovery; never accepted from the loop
+    "abandoned",
+]
+LAUNCH_RADAR_PR_NO_BOARD_REASONS: frozenset[str] = frozenset(
+    {"board_not_found", "board_empty", "unsupported_ats"}
+)
+LAUNCH_RADAR_PR_TERMINAL_REASONS: frozenset[str] = frozenset({"unsafe_value", "pr_closed"})
+LAUNCH_RADAR_PR_RETRYABLE_REASONS: frozenset[str] = frozenset(
+    {"step_refused", "multi_head", "git_error", "gh_error", "timeout", "other"}
+)
+LAUNCH_RADAR_PR_REFUNDED_REASON = "env_error"
+LAUNCH_RADAR_PR_ABANDONED_REASON = "abandoned"
+LAUNCH_RADAR_PR_FAILED_REASONS: frozenset[str] = (
+    LAUNCH_RADAR_PR_TERMINAL_REASONS
+    | LAUNCH_RADAR_PR_RETRYABLE_REASONS
+    | {LAUNCH_RADAR_PR_REFUNDED_REASON}
+)
+
+
+def launch_radar_pr_number(pr_url: str) -> int:
+    """The PR number of a URL matching ``LAUNCH_RADAR_PR_URL_RE`` (ValueError
+    otherwise, or when it does not fit the INTEGER column)."""
+    # fullmatch, not match: Python's ``$`` also matches before a trailing newline,
+    # which the DB CHECK would then refuse (a 500 instead of a 422).
+    if not LAUNCH_RADAR_PR_URL_RE.fullmatch(pr_url):
+        raise ValueError("pr_url must be a pull request of this repository")
+    number = int(pr_url.rsplit("/", 1)[1])
+    if not 1 <= number <= LAUNCH_RADAR_PR_NUMBER_MAX:
+        raise ValueError("pr_url carries an out-of-range PR number")
+    return number
+
+
+class LaunchRadarPrNext(BaseModel):
+    """POST /pr-requests/next body: ``{}``. Nothing the loop sends picks the card."""
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class LaunchRadarPrResult(BaseModel):
+    """POST /pr-requests/{card_id}/result body.
+
+    * ``open`` needs ``pr_url`` (this repo's PR URL) and no ``reason``;
+    * ``failed`` needs a failed reason (terminal, retryable or ``env_error``);
+    * ``no_board`` needs a no-board reason;
+    * ``already_tracked`` and ``cancelled`` take no ``reason``;
+    * only ``open`` takes a ``pr_url``. ``abandoned`` is never accepted."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    outcome: LaunchRadarPrOutcome
+    pr_url: str | None = Field(default=None, max_length=200)
+    reason: LaunchRadarPrReason | None = None
+
+    @model_validator(mode="after")
+    def _outcome_shape(self) -> "LaunchRadarPrResult":
+        if self.outcome == "open":
+            if self.pr_url is None:
+                raise ValueError("outcome open needs pr_url")
+            launch_radar_pr_number(self.pr_url)
+        elif self.pr_url is not None:
+            raise ValueError(f"outcome {self.outcome} takes no pr_url")
+        allowed: frozenset[str]
+        if self.outcome == "failed":
+            allowed = LAUNCH_RADAR_PR_FAILED_REASONS
+        elif self.outcome == "no_board":
+            allowed = LAUNCH_RADAR_PR_NO_BOARD_REASONS
+        else:
+            allowed = frozenset()
+        if allowed and self.reason is None:
+            raise ValueError(f"outcome {self.outcome} needs a reason")
+        if self.reason is not None and self.reason not in allowed:
+            raise ValueError(f"reason {self.reason} is not allowed with outcome {self.outcome}")
+        return self
+
+
+class LaunchRadarPrRequestOut(BaseModel):
+    """One PR request row (snake_case). ``pr_url`` / ``pr_number`` are set only
+    while ``open``. The branch is always ``radar/card-<card_id>``."""
+
+    card_id: int
+    status: LaunchRadarPrStatus
+    attempts: int
+    pr_url: str | None
+    pr_number: int | None
+    last_reason: LaunchRadarPrReason | None
+    requested_at: datetime
+    retry_after: datetime | None
+    claimed_at: datetime | None
+    finished_at: datetime | None
+
+
+class LaunchRadarPrRequestState(LaunchRadarPrRequestOut):
+    """GET /pr-requests/{card_id} (the loop's ``pr-check``): the row plus the
+    card's live status (a deleted card is a 404)."""
+
+    card_status: LaunchRadarCardStatus
+
+
+class LaunchRadarPrRequestListed(LaunchRadarPrRequestOut):
+    domain: str
+    company: str
+
+
+class LaunchRadarPrRequestsOut(BaseModel):
+    requests: list[LaunchRadarPrRequestListed]
+
+
+class LaunchRadarPrClaimAts(BaseModel):
+    provider: str | None
+    board_token: str | None
+    board_url: str | None
+    verified: bool
+    job_count: int | None
+
+
+class LaunchRadarPrClaimRound(BaseModel):
+    # ``funding.latest_round.stage`` of the payload.
+    round: str | None
+    amount_usd: str | None
+    announced_at: str | None
+
+
+class LaunchRadarPrClaim(BaseModel):
+    """POST /pr-requests/next 200: the claimed card's fields the PR step needs,
+    read from its stored payload (never the whole payload). URLs went through
+    ``tolerate_stored_payload``, so each is an http(s) URL or null."""
+
+    card_id: int
+    domain: str
+    company: str
+    website: str
+    careers_url: str | None
+    one_liner: str | None
+    what_they_do: str | None
+    ats: LaunchRadarPrClaimAts
+    latest_round: LaunchRadarPrClaimRound | None
+    attempts: int
+    requested_at: datetime

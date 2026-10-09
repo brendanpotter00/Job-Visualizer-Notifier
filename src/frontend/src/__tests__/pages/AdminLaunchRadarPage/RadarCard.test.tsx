@@ -15,7 +15,9 @@ import {
   makeAthennianCard,
   makeGhostCard,
   makeKestrelCard,
+  makeKestrelWithPrCard,
   makeRaindropCard,
+  OPEN_PR_URL,
   unblendedScores,
 } from './fixtures';
 
@@ -851,6 +853,115 @@ describe('RadarCard', () => {
       expect(new URL(req.url).pathname).toBe('/api/admin/launch-radar/cards/4');
       // `from`: the tab the card was clicked in, checked by the backend before it moves.
       expect(await req.json()).toEqual({ status, from: 'saved' });
+    });
+  });
+
+  // The nightly loop opens an add-company PR for each Saved card; the card then
+  // links it. Just the link: no status chip, no retry button (owner's call).
+  describe('add-company PR link', () => {
+    const PR_NAME = 'View PR #412 Kestrel Labs';
+
+    it('links "View PR #412" on a Saved card with an open PR, beside the job board', () => {
+      renderCard(makeKestrelWithPrCard());
+      const card = screen.getByTestId('radar-card-4');
+      const pr = within(card).getByRole('link', { name: PR_NAME });
+      expect(pr).toHaveTextContent(/^View PR #412$/);
+      expect(pr).toHaveAttribute('href', OPEN_PR_URL);
+      expect(pr).toHaveAttribute('target', '_blank');
+      expect(pr).toHaveAttribute('rel', 'noopener noreferrer');
+      // Same left-hand unit as "Job board", after a middot.
+      const left = within(card).getByRole('link', {
+        name: 'Job board Kestrel Labs',
+      }).parentElement!;
+      expect(left).toContainElement(pr);
+      expect(left).toHaveTextContent(/^Job board · View PR #412$/);
+      // Nothing else: the actions are unchanged and no other PR control exists.
+      const buttons = within(card)
+        .getAllByRole('button')
+        .map((b) => b.getAttribute('aria-label'));
+      expect(buttons).toEqual([
+        'Unsave Kestrel Labs',
+        'Archive Kestrel Labs',
+        'Show details for Kestrel Labs',
+      ]);
+      expect(within(card).getAllByRole('link', { name: /PR/ })).toHaveLength(1);
+    });
+
+    it('shows the link on any tab that has an open PR, and without a board beside it', () => {
+      const { unmount } = render(
+        <Provider store={makeStore()}>
+          <RadarCard card={makeKestrelWithPrCard({ status: 'new' })} onRequestDelete={vi.fn()} />
+        </Provider>
+      );
+      expect(screen.getByRole('link', { name: PR_NAME })).toBeInTheDocument();
+      unmount();
+
+      renderCard(
+        makeKestrelWithPrCard({
+          careersUrl: null,
+          ats: { ...makeKestrelCard().ats, boardUrl: null },
+        })
+      );
+      const pr = screen.getByRole('link', { name: PR_NAME });
+      // No board link, so no leading middot either.
+      expect(pr.parentElement).toHaveTextContent(/^View PR #412$/);
+    });
+
+    it('shows the link next to "Already tracked" and next to the archive date', () => {
+      const { unmount } = render(
+        <Provider store={makeStore()}>
+          <RadarCard
+            card={makeKestrelWithPrCard({ trackedCompanyId: 'kestrel' })}
+            onRequestDelete={vi.fn()}
+          />
+        </Provider>
+      );
+      expect(screen.getByText('Already tracked').parentElement).toHaveTextContent(
+        /^Already tracked · View PR #412$/
+      );
+      unmount();
+
+      renderCard(makeKestrelWithPrCard({ status: 'archived', archivedAt: '2026-10-07T12:00:00Z' }));
+      expect(screen.getByText('Archived Oct 7').parentElement).toHaveTextContent(
+        /^Archived Oct 7 · View PR #412$/
+      );
+    });
+
+    it.each([
+      ['null', { prUrl: null, prNumber: null }],
+      ['absent (a backend that predates the PR step)', { prUrl: undefined, prNumber: undefined }],
+    ])('renders no PR link when the PR URL is %s', (_label, pr) => {
+      renderCard(makeKestrelCard(pr));
+      const card = screen.getByTestId('radar-card-4');
+      expect(within(card).queryByRole('link', { name: /^View PR\b/ })).not.toBeInTheDocument();
+      expect(within(card).queryByText(/PR/)).not.toBeInTheDocument();
+      expect(
+        within(card).getByRole('link', { name: 'Job board Kestrel Labs' }).parentElement
+      ).toHaveTextContent(/^Job board$/);
+    });
+
+    it.each([
+      'javascript:alert(1)',
+      'data:text/html,<b>x</b>',
+      'http://github.com/brendanpotter00/Job-Visualizer-Notifier/pull/412',
+      'https://github.com/someone-else/Job-Visualizer-Notifier/pull/412',
+      'https://github.com.evil.example/brendanpotter00/Job-Visualizer-Notifier/pull/412',
+      'https://github.com/brendanpotter00/Job-Visualizer-Notifier/issues/412',
+      'https://github.com/brendanpotter00/Job-Visualizer-Notifier/pull/412#x',
+      'https://evil.example/pull/412',
+    ])('renders no PR link for the URL %s', (prUrl) => {
+      renderCard(makeKestrelWithPrCard({ prUrl }));
+      const card = screen.getByTestId('radar-card-4');
+      expect(within(card).queryByRole('link', { name: /^View PR\b/ })).not.toBeInTheDocument();
+      expect(card.querySelector(`a[href="${prUrl}"]`)).toBeNull();
+    });
+
+    it('opens the PR without toggling the card', async () => {
+      const user = userEvent.setup();
+      renderCard(makeKestrelWithPrCard());
+      await user.click(screen.getByRole('link', { name: PR_NAME }));
+      expect(toggle('Kestrel Labs')).toHaveAttribute('aria-expanded', 'false');
+      expect(fetchMock).not.toHaveBeenCalled();
     });
   });
 

@@ -1555,3 +1555,70 @@ class LaunchRadarCard(Base):
         ),
         Index("idx_launch_radar_cards_status_posted", "status", "posted_at"),
     )
+
+
+class LaunchRadarPrRequest(Base):
+    # The add-company PR the nightly loop opens for a SAVED card
+    # (docs/implementations/launch-radar/saved-pr/PLAN.md §1). One row per card,
+    # ever (UNIQUE card_id). Saving a card queues a row; unsaving or archiving it
+    # cancels a row that is still ``queued``; deleting the card deletes the row.
+    # The loop moves it queued -> in_progress -> open / failed / no_board /
+    # already_tracked / cancelled. ``pr_url`` is set only while ``open``. The
+    # branch is not stored: it is always ``radar/card-<card_id>``. The legacy
+    # ``launch_radar_cards.pr_url`` column is never read for this.
+    __tablename__ = "launch_radar_pr_requests"
+
+    id = Column(Integer, primary_key=True)
+    card_id = Column(
+        Integer,
+        ForeignKey("launch_radar_cards.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    status = Column(Text, nullable=False, server_default=text("'queued'"))
+    # +1 at each claim, -1 when the attempt failed for an environment reason.
+    attempts = Column(Integer, nullable=False, server_default=text("0"))
+    pr_url = Column(Text, nullable=True)
+    pr_number = Column(Integer, nullable=True)
+    # A fixed reason code from the loop (never web text).
+    last_reason = Column(Text, nullable=True)
+    # Set at queue and re-queue: the queue is FIFO on this.
+    requested_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
+    retry_after = Column(TIMESTAMP(timezone=True), nullable=True)
+    claimed_at = Column(TIMESTAMP(timezone=True), nullable=True)
+    finished_at = Column(TIMESTAMP(timezone=True), nullable=True)
+    updated_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("card_id", name="uq_launch_radar_pr_requests_card_id"),
+        # Autogenerate does not compare the CHECKs of an existing table:
+        # ``api/tests/test_db_models.py`` pins the status and PR-URL text against
+        # the revision that creates the table.
+        CheckConstraint(
+            "status IN ('queued','in_progress','open','failed','no_board',"
+            "'already_tracked','cancelled')",
+            name="ck_launch_radar_pr_requests_status",
+        ),
+        CheckConstraint("attempts >= 0", name="ck_launch_radar_pr_requests_attempts"),
+        CheckConstraint(
+            r"pr_url IS NULL OR pr_url ~ "
+            r"'^https://github\.com/brendanpotter00/Job-Visualizer-Notifier/pull/[0-9]+$'",
+            name="ck_launch_radar_pr_requests_pr_url",
+        ),
+        CheckConstraint(
+            "(pr_url IS NULL) = (pr_number IS NULL)",
+            name="ck_launch_radar_pr_requests_pr_pair",
+        ),
+        CheckConstraint(
+            "(status = 'open') = (pr_url IS NOT NULL)",
+            name="ck_launch_radar_pr_requests_open",
+        ),
+        # One PR is never recorded for two cards.
+        Index(
+            "uq_launch_radar_pr_requests_pr_url",
+            "pr_url",
+            unique=True,
+            postgresql_where=text("pr_url IS NOT NULL"),
+        ),
+        # The queue scan (oldest queued first).
+        Index("idx_launch_radar_pr_requests_status_requested", "status", "requested_at"),
+    )

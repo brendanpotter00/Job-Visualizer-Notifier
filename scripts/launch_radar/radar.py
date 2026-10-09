@@ -30,6 +30,15 @@ Run from the repo root as ``python -m scripts.launch_radar.radar`` (the
                                       (talent = the grade; the rule blend moves to talent_rules);
                                       writes DIR/results.json. Free
 
+The add-company PR queue (pr_queue.py; saved-pr/PLAN.md §4.2). JSON on stdout, logs on stderr:
+  pr-next                             claim the oldest queued Saved card (time check, preflight)
+  pr-check --card-id N                before publish: still saved? (records cancelled if not)
+  pr-report --card-id N --outcome open|failed|no_board|already_tracked [--reason R]
+                                      record the outcome; open reads .launch-radar-pr/published/N.json
+  pr-refresh                          rebuild open radar PRs that fell behind main
+  pr-requeue --card-id N              interactive only: re-queue a finished request
+  pr-status [--status S ...]          interactive only: the queue as a table
+
 Exit codes: 0 done · 1 error · 2 stopped on the budget · 3 incomplete (re-run to resume).
 
 Secrets: the Parallel SDK reads PARALLEL_API_KEY itself; this program only
@@ -66,6 +75,8 @@ from .pipeline import (
     monitors_ensure,
     run,
 )
+from .pr_queue import PR_STATUSES, REPORT_OUTCOMES, REPORT_REASONS, PrEnv, valid_card_id
+from .pr_queue import dispatch as pr_dispatch
 from .refresh import RefreshOptions, refresh
 from .rescore import RescoreOptions, rescore
 from .state import StateStore, iso, utc_now
@@ -116,6 +127,17 @@ def _domain_list(flag: str) -> Callable[[str], frozenset[str]]:
 
 
 _exclude = _domain_list("--exclude")
+
+
+def _card_id(value: str) -> int:
+    try:
+        return valid_card_id(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError("must be a card id (1-10 digits, no leading zero)") from None
+
+
+def _log_err(msg: str) -> None:
+    print(f"[radar] {iso(utc_now())} {msg}", file=sys.stderr, flush=True)
 
 
 def _on_sigterm(signum: int, frame: FrameType | None) -> None:
@@ -180,11 +202,24 @@ def build_parser() -> argparse.ArgumentParser:
     ga = sub.add_parser("grade-apply", help="validate the AI grades and write them to the cards (free)")
     ga.add_argument("--dir", type=Path, required=True, help="the grade-export directory")
     ga.add_argument("--dry-run", action="store_true", help="validate and print old/new Talent; write nothing")
+    sub.add_parser("pr-next", help="claim the next Saved card for an add-company PR")
+    pc = sub.add_parser("pr-check", help="before publish: is the card still saved?")
+    pc.add_argument("--card-id", type=_card_id, required=True)
+    pr = sub.add_parser("pr-report", help="record the outcome of a claimed PR request")
+    pr.add_argument("--card-id", type=_card_id, required=True)
+    pr.add_argument("--outcome", choices=REPORT_OUTCOMES, required=True)
+    pr.add_argument("--reason", choices=REPORT_REASONS)
+    sub.add_parser("pr-refresh", help="rebuild open radar PRs that fell behind main")
+    rq = sub.add_parser("pr-requeue", help="interactive only: re-queue a finished PR request")
+    rq.add_argument("--card-id", type=_card_id, required=True)
+    st = sub.add_parser("pr-status", help="interactive only: the PR queue as a table")
+    st.add_argument("--status", choices=PR_STATUSES, action="append")
     return p
 
 
-def main(argv: Sequence[str] | None = None, *, deps: Deps | None = None) -> int:
+def main(argv: Sequence[str] | None = None, *, deps: Deps | None = None, pr_env: PrEnv | None = None) -> int:
     args = build_parser().parse_args(argv)
+    pr_cmd = args.cmd.startswith("pr-")
 
     if args.cmd == "heartbeat":
         line = StateStore(state_dir_from(os.environ)).heartbeat(args.status, args.note)
@@ -205,10 +240,17 @@ def main(argv: Sequence[str] | None = None, *, deps: Deps | None = None) -> int:
         except ConfigError as e:
             print(f"config: {e.message()}", file=sys.stderr)
             return EXIT_ERROR
-        log(f"backend {cfg.backend_url} · internal key {'set' if cfg.internal_api_key else 'not set'}")
+        say = _log_err if pr_cmd else log  # pr-* print JSON on stdout: keep it clean
+        say(f"backend {cfg.backend_url} · internal key {'set' if cfg.internal_api_key else 'not set'}")
         deps = Deps(backend=BackendClient(cfg.backend_url, cfg.internal_api_key), make_client=make_client,
-                    store=StateStore(cfg.state_dir), log=log)
+                    store=StateStore(cfg.state_dir), log=say)
         signal.signal(signal.SIGTERM, _on_sigterm)  # CLI only; tests inject deps and keep pytest's handlers
+
+    if pr_cmd:
+        try:
+            return pr_dispatch(args.cmd, args, pr_env or PrEnv(backend=deps.backend, state_dir=deps.store.dir))
+        finally:
+            deps.backend.close()
 
     try:
         if args.cmd == "monitors-ensure":

@@ -1,5 +1,7 @@
 """CLI: argument parsing, config errors name the variable only, heartbeat."""
 
+import json
+
 import pytest
 from launch_radar import radar
 from launch_radar.backend_client import BackendClient
@@ -27,12 +29,94 @@ def test_parser_rejects_bad_values(argv):
         radar.build_parser().parse_args(argv)
 
 
-def test_subcommands_are_exactly_the_loop_and_its_one_off_tools():
-    """The add-company PR step was removed: the CLI has no command that reads PR
-    candidates or records a PR on a card."""
+def test_subcommands_are_exactly_the_loop_its_one_off_tools_and_the_pr_queue():
+    """The add-company PR step is driven by Saved cards (saved-pr/PLAN.md §4.2). There is
+    still no command that takes a PR URL on the command line (pr-report reads it from a
+    file pr_step.py writes), and none that merges."""
     sub = next(a for a in radar.build_parser()._actions if a.dest == "cmd")
     assert set(sub.choices) == {"monitors-ensure", "run", "backfill", "monitors-cancel", "heartbeat",
-                                "import", "refresh", "rescore", "grade-export", "grade-apply"}
+                                "import", "refresh", "rescore", "grade-export", "grade-apply",
+                                "pr-next", "pr-check", "pr-report", "pr-refresh", "pr-requeue", "pr-status"}
+    flags = {o for name in ("pr-next", "pr-check", "pr-report", "pr-refresh", "pr-requeue", "pr-status")
+             for a in sub.choices[name]._actions for o in a.option_strings}
+    assert flags == {"-h", "--help", "--card-id", "--outcome", "--reason", "--status"}
+
+
+def test_pr_parsers_accept_the_documented_shapes():
+    p = radar.build_parser()
+    assert p.parse_args(["pr-next"]).cmd == "pr-next"
+    assert p.parse_args(["pr-refresh"]).cmd == "pr-refresh"
+    assert p.parse_args(["pr-check", "--card-id", "42"]).card_id == 42
+    a = p.parse_args(["pr-report", "--card-id", "7", "--outcome", "failed", "--reason", "env_error"])
+    assert (a.card_id, a.outcome, a.reason) == (7, "failed", "env_error")
+    a = p.parse_args(["pr-report", "--card-id", "7", "--outcome", "open"])
+    assert a.reason is None
+    assert p.parse_args(["pr-requeue", "--card-id", "3"]).card_id == 3
+    assert p.parse_args(["pr-status"]).status is None
+    assert p.parse_args(["pr-status", "--status", "open", "--status", "failed"]).status == ["open", "failed"]
+
+
+@pytest.mark.parametrize("argv", [
+    ["pr-next", "--card-id", "1"],
+    ["pr-refresh", "--card-id", "1"],
+    ["pr-check"],
+    ["pr-check", "--card-id", "0"],
+    ["pr-check", "--card-id", "012"],
+    ["pr-check", "--card-id", "1;rm -rf /"],
+    ["pr-check", "--card-id", "12345678901"],
+    ["pr-report", "--card-id", "1"],
+    ["pr-report", "--card-id", "1", "--outcome", "cancelled"],  # only pr-check records cancelled
+    ["pr-report", "--card-id", "1", "--outcome", "merged"],
+    ["pr-report", "--card-id", "1", "--outcome", "failed", "--reason", "abandoned"],
+    ["pr-report", "--card-id", "1", "--outcome", "open", "--pr-url",
+     "https://github.com/brendanpotter00/Job-Visualizer-Notifier/pull/1"],
+    ["pr-requeue"],
+    ["pr-status", "--status", "merged"],
+])
+def test_pr_parsers_reject_bad_values(argv):
+    with pytest.raises(SystemExit):
+        radar.build_parser().parse_args(argv)
+
+
+def test_pr_report_reasons_are_the_backends_minus_abandoned():
+    from launch_radar import pr_queue
+
+    assert set(pr_queue.REPORT_REASONS) == {
+        "board_not_found", "board_empty", "unsupported_ats", "unsafe_value", "pr_closed", "step_refused",
+        "multi_head", "git_error", "gh_error", "timeout", "other", "env_error"}
+
+
+def test_pr_command_prints_only_json_on_stdout(monkeypatch, tmp_path, capsys):
+    """pr-* output is read by the session: the config log line goes to stderr."""
+    from launch_radar import pr_queue
+
+    fb = FakeBackend()
+    monkeypatch.setenv("BACKEND_URL", "http://127.0.0.1:8000")
+    monkeypatch.setenv("LAUNCH_RADAR_STATE_DIR", str(tmp_path))
+    monkeypatch.delenv("LAUNCH_RADAR_RUN_ID", raising=False)
+    monkeypatch.delenv("INTERNAL_API_KEY", raising=False)
+    monkeypatch.setattr(radar, "BackendClient",
+                        lambda url, key: BackendClient(url, key, transport=fb.transport()))
+    monkeypatch.setattr(pr_queue, "preflight", lambda env: None)
+    monkeypatch.setattr(radar.signal, "signal", lambda *a: None)
+    assert radar.main(["pr-next"]) == 0
+    out, err = capsys.readouterr()
+    assert [json.loads(line) for line in out.splitlines()] == [
+        {"claimed": False, "reason": "empty", "time_left_s": None}]
+    assert "[radar]" in err and "internal key not set" in err
+
+
+def test_pr_commands_need_no_parallel_key(monkeypatch):
+    asked: list[bool] = []
+
+    def fake_load_config(*, need_parallel):
+        asked.append(need_parallel)
+        raise ConfigError("BACKEND_URL")
+
+    monkeypatch.setattr(radar, "load_config", fake_load_config)
+    for argv in (["pr-next"], ["pr-refresh"], ["pr-check", "--card-id", "1"], ["pr-status"]):
+        assert radar.main(argv) == 1
+    assert asked == [False] * 4
 
 
 def test_config_errors_name_the_variable_only():

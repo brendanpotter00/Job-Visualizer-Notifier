@@ -21,6 +21,18 @@ Requests and responses are snake_case. Status codes the loop relies on:
     POST  /cards                    201 | 404 | 409 run not running / domain already posted | 422
     PUT   /cards/{card_id}/payload  200 | 404 missing or deleted | 422 invalid or other domain
 
+The add-company PR queue (docs/implementations/launch-radar/saved-pr/PLAN.md §3.3;
+one request per card, created by Save on the admin page):
+
+    POST  /pr-requests/next               200 claim | 204 nothing claimable
+    GET   /pr-requests/{card_id}          200 row + card_status | 404 none or card deleted
+    POST  /pr-requests/{card_id}/result   200 | 404 | 409 not in_progress, other URL on
+                                          an open row, PR on another card, cancelled
+                                          while still saved | 422 outcome/url/reason shape
+    POST  /pr-requests/{card_id}/requeue  200 | 404 | 409 queued/in_progress/open or card
+                                          not saved
+    GET   /pr-requests                    200 (status repeatable, limit 1..500) | 422
+
 Every psycopg2 error rolls back and becomes a 500 with a generic detail.
 """
 
@@ -31,7 +43,7 @@ from collections.abc import Callable
 from typing import TypeVar
 
 import psycopg2
-from fastapi import APIRouter, Depends, HTTPException, Path, Query
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response
 from psycopg2.extensions import connection as Connection
 
 from ..dependencies import get_db
@@ -46,6 +58,14 @@ from ..models import (
     LaunchRadarMonitorsOut,
     LaunchRadarPayloadReplace,
     LaunchRadarPayloadReplaced,
+    LaunchRadarPrClaim,
+    LaunchRadarPrNext,
+    LaunchRadarPrRequestListed,
+    LaunchRadarPrRequestOut,
+    LaunchRadarPrRequestsOut,
+    LaunchRadarPrRequestState,
+    LaunchRadarPrResult,
+    LaunchRadarPrStatus,
     LaunchRadarReserve,
     LaunchRadarReserved,
     LaunchRadarRunFinish,
@@ -66,6 +86,8 @@ router = APIRouter()
 SEEN_MAX_VALUES = 100
 
 _RUN_UUID_PATH = Path(pattern=r"^[A-Za-z0-9-]{8,64}$")
+# A card id is an INTEGER column: a bigger value would be a 500, not a 404.
+_CARD_ID_PATH = Path(ge=1, le=2_147_483_647)
 
 T = TypeVar("T")
 
@@ -262,3 +284,78 @@ def replace_payload(
         conn, "replace card payload", lambda: svc.replace_payload(conn, card_id, payload)
     )
     return LaunchRadarPayloadReplaced.model_validate(result)
+
+
+# ---------------------------------------------------------------------------
+# Add-company PR requests (PLAN §3.3)
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/pr-requests/next",
+    response_model=LaunchRadarPrClaim,
+    responses={204: {"description": "Nothing is claimable"}},
+)
+def claim_next_pr(
+    body: LaunchRadarPrNext,
+    conn: Connection = Depends(get_db),
+) -> LaunchRadarPrClaim | Response:
+    """``radar.sh pr-next``: claim the oldest queued request of a saved card
+    (it becomes ``in_progress``, one more attempt), or 204 when none is
+    claimable. Stale claims are recovered first."""
+    claim = _call(conn, "claim PR request", lambda: svc.claim_next_pr(conn))
+    if claim is None:
+        return Response(status_code=204)
+    return LaunchRadarPrClaim.model_validate(claim)
+
+
+@router.get("/pr-requests/{card_id}", response_model=LaunchRadarPrRequestState)
+def get_pr_request(
+    card_id: int = _CARD_ID_PATH,
+    conn: Connection = Depends(get_db),
+) -> LaunchRadarPrRequestState:
+    """``radar.sh pr-check``: the card's request and the card's status."""
+    row = _call(conn, "read PR request", lambda: svc.get_pr_request(conn, card_id))
+    return LaunchRadarPrRequestState.model_validate(row)
+
+
+@router.post("/pr-requests/{card_id}/result", response_model=LaunchRadarPrRequestOut)
+def report_pr(
+    body: LaunchRadarPrResult,
+    card_id: int = _CARD_ID_PATH,
+    conn: Connection = Depends(get_db),
+) -> LaunchRadarPrRequestOut:
+    """``radar.sh pr-check`` / ``pr-report``: record the outcome of a claimed
+    request. The body's shape is checked by ``LaunchRadarPrResult``."""
+    row = _call(
+        conn,
+        "report PR request",
+        lambda: svc.report_pr(conn, card_id, body.outcome, body.pr_url, body.reason),
+    )
+    return LaunchRadarPrRequestOut.model_validate(row)
+
+
+@router.post("/pr-requests/{card_id}/requeue", response_model=LaunchRadarPrRequestOut)
+def requeue_pr(
+    body: LaunchRadarPrNext,
+    card_id: int = _CARD_ID_PATH,
+    conn: Connection = Depends(get_db),
+) -> LaunchRadarPrRequestOut:
+    """``radar.sh pr-requeue`` (interactive only): put a finished request of a
+    saved card back in the queue with its attempts reset."""
+    row = _call(conn, "re-queue PR request", lambda: svc.requeue_pr(conn, card_id))
+    return LaunchRadarPrRequestOut.model_validate(row)
+
+
+@router.get("/pr-requests", response_model=LaunchRadarPrRequestsOut)
+def list_pr_requests(
+    status: list[LaunchRadarPrStatus] = Query(default_factory=list),
+    limit: int = Query(default=100, ge=1, le=500),
+    conn: Connection = Depends(get_db),
+) -> LaunchRadarPrRequestsOut:
+    """``radar.sh pr-status`` / ``pr-refresh``: requests in ``status``
+    (repeatable; none = every status), oldest first, with domain and company."""
+    rows = _call(conn, "list PR requests", lambda: svc.list_pr_requests(conn, status, limit))
+    return LaunchRadarPrRequestsOut(
+        requests=[LaunchRadarPrRequestListed.model_validate(r) for r in rows]
+    )
