@@ -4,11 +4,12 @@ The contract between the three parts of Launch Radar as shipped: the **backend**
 **frontend** (`/admin/launch-radar`) and the **loop** (`scripts/launch_radar/`). Where this file and `plan.html` (the
 approved design) disagree, this file wins. §9 lists the seams that must change together.
 
-**Removed: the add-company PR step** (2026-10-07). The design's last stage, where the loop turned one verified card a
-day into an add-company pull request, is gone: it opened PRs (#333, #334) on its own, and tracking a company is a human
-call made from the admin page. The loop now only researches and posts cards. What is left of it: the legacy
-`launch_radar_cards.pr_url` column (§1.4, unused, kept so the removal needed no migration) and the tolerated legacy
-payload flag `pr_ready` (§4).
+**The add-company PR step is back, driven by the Saved column** (2026-10-08, design:
+`saved-pr/PLAN.md`). The first version (removed in #335 on 2026-10-07) picked one verified card a day on its own and
+opened PRs #333 and #334. Now a human decides: Brendan saves a card, the next nightly run opens one add-company PR for
+it, and the card shows a "View PR #N" link. The loop **never merges**. PR tracking lives in its own table
+(`launch_radar_pr_requests`, §1.7); the legacy `launch_radar_cards.pr_url` column (§1.4) and the payload flag
+`pr_ready` (§4) stay unused.
 
 ---
 
@@ -84,7 +85,7 @@ Index: `idx_launch_radar_spend_run_id (run_id)`. Total spend = `SUM(amount_usd)`
 | `company_name` | Text | no | | kept on the tombstone so a log can name it |
 | `status` | Text | no | `'new'` | `CHECK ck_launch_radar_cards_status: status IN ('new','saved','archived','deleted')` (autogenerate does not compare the CHECKs of an existing table, so `api/tests/test_db_models.py` pins this text against revision `33ff7e590a46`) |
 | `tracked_company_id` | Text, soft link to `companies.id` (no FK, house style) | yes | | set by the backend at insert (§2.3). Nothing nulls it when that company row is deleted, so a stale id keeps the card "Already tracked" (harmless) |
-| `pr_url` | Text | yes | | **legacy, unused**: written by the removed add-company PR step. Nothing reads or writes it now except the tombstone, which still clears it (the CHECK below). Kept so the removal needed no migration |
+| `pr_url` | Text | yes | | **legacy, unused**: written by the first, removed PR step. Nothing reads or writes it now except the tombstone, which still clears it (the CHECK below). The PR step tracks its PRs in `launch_radar_pr_requests` (§1.7), never here |
 | `payload` | JSONB | yes | | the card (§4, snake_case). NULL only on a tombstone |
 | `run_id` | Integer FK → `launch_radar_runs.id` `ON DELETE SET NULL` | yes | | |
 | `posted_at` | TIMESTAMP(tz) | no | `now()` | |
@@ -110,6 +111,19 @@ There are deliberately **no score, event_type or cost columns**. They live in `p
 - delete (tombstone): `UPDATE … SET status='deleted', payload=NULL, pr_url=NULL, tracked_company_id=NULL, archived_at=NULL, deleted_at=now(), updated_at=now(), updated_by=%s WHERE id=%s AND status='archived' RETURNING id`
 - If no row comes back, run `SELECT status … WHERE id=%s`. A missing row or `status='deleted'` gives **404**. A row in the wrong
   state gives **409**. Never `DELETE FROM` a card.
+- **PR-request hooks** (§1.7), in the **same transaction** as the move:
+  - Save: `INSERT INTO launch_radar_pr_requests (card_id) VALUES (%s) ON CONFLICT (card_id) DO UPDATE SET status='queued',
+    requested_at=now(), retry_after=NULL, finished_at=NULL, updated_at=now() WHERE launch_radar_pr_requests.status='cancelled'`.
+    A `failed`, `no_board`, `already_tracked` or `open` row is left alone (re-saving never retries; `radar.sh pr-requeue`
+    does).
+  - Unsave and Archive: `UPDATE … SET status='cancelled', finished_at=now(), updated_at=now() WHERE card_id=%s AND
+    status='queued'`. An `in_progress` row is left alone: the loop's `pr-check` cancels it before publishing.
+  - Restore: nothing.
+  - Delete (tombstone): `DELETE FROM launch_radar_pr_requests WHERE card_id=%s`. The card row stays, so the FK's
+    `ON DELETE CASCADE` never fires; this is the explicit cleanup.
+- `list_cards` reads the request with `LEFT JOIN launch_radar_pr_requests r ON r.card_id = c.id AND r.status = 'open'`
+  (`open_pr_url`, `open_pr_number` in `CardRow`); `set_status` reads the same two fields after its UPDATE. So a card
+  carries a PR link only while its request is `open`.
 
 ### 1.6 Migrations
 
@@ -121,7 +135,57 @@ There are deliberately **no score, event_type or cost columns**. They live in `p
 - Autogenerate does not compare the CHECKs of an existing table, so `api/tests/test_db_models.py` pins the model's card
   status CHECK to the same text in the revision, and `api/tests/test_migration_launch_radar_tables.py` round-trips it
   (upgrade, constraints, downgrade, upgrade again) in a throwaway database.
+- Revision `b7c4d1370996` (`launch radar pr requests`, after `33ff7e590a46`) creates `launch_radar_pr_requests` (§1.7),
+  autogenerated the same way against a scratch database at `33ff7e590a46`. Its hand-written backfill gives every card
+  already `saved` a row: `already_tracked` (finished now) when it has a `tracked_company_id`, else `queued`. It ignores
+  the legacy `pr_url` (the only values point at the closed PRs #333/#334, and a closed PR does not block a save). Its
+  downgrade drops the two indexes and the table, so the queue and every recorded PR link are lost (the PRs stay on
+  GitHub). `test_db_models.py` pins its status and PR-URL CHECK text; `test_migration_launch_radar_pr_requests.py`
+  round-trips it and checks the backfill.
 - Never add files under `scripts/shared/migrations/`.
+
+### 1.7 `launch_radar_pr_requests`: the add-company PR of one Saved card
+
+One row per card, **ever** (`db_models.LaunchRadarPrRequest`, after `LaunchRadarCard`). Saving a card creates it (§1.5);
+the loop moves it through the internal routes (§2.3). No branch column: the branch is always `radar/card-<card_id>`.
+
+| column | type | null | default | notes |
+|---|---|---|---|---|
+| `id` | Integer PK | no | serial | |
+| `card_id` | Integer FK → `launch_radar_cards.id` `ON DELETE CASCADE` | no | | `UNIQUE uq_launch_radar_pr_requests_card_id` |
+| `status` | Text | no | `'queued'` | `CHECK ck_launch_radar_pr_requests_status: status IN ('queued','in_progress','open','failed','no_board','already_tracked','cancelled')` |
+| `attempts` | Integer | no | `0` | `CHECK ck_launch_radar_pr_requests_attempts: attempts >= 0`. +1 at each claim, −1 on an `env_error` report |
+| `pr_url` | Text | yes | | `CHECK ck_launch_radar_pr_requests_pr_url: pr_url IS NULL OR pr_url ~ '^https://github\.com/brendanpotter00/Job-Visualizer-Notifier/pull/[0-9]+$'` (a §9 seam) |
+| `pr_number` | Integer | yes | | parsed from `pr_url` by the backend. `CHECK ck_launch_radar_pr_requests_pr_pair: (pr_url IS NULL) = (pr_number IS NULL)` |
+| `last_reason` | Text | yes | | a `PrReason` code (§2.3), never web text |
+| `requested_at` | TIMESTAMP(tz) | no | `now()` | set at queue and re-queue; the queue is FIFO on `(requested_at, id)` |
+| `retry_after` | TIMESTAMP(tz) | yes | | a re-queued failure sets `now() + 12 hours` |
+| `claimed_at` | TIMESTAMP(tz) | yes | | set at claim |
+| `finished_at` | TIMESTAMP(tz) | yes | | set on reaching `open`, `failed`, `no_board`, `already_tracked` or `cancelled` |
+| `updated_at` | TIMESTAMP(tz) | no | `now()` | set by every UPDATE |
+
+Also: `CHECK ck_launch_radar_pr_requests_open: (status = 'open') = (pr_url IS NOT NULL)`; a partial unique index
+`uq_launch_radar_pr_requests_pr_url ON (pr_url) WHERE pr_url IS NOT NULL` (one PR never recorded for two cards); index
+`idx_launch_radar_pr_requests_status_requested (status, requested_at)` (the queue scan).
+
+Loop moves (service functions in §2.3):
+
+```
+queued ──claim──▶ in_progress ──open──────────▶ open            (pr_url, pr_number)
+                        │──already_tracked──▶ already_tracked
+                        │──no_board─────────▶ no_board          (last_reason)
+                        │──cancelled────────▶ cancelled         (only when the card is no longer saved)
+                        │──failed env_error ─▶ queued, attempts − 1, retry_after = now()+12h
+                        │──failed, retryable, attempts < 3 ──▶ queued (retry_after = now()+12h)
+                        └──failed, terminal or attempts = 3 ──▶ failed
+in_progress, claimed_at older than 2 h ──(at the next claim)──▶ queued (retry_after NULL)
+                                          or failed if attempts = 3   (last_reason 'abandoned')
+```
+
+`MAX_PR_ATTEMPTS = 3`, `PR_RETRY_AFTER = '12 hours'`, `STALE_PR_AFTER = '2 hours'` (`services/launch_radar.py`).
+**Never two PRs for one card:** `UNIQUE(card_id)`; the claim is a guarded UPDATE under `FOR UPDATE OF r SKIP LOCKED`;
+`open` is never re-queued (no card move touches it, `requeue` refuses it); the partial unique index on `pr_url`; and on
+GitHub one fixed branch per card, whose trusted open PR a later attempt adopts instead of opening another (§6.9).
 
 ---
 
@@ -174,10 +238,12 @@ sends it on every action; omitted, any allowed source moves (backward compatible
   `saved` or `archived` card.
 - 200 returns the updated `LaunchRadarCard`. 404 if the card is missing or deleted. 409 for any other move (already in that
   state, `archived` → `saved`, or a `from` that is not the card's current status), with a detail naming the card's current status.
+- Each move also runs its PR-request hook (§1.5) in the same transaction: Save queues the card's add-company PR; Unsave and
+  Archive cancel a request that is still `queued`.
 
 #### `DELETE /api/admin/launch-radar/cards/{card_id}`
 
-Permanent delete (the tombstone in §1.5).
+Permanent delete (the tombstone in §1.5). It also deletes the card's PR request row, if any.
 - **204 No Content** with no body (FastAPI `Response(status_code=204)`).
 - 404 if the card is missing or already deleted. **409** if `status` is `new` or `saved`: a card must be archived first.
 
@@ -210,6 +276,13 @@ routes. The loop calls the backend directly (`BACKEND_URL`).
 | `GET /cards` | query `domain` (repeatable, 0..100, normalized server-side) and/or `missing_talent=true` (no **leaders' part** of Talent: `scores.talent_leaders` null on a blended card, `scores.talent` null on a pre-blend one, so a team-only card with a Talent number is still found), or `all=true` (every live card, `rescore --all`; takes no other filter); `status` (repeatable, `new`/`saved`/`archived`; none = every live status); `after_id` ≥0 (0); `limit` 1..500 (100) | 200 `{"cards": [{"id", "domain", "status", "payload"}]}`: live cards only, `id > after_id`, by id, payload as stored. Keyset-paged: the loop asks again from the last id until a page comes back short | 422 no filter / `all=true` with `domain` or `missing_talent` / more than 100 domains / bad `status` |
 | `POST /cards` | `{"run_uuid": str, "payload": LaunchRadarPayload (§4)}` | **201** `{"id": int, "tracked_company_id": str \| null}` | 404 unknown run · 409 run not running · **409 domain already posted** · 422 payload invalid or domain not normalized |
 | `PUT /cards/{card_id}/payload` | `{"payload": LaunchRadarPayload (§4)}` (`extra="forbid"`; no run needed) | 200 `{"id", "domain", "status", "posted_at", "updated_at"}` | 404 missing or deleted · 422 payload invalid (URL rules included) or `payload.domain` ≠ the card's |
+| `POST /pr-requests/next` | `{}` (`extra="forbid"`) | **200** `PrClaim` · **204** nothing claimable | — |
+| `GET /pr-requests/{card_id}` | — | 200 `PrRequestOut` + `card_status` | 404 no request, or the card is deleted |
+| `POST /pr-requests/{card_id}/result` | `{"outcome": "open"\|"failed"\|"no_board"\|"already_tracked"\|"cancelled", "pr_url": str<=200 \| null, "reason": PrReason \| null}` (`extra="forbid"`) | 200 `PrRequestOut` | 404 · 409 not `in_progress`, a different URL on an `open` row, the PR already on another card, `cancelled` while the card is still saved · 422 shape (below) |
+| `POST /pr-requests/{card_id}/requeue` | `{}` | 200 `PrRequestOut` | 404 · 409 from `queued` / `in_progress` / `open`, or the card is not `saved` |
+| `GET /pr-requests` | query `status` (repeatable, optional: none = every status), `limit` 1..500 (100) | 200 `{"requests": [PrRequestOut + "domain", "company"]}`, oldest first | 422 bad status / limit |
+
+`card_id` in a path is `1..2147483647` (an INTEGER column).
 
 Shapes (snake_case):
 
@@ -261,6 +334,50 @@ race it), 404 for a missing card or a tombstone, 422 when the payload's domain i
 `UPDATE … SET payload, company_name = payload.company, updated_at = now()`. Status, `posted_at`,
 `tracked_company_id`, `run_id` and `updated_by` stay. `GET /cards` (`find_cards`) is its read-only lookup.
 
+**The PR-request routes** (`radar.sh pr-*`, §6.2; lifecycle in §1.7). Service: `claim_next_pr`, `get_pr_request`,
+`report_pr`, `requeue_pr`, `list_pr_requests`.
+
+- **`POST /pr-requests/next` (`claim_next_pr`)**, one transaction: (1) stale recovery: `in_progress` with `claimed_at`
+  older than 2 h → `queued`, or `failed` at 3 attempts, `last_reason='abandoned'`; (2) a queued request whose saved card
+  has a `tracked_company_id` → `already_tracked`; (3) a queued request whose card is not `saved` → `cancelled`; (4) pick
+  the oldest `queued` request of a `saved` card with `retry_after` NULL or past, `ORDER BY requested_at, id`,
+  `FOR UPDATE OF r SKIP LOCKED`; it becomes `in_progress`, `attempts + 1`, `claimed_at = now()`. None → 204.
+- **`/result` (`report_pr`)** only from `in_progress`, except that an identical repeat of an `open` report (same URL) is a
+  200 no-op. `open` stores `pr_url` and `pr_number` (parsed from the URL, `fullmatch`, so a trailing newline is a 422,
+  never a CHECK 500). `already_tracked`, `no_board` and `cancelled` are final. `failed` with a terminal reason, or a
+  retryable one on the 3rd attempt, is final; a retryable one goes back to `queued` with `retry_after = now() + 12 h`;
+  `env_error` does too, and gives the attempt back (`GREATEST(attempts - 1, 0)`).
+- **`/requeue` (`requeue_pr`)**, interactive only: `failed`, `no_board`, `already_tracked` or `cancelled` → `queued`,
+  `attempts = 0`, `requested_at = now()`, clearing `retry_after`, `last_reason` and `finished_at`.
+
+`/result` validation (`LaunchRadarPrResult`, a `model_validator`, so a bad shape is a 422):
+- `open` needs `pr_url` matching the PR URL pattern (§9) and no `reason`; every other outcome forbids `pr_url`.
+- `failed` and `no_board` need a `reason` of their group; `already_tracked` and `cancelled` forbid one.
+
+`PrReason` (`LaunchRadarPrReason`, a `Literal`), grouped by what it does:
+
+| group | reasons |
+|---|---|
+| `no_board` (final) | `board_not_found`, `board_empty`, `unsupported_ats` |
+| `failed`, terminal | `unsafe_value`, `pr_closed` |
+| `failed`, retryable (12 h, at most 3 attempts) | `step_refused`, `multi_head`, `git_error`, `gh_error`, `timeout`, `other` |
+| `failed`, refunded | `env_error` (gh, git or the network broke before any push) |
+| set only by stale recovery | `abandoned` (never accepted on `/result`) |
+
+```jsonc
+// PrClaim (read from the card's stored payload; never the whole payload)
+{ "card_id": 21, "domain": "bluecore.energy", "company": "Bluecore", "website": "https://bluecore.energy",
+  "careers_url": "…" | null, "one_liner": "…" | null, "what_they_do": "…" | null,
+  "ats": { "provider": "ashby" | null, "board_token": "…" | null, "board_url": "…" | null, "verified": true, "job_count": 9 | null },
+  "latest_round": { "round": "Seed" | null, "amount_usd": "$5M" | null, "announced_at": "2026-10-01" | null } | null,
+  "attempts": 1, "requested_at": "2026-10-08T03:00:00Z" }
+// PrRequestOut
+{ "card_id": 21, "status": "open", "attempts": 1,
+  "pr_url": "https://github.com/brendanpotter00/Job-Visualizer-Notifier/pull/412" | null, "pr_number": 412 | null,
+  "last_reason": "gh_error" | null, "requested_at": "…", "retry_after": "…" | null, "claimed_at": "…" | null,
+  "finished_at": "…" | null }
+```
+
 ### 2.4 `LaunchRadarCard`: admin response model (camelCase)
 
 `models.py` defines one set of nested Pydantic models used **both** to validate the loop's snake_case POST body (by
@@ -271,10 +388,17 @@ plus the parsed payload:
 LaunchRadarCardOut.model_validate({**row["payload"], "id": row["id"], "status": row["status"],
                                    "tracked_company_id": row["tracked_company_id"],
                                    "posted_at": row["posted_at"], "archived_at": row["archived_at"],
-                                   "updated_by": row["updated_by"]})
+                                   "updated_by": row["updated_by"],
+                                   "pr_url": row["open_pr_url"], "pr_number": row["open_pr_number"]})
 ```
 
 Its JSON is exactly the TypeScript `LaunchRadarCard` in §5.2.
+
+`prUrl` / `prNumber` (`pr_url: str | None = None`, `pr_number: int | None = None`) are the card's add-company PR: set only
+while its request (§1.7) is `open`, **whatever the card's tab** (unsaving a card does not hide a PR that already exists),
+null otherwise. They are set after the payload keys, so a stray key in a stored payload can never supply them, and the
+legacy `launch_radar_cards.pr_url` column never feeds them. No new admin route, so the proxy allowlist (§2.2) is
+unchanged.
 
 The URL rules (§4) and the `announced_at` shape are enforced on INPUT (`POST /cards`, `PUT /cards/{id}/payload`).
 `LaunchRadarCardOut` reads the stored payload through `tolerate_stored_payload` first: a stored URL that fails the rule is
@@ -486,6 +610,8 @@ export interface LaunchRadarCard {
   timingsS: Record<string, number>;
   issues: string[];
   generatedAt: string;
+  prUrl?: string | null;                     // the open add-company PR (§2.4); absent from an older backend
+  prNumber?: number | null;
 }
 export interface LaunchRadarCardsResponse {   // the backend also sends `stats`; the page does not read it
   cards: LaunchRadarCard[]; total: number; counts: Record<LaunchRadarStatus, number>;
@@ -501,7 +627,9 @@ export interface LaunchRadarCardsArgs { status: LaunchRadarStatus; page: number;
   (`sort` is part of the args, so each sort is its own cache entry).
   A `transformResponse` runtime guard in the style of `getAdminCustomCompanies`: `cards` is an array, `total` is a number,
   `counts.new`, `counts.saved` and `counts.archived` are numbers, and each card has `typeof id === 'number'`,
-  `typeof domain === 'string'` and a `status` of `new`, `saved` or `archived`. `providesTags: ['LaunchRadarCards']`.
+  `typeof domain === 'string'` and a `status` of `new`, `saved` or `archived`; a present `prUrl` must be a string or
+  null and a present `prNumber` a number or null, else the response is a "malformed card" error.
+  `providesTags: ['LaunchRadarCards']`.
 - `setLaunchRadarCardStatus: builder.mutation<LaunchRadarCard, { id: number; status: LaunchRadarStatus; from: LaunchRadarStatus }>`:
   `{ url: `/launch-radar/cards/${id}`, method: 'PATCH', body: { status, from } }`, `invalidatesTags: ['LaunchRadarCards']`.
   `from` is the card's tab when clicked (Save: `new`; Unsave: `saved`; Archive: `new` or `saved`; Restore: `archived`).
@@ -519,7 +647,7 @@ export interface LaunchRadarCardsArgs { status: LaunchRadarStatus; page: number;
 | `AdminLaunchRadarPage.tsx` | `Container maxWidth="md"` with `py: RESPONSIVE.spacing.pageMarginY`. `Typography h4` "Launch Radar", with no sub line under it (the last-run / host / budget line was removed 2026-10-07). MUI `Tabs`: **New**, **Saved** and **Archived** (a card is in exactly one), each with a muted count. On the same row, right-aligned (wrapping under the tabs on a narrow screen): "Sort by" and an exclusive small `ToggleButtonGroup` (`aria-label="Sort cards by"`): **Announced** / **Talent** / **VC** / **Added**. The sort lives in the URL (`?sort=talent`; the default `announced` is omitted), applies to every tab and resets to page 1 when it changes. The page holds the tab, page index and `rowsPerPage = 25`, and keeps the last data to avoid a flash, as `AdminFeedbackPage` does. When a card leaves the list (Save, Unsave, Archive, Restore, Delete) focus moves to the next card's toggle, or the tab panel when it was the last, and a polite live region announces it ("Saved Lightfield"). It shows `LoadingState` and `ErrorState`, and the empty states "No new cards." / "No saved cards." / "No archived cards.". It shows MUI `Pagination` when `total > rowsPerPage`. |
 | `components/RadarCard.tsx` | An MUI `Accordion` (outlined, `disableGutters`). The summary is a 2-column grid (no logo tile: we never fetch logos): the name plus a `website` link showing `domain` (`target="_blank" rel="noopener noreferrer"`; plain text unless `safeHttpUrl` passes it); then `oneLiner` and the event line (`EventLine`). On the right sit two `ScoreBadge`s (Talent, VC). Below them, across both columns, is `CardStatusLine`. Action buttons and links call `event.stopPropagation()` so they never toggle the accordion. |
 | `components/ScoreBadge.tsx` | A 22px tabular numeral, a 30x3px bar filled to `value%`, and a small label. `null` renders a grey "–" with an empty bar (aria-label "No score"), never 0. Sorted by Talent or VC, that score's numeral is full-strength (`text.primary`) and the other's is `text.secondary`; sorted by Announced or Added both look the same. |
-| `components/CardStatusLine.tsx` | One line. Left side, New and Saved tabs: `trackedCompanyId` gives the muted text "Already tracked". Otherwise a muted link "Job board" (`jobBoardHref`: the first of `ats.boardUrl`, `careersUrl` that is an `http(s)` URL; omitted if neither is). Archived tab: "Archived {Oct 7}". Right side, New tab: `Save` and `Archive` text buttons. Saved tab: `Unsave` and `Archive`. Archived tab: a `Restore` button and a `Delete` button (error color) that opens the dialog. Every button and link carries the company in its accessible name (`aria-label="Save Lightfield"`, "Job board Lightfield"), so a list of cards never has two controls with the same name. An unknown status renders no actions rather than crashing. |
+| `components/CardStatusLine.tsx` | One line. Left side, New and Saved tabs: `trackedCompanyId` gives the muted text "Already tracked". Otherwise a muted link "Job board" (`jobBoardHref`: the first of `ats.boardUrl`, `careersUrl` that is an `http(s)` URL; omitted if neither is). Archived tab: "Archived {Oct 7}". Then, on **any** tab, when `prHref(card)` is non-null: a middot and a muted link "View PR #N" (`prLabel`; `target="_blank" rel="noopener noreferrer"`, `aria-label="View PR #N {company}"`, its click stops propagation). Nothing else shows the PR: no status chip, no retry button. Right side, New tab: `Save` and `Archive` text buttons. Saved tab: `Unsave` and `Archive`. Archived tab: a `Restore` button and a `Delete` button (error color) that opens the dialog. Every button and link carries the company in its accessible name (`aria-label="Save Lightfield"`, "Job board Lightfield"), so a list of cards never has two controls with the same name. An unknown status renders no actions rather than crashing. |
 | `components/CardBody.tsx` | Accordion details, aligned under the name (the header's 14px side padding). **Research incomplete** (only when `issues` holds a research gap, first, warning colour): one bullet per gap, so partial data never reads as "nothing found". A provenance note (`leaders from the brief …`, the payload has no field for it) is not a gap: it is left out of this block and of the "research incomplete" score lines, and the Team section shows it as a muted "Leaders from the company brief" line. **Team**: the leader bullets (bold name, muted title, `summary` line). When `leaders` is empty, the warning text "No leaders confirmed." is followed by "The people search returned company pages." if `leadersDropped > 0`. When leaders exist but none has `summary`, schools or prior companies, it shows the warning "No background data came back for these leaders". **Rest of team** (only when `teamStats`): the right label is "{profilesFound} public profiles" ("profile count unknown" when null); one bullet "Previously at Amazon (2), Twitter, … and N more" (top 6, count shown when >1); one bullet "{k} schools: …" (top 4 and "N more"); a muted "No schools or employers listed" when both lists are empty. Schools and employers only: there is no prior-exit line (the team is not checked for prior exits; the leaders are), and an old card's `exFoundersWithExit` is never shown. **Funding**: the right label is `totalRaisedUsd` + " total"; a bullet per round: "**{stage} {amountUsd}**, {Mon YYYY}. Led by {leads}, with {others}" (first 3 others, then "and N more"). **Highlights**: `notableFacts.slice(0, 3)`. **Why these scores**: a collapsed toggle (MUI `Collapse` or nested Accordion). Its bullets: the Talent line from `format.talentBreakdown`: "Talent 74: leaders 37 + team 37 (each out of 50)" (or
 "Talent 38: leaders 19 of 50, doubled: no team data" / "Talent 24: team 12 of 50, doubled: no leader data") with two
 sub-bullets "Leaders 37: {talentReasons.join('; ')}" and "Team 37: {talentTeamReasons.join('; ')}" (a missing part shows
@@ -527,7 +655,7 @@ its reason, "Leaders: no people data" when there is none); a pre-blend card (`ta
 "Talent {n}: {talentReasons.join('; ')}"; "Talent: no people data, so no score" when Talent is null; and "VC {n}: {vcReasons.join('; ')}" or "VC: no funding data, so no score"; when the score is null AND `issues` holds a research gap the line reads "Talent: not scored, research incomplete" (same for VC). **Footer**: left "{Ashby} board, {9} open jobs" (verified), "{Provider} board, not verified" (unverified with a provider), or "No job board found". Right: "${costUsd.toFixed(2)} research". The source link is not repeated here: it is the "Announcement" link on the event line. |
 | `components/EventLine.tsx` | funding: "{round ?? 'Funding'} **{amountUsd}**" then the muted date ("Sep 17", or "Sep 2026" for a `YYYY-MM` date). launch: "Launch" then the date. other: the headline, truncated. Then a small muted "Announcement" link to `event.sourceUrl` (`target="_blank" rel="noopener noreferrer"`, hostname as `title`), shown only when the URL is absolute `http(s)` (`safeHttpUrl`), with `aria-label="Announcement {company}"`; its click stops propagation so it never toggles the card. |
 | `components/DeleteCardDialog.tsx` | MUI `Dialog`. Title "Delete {company} permanently?". Body "The card and its research go away. The loop will not post {domain} again." `Cancel` and a `Delete` button (contained, error color). It shows an error `Alert` if the mutation fails, and closes on success. |
-| `format.ts` | Pure, unit-tested helpers: dates (`formatShortDate`, `formatMonthYear`, `formatEventDate`), money (`formatUsd`, the footer's research cost), the board (`atsLabel`, `boardLine`, `jobBoardHref`), links (`safeHttpUrl`, `hostnameOf`), lists (`joinWithAnd`, `listWithMore`, `summarizeTally`, `roundLine`), research notes (`researchGaps`, `leadersFromBrief`), the sort (`parseSort`, `scoreEmphasis`) and `cardToggleId`. Every `href` on a card goes through `safeHttpUrl` (the card's URLs are untrusted web data). |
+| `format.ts` | Pure, unit-tested helpers: dates (`formatShortDate`, `formatMonthYear`, `formatEventDate`), money (`formatUsd`, the footer's research cost), the board (`atsLabel`, `boardLine`, `jobBoardHref`), links (`safeHttpUrl`, `hostnameOf`), lists (`joinWithAnd`, `listWithMore`, `summarizeTally`, `roundLine`), research notes (`researchGaps`, `leadersFromBrief`), the sort (`parseSort`, `scoreEmphasis`), `cardToggleId`, and the PR link (`prHref`: `safeHttpUrl(card.prUrl)` only when it is exactly a pull request of this repository, the §9 pattern; `prLabel`: "View PR #N", the number read from that same URL). Every `href` on a card goes through `safeHttpUrl` (the card's URLs are untrusted web data). |
 
 Style: match the existing MUI admin pages (theme typography and colors, `text.secondary` for muted text). No new CSS
 files and no new dependencies.
@@ -561,6 +689,9 @@ files and no new dependencies.
 | `refresh.py` | `radar.py refresh` (§6.3, "Refresh"): re-research cards that have no leaders |
 | `rescore.py` | `radar.py rescore` (§6.3, "Rescore"): recompute stored cards' scores, free |
 | `export_cards.py`, `importer.py` | `export_cards.py` writes the local cards to `docs/implementations/launch-radar/data/cards-<date>.json` (`launch-radar-cards/v1`); `radar.py import` posts them (§6.2) |
+| `pr_queue.py` | the `radar.py pr-*` commands (§6.2, §6.9): claim, check, report, refresh, requeue, status; the preflight, the scrubbed child env and the run-id clock. `backend_client.py` gains `pr_next`, `pr_get`, `pr_result`, `pr_requeue`, `pr_requests` |
+| `pr_step.py` | the PR step's only way to git, gh, the logo scripts and the job-board APIs (§6.9). A standalone program, not imported by `radar.py`: stdlib only, Python 3.8+, mode 755, run by the session as `scripts/launch_radar/pr_step.py …` and by `pr-refresh` as a child |
+| `logo_setup.sh` | one-time, by hand: `$STATE_DIR/logo-venv` with the fetch-company-logo requirements (Pillow, cairosvg; needs `brew install cairo`). Not on the allowlist: the nightly run never installs packages |
 | `wrapper.sh`, `com.bp.jvn-launch-radar.plist.template`, `install_launch_agent.sh`, `README.md` | §6.8 |
 
 The POC (`scripts/launch_radar_poc/`) stays **untouched** as a read-only reference. Its code is copied into the modules
@@ -586,7 +717,25 @@ rescore (--domains d1,d2 | --all) [--dry-run]
                                     recompute stored cards' scores from what they store (§6.3, "Rescore"); FREE: no
                                     Parallel client, no backend run, nothing reserved; every live status;
                                     --dry-run: GET /cards only
+pr-next                             time check, preflight, then POST /pr-requests/next; writes
+                                    .launch-radar-pr/claims/<id>.json and clears that card's earlier scout/published/work
+                                    files; prints {"claimed": true, …claim, "time_left_s"} or {"claimed": false,
+                                    "reason": "empty"|"time"}. Exit 1 on a backend error or a failed preflight
+pr-check --card-id N                before publish: row in_progress and card saved -> {"proceed": true}; card unsaved ->
+                                    posts cancelled, {"proceed": false, "why": "unsaved"}; 404 -> "why": "deleted"
+pr-report --card-id N --outcome open|failed|no_board|already_tracked [--reason R]
+                                    POST …/result. open takes NO URL: it reads .launch-radar-pr/published/N.json (card_id
+                                    N, dry_run false, a URL matching the §9 pattern) or exits 1 without a call. --reason
+                                    is PrReason minus abandoned. A 404 prints {"card_deleted": true} and exits 0
+pr-refresh                          preflight, GET /pr-requests?status=open, then `pr_step.py refresh --card-id N` per
+                                    request (oldest first, until the 55-min mark), fixed argv and a scrubbed env; one
+                                    summary {"open", "refreshed", "results", "stopped"}. Exit 1 only on a backend error
+                                    or a failed preflight
+pr-requeue --card-id N              interactive only: POST …/requeue
+pr-status [--status S ...]          interactive only: GET /pr-requests as a table
 ```
+
+Card ids are `^[1-9][0-9]{0,9}$`. The `pr-*` commands print JSON on stdout and log to stderr.
 
 Exit codes: `0` done · `2` stopped on the budget (402 or the cancel floor) · `3` incomplete, so re-run to resume · `1` error.
 
@@ -788,19 +937,30 @@ Graders read only the rubric and the card's input file (no web); the card text i
 
 ### 6.7 Skill and slash command
 
-- `.claude/skills/launch-radar/SKILL.md` has three parts:
-  - **§0 Hard rules**: no pull requests and no repo changes (no `git`, `gh`, Edit, Write or Agent); never print secrets;
-    never `Read` `~/.config/jvn-launch-radar/`; Bash only through the allowlist; no `--dangerously-skip-permissions`.
+- `.claude/skills/launch-radar/SKILL.md` has four parts after its hard rules:
+  - **§0 Hard rules**: **never merge**; PRs only through `pr_step.py` and `radar.sh pr-*`, for Saved cards; no `git` or `gh`
+    entry; the only file writes are the graders' replies (`.launch-radar-grades/grades/`) and the scout's replies
+    (`.launch-radar-pr/scout/`); never print secrets; never `Read` `~/.config/jvn-launch-radar/`; Bash only through the
+    allowlist (quoted verbatim, §6.8); never call WebSearch or WebFetch from the main session (only the scout does); never
+    put web text on a command line; no `--dangerously-skip-permissions`.
   - **§1 Run**: `scripts/launch_radar/radar.sh monitors-ensure`, then `radar.sh run --max-companies 3 --budget 1.00` with Bash
     timeout 600000. Re-run while the exit code is 3, at most 4 invocations. Exit 2 means the budget is spent, so log it and continue
     to §2.
-  - **§2**: `radar.sh heartbeat --status ok|error --note …` is the **final** step.
-
-  (The PR step that sat between the run and the heartbeat, opening at most one add-company PR per run, was removed on
-  2026-10-07; see the note at the top.)
+  - **§2 Grade** (§6.6.1): `grade-export`, one grader subagent per card, `grade-apply`.
+  - **§3 Add-company PRs for Saved cards** (§6.9): `radar.sh pr-refresh` once, then repeat `pr-next` → scout → `pr_step.py
+    worktree` → `verify-board` → `compose` → logos (unless `skip_optional`) → `check-head` → `radar.sh pr-check` →
+    `pr_step.py publish` → `radar.sh pr-report --outcome open` → `pr_step.py cleanup`, until `pr-next` says stop. Any
+    `pr_step.py` exit 1 is reported as `failed` with the `report_reason` it printed; exit 3 is reported as what it printed.
+  - **§4 Heartbeat**: `radar.sh heartbeat --status ok|error --note …` is the **final** step. The note ends with
+    `PRs: <opened> opened, <refreshed> refreshed, <no_board> no board, <failed> failed`. A failed PR is not an error; a
+    `radar.sh` exit 1 is.
 - `.claude/commands/launch-radar-once.md`: a headless one-shot that mirrors `.claude/commands/health-watch-once.md`. Read the skill
   file relative to the checkout (do not use the Skill tool), no `ScheduleWakeup` or `/loop`, no background Bash, no sleep loops,
-  the heartbeat last, then end the turn.
+  subagents only for the graders (up to 6 at a time) and one scout at a time, all in the foreground, the heartbeat last,
+  then end the turn.
+- `.claude/agents/launch-radar-scout.md`: `tools: WebSearch, WebFetch` only (no Bash, no Read, no Write). For one claim it
+  replies with one `launch-radar-scout/v1` JSON object: up to 5 board candidates (greenhouse, ashby, lever, gem), symbol
+  and wordmark logo URLs, a summary and a milestone. The session saves the reply verbatim to `.launch-radar-pr/scout/<id>.json`.
 
 ### 6.8 launchd (test on this laptop, install on the always-on server laptop)
 
@@ -815,11 +975,23 @@ Graders read only the rubric and the card's input file (no web); the card text i
 
   **Never `--dangerously-skip-permissions`.** The exact list lives in one place, a `ALLOWED_TOOLS` block in `wrapper.sh`, and
   `SKILL.md` §0 quotes it verbatim. A unit test (`test_launch_radar_wrapper.py`) fails if the skip flag appears, if the
-  two copies differ, or if the allowed list is anything but `Read(./**)` and the exact `radar.sh` commands
-  (`monitors-ensure`, the two `run` lines, `heartbeat:*`). There is no generic `git`, `gh`, `curl`, `python`, `pip` or
-  `npm` entry, since each of those can run code or upload a local file (`curl -T ~/.ssh/...`),
-  and no Edit, Write, Agent or web tool: the run only drives the loop. When the skill records `status=error`, the wrapper
-  exits 98 so the failure reaches the `.err` log.
+  two copies differ, or if the allowed list is anything but exactly:
+  - `Read(./**)`;
+  - `Edit(./.launch-radar-grades/grades/**)` and `Edit(./.launch-radar-pr/scout/**)` (no `Write(`, nothing under
+    `.claude/worktrees`);
+  - `Agent(launch-radar-grader)` and `Agent(launch-radar-scout)` (never a bare `Agent`), plus `WebSearch` and `WebFetch`,
+    which are allowed only together with the scout, whose own tools are exactly `WebSearch, WebFetch`;
+  - the `radar.sh` Bash entries: `monitors-ensure`, the two `run` lines, the `grade-export` and `grade-apply` lines,
+    `pr-next` and `pr-refresh` (exact, no arguments), and the prefixes `pr-check:*`, `pr-report:*`, `heartbeat:*`;
+  - `Bash(scripts/launch_radar/pr_step.py:*)`.
+
+  There is no generic `git`, `gh`, `curl`, `python`, `pip` or `npm` entry, since each of those can run code or upload a
+  local file (`curl -T ~/.ssh/...`). When the skill records `status=error`, the wrapper exits 98 so the failure reaches the
+  `.err` log.
+- The PR step's clock (§6.9): the wrapper makes a run id (`<start_epoch>-<pid>`), writes `<start_epoch> <run_id>` to
+  `$STATE_DIR/session_started_at` and starts the session as `env LAUNCH_RADAR_RUN_ID="$RUN_ID" "$CLAUDE_BIN" …` (not a
+  secret). Its EXIT trap deletes the file. A killed session, a non-zero session exit, or a zero exit without a new
+  heartbeat appends `<iso-ts> status=error wrapper: session exit <N>` (or `… without a heartbeat`) to `heartbeat.log`.
 - `com.bp.jvn-launch-radar.plist.template`:
   - Label `com.bp.jvn-launch-radar`.
   - `ProgramArguments`: `/bin/sh __PROJECT_DIR__/scripts/launch_radar/wrapper.sh`.
@@ -831,6 +1003,71 @@ Graders read only the rubric and the card's input file (no web); the card text i
 - `README.md` covers the server-laptop setup. Create `~/.config/jvn-launch-radar/env` (mode 600) with `BACKEND_URL`,
   `INTERNAL_API_KEY` and `PARALLEL_API_KEY`, and **do not** export `PARALLEL_API_KEY` from that laptop's `~/.zshrc`, so Claude's
   Bash never sees it. Then run the install script, and test with `PROJECT_DIR=… CLAUDE_BIN=… sh scripts/launch_radar/wrapper.sh`.
+
+### 6.9 The PR step (`pr_queue.py`, `pr_step.py`; design `saved-pr/PLAN.md` §4)
+
+One add-company PR per Saved card, opened by the nightly run after grading (§6.7 §3). It never merges.
+
+- **Files** (repo root, gitignored `.launch-radar-pr/`): `claims/<id>.json` (`pr-next`), `scout/<id>.json` (the session:
+  the scout's reply verbatim, the only directory it may write), `work/<id>/board.json` (`verify-board`; kept for
+  `refresh`), `work/<id>/{raw,masters,lease,gh_login}` (scratch, removed by `cleanup`), `published/<id>.json`
+  (`publish`, adoption, `refresh`). The worktree is `.claude/worktrees/radar-<id>/`.
+- **Branch** `radar/card-<id>`, from the card id alone, so a retry always looks at the same branch.
+- **`pr_step.py` commands** (each prints one JSON line; exit 0 done, 3 "stop for this card, report what it printed",
+  1 `{"error", "report_reason"}`): `worktree`, `verify-board`, `compose`, `logo-fetch`, `logo-normalize`, `logo-tile`,
+  `check-head`, `publish [--draft] [--dry-run]`, `cleanup`, and `refresh` (run only by `radar.sh pr-refresh`). The session
+  passes only `--card-id` plus, for logos, argparse choices and a `#RRGGBB`; every other value comes from `claims/`,
+  `scout/` and `board.json`. `report_reason` is `env_error` for a git/gh failure before any push, `git_error` / `gh_error`
+  after, `step_refused` for a guard.
+- **Trust check** (`trusted_prs`): `gh pr list --head radar/card-<id> --state all`; a PR counts only when
+  `isCrossRepository` is false, the head owner is `brendanpotter00`, the author is the gh login, and the body has the line
+  `Launch-Radar-Card: <id>`. `worktree`: an open trusted PR is adopted (exit 3 `existing_pr`, reported `open`); a merged one
+  → `already_tracked`; one closed after the request's `requested_at` → `pr_closed`. Untrusted PRs are ignored in every state.
+- **`verify-board`**: candidates are the card's own `ats`, ATS URLs in its `board_url` / `careers_url`, then the scout's
+  boards (≤ 5). Each is checked on a fixed API host (`boards-api.greenhouse.io`, `api.ashbyhq.com`, `api.lever.co`,
+  `api.gem.com`), token path-quoted; the first with ≥ 1 job wins. Tracked = an exact `(ats, token)` pair (token lower-cased)
+  among `companies.ts` board URLs and the seed migrations' `{'ats', 'board_token'}` literals. The display name is the card's
+  `company`, ASCII-folded; the slug is the first free of: the name, the domain with `.` → `-`, `<slug>-<id>`. Exit 3
+  `{"no_board": R}`, `{"already_tracked": true}` or `{"failed": "unsafe_value"}`.
+- **`compose`**: the worktree's add-company `scaffold_migration.py` (only after `assert_pinned` proves the scaffold scripts
+  equal `origin/main`), then templated entries in `companies.ts` (`createBackendScraperCompany` + the `COMPANY_IDS` member),
+  `changelog.ts` (`id: 'add-<slug>'`) and `company_profiles.json`. Without a valid scout file the changelog uses the card's
+  `one_liner` and the profile entry is skipped.
+- **`publish`**: title `feat(companies): add <Name> (<ATS>)`, templated body ending `Launch-Radar-Card: <id>`, label
+  `launch-radar`; a draft when the icon or wordmark is missing. Push `git push --no-verify
+  --force-with-lease=refs/heads/radar/card-<id>:<lease> origin HEAD:refs/heads/radar/card-<id>` (the lease is the remote sha
+  `worktree` recorded; empty = must not exist), then `gh pr create`. Writes `published/<id>.json` `{card_id, dry_run: false,
+  pr_url, pr_number, commit, slug, draft}`. `--dry-run` commits locally and stops (no push, no `gh`).
+- **`refresh`** (D14): rebuilds an open trusted PR whose branch is behind `main`, unless the branch head is not the recorded
+  commit (someone else pushed). Skips with `why`: `no_record`, `not_open`, `pushed_by_someone`, `up_to_date`, `now_tracked`,
+  `slug_taken`. A rebuild re-runs `compose` on the new head (the migration is re-chained), copies the logo PNGs from the
+  recorded commit, and pushes leased on that commit.
+- **Guards kept from the first version**: fixed argv, never a shell; every git call with `core.hooksPath=/dev/null`,
+  `core.fsmonitor=false`, `core.pager=cat`, `GIT_*` stripped, `GIT_TERMINAL_PROMPT=0`; the `.git` pointer check before any
+  worktree is touched; logo scripts from this checkout with `-I` and the logo venv; the staged-file allowlist
+  (`staged_problems`: mode 100644, no renames, only `companies.ts`, `changelog.ts`, `company_profiles.json`, one
+  `*_seed_<slug>_company.py` and logo PNGs). No `merge`, `--auto`, `--admin` or bare `--force` anywhere (a test bans them).
+- **Logo fetch**: https only, ≤ 5 MB, image types; each hop is resolved, refused unless every address `is_global`, and the
+  socket connects to the checked IP with TLS SNI on the host name (no DNS rebinding).
+- **`parse_scout`** (`launch-radar-scout/v1`) refuses the whole file on any violation: `card_id` equals the claim; ≤ 5
+  boards of a supported ATS with a safe token and an https evidence URL; logo URLs https or null, ≤ 500 chars, query ≤ 200;
+  `summary` / `milestone` 20-240 printable chars without `` ` `` `$` `\` `<` `>` `{` `}` and nothing secret-shaped (`sk-`,
+  `ghp_`, `gho_`, `ghs_`, `github_pat_`, `xox`, `AKIA`, `postgres://`, `postgresql://`, `-----BEGIN`, a 32+ run of
+  key characters); unknown keys refused.
+- **Preflight** (`pr-next`, `pr-refresh`), fixed argv: `gh auth status`; `gh api repos/brendanpotter00/Job-Visualizer-Notifier
+  --jq .permissions.push` prints `true`; `git ls-remote --exit-code origin refs/heads/main`; the logo venv imports PIL and
+  cairosvg. A failure prints `{"preflight": "failed", "check": "<name>"}` on stderr, claims nothing, exits 1.
+- **Scrubbed env**: children of `pr_queue.py` get only `PATH`, `HOME`, `LANG`, `LAUNCH_RADAR_STATE_DIR`,
+  `LAUNCH_RADAR_RUN_ID` (no backend URL, internal key or Parallel key).
+- **Clock** (§6.8): only when `LAUNCH_RADAR_RUN_ID` is set and equals the run id in `session_started_at`. After **3300 s**
+  (55 min) `pr-next` claims nothing (`"reason": "time"`) and `pr-refresh` starts no refresh. Every `pr_step.py` output
+  carries `time_left_s` (to the 5400 s kill) and `skip_optional: true` under 900 s (skip logos; publish a draft). There is
+  no other per-night cap; the rest stay queued.
+- **Residual exfiltration channels (accepted, documented in the README and SKILL §0)**: the web tools are allowed
+  session-wide, so the main session could call WebFetch and can Read the checkout; it writes the scout file, so up to 240
+  chars could reach a public PR through `summary` / `milestone`; the logo URLs in that file are fetched by `pr_step.py`.
+  The cuts: secrets denied and absent from the env, the skill forbids main-session web calls, `parse_scout` refuses
+  secret-shaped text and caps the URLs.
 
 ---
 
@@ -934,7 +1171,8 @@ mypy                                                         # must be clean (CI
 pytest api/tests/test_launch_radar_service.py api/tests/test_launch_radar_admin.py \
        api/tests/test_internal_launch_radar.py api/tests/test_migration_launch_radar_tables.py \
        api/tests/test_dev_auth_bypass.py api/tests/test_auth.py api/tests/test_db_models.py \
-       api/tests/test_proxy_path_allowlists.py api/tests/test_alembic_single_head.py
+       api/tests/test_proxy_path_allowlists.py api/tests/test_alembic_single_head.py \
+       api/tests/test_migration_launch_radar_pr_requests.py
 cd ../.. && alembic heads                                    # exactly one head
 ```
 
@@ -949,6 +1187,7 @@ npm run build      # the dev bypass compiles out: grep dist for VITE_DEV_AUTH_BY
 cd scripts && ../src/backend/.venv/bin/python -m pytest tests/unit -k launch_radar   # SDK faked; no network
 uv run --with ruff ruff check --select F,E9,I scripts/launch_radar scripts/tests/unit/test_launch_radar_*.py scripts/tests/unit/launch_radar_fakes.py
 sh -n scripts/launch_radar/wrapper.sh && sh -n scripts/launch_radar/radar.sh && sh -n scripts/launch_radar/install_launch_agent.sh
+sh -n scripts/launch_radar/logo_setup.sh
 plutil -lint scripts/launch_radar/com.bp.jvn-launch-radar.plist.template
 ```
 
@@ -966,3 +1205,6 @@ plutil -lint scripts/launch_radar/com.bp.jvn-launch-radar.plist.template
 | card payload | loop → backend (validated, stored) → frontend (camelCase) | §4, §2.4, §5.2 |
 | `normalize_domain` vectors | backend and loop | §3 |
 | bypass: no `Authorization` header, a loopback client and a local `Host` | frontend → backend | §7 |
+| PR request JSON (snake_case), `PrReason` codes, 204 on an empty queue, 404 = card deleted | backend ↔ loop (`pr_queue.py`, `pr_step.py`'s `report_reason`) | §2.3, §6.2, §6.9 |
+| **PR URL pattern** `^https://github\.com/brendanpotter00/Job-Visualizer-Notifier/pull/[0-9]+$`, always a full match | DB CHECK `ck_launch_radar_pr_requests_pr_url` ↔ `models.py` `LAUNCH_RADAR_PR_URL_PATTERN` ↔ `pr_queue.py` `PR_URL_PATTERN` (`radar.py pr-report`) ↔ `pr_step.py` `PR_URL_RE` ↔ `format.ts` `PR_URL_RE` (`prHref`, `prLabel`) | §1.7, §2.3, §5.4; `test_db_models.py`, `test_internal_launch_radar.py` (CHECK ↔ model), `test_launch_radar_pr_queue.py` (model ↔ loop ↔ page) |
+| `prUrl` / `prNumber` on the admin card | backend (open request only) → frontend (link) | §2.4, §5.2, §5.4 |

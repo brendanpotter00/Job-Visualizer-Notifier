@@ -2,8 +2,9 @@
 
 Finds startups that just announced a round or a launch, researches each one with the
 Parallel API, and posts one card per company to the admin page `/admin/launch-radar`.
-It never opens a PR or changes the repo: whether to track a company is decided by a
-human, from the admin page.
+Whether to track a company is decided by a human: when Brendan moves a card to **Saved**,
+the next nightly run opens an add-company pull request for it and the card shows a
+"View PR #N" link (see [The PR step](#the-pr-step-saved-cards)). The loop **never merges**.
 
 The procedure lives in `.claude/skills/launch-radar/SKILL.md`; this directory is the
 Python loop plus the launchd shell around it. The design is in
@@ -13,8 +14,8 @@ Python loop plus the launchd shell around it. The design is in
 
 | Path | Role |
 |---|---|
-| `radar.sh` | The only entry point. Loads the env file into its own process, then runs `python -m scripts.launch_radar.radar` under `uv` with `parallel-web` and `httpx` |
-| `radar.py` | CLI: `monitors-ensure`, `run`, `backfill`, `monitors-cancel`, `heartbeat`, `import`, `refresh`, `rescore` |
+| `radar.sh` | The loop's only entry point (`pr_step.py` is the PR step's). Loads the env file into its own process, then runs `python -m scripts.launch_radar.radar` under `uv` with `parallel-web` and `httpx` |
+| `radar.py` | CLI: `monitors-ensure`, `run`, `backfill`, `monitors-cancel`, `heartbeat`, `import`, `refresh`, `rescore`, `grade-export`, `grade-apply`, and the PR queue's `pr-next`, `pr-check`, `pr-report`, `pr-refresh`, `pr-requeue`, `pr-status` |
 | `pipeline.py` | One `run` invocation (see [One run](#one-run)) and the per-company research |
 | `backfill.py` | The one-off `backfill` sweep (see [Backfill](#backfill-the-past-month-once)) |
 | `refresh.py` | `refresh`: re-research cards that have no leaders (see [Refreshing cards](#refreshing-cards-with-no-leaders)) |
@@ -22,8 +23,12 @@ Python loop plus the launchd shell around it. The design is in
 | `export_cards.py` · `importer.py` | Move researched cards to another backend with no Parallel calls (see [Moving local cards](#moving-local-cards-to-production)) |
 | `monitors.py` · `resolve.py` · `leaders.py` · `research.py` · `ats.py` · `scoring.py` · `card.py` · `schemas.py` · `domains.py` | One concern each (see the module docstrings) |
 | `backend_client.py` | The backend's internal routes (`/api/internal/launch-radar/*`, `X-Internal-Key`) |
+| `pr_queue.py` | The `radar.py pr-*` commands: claim, check, report, refresh, requeue, status. Preflight and the 55-minute clock (see [The PR step](#the-pr-step-saved-cards)) |
+| `pr_step.py` | The PR step's **only** way to git, gh, the logo scripts and the job-board APIs. Stdlib only, takes `--card-id` and fixed choices, never merges |
+| `logo_setup.sh` | One-time, by hand: the logo venv (`$STATE_DIR/logo-venv`, Pillow + cairosvg). Not on the headless allowlist |
+| `.claude/agents/launch-radar-scout.md` | The scout subagent (tools: `WebSearch`, `WebFetch` only): board candidates, logo URLs, summary, milestone, as `launch-radar-scout/v1` JSON |
 | `state.py` | Resumable local state: `queue.json`, `companies/<domain>.json`, `backfill.json`, `refresh/<domain>.json`, `refresh_done.json`, `heartbeat.log` |
-| `wrapper.sh` | launchd entry: 90-min cap, process-group kill, single-flight lock, heartbeat check (exit 97 if it did not advance, 98 if the skill recorded `status=error`), `--allowedTools` allowlist |
+| `wrapper.sh` | launchd entry: 90-min cap, process-group kill, single-flight lock, heartbeat check (exit 97 if it did not advance, 98 if the skill recorded `status=error`), `--allowedTools` allowlist, the run id behind the PR step's clock, and a `status=error wrapper:` heartbeat line when the session is killed or fails |
 | `com.bp.jvn-launch-radar.plist.template` · `install_launch_agent.sh` | The daily 19:00 LaunchAgent |
 | `.claude/commands/launch-radar-once.md` | The headless shim the wrapper runs (`claude -p /launch-radar-once`) |
 
@@ -122,8 +127,30 @@ write.
    tail -3 "$HOME/Library/Application Support/jvn-launch-radar/heartbeat.log"
    ```
 
+   This is a real run: if any card is Saved, it opens real add-company PRs (never merges).
+   Do the [first-pull checklist](#before-the-first-git-pull-on-the-server-pr-step) first.
+
 6. **Install the LaunchAgent** (daily 19:00): `sh scripts/launch_radar/install_launch_agent.sh`
    (add `--claude-bin /path/to/claude` if `claude` is not on `PATH`).
+
+## Before the first `git pull` on the server (PR step)
+
+The backend can deploy first: nothing is claimed until the server runs the new loop, and
+`pr-next`'s preflight refuses to claim on a broken setup (heartbeat `status=error`). On the
+server laptop, once:
+
+1. `gh auth status` shows a login with **push** rights to the repo (the PRs are opened as
+   that login; the trust check only adopts PRs it authored).
+2. `git ls-remote origin` works from the server clone (git's credential helper set up by
+   `gh auth setup-git`).
+3. `brew install cairo`, then `sh scripts/launch_radar/logo_setup.sh` (creates
+   `$STATE_DIR/logo-venv`; re-run it when `.claude/skills/fetch-company-logo/scripts/requirements.txt`
+   changes).
+4. `git pull`, then run `scripts/launch_radar/radar.sh pr-status` once by hand to see the
+   queue (the migration queued every card that was already Saved, or marked it
+   `already_tracked`).
+5. Optional hardening: branch protection on `main` with "require branches to be up to
+   date" and the CI check required.
 
 ## Backfill: the past month, once
 
@@ -234,6 +261,118 @@ scripts/launch_radar/radar.sh grade-apply --dir .launch-radar-grades --dry-run  
 
 `rescore` keeps a grade; `refresh` drops it (new leaders), so the next night re-grades the card.
 
+## The PR step (Saved cards)
+
+After grading, the nightly skill (`SKILL.md` §3) opens **one add-company PR per Saved
+card** and records it, so the card shows "View PR #N". It stops at the open PR: Brendan
+reviews and merges. The backend keeps one request per card in `launch_radar_pr_requests`
+(CONTRACT §1.7); the loop never picks a card itself, it asks for the next one.
+
+### One night
+
+1. `radar.sh pr-refresh`: rebuild the open radar PRs that fell behind `main` (below).
+2. Then, until `pr-next` says stop:
+   1. `radar.sh pr-next`: claim the oldest queued request, save the claim.
+   2. The **scout** subagent (`launch-radar-scout`, web tools only) finds board candidates,
+      logo URLs, a summary and a milestone. The session saves its JSON reply verbatim.
+   3. `pr_step.py worktree`: remove a leftover worktree, run the trust check (an open PR
+      for this card is adopted, a merged one is `already_tracked`, one closed after the
+      request is `pr_closed`), record the push lease, add a worktree from `origin/main`.
+   4. `pr_step.py verify-board`: check the boards live (at least one job), the exact
+      `(ats, token)` tracked check, and derive the slug, display name and enum member.
+   5. `pr_step.py compose`: the seed migration (pinned scaffold), `companies.ts`,
+      `changelog.ts`, `company_profiles.json`, all from templates.
+   6. Logos (`logo-fetch`, `logo-normalize`, `logo-tile`), skipped when under 15 minutes
+      are left. A missing icon or wordmark makes the PR a **draft**.
+   7. `pr_step.py check-head` (one Alembic head), then `radar.sh pr-check` (still saved?).
+   8. `pr_step.py publish`: push `HEAD:refs/heads/radar/card-<id>` with a lease, `gh pr
+      create` with the `launch-radar` label. Then `radar.sh pr-report --outcome open`.
+   9. `pr_step.py cleanup`.
+
+The branch is always `radar/card-<id>`, so a retry looks at the same branch and a run
+killed after `gh pr create` adopts its PR instead of opening a second one.
+
+Supported boards: **Greenhouse, Ashby, Lever, Gem**. Workday and Eightfold cards end as
+`no_board` (`unsupported_ats`) unless the scout finds a supported board for them.
+
+### Files (repo root, gitignored `.launch-radar-pr/`)
+
+| path | written by |
+|---|---|
+| `claims/<id>.json` | `radar.sh pr-next` |
+| `scout/<id>.json` | the session (the scout's reply, verbatim; the only place it may write) |
+| `work/<id>/board.json` | `pr_step.py verify-board` (kept; `refresh` re-uses it) |
+| `work/<id>/raw/`, `masters/`, `lease`, `gh_login` | `pr_step.py` scratch, removed by `cleanup` |
+| `published/<id>.json` | `pr_step.py publish` / `worktree` (adoption) / `refresh`: `card_id`, `dry_run`, `pr_url`, `pr_number`, `commit`, `slug`, `draft` |
+| `.claude/worktrees/radar-<id>/` | the PR worktree (`pr_step.py worktree`, removed by `cleanup`) |
+
+A new claim clears that card's `scout/`, `published/` and `work/` files from an earlier
+attempt. `pr-report --outcome open` takes **no URL**: it reads `published/<id>.json`.
+
+### Statuses and retries
+
+| status | means | next |
+|---|---|---|
+| `queued` | waiting (FIFO by `requested_at`) | claimed by `pr-next` once `retry_after` has passed |
+| `in_progress` | claimed this run (one attempt used) | the loop reports an outcome |
+| `open` | the PR is up; the card shows the link | final (merged / closed state is not synced back) |
+| `already_tracked` | the company is tracked, or its radar PR was merged | final |
+| `no_board` | no supported board with jobs (`board_not_found`, `board_empty`, `unsupported_ats`) | final |
+| `failed` | `unsafe_value`, `pr_closed`, or a retryable failure on its 3rd attempt | final |
+| `cancelled` | Unsaved or archived before its PR was published | re-saving the card queues it again |
+
+- **Retryable** failures (`step_refused`, `multi_head`, `git_error`, `gh_error`, `timeout`,
+  `other`) go back to `queued` for **12 h**, at most **3 attempts**.
+- **`env_error`** (gh, git or the network broke before any push) also re-queues for 12 h,
+  and gives the attempt back.
+- A claim stuck `in_progress` for over **2 h** (a run killed mid-PR) is recovered at the
+  next claim: back to `queued`, or `failed` if it used its 3 attempts (`abandoned`).
+- Card moves: **Save** queues a request. **Unsave** / **Archive** cancel a `queued` one
+  (one already `in_progress` is cancelled by `pr-check` before publish, so nothing is
+  pushed). **Delete** removes it. Re-saving a `failed`, `no_board` or `already_tracked`
+  card does **not** retry it: use `pr-requeue`.
+- A failed PR or a card with no board is **not** a heartbeat error. A `radar.sh pr-*` exit 1
+  (backend down or refused, or a failed preflight) is.
+
+### Time budget
+
+The wrapper kills the session at 90 minutes. It writes `<start_epoch> <run_id>` to
+`$STATE_DIR/session_started_at` and starts the session with `LAUNCH_RADAR_RUN_ID`. When the
+two match:
+
+- after **55 minutes** `pr-next` claims nothing (`"reason": "time"`) and `pr-refresh`
+  starts no refresh; the rest stay queued for the next night (no cap per night otherwise);
+- every `pr_step.py` output carries `time_left_s`, and `skip_optional: true` under 15
+  minutes: the skill skips logos and publishes a draft.
+
+An interactive run has no `LAUNCH_RADAR_RUN_ID`, so it is never refused.
+
+### Refresh: keeping sibling PRs mergeable
+
+All PRs of one night are cut from the same `main` and each adds a top changelog entry and a
+migration on the same head. After one merges, the others conflict. `radar.sh pr-refresh`
+(every night, or by hand after a merge) rebuilds each open radar PR whose branch is behind
+`main`: a fresh worktree, `compose` again (the migration is re-chained on the new head),
+logos copied from the old commit, then a push leased on the recorded commit. It skips
+(`why`): `no_record`, `not_open`, `pushed_by_someone` (the branch moved: never overwritten),
+`up_to_date`, `now_tracked`, `slug_taken`. It runs `pr_step.py refresh` as a child with a
+scrubbed env (no backend or Parallel key).
+
+### By hand (interactive only, not on the headless allowlist)
+
+```sh
+scripts/launch_radar/radar.sh pr-status                  # the queue as a table (--status S, repeatable)
+scripts/launch_radar/radar.sh pr-requeue --card-id 21    # failed / no_board / already_tracked / cancelled -> queued, attempts 0
+scripts/launch_radar/radar.sh pr-refresh                 # after merging a radar PR, instead of waiting a night
+scripts/launch_radar/pr_step.py publish --card-id 21 --dry-run   # stage + commit locally, no push, no gh; then cleanup
+```
+
+`pr-next` runs a **preflight** before every claim (`pr-refresh` too): `gh auth status`,
+push permission on the repo, `git ls-remote origin refs/heads/main`, and the logo venv
+importing PIL and cairosvg. Any failure claims nothing, prints
+`{"preflight": "failed", "check": "<name>"}` on stderr and exits 1. See the
+[first-pull checklist](#before-the-first-git-pull-on-the-server-pr-step).
+
 ## Rescoring cards (free)
 
 `rescore` recomputes the scores of existing cards from what each card already stores. It
@@ -328,13 +467,50 @@ To pause the radar without losing anything: `monitors-cancel`, then uninstall th
   `--allowedTools` allowlist (one `ALLOWED_TOOLS` block in `wrapper.sh`).
   It never uses `--dangerously-skip-permissions`;
   `tests/unit/test_launch_radar_wrapper.py` fails if that changes. Every Bash entry is
-  an exact `radar.sh` command; there is no generic `git`, `gh`, `curl`, `python`, `pip`
-  or `npm` entry (each can run code or upload a local file), and no Edit, Write, Agent
-  or web tool. File reads are scoped to the checkout.
-- **No PRs.** The run used to turn one verified card a day into an add-company PR. That
-  step was removed after it opened PRs on its own: tracking a company is a human call.
-  The `launch_radar_cards.pr_url` column it wrote is kept (no migration) but unused.
+  a `radar.sh` command (exact, or a `pr-check` / `pr-report` / `heartbeat` prefix) or
+  `pr_step.py`; there is no generic `git`, `gh`, `curl`, `python`, `pip` or `npm` entry
+  (each can run code or upload a local file). Agent is only the grader and the scout;
+  Edit is only the grades and scout reply directories. File reads are scoped to the
+  checkout; the env file, `~/.config/gh`, dotfiles and `.env` files are denied.
+- **PRs only for Saved cards, never merged.** A human decides by saving a card; the loop
+  only builds the PR. The old step (removed in #335) picked cards on its own and opened
+  PRs #333 and #334. Its `launch_radar_cards.pr_url` column is kept but unused: PR
+  tracking lives in `launch_radar_pr_requests`. A legacy closed PR does not block a save.
+- **The PR step's fences.** Untrusted inputs are the card fields, the scout's reply, logo
+  bytes, job-board API answers and **GitHub PRs from anyone** (the repo is public).
+  - No web text on a command line: `pr_step.py` takes `--card-id` and argparse choices
+    only, and derives every name, token and URL from files it or `radar.sh` wrote. Fixed
+    argv, never a shell.
+  - Push only `HEAD:refs/heads/radar/card-<id>`, leased on that same ref. No merge, no
+    `--auto`, no `--admin`, no bare `--force` (a test bans them).
+  - Git runs with hooks and fsmonitor off and `GIT_*` stripped; the `.git` pointer of a
+    worktree is checked; the add-company scaffold scripts run only when equal to
+    `origin/main`; the session cannot write the worktrees.
+  - Only add-company files can be committed (`companies.ts`, `changelog.ts`,
+    `company_profiles.json`, one `*_seed_<slug>_company.py`, logo PNGs; mode 100644, no
+    renames). TS/JSON content is templated; text is charset-limited.
+  - Trust check: a PR on `radar/card-<id>` counts only when it is same-repo, the owner's
+    head, authored by the gh login, with the `Launch-Radar-Card: <id>` line. Fork PRs are
+    ignored in every state.
+  - Board checks go to four fixed API hosts with a path-quoted token. Logo fetches are
+    https only, every hop resolved and refused unless the address is global, and the
+    socket connects to the checked IP (no DNS rebinding); 5 MB cap.
+  - The backend and the DB accept only this repo's PR URLs, each on one card.
+- **Residual exfiltration channels (accepted).** The fences above do not close these:
+  1. The web tools are allowed session-wide, so the main session could call WebFetch
+     itself, and it can Read the checkout.
+  2. The session writes `scout/<id>.json`, so it could put up to 240 characters of a file
+     into `summary` / `milestone`, which land in a **public** PR, `changelog.ts` and
+     `company_profiles.json`.
+  3. The logo URLs in that file are fetched by `pr_step.py` itself.
+
+  Also, the scout's reply (web text) passes through the main session's context. The
+  cuts: secrets are denied (`--disallowedTools`) and none is in the session's env;
+  the skill forbids main-session web calls (SKILL §0); `parse_scout` refuses
+  secret-shaped text (`sk-`, `ghp_`, `AKIA`, `postgres://`, `-----BEGIN`, long
+  key-like runs, …); a logo URL is at most 500 characters with a query of at most 200.
 - **Dedupe.** `POST /cards` returns 409 for a domain already posted (in any status,
   deleted cards included), which the loop logs as a skip.
 - **Tests.** `cd scripts && pytest tests/unit -k launch_radar` — the Parallel SDK and the
   backend are faked (`tests/unit/launch_radar_fakes.py`); nothing touches the network.
+  `pr_step.py` is tested against throwaway git repos with `gh`, DNS and HTTP stubbed.

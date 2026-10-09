@@ -4,6 +4,7 @@ No network and no child process: the backend is ``FakeBackend`` and every subpro
 goes through the ``PrEnv.runner`` seam."""
 
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -567,3 +568,27 @@ def test_pr_url_pattern_is_the_backends():
     models = Path(__file__).resolve().parents[3] / "src" / "backend" / "api" / "models.py"
     text = models.read_text()
     assert f'r"{pr_queue.PR_URL_PATTERN}"' in text
+
+
+def test_pr_url_pattern_copies_agree():
+    """SEAM (CONTRACT §9): pr_step.py and the admin page's format.ts accept exactly the URLs
+    the loop's (= the backend's) pattern accepts, as full matches."""
+    from launch_radar import pr_step
+
+    fmt = Path(__file__).resolve().parents[3] / "src" / "frontend" / "src" / "pages" / "AdminLaunchRadarPage" / "format.ts"
+    m = re.search(r"const PR_URL_RE = /\^(.+)\$/;", fmt.read_text())
+    assert m, "format.ts: PR_URL_RE literal not found"
+    ts_re = re.compile(m.group(1).replace(r"\/", "/"), re.ASCII)
+    base = "https://github.com/brendanpotter00/Job-Visualizer-Notifier/pull/"
+    good = [base + "1", base + "412", base + "2147483647"]
+    bad = [base, base + "12/files", base + "12#x", base + "12?a=1", base + "12\n", base + "x1",
+           "http://github.com/brendanpotter00/Job-Visualizer-Notifier/pull/1",
+           "https://github.com/someone/Job-Visualizer-Notifier/pull/1",
+           "https://github.com/brendanpotter00/other/pull/1",
+           "https://github.com.evil.io/brendanpotter00/Job-Visualizer-Notifier/pull/1",
+           "javascript:alert(1)"]
+    for url in good + bad:
+        want = bool(pr_queue.PR_URL_RE.fullmatch(url))
+        assert want == (url in good), url
+        assert bool(pr_step.PR_URL_RE.fullmatch(url)) == want, f"pr_step.py: {url!r}"
+        assert bool(ts_re.fullmatch(url)) == want, f"format.ts: {url!r}"
