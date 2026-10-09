@@ -20,6 +20,15 @@ legacy, unused ``pr_url``; see ``db_models.LaunchRadarCard``) are cleared but th
 row and its domain stay, so the UNIQUE on ``domain`` keeps the loop from ever
 posting that company again. Nothing here ever runs
 ``DELETE FROM launch_radar_cards``.
+
+Add-company PR requests (``launch_radar_pr_requests``, one row per card; see
+docs/implementations/launch-radar/saved-pr/PLAN.md §2.1). They move in the SAME
+transaction as the card: Save queues a row (or re-queues a ``cancelled`` one;
+a ``failed`` / ``no_board`` / ``already_tracked`` / ``open`` row is left alone);
+Unsave and Archive cancel a row that is still ``queued`` (an ``in_progress`` or
+finished row is left alone); Restore does nothing; the tombstone deletes the row.
+The admin list and a status move return the PR link of an ``open`` request only
+(``open_pr_url`` / ``open_pr_number``); the legacy ``pr_url`` column never feeds it.
 """
 
 from __future__ import annotations
@@ -57,25 +66,26 @@ CardSort = Literal["announced", "talent", "vc", "added"]
 # sorts last. ``announced_at`` is stored as text, and the payload model admits
 # only an ISO date (``2026-09-17``) or year-month (``2026-09``), for which text
 # order is date order (a month sorts just after the days within it).
-_BY_ANNOUNCED = "(payload->'event'->>'announced_at') DESC NULLS LAST"
+_BY_ANNOUNCED = "(c.payload->'event'->>'announced_at') DESC NULLS LAST"
 
-# Sort key -> a FIXED ORDER BY clause. The request only ever picks a key from
-# this dict (the route validates ``sort`` as a ``Literal``); nothing from the
-# request is interpolated into SQL. Every clause ends in the same tie-breaks
+# Sort key -> a FIXED ORDER BY clause, on the card alias ``c`` (``list_cards``
+# joins the PR-request table, which has its own ``id`` and ``status``). The
+# request only ever picks a key from this dict (the route validates ``sort`` as
+# a ``Literal``); nothing from the request is interpolated into SQL. Every clause ends in the same tie-breaks
 # (announced date, then posted_at, then id), so equal scores page in one stable
 # order and LIMIT/OFFSET never repeats or skips a card. A null score (no data)
 # sorts after every scored card.
 _CARD_ORDER: dict[CardSort, str] = {
-    "announced": f"{_BY_ANNOUNCED}, posted_at DESC, id DESC",
+    "announced": f"{_BY_ANNOUNCED}, c.posted_at DESC, c.id DESC",
     "talent": (
-        "(payload->'scores'->>'talent')::numeric DESC NULLS LAST, "
-        f"{_BY_ANNOUNCED}, posted_at DESC, id DESC"
+        "(c.payload->'scores'->>'talent')::numeric DESC NULLS LAST, "
+        f"{_BY_ANNOUNCED}, c.posted_at DESC, c.id DESC"
     ),
     "vc": (
-        "(payload->'scores'->>'vc')::numeric DESC NULLS LAST, "
-        f"{_BY_ANNOUNCED}, posted_at DESC, id DESC"
+        "(c.payload->'scores'->>'vc')::numeric DESC NULLS LAST, "
+        f"{_BY_ANNOUNCED}, c.posted_at DESC, c.id DESC"
     ),
-    "added": f"posted_at DESC, {_BY_ANNOUNCED}, id DESC",
+    "added": f"c.posted_at DESC, {_BY_ANNOUNCED}, c.id DESC",
 }
 
 # Target status -> the statuses a card may move to it from. Every other move
@@ -204,6 +214,9 @@ class CardRow(TypedDict):
     archived_at: datetime | None
     deleted_at: datetime | None
     updated_by: str | None
+    # The card's add-company PR, only while its request is ``open`` (else None).
+    open_pr_url: str | None
+    open_pr_number: int | None
 
 
 class LastRunRow(TypedDict):
@@ -291,6 +304,16 @@ _CARD_COLUMNS = (
     "run_id, posted_at, updated_at, archived_at, deleted_at, updated_by"
 )
 
+# The same columns on the card alias ``c``, plus the open PR request's link
+# (``r`` is LEFT JOINed on ``r.status = 'open'``, so both are NULL otherwise).
+_CARD_COLUMNS_WITH_PR = (
+    ", ".join(f"c.{col.strip()}" for col in _CARD_COLUMNS.split(","))
+    + ", r.pr_url AS open_pr_url, r.pr_number AS open_pr_number"
+)
+_OPEN_PR_JOIN = (
+    "LEFT JOIN launch_radar_pr_requests r ON r.card_id = c.id AND r.status = 'open'"
+)
+
 _MONITOR_COLUMNS = (
     "slot, monitor_id, query, processor, frequency, status, last_event_id, "
     "charged_through"
@@ -314,13 +337,15 @@ def list_cards(
     Ordered by ``sort`` (``_CARD_ORDER``), the same way on every tab: newest
     announcement, Talent or VC score (highest first, unscored last), or newest
     posted. Only a single non-deleted status is ever selected, so a tombstone
-    can never reach the admin client.
+    can never reach the admin client. Each row carries its ``open`` PR request's
+    link (``open_pr_url`` / ``open_pr_number``, else None); the UNIQUE on
+    ``card_id`` keeps the join to at most one request per card.
     """
     order = _CARD_ORDER[sort]
     with conn.cursor() as cur:
         cur.execute(
-            f"SELECT {_CARD_COLUMNS} FROM launch_radar_cards "
-            f"WHERE status = %s ORDER BY {order} LIMIT %s OFFSET %s",
+            f"SELECT {_CARD_COLUMNS_WITH_PR} FROM launch_radar_cards c {_OPEN_PR_JOIN} "
+            f"WHERE c.status = %s ORDER BY {order} LIMIT %s OFFSET %s",
             (status, limit, offset),
         )
         rows = [cast(CardRow, dict(r)) for r in cur.fetchall()]
@@ -401,7 +426,10 @@ def set_status(
     compare-and-swap: the guarded UPDATE matches only a card still in that
     status, so a click made on a stale view (an Unsave on a card someone has
     since archived: both send ``new``) is a 409 naming the real status instead of
-    a move the admin never asked for. ``None`` keeps every allowed source."""
+    a move the admin never asked for. ``None`` keeps every allowed source.
+
+    The card's PR request moves in the same transaction (``_move_pr_request``),
+    and the returned row carries the open request's link."""
     allowed = _ALLOWED_FROM[status]
     sources = allowed if expected_from is None else tuple(s for s in allowed if s == expected_from)
     # Only an archived card has an archived_at; every other target clears it.
@@ -412,6 +440,11 @@ def set_status(
         f"WHERE id = %s AND status = ANY(%s) RETURNING {_CARD_COLUMNS}"
     )
     with conn.cursor() as cur:
+        # Lock the card first, so the status it moves FROM is known (Unsave and
+        # Restore both target ``new``, and only Unsave touches the PR request)
+        # and no other request can move it before the guarded UPDATE below.
+        cur.execute("SELECT status FROM launch_radar_cards WHERE id = %s FOR UPDATE", (card_id,))
+        before = cur.fetchone()
         cur.execute(sql, (status, admin_email, card_id, list(sources)))
         row = cur.fetchone()
         if row is None:
@@ -427,13 +460,53 @@ def set_status(
             raise Conflict(
                 f"card is {current}; only a {' or '.join(allowed)} card can move to {status}"
             )
+        # The guarded UPDATE matched, so ``before`` is the locked source status.
+        _move_pr_request(cur, card_id, str(before["status"]), status)
+        cur.execute(
+            "SELECT pr_url, pr_number FROM launch_radar_pr_requests "
+            "WHERE card_id = %s AND status = 'open'",
+            (card_id,),
+        )
+        pr = cur.fetchone()
     conn.commit()
-    return cast(CardRow, dict(row))
+    out = dict(row)
+    out["open_pr_url"] = pr["pr_url"] if pr else None
+    out["open_pr_number"] = pr["pr_number"] if pr else None
+    return cast(CardRow, out)
+
+
+def _move_pr_request(cur: Any, card_id: int, from_status: str, to_status: CardStatus) -> None:
+    """The PR request side of a card move (PLAN §2.1), in the caller's transaction.
+
+    * Save (new -> saved): insert a ``queued`` row, or re-queue a ``cancelled``
+      one. Any other existing row (``failed``, ``no_board``, ``already_tracked``,
+      ``open``, ``queued``, ``in_progress``) is left alone: re-saving is not a
+      retry (that is ``radar.sh pr-requeue``).
+    * Unsave (saved -> new) and Archive (new/saved -> archived): cancel a row that
+      is still ``queued``. An ``in_progress`` one is left for the loop's
+      ``pr-check`` to cancel before it publishes; finished rows stay.
+    * Restore (archived -> new): nothing.
+    """
+    if to_status == "saved":
+        cur.execute(
+            "INSERT INTO launch_radar_pr_requests (card_id) VALUES (%s) "
+            "ON CONFLICT (card_id) DO UPDATE SET status = 'queued', requested_at = now(), "
+            "retry_after = NULL, finished_at = NULL, updated_at = now() "
+            "WHERE launch_radar_pr_requests.status = 'cancelled'",
+            (card_id,),
+        )
+    elif to_status == "archived" or (to_status == "new" and from_status == "saved"):
+        cur.execute(
+            "UPDATE launch_radar_pr_requests SET status = 'cancelled', finished_at = now(), "
+            "updated_at = now() WHERE card_id = %s AND status = 'queued'",
+            (card_id,),
+        )
 
 
 def delete_card(conn: Connection, card_id: int, admin_email: str) -> None:
     """Tombstone an ``archived`` card. A ``new`` or ``saved`` card must be
-    archived first (409)."""
+    archived first (409). Its PR request row, in any state, is deleted in the
+    same transaction (the card row stays, so the FK's CASCADE never fires)."""
     with conn.cursor() as cur:
         # ``pr_url`` is legacy (nothing writes it since the PR step was removed), but a
         # row written before that may still hold one, and the tombstone CHECK
@@ -450,6 +523,7 @@ def delete_card(conn: Connection, card_id: int, admin_email: str) -> None:
             if current == "archived":
                 raise Conflict(_RACED)
             raise Conflict(f"card is {current}; archive it before deleting it permanently")
+        cur.execute("DELETE FROM launch_radar_pr_requests WHERE card_id = %s", (card_id,))
     conn.commit()
 
 

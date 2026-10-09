@@ -2,7 +2,8 @@
 
 Covers the ledger (run budget, global cap, accrued spend past the cap, the
 advisory lock under concurrency), run start/finish, the card lifecycle with its
-tombstone, the domain dedupe, ``seen``, the PR step and the Monitors.
+tombstone, the PR-request hooks on each card move (PLAN §2.1), the domain
+dedupe, ``seen`` and the Monitors.
 
 The ``db_conn`` schema comes from ``create_all``, so the launch_radar_* tables
 exist; conftest's ``clean_tables`` does not know about them, so this module's
@@ -29,7 +30,8 @@ from api.services import launch_radar as svc
 from .conftest import TEST_DB_URL
 
 _LR_TABLES = (
-    "launch_radar_spend, launch_radar_cards, launch_radar_runs, launch_radar_monitors"
+    "launch_radar_pr_requests, launch_radar_spend, launch_radar_cards, "
+    "launch_radar_runs, launch_radar_monitors"
 )
 
 
@@ -672,6 +674,196 @@ class TestLifecycle:
                     "UPDATE launch_radar_cards SET status = 'deleted' WHERE id = %s", (card,)
                 )
         db_conn.rollback()
+
+
+# ---------------------------------------------------------------------------
+# PR requests: the §2.1 hooks on each card move (saved-pr/PLAN.md)
+# ---------------------------------------------------------------------------
+
+_PR = "https://github.com/brendanpotter00/Job-Visualizer-Notifier/pull/{n}"
+
+# The request states a test can start from; ``None`` = no row.
+_PR_STATES = (None, "queued", "in_progress", "open", "failed", "no_board", "already_tracked", "cancelled")
+
+
+def _pr_row(conn: Any, card_id: int) -> dict[str, Any] | None:
+    with conn.cursor() as cur:
+        cur.execute("SELECT * FROM launch_radar_pr_requests WHERE card_id = %s", (card_id,))
+        row = cur.fetchone()
+    conn.rollback()
+    return dict(row) if row else None
+
+
+def _force_pr(conn: Any, card_id: int, state: str | None) -> None:
+    """Put the card's request in ``state`` directly (no row for None), with an
+    old ``requested_at``, a pending ``retry_after`` and some attempts, so a hook
+    that touches the row is visible."""
+    with conn.cursor() as cur:
+        cur.execute("DELETE FROM launch_radar_pr_requests WHERE card_id = %s", (card_id,))
+        if state is not None:
+            is_open = state == "open"
+            finished = state in ("open", "failed", "no_board", "already_tracked", "cancelled")
+            cur.execute(
+                "INSERT INTO launch_radar_pr_requests (card_id, status, attempts, pr_url, "
+                "pr_number, last_reason, requested_at, retry_after, claimed_at, finished_at) "
+                "VALUES (%s, %s, 2, %s, %s, %s, now() - interval '3 days', "
+                "now() + interval '1 hour', %s, %s)",
+                (
+                    card_id,
+                    state,
+                    _PR.format(n=500 + card_id) if is_open else None,
+                    500 + card_id if is_open else None,
+                    "step_refused" if state == "failed" else None,
+                    datetime(2026, 10, 1, tzinfo=timezone.utc) if state != "queued" else None,
+                    datetime(2026, 10, 2, tzinfo=timezone.utc) if finished else None,
+                ),
+            )
+    conn.commit()
+
+
+class TestPrRequestHooks:
+    """Every cell of PLAN §2.1: what Save / Unsave / Archive / Restore / Delete do
+    to the card's PR request, in the same transaction as the move."""
+
+    # (event, the card status the event starts from, the move)
+    _EVENTS = {
+        "save": ("new", "saved"),
+        "unsave": ("saved", "new"),
+        "archive_new": ("new", "archived"),
+        "archive_saved": ("saved", "archived"),
+        "restore": ("archived", "new"),
+    }
+
+    def _card_in(self, db_conn: Any, status: str, domain: str = "a.ai") -> int:
+        start_test_run(db_conn)
+        card = svc.insert_card(db_conn, "run-0001", stored_payload(domain=domain))["id"]
+        if status != "new":
+            svc.set_status(db_conn, card, status, "setup")  # type: ignore[arg-type]
+        return int(card)
+
+    @pytest.mark.parametrize("event", list(_EVENTS))
+    @pytest.mark.parametrize("state", _PR_STATES)
+    def test_the_matrix(self, db_conn, event: str, state: str | None) -> None:
+        source, target = self._EVENTS[event]
+        card = self._card_in(db_conn, source)
+        _force_pr(db_conn, card, state)
+        before = _pr_row(db_conn, card)
+
+        svc.set_status(db_conn, card, target, "admin@x.com")  # type: ignore[arg-type]
+        after = _pr_row(db_conn, card)
+
+        if event == "save" and state is None:
+            # A fresh row: queued now, no attempts.
+            assert after is not None and after["status"] == "queued"
+            assert after["attempts"] == 0 and after["pr_url"] is None
+            assert after["retry_after"] is None and after["finished_at"] is None
+        elif event == "save" and state == "cancelled":
+            # Re-queued: fresh requested_at, no pending retry, not finished. The
+            # attempt count and history are kept.
+            assert before is not None and after is not None
+            assert after["status"] == "queued"
+            assert after["requested_at"] > before["requested_at"]
+            assert after["retry_after"] is None and after["finished_at"] is None
+            assert after["updated_at"] > before["updated_at"]
+            assert after["attempts"] == before["attempts"]
+        elif event in ("unsave", "archive_new", "archive_saved") and state == "queued":
+            assert before is not None and after is not None
+            assert after["status"] == "cancelled" and after["finished_at"] is not None
+            assert after["updated_at"] > before["updated_at"]
+            assert after["requested_at"] == before["requested_at"]
+            assert after["attempts"] == before["attempts"]
+        else:
+            # Every other cell: the row (or its absence) is untouched. Re-saving a
+            # failed / no_board / already_tracked card is NOT a retry (D7).
+            assert after == before
+
+    @pytest.mark.parametrize("state", _PR_STATES)
+    def test_delete_removes_the_row_in_every_state(self, db_conn, state: str | None) -> None:
+        card = self._card_in(db_conn, "archived")
+        _force_pr(db_conn, card, state)
+        svc.delete_card(db_conn, card, "admin@x.com")
+        assert _pr_row(db_conn, card) is None
+        assert _card(db_conn, card)["status"] == "deleted"  # the card row stays
+
+    def test_save_unsave_save_round_trip(self, db_conn) -> None:
+        card = self._card_in(db_conn, "new")
+        svc.set_status(db_conn, card, "saved", "x")
+        first = _pr_row(db_conn, card)
+        assert first is not None and first["status"] == "queued"
+        svc.set_status(db_conn, card, "new", "x")
+        assert (_pr_row(db_conn, card) or {})["status"] == "cancelled"
+        svc.set_status(db_conn, card, "saved", "x")
+        again = _pr_row(db_conn, card)
+        assert again is not None and again["status"] == "queued" and again["id"] == first["id"]
+        assert again["finished_at"] is None and again["requested_at"] >= first["requested_at"]
+
+    def test_archive_then_restore_then_save_requeues(self, db_conn) -> None:
+        card = self._card_in(db_conn, "saved")
+        svc.set_status(db_conn, card, "archived", "x")
+        assert (_pr_row(db_conn, card) or {})["status"] == "cancelled"
+        svc.set_status(db_conn, card, "new", "x")  # Restore: nothing
+        assert (_pr_row(db_conn, card) or {})["status"] == "cancelled"
+        svc.set_status(db_conn, card, "saved", "x")
+        assert (_pr_row(db_conn, card) or {})["status"] == "queued"
+
+    def test_a_refused_move_leaves_the_request_alone(self, db_conn) -> None:
+        card = self._card_in(db_conn, "saved")
+        before = _pr_row(db_conn, card)
+        with pytest.raises(svc.Conflict):
+            svc.set_status(db_conn, card, "saved", "x")  # already saved
+        with pytest.raises(svc.Conflict):
+            svc.set_status(db_conn, card, "new", "x", expected_from="archived")  # stale view
+        with pytest.raises(svc.Conflict):
+            svc.delete_card(db_conn, card, "x")  # saved: archive first
+        assert _pr_row(db_conn, card) == before
+
+    def test_set_status_returns_the_open_pr_only(self, db_conn) -> None:
+        card = self._card_in(db_conn, "new")
+        row = svc.set_status(db_conn, card, "saved", "x")
+        assert row["open_pr_url"] is None and row["open_pr_number"] is None
+        _force_pr(db_conn, card, "open")
+        row = svc.set_status(db_conn, card, "new", "x")  # Unsave keeps an open PR
+        assert row["open_pr_url"] == _PR.format(n=500 + card)
+        assert row["open_pr_number"] == 500 + card
+        row = svc.set_status(db_conn, card, "archived", "x")  # D6: any tab
+        assert row["open_pr_url"] == _PR.format(n=500 + card)
+
+    def test_list_cards_joins_only_an_open_request(self, db_conn) -> None:
+        start_test_run(db_conn)
+        ids = {
+            state: svc.insert_card(db_conn, "run-0001", stored_payload(domain=f"{state}.ai"))["id"]
+            for state in ("open", "failed", "queued", "none", "legacy")
+        }
+        for state, card in ids.items():
+            svc.set_status(db_conn, card, "saved", "x")
+            _force_pr(db_conn, card, None if state in ("none", "legacy") else state)
+        with db_conn.cursor() as cur:  # the legacy column never feeds the link
+            cur.execute(
+                "UPDATE launch_radar_cards SET pr_url = %s WHERE id = %s",
+                (_PR.format(n=333), ids["legacy"]),
+            )
+        db_conn.commit()
+        rows, total = svc.list_cards(db_conn, "saved", 25, 0)
+        assert total == 5 and len(rows) == 5
+        by_id = {r["id"]: r for r in rows}
+        assert by_id[ids["open"]]["open_pr_url"] == _PR.format(n=500 + ids["open"])
+        assert by_id[ids["open"]]["open_pr_number"] == 500 + ids["open"]
+        for state in ("failed", "queued", "none", "legacy"):
+            assert by_id[ids[state]]["open_pr_url"] is None
+            assert by_id[ids[state]]["open_pr_number"] is None
+        # The join does not disturb any sort or the paging.
+        for sort in ("announced", "talent", "vc", "added"):
+            page, n = svc.list_cards(db_conn, "saved", 2, 1, sort)  # type: ignore[arg-type]
+            assert n == 5 and len(page) == 2
+
+    def test_the_card_fk_cascades(self, db_conn) -> None:
+        """Nothing here deletes a card row, but the FK is ON DELETE CASCADE, so a
+        hand-run DELETE could never leave an orphan request behind."""
+        card = self._card_in(db_conn, "saved")
+        with db_conn.cursor() as cur:
+            cur.execute("DELETE FROM launch_radar_cards WHERE id = %s", (card,))
+        db_conn.commit()
+        assert _pr_row(db_conn, card) is None
 
 
 # ---------------------------------------------------------------------------

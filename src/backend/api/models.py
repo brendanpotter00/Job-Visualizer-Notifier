@@ -2668,6 +2668,11 @@ class LaunchRadarCardOut(LaunchRadarPayload):
     payload, camelCase on the wire (the TS ``LaunchRadarCard``). Deleted rows
     never reach this model, so ``status`` is ``new``, ``saved`` or ``archived``.
 
+    ``pr_url`` / ``pr_number`` (``prUrl`` / ``prNumber``) are the add-company PR
+    the nightly loop opened for the card: set only while its request in
+    ``launch_radar_pr_requests`` is ``open``, whatever the card's tab, and null
+    otherwise. The legacy ``launch_radar_cards.pr_url`` column never feeds them.
+
     An OUTPUT model: the stored payload is read through ``tolerate_stored_payload``
     first, so a URL or event date that fails the input rules is nulled (and
     logged) rather than failing the whole card."""
@@ -2678,6 +2683,8 @@ class LaunchRadarCardOut(LaunchRadarPayload):
     posted_at: datetime
     archived_at: datetime | None = None
     updated_by: str | None = None
+    pr_url: str | None = None
+    pr_number: int | None = None
 
     @model_validator(mode="before")
     @classmethod

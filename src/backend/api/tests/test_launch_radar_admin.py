@@ -65,7 +65,8 @@ class TestList:
         c = body["cards"][0]
         assert c["id"] == card and c["status"] == "new"
         assert c["trackedCompanyId"] is None and c["archivedAt"] is None
-        assert "prUrl" not in c and "prReady" not in c  # the removed add-company PR step's fields
+        assert "prReady" not in c  # the legacy payload flag of the removed PR step
+        assert c["prUrl"] is None and c["prNumber"] is None  # no open PR request
         assert c["domain"] == "raindrop.ai" and c["oneLiner"] == "Monitoring for AI agents"
         assert c["event"]["sourceUrl"] == "https://techcrunch.com/raindrop"
         assert c["scores"] == {  # a legacy card (scored before the blend): no parts, no basis
@@ -106,9 +107,10 @@ class TestList:
         assert c["teamStats"]["priorEmployers"] == [{"name": "Amazon", "count": 2}]
 
     def test_a_stored_pr_flag_is_never_sent(self, client, db_conn) -> None:
-        """A card stored while the add-company PR step existed still lists: its old
-        ``pr_ready`` validates and stays out of the response, and so does a PR link
-        left in the legacy ``pr_url`` column."""
+        """A card stored while the old add-company PR step existed still lists: its
+        old ``pr_ready`` validates and stays out of the response, and a PR link left
+        in the legacy ``pr_url`` column never becomes ``prUrl`` (only an ``open``
+        request in ``launch_radar_pr_requests`` does)."""
         start_test_run(db_conn)
         legacy = stored_payload()
         legacy["pr_ready"] = True
@@ -120,7 +122,8 @@ class TestList:
             )
         db_conn.commit()
         (c,) = client.get(BASE, params={"status": "new"}).json()["cards"]
-        assert c["id"] == card and "prReady" not in c and "prUrl" not in c
+        assert c["id"] == card and "prReady" not in c
+        assert c["prUrl"] is None and c["prNumber"] is None
 
     def test_blended_talent_is_camel_case(self, client, db_conn) -> None:
         start_test_run(db_conn)
@@ -261,6 +264,116 @@ class TestList:
         resp = client.get(BASE, params={"status": "new"})
         assert resp.status_code == 200
         assert [c["id"] for c in resp.json()["cards"]] == [good]
+
+
+_PR_URL = "https://github.com/brendanpotter00/Job-Visualizer-Notifier/pull/{n}"
+
+
+def _pr_request(db_conn: Any, card_id: int) -> dict[str, Any] | None:
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT * FROM launch_radar_pr_requests WHERE card_id = %s", (card_id,))
+        row = cur.fetchone()
+    db_conn.rollback()
+    return dict(row) if row else None
+
+
+def _set_pr_request(db_conn: Any, card_id: int, status: str, number: int | None = None) -> None:
+    """Put the card's request in ``status`` (``open`` carries PR ``number``)."""
+    url = _PR_URL.format(n=number) if number is not None else None
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO launch_radar_pr_requests (card_id, status, pr_url, pr_number, last_reason) "
+            "VALUES (%s, %s, %s, %s, %s) ON CONFLICT (card_id) DO UPDATE SET "
+            "status = EXCLUDED.status, pr_url = EXCLUDED.pr_url, pr_number = EXCLUDED.pr_number, "
+            "last_reason = EXCLUDED.last_reason",
+            (card_id, status, url, number, "step_refused" if status == "failed" else None),
+        )
+    db_conn.commit()
+
+
+class TestPrLink:
+    """``prUrl`` / ``prNumber``: the add-company PR the nightly loop opened for a
+    card. Set only while the card's request is ``open`` (whatever its tab, D6);
+    null otherwise, and never from the legacy ``pr_url`` column."""
+
+    def test_null_by_default_and_for_a_queued_or_failed_request(self, client, db_conn) -> None:
+        queued, failed = _seed_cards(db_conn, "a.ai", "b.ai")
+        for card in (queued, failed):
+            client.patch(f"{BASE}/{card}", json={"status": "saved", "from": "new"})
+        _set_pr_request(db_conn, failed, "failed")
+        cards = client.get(BASE, params={"status": "saved"}).json()["cards"]
+        assert {c["id"] for c in cards} == {queued, failed}
+        for c in cards:
+            assert c["prUrl"] is None and c["prNumber"] is None
+
+    def test_set_for_an_open_request(self, client, db_conn) -> None:
+        card, other = _seed_cards(db_conn, "a.ai", "b.ai")
+        client.patch(f"{BASE}/{card}", json={"status": "saved", "from": "new"})
+        client.patch(f"{BASE}/{other}", json={"status": "saved", "from": "new"})
+        _set_pr_request(db_conn, card, "open", 412)
+        cards = {c["id"]: c for c in client.get(BASE, params={"status": "saved"}).json()["cards"]}
+        assert cards[card]["prUrl"] == _PR_URL.format(n=412)
+        assert cards[card]["prNumber"] == 412
+        assert cards[other]["prUrl"] is None and cards[other]["prNumber"] is None
+
+    def test_an_open_pr_shows_on_any_tab(self, client, db_conn) -> None:
+        (card,) = _seed_cards(db_conn, "a.ai")
+        client.patch(f"{BASE}/{card}", json={"status": "saved", "from": "new"})
+        _set_pr_request(db_conn, card, "open", 7)
+        resp = client.patch(f"{BASE}/{card}", json={"status": "new", "from": "saved"})  # Unsave
+        assert resp.status_code == 200
+        assert resp.json()["prUrl"] == _PR_URL.format(n=7) and resp.json()["prNumber"] == 7
+        assert _pr_request(db_conn, card)["status"] == "open"  # an open PR is never cancelled
+        (c,) = client.get(BASE, params={"status": "new"}).json()["cards"]
+        assert c["prUrl"] == _PR_URL.format(n=7)
+
+    def test_a_legacy_column_value_is_not_a_link(self, client, db_conn) -> None:
+        (card,) = _seed_cards(db_conn, "a.ai")
+        client.patch(f"{BASE}/{card}", json={"status": "saved", "from": "new"})
+        with db_conn.cursor() as cur:
+            cur.execute(
+                "UPDATE launch_radar_cards SET pr_url = %s WHERE id = %s",
+                (_PR_URL.format(n=333), card),
+            )
+        db_conn.commit()
+        (c,) = client.get(BASE, params={"status": "saved"}).json()["cards"]
+        assert c["prUrl"] is None and c["prNumber"] is None
+
+    def test_a_patch_response_carries_the_link(self, client, db_conn) -> None:
+        (card,) = _seed_cards(db_conn, "a.ai")
+        resp = client.patch(f"{BASE}/{card}", json={"status": "saved", "from": "new"})
+        assert resp.status_code == 200
+        assert resp.json()["prUrl"] is None and resp.json()["prNumber"] is None
+        _set_pr_request(db_conn, card, "open", 9)
+        resp = client.patch(f"{BASE}/{card}", json={"status": "archived", "from": "saved"})
+        assert resp.status_code == 200
+        assert resp.json()["prUrl"] == _PR_URL.format(n=9) and resp.json()["prNumber"] == 9
+
+    def test_save_queues_a_request_and_unsave_cancels_it(self, client, db_conn) -> None:
+        (card,) = _seed_cards(db_conn, "a.ai")
+        assert _pr_request(db_conn, card) is None
+        client.patch(f"{BASE}/{card}", json={"status": "saved", "from": "new"})
+        row = _pr_request(db_conn, card)
+        assert row is not None and row["status"] == "queued" and row["attempts"] == 0
+        client.patch(f"{BASE}/{card}", json={"status": "new", "from": "saved"})
+        row = _pr_request(db_conn, card)
+        assert row is not None and row["status"] == "cancelled" and row["finished_at"] is not None
+
+    def test_archive_cancels_and_delete_removes_the_request(self, client, db_conn) -> None:
+        (card,) = _seed_cards(db_conn, "a.ai")
+        client.patch(f"{BASE}/{card}", json={"status": "saved", "from": "new"})
+        client.patch(f"{BASE}/{card}", json={"status": "archived", "from": "saved"})
+        assert _pr_request(db_conn, card)["status"] == "cancelled"
+        assert client.delete(f"{BASE}/{card}").status_code == 204
+        assert _pr_request(db_conn, card) is None
+
+    def test_a_refused_patch_does_not_touch_the_request(self, client, db_conn) -> None:
+        (card,) = _seed_cards(db_conn, "a.ai")
+        client.patch(f"{BASE}/{card}", json={"status": "saved", "from": "new"})
+        before = _pr_request(db_conn, card)
+        resp = client.patch(f"{BASE}/{card}", json={"status": "new", "from": "archived"})
+        assert resp.status_code == 409
+        assert _pr_request(db_conn, card) == before
 
 
 def _store_raw_payload(db_conn: Any, card_id: int, payload: dict[str, Any]) -> None:
