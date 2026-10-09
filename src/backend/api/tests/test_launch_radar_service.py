@@ -2,8 +2,9 @@
 
 Covers the ledger (run budget, global cap, accrued spend past the cap, the
 advisory lock under concurrency), run start/finish, the card lifecycle with its
-tombstone, the PR-request hooks on each card move (PLAN §2.1), the domain
-dedupe, ``seen`` and the Monitors.
+tombstone, the PR-request hooks on each card move (PLAN §2.1), the loop's PR
+queue (claim, report, requeue, list; PLAN §2.2), the domain dedupe, ``seen``
+and the Monitors.
 
 The ``db_conn`` schema comes from ``create_all``, so the launch_radar_* tables
 exist; conftest's ``clean_tables`` does not know about them, so this module's
@@ -15,7 +16,7 @@ from __future__ import annotations
 
 import os
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any
 
@@ -864,6 +865,429 @@ class TestPrRequestHooks:
             cur.execute("DELETE FROM launch_radar_cards WHERE id = %s", (card,))
         db_conn.commit()
         assert _pr_row(db_conn, card) is None
+
+
+# ---------------------------------------------------------------------------
+# The loop's PR queue: claim, report, requeue, list (PLAN §2.2, §3.1)
+# ---------------------------------------------------------------------------
+
+
+def saved_card(conn: Any, domain: str = "a.ai", **payload: Any) -> int:
+    """A saved card (so a ``queued`` request) posted by the test run."""
+    start_test_run(conn)
+    card = svc.insert_card(conn, "run-0001", stored_payload(domain=domain, **payload))["id"]
+    svc.set_status(conn, card, "saved", "admin@x.com")
+    return int(card)
+
+
+def _set_pr(conn: Any, card_id: int, sql_assignments: str) -> None:
+    """Test-only: a fixed SET clause on the card's request."""
+    with conn.cursor() as cur:
+        cur.execute(
+            f"UPDATE launch_radar_pr_requests SET {sql_assignments} WHERE card_id = %s",
+            (card_id,),
+        )
+    conn.commit()
+
+
+def _seconds_until_retry(conn: Any, card_id: int) -> float:
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT EXTRACT(EPOCH FROM retry_after - now()) AS s "
+            "FROM launch_radar_pr_requests WHERE card_id = %s",
+            (card_id,),
+        )
+        row = cur.fetchone()
+    conn.rollback()
+    return float(row["s"])
+
+
+def _claimed(conn: Any, domain: str = "a.ai") -> int:
+    """A saved card whose request this test has just claimed (``in_progress``)."""
+    card = saved_card(conn, domain)
+    claim = svc.claim_next_pr(conn)
+    assert claim is not None and claim["card_id"] == card
+    return card
+
+
+_TWELVE_HOURS = 12 * 3600
+
+
+class TestPrClaim:
+    def test_nothing_queued_is_none(self, db_conn) -> None:
+        assert svc.claim_next_pr(db_conn) is None
+
+    def test_claim_is_fifo_and_marks_the_row(self, db_conn) -> None:
+        first = saved_card(db_conn, "a.ai")
+        second = saved_card(db_conn, "b.ai")
+        third = saved_card(db_conn, "c.ai")
+        # Same requested_at for two of them: the id breaks the tie.
+        _set_pr(db_conn, second, "requested_at = now() - interval '2 days'")
+        _set_pr(db_conn, third, "requested_at = now() - interval '2 days'")
+        order = []
+        for _ in range(3):
+            claim = svc.claim_next_pr(db_conn)
+            assert claim is not None
+            order.append(claim["card_id"])
+        assert order == [second, third, first]
+        assert svc.claim_next_pr(db_conn) is None
+        row = _pr_row(db_conn, first)
+        assert row is not None and row["status"] == "in_progress"
+        assert row["attempts"] == 1 and row["claimed_at"] is not None
+        assert row["finished_at"] is None
+
+    def test_the_claim_carries_the_payload_fields_only(self, db_conn) -> None:
+        card = saved_card(db_conn, "raindrop.ai")
+        claim = svc.claim_next_pr(db_conn)
+        assert claim is not None
+        requested_at = claim.pop("requested_at")
+        assert isinstance(requested_at, datetime)
+        assert claim == {
+            "card_id": card,
+            "domain": "raindrop.ai",
+            "company": "Raindrop AI",
+            "website": "https://www.raindrop.ai",
+            "careers_url": "https://jobs.ashbyhq.com/Raindrop",
+            "one_liner": "Monitoring for AI agents",
+            "what_they_do": "Observability for agent products.",
+            "ats": {
+                "provider": "ashby",
+                "board_token": "Raindrop",
+                "board_url": "https://jobs.ashbyhq.com/Raindrop",
+                "verified": True,
+                "job_count": 9,
+            },
+            "latest_round": {
+                "round": "Series A",
+                "amount_usd": "$35M",
+                "announced_at": "2026-09-17",
+            },
+            "attempts": 1,
+        }
+
+    def test_a_bad_stored_url_is_nulled_and_no_round_is_null(self, db_conn) -> None:
+        card = saved_card(
+            db_conn,
+            "b.ai",
+            funding={"latest_round": None, "prior_rounds": []},
+        )
+        with db_conn.cursor() as cur:  # a row stored before the URL rule
+            cur.execute(
+                "UPDATE launch_radar_cards SET payload = jsonb_set(payload, '{careers_url}', "
+                "'\"javascript:alert(1)\"') WHERE id = %s",
+                (card,),
+            )
+        db_conn.commit()
+        claim = svc.claim_next_pr(db_conn)
+        assert claim is not None
+        assert claim["careers_url"] is None and claim["latest_round"] is None
+
+    def test_a_pending_retry_waits(self, db_conn) -> None:
+        card = saved_card(db_conn)
+        _set_pr(db_conn, card, "retry_after = now() + interval '1 hour'")
+        assert svc.claim_next_pr(db_conn) is None
+        _set_pr(db_conn, card, "retry_after = now() - interval '1 second'")
+        claim = svc.claim_next_pr(db_conn)
+        assert claim is not None and claim["card_id"] == card
+
+    def test_a_stale_claim_is_requeued_as_abandoned_and_claimable(self, db_conn) -> None:
+        card = _claimed(db_conn)
+        _set_pr(db_conn, card, "claimed_at = now() - interval '3 hours'")
+        claim = svc.claim_next_pr(db_conn)
+        assert claim is not None and claim["card_id"] == card
+        assert claim["attempts"] == 2  # the killed run counted as an attempt
+        row = _pr_row(db_conn, card)
+        assert row is not None and row["status"] == "in_progress"
+        assert row["last_reason"] == "abandoned"
+
+    def test_a_stale_claim_on_its_last_attempt_fails(self, db_conn) -> None:
+        card = _claimed(db_conn)
+        _set_pr(db_conn, card, "attempts = 3, claimed_at = now() - interval '3 hours'")
+        assert svc.claim_next_pr(db_conn) is None
+        row = _pr_row(db_conn, card)
+        assert row is not None and row["status"] == "failed"
+        assert row["last_reason"] == "abandoned" and row["finished_at"] is not None
+
+    def test_a_fresh_claim_is_left_alone(self, db_conn) -> None:
+        card = _claimed(db_conn)
+        _set_pr(db_conn, card, "claimed_at = now() - interval '90 minutes'")
+        before = _pr_row(db_conn, card)
+        assert svc.claim_next_pr(db_conn) is None
+        assert _pr_row(db_conn, card) == before
+
+    def test_a_tracked_card_becomes_already_tracked(self, db_conn) -> None:
+        _insert_company(db_conn, "raindrop", "ashby", "raindrop")
+        tracked = saved_card(db_conn, "raindrop.ai")  # resolved at insert
+        assert _card(db_conn, tracked)["tracked_company_id"] == "raindrop"
+        other = saved_card(db_conn, "b.ai", ats={**make_payload()["ats"], "board_token": "bee"})
+        claim = svc.claim_next_pr(db_conn)
+        assert claim is not None and claim["card_id"] == other
+        row = _pr_row(db_conn, tracked)
+        assert row is not None and row["status"] == "already_tracked"
+        assert row["finished_at"] is not None and row["attempts"] == 0
+
+    def test_a_queued_row_of_an_unsaved_card_is_cancelled(self, db_conn) -> None:
+        card = saved_card(db_conn)
+        with db_conn.cursor() as cur:  # behind the hooks' back
+            cur.execute("UPDATE launch_radar_cards SET status = 'new' WHERE id = %s", (card,))
+        db_conn.commit()
+        assert svc.claim_next_pr(db_conn) is None
+        row = _pr_row(db_conn, card)
+        assert row is not None and row["status"] == "cancelled" and row["attempts"] == 0
+
+    def test_a_locked_row_is_skipped(self, db_conn) -> None:
+        first = saved_card(db_conn, "a.ai")
+        second = saved_card(db_conn, "b.ai")
+        schema = os.environ["PYTEST_SCHEMA"]
+        other = psycopg2.connect(TEST_DB_URL, cursor_factory=RealDictCursor)
+        try:
+            with other.cursor() as cur:
+                cur.execute(f'SET search_path TO "{schema}", public')
+                cur.execute(
+                    "SELECT id FROM launch_radar_pr_requests WHERE card_id = %s FOR UPDATE",
+                    (first,),
+                )
+            claim = svc.claim_next_pr(db_conn)  # does not wait for the lock
+            assert claim is not None and claim["card_id"] == second
+        finally:
+            other.rollback()
+            other.close()
+
+    def test_two_concurrent_claims_get_two_cards(self, db_conn) -> None:
+        cards = {saved_card(db_conn, "a.ai"), saved_card(db_conn, "b.ai")}
+        schema = os.environ["PYTEST_SCHEMA"]
+        barrier = threading.Barrier(2)
+        got: list[int | None] = []
+
+        def _worker() -> None:
+            conn = psycopg2.connect(TEST_DB_URL, cursor_factory=RealDictCursor)
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(f'SET search_path TO "{schema}", public')
+                conn.commit()
+                barrier.wait()
+                claim = svc.claim_next_pr(conn)
+                got.append(claim["card_id"] if claim else None)
+            finally:
+                conn.close()
+
+        threads = [threading.Thread(target=_worker) for _ in range(2)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=30)
+        assert sorted(c for c in got if c is not None) == sorted(cards)
+
+
+class TestPrReport:
+    def test_open_records_the_pr(self, db_conn) -> None:
+        card = _claimed(db_conn)
+        row = svc.report_pr(db_conn, card, "open", _PR.format(n=412), None)
+        assert row["status"] == "open" and row["pr_url"] == _PR.format(n=412)
+        assert row["pr_number"] == 412 and row["finished_at"] is not None
+        assert row["last_reason"] is None and row["attempts"] == 1
+        assert _pr_row(db_conn, card) is not None
+        cards, _ = svc.list_cards(db_conn, "saved", 25, 0)
+        assert cards[0]["open_pr_url"] == _PR.format(n=412)
+
+    def test_a_repeated_open_is_a_no_op_and_another_url_conflicts(self, db_conn) -> None:
+        card = _claimed(db_conn)
+        first = svc.report_pr(db_conn, card, "open", _PR.format(n=7), None)
+        again = svc.report_pr(db_conn, card, "open", _PR.format(n=7), None)
+        assert again == first
+        with pytest.raises(svc.Conflict, match="different PR"):
+            svc.report_pr(db_conn, card, "open", _PR.format(n=8), None)
+        assert _pr_row(db_conn, card)["pr_number"] == 7  # type: ignore[index]
+
+    def test_the_same_pr_on_two_cards_conflicts(self, db_conn) -> None:
+        a = _claimed(db_conn, "a.ai")
+        svc.report_pr(db_conn, a, "open", _PR.format(n=9), None)
+        b = _claimed(db_conn, "b.ai")
+        with pytest.raises(svc.Conflict, match="another card"):
+            svc.report_pr(db_conn, b, "open", _PR.format(n=9), None)
+        assert (_pr_row(db_conn, b) or {})["status"] == "in_progress"
+
+    @pytest.mark.parametrize("reason", ["step_refused", "multi_head", "git_error", "gh_error",
+                                        "timeout", "other"])
+    def test_a_retryable_failure_requeues_for_12_hours(self, db_conn, reason: str) -> None:
+        card = _claimed(db_conn)
+        row = svc.report_pr(db_conn, card, "failed", None, reason)  # type: ignore[arg-type]
+        assert row["status"] == "queued" and row["last_reason"] == reason
+        assert row["attempts"] == 1 and row["finished_at"] is None
+        assert _TWELVE_HOURS - 120 < _seconds_until_retry(db_conn, card) <= _TWELVE_HOURS
+        assert svc.claim_next_pr(db_conn) is None  # waits for retry_after
+
+    def test_the_third_retryable_failure_is_final(self, db_conn) -> None:
+        card = _claimed(db_conn)
+        for attempt in (1, 2, 3):
+            if attempt > 1:
+                _set_pr(db_conn, card, "retry_after = NULL")
+                claim = svc.claim_next_pr(db_conn)
+                assert claim is not None and claim["attempts"] == attempt
+            row = svc.report_pr(db_conn, card, "failed", None, "git_error")
+        assert row["status"] == "failed" and row["attempts"] == 3
+        assert row["retry_after"] is None and row["finished_at"] is not None
+        _set_pr(db_conn, card, "retry_after = NULL")
+        assert svc.claim_next_pr(db_conn) is None
+
+    @pytest.mark.parametrize("reason", ["unsafe_value", "pr_closed"])
+    def test_a_terminal_failure_is_final_at_once(self, db_conn, reason: str) -> None:
+        card = _claimed(db_conn)
+        row = svc.report_pr(db_conn, card, "failed", None, reason)  # type: ignore[arg-type]
+        assert row["status"] == "failed" and row["last_reason"] == reason
+        assert row["attempts"] == 1 and row["finished_at"] is not None
+
+    def test_env_error_gives_the_attempt_back_and_requeues(self, db_conn) -> None:
+        card = _claimed(db_conn)
+        row = svc.report_pr(db_conn, card, "failed", None, "env_error")
+        assert row["status"] == "queued" and row["attempts"] == 0
+        assert row["last_reason"] == "env_error" and row["finished_at"] is None
+        assert _TWELVE_HOURS - 120 < _seconds_until_retry(db_conn, card) <= _TWELVE_HOURS
+
+    def test_env_error_on_the_last_attempt_still_requeues(self, db_conn) -> None:
+        card = _claimed(db_conn)
+        _set_pr(db_conn, card, "attempts = 3")
+        row = svc.report_pr(db_conn, card, "failed", None, "env_error")
+        assert row["status"] == "queued" and row["attempts"] == 2
+
+    def test_env_error_never_goes_below_zero(self, db_conn) -> None:
+        card = _claimed(db_conn)
+        _set_pr(db_conn, card, "attempts = 0")
+        row = svc.report_pr(db_conn, card, "failed", None, "env_error")
+        assert row["attempts"] == 0
+
+    @pytest.mark.parametrize("reason", ["board_not_found", "board_empty", "unsupported_ats"])
+    def test_no_board_is_final(self, db_conn, reason: str) -> None:
+        card = _claimed(db_conn)
+        row = svc.report_pr(db_conn, card, "no_board", None, reason)  # type: ignore[arg-type]
+        assert row["status"] == "no_board" and row["last_reason"] == reason
+        assert row["finished_at"] is not None and row["pr_url"] is None
+
+    def test_already_tracked_is_final(self, db_conn) -> None:
+        card = _claimed(db_conn)
+        row = svc.report_pr(db_conn, card, "already_tracked", None, None)
+        assert row["status"] == "already_tracked" and row["finished_at"] is not None
+
+    def test_cancelled_only_for_an_unsaved_card(self, db_conn) -> None:
+        card = _claimed(db_conn)
+        with pytest.raises(svc.Conflict, match="still saved"):
+            svc.report_pr(db_conn, card, "cancelled", None, None)
+        assert (_pr_row(db_conn, card) or {})["status"] == "in_progress"
+        svc.set_status(db_conn, card, "new", "admin@x.com")  # Unsave mid-run
+        assert (_pr_row(db_conn, card) or {})["status"] == "in_progress"
+        row = svc.report_pr(db_conn, card, "cancelled", None, None)
+        assert row["status"] == "cancelled" and row["finished_at"] is not None
+
+    def test_an_open_report_after_an_unsave_is_still_recorded(self, db_conn) -> None:
+        card = _claimed(db_conn)
+        svc.set_status(db_conn, card, "archived", "admin@x.com")
+        row = svc.report_pr(db_conn, card, "open", _PR.format(n=31), None)
+        assert row["status"] == "open"
+
+    @pytest.mark.parametrize(
+        "state", ["queued", "open", "failed", "no_board", "already_tracked", "cancelled"]
+    )
+    def test_only_an_in_progress_row_takes_a_report(self, db_conn, state: str) -> None:
+        card = saved_card(db_conn)
+        _force_pr(db_conn, card, state)
+        before = _pr_row(db_conn, card)
+        with pytest.raises(svc.Conflict, match="not in_progress"):
+            svc.report_pr(db_conn, card, "failed", None, "other")
+        assert _pr_row(db_conn, card) == before
+
+    def test_missing_request_or_deleted_card_is_not_found(self, db_conn) -> None:
+        with pytest.raises(svc.NotFound):
+            svc.report_pr(db_conn, 999, "already_tracked", None, None)
+        card = _claimed(db_conn)
+        svc.set_status(db_conn, card, "archived", "x")
+        svc.delete_card(db_conn, card, "x")
+        with pytest.raises(svc.NotFound):
+            svc.report_pr(db_conn, card, "open", _PR.format(n=5), None)
+
+    def test_a_malformed_report_is_refused_before_any_write(self, db_conn) -> None:
+        card = _claimed(db_conn)
+        before = _pr_row(db_conn, card)
+        for outcome, url, reason in (
+            ("open", None, None),
+            ("open", "https://github.com/evil/repo/pull/1", None),
+            ("failed", None, None),
+            ("failed", None, "board_empty"),
+            ("no_board", None, "git_error"),
+            ("failed", None, "abandoned"),
+        ):
+            with pytest.raises(ValueError):
+                svc.report_pr(db_conn, card, outcome, url, reason)  # type: ignore[arg-type]
+        assert _pr_row(db_conn, card) == before
+
+
+class TestPrRequeueGetList:
+    @pytest.mark.parametrize("state", ["failed", "no_board", "already_tracked", "cancelled"])
+    def test_requeue_resets_a_finished_request(self, db_conn, state: str) -> None:
+        card = saved_card(db_conn)
+        _force_pr(db_conn, card, state)
+        before = _pr_row(db_conn, card)
+        row = svc.requeue_pr(db_conn, card)
+        assert row["status"] == "queued" and row["attempts"] == 0
+        assert row["retry_after"] is None and row["last_reason"] is None
+        assert row["finished_at"] is None
+        assert before is not None and row["requested_at"] > before["requested_at"]
+        claim = svc.claim_next_pr(db_conn)
+        assert claim is not None and claim["card_id"] == card and claim["attempts"] == 1
+
+    @pytest.mark.parametrize("state", ["queued", "in_progress", "open"])
+    def test_requeue_refuses_a_live_request(self, db_conn, state: str) -> None:
+        card = saved_card(db_conn)
+        _force_pr(db_conn, card, state)
+        before = _pr_row(db_conn, card)
+        with pytest.raises(svc.Conflict, match=state):
+            svc.requeue_pr(db_conn, card)
+        assert _pr_row(db_conn, card) == before
+
+    @pytest.mark.parametrize("card_status", ["new", "archived"])
+    def test_requeue_refuses_an_unsaved_card(self, db_conn, card_status: str) -> None:
+        card = saved_card(db_conn)
+        _force_pr(db_conn, card, "failed")
+        svc.set_status(db_conn, card, card_status, "x")  # type: ignore[arg-type]
+        with pytest.raises(svc.Conflict, match="only a saved card"):
+            svc.requeue_pr(db_conn, card)
+        assert (_pr_row(db_conn, card) or {})["status"] == "failed"
+
+    def test_requeue_missing_request_or_card_is_not_found(self, db_conn) -> None:
+        with pytest.raises(svc.NotFound):
+            svc.requeue_pr(db_conn, 999)
+        start_test_run(db_conn)
+        never_saved = svc.insert_card(db_conn, "run-0001", stored_payload(domain="n.ai"))["id"]
+        with pytest.raises(svc.NotFound):
+            svc.requeue_pr(db_conn, never_saved)
+
+    def test_get_returns_the_row_and_the_card_status(self, db_conn) -> None:
+        card = _claimed(db_conn)
+        row = svc.get_pr_request(db_conn, card)
+        assert row["status"] == "in_progress" and row["card_status"] == "saved"
+        svc.set_status(db_conn, card, "new", "x")
+        assert svc.get_pr_request(db_conn, card)["card_status"] == "new"
+        with pytest.raises(svc.NotFound):
+            svc.get_pr_request(db_conn, 999)
+        svc.set_status(db_conn, card, "archived", "x")
+        svc.delete_card(db_conn, card, "x")
+        with pytest.raises(svc.NotFound):
+            svc.get_pr_request(db_conn, card)
+
+    def test_list_filters_orders_oldest_first_and_limits(self, db_conn) -> None:
+        a = saved_card(db_conn, "a.ai")
+        b = saved_card(db_conn, "b.ai")
+        c = saved_card(db_conn, "c.ai")
+        _force_pr(db_conn, a, "open")  # requested 3 days ago
+        _force_pr(db_conn, c, "failed")  # requested 3 days ago, larger id
+        everything = svc.list_pr_requests(db_conn, [], 100)
+        assert [r["card_id"] for r in everything] == [a, c, b]
+        assert everything[0]["domain"] == "a.ai" and everything[0]["company"] == "Raindrop AI"
+        assert everything[0]["pr_number"] == 500 + a
+        opened = svc.list_pr_requests(db_conn, ["open"], 100)
+        assert [r["card_id"] for r in opened] == [a]
+        some = svc.list_pr_requests(db_conn, ["open", "queued", "failed"], 2)
+        assert [r["card_id"] for r in some] == [a, c]
+        assert svc.list_pr_requests(db_conn, ["no_board"], 100) == []
 
 
 # ---------------------------------------------------------------------------
