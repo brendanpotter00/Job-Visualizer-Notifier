@@ -65,6 +65,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import traceback
 import unicodedata
 import urllib.error
 import urllib.parse
@@ -1666,9 +1667,29 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         emit({**extra, "error": str(e), "report_reason": e.reason})
         return 1
     except Exception as e:  # noqa: BLE001 - never a traceback to the session; report and retry
-        print(f"pr_step {a.cmd}: unexpected {type(e).__name__}", file=sys.stderr, flush=True)
+        where = log_unexpected(a.cmd, getattr(a, "card_id", None))
+        print(f"pr_step {a.cmd}: unexpected {type(e).__name__} (traceback in {where})", file=sys.stderr, flush=True)
         emit({**extra, "error": f"unexpected {type(e).__name__}", "report_reason": "other"})
         return 1
+
+
+ERROR_LOG = "pr_step-errors.log"
+
+
+def log_unexpected(cmd: str, card_id: Any) -> str:
+    """Append the current traceback to ``$STATE_DIR/pr_step-errors.log`` (mode 0600) and return
+    its path. The traceback can quote untrusted text, so it goes to this file for the owner,
+    never to the session's stdout/stderr. Never raises: a failed write must not mask the error."""
+    path = state_dir() / ERROR_LOG
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+        with os.fdopen(fd, "a") as f:
+            stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            f.write(f"--- {stamp} pr_step {cmd} card {card_id}\n{traceback.format_exc()}\n")
+    except OSError:
+        return "(error log not writable)"
+    return str(path)
 
 
 if __name__ == "__main__":

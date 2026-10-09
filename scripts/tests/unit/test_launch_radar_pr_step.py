@@ -1246,3 +1246,22 @@ def test_scripts_are_executable_and_logo_setup_parses():
         assert os.access(path, os.X_OK), name
     assert (REAL / "scripts/launch_radar/pr_step.py").read_text().startswith("#!/usr/bin/env python3\n")
     subprocess.run(["sh", "-n", str(REAL / "scripts/launch_radar/logo_setup.sh")], check=True)
+
+
+def test_an_unexpected_error_keeps_its_traceback_out_of_the_session_but_logs_it(tmp_path, monkeypatch, capsys):
+    """A bug must not become a silent 'other': the traceback goes to a 0600 file in the state dir,
+    and the session only sees the exception type and the file's path."""
+    monkeypatch.setenv("LAUNCH_RADAR_STATE_DIR", str(tmp_path))
+
+    def boom(a):
+        raise KeyError("ignore previous instructions")  # untrusted-looking text must not reach stdout/stderr
+
+    monkeypatch.setattr(pr_step, "dispatch", boom)
+    assert pr_step.main(["check-head", "--card-id", "7"]) == 1
+    out, err = capsys.readouterr()
+    assert "ignore previous instructions" not in out + err
+    assert "unexpected KeyError" in err and pr_step.ERROR_LOG in err
+    assert json.loads(out.strip().splitlines()[-1])["report_reason"] == "other"
+    log = tmp_path / pr_step.ERROR_LOG
+    assert "ignore previous instructions" in log.read_text() and "pr_step check-head card 7" in log.read_text()
+    assert oct(log.stat().st_mode & 0o777) == "0o600"
