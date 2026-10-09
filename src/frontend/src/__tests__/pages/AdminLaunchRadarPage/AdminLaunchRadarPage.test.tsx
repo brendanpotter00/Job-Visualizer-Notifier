@@ -177,7 +177,7 @@ describe('AdminLaunchRadarPage', () => {
     expect(first.searchParams.get('status')).toBe('new');
     expect(first.searchParams.get('limit')).toBe('25');
     expect(first.searchParams.get('offset')).toBe('0');
-    expect(first.searchParams.get('sort')).toBe('announced');
+    expect(first.searchParams.get('sort')).toBe('talent');
   });
 
   it('says "No new cards." when the New tab is empty', async () => {
@@ -484,7 +484,7 @@ describe('AdminLaunchRadarPage', () => {
       return gets[gets.length - 1].url;
     };
 
-    it('sits on the tabs row: "Sort by" and four options, Announced selected', async () => {
+    it('sits on the tabs row: "Sort by" and three options, Talent selected', async () => {
       fakeBackend();
       renderPage();
       await screen.findByText('Raindrop AI');
@@ -493,9 +493,9 @@ describe('AdminLaunchRadarPage', () => {
         within(sortGroup())
           .getAllByRole('button')
           .map((b) => b.textContent)
-      ).toEqual(['Announced', 'Talent', 'VC', 'Added']);
-      expect(sortButton('Announced')).toHaveAttribute('aria-pressed', 'true');
-      for (const name of ['Talent', 'VC', 'Added']) {
+      ).toEqual(['Talent', 'VC', 'Added']);
+      expect(sortButton('Talent')).toHaveAttribute('aria-pressed', 'true');
+      for (const name of ['VC', 'Added']) {
         expect(sortButton(name)).toHaveAttribute('aria-pressed', 'false');
       }
       // Sentence case, as written: no all-caps button text.
@@ -517,12 +517,13 @@ describe('AdminLaunchRadarPage', () => {
       expect(lists()[0].url.searchParams.get('sort')).toBe('vc');
     });
 
-    it('reads an unknown ?sort= as Announced', async () => {
+    // `announced` was retired from the page: an old bookmark reads as Talent.
+    it.each(['bogus', 'announced'])('reads ?sort=%s as Talent', async (raw) => {
       const { lists } = fakeBackend();
-      renderPage('/admin/launch-radar?sort=bogus');
+      renderPage(`/admin/launch-radar?sort=${raw}`);
       await screen.findByText('Raindrop AI');
-      expect(sortButton('Announced')).toHaveAttribute('aria-pressed', 'true');
-      expect(lists()[0].url.searchParams.get('sort')).toBe('announced');
+      expect(sortButton('Talent')).toHaveAttribute('aria-pressed', 'true');
+      expect(lists()[0].url.searchParams.get('sort')).toBe('talent');
     });
 
     it('writes the sort to the URL, refetches with it and goes back to page 1', async () => {
@@ -538,11 +539,11 @@ describe('AdminLaunchRadarPage', () => {
       await user.click(screen.getByRole('button', { name: 'Go to page 2' }));
       await waitFor(() => expect(lastList(calls).searchParams.get('offset')).toBe('25'));
 
-      await user.click(sortButton('Talent'));
+      await user.click(sortButton('VC'));
 
-      expect(location.search).toBe('?sort=talent');
-      expect(sortButton('Talent')).toHaveAttribute('aria-pressed', 'true');
-      await waitFor(() => expect(lastList(calls).searchParams.get('sort')).toBe('talent'));
+      expect(location.search).toBe('?sort=vc');
+      expect(sortButton('VC')).toHaveAttribute('aria-pressed', 'true');
+      await waitFor(() => expect(lastList(calls).searchParams.get('sort')).toBe('vc'));
       expect(lastList(calls).searchParams.get('offset')).toBe('0');
       expect(lastList(calls).searchParams.get('status')).toBe('new');
       expect(screen.getByRole('button', { name: 'page 1' })).toHaveAttribute(
@@ -551,9 +552,9 @@ describe('AdminLaunchRadarPage', () => {
       );
 
       // Back to the default: it is left out of the URL.
-      await user.click(sortButton('Announced'));
+      await user.click(sortButton('Talent'));
       expect(location.search).toBe('');
-      expect(sortButton('Announced')).toHaveAttribute('aria-pressed', 'true');
+      expect(sortButton('Talent')).toHaveAttribute('aria-pressed', 'true');
     });
 
     it('keeps the sort when the selected option is pressed again, and keeps other params', async () => {
@@ -598,10 +599,7 @@ describe('AdminLaunchRadarPage', () => {
           .getAllByRole('group', { name: new RegExp(`^${label}( score|:)`) })
           .map((g) => g.getAttribute('data-emphasis'));
 
-      expect(emphasis('Talent')).toEqual(['normal', 'normal']);
-      expect(emphasis('VC')).toEqual(['normal', 'normal']);
-
-      await user.click(sortButton('Talent'));
+      // Talent is the default sort, so it leads from the first render.
       expect(emphasis('Talent')).toEqual(['strong', 'strong']);
       expect(emphasis('VC')).toEqual(['muted', 'muted']);
 
@@ -612,6 +610,10 @@ describe('AdminLaunchRadarPage', () => {
       await user.click(sortButton('Added'));
       expect(emphasis('Talent')).toEqual(['normal', 'normal']);
       expect(emphasis('VC')).toEqual(['normal', 'normal']);
+
+      await user.click(sortButton('Talent'));
+      expect(emphasis('Talent')).toEqual(['strong', 'strong']);
+      expect(emphasis('VC')).toEqual(['muted', 'muted']);
     });
 
     it('is reachable and operable from the keyboard', async () => {
@@ -622,14 +624,14 @@ describe('AdminLaunchRadarPage', () => {
       const { location } = renderPage();
       await screen.findByText('Raindrop AI');
 
-      sortButton('Announced').focus();
+      sortButton('Talent').focus();
       await user.keyboard('{Tab}');
-      expect(sortButton('Talent')).toHaveFocus();
+      expect(sortButton('VC')).toHaveFocus();
       await user.keyboard('{Enter}');
 
-      expect(location.search).toBe('?sort=talent');
+      expect(location.search).toBe('?sort=vc');
       await waitFor(() =>
-        expect(lists().some((c) => c.url.searchParams.get('sort') === 'talent')).toBe(true)
+        expect(lists().some((c) => c.url.searchParams.get('sort') === 'vc')).toBe(true)
       );
     });
   });

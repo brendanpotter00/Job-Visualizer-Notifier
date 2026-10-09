@@ -1,12 +1,16 @@
 import { useCallback, useState, type ReactNode } from 'react';
+import { Link as RouterLink } from 'react-router-dom';
 import Accordion from '@mui/material/Accordion';
 import AccordionDetails from '@mui/material/AccordionDetails';
 import AccordionSummary from '@mui/material/AccordionSummary';
 import Box from '@mui/material/Box';
+import Button from '@mui/material/Button';
 import Container from '@mui/material/Container';
 import Typography from '@mui/material/Typography';
+import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { RESPONSIVE } from '../../config/responsive';
+import { ROUTES } from '../../config/routes';
 import type { StepId } from './content';
 import { CostBreakdown } from './components/CostBreakdown';
 import { FlowDiagram } from './components/FlowDiagram';
@@ -88,6 +92,16 @@ export function LaunchRadarHowItWorksPage() {
 
   return (
     <Container maxWidth="md" sx={{ py: RESPONSIVE.spacing.pageMarginY }}>
+      {/* The only link to this page is under the Launch Radar title, so back goes there. */}
+      <Button
+        component={RouterLink}
+        to={ROUTES.ADMIN_LAUNCH_RADAR}
+        size="small"
+        startIcon={<ArrowBackIcon />}
+        sx={{ ml: -1, mb: 1 }}
+      >
+        Launch Radar
+      </Button>
       <Typography
         variant="h3"
         component="h1"

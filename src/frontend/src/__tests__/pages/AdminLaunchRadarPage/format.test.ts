@@ -213,14 +213,15 @@ describe('Launch Radar format helpers', () => {
   });
 
   describe('parseSort', () => {
-    it.each(['announced', 'talent', 'vc', 'added'] as const)('reads %s', (key) => {
+    it.each(['talent', 'vc', 'added'] as const)('reads %s', (key) => {
       expect(parseSort(key)).toBe(key);
     });
 
-    it.each([null, '', 'bogus', 'TALENT', ' talent', 'posted_at DESC'])(
-      'reads %j as the default (announced)',
+    // `announced` was retired from the page: an old bookmark reads as the default.
+    it.each([null, '', 'bogus', 'announced', 'TALENT', ' vc', 'posted_at DESC'])(
+      'reads %j as the default (talent)',
       (raw) => {
-        expect(parseSort(raw)).toBe('announced');
+        expect(parseSort(raw)).toBe('talent');
       }
     );
   });
@@ -229,7 +230,6 @@ describe('Launch Radar format helpers', () => {
     it('strengthens the sorted score and mutes the other; other sorts leave both alone', () => {
       expect(scoreEmphasis('talent')).toEqual({ talent: 'strong', vc: 'muted' });
       expect(scoreEmphasis('vc')).toEqual({ talent: 'muted', vc: 'strong' });
-      expect(scoreEmphasis('announced')).toEqual({ talent: 'normal', vc: 'normal' });
       expect(scoreEmphasis('added')).toEqual({ talent: 'normal', vc: 'normal' });
     });
   });
