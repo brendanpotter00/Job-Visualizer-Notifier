@@ -31,6 +31,18 @@ const SWE_SUBCATEGORIES_REVEAL_DATE = '2026-08-20';
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    id: 'add-lightfield',
+    title: 'Added Lightfield',
+    description:
+      'Lightfield — an AI-native CRM that turns calls, emails and meetings into a living model of customer relationships that both people and AI agents can act on — is now tracked via its Ashby job board. Raised a 47 million dollar Series A led by Andreessen Horowitz in September 2026, with Greylock, Coatue and Lightspeed joining.',
+    tags: ['new-companies'],
+    date: '2026-10-09',
+    link: {
+      to: ROUTES.ACCOUNT,
+      label: 'Add Lightfield to your company preferences',
+    },
+  },
+  {
     id: 'hightouch-board-move-2026-10',
     title: 'Hightouch is live again after its board moved',
     description:

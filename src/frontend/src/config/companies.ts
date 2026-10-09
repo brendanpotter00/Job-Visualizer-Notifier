@@ -1115,6 +1115,11 @@ export const COMPANIES: Company[] = [
   // here is genuinely none.
   createBackendScraperCompany('atlassian', 'Atlassian', 'https://www.atlassian.com/company/careers/all-jobs'),
   createBackendScraperCompany('github', 'GitHub', 'https://www.github.careers/careers-home/jobs'),
+
+  // Launch Radar card 10 (lightfield.app)
+  createBackendScraperCompany('lightfield', 'Lightfield', 'https://jobs.ashbyhq.com/Lightfield', {
+    sourceAts: 'ashby',
+  }),
 ];
 
 export const enum COMPANY_IDS {
@@ -1208,6 +1213,7 @@ export const enum COMPANY_IDS {
   LangChain = 'langchain',
   Legora = 'legora',
   Light = 'light',
+  Lightfield = 'lightfield',
   Linear = 'linear',
   ListenLabs = 'listenlabs',
   LlamaIndex = 'llamaindex',
