@@ -4,7 +4,9 @@ import { adminApi } from '../../../features/admin/adminApi';
 import {
   makeAthennianCard,
   makeCardsResponse,
+  makeKestrelWithPrCard,
   makeRaindropCard,
+  OPEN_PR_URL,
 } from '../../pages/AdminLaunchRadarPage/fixtures';
 
 // Node's built-in `Request` requires absolute URLs; RTK Query passes relative
@@ -159,6 +161,17 @@ describe('adminApi — Launch Radar endpoints', () => {
           ],
         },
       ],
+      [
+        'a card with a numeric prUrl',
+        { ...makeCardsResponse(), cards: [{ ...makeRaindropCard(), prUrl: 412 }] },
+      ],
+      [
+        'a card with a non-numeric prNumber',
+        {
+          ...makeCardsResponse(),
+          cards: [{ ...makeKestrelWithPrCard(), prNumber: '412' }],
+        },
+      ],
     ])('rejects %s', async (_label, body) => {
       vi.spyOn(console, 'error').mockImplementation(() => {});
       fetchMock.mockResolvedValue(jsonResponse(body));
@@ -197,6 +210,28 @@ describe('adminApi — Launch Radar endpoints', () => {
     );
     expect(result.error).toBeUndefined();
     expect(result.data?.cards[0].scores.talent).toBe(49);
+  });
+
+  it.each([
+    ['absent (a backend that predates the PR step)', { prUrl: undefined, prNumber: undefined }],
+    ['null (no open PR)', { prUrl: null, prNumber: null }],
+    ['an open PR', { prUrl: OPEN_PR_URL, prNumber: 412 }],
+  ])('accepts a card whose add-company PR is %s', async (_label, pr) => {
+    const card: Record<string, unknown> = { ...makeKestrelWithPrCard(), ...pr };
+    for (const key of ['prUrl', 'prNumber']) if (card[key] === undefined) delete card[key];
+    fetchMock.mockResolvedValue(jsonResponse({ ...makeCardsResponse(), cards: [card] }));
+    const store = makeStore();
+    const result = await store.dispatch(
+      adminApi.endpoints.getLaunchRadarCards.initiate({
+        status: 'saved',
+        page: 0,
+        rowsPerPage: 25,
+        sort: 'talent',
+      })
+    );
+    expect(result.error).toBeUndefined();
+    expect(result.data?.cards[0].prUrl ?? null).toBe(pr.prUrl ?? null);
+    expect(result.data?.cards[0].prNumber ?? null).toBe(pr.prNumber ?? null);
   });
 
   it('reads every tab count, saved included', async () => {

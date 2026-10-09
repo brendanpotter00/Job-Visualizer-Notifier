@@ -13,6 +13,8 @@ import {
   leadersFromBrief,
   listWithMore,
   parseSort,
+  prHref,
+  prLabel,
   researchGaps,
   roundLine,
   safeHttpUrl,
@@ -126,6 +128,43 @@ describe('Launch Radar format helpers', () => {
       jobBoardHref({ ...ATS, boardUrl: 'data:text/html,x' }, 'javascript:alert(1)')
     ).toBeNull();
     expect(jobBoardHref({ ...ATS, boardUrl: null }, null)).toBeNull();
+  });
+
+  describe('prHref / prLabel: the add-company PR link', () => {
+    const PR = 'https://github.com/brendanpotter00/Job-Visualizer-Notifier/pull/412';
+
+    it('links a pull request of this repository as "View PR #N"', () => {
+      expect(prHref({ prUrl: PR })).toBe(PR);
+      expect(prLabel({ prUrl: PR })).toBe('View PR #412');
+      const one = 'https://github.com/brendanpotter00/Job-Visualizer-Notifier/pull/1';
+      expect(prLabel({ prUrl: one })).toBe('View PR #1');
+    });
+
+    it.each([
+      ['null', null],
+      ['absent', undefined],
+      ['empty', ''],
+      ['javascript:', 'javascript:alert(1)'],
+      ['data:', 'data:text/html,<b>x</b>'],
+      ['plain http', 'http://github.com/brendanpotter00/Job-Visualizer-Notifier/pull/412'],
+      ['another repo', 'https://github.com/someone/fork/pull/412'],
+      ['another owner', 'https://github.com/someone/Job-Visualizer-Notifier/pull/412'],
+      [
+        'a look-alike host',
+        'https://github.com.evil.example/brendanpotter00/Job-Visualizer-Notifier/pull/412',
+      ],
+      ['an issue', 'https://github.com/brendanpotter00/Job-Visualizer-Notifier/issues/412'],
+      ['a fragment', `${PR}#x`],
+      ['a query', `${PR}?x=1`],
+      ['a trailing path', `${PR}/files`],
+      ['a dot segment', `${PR}/../413`],
+      ['a trailing newline', `${PR}\n`],
+      ['leading space', ` ${PR}`],
+      ['no number', 'https://github.com/brendanpotter00/Job-Visualizer-Notifier/pull/'],
+    ])('gives no link and no label for %s', (_label, prUrl) => {
+      expect(prHref({ prUrl })).toBeNull();
+      expect(prLabel({ prUrl })).toBeNull();
+    });
   });
 
   it('safeHttpUrl lets only absolute http(s) URLs through', () => {

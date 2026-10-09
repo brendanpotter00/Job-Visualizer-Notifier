@@ -24,7 +24,8 @@ export function unblendedScores(
  * Cards shaped exactly like the backend's camelCase admin response
  * (CONTRACT.md §2.4 / §5.2), modelled on the plan's mock: Raindrop AI (full
  * data, already tracked), Ghost AI (no people data), Athennian
- * (archived, leaders without background, unverified board) and Kestrel (saved).
+ * (archived, leaders without background, unverified board) and Kestrel (saved;
+ * `makeKestrelWithPrCard` once its add-company PR is open).
  */
 export function makeRaindropCard(overrides: Partial<LaunchRadarCard> = {}): LaunchRadarCard {
   return {
@@ -156,6 +157,8 @@ export function makeRaindropCard(overrides: Partial<LaunchRadarCard> = {}): Laun
     timingsS: { findall_s: 154 },
     issues: [],
     generatedAt: '2026-10-07T01:36:00Z',
+    prUrl: null,
+    prNumber: null,
     ...overrides,
   };
 }
@@ -281,6 +284,14 @@ export function makeKestrelCard(overrides: Partial<LaunchRadarCard> = {}): Launc
     careersUrl: 'https://kestrel.dev/careers',
     ...overrides,
   });
+}
+
+/** An add-company PR of this repository, as the backend sends it. */
+export const OPEN_PR_URL = 'https://github.com/brendanpotter00/Job-Visualizer-Notifier/pull/412';
+
+/** Kestrel once the nightly loop opened its add-company PR (#412). */
+export function makeKestrelWithPrCard(overrides: Partial<LaunchRadarCard> = {}): LaunchRadarCard {
+  return makeKestrelCard({ prUrl: OPEN_PR_URL, prNumber: 412, ...overrides });
 }
 
 export function makeCardsResponse(

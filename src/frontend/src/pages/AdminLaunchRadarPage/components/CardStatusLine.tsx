@@ -7,7 +7,7 @@ import Typography from '@mui/material/Typography';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import type { LaunchRadarCard } from '../../../features/admin/launchRadarTypes';
 import { RESPONSIVE } from '../../../config/responsive';
-import { cardToggleId, formatShortDate, jobBoardHref } from '../format';
+import { cardToggleId, formatShortDate, jobBoardHref, prHref, prLabel } from '../format';
 
 /** Tighter action buttons on a phone, so the line fits a narrow card. */
 const ACTION_SX = {
@@ -62,8 +62,10 @@ const ACTIONS: Record<LaunchRadarCard['status'], { action: CardAction; label: st
  * One line under the scores. Left: "Already tracked" when the company is
  * already on the site, otherwise a "Job board" link to open its board by hand
  * (only an `http(s)` URL becomes a link); an archived card shows when it was
- * archived. Right: the lifecycle actions for the card's tab (New: Save,
- * Archive · Saved: Unsave, Archive · Archived: Restore, Delete).
+ * archived. Then, once the nightly loop opened the card's add-company PR, a
+ * "View PR #N" link (on any tab: unsaving does not hide a PR that exists).
+ * Right: the lifecycle actions for the card's tab (New: Save, Archive · Saved:
+ * Unsave, Archive · Archived: Restore, Delete).
  *
  * Every button and link names the company in its accessible name ("Save
  * Lightfield", "Job board Lightfield"): a page holds 25 cards, and 25 buttons
@@ -110,6 +112,23 @@ export function CardStatusLine({
     }
   }
 
+  const pr = prHref(card);
+  const prText = prLabel(card);
+  const prLink =
+    pr && prText ? (
+      <Link
+        href={pr}
+        target="_blank"
+        rel="noopener noreferrer"
+        onClick={stopToggle}
+        variant="body2"
+        color="text.secondary"
+        aria-label={`${prText} ${card.company}`}
+      >
+        {prText}
+      </Link>
+    ) : null;
+
   return (
     // Left and right wrap as whole units: on a narrow card the actions drop
     // to their own line (still on the right) rather than "Job board" or
@@ -128,7 +147,15 @@ export function CardStatusLine({
         borderColor: 'divider',
       }}
     >
-      <Box sx={{ whiteSpace: 'nowrap' }}>{left}</Box>
+      <Box sx={{ whiteSpace: 'nowrap' }}>
+        {left}
+        {left && prLink && (
+          <Typography component="span" variant="body2" color="text.secondary" aria-hidden>
+            {' · '}
+          </Typography>
+        )}
+        {prLink}
+      </Box>
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25, flexShrink: 0, ml: 'auto' }}>
         {(ACTIONS[card.status] ?? []).map(({ action, label }) => (
           <Button
