@@ -397,6 +397,10 @@
     "accomplishment": "Light is recognized for pioneering an AI-powered general ledger designed to unify and automate financial operations across multiple countries and currencies.",
     "blurb": "Light builds an AI-native general ledger and ERP platform that automates accounting, tax, payments, and reporting for global multinational companies."
   },
+  "lightfield": {
+    "blurb": "An AI-native CRM that turns calls, emails and meetings into a living model of customer relationships that both people and AI agents can act on.",
+    "accomplishment": "raised a 47 million dollar Series A led by Andreessen Horowitz in September 2026, with Greylock, Coatue and Lightspeed joining"
+  },
   "linear": {
     "accomplishment": "Linear is known for setting a benchmark in developer tooling speed and design, becoming a widely adopted alternative to legacy trackers like Jira.",
     "blurb": "Linear makes a fast, keyboard-driven issue tracking and project management tool purpose-built for software product and engineering teams."
