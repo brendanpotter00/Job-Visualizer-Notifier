@@ -9,7 +9,6 @@ const TOKEN_SX: Record<TokenKind, object> = {
   string: { color: 'grey.800' },
   literal: { color: 'text.primary' },
   punct: { color: 'text.disabled' },
-  comment: { color: 'text.secondary', fontStyle: 'italic' },
 };
 
 /**
