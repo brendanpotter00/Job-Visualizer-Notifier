@@ -451,7 +451,8 @@ def test_pr_refresh_runs_each_open_card_with_fixed_argv_and_a_scrubbed_env(tmp_p
                             "LAUNCH_RADAR_STATE_DIR": str(env.state_dir)}
         assert c["cwd"] == env.root
     assert len(runner.calls) == 4 + 2  # preflight, then one child per open card
-    assert cap.out[-1] == {"open": 2, "refreshed": 2, "stopped": None, "time_left_s": None,
+    assert cap.out[-1] == {"open": 2, "refreshed": 2, "failed": 0, "attention": [], "stopped": None,
+                           "time_left_s": None,
                            "results": [{"card_id": i, "refreshed": True, "why": "rebuilt"} for i in ids]}
     q = [r for r in fb.requests if r.url.path.endswith("/pr-requests")]
     assert q and q[0].url.params.get_list("status") == ["open"]
@@ -510,6 +511,20 @@ def test_pr_refresh_a_failing_child_is_reported_not_an_error(tmp_path, fb):
         {"card_id": ids[3], "refreshed": False, "why": "bad_output"},
     ]
     assert cap.out[-1]["refreshed"] == 0
+    assert cap.out[-1]["failed"] == 3 and cap.out[-1]["attention"] == [ids[2]]
+
+
+@pytest.mark.parametrize("why, failed, attention", [
+    ("pushed_by_someone", 0, True), ("slug_taken", 0, True), ("now_tracked", 0, True), ("no_record", 0, True),
+    ("not_open", 0, False), ("up_to_date", 0, False),
+])
+def test_pr_refresh_skips_that_leave_a_pr_stale_are_flagged(tmp_path, fb, why, failed, attention):
+    ids = _open_cards(fb, 1)
+    out = json.dumps({"card_id": ids[0], "refreshed": False, "why": why})
+    env, cap = make_env(tmp_path, fb, runner=Runner(refresh=lambda cid: (0, out, "")))
+    assert pr_queue.pr_refresh(env) == 0
+    assert cap.out[-1]["failed"] == failed
+    assert cap.out[-1]["attention"] == (ids if attention else [])
 
 
 def test_pr_refresh_child_timeout(tmp_path, fb):
@@ -523,12 +538,14 @@ def test_pr_refresh_child_timeout(tmp_path, fb):
     env, cap = make_env(tmp_path, fb, runner=runner)
     assert pr_queue.pr_refresh(env) == 0
     assert cap.out[-1]["results"] == [{"card_id": ids[0], "refreshed": False, "why": "timeout"}]
+    assert cap.out[-1]["failed"] == 1
 
 
 def test_pr_refresh_with_nothing_open(tmp_path, fb):
     env, cap = make_env(tmp_path, fb)
     assert pr_queue.pr_refresh(env) == 0
-    assert cap.out[-1] == {"open": 0, "refreshed": 0, "results": [], "stopped": None, "time_left_s": None}
+    assert cap.out[-1] == {"open": 0, "refreshed": 0, "failed": 0, "attention": [], "results": [], "stopped": None,
+                           "time_left_s": None}
 
 
 # ---- pr-requeue and pr-status -------------------------------------------------------------------------

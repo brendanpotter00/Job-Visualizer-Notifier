@@ -535,6 +535,7 @@ def test_candidates_in_order_on_fixed_hosts_only(repo, stubs, monkeypatch):
 def test_dot_tokens_are_never_requested(repo, stubs, monkeypatch, token):
     write_claim(repo, careers_url=None, ats={"provider": "ashby", "board_token": token, "board_url": None,
                                              "verified": False, "job_count": None})
+    write_scout(repo, boards=[])
     boards = Boards(monkeypatch, {})
     pr_step.cmd_worktree(CID)
     with pytest.raises(Stop) as e:
@@ -553,10 +554,37 @@ def test_no_board_reasons(repo, stubs, monkeypatch, capsys, answers, claim_ats, 
     if claim_ats:
         over["ats"] = claim_ats
     write_claim(repo, **over)
+    write_scout(repo, boards=[])  # a usable scout reply that found nothing
     Boards(monkeypatch, answers)
     pr_step.cmd_worktree(CID)
     rc, out = run_main(capsys, "verify-board", "--card-id", CID)
-    assert rc == 3 and out["no_board"] == reason
+    assert rc == 3 and out["no_board"] == reason and out["scout"] == "ok"
+
+
+@pytest.mark.parametrize("scout", [
+    None,                                     # the subagent failed: no file
+    {"summary": "x" * 241},                   # refused: over 240 chars
+    {"summary": "costs $5 a seat"},           # refused: a `$`
+])
+def test_no_usable_scout_is_retryable_not_no_board(repo, stubs, monkeypatch, capsys, scout):
+    """no_board is final, so a search that never ran (no usable scout reply) must not claim it."""
+    write_claim(repo, careers_url=None, ats={"provider": None, "board_token": None, "board_url": None,
+                                             "verified": False, "job_count": None})
+    if scout is not None:
+        write_scout(repo, **scout)
+    boards = Boards(monkeypatch, {})
+    pr_step.cmd_worktree(CID)
+    rc, out = run_main(capsys, "verify-board", "--card-id", CID)
+    assert rc == 1 and out["report_reason"] == "step_refused" and "no_board" not in out
+    assert boards.calls == []
+
+
+def test_no_usable_scout_with_a_dead_claim_board_is_retryable(repo, stubs, monkeypatch, capsys):
+    write_claim(repo, careers_url=None)  # the claim's own ashby board, which is not found
+    Boards(monkeypatch, {})
+    pr_step.cmd_worktree(CID)
+    rc, out = run_main(capsys, "verify-board", "--card-id", CID)
+    assert rc == 1 and out["report_reason"] == "step_refused"
 
 
 def test_a_network_failure_is_retryable_not_no_board(repo, stubs, monkeypatch, capsys):

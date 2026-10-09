@@ -1110,6 +1110,10 @@ def cmd_verify_board(card_id: str) -> Dict[str, Any]:
     if winner is None:
         if transient:
             raise StepError("a board check failed on the network; retry later", "timeout")
+        if scout_note != "ok":
+            # The board search never really ran (scout errored or its reply was refused).
+            # no_board is final, so only a search with a usable scout reply may claim it.
+            raise StepError("no usable scout reply; board search incomplete", "step_refused")
         reason = "board_empty" if saw_empty else (
             "unsupported_ats" if provider in UNSUPPORTED_ATS else "board_not_found")
         raise Stop({"no_board": reason, "candidates": len(candidates), "scout": scout_note})

@@ -295,6 +295,10 @@ killed after `gh pr create` adopts its PR instead of opening a second one.
 Supported boards: **Greenhouse, Ashby, Lever, Gem**. Workday and Eightfold cards end as
 `no_board` (`unsupported_ats`) unless the scout finds a supported board for them.
 
+`no_board` is final (never retried), so `verify-board` only claims it after a **usable**
+scout reply. If the scout reply is missing or refused and no board was found, it exits 1
+with `step_refused`: a normal failed attempt, retried on later nights (at most 3).
+
 ### Files (repo root, gitignored `.launch-radar-pr/`)
 
 | path | written by |
@@ -357,6 +361,14 @@ logos copied from the old commit, then a push leased on the recorded commit. It 
 (`why`): `no_record`, `not_open`, `pushed_by_someone` (the branch moved: never overwritten),
 `up_to_date`, `now_tracked`, `slug_taken`. It runs `pr_step.py refresh` as a child with a
 scrubbed env (no backend or Parallel key).
+
+A stale PR is never silent. The summary carries two signals the skill puts in the heartbeat:
+
+- `failed`: refreshes that broke (`why` = `error`, `timeout`, `bad_output`). Any → the
+  heartbeat is `--status error`. The exit stays 0 so one stuck PR does not block new PRs.
+- `attention`: card ids left as they were (`pushed_by_someone`, `slug_taken`,
+  `now_tracked`, `no_record`). Their PR may be behind `main`: rebase or close it by hand
+  before merging, or its migration can leave two Alembic heads.
 
 ### By hand (interactive only, not on the headless allowlist)
 

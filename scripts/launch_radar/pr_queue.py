@@ -369,12 +369,21 @@ def _child_result(card_id: int, proc: "subprocess.CompletedProcess[str]") -> dic
             "why": why if isinstance(why, str) and re.fullmatch(r"[a-z_]{1,40}", why) else None}
 
 
+# A refresh that broke (the PR may now be stale and unsafe to merge) ...
+REFRESH_FAILED = frozenset({"error", "timeout", "bad_output"})
+# ... and a skip that leaves the PR as it was, so it may be behind main: Brendan must
+# rebase or close it by hand before merging.
+REFRESH_ATTENTION = frozenset({"pushed_by_someone", "slug_taken", "now_tracked", "no_record"})
+
+
 def pr_refresh(env: PrEnv) -> int:
     """§4.6: rebuild every open radar PR that fell behind main. Each card runs
-    ``pr_step.py refresh --card-id N`` (fixed argv, scrubbed env). A failed refresh is
-    reported in the summary, not as an error: exit 1 only on a failed preflight or a
-    backend error."""
-    summary: dict[str, Any] = {"open": 0, "refreshed": 0, "results": [], "stopped": None}
+    ``pr_step.py refresh --card-id N`` (fixed argv, scrubbed env). Exit 1 only on a failed
+    preflight or a backend error (the skill then skips new PRs). A refresh that broke is
+    counted in ``failed`` and a PR left stale is listed in ``attention``; the skill turns
+    either into a heartbeat signal, so it is never silent."""
+    summary: dict[str, Any] = {"open": 0, "refreshed": 0, "failed": 0, "attention": [], "results": [],
+                               "stopped": None}
     if past_cutoff(env):
         summary.update(stopped="time", time_left_s=time_left_s(env))
         env.out(summary)
@@ -409,6 +418,9 @@ def pr_refresh(env: PrEnv) -> int:
                 env.err(f"pr-refresh: card {card_id}: {proc.stderr.strip()[-300:]}")
         summary["results"].append(result)
         summary["refreshed"] += 1 if result["refreshed"] else 0
+        summary["failed"] += 1 if result["why"] in REFRESH_FAILED else 0
+        if result["why"] in REFRESH_ATTENTION:
+            summary["attention"].append(card_id)
     summary["time_left_s"] = time_left_s(env)
     env.out(summary)
     return EXIT_OK

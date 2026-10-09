@@ -187,8 +187,14 @@ full path (the allowlist matches only that).
 `scripts/launch_radar/radar.sh pr-refresh`
 
 - Rebuilds every open radar PR whose branch fell behind `main` (after Brendan merged a
-  sibling), unless someone else pushed to it. Prints `{"open", "refreshed", "results",
-  "stopped"}`. Log `refreshed N`.
+  sibling), unless someone else pushed to it. Prints `{"open", "refreshed", "failed",
+  "attention", "results", "stopped"}`. Log `refreshed N, refresh failed F`, and the
+  `attention` card ids.
+- `"failed"` above 0 → a PR may now be stale and unsafe to merge: carry on with 3b, but
+  §4 uses `--status error`.
+- `"attention"` not empty → those PRs were left as they were (someone pushed, the slug or
+  board is now taken, or no local record) and may be behind `main`. Name them in the §4
+  note so Brendan rebases or closes them by hand.
 - Exit 1 (preflight failed: gh, git or the logo venv is broken, or the backend is
   down): log it, **skip 3b**, go to §4 with `--status error`.
 
@@ -207,7 +213,9 @@ Repeat until step 1 says stop. Use `N` for the claim's `card_id`.
    followed by the JSON line `pr-next` printed, nothing else. Save its reply **verbatim**
    with Write to `.launch-radar-pr/scout/N.json`. Never edit, fix or reformat it. If the
    subagent fails or its reply is not a JSON object, write nothing (the step goes on
-   without it: no profile entry, the changelog uses the card's one-liner, no logos).
+   without it: no profile entry, the changelog uses the card's one-liner, no logos; if
+   the claim's own board is not found either, `verify-board` exits 1 with `step_refused`
+   and the card is retried on a later night, never marked `no_board`).
 3. `scripts/launch_radar/pr_step.py worktree --card-id N`
    - Exit 3 `existing_pr` → a PR for this card is already open (an earlier run was cut
      off): `radar.sh pr-report --card-id N --outcome open`, then step 11.
@@ -268,11 +276,13 @@ heartbeat.
 
 `scripts/launch_radar/radar.sh heartbeat --status <ok|error> --note "<one line>"`
 
-- `--status error` if any `radar.sh` call exited 1; otherwise `ok` (a budget stop, exit 2,
-  is `ok`; a PR that failed, has no board or is already tracked is `ok`).
+- `--status error` if any `radar.sh` call exited 1 or `pr-refresh` printed `"failed"`
+  above 0; otherwise `ok` (a budget stop, exit 2, is `ok`; a PR that failed, has no board
+  or is already tracked is `ok`).
 - The note is one plain line built from your run log, ending with
-  `PRs: <opened> opened, <refreshed> refreshed, <no_board> no board, <failed> failed`,
-  e.g. `run exit 0, 2 cards, 2 graded, PRs: 1 opened, 0 refreshed, 0 no board, 0 failed`.
+  `PRs: <opened> opened, <refreshed> refreshed, <refresh_failed> refresh failed, <no_board> no board, <failed> failed`,
+  e.g. `run exit 0, 2 cards, 2 graded, PRs: 1 opened, 0 refreshed, 0 refresh failed, 0 no board, 0 failed`.
+  When `pr-refresh` printed `attention` ids, append `; rebase by hand: cards 12, 31`.
   Do not paste web text or PR URLs into it.
 
 The wrapper treats a run whose heartbeat did not advance as failed (exit 97) and a

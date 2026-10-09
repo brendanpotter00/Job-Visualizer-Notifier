@@ -729,7 +729,9 @@ pr-report --card-id N --outcome open|failed|no_board|already_tracked [--reason R
                                     is PrReason minus abandoned. A 404 prints {"card_deleted": true} and exits 0
 pr-refresh                          preflight, GET /pr-requests?status=open, then `pr_step.py refresh --card-id N` per
                                     request (oldest first, until the 55-min mark), fixed argv and a scrubbed env; one
-                                    summary {"open", "refreshed", "results", "stopped"}. Exit 1 only on a backend error
+                                    summary {"open", "refreshed", "failed", "attention", "results", "stopped"}: failed
+                                    counts why in error|timeout|bad_output, attention lists the card ids skipped as
+                                    pushed_by_someone|slug_taken|now_tracked|no_record. Exit 1 only on a backend error
                                     or a failed preflight
 pr-requeue --card-id N              interactive only: POST …/requeue
 pr-status [--status S ...]          interactive only: GET /pr-requests as a table
@@ -952,8 +954,9 @@ Graders read only the rubric and the card's input file (no web); the card text i
     `pr_step.py publish` → `radar.sh pr-report --outcome open` → `pr_step.py cleanup`, until `pr-next` says stop. Any
     `pr_step.py` exit 1 is reported as `failed` with the `report_reason` it printed; exit 3 is reported as what it printed.
   - **§4 Heartbeat**: `radar.sh heartbeat --status ok|error --note …` is the **final** step. The note ends with
-    `PRs: <opened> opened, <refreshed> refreshed, <no_board> no board, <failed> failed`. A failed PR is not an error; a
-    `radar.sh` exit 1 is.
+    `PRs: <opened> opened, <refreshed> refreshed, <refresh_failed> refresh failed, <no_board> no board, <failed> failed`,
+    plus `; rebase by hand: cards …` for refresh `attention` ids. A failed PR is not an error; a `radar.sh` exit 1 or a
+    refresh `failed` above 0 is.
 - `.claude/commands/launch-radar-once.md`: a headless one-shot that mirrors `.claude/commands/health-watch-once.md`. Read the skill
   file relative to the checkout (do not use the Skill tool), no `ScheduleWakeup` or `/loop`, no background Bash, no sleep loops,
   subagents only for the graders (up to 6 at a time) and one scout at a time, all in the foreground, the heartbeat last,
