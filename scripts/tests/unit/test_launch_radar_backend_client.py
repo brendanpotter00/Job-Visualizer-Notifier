@@ -9,6 +9,7 @@ from launch_radar.backend_client import (
     BackendError,
     BudgetExceeded,
     DomainSeen,
+    PrRequestNotFound,
 )
 from tests.unit.launch_radar_fakes import FakeBackend
 
@@ -168,3 +169,126 @@ def test_missing_talent_means_the_leaders_part_is_null():
     for i, (dom, scores) in enumerate(rows.items(), start=1):
         fb.cards[dom] = {"id": i, "status": "new", "payload": {"scores": scores}, "tracked_company_id": None}
     assert [card["domain"] for card in _client(fb).cards(missing_talent=True)] == ["legacy-null.ai", "team-only.ai"]
+
+
+# ---- add-company PR requests (saved-pr/PLAN.md §3.3) ---------------------------------------------
+PR_URL = "https://github.com/brendanpotter00/Job-Visualizer-Notifier/pull/9"
+
+
+def test_pr_next_claims_then_204_is_none():
+    fb = FakeBackend()
+    cid = fb.add_card("acme.ai", company="Acme")
+    fb.add_pr_request(cid)
+    c = _client(fb)
+    claim = c.pr_next()
+    assert claim["card_id"] == cid and claim["company"] == "Acme" and claim["attempts"] == 1
+    assert claim["latest_round"] == {"round": "Seed", "amount_usd": "$4M", "announced_at": "2026-09-01"}
+    req = fb.requests[-1]
+    assert (req.method, req.url.path, json.loads(req.content)) == (
+        "POST", "/api/internal/launch-radar/pr-requests/next", {})
+    assert req.headers["X-Internal-Key"] == "k-123"
+    assert c.pr_next() is None
+
+
+def test_pr_next_is_never_retried():
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        raise httpx.ConnectError("refused", request=request)
+
+    c = BackendClient("http://backend.test", "k", transport=httpx.MockTransport(handler))
+    with pytest.raises(httpx.ConnectError):
+        c.pr_next()
+    assert len(calls) == 1
+
+
+def test_pr_next_error_status_raises():
+    c = BackendClient("http://backend.test", "k",
+                      transport=httpx.MockTransport(lambda r: httpx.Response(500, json={"detail": "x"})))
+    with pytest.raises(BackendError) as e:
+        c.pr_next()
+    assert e.value.status == 500 and e.value.path == "/pr-requests/next"
+
+
+def test_pr_get_and_404():
+    fb = FakeBackend()
+    cid = fb.add_card("acme.ai", status="new")
+    fb.add_pr_request(cid, "in_progress")
+    c = _client(fb)
+    row = c.pr_get(cid)
+    assert row["status"] == "in_progress" and row["card_status"] == "new"
+    with pytest.raises(PrRequestNotFound):
+        c.pr_get(cid + 50)
+
+
+def test_pr_get_is_retried_on_connection_error():
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        if len(calls) < 3:
+            raise httpx.ConnectError("refused", request=request)
+        return httpx.Response(200, json={"card_id": 1, "status": "in_progress", "card_status": "saved"})
+
+    c = BackendClient("http://backend.test", "k", transport=httpx.MockTransport(handler))
+    assert c.pr_get(1)["card_status"] == "saved" and len(calls) == 3
+
+
+def test_pr_result_body_and_errors():
+    fb = FakeBackend()
+    cid = fb.add_card("acme.ai")
+    fb.add_pr_request(cid, "in_progress", attempts=1)
+    c = _client(fb)
+    row = c.pr_result(cid, "open", pr_url=PR_URL)
+    assert row["status"] == "open" and row["pr_number"] == 9
+    assert json.loads(fb.requests[-1].content) == {"outcome": "open", "pr_url": PR_URL, "reason": None}
+    assert c.pr_result(cid, "open", pr_url=PR_URL)["status"] == "open"  # identical repeat: no-op
+    with pytest.raises(BackendError) as e:
+        c.pr_result(cid, "failed", reason="gh_error")
+    assert e.value.status == 409
+    with pytest.raises(PrRequestNotFound):
+        c.pr_result(999, "failed", reason="gh_error")
+
+
+def test_pr_result_is_never_retried():
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        raise httpx.ConnectError("refused", request=request)
+
+    c = BackendClient("http://backend.test", "k", transport=httpx.MockTransport(handler))
+    with pytest.raises(httpx.ConnectError):
+        c.pr_result(1, "failed", reason="other")
+    with pytest.raises(httpx.ConnectError):
+        c.pr_requeue(1)
+    assert len(calls) == 2
+
+
+def test_pr_requeue():
+    fb = FakeBackend()
+    cid = fb.add_card("acme.ai")
+    fb.add_pr_request(cid, "no_board", last_reason="board_empty")
+    c = _client(fb)
+    assert c.pr_requeue(cid)["status"] == "queued"
+    assert json.loads(fb.requests[-1].content) == {}
+    with pytest.raises(BackendError) as e:
+        c.pr_requeue(cid)
+    assert e.value.status == 409
+    with pytest.raises(PrRequestNotFound):
+        c.pr_requeue(cid + 1)
+
+
+def test_pr_requests_passes_statuses_and_limit():
+    fb = FakeBackend()
+    a, b = fb.add_card("a.ai"), fb.add_card("b.ai")
+    fb.add_pr_request(a, "open", pr_url=PR_URL, pr_number=9)
+    fb.add_pr_request(b, "queued")
+    c = _client(fb)
+    rows = c.pr_requests(statuses=("open", "open"), limit=500)
+    assert [(r["card_id"], r["domain"]) for r in rows] == [(a, "a.ai")]
+    params = fb.requests[-1].url.params
+    assert params.get_list("status") == ["open"] and params["limit"] == "500"
+    assert [r["card_id"] for r in c.pr_requests()] == [a, b]
+    assert "status" not in fb.requests[-1].url.params and fb.requests[-1].url.params["limit"] == "100"

@@ -84,3 +84,6 @@ scripts/launch_radar_poc/out/
 
 # Launch Radar AI Talent grading scratch (inputs + grader replies; holds card people data)
 .launch-radar-grades/
+
+# Launch Radar add-company PR step scratch (claims, scout replies, work dirs, published records)
+.launch-radar-pr/
