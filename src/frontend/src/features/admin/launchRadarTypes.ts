@@ -153,6 +153,18 @@ export interface LaunchRadarScores {
   talentAi?: LaunchRadarTalentAi | null;
 }
 
+/**
+ * One Parallel citation behind a card's research (CONTRACT §2.4). `field` is the
+ * output field it supports: a brief field (`latest_round`), a pedigree field,
+ * or the FindAll match condition, sometimes indexed (`prior_rounds.0`). At most
+ * 40 per card, deduplicated by URL in the loop.
+ */
+export interface LaunchRadarSource {
+  url: string;
+  title: string | null;
+  field: string | null;
+}
+
 export interface LaunchRadarCard {
   id: number;
   /** Deleted rows never reach the client. */
@@ -181,7 +193,7 @@ export interface LaunchRadarCard {
   notableFacts: string[];
   careersUrl: string | null;
   ats: LaunchRadarAts;
-  sources: { url: string; title: string | null; field: string | null }[];
+  sources: LaunchRadarSource[];
   parallelRunIds: {
     findallId: string | null;
     briefRunId: string | null;

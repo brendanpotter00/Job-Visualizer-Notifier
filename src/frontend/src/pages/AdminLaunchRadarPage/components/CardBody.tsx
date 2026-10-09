@@ -3,10 +3,15 @@ import Box from '@mui/material/Box';
 import Collapse from '@mui/material/Collapse';
 import Link from '@mui/material/Link';
 import Typography from '@mui/material/Typography';
-import type { LaunchRadarCard, LaunchRadarRound } from '../../../features/admin/launchRadarTypes';
+import type {
+  LaunchRadarCard,
+  LaunchRadarRound,
+  LaunchRadarSource,
+} from '../../../features/admin/launchRadarTypes';
 import {
   boardLine,
   formatUsd,
+  groupSources,
   leadersFromBrief,
   researchGaps,
   roundLine,
@@ -189,21 +194,13 @@ function ResearchIssues({ issues }: { issues: string[] }) {
   );
 }
 
-function WhyTheseScores({
-  scores,
-  incomplete,
-}: {
-  scores: LaunchRadarCard['scores'];
-  incomplete: boolean;
-}) {
+/**
+ * A collapsed "+ Label" toggle and the details it opens. "Why these scores" and
+ * "Sources" share it, so they look and behave alike. The sign is decoration:
+ * aria-expanded already says whether it is open, so it is hidden from the name.
+ */
+function Disclosure({ id, label, children }: { id: string; label: string; children: ReactNode }) {
   const [open, setOpen] = useState(false);
-  const talent = talentBreakdown(scores, incomplete);
-  const vc =
-    scores.vc == null
-      ? incomplete
-        ? 'VC: not scored, research incomplete'
-        : 'VC: no funding data, so no score'
-      : `VC ${scores.vc}: ${scores.vcReasons.join('; ')}`;
   return (
     <Box sx={{ mt: 1.25 }}>
       <Link
@@ -213,34 +210,118 @@ function WhyTheseScores({
         color="text.secondary"
         underline="hover"
         aria-expanded={open}
+        aria-controls={id}
         onClick={() => setOpen((o) => !o)}
       >
-        {open ? '− ' : '+ '}Why these scores
+        <span aria-hidden="true">{open ? '− ' : '+ '}</span>
+        {label}
       </Link>
-      <Collapse in={open} unmountOnExit>
-        <Typography component="ul" variant="body2" color="text.secondary" sx={BULLETS_SX}>
-          <li>
-            {talent.line}
-            {talent.parts.length > 0 && (
-              <Box component="ul" aria-label="Talent parts" sx={BULLETS_SX}>
-                {talent.parts.map((part, i) => (
-                  <li key={i}>{part}</li>
-                ))}
-              </Box>
-            )}
-          </li>
-          <li>{vc}</li>
-        </Typography>
+      <Collapse id={id} in={open} unmountOnExit>
+        {children}
       </Collapse>
     </Box>
   );
 }
 
+function WhyTheseScores({
+  cardId,
+  scores,
+  incomplete,
+}: {
+  cardId: number;
+  scores: LaunchRadarCard['scores'];
+  incomplete: boolean;
+}) {
+  const talent = talentBreakdown(scores, incomplete);
+  const vc =
+    scores.vc == null
+      ? incomplete
+        ? 'VC: not scored, research incomplete'
+        : 'VC: no funding data, so no score'
+      : `VC ${scores.vc}: ${scores.vcReasons.join('; ')}`;
+  return (
+    <Disclosure id={`radar-card-${cardId}-why`} label="Why these scores">
+      <Typography component="ul" variant="body2" color="text.secondary" sx={BULLETS_SX}>
+        <li>
+          {talent.line}
+          {talent.parts.length > 0 && (
+            <Box component="ul" aria-label="Talent parts" sx={BULLETS_SX}>
+              {talent.parts.map((part, i) => (
+                <li key={i}>{part}</li>
+              ))}
+            </Box>
+          )}
+        </li>
+        <li>{vc}</li>
+      </Typography>
+    </Disclosure>
+  );
+}
+
+/** A group's list: the card's bullets, and long titles or hosts wrap instead of scrolling sideways. */
+const SOURCES_LIST_SX = { ...BULLETS_SX, overflowWrap: 'anywhere' } as const;
+
+/**
+ * The citations behind the research, grouped by what they back up: the company,
+ * its funding, its people. Each opens in a new tab. Not shown when no source can
+ * be a link.
+ */
+function Sources({ cardId, sources }: { cardId: number; sources: readonly LaunchRadarSource[] }) {
+  const groups = groupSources(sources);
+  const count = groups.reduce((n, g) => n + g.items.length, 0);
+  if (count === 0) return null;
+  const id = `radar-card-${cardId}-sources`;
+  return (
+    <Disclosure id={id} label={`Sources (${count})`}>
+      {groups.map((group) => {
+        const labelId = `${id}-${group.topic}`;
+        return (
+          <Box key={group.topic} sx={{ mt: 0.75 }}>
+            <Typography id={labelId} component="div" variant="caption" sx={{ fontWeight: 600 }}>
+              {group.label}
+            </Typography>
+            <Typography
+              component="ul"
+              variant="body2"
+              aria-labelledby={labelId}
+              sx={SOURCES_LIST_SX}
+            >
+              {group.items.map((item) => (
+                <li key={item.href}>
+                  <Link
+                    href={item.href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    color="text.secondary"
+                  >
+                    {item.text}
+                  </Link>
+                  {item.detail && (
+                    <Typography
+                      component="span"
+                      variant="caption"
+                      color="text.secondary"
+                      sx={{ display: 'block' }}
+                    >
+                      {item.detail}
+                    </Typography>
+                  )}
+                </li>
+              ))}
+            </Typography>
+          </Box>
+        );
+      })}
+    </Disclosure>
+  );
+}
+
 /**
  * The opened card: who runs it, who else works there, the money, three
- * highlights, why the scores are what they are, and a footer with the board
- * and what the research cost. The announcement link lives on the closed card's
- * event line, so the footer does not repeat it. Aligned under the company name.
+ * highlights, why the scores are what they are, the sources behind the research,
+ * and a footer with the board and what the research cost. The announcement link
+ * lives on the closed card's event line, so the footer does not repeat it.
+ * Aligned under the company name.
  */
 export function CardBody({ card }: { card: LaunchRadarCard }) {
   const highlights = card.notableFacts.slice(0, 3);
@@ -262,7 +343,8 @@ export function CardBody({ card }: { card: LaunchRadarCard }) {
           ))}
         </Section>
       )}
-      <WhyTheseScores scores={card.scores} incomplete={incomplete} />
+      <WhyTheseScores cardId={card.id} scores={card.scores} incomplete={incomplete} />
+      <Sources cardId={card.id} sources={card.sources} />
       <Typography
         component="div"
         variant="caption"
