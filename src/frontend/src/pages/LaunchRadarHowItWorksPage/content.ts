@@ -129,7 +129,7 @@ export const API_STEPS: Record<ApiStepId, ApiStep> = {
   },
   website: {
     id: 'website',
-    title: 'Find the website, if missing',
+    title: 'Find the website',
     api: 'Search',
     facts: [
       { label: 'API', value: 'Search' },

@@ -39,7 +39,7 @@ describe('LaunchRadarHowItWorksPage', () => {
       /Find new startups/,
       /Find past startups/,
       /Get each startup's announcement/,
-      /Find the website, if missing/,
+      /Find the website/,
       /Find the leaders/,
       /Research the company/,
       /Tally the rest of the team/,
@@ -65,6 +65,16 @@ describe('LaunchRadarHowItWorksPage', () => {
     expect(within(side).getByText('~12 min')).toBeInTheDocument();
     expect(within(side).getByText('"entity_type"')).toBeInTheDocument();
     expect(within(side).getByText('"companies"')).toBeInTheDocument();
+  });
+
+  it('titles the website step plainly, on the box and in its panel', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(box(/Find the website/));
+    expect(
+      within(panel()).getByRole('heading', { level: 2, name: 'Find the website' })
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/if missing/)).not.toBeInTheDocument();
   });
 
   it('switches to another box, and a second click on the same box closes the panel', async () => {
