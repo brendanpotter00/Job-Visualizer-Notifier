@@ -1,9 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import {
-  API_STEPS,
-  SchemaFields,
-  formatUsd,
-} from '../../../pages/LaunchRadarHowItWorksPage/content';
+import { API_STEPS, formatUsd } from '../../../pages/LaunchRadarHowItWorksPage/content';
 import { formatRequest, linesToText } from '../../../pages/LaunchRadarHowItWorksPage/formatRequest';
 
 describe('formatRequest', () => {
@@ -22,30 +18,18 @@ describe('formatRequest', () => {
     ]);
   });
 
-  it('shows an output schema as a comment that lists its fields, three to a line', () => {
-    const text = linesToText(
-      formatRequest({ json_schema: new SchemaFields('a', 'b', 'c', 'd'), next: 1 })
-    );
-    expect(text).toBe(
-      [
-        '{',
-        '  "json_schema": {',
-        '    /* 4 fields:',
-        '       a, b, c,',
-        '       d */',
-        '  },',
-        '  "next": 1',
-        '}',
-      ].join('\n')
-    );
+  it('prints every step body in full: exactly its JSON, nothing abridged', () => {
+    for (const step of Object.values(API_STEPS)) {
+      const text = linesToText(formatRequest(step.request));
+      expect(text).toBe(JSON.stringify(step.request, null, 2));
+      expect(text).not.toMatch(/…|\/\*/);
+    }
   });
 
-  it('formats every step body without throwing, ending on its closing brace', () => {
-    for (const step of Object.values(API_STEPS)) {
-      const lines = formatRequest(step.request);
-      const last = lines[lines.length - 1];
-      expect(last.tokens.map((t) => t.text).join('')).toBe('}');
-    }
+  it('shows each output schema with its field descriptions', () => {
+    const text = linesToText(formatRequest(API_STEPS.monitor.request));
+    expect(text).toContain('"json_schema": {');
+    expect(text).toContain('"description": "Name of the company the event is about."');
   });
 });
 

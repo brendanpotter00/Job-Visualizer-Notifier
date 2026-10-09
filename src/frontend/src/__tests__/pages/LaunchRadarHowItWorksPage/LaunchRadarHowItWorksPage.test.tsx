@@ -13,6 +13,11 @@ function renderPage() {
   );
 }
 
+/** "How it works" starts closed, like every section on the page. */
+async function openDiagram(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(screen.getByRole('button', { name: 'How it works' }));
+}
+
 function box(name: RegExp) {
   return screen.getByRole('button', { name });
 }
@@ -22,8 +27,20 @@ function panel() {
 }
 
 describe('LaunchRadarHowItWorksPage', () => {
-  it('shows the goal, both ways in, and every step as a box', () => {
+  it('opens with every section closed', () => {
     renderPage();
+    expect(screen.getByRole('button', { name: 'How it works' })).toHaveAttribute(
+      'aria-expanded',
+      'false'
+    );
+    expect(screen.getByRole('button', { name: 'Cost' })).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByRole('button', { name: /Find new startups/ })).not.toBeInTheDocument();
+  });
+
+  it('shows the goal, both ways in, and every step as a box', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await openDiagram(user);
     expect(
       screen.getByRole('heading', { level: 1, name: 'How Launch Radar works' })
     ).toBeInTheDocument();
@@ -39,7 +56,7 @@ describe('LaunchRadarHowItWorksPage', () => {
       /Find new startups/,
       /Find past startups/,
       /Get each startup's announcement/,
-      /Find the website, if missing/,
+      /Find the website/,
       /Find the leaders/,
       /Research the company/,
       /Tally the rest of the team/,
@@ -53,6 +70,7 @@ describe('LaunchRadarHowItWorksPage', () => {
   it('opens a box in the side panel with its facts and request body', async () => {
     const user = userEvent.setup();
     renderPage();
+    await openDiagram(user);
     await user.click(box(/Find past startups/));
 
     expect(box(/Find past startups/)).toHaveAttribute('aria-expanded', 'true');
@@ -67,9 +85,21 @@ describe('LaunchRadarHowItWorksPage', () => {
     expect(within(side).getByText('"companies"')).toBeInTheDocument();
   });
 
+  it('titles the website step plainly, on the box and in its panel', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await openDiagram(user);
+    await user.click(box(/Find the website/));
+    expect(
+      within(panel()).getByRole('heading', { level: 2, name: 'Find the website' })
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/if missing/)).not.toBeInTheDocument();
+  });
+
   it('switches to another box, and a second click on the same box closes the panel', async () => {
     const user = userEvent.setup();
     renderPage();
+    await openDiagram(user);
     await user.click(box(/Find new startups/));
     await user.click(box(/Tally the rest of the team/));
     expect(box(/Find new startups/)).toHaveAttribute('aria-expanded', 'false');
@@ -82,6 +112,7 @@ describe('LaunchRadarHowItWorksPage', () => {
   it('explains the scoring on the free last step', async () => {
     const user = userEvent.setup();
     renderPage();
+    await openDiagram(user);
     await user.click(box(/Score and post the card/));
     const side = panel();
     expect(within(side).getByText('A prior exit (acquired or IPO)')).toBeInTheDocument();
@@ -94,6 +125,7 @@ describe('LaunchRadarHowItWorksPage', () => {
   it('closes on Escape and on Close, and gives focus back to the box', async () => {
     const user = userEvent.setup();
     renderPage();
+    await openDiagram(user);
     await user.click(box(/Research the company/));
     await waitFor(() => expect(screen.getByRole('button', { name: 'Close' })).toHaveFocus());
     await user.keyboard('{Escape}');

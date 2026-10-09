@@ -46,20 +46,12 @@ function GoalCard({ title, items }: { title: string; items: string[] }) {
   );
 }
 
-function Section({
-  title,
-  defaultExpanded = false,
-  children,
-}: {
-  title: string;
-  defaultExpanded?: boolean;
-  children: ReactNode;
-}) {
+/** A section that starts closed: the page opens on the goal, and each section on a click. */
+function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
     <Accordion
       variant="outlined"
       disableGutters
-      defaultExpanded={defaultExpanded}
       sx={{
         mb: 1,
         borderRadius: 1,
@@ -122,7 +114,7 @@ export function LaunchRadarHowItWorksPage() {
         <GoalCard title="After" items={AFTER} />
       </Box>
 
-      <Section title="How it works" defaultExpanded>
+      <Section title="How it works">
         <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
           Click a box to see its details.
         </Typography>

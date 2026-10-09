@@ -87,6 +87,16 @@ def pick_domain(event_name: str, results: list[Any]) -> str | None:
     return None
 
 
+def search_request(name: str, context: str) -> dict[str, Any]:
+    """The Search call that looks up a company's website (keyword arguments for ``client.search``)."""
+    return {
+        "objective": f"The official company website (homepage) of the startup {name}. Context: {context}",
+        "search_queries": [f"{name} official website", f"{name} startup"],
+        "mode": SEARCH_MODE,
+        "advanced_settings": {"max_results": MAX_RESULTS},
+    }
+
+
 def resolve_missing_domains(events: list[dict[str, Any]], client: Any, reserve: Reserve, log: Log,
                             limit: int = MAX_LOOKUPS_PER_RUN) -> list[dict[str, Any]]:
     """Fill ``company_domain`` in place for events that have none. Returns ``events``.
@@ -101,12 +111,7 @@ def resolve_missing_domains(events: list[dict[str, Any]], client: Any, reserve: 
         name = str(ev["company_name"])[:120]
         reserve(f"search(domain:{name_key(name)[:40]})", ceil_cost(SEARCH_PRICE))
         context = str(ev.get("headline") or "")[:200]
-        resp = client.search(
-            objective=f"The official company website (homepage) of the startup {name}. Context: {context}",
-            search_queries=[f"{name} official website", f"{name} startup"],
-            mode=SEARCH_MODE,
-            advanced_settings={"max_results": MAX_RESULTS},
-        )
+        resp = client.search(**search_request(name, context))
         results = list(getattr(resp, "results", None) or [])
         dom = pick_domain(name, results)
         if dom:

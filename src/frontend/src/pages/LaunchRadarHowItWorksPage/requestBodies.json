@@ -1,0 +1,605 @@
+{
+  "monitor": {
+    "type": "event_stream",
+    "frequency": "1d",
+    "processor": "base",
+    "settings": {
+      "query": "Startups announcing a newly closed Series A, Series B or later venture funding round, as reported in press releases or tech/business news. One specific company per event.",
+      "include_backfill": true,
+      "output_schema": {
+        "type": "json",
+        "json_schema": {
+          "type": "object",
+          "properties": {
+            "company_name": {
+              "type": "string",
+              "description": "Name of the company the event is about."
+            },
+            "company_domain": {
+              "type": ["string", "null"],
+              "description": "Company's primary website domain, e.g. example.com (no scheme, no path). null if unknown."
+            },
+            "event_type": {
+              "type": "string",
+              "enum": ["funding", "launch"],
+              "description": "funding = a closed venture round; launch = a notable new product launch."
+            },
+            "round": {
+              "type": ["string", "null"],
+              "description": "Funding stage, e.g. Seed, Series A, Series B. null for launches."
+            },
+            "amount_usd": {
+              "type": ["string", "null"],
+              "description": "Round size in USD as written, e.g. '$15M'. null if not a funding event or undisclosed."
+            },
+            "investors": {
+              "type": ["string", "null"],
+              "description": "Comma-separated investors, lead investor(s) first. null if none named."
+            },
+            "announced_at": {
+              "type": ["string", "null"],
+              "description": "Date the news was announced, YYYY-MM-DD. null if unknown."
+            },
+            "source_url": {
+              "type": "string",
+              "description": "URL of the article or press release reporting the event."
+            },
+            "headline": {
+              "type": "string",
+              "description": "One-line headline summarizing the event."
+            }
+          },
+          "required": [
+            "company_name",
+            "company_domain",
+            "event_type",
+            "round",
+            "amount_usd",
+            "investors",
+            "announced_at",
+            "source_url",
+            "headline"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    "metadata": {
+      "app": "launch-radar",
+      "slot": "series_a_plus"
+    }
+  },
+  "backfillFind": {
+    "objective": "FindAll early-stage startups that publicly announced a newly closed pre-seed, seed, Series A or Series B funding round, or a notable new product launch, between 2026-09-07 and 2026-10-07 (inclusive).",
+    "entity_type": "companies",
+    "match_conditions": [
+      {
+        "name": "early_stage_startup_check",
+        "description": "The company is an independent, privately held early-stage startup (roughly pre-seed to Series B). It is NOT a large or established technology company (such as Google, Apple, Microsoft, Amazon, Meta, Nvidia, OpenAI or Anthropic), NOT a publicly traded company, and NOT a subsidiary, division or product of a larger company. Evidence: the company's own website, its funding announcements, startup databases or news coverage. If there is no evidence that it is an independent startup, the condition is not satisfied."
+      },
+      {
+        "name": "recent_announcement_check",
+        "description": "The company publicly announced, between 2026-09-07 and 2026-10-07 (inclusive), EITHER a newly closed pre-seed, seed, Series A or Series B venture funding round OR a notable new product launch. The announcement itself (the press release, the company's own post, or the first news report) must be dated between 2026-09-07 and 2026-10-07 (inclusive); an article inside the window about an older round or launch does not count. Acquisitions, IPOs, debt, grants, Series C or later rounds, hiring news and minor feature updates do not match. If the announcement date cannot be confirmed to fall between 2026-09-07 and 2026-10-07 (inclusive), the condition is not satisfied."
+      }
+    ],
+    "generator": "base",
+    "match_limit": 20,
+    "metadata": {
+      "app": "launch-radar",
+      "step": "backfill",
+      "window": "2026-09-07..2026-10-07"
+    }
+  },
+  "backfillEnrich": {
+    "processor": "base",
+    "output_schema": {
+      "type": "json",
+      "json_schema": {
+        "type": "object",
+        "properties": {
+          "company_name": {
+            "type": "string",
+            "description": "The company's name."
+          },
+          "company_domain": {
+            "type": ["string", "null"],
+            "description": "The company's official website domain, e.g. example.com (no scheme, no path). Not a news, LinkedIn, Crunchbase, investor or app-store page. null if unknown."
+          },
+          "event_type": {
+            "type": "string",
+            "enum": ["funding", "launch"],
+            "description": "What the company announced between 2026-09-07 and 2026-10-07 (inclusive): funding = a newly closed venture round, launch = a notable new product launch. If it announced several, use the most recent funding round, else the most notable launch."
+          },
+          "round": {
+            "type": ["string", "null"],
+            "description": "Funding stage as announced, e.g. Pre-seed, Seed, Series A, Series B. null for a launch."
+          },
+          "amount_usd": {
+            "type": ["string", "null"],
+            "description": "Round size in USD as written, e.g. '$15M'. null for a launch or if undisclosed."
+          },
+          "investors": {
+            "type": ["string", "null"],
+            "description": "Comma-separated investors in that round, lead investor(s) first. null if none named."
+          },
+          "announced_at": {
+            "type": ["string", "null"],
+            "description": "Date of that announcement, YYYY-MM-DD; it should fall between 2026-09-07 and 2026-10-07 (inclusive). null if unknown."
+          },
+          "source_url": {
+            "type": ["string", "null"],
+            "description": "URL of the press release or news article that announced it. null if none found."
+          },
+          "headline": {
+            "type": "string",
+            "description": "One-line headline summarizing the announcement."
+          }
+        },
+        "required": [
+          "company_name",
+          "company_domain",
+          "event_type",
+          "round",
+          "amount_usd",
+          "investors",
+          "announced_at",
+          "source_url",
+          "headline"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "website": {
+    "objective": "The official company website (homepage) of the startup finmid. Context: finmid raises EUR 17M Series A extension",
+    "search_queries": ["finmid official website", "finmid startup"],
+    "mode": "advanced",
+    "advanced_settings": {
+      "max_results": 8
+    }
+  },
+  "leaders": {
+    "objective": "Find the founders and current senior leadership team (CEO, CTO, other C-level executives, VPs and Heads of functions) of Raindrop AI, the company whose website is raindrop.ai.",
+    "entity_type": "people",
+    "match_conditions": [
+      {
+        "name": "current_leader_at_company",
+        "description": "The person is a founder/co-founder of Raindrop AI (raindrop.ai) or currently holds a C-level (CEO, CTO, COO, CPO, CFO, etc.), VP-level or Head-of role at Raindrop AI (raindrop.ai). It must be this exact company (the one at raindrop.ai), not a different company with a similar name. Evidence: the company's own website/team page, LinkedIn, press releases or news. Former employees, investors, board-only members and advisors do NOT match. If there is no evidence, the condition is not satisfied. The candidate must be one person with a personal profile, not a company page."
+      }
+    ],
+    "generator": "preview",
+    "match_limit": 8,
+    "metadata": {
+      "app": "launch-radar",
+      "company": "raindrop.ai"
+    }
+  },
+  "company": {
+    "input": {
+      "company_name": "Raindrop AI",
+      "company_domain": "raindrop.ai",
+      "context": "Raindrop AI announced a $35M Series A"
+    },
+    "processor": "core",
+    "task_spec": {
+      "output_schema": {
+        "type": "json",
+        "json_schema": {
+          "type": "object",
+          "properties": {
+            "one_liner": {
+              "type": "string",
+              "description": "One sentence: what the company is."
+            },
+            "website_url": {
+              "type": "string",
+              "description": "The company's official homepage URL, e.g. https://www.example.com."
+            },
+            "what_they_do": {
+              "type": "string",
+              "description": "2-4 sentences on product, customers and market."
+            },
+            "latest_round": {
+              "type": "object",
+              "description": "The company's most recent announced priced funding round.",
+              "properties": {
+                "stage": {
+                  "type": ["string", "null"],
+                  "description": "e.g. Seed, Series A; null if none found."
+                },
+                "amount_usd": {
+                  "type": ["string", "null"],
+                  "description": "Round size as written, e.g. '$15M'."
+                },
+                "announced_at": {
+                  "type": ["string", "null"],
+                  "description": "YYYY-MM-DD (or YYYY-MM)."
+                },
+                "lead_investors": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "Lead investor firms/people."
+                },
+                "other_investors": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "Other participating investors."
+                }
+              },
+              "required": [
+                "stage",
+                "amount_usd",
+                "announced_at",
+                "lead_investors",
+                "other_investors"
+              ],
+              "additionalProperties": false
+            },
+            "prior_rounds": {
+              "type": "array",
+              "description": "Earlier rounds, most recent first. Empty if none.",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "stage": {
+                    "type": "string",
+                    "description": "e.g. Pre-seed, Seed."
+                  },
+                  "amount_usd": {
+                    "type": ["string", "null"],
+                    "description": "As written, e.g. '$4M'."
+                  },
+                  "announced_at": {
+                    "type": ["string", "null"],
+                    "description": "YYYY-MM-DD or YYYY-MM."
+                  },
+                  "investors": {
+                    "type": "string",
+                    "description": "Comma-separated investors, leads first."
+                  }
+                },
+                "required": ["stage", "amount_usd", "announced_at", "investors"],
+                "additionalProperties": false
+              }
+            },
+            "total_raised_usd": {
+              "type": ["string", "null"],
+              "description": "Total disclosed funding, e.g. '$30M'."
+            },
+            "latest_announcement": {
+              "type": "object",
+              "description": "The company's most recent major announcement (funding or launch).",
+              "properties": {
+                "headline": {
+                  "type": "string",
+                  "description": "One-line headline."
+                },
+                "url": {
+                  "type": ["string", "null"],
+                  "description": "URL of the press release or article."
+                },
+                "announced_at": {
+                  "type": ["string", "null"],
+                  "description": "YYYY-MM-DD."
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": ["funding", "launch", "other"],
+                  "description": "Type."
+                }
+              },
+              "required": ["headline", "url", "announced_at", "kind"],
+              "additionalProperties": false
+            },
+            "notable_facts": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "3-6 short impressive / differentiating facts."
+            },
+            "blurb": {
+              "type": "string",
+              "description": "2-3 sentences for a job seeker focused on the team's talent, the funding rounds and the single most impressive thing about the company."
+            },
+            "careers_url": {
+              "type": ["string", "null"],
+              "description": "Careers / jobs page URL. null if none."
+            },
+            "ats": {
+              "type": "object",
+              "properties": {
+                "provider": {
+                  "type": "string",
+                  "enum": [
+                    "greenhouse",
+                    "ashby",
+                    "lever",
+                    "gem",
+                    "workday",
+                    "eightfold",
+                    "other",
+                    "none"
+                  ],
+                  "description": "Applicant tracking system hosting the public job board. Infer from job posting URLs: boards.greenhouse.io/<token> or job-boards.greenhouse.io/<token> =greenhouse; jobs.ashbyhq.com/<token>=ashby; jobs.lever.co/<token>=lever; jobs.gem.com/<token>=gem; *.myworkdayjobs.com=workday; *.eightfold.ai=eightfold."
+                },
+                "board_token": {
+                  "type": ["string", "null"],
+                  "description": "The board token / slug from the job board URL (the <token> part). null if none."
+                },
+                "board_url": {
+                  "type": ["string", "null"],
+                  "description": "The public job board URL (where the openings are listed). null if none."
+                }
+              },
+              "required": ["provider", "board_token", "board_url"],
+              "additionalProperties": false
+            },
+            "founders": {
+              "type": "array",
+              "description": "The company's founders and current C-level leaders, from the company's site, press releases or news; empty if none found.",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "description": "The person's full name."
+                  },
+                  "title": {
+                    "type": ["string", "null"],
+                    "description": "Their title at the company, e.g. Co-Founder & CEO; null if unknown."
+                  },
+                  "linkedin_url": {
+                    "type": ["string", "null"],
+                    "description": "Their LinkedIn profile URL; null if not found."
+                  }
+                },
+                "required": ["name", "title", "linkedin_url"],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": [
+            "one_liner",
+            "website_url",
+            "what_they_do",
+            "latest_round",
+            "prior_rounds",
+            "total_raised_usd",
+            "latest_announcement",
+            "notable_facts",
+            "blurb",
+            "careers_url",
+            "ats",
+            "founders"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    "metadata": {
+      "app": "launch-radar",
+      "company": "raindrop.ai",
+      "step": "brief"
+    }
+  },
+  "team": {
+    "input": "Company: Raindrop AI (raindrop.ai). Find current employees of this exact company who are NOT its founders, co-founders or C-level executives. Use public profiles (LinkedIn, team pages, personal sites). For the people you find, tally the universities they attended and their notable previous employers. Count each person once per school and per employer. Do not guess: only count facts you found.",
+    "processor": "pro",
+    "task_spec": {
+      "output_schema": {
+        "type": "json",
+        "json_schema": {
+          "type": "object",
+          "properties": {
+            "profiles_found": {
+              "type": "integer",
+              "description": "How many current non-founder employees you found public profiles for."
+            },
+            "team_size_estimate": {
+              "type": "string",
+              "description": "Approximate total headcount, e.g. '20-30'."
+            },
+            "schools": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "count": {
+                    "type": "integer"
+                  }
+                },
+                "required": ["name", "count"],
+                "additionalProperties": false
+              },
+              "description": "Universities attended by those employees, with how many attended each. Most common first."
+            },
+            "prior_employers": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "count": {
+                    "type": "integer"
+                  }
+                },
+                "required": ["name", "count"],
+                "additionalProperties": false
+              },
+              "description": "Notable previous employers of those employees, with counts. Most common first."
+            },
+            "sample_names": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Names of the employees counted (at most 25), so the tally can be checked."
+            }
+          },
+          "required": [
+            "profiles_found",
+            "team_size_estimate",
+            "schools",
+            "prior_employers",
+            "sample_names"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    "metadata": {
+      "app": "launch-radar",
+      "company": "raindrop.ai",
+      "step": "team"
+    }
+  },
+  "leaderResearch": {
+    "inputs": [
+      {
+        "input": {
+          "person_name": "Zubin Singh Koticha",
+          "current_title": "CEO and Co-Founder",
+          "linkedin_url": null,
+          "company_name": "Raindrop AI",
+          "company_domain": "raindrop.ai"
+        },
+        "processor": "base",
+        "metadata": {
+          "row_id": "0"
+        }
+      }
+    ],
+    "default_task_spec": {
+      "output_schema": {
+        "type": "json",
+        "json_schema": {
+          "type": "object",
+          "properties": {
+            "current_title": {
+              "type": "string",
+              "description": "The person's current title at the company."
+            },
+            "linkedin_url": {
+              "type": ["string", "null"],
+              "description": "LinkedIn profile URL. null if not found."
+            },
+            "education": {
+              "type": "array",
+              "description": "Degrees / schools attended (university level). Empty if none found.",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "school": {
+                    "type": "string",
+                    "description": "University name."
+                  },
+                  "degree": {
+                    "type": ["string", "null"],
+                    "description": "e.g. BS, MS, PhD, MBA; null if unknown."
+                  },
+                  "field": {
+                    "type": ["string", "null"],
+                    "description": "Field of study; null if unknown."
+                  },
+                  "grad_year": {
+                    "type": ["string", "null"],
+                    "description": "YYYY; null if unknown."
+                  }
+                },
+                "required": ["school", "degree", "field", "grad_year"],
+                "additionalProperties": false
+              }
+            },
+            "prior_roles": {
+              "type": "array",
+              "description": "Prior employers BEFORE the current company, most recent first.",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "company": {
+                    "type": "string",
+                    "description": "Employer name."
+                  },
+                  "title": {
+                    "type": ["string", "null"],
+                    "description": "Role/title; null if unknown."
+                  },
+                  "years": {
+                    "type": ["string", "null"],
+                    "description": "e.g. '2019-2022'; null if unknown."
+                  }
+                },
+                "required": ["company", "title", "years"],
+                "additionalProperties": false
+              }
+            },
+            "founded_before": {
+              "type": "array",
+              "description": "Companies this person founded or co-founded BEFORE the current one. Empty if none.",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "company": {
+                    "type": "string",
+                    "description": "Company name."
+                  },
+                  "outcome": {
+                    "type": "string",
+                    "enum": ["acquired", "ipo", "shut_down", "operating", "unknown"],
+                    "description": "What happened to that company."
+                  },
+                  "acquirer": {
+                    "type": ["string", "null"],
+                    "description": "Acquirer if acquired, else null."
+                  },
+                  "exit_year": {
+                    "type": ["string", "null"],
+                    "description": "YYYY of exit, else null."
+                  }
+                },
+                "required": ["company", "outcome", "acquirer", "exit_year"],
+                "additionalProperties": false
+              }
+            },
+            "years_experience": {
+              "type": ["string", "null"],
+              "description": "Approximate total years of professional experience as an integer string, e.g. '12'."
+            },
+            "industry_experience_summary": {
+              "type": "string",
+              "description": "1-2 sentences on the person's domain / industry experience."
+            },
+            "notable_signals": {
+              "type": "array",
+              "description": "Short notable facts (awards, notable projects, publications, prior exits). Empty if none.",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "current_title",
+            "linkedin_url",
+            "education",
+            "prior_roles",
+            "founded_before",
+            "years_experience",
+            "industry_experience_summary",
+            "notable_signals"
+          ],
+          "additionalProperties": false
+        }
+      }
+    }
+  }
+}

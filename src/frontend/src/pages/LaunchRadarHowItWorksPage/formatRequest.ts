@@ -1,9 +1,9 @@
 // Pretty-prints a request body as JSON lines with an indent level and typed
 // tokens, so RequestBody can colour keys and values and give each wrapped line
 // a hanging indent. Pure: no React here.
-import { SchemaFields, type RequestValue } from './content';
+import type { RequestValue } from './content';
 
-export type TokenKind = 'key' | 'string' | 'literal' | 'punct' | 'comment';
+export type TokenKind = 'key' | 'string' | 'literal' | 'punct';
 
 export interface Token {
   kind: TokenKind;
@@ -16,9 +16,6 @@ export interface Line {
   tokens: Token[];
 }
 
-/** How many field names share a line in a schema comment. */
-const FIELDS_PER_LINE = 3;
-
 function scalarToken(value: string | number | boolean | null): Token {
   return typeof value === 'string'
     ? { kind: 'string', text: JSON.stringify(value) }
@@ -27,27 +24,6 @@ function scalarToken(value: string | number | boolean | null): Token {
 
 function emit(value: RequestValue, depth: number, lead: Token[], trailingComma: boolean): Line[] {
   const comma: Token[] = trailingComma ? [{ kind: 'punct', text: ',' }] : [];
-
-  if (value instanceof SchemaFields) {
-    const rows: string[] = [];
-    for (let i = 0; i < value.fields.length; i += FIELDS_PER_LINE) {
-      rows.push(value.fields.slice(i, i + FIELDS_PER_LINE).join(', '));
-    }
-    return [
-      { depth, tokens: [...lead, { kind: 'punct', text: '{' }] },
-      {
-        depth: depth + 1,
-        tokens: [{ kind: 'comment', text: `/* ${value.fields.length} fields:` }],
-      },
-      ...rows.map((row, i) => ({
-        depth: depth + 1,
-        tokens: [
-          { kind: 'comment' as const, text: `   ${row}${i < rows.length - 1 ? ',' : ' */'}` },
-        ],
-      })),
-      { depth, tokens: [{ kind: 'punct', text: '}' }, ...comma] },
-    ];
-  }
 
   if (value === null || typeof value !== 'object') {
     return [{ depth, tokens: [...lead, scalarToken(value), ...comma] }];
@@ -80,7 +56,7 @@ function emit(value: RequestValue, depth: number, lead: Token[], trailingComma: 
   ];
 }
 
-/** The body as JSON lines, two spaces per level, schemas as a comment block. */
+/** The body as JSON lines, two spaces per level (what `JSON.stringify(v, null, 2)` prints). */
 export function formatRequest(value: RequestValue): Line[] {
   return emit(value, 0, [], false);
 }
