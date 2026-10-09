@@ -10,6 +10,7 @@ import {
   type LaunchRadarRound,
   type LaunchRadarScores,
   type LaunchRadarSort,
+  type LaunchRadarSource,
   type LaunchRadarTally,
 } from '../../features/admin/launchRadarTypes';
 
@@ -147,6 +148,113 @@ export function hostnameOf(url: string | null | undefined): string | null {
 export function joinWithAnd(items: readonly string[]): string {
   if (items.length <= 1) return items.join('');
   return `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`;
+}
+
+// ---- Sources
+
+/** The topics a card's sources are grouped by. */
+export type SourceTopic = 'company' | 'funding' | 'people';
+
+/** Group order on the card, and each group's visible label. */
+const SOURCE_TOPICS: readonly { topic: SourceTopic; label: string }[] = [
+  { topic: 'company', label: 'Company' },
+  { topic: 'funding', label: 'Funding' },
+  { topic: 'people', label: 'People' },
+];
+
+/**
+ * Every output field a citation can support, by its top-level name, with what
+ * it backs up in plain words. Sources: the company brief, each leader's
+ * pedigree, the FindAll leader match condition (scripts/launch_radar/schemas.py,
+ * leaders.py). A Map, so a field named like an Object.prototype key is unknown.
+ */
+const SOURCE_FIELDS = new Map<string, { topic: SourceTopic; label: string }>([
+  // The company brief.
+  ['one_liner', { topic: 'company', label: 'one-liner' }],
+  ['website_url', { topic: 'company', label: 'website' }],
+  ['what_they_do', { topic: 'company', label: 'what they do' }],
+  ['notable_facts', { topic: 'company', label: 'highlights' }],
+  ['blurb', { topic: 'company', label: 'description' }],
+  ['careers_url', { topic: 'company', label: 'careers page' }],
+  ['ats', { topic: 'company', label: 'job board' }],
+  // The brief's funding fields.
+  ['latest_round', { topic: 'funding', label: 'latest round' }],
+  ['prior_rounds', { topic: 'funding', label: 'earlier rounds' }],
+  ['total_raised_usd', { topic: 'funding', label: 'total raised' }],
+  ['latest_announcement', { topic: 'funding', label: 'announcement' }],
+  // The brief's founders, each leader's pedigree, and the FindAll match condition.
+  ['founders', { topic: 'people', label: 'founders' }],
+  ['current_title', { topic: 'people', label: 'current title' }],
+  ['linkedin_url', { topic: 'people', label: 'LinkedIn profile' }],
+  ['education', { topic: 'people', label: 'education' }],
+  ['prior_roles', { topic: 'people', label: 'past roles' }],
+  ['founded_before', { topic: 'people', label: 'companies founded before' }],
+  ['years_experience', { topic: 'people', label: 'years of experience' }],
+  ['industry_experience_summary', { topic: 'people', label: 'industry experience' }],
+  ['notable_signals', { topic: 'people', label: 'notable work' }],
+  ['current_leader_at_company', { topic: 'people', label: 'current leadership role' }],
+]);
+
+/**
+ * What one citation supports: its topic and, in plain words, the field. The
+ * field is read up to its first dot (`prior_rounds.0` is `prior_rounds`), as
+ * the loop does. An unknown field is Company, labelled with its name in words
+ * (`mystery_field` is "mystery field"). A null field, or one that does not start
+ * with a letter, is Company with no label.
+ */
+export function sourceField(field: string | null): { topic: SourceTopic; label: string | null } {
+  const base = field?.split('.')[0] ?? '';
+  const known = SOURCE_FIELDS.get(base);
+  if (known) return { ...known };
+  return { topic: 'company', label: /^[a-z]/i.test(base) ? base.replace(/_/g, ' ') : null };
+}
+
+/** One source as the card lists it. */
+export interface SourceLink {
+  /** The source URL, normalized; only http(s) URLs get here. */
+  href: string;
+  /** The link text: the citation's title, or the site when it has none. */
+  text: string;
+  /**
+   * "techcrunch.com · latest round". The site is left out when it is already the
+   * link text. Null when there is neither a site to add nor a label.
+   */
+  detail: string | null;
+}
+
+export interface SourceGroup {
+  topic: SourceTopic;
+  /** "Company", "Funding" or "People". */
+  label: string;
+  items: SourceLink[];
+}
+
+/**
+ * The card's sources grouped by topic: Company, Funding, People, in that order,
+ * with empty groups left out. Within a group, the loop's order is kept (brief,
+ * then each leader's pedigree, then FindAll), so one leader's sources sit
+ * together. Only http(s) URLs are kept (`safeHttpUrl`). A URL that repeats once
+ * normalized is dropped (the first wins). A blank title counts as missing.
+ */
+export function groupSources(sources: readonly LaunchRadarSource[]): SourceGroup[] {
+  const byTopic = new Map<SourceTopic, SourceLink[]>();
+  const seen = new Set<string>();
+  for (const source of sources) {
+    const href = safeHttpUrl(source.url);
+    if (!href || seen.has(href)) continue;
+    seen.add(href);
+    const site = hostnameOf(href) ?? href;
+    const title = source.title?.trim() || null;
+    const { topic, label } = sourceField(source.field);
+    const detail = [title ? site : null, label].filter((p): p is string => !!p).join(' · ') || null;
+    const items = byTopic.get(topic) ?? [];
+    items.push({ href, text: title ?? site, detail });
+    byTopic.set(topic, items);
+  }
+  return SOURCE_TOPICS.flatMap(({ topic, label }) => {
+    const items = byTopic.get(topic);
+    return items ? [{ topic, label, items }] : [];
+  });
 }
 
 /**

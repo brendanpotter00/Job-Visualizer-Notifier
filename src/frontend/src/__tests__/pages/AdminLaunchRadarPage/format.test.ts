@@ -7,6 +7,7 @@ import {
   formatMonthYear,
   formatShortDate,
   formatUsd,
+  groupSources,
   hostnameOf,
   jobBoardHref,
   joinWithAnd,
@@ -17,10 +18,15 @@ import {
   roundLine,
   safeHttpUrl,
   scoreEmphasis,
+  sourceField,
   summarizeTally,
   talentBreakdown,
 } from '../../../pages/AdminLaunchRadarPage/format';
-import type { LaunchRadarAts, LaunchRadarScores } from '../../../features/admin/launchRadarTypes';
+import type {
+  LaunchRadarAts,
+  LaunchRadarScores,
+  LaunchRadarSource,
+} from '../../../features/admin/launchRadarTypes';
 
 const ATS: LaunchRadarAts = {
   provider: 'ashby',
@@ -371,6 +377,148 @@ describe('Launch Radar format helpers', () => {
         parts: [],
       });
       expect(talentBreakdown(none, true).line).toBe('Talent: not scored, research incomplete');
+    });
+  });
+
+  describe('sources', () => {
+    const src = (
+      url: string,
+      field: string | null,
+      title: string | null = 'A title'
+    ): LaunchRadarSource => ({ url, title, field });
+
+    it('sourceField maps each Parallel output field to its topic and plain label', () => {
+      expect(sourceField('one_liner')).toEqual({ topic: 'company', label: 'one-liner' });
+      expect(sourceField('latest_round')).toEqual({ topic: 'funding', label: 'latest round' });
+      expect(sourceField('prior_rounds.0')).toEqual({ topic: 'funding', label: 'earlier rounds' });
+      expect(sourceField('notable_signals.1')).toEqual({ topic: 'people', label: 'notable work' });
+      expect(sourceField('founders.0.name')).toEqual({ topic: 'people', label: 'founders' });
+      expect(sourceField('current_leader_at_company')).toEqual({
+        topic: 'people',
+        label: 'current leadership role',
+      });
+      expect(sourceField('latest_announcement')).toEqual({
+        topic: 'funding',
+        label: 'announcement',
+      });
+    });
+
+    const COMPANY = [
+      'one_liner',
+      'website_url',
+      'what_they_do',
+      'notable_facts',
+      'blurb',
+      'careers_url',
+      'ats',
+    ];
+    const FUNDING = ['latest_round', 'prior_rounds', 'total_raised_usd', 'latest_announcement'];
+    const PEOPLE = [
+      'founders',
+      'current_title',
+      'linkedin_url',
+      'education',
+      'prior_roles',
+      'founded_before',
+      'years_experience',
+      'industry_experience_summary',
+      'notable_signals',
+      'current_leader_at_company',
+    ];
+    it.each([
+      ...COMPANY.map((f) => [f, 'company'] as const),
+      ...FUNDING.map((f) => [f, 'funding'] as const),
+      ...PEOPLE.map((f) => [f, 'people'] as const),
+    ])(
+      'files every brief, pedigree and FindAll field under its topic, in plain words: %s',
+      (field, topic) => {
+        const { topic: got, label } = sourceField(field);
+        expect(got).toBe(topic);
+        expect(label).not.toBeNull();
+        expect(label).not.toMatch(/_/);
+      }
+    );
+
+    it('sends a null or unknown field to Company', () => {
+      expect(sourceField(null)).toEqual({ topic: 'company', label: null });
+      expect(sourceField('')).toEqual({ topic: 'company', label: null });
+      expect(sourceField('0')).toEqual({ topic: 'company', label: null });
+      expect(sourceField('mystery_field.2')).toEqual({ topic: 'company', label: 'mystery field' });
+      // A Map, not an object lookup: a prototype key is just an unknown field.
+      expect(sourceField('constructor')).toEqual({ topic: 'company', label: 'constructor' });
+    });
+
+    it('groupSources orders the groups Company, Funding, People and leaves out empty ones', () => {
+      const all = groupSources([
+        src('https://p.com/a', 'education'),
+        src('https://f.com/a', 'latest_round'),
+        src('https://c.com/a', 'one_liner'),
+      ]);
+      expect(all.map((g) => g.topic)).toEqual(['company', 'funding', 'people']);
+      expect(all.map((g) => g.label)).toEqual(['Company', 'Funding', 'People']);
+      expect(groupSources([src('https://f.com/a', 'prior_rounds.1')]).map((g) => g.topic)).toEqual([
+        'funding',
+      ]);
+      expect(groupSources([])).toEqual([]);
+    });
+
+    it("keeps the loop's order within a group", () => {
+      const [people] = groupSources([
+        src('https://b.com/education', 'education'),
+        src('https://a.com/founded', 'founded_before'),
+      ]);
+      expect(people.items.map((i) => i.href)).toEqual([
+        'https://b.com/education',
+        'https://a.com/founded',
+      ]);
+    });
+
+    it('links the title and adds the site and what it supports', () => {
+      const [funding] = groupSources([
+        {
+          url: 'https://www.techcrunch.com/2026/09/17/x',
+          title: 'Raindrop raises $35M',
+          field: 'latest_round',
+        },
+      ]);
+      expect(funding.items).toEqual([
+        {
+          href: 'https://www.techcrunch.com/2026/09/17/x',
+          text: 'Raindrop raises $35M',
+          detail: 'techcrunch.com · latest round',
+        },
+      ]);
+    });
+
+    it('falls back to the site when the title is missing or blank, without repeating it', () => {
+      const url = 'https://www.crunchbase.com/organization/raindrop';
+      const expected = { href: url, text: 'crunchbase.com', detail: 'earlier rounds' };
+      expect(groupSources([src(url, 'prior_rounds.0', null)])[0].items).toEqual([expected]);
+      expect(groupSources([src(url, 'prior_rounds.0', '   ')])[0].items).toEqual([expected]);
+      expect(groupSources([src(url, null, null)])[0].items).toEqual([
+        { href: url, text: 'crunchbase.com', detail: null },
+      ]);
+    });
+
+    it.each([
+      'javascript:alert(1)',
+      'JavaScript:alert(1)',
+      'data:text/html,x',
+      'vbscript:x',
+      '/relative',
+    ])('drops every non-http(s) URL: %s', (url) => {
+      expect(groupSources([src(url, 'one_liner')])).toEqual([]);
+    });
+
+    it('drops a URL that repeats once normalized (first wins)', () => {
+      const groups = groupSources([
+        src('https://a.com', 'one_liner'),
+        src('https://a.com/', 'latest_round'),
+      ]);
+      expect(groups).toHaveLength(1);
+      expect(groups[0].topic).toBe('company');
+      expect(groups[0].items).toHaveLength(1);
+      expect(groups[0].items[0].href).toBe('https://a.com/');
     });
   });
 

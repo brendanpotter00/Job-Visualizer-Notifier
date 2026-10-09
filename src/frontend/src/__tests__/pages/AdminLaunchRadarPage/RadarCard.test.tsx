@@ -322,6 +322,7 @@ describe('RadarCard', () => {
       );
       await user.click(toggle('Raindrop AI'));
       const card = screen.getByTestId('radar-card-1');
+      expect(within(card).queryByRole('button', { name: /^Sources\b/ })).not.toBeInTheDocument();
       expect(card.querySelectorAll('a[href]')).toHaveLength(0);
       // The text still renders; only the links are gone.
       expect(within(card).getByText('raindrop.ai')).toBeInTheDocument();
@@ -564,6 +565,146 @@ describe('RadarCard', () => {
       expect(screen.getAllByRole('group', { name: /^Talent/ })).toHaveLength(1);
       expect(screen.getByRole('group', { name: 'Talent score 49' })).toHaveTextContent('49');
       expect(screen.queryByText(/leaders 24/)).not.toBeInTheDocument();
+    });
+  });
+
+  describe('Sources: collapsed until asked, grouped Company, Funding, People', () => {
+    const SOURCES: LaunchRadarCard['sources'] = [
+      { url: 'https://crunchbase.com/organization/raindrop', title: null, field: 'prior_rounds.0' },
+      {
+        url: 'https://www.linkedin.com/in/example-priya-raman',
+        title: 'Priya Raman - CEO - Raindrop | LinkedIn',
+        field: 'education',
+      },
+      { url: 'https://www.raindrop.ai/about', title: 'About Raindrop', field: 'one_liner' },
+      {
+        url: 'https://www.techcrunch.com/2026/09/17/raindrop-series-a/',
+        title: 'Raindrop raises $35M Series A led by CRV',
+        field: 'latest_round',
+      },
+      { url: 'javascript:alert(1)', title: 'Unsafe source', field: 'founders' },
+    ];
+
+    async function openCard(card: LaunchRadarCard) {
+      const user = userEvent.setup();
+      renderCard(card);
+      await user.click(toggle(card.company));
+      return user;
+    }
+    const sourcesButton = () => screen.getByRole('button', { name: /^Sources \(\d+\)$/ });
+    const whyButton = () => screen.getByRole('button', { name: 'Why these scores' });
+    const panel = (btn: HTMLElement) =>
+      document.getElementById(btn.getAttribute('aria-controls')!)!;
+    // Each group's list is named by its caption, so the captions read in list order.
+    const groupLabels = (el: HTMLElement) =>
+      within(el)
+        .getAllByRole('list')
+        .map((l) => document.getElementById(l.getAttribute('aria-labelledby')!)!.textContent);
+
+    it('sits after "Why these scores", collapsed, and counts only the sources it can link', async () => {
+      await openCard(makeRaindropCard({ sources: SOURCES }));
+      const btn = sourcesButton();
+      expect(btn).toHaveAccessibleName('Sources (4)');
+      expect(btn).toHaveAttribute('aria-expanded', 'false');
+      expect(btn).toHaveAttribute('aria-controls', 'radar-card-1-sources');
+      expect(document.getElementById('radar-card-1-sources')).toBeNull();
+      expect(screen.queryByRole('link', { name: 'About Raindrop' })).not.toBeInTheDocument();
+      expect(
+        whyButton().compareDocumentPosition(btn) & Node.DOCUMENT_POSITION_FOLLOWING
+      ).toBeTruthy();
+    });
+
+    it('opens to the Company, Funding and People lists, in that order', async () => {
+      const user = await openCard(makeRaindropCard({ sources: SOURCES }));
+      const btn = sourcesButton();
+      await user.click(btn);
+      expect(btn).toHaveAttribute('aria-expanded', 'true');
+      const open = panel(btn);
+      expect(groupLabels(open)).toEqual(['Company', 'Funding', 'People']);
+
+      const company = within(open).getByRole('list', { name: 'Company' });
+      const [about] = within(company).getAllByRole('listitem');
+      expect(within(company).getAllByRole('listitem')).toHaveLength(1);
+      expect(within(about).getByRole('link', { name: 'About Raindrop' })).toBeInTheDocument();
+      expect(within(about).getByText('raindrop.ai · one-liner')).toBeInTheDocument();
+
+      const funding = within(open).getByRole('list', { name: 'Funding' });
+      // The loop's order within a group: the crunchbase source came first.
+      const [earlier, latest] = within(funding).getAllByRole('listitem');
+      expect(within(latest).getByRole('link')).toHaveAccessibleName(
+        'Raindrop raises $35M Series A led by CRV'
+      );
+      expect(within(latest).getByText('techcrunch.com · latest round')).toBeInTheDocument();
+      // No title: the site is the link text, and it is not repeated after it.
+      expect(within(earlier).getByRole('link')).toHaveAccessibleName('crunchbase.com');
+      expect(earlier.textContent).toBe('crunchbase.comearlier rounds');
+
+      const people = within(open).getByRole('list', { name: 'People' });
+      expect(
+        within(people).getByRole('link', { name: 'Priya Raman - CEO - Raindrop | LinkedIn' })
+      ).toBeInTheDocument();
+      expect(within(people).getByText('linkedin.com · education')).toBeInTheDocument();
+    });
+
+    it('opens every source in a new tab and never links an unsafe URL', async () => {
+      const user = await openCard(makeRaindropCard({ sources: SOURCES }));
+      const btn = sourcesButton();
+      await user.click(btn);
+      const open = panel(btn);
+      const links = within(open).getAllByRole('link');
+      expect(links).toHaveLength(4);
+      for (const link of links) {
+        expect(link).toHaveAttribute('target', '_blank');
+        expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+        expect(link.getAttribute('href')).toMatch(/^https:\/\//);
+      }
+      expect(within(open).queryByText('Unsafe source')).toBeNull();
+      expect(open.querySelector('a[href^="javascript"]')).toBeNull();
+    });
+
+    it('leaves out the groups it has nothing for', async () => {
+      const user = await openCard(makeRaindropCard({ sources: [SOURCES[3]] }));
+      const btn = sourcesButton();
+      expect(btn).toHaveAccessibleName('Sources (1)');
+      await user.click(btn);
+      expect(groupLabels(panel(btn))).toEqual(['Funding']);
+    });
+
+    it.each([
+      [[] as LaunchRadarCard['sources']],
+      [
+        [
+          { url: 'javascript:alert(1)', title: 'Unsafe', field: 'one_liner' },
+          { url: '/relative', title: 'Relative', field: 'latest_round' },
+        ] as LaunchRadarCard['sources'],
+      ],
+    ])('shows no Sources toggle when no source can be a link (%#)', async (sources) => {
+      await openCard(makeRaindropCard({ sources }));
+      expect(screen.queryByRole('button', { name: /^Sources\b/ })).not.toBeInTheDocument();
+      expect(whyButton()).toBeInTheDocument();
+    });
+
+    it('opens independently of "Why these scores"; both toggles are named by their label alone', async () => {
+      const user = await openCard(makeRaindropCard({ sources: SOURCES }));
+      const why = whyButton();
+      const sources = sourcesButton();
+      expect(why).toHaveAccessibleName('Why these scores');
+      expect(why).toHaveAttribute('aria-controls', 'radar-card-1-why');
+
+      await user.click(sources);
+      expect(sources).toHaveAttribute('aria-expanded', 'true');
+      expect(why).toHaveAttribute('aria-expanded', 'false');
+      expect(screen.queryByText(/^VC 55:/)).not.toBeInTheDocument();
+
+      await user.click(why);
+      expect(why).toHaveAttribute('aria-expanded', 'true');
+      expect(sources).toHaveAttribute('aria-expanded', 'true');
+      expect(document.getElementById('radar-card-1-why')).toBeInTheDocument();
+
+      await user.click(sources);
+      expect(sources).toHaveAttribute('aria-expanded', 'false');
+      expect(why).toHaveAttribute('aria-expanded', 'true');
+      expect(screen.getByText(/^VC 55:/)).toBeInTheDocument();
     });
   });
 
@@ -929,6 +1070,24 @@ describe('RadarCard', () => {
       for (const piece of [round, date, link]) {
         expect(piece).toHaveStyle({ whiteSpace: 'nowrap' });
       }
+    });
+
+    it('wraps long source titles instead of scrolling sideways', async () => {
+      const user = userEvent.setup();
+      renderCard(
+        makeRaindropCard({
+          sources: [
+            { url: 'https://example.com/long', title: 'x'.repeat(200), field: 'latest_round' },
+          ],
+        })
+      );
+      await user.click(toggle('Raindrop AI'));
+      const btn = screen.getByRole('button', { name: 'Sources (1)' });
+      await user.click(btn);
+      const panel = document.getElementById(btn.getAttribute('aria-controls')!)!;
+      expect(within(panel).getByRole('list', { name: 'Funding' })).toHaveStyle({
+        overflowWrap: 'anywhere',
+      });
     });
 
     it('wraps the status line as units: "Already tracked" whole, the actions together', () => {
