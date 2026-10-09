@@ -168,6 +168,10 @@ LOGO_EXTS = {"image/svg+xml": "svg", "image/png": "png", "image/jpeg": "jpg", "i
 MAX_LOGO_BYTES = 5 * 1024 * 1024
 MAX_LOGO_REDIRECTS = 5
 PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
+# normalize.py turns Pillow's decompression-bomb guard off, so a tiny, highly compressible
+# file that claims a huge canvas would make it allocate GBs. Raster logos are measured from
+# their headers here, before any decoder sees them, and refused above this pixel count.
+MAX_LOGO_PIXELS = 40_000_000
 USER_AGENT = "jvn-launch-radar-pr/1"
 
 # ---- time (§4.4) -----------------------------------------------------------------------------
@@ -1242,6 +1246,116 @@ def logo_python() -> Path:
     return py
 
 
+def _u16be(b: bytes, i: int) -> int:
+    return int.from_bytes(b[i:i + 2], "big")
+
+
+def _png_size(data: bytes) -> Optional[Tuple[int, int]]:
+    if len(data) < 24 or not data.startswith(PNG_MAGIC) or data[12:16] != b"IHDR":
+        return None
+    return int.from_bytes(data[16:20], "big"), int.from_bytes(data[20:24], "big")
+
+
+# SOF0-SOF15 minus DHT (C4), JPG (C8) and DAC (CC).
+_JPEG_SOF = frozenset(range(0xC0, 0xD0)) - {0xC4, 0xC8, 0xCC}
+
+
+def _jpeg_size(data: bytes) -> Optional[Tuple[int, int]]:
+    """The largest frame declared before the first scan (a decoder may use any of them)."""
+    if not data.startswith(b"\xff\xd8"):
+        return None
+    i, best = 2, None
+    while i + 4 <= len(data):
+        if data[i] != 0xFF:
+            return None
+        marker = data[i + 1]
+        if marker == 0xFF:  # fill byte
+            i += 1
+            continue
+        if marker == 0x01 or 0xD0 <= marker <= 0xD7:  # standalone markers
+            i += 2
+            continue
+        if marker in (0xD9, 0xDA):  # EOI / SOS: no frame header after this matters
+            break
+        seg = _u16be(data, i + 2)
+        if seg < 2:
+            return None
+        if marker in _JPEG_SOF:
+            if i + 9 > len(data):
+                return None
+            h, w = _u16be(data, i + 5), _u16be(data, i + 7)
+            if best is None or w * h > best[0] * best[1]:
+                best = (w, h)
+        i += 2 + seg
+    return best
+
+
+def _webp_size(data: bytes) -> Optional[Tuple[int, int]]:
+    if len(data) < 30 or data[:4] != b"RIFF" or data[8:12] != b"WEBP":
+        return None
+    chunk = data[12:16]
+    if chunk == b"VP8 " and data[23:26] == b"\x9d\x01\x2a":
+        return (int.from_bytes(data[26:28], "little") & 0x3FFF,
+                int.from_bytes(data[28:30], "little") & 0x3FFF)
+    if chunk == b"VP8L" and data[20] == 0x2F:
+        bits = int.from_bytes(data[21:25], "little")
+        return (bits & 0x3FFF) + 1, ((bits >> 14) & 0x3FFF) + 1
+    if chunk == b"VP8X":
+        return int.from_bytes(data[24:27], "little") + 1, int.from_bytes(data[27:30], "little") + 1
+    return None
+
+
+def _ico_sizes(data: bytes) -> Optional[List[Tuple[int, int]]]:
+    """Every entry's size, read from the embedded PNG/BMP header, not the directory byte."""
+    if len(data) < 6 or data[:4] != b"\x00\x00\x01\x00":
+        return None
+    count = int.from_bytes(data[4:6], "little")
+    if count == 0 or 6 + 16 * count > len(data):
+        return None
+    sizes = []
+    for n in range(count):
+        entry = 6 + 16 * n
+        off = int.from_bytes(data[entry + 12:entry + 16], "little")
+        img = data[off:off + 32]
+        if img.startswith(PNG_MAGIC):
+            size = _png_size(data[off:off + 24])
+            if size is None:
+                return None
+        elif len(img) >= 12:  # BITMAPINFOHEADER: int32 width, int32 height (x2 for the mask)
+            w = int.from_bytes(img[4:8], "little", signed=True)
+            h = int.from_bytes(img[8:12], "little", signed=True)
+            size = (abs(w), abs(h) // 2 or abs(h))
+        else:
+            return None
+        sizes.append(size)
+    return sizes
+
+
+def check_logo_dimensions(ext: str, data: bytes) -> None:
+    """Refuse a raster logo whose header claims more than MAX_LOGO_PIXELS (or none we can
+    read). SVG is rasterized at a fixed width by normalize.py, so it is not measured here."""
+    if ext == "svg":
+        return
+    if ext == "png":
+        found = _png_size(data)
+        sizes = [found] if found else None
+    elif ext == "jpg":
+        found = _jpeg_size(data)
+        sizes = [found] if found else None
+    elif ext == "webp":
+        found = _webp_size(data)
+        sizes = [found] if found else None
+    elif ext == "ico":
+        sizes = _ico_sizes(data)
+    else:
+        raise StepError(f"refused {ext}: no size check for it")
+    if not sizes:
+        raise StepError(f"refused {ext}: could not read its pixel size from the header")
+    for w, h in sizes:
+        if w <= 0 or h <= 0 or w * h > MAX_LOGO_PIXELS:
+            raise StepError(f"refused {ext}: {w}x{h} is over the {MAX_LOGO_PIXELS}-pixel limit")
+
+
 def cmd_logo_fetch(card_id: str, name: str) -> Dict[str, Any]:
     existing_worktree(card_id)
     if name not in LOGO_NAMES:
@@ -1258,6 +1372,7 @@ def cmd_logo_fetch(card_id: str, name: str) -> Dict[str, Any]:
     ext = LOGO_EXTS.get(ctype)
     if ext is None:
         raise StepError(f"refused content-type {ctype!r}; expected an image")
+    check_logo_dimensions(ext, data)
     raw = work_dir(card_id) / "raw"
     _no_symlinks_below_root(raw)
     raw.mkdir(parents=True, exist_ok=True, mode=0o700)

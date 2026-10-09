@@ -15,6 +15,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -877,6 +878,105 @@ def test_logo_fetch_refusals(repo, stubs, monkeypatch, resp, match):
     Conns(monkeypatch, [resp])
     with pytest.raises(StepError, match=match):
         pr_step.cmd_logo_fetch(CID, "symbol")
+
+
+def png_of(w, h):
+    """A PNG signature + IHDR claiming w x h. Only the header matters to the size check."""
+    return pr_step.PNG_MAGIC + b"\x00\x00\x00\x0dIHDR" + w.to_bytes(4, "big") + h.to_bytes(4, "big") + b"\x08\x06\x00\x00\x00"
+
+
+def jpeg_of(w, h):
+    app0 = b"\xff\xe0\x00\x10JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00"
+    sof2 = b"\xff\xc2\x00\x11\x08" + h.to_bytes(2, "big") + w.to_bytes(2, "big") + b"\x03" + b"\x00" * 9
+    return b"\xff\xd8" + app0 + b"\xff" + sof2 + b"\xff\xda\x00\x02"
+
+
+def webp_vp8x_of(w, h):
+    body = b"VP8X" + (10).to_bytes(4, "little") + b"\x00" * 4 + (w - 1).to_bytes(3, "little") + (h - 1).to_bytes(3, "little")
+    return b"RIFF" + (len(body) + 4).to_bytes(4, "little") + b"WEBP" + body
+
+
+def webp_vp8l_of(w, h):
+    bits = (w - 1) | ((h - 1) << 14)
+    body = b"VP8L" + (5).to_bytes(4, "little") + b"\x2f" + bits.to_bytes(4, "little") + b"\x00" * 5
+    return b"RIFF" + (len(body) + 4).to_bytes(4, "little") + b"WEBP" + body
+
+
+def ico_with(embedded):
+    """One directory entry that says 16x16, pointing at whatever image follows."""
+    entry = b"\x10\x10\x00\x00\x01\x00\x20\x00" + len(embedded).to_bytes(4, "little") + (22).to_bytes(4, "little")
+    return b"\x00\x00\x01\x00\x01\x00" + entry + embedded
+
+
+@pytest.mark.parametrize("ctype, body", [
+    ("image/png", png_of(30_000, 30_000)),            # the decompression bomb: tiny file, 900M px
+    ("image/png", png_of(1, 50_000_000)),
+    ("image/jpeg", jpeg_of(65_000, 65_000)),
+    ("image/webp", webp_vp8x_of(16_000_000, 16_000_000)),
+    ("image/x-icon", ico_with(png_of(40_000, 40_000))),  # the directory's 16x16 is not trusted
+])
+def test_logo_fetch_refuses_a_huge_pixel_count_before_any_decoder(repo, stubs, monkeypatch, ctype, body):
+    write_claim(repo)
+    write_scout(repo)
+    pr_step.cmd_worktree(CID)
+    monkeypatch.setattr(pr_step, "resolve", lambda host: ["93.184.216.34"])
+    Conns(monkeypatch, [FakeResponse(ctype=ctype, body=body)])
+    with pytest.raises(StepError, match="pixel limit"):
+        pr_step.cmd_logo_fetch(CID, "symbol")
+    assert not list((repo.pr / "work" / CID).glob("raw/symbol.*"))
+
+
+@pytest.mark.parametrize("ctype, body", [
+    ("image/png", PNG),  # signature but no IHDR
+    ("image/jpeg", b"\xff\xd8\xff\xda\x00\x02"),  # a scan with no frame header
+    ("image/webp", b"RIFF\x00\x00\x00\x00WEBPXXXX" + b"\x00" * 20),
+    ("image/x-icon", b"\x00\x00\x01\x00\x00\x00"),
+    ("image/png", b"GIF89a" + b"\x00" * 40),
+])
+def test_logo_fetch_refuses_a_raster_whose_size_it_cannot_read(repo, stubs, monkeypatch, ctype, body):
+    write_claim(repo)
+    write_scout(repo)
+    pr_step.cmd_worktree(CID)
+    monkeypatch.setattr(pr_step, "resolve", lambda host: ["93.184.216.34"])
+    Conns(monkeypatch, [FakeResponse(ctype=ctype, body=body)])
+    with pytest.raises(StepError, match="pixel size"):
+        pr_step.cmd_logo_fetch(CID, "symbol")
+
+
+@pytest.mark.parametrize("ctype, body, ext", [
+    ("image/png", png_of(2048, 2048), "png"),
+    ("image/jpeg", jpeg_of(1200, 630), "jpg"),
+    ("image/webp", webp_vp8x_of(512, 512), "webp"),
+    ("image/webp", webp_vp8l_of(256, 128), "webp"),
+    ("image/x-icon", ico_with(png_of(256, 256)), "ico"),
+    ("image/x-icon", ico_with(b"\x28\x00\x00\x00" + (32).to_bytes(4, "little") + (64).to_bytes(4, "little") + b"\x00" * 20), "ico"),
+])
+def test_logo_fetch_keeps_a_normal_sized_raster(repo, stubs, monkeypatch, ctype, body, ext):
+    write_claim(repo)
+    write_scout(repo)
+    pr_step.cmd_worktree(CID)
+    monkeypatch.setattr(pr_step, "resolve", lambda host: ["93.184.216.34"])
+    Conns(monkeypatch, [FakeResponse(ctype=ctype, body=body)])
+    out = pr_step.cmd_logo_fetch(CID, "symbol")
+    assert out["saved"].endswith(f"raw/symbol.{ext}") and out["bytes"] == len(body)
+
+
+def test_normalize_keeps_pillows_bomb_guard_on(tmp_path):
+    """Second line of defence: normalize.py itself refuses a pixel bomb."""
+    pytest.importorskip("PIL")
+    bomb = tmp_path / "bomb.png"
+    import struct
+    import zlib
+
+    def chunk(kind, data):
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
+
+    bomb.write_bytes(pr_step.PNG_MAGIC + chunk(b"IHDR", struct.pack(">IIBBBBB", 20_000, 20_000, 8, 6, 0, 0, 0))
+                     + chunk(b"IEND", b""))
+    done = subprocess.run([sys.executable, str(pr_step.LOGO_SCRIPTS / "normalize.py"), str(bomb),
+                           str(tmp_path / "out.png")], capture_output=True, text=True, timeout=60)
+    assert done.returncode == 1 and "decompression bomb" in done.stderr.lower()
+    assert not (tmp_path / "out.png").exists()
 
 
 def test_logo_steps_need_the_venv(repo, stubs, monkeypatch):
