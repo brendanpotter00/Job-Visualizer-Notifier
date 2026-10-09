@@ -6,7 +6,9 @@
 - ``FakeBackend`` is an in-memory implementation of the backend's internal
   Launch Radar routes (CONTRACT §2.3), mounted as an ``httpx.MockTransport``,
   including the ledger semantics (402 on run budget / cap, accrued rows always
-  inserted) and the 409 on a duplicate domain.
+  inserted), the 409 on a duplicate domain, and the add-company PR queue
+  (``/pr-requests``, saved-pr/PLAN.md §3.3: claim FIFO, report from
+  ``in_progress`` only, ``cancelled`` only for an unsaved card, re-queue).
 
 Both append to one shared ``journal`` so a test can assert the order of
 reservations and billed calls.
@@ -331,6 +333,8 @@ class FakeBackend:
         self.card_queries: list[dict[str, Any]] = []  # each GET /cards page: statuses, after_id, limit
         self.card_ids = count(1)
         self.run_ids = count(1)
+        self.pr_requests: dict[int, dict[str, Any]] = {}  # card_id -> PR request row
+        self.pr_clock = count(1)  # stands in for requested_at ordering
 
     def transport(self) -> httpx.MockTransport:
         return httpx.MockTransport(lambda request: self.handle(request))
@@ -351,6 +355,124 @@ class FakeBackend:
     @staticmethod
     def _json(status: int, body: Any) -> httpx.Response:
         return httpx.Response(status, json=body)
+
+    # ---- PR requests -----------------------------------------------------------------------
+    def card_by_id(self, card_id: int) -> tuple[str, dict[str, Any]] | None:
+        return next(((d, r) for d, r in self.cards.items() if r["id"] == card_id), None)
+
+    def add_card(self, domain: str, *, status: str = "saved", company: str | None = None,
+                 tracked_company_id: str | None = None, payload: dict[str, Any] | None = None) -> int:
+        cid = next(self.card_ids)
+        p = payload or {"domain": domain, "company": company or domain.split(".")[0].title(),
+                        "website": f"https://{domain}", "careers_url": None, "one_liner": "Makes things.",
+                        "what_they_do": "It makes things.",
+                        "ats": {"provider": "ashby", "board_token": domain.split(".")[0],
+                                "board_url": f"https://jobs.ashbyhq.com/{domain.split('.')[0]}",
+                                "verified": True, "job_count": 3},
+                        "funding": {"latest_round": {"stage": "Seed", "amount_usd": "$4M",
+                                                     "announced_at": "2026-09-01"}}}
+        self.cards[domain] = {"id": cid, "status": status, "payload": p, "tracked_company_id": tracked_company_id}
+        return cid
+
+    def add_pr_request(self, card_id: int, status: str = "queued", **fields: Any) -> dict[str, Any]:
+        row = {"card_id": card_id, "status": status, "attempts": 0, "pr_url": None, "pr_number": None,
+               "last_reason": None, "requested_at": f"2026-10-08T00:00:{next(self.pr_clock):02d}Z",
+               "retry_after": None, "claimed_at": None, "finished_at": None, **fields}
+        self.pr_requests[card_id] = row
+        return row
+
+    def _pr_card(self, card_id: int) -> tuple[dict[str, Any], dict[str, Any]] | None:
+        hit = self.card_by_id(card_id)
+        row = self.pr_requests.get(card_id)
+        if hit is None or row is None or hit[1]["status"] == "deleted":
+            return None
+        return row, hit[1]
+
+    def _pr_routes(self, method: str, parts: list[str], body: Any, request: httpx.Request) -> httpx.Response | None:
+        if parts[0] != "pr-requests":
+            return None
+        if method == "POST" and parts == ["pr-requests", "next"]:
+            if body != {}:
+                return self._json(422, {"detail": "extra fields"})
+            live = [(r, self.card_by_id(cid)) for cid, r in self.pr_requests.items()]
+            for r, hit in live:  # tidy-up: tracked -> already_tracked; not saved -> cancelled
+                if r["status"] == "queued" and hit and hit[1]["status"] == "saved" and hit[1]["tracked_company_id"]:
+                    r.update(status="already_tracked")
+                elif r["status"] == "queued" and (hit is None or hit[1]["status"] != "saved"):
+                    r.update(status="cancelled")
+            ready = sorted((r for r, hit in live if r["status"] == "queued" and not r["retry_after"]),
+                           key=lambda r: (r["requested_at"], r["card_id"]))
+            if not ready:
+                self.journal.append(("backend", "pr_next", None))
+                return httpx.Response(204)
+            r = ready[0]
+            r.update(status="in_progress", attempts=r["attempts"] + 1, claimed_at="2026-10-09T03:00:00Z")
+            dom, card = self.card_by_id(r["card_id"])  # type: ignore[misc]
+            p = card["payload"]
+            ats = p.get("ats") or {}
+            latest = (p.get("funding") or {}).get("latest_round")
+            self.journal.append(("backend", "pr_next", r["card_id"]))
+            return self._json(200, {
+                "card_id": r["card_id"], "domain": dom, "company": p.get("company"), "website": p.get("website"),
+                "careers_url": p.get("careers_url"), "one_liner": p.get("one_liner"),
+                "what_they_do": p.get("what_they_do"),
+                "ats": {k: ats.get(k) for k in ("provider", "board_token", "board_url", "verified", "job_count")},
+                "latest_round": None if not latest else {"round": latest.get("stage"),
+                                                         "amount_usd": latest.get("amount_usd"),
+                                                         "announced_at": latest.get("announced_at")},
+                "attempts": r["attempts"], "requested_at": r["requested_at"]})
+        if method == "GET" and parts == ["pr-requests"]:
+            q = parse_qs(request.url.query.decode())
+            statuses = set(q.get("status", []))
+            limit = int(q.get("limit", ["100"])[0])
+            if not 1 <= limit <= 500:
+                return self._json(422, {"detail": "bad limit"})
+            rows = []
+            for r in sorted(self.pr_requests.values(), key=lambda r: (r["requested_at"], r["card_id"])):
+                hit = self.card_by_id(r["card_id"])
+                if hit is None or (statuses and r["status"] not in statuses):
+                    continue
+                rows.append({**r, "domain": hit[0], "company": hit[1]["payload"].get("company")})
+            return self._json(200, {"requests": rows[:limit]})
+        if len(parts) < 2 or not parts[1].isdigit():
+            return self._json(422, {"detail": "bad card id"})
+        card_id = int(parts[1])
+        found = self._pr_card(card_id)
+        if found is None:
+            return self._json(404, {"detail": "no PR request for this card"})
+        row, card = found
+        if method == "GET" and len(parts) == 2:
+            return self._json(200, {**row, "card_status": card["status"]})
+        if method == "POST" and parts[2:] == ["result"]:
+            outcome, url, reason = body.get("outcome"), body.get("pr_url"), body.get("reason")
+            self.journal.append(("backend", "pr_result", (card_id, outcome, reason)))
+            if (outcome == "open") != (url is not None):
+                return self._json(422, {"detail": "pr_url only with open"})
+            if row["status"] == "open" and outcome == "open":
+                return self._json(200 if url == row["pr_url"] else 409, row if url == row["pr_url"]
+                                  else {"detail": "request is already open with a different PR"})
+            if row["status"] != "in_progress":
+                return self._json(409, {"detail": f"request is {row['status']}, not in_progress"})
+            if outcome == "cancelled" and card["status"] == "saved":
+                return self._json(409, {"detail": "card is still saved"})
+            if outcome == "open":
+                row.update(status="open", pr_url=url, pr_number=int(url.rsplit("/", 1)[1]), last_reason=None)
+            elif outcome in ("already_tracked", "cancelled", "no_board"):
+                row.update(status=outcome, last_reason=reason)
+            elif reason == "env_error":
+                row.update(status="queued", last_reason=reason, attempts=max(row["attempts"] - 1, 0),
+                           retry_after="later")
+            elif reason in ("unsafe_value", "pr_closed") or row["attempts"] >= 3:
+                row.update(status="failed", last_reason=reason)
+            else:
+                row.update(status="queued", last_reason=reason, retry_after="later")
+            return self._json(200, row)
+        if method == "POST" and parts[2:] == ["requeue"]:
+            if row["status"] in ("queued", "in_progress", "open") or card["status"] != "saved":
+                return self._json(409, {"detail": f"cannot re-queue a {row['status']} request"})
+            row.update(status="queued", attempts=0, retry_after=None, last_reason=None, finished_at=None)
+            return self._json(200, row)
+        return self._json(404, {"detail": "unrouted"})
 
     def handle(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(request)
@@ -484,6 +606,9 @@ class FakeBackend:
             self.journal.append(("backend", "put_payload", hit[0]))
             return self._json(200, {"id": hit[1]["id"], "domain": hit[0], "status": hit[1]["status"],
                                     "posted_at": "x", "updated_at": "y"})
+        routed = self._pr_routes(method, parts, body, request)
+        if routed is not None:
+            return routed
         return self._json(404, {"detail": f"unrouted {method} {path}"})
 
 

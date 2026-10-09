@@ -1855,6 +1855,8 @@ export const adminApi = createApi({
           // ``scores.talentBasis`` picks the sentence that explains the Talent
           // number: null or absent (a legacy card, or a backend that predates
           // the blend) is fine, a basis this build does not know is malformed.
+          // ``prUrl`` / ``prNumber`` (the add-company PR) may be absent (a
+          // backend that predates the PR step) or null, else a string / number.
           if (
             !isRecord(card) ||
             typeof card.id !== 'number' ||
@@ -1864,7 +1866,9 @@ export const adminApi = createApi({
             (card.scores.talentBasis != null &&
               !LAUNCH_RADAR_TALENT_BASES.includes(
                 card.scores.talentBasis as LaunchRadarTalentBasis
-              ))
+              )) ||
+            (card.prUrl != null && typeof card.prUrl !== 'string') ||
+            (card.prNumber != null && typeof card.prNumber !== 'number')
           ) {
             throw new Error('Invalid /api/admin/launch-radar/cards response: malformed card');
           }

@@ -4,6 +4,9 @@ The loop calls the backend directly (never through Vercel) and authenticates
 with ``X-Internal-Key``. The key is sent as a header and never logged; errors
 carry the method, path, status and the backend's ``detail`` only.
 
+The add-company PR queue (saved-pr/PLAN.md §3.3) is ``pr_next``, ``pr_get``,
+``pr_result``, ``pr_requeue`` and ``pr_requests``.
+
 Only GETs are retried (twice, on connection errors). A POST/PUT/PATCH is never
 retried: a reservation or a card insert must not be applied twice.
 """
@@ -48,6 +51,10 @@ class DomainSeen(RuntimeError):
 
 class CardGone(RuntimeError):
     """404 from ``PUT /cards/{id}/payload``: the card is missing or was deleted."""
+
+
+class PrRequestNotFound(RuntimeError):
+    """404 from a ``/pr-requests/{card_id}`` route: no request, or the card was deleted."""
 
 
 def _detail(resp: httpx.Response) -> Any:
@@ -200,3 +207,44 @@ class BackendClient:
         if resp.status_code != 200:
             raise BackendError("PUT", path, resp.status_code, _detail(resp))
         return resp.json()
+
+    # ---- add-company PR requests (saved-pr/PLAN.md §3.3) ----------------------------------
+    def pr_next(self) -> dict[str, Any] | None:
+        """``POST /pr-requests/next``: the claimed card (now ``in_progress``), or None on
+        204 (nothing claimable). Never retried: a lost response leaves an ``in_progress``
+        claim that the backend recovers after 2 h."""
+        resp = self._send("POST", "/pr-requests/next", json={})
+        if resp.status_code == 204:
+            return None
+        if resp.status_code != 200:
+            raise BackendError("POST", "/pr-requests/next", resp.status_code, _detail(resp))
+        return resp.json()
+
+    def _pr_call(self, method: str, path: str, **kw: Any) -> dict[str, Any]:
+        resp = self._send(method, path, **kw)
+        if resp.status_code == 404:
+            raise PrRequestNotFound(f"{method} {path}: {_detail(resp)}")
+        if resp.status_code != 200:
+            raise BackendError(method, path, resp.status_code, _detail(resp))
+        return resp.json()
+
+    def pr_get(self, card_id: int) -> dict[str, Any]:
+        """``GET /pr-requests/{card_id}``: the request plus ``card_status``."""
+        return self._pr_call("GET", f"/pr-requests/{int(card_id)}")
+
+    def pr_result(
+        self, card_id: int, outcome: str, *, pr_url: str | None = None, reason: str | None = None
+    ) -> dict[str, Any]:
+        """``POST /pr-requests/{card_id}/result``. 404 -> PrRequestNotFound; 409/422 -> BackendError."""
+        body = {"outcome": outcome, "pr_url": pr_url, "reason": reason}
+        return self._pr_call("POST", f"/pr-requests/{int(card_id)}/result", json=body)
+
+    def pr_requeue(self, card_id: int) -> dict[str, Any]:
+        """``POST /pr-requests/{card_id}/requeue`` (interactive ``pr-requeue`` only)."""
+        return self._pr_call("POST", f"/pr-requests/{int(card_id)}/requeue", json={})
+
+    def pr_requests(self, *, statuses: Iterable[str] = (), limit: int = 100) -> list[dict[str, Any]]:
+        """``GET /pr-requests``: requests in ``statuses`` (empty: every status), oldest
+        ``requested_at`` first, with ``domain`` and ``company``."""
+        params = [("status", s) for s in dict.fromkeys(statuses)] + [("limit", limit)]
+        return list(self._json("GET", "/pr-requests", (200,), params=params)["requests"])
