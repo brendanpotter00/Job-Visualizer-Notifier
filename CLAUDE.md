@@ -9,6 +9,7 @@ Job Posting Analytics - A monorepo containing a TypeScript + React frontend, Pyt
 ├── src/backend/api/       # FastAPI backend (see src/backend/CLAUDE.md)
 ├── scripts/               # Python scrapers (see scripts/CLAUDE.md)
 ├── api/                   # Vercel serverless functions (ATS proxies)
+├── e2e/                   # End-to-end tests (Playwright; live-view gate, etc.)
 └── docs/                  # Docs: local setup, implementations, incidents, analysis, enrichment, animations
 ```
 

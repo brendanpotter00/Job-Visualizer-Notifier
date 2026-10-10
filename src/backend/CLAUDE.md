@@ -388,6 +388,7 @@ src/backend/api/
 │   └── claims.py        # Typed claim helpers extracted from validated JWT payloads
 ├── routers/
 │   ├── jobs.py                  # Jobs list and detail endpoints
+│   ├── jobs_search.py           # Jobs search endpoint (GET /api/jobs/search; server-side filtered, keyset-paged)
 │   ├── jobs_qa.py               # Stats, scrape runs, trigger scrape
 │   ├── users.py                 # User profile + enabled-companies endpoints (auth required)
 │   ├── user_companies.py        # Private custom-company CRUD (GET/POST/DELETE/PATCH /api/users/companies; auth required)
@@ -397,6 +398,7 @@ src/backend/api/
 │   ├── feedback.py              # Public user-feedback submission (POST /api/feedback; optional auth)
 │   ├── companies.py             # Public curated-companies directory (GET /api/companies; no auth)
 │   ├── locations.py             # Public canonical-location search (GET /api/locations/search; internal-key auth)
+│   ├── dev_reset.py             # LOCAL-ONLY dev reset endpoint (registered only when DEV_RESET_ENABLED=true)
 │   ├── internal_enrichment.py  # Internal enrichment API (X-Internal-Key; GET /pending, POST /results, etc.)
 │   └── internal_launch_radar.py # Launch Radar loop API (X-Internal-Key; runs, spend ledger, monitors, seen, cards, PR requests)
 ├── services/
@@ -439,6 +441,10 @@ src/backend/api/
     ├── enqueue_*_fan_out.py (×6)    # Fan-out tasks: enqueue per-company fetch for each ATS
     ├── enqueue_recipe_fan_out.py    # 7th fan-out: */30 over `ats='recipe'` PUBLISHED boards; defers `fetch_custom_company` on `recipe_fetch` with `visibility='public'`
     ├── fetch_*_company.py (×7)      # Leaf tasks: fetch + upsert one company's jobs (includes fetch_custom_company.py for custom/recipe boards)
+    ├── claim_custom_companies.py    # */15 tick: claim eligible custom-company boards for scheduled re-harvest
+    ├── discover_custom_company.py   # Interactive task: run one-time ATS discovery for a pasted URL (custom companies)
+    ├── reap_ownerless_companies.py  # Periodic cleanup: delete user-added companies with no remaining owners
+    ├── reconcile_discovering.py     # Safety-net: recover rows stuck in `discovering` state
     ├── normalize_location.py        # Leaf task: normalize one job's free-text location via Claude Haiku
     └── scan_unnormalized.py         # Periodic safety-net task: find NULL-status jobs and defer normalize_location
 ```
