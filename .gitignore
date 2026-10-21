@@ -78,12 +78,3 @@ iphone-*.png
 # pytest-cov data file, written at the repo root by a local backend run
 .coverage
 .coverage.*
-
-# Launch Radar proof-of-concept fixtures (raw Parallel responses, includes people data)
-scripts/launch_radar_poc/out/
-
-# Launch Radar AI Talent grading scratch (inputs + grader replies; holds card people data)
-.launch-radar-grades/
-
-# Launch Radar add-company PR step scratch (claims, scout replies, work dirs, published records)
-.launch-radar-pr/

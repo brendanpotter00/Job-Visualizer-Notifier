@@ -69,60 +69,32 @@ describe('/api/admin serverless function', () => {
     );
   });
 
-  it('forwards every Launch Radar list query param (status, limit, offset, sort)', async () => {
-    // The page's whole view is in these four: the tab, the page and the order.
-    // A proxy that dropped one would answer 200 with the wrong cards (the
-    // default sort, page 1) and no error anywhere.
+  it('forwards every list query param (limit, offset, sort, sortDir, subcategory)', async () => {
+    // The admin tables keep their whole view in the query string: the page,
+    // the size and the order. A proxy that dropped one would answer 200 with
+    // the wrong rows (the default sort, page 1) and no error anywhere.
     mockReq.query = {
-      path: ['launch-radar', 'cards'],
-      status: 'saved',
+      path: ['enrichment', 'needs-human'],
       limit: '25',
       offset: '50',
-      sort: 'talent',
+      sort: 'judge_confidence',
+      sortDir: 'asc',
+      subcategory: 'backend',
     };
-    fetchMock.mockResolvedValue(mockJsonResponse(200, { cards: [] }));
+    fetchMock.mockResolvedValue(mockJsonResponse(200, { rows: [], total: 0 }));
 
     await handler(mockReq as VercelRequest, mockRes as VercelResponse);
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const target = new URL(fetchMock.mock.calls[0][0] as string);
-    expect(target.pathname).toBe('/api/admin/launch-radar/cards');
+    expect(target.pathname).toBe('/api/admin/enrichment/needs-human');
     expect(Object.fromEntries(target.searchParams)).toEqual({
-      status: 'saved',
       limit: '25',
       offset: '50',
-      sort: 'talent',
+      sort: 'judge_confidence',
+      sortDir: 'asc',
+      subcategory: 'backend',
     });
-  });
-
-  it.each(['announced', 'talent', 'vc', 'added'])(
-    'forwards sort=%s to the Launch Radar list unchanged',
-    async (sort) => {
-      mockReq.query = { path: 'launch-radar/cards', status: 'new', sort };
-      fetchMock.mockResolvedValue(mockJsonResponse(200, { cards: [] }));
-
-      await handler(mockReq as VercelRequest, mockRes as VercelResponse);
-
-      const target = new URL(fetchMock.mock.calls[0][0] as string);
-      expect(target.searchParams.get('sort')).toBe(sort);
-      expect(target.searchParams.get('status')).toBe('new');
-    }
-  );
-
-  it('forwards a Launch Radar status PATCH with its { status, from } body', async () => {
-    // `from` is the backend's compare-and-swap guard; dropping it would let a
-    // stale Unsave restore an archived card instead of answering 409.
-    mockReq.method = 'PATCH';
-    mockReq.query = { path: ['launch-radar', 'cards', '4'] };
-    mockReq.body = { status: 'new', from: 'saved' };
-    fetchMock.mockResolvedValue(mockJsonResponse(200, { id: 4, status: 'new' }));
-
-    await handler(mockReq as VercelRequest, mockRes as VercelResponse);
-
-    const [url, fetchOptions] = fetchMock.mock.calls[0];
-    expect(new URL(url as string).pathname).toBe('/api/admin/launch-radar/cards/4');
-    expect(fetchOptions.method).toBe('PATCH');
-    expect(fetchOptions.body).toBe(JSON.stringify({ status: 'new', from: 'saved' }));
   });
 
   it('forwards the Authorization header to the backend', async () => {
@@ -305,14 +277,10 @@ runProxyAllowlistGuard({
     // localhost:8000 — a failure that looks like a routing bug and isn't.
     ['custom-companies', '/api/admin/custom-companies'],
     ['custom-companies/attempts', '/api/admin/custom-companies/attempts'],
-    // Launch Radar: the list, and one card (PATCH status / DELETE).
-    ['launch-radar/cards', '/api/admin/launch-radar/cards'],
-    ['launch-radar/cards/12', '/api/admin/launch-radar/cards/12'],
   ],
   normalizes: ['/users//stats/', '/api/admin/users/stats'],
   encodes: [
     ['users/u 1/visits', 'https://backend.test/api/admin/users/u%201/visits'],
-    ['launch-radar/cards/card 12', 'https://backend.test/api/admin/launch-radar/cards/card%2012'],
     [
       'locations/aliases/emea / remote',
       'https://backend.test/api/admin/locations/aliases/emea%20/%20remote',
@@ -409,16 +377,16 @@ describe('api/admin — the locations/aliases wildcard cannot be climbed', () =>
     );
   });
 
-  it('the exact production reproduction never reaches /api/internal/launch-radar/monitors', async () => {
-    // Verbatim from the verifier: the client sent `%25252e%25252e`, Vercel
-    // decoded it once, and this is what `req.query.path` held. Before the fix
-    // it canonicalized to `%2e%2e` (not `..`, so it passed), matched the
-    // wildcard, and `fetch` collapsed it to GET /api/internal/launch-radar/monitors
-    // with X-Internal-Key set.
+  it('the production reproduction never reaches the /api/internal router', async () => {
+    // The verifier's shape: the client sent `%25252e%25252e`, Vercel decoded it
+    // once, and this is what `req.query.path` held. Before the fix it
+    // canonicalized to `%2e%2e` (not `..`, so it passed), matched the wildcard,
+    // and `fetch` collapsed it into a GET on /api/internal/* with
+    // X-Internal-Key set.
     const req = {
       method: 'GET',
       query: {
-        path: 'locations/aliases/%252e%252e/%252e%252e/%252e%252e/internal/launch-radar/monitors',
+        path: 'locations/aliases/%252e%252e/%252e%252e/%252e%252e/internal/enrichment/health',
       },
       headers: {},
       body: undefined,
@@ -500,7 +468,7 @@ describe('api/admin — the locations/aliases wildcard cannot be climbed', () =>
   });
 
   it.each([
-    'locations/aliases/../../../internal/launch-radar/monitors',
+    'locations/aliases/../../../internal/enrichment/health',
     'locations/aliases/../../Internal/enrichment/pending',
     'locations/aliases/\u2025/\u2025/\u2025/internal/enrichment/pending',
     'locations/aliases/..;/..;/..;/internal/enrichment/pending',

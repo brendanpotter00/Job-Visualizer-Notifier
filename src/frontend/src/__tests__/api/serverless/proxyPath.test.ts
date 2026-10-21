@@ -89,7 +89,7 @@ describe('canonicalizeProxyPath', () => {
     expect(canonicalizeProxyPath('%25252e%25252e/internal/x')).toBeNull();
     expect(
       canonicalizeProxyPath(
-        'locations/aliases/%252e%252e/%252e%252e/%252e%252e/internal/launch-radar/monitors'
+        'locations/aliases/%252e%252e/%252e%252e/%252e%252e/internal/enrichment/health'
       )
     ).toBeNull();
     // Not only dots: no encoding layer at all may survive, so an encoded

@@ -24,7 +24,7 @@ from PIL import Image
 
 # A finite cap keeps Pillow's decompression-bomb guard on: a small file that claims a
 # huge canvas raises DecompressionBombError (past 2x this) instead of eating GBs of RAM.
-# Logos never need this many pixels. Launch Radar also checks headers before this runs.
+# Logos never need this many pixels.
 Image.MAX_IMAGE_PIXELS = 40_000_000
 
 

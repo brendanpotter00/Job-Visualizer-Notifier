@@ -34,8 +34,8 @@
  * which decoded to `%2e%2e`: not literally `..`, so it passed, matched admin's
  * `locations/aliases/*`, and `fetch`'s WHATWG URL parser then read `%2e%2e` AS
  * `..` and collapsed it. `/api/admin/locations/aliases/%252e%252e/%252e%252e/
- * %252e%252e/internal/launch-radar/monitors` reached the backend as
- * `GET /api/internal/launch-radar/monitors` with the internal key attached.
+ * %252e%252e/internal/…` reached the backend's internal-key-only
+ * `/api/internal/*` router with the internal key attached.
  * Three independent layers now close that class, each sufficient on its own:
  *
  *   1. `canonicalizeProxyPath` refuses any `%` left after its one decode (an

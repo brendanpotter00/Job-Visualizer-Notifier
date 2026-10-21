@@ -26,7 +26,7 @@ const METHODS_WITH_BODY = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
  * encodes each segment and re-checks the parsed result, so the wildcard cannot
  * escape `/api/admin/locations/aliases/`. It once did: double-encoded dots
  * (`%252e%252e`) survived a single decode and `fetch` collapsed them, reaching
- * `/api/internal/launch-radar/monitors` with the internal key.
+ * the internal-key-only `/api/internal/*` router with the internal key.
  */
 const PROXIED_ROUTES = [
   // users
@@ -61,9 +61,6 @@ const PROXIED_ROUTES = [
   // app settings (the SWE-subcategory reveal flag lives here)
   'settings', // GET — the admin settings list
   'settings/:key', // PUT — flip one allowlisted key
-  // launch radar (admin dashboard cards; the loop API under /api/internal/launch-radar/ is NEVER proxied)
-  'launch-radar/cards', // GET — one page of one tab (status, limit, offset, sort)
-  'launch-radar/cards/:id', // PATCH (save / unsave / archive / restore) · DELETE (permanent, archived only)
 ] as const;
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
