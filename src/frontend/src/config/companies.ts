@@ -1116,12 +1116,12 @@ export const COMPANIES: Company[] = [
   createBackendScraperCompany('atlassian', 'Atlassian', 'https://www.atlassian.com/company/careers/all-jobs'),
   createBackendScraperCompany('github', 'GitHub', 'https://www.github.careers/careers-home/jobs'),
 
-  // Launch Radar card 10 (lightfield.app)
+  // Lightfield (lightfield.app)
   createBackendScraperCompany('lightfield', 'Lightfield', 'https://jobs.ashbyhq.com/Lightfield', {
     sourceAts: 'ashby',
   }),
 
-  // Launch Radar card 45 (arena.ai)
+  // Arena (arena.ai)
   createBackendScraperCompany('arena', 'Arena', 'https://jobs.ashbyhq.com/arena', {
     sourceAts: 'ashby',
   }),

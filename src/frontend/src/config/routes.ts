@@ -42,13 +42,6 @@ export const ROUTES = {
   // you most want to inspect the feature is an environment where the
   // user-facing flag is off.
   ADMIN_CUSTOM_COMPANIES: '/admin/custom-companies',
-  // Launch Radar: cards the Parallel loop posts for newly funded / launched
-  // startups. Behind `AdminRoute` like every /admin/* page.
-  ADMIN_LAUNCH_RADAR: '/admin/launch-radar',
-  // Public route (not admin-gated): how the Launch Radar loop works. Linked only
-  // from under the Launch Radar page's title, with no sidebar entry; anyone can
-  // open it by URL.
-  LAUNCH_RADAR_HOW_IT_WORKS: '/launch-radar/how-it-works',
   ADMIN_FEEDBACK: '/admin/feedback',
   // Full-bleed (outside RootLayout) — the marketing landing page. Deliberately
   // UNLISTED: reachable by direct URL only, with no nav entry anywhere, while
@@ -96,8 +89,7 @@ export type NavIconName =
   | 'Feedback'
   | 'FilterListAlt'
   | 'AddBusiness'
-  | 'Construction'
-  | 'Radar';
+  | 'Construction';
 
 /**
  * Shape of a sidebar entry.
@@ -215,11 +207,6 @@ export const ADMIN_NAV_ITEMS = [
     path: ROUTES.ADMIN_CUSTOM_COMPANIES,
     label: 'Custom Companies',
     icon: 'Construction',
-  },
-  {
-    path: ROUTES.ADMIN_LAUNCH_RADAR,
-    label: 'Launch Radar',
-    icon: 'Radar',
   },
   {
     path: ROUTES.ADMIN_FEEDBACK,
