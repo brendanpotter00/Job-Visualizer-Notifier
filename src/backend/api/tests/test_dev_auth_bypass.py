@@ -27,10 +27,9 @@ from api.dependencies import get_db
 from api.routers import admin
 
 from .conftest import _insert_admin, _insert_user, _make_user
-from .test_launch_radar_service import _launch_radar_isolation  # noqa: F401
 
 EMAIL = "dev-admin@example.com"
-CARDS = "/api/admin/launch-radar/cards?status=new"
+ADMIN_ROUTE = "/api/admin/settings"  # any require_admin GET; this one needs no seed rows
 LOCAL = "http://localhost:8000"  # TestClient's default Host is "testserver", which the bypass refuses
 LOCAL_DB = "postgresql://postgres:postgres@localhost:5432/jobscraper"
 # Nothing here ever connects to it: the guard only parses the string.
@@ -315,12 +314,12 @@ def bypass_app(db_conn) -> FastAPI:
 
 
 def test_route_without_bypass_is_401(bypass_app) -> None:
-    resp = TestClient(bypass_app, client=("127.0.0.1", 50000), base_url=LOCAL).get(CARDS)
+    resp = TestClient(bypass_app, client=("127.0.0.1", 50000), base_url=LOCAL).get(ADMIN_ROUTE)
     assert resp.status_code == 401
 
 
 def test_route_bypass_non_admin_is_403(bypass_app, bypass_on) -> None:
-    resp = TestClient(bypass_app, client=("127.0.0.1", 50000), base_url=LOCAL).get(CARDS)
+    resp = TestClient(bypass_app, client=("127.0.0.1", 50000), base_url=LOCAL).get(ADMIN_ROUTE)
     assert resp.status_code == 403
 
 
@@ -328,12 +327,12 @@ def test_route_bypass_admin_is_200(bypass_app, bypass_on, db_conn) -> None:
     user = _make_user({"email": EMAIL})
     _insert_user(db_conn, user)
     _insert_admin(db_conn, user["id"])
-    resp = TestClient(bypass_app, client=("127.0.0.1", 50000), base_url=LOCAL).get(CARDS)
+    resp = TestClient(bypass_app, client=("127.0.0.1", 50000), base_url=LOCAL).get(ADMIN_ROUTE)
     assert resp.status_code == 200
     # Same app, non-loopback client: the bypass does not apply.
-    assert TestClient(bypass_app).get(CARDS).status_code == 401
+    assert TestClient(bypass_app).get(ADMIN_ROUTE).status_code == 401
     # Loopback, but a real (invalid) token: normal verification, 401.
     resp = TestClient(bypass_app, client=("127.0.0.1", 50000), base_url=LOCAL).get(
-        CARDS, headers={"Authorization": "Bearer not.a.jwt"}
+        ADMIN_ROUTE, headers={"Authorization": "Bearer not.a.jwt"}
     )
     assert resp.status_code == 401

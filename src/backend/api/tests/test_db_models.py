@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
-import pytest
 from sqlalchemy import TIMESTAMP, Boolean
 from sqlalchemy.schema import ForeignKeyConstraint, UniqueConstraint
 
@@ -44,12 +41,6 @@ def test_all_tables_present():
         "company_scripts",
         "company_harvests",
         "company_add_attempts",
-        # Launch Radar (docs/implementations/launch-radar/CONTRACT.md §1).
-        "launch_radar_runs",
-        "launch_radar_spend",
-        "launch_radar_monitors",
-        "launch_radar_cards",
-        "launch_radar_pr_requests",
     }, f"Unexpected metadata.tables: {sorted(names)}"
 
 
@@ -425,117 +416,3 @@ def test_app_settings_shape():
     assert table.c["updated_at"].nullable is False
     assert table.c["updated_by"].nullable is True
     assert not table.indexes
-
-
-def test_launch_radar_card_status_check_matches_its_migration():
-    """The card status CHECK lists every live status plus the tombstone, and the
-    revision that creates the table (``33ff7e590a46``) has exactly the same text.
-
-    Autogenerate (and ``alembic check``) never compares the CHECKs of an existing
-    table, so without this pin the model and the database could disagree
-    silently: the model would accept a status in ``create_all`` test schemas
-    while a migrated database refused it.
-    """
-    from pathlib import Path
-
-    from sqlalchemy import CheckConstraint
-
-    table = db_models.Base.metadata.tables["launch_radar_cards"]
-    (check,) = [
-        c
-        for c in table.constraints
-        if isinstance(c, CheckConstraint) and c.name == "ck_launch_radar_cards_status"
-    ]
-    sql = str(check.sqltext)
-    assert sql == "status IN ('new','saved','archived','deleted')"
-
-    versions = Path(__file__).resolve().parents[2] / "alembic" / "versions"
-    (revision,) = versions.glob("*_33ff7e590a46_*.py")
-    assert f'"{sql}"' in revision.read_text()
-
-
-def test_launch_radar_tracked_company_id_is_a_soft_link():
-    """House style: ``tracked_company_id`` names a ``companies`` row without a
-    foreign key (companies is truncated freely in tests and migrations delete
-    its rows), so nothing ON DELETE-s it and a deleted company's id lingers."""
-    column = db_models.Base.metadata.tables["launch_radar_cards"].c["tracked_company_id"]
-    assert not column.foreign_keys
-    assert column.nullable is True
-
-
-def _string_literals(path: Path) -> set[str]:
-    """Every string constant in a Python file (parsed, so escapes are decoded)."""
-    import ast
-
-    return {
-        node.value
-        for node in ast.walk(ast.parse(path.read_text()))
-        if isinstance(node, ast.Constant) and isinstance(node.value, str)
-    }
-
-
-@pytest.mark.parametrize(
-    ("name", "expected"),
-    [
-        (
-            "ck_launch_radar_pr_requests_status",
-            "status IN ('queued','in_progress','open','failed','no_board',"
-            "'already_tracked','cancelled')",
-        ),
-        (
-            "ck_launch_radar_pr_requests_pr_url",
-            r"pr_url IS NULL OR pr_url ~ "
-            r"'^https://github\.com/brendanpotter00/Job-Visualizer-Notifier/pull/[0-9]+$'",
-        ),
-        ("ck_launch_radar_pr_requests_open", "(status = 'open') = (pr_url IS NOT NULL)"),
-        ("ck_launch_radar_pr_requests_pr_pair", "(pr_url IS NULL) = (pr_number IS NULL)"),
-        ("ck_launch_radar_pr_requests_attempts", "attempts >= 0"),
-    ],
-)
-def test_launch_radar_pr_request_checks_match_their_migration(name: str, expected: str) -> None:
-    """Each PR-request CHECK has the planned text, and the revision that creates
-    the table (``b7c4d1370996``) carries exactly the same text. Autogenerate never
-    compares the CHECKs of an existing table, so without this pin a later edit to
-    the model would pass ``create_all`` test schemas while prod kept the old rule."""
-    from sqlalchemy import CheckConstraint
-
-    table = db_models.Base.metadata.tables["launch_radar_pr_requests"]
-    (check,) = [
-        c for c in table.constraints if isinstance(c, CheckConstraint) and c.name == name
-    ]
-    sql = str(check.sqltext)
-    assert sql == expected
-
-    versions = Path(__file__).resolve().parents[2] / "alembic" / "versions"
-    (revision,) = versions.glob("*_b7c4d1370996_*.py")
-    assert sql in _string_literals(revision)
-
-
-def test_launch_radar_pr_requests_shape() -> None:
-    """One request per card (UNIQUE card_id, FK ON DELETE CASCADE), no branch
-    column (the branch is always ``radar/card-<card_id>``), a partial unique index
-    on ``pr_url`` and the queue-scan index."""
-    table = db_models.Base.metadata.tables["launch_radar_pr_requests"]
-    assert set(table.c.keys()) == {
-        "id", "card_id", "status", "attempts", "pr_url", "pr_number", "last_reason",
-        "requested_at", "retry_after", "claimed_at", "finished_at", "updated_at",
-    }
-    (fk,) = table.c["card_id"].foreign_keys
-    assert fk.target_fullname == "launch_radar_cards.id" and fk.ondelete == "CASCADE"
-    uniques = {
-        c.name: [col.name for col in c.columns]
-        for c in table.constraints
-        if isinstance(c, UniqueConstraint)
-    }
-    assert uniques == {"uq_launch_radar_pr_requests_card_id": ["card_id"]}
-    indexes = {i.name: i for i in table.indexes}
-    assert set(indexes) == {
-        "uq_launch_radar_pr_requests_pr_url",
-        "idx_launch_radar_pr_requests_status_requested",
-    }
-    pr_url_index = indexes["uq_launch_radar_pr_requests_pr_url"]
-    assert pr_url_index.unique is True
-    assert str(pr_url_index.dialect_options["postgresql"]["where"]) == "pr_url IS NOT NULL"
-    assert [c.name for c in indexes["idx_launch_radar_pr_requests_status_requested"].columns] == [
-        "status", "requested_at",
-    ]

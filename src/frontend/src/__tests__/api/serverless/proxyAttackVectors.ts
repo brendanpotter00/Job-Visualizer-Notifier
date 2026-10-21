@@ -177,37 +177,37 @@ export const UNENCODABLE_SEGMENTS: string[] = ['\uD800', 'a\uDC00b', 'x\uDBFF'];
  * Tails appended after a `*` wildcard prefix (admin's `locations/aliases/*` is
  * the only one today). The wildcard eats whatever follows it, so these are the
  * cases where a traversal sits INSIDE an allowlisted route instead of instead
- * of one. The first entry is the exact production reproduction:
+ * of one. The first entry is the production reproduction's shape:
  *
- *   GET /api/admin/locations/aliases/%25252e%25252e/…/internal/launch-radar/monitors
+ *   GET /api/admin/locations/aliases/%25252e%25252e/…/internal/<route>
  *
- * reached the backend as `GET /api/internal/launch-radar/monitors` WITH the
- * internal key, as did the mutating `/api/internal/enrichment/pending`.
+ * reached an internal-key-only `/api/internal/*` route WITH the internal key,
+ * the mutating `/api/internal/enrichment/pending` included.
  */
 export const WILDCARD_TAIL_ESCAPES: Array<[label: string, tail: string]> = [
   [
-    'production repro: double-encoded dots to launch-radar monitors',
-    '%252e%252e/%252e%252e/%252e%252e/internal/launch-radar/monitors',
+    'production repro: double-encoded dots to the internal router',
+    '%252e%252e/%252e%252e/%252e%252e/internal/enrichment/health',
   ],
   [
     'double-encoded dots to the mutating enrichment route',
     '%252e%252e/%252e%252e/%252e%252e/internal/enrichment/pending',
   ],
-  ['single-encoded dots', '%2e%2e/%2e%2e/%2e%2e/internal/launch-radar/monitors'],
-  ['mixed .%252e', '.%252e/.%252e/.%252e/internal/launch-radar/monitors'],
-  ['mixed %252E.', '%252E./%252E./%252E./internal/launch-radar/monitors'],
+  ['single-encoded dots', '%2e%2e/%2e%2e/%2e%2e/internal/enrichment/health'],
+  ['mixed .%252e', '.%252e/.%252e/.%252e/internal/enrichment/health'],
+  ['mixed %252E.', '%252E./%252E./%252E./internal/enrichment/health'],
   [
     'triple-encoded dots',
-    '%25252e%25252e/%25252e%25252e/%25252e%25252e/internal/launch-radar/monitors',
+    '%25252e%25252e/%25252e%25252e/%25252e%25252e/internal/enrichment/health',
   ],
-  ['mixed slashes and backslashes', '..\\../..%5Cinternal/launch-radar/monitors'],
+  ['mixed slashes and backslashes', '..\\../..%5Cinternal/enrichment/health'],
   [
     'double-encoded slashes between double-encoded dots',
-    '%252e%252e%252f%252e%252e%252f%252e%252e%252finternal%252flaunch-radar%252fmonitors',
+    '%252e%252e%252f%252e%252e%252f%252e%252e%252finternal%252fenrichment%252fhealth',
   ],
   [
     'a real-looking key, then a climb',
-    'emea / remote/%252e%252e/%252e%252e/%252e%252e/%252e%252e/internal/launch-radar/monitors',
+    'emea / remote/%252e%252e/%252e%252e/%252e%252e/%252e%252e/internal/enrichment/health',
   ],
 ];
 

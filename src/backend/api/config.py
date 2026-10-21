@@ -239,11 +239,6 @@ class Settings(BaseSettings):
     # real ``Authorization`` header always takes the normal JWT path.
     dev_auth_bypass_email: str | None = None
 
-    # Launch Radar: the TOTAL Parallel spend cap across every loop run, in USD.
-    # Enforced by the ledger in ``services/launch_radar.reserve_spend`` before every
-    # billed call. Set only by the operator; nothing the loop sends can raise it.
-    launch_radar_spend_cap_usd: float = Field(default=5.0, gt=0, le=50)
-
     # PostHog analytics
     posthog_project_token: str | None = None
     posthog_host: str = "https://us.i.posthog.com"

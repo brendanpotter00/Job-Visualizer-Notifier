@@ -26,7 +26,6 @@ from .routers import (
     feedback,
     features,
     internal_enrichment,
-    internal_launch_radar,
     jobs,
     jobs_qa,
     jobs_search,
@@ -633,14 +632,6 @@ app.include_router(
     internal_enrichment.router,
     prefix="/api/internal/enrichment",
     tags=["internal-enrichment"],
-)
-# Launch Radar's loop API. Like internal_enrichment, its ONLY gate is the global
-# require_internal_key middleware; the loop calls the backend directly and these
-# routes are never proxied (api/tests/test_proxy_path_allowlists.py).
-app.include_router(
-    internal_launch_radar.router,
-    prefix="/api/internal/launch-radar",
-    tags=["internal-launch-radar"],
 )
 
 
