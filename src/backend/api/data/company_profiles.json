@@ -54,6 +54,10 @@
     "accomplishment": "Its toolchain for testing and deploying autonomous systems is used across automotive, trucking, construction, mining, agriculture, and defense by leading automakers worldwide.",
     "blurb": "Applied Intuition builds simulation, validation, and autonomy software that helps automakers and defense customers develop self-driving and intelligent vehicle systems."
   },
+  "arena": {
+    "blurb": "A community-powered platform where people vote on anonymous AI model outputs to produce public leaderboards, plus paid real-world evaluations for AI labs and enterprises.",
+    "accomplishment": "raised a 200 million dollar Series B at a 3.1 billion dollar valuation in October 2026, co-led by Lightspeed and Khosla Ventures"
+  },
   "astranis": {
     "accomplishment": "It is known for its MicroGEO satellite class: compact geostationary spacecraft providing dedicated internet capacity at a fraction of the size and cost of traditional GEO satellites.",
     "blurb": "Astranis designs and manufactures small, software-defined geostationary communications satellites that deliver dedicated broadband connectivity to specific regions and customers."

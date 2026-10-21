@@ -1120,6 +1120,11 @@ export const COMPANIES: Company[] = [
   createBackendScraperCompany('lightfield', 'Lightfield', 'https://jobs.ashbyhq.com/Lightfield', {
     sourceAts: 'ashby',
   }),
+
+  // Launch Radar card 45 (arena.ai)
+  createBackendScraperCompany('arena', 'Arena', 'https://jobs.ashbyhq.com/arena', {
+    sourceAts: 'ashby',
+  }),
 ];
 
 export const enum COMPANY_IDS {
@@ -1135,6 +1140,7 @@ export const enum COMPANY_IDS {
   ApexTechnologyInc = 'apex-technology-inc',
   Apple = 'apple',
   AppliedIntuition = 'appliedintuition',
+  Arena = 'arena',
   Astranis = 'astranis',
   Atlassian = 'atlassian',
   Baseten = 'baseten',

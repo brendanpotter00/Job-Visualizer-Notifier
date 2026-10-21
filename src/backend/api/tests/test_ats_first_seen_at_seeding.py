@@ -213,7 +213,11 @@ class TestBoardDateReachesTheDatabase:
         assert row["first_seen_at"] == row["posted_on"], (
             "the stored sort key is not the board's own date"
         )
-        assert row["first_seen_at"] < datetime(2026, 8, 1, tzinfo=timezone.utc)
+        # Workday's "Posted 72 Days Ago" is re-derived against TODAY, so its date
+        # moves with the calendar; a fixed bound (it was 2026-08-01) turned this
+        # test red on its own once today passed 2026-10-12. Every fixture date
+        # here is at least 72 days old, so a bound that moves with today holds.
+        assert row["first_seen_at"] < datetime.now(timezone.utc) - timedelta(days=30)
 
     def test_an_absent_board_date_stores_the_run_timestamp(self, db_conn, provider):
         build, _, _ = BUILDERS[provider]

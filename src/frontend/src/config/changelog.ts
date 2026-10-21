@@ -31,6 +31,18 @@ const SWE_SUBCATEGORIES_REVEAL_DATE = '2026-08-20';
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    id: 'add-arena',
+    title: 'Added Arena',
+    description:
+      'Arena — a community-powered platform where people vote on anonymous AI model outputs to produce public leaderboards, plus paid real-world evaluations for AI labs and enterprises — is now tracked via its Ashby job board. Raised a 200 million dollar Series B at a 3.1 billion dollar valuation in October 2026, co-led by Lightspeed and Khosla Ventures.',
+    tags: ['new-companies'],
+    date: '2026-10-15',
+    link: {
+      to: ROUTES.ACCOUNT,
+      label: 'Add Arena to your company preferences',
+    },
+  },
+  {
     id: 'add-lightfield',
     title: 'Added Lightfield',
     description:
