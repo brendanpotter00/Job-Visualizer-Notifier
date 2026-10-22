@@ -47,6 +47,15 @@ function renderPage() {
   );
 }
 
+/**
+ * Role queries scoped to the open Correct dialog. On `screen` the same query also
+ * walks the tables behind the dialog and computes a name for every row's action
+ * buttons, which made this the slowest file in the suite.
+ */
+function inDialog() {
+  return within(screen.getByRole('dialog'));
+}
+
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -368,7 +377,7 @@ describe('AdminEnrichmentPage', () => {
     // Judge evidence shown in the editor.
     expect(screen.getByText(/Ambiguous between growth and product_manager/)).toBeInTheDocument();
     // Save posts to the correct endpoint.
-    await user.click(screen.getByRole('button', { name: 'Save correction' }));
+    await user.click(inDialog().getByRole('button', { name: 'Save correction' }));
     await waitFor(() => {
       const posted = fetchMock.mock.calls.some((call) => {
         const req = call[0];
@@ -653,7 +662,7 @@ describe('AdminEnrichmentPage', () => {
       screen.queryByRole('combobox', { name: /subcategories/i })
     ).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+    await user.click(inDialog().getByRole('button', { name: 'Cancel' }));
 
     // The recent row is `software_engineering` — control present, pre-filled.
     const recentRow = (await screen.findByText('Senior Platform Engineer')).closest(
@@ -661,7 +670,7 @@ describe('AdminEnrichmentPage', () => {
     ) as HTMLElement;
     await user.click(within(recentRow).getByRole('button', { name: 'Correct' }));
     expect(await screen.findByText('Correct labels')).toBeInTheDocument();
-    expect(screen.getByRole('combobox', { name: /subcategories/i })).toBeInTheDocument();
+    expect(inDialog().getByRole('combobox', { name: /subcategories/i })).toBeInTheDocument();
   });
 
   it('offers subcategory options from LIVE facets, not a fallback constant', async () => {
@@ -674,7 +683,7 @@ describe('AdminEnrichmentPage', () => {
     await user.click(within(recentRow).getByRole('button', { name: 'Correct' }));
     await screen.findByText('Correct labels');
 
-    await user.click(screen.getByRole('combobox', { name: /subcategories/i }));
+    await user.click(inDialog().getByRole('combobox', { name: /subcategories/i }));
     const options = await screen.findAllByRole('option');
     // Exactly the three FACETS_BODY offers — a fallback constant would carry 15.
     expect(options.map((o) => o.textContent)).toEqual([
@@ -697,9 +706,9 @@ describe('AdminEnrichmentPage', () => {
     ) as HTMLElement;
     await user.click(within(recentRow).getByRole('button', { name: 'Correct' }));
     await screen.findByText('Correct labels');
-    expect(screen.getByRole('combobox', { name: /subcategories/i })).toBeInTheDocument();
+    expect(inDialog().getByRole('combobox', { name: /subcategories/i })).toBeInTheDocument();
 
-    await user.click(screen.getByRole('combobox', { name: 'Category' }));
+    await user.click(inDialog().getByRole('combobox', { name: 'Category' }));
     const listbox = await screen.findByRole('listbox');
     await user.click(within(listbox).getByRole('option', { name: 'Growth' }));
 
@@ -707,7 +716,7 @@ describe('AdminEnrichmentPage', () => {
       screen.queryByRole('combobox', { name: /subcategories/i })
     ).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: 'Save correction' }));
+    await user.click(inDialog().getByRole('button', { name: 'Save correction' }));
 
     let call: [unknown, unknown] | undefined;
     await waitFor(() => {
@@ -736,7 +745,7 @@ describe('AdminEnrichmentPage', () => {
     await user.click(within(recentRow).getByRole('button', { name: 'Correct' }));
     await screen.findByText('Correct labels');
 
-    await user.click(screen.getByRole('button', { name: 'Save correction' }));
+    await user.click(inDialog().getByRole('button', { name: 'Save correction' }));
 
     let call: [unknown, unknown] | undefined;
     await waitFor(() => {
@@ -802,15 +811,15 @@ describe('AdminEnrichmentPage', () => {
     await user.click(within(recentRow).getByRole('button', { name: 'Correct' }));
     await screen.findByText('Correct labels');
     // The control IS shown (the row is SWE) — showing it is not touching it.
-    expect(screen.getByRole('combobox', { name: /subcategories/i })).toBeInTheDocument();
+    expect(inDialog().getByRole('combobox', { name: /subcategories/i })).toBeInTheDocument();
 
     // A LEVEL-ONLY correction, the exact case that must not assert anything
     // about specialties.
-    await user.click(screen.getByRole('combobox', { name: 'Level' }));
+    await user.click(inDialog().getByRole('combobox', { name: 'Level' }));
     const listbox = await screen.findByRole('listbox');
     await user.click(within(listbox).getByRole('option', { name: 'Mid' }));
 
-    await user.click(screen.getByRole('button', { name: 'Save correction' }));
+    await user.click(inDialog().getByRole('button', { name: 'Save correction' }));
 
     const body = await postedCorrectionBody();
     expect(body.level).toBe('mid');
@@ -828,11 +837,11 @@ describe('AdminEnrichmentPage', () => {
     await user.click(within(recentRow).getByRole('button', { name: 'Correct' }));
     await screen.findByText('Correct labels');
 
-    await user.click(screen.getByRole('combobox', { name: /subcategories/i }));
+    await user.click(inDialog().getByRole('combobox', { name: /subcategories/i }));
     const options = await screen.findAllByRole('option');
     await user.click(options.find((o) => o.textContent === 'Backend')!);
 
-    await user.click(screen.getByRole('button', { name: 'Save correction' }));
+    await user.click(inDialog().getByRole('button', { name: 'Save correction' }));
 
     const body = await postedCorrectionBody();
     expect(body.subcategories).toEqual(['backend']);
@@ -851,7 +860,7 @@ describe('AdminEnrichmentPage', () => {
     await user.click(within(recentRow).getByRole('button', { name: 'Correct' }));
     await screen.findByText('Correct labels');
 
-    const combobox = screen.getByRole('combobox', { name: /subcategories/i });
+    const combobox = inDialog().getByRole('combobox', { name: /subcategories/i });
     await user.click(combobox);
     const options = await screen.findAllByRole('option');
     // Untick both pre-filled slugs.
@@ -861,7 +870,7 @@ describe('AdminEnrichmentPage', () => {
     );
     await user.keyboard('{Escape}');
 
-    await user.click(screen.getByRole('button', { name: 'Save correction' }));
+    await user.click(inDialog().getByRole('button', { name: 'Save correction' }));
 
     const body = await postedCorrectionBody();
     expect(body.subcategories).toEqual([]);
@@ -892,7 +901,7 @@ describe('AdminEnrichmentPage', () => {
     expect(await screen.findByText('Correct labels')).toBeInTheDocument();
     // The recent row's evidence is shown in the editor too.
     expect(screen.getByText(/Senior fits: owns platform roadmap/)).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Save correction' }));
+    await user.click(inDialog().getByRole('button', { name: 'Save correction' }));
     await waitFor(() => {
       const posted = fetchMock.mock.calls.some((call) => {
         const req = call[0];
@@ -919,16 +928,16 @@ describe('AdminEnrichmentPage', () => {
     // Add a messy tag: mixed-case + surrounding whitespace. The Autocomplete
     // onChange runs `map(toLowerCase().trim()).filter(Boolean)`, so it must land
     // in the body lowercased + trimmed (and no blank ever survives).
-    const tagInput = screen.getByRole('combobox', { name: 'Tags' });
+    const tagInput = inDialog().getByRole('combobox', { name: 'Tags' });
     await user.type(tagInput, '  DevOps  {Enter}');
 
     // Clear the Level facet ("All") → it must POST as null.
-    await user.click(screen.getByRole('combobox', { name: 'Level' }));
+    await user.click(inDialog().getByRole('combobox', { name: 'Level' }));
     const levelListbox = await screen.findByRole('listbox');
     await user.click(within(levelListbox).getByRole('option', { name: 'All' }));
 
     // Note left empty → `note.trim() || null` posts null.
-    await user.click(screen.getByRole('button', { name: 'Save correction' }));
+    await user.click(inDialog().getByRole('button', { name: 'Save correction' }));
 
     let correctCall: [unknown, unknown] | undefined;
     await waitFor(() => {

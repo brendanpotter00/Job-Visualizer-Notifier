@@ -19,7 +19,7 @@ vi.mock('../../../../config/customCompanies', () => ({
 }));
 
 import { CompanySelector } from '../../../../components/companies-page/CompanySelector/CompanySelector';
-import { createTestStore } from '../../../../test/testUtils';
+import { createTestStore, findListboxOption } from '../../../../test/testUtils';
 import { userCompaniesApi } from '../../../../features/userCompanies/userCompaniesApi';
 import type { UserCompany } from '../../../../features/userCompanies/userCompaniesApi';
 
@@ -68,10 +68,10 @@ describe('CompanySelector — the viewer’s own boards', () => {
 
     // The badge is part of the option's accessible name, not a separate node —
     // it renders inside the row so a screen reader reads "Raindrop YC Custom".
-    expect(await screen.findByRole('option', { name: /Raindrop YC/ })).toBeInTheDocument();
+    expect(await findListboxOption('Raindrop YC')).toHaveAccessibleName('Raindrop YC Custom');
     expect(screen.getByText('Custom')).toBeInTheDocument();
     // The curated roster is still all there, and carries no badge.
-    expect(screen.getByRole('option', { name: 'SpaceX' })).toBeInTheDocument();
+    expect(await findListboxOption('SpaceX')).toHaveAccessibleName('SpaceX');
     // No group headings at all any more — one list, ordered by name.
     expect(screen.queryByText('Your companies')).not.toBeInTheDocument();
     expect(screen.queryByText('Tracked by us')).not.toBeInTheDocument();
@@ -90,7 +90,7 @@ describe('CompanySelector — the viewer’s own boards', () => {
     await renderSelector([board('u-abc123', 'Meridian Labs')]);
 
     await user.click(screen.getByRole('combobox'));
-    await screen.findByRole('option', { name: /Meridian Labs/ });
+    await findListboxOption('Meridian Labs');
 
     const names = screen
       .getAllByRole('option')
@@ -108,10 +108,10 @@ describe('CompanySelector — the viewer’s own boards', () => {
     const store = await renderSelector([board('u-abc123', 'Acme Boards')]);
 
     await user.click(screen.getByRole('combobox'));
-    // Regex, not an exact string: the row now renders the badge inside it, so
-    // the option's accessible name is "Acme Boards Custom". (Fixture name from
-    // main, which genericised it away from a real company; the regex is ours.)
-    await user.click(await screen.findByRole('option', { name: /^Acme Boards/ }));
+    // By visible label: the row renders the badge inside it, so the option's
+    // accessible name is "Acme Boards Custom". (Fixture name from main, which
+    // genericised it away from a real company.)
+    await user.click(await findListboxOption('Acme Boards'));
 
     await waitFor(() => expect(store.getState().app.selectedCompanyId).toBe('u-abc123'));
   });
@@ -122,7 +122,7 @@ describe('CompanySelector — the viewer’s own boards', () => {
 
     await user.click(screen.getByRole('combobox'));
 
-    await screen.findByRole('option', { name: 'SpaceX' });
+    await findListboxOption('SpaceX');
     expect(screen.queryByText('Custom')).not.toBeInTheDocument();
     expect(screen.queryByText('Your companies')).not.toBeInTheDocument();
     expect(screen.queryByText('Tracked by us')).not.toBeInTheDocument();
@@ -145,8 +145,10 @@ describe('CompanySelector — the viewer’s own boards', () => {
 
     await user.click(screen.getByRole('combobox'));
 
-    await screen.findByRole('option', { name: 'SpaceX' });
+    await findListboxOption('SpaceX');
     expect(screen.queryByText('Your companies')).not.toBeInTheDocument();
-    expect(screen.queryByRole('option', { name: 'Acme Boards' })).not.toBeInTheDocument();
+    // By text, not by exact accessible name: a badged row is named "Acme Boards
+    // Custom", so `queryByRole('option', { name: 'Acme Boards' })` could never match.
+    expect(screen.queryByText('Acme Boards')).not.toBeInTheDocument();
   });
 });

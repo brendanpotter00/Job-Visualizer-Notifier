@@ -12,7 +12,8 @@ import Alert from '@mui/material/Alert';
 import DeleteIcon from '@mui/icons-material/Delete';
 import EditIcon from '@mui/icons-material/Edit';
 import LockIcon from '@mui/icons-material/Lock';
-import { Add as AddIcon, Remove as RemoveIcon } from '@mui/icons-material';
+import AddIcon from '@mui/icons-material/Add';
+import RemoveIcon from '@mui/icons-material/Remove';
 import { SearchTagsInput } from '../shared/filters/SearchTagsInput.tsx';
 import {
   MAX_SEARCH_TAGS_REACHED_HELPER_TEXT,

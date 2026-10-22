@@ -1,5 +1,5 @@
 import { ReactElement, ReactNode } from 'react';
-import { render, RenderOptions } from '@testing-library/react';
+import { render, RenderOptions, screen, within } from '@testing-library/react';
 import { Provider } from 'react-redux';
 import { BrowserRouter, MemoryRouter } from 'react-router-dom';
 import { configureStore } from '@reduxjs/toolkit';
@@ -108,4 +108,22 @@ export function renderWithProviders(
   }
 
   return { store, ...render(ui, { wrapper: Wrapper, ...renderOptions }) };
+}
+
+/**
+ * Finds the option with this visible label in the open listbox.
+ *
+ * Use it instead of `findByRole('option', { name })` on long lists like the
+ * ~200-company dropdown: that query computes an accessible name for EVERY option
+ * (~650ms a call in jsdom), where a text lookup inside the listbox takes ~10ms.
+ * When the test is about the accessible name, assert it on the returned element
+ * with `toHaveAccessibleName` — one name computation instead of hundreds.
+ */
+export async function findListboxOption(label: string): Promise<HTMLElement> {
+  const listbox = await screen.findByRole('listbox');
+  const option = within(listbox).getByText(label).closest<HTMLElement>('[role="option"]');
+  if (!option) {
+    throw new Error(`"${label}" is in the listbox but not inside an element with role="option"`);
+  }
+  return option;
 }

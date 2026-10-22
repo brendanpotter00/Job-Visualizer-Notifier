@@ -1,5 +1,5 @@
 import { Card, CardContent, Typography, Chip, Stack, Link, Button } from '@mui/material';
-import { OpenInNew } from '@mui/icons-material';
+import OpenInNew from '@mui/icons-material/OpenInNew';
 import type { Job } from '../../../types';
 import { useJobMetadata } from './useJobMetadata.ts';
 import { JobChipsSection } from './JobChipsSection.tsx';
