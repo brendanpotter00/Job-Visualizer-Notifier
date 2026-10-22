@@ -1125,9 +1125,205 @@ export const COMPANIES: Company[] = [
   createBackendScraperCompany('arena', 'Arena', 'https://jobs.ashbyhq.com/arena', {
     sourceAts: 'ashby',
   }),
+
+  // Batch add (2026-10-21) — hand-picked boards, each verified live on the day it
+  // was added.
+  createBackendScraperCompany('attio', 'Attio', 'https://attio.com/careers', {
+    sourceAts: 'ashby',
+  }),
+  // Ghost the personal-AI hardware startup at ghost.ai (the Core device) — NOT
+  // ghost.org, the open-source publishing platform. Proven by the posting this was added
+  // from (a286999a-…) resolving on the `ghost` board.
+  createBackendScraperCompany('ghost', 'Ghost', 'https://ghost.ai/careers', {
+    sourceAts: 'ashby',
+  }),
+  createBackendScraperCompany('hex', 'Hex', 'https://hex.tech/careers/', {
+    sourceAts: 'ashby',
+  }),
+  createBackendScraperCompany('melius', 'Melius', 'https://jobs.ashbyhq.com/melius', {
+    sourceAts: 'ashby',
+  }),
+  createBackendScraperCompany('momentic', 'Momentic', 'https://jobs.ashbyhq.com/momentic', {
+    sourceAts: 'ashby',
+  }),
+  createBackendScraperCompany('render', 'Render', 'https://render.com/careers', {
+    sourceAts: 'ashby',
+  }),
+
+  // Batch add (2026-10-21) — Greenfield Partners' Disruptors 60, Class of 2026 plus
+  // the 2026 Pioneers we did not already track (disruptors60.ai/winners/2026).
+  // Every board_token verified live on the day it was added (HTTP 200 JSON). The
+  // D60 companies on unsupported ATSes (Comeet, Workable, custom pages, …) are
+  // listed in the PR that added this block, not here.
+
+  // The Ashby board is live but lists no roles yet; it is tracked so postings show up
+  // the day they are published. accomplish.ai has no careers page (every path 404s).
+  createBackendScraperCompany('accomplish', 'Accomplish', 'https://jobs.ashbyhq.com/accomplish', {
+    sourceAts: 'ashby',
+  }),
+  createBackendScraperCompany('boltz', 'Boltz', 'https://jobs.gem.com/boltz', {
+    sourceAts: 'gem',
+  }),
+  createBackendScraperCompany('callosum', 'Callosum', 'https://www.callosum.com/join-us', {
+    sourceAts: 'ashby',
+  }),
+  // Ashby token `chaidiscovery` — the hyphenated `chai-discovery` 404s.
+  createBackendScraperCompany(
+    'chai-discovery',
+    'Chai Discovery',
+    'https://www.chaidiscovery.com/careers',
+    { sourceAts: 'ashby' }
+  ),
+  createBackendScraperCompany(
+    'code-metal',
+    'Code Metal',
+    'https://www.codemetal.ai/company#open-roles',
+    { sourceAts: 'ashby' }
+  ),
+  createBackendScraperCompany('como', 'COMO', 'https://como.io/careers', {
+    sourceAts: 'ashby',
+  }),
+  createBackendScraperCompany('conduct', 'Conduct', 'https://conduct.ai/careers', {
+    sourceAts: 'ashby',
+  }),
+  // Corma the AI-for-defensive-security lab at corma.ai — NOT corma.io, the French
+  // access-management SaaS. Tied by the board's own `publicWebsite`. The board is live
+  // but lists no roles yet; corma.ai has no careers page.
+  createBackendScraperCompany('corma', 'Corma', 'https://jobs.ashbyhq.com/corma', {
+    sourceAts: 'ashby',
+  }),
+  // IDENTITY TRAP: Ashby `corridor` is a DIFFERENT Corridor (corridor.dev, an AI
+  // security product). This is the benefits brokerage at corridoradvisors.com, whose
+  // board is `corridor-advisors` (`corridoradvisors` 404s).
+  createBackendScraperCompany('corridor', 'Corridor', 'https://corridoradvisors.com/careers', {
+    sourceAts: 'ashby',
+  }),
+  createBackendScraperCompany('duvo', 'Duvo', 'https://www.duvo.ai/careers', {
+    sourceAts: 'ashby',
+  }),
+  createBackendScraperCompany('dwelly', 'Dwelly', 'https://www.dwelly.group/careers', {
+    sourceAts: 'greenhouse',
+  }),
+  createBackendScraperCompany('endra', 'Endra', 'https://www.endra.ai/career', {
+    sourceAts: 'ashby',
+  }),
+  createBackendScraperCompany('engram', 'Engram', 'https://engram.com/careers', {
+    sourceAts: 'ashby',
+  }),
+  createBackendScraperCompany('etched', 'Etched', 'https://www.etched.com/join', {
+    sourceAts: 'ashby',
+  }),
+  createBackendScraperCompany(
+    'foundry-robotics',
+    'Foundry Robotics',
+    'https://jobs.ashbyhq.com/foundry-robotics',
+    { sourceAts: 'ashby' }
+  ),
+  createBackendScraperCompany('fundamental', 'Fundamental', 'https://fundamental.tech/careers', {
+    sourceAts: 'ashby',
+  }),
+  // Glow the endpoint-AI security company (glow.io), id disambiguated from the bare
+  // word. Ashby token `glow`. A Greenhouse `glow` board also answers 200, with 0 jobs
+  // and no link from glow.io — not this company's board.
+  createBackendScraperCompany('glow-security', 'Glow', 'https://www.glow.io/careers', {
+    sourceAts: 'ashby',
+  }),
+  // Ashby token `hadrian-automation` — the bare `hadrian` 404s.
+  createBackendScraperCompany('hadrian', 'Hadrian', 'https://www.hadrian.co/careers', {
+    sourceAts: 'ashby',
+  }),
+  createBackendScraperCompany('hemispheric', 'Hemispheric', 'https://www.hemispheric.ai/careers', {
+    sourceAts: 'greenhouse',
+  }),
+  // Ashby serves this board as both `Irregular` (the casing irregular.com links) and
+  // `irregular`, same postings; the lowercase token is stored.
+  createBackendScraperCompany('irregular', 'Irregular', 'https://www.irregular.com/careers', {
+    sourceAts: 'ashby',
+  }),
+  createBackendScraperCompany('lawhive', 'Lawhive', 'https://jobs.ashbyhq.com/lawhive', {
+    sourceAts: 'ashby',
+  }),
+  createBackendScraperCompany('lio', 'Lio', 'https://www.lio.ai/careers', {
+    sourceAts: 'ashby',
+  }),
+  createBackendScraperCompany('livekit', 'LiveKit', 'https://livekit.com/careers', {
+    sourceAts: 'ashby',
+  }),
+  // Ashby serves this board as both `NormalComputing` (the hosted-page casing
+  // careers.normalcomputing.com redirects to) and `normalcomputing`, same postings; the
+  // lowercase token is stored. The hyphenated `normal-computing` 404s.
+  createBackendScraperCompany(
+    'normal-computing',
+    'Normal Computing',
+    'https://careers.normalcomputing.com',
+    { sourceAts: 'ashby' }
+  ),
+  createBackendScraperCompany('nox-metals', 'Nox Metals', 'https://noxmetals.co/careers', {
+    sourceAts: 'ashby',
+  }),
+  createBackendScraperCompany('ornn', 'Ornn', 'https://ornn.com/careers', {
+    sourceAts: 'ashby',
+  }),
+  // Pace the insurance-operations AI company at withpace.com. Ashby token `withpace`
+  // (`pace` 404s); its open roles live on /company — /careers 404s.
+  createBackendScraperCompany('pace', 'Pace', 'https://www.withpace.com/company', {
+    sourceAts: 'ashby',
+  }),
+  // IDENTITY TRAP: Ashby `patronus` is Patronus Group (Berlin, patronus-group.com),
+  // not this company. Patronus AI hires through Greenhouse as `patronusaiinc`.
+  createBackendScraperCompany('patronus-ai', 'Patronus AI', 'https://www.patronus.ai/join', {
+    sourceAts: 'greenhouse',
+  }),
+  createBackendScraperCompany(
+    'periodic-labs',
+    'Periodic Labs',
+    'https://jobs.ashbyhq.com/periodic-labs',
+    { sourceAts: 'ashby' }
+  ),
+  createBackendScraperCompany('probook', 'Probook', 'https://www.probook.ai/company#open-roles', {
+    sourceAts: 'ashby',
+  }),
+  createBackendScraperCompany('revel', 'Revel', 'https://www.revel.io/careers', {
+    sourceAts: 'ashby',
+  }),
+  // The Ashby token CONTAINS A SPACE: the board is named `ricursive intelligence`
+  // (Ashby's own job URLs spell it `ricursive%20intelligence`). Every hyphenated or
+  // joined spelling 404s. The backend's f-string URL is percent-encoded by httpx, so
+  // the decoded form is what the seed migration stores.
+  createBackendScraperCompany(
+    'ricursive-intelligence',
+    'Ricursive Intelligence',
+    'https://www.ricursive.com/careers',
+    { sourceAts: 'ashby' }
+  ),
+  // Scope the industrial-inspection AI company at getscope.ai. Ashby token `getscope`
+  // (`scope` 404s); getscope.ai has no careers page, so the board URL is used.
+  createBackendScraperCompany('scope', 'Scope', 'https://jobs.ashbyhq.com/getscope', {
+    sourceAts: 'ashby',
+  }),
+  createBackendScraperCompany('sphere', 'Sphere', 'https://www.getsphere.com/careers', {
+    sourceAts: 'ashby',
+  }),
+  createBackendScraperCompany('starbridge', 'Starbridge', 'https://jobs.ashbyhq.com/starbridge', {
+    sourceAts: 'ashby',
+  }),
+  createBackendScraperCompany('surge-ai', 'Surge AI', 'https://surgehq.ai/careers', {
+    sourceAts: 'ashby',
+  }),
+  createBackendScraperCompany('westmag', 'Westmag', 'https://www.westmag.com/careers', {
+    sourceAts: 'ashby',
+  }),
+  // Ashby token `wordsmith` — `wordsmith-ai` and `wordsmithai` 404.
+  createBackendScraperCompany('wordsmith-ai', 'Wordsmith AI', 'https://www.wordsmith.ai/careers', {
+    sourceAts: 'ashby',
+  }),
+  createBackendScraperCompany('xdof', 'XDOF', 'https://www.xdof.ai/careers', {
+    sourceAts: 'ashby',
+  }),
 ];
 
 export const enum COMPANY_IDS {
+  Accomplish = 'accomplish',
   Adobe = 'adobe',
   Affirm = 'affirm',
   Airbnb = 'airbnb',
@@ -1143,18 +1339,22 @@ export const enum COMPANY_IDS {
   Arena = 'arena',
   Astranis = 'astranis',
   Atlassian = 'atlassian',
+  Attio = 'attio',
   Baseten = 'baseten',
   BasePower = 'base-power',
   Blacksmith = 'blacksmith',
   Block = 'block',
+  Boltz = 'boltz',
   Box = 'box',
   BlueOrigin = 'blueorigin',
   Brex = 'brex',
   Braintrust = 'braintrust',
   Browserbase = 'browserbase',
+  Callosum = 'callosum',
   CapitalOne = 'capitalone',
   Cartesia = 'cartesia',
   Cerebras = 'cerebras',
+  ChaiDiscovery = 'chai-discovery',
   Chalk = 'chalk',
   Cisco = 'cisco',
   Clarify = 'clarify',
@@ -1163,11 +1363,16 @@ export const enum COMPANY_IDS {
   ClickHouse = 'clickhouse',
   ClickUp = 'clickup',
   Cloudflare = 'cloudflare',
+  CodeMetal = 'code-metal',
   CodeRabbit = 'coderabbit',
   Cognition = 'cognition',
   Cohere = 'cohere',
   Coinbase = 'coinbase',
+  Como = 'como',
   Composio = 'composio',
+  Conduct = 'conduct',
+  Corma = 'corma',
+  Corridor = 'corridor',
   CrowdStrike = 'crowdstrike',
   Crunchyroll = 'crunchyroll',
   Crusoe = 'crusoe',
@@ -1181,8 +1386,13 @@ export const enum COMPANY_IDS {
   Dropbox = 'dropbox',
   Disney = 'disney',
   Doordashusa = 'doordashusa',
+  Duvo = 'duvo',
+  Dwelly = 'dwelly',
   ElevenLabs = 'elevenlabs',
   EliseAI = 'eliseai',
+  Endra = 'endra',
+  Engram = 'engram',
+  Etched = 'etched',
   Exa = 'exa',
   Expedia = 'expedia',
   FableSecurity = 'fable-security',
@@ -1195,62 +1405,82 @@ export const enum COMPANY_IDS {
   Flint = 'flint',
   FireworksAI = 'fireworksai',
   FlowEngineering = 'flowengineering',
+  FoundryRobotics = 'foundry-robotics',
+  Fundamental = 'fundamental',
   Gamma = 'gamma',
   GeneralIntelligenceCompany = 'generalintelligencecompany',
   GeneralMotors = 'gm',
+  Ghost = 'ghost',
   GigaML = 'gigaml',
   Gimlet = 'gimlet',
   Github = 'github',
   GitLab = 'gitlab',
   Glean = 'gleanwork',
+  GlowSecurity = 'glow-security',
   Google = 'google',
   Gradial = 'gradial',
   Granola = 'granola',
   Greptile = 'greptile',
+  Hadrian = 'hadrian',
   Harvey = 'harvey',
   Happyrobot = 'happyrobot.ai',
+  Hemispheric = 'hemispheric',
+  Hex = 'hex',
   HeyGen = 'heygen',
   Hightouch = 'hightouch',
   Instacart = 'instacart',
   Intel = 'intel',
+  Irregular = 'irregular',
   JaneStreet = 'janestreet',
   JudgmentLabs = 'judgmentlabs',
   Krea = 'krea',
   LangChain = 'langchain',
+  Lawhive = 'lawhive',
   Legora = 'legora',
   Light = 'light',
   Lightfield = 'lightfield',
   Linear = 'linear',
+  Lio = 'lio',
   ListenLabs = 'listenlabs',
+  LiveKit = 'livekit',
   LlamaIndex = 'llamaindex',
   Lovable = 'lovable',
   Lyft = 'lyft',
   Mastra = 'mastra',
+  Melius = 'melius',
   Merge = 'merge',
   Meta = 'meta',
   Microsoft = 'microsoft',
   Mintlify = 'mintlify',
   MistralAI = 'mistral-ai',
   ModalLabs = 'modal',
+  Momentic = 'momentic',
   MongoDB = 'mongodb',
   Netflix = 'netflix',
   Neuralink = 'neuralink',
   Nominal = 'nominal',
+  NormalComputing = 'normal-computing',
   Notion = 'notion',
+  NoxMetals = 'nox-metals',
   Nuro = 'nuro',
   Nvidia = 'nvidia',
   Okta = 'okta',
   OpenAI = 'openai',
   OpenEvidence = 'openevidence',
   OpenRouter = 'openrouter',
+  Ornn = 'ornn',
+  Pace = 'pace',
   Pallet = 'pallet',
   Palantir = 'palantir',
   Paraform = 'paraform',
   Parallel = 'parallel',
+  PatronusAI = 'patronus-ai',
   PayPal = 'paypal',
+  PeriodicLabs = 'periodic-labs',
   Perplexity = 'perplexity',
   PhysicalIntelligence = 'physical-intelligence',
   PostHog = 'posthog',
+  Probook = 'probook',
   Pylon = 'pylon-labs',
   Pinterest = 'pinterest',
   Plaid = 'plaid',
@@ -1261,9 +1491,12 @@ export const enum COMPANY_IDS {
   Ramp = 'ramp',
   Reddit = 'reddit',
   Reducto = 'reducto',
+  Render = 'render',
   Replit = 'replit',
   Resend = 'resend',
   ResolveAI = 'resolve-ai',
+  Revel = 'revel',
+  RicursiveIntelligence = 'ricursive-intelligence',
   Roadrunner = 'roadrunner',
   Robinhood = 'robinhood',
   Roblox = 'roblox',
@@ -1271,6 +1504,7 @@ export const enum COMPANY_IDS {
   Salient = 'salient',
   Saronic = 'saronic',
   Scaleai = 'scaleai',
+  Scope = 'scope',
   Sesame = 'sesame',
   Sentry = 'sentry',
   Serval = 'serval',
@@ -1282,12 +1516,15 @@ export const enum COMPANY_IDS {
   Snap = 'snap',
   Snowflake = 'snowflake',
   Spacex = 'spacex',
+  Sphere = 'sphere',
   Spotify = 'spotify',
   Squarespace = 'squarespace',
+  Starbridge = 'starbridge',
   Stripe = 'stripe',
   Sunday = 'sunday',
   Suno = 'suno',
   Supabase = 'supabase',
+  SurgeAI = 'surge-ai',
   TasteLabs = 'taste-labs',
   Tavus = 'tavus',
   ThinkingMachines = 'thinkingmachines',
@@ -1307,10 +1544,13 @@ export const enum COMPANY_IDS {
   Wafer = 'wafer',
   Warp = 'warp',
   Waymo = 'waymo',
+  Westmag = 'westmag',
   WisprFlow = 'wispr-flow',
+  WordsmithAI = 'wordsmith-ai',
   WorkOS = 'workos',
   Workweave = 'workweave',
   Xai = 'xai',
+  Xdof = 'xdof',
   Zed = 'zed',
   Zoom = 'zoom',
   Zoox = 'zoox',
