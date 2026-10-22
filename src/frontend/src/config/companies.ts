@@ -294,21 +294,31 @@ export const COMPANIES: Company[] = [
   // for all three; see the seed migration.
   createBackendScraperCompany('warp', 'Warp', 'https://www.warp.dev/careers', {
     sourceAts: 'greenhouse',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2274678194%22%5D',
   }),
   createBackendScraperCompany('coinbase', 'Coinbase', 'https://www.coinbase.com/careers/positions', {
     sourceAts: 'greenhouse',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%222857634%22%5D',
   }),
   createBackendScraperCompany('janestreet', 'Jane Street', 'https://www.janestreet.com/join-jane-street/open-roles/', {
     sourceAts: 'greenhouse',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%221713404%22%5D',
   }),
 
   // Batch add 2 (2026-09-02) — Okta and Box (Greenhouse). Box's board_token is
   // `boxinc`, NOT `box` (which 404s) — the real token lives in the seed migration.
   createBackendScraperCompany('okta', 'Okta', 'https://www.okta.com/company/careers/', {
     sourceAts: 'greenhouse',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22926041%22%5D',
   }),
   createBackendScraperCompany('box', 'Box', 'https://careers.box.com', {
     sourceAts: 'greenhouse',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2254178%22%5D',
   }),
 
   // Batch add (2026-09-09) — the Madrona IA40 2026 cohort, Greenhouse boards.
@@ -317,9 +327,13 @@ export const COMPANIES: Company[] = [
   // site footer links straight at the Greenhouse board, so that is the jobsUrl.
   createBackendScraperCompany('gradial', 'Gradial', 'https://boards.greenhouse.io/gradial', {
     sourceAts: 'greenhouse',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2295681476%22%5D',
   }),
   createBackendScraperCompany('heygen', 'HeyGen', 'https://www.heygen.com/careers', {
     sourceAts: 'greenhouse',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2282350899%22%5D',
   }),
 
   // Lever companies (migrated to backend-scraper)
@@ -686,42 +700,68 @@ export const COMPANIES: Company[] = [
   // backend seed migration holds the real tokens.
   createBackendScraperCompany('suno', 'Suno', 'https://jobs.ashbyhq.com/suno', {
     sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2281884275%22%5D',
   }),
   createBackendScraperCompany('cerebras', 'Cerebras', 'https://www.cerebras.ai/careers', {
     sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2210858000%22%5D',
   }),
   createBackendScraperCompany('physical-intelligence', 'Physical Intelligence', 'https://www.physicalintelligence.company/careers', {
     sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22100923057%22%5D',
   }),
   createBackendScraperCompany('mistral-ai', 'Mistral AI', 'https://jobs.ashbyhq.com/mistral.ai', {
     sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2294273421%22%5D',
   }),
   createBackendScraperCompany('replit', 'Replit', 'https://replit.com/careers', {
     sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2218542592%22%5D',
   }),
   createBackendScraperCompany('railway', 'Railway', 'https://railway.com/careers', {
     sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2265574467%22%5D',
   }),
   createBackendScraperCompany('crusoe', 'Crusoe', 'https://jobs.ashbyhq.com/Crusoe', {
     sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2219150725%22%5D',
   }),
   createBackendScraperCompany('raindrop-ai', 'Raindrop', 'https://jobs.ashbyhq.com/raindrop', {
     sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22101675721%22%5D',
   }),
   createBackendScraperCompany('wafer', 'Wafer', 'https://jobs.ashbyhq.com/wafer', {
     sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22107522822%22%5D',
   }),
   createBackendScraperCompany('clay', 'Clay', 'https://www.clay.com/careers', {
     sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2213018048%22%5D',
   }),
   createBackendScraperCompany('turbopuffer', 'turbopuffer', 'https://turbopuffer.com/jobs', {
     sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2299554344%22%5D',
   }),
   createBackendScraperCompany('openevidence', 'OpenEvidence', 'https://jobs.ashbyhq.com/openevidence', {
     sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2281917876%22%5D',
   }),
   createBackendScraperCompany('greptile', 'Greptile', 'https://www.greptile.com/careers/open', {
     sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2280034057%22%5D',
   }),
 
   // Batch add (2026-09-07) — Ashby boards (every token verified live: HTTP 200
@@ -732,18 +772,28 @@ export const COMPANIES: Company[] = [
   // case-sensitive (bare `tastelabs` 404s).
   createBackendScraperCompany('composio', 'Composio', 'https://composio.dev/careers', {
     sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22100723307%22%5D',
   }),
   createBackendScraperCompany('listenlabs', 'Listen Labs', 'https://listenlabs.ai/careers', {
     sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2295038218%22%5D',
   }),
   createBackendScraperCompany('taste-labs', 'Taste Labs', 'https://tastelabs.com/careers', {
     sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22131914128%22%5D',
   }),
   createBackendScraperCompany('sieve', 'Sieve', 'https://sieve.ai/careers', {
     sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2276210196%22%5D',
   }),
   createBackendScraperCompany('ploy', 'Ploy', 'https://ploy.ai/careers', {
     sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22111250170%22%5D',
   }),
 
   // Batch add (2026-09-09) — the Madrona IA40 2026 cohort, Ashby boards (every
@@ -756,60 +806,98 @@ export const COMPANIES: Company[] = [
   // fablesecurity.com/careers 403s to non-browser clients.
   createBackendScraperCompany('aiuc', 'AIUC', 'https://jobs.ashbyhq.com/aiuc', {
     sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22106689250%22%5D',
   }),
   createBackendScraperCompany('cartesia', 'Cartesia', 'https://cartesia.ai/careers', {
     sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2299079767%22%5D',
   }),
   createBackendScraperCompany('clarify', 'Clarify', 'https://clarify.ai/careers', {
     sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2299278604%22%5D',
   }),
   createBackendScraperCompany('clickhouse', 'ClickHouse', 'https://clickhouse.com/careers', {
     sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2280114151%22%5D',
   }),
   createBackendScraperCompany('coderabbit', 'CodeRabbit', 'https://www.coderabbit.ai/careers', {
     sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2297023698%22%5D',
   }),
   createBackendScraperCompany(
     'fable-security',
     'Fable Security',
     'https://jobs.ashbyhq.com/fable',
-    { sourceAts: 'ashby' }
+    {
+      sourceAts: 'ashby',
+      recruiterLinkedInUrl:
+        'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22100956717%22%5D',
+    }
   ),
   createBackendScraperCompany('gamma', 'Gamma', 'https://careers.gamma.app', {
     sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2274998228%22%5D',
   }),
   createBackendScraperCompany('gimlet', 'Gimlet', 'https://www.gimletlabs.ai/join_us', {
     sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22102691744%22%5D',
   }),
   createBackendScraperCompany('legora', 'Legora', 'https://legora.com/careers', {
     sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2293196471%22%5D',
   }),
   createBackendScraperCompany('lovable', 'Lovable', 'https://lovable.dev/careers', {
     sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22101649602%22%5D',
   }),
   createBackendScraperCompany('mastra', 'Mastra', 'https://mastra.ai/careers', {
     sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22104974021%22%5D',
   }),
   createBackendScraperCompany('openrouter', 'OpenRouter', 'https://openrouter.ai/careers', {
     sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22104068329%22%5D',
   }),
   createBackendScraperCompany('profound', 'Profound', 'https://www.tryprofound.com/careers', {
     sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22104065246%22%5D',
   }),
   createBackendScraperCompany('resend', 'Resend', 'https://resend.com/careers', {
     sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2288424181%22%5D',
   }),
   createBackendScraperCompany('serval', 'Serval', 'https://www.serval.com/careers', {
     sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22101771821%22%5D',
   }),
   createBackendScraperCompany('simile', 'Simile', 'https://www.simile.com/careers', {
     sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22107803218%22%5D',
   }),
   createBackendScraperCompany('town', 'Town', 'https://town.com/careers', {
     sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22106390409%22%5D',
   }),
   createBackendScraperCompany('zed', 'Zed', 'https://zed.dev/jobs', {
     sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2290666371%22%5D',
   }),
 
   // The JVN id is `tomo-ai`, NOT `tomo`, and the distinction is load-bearing:
@@ -820,9 +908,13 @@ export const COMPANIES: Company[] = [
   // in the posting URL this was added from.
   createBackendScraperCompany('tomo-ai', 'Tomo', 'https://jobs.ashbyhq.com/tomo.ai', {
     sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22117004846%22%5D',
   }),
   createBackendScraperCompany('tavus', 'Tavus', 'https://jobs.ashbyhq.com/tavus', {
     sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2274447778%22%5D',
   }),
   // The id carries `-ai` because `typesafe` alone is ambiguous: Typesafe was the
   // FORMER NAME OF LIGHTBEND, the Scala/Akka company. The bare token 404s too
@@ -830,6 +922,8 @@ export const COMPANIES: Company[] = [
   // as well as the unambiguous one.
   createBackendScraperCompany('typesafe-ai', 'TypeSafe', 'https://jobs.ashbyhq.com/typesafe-ai', {
     sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22103805719%22%5D',
   }),
   // The board slug is `david-ai` but the company's site is withdavid.ai, and
   // NEITHER is guessable from the other — `withdavid`, `david`, `with-david`,
@@ -838,6 +932,8 @@ export const COMPANIES: Company[] = [
   // this was added from resolving on that board.
   createBackendScraperCompany('david-ai', 'David AI', 'https://www.withdavid.ai/jobs', {
     sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22103067205%22%5D',
   }),
   // Ashby serves this board under BOTH `Blacksmith` and `blacksmith` (verified,
   // same 20 postings either way), so the capital in the careers URL is not a
@@ -846,12 +942,16 @@ export const COMPANIES: Company[] = [
   // in general even though this tenant tolerates both.
   createBackendScraperCompany('blacksmith', 'Blacksmith', 'https://jobs.ashbyhq.com/Blacksmith', {
     sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2299471972%22%5D',
   }),
   // Identity proven, not inferred: the job id in the posting URL this was added
   // from (e8168e8a-451e-41bb-9c13-8f24b4b84e50) resolves on the `llamaindex`
   // board as "Member of Technical Staff, Infrastructure".
   createBackendScraperCompany('llamaindex', 'LlamaIndex', 'https://www.llamaindex.ai/careers', {
     sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2291154103%22%5D',
   }),
   // The agent-native team-messaging startup at ando.so (the board's own
   // `publicWebsite`), NOT David Chang's 2016 Ando food-delivery app that Uber
@@ -859,11 +959,15 @@ export const COMPANIES: Company[] = [
   // careers page (/careers and /jobs both 404).
   createBackendScraperCompany('ando', 'Ando', 'https://jobs.ashbyhq.com/ando', {
     sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%223871272%22%5D',
   }),
   // All 31 job ids linked from firecrawl.dev/careers resolve on the `firecrawl`
   // board, so the careers page and the board are the same set.
   createBackendScraperCompany('firecrawl', 'Firecrawl', 'https://www.firecrawl.dev/careers', {
     sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22104100957%22%5D',
   }),
 
   // Gem (backend-scraper) — backend Procrastinate worker fetches from
@@ -905,7 +1009,11 @@ export const COMPANIES: Company[] = [
     'fireflies',
     'Fireflies.ai',
     'https://fireflies.ai/careers',
-    { sourceAts: 'gem' }
+    {
+      sourceAts: 'gem',
+      recruiterLinkedInUrl:
+        'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2210931378%22%5D',
+    }
   ),
 
   // Workday companies (migrated to backend-scraper)
@@ -1028,6 +1136,8 @@ export const COMPANIES: Company[] = [
     'https://cisco.wd5.myworkdayjobs.com/Cisco_Careers',
     {
       sourceAts: 'workday',
+      recruiterLinkedInUrl:
+        'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%221063%22%5D',
     }
   ),
 
@@ -1040,6 +1150,8 @@ export const COMPANIES: Company[] = [
     'https://salesforce.wd12.myworkdayjobs.com/External_Career_Site',
     {
       sourceAts: 'workday',
+      recruiterLinkedInUrl:
+        'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%223185%22%5D',
     }
   ),
   createBackendScraperCompany(
@@ -1048,6 +1160,8 @@ export const COMPANIES: Company[] = [
     'https://crowdstrike.wd5.myworkdayjobs.com/crowdstrikecareers',
     {
       sourceAts: 'workday',
+      recruiterLinkedInUrl:
+        'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%222497653%22%5D',
     }
   ),
   createBackendScraperCompany(
@@ -1056,6 +1170,8 @@ export const COMPANIES: Company[] = [
     'https://careers.zoom.us',
     {
       sourceAts: 'workday',
+      recruiterLinkedInUrl:
+        'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%222532259%22%5D',
     }
   ),
   createBackendScraperCompany(
@@ -1064,6 +1180,8 @@ export const COMPANIES: Company[] = [
     'https://intel.wd1.myworkdayjobs.com/External',
     {
       sourceAts: 'workday',
+      recruiterLinkedInUrl:
+        'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%221053%22%5D',
     }
   ),
 
@@ -1113,21 +1231,344 @@ export const COMPANIES: Company[] = [
   // type deliberately names only the six vendor ATSes. Do NOT add 'recipe' to it
   // — `sourceAts` answers "which vendor board is behind this", and the answer
   // here is genuinely none.
-  createBackendScraperCompany('atlassian', 'Atlassian', 'https://www.atlassian.com/company/careers/all-jobs'),
-  createBackendScraperCompany('github', 'GitHub', 'https://www.github.careers/careers-home/jobs'),
+  createBackendScraperCompany('atlassian', 'Atlassian', 'https://www.atlassian.com/company/careers/all-jobs', {
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2222688%22%5D',
+  }),
+  createBackendScraperCompany('github', 'GitHub', 'https://www.github.careers/careers-home/jobs', {
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%221418841%22%5D',
+  }),
 
   // Lightfield (lightfield.app)
   createBackendScraperCompany('lightfield', 'Lightfield', 'https://jobs.ashbyhq.com/Lightfield', {
     sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22106407337%22%5D',
   }),
 
   // Arena (arena.ai)
   createBackendScraperCompany('arena', 'Arena', 'https://jobs.ashbyhq.com/arena', {
     sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22107123113%22%5D',
+  }),
+
+  // Batch add (2026-10-21) — hand-picked boards, each verified live on the day it
+  // was added.
+  createBackendScraperCompany('attio', 'Attio', 'https://attio.com/careers', {
+    sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2214815603%22%5D',
+  }),
+  // Ghost the personal-AI hardware startup at ghost.ai (the Core device) — NOT
+  // ghost.org, the open-source publishing platform. Proven by the posting this was added
+  // from (a286999a-…) resolving on the `ghost` board.
+  createBackendScraperCompany('ghost', 'Ghost', 'https://ghost.ai/careers', {
+    sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22110953336%22%5D',
+  }),
+  createBackendScraperCompany('hex', 'Hex', 'https://hex.tech/careers/', {
+    sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2269022212%22%5D',
+  }),
+  createBackendScraperCompany('melius', 'Melius', 'https://jobs.ashbyhq.com/melius', {
+    sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22108443940%22%5D',
+  }),
+  createBackendScraperCompany('momentic', 'Momentic', 'https://jobs.ashbyhq.com/momentic', {
+    sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2298519062%22%5D',
+  }),
+  createBackendScraperCompany('render', 'Render', 'https://render.com/careers', {
+    sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2218594249%22%5D',
+  }),
+  // The company behind World (the Orb, World ID). Its Ashby token CONTAINS SPACES —
+  // `tools for humanity` (toolsforhumanity.com/careers links `Tools%20for%20Humanity`;
+  // both casings serve the same postings, the lowercase one is stored) — and every
+  // joined or hyphenated spelling 404s, as does `worldcoin`. httpx percent-encodes
+  // the spaces in the backend's f-string URL, same as `ricursive-intelligence` below.
+  createBackendScraperCompany(
+    'tools-for-humanity',
+    'Tools for Humanity',
+    'https://www.toolsforhumanity.com/careers',
+    {
+      sourceAts: 'ashby',
+      recruiterLinkedInUrl:
+        'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2290410174%22%5D',
+    }
+  ),
+
+  // Batch add (2026-10-21) — Greenfield Partners' Disruptors 60, Class of 2026 plus
+  // the 2026 Pioneers we did not already track (disruptors60.ai/winners/2026).
+  // Every board_token verified live on the day it was added (HTTP 200 JSON). The
+  // D60 companies on unsupported ATSes (Comeet, Workable, custom pages, …) are
+  // listed in the PR that added this block, not here.
+
+  // The Ashby board is live but lists no roles yet; it is tracked so postings show up
+  // the day they are published. accomplish.ai has no careers page (every path 404s).
+  createBackendScraperCompany('accomplish', 'Accomplish', 'https://jobs.ashbyhq.com/accomplish', {
+    sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22111126113%22%5D',
+  }),
+  createBackendScraperCompany('boltz', 'Boltz', 'https://jobs.gem.com/boltz', {
+    sourceAts: 'gem',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22110446491%22%5D',
+  }),
+  createBackendScraperCompany('callosum', 'Callosum', 'https://www.callosum.com/join-us', {
+    sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22110752928%22%5D',
+  }),
+  // Ashby token `chaidiscovery` — the hyphenated `chai-discovery` 404s.
+  createBackendScraperCompany(
+    'chai-discovery',
+    'Chai Discovery',
+    'https://www.chaidiscovery.com/careers',
+    {
+      sourceAts: 'ashby',
+      recruiterLinkedInUrl:
+        'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22104933279%22%5D',
+    }
+  ),
+  createBackendScraperCompany(
+    'code-metal',
+    'Code Metal',
+    'https://www.codemetal.ai/company#open-roles',
+    {
+      sourceAts: 'ashby',
+      recruiterLinkedInUrl:
+        'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22101825776%22%5D',
+    }
+  ),
+  createBackendScraperCompany('como', 'COMO', 'https://como.io/careers', {
+    sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22145230498%22%5D',
+  }),
+  createBackendScraperCompany('conduct', 'Conduct', 'https://conduct.ai/careers', {
+    sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22103435439%22%5D',
+  }),
+  // Corma the AI-for-defensive-security lab at corma.ai — NOT corma.io, the French
+  // access-management SaaS. Tied by the board's own `publicWebsite`. The board is live
+  // but lists no roles yet; corma.ai has no careers page.
+  createBackendScraperCompany('corma', 'Corma', 'https://jobs.ashbyhq.com/corma', {
+    sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22135663975%22%5D',
+  }),
+  // IDENTITY TRAP: Ashby `corridor` is a DIFFERENT Corridor (corridor.dev, an AI
+  // security product). This is the benefits brokerage at corridoradvisors.com, whose
+  // board is `corridor-advisors` (`corridoradvisors` 404s).
+  createBackendScraperCompany('corridor', 'Corridor', 'https://corridoradvisors.com/careers', {
+    sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22111886635%22%5D',
+  }),
+  createBackendScraperCompany('duvo', 'Duvo', 'https://www.duvo.ai/careers', {
+    sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22107577785%22%5D',
+  }),
+  createBackendScraperCompany('dwelly', 'Dwelly', 'https://www.dwelly.group/careers', {
+    sourceAts: 'greenhouse',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22104483733%22%5D',
+  }),
+  createBackendScraperCompany('endra', 'Endra', 'https://www.endra.ai/career', {
+    sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22106335430%22%5D',
+  }),
+  createBackendScraperCompany('engram', 'Engram', 'https://engram.com/careers', {
+    sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2246890012%22%5D',
+  }),
+  createBackendScraperCompany('etched', 'Etched', 'https://www.etched.com/join', {
+    sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2293620799%22%5D',
+  }),
+  createBackendScraperCompany(
+    'foundry-robotics',
+    'Foundry Robotics',
+    'https://jobs.ashbyhq.com/foundry-robotics',
+    {
+      sourceAts: 'ashby',
+      recruiterLinkedInUrl:
+        'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22111491132%22%5D',
+    }
+  ),
+  createBackendScraperCompany('fundamental', 'Fundamental', 'https://fundamental.tech/careers', {
+    sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22111252017%22%5D',
+  }),
+  // Glow the endpoint-AI security company (glow.io), id disambiguated from the bare
+  // word. Ashby token `glow`. A Greenhouse `glow` board also answers 200, with 0 jobs
+  // and no link from glow.io — not this company's board.
+  createBackendScraperCompany('glow-security', 'Glow', 'https://www.glow.io/careers', {
+    sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22118894433%22%5D',
+  }),
+  // Ashby token `hadrian-automation` — the bare `hadrian` 404s.
+  createBackendScraperCompany('hadrian', 'Hadrian', 'https://www.hadrian.co/careers', {
+    sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2271668100%22%5D',
+  }),
+  createBackendScraperCompany('hemispheric', 'Hemispheric', 'https://www.hemispheric.ai/careers', {
+    sourceAts: 'greenhouse',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22105462551%22%5D',
+  }),
+  // Ashby serves this board as both `Irregular` (the casing irregular.com links) and
+  // `irregular`, same postings; the lowercase token is stored.
+  createBackendScraperCompany('irregular', 'Irregular', 'https://www.irregular.com/careers', {
+    sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22101418756%22%5D',
+  }),
+  createBackendScraperCompany('lawhive', 'Lawhive', 'https://jobs.ashbyhq.com/lawhive', {
+    sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2271253922%22%5D',
+  }),
+  createBackendScraperCompany('lio', 'Lio', 'https://www.lio.ai/careers', {
+    sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2293327386%22%5D',
+  }),
+  createBackendScraperCompany('livekit', 'LiveKit', 'https://livekit.com/careers', {
+    sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2274724401%22%5D',
+  }),
+  // Ashby serves this board as both `NormalComputing` (the hosted-page casing
+  // careers.normalcomputing.com redirects to) and `normalcomputing`, same postings; the
+  // lowercase token is stored. The hyphenated `normal-computing` 404s.
+  createBackendScraperCompany(
+    'normal-computing',
+    'Normal Computing',
+    'https://careers.normalcomputing.com',
+    {
+      sourceAts: 'ashby',
+      recruiterLinkedInUrl:
+        'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2292930537%22%5D',
+    }
+  ),
+  createBackendScraperCompany('nox-metals', 'Nox Metals', 'https://noxmetals.co/careers', {
+    sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22107769143%22%5D',
+  }),
+  createBackendScraperCompany('ornn', 'Ornn', 'https://ornn.com/careers', {
+    sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2293871334%22%5D',
+  }),
+  // Pace the insurance-operations AI company at withpace.com. Ashby token `withpace`
+  // (`pace` 404s); its open roles live on /company — /careers 404s.
+  createBackendScraperCompany('pace', 'Pace', 'https://www.withpace.com/company', {
+    sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22108030616%22%5D',
+  }),
+  // IDENTITY TRAP: Ashby `patronus` is Patronus Group (Berlin, patronus-group.com),
+  // not this company. Patronus AI hires through Greenhouse as `patronusaiinc`.
+  createBackendScraperCompany('patronus-ai', 'Patronus AI', 'https://www.patronus.ai/join', {
+    sourceAts: 'greenhouse',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2298695525%22%5D',
+  }),
+  createBackendScraperCompany(
+    'periodic-labs',
+    'Periodic Labs',
+    'https://jobs.ashbyhq.com/periodic-labs',
+    {
+      sourceAts: 'ashby',
+      recruiterLinkedInUrl:
+        'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22108918379%22%5D',
+    }
+  ),
+  createBackendScraperCompany('probook', 'Probook', 'https://www.probook.ai/company#open-roles', {
+    sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2293780122%22%5D',
+  }),
+  createBackendScraperCompany('revel', 'Revel', 'https://www.revel.io/careers', {
+    sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22106558023%22%5D',
+  }),
+  // The Ashby token CONTAINS A SPACE: the board is named `ricursive intelligence`
+  // (Ashby's own job URLs spell it `ricursive%20intelligence`). Every hyphenated or
+  // joined spelling 404s. The backend's f-string URL is percent-encoded by httpx, so
+  // the decoded form is what the seed migration stores.
+  createBackendScraperCompany(
+    'ricursive-intelligence',
+    'Ricursive Intelligence',
+    'https://www.ricursive.com/careers',
+    {
+      sourceAts: 'ashby',
+      recruiterLinkedInUrl:
+        'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22110225045%22%5D',
+    }
+  ),
+  // Scope the industrial-inspection AI company at getscope.ai. Ashby token `getscope`
+  // (`scope` 404s); its careers page is getscope.ai/career, singular — /careers 404s.
+  createBackendScraperCompany('scope', 'Scope', 'https://www.getscope.ai/career', {
+    sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22103396277%22%5D',
+  }),
+  createBackendScraperCompany('sphere', 'Sphere', 'https://www.getsphere.com/careers', {
+    sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2269773723%22%5D',
+  }),
+  createBackendScraperCompany('starbridge', 'Starbridge', 'https://jobs.ashbyhq.com/starbridge', {
+    sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22105986429%22%5D',
+  }),
+  createBackendScraperCompany('surge-ai', 'Surge AI', 'https://surgehq.ai/careers', {
+    sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2267755934%22%5D',
+  }),
+  createBackendScraperCompany('westmag', 'Westmag', 'https://www.westmag.com/careers', {
+    sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22116334022%22%5D',
+  }),
+  // Ashby token `wordsmith` — `wordsmith-ai` and `wordsmithai` 404.
+  createBackendScraperCompany('wordsmith-ai', 'Wordsmith AI', 'https://www.wordsmith.ai/careers', {
+    sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22102875272%22%5D',
+  }),
+  createBackendScraperCompany('xdof', 'XDOF', 'https://www.xdof.ai/careers', {
+    sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22104424356%22%5D',
   }),
 ];
 
 export const enum COMPANY_IDS {
+  Accomplish = 'accomplish',
   Adobe = 'adobe',
   Affirm = 'affirm',
   Airbnb = 'airbnb',
@@ -1143,18 +1584,22 @@ export const enum COMPANY_IDS {
   Arena = 'arena',
   Astranis = 'astranis',
   Atlassian = 'atlassian',
+  Attio = 'attio',
   Baseten = 'baseten',
   BasePower = 'base-power',
   Blacksmith = 'blacksmith',
   Block = 'block',
+  Boltz = 'boltz',
   Box = 'box',
   BlueOrigin = 'blueorigin',
   Brex = 'brex',
   Braintrust = 'braintrust',
   Browserbase = 'browserbase',
+  Callosum = 'callosum',
   CapitalOne = 'capitalone',
   Cartesia = 'cartesia',
   Cerebras = 'cerebras',
+  ChaiDiscovery = 'chai-discovery',
   Chalk = 'chalk',
   Cisco = 'cisco',
   Clarify = 'clarify',
@@ -1163,11 +1608,16 @@ export const enum COMPANY_IDS {
   ClickHouse = 'clickhouse',
   ClickUp = 'clickup',
   Cloudflare = 'cloudflare',
+  CodeMetal = 'code-metal',
   CodeRabbit = 'coderabbit',
   Cognition = 'cognition',
   Cohere = 'cohere',
   Coinbase = 'coinbase',
+  Como = 'como',
   Composio = 'composio',
+  Conduct = 'conduct',
+  Corma = 'corma',
+  Corridor = 'corridor',
   CrowdStrike = 'crowdstrike',
   Crunchyroll = 'crunchyroll',
   Crusoe = 'crusoe',
@@ -1181,8 +1631,13 @@ export const enum COMPANY_IDS {
   Dropbox = 'dropbox',
   Disney = 'disney',
   Doordashusa = 'doordashusa',
+  Duvo = 'duvo',
+  Dwelly = 'dwelly',
   ElevenLabs = 'elevenlabs',
   EliseAI = 'eliseai',
+  Endra = 'endra',
+  Engram = 'engram',
+  Etched = 'etched',
   Exa = 'exa',
   Expedia = 'expedia',
   FableSecurity = 'fable-security',
@@ -1195,62 +1650,82 @@ export const enum COMPANY_IDS {
   Flint = 'flint',
   FireworksAI = 'fireworksai',
   FlowEngineering = 'flowengineering',
+  FoundryRobotics = 'foundry-robotics',
+  Fundamental = 'fundamental',
   Gamma = 'gamma',
   GeneralIntelligenceCompany = 'generalintelligencecompany',
   GeneralMotors = 'gm',
+  Ghost = 'ghost',
   GigaML = 'gigaml',
   Gimlet = 'gimlet',
   Github = 'github',
   GitLab = 'gitlab',
   Glean = 'gleanwork',
+  GlowSecurity = 'glow-security',
   Google = 'google',
   Gradial = 'gradial',
   Granola = 'granola',
   Greptile = 'greptile',
+  Hadrian = 'hadrian',
   Harvey = 'harvey',
   Happyrobot = 'happyrobot.ai',
+  Hemispheric = 'hemispheric',
+  Hex = 'hex',
   HeyGen = 'heygen',
   Hightouch = 'hightouch',
   Instacart = 'instacart',
   Intel = 'intel',
+  Irregular = 'irregular',
   JaneStreet = 'janestreet',
   JudgmentLabs = 'judgmentlabs',
   Krea = 'krea',
   LangChain = 'langchain',
+  Lawhive = 'lawhive',
   Legora = 'legora',
   Light = 'light',
   Lightfield = 'lightfield',
   Linear = 'linear',
+  Lio = 'lio',
   ListenLabs = 'listenlabs',
+  LiveKit = 'livekit',
   LlamaIndex = 'llamaindex',
   Lovable = 'lovable',
   Lyft = 'lyft',
   Mastra = 'mastra',
+  Melius = 'melius',
   Merge = 'merge',
   Meta = 'meta',
   Microsoft = 'microsoft',
   Mintlify = 'mintlify',
   MistralAI = 'mistral-ai',
   ModalLabs = 'modal',
+  Momentic = 'momentic',
   MongoDB = 'mongodb',
   Netflix = 'netflix',
   Neuralink = 'neuralink',
   Nominal = 'nominal',
+  NormalComputing = 'normal-computing',
   Notion = 'notion',
+  NoxMetals = 'nox-metals',
   Nuro = 'nuro',
   Nvidia = 'nvidia',
   Okta = 'okta',
   OpenAI = 'openai',
   OpenEvidence = 'openevidence',
   OpenRouter = 'openrouter',
+  Ornn = 'ornn',
+  Pace = 'pace',
   Pallet = 'pallet',
   Palantir = 'palantir',
   Paraform = 'paraform',
   Parallel = 'parallel',
+  PatronusAI = 'patronus-ai',
   PayPal = 'paypal',
+  PeriodicLabs = 'periodic-labs',
   Perplexity = 'perplexity',
   PhysicalIntelligence = 'physical-intelligence',
   PostHog = 'posthog',
+  Probook = 'probook',
   Pylon = 'pylon-labs',
   Pinterest = 'pinterest',
   Plaid = 'plaid',
@@ -1261,9 +1736,12 @@ export const enum COMPANY_IDS {
   Ramp = 'ramp',
   Reddit = 'reddit',
   Reducto = 'reducto',
+  Render = 'render',
   Replit = 'replit',
   Resend = 'resend',
   ResolveAI = 'resolve-ai',
+  Revel = 'revel',
+  RicursiveIntelligence = 'ricursive-intelligence',
   Roadrunner = 'roadrunner',
   Robinhood = 'robinhood',
   Roblox = 'roblox',
@@ -1271,6 +1749,7 @@ export const enum COMPANY_IDS {
   Salient = 'salient',
   Saronic = 'saronic',
   Scaleai = 'scaleai',
+  Scope = 'scope',
   Sesame = 'sesame',
   Sentry = 'sentry',
   Serval = 'serval',
@@ -1282,18 +1761,22 @@ export const enum COMPANY_IDS {
   Snap = 'snap',
   Snowflake = 'snowflake',
   Spacex = 'spacex',
+  Sphere = 'sphere',
   Spotify = 'spotify',
   Squarespace = 'squarespace',
+  Starbridge = 'starbridge',
   Stripe = 'stripe',
   Sunday = 'sunday',
   Suno = 'suno',
   Supabase = 'supabase',
+  SurgeAI = 'surge-ai',
   TasteLabs = 'taste-labs',
   Tavus = 'tavus',
   ThinkingMachines = 'thinkingmachines',
   TikTok = 'tiktok',
   TogetherAI = 'togetherai',
   TomoAI = 'tomo-ai',
+  ToolsForHumanity = 'tools-for-humanity',
   Town = 'town',
   Trajectory = 'trajectory',
   Traversal = 'traversal',
@@ -1307,10 +1790,13 @@ export const enum COMPANY_IDS {
   Wafer = 'wafer',
   Warp = 'warp',
   Waymo = 'waymo',
+  Westmag = 'westmag',
   WisprFlow = 'wispr-flow',
+  WordsmithAI = 'wordsmith-ai',
   WorkOS = 'workos',
   Workweave = 'workweave',
   Xai = 'xai',
+  Xdof = 'xdof',
   Zed = 'zed',
   Zoom = 'zoom',
   Zoox = 'zoox',
