@@ -17,10 +17,34 @@ pip install -r src/backend/api/requirements.txt  # Install API dependencies
 cd src/backend && pytest                                 # Run all backend tests
 cd src/backend && pytest -v                              # Verbose output
 cd src/backend && pytest api/tests/test_jobs_router.py   # Single file
+cd src/backend && pytest -n 4 --dist loadfile            # Parallel, as CI runs it (pytest-xdist)
 
 # Type checking (from src/backend/) — run before committing; CI gates on it
 cd src/backend && mypy                                   # Static type check (config in pyproject.toml)
 ```
+
+## Tests run in parallel in CI
+
+CI runs the suite with **pytest-xdist** (`pytest -n 4 --dist loadfile`). Two things make
+that safe, and new tests must not break either:
+
+- **A file never splits across workers** (`loadfile`), so a module-scoped fixture — every
+  `db_conn` schema — stays in one process.
+- **Each worker has its own database**, `<TEST_DATABASE_URL's db>_gw<N>`, dropped and
+  recreated at the start of every run (`_use_worker_database` in `api/tests/conftest.py`).
+  `DATABASE_URL` is pointed at it too, because the Procrastinate app builds its connector
+  from it at import time. This is what makes per-DATABASE state safe: the
+  `CREATE EXTENSION pg_trgm` bootstrap races between concurrent sessions, and Procrastinate's
+  tables in `public` would otherwise mix jobs from different modules into one count.
+  Two `-n` runs at once against the same `TEST_DATABASE_URL` (two worktrees) want the
+  same `_gw<N>` databases: the second one stops at startup with "is in use" rather than
+  dropping them out from under the first. Give one of them a different database.
+
+Do not make a test depend on what ANOTHER file left in the database — under xdist that
+file may have run in a different worker, or not yet. (The `/health/worker` tests once read
+Procrastinate tables that only an earlier module had created in `public`; a test that needs
+those tables takes the `procrastinate_schema` fixture.) Plain `pytest` (no `-n`) is unchanged
+and still uses `TEST_DATABASE_URL` directly.
 
 ## Type checking
 

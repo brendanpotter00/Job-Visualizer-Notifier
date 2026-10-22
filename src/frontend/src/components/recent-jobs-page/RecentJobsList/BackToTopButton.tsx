@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Fab, Zoom } from '@mui/material';
-import { KeyboardArrowUp } from '@mui/icons-material';
+import KeyboardArrowUp from '@mui/icons-material/KeyboardArrowUp';
 import { INFINITE_SCROLL_CONFIG } from '../../../constants/ui.ts';
 import { ARIA_LABELS } from '../../../constants/messages.ts';
 

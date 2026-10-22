@@ -13,6 +13,16 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _procrastinate_tables(procrastinate_schema):
+    """Every probe here reads `procrastinate_events`, so this module brings its own
+    copy of the table. Relying on one some earlier module left in `public` only held
+    while one process ran every file in name order; under xdist this file can be the
+    first thing its worker's fresh database sees."""
+
 
 def _wipe(db_conn) -> None:
     cur = db_conn.cursor()
