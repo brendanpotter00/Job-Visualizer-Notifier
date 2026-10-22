@@ -1565,6 +1565,69 @@ export const COMPANIES: Company[] = [
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22104424356%22%5D',
   }),
+
+  // Batch add (2026-10-22) — hand-picked boards, each verified live on the day it
+  // was added. (Whatnot was asked for too, but its Ashby board has the public
+  // posting API switched off, so no supported client can read it.)
+  // The research-automation lab Jeff Dean, Sanjay Ghemawat, Quoc Le and Oriol Vinyals
+  // started in 2026 (discoveryloop.com — the board's own publicWebsite). Ashby serves the
+  // board as both `Discovery-Loop` (its hosted-page casing) and `discovery-loop`; the
+  // lowercase token is stored. discoveryloop.com/careers 404s, so the board URL is used.
+  createBackendScraperCompany(
+    'discovery-loop',
+    'Discovery Loop',
+    'https://jobs.ashbyhq.com/Discovery-Loop',
+    {
+      sourceAts: 'ashby',
+      recruiterLinkedInUrl:
+        'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22143069977%22%5D',
+    }
+  ),
+  // Generalist the robotics foundation-model lab (generalistai.com), not The Generalist
+  // newsletter; the id carries the fuller name, the Ashby token is the bare `generalist`.
+  createBackendScraperCompany(
+    'generalist-ai',
+    'Generalist AI',
+    'https://generalistai.com/careers',
+    {
+      sourceAts: 'ashby',
+      recruiterLinkedInUrl:
+        'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22105854178%22%5D',
+    }
+  ),
+  // humans& (humansand.ai), the human-centric AI lab — lowercase with the ampersand is
+  // its own spelling. humansand.ai has no careers page; its Join Us link is the board.
+  createBackendScraperCompany('humans-and', 'humans&', 'https://jobs.ashbyhq.com/humans-and', {
+    sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22109358162%22%5D',
+  }),
+  // Greenhouse token `k2spacecorporation` — `k2space` is not its board.
+  createBackendScraperCompany('k2-space', 'K2 Space', 'https://www.k2space.com/careers', {
+    sourceAts: 'greenhouse',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2290594574%22%5D',
+  }),
+  // kalshi.com/careers rate-limits non-browser clients (429), so the board URL is used.
+  createBackendScraperCompany('kalshi', 'Kalshi', 'https://job-boards.greenhouse.io/kalshi', {
+    sourceAts: 'greenhouse',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2219087660%22%5D',
+  }),
+  // Reflection AI the open-weight model lab (reflection.ai), not Reflection 70B or the
+  // reflection.app journal. Ashby token `reflectionai`.
+  createBackendScraperCompany('reflection-ai', 'Reflection AI', 'https://reflection.ai/careers', {
+    sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22106009488%22%5D',
+  }),
+  // Lever token `shieldai`. Its careers page also links a separate Greenhouse board for
+  // Aechelon Technology (an acquisition, `aechelontechnology`), which is not tracked here.
+  createBackendScraperCompany('shield-ai', 'Shield AI', 'https://shield.ai/careers/', {
+    sourceAts: 'lever',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%227952659%22%5D',
+  }),
 ];
 
 export const enum COMPANY_IDS {
@@ -1627,6 +1690,7 @@ export const enum COMPANY_IDS {
   Datadog = 'datadog',
   DavidAI = 'david-ai',
   Discord = 'discord',
+  DiscoveryLoop = 'discovery-loop',
   Distyl = 'distyl',
   Dropbox = 'dropbox',
   Disney = 'disney',
@@ -1654,6 +1718,7 @@ export const enum COMPANY_IDS {
   Fundamental = 'fundamental',
   Gamma = 'gamma',
   GeneralIntelligenceCompany = 'generalintelligencecompany',
+  GeneralistAI = 'generalist-ai',
   GeneralMotors = 'gm',
   Ghost = 'ghost',
   GigaML = 'gigaml',
@@ -1673,11 +1738,14 @@ export const enum COMPANY_IDS {
   Hex = 'hex',
   HeyGen = 'heygen',
   Hightouch = 'hightouch',
+  HumansAnd = 'humans-and',
   Instacart = 'instacart',
   Intel = 'intel',
   Irregular = 'irregular',
   JaneStreet = 'janestreet',
   JudgmentLabs = 'judgmentlabs',
+  K2Space = 'k2-space',
+  Kalshi = 'kalshi',
   Krea = 'krea',
   LangChain = 'langchain',
   Lawhive = 'lawhive',
@@ -1736,6 +1804,7 @@ export const enum COMPANY_IDS {
   Ramp = 'ramp',
   Reddit = 'reddit',
   Reducto = 'reducto',
+  ReflectionAI = 'reflection-ai',
   Render = 'render',
   Replit = 'replit',
   Resend = 'resend',
@@ -1753,6 +1822,7 @@ export const enum COMPANY_IDS {
   Sesame = 'sesame',
   Sentry = 'sentry',
   Serval = 'serval',
+  ShieldAI = 'shield-ai',
   Sierra = 'sierra',
   Sieve = 'sieve',
   SiftStack = 'siftstack',
