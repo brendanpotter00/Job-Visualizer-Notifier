@@ -43,11 +43,18 @@ def _use_worker_database() -> None:
     Dropped and recreated every run, so a worker always starts from an empty
     database, as CI does. A no-op without xdist, and on a second import of this
     module in the same worker.
+
+    The drop is deliberately NOT ``WITH (FORCE)``. A session still on this database
+    belongs to another live ``-n`` run against the same ``TEST_DATABASE_URL`` (a
+    second worktree, say), and forcing the drop would kill that run mid-suite and
+    then hand it the database this run recreates. Sessions of a run that has just
+    exited are fine: ``DROP DATABASE`` waits a few seconds for them to go.
     """
     worker = os.environ.get("PYTEST_XDIST_WORKER")
     if not worker or os.environ.get("_PYTEST_WORKER_DATABASE") == worker:
         return
 
+    from psycopg2 import errors as pg_errors
     from sqlalchemy.engine import make_url
 
     base = make_url(os.environ.get("TEST_DATABASE_URL", _DEFAULT_TEST_DB_URL))
@@ -56,9 +63,14 @@ def _use_worker_database() -> None:
     try:
         admin.autocommit = True
         with admin.cursor() as cur:
-            cur.execute(
-                sql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(sql.Identifier(name))
-            )
+            try:
+                cur.execute(sql.SQL("DROP DATABASE IF EXISTS {}").format(sql.Identifier(name)))
+            except pg_errors.ObjectInUse as exc:
+                raise RuntimeError(
+                    f"Database {name!r} is in use, most likely by another `pytest -n` run "
+                    "against the same TEST_DATABASE_URL. Let it finish, or point this run "
+                    "at a different database."
+                ) from exc
             cur.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(name)))
     finally:
         admin.close()

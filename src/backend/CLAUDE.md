@@ -36,6 +36,9 @@ that equivalent to a serial run, and new tests must not break either:
   from it at import time. This is what makes per-DATABASE state safe: the
   `CREATE EXTENSION pg_trgm` bootstrap races between concurrent sessions, and Procrastinate's
   tables in `public` would otherwise mix jobs from different modules into one count.
+  Two `-n` runs at once against the same `TEST_DATABASE_URL` (two worktrees) want the
+  same `_gw<N>` databases: the second one stops at startup with "is in use" rather than
+  dropping them out from under the first. Give one of them a different database.
 
 Do not make a test depend on what ANOTHER file left in the database — under xdist that
 file may have run in a different worker, or not yet. Plain `pytest` (no `-n`) is unchanged
