@@ -121,7 +121,9 @@ export function renderWithProviders(
  */
 export async function findListboxOption(label: string): Promise<HTMLElement> {
   const listbox = await screen.findByRole('listbox');
-  const option = within(listbox).getByText(label).closest<HTMLElement>('[role="option"]');
+  const option = (await within(listbox).findByText(label)).closest<HTMLElement>(
+    '[role="option"]'
+  );
   if (!option) {
     throw new Error(`"${label}" is in the listbox but not inside an element with role="option"`);
   }

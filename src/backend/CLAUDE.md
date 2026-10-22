@@ -25,8 +25,8 @@ cd src/backend && mypy                                   # Static type check (co
 
 ## Tests run in parallel in CI
 
-CI runs the suite with **pytest-xdist** (`pytest -n 4 --dist loadfile`). Two things keep
-that equivalent to a serial run, and new tests must not break either:
+CI runs the suite with **pytest-xdist** (`pytest -n 4 --dist loadfile`). Two things make
+that safe, and new tests must not break either:
 
 - **A file never splits across workers** (`loadfile`), so a module-scoped fixture — every
   `db_conn` schema — stays in one process.
@@ -41,7 +41,9 @@ that equivalent to a serial run, and new tests must not break either:
   dropping them out from under the first. Give one of them a different database.
 
 Do not make a test depend on what ANOTHER file left in the database — under xdist that
-file may have run in a different worker, or not yet. Plain `pytest` (no `-n`) is unchanged
+file may have run in a different worker, or not yet. (The `/health/worker` tests once read
+Procrastinate tables that only an earlier module had created in `public`; a test that needs
+those tables takes the `procrastinate_schema` fixture.) Plain `pytest` (no `-n`) is unchanged
 and still uses `TEST_DATABASE_URL` directly.
 
 ## Type checking

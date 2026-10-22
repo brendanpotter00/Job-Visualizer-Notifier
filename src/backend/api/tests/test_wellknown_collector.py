@@ -271,10 +271,15 @@ def test_running_out_of_time_keeps_what_was_already_read() -> None:
     slow = _fetcher(pages, seen=seen)
 
     def _slow(url: str, max_bytes: int) -> tuple[int, str]:
-        time.sleep(0.05)
+        time.sleep(0.2)
         return slow(url, max_bytes)
 
-    evidence = _collect_well_known_sync(_WALMART, _slow, budget_s=0.06)
+    # The deadline is checked before each fetch, so the shape is: robots.txt ends
+    # inside the budget (sitemap.xml is still asked for), sitemap.xml ends past it
+    # (nothing after it is). 0.2s fetches against 0.3s leave 100ms of slack on both
+    # sides; it was 50ms against 60ms, and a 10ms scheduling hiccup on a busy CI
+    # runner (four pytest workers sharing it) stopped it after robots.txt.
+    evidence = _collect_well_known_sync(_WALMART, _slow, budget_s=0.3)
     # It STOPPED ASKING: the last speculative path is never reached, and without the
     # deadline every one of them is.
     assert f"{_ORIGIN}/api/jobs" not in seen

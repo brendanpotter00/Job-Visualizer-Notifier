@@ -36,10 +36,13 @@ def _use_worker_database() -> None:
       ``public`` for the tests that go through the real app, so one module's jobs
       show up in another module's counts.
 
-    A database per worker makes each worker exactly a serial run over its share of
-    the files. It runs at import, before anything imports ``api``: the Procrastinate
+    A database per worker makes each worker a serial run over its share of the files
+    — though not in name order, so a file must not rely on what another file left in
+    the database. It runs at import, before anything imports ``api``: the Procrastinate
     app builds its connector from ``DATABASE_URL`` at import time, so that is pointed
-    at the worker database too (in CI it already equals ``TEST_DATABASE_URL``).
+    at the worker database too. (CI leaves ``DATABASE_URL`` unset, and the Settings
+    default is the same URL as its ``TEST_DATABASE_URL``, so a serial CI run already
+    had the two equal.)
     Dropped and recreated every run, so a worker always starts from an empty
     database, as CI does. A no-op without xdist, and on a second import of this
     module in the same worker.
