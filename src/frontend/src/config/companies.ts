@@ -1149,6 +1149,17 @@ export const COMPANIES: Company[] = [
   createBackendScraperCompany('render', 'Render', 'https://render.com/careers', {
     sourceAts: 'ashby',
   }),
+  // The company behind World (the Orb, World ID). Its Ashby token CONTAINS SPACES —
+  // `tools for humanity` (toolsforhumanity.com/careers links `Tools%20for%20Humanity`;
+  // both casings serve the same postings, the lowercase one is stored) — and every
+  // joined or hyphenated spelling 404s, as does `worldcoin`. httpx percent-encodes
+  // the spaces in the backend's f-string URL, same as `ricursive-intelligence` below.
+  createBackendScraperCompany(
+    'tools-for-humanity',
+    'Tools for Humanity',
+    'https://www.toolsforhumanity.com/careers',
+    { sourceAts: 'ashby' }
+  ),
 
   // Batch add (2026-10-21) — Greenfield Partners' Disruptors 60, Class of 2026 plus
   // the 2026 Pioneers we did not already track (disruptors60.ai/winners/2026).
@@ -1531,6 +1542,7 @@ export const enum COMPANY_IDS {
   TikTok = 'tiktok',
   TogetherAI = 'togetherai',
   TomoAI = 'tomo-ai',
+  ToolsForHumanity = 'tools-for-humanity',
   Town = 'town',
   Trajectory = 'trajectory',
   Traversal = 'traversal',

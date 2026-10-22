@@ -880,6 +880,10 @@
     "blurb": "Tomo is a personal AI assistant that works entirely over text message, learning a user's goals and following up on them rather than waiting to be asked.",
     "accomplishment": "Built the assistant around SMS rather than an app, betting that the highest-retention surface for a personal AI is the inbox people already live in."
   },
+  "tools-for-humanity": {
+    "blurb": "Tools for Humanity builds the technology behind World, including the Orb iris-scanning device, World ID and World App, to prove a person is a real, unique human online.",
+    "accomplishment": "Brought World's services to the US in May 2025, starting with Orbs in six cities, alongside the smartphone-sized Orb Mini."
+  },
   "town": {
     "blurb": "Town builds a personal AI assistant, called a Townie, that learns how you work from your email, calendar and other tools and handles tasks like drafting emails, briefings and inbox management.",
     "accomplishment": "Raised a $55M Series A led by Andreessen Horowitz in June 2026, with Forerunner Ventures and First Round participating, founded by former Plaid CTO Jean-Denis Greze and ex-Google AI director Tony Vincent."

@@ -44,9 +44,9 @@ export const CHANGELOG: readonly ChangelogEntry[] = [
   },
   {
     id: 'add-companies-2026-10-21-picks',
-    title: 'Added six more companies',
+    title: 'Added seven more companies',
     description:
-      'Six more boards, about 120 open roles between them. Hex is a collaborative data platform that pairs SQL and Python notebooks with AI agents; Render is a cloud platform for deploying web services, databases and agents, and raised a 100 million dollar extension at a 1.5 billion dollar valuation in February; Attio is an AI-native CRM; Momentic lets teams write and maintain end-to-end tests in plain English; Melius is a creative workspace where people and AI agents make images, video and audio together, and raised a 20 million dollar Series A led by CRV this month; and Ghost, which came out of stealth this month with an 11 million dollar seed round led by Andreessen Horowitz, is building Core, a screenless personal AI computer that runs agents locally.',
+      'Seven more boards, about 130 open roles between them. Tools for Humanity builds the technology behind World (the Orb iris scanner, World ID and World App), and brought World to the US in 2025 alongside the smartphone-sized Orb Mini. Hex is a collaborative data platform that pairs SQL and Python notebooks with AI agents; Render is a cloud platform for deploying web services, databases and agents, and raised a 100 million dollar extension at a 1.5 billion dollar valuation in February; Attio is an AI-native CRM; Momentic lets teams write and maintain end-to-end tests in plain English; Melius is a creative workspace where people and AI agents make images, video and audio together, and raised a 20 million dollar Series A led by CRV this month; and Ghost, which came out of stealth this month with an 11 million dollar seed round led by Andreessen Horowitz, is building Core, a screenless personal AI computer that runs agents locally.',
     tags: ['new-companies'],
     date: '2026-10-21',
     link: {
