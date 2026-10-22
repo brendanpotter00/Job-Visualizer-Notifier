@@ -1,7 +1,8 @@
 """Test fixtures for FastAPI backend tests.
 
 Uses a real PostgreSQL database with test-isolated schemas (test_<hex>)
-that are created before each test module and dropped after.
+that are created before each test module and dropped after. Under pytest-xdist
+each worker also gets a database of its own — see ``_use_worker_database``.
 """
 
 import json
@@ -16,15 +17,61 @@ from fastapi.testclient import TestClient
 from psycopg2 import sql
 from psycopg2.extras import RealDictCursor
 
-from api.migrations import stamp_alembic_head
-
 logger = logging.getLogger(__name__)
 
 # Default test database URL (same as docker-compose)
-TEST_DB_URL = os.environ.get(
-    "TEST_DATABASE_URL",
-    "postgresql://postgres:postgres@localhost:5432/jobscraper",
-)
+_DEFAULT_TEST_DB_URL = "postgresql://postgres:postgres@localhost:5432/jobscraper"
+
+
+def _use_worker_database() -> None:
+    """Point this pytest-xdist worker at a database of its own.
+
+    Per-module schemas isolate the TABLES, but some state is per DATABASE and was
+    only safe while one process ran the whole suite:
+
+    - ``CREATE EXTENSION IF NOT EXISTS pg_trgm`` (the ``before_create`` hook in
+      ``db_models``) is not safe against a concurrent creator — two workers
+      bootstrapping at once fail with a unique violation on ``pg_extension``.
+    - Procrastinate's ``procrastinate_jobs`` / ``procrastinate_events`` live in
+      ``public`` for the tests that go through the real app, so one module's jobs
+      show up in another module's counts.
+
+    A database per worker makes each worker exactly a serial run over its share of
+    the files. It runs at import, before anything imports ``api``: the Procrastinate
+    app builds its connector from ``DATABASE_URL`` at import time, so that is pointed
+    at the worker database too (in CI it already equals ``TEST_DATABASE_URL``).
+    Dropped and recreated every run, so a worker always starts from an empty
+    database, as CI does. A no-op without xdist, and on a second import of this
+    module in the same worker.
+    """
+    worker = os.environ.get("PYTEST_XDIST_WORKER")
+    if not worker or os.environ.get("_PYTEST_WORKER_DATABASE") == worker:
+        return
+
+    from sqlalchemy.engine import make_url
+
+    base = make_url(os.environ.get("TEST_DATABASE_URL", _DEFAULT_TEST_DB_URL))
+    name = f"{base.database}_{worker}"
+    admin = psycopg2.connect(base.render_as_string(hide_password=False))
+    try:
+        admin.autocommit = True
+        with admin.cursor() as cur:
+            cur.execute(
+                sql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(sql.Identifier(name))
+            )
+            cur.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(name)))
+    finally:
+        admin.close()
+
+    url = base.set(database=name).render_as_string(hide_password=False)
+    os.environ["TEST_DATABASE_URL"] = url
+    os.environ["DATABASE_URL"] = url
+    os.environ["_PYTEST_WORKER_DATABASE"] = worker
+
+
+_use_worker_database()
+
+TEST_DB_URL = os.environ.get("TEST_DATABASE_URL", _DEFAULT_TEST_DB_URL)
 
 
 @pytest.fixture(scope="module")
@@ -67,6 +114,7 @@ def db_conn():
     # scripts/tests/integration/test_alembic_parity.py.
     from sqlalchemy import create_engine, event
     import api.db_models as _db_models
+    from api.migrations import stamp_alembic_head
 
     engine = create_engine(TEST_DB_URL)
 

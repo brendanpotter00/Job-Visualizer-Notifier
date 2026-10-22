@@ -795,6 +795,9 @@ Use the `add-company` skill (repo-root `.claude/skills/add-company/`, `/add-comp
    - **Tables**: Always paginate tables with 100+ rows - unpaginated tables with thousands of rows cause severe browser memory issues (50+ GB)
    - **Recent jobs are paged server-side**: the Recent page never holds the whole corpus — `useRecentJobsSearch` walks `/api/jobs/search` a page at a time and `VirtualJobRows` renders only the visible window. Do not reintroduce a selector that flattens every loaded page into one array to filter or sort it client-side; send the filter to the endpoint instead
    - **Pattern**: See QAPage jobs table for pagination pattern (useMemo for slice + TablePagination component)
+11. **Test suite speed**: CI runs Vitest in 4 parallel shards on the `threads` pool. Two patterns made it slow before, and both are easy to bring back:
+   - **Import MUI icons by path** (`import AddIcon from '@mui/icons-material/Add'`), never from the package root. The root re-exports ~21k files, and Vitest loads it again in every isolated test file. ESLint (`no-restricted-imports`) blocks the root import.
+   - **Don't use `findByRole('option', { name })` on the company dropdown** (~200 options). It computes an accessible name for every option, ~650ms a call. Use `findListboxOption(label)` from `test/testUtils.tsx` and assert the name on the returned element with `toHaveAccessibleName`. The same applies to any role+name query on `screen` while a big table or list is mounted: scope it with `within(...)` first.
 
 ## Key Files
 

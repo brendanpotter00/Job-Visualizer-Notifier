@@ -10,8 +10,11 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  frontend:
-    name: Frontend
+  # The frontend is split into one lint/type/build job and parallel test
+  # shards. Before the split one job ran everything in series and the Vitest
+  # suite alone took 4-7 minutes.
+  frontend-checks:
+    name: Frontend checks
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -27,9 +30,32 @@ jobs:
 
       - run: npm run type-check
 
-      - run: npm test -- --run
+      # `npm run build` is `tsc && vite build`, and the step above already ran
+      # tsc, so only the bundle step runs here.
+      - run: npx -w src/frontend vite build
 
-      - run: npm run build
+  frontend-tests:
+    name: Frontend tests (${{ matrix.shard }}/${{ strategy.job-total }})
+    runs-on: ubuntu-latest
+    strategy:
+      # Let every shard finish so one run reports every failing file.
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # Straight to the workspace script. The root `npm test` hops through a
+      # second `npm run`, which swallows everything after `--` as npm flags, so
+      # Vitest never saw `--shard` and every shard would run the whole suite.
+      - run: npm test -w src/frontend -- --run --shard=${{ matrix.shard }}/${{ strategy.job-total }}
 
   backend:
     name: Backend API
@@ -63,7 +89,11 @@ jobs:
 
       - run: cd src/backend && mypy
 
-      - run: cd src/backend && pytest
+      # pytest-xdist: one worker per vCPU, a file never split across workers
+      # (module-scoped fixtures own a schema each), and each worker on its own
+      # database (see _use_worker_database in api/tests/conftest.py). An explicit
+      # 4, not `auto`, which counts physical cores and can halve it on this runner.
+      - run: cd src/backend && pytest -n 4 --dist loadfile
         env:
           TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/jobscraper
 
