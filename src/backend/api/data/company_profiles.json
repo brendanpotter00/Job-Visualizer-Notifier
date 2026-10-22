@@ -72,7 +72,7 @@
   },
   "attio": {
     "blurb": "Attio is an AI-native CRM that teams customize to run their customer relationships, sales pipelines and go-to-market workflows.",
-    "accomplishment": "Raised a 52 million dollar Series B led by GV in August 2025, with more than 5,000 customers at the time."
+    "accomplishment": "Raised a 52 million dollar Series B led by GV in August 2025, with 5,000 paying customers at the time."
   },
   "base-power": {
     "accomplishment": "It builds a distributed network of residential battery storage that provides homes with backup power while helping balance the electric grid.",
@@ -120,7 +120,7 @@
   },
   "callosum": {
     "blurb": "Callosum is a London AI infrastructure company building systems software that matches each AI workload to the best mix of models and chips.",
-    "accomplishment": "Raised a 100 million dollar seed round led by Atomico in August 2026, the UK Sovereign AI Fund's first investment."
+    "accomplishment": "Raised a 100 million dollar seed round led by Atomico in August 2026, after becoming the first company backed by the UK's Sovereign AI fund in April."
   },
   "capitalone": {
     "accomplishment": "Capital One is a major U.S. bank and one of the country's largest credit card issuers.",
@@ -136,7 +136,7 @@
   },
   "chai-discovery": {
     "blurb": "Chai Discovery builds AI foundation models that design molecules such as antibodies for drug discovery.",
-    "accomplishment": "Raised a 130 million dollar Series B at a 1.3 billion dollar valuation in December 2025, co-led by Oak HC/FT and General Catalyst."
+    "accomplishment": "Raised a 400 million dollar Series C led by Index Ventures at a 3.8 billion dollar valuation in July 2026."
   },
   "chalk": {
     "accomplishment": "Chalk provides a data-source-agnostic feature store delivering low-latency feature computation with time-travel for training, batch scoring, and real-time inference.",
@@ -348,7 +348,7 @@
   },
   "foundry-robotics": {
     "blurb": "Foundry Robotics builds AI-first robotic assembly cells for commercial and defense manufacturing in the US.",
-    "accomplishment": "Raised a seed round led by Garuda Ventures with Khosla Ventures in early 2026, and was named to the Disruptors 60 Class of 2026."
+    "accomplishment": "Raised a seed round led by Khosla Ventures in early 2026, with Garuda Ventures participating, and was named to the Disruptors 60 Class of 2026."
   },
   "fundamental": {
     "blurb": "Fundamental is an AI research lab building NEXUS, a large tabular model for predictions on enterprise structured data.",
@@ -535,7 +535,7 @@
   },
   "melius": {
     "blurb": "Melius is an AI-native creative workspace where people and AI agents generate, edit and orchestrate images, video and audio together.",
-    "accomplishment": "Raised a 20 million dollar Series A led by CRV in October 2026, after passing 1 million dollars in annualized revenue within two months of launch."
+    "accomplishment": "Raised a 20 million dollar Series A led by CRV in October 2026; it says it passed 1 million dollars in annualized revenue within two months of coming out of stealth in July."
   },
   "merge": {
     "accomplishment": "Merge is one of the most widely adopted unified API platforms, letting B2B software teams ship many third-party integrations through one normalized interface.",
@@ -593,7 +593,7 @@
     "blurb": "Notion offers an all-in-one workspace combining notes, documents, databases, wikis, and project management for individuals and teams."
   },
   "nox-metals": {
-    "blurb": "Nox Metals runs automated, software-driven metal factories that supply custom-cut aluminum and other metal parts to US manufacturers.",
+    "blurb": "Nox Metals is an AI-powered metals supplier building automated factories that cut aluminum and other metal stock to size for US manufacturers.",
     "accomplishment": "Raised an 11.5 million dollar seed round led by Hyperion in June 2026, with Palmer Luckey and Y Combinator participating."
   },
   "nuro": {
@@ -854,7 +854,7 @@
   },
   "surge-ai": {
     "blurb": "Surge AI is a human-data platform that supplies expert data labeling and RLHF training data to frontier AI labs.",
-    "accomplishment": "Bootstrapped, it reported more than 1 billion dollars in 2024 revenue from customers including Google, Anthropic and OpenAI."
+    "accomplishment": "Bootstrapped, it reportedly took in more than 1 billion dollars in 2024 revenue from customers including Google, Anthropic and OpenAI."
   },
   "taste-labs": {
     "blurb": "Taste Labs builds the data and infrastructure layer that helps AI models and agents judge subjective quality, starting with design, to reduce generic AI output.",
@@ -882,7 +882,7 @@
   },
   "tools-for-humanity": {
     "blurb": "Tools for Humanity builds the technology behind World, including the Orb iris-scanning device, World ID and World App, to prove a person is a real, unique human online.",
-    "accomplishment": "Brought World's services to the US in May 2025, starting with Orbs in six cities, alongside the smartphone-sized Orb Mini."
+    "accomplishment": "Launched World ID 4.0 in April 2026, with integrations including Tinder, Zoom, Docusign and Okta, after bringing World to the US in May 2025 and unveiling the smartphone-sized Orb Mini."
   },
   "town": {
     "blurb": "Town builds a personal AI assistant, called a Townie, that learns how you work from your email, calendar and other tools and handles tasks like drafting emails, briefings and inbox management.",
@@ -962,7 +962,7 @@
   },
   "xdof": {
     "blurb": "XDOF builds the data-collection pipelines used to train robot foundation models, selling robot-training data to AI labs and robotics companies.",
-    "accomplishment": "Came out of stealth in June 2026 with a 70 million dollar Series A led by Thrive Capital."
+    "accomplishment": "Came out of stealth in June 2026 with a 70 million dollar Series A from Thrive Capital, Spark Capital, Andreessen Horowitz, Lux Capital and WndrCo."
   },
   "zed": {
     "blurb": "Zed is an open-source, high-performance code editor written in Rust, built for real-time collaboration between developers and AI agents.",
