@@ -31,6 +31,18 @@ const SWE_SUBCATEGORIES_REVEAL_DATE = '2026-08-20';
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    id: 'add-companies-2026-10-22-seven',
+    title: 'Added seven more companies',
+    description:
+      'Seven more boards, about 1,000 open roles between them. Shield AI brings most of them, roughly 660 roles across its Hivemind AI-pilot software, its V-BAT drone and the X-BAT jet it is developing. K2 Space adds about 250 as it builds high-power satellites in Torrance, after raising a 500 million dollar Series D in July. Kalshi, the regulated event-contract exchange, has 28 openings in New York; Reflection AI has 45, almost all in New York and San Francisco, and released the weights for Beam, its first open-weight model, this month. Generalist, which trains foundation models for robots, has 22 roles in San Mateo and Somerville. The two smallest are humans&, a human-centric AI lab with two roles in San Francisco, and Discovery Loop, the research-automation lab that Jeff Dean, Sanjay Ghemawat, Quoc Le and Oriol Vinyals started in August, which has a single opening.',
+    tags: ['new-companies'],
+    date: '2026-10-22',
+    link: {
+      to: ROUTES.ACCOUNT,
+      label: 'Add them to your company preferences',
+    },
+  },
+  {
     id: 'add-companies-2026-10-21-disruptors-60',
     title: 'Added 39 companies from the Disruptors 60',
     description:

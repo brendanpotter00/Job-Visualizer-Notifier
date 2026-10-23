@@ -250,6 +250,10 @@
     "accomplishment": "Discord is a leading communication platform for online communities, hosting millions of servers where people gather over shared interests in real time.",
     "blurb": "Discord operates a voice, video, and text communication platform organized around community servers for gamers and interest-based groups."
   },
+  "discovery-loop": {
+    "blurb": "Discovery Loop is building AI systems that automate the experimental loop of research, running and learning from thousands of experiments in parallel, starting with machine learning research. It was founded in 2026 by former Google researchers Jeff Dean, Sanjay Ghemawat, Quoc Le and Oriol Vinyals.",
+    "accomplishment": "Launched in August 2026 with a seed round co-led by Radical Ventures and Khosla Ventures, with Google as a founding investor and cloud partner."
+  },
   "disney": {
     "accomplishment": "Disney is one of the world's largest media and entertainment conglomerates, home to iconic brands including Pixar, Marvel, Star Wars, ESPN, and its theme park resorts.",
     "blurb": "Disney is a diversified global entertainment company spanning film and television studios, streaming, theme parks, and consumer products."
@@ -366,6 +370,10 @@
     "accomplishment": "Its flagship product, Cofounder, gives business owners a staff of AI agents that handle day-to-day work, advancing a mission to make every business agent-native.",
     "blurb": "The General Intelligence Company is an applied AI lab building autonomous agents that run end-to-end business operations from natural-language instructions."
   },
+  "generalist-ai": {
+    "blurb": "Generalist trains embodied foundation models, its GEN series, that give robots the dexterity to do real physical tasks, with teams in San Mateo, California and Somerville, Massachusetts.",
+    "accomplishment": "Raised a 400 million dollar Series B led by Radical Ventures at a 2 billion dollar valuation in June 2026, then added nearly 200 million dollars to the round in August."
+  },
   "ghost": {
     "blurb": "Ghost is a San Francisco hardware startup building Core, a screenless personal AI computer that runs agents locally with no subscription.",
     "accomplishment": "Emerged from stealth in October 2026 with an 11 million dollar seed round led by Andreessen Horowitz."
@@ -449,6 +457,10 @@
     "accomplishment": "It is one of the largest market makers in US equities and serves as a designated market maker on the New York Stock Exchange.",
     "blurb": "Hudson River Trading is a quantitative trading firm that uses algorithms and research to provide liquidity across global financial markets."
   },
+  "humans-and": {
+    "blurb": "humans& is a human-centric frontier AI lab that trains models to help people work together rather than replace them. Its first model, Ampersand, powers Boba, an assistant you can text one-on-one or add to a group chat.",
+    "accomplishment": "Raised a seed round of more than 480 million dollars at a roughly 4.5 billion dollar valuation, announced in January 2026 and led by SV Angel and co-founder Georges Harik, then released its first model, Ampersand, in October."
+  },
   "imc": {
     "accomplishment": "Founded by Amsterdam options traders, it makes markets in securities across exchanges worldwide and is a designated market maker on the New York Stock Exchange.",
     "blurb": "IMC Trading is a technology-driven global market maker and proprietary trading firm that provides liquidity across financial markets."
@@ -476,6 +488,14 @@
   "jumptrading": {
     "accomplishment": "Founded by former Chicago pit traders, it trades equities, futures, options, and digital assets worldwide and built a major presence in cryptocurrency through Jump Crypto.",
     "blurb": "Jump Trading is a research-driven proprietary trading firm specializing in algorithmic and high-frequency trading across global markets."
+  },
+  "k2-space": {
+    "blurb": "K2 Space builds large, high-power satellites for commercial and U.S. government customers at its factory in Torrance, California; its Mega Class bus generates about 20 kilowatts.",
+    "accomplishment": "Raised a 500 million dollar Series D at a 6.8 billion dollar valuation in July 2026, led by Kleiner Perkins and ICONIQ, after launching its first satellite, Gravitas, in March."
+  },
+  "kalshi": {
+    "blurb": "Kalshi runs a federally regulated exchange where people trade contracts on the outcomes of real-world events, from economics and politics to sports and weather.",
+    "accomplishment": "Raised a 1 billion dollar Series F led by Coatue at a 22 billion dollar valuation in May 2026."
   },
   "krea": {
     "accomplishment": "It is known for a real-time canvas that renders generated imagery as users type or draw, plus custom-model training and its own Krea image models.",
@@ -716,6 +736,10 @@
     "accomplishment": "Reducto combines computer vision with vision-language models to parse documents at scale, outperforming major cloud document APIs on accuracy benchmarks.",
     "blurb": "Reducto builds a document-parsing and ingestion API that turns complex PDFs, spreadsheets, and slides into structured data for AI systems."
   },
+  "reflection-ai": {
+    "blurb": "Reflection AI builds open-weight frontier AI models, plus the software and infrastructure to deploy them. Its first model, Beam, is built for coding, reasoning and agent work.",
+    "accomplishment": "Released Beam, its first open-weight model, in October 2026: a 501-billion-parameter mixture-of-experts model published on Hugging Face under Apache 2.0."
+  },
   "render": {
     "blurb": "Render is a cloud platform for deploying and scaling web services, databases, background workers and AI agents without managing infrastructure.",
     "accomplishment": "Raised a 100 million dollar Series C extension at a 1.5 billion dollar valuation in February 2026."
@@ -787,6 +811,10 @@
   "sesame": {
     "accomplishment": "Founded by Oculus co-founder Brendan Iribe, Sesame created a Conversational Speech Model that produces emotionally expressive, natural-sounding voice assistants.",
     "blurb": "Sesame builds lifelike conversational voice AI companions and lightweight wearable glasses designed to access them throughout the day."
+  },
+  "shield-ai": {
+    "blurb": "Shield AI builds Hivemind, AI pilot software that flies drones and aircraft on its own, including where GPS and communications are jammed; it builds its own V-BAT drone and is developing the X-BAT jet for the U.S. military and allied governments.",
+    "accomplishment": "Raised a 1.5 billion dollar Series G at a 12.7 billion dollar valuation in March 2026, co-led by Advent International and JPMorgan Chase's Security and Resiliency Initiative, plus 500 million dollars of preferred equity from Blackstone funds."
   },
   "sierra": {
     "accomplishment": "Co-founded by former Salesforce co-CEO Bret Taylor and ex-Google Labs lead Clay Bavor, Sierra powers customer-facing AI agents for major enterprise brands.",
