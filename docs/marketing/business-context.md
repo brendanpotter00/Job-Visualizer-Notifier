@@ -17,7 +17,10 @@ not letting companies do that here. No repost mechanism exists and none will be 
   "candidate-centric"; the anti-repost stance and honest timestamps ARE the expression
   of it.
 - Related standing rule from the brief: "we hate LinkedIn" is internal context, never
-  published copy; no unverifiable "ghost jobs" claims.
+  published copy; no unverifiable "ghost jobs" claims. **Amended 2026-09-10 (owner-directed):**
+  LinkedIn may now be named on the landing page, in a comparison section and one FAQ
+  entry, because Brendan asked for exactly that. The constraint that remains is factual
+  framing only (see the brief's do-not-say list for the exact wording rule).
 
 ## The core belief (the why behind the product)
 
