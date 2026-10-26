@@ -31,6 +31,18 @@ const SWE_SUBCATEGORIES_REVEAL_DATE = '2026-08-20';
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    id: 'add-bedrock-robotics',
+    title: 'Added Bedrock Robotics',
+    description:
+      'Bedrock Robotics — a construction-autonomy startup founded in 2024 by former Waymo leads whose Bedrock Operator is a bolt-on sensor-and-compute kit that turns existing 20–80 ton excavators (and soon bulldozers and wheel loaders) into supervised-autonomous machines without permanent modification — is now tracked via its Ashby job board. It raised a $270M Series B in February 2026 at a $1.75B valuation, co-led by CapitalG and the Valor Atreides AI Fund, bringing total funding past $350M.',
+    tags: ['new-companies'],
+    date: '2026-10-26',
+    link: {
+      to: ROUTES.ACCOUNT,
+      label: 'Add Bedrock Robotics to your company preferences',
+    },
+  },
+  {
     id: 'add-companies-2026-10-22-seven',
     title: 'Added seven more companies',
     description:
