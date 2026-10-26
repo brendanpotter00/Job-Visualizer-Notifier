@@ -82,6 +82,10 @@
     "accomplishment": "Its inference stack delivers high-performance, cost-efficient serving for large language models, embeddings, transcription, and other AI workloads at production scale.",
     "blurb": "Baseten provides a machine learning inference platform for deploying, serving, and scaling AI models in production."
   },
+  "bedrock-robotics": {
+    "blurb": "Bedrock Robotics builds autonomous driving systems for heavy construction equipment, retrofitting trucks and earth-movers so job sites can run without a driver in the cab.",
+    "accomplishment": "Came out of stealth in July 2026 with an 80 million dollar round led by Eclipse and 8VC to put its autonomy stack on commercial construction fleets."
+  },
   "belvederetrading": {
     "accomplishment": "A Chicago-based options market maker, it provides liquidity across equity indices, single stocks, energies, grains, interest rates, metals, and softs through proprietary in-house trading systems.",
     "blurb": "Belvedere Trading is a proprietary trading firm and market maker that provides liquidity across global derivatives markets using its own technology."

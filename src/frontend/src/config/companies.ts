@@ -609,6 +609,9 @@ export const COMPANIES: Company[] = [
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2299351559%22%5D',
   }),
+  createBackendScraperCompany('bedrock-robotics', 'Bedrock Robotics', 'https://jobs.ashbyhq.com/bedrock-robotics', {
+    sourceAts: 'ashby',
+  }),
   // Rebranded to Weave / WeaveOS on ~2026-09-23; the Ashby board moved from
   // slug `workweave` to `weave-os` and the old slug now 404s. The `id`, the
   // COMPANY_IDS member and the display name stay put: `id` is the PK and the
@@ -1650,6 +1653,7 @@ export const enum COMPANY_IDS {
   Attio = 'attio',
   Baseten = 'baseten',
   BasePower = 'base-power',
+  Bedrock = 'bedrock-robotics',
   Blacksmith = 'blacksmith',
   Block = 'block',
   Boltz = 'boltz',

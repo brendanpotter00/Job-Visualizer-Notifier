@@ -31,6 +31,18 @@ const SWE_SUBCATEGORIES_REVEAL_DATE = '2026-08-20';
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    id: 'add-bedrock-robotics',
+    title: 'Added Bedrock Robotics',
+    description:
+      'Bedrock Robotics builds autonomous driving systems for heavy construction equipment, retrofitting trucks and earth-movers so they can run worksites without a driver in the cab. Based in the Bay Area, the company came out of stealth in July 2026 with an 80 million dollar round led by Eclipse and 8VC, and is hiring across software, hardware, ML and robotics in San Francisco, New York and remote. Tracked via its Ashby board.',
+    tags: ['new-companies'],
+    date: '2026-10-26',
+    link: {
+      to: ROUTES.ACCOUNT,
+      label: 'Add Bedrock Robotics to your company preferences',
+    },
+  },
+  {
     id: 'add-companies-2026-10-22-seven',
     title: 'Added seven more companies',
     description:
