@@ -1569,6 +1569,18 @@ export const COMPANIES: Company[] = [
   // Batch add (2026-10-22) — hand-picked boards, each verified live on the day it
   // was added. (Whatnot was asked for too, but its Ashby board has the public
   // posting API switched off, so no supported client can read it.)
+  // Bedrock Robotics (bedrockrobotics.com) — autonomy stack for heavy construction
+  // equipment, raised $350M and demoed the first fully-autonomous commercial excavator
+  // deployments. Ashby token `bedrock-robotics` (hyphenated, lowercase); 58 open roles
+  // on the day it was added, 39 of which are engineering.
+  createBackendScraperCompany(
+    'bedrock-robotics',
+    'Bedrock Robotics',
+    'https://bedrockrobotics.com/careers',
+    {
+      sourceAts: 'ashby',
+    }
+  ),
   // The research-automation lab Jeff Dean, Sanjay Ghemawat, Quoc Le and Oriol Vinyals
   // started in 2026 (discoveryloop.com — the board's own publicWebsite). Ashby serves the
   // board as both `Discovery-Loop` (its hosted-page casing) and `discovery-loop`; the
@@ -1650,6 +1662,7 @@ export const enum COMPANY_IDS {
   Attio = 'attio',
   Baseten = 'baseten',
   BasePower = 'base-power',
+  BedrockRobotics = 'bedrock-robotics',
   Blacksmith = 'blacksmith',
   Block = 'block',
   Boltz = 'boltz',

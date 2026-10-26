@@ -82,6 +82,10 @@
     "accomplishment": "Its inference stack delivers high-performance, cost-efficient serving for large language models, embeddings, transcription, and other AI workloads at production scale.",
     "blurb": "Baseten provides a machine learning inference platform for deploying, serving, and scaling AI models in production."
   },
+  "bedrock-robotics": {
+    "blurb": "Bedrock Robotics builds the Bedrock Operator, a bolt-on sensor-and-compute kit that turns existing 20–80 ton excavators, bulldozers and wheel loaders into supervised-autonomous machines for earthmoving on construction sites.",
+    "accomplishment": "Founded in 2024 by former Waymo trucking and perception leads, Bedrock raised a $270M Series B in February 2026 at a $1.75B valuation, co-led by CapitalG and the Valor Atreides AI Fund, bringing total funding past $350M."
+  },
   "belvederetrading": {
     "accomplishment": "A Chicago-based options market maker, it provides liquidity across equity indices, single stocks, energies, grains, interest rates, metals, and softs through proprietary in-house trading systems.",
     "blurb": "Belvedere Trading is a proprietary trading firm and market maker that provides liquidity across global derivatives markets using its own technology."
