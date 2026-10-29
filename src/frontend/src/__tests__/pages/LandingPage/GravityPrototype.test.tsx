@@ -72,6 +72,13 @@ function stubMatchMedia(reduceMotion: boolean) {
   });
 }
 
+/** CTA buttons only — the footer carries plain text links with the same labels. */
+function buttonLinks(name: string) {
+  return screen
+    .getAllByRole('link', { name })
+    .filter((el) => el.classList.contains('MuiButton-root'));
+}
+
 afterEach(() => {
   Reflect.deleteProperty(window.navigator, 'hardwareConcurrency');
   Reflect.deleteProperty(window, 'matchMedia');
@@ -95,23 +102,44 @@ describe('GravityPrototype', () => {
     ).toBeTruthy();
   });
 
-  // Gravity is converging as the primary landing design, so it carries the
-  // anti-noise headline ("No reposts. No stale listings. No noise.").
-  it('renders the anti-noise hero as the single h1 with both CTAs', () => {
+  // One h1 in two tones: the hook and the continuation are both inside it, so
+  // the page's single heading carries the query phrase as well as the line.
+  it('renders the two-tone hero as the single h1', () => {
     renderGravity();
     const h1 = screen.getByRole('heading', { level: 1 });
-    expect(h1).toHaveTextContent(LANDING_CONTENT.heroVariants.antiNoise.headline);
+    expect(h1).toHaveTextContent(LANDING_CONTENT.hero.headline);
+    expect(h1).toHaveTextContent(LANDING_CONTENT.hero.continuation);
     expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
-    expect(
-      screen.getAllByRole('link', { name: LANDING_CONTENT.ctas.primary.label }).length
-    ).toBeGreaterThan(0);
-    // The footer carries a plain text link with the same label; filter to buttons.
-    const secondaries = screen
-      .getAllByRole('link', { name: LANDING_CONTENT.ctas.secondary.label })
-      .filter((el) => el.classList.contains('MuiButton-root'));
-    expect(secondaries).toHaveLength(1);
-    expect(secondaries[0]).toHaveClass('MuiButton-outlined');
-    expect(secondaries[0]).toHaveAttribute('href', LANDING_CONTENT.ctas.secondary.to);
+  });
+
+  // The same pair, hero and closer: a filled "Browse jobs" and a quiet text
+  // "Create free account". Two of each, and never an outlined variant.
+  it('carries the CTA pair in the hero and again in the closing block', () => {
+    renderGravity();
+    const primaries = buttonLinks(LANDING_CONTENT.ctas.primary.label);
+    const secondaries = buttonLinks(LANDING_CONTENT.ctas.secondary.label);
+    expect(primaries).toHaveLength(2);
+    expect(secondaries).toHaveLength(2);
+    for (const button of primaries) {
+      expect(button).toHaveClass('MuiButton-contained');
+      expect(button).toHaveAttribute('href', LANDING_CONTENT.ctas.primary.to);
+    }
+    for (const button of secondaries) {
+      expect(button).toHaveClass('MuiButton-text');
+      expect(button).toHaveAttribute('href', LANDING_CONTENT.ctas.secondary.to);
+    }
+    const closer = screen.getByTestId('closing-cta');
+    expect(within(closer).getByRole('heading', { level: 2 })).toHaveTextContent(
+      LANDING_CONTENT.closing.heading
+    );
+  });
+
+  // The mock posting-cadence line behind the hero copy was removed
+  // (owner-directed 2026-09-10): the pile is the hero's only picture.
+  it('draws nothing decorative behind the hero copy', () => {
+    renderGravity();
+    expect(screen.queryByTestId('hero-trendline')).not.toBeInTheDocument();
+    expect(document.querySelector('section svg path[stroke-opacity]')).toBeNull();
   });
 
   it('fallback tier (no WebGL): pre-settled DOM logo grid, scene never mounts', () => {
@@ -151,10 +179,13 @@ describe('GravityPrototype', () => {
     expect(screen.queryByTestId('gravity-scene')).not.toBeInTheDocument();
   });
 
-  it('carries the three-slot fresh-jobs triptych where the single card used to be', () => {
+  it('carries the three-slot fresh-jobs triptych under its own heading', () => {
     renderGravity();
     const [earlyCareer, last24h, bigTech] = selectTriptychSlots(buildMockJobs(NOW), NOW);
-    expect(screen.getByTestId('fresh-jobs-triptych')).toBeInTheDocument();
+    const triptych = screen.getByTestId('fresh-jobs-triptych');
+    expect(within(triptych).getByRole('heading', { level: 2 })).toHaveTextContent(
+      LANDING_CONTENT.freshJobs.heading
+    );
     for (const slot of [earlyCareer, last24h, bigTech]) {
       const region = screen.getByTestId(`triptych-slot-${slot.id}`);
       // By ROLE, not by text: each slot also carries hidden height sizers for
@@ -162,41 +193,47 @@ describe('GravityPrototype', () => {
       // only the job actually on screen. See FlippingCard's SizerStack.
       expect(within(region).getByRole('heading', { name: slot.jobs[0].title })).toBeInTheDocument();
     }
-    expect(screen.queryByTestId('rotating-job-card')).not.toBeInTheDocument();
-    expect(screen.queryByText(/tracked in the past 24 hours/)).not.toBeInTheDocument();
   });
 
-  it('keeps the shared sections below: FAQ and footer', () => {
+  it('renders every section from the content config', () => {
     renderGravity();
-    expect(screen.getByText(LANDING_CONTENT.faq[0].question)).toBeInTheDocument();
-    expect(screen.getByText(LANDING_CONTENT.categoryLine)).toBeInTheDocument();
-  });
-
-  it('carries the two quiet text sections with their content copy', () => {
-    renderGravity();
+    for (const row of LANDING_CONTENT.comparison.rows) {
+      const region = screen.getByTestId(`comparison-row-${row.id}`);
+      expect(within(region).getByText(row.linkedin)).toBeInTheDocument();
+      expect(within(region).getByText(row.onesecondswe)).toBeInTheDocument();
+    }
     for (const step of LANDING_CONTENT.howItWorks.steps) {
       expect(screen.getByText(step.line)).toBeInTheDocument();
     }
-    expect(screen.getByText(LANDING_CONTENT.claims.apply_early_rolling.body)).toBeInTheDocument();
+    expect(screen.getByText(LANDING_CONTENT.howItWorks.closer.line)).toBeInTheDocument();
+    for (const stat of LANDING_CONTENT.proof.stats) {
+      expect(screen.getByText(stat.sentence)).toBeInTheDocument();
+    }
     for (const feature of LANDING_CONTENT.featureMatrix.features) {
       expect(screen.getByText(feature.detail)).toBeInTheDocument();
     }
     expect(
       screen.getByRole('link', { name: LANDING_CONTENT.featureMatrix.nextUp.label })
     ).toBeInTheDocument();
+    expect(screen.getByText(LANDING_CONTENT.faq.entries[0].question)).toBeInTheDocument();
+    expect(screen.getByText(LANDING_CONTENT.categoryLine)).toBeInTheDocument();
   });
 
-  // The still text sections bracket the categories grid: one after the flipping
-  // triptych, one before the FAQ. Order is the section contract, so assert the
-  // whole below-hero sequence rather than mere presence.
-  it('orders the below-hero sections triptych → how-it-works → categories → matrix → FAQ', () => {
+  // Order is the section contract: live proof, then the comparison the owner
+  // asked for, then the mechanism, the numbers, the companies, the matrix, the
+  // FAQ, and the closing line before the footer. Assert the whole sequence
+  // rather than mere presence.
+  it('orders the sections: triptych → LinkedIn → how-it-works → numbers → companies → matrix → FAQ → closer → footer', () => {
     renderGravity();
     const markers = [
       screen.getByTestId('fresh-jobs-triptych'),
+      screen.getByTestId('linkedin-comparison'),
       screen.getByTestId('how-it-works'),
-      screen.getByRole('heading', { name: 'Browse curated companies', level: 2 }),
+      screen.getByTestId('proof-stats'),
+      screen.getByRole('heading', { name: LANDING_CONTENT.companies.heading, level: 2 }),
       screen.getByTestId('feature-matrix'),
-      screen.getByRole('heading', { name: 'Frequently asked questions', level: 2 }),
+      screen.getByRole('heading', { name: LANDING_CONTENT.faq.heading, level: 2 }),
+      screen.getByTestId('closing-cta'),
       screen.getByText(LANDING_CONTENT.categoryLine),
     ];
     for (let i = 1; i < markers.length; i += 1) {
@@ -205,5 +242,20 @@ describe('GravityPrototype', () => {
         `section ${i} is out of order`
       ).toBeTruthy();
     }
+  });
+
+  // Landmarks for crawlers and screen readers: one main, every section named
+  // by its own heading, and the footer outside main.
+  it('wraps the page in a main landmark of labelled sections', () => {
+    renderGravity();
+    const main = screen.getByRole('main');
+    const sections = Array.from(main.querySelectorAll('section'));
+    expect(sections.length).toBeGreaterThanOrEqual(9);
+    for (const section of sections) {
+      const labelledBy = section.getAttribute('aria-labelledby');
+      expect(labelledBy, 'every section must point at its heading').toBeTruthy();
+      expect(document.getElementById(labelledBy!), `missing heading #${labelledBy}`).not.toBeNull();
+    }
+    expect(main.contains(screen.getByRole('contentinfo'))).toBe(false);
   });
 });

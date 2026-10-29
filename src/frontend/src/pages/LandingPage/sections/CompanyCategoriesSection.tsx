@@ -6,6 +6,10 @@ import { RESPONSIVE } from '../../../config/responsive';
 import { ROUTES } from '../../../config/routes';
 import { useIsMobile } from '../../../hooks/useIsMobile';
 import { COMPANY_CATEGORIES } from '../companyCategories';
+import type { LandingContent } from '../content';
+import { SectionIntro } from './SectionIntro';
+
+const HEADING_ID = 'landing-companies-heading';
 
 /**
  * Logos rendered on each card before the rest collapse into "+N". The category
@@ -13,6 +17,10 @@ import { COMPANY_CATEGORIES } from '../companyCategories';
  * this is a plain head slice — no sorting, no randomness.
  */
 const VISIBLE_LOGOS = 6;
+
+interface CompanyCategoriesSectionProps {
+  content: LandingContent;
+}
 
 /**
  * "Browse curated companies" — the curated entry points into the board.
@@ -23,37 +31,16 @@ const VISIBLE_LOGOS = 6;
  * now would ship dead params against an endpoint that ignores them, so the
  * mock target is deliberate and OUT OF SCOPE here.
  */
-export function CompanyCategoriesSection() {
+export function CompanyCategoriesSection({ content }: CompanyCategoriesSectionProps) {
+  const { eyebrow, heading } = content.companies;
   const isMobile = useIsMobile();
   const logoSize = isMobile
     ? RESPONSIVE.landingProto.tickerLogoSize.compact
     : RESPONSIVE.landingProto.tickerLogoSize.default;
 
   return (
-    <Box component="section">
-      <Typography
-        component="h2"
-        sx={{
-          fontSize: RESPONSIVE.landingProto.sectionTitleFontSize,
-          fontWeight: 600,
-          mb: 1,
-        }}
-      >
-        Browse curated companies
-      </Typography>
-      {/* Heading + subtitle stay a tight pair; the air goes BELOW them, so the
-          heading block floats above the grid instead of leaning on it. */}
-      <Typography
-        variant="body2"
-        sx={{
-          color: 'text.secondary',
-          fontSize: RESPONSIVE.landingProto.bodyFontSize,
-          lineHeight: 1.7,
-          mb: RESPONSIVE.landingProto.sectionTitleMarginBottom,
-        }}
-      >
-        Hand-picked companies, grouped the way people actually search.
-      </Typography>
+    <Box component="section" aria-labelledby={HEADING_ID}>
+      <SectionIntro eyebrow={eyebrow} heading={heading} headingId={HEADING_ID} />
 
       <Box
         sx={{
@@ -87,15 +74,12 @@ export function CompanyCategoriesSection() {
                 p: RESPONSIVE.landingProto.categoryCardPadding,
                 border: '1px solid',
                 borderColor: 'divider',
-                borderRadius: 1,
-                bgcolor: 'background.paper',
+                borderRadius: 2,
+                bgcolor: 'background.default',
                 color: 'inherit',
                 textDecoration: 'none',
-                transition: 'border-color 120ms ease, background-color 120ms ease',
-                '&:hover': {
-                  borderColor: 'text.primary',
-                  bgcolor: 'action.hover',
-                },
+                transition: 'border-color 120ms ease',
+                '&:hover': { borderColor: 'text.primary' },
               }}
             >
               <Box
@@ -108,7 +92,7 @@ export function CompanyCategoriesSection() {
               >
                 <Typography
                   component="h3"
-                  sx={{ fontWeight: 600, fontSize: RESPONSIVE.landingProto.blockTitleFontSize }}
+                  sx={{ fontWeight: 500, fontSize: RESPONSIVE.landingProto.blockTitleFontSize }}
                 >
                   {category.label}
                 </Typography>

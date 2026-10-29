@@ -298,3 +298,58 @@ placeholders for 11.3 category pages that do not exist) and the closing proof ta
 fill-both-grids-exactly count invariant could not survive a cell moving tiers, so it was
 replaced by `matrixLayout.ts` — a pure rule that widens a trailing cell only when it
 would otherwise sit alone in its row, at each breakpoint independently.
+
+### Round 7 — 2026-09-10 (the natural.com pass)
+
+Owner brief, verbatim: "make the landing page beautiful and simple like
+https://www.natural.com/ there should not be unnecessary words and remove the line in the
+background of the hero section … make sure it is seo and aeo optimized and there should be
+a section on why it is better than linkedin, like there are no reposts and the companies
+are already curated". What natural.com actually does, and what was ported: a
+**left-aligned, regular-weight, two-tone headline** (the hook in black, the specifics in
+gray, one h1), pill buttons with an arrow beside a plain text link, a **tiny uppercase
+eyebrow over a short heading opening every section**, three-column tiles with one-line
+captions, and a lot of air.
+
+- **Hero:** `HeroTrendline` (+ `trendlinePath.ts`) DELETED — the mock cadence line was the
+  "line in the background". The h1 is now `hero.headline` + `hero.continuation` in one
+  element, so Brendan's hook stays four words while the h1 still carries "Software
+  engineer jobs" and a number (brief §9). Secondary CTA became a text button.
+  **Phones now take the fallback DOM grid, not the physics pile.** Verified at 390px:
+  the camera's fixed vertical FOV (~6.9 world units of canvas height) over a
+  `MIN_ARENA_WIDTH` floor stacks 40 tiles seven high, i.e. the whole hero, and the pile
+  was already brushing the CTAs on the deployed page before the taller two-tone h1 made
+  it bury them. `resolveExperienceTier` maps `isMobileViewport` → `fallback` (brief §9's
+  "static poster path on mobile"), so phones also skip the three/rapier download.
+- **NEW `LinkedInComparisonSection`** (`content.comparison`): four ruled rows (Reposts /
+  Companies / Ranking / Source), a checkable LinkedIn fact on the left and what
+  onesecondswe does on the right. This reverses the brief §6 "never name LinkedIn" rule
+  by owner decision; the override and the surviving factual-framing constraint are
+  recorded in the brief and in business-context.md. A matching FAQ entry was added.
+- **NEW `ProofStatsSection`** (`content.proof`): the brief §10 P1 quotable claims were in
+  `content.ts` but were never rendered; they now sit under three big numbers (45 min /
+  130+ / Thousands), verbatim.
+- **NEW `ClosingCtaSection`** (`content.closing`, "Be early, every time."), centred, the
+  same two CTAs as the hero.
+- **Cut for words:** the two hero variants (only one shipped), `broadSupportLine`,
+  `supportingBeat`, the `claims` record (its only rendered member became
+  `howItWorks.closer`), the categories subtitle, and the apply-early closer's second
+  sentence (the LinkedIn people-search link became a feature cell, "Reach the recruiter").
+  Feature matrix is 6 live / 2 coming-soon: "Straight from the source" and "130+ curated
+  companies" left because the comparison now makes both claims.
+- **SEO/AEO:** `LandingSeo` sets the landing title + description **imperatively** (a
+  rendered React 19 `<title>` is appended AFTER `index.html`'s static one and the browser
+  uses the first, so hoisting can never win) and restores them on unmount; it renders the
+  canonical `<link>` (hoisted) and a JSON-LD `@graph` (Organization + WebSite + WebPage +
+  FAQPage, built by the pure `landingJsonLd.ts`). `index.html`'s static head is the
+  brand-first app default and link-preview card, deliberately NOT the landing title, so
+  `/` and `/landing` (both in the sitemap) never share one — pinned by
+  `indexHtmlHead.test.ts`. `public/` gains `robots.txt` (AI retrieval bots allowed;
+  admin/auth surfaces disallowed; `/api/` left crawlable because Googlebot obeys robots
+  for the XHR it makes while rendering the board), `sitemap.xml`, `llms.txt`. Every section
+  is a labelled `<section>` inside `<main>`, one h1, h2 per section.
+  **Still open (11.2):** prerendering `/landing` — the only fix for the P0 no-JS gap.
+- **Freshness copy, decided without asking:** the feature cell became "Minutes, not
+  weeks" (was "Seconds, not weeks", Brendan's 2026-08-09 override) because the new proof
+  strip puts the 45-minute median in a headline two sections away and a page should state
+  one freshness number. One-word revert in `content.ts` if he prefers "seconds".

@@ -1,0 +1,18 @@
+# onesecondswe
+
+> onesecondswe is a free job board for software engineers that shows jobs the day they’re posted. It reads 130+ curated companies’ career pages directly and timestamps every job the moment it first appears there, so nothing is reposted and nothing is stale.
+
+## Key facts
+
+- onesecondswe surfaces new jobs a median of 45 minutes after companies post them on their own career pages.
+- onesecondswe tracks 130+ hand-picked tech companies’ career pages directly. No aggregator feeds, no reposts.
+- Every posting date is the moment onesecondswe first saw the job on the company’s board.
+- Thousands of new software engineering jobs are added every week, free. Product, data science, hardware, and growth roles come from the same boards.
+
+## Pages
+
+- [Jobs board](https://onesecondswe.dev/): every tracked job, newest first.
+- [About onesecondswe](https://onesecondswe.dev/landing): what it is and how it compares to LinkedIn.
+- [Companies we track](https://onesecondswe.dev/curated-companies): the curated roster.
+- [Why this was built](https://onesecondswe.dev/why)
+- [Changelog](https://onesecondswe.dev/vote-features): shipped features and what to vote on next.
