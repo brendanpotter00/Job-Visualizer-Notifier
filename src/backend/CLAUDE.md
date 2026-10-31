@@ -411,6 +411,8 @@ src/backend/api/
 │   ├── feedback.py              # Public user-feedback submission (POST /api/feedback; optional auth)
 │   ├── companies.py             # Public curated-companies directory (GET /api/companies; no auth)
 │   ├── locations.py             # Public canonical-location search (GET /api/locations/search; internal-key auth)
+│   ├── jobs_search.py           # Server-side filtered job search (GET /api/jobs/search; optional auth)
+│   ├── dev_reset.py             # Dev-only reset endpoint (registered only when DEV_RESET_ENABLED=true)
 │   └── internal_enrichment.py  # Internal enrichment API (X-Internal-Key; GET /pending, POST /results, etc.)
 ├── services/
 │   ├── database.py      # API query functions (reuses scripts/shared/database.py)
@@ -438,7 +440,8 @@ src/backend/api/
 │   ├── scraper_runner.py # Async subprocess runner for scrapers
 │   ├── scraper_health.py    # Stale-scraper report query (used by GET /api/jobs-qa/scraper-health)
 │   ├── auto_scraper.py  # Background scheduled scraping (Google/Apple/Microsoft/Amazon/TikTok)
-│   ├── db_watchdog.py   # Daemon thread probing the DB; exits process after ~5-6 min unreachability so Railway restarts
+│   ├── db_watchdog.py       # Daemon thread probing the DB; exits process after ~5-6 min unreachability so Railway restarts
+│   ├── worker_watchdog.py   # Daemon thread exiting when worker heartbeat goes stale while DB is reachable (wedged executor)
 │   ├── ashby_client.py      # Ashby ATS HTTP client
 │   ├── eightfold_client.py  # Eightfold ATS HTTP client (SSRF allowlist lives here)
 │   ├── gem_client.py        # Gem ATS HTTP client
@@ -451,6 +454,8 @@ src/backend/api/
     ├── enqueue_*_fan_out.py (×6)    # Fan-out tasks: enqueue per-company fetch for each ATS
     ├── enqueue_recipe_fan_out.py    # 7th fan-out: */30 over `ats='recipe'` PUBLISHED boards; defers `fetch_custom_company` on `recipe_fetch` with `visibility='public'`
     ├── fetch_*_company.py (×7)      # Leaf tasks: fetch + upsert one company's jobs (includes fetch_custom_company.py for custom/recipe boards)
+    ├── claim_custom_companies.py    # Periodic task (*/15 min): claim due custom companies and defer fetch_custom_company, with jitter and a global concurrency ceiling
+    ├── discover_custom_company.py   # One-time capture task: run discovery for a non-ATS careers URL (browser + Claude Haiku → accept or refuse)
     ├── normalize_location.py        # Leaf task: normalize one job's free-text location via Claude Haiku
     └── scan_unnormalized.py         # Periodic safety-net task: find NULL-status jobs and defer normalize_location
 ```
