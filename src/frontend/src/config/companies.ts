@@ -1581,6 +1581,12 @@ export const COMPANIES: Company[] = [
       sourceAts: 'ashby',
     }
   ),
+  // Mecka AI (mecka.ai) — robot-learning data and deployment layer for physical AI;
+  // raised a $60M Series B led by Sequoia in Oct 2026. Ashby token `mecka.ai` (with the
+  // dot, lowercase, same shape as `happyrobot.ai`); 48 open roles on the day it was added.
+  createBackendScraperCompany('mecka.ai', 'Mecka AI', 'https://www.mecka.ai/careers', {
+    sourceAts: 'ashby',
+  }),
   // The research-automation lab Jeff Dean, Sanjay Ghemawat, Quoc Le and Oriol Vinyals
   // started in 2026 (discoveryloop.com — the board's own publicWebsite). Ashby serves the
   // board as both `Discovery-Loop` (its hosted-page casing) and `discovery-loop`; the
@@ -1773,6 +1779,7 @@ export const enum COMPANY_IDS {
   Lovable = 'lovable',
   Lyft = 'lyft',
   Mastra = 'mastra',
+  MeckaAI = 'mecka.ai',
   Melius = 'melius',
   Merge = 'merge',
   Meta = 'meta',
