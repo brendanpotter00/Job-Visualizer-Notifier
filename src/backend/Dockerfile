@@ -6,8 +6,12 @@ WORKDIR /app
 # cannot reap orphan playwright/chromium grandchildren from scraper subprocesses;
 # zombies accumulate against cgroup pids.max and eventually break thread spawn.
 # See docs/incidents/2026-05-05-scraper-pthread-exhaustion.md.
+#
+# libatomic1: the node binary bundled with playwright>=1.65 links against
+# libatomic.so.1, which python:3.13-slim lacks. Without it `playwright install`
+# below exits 127 before it can install anything.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends tini \
+    && apt-get install -y --no-install-recommends tini libatomic1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Install API dependencies
