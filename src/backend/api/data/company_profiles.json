@@ -557,6 +557,10 @@
     "blurb": "Mastra builds an open-source TypeScript framework and platform for building, deploying and monitoring AI agents, with workflows, memory, evals and observability.",
     "accomplishment": "Founded by the team behind Gatsby, Mastra raised a $22M Series A led by Spark Capital in April 2026, bringing total funding to $35M, with customers including Brex and PayPal."
   },
+  "mecka.ai": {
+    "blurb": "Mecka AI builds the data and deployment layer for physical AI, capturing real-world human demonstrations with its own multi-sensor hardware and turning them into datasets that robots learn from.",
+    "accomplishment": "Raised a $60M Series B led by Sequoia Capital in October 2026, with NVIDIA, M12, Qualcomm Ventures and Samsung joining as new investors."
+  },
   "melius": {
     "blurb": "Melius is an AI-native creative workspace where people and AI agents generate, edit and orchestrate images, video and audio together.",
     "accomplishment": "Raised a 20 million dollar Series A led by CRV in October 2026; it says it passed 1 million dollars in annualized revenue within two months of coming out of stealth in July."

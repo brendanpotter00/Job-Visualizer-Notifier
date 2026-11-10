@@ -31,6 +31,18 @@ const SWE_SUBCATEGORIES_REVEAL_DATE = '2026-08-20';
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    id: 'add-mecka-ai',
+    title: 'Added Mecka AI',
+    description:
+      'Mecka AI — a New York and Toronto startup building the data and deployment layer for physical AI, capturing real-world human demonstrations with its own multi-sensor hardware and turning them into robot-training datasets — is now tracked via its Ashby job board. It raised a $60M Series B led by Sequoia Capital in October 2026, with NVIDIA, M12, Qualcomm Ventures and Samsung joining the round.',
+    tags: ['new-companies'],
+    date: '2026-11-09',
+    link: {
+      to: ROUTES.ACCOUNT,
+      label: 'Add Mecka AI to your company preferences',
+    },
+  },
+  {
     id: 'add-bedrock-robotics',
     title: 'Added Bedrock Robotics',
     description:
