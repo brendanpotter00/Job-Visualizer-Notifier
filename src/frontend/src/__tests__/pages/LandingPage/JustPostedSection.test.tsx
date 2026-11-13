@@ -150,10 +150,12 @@ describe('JustPostedSection', () => {
   });
 
   it('renders nothing at all when every slot comes back empty', async () => {
+    const logged = vi.spyOn(logger, 'error');
     corpus = [];
     const { host, fetchMock } = renderSection();
 
     await waitFor(() => expect(host).toBeEmptyDOMElement());
     expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(logged).not.toHaveBeenCalled();
   });
 });

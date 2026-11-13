@@ -119,8 +119,6 @@ describe('FreshJobsTriptych', () => {
 
   it('renders three real JobListingCards (one Apply link per slot)', () => {
     renderTriptych();
-    // Three links, not twelve: the hidden sizers behind each card are
-    // aria-hidden, so role queries skip them entirely.
     expect(screen.getAllByRole('link', { name: /apply/i })).toHaveLength(3);
     expect(within(activeCard(TEST_IDS.early)).getByText(/^Posted /)).toBeInTheDocument();
   });
