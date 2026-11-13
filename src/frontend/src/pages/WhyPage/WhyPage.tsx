@@ -1,54 +1,21 @@
-import { useMemo } from 'react';
-import { Container, Box, Typography, List, ListItem, Link, Paper, Grid } from '@mui/material';
+import { Container, Box, Typography, Link, Paper } from '@mui/material';
 import type { SxProps, Theme } from '@mui/material';
-import { Link as RouterLink } from 'react-router-dom';
-import type { Company } from '../../types';
-import { COMPANIES, COMING_SOON_SCRAPERS } from '../../config/companies';
-import { ROUTES } from '../../config/routes';
-import { COMPANY_PARAM } from '../../lib/url';
 import OpenInNew from '@mui/icons-material/OpenInNew';
-import {
-  ATS_DISPLAY_NAMES,
-  NON_CAPITALIZED_GROUPS,
-  getATSGroupKey,
-  type ATSGroupKey,
-} from '../../config/atsSource';
 import { RESPONSIVE } from '../../config/responsive';
 
 /** Shared styling for Paper sections */
 const sectionPaperSx: SxProps<Theme> = { p: RESPONSIVE.spacing.paperPadding, mb: 4 };
 
 /**
- * WhyPage - Explains the purpose of this application and displays supported companies
+ * WhyPage - Explains the purpose of this application.
  *
- * Features:
- * - Introduction text explaining why this was built
- * - Lists all supported companies grouped by ATS provider
- * - Each company links to its in-app hiring trends page
+ * Static copy only. The "Supported Companies" section that listed every tracked
+ * company grouped by ATS provider was removed on 2026-11-12 at the owner's
+ * request; the Curated Companies page is the directory of tracked companies.
  *
  * @returns Why This Was Built page component
  */
 export function WhyPage() {
-  // Group companies by ATS type for organized display
-  const companiesByATS = useMemo(() => {
-    const grouped: Partial<Record<ATSGroupKey, Company[]>> = {};
-    for (const company of COMPANIES) {
-      const key = getATSGroupKey(company);
-      if (!grouped[key]) {
-        grouped[key] = [];
-      }
-      grouped[key]!.push(company);
-    }
-    return grouped;
-  }, []);
-
-  // Each custom scraper is its own platform; other ATS types (including
-  // Greenhouse) count once per type.
-  const atsPlatformCount = Object.entries(companiesByATS).reduce(
-    (total, [ats, companies]) => total + (ats === 'backend-scraper' ? companies!.length : 1),
-    0
-  );
-
   return (
     <Container maxWidth={false} sx={{ px: { xs: 2, sm: 3, md: 4 } }}>
       <Box sx={{ my: RESPONSIVE.spacing.pageMarginY }}>
@@ -114,77 +81,6 @@ export function WhyPage() {
             Reach out to Brendan Potter <OpenInNew sx={{ fontSize: '1rem' }} />
           </Link>
         </Paper>
-
-        {/* Supported Companies section */}
-        <Typography variant="h4" component="h2" gutterBottom sx={{ mt: 4 }}>
-          Supported Companies
-        </Typography>
-
-        <Typography variant="body2" component="p" color="text.secondary" sx={{ mb: 2 }}>
-          We currently track {COMPANIES.length} companies across {atsPlatformCount} different ATS
-          platforms.
-        </Typography>
-
-        {/* Group companies by ATS */}
-        <Grid container spacing={3}>
-          {(Object.entries(companiesByATS) as [ATSGroupKey, Company[]][]).map(
-            ([ats, companies]) => {
-              const displayName = ATS_DISPLAY_NAMES[ats];
-              const shouldCapitalize = !NON_CAPITALIZED_GROUPS.has(ats);
-
-              return (
-                <Grid key={ats} size={{ xs: 12, sm: 6, md: 'grow' }}>
-                  <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-                    <Typography
-                      variant="h6"
-                      component="h3"
-                      sx={{
-                        textTransform: shouldCapitalize ? 'capitalize' : 'none',
-                        mb: 1,
-                        color: 'primary.main',
-                      }}
-                    >
-                      {displayName} ({companies.length})
-                    </Typography>
-                    <Paper variant="outlined" sx={{ p: 2, flexGrow: 1 }}>
-                      <List dense disablePadding>
-                        {companies.map((company) => (
-                          <ListItem key={company.id} sx={{ py: 0.5, px: 0 }}>
-                            <Link
-                              component={RouterLink}
-                              to={`${ROUTES.COMPANIES}?${COMPANY_PARAM}=${company.id}`}
-                              underline="hover"
-                              sx={{ fontWeight: 500, fontSize: '1rem' }}
-                            >
-                              {company.name}
-                            </Link>
-                          </ListItem>
-                        ))}
-                        {ats === 'backend-scraper' &&
-                          COMING_SOON_SCRAPERS.map((company) => (
-                            <ListItem key={company.name} sx={{ py: 0.5, px: 0 }}>
-                              <Typography
-                                component="span"
-                                sx={{ fontWeight: 500, fontSize: '1rem', color: 'text.secondary' }}
-                              >
-                                {company.name}{' '}
-                                <Typography
-                                  component="span"
-                                  sx={{ fontSize: '0.75rem', fontStyle: 'italic' }}
-                                >
-                                  (Coming Soon)
-                                </Typography>
-                              </Typography>
-                            </ListItem>
-                          ))}
-                      </List>
-                    </Paper>
-                  </Box>
-                </Grid>
-              );
-            }
-          )}
-        </Grid>
       </Box>
     </Container>
   );
