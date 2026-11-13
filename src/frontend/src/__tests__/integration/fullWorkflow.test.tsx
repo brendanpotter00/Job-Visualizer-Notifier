@@ -132,11 +132,17 @@ describe('Full Application Workflow', () => {
     );
   };
 
-  it('renders application structure', () => {
+  // Pages are lazy route chunks, so the first render shows the loading state;
+  // every assertion waits for the page module to load.
+  const PAGE_LOAD = { timeout: 15_000 };
+
+  it('renders application structure', async () => {
     renderApp();
 
     // Main title (the selected company name; default is SpaceX) should be visible
-    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/SpaceX/i);
+    expect(await screen.findByRole('heading', { level: 1 }, PAGE_LOAD)).toHaveTextContent(
+      /SpaceX/i
+    );
   });
 
   it('renders graph section', async () => {
@@ -145,7 +151,7 @@ describe('Full Application Workflow', () => {
     // Graph section should render after data loads
     await waitFor(() => {
       expect(screen.getByText(/Job Posting Timeline/i)).toBeInTheDocument();
-    });
+    }, PAGE_LOAD);
   });
 
   it('renders list section', async () => {
@@ -154,13 +160,13 @@ describe('Full Application Workflow', () => {
     // List section should render after data loads
     await waitFor(() => {
       expect(screen.getByText(/Job Listings/i)).toBeInTheDocument();
-    });
+    }, PAGE_LOAD);
   });
 
-  it('renders company selector', () => {
+  it('renders company selector', async () => {
     renderApp();
 
     // Company selector should be present (use role to distinguish from navigation item)
-    expect(screen.getByRole('combobox', { name: /company/i })).toBeInTheDocument();
+    expect(await screen.findByRole('combobox', { name: /company/i }, PAGE_LOAD)).toBeInTheDocument();
   });
 });

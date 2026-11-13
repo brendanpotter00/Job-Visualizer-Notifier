@@ -13,10 +13,20 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="preconnect" href="https://api.fontshare.com" crossorigin />
+    <!-- Non-blocking: Infra Mono only draws the small "1s" mark, so its
+         stylesheet must not hold up the first paint of everything else. -->
     <link
+      rel="preload"
+      as="style"
       href="https://api.fontshare.com/v2/css?f[]=infra-mono@400,700&display=swap"
-      rel="stylesheet"
+      onload="this.onload=null;this.rel='stylesheet'"
     />
+    <noscript>
+      <link
+        href="https://api.fontshare.com/v2/css?f[]=infra-mono@400,700&display=swap"
+        rel="stylesheet"
+      />
+    </noscript>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <!--
       Static head = the site-wide default, the link-preview card, and the ONLY

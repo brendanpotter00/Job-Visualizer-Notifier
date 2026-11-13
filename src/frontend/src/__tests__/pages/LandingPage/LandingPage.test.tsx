@@ -5,25 +5,23 @@ import { LandingPage } from '../../../pages/LandingPage/LandingPage';
 import { LANDING_CONTENT } from '../../../pages/LandingPage/content';
 import type { LandingPrototypeProps } from '../../../pages/LandingPage/types';
 
-// Mock at the lazy boundary: vi.mock intercepts the dynamic import() inside
-// React.lazy, so the shell's own contract (fixture toggle, prop plumbing, the
-// Suspense boundary, the document head) is exercised without mounting the
-// scene — which would drag three/rapier into the test process and defeat the
-// point of the boundary.
-vi.mock('../../../pages/LandingPage/prototypes/GravityPrototype/GravityPrototype', () => ({
-  default: (props: LandingPrototypeProps) => (
+// Mock the body so the shell's own contract (fixture toggle, prop plumbing,
+// the document head) is exercised without mounting the scene.
+vi.mock('../../../pages/LandingPage/prototypes/GravityPrototype/GravityPrototype', () => {
+  const GravityPrototype = (props: LandingPrototypeProps) => (
     <div data-testid="landing-body">
       gravity ({props.sparse ? 'sparse' : 'rich'}, {props.jobs.length} jobs, now={props.now})
     </div>
-  ),
-}));
+  );
+  return { GravityPrototype, default: GravityPrototype };
+});
 
 function renderPage(url = '/landing') {
   return renderWithProviders(<LandingPage />, { initialEntries: [url] });
 }
 
 describe('LandingPage', () => {
-  it('renders the Gravity landing body behind a Suspense boundary', async () => {
+  it('renders the Gravity landing body', async () => {
     renderPage();
     expect(await screen.findByTestId('landing-body')).toHaveTextContent(/gravity \(rich/);
   });

@@ -14,6 +14,7 @@ import { FeatureMatrixSection } from '../../sections/FeatureMatrixSection';
 import { FAQSection } from '../../sections/FAQSection';
 import { ClosingCtaSection } from '../../sections/ClosingCtaSection';
 import { useExperienceTier } from '../shared3d/useExperienceTier';
+import { useAfterFirstPaint } from '../shared3d/useAfterFirstPaint';
 import { selectLogoRoster } from '../shared3d/logoRoster';
 import { LogoGridFallback } from '../shared3d/LogoGridFallback';
 
@@ -66,6 +67,10 @@ function SectionBand({ children }: { children: ReactNode }) {
  */
 export function GravityPrototype({ content, jobs, now }: LandingPrototypeProps) {
   const tier = useExperienceTier();
+  // The scene (three + rapier, ~3MB) starts downloading only after the hero
+  // text has painted and the browser is idle. Its band is reserved below the
+  // CTAs either way, so nothing shifts when the pile arrives.
+  const sceneReady = useAfterFirstPaint();
   const roster = useMemo(
     () => selectLogoRoster(COMPANIES, tier.bodyCount, ROSTER_SEED),
     [tier.bodyCount]
@@ -85,7 +90,7 @@ export function GravityPrototype({ content, jobs, now }: LandingPrototypeProps) 
           aria-labelledby={HERO_HEADING_ID}
           sx={{ position: 'relative', overflow: 'hidden' }}
         >
-          {tier.tier === 'full' && (
+          {tier.tier === 'full' && sceneReady && (
             <Box aria-hidden sx={{ position: 'absolute', inset: 0 }}>
               <Suspense fallback={null}>
                 {/* Keyed on the framing: crossing the phone breakpoint swaps the

@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState } from 'react';
+import { useState } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { LoadingState } from '../components/shared/LoadingIndicator';
 import { AUTH_CONFIG } from '../config/auth';
@@ -6,9 +6,10 @@ import { ROUTES } from '../config/routes';
 import { useAuth } from '../features/auth/useAuth';
 import { hasStoredAuthSession, jobsSearchFrom, resolveHomeDestination } from './homeDestination';
 
-// Lazy so the jobs board never pays for the landing page's chunk (and its
-// nested three/rapier scene) — signed-in visitors only pass through `/`.
-const LandingPage = lazy(() => import('../pages/LandingPage/LandingPage.tsx'));
+// Static, not lazy: `/` is the front door, so the landing page ships with the
+// app shell and paints without a second round trip. Only its three/rapier
+// scene is split out (GravityPrototype), and that loads after first paint.
+import { LandingPage } from '../pages/LandingPage/LandingPage';
 
 /**
  * `/`: the landing page for signed-out visitors, a redirect to the jobs board
@@ -37,11 +38,7 @@ export function HomeRoute() {
     return <Navigate to={`${ROUTES.RECENT_JOBS}${jobsSearchFrom(search)}${hash}`} replace />;
   }
   if (destination === 'wait') return <LoadingState fullPage />;
-  return (
-    <Suspense fallback={<LoadingState fullPage />}>
-      <LandingPage />
-    </Suspense>
-  );
+  return <LandingPage />;
 }
 
 /**

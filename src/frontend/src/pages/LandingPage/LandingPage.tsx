@@ -1,21 +1,9 @@
-import { lazy, Suspense } from 'react';
 import { Box } from '@mui/material';
 import { useSearchParams } from 'react-router-dom';
-import { LoadingState } from '../../components/shared/LoadingIndicator';
 import { LANDING_CONTENT } from './content';
 import { MOCK_JOBS, MOCK_JOBS_SPARSE, MOCK_NOW } from './mockData';
 import { LandingSeo } from './seo/LandingSeo';
-
-/**
- * The landing scene, still behind React.lazy. The boundary is no longer about
- * picking one of four designs — it is the ONLY thing keeping three/rapier out
- * of the main bundle, so it must not be flattened into a static import even
- * though there is now exactly one thing behind it. (The scene itself is lazy
- * again one level down, so a reduced-motion visitor never fetches it at all.)
- * React.lazy needs a default export, which is why GravityPrototype exports both
- * named and default.
- */
-const GravityPrototype = lazy(() => import('./prototypes/GravityPrototype/GravityPrototype'));
+import { GravityPrototype } from './prototypes/GravityPrototype/GravityPrototype';
 
 /**
  * The marketing landing page (docs/implementations/landingPagePrototypes/PLAN.md).
@@ -55,14 +43,12 @@ export function LandingPage() {
     >
       <LandingSeo content={LANDING_CONTENT} />
       <Box sx={{ flex: 1, overflowY: 'auto' }}>
-        <Suspense fallback={<LoadingState minHeight={400} caption="Loading…" />}>
-          <GravityPrototype
-            content={LANDING_CONTENT}
-            jobs={sparse ? MOCK_JOBS_SPARSE : MOCK_JOBS}
-            sparse={sparse}
-            now={MOCK_NOW}
-          />
-        </Suspense>
+        <GravityPrototype
+          content={LANDING_CONTENT}
+          jobs={sparse ? MOCK_JOBS_SPARSE : MOCK_JOBS}
+          sparse={sparse}
+          now={MOCK_NOW}
+        />
       </Box>
     </Box>
   );

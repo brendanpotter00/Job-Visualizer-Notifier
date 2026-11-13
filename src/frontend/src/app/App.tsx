@@ -1,26 +1,9 @@
+import { lazy } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { useURLSync, useBrowserNavigation } from './hooks';
 import { RootLayout } from '../components/layout/RootLayout.tsx';
-import { CompaniesPage } from '../pages/CompaniesPage/CompaniesPage';
-import { CuratedCompaniesPage } from '../pages/CuratedCompaniesPage';
-import { RecentJobPostingsPage } from '../pages/RecentJobPostingsPage/RecentJobPostingsPage';
-import { WhyPage } from '../pages/WhyPage/WhyPage.tsx';
-import { AccountPage } from '../pages/AccountPage/AccountPage.tsx';
-import { SavedFiltersPage } from '../pages/SavedFiltersPage';
-import { VoteFeaturesPage } from '../pages/VoteFeaturesPage';
-import { MyCompaniesPage } from '../pages/MyCompaniesPage';
-// Imported from its own module (not the barrel) so the flag-gate test can mock
-// each page independently.
-import { MyCompanyTrendPage } from '../pages/MyCompaniesPage/MyCompanyTrendPage';
 import { ROUTES } from '../config/routes';
 import { CUSTOM_COMPANIES_CONFIG } from '../config/customCompanies';
-import { QAPage } from '../pages/QAPage/QAPage.tsx';
-import { AdminUsersPage } from '../pages/AdminUsersPage/AdminUsersPage.tsx';
-import { AdminLocationNormalizationPage } from '../pages/AdminLocationNormalizationPage/AdminLocationNormalizationPage.tsx';
-import { AdminEnrichmentPage } from '../pages/AdminEnrichmentPage/AdminEnrichmentPage.tsx';
-import { AdminLocationPipelinePage } from '../pages/AdminLocationPipelinePage/AdminLocationPipelinePage.tsx';
-import { AdminCustomCompaniesPage } from '../pages/AdminCustomCompaniesPage/AdminCustomCompaniesPage.tsx';
-import { AdminFeedbackPage } from '../pages/AdminFeedbackPage/AdminFeedbackPage.tsx';
 import { HomeRoute, UnknownPathRedirect } from './HomeRoute';
 import { AdminRoute } from '../components/auth/AdminRoute.tsx';
 import { useEnabledCompanies } from '../features/preferences/useEnabledCompanies';
@@ -34,6 +17,74 @@ import { useSignupFunnel } from '../features/analytics/useSignupFunnel';
 import { WEBMCP_CONFIG, WebMcpBridge } from '../webmcp';
 
 import { SubcategoryRevealProvider } from '../features/settings/subcategoryReveal';
+
+/**
+ * Every app page is its own chunk, loaded when its route is first visited, so
+ * the landing page at `/` does not download the whole app before it paints.
+ * RootLayout shows the loading state in the content area while a page loads.
+ */
+const CompaniesPage = lazy(() =>
+  import('../pages/CompaniesPage/CompaniesPage').then((m) => ({ default: m.CompaniesPage }))
+);
+const CuratedCompaniesPage = lazy(() =>
+  import('../pages/CuratedCompaniesPage').then((m) => ({ default: m.CuratedCompaniesPage }))
+);
+const RecentJobPostingsPage = lazy(() =>
+  import('../pages/RecentJobPostingsPage/RecentJobPostingsPage').then((m) => ({
+    default: m.RecentJobPostingsPage,
+  }))
+);
+const WhyPage = lazy(() =>
+  import('../pages/WhyPage/WhyPage.tsx').then((m) => ({ default: m.WhyPage }))
+);
+const AccountPage = lazy(() =>
+  import('../pages/AccountPage/AccountPage.tsx').then((m) => ({ default: m.AccountPage }))
+);
+const SavedFiltersPage = lazy(() =>
+  import('../pages/SavedFiltersPage').then((m) => ({ default: m.SavedFiltersPage }))
+);
+const VoteFeaturesPage = lazy(() =>
+  import('../pages/VoteFeaturesPage').then((m) => ({ default: m.VoteFeaturesPage }))
+);
+const MyCompaniesPage = lazy(() =>
+  import('../pages/MyCompaniesPage').then((m) => ({ default: m.MyCompaniesPage }))
+);
+const MyCompanyTrendPage = lazy(() =>
+  import('../pages/MyCompaniesPage/MyCompanyTrendPage').then((m) => ({
+    default: m.MyCompanyTrendPage,
+  }))
+);
+const QAPage = lazy(() =>
+  import('../pages/QAPage/QAPage.tsx').then((m) => ({ default: m.QAPage }))
+);
+const AdminUsersPage = lazy(() =>
+  import('../pages/AdminUsersPage/AdminUsersPage.tsx').then((m) => ({ default: m.AdminUsersPage }))
+);
+const AdminLocationNormalizationPage = lazy(() =>
+  import('../pages/AdminLocationNormalizationPage/AdminLocationNormalizationPage.tsx').then(
+    (m) => ({ default: m.AdminLocationNormalizationPage })
+  )
+);
+const AdminEnrichmentPage = lazy(() =>
+  import('../pages/AdminEnrichmentPage/AdminEnrichmentPage.tsx').then((m) => ({
+    default: m.AdminEnrichmentPage,
+  }))
+);
+const AdminLocationPipelinePage = lazy(() =>
+  import('../pages/AdminLocationPipelinePage/AdminLocationPipelinePage.tsx').then((m) => ({
+    default: m.AdminLocationPipelinePage,
+  }))
+);
+const AdminCustomCompaniesPage = lazy(() =>
+  import('../pages/AdminCustomCompaniesPage/AdminCustomCompaniesPage.tsx').then((m) => ({
+    default: m.AdminCustomCompaniesPage,
+  }))
+);
+const AdminFeedbackPage = lazy(() =>
+  import('../pages/AdminFeedbackPage/AdminFeedbackPage.tsx').then((m) => ({
+    default: m.AdminFeedbackPage,
+  }))
+);
 
 /**
  * Redirects the pre-rename `/my-companies…` path onto `/add-companies…`.
