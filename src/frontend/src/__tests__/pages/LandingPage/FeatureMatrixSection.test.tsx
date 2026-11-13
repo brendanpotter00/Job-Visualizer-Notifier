@@ -66,8 +66,8 @@ describe('FeatureMatrixSection', () => {
     renderSection();
     const live = within(screen.getByTestId('feature-matrix-live'));
     const tier = within(screen.getByTestId('feature-matrix-coming-soon'));
-    expect(live.getByRole('heading', { name: 'Track any company', level: 3 })).toBeInTheDocument();
-    expect(tier.queryByRole('heading', { name: 'Track any company' })).toBeNull();
+    expect(live.getByRole('heading', { name: 'Track Any Company', level: 3 })).toBeInTheDocument();
+    expect(tier.queryByRole('heading', { name: 'Track Any Company' })).toBeNull();
   });
 
   it('renders exactly the coming-soon cells under a labeled tier', () => {

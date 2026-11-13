@@ -1,20 +1,9 @@
-import { lazy, Suspense } from 'react';
 import { Box } from '@mui/material';
 import { useSearchParams } from 'react-router-dom';
-import { LandingSkeleton } from './LandingSkeleton';
 import { LANDING_CONTENT } from './content';
 import { MOCK_JOBS, MOCK_JOBS_SPARSE, MOCK_NOW } from './mockData';
-
-/**
- * The landing scene, still behind React.lazy. The boundary is no longer about
- * picking one of four designs — it is the ONLY thing keeping three/rapier out
- * of the main bundle, so it must not be flattened into a static import even
- * though there is now exactly one thing behind it. (The scene itself is lazy
- * again one level down, so a reduced-motion visitor never fetches it at all.)
- * React.lazy needs a default export, which is why GravityPrototype exports both
- * named and default.
- */
-const GravityPrototype = lazy(() => import('./prototypes/GravityPrototype/GravityPrototype'));
+import { LandingSeo } from './seo/LandingSeo';
+import { GravityPrototype } from './prototypes/GravityPrototype/GravityPrototype';
 
 /**
  * The marketing landing page (docs/implementations/landingPagePrototypes/PLAN.md).
@@ -23,8 +12,9 @@ const GravityPrototype = lazy(() => import('./prototypes/GravityPrototype/Gravit
  *
  * This was a four-tab prototype workspace until the 2026-09-03 consolidation;
  * the tab strip, the registry and the three losing designs are gone, and what
- * is left is a shell whose whole job is the lazy boundary and the fixture
- * toggle.
+ * is left is a shell whose whole job is the fixture toggle and the document
+ * head (`LandingSeo`, rendered here so the title, canonical and JSON-LD exist
+ * before the lazy scene loads).
  *
  * URL contract: `?data=sparse` swaps in the weekend-reality fixture. It
  * survived the consolidation because the sparse case is the one that breaks
@@ -35,7 +25,7 @@ const GravityPrototype = lazy(() => import('./prototypes/GravityPrototype/Gravit
  * ancestor, and its scroll-state IntersectionObserver deliberately passes no
  * `root` so it is clipped by that same overflow ancestor. Flattening this to a
  * document-level scroll is a real change to how the header behaves, so it is
- * left for the post-merge iteration pass rather than smuggled into a deletion.
+ * left for a later iteration pass rather than smuggled into a restyle.
  */
 export function LandingPage() {
   const [searchParams] = useSearchParams();
@@ -51,18 +41,15 @@ export function LandingPage() {
         bgcolor: 'background.default',
       }}
     >
+      <LandingSeo content={LANDING_CONTENT} />
       <Box sx={{ flex: 1, overflowY: 'auto' }}>
-        <Suspense fallback={<LandingSkeleton />}>
-          <GravityPrototype
-            content={LANDING_CONTENT}
-            jobs={sparse ? MOCK_JOBS_SPARSE : MOCK_JOBS}
-            sparse={sparse}
-            now={MOCK_NOW}
-          />
-        </Suspense>
+        <GravityPrototype
+          content={LANDING_CONTENT}
+          jobs={sparse ? MOCK_JOBS_SPARSE : MOCK_JOBS}
+          sparse={sparse}
+          now={MOCK_NOW}
+        />
       </Box>
     </Box>
   );
 }
-
-export default LandingPage;

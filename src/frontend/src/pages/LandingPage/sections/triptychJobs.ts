@@ -85,8 +85,8 @@ function earlyCareerLabel(pool: Job[]): string {
   if (pool.length === 0) return 'Internships & new grad';
   const hasIntern = pool.some((job) => job.level === 'intern');
   const hasNewGrad = pool.some((job) => job.level === 'new_grad');
-  if (!hasNewGrad) return 'Newest internships';
-  if (!hasIntern) return 'Newest new-grad roles';
+  if (!hasNewGrad) return 'Internships';
+  if (!hasIntern) return 'New grad';
   return 'Internships & new grad';
 }
 
@@ -113,19 +113,19 @@ export function selectTriptychSlots(
     {
       id: 'early_career',
       label: earlyCareerLabel(earlyCareer),
-      emptyText: 'No internships or new-grad roles this week.',
+      emptyText: 'None this week.',
       jobs: earlyCareer,
     },
     {
       id: 'last_24h',
-      label: 'Posted in the last 24 hours',
-      emptyText: 'Nothing new in the last day.',
+      label: 'Last 24 hours',
+      emptyText: 'None today.',
       jobs: lastDay,
     },
     {
       id: 'big_tech',
-      label: 'Fresh from big tech',
-      emptyText: 'Nothing from big tech this week.',
+      label: 'Big tech',
+      emptyText: 'None this week.',
       jobs: bigTech,
     },
   ];

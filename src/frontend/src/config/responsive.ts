@@ -269,16 +269,20 @@ export const RESPONSIVE = {
     headerHeight: { xs: 52, sm: 64 },
     /** Landing header: plain-text wordmark font size (rendered at weight 600). */
     headerWordmarkFontSize: { xs: '0.9375rem', sm: '1.0625rem' },
+    headerMarkFontSize: { xs: '1.125rem', sm: '1.3125rem' },
+    headerMarkGap: { xs: 1, sm: 1.25 },
     /** Landing header: gap between the right-hand cluster items (theme units). */
     headerGap: { xs: 1, sm: 1.5 },
-    /** Hero h1 (rendered with fontWeight 600 like theme headings). */
-    heroHeadlineFontSize: { xs: '2rem', sm: '3.25rem' },
-    /** Hero subheadline (fragment stack under the h1). */
-    heroSubFontSize: { xs: '1rem', sm: '1.25rem' },
+    heroHeadlineFontSize: { xs: '1.875rem', sm: '3.25rem' },
     /** Hero block vertical padding (theme units). */
     heroPaddingY: { xs: 8, sm: 14 },
-    /** Section h2 font size. */
-    sectionTitleFontSize: { xs: '1.375rem', sm: '1.75rem' },
+    sectionTitleFontSize: { xs: '1.5rem', sm: '2rem' },
+    eyebrowFontSize: { xs: '0.75rem', sm: '0.8125rem' },
+    comparisonRowPaddingY: { xs: 2.5, sm: 3 },
+    comparisonColumnGap: { xs: 2, sm: 4 },
+    comparisonCellFontSize: { xs: '0.9375rem', sm: '1.0625rem' },
+    comparisonRowLabelFontSize: { xs: '1.125rem', sm: '1.1875rem' },
+    closingHeadingFontSize: { xs: '1.75rem', sm: '2.5rem' },
     /**
      * Sub-heading inside a section (step label, matrix cell name, FAQ question,
      * category card title). Sits clearly above `bodyFontSize` at weight 600 so
@@ -304,39 +308,20 @@ export const RESPONSIVE = {
      * of the content it labels.
      */
     sectionTitleMarginBottom: { xs: 3, sm: 5 },
-    /**
-     * Air between two blocks INSIDE one section (how-it-works steps → the
-     * apply-early pull-quote). Smaller than `sectionPaddingY` so the blocks
-     * still read as one section.
-     */
-    sectionBlockGapY: { xs: 5, sm: 9 },
-    /** How-it-works: spacing between the three numbered step columns. */
-    stepsGridSpacing: { xs: 4, sm: 6 },
     /** Feature matrix: vertical padding inside each ruled cell. */
     matrixCellPaddingY: { xs: 3, sm: 5 },
     /** Feature matrix: right gutter inside each cell (the column separation). */
     matrixCellPaddingRight: { xs: 3, sm: 6 },
-    /**
-     * Feature matrix: the quiet overline that labels the grayed coming-soon
-     * tier. Deliberately the smallest type on the page — it names a state, it
-     * is not content to read, so it must not compete with the cell names.
-     */
-    matrixTierLabelFontSize: { xs: '0.75rem', sm: '0.8125rem' },
     /** FAQ: vertical padding on each accordion summary → taller, calmer rows. */
     faqRowPaddingY: { xs: 1, sm: 1.75 },
     /** Curated-category cards: interior padding. */
     categoryCardPadding: { xs: 2.5, sm: 3 },
     /** Curated-category cards: grid gap between cards. */
     categoryGridGap: { xs: 2, sm: 3 },
-    /** Quotable-claims / body emphasis font size (a step above `bodyFontSize`). */
-    quotableFontSize: { xs: '1.0625rem', sm: '1.25rem' },
-    /** Reserved height for the rotating single-job card, so the page does not
-     *  twitch as cards of slightly different content length swap in (px). */
-    rotatingCardMinHeight: { xs: 260, sm: 240 },
-    /** Gravity hero: reserved vertical room for the 3D pile (px height). */
-    heroSceneHeight: { xs: 200, sm: 280 },
-    /** Logo-wall tile edge (raw px via `useIsMobile` → `CompanyLogo size`). */
+    rotatingCardMinHeight: { xs: 140, sm: 240 },
+    heroSceneHeight: { xs: 130, sm: 280 },
     logoTileSize: { compact: 40, default: 52 },
+    pileFloorInsetCompact: 48,
     /** Fresh-jobs ticker logo edge (raw px via `useIsMobile`). */
     tickerLogoSize: { compact: 22, default: 28 },
   },

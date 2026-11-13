@@ -17,11 +17,16 @@ import { buildMockJobs } from '../../../pages/LandingPage/mockData';
 vi.mock(
   '../../../pages/LandingPage/prototypes/GravityPrototype/GravityScene',
   () => ({
-    default: (props: { roster: readonly { companyId: string }[]; maxDpr: number }) => (
+    default: (props: {
+      roster: readonly { companyId: string }[];
+      maxDpr: number;
+      compact: boolean;
+    }) => (
       <div
         data-testid="gravity-scene"
         data-roster-size={props.roster.length}
         data-max-dpr={props.maxDpr}
+        data-compact={String(props.compact)}
       />
     ),
   })
@@ -55,12 +60,14 @@ function stubCores(cores: number) {
   });
 }
 
-function stubMatchMedia(reduceMotion: boolean) {
+function stubMatchMedia(reduceMotion: boolean, phone = false) {
   Object.defineProperty(window, 'matchMedia', {
     configurable: true,
     writable: true,
     value: (query: string) => ({
-      matches: reduceMotion && query === '(prefers-reduced-motion: reduce)',
+      matches:
+        (reduceMotion && query === '(prefers-reduced-motion: reduce)') ||
+        (phone && query.includes('max-width')),
       media: query,
       onchange: null,
       addEventListener: () => {},
@@ -70,6 +77,12 @@ function stubMatchMedia(reduceMotion: boolean) {
       dispatchEvent: () => false,
     }),
   });
+}
+
+function buttonLinks(name: string) {
+  return screen
+    .getAllByRole('link', { name })
+    .filter((el) => el.classList.contains('MuiButton-root'));
 }
 
 afterEach(() => {
@@ -95,23 +108,38 @@ describe('GravityPrototype', () => {
     ).toBeTruthy();
   });
 
-  // Gravity is converging as the primary landing design, so it carries the
-  // anti-noise headline ("No reposts. No stale listings. No noise.").
-  it('renders the anti-noise hero as the single h1 with both CTAs', () => {
+  it('renders the hero as the single h1', () => {
     renderGravity();
     const h1 = screen.getByRole('heading', { level: 1 });
-    expect(h1).toHaveTextContent(LANDING_CONTENT.heroVariants.antiNoise.headline);
+    expect(h1).toHaveTextContent(LANDING_CONTENT.hero.headline);
+    expect(h1.querySelector('span')).toBeNull();
     expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
-    expect(
-      screen.getAllByRole('link', { name: LANDING_CONTENT.ctas.primary.label }).length
-    ).toBeGreaterThan(0);
-    // The footer carries a plain text link with the same label; filter to buttons.
-    const secondaries = screen
-      .getAllByRole('link', { name: LANDING_CONTENT.ctas.secondary.label })
-      .filter((el) => el.classList.contains('MuiButton-root'));
-    expect(secondaries).toHaveLength(1);
-    expect(secondaries[0]).toHaveClass('MuiButton-outlined');
-    expect(secondaries[0]).toHaveAttribute('href', LANDING_CONTENT.ctas.secondary.to);
+  });
+
+  it('carries the CTA pair in the hero and again in the closing block', () => {
+    renderGravity();
+    const primaries = buttonLinks(LANDING_CONTENT.ctas.primary.label);
+    const secondaries = buttonLinks(LANDING_CONTENT.ctas.secondary.label);
+    expect(primaries).toHaveLength(2);
+    expect(secondaries).toHaveLength(2);
+    for (const button of primaries) {
+      expect(button).toHaveClass('MuiButton-contained');
+      expect(button).toHaveAttribute('href', LANDING_CONTENT.ctas.primary.to);
+    }
+    for (const button of secondaries) {
+      expect(button).toHaveClass('MuiButton-text');
+      expect(button).toHaveAttribute('href', LANDING_CONTENT.ctas.secondary.to);
+    }
+    const closer = screen.getByTestId('closing-cta');
+    expect(within(closer).getByRole('heading', { level: 2 })).toHaveTextContent(
+      LANDING_CONTENT.closing.heading
+    );
+  });
+
+  it('draws nothing decorative behind the hero copy', () => {
+    renderGravity();
+    expect(screen.queryByTestId('hero-trendline')).not.toBeInTheDocument();
+    expect(document.querySelector('section svg path[stroke-opacity]')).toBeNull();
   });
 
   it('fallback tier (no WebGL): pre-settled DOM logo grid, scene never mounts', () => {
@@ -129,6 +157,7 @@ describe('GravityPrototype', () => {
     const scene = await screen.findByTestId('gravity-scene');
     expect(scene).toHaveAttribute('data-roster-size', String(DESKTOP_BODY_COUNT));
     expect(scene).toHaveAttribute('data-max-dpr', '2');
+    expect(scene).toHaveAttribute('data-compact', 'false');
     // The settled pile IS the logo wall — no DOM grid/marquee duplicate below.
     expect(screen.queryByLabelText(PILE_LABEL)).not.toBeInTheDocument();
   });
@@ -142,6 +171,17 @@ describe('GravityPrototype', () => {
     expect(scene).toHaveAttribute('data-max-dpr', '1.5');
   });
 
+  it('phone with WebGL: mounts the scene compact, with the constrained roster', async () => {
+    vi.mocked(detectWebGLSupport).mockReturnValue(true);
+    stubCores(8);
+    stubMatchMedia(false, true);
+    renderGravity();
+    const scene = await screen.findByTestId('gravity-scene');
+    expect(scene).toHaveAttribute('data-compact', 'true');
+    expect(scene).toHaveAttribute('data-roster-size', String(CONSTRAINED_BODY_COUNT));
+    expect(screen.queryByLabelText(PILE_LABEL)).not.toBeInTheDocument();
+  });
+
   it('prefers-reduced-motion forces the DOM fallback even with WebGL available', () => {
     vi.mocked(detectWebGLSupport).mockReturnValue(true);
     stubCores(12);
@@ -151,10 +191,13 @@ describe('GravityPrototype', () => {
     expect(screen.queryByTestId('gravity-scene')).not.toBeInTheDocument();
   });
 
-  it('carries the three-slot fresh-jobs triptych where the single card used to be', () => {
+  it('carries the three-slot fresh-jobs triptych under its own heading', () => {
     renderGravity();
     const [earlyCareer, last24h, bigTech] = selectTriptychSlots(buildMockJobs(NOW), NOW);
-    expect(screen.getByTestId('fresh-jobs-triptych')).toBeInTheDocument();
+    const triptych = screen.getByTestId('fresh-jobs-triptych');
+    expect(within(triptych).getByRole('heading', { level: 2 })).toHaveTextContent(
+      LANDING_CONTENT.freshJobs.heading
+    );
     for (const slot of [earlyCareer, last24h, bigTech]) {
       const region = screen.getByTestId(`triptych-slot-${slot.id}`);
       // By ROLE, not by text: each slot also carries hidden height sizers for
@@ -162,48 +205,58 @@ describe('GravityPrototype', () => {
       // only the job actually on screen. See FlippingCard's SizerStack.
       expect(within(region).getByRole('heading', { name: slot.jobs[0].title })).toBeInTheDocument();
     }
-    expect(screen.queryByTestId('rotating-job-card')).not.toBeInTheDocument();
-    expect(screen.queryByText(/tracked in the past 24 hours/)).not.toBeInTheDocument();
   });
 
-  it('keeps the shared sections below: FAQ and footer', () => {
+  it('renders every section from the content config', () => {
     renderGravity();
-    expect(screen.getByText(LANDING_CONTENT.faq[0].question)).toBeInTheDocument();
-    expect(screen.getByText(LANDING_CONTENT.categoryLine)).toBeInTheDocument();
-  });
-
-  it('carries the two quiet text sections with their content copy', () => {
-    renderGravity();
-    for (const step of LANDING_CONTENT.howItWorks.steps) {
-      expect(screen.getByText(step.line)).toBeInTheDocument();
+    for (const row of LANDING_CONTENT.comparison.rows) {
+      const region = screen.getByTestId(`comparison-row-${row.id}`);
+      expect(within(region).getByText(row.linkedin)).toBeInTheDocument();
+      expect(within(region).getByText(row.onesecondswe)).toBeInTheDocument();
     }
-    expect(screen.getByText(LANDING_CONTENT.claims.apply_early_rolling.body)).toBeInTheDocument();
     for (const feature of LANDING_CONTENT.featureMatrix.features) {
       expect(screen.getByText(feature.detail)).toBeInTheDocument();
     }
     expect(
       screen.getByRole('link', { name: LANDING_CONTENT.featureMatrix.nextUp.label })
     ).toBeInTheDocument();
+    expect(screen.getByText(LANDING_CONTENT.faq.entries[0].question)).toBeInTheDocument();
   });
 
-  // The still text sections bracket the categories grid: one after the flipping
-  // triptych, one before the FAQ. Order is the section contract, so assert the
-  // whole below-hero sequence rather than mere presence.
-  it('orders the below-hero sections triptych → how-it-works → categories → matrix → FAQ', () => {
+  it('ends on the closing CTA with no footer', () => {
+    renderGravity();
+    expect(screen.queryByRole('contentinfo')).not.toBeInTheDocument();
+    expect(screen.queryByText(LANDING_CONTENT.categoryLine)).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Why this was built' })).not.toBeInTheDocument();
+  });
+
+  it('orders the sections: triptych → LinkedIn → companies → matrix → FAQ → closer', () => {
     renderGravity();
     const markers = [
       screen.getByTestId('fresh-jobs-triptych'),
-      screen.getByTestId('how-it-works'),
-      screen.getByRole('heading', { name: 'Browse curated companies', level: 2 }),
+      screen.getByTestId('linkedin-comparison'),
+      screen.getByRole('heading', { name: LANDING_CONTENT.companies.heading, level: 2 }),
       screen.getByTestId('feature-matrix'),
-      screen.getByRole('heading', { name: 'Frequently asked questions', level: 2 }),
-      screen.getByText(LANDING_CONTENT.categoryLine),
+      screen.getByRole('heading', { name: LANDING_CONTENT.faq.heading, level: 2 }),
+      screen.getByTestId('closing-cta'),
     ];
     for (let i = 1; i < markers.length; i += 1) {
       expect(
         markers[i - 1].compareDocumentPosition(markers[i]) & Node.DOCUMENT_POSITION_FOLLOWING,
         `section ${i} is out of order`
       ).toBeTruthy();
+    }
+  });
+
+  it('wraps the page in a main landmark of labelled sections', () => {
+    renderGravity();
+    const main = screen.getByRole('main');
+    const sections = Array.from(main.querySelectorAll('section'));
+    expect(sections.length).toBeGreaterThanOrEqual(7);
+    for (const section of sections) {
+      const labelledBy = section.getAttribute('aria-labelledby');
+      expect(labelledBy, 'every section must point at its heading').toBeTruthy();
+      expect(document.getElementById(labelledBy!), `missing heading #${labelledBy}`).not.toBeNull();
     }
   });
 });

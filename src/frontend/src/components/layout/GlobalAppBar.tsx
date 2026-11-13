@@ -1,16 +1,12 @@
 import { APP_TITLE } from '../../config/constants';
-import { keyframes } from '@mui/material/styles';
 import AppBar from '@mui/material/AppBar';
 import Box from '@mui/material/Box';
 import Toolbar from '@mui/material/Toolbar';
 import { Link as RouterLink } from 'react-router-dom';
 import { UserMenu } from './UserMenu';
+import { ROUTES } from '../../config/routes';
+import { OneSecondMark } from '../shared/OneSecondMark';
 import { SidebarToggleButton } from './SidebarToggleButton';
-
-const recBlink = keyframes`
-  0%, 55% { opacity: 1; }
-  60%, 100% { opacity: 0.25; }
-`;
 
 /**
  * Props for the GlobalAppBar component
@@ -42,7 +38,7 @@ export function GlobalAppBar({ open, onDrawerToggle }: GlobalAppBarProps) {
         </Box>
         <Box
           component={RouterLink}
-          to="/"
+          to={ROUTES.RECENT_JOBS}
           aria-label={APP_TITLE}
           sx={{
             display: 'inline-flex',
@@ -63,26 +59,7 @@ export function GlobalAppBar({ open, onDrawerToggle }: GlobalAppBarProps) {
           >
             {APP_TITLE}
           </Box>
-          <Box
-            component="span"
-            aria-hidden
-            sx={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '22px' }}
-          >
-            <span>1s</span>
-            <Box
-              component="span"
-              sx={{
-                width: '7px',
-                height: '7px',
-                borderRadius: '50%',
-                background: '#2F8F3F',
-                boxShadow: '0 0 8px rgba(47,143,63,0.6)',
-                display: 'inline-block',
-                animation: `${recBlink} 2.2s ease-in-out infinite`,
-                '@media (prefers-reduced-motion: reduce)': { animation: 'none' },
-              }}
-            />
-          </Box>
+          <OneSecondMark />
         </Box>
         <Box sx={{ flexGrow: 1 }} />
         <UserMenu />

@@ -14,22 +14,40 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="preconnect" href="https://api.fontshare.com" crossorigin />
     <link
+      rel="preload"
+      as="style"
       href="https://api.fontshare.com/v2/css?f[]=infra-mono@400,700&display=swap"
-      rel="stylesheet"
+      onload="this.onload=null;this.rel='stylesheet'"
     />
+    <noscript>
+      <link
+        href="https://api.fontshare.com/v2/css?f[]=infra-mono@400,700&display=swap"
+        rel="stylesheet"
+      />
+    </noscript>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="swe job board from the source" />
-    <meta property="og:title" content="onesecondswe" />
-    <meta property="og:description" content="swe job board from the source" />
+    <meta
+      name="description"
+      content="Browse software engineer jobs minutes after companies post them on their own career pages. 130+ curated companies, no reposts, free."
+    />
+    <meta property="og:site_name" content="onesecondswe" />
+    <meta property="og:title" content="onesecondswe: software engineer jobs, minutes after they’re posted" />
+    <meta
+      property="og:description"
+      content="Browse software engineer jobs minutes after companies post them on their own career pages. 130+ curated companies, no reposts, free."
+    />
     <meta property="og:type" content="website" />
-    <meta property="og:image" content="/og-image.png" />
+    <meta property="og:image" content="https://onesecondswe.dev/og-image.png" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="onesecondswe" />
-    <meta name="twitter:description" content="swe job board from the source" />
-    <meta name="twitter:image" content="/og-image.png" />
-    <title>onesecondswe</title>
+    <meta name="twitter:title" content="onesecondswe: software engineer jobs, minutes after they’re posted" />
+    <meta
+      name="twitter:description"
+      content="Browse software engineer jobs minutes after companies post them on their own career pages. 130+ curated companies, no reposts, free."
+    />
+    <meta name="twitter:image" content="https://onesecondswe.dev/og-image.png" />
+    <title>onesecondswe: software engineer jobs, minutes after they’re posted</title>
   </head>
   <body>
     <div id="root"></div>

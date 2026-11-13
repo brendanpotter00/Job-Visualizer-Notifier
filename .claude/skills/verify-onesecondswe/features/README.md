@@ -15,7 +15,7 @@ the proof.
 
 | File | Route (`ROUTES.*`) | Primary tools |
 |---|---|---|
-| [`recent-jobs.md`](recent-jobs.md) | `/` `RECENT_JOBS` | `search_jobs`, `apply_feed_filters`, `reset_feed_filters`, `open_job`, `list_filter_options`, `search_locations`, `list_companies` |
+| [`recent-jobs.md`](recent-jobs.md) | `/jobs` `RECENT_JOBS` | `search_jobs`, `apply_feed_filters`, `reset_feed_filters`, `open_job`, `list_filter_options`, `search_locations`, `list_companies` |
 | [`company-hiring-trends.md`](company-hiring-trends.md) | `/companies` `COMPANIES` | `get_company_hiring_trend`, `get_job`, `list_companies` |
 | [`curated-companies.md`](curated-companies.md) | `/curated-companies` `CURATED_COMPANIES` | `list_companies` |
 | [`saved-filters.md`](saved-filters.md) | `/saved-filters` `SAVED_FILTERS` (login-gated) | `save_filter_defaults`, `set_enabled_companies` |
@@ -24,7 +24,7 @@ the proof.
 | [`add-companies.md`](add-companies.md) | `/add-companies` `MY_COMPANIES` (flag-gated) | none — cross-references the `e2e/add-companies` gate, plus the one non-shim `@live-view` drive |
 | [`company-name-search.md`](company-name-search.md) | `/add-companies` `MY_COMPANIES` (flag-gated) — the **name** half of the same box | none — the non-shim `@name-search` drive, plus the folded `e2e/company-name-search` judge (`helpers/name_search.sh`, $0; `--live` ~$0.27) |
 | [`why.md`](why.md) | `/why` `WHY` | none (static) |
-| [`landing.md`](landing.md) | `/landing` `LANDING` (direct URL only — no nav entry) | none (static marketing) |
+| [`landing.md`](landing.md) | `/` `HOME` (signed-out visitors; signed-in ones go to `/jobs`) | none (static marketing) |
 
 ## Intentionally unmapped
 

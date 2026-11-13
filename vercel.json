@@ -123,12 +123,28 @@
       "destination": "/index.html"
     },
     {
-      "source": "/landing",
+      "source": "/jobs",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/location-pipeline",
       "destination": "/index.html"
     },
     {
       "source": "/admin/:path(.*)",
       "destination": "/index.html"
+    }
+  ],
+  "redirects": [
+    {
+      "source": "/landing",
+      "destination": "/",
+      "permanent": true
+    },
+    {
+      "source": "/recent-jobs",
+      "destination": "/jobs",
+      "permanent": true
     }
   ],
   "headers": [

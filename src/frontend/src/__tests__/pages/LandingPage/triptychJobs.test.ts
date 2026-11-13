@@ -119,7 +119,7 @@ describe('selectTriptychSlots', () => {
         [stubJob('figma', 2, { level: 'intern' }), stubJob('google', 3, { level: 'mid' })],
         'early_career'
       );
-      expect(slot.label).toBe('Newest internships');
+      expect(slot.label).toBe('Internships');
     });
 
     it('falls back to new-grad roles — and says so — when no internship exists', () => {
@@ -127,7 +127,7 @@ describe('selectTriptychSlots', () => {
         [stubJob('stripe', 1, { level: 'new_grad' }), stubJob('google', 3, { level: 'senior' })],
         'early_career'
       );
-      expect(slot.label).toBe('Newest new-grad roles');
+      expect(slot.label).toBe('New grad');
       expect(slot.jobs.map((j) => j.id)).toEqual(['stripe-1']);
     });
 
@@ -138,7 +138,7 @@ describe('selectTriptychSlots', () => {
       );
       expect(slot.jobs).toHaveLength(0);
       expect(slot.label).toBe('Internships & new grad');
-      expect(slot.emptyText).toBe('No internships or new-grad roles this week.');
+      expect(slot.emptyText).toBe('None this week.');
     });
   });
 
@@ -154,7 +154,7 @@ describe('selectTriptychSlots', () => {
       };
       const slot = slotById([onBoundary, justPast], 'last_24h');
       expect(slot.jobs.map((j) => j.id)).toEqual(['on-boundary']);
-      expect(slot.label).toBe('Posted in the last 24 hours');
+      expect(slot.label).toBe('Last 24 hours');
     });
 
     it('every job it shows really is under 24 hours old', () => {

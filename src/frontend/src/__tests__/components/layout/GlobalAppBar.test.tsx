@@ -43,7 +43,7 @@ describe('GlobalAppBar', () => {
       const logo = screen.getByLabelText(APP_TITLE);
       expect(logo).toBeInTheDocument();
       expect(logo).toHaveTextContent('1s');
-      expect(logo).toHaveAttribute('href', '/');
+      expect(logo).toHaveAttribute('href', '/jobs');
     });
 
     it('renders the sidebar toggle as the first control in the toolbar', () => {

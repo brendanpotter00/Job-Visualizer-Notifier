@@ -1,5 +1,6 @@
-import { Box, CircularProgress, Skeleton, Stack, Card, CardContent, Typography } from '@mui/material';
+import { Box, CircularProgress, Skeleton, Stack, Card, CardContent } from '@mui/material';
 import type { Breakpoint } from '@mui/material';
+import { LoadingText } from './LoadingText';
 
 /**
  * Props for {@link LoadingIndicator}. Modeled as a discriminated union so
@@ -11,9 +12,6 @@ export type LoadingIndicatorProps =
   | {
       /** Fill the viewport (minHeight: 100vh) for page-level initial loads. */
       fullPage: true;
-      /** Size of the spinner. */
-      size?: number;
-      /** Optional caption rendered under the spinner. */
       caption?: string;
       /** Not allowed when `fullPage: true`. */
       minHeight?: never;
@@ -21,19 +19,16 @@ export type LoadingIndicatorProps =
   | {
       /** In-layout variant. Accepts an explicit `minHeight`. */
       fullPage?: false;
-      /** Size of the spinner. */
-      size?: number;
       /** Minimum height for the container (defaults to 200). */
       minHeight?: number | string;
-      /** Optional caption rendered under the spinner. */
       caption?: string;
     };
 
 /**
- * Centered loading spinner with optional caption and full-viewport mode.
+ * Centered loading state: the caption (or "Loading") as a breathing wave of text,
+ * with no spinner. See {@link LoadingText}. Optional full-viewport mode.
  */
 export function LoadingIndicator(props: LoadingIndicatorProps) {
-  const { size = 40, caption } = props;
   const resolvedMinHeight = props.fullPage ? '100vh' : (props.minHeight ?? 200);
 
   return (
@@ -42,17 +37,11 @@ export function LoadingIndicator(props: LoadingIndicatorProps) {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
+        textAlign: 'center',
         minHeight: resolvedMinHeight,
       }}
     >
-      <Stack direction="column" spacing={2} sx={{ alignItems: 'center', textAlign: 'center' }}>
-        <CircularProgress size={size} />
-        {caption && (
-          <Typography variant="body1" color="text.disabled">
-            {caption}
-          </Typography>
-        )}
-      </Stack>
+      <LoadingText text={props.caption} />
     </Box>
   );
 }

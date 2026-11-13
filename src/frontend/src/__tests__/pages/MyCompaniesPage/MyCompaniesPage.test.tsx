@@ -362,7 +362,7 @@ describe('MyCompaniesPage', () => {
       // The two phase-specific labels are gone with the second call they named.
       expect(screen.queryByRole('button', { name: /checking/i })).not.toBeInTheDocument();
       expect(screen.queryByRole('button', { name: /setting up/i })).not.toBeInTheDocument();
-      expect(screen.getByText(/adding this company/i)).toBeInTheDocument();
+      expect(screen.getByRole('progressbar', { name: /adding this company/i })).toBeInTheDocument();
 
       release(jsonResponse(CREATED, 201));
       expect(await screen.findByTestId('add-company-success')).toBeInTheDocument();

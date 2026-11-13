@@ -40,11 +40,6 @@ describe('COMPANY_CATEGORIES', () => {
     expect(new Set(labels).size).toBe(labels.length);
   });
 
-  it('gives every category a non-empty blurb', () => {
-    for (const category of COMPANY_CATEGORIES) {
-      expect(category.blurb.trim().length).toBeGreaterThan(0);
-    }
-  });
 
   it('gives every category a non-empty label and id', () => {
     for (const category of COMPANY_CATEGORIES) {

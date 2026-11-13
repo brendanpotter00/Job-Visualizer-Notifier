@@ -166,30 +166,25 @@ describe('custom company sources — feature flag gate', () => {
     it('registers NO legacy /my-companies redirect either', async () => {
       // The redirect is a route like any other, and it is gated on the same flag.
       // If it leaked past the gate, the old path would bounce a flag-off visitor
-      // onto `/add-companies` — a URL that renders nothing — instead of the plain
-      // 404 the app had before this feature existed.
       await renderAppAt('/my-companies/u-abc1234567', false);
 
-      await waitFor(() =>
-        expect(screen.queryByText('JOBS FROM THE SOURCE')).not.toBeInTheDocument()
-      );
+      await waitFor(() => expect(window.location.pathname).toBe('/'));
+      expect(screen.queryByText('JOBS FROM THE SOURCE')).not.toBeInTheDocument();
       expect(screen.queryByTestId('my-companies-page')).not.toBeInTheDocument();
       expect(screen.queryByTestId('my-company-trend-page')).not.toBeInTheDocument();
-      expect(window.location.pathname).toBe('/my-companies/u-abc1234567');
     }, FULL_APP_RENDER_TIMEOUT_MS);
 
     it('shows NO "Add Companies" nav entry', async () => {
-      await renderAppAt('/', false);
+      await renderAppAt('/jobs', false);
       await findShell();
 
       expect(screen.queryByText('Add Companies')).not.toBeInTheDocument();
     }, FULL_APP_RENDER_TIMEOUT_MS);
 
     it('leaves the existing nav items untouched', async () => {
-      await renderAppAt('/', false);
+      await renderAppAt('/jobs', false);
       await findShell();
 
-      // `getAllBy*`: at `/` the index page also has a "Recent Job Postings"
       // heading, so the nav label is not the only match.
       expect(screen.getAllByText('Recent Job Postings').length).toBeGreaterThan(0);
       expect(screen.getAllByText('Company Hiring Trends').length).toBeGreaterThan(0);
@@ -250,7 +245,7 @@ describe('custom company sources — feature flag gate', () => {
     }, FULL_APP_RENDER_TIMEOUT_MS);
 
     it('shows the "Add Companies" nav entry with no beta marker', async () => {
-      await renderAppAt('/', true);
+      await renderAppAt('/jobs', true);
 
       // The nav row is plain text now — the beta marker was removed from the
       // sidebar (it still lives on the page's own `<h1>`, covered by

@@ -3,6 +3,7 @@ import { render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { ROUTES } from '../../../config/routes';
 import { COMPANY_CATEGORIES } from '../../../pages/LandingPage/companyCategories';
+import { LANDING_CONTENT } from '../../../pages/LandingPage/content';
 import { CompanyCategoriesSection } from '../../../pages/LandingPage/sections/CompanyCategoriesSection';
 
 /** Mirrors `VISIBLE_LOGOS` in the section — the head slice shown per card. */
@@ -11,7 +12,7 @@ const VISIBLE_LOGOS = 6;
 function renderSection() {
   return render(
     <MemoryRouter>
-      <CompanyCategoriesSection />
+      <CompanyCategoriesSection content={LANDING_CONTENT} />
     </MemoryRouter>
   );
 }
@@ -20,25 +21,23 @@ describe('CompanyCategoriesSection', () => {
   it('renders the section heading', () => {
     renderSection();
     expect(
-      screen.getByRole('heading', { name: 'Browse curated companies', level: 2 })
+      screen.getByRole('heading', { name: 'Curated Companies', level: 2 })
     ).toBeInTheDocument();
   });
 
-  it('renders every category label and blurb', () => {
+  it('renders every category label', () => {
     renderSection();
     for (const category of COMPANY_CATEGORIES) {
       expect(screen.getByRole('heading', { name: category.label, level: 3 })).toBeInTheDocument();
-      expect(screen.getByText(category.blurb)).toBeInTheDocument();
     }
   });
 
-  it('shows a member count matching the data for each category', () => {
+  it('shows no member count and no description on the cards', () => {
     renderSection();
+    expect(screen.queryByText(/\d+ companies/)).not.toBeInTheDocument();
     for (const category of COMPANY_CATEGORIES) {
-      const card = screen.getByRole('link', {
-        name: `${category.label}, ${category.companyIds.length} companies`,
-      });
-      expect(within(card).getByText(`${category.companyIds.length} companies`)).toBeInTheDocument();
+      const card = screen.getByRole('link', { name: category.label });
+      expect(card.querySelectorAll('p')).toHaveLength(0);
     }
   });
 
@@ -67,9 +66,7 @@ describe('CompanyCategoriesSection', () => {
   it('collapses the remaining members into a "+N" indicator', () => {
     renderSection();
     for (const category of COMPANY_CATEGORIES) {
-      const card = screen.getByRole('link', {
-        name: `${category.label}, ${category.companyIds.length} companies`,
-      });
+      const card = screen.getByRole('link', { name: category.label });
       const overflow = category.companyIds.length - VISIBLE_LOGOS;
       if (overflow > 0) {
         expect(within(card).getByText(`+${overflow}`)).toBeInTheDocument();

@@ -1,54 +1,39 @@
-import { Box, Typography } from '@mui/material';
+import { Typography } from '@mui/material';
 import { RESPONSIVE } from '../../../config/responsive';
-import type { LandingContent, HeroVariantId } from '../content';
+import type { LandingHero } from '../content';
+import { heroRiseIn } from './heroRiseIn';
 
 interface HeroCopyProps {
-  content: LandingContent;
-  variant: HeroVariantId;
-  align?: 'left' | 'center';
-  /** Render the SWE-flagship support line under the subheadline. */
-  showBroadSupportLine?: boolean;
+  hero: LandingHero;
+  headingId: string;
 }
 
 /**
- * The single h1 + fragment-stack subheadline (brief §4/§9). Real DOM text
- * always — this block is the page's LCP element by design, never a canvas.
+ * The single h1, one tone: "No reposts. No stale listings. No noise. Just
+ * jobs." It was two tones until 2026-11-12, with a gray continuation carrying
+ * the query phrase and the 130+ number; the owner cut it for "Just jobs." Real
+ * DOM text always — this block is the page's LCP element by design, never a
+ * canvas.
+ *
+ * Left-aligned and set at a regular weight on purpose: a centred bold
+ * headline reads as a poster, and the page is meant to read as a document.
  */
-export function HeroCopy({
-  content,
-  variant,
-  align = 'center',
-  showBroadSupportLine = false,
-}: HeroCopyProps) {
-  const hero = content.heroVariants[variant];
+export function HeroCopy({ hero, headingId }: HeroCopyProps) {
   return (
-    <Box sx={{ textAlign: align, maxWidth: 780, mx: align === 'center' ? 'auto' : 0 }}>
-      <Typography
-        variant="h1"
-        sx={{
-          fontSize: RESPONSIVE.landingProto.heroHeadlineFontSize,
-          fontWeight: 600,
-          letterSpacing: '-0.02em',
-          lineHeight: 1.1,
-        }}
-      >
-        {hero.headline}
-      </Typography>
-      <Typography
-        sx={{
-          fontSize: RESPONSIVE.landingProto.heroSubFontSize,
-          color: 'text.secondary',
-          mt: 2,
-          lineHeight: 1.5,
-        }}
-      >
-        {hero.subheadline}
-      </Typography>
-      {showBroadSupportLine && (
-        <Typography variant="body2" sx={{ color: 'text.secondary', mt: 1.5 }}>
-          {content.broadSupportLine}
-        </Typography>
-      )}
-    </Box>
+    <Typography
+      variant="h1"
+      id={headingId}
+      sx={{
+        fontSize: RESPONSIVE.landingProto.heroHeadlineFontSize,
+        fontWeight: 500,
+        letterSpacing: '-0.03em',
+        lineHeight: 1.08,
+        maxWidth: 1000,
+        textWrap: 'balance',
+        ...heroRiseIn(),
+      }}
+    >
+      {hero.headline}
+    </Typography>
   );
 }

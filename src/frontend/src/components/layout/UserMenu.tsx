@@ -4,7 +4,6 @@ import Alert from '@mui/material/Alert';
 import Avatar from '@mui/material/Avatar';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
-import CircularProgress from '@mui/material/CircularProgress';
 import Divider from '@mui/material/Divider';
 import IconButton from '@mui/material/IconButton';
 import Menu from '@mui/material/Menu';
@@ -17,6 +16,7 @@ import { useCurrentUser } from '../../features/auth/useCurrentUser';
 import { ROUTES } from '../../config/routes';
 import { extractErrorMessage } from '../../lib/errors';
 import { trackSignInClick } from '../../features/analytics/events';
+import { LoadingText } from '../shared/LoadingText';
 
 export function UserMenu() {
   const { isEnabled, isAuthenticated, isLoading, login, logout, user: auth0User } = useAuth();
@@ -107,9 +107,8 @@ export function UserMenu() {
   function renderMenuContent() {
     if (userLoading) {
       return (
-        <MenuItem disabled>
-          <CircularProgress size={16} sx={{ mr: 1 }} />
-          Loading...
+        <MenuItem disabled sx={{ '&.Mui-disabled': { opacity: 1 } }}>
+          <LoadingText />
         </MenuItem>
       );
     }

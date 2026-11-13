@@ -42,7 +42,7 @@ describe('apply_feed_filters', () => {
     expect(store.getState().recentJobsFilters.filters.searchTags).toEqual([
       { text: 'rust', mode: 'include' },
     ]);
-    expect(navigate).toHaveBeenCalledWith('/');
+    expect(navigate).toHaveBeenCalledWith('/jobs');
   });
 });
 

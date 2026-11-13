@@ -22,6 +22,7 @@ describe('resolveExperienceTier', () => {
       tier: 'full',
       bodyCount: DESKTOP_BODY_COUNT,
       maxDpr: 2,
+      compact: false,
     });
   });
 
@@ -32,7 +33,7 @@ describe('resolveExperienceTier', () => {
         hardwareConcurrency: undefined,
         deviceMemory: undefined,
       })
-    ).toEqual({ tier: 'full', bodyCount: DESKTOP_BODY_COUNT, maxDpr: 2 });
+    ).toEqual({ tier: 'full', bodyCount: DESKTOP_BODY_COUNT, maxDpr: 2, compact: false });
   });
 
   it('prefers-reduced-motion forces the fallback tier on any hardware', () => {
@@ -40,6 +41,7 @@ describe('resolveExperienceTier', () => {
       tier: 'fallback',
       bodyCount: CONSTRAINED_BODY_COUNT,
       maxDpr: 1,
+      compact: false,
     });
   });
 
@@ -48,6 +50,7 @@ describe('resolveExperienceTier', () => {
       tier: 'fallback',
       bodyCount: CONSTRAINED_BODY_COUNT,
       maxDpr: 1,
+      compact: false,
     });
   });
 
@@ -62,11 +65,34 @@ describe('resolveExperienceTier', () => {
     ).toBe('fallback');
   });
 
-  it('mobile viewport → constrained full tier (fewer bodies, dpr 1.5)', () => {
-    expect(resolveExperienceTier({ ...CAPABLE, isMobileViewport: true })).toEqual({
+  it('mobile viewport on capable hardware → full compact tier, constrained roster, dpr 2', () => {
+    expect(
+      resolveExperienceTier({ ...CAPABLE, isMobileViewport: true, hardwareConcurrency: 12 })
+    ).toEqual({
+      tier: 'full',
+      bodyCount: CONSTRAINED_BODY_COUNT,
+      maxDpr: 2,
+      compact: true,
+    });
+  });
+
+  it('mobile viewport on low-end hardware → full compact tier with the lower dpr cap', () => {
+    expect(resolveExperienceTier({ ...CAPABLE, isMobileViewport: true, deviceMemory: 2 })).toEqual({
       tier: 'full',
       bodyCount: CONSTRAINED_BODY_COUNT,
       maxDpr: 1.5,
+      compact: true,
+    });
+  });
+
+  it('a phone without WebGL still gets the DOM fallback (never compact)', () => {
+    expect(
+      resolveExperienceTier({ ...CAPABLE, isMobileViewport: true, webglSupported: false })
+    ).toEqual({
+      tier: 'fallback',
+      bodyCount: CONSTRAINED_BODY_COUNT,
+      maxDpr: 1,
+      compact: false,
     });
   });
 
@@ -82,6 +108,7 @@ describe('resolveExperienceTier', () => {
     expect(result.tier).toBe('full');
     expect(result.bodyCount).toBe(expectedBodies);
     expect(result.maxDpr).toBe(expectedBodies === DESKTOP_BODY_COUNT ? 2 : 1.5);
+    expect(result.compact).toBe(false);
   });
 });
 

@@ -1,11 +1,11 @@
-# Marketing Landing — `/landing` (`ROUTES.LANDING`)
+# Marketing Landing — `/` (`ROUTES.HOME`)
 
 The full-bleed marketing landing page, rendered **outside `RootLayout`** (no sidebar
 chrome) so it reads like a standalone page. Static marketing copy + a 3D scene + a
 sign-in CTA that feeds the top of the signup-conversion funnel. Documented here so the
 map is complete and a maintainer knows it is deliberately tool-free, not overlooked.
 
-Page: `src/frontend/src/pages/LandingPage/LandingPage.tsx` (lazy-loaded at the route).
+Page: `src/frontend/src/pages/LandingPage/LandingPage.tsx`, rendered by `app/HomeRoute.tsx`.
 
 ## Sub-features
 
@@ -16,10 +16,11 @@ Page: `src/frontend/src/pages/LandingPage/LandingPage.tsx` (lazy-loaded at the r
 
 ## How to get to it (user POV)
 
-**Direct URL only:** `/landing`. It is **deliberately unlisted** — no sidebar or nav entry
-anywhere while it is iterated on (`routes.ts` says *"Do NOT add it to a nav array"*). The
-pre-consolidation path `/admin/landing-prototypes` (`ROUTES.LANDING_LEGACY`) registers a
-redirect onto `/landing` with the query string and hash preserved. Public — no auth, no flag.
+`/`, signed out. A signed-in visitor at `/` is redirected to `/jobs` (the QA auth-bypass
+user is not, so bypass builds show the page), and so is an old `/?category=…` filter link
+(`app/homeDestination.ts`). Every unclaimed path — the old `/landing` and
+`/admin/landing-prototypes` included — redirects to `/` with the query string and hash
+preserved. Public — no auth, no flag.
 
 ## Driving it with WebMCP
 
@@ -28,8 +29,8 @@ none of which this page touches. Verify reachability by navigating the real rout
 the DOM directly (no shim call needed):
 
 ```ts
-await page.goto('/landing');
-await expect(page.getByTestId('landing-page')).toBeVisible();   // the page mounted
+await page.goto('/');
+await expect(page.getByTestId('landing-header')).toBeVisible();   // the page mounted
 ```
 
 Like `/why`, this route's "drive" is a plain navigation + a render check, by design.
@@ -37,10 +38,10 @@ Like `/why`, this route's "drive" is a plain navigation + a render check, by des
 ## Gotchas
 
 - **Nothing to assert past rendering.** Do not invent a tool call; a WebMCP drive here would
-  be theater. The honest proof is "the route loads and `landing-page` renders".
+  be theater. The honest proof is "the route loads and `landing-header` renders".
 - **Full-bleed, outside `RootLayout`** — no sidebar/app-bar chrome, so do not assert layout
   handles (the sidebar, the app bar) on this route.
-- **No nav entry by design.** If you cannot reach it from the UI, that is correct — go by URL.
-  The redirect from `/admin/landing-prototypes` must keep the query string and hash.
+- **Signed-in sessions skip it.** Drive it signed out (or on a bypass build); a signed-in
+  context lands on `/jobs`. Redirects onto `/` must keep the query string and hash.
 - **Reachable signed-out.** If it 404s, the router registration (`App.tsx`) is the thing to
   check, not any tool.

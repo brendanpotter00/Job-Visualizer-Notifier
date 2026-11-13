@@ -8,12 +8,16 @@ import {
 
 describe('LoadingIndicator', () => {
   describe('Default rendering', () => {
-    it('renders a progressbar with the default size', () => {
+    it('renders a progressbar named "Loading" and no spinner', () => {
+      const { container } = render(<LoadingIndicator />);
+      expect(screen.getByRole('progressbar')).toHaveAccessibleName('Loading');
+      expect(container.querySelector('svg')).toBeNull();
+      expect(container.querySelector('.MuiCircularProgress-root')).toBeNull();
+    });
+
+    it('waves the default word when no caption is passed', () => {
       render(<LoadingIndicator />);
-      const progressbar = screen.getByRole('progressbar');
-      expect(progressbar).toBeInTheDocument();
-      const svg = progressbar.querySelector('svg');
-      expect(svg).toHaveAttribute('viewBox', '22 22 44 44');
+      expect(screen.getByRole('progressbar')).toHaveTextContent(/^Loading$/);
     });
 
     it('applies the default minHeight of 200 when neither minHeight nor fullPage is set', () => {
@@ -21,29 +25,24 @@ describe('LoadingIndicator', () => {
       const box = container.firstChild as HTMLElement;
       expect(box).toHaveStyle({ minHeight: '200px' });
     });
-
-    it('does not render a caption Typography when caption is omitted', () => {
-      render(<LoadingIndicator />);
-      expect(screen.queryByText(/./)).toBeNull();
-    });
   });
 
   describe('caption prop', () => {
-    it('renders the caption text under the spinner', () => {
+    it('waves the caption, with the trailing ellipsis dropped', () => {
       render(<LoadingIndicator caption="Loading jobs..." />);
-      expect(screen.getByText('Loading jobs...')).toBeInTheDocument();
-      expect(screen.getByRole('progressbar')).toBeInTheDocument();
+      const progressbar = screen.getByRole('progressbar');
+      expect(progressbar).toHaveAccessibleName('Loading jobs');
+      expect(progressbar).toHaveTextContent(/^Loading jobs$/);
     });
 
-    it('uses body1 Typography (zero-visual-change vs CompaniesPageContent)', () => {
-      render(<LoadingIndicator caption="Workday source requires more loading time..." />);
-      const caption = screen.getByText('Workday source requires more loading time...');
-      expect(caption).toHaveClass('MuiTypography-body1');
+    it('uses body1 Typography (the theme body font and size)', () => {
+      render(<LoadingIndicator caption="Loading feedback…" />);
+      expect(screen.getByRole('progressbar')).toHaveClass('MuiTypography-body1');
     });
 
-    it('does not render the caption when caption is empty string', () => {
-      const { container } = render(<LoadingIndicator caption="" />);
-      expect(container.querySelector('.MuiTypography-root')).toBeNull();
+    it('falls back to "Loading" when the caption is an empty string', () => {
+      render(<LoadingIndicator caption="" />);
+      expect(screen.getByRole('progressbar')).toHaveAccessibleName('Loading');
     });
   });
 
@@ -72,25 +71,17 @@ describe('LoadingIndicator', () => {
     });
   });
 
-  describe('size prop', () => {
-    it('forwards size to CircularProgress', () => {
-      render(<LoadingIndicator size={60} />);
-      const progressbar = screen.getByRole('progressbar');
-      expect(progressbar).toHaveStyle({ width: '60px', height: '60px' });
-    });
-  });
-
   describe('LoadingState alias', () => {
     it('is the same reference as LoadingIndicator (export-as rename)', () => {
       expect(LoadingState).toBe(LoadingIndicator);
     });
 
     it('renders identically to LoadingIndicator for the same props', () => {
-      const a = render(<LoadingIndicator caption="x" fullPage size={50} />);
+      const a = render(<LoadingIndicator caption="x" fullPage />);
       const aHtml = a.container.innerHTML;
       a.unmount();
 
-      const b = render(<LoadingState caption="x" fullPage size={50} />);
+      const b = render(<LoadingState caption="x" fullPage />);
       expect(b.container.innerHTML).toBe(aHtml);
     });
   });

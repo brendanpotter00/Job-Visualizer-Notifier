@@ -1,0 +1,21 @@
+# onesecondswe — https://onesecondswe.dev
+# Everything public is crawlable, including by answer-engine retrieval bots
+# (GPTBot, OAI-SearchBot, ChatGPT-User, ClaudeBot, Claude-SearchBot,
+# PerplexityBot, Google-Extended, Bingbot). Only signed-in and admin surfaces
+# are held back.
+#
+# /api/ stays crawlable on purpose: Googlebot renders the app and obeys this
+# file for the XHR it makes while rendering, so blocking /api/ would turn its
+# snapshot of the jobs board into an empty shell.
+
+User-agent: *
+Allow: /
+Disallow: /admin/
+Disallow: /qa
+Disallow: /account
+Disallow: /saved-filters
+Disallow: /add-companies
+Disallow: /my-companies
+Disallow: /ingest/
+
+Sitemap: https://onesecondswe.dev/sitemap.xml

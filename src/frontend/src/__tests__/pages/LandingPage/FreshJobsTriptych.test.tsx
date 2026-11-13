@@ -85,12 +85,12 @@ describe('FreshJobsTriptych', () => {
 
     // The rich fixture is built to fill all three slots.
     expect(screen.getByText('Internships & new grad')).toBeInTheDocument();
-    expect(screen.getByText('Posted in the last 24 hours')).toBeInTheDocument();
-    expect(screen.getByText('Fresh from big tech')).toBeInTheDocument();
+    expect(screen.getByText('Last 24 hours')).toBeInTheDocument();
+    expect(screen.getByText('Big tech')).toBeInTheDocument();
     expect([EARLY.label, DAY.label, BIG.label]).toEqual([
       'Internships & new grad',
-      'Posted in the last 24 hours',
-      'Fresh from big tech',
+      'Last 24 hours',
+      'Big tech',
     ]);
 
     expect(activeId(TEST_IDS.early)).toBe(EARLY.jobs[0].id);
@@ -120,19 +120,13 @@ describe('FreshJobsTriptych', () => {
   // card, so the cell is the height of the tallest card from first paint and
   // stays there for the whole rotation. Immune by construction: it holds for
   // any pool, any title length, no measurement and no magic number.
-  it('reserves the tallest card in each pool by rendering every job as a hidden sizer', () => {
+  it('reserves the tallest card in ANY slot by giving every slot a sizer for every job', () => {
     renderTriptych();
 
-    for (const [slot, testId] of [
-      [EARLY, TEST_IDS.early],
-      [DAY, TEST_IDS.day],
-      [BIG, TEST_IDS.big],
-    ] as const) {
-      expect(sizers(testId)).toHaveLength(slot.jobs.length);
-      // Every job in the pool is present, in pool order — including the ones
-      // not currently on screen. That is what makes the height a max(), not a
-      // property of whichever card happens to be showing.
-      expect(sizerTitles(testId)).toEqual(slot.jobs.map((j) => j.title));
+    const union = [...new Map(SLOTS.flatMap((slot) => slot.jobs).map((j) => [j.id, j])).values()];
+    for (const testId of Object.values(TEST_IDS)) {
+      expect(sizers(testId)).toHaveLength(union.length);
+      expect(sizerTitles(testId)).toEqual(union.map((j) => j.title));
     }
   });
 
@@ -270,10 +264,8 @@ describe('FreshJobsTriptych', () => {
     expect(activeId(TEST_IDS.early)).toBe(EARLY.jobs[0].id);
     expect(activeId(TEST_IDS.day)).toBe(DAY.jobs[0].id);
     expect(activeId(TEST_IDS.big)).toBe(BIG.jobs[0].id);
-    // No sizers either: a card that never changes has no height to reserve
-    // against, so the reduced-motion path stays the leanest DOM of the three.
     for (const testId of Object.values(TEST_IDS)) {
-      expect(sizers(testId)).toHaveLength(0);
+      expect(sizers(testId).length).toBeGreaterThan(0);
     }
   });
 
@@ -287,11 +279,11 @@ describe('FreshJobsTriptych', () => {
     expect(emptySlot).toHaveAttribute('data-empty', 'true');
     expect(emptySlot).not.toHaveAttribute('data-active-job-id');
     expect(
-      within(emptySlot).getByText('No internships or new-grad roles this week.')
+      within(emptySlot).getByText('None this week.')
     ).toBeInTheDocument();
-    expect(within(emptySlot).getByRole('link', { name: 'Check the board' })).toHaveAttribute(
+    expect(within(emptySlot).getByRole('link', { name: 'Browse jobs' })).toHaveAttribute(
       'href',
-      '/'
+      '/jobs'
     );
     // The caption still names the slot honestly.
     expect(screen.getByText('Internships & new grad')).toBeInTheDocument();
@@ -309,9 +301,7 @@ describe('FreshJobsTriptych', () => {
       vi.advanceTimersByTime(INTERVAL_MS * 4);
     });
     expect(activeId(TEST_IDS.day)).toBe(sparseSlots[1].jobs[0].id);
-    // ...and no sizer stack: with nothing to flip to, the visible card already
-    // is the tallest card in its pool.
-    expect(sizers(TEST_IDS.day)).toHaveLength(0);
+    expect(sizers(TEST_IDS.day).length).toBeGreaterThan(0);
   });
 
   it('renders nothing at all only when every pool is empty', () => {

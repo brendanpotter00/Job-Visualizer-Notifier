@@ -1,13 +1,16 @@
 import { Box, Button } from '@mui/material';
+import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 import { Link as RouterLink } from 'react-router-dom';
 import type { LandingContent } from '../content';
+import { AuthEntryButton } from './AuthEntryButton';
 
 interface CTAButtonsProps {
   ctas: LandingContent['ctas'];
   /**
-   * Renders "Create free account" as an outlined (monochrome black-on-white)
-   * button beside the contained primary. Heroes and closers both carry the
-   * pair: signing up is the conversion, so it stays one click away everywhere.
+   * Renders "Create account" as a quiet text button beside the contained
+   * primary. The hero and the closer both carry the pair: signing up is the
+   * conversion, so it stays one click away at both ends of the page, but it
+   * never competes with "Browse jobs" for the eye.
    */
   showSecondary?: boolean;
   size?: 'medium' | 'large';
@@ -18,24 +21,37 @@ export function CTAButtons({
   ctas,
   showSecondary = false,
   size = 'large',
-  align = 'center',
+  align = 'left',
 }: CTAButtonsProps) {
   return (
     <Box
       sx={{
         display: 'flex',
-        gap: 1.5,
+        alignItems: 'center',
+        gap: 1,
         justifyContent: align === 'center' ? 'center' : 'flex-start',
         flexWrap: 'wrap',
       }}
     >
-      <Button component={RouterLink} to={ctas.primary.to} variant="contained" size={size}>
+      <Button
+        component={RouterLink}
+        to={ctas.primary.to}
+        variant="contained"
+        size={size}
+        endIcon={<ArrowForwardIcon />}
+        sx={{ borderRadius: 999, px: 3 }}
+      >
         {ctas.primary.label}
       </Button>
       {showSecondary && (
-        <Button component={RouterLink} to={ctas.secondary.to} variant="outlined" size={size}>
-          {ctas.secondary.label}
-        </Button>
+        <AuthEntryButton
+          cta={ctas.secondary}
+          mode="signup"
+          location="landing_cta"
+          variant="text"
+          size={size}
+          sx={{ borderRadius: 999, px: 2, color: 'text.primary' }}
+        />
       )}
     </Box>
   );

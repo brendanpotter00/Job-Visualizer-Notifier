@@ -1,4 +1,4 @@
-# Recent Job Postings — `/` (`ROUTES.RECENT_JOBS`)
+# Recent Job Postings — `/jobs` (`ROUTES.RECENT_JOBS`)
 
 The app's home page: recent openings across every tracked company, with filters and an
 infinite-scrolling list of job cards. This is the feature the bundled proof drive
@@ -32,7 +32,8 @@ Card: `components/shared/JobCard/JobListingCard.tsx`.
 
 ## How to get to it (user POV)
 
-The default landing route (`/`), and the sidebar's first entry, "Recent Job Postings".
+`/jobs` (signed-in visitors at `/` are redirected here; signed-out ones get the landing
+page), and the sidebar's first entry, "Recent Job Postings".
 Reachable signed-out; signing in lifts the ~12-row cap and enables infinite scroll.
 
 ## Driving it with WebMCP
@@ -50,8 +51,8 @@ in the DOM.
   ```
 - **Arrange the live page (Tier-2):**
   ```ts
-  await call(page, 'reset_feed_filters');                 // clean slate + navigate('/')
-  await call(page, 'apply_feed_filters', { include: ['apple'] });   // dispatch setters + navigate('/')
+  await call(page, 'reset_feed_filters');                 // clean slate + navigate('/jobs')
+  await call(page, 'apply_feed_filters', { include: ['apple'] });   // dispatch setters + navigate('/jobs')
   // NOT { company: [...] } — the feed has no company filter, and the tool rejects it.
   ```
 - **DOM assert (the real handles):** job title = `getByRole('heading', { level: 3 })`;

@@ -101,7 +101,7 @@ function tree(store: ReturnType<typeof createTestStore>) {
 }
 
 function mountAt(search: string) {
-  window.history.replaceState({}, '', `/${search}`);
+  window.history.replaceState({}, '', `/jobs${search}`);
   const store = createTestStore();
   const view = render(tree(store));
   return { store, view };

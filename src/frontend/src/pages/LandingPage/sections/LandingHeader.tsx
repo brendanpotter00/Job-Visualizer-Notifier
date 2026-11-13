@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { Box, Button, Container, IconButton, Link } from '@mui/material';
+import { Box, Container, Link } from '@mui/material';
 import { alpha } from '@mui/material/styles';
-import GitHubIcon from '@mui/icons-material/GitHub';
 import { Link as RouterLink } from 'react-router-dom';
 import { RESPONSIVE } from '../../../config/responsive';
+import { OneSecondMark } from '../../../components/shared/OneSecondMark';
+import { AuthEntryButton } from './AuthEntryButton';
 import type { LandingContent } from '../content';
 
 interface LandingHeaderProps {
@@ -11,8 +12,8 @@ interface LandingHeaderProps {
 }
 
 /**
- * The shared landing header — wordmark left, two quiet nav links beside it, and
- * the source-code mark + Log in / Sign up on the right. Every label and target
+ * The shared landing header — wordmark left, quiet nav links beside it, and
+ * Log in / Sign up on the right. Every label and target
  * comes from `content.header`; this file only decides how they look.
  *
  * Placement contract: render it as the FIRST child of the page's root box,
@@ -22,9 +23,6 @@ interface LandingHeaderProps {
  * hero wrapper would scroll it away with the hero. Sitting
  * above the hero also means the falling-logo canvas starts below the bar, so
  * the pile never occludes the links and the pointer-repel keeps the full canvas.
- *
- * Auth targets are the mock ACCOUNT route the hero CTAs already use. Wiring
- * these to real Auth0 login/signup is promotion-time work, not prototype work.
  */
 export function LandingHeader({ content }: LandingHeaderProps) {
   const { header } = content;
@@ -64,9 +62,6 @@ export function LandingHeader({ content }: LandingHeaderProps) {
           // Swallows the sentinel's 1px so the bar still starts flush with the
           // top of the page rather than one pixel down.
           mt: '-1px',
-          // Above the Gravity canvas and the HeroTrendline, which are plain
-          // absolutely-positioned layers at auto z-index: once the bar goes
-          // opaque, hero content has to pass UNDER it.
           zIndex: 10,
           borderBottom: '1px solid',
           borderColor: scrolled ? 'divider' : 'transparent',
@@ -97,6 +92,9 @@ export function LandingHeader({ content }: LandingHeaderProps) {
             to={header.wordmark.to}
             underline="none"
             sx={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: RESPONSIVE.landingProto.headerMarkGap,
               color: 'text.primary',
               fontWeight: 600,
               fontSize: RESPONSIVE.landingProto.headerWordmarkFontSize,
@@ -104,6 +102,7 @@ export function LandingHeader({ content }: LandingHeaderProps) {
               whiteSpace: 'nowrap',
             }}
           >
+            <OneSecondMark fontSize={RESPONSIVE.landingProto.headerMarkFontSize} />
             {header.wordmark.label}
           </Link>
 
@@ -129,37 +128,23 @@ export function LandingHeader({ content }: LandingHeaderProps) {
           {/* Pushes the auth cluster to the right edge of the container. */}
           <Box sx={{ flexGrow: 1 }} />
 
-          <IconButton
-            component="a"
-            href={header.sourceCode.href}
-            target="_blank"
-            rel="noopener noreferrer"
-            aria-label={header.sourceCode.label}
-            size="small"
-            sx={{
-              display: { xs: 'none', sm: 'inline-flex' },
-              color: 'text.secondary',
-              '&:hover': { color: 'text.primary' },
-            }}
-          >
-            {/* Desktop-only mark, so no mobile token: 20px reads as a peer of
-                the body2 nav links beside it without becoming a third CTA. */}
-            <GitHubIcon sx={{ fontSize: 20 }} />
-          </IconButton>
-
-          <Button
-            component={RouterLink}
-            to={header.logIn.to}
+          <AuthEntryButton
+            cta={header.logIn}
+            mode="login"
+            location="landing_header"
             variant="text"
             size="small"
             sx={{ display: { xs: 'none', sm: 'inline-flex' }, color: 'text.primary' }}
-          >
-            {header.logIn.label}
-          </Button>
+          />
 
-          <Button component={RouterLink} to={header.signUp.to} variant="contained" size="small">
-            {header.signUp.label}
-          </Button>
+          <AuthEntryButton
+            cta={header.signUp}
+            mode="signup"
+            location="landing_header"
+            variant="contained"
+            size="small"
+            sx={{ borderRadius: 999, px: 2 }}
+          />
         </Container>
       </Box>
     </>

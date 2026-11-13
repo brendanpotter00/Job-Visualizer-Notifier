@@ -74,9 +74,14 @@ actually reads your resume. onesecondswe exists so you're early — every time."
 - "Every tech job" / completeness claims — we track 133 companies, not the market.
 - Anything implying endorsement by the scraped companies (logos = "companies we track",
   never "trusted by").
-- LinkedIn-bashing by name in shipped copy — the *category* critique (reposts, stale feeds)
-  is the public voice; "we hate LinkedIn" is internal context (Q1: "the context does not
-  have to be in the actual content").
+- ~~LinkedIn-bashing by name in shipped copy~~ — **superseded 2026-09-10 (owner-directed):**
+  the landing page now carries a "Why not LinkedIn" comparison section and a matching FAQ
+  entry, at Brendan's explicit request ("a section on why it is better than linkedin, like
+  there are no reposts and the companies are already curated"). The rule that survives is
+  the *how*: every LinkedIn cell is a checkable product fact (reposting resets the date,
+  promoted listings rank first, anyone can post), never a judgement, and "we hate LinkedIn"
+  itself is still internal context, not copy (Q1: "the context does not have to be in the
+  actual content").
 
 ## 7. Voice, tone, CTA
 
@@ -84,7 +89,7 @@ actually reads your resume. onesecondswe exists so you're early — every time."
   Data-forward proof, but **live/event-shaped**, not vanity metrics (Q7): "SpaceX posted 25
   jobs in the past hour", "1,000 jobs tracked in the past 24 hours" — never static
   "trusted by 10,000 users" energy.
-- Primary CTA: **"Browse jobs"** → the live board (Q3). Secondary: "Create free account"
+- Primary CTA: **"Browse jobs"** → the live board (Q3). Secondary: "Create account" (was "Create free account"; shortened by owner decision 2026-11-12 — "free" is already said in the FAQ)
   (unlocks full board beyond the 12-job preview, saved filters, defaults).
 
 ## 8. Curated "top companies" (Q6 — hand-picked; **Brendan edits this list**)

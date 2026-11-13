@@ -37,7 +37,7 @@ function renderAt(path: string) {
   return render(
     <MemoryRouter initialEntries={[path]}>
       <Routes>
-        <Route path="/" element={<div>Home</div>} />
+        <Route path="/jobs" element={<div>Home</div>} />
         <Route
           path="/admin/users"
           element={
@@ -172,7 +172,7 @@ describe('AdminRoute', () => {
       return render(
         <MemoryRouter initialEntries={[path]}>
           <Routes>
-            <Route path="/" element={<div>Home</div>} />
+            <Route path="/jobs" element={<div>Home</div>} />
             <Route
               path="/admin/feedback"
               element={

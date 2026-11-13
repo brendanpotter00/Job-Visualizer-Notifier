@@ -29,7 +29,7 @@ import {
  * never saw.
  */
 
-function mountWith(search: string, pathname = '/') {
+function mountWith(search: string, pathname = '/jobs') {
   // Navigate BEFORE the spy starts counting — this setup call is not the hook's
   // behaviour, and counting it made the "does not write before hydration" test
   // pass for the wrong reason.

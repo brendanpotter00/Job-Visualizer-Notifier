@@ -84,14 +84,11 @@
  *   gaming/media      7 firms, folded into household_names.
  */
 
-/** One curated entry point: a label, a one-line pitch, and its member roster. */
 export interface CompanyCategory {
   /** Stable slug. Becomes the preset-filter key when categories are promoted. */
   id: string;
   /** Card heading. */
   label: string;
-  /** One concrete line under the heading. */
-  blurb: string;
   /** Member company ids, most-recognizable-first (see file header). */
   companyIds: readonly string[];
 }
@@ -99,8 +96,7 @@ export interface CompanyCategory {
 export const COMPANY_CATEGORIES: readonly CompanyCategory[] = [
   {
     id: 'big_tech',
-    label: 'Big tech',
-    blurb: 'The FAANG tier and the public platforms beside it.',
+    label: 'Big Tech',
     companyIds: [
       'google',
       'apple',
@@ -122,14 +118,12 @@ export const COMPANY_CATEGORIES: readonly CompanyCategory[] = [
   },
   {
     id: 'ai_labs',
-    label: 'AI labs',
-    blurb: 'The teams training their own frontier models.',
+    label: 'AI Labs',
     companyIds: ['openai', 'anthropic', 'google', 'xai', 'cohere', 'thinkingmachines'],
   },
   {
     id: 'yc_alumni',
-    label: 'Y Combinator alumni',
-    blurb: 'Companies that came out of a YC batch, from S05 to W25.',
+    label: 'Y Combinator Alumni',
     companyIds: [
       'airbnb',
       'stripe',
@@ -163,7 +157,6 @@ export const COMPANY_CATEGORIES: readonly CompanyCategory[] = [
   {
     id: 'unicorns',
     label: 'Unicorns',
-    blurb: 'Still private, last valued at a billion dollars or more.',
     companyIds: [
       'openai',
       'anthropic',
@@ -217,8 +210,7 @@ export const COMPANY_CATEGORIES: readonly CompanyCategory[] = [
   },
   {
     id: 'breakout_startups',
-    label: 'Breakout startups',
-    blurb: 'Small teams whose names already travel further than their headcount.',
+    label: 'Breakout Startups',
     companyIds: [
       'cursor',
       'perplexity',
@@ -243,8 +235,7 @@ export const COMPANY_CATEGORIES: readonly CompanyCategory[] = [
   },
   {
     id: 'hard_tech',
-    label: 'Space, defense & robotics',
-    blurb: 'Rockets, satellites, drones, robots, and the software that runs them.',
+    label: 'Space, Defense & Robotics',
     companyIds: [
       'spacex',
       'palantir',
@@ -266,8 +257,7 @@ export const COMPANY_CATEGORIES: readonly CompanyCategory[] = [
   },
   {
     id: 'fintech',
-    label: 'Fintech & trading',
-    blurb: 'Payments, banking, and the firms that trade the markets.',
+    label: 'Fintech & Trading',
     companyIds: [
       'stripe',
       'paypal',
@@ -292,8 +282,7 @@ export const COMPANY_CATEGORIES: readonly CompanyCategory[] = [
   },
   {
     id: 'dev_tools',
-    label: 'Developer tools & infrastructure',
-    blurb: 'What engineers use to build, ship, and run everything else.',
+    label: 'Developer Tools & Infrastructure',
     companyIds: [
       'cloudflare',
       'gitlab',
@@ -329,8 +318,7 @@ export const COMPANY_CATEGORIES: readonly CompanyCategory[] = [
   },
   {
     id: 'household_names',
-    label: 'Household names',
-    blurb: 'Brands you knew long before you knew they were hiring.',
+    label: 'Household Names',
     companyIds: [
       'netflix',
       'disney',

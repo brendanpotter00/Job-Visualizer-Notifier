@@ -97,7 +97,7 @@ function makeJob(spec: MockJobSpec, index: number, now: number): Job {
     employmentType: spec.employmentType ?? 'Full-time',
     createdAt: firstSeenAt,
     firstSeenAt,
-    url: `https://onesecondswe.dev/?mock=${spec.company}-${index}`,
+    url: `https://onesecondswe.dev/jobs?mock=${spec.company}-${index}`,
     tags: [],
     category: spec.category,
     level: spec.level,

@@ -9,6 +9,7 @@ import {
   setRecentJobsSoftwareOnly,
   setRecentJobsTimeWindow,
 } from '../../features/filters/slices/recentJobsFiltersSlice';
+import { ROUTES } from '../../config/routes';
 import type { ToolCtx, WebMcpToolDef } from '../types';
 import {
   asString,
@@ -52,7 +53,7 @@ export function tier2DriveUi(ctx: ToolCtx): WebMcpToolDef[] {
   const apply_feed_filters: WebMcpToolDef = {
     name: 'apply_feed_filters',
     description:
-      'Arrange the Recent Jobs feed: dispatch the recentJobsFilters setters for each provided field (omitted fields left untouched) and navigate to /; returns the resulting filter state.',
+      'Arrange the Recent Jobs feed: dispatch the recentJobsFilters setters for each provided field (omitted fields left untouched) and navigate to /jobs; returns the resulting filter state.',
     inputSchema: {
       type: 'object',
       additionalProperties: false,
@@ -85,7 +86,7 @@ export function tier2DriveUi(ctx: ToolCtx): WebMcpToolDef[] {
         dispatch(setRecentJobsSearchTags(tags.length > 0 ? tags : undefined));
       }
 
-      navigateTo(ctx, '/');
+      navigateTo(ctx, ROUTES.RECENT_JOBS);
       return ok({ applied: ctx.store.getState().recentJobsFilters.filters });
     },
   };
@@ -93,12 +94,12 @@ export function tier2DriveUi(ctx: ToolCtx): WebMcpToolDef[] {
   const reset_feed_filters: WebMcpToolDef = {
     name: 'reset_feed_filters',
     description:
-      'Reset the Recent Jobs feed to its initial filter state (resetRecentJobsFilters) and navigate to /; returns the reset filter state.',
+      'Reset the Recent Jobs feed to its initial filter state (resetRecentJobsFilters) and navigate to /jobs; returns the reset filter state.',
     inputSchema: { type: 'object', additionalProperties: false, properties: {} },
     annotations: { readOnlyHint: false },
     execute: async () => {
       ctx.store.dispatch(resetRecentJobsFilters());
-      navigateTo(ctx, '/');
+      navigateTo(ctx, ROUTES.RECENT_JOBS);
       return ok({ applied: ctx.store.getState().recentJobsFilters.filters });
     },
   };

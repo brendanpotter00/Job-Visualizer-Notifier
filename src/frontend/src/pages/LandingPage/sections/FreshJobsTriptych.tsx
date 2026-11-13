@@ -4,8 +4,12 @@ import { Link as RouterLink } from 'react-router-dom';
 import type { Job } from '../../../types';
 import { RESPONSIVE } from '../../../config/responsive';
 import { ROUTES } from '../../../config/routes';
-import { FlippingCard, SlotCaption } from './FlippingCard';
+import type { SectionIntro as SectionIntroContent } from '../content';
+import { FlippingCard, SizerStack, SlotCaption } from './FlippingCard';
+import { SectionIntro } from './SectionIntro';
 import { selectTriptychSlots, type TriptychSlot } from './triptychJobs';
+
+const HEADING_ID = 'landing-fresh-jobs-heading';
 
 /**
  * Phase step between adjacent slots (ms). Three slots at 0 / 1.5s / 3s against
@@ -18,6 +22,7 @@ interface FreshJobsTriptychProps {
   jobs: Job[];
   /** The fixtures' MOCK_NOW — see LandingPrototypeProps.now. */
   now: number;
+  intro?: SectionIntroContent;
 }
 
 /**
@@ -36,28 +41,40 @@ interface FreshJobsTriptychProps {
  *
  * Stacks to a single column below `sm` via the standard Grid idiom.
  */
-export function FreshJobsTriptych({ jobs, now }: FreshJobsTriptychProps) {
+export function FreshJobsTriptych({ jobs, now, intro }: FreshJobsTriptychProps) {
   const slots = useMemo(() => selectTriptychSlots(jobs, now), [jobs, now]);
+  const allSlotJobs = useMemo(
+    () => [...new Map(slots.flatMap((slot) => slot.jobs).map((job) => [job.id, job])).values()],
+    [slots]
+  );
 
   if (slots.every((slot) => slot.jobs.length === 0)) return null;
 
   return (
-    <Grid container spacing={{ xs: 2, sm: 3 }} data-testid="fresh-jobs-triptych">
-      {slots.map((slot, i) => (
-        <Grid key={slot.id} size={{ xs: 12, sm: 4 }}>
-          {slot.jobs.length > 0 ? (
-            <FlippingCard
-              jobs={slot.jobs}
-              caption={slot.label}
-              phaseMs={i * PHASE_STEP_MS}
-              testId={slotTestId(slot.id)}
-            />
-          ) : (
-            <QuietSlot slot={slot} />
-          )}
-        </Grid>
-      ))}
-    </Grid>
+    <Box
+      component="section"
+      aria-labelledby={intro ? HEADING_ID : undefined}
+      data-testid="fresh-jobs-triptych"
+    >
+      {intro && <SectionIntro heading={intro.heading} headingId={HEADING_ID} />}
+      <Grid container spacing={{ xs: 2, sm: 3 }}>
+        {slots.map((slot, i) => (
+          <Grid key={slot.id} size={{ xs: 12, sm: 4 }}>
+            {slot.jobs.length > 0 ? (
+              <FlippingCard
+                jobs={slot.jobs}
+                caption={slot.label}
+                phaseMs={i * PHASE_STEP_MS}
+                testId={slotTestId(slot.id)}
+                sizerJobs={allSlotJobs}
+              />
+            ) : (
+              <QuietSlot slot={slot} sizerJobs={allSlotJobs} />
+            )}
+          </Grid>
+        ))}
+      </Grid>
+    </Box>
   );
 }
 
@@ -74,7 +91,7 @@ function slotTestId(id: TriptychSlot['id']): string {
  * content. On a quiet weekend this is the truthful answer, and the one useful
  * next step is the live board.
  */
-function QuietSlot({ slot }: { slot: TriptychSlot }) {
+function QuietSlot({ slot, sizerJobs }: { slot: TriptychSlot; sizerJobs: Job[] }) {
   return (
     <>
       <SlotCaption>{slot.label}</SlotCaption>
@@ -83,19 +100,28 @@ function QuietSlot({ slot }: { slot: TriptychSlot }) {
         data-empty="true"
         sx={{
           display: 'grid',
-          alignContent: 'center',
-          justifyItems: 'center',
-          gap: 1,
-          textAlign: 'center',
+          gridTemplateColumns: 'minmax(0, 1fr)',
           minHeight: RESPONSIVE.landingProto.rotatingCardMinHeight,
         }}
       >
-        <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-          {slot.emptyText}
-        </Typography>
-        <Link component={RouterLink} to={ROUTES.RECENT_JOBS} variant="body2">
-          Check the board
-        </Link>
+        <SizerStack jobs={sizerJobs} />
+        <Box
+          sx={{
+            gridArea: '1 / 1',
+            display: 'grid',
+            alignContent: 'center',
+            justifyItems: 'center',
+            gap: 1,
+            textAlign: 'center',
+          }}
+        >
+          <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+            {slot.emptyText}
+          </Typography>
+          <Link component={RouterLink} to={ROUTES.RECENT_JOBS} variant="body2">
+            Browse jobs
+          </Link>
+        </Box>
       </Box>
     </>
   );

@@ -128,12 +128,11 @@ describe('NavigationDrawer', () => {
   describe('Navigation', () => {
     it('highlights active route with selected background', () => {
       render(
-        <MemoryRouter initialEntries={['/']}>
+        <MemoryRouter initialEntries={['/jobs']}>
           <NavigationDrawer {...mockProps} />
         </MemoryRouter>
       );
 
-      // Check that the Recent Jobs button has selected styling via computed styles (/ is the home page)
       const recentJobsButton = screen
         .getByText('Recent Job Postings')
         .closest('div[role="button"]');
@@ -148,7 +147,7 @@ describe('NavigationDrawer', () => {
       const user = userEvent.setup();
 
       render(
-        <MemoryRouter initialEntries={['/']}>
+        <MemoryRouter initialEntries={['/jobs']}>
           <NavigationDrawer {...mockProps} />
         </MemoryRouter>
       );
@@ -164,7 +163,7 @@ describe('NavigationDrawer', () => {
       const user = userEvent.setup();
 
       render(
-        <MemoryRouter initialEntries={['/']}>
+        <MemoryRouter initialEntries={['/jobs']}>
           <NavigationDrawer {...mockProps} />
         </MemoryRouter>
       );

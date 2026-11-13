@@ -5,7 +5,15 @@
  *
  * Ladder (PLAN.md "Degradation ladder"):
  *   full desktop → full constrained (fewer bodies, lower DPR)
+ *   → full compact (a phone: constrained bodies, camera pulled back)
  *   → fallback (reduced-motion or no WebGL: DOM-only, scene chunk never loads).
+ *
+ * Phones were a fallback tier from 2026-09-10 to 2026-11-12: with the desktop
+ * camera a tile is ~1/7 of the canvas height, so on a narrow canvas the pile
+ * stacked seven tiles high and buried the copy. They are back on the full
+ * tier with `compact: true`, which frames the camera so a tile renders at the
+ * static grid's size (see GravityPrototype/compactFraming.ts) and the pile
+ * settles in the band under the CTAs. Owner decision, 2026-11-12.
  */
 
 export type ExperienceTier = 'full' | 'fallback';
@@ -26,11 +34,11 @@ export interface ExperienceTierResult {
   bodyCount: number;
   /** Upper bound for the Canvas dpr clamp `[1, maxDpr]`. */
   maxDpr: number;
+  compact: boolean;
 }
 
 /** Full-fat desktop tier body count. */
 export const DESKTOP_BODY_COUNT = 72;
-/** Constrained (mobile viewport / low-end hardware) tier body count. */
 export const CONSTRAINED_BODY_COUNT = 40;
 
 /** Hints at or below these read as "low-end"; absent hints read as capable. */
@@ -40,17 +48,24 @@ const LOW_END_MAX_MEMORY_GB = 4;
 export function resolveExperienceTier(input: ExperienceTierInput): ExperienceTierResult {
   if (input.prefersReducedMotion || !input.webglSupported) {
     // bodyCount still sizes the DOM fallback grid; maxDpr is moot without GL.
-    return { tier: 'fallback', bodyCount: CONSTRAINED_BODY_COUNT, maxDpr: 1 };
+    return { tier: 'fallback', bodyCount: CONSTRAINED_BODY_COUNT, maxDpr: 1, compact: false };
   }
   const lowEnd =
-    input.isMobileViewport ||
     (input.hardwareConcurrency !== undefined &&
       input.hardwareConcurrency <= LOW_END_MAX_CORES) ||
     (input.deviceMemory !== undefined && input.deviceMemory <= LOW_END_MAX_MEMORY_GB);
-  if (lowEnd) {
-    return { tier: 'full', bodyCount: CONSTRAINED_BODY_COUNT, maxDpr: 1.5 };
+  if (input.isMobileViewport) {
+    return {
+      tier: 'full',
+      bodyCount: CONSTRAINED_BODY_COUNT,
+      maxDpr: lowEnd ? 1.5 : 2,
+      compact: true,
+    };
   }
-  return { tier: 'full', bodyCount: DESKTOP_BODY_COUNT, maxDpr: 2 };
+  if (lowEnd) {
+    return { tier: 'full', bodyCount: CONSTRAINED_BODY_COUNT, maxDpr: 1.5, compact: false };
+  }
+  return { tier: 'full', bodyCount: DESKTOP_BODY_COUNT, maxDpr: 2, compact: false };
 }
 
 export interface FrameloopInput {

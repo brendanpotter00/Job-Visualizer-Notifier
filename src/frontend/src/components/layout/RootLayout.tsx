@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { Suspense, useState, useEffect } from 'react';
 import { styled, useTheme } from '@mui/material/styles';
 import Box from '@mui/material/Box';
 import useMediaQuery from '@mui/material/useMediaQuery';
@@ -6,6 +6,7 @@ import { Outlet } from 'react-router-dom';
 import { GlobalAppBar } from './GlobalAppBar';
 import { NavigationDrawer } from './NavigationDrawer';
 import { AppFooter } from './AppFooter';
+import { PageSkeleton } from '../shared/Skeletons';
 
 const DRAWER_WIDTH = 240;
 export const MINI_DRAWER_WIDTH = 65; // Match NavigationDrawer's calculated width
@@ -100,7 +101,9 @@ export function RootLayout() {
             child of a column flex container still stretches to full width and keeps its
             natural height, because nothing here sets `flexGrow` on it. */}
         <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-          <Outlet />
+          <Suspense fallback={<PageSkeleton />}>
+            <Outlet />
+          </Suspense>
         </Box>
         <AppFooter />
       </Box>

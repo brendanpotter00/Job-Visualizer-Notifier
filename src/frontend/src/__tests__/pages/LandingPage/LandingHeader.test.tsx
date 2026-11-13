@@ -22,15 +22,18 @@ function buttonLink(name: string) {
 }
 
 describe('LandingHeader', () => {
-  it('renders the wordmark as a plain-text link home', () => {
+  it('renders the wordmark as a link home, led by the decorative 1s mark', () => {
     renderHeader();
     const mark = screen.getByRole('link', { name: header.wordmark.label });
     expect(mark).toHaveAttribute('href', header.wordmark.to);
     expect(mark).not.toHaveClass('MuiButton-root');
     expect(mark).toHaveTextContent('onesecondswe');
+    const brand = within(mark).getByTestId('one-second-mark');
+    expect(brand).toHaveTextContent('1s');
+    expect(brand).toHaveAttribute('aria-hidden', 'true');
   });
 
-  it('renders exactly the two quiet nav links from content, with their route targets', () => {
+  it('renders exactly the quiet nav links from content, with their route targets', () => {
     renderHeader();
     const nav = screen.getByRole('navigation', { name: 'Landing' });
     const links = within(nav).getAllByRole('link');
@@ -51,13 +54,10 @@ describe('LandingHeader', () => {
     expect(signUp).toHaveAttribute('href', header.signUp.to);
   });
 
-  it('exposes the source-code mark as a labelled, safely-targeted external link', () => {
+  it('renders no source-code link', () => {
     renderHeader();
-    const source = screen.getByRole('link', { name: header.sourceCode.label });
-    expect(source).toHaveAttribute('href', header.sourceCode.href);
-    expect(source).toHaveAttribute('target', '_blank');
-    expect(source).toHaveAttribute('rel', expect.stringContaining('noopener'));
-    expect(source).toHaveAttribute('aria-label', 'Source code');
+    expect(screen.queryByRole('link', { name: header.sourceCode.label })).not.toBeInTheDocument();
+    expect(document.querySelector(`a[href="${header.sourceCode.href}"]`)).toBeNull();
   });
 
   it('starts transparent over the hero, with the scroll sentinel above the bar', () => {

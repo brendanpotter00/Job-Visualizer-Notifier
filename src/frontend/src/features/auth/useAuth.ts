@@ -24,6 +24,7 @@ interface AuthResult {
   isLoading: boolean;
   user: User | undefined;
   login: () => Promise<void>;
+  signup: () => Promise<void>;
   logout: () => void;
   getToken: () => Promise<string>;
 }
@@ -74,6 +75,15 @@ function useAuthReal(): AuthResult {
     }
   }, [loginWithRedirect]);
 
+  const signup = useCallback(async () => {
+    try {
+      await loginWithRedirect({ authorizationParams: { screen_hint: 'signup' } });
+    } catch (error) {
+      console.error('[useAuth] Sign-up redirect failed:', error);
+      throw error;
+    }
+  }, [loginWithRedirect]);
+
   const logout = useCallback(() => {
     setGoogleCredential(null);
     if (isAuth0Authenticated) {
@@ -87,6 +97,7 @@ function useAuthReal(): AuthResult {
     isLoading,
     user: auth0User,
     login,
+    signup,
     logout,
     getToken,
   };
@@ -118,6 +129,7 @@ const BYPASS_AUTH_RESULT: AuthResult = {
   login: async () => {
     // No-op — already "signed in" as the bypass user.
   },
+  signup: async () => {},
   logout: () => {
     // No-op — bypass is controlled by the env var, not runtime state.
     console.info('[useAuth] Logout ignored: bypass mode is active.');
