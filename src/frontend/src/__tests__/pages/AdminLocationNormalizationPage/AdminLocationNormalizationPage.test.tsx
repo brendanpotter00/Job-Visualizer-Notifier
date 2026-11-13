@@ -200,7 +200,7 @@ describe('AdminLocationNormalizationPage', () => {
     await screen.findByRole('heading', { name: /admin · location normalization/i });
     const health = screen.getByRole('status', { name: 'Loading health…' });
     expect(health.querySelectorAll('.MuiPaper-outlined')).toHaveLength(4);
-    expect(screen.getByRole('status', { name: 'Loading verdict…' })).toBeInTheDocument();
+    expect(screen.queryByRole('status', { name: 'Loading verdict…' })).not.toBeInTheDocument();
     expect(screen.queryByText('VERDICT UNKNOWN')).not.toBeInTheDocument();
     expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
   });

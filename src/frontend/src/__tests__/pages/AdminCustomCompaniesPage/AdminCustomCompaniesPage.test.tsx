@@ -116,7 +116,9 @@ describe('AdminCustomCompaniesPage', () => {
     expect(
       await screen.findByRole('heading', { name: 'Live scrapers', level: 2 })
     ).toBeInTheDocument();
-    expect(screen.getByRole('status', { name: 'Loading headline counts…' })).toBeInTheDocument();
+    expect(
+      screen.queryByRole('status', { name: 'Loading headline counts…' })
+    ).not.toBeInTheDocument();
     const boards = screen.getByRole('status', { name: 'Loading boards…' });
     expect(within(boards).getByRole('columnheader', { name: 'Transport' })).toBeInTheDocument();
     expect(screen.queryByRole('status', { name: 'Loading attempts…' })).not.toBeInTheDocument();

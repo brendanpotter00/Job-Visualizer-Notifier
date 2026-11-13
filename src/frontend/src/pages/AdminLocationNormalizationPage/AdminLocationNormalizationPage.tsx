@@ -148,9 +148,7 @@ export function AdminLocationNormalizationPage() {
           )}
         </Paper>
       ) : (healthSlotLoading || integritySlotLoading) && !healthError && !integrityError ? (
-        <SkeletonRegion label="Loading verdict…">
-          <StatusBannerSkeleton />
-        </SkeletonRegion>
+        <StatusBannerSkeleton />
       ) : (
         <Paper
           variant="outlined"

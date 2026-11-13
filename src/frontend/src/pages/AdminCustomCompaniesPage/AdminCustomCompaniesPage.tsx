@@ -298,12 +298,9 @@ export function AdminCustomCompaniesPage() {
           />
         </Box>
       ) : (
-        <SkeletonRegion
-          label="Loading headline counts…"
-          sx={{ mb: RESPONSIVE.spacing.sectionMarginB }}
-        >
+        <Box sx={{ mb: RESPONSIVE.spacing.sectionMarginB }}>
           <HeadlineCountsSkeleton />
-        </SkeletonRegion>
+        </Box>
       )}
 
       {/* ── Table 1 — which custom scrapers are actually live ───────────── */}
@@ -462,9 +459,7 @@ export function AdminCustomCompaniesPage() {
             onRetry={() => attemptsQuery.refetch()}
           />
         ) : !attemptsData ? (
-          <SkeletonRegion label="Loading users…">
-            <UsersRollupTableSkeleton />
-          </SkeletonRegion>
+          <UsersRollupTableSkeleton />
         ) : (
           <UsersRollupTable
             users={attemptsData.users}
