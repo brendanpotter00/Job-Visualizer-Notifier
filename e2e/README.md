@@ -1,6 +1,6 @@
 # e2e — regression gates
 
-Runs **before** any agent says "ready to test" (see root `CLAUDE.md` and
+Runs **before** any agent says "ready to test" (see root `AGENTS.md` and
 `.claude/skills/e2e-gate/SKILL.md`). Each subdirectory under `e2e/` is a **section** — one
 feature area's end-to-end gate. `e2e/shared/` is feature-agnostic infrastructure every
 section reuses: the stack (backend/frontend/DB), auth (mint a real token against a patched

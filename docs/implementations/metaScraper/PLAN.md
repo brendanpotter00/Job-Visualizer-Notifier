@@ -299,7 +299,7 @@ Add `meta` to the `scraper_companies` default (~line 18):
 ```
 
 ⚠️ **Gate this on the prod smoke test (§6/§7).** `SCRAPER_COMPANIES` is *not* set in Railway
-prod (verified 2026-08-10 per `src/backend/CLAUDE.md`), so editing this literal is what
+prod (verified 2026-08-10 per `src/backend/AGENTS.md`), so editing this literal is what
 actually enables Meta on the next deploy. Adding it is **safe even if Meta is bot-walled on
 Railway's datacenter IP**, because the raise-on-empty invariant means a walled fetch raises
 (non-zero exit, logged as a warning by `auto_scraper`) and inserts/closes nothing — and Meta
@@ -615,7 +615,7 @@ run on **Railway (a datacenter IP)**. Meta's anti-bot may serve a bot wall or an
 to datacenter IPs. Local dev on a residential IP passing tells you nothing about prod.
 
 Sequence:
-1. Land all code + migration + tests; deploy the backend to Railway (see `src/backend/CLAUDE.md`
+1. Land all code + migration + tests; deploy the backend to Railway (see `src/backend/AGENTS.md`
    § merge-train deploy-skip trap — confirm the backend deployment actually ran and
    `alembic_version` advanced to the new meta revision).
 2. Trigger a Meta scrape in prod: `POST /api/jobs-qa/trigger-scrape?company=meta` (or wait for

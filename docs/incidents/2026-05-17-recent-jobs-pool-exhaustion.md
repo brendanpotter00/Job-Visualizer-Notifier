@@ -126,5 +126,5 @@ The reason this list is *follow-ups* and not "do them in this PR" is that the ar
 
 - #110 (`Move Greenhouse to Backend Cron + Queue`) — the migration that grew the DB-backed fanout from 3 to 49 and triggered the pool exhaustion. The migration itself was correct; this incident is the post-migration fanout-shape follow-up.
 - `docs/implementations/greenhouseBackendMigration/PLAN.md` — pre-implementation plan for #110.
-- `src/backend/CLAUDE.md` "Configuration" section — documents `DB_POOL_MAX=15` and the semaphore-with-timeout model that produced the visible error string.
+- `src/backend/AGENTS.md` "Configuration" section — documents `DB_POOL_MAX=15` and the semaphore-with-timeout model that produced the visible error string.
 - Prior Railway pool-pressure incident from April 2026 (`memory/project_railway_backend_health.md`) — the 8→15 bump that gave headroom for the pre-#110 world but, as noted in that memory, can't be raised further without provoking memory pressure on the Railway instance. That memory is what made "raise the cap to 50" the wrong answer and "collapse the fanout" the right one.

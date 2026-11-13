@@ -553,7 +553,7 @@ async def test_dns_does_not_block_the_event_loop(
 ) -> None:
     """``getaddrinfo`` is sync and must not run on the loop thread.
 
-    Per src/backend/CLAUDE.md the Procrastinate worker shares this process, so a
+    Per src/backend/AGENTS.md the Procrastinate worker shares this process, so a
     slow-resolving user-supplied host would otherwise freeze every in-flight ATS
     fetch task for the duration of the lookup. Before ``asyncio.to_thread`` the
     ticker below counted 0 ticks across a 1.0 s lookup.

@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 _USERS_TABLE = sql.Identifier("users")
 _USER_VISITS_TABLE = sql.Identifier("user_visits")
 
-# Hard cap on a per-user visit-history page (root CLAUDE.md gotcha #7 — never
+# Hard cap on a per-user visit-history page (root AGENTS.md gotcha #7 — never
 # return an unbounded list). The admin modal shows the most recent visits;
 # 500 is generous for a human-readable list and keeps the response small.
 _USER_VISITS_LIMIT = 500
@@ -280,7 +280,7 @@ def list_user_visits(
 
     ``limit`` defaults to ``_USER_VISITS_LIMIT`` when not given — resolved at
     call time (not bind time) so the module cap stays monkeypatchable in tests.
-    The ``LIMIT`` is always applied (root CLAUDE.md gotcha #7, unbounded-reads
+    The ``LIMIT`` is always applied (root AGENTS.md gotcha #7, unbounded-reads
     memory rule).
 
     The SERVICE — not the caller — owns the truncation decision. We fetch

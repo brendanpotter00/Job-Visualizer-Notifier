@@ -253,7 +253,7 @@ def list_aliases(
     """List aliases (bounded), optionally filtered by raw_text ILIKE %contains%.
 
     READ-ONLY: only SELECTs, no commit. `limit` is ALWAYS applied (caller caps
-    it; the root CLAUDE.md memory rule forbids unbounded reads). `offset`
+    it; the root AGENTS.md memory rule forbids unbounded reads). `offset`
     paginates (default 0). The ILIKE parameter is parameterized (never
     string-formatted): the pattern is built in Python as f"%{contains}%" and
     passed as a bind param against a plain `WHERE raw_text ILIKE %s` — fully

@@ -10,7 +10,7 @@
 
 > Companion: the enrichment workflow itself lives in the separate **job-enricher**
 > repo (the laptop-side Claude Code agent that pulls, cleans, classifies, judges,
-> and writes back). See that repo's `CLAUDE.md` + `README.md`.
+> and writes back). See that repo's `AGENTS.md` + `README.md`.
 
 ---
 

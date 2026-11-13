@@ -32,7 +32,7 @@ export default [
       ],
       // Escalated from the recommended preset's default (warn). Exhaustive
       // effect deps are a frequent source of stale-closure bugs; CI blocks
-      // new violations. See src/frontend/CLAUDE.md "Frontend Foundations"
+      // new violations. See src/frontend/AGENTS.md "Frontend Foundations"
       // for the authoritative list of allowed `eslint-disable` sites and
       // their justifications; new disables must be added to that list.
       "react-hooks/exhaustive-deps": "error",

@@ -92,4 +92,4 @@ scripts/           Python scrapers (Playwright)
 api/               Vercel serverless functions (ATS API proxies)
 ```
 
-See `CLAUDE.md` for architecture details.
+See `AGENTS.md` for architecture details.

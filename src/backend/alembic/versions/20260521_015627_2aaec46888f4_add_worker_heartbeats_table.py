@@ -11,7 +11,7 @@ companies.provider_config column are intentionally NOT in the autogen diff
 output — Procrastinate manages its own schema via ensure_schema_async at
 startup, and provider_config was already added in revision b9714f608e21.
 Both are filtered manually here, matching the pattern documented in
-src/backend/CLAUDE.md § Schema migrations.
+src/backend/AGENTS.md § Schema migrations.
 """
 from typing import Sequence, Union
 

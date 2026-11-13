@@ -222,7 +222,7 @@ Admin pages (e.g. the **Location Normalization Monitor** at `/admin/location-nor
 | Entry point | `src/backend/api/main.py` |
 | Run | `PYTHONPATH=. uvicorn src.backend.api.main:app --host 0.0.0.0 --port 8000 --reload` |
 | Dependencies | `src/backend/api/requirements.txt` |
-| Docs | `src/backend/CLAUDE.md` |
+| Docs | `src/backend/AGENTS.md` |
 
 **Why `PYTHONPATH=.`?** The FastAPI app uses relative imports for its own package (`from .config import settings`, `from ..models import ...`) but also imports from the scrapers package via absolute imports (`from scripts.shared.database import get_connection`). Without `PYTHONPATH=.` set from the project root, the `scripts.*` imports fail.
 
@@ -244,7 +244,7 @@ Admin pages (e.g. the **Location Normalization Monitor** at `/admin/location-nor
 | Entry point | `scripts/run_scraper.py` |
 | Dependencies | `scripts/requirements.txt` |
 | Dev dependencies | `scripts/requirements-dev.txt` |
-| Docs | `scripts/CLAUDE.md` |
+| Docs | `scripts/AGENTS.md` |
 
 **Companies:** google, apple, microsoft, or `all`
 

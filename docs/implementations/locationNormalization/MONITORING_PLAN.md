@@ -135,7 +135,7 @@ src/backend/api/tests/test_monitor_prod.py   # NEW: pure-function tests only.
 ```
 
 And doc pointers (§9): one line in `src/backend/api/eval/README.md`, a short
-note in `src/backend/CLAUDE.md`, and a memory pointer.
+note in `src/backend/AGENTS.md`, and a memory pointer.
 
 > **Why `monitor_prod.py` lives in `api/eval/`:** it shares the eval package's
 > "on-demand, never-CI, real-prod" character and its quality arm literally shells
@@ -180,7 +180,7 @@ FROM worker_heartbeats;
 ```
 Heartbeat fires every 5 min. **Threshold:** `> 10` min ⇒ `warn`; `> 30` min ⇒
 `crit` (worker likely dead/crash-looping). (No timezone math — `now()` and `max(at)`
-are both `timestamptz`; the `CLAUDE.md` Postgres-MCP timezone gotcha does **not**
+are both `timestamptz`; the `AGENTS.md` Postgres-MCP timezone gotcha does **not**
 apply here. Do not cast to `timestamp without time zone`.)
 
 ### B. Backlog & throughput
@@ -583,7 +583,7 @@ findings doc and in this table.
    note: points at `monitor_prod.py` + `../../../../docs/implementations/locationNormalization/MONITORING.md`,
    states it's read-only/on-demand and needs `MONITOR_DATABASE_URL` (DB) +
    `ANTHROPIC_API_KEY` (for the F2 eval arm). Link, don't duplicate.
-2. **`src/backend/CLAUDE.md`** — extend the existing "Evals" subsection with a
+2. **`src/backend/AGENTS.md`** — extend the existing "Evals" subsection with a
    single sentence: a read-only prod monitor lives at `api/eval/monitor_prod.py`;
    run it on-demand to verify the live normalization pipeline; full runbook in the
    locationNormalization docs.

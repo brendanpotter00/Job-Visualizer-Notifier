@@ -141,7 +141,7 @@ in-session nav.
 ## 5. What NOT to do
 
 - **Don't add `localStorage`/IndexedDB persistence of the jobs corpus.** The whole
-  architecture (CLAUDE.md Gotcha #7/#10) exists to *avoid* holding the corpus in memory;
+  architecture (AGENTS.md Gotcha #7/#10) exists to *avoid* holding the corpus in memory;
   persisting it re-introduces the 50 GB failure mode.
 - **Don't edge-cache authed endpoints** without `Vary: Authorization` — and even then,
   per-user cache fragmentation buys little. Leave features/users/admin/saved-filters

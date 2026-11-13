@@ -271,7 +271,7 @@ export function LiveScrapersTable({
 
   // Pagination is rendered on BOTH layouts and is never optional: an
   // unpaginated admin table is what produced this repo's 50 GB Chrome session
-  // (root CLAUDE.md gotcha #7).
+  // (root AGENTS.md gotcha #7).
   const pager = (
     <TablePagination
       component="div"

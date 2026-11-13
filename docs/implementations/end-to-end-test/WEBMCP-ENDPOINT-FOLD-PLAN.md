@@ -11,7 +11,7 @@ This is the spec the next (implement) stage executes.
 - `App.tsx` auto-merged with **both** intents intact: main's lazy `/landing` route +
   `LegacyLandingRedirect`, AND our `{WEBMCP_CONFIG.isEnabled && <WebMcpBridge />}` plus
   `import { WEBMCP_CONFIG, WebMcpBridge } from '../webmcp'`. No hand-fix needed.
-- Both CLAUDE.md files (root + frontend) were rewritten by #252 and now describe the
+- Both AGENTS.md files (root + frontend) were rewritten by #252 and now describe the
   server-side read path; treat them as authoritative.
 
 ## Type-check after merge (the breakage the next stage fixes)

@@ -331,14 +331,14 @@ has `CAPTURE_USE_BROWSERBASE` unset and runs its own Chromium.
 
 ### U8 — Write the rule down where people will hit it
 
-**a. `scripts/CLAUDE.md` — extend the Job Lifecycle section**, beside the reopen guarantee it
+**a. `scripts/AGENTS.md` — extend the Job Lifecycle section**, beside the reopen guarantee it
 gained this session; together they are the whole story of what `first_seen_at` means:
 - `first_seen_at` is **the effective posted date**, not literally "when we first saw it".
 - Still written **only** at INSERT, still absent from `_UPSERT_ON_CONFLICT`.
 - **`created_at` is the true insert time** and the audit trail.
 - `posted_on` remains the raw board value.
 - **A board that gives a bucket instead of a date gives us no date** (§3).
-- Pointer from `src/backend/CLAUDE.md`; amend `src/backend/docs/database-schema.md`'s `posted_on` bullet,
+- Pointer from `src/backend/AGENTS.md`; amend `src/backend/docs/database-schema.md`'s `posted_on` bullet,
   whose "posted_on is UNRELIABLE, do not use as a recency signal" note must match what ships.
 
 **b. The `add-company` skill** (`.claude/skills/add-company/SKILL.md`) — so adding **Meta**
@@ -360,7 +360,7 @@ a repoint PR against a healthy new company. `companies.created_at` already exist
 predicate. Also move the audit's **D.4 forensic query** from `first_seen_at` to `created_at` —
 after U3, a uniform `first_seen_at` no longer means "bulk insert".
 
-- **Files:** `scripts/CLAUDE.md`, `src/backend/CLAUDE.md`,
+- **Files:** `scripts/AGENTS.md`, `src/backend/AGENTS.md`,
   `src/backend/docs/database-schema.md`, `.claude/skills/add-company/SKILL.md`,
   `.claude/skills/scraper-health-watch/SKILL.md` (**main checkout**),
   `.claude/skills/onesecondswe-backend-audit/SKILL.md`.
@@ -397,7 +397,7 @@ read-side cutover to coordinate**, which was the riskiest constraint before D10.
 | **Never-wrong-close** | `test_fetch_custom_company_close.py` (module), `test_runner_raise_is_failed_with_zero_closes_and_zero_misses`, `test_self_consistent_not_terminated_cleanly_is_unverified`, `test_inv1`–`test_inv3` in `test_recipe_runner_invariants.py` | **U1, U2, U3, U4, U6** |
 | **RAISES-never-empty** | `test_inv5_zero_records_raises_never_empty`, the `*_raises` cases in `test_recipe_runner_determinism.py`, `test_browser_fetch_runner.py` | **U4, U6** |
 | **Keyset pagination** | `test_jobs_keyset_pagination.py` — golden SQL `:744`, `:785`; EXPLAIN `:964`, `:988`; walk/tie/churn `:142-355` | **None.** No unit changes the keyset SQL. The only hazard is the deferred backfill (transiently mutates the sort key — single transaction), carried into [7.8](https://app.clickup.com/t/wdwb1cbq60). |
-| **`first_seen_at` immutability after insert** | `scripts/CLAUDE.md`; `test_job_freshness.py`; `pagination.py` (the `first_seen_at` docstring); `test_freshness_churn_between_pages_does_not_perturb_the_walk` | **U3** — the value changes, the immutability does not |
+| **`first_seen_at` immutability after insert** | `scripts/AGENTS.md`; `test_job_freshness.py`; `pagination.py` (the `first_seen_at` docstring); `test_freshness_churn_between_pages_does_not_perturb_the_walk` | **U3** — the value changes, the immutability does not |
 | **Agent-free replay boundary** | `test_replay_path_closure_has_no_forbidden_import`, `test_leaf_task_tasks_closure_has_no_forbidden_import` (AST) | **U6** |
 
 **The easiest way to break something quietly:** adding `first_seen_at` to
@@ -430,7 +430,7 @@ daily slide into the product, and destroys the reopen guarantee.
 
 - `.lavish/posted-date-accuracy.html` — decisions D1–D12, the spike evidence, the reopen analysis
 - `IMPLEMENTATION-PLAN.md` — enrichment/dedupe workstream. **Its units 11–13 are superseded here**
-- `scripts/CLAUDE.md` — Job Lifecycle; U8a extends it
+- `scripts/AGENTS.md` — Job Lifecycle; U8a extends it
 - `src/backend/docs/database-schema.md` — the `posted_on` bullet, the documented counter-position; U8a amends it
 - `docs/incidents/2026-03-29-mass-job-closure.md` — why per-row degradation, never per-run
 - ClickUp [7.6](https://app.clickup.com/t/wdwb1cbp8n) · [7.7](https://app.clickup.com/t/wdwb1cbq5t) · [7.8](https://app.clickup.com/t/wdwb1cbq60) · epic `wdwb1cbnc2`

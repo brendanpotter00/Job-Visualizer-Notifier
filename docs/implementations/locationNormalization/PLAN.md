@@ -170,7 +170,7 @@ later agent does not undo it.**
   tasks). Not SQLAlchemy sessions. New worker code mirrors the existing `fetch_*` tasks.
 - **`apply_alembic_migrations(database_url)`** runs on FastAPI startup — schema migrations
   apply themselves on deploy.
-- **Coverage > 80%** (per the root `CLAUDE.md`).
+- **Coverage > 80%** (per the root `AGENTS.md`).
 
 ---
 

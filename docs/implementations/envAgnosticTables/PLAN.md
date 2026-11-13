@@ -331,9 +331,9 @@ Frozen for every unit. Any drift is a blocker.
 
 **Shared-file edits:**
 - `docs/implementations/alembicMigration/DEPLOY.md` — add a "Superseded by envAgnosticTables" callout at the top: references to `alembic_version_<env>` and `SCRAPER_ENVIRONMENT` in this file are historical; the live tracker is now `alembic_version`. Do NOT rewrite the body — it remains correct as a historical record of the Alembic migration.
-- `src/backend/CLAUDE.md` — rewrite the `Environment-based table naming` bullets and the `SCRAPER_ENVIRONMENT` row of the env-var table (delete the row). Under `Schema migrations`, change `alembic_version_<env>` → `alembic_version`, delete the "`SCRAPER_ENVIRONMENT` drives table suffix resolution" bullet, and update the test-isolation bullet to mention `PYTEST_SCHEMA` / per-worker schemas.
-- `scripts/CLAUDE.md` — delete `--env` from the CLI options table and from every example. Delete the "Environment Flag Affects Tables" gotcha. Change "Jobs stored in `job_listings_{env}` table" → "Jobs stored in `job_listings` table". Delete the "`job_listings_{env}`" reference in the data flow section.
-- `CLAUDE.md` (root) — grep confirmed no current matches; if the file gains a reference during another PR between merging Unit 2 and Unit 5, strip it.
+- `src/backend/AGENTS.md` — rewrite the `Environment-based table naming` bullets and the `SCRAPER_ENVIRONMENT` row of the env-var table (delete the row). Under `Schema migrations`, change `alembic_version_<env>` → `alembic_version`, delete the "`SCRAPER_ENVIRONMENT` drives table suffix resolution" bullet, and update the test-isolation bullet to mention `PYTEST_SCHEMA` / per-worker schemas.
+- `scripts/AGENTS.md` — delete `--env` from the CLI options table and from every example. Delete the "Environment Flag Affects Tables" gotcha. Change "Jobs stored in `job_listings_{env}` table" → "Jobs stored in `job_listings` table". Delete the "`job_listings_{env}`" reference in the data flow section.
+- `AGENTS.md` (root) — grep confirmed no current matches; if the file gains a reference during another PR between merging Unit 2 and Unit 5, strip it.
 - `docs/LOCAL-SETUP.md` — delete the `SCRAPER_ENVIRONMENT` row (line 261) and the prose at line 248 describing `_local`.
 
 **What to do:**
@@ -352,9 +352,9 @@ Frozen for every unit. Any drift is a blocker.
 
 **Done when:**
 - `docs/implementations/envAgnosticTables/DEPLOY.md` exists, covers the five points above, and cross-links to `docs/incidents/2026-04-18-migration-filled-postgres-volume/README.md`.
-- `grep -rn "SCRAPER_ENVIRONMENT\|_local\|_prod\b" CLAUDE.md src/backend/CLAUDE.md scripts/CLAUDE.md docs/LOCAL-SETUP.md` returns only hits inside historical/incident prose or inside the new DEPLOY.md runbook steps.
-- `grep -n "\-\-env" scripts/CLAUDE.md` returns zero matches.
-- Root CLAUDE.md renders without referencing env-suffix tables.
+- `grep -rn "SCRAPER_ENVIRONMENT\|_local\|_prod\b" AGENTS.md src/backend/AGENTS.md scripts/AGENTS.md docs/LOCAL-SETUP.md` returns only hits inside historical/incident prose or inside the new DEPLOY.md runbook steps.
+- `grep -n "\-\-env" scripts/AGENTS.md` returns zero matches.
+- Root AGENTS.md renders without referencing env-suffix tables.
 
 ---
 
@@ -389,9 +389,9 @@ Frozen for every unit. Any drift is a blocker.
 | `.env.local`, `.env.development.local` | Remove `SCRAPER_ENVIRONMENT` lines | Shared-edit (Unit 4) |
 | `docs/implementations/envAgnosticTables/DEPLOY.md` | Operator runbook | Owned-new (Unit 5) |
 | `docs/implementations/alembicMigration/DEPLOY.md` | Supersession callout | Shared-edit (Unit 5) |
-| `src/backend/CLAUDE.md` | Env-var table + Schema migrations subsection | Shared-edit (Unit 5) |
-| `scripts/CLAUDE.md` | CLI options, examples, data flow | Shared-edit (Unit 5) |
-| `CLAUDE.md` (root) | Verify no env-suffix references | Shared-edit (Unit 5) |
+| `src/backend/AGENTS.md` | Env-var table + Schema migrations subsection | Shared-edit (Unit 5) |
+| `scripts/AGENTS.md` | CLI options, examples, data flow | Shared-edit (Unit 5) |
+| `AGENTS.md` (root) | Verify no env-suffix references | Shared-edit (Unit 5) |
 | `docs/LOCAL-SETUP.md` | Delete `SCRAPER_ENVIRONMENT` row + `_local` prose | Shared-edit (Unit 5) |
 
 ## Non-goals

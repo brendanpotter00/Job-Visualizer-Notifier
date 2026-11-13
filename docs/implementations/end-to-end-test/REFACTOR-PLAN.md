@@ -172,7 +172,7 @@ Node **22.14.0** (`export PATH="$HOME/.nvm/versions/node/v22.14.0/bin:$PATH"`).
 ### WU6 — R7 import-linter contract + R3 entrypoint convention + R1 docs
 - **Rules:** R7 (contract, grandfathered), R3, R1.
 - **Create:** root `pyproject.toml` with `[tool.importlinter]` (contract below). `.github/PULL_REQUEST_TEMPLATE.md` (Dune checklist: "new feature = one folder under `features/<name>/` with `feature.route.tsx`; touched a boundary? run `depcruise`/`lint-imports`").
-- **Modify:** `.github/workflows/ci.yml` (backend or scripts job) — `pip install import-linter` + `- run: lint-imports`. `src/frontend/CLAUDE.md` — add a "Dune features" section (the two import rules, the `feature.route.tsx` convention, the eslint-disable allowlist is CI-enforced).
+- **Modify:** `.github/workflows/ci.yml` (backend or scripts job) — `pip install import-linter` + `- run: lint-imports`. `src/frontend/AGENTS.md` — add a "Dune features" section (the two import rules, the `feature.route.tsx` convention, the eslint-disable allowlist is CI-enforced).
 - **R3 entrypoint discovery (additive):** add `src/frontend/src/app/featureRoutes.ts` that `import.meta.glob('../features/*/feature.route.tsx', { eager: true })` and composes discovered routes; `App.tsx` renders the central `routes.ts` set **and** the discovered set. Existing routes stay in `routes.ts` — only the pilot uses discovery.
 - **Green:** contract grandfathers `scripts.run_scraper`, `scripts.one_off.*` → `lint-imports` passes; the glob is empty until the pilot adds a file (WU7), so `featureRoutes.ts` is a no-op today.
 - **Risk:** LOW.
@@ -307,7 +307,7 @@ migrated jointly** — these exact paths are that stage's reuse contract. Target
 | `webmcp/tools/tier1Read.ts` + `tier2DriveUi.ts` (recent-jobs tools) | `recent-jobs.tools.ts` |
 
 **Coordination note:** `features/jobs/*` and `features/filters/*` are **co-owned** by Recent Jobs *and* Company Trends
-(CLAUDE.md "two job read paths"). They belong in `foundation/` or a shared `data/` seam, **not** inside one feature —
+(AGENTS.md "two job read paths"). They belong in `foundation/` or a shared `data/` seam, **not** inside one feature —
 resolve ownership before moving. This is why it is deferred, not pilot.
 
 ---

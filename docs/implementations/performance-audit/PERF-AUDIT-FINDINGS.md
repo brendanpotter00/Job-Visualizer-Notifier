@@ -167,7 +167,7 @@ the auto-ETag — the proxy never honors `If-None-Match`, so only `s-maxage` ski
 
 ## Do NOT do (from the audits)
 - **Don't persist the jobs corpus** in localStorage/IndexedDB — re-introduces the 50 GB memory failure mode
-  (CLAUDE.md Gotcha #7/#10).
+  (AGENTS.md Gotcha #7/#10).
 - **Don't add a GIN trigram on `job_listings.title` alone expecting it to fix keyword search** — the OR shape
   forecloses it; only the collapsed `search_text` column (C3) is index-usable.
 - **Don't edge-cache authed endpoints** (features/users/admin/saved-filters) — cross-user leakage.

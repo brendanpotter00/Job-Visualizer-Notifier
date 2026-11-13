@@ -77,7 +77,7 @@ Recorded in the enrichment artifact's Decisions log. Δ6–Δ8 are new; D1/D3/D5
 | Unit | Lands on | Why |
 |---|---|---|
 | 1 · Enricher fairness brake | **its own PR, off `main`** | Nothing in it depends on E7. Trapping the brake behind three unmerged PRs is exactly how the accelerator ships first |
-| 2 · Local env mirrors prod | **no PR** | `.env.local` is gitignored; one doc note in `src/backend/CLAUDE.md` |
+| 2 · Local env mirrors prod | **no PR** | `.env.local` is gitignored; one doc note in `src/backend/AGENTS.md` |
 | 3 · HTML-unescape mapped fields | **#248** | Recipe-runner surface #248 already owns |
 | 4 · `compile_plan` raises on an unknown op | **#248** | Three lines in a file #248 rewrote |
 | 5 · Orphan-company guard | **#248** | Small, and it is the Δ7 follow-through |
@@ -130,7 +130,7 @@ Ship the brake before the accelerator. Production has `ENRICHMENT_CLAIM_WITHOUT_
 | `CUSTOM_COMPANY_SOURCES_ENABLED` | `true` | **leave on** | Rollout flag, not runtime config. Off in prod because it has not launched |
 | `CUSTOM_COMPANY_DISCOVERY_ENABLED` | `true` | **leave on** | Same |
 
-**The distinction to write down** (in `src/backend/CLAUDE.md`): **mirror the runtime config, not the rollout switches.** A rollout flag differs between local and prod on purpose; a runtime flag differing is a bug waiting to be discovered in production.
+**The distinction to write down** (in `src/backend/AGENTS.md`): **mirror the runtime config, not the rollout switches.** A rollout flag differs between local and prod on purpose; a runtime flag differing is a bug waiting to be discovered in production.
 
 **The consequence, and it is not small:** the live-view URL is a Browserbase-only artefact (`_fetch_live_view`, `network_capture.py:413`). With Browserbase off, `liveViewUrl` is always null — the frontend already handles that (`DiscoveryChecklist.tsx:113` retracts it), so nothing breaks. But it means **the live-view UI shipped on #248 has no production path today** unless credentials are added to Railway. Decide that deliberately; do not discover it after launch.
 

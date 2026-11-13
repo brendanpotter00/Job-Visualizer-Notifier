@@ -75,7 +75,7 @@ reviews:
   path_instructions:
     - path: "src/frontend/src/**/*.{ts,tsx}"
       instructions: >-
-        Enforce the Frontend Foundations rules in src/frontend/CLAUDE.md.
+        Enforce the Frontend Foundations rules in src/frontend/AGENTS.md.
         (1) Redux consumers must import useAppDispatch/useAppSelector from
         app/hooks.ts — raw useDispatch/useSelector from react-redux anywhere
         outside app/hooks.ts is a defect. (2) Page-level data loads use RTK
@@ -91,7 +91,7 @@ reviews:
         padding that should be a token is a defect, and wide tables need
         TABLE_SCROLL_SX. (6) New eslint-disable directives are not allowed; if
         one appears, require it to be justified and added to the authoritative
-        list in src/frontend/CLAUDE.md in the same PR. (7) Any table that can
+        list in src/frontend/AGENTS.md in the same PR. (7) Any table that can
         render 100+ rows must paginate — unpaginated large tables have caused
         multi-GB browser memory blowups here.
 
@@ -106,7 +106,7 @@ reviews:
         DB rows in router code. Table names are env-agnostic and bare across all
         environments; flag any reintroduction of an environment suffix or a read
         of SCRAPER_ENVIRONMENT. Any new environment variable must also be added
-        to the configuration table in src/backend/CLAUDE.md in the same PR.
+        to the configuration table in src/backend/AGENTS.md in the same PR.
 
     - path: "src/backend/alembic/versions/*.py"
       instructions: >-
@@ -236,6 +236,6 @@ knowledge_base:
   code_guidelines:
     enabled: true
     filePatterns:
-      - "CLAUDE.md"
-      - "**/CLAUDE.md"
+      - "AGENTS.md"
+      - "**/AGENTS.md"
       - "src/frontend/docs/RESPONSIVE.md"

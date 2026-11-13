@@ -366,9 +366,9 @@ Why delete (not archive): the user explicitly requested deletion. The incident p
 
 **Owned files:**
 - `docs/implementations/alembicMigration/DEPLOY.md` — NEW.
-- `CLAUDE.md` — update the "Key Files" or "Commands" section to reference `alembic upgrade head` instead of migration runner references.
-- `src/backend/CLAUDE.md` — replace any migration-runner language with Alembic. Add a "Schema migrations" subsection pointing at `src/backend/alembic/` and `db_models.py`.
-- `scripts/CLAUDE.md` — remove the migration-runner references from the script docs (this file mostly describes scrapers, minor edits expected).
+- `AGENTS.md` — update the "Key Files" or "Commands" section to reference `alembic upgrade head` instead of migration runner references.
+- `src/backend/AGENTS.md` — replace any migration-runner language with Alembic. Add a "Schema migrations" subsection pointing at `src/backend/alembic/` and `db_models.py`.
+- `scripts/AGENTS.md` — remove the migration-runner references from the script docs (this file mostly describes scrapers, minor edits expected).
 - `scripts/ARCHITECTURE.md` — remove sections describing the custom runner; replace with a one-paragraph "Schema is managed by Alembic; see src/backend/alembic/" pointer.
 
 **Shared-file edits:** none
@@ -385,7 +385,7 @@ Why delete (not archive): the user explicitly requested deletion. The incident p
   - **Adding a schema change:** (1) edit `src/backend/api/db_models.py`; (2) `cd src/backend && DATABASE_URL=<local> SCRAPER_ENVIRONMENT=local alembic revision --autogenerate -m "short message"`; (3) open the generated file under `src/backend/alembic/versions/` and **verify all ALTER COLUMN calls on the same table are combined into one `op.batch_alter_table(...)` block or one `op.alter_column` followed by zero others on the same table** — this is the incident-driven rule; split-statement autogens must be manually collapsed; (4) take a Railway manual backup and estimate disk cost per Rule 2 of `docs/incidents/2026-04-18-migration-filled-postgres-volume/volume-downgrade-playbook.md`; (5) test locally with `alembic upgrade head`; (6) commit and PR.
   - **Failure modes:** `alembic upgrade head` times out → check Railway logs for the specific revision; fail-forward by fixing the revision and redeploying. Alembic does not have a lock-timeout equivalent of the old runner's `pg_advisory_lock` / `SET LOCAL lock_timeout` — multi-instance deploy safety relies on Railway deploying one pod at a time during rollout, plus Alembic's own version-table row-level lock. Call this out as a known limitation.
   - **schema_migrations_prod note:** the legacy tracking table is preserved as historical evidence and is no longer written to; ignore it.
-- Root `CLAUDE.md`, `src/backend/CLAUDE.md`, `scripts/CLAUDE.md`, and `scripts/ARCHITECTURE.md` have no references to `scripts.shared.migrations`, `migrate_up`, `migrate_down`, or `python scripts/migrate.py`.
+- Root `AGENTS.md`, `src/backend/AGENTS.md`, `scripts/AGENTS.md`, and `scripts/ARCHITECTURE.md` have no references to `scripts.shared.migrations`, `migrate_up`, `migrate_down`, or `python scripts/migrate.py`.
 
 **Body:**
 
@@ -415,7 +415,7 @@ The stamp step is the one destructive-looking action in the rollout. Document it
 | `scripts/tests/integration/test_alembic_parity.py` | Parity canary — created Unit 3, rewired Unit 6 | Unit 3, Unit 6 |
 | `scripts/shared/database.py` | Remove init_schema (lines 137–157) | Unit 4 |
 | `docs/implementations/alembicMigration/DEPLOY.md` | Prod stamp + deploy runbook | Unit 7 |
-| `CLAUDE.md`, `src/backend/CLAUDE.md`, `scripts/CLAUDE.md`, `scripts/ARCHITECTURE.md` | Doc refresh | Unit 7 |
+| `AGENTS.md`, `src/backend/AGENTS.md`, `scripts/AGENTS.md`, `scripts/ARCHITECTURE.md` | Doc refresh | Unit 7 |
 
 ## Non-goals
 
