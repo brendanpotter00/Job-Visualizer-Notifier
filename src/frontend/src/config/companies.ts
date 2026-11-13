@@ -1639,10 +1639,12 @@ export const COMPANIES: Company[] = [
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22106009488%22%5D',
   }),
-  // Lever token `shieldai`. Its careers page also links a separate Greenhouse board for
-  // Aechelon Technology (an acquisition, `aechelontechnology`), which is not tracked here.
+  // Ashby token `shield` (NOT `shield-ai` — the Lever slug did not carry over). Moved off
+  // Lever `shieldai` on 2026-11-13: that board was drained to 0 rather than deleted, so it
+  // still answers 200 and never 404'd. Its careers page also links a separate Greenhouse
+  // board for Aechelon Technology (an acquisition, `aechelontechnology`), not tracked here.
   createBackendScraperCompany('shield-ai', 'Shield AI', 'https://shield.ai/careers/', {
-    sourceAts: 'lever',
+    sourceAts: 'ashby',
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%227952659%22%5D',
   }),
