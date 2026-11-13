@@ -1,9 +1,7 @@
 /**
  * Wire and cache types for `GET /api/jobs/search`.
  *
- * Kept out of `jobsApi.ts` so the endpoint definition there stays readable, and
- * out of `types/index.ts` because nothing outside the Recent Jobs data layer has
- * any business referring to them.
+ * Kept out of `jobsApi.ts` so the endpoint definition there stays readable.
  */
 
 import type { BackendJobListing } from '../../api/types.ts';
@@ -123,4 +121,17 @@ export interface SearchJobsPage {
   jobs: Job[];
   nextCursor: string | null;
   counts?: SearchJobsCounts;
+}
+
+export interface SearchJobsBatchRequest {
+  level?: readonly string[];
+  companies?: readonly string[];
+  category?: readonly string[];
+  maxAgeHours: number;
+  limit: number;
+}
+
+export interface SearchJobsBatchResult {
+  jobs: Job[];
+  asOf: number;
 }

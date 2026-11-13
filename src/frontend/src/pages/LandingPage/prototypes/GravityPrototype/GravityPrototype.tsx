@@ -1,4 +1,4 @@
-import { lazy, Suspense, useMemo, type ReactNode } from 'react';
+import { lazy, Suspense, useMemo } from 'react';
 import { Box, Container } from '@mui/material';
 import { RESPONSIVE } from '../../../../config/responsive';
 import { COMPANIES } from '../../../../config/companies';
@@ -7,7 +7,8 @@ import { LandingHeader } from '../../sections/LandingHeader';
 import { HeroCopy } from '../../sections/HeroCopy';
 import { heroRiseIn, HERO_RISE_STAGGER_MS } from '../../sections/heroRiseIn';
 import { CTAButtons } from '../../sections/CTAButtons';
-import { FreshJobsTriptych } from '../../sections/FreshJobsTriptych';
+import { JustPostedSection } from '../../sections/JustPostedSection';
+import { SectionBand } from '../../sections/SectionBand';
 import { LinkedInComparisonSection } from '../../sections/LinkedInComparisonSection';
 import { CompanyCategoriesSection } from '../../sections/CompanyCategoriesSection';
 import { FeatureMatrixSection } from '../../sections/FeatureMatrixSection';
@@ -29,10 +30,6 @@ const GravityScene = lazy(() => import('./GravityScene'));
 const ROSTER_SEED = 20260809;
 
 const HERO_HEADING_ID = 'landing-hero-heading';
-
-function SectionBand({ children }: { children: ReactNode }) {
-  return <Box sx={{ py: RESPONSIVE.landingProto.sectionPaddingY }}>{children}</Box>;
-}
 
 /**
  * "Gravity" — falling company logos with physics. The hero copy/CTA live on a
@@ -59,7 +56,7 @@ function SectionBand({ children }: { children: ReactNode }) {
  * name still describes what it is (the gravity scene), and renaming it would
  * have churned every import for no reader gain.
  */
-export function GravityPrototype({ content, jobs, now }: LandingPrototypeProps) {
+export function GravityPrototype({ content }: LandingPrototypeProps) {
   const tier = useExperienceTier();
   const sceneReady = useAfterFirstPaint();
   const roster = useMemo(
@@ -115,9 +112,7 @@ export function GravityPrototype({ content, jobs, now }: LandingPrototypeProps) 
         </Box>
 
         <Container maxWidth="lg">
-          <SectionBand>
-            <FreshJobsTriptych jobs={jobs} now={now} intro={content.freshJobs} />
-          </SectionBand>
+          <JustPostedSection content={content.freshJobs} />
           <SectionBand>
             <LinkedInComparisonSection content={content} />
           </SectionBand>

@@ -47,6 +47,7 @@ const SM_DESKTOP: Record<string, number | string> = {
   'keywordCard.contentPadding': 2,
   'statTile.padding': 2.5,
   'statTile.gap': 1.5,
+  'jobCard.headerFlexBasis': 160,
   // Landing prototypes are NEW surfaces: the `sm` slot IS the desktop design
   // value (no pre-existing layout to preserve); pinned so it can't drift.
   'landingProto.headerHeight': 64,
@@ -123,7 +124,7 @@ const TOKEN_MARKER_KEYS = ['xs', 'sm', 'compact', 'default'];
  * dropped — here it lands in `otherResponsivePaths` and fails the allowlist
  * assertion, naming the path. The `{ top, right, left, bottom }` margin objects
  * carry no marker key, so they are recursed into harmlessly (their numeric
- * leaves are scalars). Flat scalar tokens (e.g. `jobCard.*`,
+ * leaves are scalars). Flat scalar tokens (e.g.
  * `chart.axisFontSizeCompact`/`minTickGapCompact`) are mobile-only with no
  * desktop counterpart, so they are skipped entirely.
  */
@@ -203,6 +204,15 @@ describe('RESPONSIVE token invariants', () => {
     it('curatedCard.gridItemSize restates the desktop 1-up / 2-up / 3-up layout', () => {
       expect(RESPONSIVE.curatedCard.gridItemSize).toEqual({ xs: 12, sm: 6, md: 4 });
     });
+
+    it('landingProto.freshJobsSkeletonMinHeight tracks the loaded triptych cell per breakpoint', () => {
+      expect(RESPONSIVE.landingProto.freshJobsSkeletonMinHeight).toEqual({
+        xs: 'calc(290px - 18vw)',
+        sm: 'calc(914px - 62.9vw)',
+        md: 'calc(654px - 30vw)',
+        lg: 296,
+      });
+    });
   });
 
   // Self-policing backstop: the SM_DESKTOP / DEFAULT_DESKTOP maps above are a
@@ -217,12 +227,14 @@ describe('RESPONSIVE token invariants', () => {
     const compactPaths: string[] = [];
     // Every leaf carrying `xs`/`sm` but NOT exactly `{ xs, sm }` lands here — the
     // symmetric catch-all that makes an sm-omitted or md-gated no-op token
-    // (which matches neither pinned branch) impossible to drop silently. The
-    // ONLY intentional member is the multi-breakpoint Grid-size token below.
+    // (which matches neither pinned branch) impossible to drop silently.
     const otherResponsivePaths: string[] = [];
     // The known intentional multi-breakpoint tokens (NOT pinned-scalar shapes; each
     // has its own dedicated assertion). Adding a new one here is a deliberate act.
-    const KNOWN_MULTI_BREAKPOINT_PATHS = ['curatedCard.gridItemSize'];
+    const KNOWN_MULTI_BREAKPOINT_PATHS = [
+      'curatedCard.gridItemSize',
+      'landingProto.freshJobsSkeletonMinHeight',
+    ];
     collectTokenPaths(
       RESPONSIVE as unknown as Record<string, unknown>,
       '',

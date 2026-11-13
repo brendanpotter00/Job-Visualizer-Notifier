@@ -2,7 +2,10 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { Box, Typography } from '@mui/material';
 import { AnimatePresence, motion } from 'framer-motion';
 import type { Job } from '../../../types';
-import { JobListingCard } from '../../../components/shared/JobCard/JobListingCard';
+import {
+  JobListingCard,
+  type JobCardLink,
+} from '../../../components/shared/JobCard/JobListingCard';
 import { RESPONSIVE } from '../../../config/responsive';
 import { usePrefersReducedMotion } from '../usePrefersReducedMotion';
 
@@ -43,6 +46,7 @@ interface FlippingCardProps {
   /** Test hook on the swapping region; also carries `data-active-job-id`. */
   testId: string;
   sizerJobs?: Job[];
+  cardLink?: JobCardLink;
 }
 
 /**
@@ -71,7 +75,14 @@ interface FlippingCardProps {
  * `JobListingCard` itself, and the pool was selected against the caller's
  * `now`, keeping react-hooks/purity honestly clean.
  */
-export function FlippingCard({ jobs, caption, phaseMs = 0, testId, sizerJobs }: FlippingCardProps) {
+export function FlippingCard({
+  jobs,
+  caption,
+  phaseMs = 0,
+  testId,
+  sizerJobs,
+  cardLink,
+}: FlippingCardProps) {
   const reducedMotion = usePrefersReducedMotion();
   const [index, setIndex] = useState(0);
   const [hovered, setHovered] = useState(false);
@@ -128,7 +139,7 @@ export function FlippingCard({ jobs, caption, phaseMs = 0, testId, sizerJobs }: 
         {(sizerJobs !== undefined || !reducedMotion) && <SizerStack jobs={sizerJobs ?? jobs} />}
         {reducedMotion ? (
           <Box sx={{ gridArea: '1 / 1', ...FILL_CELL_SX }}>
-            <JobListingCard job={job} />
+            <JobListingCard job={job} cardLink={cardLink} />
           </Box>
         ) : (
           <>
@@ -145,7 +156,7 @@ export function FlippingCard({ jobs, caption, phaseMs = 0, testId, sizerJobs }: 
                 transition={{ duration: CROSSFADE_SECONDS, ease: 'easeOut' }}
               >
                 <Box sx={FILL_CELL_SX}>
-                  <JobListingCard job={job} />
+                  <JobListingCard job={job} cardLink={cardLink} />
                 </Box>
               </motion.div>
             </AnimatePresence>

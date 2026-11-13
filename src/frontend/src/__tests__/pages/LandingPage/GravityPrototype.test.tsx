@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { screen, within } from '@testing-library/react';
-import { renderWithProviders } from '../../../test/testUtils';
+import { createTestStore, renderWithProviders } from '../../../test/testUtils';
 import { GravityPrototype } from '../../../pages/LandingPage/prototypes/GravityPrototype/GravityPrototype';
 import { detectWebGLSupport } from '../../../pages/LandingPage/prototypes/shared3d/detectWebGL';
 import {
@@ -9,7 +9,7 @@ import {
 } from '../../../pages/LandingPage/prototypes/shared3d/experienceTier';
 import { LANDING_CONTENT } from '../../../pages/LandingPage/content';
 import { selectTriptychSlots } from '../../../pages/LandingPage/sections/triptychJobs';
-import { buildMockJobs } from '../../../pages/LandingPage/mockData';
+import { buildRichLandingJobs, LANDING_NOW, seedLandingJobs } from './landingJobFixtures';
 
 // Mock boundary = the scene module: <Canvas> throws in jsdom, and mocking here
 // keeps three/rapier entirely out of the test process (mirroring the runtime
@@ -37,19 +37,16 @@ vi.mock('../../../pages/LandingPage/prototypes/shared3d/detectWebGL', () => ({
   detectWebGLSupport: vi.fn(() => false),
 }));
 
-const NOW = new Date('2026-08-09T18:00:00Z').getTime();
+const NOW = LANDING_NOW;
 const PILE_LABEL = 'Companies tracked by onesecondswe';
 
-function renderGravity() {
-  return renderWithProviders(
-    <GravityPrototype
-      content={LANDING_CONTENT}
-      jobs={buildMockJobs(NOW)}
-      sparse={false}
-      now={NOW}
-    />,
-    { initialEntries: ['/landing'] }
-  );
+async function renderGravity() {
+  const store = createTestStore();
+  await seedLandingJobs(store, buildRichLandingJobs(NOW), NOW);
+  return renderWithProviders(<GravityPrototype content={LANDING_CONTENT} />, {
+    store,
+    initialEntries: ['/'],
+  });
 }
 
 /** Pin the capability hints jsdom would otherwise take from the host machine. */
@@ -93,8 +90,8 @@ afterEach(() => {
 describe('GravityPrototype', () => {
   // The bar lives OUTSIDE the clipped hero wrapper (a sticky child of an
   // `overflow: hidden` box scrolls away with it), so assert it precedes the h1.
-  it('opens with the shared landing header above the clipped hero', () => {
-    renderGravity();
+  it('opens with the shared landing header above the clipped hero', async () => {
+    await renderGravity();
     const bar = screen.getByTestId('landing-header');
     expect(
       within(bar).getByRole('link', { name: LANDING_CONTENT.header.wordmark.label })
@@ -108,16 +105,16 @@ describe('GravityPrototype', () => {
     ).toBeTruthy();
   });
 
-  it('renders the hero as the single h1', () => {
-    renderGravity();
+  it('renders the hero as the single h1', async () => {
+    await renderGravity();
     const h1 = screen.getByRole('heading', { level: 1 });
     expect(h1).toHaveTextContent(LANDING_CONTENT.hero.headline);
     expect(h1.querySelector('span')).toBeNull();
     expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
   });
 
-  it('carries the CTA pair in the hero and again in the closing block', () => {
-    renderGravity();
+  it('carries the CTA pair in the hero and again in the closing block', async () => {
+    await renderGravity();
     const primaries = buttonLinks(LANDING_CONTENT.ctas.primary.label);
     const secondaries = buttonLinks(LANDING_CONTENT.ctas.secondary.label);
     expect(primaries).toHaveLength(2);
@@ -136,15 +133,15 @@ describe('GravityPrototype', () => {
     );
   });
 
-  it('draws nothing decorative behind the hero copy', () => {
-    renderGravity();
+  it('draws nothing decorative behind the hero copy', async () => {
+    await renderGravity();
     expect(screen.queryByTestId('hero-trendline')).not.toBeInTheDocument();
     expect(document.querySelector('section svg path[stroke-opacity]')).toBeNull();
   });
 
-  it('fallback tier (no WebGL): pre-settled DOM logo grid, scene never mounts', () => {
+  it('fallback tier (no WebGL): pre-settled DOM logo grid, scene never mounts', async () => {
     vi.mocked(detectWebGLSupport).mockReturnValue(false);
-    renderGravity();
+    await renderGravity();
     const grid = screen.getByLabelText(PILE_LABEL);
     expect(within(grid).getAllByRole('img')).toHaveLength(CONSTRAINED_BODY_COUNT);
     expect(screen.queryByTestId('gravity-scene')).not.toBeInTheDocument();
@@ -153,7 +150,7 @@ describe('GravityPrototype', () => {
   it('full desktop tier: lazy-mounts the scene with the desktop roster and full dpr', async () => {
     vi.mocked(detectWebGLSupport).mockReturnValue(true);
     stubCores(12);
-    renderGravity();
+    await renderGravity();
     const scene = await screen.findByTestId('gravity-scene');
     expect(scene).toHaveAttribute('data-roster-size', String(DESKTOP_BODY_COUNT));
     expect(scene).toHaveAttribute('data-max-dpr', '2');
@@ -165,7 +162,7 @@ describe('GravityPrototype', () => {
   it('constrained hardware keeps the full tier but shrinks the roster and the dpr cap', async () => {
     vi.mocked(detectWebGLSupport).mockReturnValue(true);
     stubCores(4);
-    renderGravity();
+    await renderGravity();
     const scene = await screen.findByTestId('gravity-scene');
     expect(scene).toHaveAttribute('data-roster-size', String(CONSTRAINED_BODY_COUNT));
     expect(scene).toHaveAttribute('data-max-dpr', '1.5');
@@ -175,25 +172,25 @@ describe('GravityPrototype', () => {
     vi.mocked(detectWebGLSupport).mockReturnValue(true);
     stubCores(8);
     stubMatchMedia(false, true);
-    renderGravity();
+    await renderGravity();
     const scene = await screen.findByTestId('gravity-scene');
     expect(scene).toHaveAttribute('data-compact', 'true');
     expect(scene).toHaveAttribute('data-roster-size', String(CONSTRAINED_BODY_COUNT));
     expect(screen.queryByLabelText(PILE_LABEL)).not.toBeInTheDocument();
   });
 
-  it('prefers-reduced-motion forces the DOM fallback even with WebGL available', () => {
+  it('prefers-reduced-motion forces the DOM fallback even with WebGL available', async () => {
     vi.mocked(detectWebGLSupport).mockReturnValue(true);
     stubCores(12);
     stubMatchMedia(true);
-    renderGravity();
+    await renderGravity();
     expect(screen.getByLabelText(PILE_LABEL)).toBeInTheDocument();
     expect(screen.queryByTestId('gravity-scene')).not.toBeInTheDocument();
   });
 
-  it('carries the three-slot fresh-jobs triptych under its own heading', () => {
-    renderGravity();
-    const [earlyCareer, last24h, bigTech] = selectTriptychSlots(buildMockJobs(NOW), NOW);
+  it('carries the three-slot fresh-jobs triptych under its own heading', async () => {
+    await renderGravity();
+    const [earlyCareer, last24h, bigTech] = selectTriptychSlots(buildRichLandingJobs(NOW), NOW);
     const triptych = screen.getByTestId('fresh-jobs-triptych');
     expect(within(triptych).getByRole('heading', { level: 2 })).toHaveTextContent(
       LANDING_CONTENT.freshJobs.heading
@@ -207,8 +204,8 @@ describe('GravityPrototype', () => {
     }
   });
 
-  it('renders every section from the content config', () => {
-    renderGravity();
+  it('renders every section from the content config', async () => {
+    await renderGravity();
     for (const row of LANDING_CONTENT.comparison.rows) {
       const region = screen.getByTestId(`comparison-row-${row.id}`);
       expect(within(region).getByText(row.linkedin)).toBeInTheDocument();
@@ -223,15 +220,15 @@ describe('GravityPrototype', () => {
     expect(screen.getByText(LANDING_CONTENT.faq.entries[0].question)).toBeInTheDocument();
   });
 
-  it('ends on the closing CTA with no footer', () => {
-    renderGravity();
+  it('ends on the closing CTA with no footer', async () => {
+    await renderGravity();
     expect(screen.queryByRole('contentinfo')).not.toBeInTheDocument();
     expect(screen.queryByText(LANDING_CONTENT.categoryLine)).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Why this was built' })).not.toBeInTheDocument();
   });
 
-  it('orders the sections: triptych → LinkedIn → companies → matrix → FAQ → closer', () => {
-    renderGravity();
+  it('orders the sections: triptych → LinkedIn → companies → matrix → FAQ → closer', async () => {
+    await renderGravity();
     const markers = [
       screen.getByTestId('fresh-jobs-triptych'),
       screen.getByTestId('linkedin-comparison'),
@@ -248,8 +245,8 @@ describe('GravityPrototype', () => {
     }
   });
 
-  it('wraps the page in a main landmark of labelled sections', () => {
-    renderGravity();
+  it('wraps the page in a main landmark of labelled sections', async () => {
+    await renderGravity();
     const main = screen.getByRole('main');
     const sections = Array.from(main.querySelectorAll('section'));
     expect(sections.length).toBeGreaterThanOrEqual(7);

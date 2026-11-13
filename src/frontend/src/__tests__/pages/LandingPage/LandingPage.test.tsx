@@ -7,21 +7,23 @@ import type { LandingPrototypeProps } from '../../../pages/LandingPage/types';
 
 vi.mock('../../../pages/LandingPage/prototypes/GravityPrototype/GravityPrototype', () => {
   const GravityPrototype = (props: LandingPrototypeProps) => (
-    <div data-testid="landing-body">
-      gravity ({props.sparse ? 'sparse' : 'rich'}, {props.jobs.length} jobs, now={props.now})
+    <div data-testid="landing-body" data-prop-keys={Object.keys(props).join(',')}>
+      gravity ({props.content.productName})
     </div>
   );
   return { GravityPrototype };
 });
 
-function renderPage(url = '/landing') {
+function renderPage(url = '/') {
   return renderWithProviders(<LandingPage />, { initialEntries: [url] });
 }
 
 describe('LandingPage', () => {
   it('renders the Gravity landing body', async () => {
     renderPage();
-    expect(await screen.findByTestId('landing-body')).toHaveTextContent(/gravity \(rich/);
+    expect(await screen.findByTestId('landing-body')).toHaveTextContent(
+      `gravity (${LANDING_CONTENT.productName})`
+    );
   });
 
   // The four-tab workspace is gone (2026-09-03 consolidation). There is exactly
@@ -34,26 +36,9 @@ describe('LandingPage', () => {
     expect(screen.queryByRole('tablist')).not.toBeInTheDocument();
   });
 
-  it('?data=sparse swaps in the sparse fixture', async () => {
-    renderPage('/landing?data=sparse');
-    expect(await screen.findByTestId('landing-body')).toHaveTextContent(/gravity \(sparse/);
-  });
-
-  it('any other ?data= value keeps the rich fixture', async () => {
-    renderPage('/landing?data=nonsense');
-    expect(await screen.findByTestId('landing-body')).toHaveTextContent(/gravity \(rich/);
-  });
-
-  // Fixtures and "now" are threaded from the shell so nothing below it samples
-  // Date.now() during render (react-hooks/purity) and so the two fixtures stay
-  // genuinely different sets rather than the same list twice.
-  it('hands the body a non-empty fixture and the shared render clock', async () => {
-    renderPage();
-    const body = await screen.findByTestId('landing-body');
-    const jobs = Number(/(\d+) jobs/.exec(body.textContent ?? '')?.[1]);
-    const now = Number(/now=(\d+)/.exec(body.textContent ?? '')?.[1]);
-    expect(jobs).toBeGreaterThan(0);
-    expect(now).toBeGreaterThan(0);
+  it.each(['/', '/?data=sparse'])('hands the body only its content at %s', async (url) => {
+    renderPage(url);
+    expect(await screen.findByTestId('landing-body')).toHaveAttribute('data-prop-keys', 'content');
   });
 
   it('puts the SEO head on the page: title, description, canonical', async () => {

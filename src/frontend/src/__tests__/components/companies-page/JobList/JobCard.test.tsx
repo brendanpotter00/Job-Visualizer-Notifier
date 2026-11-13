@@ -1,5 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { fireEvent, render, screen } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { JobListingCard } from '../../../../components/shared/JobCard/JobListingCard';
 import { useIsMobile } from '../../../../hooks/useIsMobile';
 import { RESPONSIVE } from '../../../../config/responsive';
@@ -266,6 +267,67 @@ describe('JobListingCard', () => {
     expect(screen.getByText('Engineer')).toBeInTheDocument();
     expect(screen.queryByText('Engineering')).not.toBeInTheDocument();
     expect(screen.queryByText('Remote')).not.toBeInTheDocument();
+  });
+
+  describe('click targets', () => {
+    const cardLink = { to: '/jobs', label: 'Browse all recent jobs' };
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it('default: no card link, and clicking the card opens the posting in a new tab', () => {
+      const open = vi.spyOn(window, 'open').mockImplementation(() => null);
+      render(<JobListingCard job={mockJob} />);
+
+      expect(screen.getAllByRole('link').map((link) => link.textContent)).toEqual([
+        'Apply',
+        'DM the hiring team',
+      ]);
+      fireEvent.click(screen.getByRole('heading', { name: 'Senior Frontend Engineer' }));
+      expect(open).toHaveBeenCalledWith(
+        'https://example.com/job/1',
+        '_blank',
+        'noopener,noreferrer'
+      );
+    });
+
+    it('default: clicking Apply does not also trigger the card click', () => {
+      const open = vi.spyOn(window, 'open').mockImplementation(() => null);
+      render(<JobListingCard job={mockJob} />);
+
+      const apply = screen.getByRole('link', { name: 'Apply' });
+      apply.addEventListener('click', (event) => event.preventDefault());
+      fireEvent.click(apply);
+      expect(open).not.toHaveBeenCalled();
+    });
+
+    it('with a card link: the card links to that route and no longer opens the posting', () => {
+      const open = vi.spyOn(window, 'open').mockImplementation(() => null);
+      render(
+        <MemoryRouter>
+          <JobListingCard job={mockJob} cardLink={cardLink} />
+        </MemoryRouter>
+      );
+
+      expect(screen.getByRole('link', { name: cardLink.label })).toHaveAttribute('href', '/jobs');
+      fireEvent.click(screen.getByRole('heading', { name: 'Senior Frontend Engineer' }));
+      expect(open).not.toHaveBeenCalled();
+
+      const apply = screen.getByRole('link', { name: 'Apply' });
+      expect(apply).toHaveAttribute('href', 'https://example.com/job/1');
+      expect(apply).toHaveAttribute('target', '_blank');
+      const names = screen
+        .getAllByRole('link')
+        .map((link) => link.getAttribute('aria-label') ?? link.textContent);
+      expect(names).toEqual([cardLink.label, 'Apply', 'DM the hiring team']);
+    });
+  });
+
+  it('lets the Apply button wrap under the header when the card is narrow', () => {
+    render(<JobListingCard job={mockJob} />);
+    const headerRow = screen.getByRole('link', { name: 'Apply' }).parentElement!;
+    expect(headerRow).toHaveStyle({ flexWrap: 'wrap' });
   });
 
   // Regression guard for Ledger #2: the compact mobile overrides are gated on

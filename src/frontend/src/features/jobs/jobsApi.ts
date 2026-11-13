@@ -10,7 +10,12 @@ import { fetchMyCompanyJobs, isCustomCompanyId } from '../userCompanies/customJo
 import { APIError } from '../../api/types';
 import { buildSearchJobsQuery } from './searchJobsArgs';
 import { validateSearchJobsResponse } from './validateSearchJobsResponse';
-import type { SearchJobsArgs, SearchJobsPage } from './searchJobsTypes';
+import type {
+  SearchJobsArgs,
+  SearchJobsBatchRequest,
+  SearchJobsBatchResult,
+  SearchJobsPage,
+} from './searchJobsTypes';
 import { ERROR_MESSAGES } from '../../constants/messages';
 import { extractErrorMessage } from '../../lib/errors';
 import { logger } from '../../lib/logger';
@@ -233,6 +238,40 @@ async function fetchCustomCompanyJobs(
   }
 }
 
+const HOUR_MS = 3_600_000;
+
+class SearchBatchResponseError extends Error {
+  status: number;
+
+  constructor(status: number) {
+    super(`/api/jobs/search responded ${status}`);
+    this.status = status;
+  }
+}
+
+async function fetchSearchBatchPage(
+  request: SearchJobsBatchRequest,
+  asOf: number,
+  signal: AbortSignal
+): Promise<Job[]> {
+  const args: SearchJobsArgs = {
+    companies: request.companies && [...request.companies],
+    category: request.category && [...request.category],
+    level: request.level && [...request.level],
+    since: new Date(asOf - request.maxAgeHours * HOUR_MS).toISOString(),
+    limit: request.limit,
+  };
+  const url = `/api/jobs/search?${buildSearchJobsQuery(args, null)}`;
+  const response = await fetch(url, { signal });
+  if (!response.ok) {
+    const { diagnostic } = await readErrorResponse(response);
+    logger.error(`[jobsApi] /api/jobs/search responded ${response.status}:`, diagnostic);
+    throw new SearchBatchResponseError(response.status);
+  }
+  const body = validateSearchJobsResponse(await response.json(), { isFirstPage: true });
+  return body.jobs.map((row) => transformBackendJob(row, row.company));
+}
+
 export const jobsApi = createApi({
   reducerPath: 'jobsApi',
   baseQuery: fakeBaseQuery(),
@@ -422,6 +461,29 @@ export const jobsApi = createApi({
       },
     }),
 
+    searchJobsBatch: builder.query<SearchJobsBatchResult, readonly SearchJobsBatchRequest[]>({
+      async queryFn(requests, { signal }) {
+        const asOf = Date.now();
+        try {
+          const pages = await Promise.all(
+            requests.map((request) => fetchSearchBatchPage(request, asOf, signal))
+          );
+          const jobs = [...new Map(pages.flat().map((job) => [job.id, job])).values()];
+          return { data: { jobs, asOf } };
+        } catch (error) {
+          if (error instanceof SearchBatchResponseError) {
+            return { error: { status: error.status, data: ERROR_MESSAGES.LOAD_JOBS_FAILED } };
+          }
+          if (!signal.aborted) {
+            logger.error('[jobsApi] /api/jobs/search request failed:', error);
+          }
+          return {
+            error: { status: 'CUSTOM_ERROR', data: ERROR_MESSAGES.LOAD_JOBS_FAILED },
+          };
+        }
+      },
+    }),
+
     // Enrichment facet catalog (GET /api/jobs/facets via the Vercel proxy).
     // Tiny, effectively static payload (changes only with a taxonomy
     // migration) — cache for the session (keepUnusedDataFor override).
@@ -537,4 +599,5 @@ export const {
   useGetFacetsQuery,
   useGetPublicSettingsQuery,
   useSearchJobsInfiniteQuery,
+  useSearchJobsBatchQuery,
 } = jobsApi;

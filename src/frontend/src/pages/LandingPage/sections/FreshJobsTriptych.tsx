@@ -2,14 +2,15 @@ import { useMemo } from 'react';
 import { Box, Grid, Link, Typography } from '@mui/material';
 import { Link as RouterLink } from 'react-router-dom';
 import type { Job } from '../../../types';
+import type { JobCardLink } from '../../../components/shared/JobCard/JobListingCard';
 import { RESPONSIVE } from '../../../config/responsive';
 import { ROUTES } from '../../../config/routes';
 import type { SectionIntro as SectionIntroContent } from '../content';
 import { FlippingCard, SizerStack, SlotCaption } from './FlippingCard';
 import { SectionIntro } from './SectionIntro';
-import { selectTriptychSlots, type TriptychSlot } from './triptychJobs';
+import type { TriptychSlot, TriptychSlots } from './triptychJobs';
 
-const HEADING_ID = 'landing-fresh-jobs-heading';
+export const FRESH_JOBS_HEADING_ID = 'landing-fresh-jobs-heading';
 
 /**
  * Phase step between adjacent slots (ms). Three slots at 0 / 1.5s / 3s against
@@ -19,10 +20,9 @@ const HEADING_ID = 'landing-fresh-jobs-heading';
 const PHASE_STEP_MS = 1500;
 
 interface FreshJobsTriptychProps {
-  jobs: Job[];
-  /** The fixtures' MOCK_NOW — see LandingPrototypeProps.now. */
-  now: number;
+  slots: TriptychSlots;
   intro?: SectionIntroContent;
+  cardLink: JobCardLink;
 }
 
 /**
@@ -37,26 +37,23 @@ interface FreshJobsTriptychProps {
  * big tech). Slots are staggered by `PHASE_STEP_MS` so they never flip in
  * unison, and each pauses on its own hover/focus without touching its
  * neighbours. A slot with an empty pool says so plainly and points at the live
- * board; the section only disappears entirely when all three come back empty.
+ * board.
  *
  * Stacks to a single column below `sm` via the standard Grid idiom.
  */
-export function FreshJobsTriptych({ jobs, now, intro }: FreshJobsTriptychProps) {
-  const slots = useMemo(() => selectTriptychSlots(jobs, now), [jobs, now]);
+export function FreshJobsTriptych({ slots, intro, cardLink }: FreshJobsTriptychProps) {
   const allSlotJobs = useMemo(
     () => [...new Map(slots.flatMap((slot) => slot.jobs).map((job) => [job.id, job])).values()],
     [slots]
   );
 
-  if (slots.every((slot) => slot.jobs.length === 0)) return null;
-
   return (
     <Box
       component="section"
-      aria-labelledby={intro ? HEADING_ID : undefined}
+      aria-labelledby={intro ? FRESH_JOBS_HEADING_ID : undefined}
       data-testid="fresh-jobs-triptych"
     >
-      {intro && <SectionIntro heading={intro.heading} headingId={HEADING_ID} />}
+      {intro && <SectionIntro heading={intro.heading} headingId={FRESH_JOBS_HEADING_ID} />}
       <Grid container spacing={{ xs: 2, sm: 3 }}>
         {slots.map((slot, i) => (
           <Grid key={slot.id} size={{ xs: 12, sm: 4 }}>
@@ -67,6 +64,7 @@ export function FreshJobsTriptych({ jobs, now, intro }: FreshJobsTriptychProps) 
                 phaseMs={i * PHASE_STEP_MS}
                 testId={slotTestId(slot.id)}
                 sizerJobs={allSlotJobs}
+                cardLink={cardLink}
               />
             ) : (
               <QuietSlot slot={slot} sizerJobs={allSlotJobs} />

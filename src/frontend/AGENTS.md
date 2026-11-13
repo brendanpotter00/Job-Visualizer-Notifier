@@ -32,14 +32,19 @@ All paths below are relative to `src/frontend/src/`.
 - Factory patterns: `createAPIClient` (api/clients/baseClient.ts) and `createFilterSlice` (features/filters/slices/createFilterSlice.ts)
 - The company hiring-trend page has a single filter source (`graphFilters`) that drives both the graph and the job list — the list reflects the graph
 - The timeline chart in `GraphSection.tsx` is collapsible (local `useState`, default expanded, not persisted); collapsing hides only the chart — the filters stay visible because they also drive the list
-- Two job read paths, and they do NOT share a cache shape. The company hiring-trend
+- Three job read paths, and they do NOT share a cache shape. The company hiring-trend
   page uses `getJobsForCompany` (one RTK Query entry per company id). The Recent
   Jobs page pages `GET /api/jobs/search` through the `searchJobs` **infinite**
   query, whose cache key is the whole filter set and whose entry is a list of
-  server-returned pages. The old `byCompanyId` map — the all-companies fan-out both
+  server-returned pages. The landing page's "Just Posted" section uses
+  `searchJobsBatch`, a plain query that runs three anonymous page-1 searches in
+  parallel (never sends `Authorization`, all-or-nothing: one failure fails the
+  batch), keyed by the constant `TRIPTYCH_REQUESTS` in
+  `pages/LandingPage/sections/triptychJobs.ts`; it holds at most 30 rows, software
+  engineering only. The old `byCompanyId` map — the all-companies fan-out both
   pages once shared — was removed with the client-side walk; there is no store-wide
-  index of every job any more, and re-adding one would put the whole corpus back in
-  memory (see Gotcha #10)
+  index of every job any more (`searchJobsBatch` is not one either), and re-adding
+  one would put the whole corpus back in memory (see Gotcha #10)
 
 **Data Flow:**
 User selects company → `getJobsForCompany` RTK Query endpoint (features/jobs/jobsApi.ts) → Factory selects API client → Transform to normalized Job model → RTK Query cache update → Memoized selectors filter data → Components render
@@ -69,7 +74,7 @@ Backend-Scraper (api/clients/backendScraperClient.ts) is the only production cli
 - `/admin/location-normalization` - Admin Location Normalization (pages/AdminLocationNormalizationPage/AdminLocationNormalizationPage.tsx) - Admin-only location alias browser, health overview, integrity check, and problem-jobs table
 - `/location-pipeline` - Location Pipeline (pages/AdminLocationPipelinePage/AdminLocationPipelinePage.tsx) - Public pipeline visualization; admins get a sidebar link, everyone else reaches it via the Changelog
 - `/admin/feedback` - Admin Feedback (pages/AdminFeedbackPage/AdminFeedbackPage.tsx) - Admin-only table of user feedback submissions
-- Landing page at `/` (pages/LandingPage/LandingPage.tsx) - Full-bleed, OUTSIDE RootLayout, no sidebar nav entry. All copy lives in `pages/LandingPage/content.ts` and every claim traces to `docs/seo/positioning-brief.md`; the head is `pages/LandingPage/seo/LandingSeo.tsx` — title/description set imperatively (a React 19 hoisted `<title>` lands AFTER `index.html`'s static one and the first wins), canonical hoisted, JSON-LD inline; `index.html`'s static head is the brand-first site default and must stay distinct from the landing title (`indexHtmlHead.test.ts`). Reduced-motion and no-WebGL get the DOM logo grid; everyone else mounts the lazy three/rapier scene — phones too, framed `compact` (camera pulled back so a tile renders at `logoTileSize.compact` px, see `GravityPrototype/compactFraming.ts`). No footer: the closing CTA ends the page. Review-round log: `docs/implementations/landingPagePrototypes/PLAN.md`
+- Landing page at `/` (pages/LandingPage/LandingPage.tsx) - Full-bleed, OUTSIDE RootLayout, no sidebar nav entry. All copy lives in `pages/LandingPage/content.ts` and every claim traces to `docs/seo/positioning-brief.md`; the head is `pages/LandingPage/seo/LandingSeo.tsx` — title/description set imperatively (a React 19 hoisted `<title>` lands AFTER `index.html`'s static one and the first wins), canonical hoisted, JSON-LD inline; `index.html`'s static head is the brand-first site default and must stay distinct from the landing title (`indexHtmlHead.test.ts`). Reduced-motion and no-WebGL get the DOM logo grid; everyone else mounts the lazy three/rapier scene — phones too, framed `compact` (camera pulled back so a tile renders at `logoTileSize.compact` px, see `GravityPrototype/compactFraming.ts`). No footer: the closing CTA ends the page. "Just Posted" (`sections/JustPostedSection.tsx`) is live data from `searchJobsBatch`, not fixtures (there is no `?data=sparse` toggle any more): a skeleton while it loads, the whole section (band included) hidden if any of its three requests fails or every slot is empty, and each slot widens its window on a quiet week (`selectTriptychSlots`; the middle caption names the window used). In those cards Apply opens the posting in a new tab and the rest of the card links to `/jobs` (`JobListingCard`'s optional `cardLink`). Review-round log: `docs/implementations/landingPagePrototypes/PLAN.md`
 - `/admin/custom-companies` - Admin Custom Companies (pages/AdminCustomCompaniesPage/AdminCustomCompaniesPage.tsx) - Admin-only oversight of user-added custom company boards
 
 **Key Algorithms:**
