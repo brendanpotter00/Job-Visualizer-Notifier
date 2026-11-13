@@ -89,6 +89,44 @@ describe('AdminCustomCompaniesPage', () => {
     vi.clearAllMocks();
   });
 
+  it('renders the whole-page skeleton while both reads are pending', () => {
+    fetchMock.mockImplementation(() => new Promise(() => {}));
+    renderPage();
+
+    const region = screen.getByRole('status', { name: 'Loading custom companies…' });
+    expect(screen.getAllByRole('status')).toHaveLength(1);
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+    // Header copy and the three section titles hold their place as text; the
+    // page's headings arrive with the data.
+    expect(within(region).getByText('Admin · Custom Companies')).toBeInTheDocument();
+    expect(within(region).getByText('Add attempts')).toBeInTheDocument();
+    expect(within(region).getByText('Users')).toBeInTheDocument();
+    expect(screen.queryByRole('heading')).not.toBeInTheDocument();
+    // Four headline tile placeholders + three tables with real column labels.
+    expect(within(region).getByRole('columnheader', { name: 'Live?' })).toBeInTheDocument();
+    expect(within(region).getByRole('columnheader', { name: 'Resolved as' })).toBeInTheDocument();
+    expect(within(region).getByRole('columnheader', { name: 'Owns now' })).toBeInTheDocument();
+  });
+
+  it('renders per-slot skeletons for the boards read while attempts have landed', async () => {
+    fetchMock.mockImplementation((input: unknown) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url.includes('/custom-companies/attempts')) return routedFetch()(input);
+      return new Promise(() => {});
+    });
+    renderPage();
+
+    // Past the whole-page placeholder: the real section headings are up.
+    expect(
+      await screen.findByRole('heading', { name: 'Live scrapers', level: 2 })
+    ).toBeInTheDocument();
+    expect(screen.getByRole('status', { name: 'Loading headline counts…' })).toBeInTheDocument();
+    const boards = screen.getByRole('status', { name: 'Loading boards…' });
+    expect(within(boards).getByRole('columnheader', { name: 'Transport' })).toBeInTheDocument();
+    expect(screen.queryByRole('status', { name: 'Loading attempts…' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+  });
+
   it('renders the four headline tiles from the server summary', async () => {
     renderPage();
 

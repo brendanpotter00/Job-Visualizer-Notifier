@@ -7,7 +7,6 @@ import Button from '@mui/material/Button';
 import Checkbox from '@mui/material/Checkbox';
 import Chip from '@mui/material/Chip';
 import FormControlLabel from '@mui/material/FormControlLabel';
-import Paper from '@mui/material/Paper';
 import Radio from '@mui/material/Radio';
 import RadioGroup from '@mui/material/RadioGroup';
 import Stack from '@mui/material/Stack';
@@ -18,7 +17,8 @@ import { COMPANIES } from '../../config/companies';
 import { useEnabledCompanies } from '../../features/preferences/useEnabledCompanies';
 import { CompanyLogo } from '../shared/CompanyLogo/CompanyLogo';
 import { SectionSaveButton } from './SectionSaveButton';
-import { LoadingState } from '../shared/LoadingIndicator';
+import { SkeletonRegion } from '../shared/Skeletons';
+import { SavedFiltersSectionSkeleton } from './SavedFiltersSectionSkeleton';
 import { extractErrorMessage } from '../../lib/errors';
 
 /**
@@ -170,9 +170,9 @@ export function EnabledCompaniesSection() {
 
   if (loading && ids === null) {
     return (
-      <Paper sx={{ p: 4 }}>
-        <LoadingState />
-      </Paper>
+      <SkeletonRegion label="Loading saved companies…">
+        <SavedFiltersSectionSkeleton title="Saved companies" controls={1} />
+      </SkeletonRegion>
     );
   }
 

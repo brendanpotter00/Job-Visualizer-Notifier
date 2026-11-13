@@ -21,6 +21,15 @@ function renderPage(url = '/landing') {
 }
 
 describe('LandingPage', () => {
+  it('shows the landing-shaped skeleton (not a spinner) while the scene chunk loads', async () => {
+    renderPage();
+    // The lazy import resolves on a later tick, so the first paint is the fallback.
+    expect(screen.getByRole('status', { name: 'Loading…' })).toBeInTheDocument();
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+    expect(await screen.findByTestId('landing-body')).toBeInTheDocument();
+    expect(screen.queryByRole('status', { name: 'Loading…' })).not.toBeInTheDocument();
+  });
+
   it('renders the Gravity landing body behind a Suspense boundary', async () => {
     renderPage();
     expect(await screen.findByTestId('landing-body')).toHaveTextContent(/gravity \(rich/);

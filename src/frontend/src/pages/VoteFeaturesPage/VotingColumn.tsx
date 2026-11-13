@@ -2,10 +2,13 @@ import { useMemo } from 'react';
 import { Box, Stack, Typography } from '@mui/material';
 import { useAutoAnimate } from '@formkit/auto-animate/react';
 import { useListFeaturesQuery } from '../../features/features/featuresApi';
-import { LoadingState } from '../../components/shared/LoadingIndicator';
+import { CardListSkeleton, SkeletonRegion } from '../../components/shared/Skeletons';
 import { ErrorState, EmptyState } from '../../components/shared/ErrorDisplay';
 import { extractErrorMessage } from '../../lib/errors';
 import { FeatureVoteCard } from './FeatureVoteCard';
+
+/** Placeholder cards while the feature list loads. */
+const FEATURE_SKELETON_COUNT = 3;
 
 export function VotingColumn() {
   const { data, isLoading, isError, error, refetch } = useListFeaturesQuery();
@@ -48,7 +51,13 @@ export function VotingColumn() {
       <Typography variant="h5" component="h2">
         Vote on upcoming features
       </Typography>
-      {isLoading && <LoadingState minHeight={200} />}
+      {isLoading && (
+        // Shaped like the FeatureVoteCard list: vote button + count on the
+        // left, title and description on the right.
+        <SkeletonRegion label="Loading features…">
+          <CardListSkeleton count={FEATURE_SKELETON_COUNT} leading lines={2} />
+        </SkeletonRegion>
+      )}
       {isError && (
         <ErrorState
           inline

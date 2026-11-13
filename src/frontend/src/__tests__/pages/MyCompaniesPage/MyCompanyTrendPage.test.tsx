@@ -115,6 +115,32 @@ afterEach(() => {
 });
 
 describe('MyCompanyTrendPage', () => {
+  it('shows the whole-page skeleton (not a spinner) while auth resolves', () => {
+    mockAuthState.isLoading = true;
+    renderTrendPage();
+
+    expect(
+      screen.getByRole('status', { name: "Loading this company's jobs…" })
+    ).toBeInTheDocument();
+    expect(screen.getByTestId('chart-skeleton')).toBeInTheDocument();
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('shows the chart + list skeleton under the real header while jobs load', () => {
+    // Never resolves: the jobs query stays on its first load.
+    fetchMock.mockImplementation(() => new Promise(() => {}));
+    renderTrendPage();
+
+    expect(screen.getByRole('heading', { name: 'Hiring trend', level: 1 })).toBeInTheDocument();
+    const region = screen.getByRole('status', { name: "Loading this company's jobs…" });
+    expect(region.querySelector('[data-testid="chart-skeleton"]')).not.toBeNull();
+    // A bounded handful of job-card placeholders.
+    expect(region.querySelectorAll('.MuiCard-root')).toHaveLength(3);
+    expect(screen.queryByTestId('chart')).not.toBeInTheDocument();
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+  });
+
   it('feeds bucketed data to the chart and firstSeenAt-desc jobs to the list', async () => {
     // Two jobs, older then newer, returned server-order oldest-first.
     mockJson([rawJob('older', '2026-08-01T00:00:00Z'), rawJob('newer', '2026-08-08T00:00:00Z')]);

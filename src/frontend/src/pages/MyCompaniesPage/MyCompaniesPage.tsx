@@ -28,6 +28,64 @@ import Divider from '@mui/material/Divider';
 import { ResolveUrlForm } from '../../components/my-companies/ResolveUrlForm';
 import { AddCompanyOutcome } from '../../components/my-companies/AddCompanyOutcome';
 import { MyCompaniesList } from '../../components/my-companies/MyCompaniesList';
+import { MyCompaniesListSkeleton } from '../../components/my-companies/MyCompaniesListSkeleton';
+import {
+  SkeletonRegion,
+  SKELETON_CONTROL_HEIGHT,
+  TextSkeleton,
+} from '../../components/shared/Skeletons';
+import Box from '@mui/material/Box';
+import Skeleton from '@mui/material/Skeleton';
+
+/**
+ * Whole-page placeholder while the auth SDK resolves, in the loaded page's own
+ * `md` column: the real heading, the monthly-quota line, the add form (field +
+ * button over the one-line consent note), the divider, and the company list.
+ */
+function MyCompaniesPageSkeleton() {
+  return (
+    <Container maxWidth="md" sx={{ py: RESPONSIVE.spacing.pageMarginY }}>
+      {/* The title as text, not yet the page's h1 (see Skeletons.tsx). */}
+      <Typography
+        variant="h4"
+        component="div"
+        gutterBottom
+        sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 1 }}
+      >
+        Add Companies
+        <BetaBadge />
+      </Typography>
+      <SkeletonRegion label="Loading Add Companies…">
+        <Typography variant="body2" component="div" sx={{ mb: 2 }}>
+          <Skeleton width={220} />
+        </Typography>
+        <Stack spacing={3}>
+          <Paper sx={{ p: RESPONSIVE.spacing.paperPaddingLg }}>
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+              {/* `flex` only in the row layout: a zero flex-basis in the stacked
+                  phone column would collapse an empty placeholder's height. */}
+              <Skeleton
+                variant="rounded"
+                height={SKELETON_CONTROL_HEIGHT}
+                sx={{ flex: { xs: 'none', sm: 1 } }}
+              />
+              <Skeleton
+                variant="rounded"
+                height={SKELETON_CONTROL_HEIGHT}
+                sx={{ width: { xs: '100%', sm: 140 } }}
+              />
+            </Stack>
+            <Box sx={{ mt: 1.5 }}>
+              <TextSkeleton lines={1} />
+            </Box>
+          </Paper>
+          <Divider />
+          <MyCompaniesListSkeleton />
+        </Stack>
+      </SkeletonRegion>
+    </Container>
+  );
+}
 
 /**
  * "Add Companies" — paste a careers URL, get the company tracked.
@@ -102,7 +160,7 @@ export function MyCompaniesPage() {
 
   // ── auth ladder (mirrors SavedFiltersPage / AccountPage) ─────────────────
   if (authLoading) {
-    return <LoadingState fullPage />;
+    return <MyCompaniesPageSkeleton />;
   }
 
   if (!isAuthenticated) {

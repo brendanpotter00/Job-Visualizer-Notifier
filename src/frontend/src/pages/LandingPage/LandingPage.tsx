@@ -1,7 +1,7 @@
 import { lazy, Suspense } from 'react';
 import { Box } from '@mui/material';
 import { useSearchParams } from 'react-router-dom';
-import { LoadingState } from '../../components/shared/LoadingIndicator';
+import { LandingSkeleton } from './LandingSkeleton';
 import { LANDING_CONTENT } from './content';
 import { MOCK_JOBS, MOCK_JOBS_SPARSE, MOCK_NOW } from './mockData';
 
@@ -52,7 +52,7 @@ export function LandingPage() {
       }}
     >
       <Box sx={{ flex: 1, overflowY: 'auto' }}>
-        <Suspense fallback={<LoadingState size={60} minHeight={400} caption="Loading…" />}>
+        <Suspense fallback={<LandingSkeleton />}>
           <GravityPrototype
             content={LANDING_CONTENT}
             jobs={sparse ? MOCK_JOBS_SPARSE : MOCK_JOBS}

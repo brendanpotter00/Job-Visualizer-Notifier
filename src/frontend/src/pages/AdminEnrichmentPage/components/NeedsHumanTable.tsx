@@ -28,13 +28,14 @@ import {
 import { useGetFacetsQuery } from '../../../features/jobs/jobsApi';
 import { FALLBACK_CATEGORIES, FALLBACK_LEVELS, FACET_LABELS } from '../../../constants/enrichment';
 import { FacetSelect } from '../../../components/shared/filters/FacetSelect';
-import { LoadingState } from '../../../components/shared/LoadingIndicator';
+import { SkeletonRegion } from '../../../components/shared/Skeletons';
 import { ErrorState } from '../../../components/shared/ErrorDisplay';
 import { extractErrorMessage } from '../../../lib/errors';
 import { TABLE_SCROLL_SX } from '../../../config/responsive';
 import { format } from 'date-fns';
 import { CorrectionDialog } from './CorrectionDialog';
 import { JobDescriptionDialog } from './JobDescriptionDialog';
+import { NeedsHumanTableSkeleton } from './EnrichmentSkeletons';
 
 /** The four columns the backend's sort allowlist accepts. */
 type SortKey =
@@ -193,7 +194,9 @@ export function NeedsHumanTable() {
           onRetry={() => refetch()}
         />
       ) : isLoading || !data ? (
-        <LoadingState minHeight={160} caption="Loading queue…" />
+        <SkeletonRegion label="Loading queue…">
+          <NeedsHumanTableSkeleton />
+        </SkeletonRegion>
       ) : data.rows.length === 0 ? (
         <Typography color="text.secondary" sx={{ py: 3, textAlign: 'center' }}>
           Queue is clear — no rows need a human.

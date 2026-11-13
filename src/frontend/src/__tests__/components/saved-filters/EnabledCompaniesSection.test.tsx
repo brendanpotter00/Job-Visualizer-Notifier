@@ -69,10 +69,12 @@ describe('EnabledCompaniesSection', () => {
 
   // ── initial state ─────────────────────────────────────────────────────
 
-  it('shows a loading spinner when loading and ids are not yet loaded', () => {
+  it('shows the section skeleton when loading and ids are not yet loaded', () => {
     resetMock({ loading: true, ids: null });
     render(<EnabledCompaniesSection />);
-    expect(screen.getByRole('progressbar')).toBeInTheDocument();
+    expect(screen.getByRole('status', { name: 'Loading saved companies…' })).toBeInTheDocument();
+    expect(screen.getByTestId('saved-filters-section-skeleton')).toHaveTextContent('Saved companies');
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
     expect(screen.queryByRole('radio', { name: /all companies/i })).not.toBeInTheDocument();
   });
 

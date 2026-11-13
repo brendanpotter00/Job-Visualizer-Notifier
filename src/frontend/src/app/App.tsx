@@ -22,7 +22,7 @@ import { AdminLocationPipelinePage } from '../pages/AdminLocationPipelinePage/Ad
 import { AdminCustomCompaniesPage } from '../pages/AdminCustomCompaniesPage/AdminCustomCompaniesPage.tsx';
 import { AdminFeedbackPage } from '../pages/AdminFeedbackPage/AdminFeedbackPage.tsx';
 import { lazy, Suspense } from 'react';
-import { LoadingState } from '../components/shared/LoadingIndicator';
+import { PageSkeleton } from '../components/shared/Skeletons';
 
 /**
  * Lazy at the ROUTE, not just the 3D scene: the landing page's copy config and
@@ -213,7 +213,7 @@ function AppContent() {
         <Route
           path={ROUTES.LANDING}
           element={
-            <Suspense fallback={<LoadingState fullPage />}>
+            <Suspense fallback={<PageSkeleton fullPage />}>
               <LandingPage />
             </Suspense>
           }

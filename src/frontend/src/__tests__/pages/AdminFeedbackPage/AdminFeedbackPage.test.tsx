@@ -81,10 +81,16 @@ describe('AdminFeedbackPage', () => {
     global.fetch = fetchMock as unknown as typeof fetch;
   });
 
-  it('shows a loading spinner while the query is pending', () => {
+  it('shows the feedback skeleton (header copy + table placeholder) while the query is pending', () => {
     fetchMock.mockImplementation(() => new Promise(() => {}));
     renderPage();
-    expect(screen.getByRole('progressbar')).toBeInTheDocument();
+    expect(screen.getByRole('status', { name: 'Loading feedback…' })).toBeInTheDocument();
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+    // Header copy as text; the page's h1 arrives with the data.
+    expect(screen.getByText('Admin · User Feedback')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { level: 1 })).not.toBeInTheDocument();
+    // The placeholder table carries the real column headers.
+    expect(screen.getByRole('columnheader', { name: 'Submitted' })).toBeInTheDocument();
   });
 
   it('renders the heading, submission count (from total), rows and "Anonymous"', async () => {

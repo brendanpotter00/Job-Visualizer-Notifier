@@ -21,7 +21,7 @@ import {
 import { useAppDispatch } from '../../app/hooks';
 import { FacetSelect } from '../../components/shared/filters/FacetSelect';
 import { EmptyState, ErrorState } from '../../components/shared/ErrorDisplay';
-import { LoadingState } from '../../components/shared/LoadingIndicator';
+import { PageHeaderSkeleton, SkeletonRegion } from '../../components/shared/Skeletons';
 import { RESPONSIVE } from '../../config/responsive';
 import { useDebouncedValue } from '../../hooks/useDebouncedValue';
 import { extractErrorMessage } from '../../lib/errors';
@@ -30,6 +30,13 @@ import { StatTile } from '../AdminUsersPage/components/StatTile';
 import { AddAttemptsTable } from './components/AddAttemptsTable';
 import { LiveScrapersTable } from './components/LiveScrapersTable';
 import { UsersRollupTable } from './components/UsersRollupTable';
+import {
+  AddAttemptsTableSkeleton,
+  CustomCompaniesBodySkeleton,
+  HeadlineCountsSkeleton,
+  LiveScrapersTableSkeleton,
+  UsersRollupTableSkeleton,
+} from './components/CustomCompaniesSkeletons';
 import { failedPercent } from './format';
 import {
   ATTEMPT_OUTCOME_OPTIONS,
@@ -55,6 +62,10 @@ import {
  * where you most want to look at what the feature did.
  */
 const DEFAULT_ROWS_PER_PAGE = 25;
+
+/** Header copy, shared by the loaded header and its first-load placeholder. */
+const PAGE_TITLE = 'Admin · Custom Companies';
+const PAGE_SUBTITLE = 'Boards users added themselves, and every attempt to add one.';
 
 /** "3 custom boards · 3 unverified" — non-zero health states, busiest first. */
 function describeBoards(total: number, byHealthState: Record<string, number>): string {
@@ -172,10 +183,10 @@ export function AdminCustomCompaniesPage() {
     >
       <Box>
         <Typography variant="h4" component="h1" gutterBottom>
-          Admin · Custom Companies
+          {PAGE_TITLE}
         </Typography>
         <Typography variant="body2" color="text.secondary">
-          Boards users added themselves, and every attempt to add one.
+          {PAGE_SUBTITLE}
         </Typography>
       </Box>
       <Button variant="outlined" startIcon={<RefreshIcon />} onClick={handleRefresh}>
@@ -184,8 +195,8 @@ export function AdminCustomCompaniesPage() {
     </Box>
   );
 
-  // Full-page spinner only while BOTH reads are still in flight and neither has
-  // ever resolved; afterwards each section owns its own state.
+  // Whole-page placeholder only while BOTH reads are still in flight and neither
+  // has ever resolved; afterwards each section owns its own state.
   if (
     companiesQuery.isLoading &&
     attemptsQuery.isLoading &&
@@ -194,7 +205,16 @@ export function AdminCustomCompaniesPage() {
     !companiesQuery.error &&
     !attemptsQuery.error
   ) {
-    return <LoadingState fullPage caption="Loading custom companies…" />;
+    return (
+      <Container maxWidth="xl" sx={{ py: RESPONSIVE.spacing.pageMarginY }}>
+        <SkeletonRegion label="Loading custom companies…">
+          {/* The header as text + button placeholders: the real one (an h1 and
+              live controls) arrives with the data — see Skeletons.tsx. */}
+          <PageHeaderSkeleton title={PAGE_TITLE} subtitle={PAGE_SUBTITLE} actions={1} />
+          <CustomCompaniesBodySkeleton />
+        </SkeletonRegion>
+      </Container>
+    );
   }
 
   // Day one in production, and most days after: prod has none of the E7 tables,
@@ -281,9 +301,12 @@ export function AdminCustomCompaniesPage() {
           />
         </Box>
       ) : (
-        <Box sx={{ mb: RESPONSIVE.spacing.sectionMarginB }}>
-          <LoadingState minHeight={120} caption="Loading headline counts…" />
-        </Box>
+        <SkeletonRegion
+          label="Loading headline counts…"
+          sx={{ mb: RESPONSIVE.spacing.sectionMarginB }}
+        >
+          <HeadlineCountsSkeleton />
+        </SkeletonRegion>
       )}
 
       {/* ── Table 1 — which custom scrapers are actually live ───────────── */}
@@ -330,7 +353,9 @@ export function AdminCustomCompaniesPage() {
             onRetry={() => companiesQuery.refetch()}
           />
         ) : !companiesData ? (
-          <LoadingState minHeight={120} caption="Loading boards…" />
+          <SkeletonRegion label="Loading boards…">
+            <LiveScrapersTableSkeleton />
+          </SkeletonRegion>
         ) : (
           <LiveScrapersTable
             companies={companiesData.companies}
@@ -396,7 +421,9 @@ export function AdminCustomCompaniesPage() {
             onRetry={() => attemptsQuery.refetch()}
           />
         ) : !attemptsData ? (
-          <LoadingState minHeight={120} caption="Loading attempts…" />
+          <SkeletonRegion label="Loading attempts…">
+            <AddAttemptsTableSkeleton />
+          </SkeletonRegion>
         ) : (
           <AddAttemptsTable
             attempts={attemptsData.attempts}
@@ -438,7 +465,9 @@ export function AdminCustomCompaniesPage() {
             onRetry={() => attemptsQuery.refetch()}
           />
         ) : !attemptsData ? (
-          <LoadingState minHeight={120} caption="Loading users…" />
+          <SkeletonRegion label="Loading users…">
+            <UsersRollupTableSkeleton />
+          </SkeletonRegion>
         ) : (
           <UsersRollupTable
             users={attemptsData.users}

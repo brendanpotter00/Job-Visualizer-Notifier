@@ -9,16 +9,62 @@ import Avatar from '@mui/material/Avatar';
 import Alert from '@mui/material/Alert';
 import Switch from '@mui/material/Switch';
 import FormControlLabel from '@mui/material/FormControlLabel';
+import Skeleton from '@mui/material/Skeleton';
 import { useAppDispatch, useAppSelector } from '../../app/hooks';
 import { setHideAdminFeatures, setDemoModeEnabled } from '../../features/ui/uiSlice';
 import { useAuth } from '../../features/auth/useAuth';
 import { useCurrentUser } from '../../features/auth/useCurrentUser';
 import { updateCurrentUser } from '../../features/auth/authService';
-import { LoadingState } from '../../components/shared/LoadingIndicator';
+import { SkeletonRegion, SKELETON_CONTROL_HEIGHT } from '../../components/shared/Skeletons';
 import { ErrorState } from '../../components/shared/ErrorDisplay';
 import { extractErrorMessage } from '../../lib/errors';
 import { trackSignInClick } from '../../features/analytics/events';
 import { RESPONSIVE } from '../../config/responsive';
+
+/** Profile avatar edge (px), shared by the loaded avatar and its placeholder. */
+const AVATAR_SIZE = 80;
+
+/**
+ * First-load placeholder for the profile card: the avatar over the email, the
+ * name block, the display-name field and the save button, in the same `sm`
+ * container and padded Paper the loaded page uses. Shown while the auth SDK
+ * boots and again while the profile request is in flight.
+ */
+function AccountPageSkeleton() {
+  return (
+    <Container maxWidth="sm" sx={{ py: RESPONSIVE.spacing.pageMarginY }}>
+      {/* The title as text, not yet the page's h1 (see Skeletons.tsx). */}
+      <Typography variant="h4" component="div" gutterBottom>
+        Account
+      </Typography>
+      <SkeletonRegion label="Loading your account…">
+        <Paper sx={{ p: RESPONSIVE.spacing.paperPaddingLg }}>
+          <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', mb: 3 }}>
+            <Skeleton
+              variant="circular"
+              width={AVATAR_SIZE}
+              height={AVATAR_SIZE}
+              sx={{ mb: 2 }}
+            />
+            <Typography variant="body2" component="div" sx={{ width: '50%' }}>
+              <Skeleton />
+            </Typography>
+          </Box>
+          <Box sx={{ mb: 2 }}>
+            <Typography variant="caption" component="div">
+              <Skeleton width={48} />
+            </Typography>
+            <Typography variant="body1" component="div">
+              <Skeleton width="40%" />
+            </Typography>
+          </Box>
+          <Skeleton variant="rounded" height={SKELETON_CONTROL_HEIGHT} sx={{ mb: 3 }} />
+          <Skeleton variant="rounded" height={SKELETON_CONTROL_HEIGHT} />
+        </Paper>
+      </SkeletonRegion>
+    </Container>
+  );
+}
 
 export function AccountPage() {
   const { isAuthenticated, isLoading: authLoading, login, getToken } = useAuth();
@@ -56,7 +102,7 @@ export function AccountPage() {
   };
 
   if (authLoading) {
-    return <LoadingState fullPage />;
+    return <AccountPageSkeleton />;
   }
 
   if (!isAuthenticated) {
@@ -84,7 +130,7 @@ export function AccountPage() {
   }
 
   if (loading) {
-    return <LoadingState fullPage />;
+    return <AccountPageSkeleton />;
   }
 
   if (error) {
@@ -95,12 +141,16 @@ export function AccountPage() {
     );
   }
 
-  if (!user) return null;
+  // No user and no error yet: `useCurrentUser` starts with `loading: false` and
+  // only flips it inside its mount effect, so the very first authenticated frame
+  // lands here before the fetch has begun. It is still a wait — show the same
+  // placeholder rather than a blank frame.
+  if (!user) return <AccountPageSkeleton />;
 
   const isDirty = displayName !== (user.displayName ?? '');
   const fullName = [user.givenName, user.familyName].filter(Boolean).join(' ');
   const initials = [user.givenName?.[0], user.familyName?.[0]].filter(Boolean).join('');
-  const avatarSize = { width: 80, height: 80, mb: 2 };
+  const avatarSize = { width: AVATAR_SIZE, height: AVATAR_SIZE, mb: 2 };
 
   return (
     <Container maxWidth="sm" sx={{ py: RESPONSIVE.spacing.pageMarginY }}>

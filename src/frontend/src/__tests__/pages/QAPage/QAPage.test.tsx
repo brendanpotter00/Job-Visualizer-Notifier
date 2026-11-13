@@ -123,9 +123,23 @@ describe('QAPage', () => {
       mockScrapeRuns([baseRun]);
       render(<QAPage />);
 
-      expect(
-        await screen.findByRole('columnheader', { name: /guard skipped/i })
-      ).toBeInTheDocument();
+      // Wait for the loaded run row first: the loading skeleton already shows
+      // the real column labels, so the header alone does not prove the table
+      // loaded.
+      await screen.findByText('2585');
+      expect(screen.getByRole('columnheader', { name: /guard skipped/i })).toBeInTheDocument();
+    });
+
+    it('shows table skeletons with the real column labels while loading', () => {
+      // Never-resolving fetch: both tables stay in their first load.
+      mockFetch.mockImplementation(() => new Promise(() => {}));
+      render(<QAPage />);
+
+      expect(screen.getByRole('status', { name: 'Loading scrape runs…' })).toBeInTheDocument();
+      expect(screen.getByRole('status', { name: 'Loading jobs…' })).toBeInTheDocument();
+      expect(screen.getByRole('columnheader', { name: 'Guard Skipped' })).toBeInTheDocument();
+      expect(screen.getByRole('columnheader', { name: 'Posted On' })).toBeInTheDocument();
+      expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
     });
 
     it('renders "Yes" for a run whose safety guard tripped', async () => {
