@@ -73,7 +73,6 @@ function mockSearch(overrides: Partial<RecentJobsSearch> = {}): RecentJobsSearch
     errorScope: null,
     isAwaitingDeploy: false,
     retry,
-    isSkippedEmpty: false,
     ...overrides,
   };
   // Derived by the hook, never stated by its callers — so the mock derives them

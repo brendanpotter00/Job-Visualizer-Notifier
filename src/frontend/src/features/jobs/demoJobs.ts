@@ -8,7 +8,7 @@ import { getCompanyById } from '../../config/companies.ts';
  * live RTK Query data, so the Recent Job Postings page shows a curated set of fake
  * software-engineering listings from real, tracked companies. Because the swap happens
  * upstream of all filtering/sorting/metrics, every existing feature (time-window,
- * location, company and keyword filters, sorting, counts, logos, links) works on this
+ * location and keyword filters, sorting, counts, logos, links) works on this
  * data unchanged.
  *
  * IMPORTANT — stable reference: `DEMO_JOBS` is computed ONCE at module load. The recent-jobs

@@ -183,7 +183,6 @@ const MULTI_FILTERS: RecentJobsFilters = {
   softwareOnly: false,
   // Every list is deliberately out of order — sorting is what keeps two
   // equivalent filter states on ONE cache entry instead of two.
-  company: ['stripe', 'airbnb'],
   category: ['software_engineering', 'data_science'],
   level: ['senior', 'entry'],
   location: ['Austin, TX, US', 'Amsterdam, NL'],
@@ -195,16 +194,17 @@ const MULTI_FILTERS: RecentJobsFilters = {
   ],
 };
 
-function argsFromFilters(filters: RecentJobsFilters): SearchJobsArgs {
-  const args = buildSearchJobsArgs({
+function argsFromFilters(
+  filters: RecentJobsFilters,
+  enabledCompanyIds: string[] | null = null
+): SearchJobsArgs {
+  return buildSearchJobsArgs({
     filters,
-    enabledCompanyIds: null,
+    enabledCompanyIds,
     ownedCompanyIds: [],
     since: SINCE,
     isSignedOut: false,
   });
-  if (args === null) throw new Error('test setup: expected buildSearchJobsArgs to produce args');
-  return args;
 }
 
 describe('searchJobs request shape', () => {
@@ -222,7 +222,8 @@ describe('searchJobs request shape', () => {
   });
 
   it('sends every multi-value filter as repeated params in sorted order', async () => {
-    const url = await requestUrlFor(argsFromFilters(MULTI_FILTERS));
+    // The company scope comes from the reader's preference, also out of order.
+    const url = await requestUrlFor(argsFromFilters(MULTI_FILTERS, ['stripe', 'airbnb']));
     const params = paramsOf(url);
 
     // Repeated, never comma-joined: locations and keywords contain commas, so a

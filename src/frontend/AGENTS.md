@@ -797,7 +797,7 @@ Use the `add-company` skill (repo-root `.claude/skills/add-company/`, `/add-comp
    - **Pattern**: See QAPage jobs table for pagination pattern (useMemo for slice + TablePagination component)
 11. **Test suite speed**: CI runs Vitest in 4 parallel shards on the `threads` pool. Two patterns made it slow before, and both are easy to bring back:
    - **Import MUI icons by path** (`import AddIcon from '@mui/icons-material/Add'`), never from the package root. The root re-exports ~21k files, and Vitest loads it again in every isolated test file. ESLint (`no-restricted-imports`) blocks the root import.
-   - **Don't use `findByRole('option', { name })` on the company dropdown** (~200 options). It computes an accessible name for every option, ~650ms a call. Use `findListboxOption(label)` from `test/testUtils.tsx` and assert the name on the returned element with `toHaveAccessibleName`. The same applies to any role+name query on `screen` while a big table or list is mounted: scope it with `within(...)` first.
+   - **Don't use `findByRole('option', { name })` on the Companies page's `CompanySelector`** (~250 options). It computes an accessible name for every option, ~650ms a call. Use `findListboxOption(label)` from `test/testUtils.tsx` and assert the name on the returned element with `toHaveAccessibleName`. The same applies to any role+name query on `screen` while a big table or list is mounted: scope it with `within(...)` first.
 
 ## Key Files
 
@@ -812,7 +812,7 @@ All paths relative to `src/frontend/src/`:
 - Filter Slice Factory: `features/filters/slices/createFilterSlice.ts`
 - Jobs RTK Query API: `features/jobs/jobsApi.ts`, `jobsSelectors.ts`
 - Recent Jobs search: `features/jobs/searchJobsArgs.ts` (args + query serialization), `validateSearchJobsResponse.ts`, `hooks/useRecentJobsSearch.ts`
-- Recent Jobs Filters: `features/filters/slices/recentJobsFiltersSlice.ts`, `features/filters/selectors/recentJobsSelectors.ts` (filter state + the company dropdown's options; all job filtering is server-side)
+- Recent Jobs Filters: `features/filters/slices/recentJobsFiltersSlice.ts`, `features/filters/selectors/recentJobsSelectors.ts` (filter state; all job filtering is server-side). There is no company filter on the Recent page: the feed covers the reader's company preferences, which `buildSearchJobsArgs` sends as the `company` param
 - Time Bucketing: `lib/timeBucketing.ts`
 - Main App: `app/App.tsx`
 

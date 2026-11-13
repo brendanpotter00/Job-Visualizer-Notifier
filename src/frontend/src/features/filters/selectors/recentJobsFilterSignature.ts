@@ -44,7 +44,6 @@ export const selectRecentJobsFilterSignature = createSelector(
       location: stableList(filters.location),
       employmentType: filters.employmentType ?? null,
       softwareOnly: filters.softwareOnly,
-      company: stableList(filters.company),
       category: stableList(filters.category),
       level: stableList(filters.level),
       // OMITTING THIS LINE MAKES THE SUBCATEGORY CHECKBOX COMPLETELY INERT.

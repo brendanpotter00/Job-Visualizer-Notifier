@@ -327,8 +327,12 @@ export interface ListFilters {
 }
 
 /**
- * Recent jobs filter state (for all-companies view)
- * Subset of GraphFilters/ListFilters, plus a `company` multi-select
+ * Recent jobs filter state (for all-companies view).
+ *
+ * No `company` field: which companies the feed covers is the reader's company
+ * preferences (`enabledCompanies`), folded into the request by
+ * `buildSearchJobsArgs`. The page-local Company dropdown and the field behind it
+ * were removed on 2026-11-12.
  */
 export interface RecentJobsFilters {
   timeWindow: TimeWindow;
@@ -337,7 +341,6 @@ export interface RecentJobsFilters {
   /** @deprecated Dead: no UI control renders it and the scraper never sets it. */
   employmentType?: string;
   softwareOnly: boolean;
-  company?: string[];
   /** Enrichment category slugs (multi-select OR; empty/undefined = All). Jobs not yet enriched (category null) are HIDDEN once this filter is active. */
   category?: string[];
   /** Enrichment level slugs (multi-select OR; 'entry' also matches new_grad). Jobs not yet enriched (level null) are HIDDEN once this filter is active. */

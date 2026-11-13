@@ -96,15 +96,14 @@ export interface BuildSearchJobsArgsInput {
 }
 
 /**
- * Build the search arguments, or `null` when the filter set provably matches
- * nothing.
+ * Build the search arguments for one walk.
  *
- * The `null` case is not an optimization. If the user's enabled companies and
- * their explicit company filter are disjoint, the correct answer is "no jobs" —
- * but an EMPTY company list cannot express that on the wire, because an omitted
- * `companies` param means "all companies". Sending nothing would return the whole
- * corpus; sending an empty param is a 422. So the caller renders the empty state
- * without a request, and `null` is how it is told to.
+ * The `companies` param is the reader's company preferences and nothing else —
+ * the page has no company filter of its own (removed 2026-11-12). That is also
+ * why this can no longer return `null`: the one filter set that provably matched
+ * nothing was an explicit company filter disjoint from the enabled set, and an
+ * empty company list cannot be sent on the wire (omitted means "all companies",
+ * an empty param is a 422).
  */
 export function buildSearchJobsArgs({
   filters,
@@ -112,25 +111,16 @@ export function buildSearchJobsArgs({
   ownedCompanyIds,
   since,
   isSignedOut,
-}: BuildSearchJobsArgsInput): SearchJobsArgs | null {
+}: BuildSearchJobsArgsInput): SearchJobsArgs {
   const storedEnabled = normalizeList(enabledCompanyIds ?? undefined);
   // ONLY widen an allowlist that already exists. `undefined` here means "all
   // companies" (the param is omitted), and that already includes the reader's own
   // boards — turning it into an explicit list containing just those would INVERT
   // the meaning and hide the entire public corpus.
-  const enabled =
+  const companies =
     storedEnabled && ownedCompanyIds.length > 0
       ? normalizeList([...storedEnabled, ...ownedCompanyIds])
       : storedEnabled;
-  const selected = normalizeList(filters.company);
-
-  let companies: string[] | undefined;
-  if (enabled && selected) {
-    companies = enabled.filter((id) => selected.includes(id));
-    if (companies.length === 0) return null;
-  } else {
-    companies = enabled ?? selected;
-  }
 
   const includeTerms = filters.searchTags
     ?.filter((tag) => tag.mode === 'include')

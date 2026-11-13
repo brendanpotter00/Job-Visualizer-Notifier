@@ -10,9 +10,10 @@ Card: `components/shared/JobCard/JobListingCard.tsx`.
 
 ## Sub-features
 
-- **Server fetch + client-side filter** — the feed reads open jobs and filters them by
-  keyword include/exclude, company, location, employment type, software-only, category,
-  level, and time window.
+- **Server-side filter** — the feed reads open jobs filtered by keyword include/exclude,
+  location, employment type, software-only, category, level, and time window. There is
+  **no company filter** on this page (removed 2026-11-12): the companies covered are the
+  reader's company preferences.
 - **Filter controls** — the on-page `RecentJobsFilters` dispatch the `recentJobsFilters`
   slice; WebMCP's `apply_feed_filters` / `reset_feed_filters` drive the exact same slice.
 - **NO metric row.** The page renders its title, the filters and the list — no numbers of
@@ -26,8 +27,8 @@ Card: `components/shared/JobCard/JobListingCard.tsx`.
   when signed out; keyset-paged as the user scrolls.
 - **Open a posting** — each card's "Apply" opens the ATS URL in a new tab.
 - **Filter catalog + location autocomplete** — the category/level dropdowns come from
-  `list_filter_options`; the location filter from `search_locations`; company resolution
-  from `list_companies`.
+  `list_filter_options`; the location filter from `search_locations`; `search_jobs`'
+  company resolution from `list_companies`.
 
 ## How to get to it (user POV)
 
@@ -50,14 +51,16 @@ in the DOM.
 - **Arrange the live page (Tier-2):**
   ```ts
   await call(page, 'reset_feed_filters');                 // clean slate + navigate('/')
-  await call(page, 'apply_feed_filters', { company: ['apple'] });   // dispatch setters + navigate('/')
+  await call(page, 'apply_feed_filters', { include: ['apple'] });   // dispatch setters + navigate('/')
+  // NOT { company: [...] } — the feed has no company filter, and the tool rejects it.
   ```
 - **DOM assert (the real handles):** job title = `getByRole('heading', { level: 3 })`;
   company name renders as text (`getByText('Apple', { exact: true })`); the page title is
   `getByRole('heading', { level: 1, name: 'Recent Job Postings' })` — use it to prove the
   chrome rendered, since there is no metric label left to key on; each card has an `Apply`
-  link. Assert the **per-card invariant** — after a company filter every visible card is
-  Apple, and a company that was visible unfiltered (e.g. `SpaceX`) is gone.
+  link. Assert the **per-card invariant** — an include keyword also matches the company
+  column, so after `include: ['apple']` Apple cards are shown and a company that was visible
+  unfiltered (e.g. `SpaceX`) is gone.
 - **Discovery tools** feed the filters: `list_filter_options` → `{ categories, levels }`;
   `search_locations` → `{ locations: [{ canonicalName, … }] }`; `list_companies` (optional
   `query`) → the curated directory for name→id resolution.
@@ -82,8 +85,8 @@ in the DOM.
   `serverReturned >= filteredTotal`. The page no longer renders any total, so there is
   nothing on screen to compare the tool's `meta` against.
 - **`category` / `level` filters return ~0 in `jobscraper_e2e`** (enrichment is ~100% NULL).
-  This is the clone, not a broken tool — prove those by `meta` shape; use company/keyword/
-  timeWindow for a non-empty narrowing.
+  This is the clone, not a broken tool — prove those by `meta` shape; use keyword/timeWindow
+  (or `search_jobs`' `company`) for a non-empty narrowing.
 - **`apply_feed_filters` is additive** — it only touches the fields you pass; omitted fields
   are left untouched (mirrors the per-control UI). Call `reset_feed_filters` first for a
   deterministic slate.
@@ -91,6 +94,6 @@ in the DOM.
   restarts the walk from page 1 (no 409) — treat a filter change as a fresh walk.
 - **`open_job` is popup-blocked headlessly.** Assert the *intent* (`page.on('popup')` or a
   `window.open` stub), never a live navigation.
-- **Filtering to a company not yet in the loaded window** makes the list auto-deepen the
+- **Filtering to a keyword not yet in the loaded window** makes the list auto-deepen the
   keyset walk (bounded — `RecentJobsList`'s empty-fetch budget), so assert visibility with a
   timeout rather than immediately.

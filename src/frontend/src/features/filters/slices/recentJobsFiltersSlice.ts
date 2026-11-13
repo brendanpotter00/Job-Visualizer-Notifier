@@ -18,7 +18,6 @@ const initialFilters: RecentJobsFilters = {
   location: undefined,
   employmentType: undefined,
   softwareOnly: false,
-  company: undefined,
   category: undefined,
   level: undefined,
   // NOT COSMETICS. `reset${Name}Filters` is
@@ -32,7 +31,7 @@ const initialFilters: RecentJobsFilters = {
 
 /**
  * Recent Jobs filter slice created via factory pattern
- * Generates 22 action creators automatically
+ * Generates 19 action creators automatically
  */
 const recentJobsFiltersSlice = createFilterSlice('recentJobs', initialFilters);
 
@@ -69,10 +68,6 @@ export const {
   setRecentJobsSubcategory,
   toggleRecentJobsSoftwareOnly,
   setRecentJobsSoftwareOnly,
-  setRecentJobsCompany,
-  addRecentJobsCompany,
-  removeRecentJobsCompany,
-  clearRecentJobsCompanies,
   hydrateRecentJobsFilters,
   setRecentJobsHydrated,
   resetRecentJobsFilters,

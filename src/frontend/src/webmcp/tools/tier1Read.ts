@@ -21,6 +21,7 @@ import {
   ok,
   parseRecentArgs,
   resolveCompany,
+  resolveCompanyScope,
   runQuery,
   toJobDetail,
   toJobSummary,
@@ -135,39 +136,22 @@ export function tier1Read(ctx: ToolCtx): WebMcpToolDef[] {
       const serverCursor = priorCursor ? priorCursor.c : null;
 
       // Reuse the exact builders the Recent page's read path uses — no duplicated
-      // filter or query logic. `enabledCompanyIds: null` scopes only by the
-      // agent's explicit `company` filter (never an operator preference), and
+      // filter or query logic. The company scope is the agent's explicit
+      // `company` argument and nothing else (never an operator preference): it
+      // goes in as `enabledCompanyIds`, which is exactly the slot the page fills
+      // from the reader's preferences, and `null` there means "all companies".
       // `isSignedOut: false` skips the signed-out overlay's row cap.
       const filters = buildRecentFilters(parsed);
       // `ownedCompanyIds: []` because this tool has no reader to own anything —
-      // it scopes by the agent's explicit filter alone. It would be a no-op here
-      // regardless: the union only widens a non-null enabled list, and this one is
-      // null ("all companies"), which already covers every board the request is
-      // authorized to see. The backend still decides that authorization from the
-      // bearer token, not from this list.
+      // it scopes by the agent's explicit argument alone. The backend still
+      // decides authorization from the bearer token, not from this list.
       const args = buildSearchJobsArgs({
         filters,
-        enabledCompanyIds: null,
+        enabledCompanyIds: resolveCompanyScope(parsed.company),
         ownedCompanyIds: [],
         since,
         isSignedOut: false,
       });
-      // Unreachable with `enabledCompanyIds: null` (the disjoint path needs a
-      // non-null enabled list), but guarded: `null` means "provably no matches".
-      if (args === null) {
-        return ok({
-          jobs: [],
-          meta: {
-            filteredTotal: 0,
-            last24h: 0,
-            last3h: 0,
-            returned: 0,
-            serverReturned: 0,
-            nextCursor: null,
-            hasMore: false,
-          },
-        });
-      }
       // The builder hardcodes the page-size to the Recent feed's batch; the tool
       // owns its own clamped `limit`, and changing it mid-walk is legal (limit is
       // excluded from the cursor fingerprint).

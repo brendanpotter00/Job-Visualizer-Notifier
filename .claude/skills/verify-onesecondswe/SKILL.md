@@ -119,7 +119,7 @@ a JWKS-seam minted token injected the app's own way) and the base
 `playwright.config.ts`. The drive specs here import `test`/`expect` from that
 fixtures module, never from `@playwright/test` directly.
 
-Run the bundled proof drive (one fully-worked feature: Recent-feed company filter,
+Run the bundled proof drive (one fully-worked feature: Recent-feed filtering,
 plus two Tier-3 side effects), from `$REPO/e2e` so Node resolves `e2e/node_modules`:
 
 ```bash

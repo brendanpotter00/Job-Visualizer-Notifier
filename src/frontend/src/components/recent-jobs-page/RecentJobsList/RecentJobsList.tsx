@@ -66,7 +66,6 @@ export function RecentJobsList({ search }: RecentJobsListProps) {
     error,
     errorScope,
     retry,
-    isSkippedEmpty,
     isAwaitingDeploy,
   } = search;
   const { isAuthenticated, isEnabled } = useAuth();
@@ -115,10 +114,8 @@ export function RecentJobsList({ search }: RecentJobsListProps) {
   // pages may still hold matches, the two in-flight flags because a filter change
   // must not flash "no jobs found" over rows that are about to arrive, and
   // `!error` because a failure is not an empty result — the page renders a real
-  // error for that. `isSkippedEmpty` is the one case that is terminal without any
-  // request at all: the company filter and the user's enabled companies are
-  // disjoint, so nothing could match.
-  if (isSkippedEmpty || (jobs.length === 0 && !hasNextPage && !isLoadingMore && !error)) {
+  // error for that.
+  if (jobs.length === 0 && !hasNextPage && !isLoadingMore && !error) {
     return <EmptyJobListState />;
   }
 
