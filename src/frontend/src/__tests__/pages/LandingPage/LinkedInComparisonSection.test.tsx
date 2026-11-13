@@ -22,7 +22,9 @@ describe('LinkedInComparisonSection', () => {
     renderSection();
     for (const row of comparison.rows) {
       const region = screen.getByTestId(`comparison-row-${row.id}`);
-      expect(within(region).getByRole('heading', { name: row.label, level: 3 })).toBeInTheDocument();
+      expect(
+        within(region).getByRole('heading', { name: row.label, level: 3 })
+      ).toBeInTheDocument();
       expect(within(region).getByText(row.linkedin)).toBeInTheDocument();
       expect(within(region).getByText(row.onesecondswe)).toBeInTheDocument();
     }
@@ -54,6 +56,22 @@ describe('LinkedInComparisonSection', () => {
     expect(head).toHaveTextContent(comparison.columns.linkedin);
     expect(head).toHaveTextContent(comparison.columns.onesecondswe);
     expect(within(head).queryByTestId('one-second-mark')).not.toBeInTheDocument();
+  });
+
+  // Ours first (owner-directed 2026-11-12): onesecondswe's answer precedes the
+  // LinkedIn fact in every row and in the phone head.
+  it('puts onesecondswe before LinkedIn in every row and in the head', () => {
+    renderSection();
+    const follows = (a: Element, b: Element) =>
+      Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+    for (const row of comparison.rows) {
+      const region = screen.getByTestId(`comparison-row-${row.id}`);
+      expect(
+        follows(within(region).getByText(row.onesecondswe), within(region).getByText(row.linkedin))
+      ).toBe(true);
+    }
+    const head = screen.getByTestId('comparison-head-compact');
+    expect(head.firstElementChild).toHaveTextContent(comparison.columns.onesecondswe);
   });
 
   it('is text only: no links, buttons, or images', () => {

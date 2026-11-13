@@ -130,7 +130,7 @@ function QuietSlot({ slot, sizerJobs }: { slot: TriptychSlot; sizerJobs: Job[] }
             {slot.emptyText}
           </Typography>
           <Link component={RouterLink} to={ROUTES.RECENT_JOBS} variant="body2">
-            Check the board
+            Browse jobs
           </Link>
         </Box>
       </Box>

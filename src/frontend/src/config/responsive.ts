@@ -311,6 +311,14 @@ export const RESPONSIVE = {
      * body size the desktop cells already used.
      */
     comparisonCellFontSize: { xs: '0.9375rem', sm: '1.0625rem' },
+    /**
+     * LinkedIn comparison: the row label ("Reposts", "Companies", …). On a
+     * phone it sits ABOVE the two facts, so it has to read as their heading:
+     * a step up in size (paired with weight 600 at the call site) over the
+     * 15px facts. `sm` restates `blockTitleFontSize`'s desktop value, where
+     * the label has its own column and needs no extra emphasis.
+     */
+    comparisonRowLabelFontSize: { xs: '1.125rem', sm: '1.1875rem' },
     /** Closing block: the one centred line over the final CTAs. */
     closingHeadingFontSize: { xs: '1.75rem', sm: '2.5rem' },
     /**

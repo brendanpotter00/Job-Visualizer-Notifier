@@ -85,12 +85,12 @@ describe('FreshJobsTriptych', () => {
 
     // The rich fixture is built to fill all three slots.
     expect(screen.getByText('Internships & new grad')).toBeInTheDocument();
-    expect(screen.getByText('Posted in the last 24 hours')).toBeInTheDocument();
-    expect(screen.getByText('Fresh from big tech')).toBeInTheDocument();
+    expect(screen.getByText('Last 24 hours')).toBeInTheDocument();
+    expect(screen.getByText('Big tech')).toBeInTheDocument();
     expect([EARLY.label, DAY.label, BIG.label]).toEqual([
       'Internships & new grad',
-      'Posted in the last 24 hours',
-      'Fresh from big tech',
+      'Last 24 hours',
+      'Big tech',
     ]);
 
     expect(activeId(TEST_IDS.early)).toBe(EARLY.jobs[0].id);
@@ -289,9 +289,9 @@ describe('FreshJobsTriptych', () => {
     expect(emptySlot).toHaveAttribute('data-empty', 'true');
     expect(emptySlot).not.toHaveAttribute('data-active-job-id');
     expect(
-      within(emptySlot).getByText('No internships or new-grad roles this week.')
+      within(emptySlot).getByText('None this week.')
     ).toBeInTheDocument();
-    expect(within(emptySlot).getByRole('link', { name: 'Check the board' })).toHaveAttribute(
+    expect(within(emptySlot).getByRole('link', { name: 'Browse jobs' })).toHaveAttribute(
       'href',
       '/jobs'
     );

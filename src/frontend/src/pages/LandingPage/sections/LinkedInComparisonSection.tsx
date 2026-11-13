@@ -7,7 +7,8 @@ import { Eyebrow, SectionIntro } from './SectionIntro';
 const HEADING_ID = 'landing-comparison-heading';
 
 /**
- * Three tracks from `sm` up: the row label, LinkedIn, onesecondswe.
+ * Three tracks from `sm` up: the row label, onesecondswe, LinkedIn — ours
+ * first (owner-directed 2026-11-12; it was LinkedIn first).
  *
  * On a phone (2026-11-12 mobile redesign) the two facts still sit side by
  * side, under a row label that spans both columns, and ONE column-head row at
@@ -22,7 +23,9 @@ const ROW_SX = {
     sm: '9rem minmax(0, 1fr) minmax(0, 1fr)',
   },
   columnGap: RESPONSIVE.landingProto.comparisonColumnGap,
-  rowGap: 1,
+  // Phone: label and facts sit closer than rows sit to each other, so each
+  // label groups with its own two facts.
+  rowGap: { xs: 0.75, sm: 1 },
 } as const;
 
 /**
@@ -68,7 +71,9 @@ function ComparisonCell({ column, muted = false, children }: ComparisonCellProps
         // Slightly tighter on a phone's narrow columns; desktop keeps 1.6.
         lineHeight: { xs: 1.55, sm: 1.6 },
         color: muted ? 'text.secondary' : 'text.primary',
-        fontWeight: muted ? 400 : 500,
+        // Phone: regular weight, so the row label above is the only heavy
+        // text in the row and reads as its heading. Desktop keeps 500.
+        fontWeight: muted ? 400 : { xs: 400, sm: 500 },
       }}
     >
       <Box component="span" sx={VISUALLY_HIDDEN}>
@@ -84,9 +89,9 @@ interface LinkedInComparisonSectionProps {
 }
 
 /**
- * The LinkedIn comparison (owner-directed 2026-09-10). Four ruled rows, each a
- * checkable product fact on the left and what onesecondswe does instead on the
- * right. No verdict column, no ticks and crosses: the rows are facts and the
+ * The LinkedIn comparison (owner-directed 2026-09-10). Four ruled rows, each
+ * what onesecondswe does first and the checkable LinkedIn fact it answers
+ * beside it (ours-first since 2026-11-12). No verdict column, no ticks and crosses: the rows are facts and the
  * reader draws the conclusion, which is the only comparison framing that
  * survives being quoted by an answer engine (brief §10 P4).
  */
@@ -107,29 +112,26 @@ export function LinkedInComparisonSection({ content }: LinkedInComparisonSection
         sx={{ ...ROW_SX, display: { xs: 'grid', sm: 'none' }, alignItems: 'center', pb: 1.5 }}
       >
         <Typography
-          sx={{ color: 'text.secondary', fontSize: RESPONSIVE.landingProto.comparisonCellFontSize }}
-        >
-          {columns.linkedin}
-        </Typography>
-        <Typography
           sx={{
             minWidth: 0,
             color: 'text.primary',
             fontWeight: 600,
             fontSize: RESPONSIVE.landingProto.comparisonCellFontSize,
-            // Owner-directed 2026-11-12: the two names frame the table, one at
-            // each edge. The facts under it stay left-aligned for reading.
-            textAlign: 'right',
           }}
         >
           {columns.onesecondswe}
         </Typography>
+        <Typography
+          sx={{ color: 'text.secondary', fontSize: RESPONSIVE.landingProto.comparisonCellFontSize }}
+        >
+          {columns.linkedin}
+        </Typography>
       </Box>
-      {/* Desktop head: unchanged. */}
+      {/* Desktop head. */}
       <Box sx={{ ...ROW_SX, display: { xs: 'none', sm: 'grid' }, pb: 1.5 }} aria-hidden>
         <Box />
-        <Eyebrow>{columns.linkedin}</Eyebrow>
         <Eyebrow>{columns.onesecondswe}</Eyebrow>
+        <Eyebrow>{columns.linkedin}</Eyebrow>
       </Box>
 
       {rows.map((row) => (
@@ -146,18 +148,19 @@ export function LinkedInComparisonSection({ content }: LinkedInComparisonSection
           <Typography
             component="h3"
             sx={{
-              fontSize: RESPONSIVE.landingProto.blockTitleFontSize,
-              fontWeight: 500,
-              // Phone: the label spans both fact columns, above them.
+              fontSize: RESPONSIVE.landingProto.comparisonRowLabelFontSize,
+              // Phone: the heaviest, largest text in the row, spanning both
+              // fact columns above them — it must read as their heading.
+              fontWeight: { xs: 600, sm: 500 },
               gridColumn: { xs: '1 / -1', sm: 'auto' },
             }}
           >
             {row.label}
           </Typography>
+          <ComparisonCell column={columns.onesecondswe}>{row.onesecondswe}</ComparisonCell>
           <ComparisonCell column={columns.linkedin} muted>
             {row.linkedin}
           </ComparisonCell>
-          <ComparisonCell column={columns.onesecondswe}>{row.onesecondswe}</ComparisonCell>
         </Box>
       ))}
     </Box>

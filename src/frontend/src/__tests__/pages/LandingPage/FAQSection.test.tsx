@@ -8,7 +8,7 @@ describe('FAQSection', () => {
   it('renders the heading and every question as a collapsed accordion', () => {
     render(<FAQSection content={LANDING_CONTENT} />);
 
-    expect(screen.getByRole('heading', { name: 'Frequently asked questions' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'FAQ' })).toBeInTheDocument();
 
     const toggles = screen.getAllByRole('button');
     expect(toggles).toHaveLength(LANDING_CONTENT.faq.entries.length);

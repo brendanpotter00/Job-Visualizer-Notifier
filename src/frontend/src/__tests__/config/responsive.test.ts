@@ -62,6 +62,7 @@ const SM_DESKTOP: Record<string, number | string> = {
   'landingProto.comparisonRowPaddingY': 3,
   'landingProto.comparisonColumnGap': 4,
   'landingProto.comparisonCellFontSize': '1.0625rem',
+  'landingProto.comparisonRowLabelFontSize': '1.1875rem',
   'landingProto.closingHeadingFontSize': '2.5rem',
   'landingProto.blockTitleFontSize': '1.1875rem',
   'landingProto.bodyFontSize': '1.0625rem',

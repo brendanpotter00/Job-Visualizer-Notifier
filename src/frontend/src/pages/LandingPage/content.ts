@@ -260,7 +260,7 @@ export const LANDING_CONTENT: LandingContent = {
     secondary: { label: 'Create account', to: ROUTES.ACCOUNT },
   },
   freshJobs: {
-    heading: 'What just went up.',
+    heading: 'Just posted.',
   },
   comparison: {
     // Was "Built for the candidate, not the repost." — tail cut 2026-11-12 (owner-directed).
@@ -270,31 +270,31 @@ export const LANDING_CONTENT: LandingContent = {
       {
         id: 'reposts',
         label: 'Reposts',
-        linkedin: 'Reposting an old job resets its date.',
-        onesecondswe: 'Never. Dates are when we first saw them.',
+        linkedin: 'Reposts reset the date.',
+        onesecondswe: 'Never. Real dates.',
         evidence:
           'brief §3 theme 1 + §5 no_reposts (first_seen_at design); LinkedIn "Repost job" creates a new posting with a new date.',
       },
       {
         id: 'companies',
         label: 'Companies',
-        linkedin: 'Anyone can post a job.',
-        onesecondswe: '130+ hand-picked companies, tracked at the source.',
+        linkedin: 'Anyone can post.',
+        onesecondswe: '130+ hand-picked companies.',
         evidence: 'brief §5 curated_companies (interview Q1/Q4)',
       },
       {
         id: 'ranking',
         label: 'Ranking',
-        linkedin: 'Promoted listings rank first.',
-        onesecondswe: 'Newest first. No paid placement, ever.',
+        linkedin: 'Paid listings first.',
+        onesecondswe: 'Newest first.',
         evidence:
           'business-context §core positioning (no repost mechanism exists and none will be sold); LinkedIn Promoted Jobs is a paid placement product. Board sorts by first_seen desc.',
       },
       {
         id: 'source',
         label: 'Source',
-        linkedin: 'Syndicated and re-listed feeds.',
-        onesecondswe: 'Read directly from each careers page.',
+        linkedin: 'Re-listed feeds.',
+        onesecondswe: 'Straight from career pages.',
         evidence: 'brief §5 straight_from_source + §10 P4 comparison framing',
       },
     ],
@@ -302,7 +302,7 @@ export const LANDING_CONTENT: LandingContent = {
       'owner-directed 2026-09-10: "a section on why it is better than linkedin, like there are no reposts and the companies are already curated". Overrides brief §6 (LinkedIn by name); recorded there.',
   },
   companies: {
-    heading: 'Browse curated companies',
+    heading: 'Curated companies.',
   },
   featureMatrix: {
     heading: 'What you get.',
@@ -310,40 +310,40 @@ export const LANDING_CONTENT: LandingContent = {
       {
         id: 'freshness',
         name: 'Minutes, not weeks',
-        detail: 'New roles land here minutes after posting.',
+        detail: 'Jobs minutes after posting.',
         evidence:
           'brief §5 minutes_after_posting (prod median 0.76h). Was "Seconds, not weeks" (owner-directed 2026-08-09); reworded 2026-09-10 when the proof strip put the 45-minute median in a headline two sections away, so the page states ONE freshness number. Reverting is a one-word edit if the owner prefers "seconds".',
       },
       {
         id: 'ai_labels',
         name: 'AI-labeled roles',
-        detail: 'Level, category, and location on every job.',
+        detail: 'Level, category, location.',
         evidence: 'business-context §feature-set: AI-powered labeling, LIVE today',
       },
       {
         id: 'saved_filters',
         name: 'Saved filters',
-        detail: 'Your searches, ready on every visit.',
+        detail: 'Set once.',
         evidence: 'business-context §feature-set: saved filters, LIVE today',
       },
       {
         id: 'track_any_company',
         name: 'Track any company',
-        detail: 'Name a company and we watch its board.',
+        detail: 'Name it. We watch it.',
         evidence:
           'EPIC Custom company sources wdwb1cbnc2; SHIPPED on main 2026-09-02, graduated out of the coming-soon tier 2026-09-03. Rollout is flag-gated (VITE_CUSTOM_COMPANIES_ENABLED + backend CUSTOM_COMPANY_SOURCES_ENABLED), so the claim is true where the flags are on.',
       },
       {
         id: 'reach_recruiter',
         name: 'Reach the recruiter',
-        detail: 'One click to the people hiring, on LinkedIn.',
+        detail: 'One click to the hiring team.',
         evidence:
           'owner-directed 2026-08-09, backed by the job card’s LinkedIn people-search link. Moved out of the apply-early closer 2026-09-10 so that line could shrink.',
       },
       {
         id: 'free',
         name: 'Free',
-        detail: 'Free to browse, free to sign up.',
+        detail: 'Browse and sign up free.',
         evidence: 'brief §10 P1 (“added every week, free”); FAQ “Is onesecondswe free?”',
       },
     ],
@@ -359,7 +359,7 @@ export const LANDING_CONTENT: LandingContent = {
       {
         id: 'ai_notifications',
         name: 'AI notifications',
-        detail: 'Your resume and rubric, alerts on matches.',
+        detail: 'Alerts on jobs that fit you.',
         evidence: 'EPIC Notifications wdwb1cbncb + 12.1/15.9; resume-rubric per Brendan 2026-08-20',
       },
     ],
@@ -370,37 +370,35 @@ export const LANDING_CONTENT: LandingContent = {
     },
   },
   faq: {
-    heading: 'Frequently asked questions',
+    heading: 'FAQ',
     entries: [
       {
-        question: 'How fast do new jobs show up on onesecondswe?',
+        question: 'How fast do jobs show up on onesecondswe?',
         answer:
-          'A median of roughly 45 minutes after a company publishes the role on its own career page. onesecondswe continuously monitors 130+ company boards instead of waiting for jobs to be re-syndicated by aggregators.',
+          'About 45 minutes after a company posts, on median. onesecondswe watches 130+ career pages directly.',
       },
       {
         question: 'How is onesecondswe different from LinkedIn?',
         answer:
-          'onesecondswe reads company career pages directly and never reposts, so every posting date is the moment we first saw the job. LinkedIn lets companies repost a role with a fresh date and ranks promoted listings first. onesecondswe also covers a curated set of 130+ companies rather than anyone who posts.',
+          'onesecondswe reads career pages directly and never reposts, so every date is real. LinkedIn lets companies repost with a fresh date and ranks paid listings first.',
       },
       {
-        question: 'Why do job postings on big boards look new but are actually old?',
+        question: 'Why do old jobs look new on big boards?',
         answer:
-          'Aggregators re-syndicate listings and companies re-post roles, which resets the “posted” date without the job being new. onesecondswe never reposts: the date on every listing is when we first detected it on the employer’s own career page, so freshness is real, not recycled.',
+          'Reposts reset the date. onesecondswe dates every job when it first appears on the company’s own career page.',
       },
       {
-        question: 'How many companies and jobs does onesecondswe cover?',
-        answer:
-          '130+ curated tech companies, tracked at the source, with thousands of new software engineering jobs added weekly, plus product, data science, hardware, and growth roles from the same boards.',
+        question: 'How many companies does onesecondswe cover?',
+        answer: '130+ curated tech companies. Thousands of new software engineering jobs a week.',
       },
       {
         question: 'Is onesecondswe free?',
-        answer:
-          'Yes. Browsing is free; a free account unlocks the full board, saved filters, and default time windows.',
+        answer: 'Yes. Browsing and accounts are free.',
       },
     ],
   },
   closing: {
-    heading: 'Be early, every time.',
+    heading: 'Be early.',
     evidence: 'brief §4 supporting beat ("onesecondswe exists so you’re early, every time")',
   },
   seo: {
