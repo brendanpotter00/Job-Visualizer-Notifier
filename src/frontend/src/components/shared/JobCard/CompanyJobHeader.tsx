@@ -111,7 +111,7 @@ function HeaderRow({
         size={logoSize}
         decorative
       />
-      <Box sx={{ minWidth: 0 }}>
+      <Box sx={{ minWidth: 0, overflowWrap: 'anywhere' }}>
         {name !== undefined && (
           <Typography variant="subtitle2" color="text.secondary" fontWeight="bold">
             {name}

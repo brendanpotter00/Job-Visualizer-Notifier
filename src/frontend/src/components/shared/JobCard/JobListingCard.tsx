@@ -1,5 +1,6 @@
-import { Card, CardContent, Typography, Chip, Stack, Link, Button } from '@mui/material';
+import { Box, Card, CardContent, Typography, Chip, Stack, Link, Button } from '@mui/material';
 import OpenInNew from '@mui/icons-material/OpenInNew';
+import { Link as RouterLink } from 'react-router-dom';
 import type { Job } from '../../../types';
 import { useJobMetadata } from './useJobMetadata.ts';
 import { JobChipsSection } from './JobChipsSection.tsx';
@@ -9,9 +10,17 @@ import { getCompanyById } from '../../../config/companies.ts';
 import { RESPONSIVE } from '../../../config/responsive';
 import { useIsMobile } from '../../../hooks/useIsMobile';
 
+export interface JobCardLink {
+  to: string;
+  label: string;
+}
+
 interface JobListingCardProps {
   job: Job;
+  cardLink?: JobCardLink;
 }
+
+const RAISED_SX = { position: 'relative', zIndex: 2 } as const;
 
 /**
  * Whether the location chips already say the job is remote, in which case the
@@ -41,9 +50,7 @@ function locationAlreadySaysRemote(job: Job): boolean {
  *
  * Layout: a 44px company logo spans the two-line [company name, job title]
  * header block on the left, with a black rounded "Apply" button in the top
- * right. The whole card is clickable (opens the posting in a new tab); the
- * Apply button and the LinkedIn recruiter link stop propagation so they don't
- * double-trigger the card click.
+ * right.
  *
  * The logo + name half of the header lives in `CompanyJobHeader`, which resolves
  * `job.company` across BOTH id namespaces (the compile-time list and the
@@ -51,7 +58,7 @@ function locationAlreadySaysRemote(job: Job): boolean {
  * lookup: it is hand-curated per first-party company and a user-added board
  * never has one.
  */
-export function JobListingCard({ job }: JobListingCardProps) {
+export function JobListingCard({ job, cardLink }: JobListingCardProps) {
   // "Posted X ago" is keyed off `firstSeenAt` (when WE first saw the listing), so
   // the label matches the recency sort/time-window/enricher-claim ordering. Using
   // the ATS posted date (`createdAt` = postedOn || firstSeenAt) instead made the
@@ -71,9 +78,31 @@ export function JobListingCard({ job }: JobListingCardProps) {
   return (
     <Card
       variant={CARD_VARIANT}
-      sx={{ mb: RESPONSIVE.spacing.cardMarginB, cursor: 'pointer', ...CARD_HOVER_SX }}
-      onClick={openJob}
+      sx={{
+        mb: RESPONSIVE.spacing.cardMarginB,
+        cursor: 'pointer',
+        ...(cardLink && { position: 'relative' as const }),
+        ...CARD_HOVER_SX,
+      }}
+      onClick={cardLink ? undefined : openJob}
     >
+      {cardLink && (
+        <Link
+          component={RouterLink}
+          to={cardLink.to}
+          aria-label={cardLink.label}
+          sx={{
+            position: 'absolute',
+            inset: 0,
+            zIndex: 1,
+            '&:focus-visible': {
+              outline: '2px solid',
+              outlineColor: 'primary.main',
+              outlineOffset: '-2px',
+            },
+          }}
+        />
+      )}
       <CardContent
         sx={{
           p: RESPONSIVE.spacing.cardPadding,
@@ -99,14 +128,25 @@ export function JobListingCard({ job }: JobListingCardProps) {
           <Stack
             direction="row"
             spacing={1.5}
+            useFlexGap
+            flexWrap="wrap"
             justifyContent="space-between"
             alignItems="flex-start"
           >
-            <CompanyJobHeader
-              companyId={job.company}
-              title={job.title}
-              logoSize={isMobile ? RESPONSIVE.logoSize.compact : RESPONSIVE.logoSize.default}
-            />
+            <Box
+              sx={{
+                flexGrow: 1,
+                flexShrink: 1,
+                flexBasis: RESPONSIVE.jobCard.headerFlexBasis,
+                minWidth: 0,
+              }}
+            >
+              <CompanyJobHeader
+                companyId={job.company}
+                title={job.title}
+                logoSize={isMobile ? RESPONSIVE.logoSize.compact : RESPONSIVE.logoSize.default}
+              />
+            </Box>
             <Button
               component="a"
               href={job.url}
@@ -132,6 +172,7 @@ export function JobListingCard({ job }: JobListingCardProps) {
                 bgcolor: 'common.black',
                 color: 'common.white',
                 '&:hover': { bgcolor: 'grey.900' },
+                ...(cardLink && RAISED_SX),
               }}
             >
               Apply
@@ -181,6 +222,7 @@ export function JobListingCard({ job }: JobListingCardProps) {
                 alignItems: 'center',
                 gap: 0.5,
                 cursor: 'pointer',
+                ...(cardLink && RAISED_SX),
               }}
             >
               DM the hiring team

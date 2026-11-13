@@ -111,10 +111,7 @@ export const RESPONSIVE = {
     buttonFontSize: { xs: '0.75rem', sm: '0.8125rem' },
   } as const satisfies Record<string, ResponsiveValue>,
   /**
-   * Compact job-card values for the shared JobListingCard on mobile. Unlike the
-   * `{ xs, sm }` tokens above, these are FLAT mobile-only values applied via
-   * `sx` blocks gated behind `useIsMobile()` — so desktop (>= 600px) receives no
-   * override at all and keeps MUI's defaults byte-for-byte. MUI's small-chip
+   * Compact job-card values for the shared JobListingCard on mobile. MUI's small-chip
    * label padding is variant-dependent and its small-button vertical padding
    * differs by component, so we gate these overrides on `isMobile` rather than
    * restate fragile per-variant desktop baselines. Applied as descendant
@@ -141,6 +138,7 @@ export const RESPONSIVE = {
     applyPaddingY: '4px',
     /** Apply button horizontal padding per side (string px). */
     applyPaddingX: '10px',
+    headerFlexBasis: { xs: 0, sm: 160 },
   },
   /**
    * Company hiring-trend chart (`JobPostingsChart`). FLAT `{ compact, default }`

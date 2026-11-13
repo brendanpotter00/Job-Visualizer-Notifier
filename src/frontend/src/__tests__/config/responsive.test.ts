@@ -47,6 +47,7 @@ const SM_DESKTOP: Record<string, number | string> = {
   'keywordCard.contentPadding': 2,
   'statTile.padding': 2.5,
   'statTile.gap': 1.5,
+  'jobCard.headerFlexBasis': 160,
   // Landing prototypes are NEW surfaces: the `sm` slot IS the desktop design
   // value (no pre-existing layout to preserve); pinned so it can't drift.
   'landingProto.headerHeight': 64,
@@ -123,7 +124,7 @@ const TOKEN_MARKER_KEYS = ['xs', 'sm', 'compact', 'default'];
  * dropped — here it lands in `otherResponsivePaths` and fails the allowlist
  * assertion, naming the path. The `{ top, right, left, bottom }` margin objects
  * carry no marker key, so they are recursed into harmlessly (their numeric
- * leaves are scalars). Flat scalar tokens (e.g. `jobCard.*`,
+ * leaves are scalars). Flat scalar tokens (e.g.
  * `chart.axisFontSizeCompact`/`minTickGapCompact`) are mobile-only with no
  * desktop counterpart, so they are skipped entirely.
  */
