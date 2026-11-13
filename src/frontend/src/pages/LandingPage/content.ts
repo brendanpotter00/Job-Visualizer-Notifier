@@ -218,10 +218,10 @@ export const LANDING_CONTENT: LandingContent = {
     secondary: { label: 'Create account', to: ROUTES.ACCOUNT },
   },
   freshJobs: {
-    heading: 'Just posted',
+    heading: 'Just Posted',
   },
   comparison: {
-    heading: 'Built for the candidate',
+    heading: 'Built For The Candidate',
     columns: { linkedin: 'LinkedIn', onesecondswe: 'onesecondswe' },
     rows: [
       {
@@ -259,40 +259,40 @@ export const LANDING_CONTENT: LandingContent = {
       'owner-directed 2026-09-10: "a section on why it is better than linkedin, like there are no reposts and the companies are already curated". Overrides brief §6 (LinkedIn by name); recorded there.',
   },
   companies: {
-    heading: 'Curated companies',
+    heading: 'Curated Companies',
   },
   featureMatrix: {
-    heading: 'What you get',
+    heading: 'What You Get',
     features: [
       {
         id: 'freshness',
-        name: 'Seconds, not weeks',
+        name: 'Seconds, Not Weeks',
         detail: 'Jobs minutes after posting.',
         evidence:
           'brief §5 minutes_after_posting (prod median 0.76h). Was "Seconds, not weeks" (owner-directed 2026-08-09); reworded 2026-09-10 when the proof strip put the 45-minute median in a headline two sections away, so the page states ONE freshness number. Reverting is a one-word edit if the owner prefers "seconds".',
       },
       {
         id: 'ai_labels',
-        name: 'AI-labeled roles',
+        name: 'AI-Labeled Roles',
         detail: 'Level, category, location.',
         evidence: 'business-context §feature-set: AI-powered labeling, LIVE today',
       },
       {
         id: 'saved_filters',
-        name: 'Saved filters',
+        name: 'Saved Filters',
         detail: 'Set once. Filtered forever.',
         evidence: 'business-context §feature-set: saved filters, LIVE today',
       },
       {
         id: 'track_any_company',
-        name: 'Track any company',
+        name: 'Track Any Company',
         detail: 'Name it. We watch it.',
         evidence:
           'EPIC Custom company sources wdwb1cbnc2; SHIPPED on main 2026-09-02, graduated out of the coming-soon tier 2026-09-03. Rollout is flag-gated (VITE_CUSTOM_COMPANIES_ENABLED + backend CUSTOM_COMPANY_SOURCES_ENABLED), so the claim is true where the flags are on.',
       },
       {
         id: 'reach_recruiter',
-        name: 'Reach the recruiter',
+        name: 'Reach The Recruiter',
         detail: 'One click to the hiring team.',
         evidence:
           'owner-directed 2026-08-09, backed by the job card’s LinkedIn people-search link. Moved out of the apply-early closer 2026-09-10 so that line could shrink.',
@@ -304,7 +304,7 @@ export const LANDING_CONTENT: LandingContent = {
         evidence: 'brief §10 P1 (“added every week, free”); FAQ “Is onesecondswe free?”',
       },
     ],
-    comingSoonLabel: 'Coming soon',
+    comingSoonLabel: 'Coming Soon',
     comingSoon: [
       {
         id: 'mcp_access',
@@ -314,7 +314,7 @@ export const LANDING_CONTENT: LandingContent = {
       },
       {
         id: 'ai_notifications',
-        name: 'AI notifications',
+        name: 'AI Notifications',
         detail: 'Alerts on jobs that fit you. No noise.',
         evidence: 'EPIC Notifications wdwb1cbncb + 12.1/15.9; resume-rubric per Brendan 2026-08-20',
       },
@@ -348,7 +348,7 @@ export const LANDING_CONTENT: LandingContent = {
     ],
   },
   closing: {
-    heading: 'Be early',
+    heading: 'Be Early',
     evidence: 'brief §4 supporting beat ("onesecondswe exists so you’re early, every time")',
   },
   seo: {

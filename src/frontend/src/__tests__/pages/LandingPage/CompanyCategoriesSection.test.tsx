@@ -21,7 +21,7 @@ describe('CompanyCategoriesSection', () => {
   it('renders the section heading', () => {
     renderSection();
     expect(
-      screen.getByRole('heading', { name: 'Curated companies', level: 2 })
+      screen.getByRole('heading', { name: 'Curated Companies', level: 2 })
     ).toBeInTheDocument();
   });
 

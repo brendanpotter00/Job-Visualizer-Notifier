@@ -96,7 +96,7 @@ export interface CompanyCategory {
 export const COMPANY_CATEGORIES: readonly CompanyCategory[] = [
   {
     id: 'big_tech',
-    label: 'Big tech',
+    label: 'Big Tech',
     companyIds: [
       'google',
       'apple',
@@ -118,12 +118,12 @@ export const COMPANY_CATEGORIES: readonly CompanyCategory[] = [
   },
   {
     id: 'ai_labs',
-    label: 'AI labs',
+    label: 'AI Labs',
     companyIds: ['openai', 'anthropic', 'google', 'xai', 'cohere', 'thinkingmachines'],
   },
   {
     id: 'yc_alumni',
-    label: 'Y Combinator alumni',
+    label: 'Y Combinator Alumni',
     companyIds: [
       'airbnb',
       'stripe',
@@ -210,7 +210,7 @@ export const COMPANY_CATEGORIES: readonly CompanyCategory[] = [
   },
   {
     id: 'breakout_startups',
-    label: 'Breakout startups',
+    label: 'Breakout Startups',
     companyIds: [
       'cursor',
       'perplexity',
@@ -235,7 +235,7 @@ export const COMPANY_CATEGORIES: readonly CompanyCategory[] = [
   },
   {
     id: 'hard_tech',
-    label: 'Space, defense & robotics',
+    label: 'Space, Defense & Robotics',
     companyIds: [
       'spacex',
       'palantir',
@@ -257,7 +257,7 @@ export const COMPANY_CATEGORIES: readonly CompanyCategory[] = [
   },
   {
     id: 'fintech',
-    label: 'Fintech & trading',
+    label: 'Fintech & Trading',
     companyIds: [
       'stripe',
       'paypal',
@@ -282,7 +282,7 @@ export const COMPANY_CATEGORIES: readonly CompanyCategory[] = [
   },
   {
     id: 'dev_tools',
-    label: 'Developer tools & infrastructure',
+    label: 'Developer Tools & Infrastructure',
     companyIds: [
       'cloudflare',
       'gitlab',
@@ -318,7 +318,7 @@ export const COMPANY_CATEGORIES: readonly CompanyCategory[] = [
   },
   {
     id: 'household_names',
-    label: 'Household names',
+    label: 'Household Names',
     companyIds: [
       'netflix',
       'disney',
