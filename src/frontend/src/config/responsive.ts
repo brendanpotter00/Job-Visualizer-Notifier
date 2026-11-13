@@ -318,7 +318,7 @@ export const RESPONSIVE = {
     categoryGridGap: { xs: 2, sm: 3 },
     rotatingCardMinHeight: { xs: 140, sm: 240 },
     freshJobsSkeletonMinHeight: {
-      xs: 226,
+      xs: 'calc(290px - 18vw)',
       sm: 'calc(914px - 62.9vw)',
       md: 'calc(654px - 30vw)',
       lg: 296,

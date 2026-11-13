@@ -207,7 +207,7 @@ describe('RESPONSIVE token invariants', () => {
 
     it('landingProto.freshJobsSkeletonMinHeight tracks the loaded triptych cell per breakpoint', () => {
       expect(RESPONSIVE.landingProto.freshJobsSkeletonMinHeight).toEqual({
-        xs: 226,
+        xs: 'calc(290px - 18vw)',
         sm: 'calc(914px - 62.9vw)',
         md: 'calc(654px - 30vw)',
         lg: 296,
