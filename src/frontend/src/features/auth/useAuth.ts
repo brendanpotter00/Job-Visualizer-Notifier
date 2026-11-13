@@ -24,7 +24,6 @@ interface AuthResult {
   isLoading: boolean;
   user: User | undefined;
   login: () => Promise<void>;
-  /** Like `login`, but opens Auth0's sign-up screen. */
   signup: () => Promise<void>;
   logout: () => void;
   getToken: () => Promise<string>;
