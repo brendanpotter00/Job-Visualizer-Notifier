@@ -270,7 +270,7 @@ export const LANDING_CONTENT: LandingContent = {
       {
         id: 'reposts',
         label: 'Reposts',
-        linkedin: 'Reposts reset the date.',
+        linkedin: 'Reposts clutter your feed.',
         onesecondswe: 'Never. Real dates.',
         evidence:
           'brief §3 theme 1 + §5 no_reposts (first_seen_at design); LinkedIn "Repost job" creates a new posting with a new date.',
@@ -278,7 +278,7 @@ export const LANDING_CONTENT: LandingContent = {
       {
         id: 'companies',
         label: 'Companies',
-        linkedin: 'Anyone can post.',
+        linkedin: 'Companies you don’t care about.',
         onesecondswe: '130+ hand-picked companies.',
         evidence: 'brief §5 curated_companies (interview Q1/Q4)',
       },
