@@ -22,12 +22,16 @@ function buttonLink(name: string) {
 }
 
 describe('LandingHeader', () => {
-  it('renders the wordmark as a plain-text link home', () => {
+  it('renders the wordmark as a link home, led by the decorative 1s mark', () => {
     renderHeader();
+    // The accessible name is the wordmark alone: the mark is aria-hidden.
     const mark = screen.getByRole('link', { name: header.wordmark.label });
     expect(mark).toHaveAttribute('href', header.wordmark.to);
     expect(mark).not.toHaveClass('MuiButton-root');
     expect(mark).toHaveTextContent('onesecondswe');
+    const brand = within(mark).getByTestId('one-second-mark');
+    expect(brand).toHaveTextContent('1s');
+    expect(brand).toHaveAttribute('aria-hidden', 'true');
   });
 
   it('renders exactly the quiet nav links from content, with their route targets', () => {

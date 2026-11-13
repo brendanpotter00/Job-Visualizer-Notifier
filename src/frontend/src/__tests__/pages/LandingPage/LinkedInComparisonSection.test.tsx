@@ -10,24 +10,12 @@ function renderSection() {
 }
 
 describe('LinkedInComparisonSection', () => {
-  it('renders the eyebrow and heading from content.ts as a labelled section', () => {
+  it('renders the heading from content.ts as a labelled section', () => {
     renderSection();
     const heading = screen.getByRole('heading', { name: comparison.heading, level: 2 });
-    expect(screen.getByText(comparison.eyebrow)).toBeInTheDocument();
     const section = screen.getByTestId('linkedin-comparison');
     expect(section.tagName).toBe('SECTION');
     expect(section).toHaveAttribute('aria-labelledby', heading.id);
-  });
-
-  // The one section whose heading sits ABOVE its eyebrow (owner, 2026-11-12):
-  // the claim leads and "Why not LinkedIn" captions it.
-  it('puts the heading above the eyebrow', () => {
-    renderSection();
-    const heading = screen.getByRole('heading', { name: comparison.heading, level: 2 });
-    const eyebrow = screen.getByText(comparison.eyebrow);
-    expect(
-      heading.compareDocumentPosition(eyebrow) & Node.DOCUMENT_POSITION_FOLLOWING
-    ).toBeTruthy();
   });
 
   it('renders every row: an h3 label, the LinkedIn fact, and what onesecondswe does', () => {
@@ -56,6 +44,18 @@ describe('LinkedInComparisonSection', () => {
   });
 
   // Facts, not a scorecard: no ticks, no crosses, nothing to click.
+  // Phone redesign (2026-11-12): one head row names the columns, sentence
+  // case. Decorative — every cell already carries its (visually hidden)
+  // column name.
+  it('gives phones one decorative head row naming both columns', () => {
+    renderSection();
+    const head = screen.getByTestId('comparison-head-compact');
+    expect(head).toHaveAttribute('aria-hidden', 'true');
+    expect(head).toHaveTextContent(comparison.columns.linkedin);
+    expect(head).toHaveTextContent(comparison.columns.onesecondswe);
+    expect(within(head).queryByTestId('one-second-mark')).not.toBeInTheDocument();
+  });
+
   it('is text only: no links, buttons, or images', () => {
     renderSection();
     expect(screen.queryAllByRole('link')).toHaveLength(0);

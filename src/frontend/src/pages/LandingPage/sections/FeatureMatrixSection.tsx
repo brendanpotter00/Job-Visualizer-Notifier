@@ -161,12 +161,11 @@ interface FeatureMatrixSectionProps {
  * roadmap instead of standing in for it.
  */
 export function FeatureMatrixSection({ content }: FeatureMatrixSectionProps) {
-  const { eyebrow, heading, features, comingSoonLabel, comingSoon, nextUp } =
-    content.featureMatrix;
+  const { heading, features, comingSoonLabel, comingSoon, nextUp } = content.featureMatrix;
 
   return (
     <Box component="section" aria-labelledby={HEADING_ID} data-testid="feature-matrix">
-      <SectionIntro eyebrow={eyebrow} heading={heading} headingId={HEADING_ID} />
+      <SectionIntro heading={heading} headingId={HEADING_ID} />
 
       <Box data-testid="feature-matrix-live" sx={MATRIX_GRID_SX}>
         {features.map((feature, i) => (

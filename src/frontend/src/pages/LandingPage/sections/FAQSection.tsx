@@ -29,11 +29,11 @@ interface FAQSectionProps {
  * `action.active`.
  */
 export function FAQSection({ content }: FAQSectionProps) {
-  const { eyebrow, heading, entries } = content.faq;
+  const { heading, entries } = content.faq;
 
   return (
     <Box component="section" aria-labelledby={HEADING_ID} sx={{ maxWidth: 720 }}>
-      <SectionIntro eyebrow={eyebrow} heading={heading} headingId={HEADING_ID} />
+      <SectionIntro heading={heading} headingId={HEADING_ID} />
       {/* Top hairline; each row draws its own bottom rule so the list closes. */}
       <Box sx={{ borderTop: '1px solid', borderColor: 'divider' }}>
         {entries.map((entry) => (

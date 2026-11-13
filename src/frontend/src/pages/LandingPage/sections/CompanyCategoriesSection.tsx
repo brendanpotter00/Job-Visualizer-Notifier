@@ -32,7 +32,7 @@ interface CompanyCategoriesSectionProps {
  * mock target is deliberate and OUT OF SCOPE here.
  */
 export function CompanyCategoriesSection({ content }: CompanyCategoriesSectionProps) {
-  const { eyebrow, heading } = content.companies;
+  const { heading } = content.companies;
   const isMobile = useIsMobile();
   const logoSize = isMobile
     ? RESPONSIVE.landingProto.tickerLogoSize.compact
@@ -40,7 +40,7 @@ export function CompanyCategoriesSection({ content }: CompanyCategoriesSectionPr
 
   return (
     <Box component="section" aria-labelledby={HEADING_ID}>
-      <SectionIntro eyebrow={eyebrow} heading={heading} headingId={HEADING_ID} />
+      <SectionIntro heading={heading} headingId={HEADING_ID} />
 
       <Box
         sx={{

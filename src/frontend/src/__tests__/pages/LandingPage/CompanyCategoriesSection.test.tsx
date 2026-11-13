@@ -23,7 +23,6 @@ describe('CompanyCategoriesSection', () => {
     expect(
       screen.getByRole('heading', { name: 'Browse curated companies', level: 2 })
     ).toBeInTheDocument();
-    expect(screen.getByText(LANDING_CONTENT.companies.eyebrow)).toBeInTheDocument();
   });
 
   it('renders every category label and blurb', () => {

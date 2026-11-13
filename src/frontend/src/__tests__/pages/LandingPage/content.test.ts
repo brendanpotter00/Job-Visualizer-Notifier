@@ -26,23 +26,22 @@ function* walkStrings(value: unknown, path = ''): Generator<[string, string]> {
 const SECTION_INTROS: Record<string, SectionIntro> = {
   freshJobs: LANDING_CONTENT.freshJobs,
   comparison: LANDING_CONTENT.comparison,
-  howItWorks: LANDING_CONTENT.howItWorks,
-  proof: LANDING_CONTENT.proof,
   companies: LANDING_CONTENT.companies,
   featureMatrix: LANDING_CONTENT.featureMatrix,
   faq: LANDING_CONTENT.faq,
 };
 
 describe('landing content config', () => {
-  // One h1 in two tones (brief §4 B1 + §9): the black half is the four-word
-  // hook, the gray half is where the search phrase and the number live. Both
-  // are pinned so neither can quietly grow into a paragraph or lose the query.
-  it('hero: a short hook plus a continuation that carries the query phrase and a number', () => {
-    const { headline, continuation, evidence } = LANDING_CONTENT.hero;
+  // One h1, one tone (owner-directed 2026-11-12): the brief §4 B1 hook plus
+  // "Just jobs." The gray continuation that carried the query phrase is gone,
+  // so the phrase must survive in the title and description instead.
+  it('hero: one short line, and the query phrase still in the head', () => {
+    const { headline, evidence } = LANDING_CONTENT.hero;
+    expect(headline).toBe('No reposts. No stale listings. No noise. Just jobs.');
     expect(wordCount(headline)).toBeLessThanOrEqual(9);
-    expect(wordCount(continuation)).toBeLessThanOrEqual(14);
-    expect(continuation).toMatch(/software engineer jobs/i);
-    expect(continuation).toMatch(/\d/);
+    expect(LANDING_CONTENT.hero).not.toHaveProperty('continuation');
+    expect(LANDING_CONTENT.seo.title).toMatch(/software engineer jobs/i);
+    expect(LANDING_CONTENT.seo.description).toMatch(/software engineers/i);
     expect(evidence.trim().length, 'hero needs a brief breadcrumb').toBeGreaterThan(0);
   });
 
@@ -90,17 +89,17 @@ describe('landing content config', () => {
     ).toBeGreaterThan(0);
   });
 
-  // The page's rhythm is one opening shape repeated: a ≤3-word eyebrow over a
-  // ≤8-word heading. A section that needs more words in its heading is a
-  // section that has started selling in the wrong place.
-  it('every section opens with a terse eyebrow and a one-line heading', () => {
+  // The page's rhythm is one opening shape repeated: a ≤8-word heading (the
+  // eyebrow that used to sit over it was cut on 2026-11-12). A section that
+  // needs more words in its heading has started selling in the wrong place.
+  it('every section opens with a one-line heading, and no two share one', () => {
     for (const [name, intro] of Object.entries(SECTION_INTROS)) {
-      expect(wordCount(intro.eyebrow), `${name} eyebrow too long`).toBeLessThanOrEqual(3);
       expect(wordCount(intro.heading), `${name} heading too long`).toBeLessThanOrEqual(8);
       expect(intro.heading.trim().length, `${name} heading empty`).toBeGreaterThan(0);
+      expect(intro, `${name} must not carry an eyebrow`).not.toHaveProperty('eyebrow');
     }
-    const eyebrows = Object.values(SECTION_INTROS).map((intro) => intro.eyebrow);
-    expect(new Set(eyebrows).size).toBe(eyebrows.length);
+    const headings = Object.values(SECTION_INTROS).map((intro) => intro.heading);
+    expect(new Set(headings).size).toBe(headings.length);
   });
 
   // Naming LinkedIn was on the brief's do-not-say list until the owner asked
@@ -130,22 +129,6 @@ describe('landing content config', () => {
     expect(rows.map((row) => row.id)).toEqual(expect.arrayContaining(['reposts', 'companies']));
   });
 
-  // Brief §10 P1: standalone subject-verb-number sentences an answer engine can
-  // lift without context. Rendered verbatim, so they are held to that shape here.
-  it('proof: three quotable sentences, each carrying its number', () => {
-    const { stats } = LANDING_CONTENT.proof;
-    expect(stats).toHaveLength(3);
-    expect(new Set(stats.map((stat) => stat.id)).size).toBe(stats.length);
-    for (const stat of stats) {
-      expect(stat.value.trim().length, `stat ${stat.id} needs a value`).toBeGreaterThan(0);
-      expect(stat.sentence.trim().endsWith('.'), `stat ${stat.id} sentence must be a sentence`).toBe(
-        true
-      );
-      expect(stat.sentence, `stat ${stat.id} sentence has no number`).toMatch(/\d|thousand/i);
-      expect(stat.evidence.trim().length, `stat ${stat.id} needs a breadcrumb`).toBeGreaterThan(0);
-    }
-  });
-
   // The floor is on COVERAGE, not a quota: five distinct questions, one of which
   // is the LinkedIn comparison asked the way people ask answer engines.
   it('FAQ entries are present, answer-first, and include the LinkedIn question', () => {
@@ -163,21 +146,6 @@ describe('landing content config', () => {
     expect(new Set(questions).size).toBe(questions.length);
     const answers = LANDING_CONTENT.faq.entries.map((entry) => entry.answer);
     expect(new Set(answers).size).toBe(answers.length);
-  });
-
-  // The text sections exist to be skimmable; these invariants are the guard
-  // rail against copy quietly growing into paragraphs.
-  it('how-it-works ships exactly three terse steps and a one-line closer', () => {
-    const { steps, closer } = LANDING_CONTENT.howItWorks;
-    expect(steps).toHaveLength(3);
-    expect(new Set(steps.map((s) => s.id)).size).toBe(steps.length);
-    for (const step of steps) {
-      expect(wordCount(step.label), `step ${step.id} label too long`).toBeLessThanOrEqual(4);
-      expect(wordCount(step.line), `step ${step.id} line too long`).toBeLessThanOrEqual(14);
-      expect(step.evidence.trim().length, `step ${step.id} needs a breadcrumb`).toBeGreaterThan(0);
-    }
-    expect(wordCount(closer.line)).toBeLessThanOrEqual(20);
-    expect(closer.evidence.trim().length).toBeGreaterThan(0);
   });
 
   it('feature matrix cells are uniquely keyed, short, and traceable', () => {
@@ -262,7 +230,6 @@ describe('landing content config', () => {
       'LANDING_CONTENT.featureMatrix.comingSoon[',
       'LANDING_CONTENT.header.',
       'LANDING_CONTENT.comparison.rows[',
-      'LANDING_CONTENT.proof.stats[',
       'LANDING_CONTENT.seo.',
       'LANDING_CONTENT.closing.',
     ]) {

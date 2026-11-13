@@ -3,6 +3,7 @@ import { Box, Button, Container, Link } from '@mui/material';
 import { alpha } from '@mui/material/styles';
 import { Link as RouterLink } from 'react-router-dom';
 import { RESPONSIVE } from '../../../config/responsive';
+import { OneSecondMark } from '../../../components/shared/OneSecondMark';
 import type { LandingContent } from '../content';
 
 interface LandingHeaderProps {
@@ -96,6 +97,9 @@ export function LandingHeader({ content }: LandingHeaderProps) {
             to={header.wordmark.to}
             underline="none"
             sx={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: RESPONSIVE.landingProto.headerMarkGap,
               color: 'text.primary',
               fontWeight: 600,
               fontSize: RESPONSIVE.landingProto.headerWordmarkFontSize,
@@ -103,6 +107,10 @@ export function LandingHeader({ content }: LandingHeaderProps) {
               whiteSpace: 'nowrap',
             }}
           >
+            {/* The app bar's "1s" mark, in the header's ink (owner request,
+                2026-11-12). aria-hidden, so the link's name stays the
+                wordmark. */}
+            <OneSecondMark fontSize={RESPONSIVE.landingProto.headerMarkFontSize} />
             {header.wordmark.label}
           </Link>
 

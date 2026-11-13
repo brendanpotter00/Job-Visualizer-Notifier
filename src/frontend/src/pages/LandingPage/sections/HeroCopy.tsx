@@ -1,4 +1,4 @@
-import { Box, Typography } from '@mui/material';
+import { Typography } from '@mui/material';
 import { RESPONSIVE } from '../../../config/responsive';
 import type { LandingHero } from '../content';
 import { heroRiseIn } from './heroRiseIn';
@@ -10,10 +10,11 @@ interface HeroCopyProps {
 }
 
 /**
- * The single h1, in two tones. The black half is the hook; the gray half is
- * the query phrase and the number, inside the SAME h1 so the page's one
- * heading carries both (brief §4/§9). Real DOM text always — this block is the
- * page's LCP element by design, never a canvas.
+ * The single h1, one tone: "No reposts. No stale listings. No noise. Just
+ * jobs." It was two tones until 2026-11-12, with a gray continuation carrying
+ * the query phrase and the 130+ number; the owner cut it for "Just jobs." Real
+ * DOM text always — this block is the page's LCP element by design, never a
+ * canvas.
  *
  * Left-aligned and set at a regular weight on purpose: a centred bold
  * headline reads as a poster, and the page is meant to read as a document.
@@ -29,14 +30,14 @@ export function HeroCopy({ hero, headingId }: HeroCopyProps) {
         letterSpacing: '-0.03em',
         lineHeight: 1.08,
         maxWidth: 1000,
+        // Even line lengths: without it "jobs." orphans onto its own line at
+        // common desktop widths.
+        textWrap: 'balance',
         // Rises and fades in once on load (see heroRiseIn).
         ...heroRiseIn(),
       }}
     >
-      {hero.headline}{' '}
-      <Box component="span" sx={{ color: 'text.disabled' }}>
-        {hero.continuation}
-      </Box>
+      {hero.headline}
     </Typography>
   );
 }

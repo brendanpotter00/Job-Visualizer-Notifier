@@ -269,12 +269,19 @@ export const RESPONSIVE = {
     headerHeight: { xs: 52, sm: 64 },
     /** Landing header: plain-text wordmark font size (rendered at weight 600). */
     headerWordmarkFontSize: { xs: '0.9375rem', sm: '1.0625rem' },
+    /**
+     * Landing header: the "1s" brand mark beside the wordmark (OneSecondMark).
+     * A notch above the wordmark, like the app bar's 22px mark over its 20px
+     * title, so the mark leads without shouting.
+     */
+    headerMarkFontSize: { xs: '1.125rem', sm: '1.3125rem' },
+    /** Landing header: gap between the 1s mark and the wordmark (theme units). */
+    headerMarkGap: { xs: 1, sm: 1.25 },
     /** Landing header: gap between the right-hand cluster items (theme units). */
     headerGap: { xs: 1, sm: 1.5 },
     /**
-     * Hero h1 (rendered at weight 500, tight tracking). The h1 is two tones in
-     * one element (~20 words), so the phone size sits a notch under the old
-     * 2rem to keep it at about six lines.
+     * Hero h1 (rendered at weight 500, tight tracking). One tone, eight words
+     * since 2026-11-12 ("…No noise. Just jobs.").
      */
     heroHeadlineFontSize: { xs: '1.875rem', sm: '3.25rem' },
     /** Hero subheadline (fragment stack under the h1). */
@@ -284,16 +291,26 @@ export const RESPONSIVE = {
     /** Section h2 font size (rendered at weight 500, tight tracking). */
     sectionTitleFontSize: { xs: '1.5rem', sm: '2rem' },
     /**
-     * The uppercase overline every section opens with (`Eyebrow`), also the
-     * feature matrix's coming-soon tier label and the comparison's column
-     * heads. Deliberately the smallest type on the page — it names a thing, it
-     * is not content to read, so it must not compete with the heading under it.
+     * The small uppercase label (`Eyebrow`): the feature matrix's coming-soon
+     * tier label and the comparison's column heads. (Sections no longer open
+     * with one — cut 2026-11-12.) Deliberately the smallest type on the page:
+     * it names a thing, it is not content to read.
      */
     eyebrowFontSize: { xs: '0.75rem', sm: '0.8125rem' },
-    /** Proof strip: the big number over each quotable sentence. */
-    statValueFontSize: { xs: '2.5rem', sm: '3.5rem' },
     /** LinkedIn comparison: vertical padding on each ruled row (theme units). */
     comparisonRowPaddingY: { xs: 2.5, sm: 3 },
+    /**
+     * LinkedIn comparison: gap between the two fact columns (theme units). On a
+     * phone the facts sit side by side too (2026-11-12 mobile redesign), so the
+     * gap is what keeps two ~160px columns reading as two.
+     */
+    comparisonColumnGap: { xs: 2, sm: 4 },
+    /**
+     * LinkedIn comparison: fact text. A notch under `bodyFontSize` on a phone so
+     * each of the two columns holds ~20 characters a line; `sm` restates the
+     * body size the desktop cells already used.
+     */
+    comparisonCellFontSize: { xs: '0.9375rem', sm: '1.0625rem' },
     /** Closing block: the one centred line over the final CTAs. */
     closingHeadingFontSize: { xs: '1.75rem', sm: '2.5rem' },
     /**
@@ -321,14 +338,6 @@ export const RESPONSIVE = {
      * of the content it labels.
      */
     sectionTitleMarginBottom: { xs: 3, sm: 5 },
-    /**
-     * Air between two blocks INSIDE one section (how-it-works steps → the
-     * apply-early pull-quote). Smaller than `sectionPaddingY` so the blocks
-     * still read as one section.
-     */
-    sectionBlockGapY: { xs: 5, sm: 9 },
-    /** How-it-works: spacing between the three numbered step columns. */
-    stepsGridSpacing: { xs: 4, sm: 6 },
     /** Feature matrix: vertical padding inside each ruled cell. */
     matrixCellPaddingY: { xs: 3, sm: 5 },
     /** Feature matrix: right gutter inside each cell (the column separation). */

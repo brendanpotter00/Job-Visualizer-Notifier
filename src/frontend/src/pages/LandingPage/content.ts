@@ -8,8 +8,9 @@
  *
  * House style (owner-directed 2026-08-09 and 2026-09-10): periods and commas,
  * never em-dashes; as few words as the claim survives on. Every section opens
- * the same way, a tiny eyebrow over a short heading, so the page reads as a
- * column of quiet blocks rather than prose.
+ * the same way, with one short heading, so the page reads as a column of quiet
+ * blocks rather than prose. (The small uppercase eyebrow that used to sit over
+ * each heading was cut on 2026-11-12, owner-directed.)
  */
 import { ROUTES } from '../../config/routes';
 
@@ -19,41 +20,28 @@ export interface LandingCta {
 }
 
 /**
- * The opening every section shares. The eyebrow names the section (it never
- * sells), and the heading is the one line a skimming eye is guaranteed to read.
+ * The opening every section shares: one heading, the one line a skimming eye is
+ * guaranteed to read.
  */
 export interface SectionIntro {
-  /** ≤ 3 words, rendered as a small uppercase overline. */
-  eyebrow: string;
   /** ≤ 8 words. */
   heading: string;
 }
 
 /**
- * The single h1, in two tones. `headline` is the black half (the anti-noise
- * hook, brief §4 B1). `continuation` is the gray half of the SAME h1, which is
- * where the query phrase and the number live (brief §9: "query phrase +
- * differentiator + a number"). Splitting the tones lets the hook stay four
- * words without the h1 losing its search phrase.
+ * The single h1: the anti-noise hook (brief §4 B1) plus "Just jobs.", in one
+ * tone. Until 2026-11-12 a gray continuation carried the brief §9 query phrase
+ * and number inside the same h1; the owner cut it, so that phrase now lives in
+ * the title and meta description only.
  */
 export interface LandingHero {
+  /**
+   * The whole h1, one tone. It used to be two (a black hook over a gray
+   * continuation carrying "software engineer jobs" and the 130+ number); the
+   * gray half was cut on 2026-11-12 (owner-directed) for "Just jobs." The query
+   * phrase now lives in the title and meta description only.
+   */
   headline: string;
-  continuation: string;
-  /** Traceability breadcrumb (not rendered). */
-  evidence: string;
-}
-
-/**
- * One mechanism step in the "How it works" section. Deliberately two fields and
- * no more: the label is the skim target, the line is the whole explanation.
- * If a step ever needs a paragraph, the step is wrong — not the type.
- */
-export interface HowItWorksStep {
-  id: string;
-  /** 2–4 words, verb-first and parallel across steps. */
-  label: string;
-  /** ONE short line (≤ ~14 words). Never a second paragraph. */
-  line: string;
   /** Traceability breadcrumb (not rendered). */
   evidence: string;
 }
@@ -69,19 +57,6 @@ export interface ComparisonRow {
   label: string;
   linkedin: string;
   onesecondswe: string;
-  /** Traceability breadcrumb (not rendered). */
-  evidence: string;
-}
-
-/**
- * One tile in the proof strip: the number big, and under it the standalone
- * subject-verb-number sentence (brief §10 P1) an answer engine can lift without
- * context. The sentence is the quotable claim; the value is its skim target.
- */
-export interface ProofStat {
-  id: string;
-  value: string;
-  sentence: string;
   /** Traceability breadcrumb (not rendered). */
   evidence: string;
 }
@@ -119,7 +94,7 @@ export interface LandingFaqEntry {
  * cap is enforced by the content test, not by convention.
  */
 export interface LandingHeaderContent {
-  /** Plain-text wordmark, top-left. No logo image — the product name IS the mark. */
+  /** Wordmark, top-left, led by the app bar's "1s" mark (added 2026-11-12, owner-directed). */
   wordmark: LandingCta;
   /** Quiet nav, desktop only (hidden at xs, where the bar is wordmark + Sign up). */
   nav: readonly LandingCta[];
@@ -183,16 +158,6 @@ export interface LandingContent {
     /** Traceability breadcrumb (not rendered). */
     evidence: string;
   };
-  /**
-   * Mechanism, in three steps, closed by the apply-early beat (brief §4) — the
-   * "how" and the "why you should care" belong to the same breath.
-   */
-  howItWorks: SectionIntro & {
-    steps: readonly HowItWorksStep[];
-    closer: { line: string; evidence: string };
-  };
-  /** The quotable numbers (brief §10 P1), three tiles. */
-  proof: SectionIntro & { stats: readonly ProofStat[] };
   /** Overline + heading above the curated-category grid. */
   companies: SectionIntro;
   /**
@@ -286,23 +251,20 @@ export const LANDING_CONTENT: LandingContent = {
       'owner-directed 2026-08-20 (a normal header: wordmark left, Log in / Sign up right). Both auth targets are the mock ACCOUNT route the hero CTAs already use; real Auth0 wiring is promotion-time work.',
   },
   hero: {
-    headline: 'No reposts. No stale listings. No noise.',
-    continuation:
-      'Software engineer jobs from 130+ curated career pages, minutes after they’re posted.',
+    headline: 'No reposts. No stale listings. No noise. Just jobs.',
     evidence:
-      'headline: brief §4 B1 (owner favourite, 2026-08-09). continuation: brief §9 h1 shape (query phrase + differentiator + a number) and §5 curated_companies / minutes_after_posting.',
+      'brief §4 B1 (owner favourite, 2026-08-09) plus "Just jobs." (owner-directed 2026-11-12, replacing the gray §9 continuation).',
   },
   ctas: {
     primary: { label: 'Browse jobs', to: ROUTES.RECENT_JOBS },
     secondary: { label: 'Create account', to: ROUTES.ACCOUNT },
   },
   freshJobs: {
-    eyebrow: 'Fresh jobs',
     heading: 'What just went up.',
   },
   comparison: {
-    eyebrow: 'Why not LinkedIn',
-    heading: 'Built for the candidate, not the repost.',
+    // Was "Built for the candidate, not the repost." — tail cut 2026-11-12 (owner-directed).
+    heading: 'Built for the candidate.',
     columns: { linkedin: 'LinkedIn', onesecondswe: 'onesecondswe' },
     rows: [
       {
@@ -339,65 +301,10 @@ export const LANDING_CONTENT: LandingContent = {
     evidence:
       'owner-directed 2026-09-10: "a section on why it is better than linkedin, like there are no reposts and the companies are already curated". Overrides brief §6 (LinkedIn by name); recorded there.',
   },
-  howItWorks: {
-    eyebrow: 'How it works',
-    heading: 'Three steps. No middleman.',
-    steps: [
-      {
-        id: 'monitor',
-        label: 'Watch career pages',
-        line: 'We check 130+ company boards around the clock.',
-        evidence: 'brief §5 straight_from_source + curated_companies',
-      },
-      {
-        id: 'label',
-        label: 'Label every role',
-        line: 'AI tags level, category, and location, so filters mean something.',
-        evidence: 'business-context §feature-set: AI-powered labeling, LIVE today',
-      },
-      {
-        id: 'filters',
-        label: 'Set your filters',
-        line: 'Save them once. They apply on every visit.',
-        evidence: 'business-context §feature-set: saved filters, LIVE today',
-      },
-    ],
-    closer: {
-      line: 'Recruiters review on a rolling basis. Apply in the first hours and a human reads your resume.',
-      evidence: 'brief §4 supporting beat + §5 apply_early_rolling (interview Q1/Q2)',
-    },
-  },
-  proof: {
-    eyebrow: 'By the numbers',
-    heading: 'Measured, not promised.',
-    stats: [
-      {
-        id: 'median',
-        value: '45 min',
-        sentence:
-          'onesecondswe surfaces new jobs a median of 45 minutes after companies post them on their own career pages.',
-        evidence: 'brief §1 (prod median 0.76h, 2026-07-25 → 2026-08-09) + §10 P1',
-      },
-      {
-        id: 'companies',
-        value: '130+',
-        sentence: 'onesecondswe tracks 130+ curated tech companies’ career pages directly. No aggregator feeds.',
-        evidence: 'brief §5 curated_companies + §10 P1',
-      },
-      {
-        id: 'weekly',
-        value: 'Thousands',
-        sentence: 'Thousands of new software engineering jobs are added every week, free.',
-        evidence: 'brief §5 thousands_weekly (prod ~2.7k/7d) + §10 P1',
-      },
-    ],
-  },
   companies: {
-    eyebrow: 'Companies',
     heading: 'Browse curated companies',
   },
   featureMatrix: {
-    eyebrow: 'Features',
     heading: 'What you get.',
     features: [
       {
@@ -444,8 +351,9 @@ export const LANDING_CONTENT: LandingContent = {
     comingSoon: [
       {
         id: 'mcp_access',
-        name: 'Bring your AI',
-        detail: 'MCP access from Claude or any agent.',
+        // Was "Bring your AI"; renamed 2026-11-12 (owner-directed).
+        name: 'MCP',
+        detail: 'Build your own integrations.',
         evidence: 'EPIC Power-user data access (replica + MCP), wdwb1cbnce',
       },
       {
@@ -456,12 +364,12 @@ export const LANDING_CONTENT: LandingContent = {
       },
     ],
     nextUp: {
-      label: 'Built with the community. Vote on what’s next.',
+      // Shortened 2026-11-12 (owner-directed).
+      label: 'Built with community. Vote.',
       to: ROUTES.VOTE_FEATURES,
     },
   },
   faq: {
-    eyebrow: 'FAQ',
     heading: 'Frequently asked questions',
     entries: [
       {

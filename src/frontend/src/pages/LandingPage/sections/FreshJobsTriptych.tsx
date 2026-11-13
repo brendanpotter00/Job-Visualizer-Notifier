@@ -23,7 +23,7 @@ interface FreshJobsTriptychProps {
   /** The fixtures' MOCK_NOW — see LandingPrototypeProps.now. */
   now: number;
   /**
-   * Eyebrow + heading over the three cards. Optional so the triptych can be
+   * Heading over the three cards. Optional so the triptych can be
    * rendered bare; when given, it lives INSIDE the section so an all-empty
    * fixture drops the heading together with the cards it would have labelled.
    */
@@ -65,9 +65,7 @@ export function FreshJobsTriptych({ jobs, now, intro }: FreshJobsTriptychProps) 
       aria-labelledby={intro ? HEADING_ID : undefined}
       data-testid="fresh-jobs-triptych"
     >
-      {intro && (
-        <SectionIntro eyebrow={intro.eyebrow} heading={intro.heading} headingId={HEADING_ID} />
-      )}
+      {intro && <SectionIntro heading={intro.heading} headingId={HEADING_ID} />}
       <Grid container spacing={{ xs: 2, sm: 3 }}>
         {slots.map((slot, i) => (
           <Grid key={slot.id} size={{ xs: 12, sm: 4 }}>

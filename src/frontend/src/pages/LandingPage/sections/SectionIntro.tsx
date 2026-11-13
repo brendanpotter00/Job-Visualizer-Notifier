@@ -10,9 +10,10 @@ interface EyebrowProps {
 }
 
 /**
- * The small uppercase overline every section opens with. Deliberately the
- * smallest type on the page: it names a section, it is not content to read, so
- * it must never compete with the heading under it.
+ * A small uppercase label: the comparison's column heads and the feature
+ * matrix's "Coming soon" tier. Deliberately the smallest type on the page — it
+ * names a thing, it is not content to read. (It no longer opens sections; see
+ * SectionIntro.)
  */
 export function Eyebrow({ children, muted = false }: EyebrowProps) {
   return (
@@ -35,60 +36,33 @@ export function Eyebrow({ children, muted = false }: EyebrowProps) {
 interface SectionIntroProps extends SectionIntroContent {
   /** Set on the h2 so the enclosing `<section>` can point `aria-labelledby` at it. */
   headingId: string;
-  /**
-   * Put the h2 above the eyebrow instead of under it. Only the LinkedIn
-   * comparison sets it (owner decision, 2026-11-12): its heading is the claim
-   * and "Why not LinkedIn" reads as the caption under it.
-   */
-  headingFirst?: boolean;
 }
 
-/** Air between the eyebrow and the h2, whichever comes first. */
-const INTRO_GAP = 1.5;
-
 /**
- * Eyebrow over a short h2: the one opening every section shares. Rendering it
- * from one component is what keeps the rhythm identical down the page — the
- * one sanctioned variation is `headingFirst`, which swaps the order and keeps
- * the same type, gap and bottom margin.
+ * The short h2 every section opens with. Rendering it from one component is
+ * what keeps the rhythm identical down the page.
+ *
+ * There is no eyebrow over it any more: the small uppercase overline every
+ * section used to carry was cut on 2026-11-12 (owner-directed). `Eyebrow`
+ * above survives only as a label for content — the comparison's column heads
+ * and the feature matrix's "Coming soon" tier.
  */
-export function SectionIntro({
-  eyebrow,
-  heading,
-  headingId,
-  headingFirst = false,
-}: SectionIntroProps) {
-  const title = (
-    <Typography
-      component="h2"
-      id={headingId}
-      sx={{
-        fontSize: RESPONSIVE.landingProto.sectionTitleFontSize,
-        fontWeight: 500,
-        letterSpacing: '-0.02em',
-        lineHeight: 1.15,
-        mt: headingFirst ? 0 : INTRO_GAP,
-        maxWidth: 640,
-      }}
-    >
-      {heading}
-    </Typography>
-  );
+export function SectionIntro({ heading, headingId }: SectionIntroProps) {
   return (
     <Box sx={{ mb: RESPONSIVE.landingProto.sectionTitleMarginBottom }}>
-      {headingFirst ? (
-        <>
-          {title}
-          <Box sx={{ mt: INTRO_GAP }}>
-            <Eyebrow>{eyebrow}</Eyebrow>
-          </Box>
-        </>
-      ) : (
-        <>
-          <Eyebrow>{eyebrow}</Eyebrow>
-          {title}
-        </>
-      )}
+      <Typography
+        component="h2"
+        id={headingId}
+        sx={{
+          fontSize: RESPONSIVE.landingProto.sectionTitleFontSize,
+          fontWeight: 500,
+          letterSpacing: '-0.02em',
+          lineHeight: 1.15,
+          maxWidth: 640,
+        }}
+      >
+        {heading}
+      </Typography>
     </Box>
   );
 }

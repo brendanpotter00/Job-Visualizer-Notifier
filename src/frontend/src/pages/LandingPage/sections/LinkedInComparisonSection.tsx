@@ -7,14 +7,21 @@ import { Eyebrow, SectionIntro } from './SectionIntro';
 const HEADING_ID = 'landing-comparison-heading';
 
 /**
- * Three tracks from `sm` up: the row label, LinkedIn, onesecondswe. On a
- * phone the three stack, and each cell names its own column instead (see
- * `ComparisonCell`), so the column-head row is desktop-only.
+ * Three tracks from `sm` up: the row label, LinkedIn, onesecondswe.
+ *
+ * On a phone (2026-11-12 mobile redesign) the two facts still sit side by
+ * side, under a row label that spans both columns, and ONE column-head row at
+ * the top names them. It replaced a stack of three lines per row in which every
+ * cell carried a visible "LinkedIn:" / "onesecondswe:" prefix — eight
+ * repetitions of two names, which read as a form rather than a comparison.
  */
 const ROW_SX = {
   display: 'grid',
-  gridTemplateColumns: { xs: 'minmax(0, 1fr)', sm: '9rem minmax(0, 1fr) minmax(0, 1fr)' },
-  columnGap: { xs: 0, sm: 4 },
+  gridTemplateColumns: {
+    xs: 'minmax(0, 1fr) minmax(0, 1fr)',
+    sm: '9rem minmax(0, 1fr) minmax(0, 1fr)',
+  },
+  columnGap: RESPONSIVE.landingProto.comparisonColumnGap,
   rowGap: 1,
 } as const;
 
@@ -45,11 +52,10 @@ interface ComparisonCellProps {
 
 /**
  * One cell, always prefixed with its column name so it is never an
- * unattributed paragraph. On a phone the prefix is visible (there is no head
- * row); from `sm` up the head row shows the names and the prefix goes
- * visually hidden — hidden, not removed, so a screen reader on desktop still
- * hears "LinkedIn:" / "onesecondswe:" before every cell. The head row itself
- * is decorative for exactly that reason.
+ * unattributed paragraph. The prefix is visually hidden at every width (the
+ * head row shows the names) — hidden, not removed, so a screen reader still
+ * hears "LinkedIn:" / "onesecondswe:" before every cell. The head rows are
+ * decorative for exactly that reason.
  */
 function ComparisonCell({ column, muted = false, children }: ComparisonCellProps) {
   return (
@@ -58,20 +64,14 @@ function ComparisonCell({ column, muted = false, children }: ComparisonCellProps
       sx={{
         position: 'relative',
         minWidth: 0,
-        fontSize: RESPONSIVE.landingProto.bodyFontSize,
-        lineHeight: 1.6,
+        fontSize: RESPONSIVE.landingProto.comparisonCellFontSize,
+        // Slightly tighter on a phone's narrow columns; desktop keeps 1.6.
+        lineHeight: { xs: 1.55, sm: 1.6 },
         color: muted ? 'text.secondary' : 'text.primary',
         fontWeight: muted ? 400 : 500,
       }}
     >
-      <Box
-        component="span"
-        sx={(theme) => ({
-          color: 'text.disabled',
-          fontWeight: 400,
-          [theme.breakpoints.up('sm')]: VISUALLY_HIDDEN,
-        })}
-      >
+      <Box component="span" sx={VISUALLY_HIDDEN}>
         {column}:{' '}
       </Box>
       {children}
@@ -91,15 +91,41 @@ interface LinkedInComparisonSectionProps {
  * survives being quoted by an answer engine (brief §10 P4).
  */
 export function LinkedInComparisonSection({ content }: LinkedInComparisonSectionProps) {
-  const { eyebrow, heading, columns, rows } = content.comparison;
+  const { heading, columns, rows } = content.comparison;
 
   return (
     <Box component="section" aria-labelledby={HEADING_ID} data-testid="linkedin-comparison">
-      <SectionIntro eyebrow={eyebrow} heading={heading} headingId={HEADING_ID} headingFirst />
+      <SectionIntro heading={heading} headingId={HEADING_ID} />
 
       {/* Decorative: every cell already carries its column name (visually
-          hidden from `sm` up), so announcing the head row would say each name
-          twice. */}
+          hidden), so announcing a head row would say each name twice. */}
+      {/* Phone head: sentence case, our column in the heavier weight. (The
+          "1s" mark briefly led it; removed 2026-11-12, owner-directed.) */}
+      <Box
+        aria-hidden
+        data-testid="comparison-head-compact"
+        sx={{ ...ROW_SX, display: { xs: 'grid', sm: 'none' }, alignItems: 'center', pb: 1.5 }}
+      >
+        <Typography
+          sx={{ color: 'text.secondary', fontSize: RESPONSIVE.landingProto.comparisonCellFontSize }}
+        >
+          {columns.linkedin}
+        </Typography>
+        <Typography
+          sx={{
+            minWidth: 0,
+            color: 'text.primary',
+            fontWeight: 600,
+            fontSize: RESPONSIVE.landingProto.comparisonCellFontSize,
+            // Owner-directed 2026-11-12: the two names frame the table, one at
+            // each edge. The facts under it stay left-aligned for reading.
+            textAlign: 'right',
+          }}
+        >
+          {columns.onesecondswe}
+        </Typography>
+      </Box>
+      {/* Desktop head: unchanged. */}
       <Box sx={{ ...ROW_SX, display: { xs: 'none', sm: 'grid' }, pb: 1.5 }} aria-hidden>
         <Box />
         <Eyebrow>{columns.linkedin}</Eyebrow>
@@ -119,7 +145,12 @@ export function LinkedInComparisonSection({ content }: LinkedInComparisonSection
         >
           <Typography
             component="h3"
-            sx={{ fontSize: RESPONSIVE.landingProto.blockTitleFontSize, fontWeight: 500 }}
+            sx={{
+              fontSize: RESPONSIVE.landingProto.blockTitleFontSize,
+              fontWeight: 500,
+              // Phone: the label spans both fact columns, above them.
+              gridColumn: { xs: '1 / -1', sm: 'auto' },
+            }}
           >
             {row.label}
           </Typography>

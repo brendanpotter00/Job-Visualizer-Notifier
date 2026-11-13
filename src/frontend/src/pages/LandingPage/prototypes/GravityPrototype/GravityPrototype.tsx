@@ -9,8 +9,6 @@ import { heroRiseIn, HERO_RISE_STAGGER_MS } from '../../sections/heroRiseIn';
 import { CTAButtons } from '../../sections/CTAButtons';
 import { FreshJobsTriptych } from '../../sections/FreshJobsTriptych';
 import { LinkedInComparisonSection } from '../../sections/LinkedInComparisonSection';
-import { HowItWorksSection } from '../../sections/HowItWorksSection';
-import { ProofStatsSection } from '../../sections/ProofStatsSection';
 import { CompanyCategoriesSection } from '../../sections/CompanyCategoriesSection';
 import { FeatureMatrixSection } from '../../sections/FeatureMatrixSection';
 import { FAQSection } from '../../sections/FAQSection';
@@ -53,9 +51,11 @@ function SectionBand({ children }: { children: ReactNode }) {
  * instead.
  *
  * Page order below the hero: live proof (three real cards) → the LinkedIn
- * comparison → the mechanism → the numbers → the curated companies → the
- * feature matrix → FAQ → the closing line. Every section opens with the same
- * eyebrow + heading (`SectionIntro`), and the one decorative hero layer that
+ * comparison → the curated companies → the feature matrix → FAQ → the
+ * closing line. (The "how it works" steps and the "by the numbers" proof
+ * strip that sat between the comparison and the companies were both cut on
+ * 2026-11-12, owner-directed.) Every section opens with the same
+ * short heading (`SectionIntro`), and the one decorative hero layer that
  * used to sit behind the copy (a mock posting-cadence line) is gone: the pile
  * is the hero's only picture.
  *
@@ -132,12 +132,6 @@ export function GravityPrototype({ content, jobs, now }: LandingPrototypeProps) 
           </SectionBand>
           <SectionBand>
             <LinkedInComparisonSection content={content} />
-          </SectionBand>
-          <SectionBand>
-            <HowItWorksSection content={content} />
-          </SectionBand>
-          <SectionBand>
-            <ProofStatsSection content={content} />
           </SectionBand>
           <SectionBand>
             <CompanyCategoriesSection content={content} />

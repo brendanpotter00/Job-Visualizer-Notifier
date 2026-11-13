@@ -110,13 +110,12 @@ describe('GravityPrototype', () => {
     ).toBeTruthy();
   });
 
-  // One h1 in two tones: the hook and the continuation are both inside it, so
-  // the page's single heading carries the query phrase as well as the line.
-  it('renders the two-tone hero as the single h1', () => {
+  // One h1, one tone, since 2026-11-12: "…No noise. Just jobs."
+  it('renders the hero as the single h1', () => {
     renderGravity();
     const h1 = screen.getByRole('heading', { level: 1 });
     expect(h1).toHaveTextContent(LANDING_CONTENT.hero.headline);
-    expect(h1).toHaveTextContent(LANDING_CONTENT.hero.continuation);
+    expect(h1.querySelector('span')).toBeNull();
     expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
   });
 
@@ -224,13 +223,6 @@ describe('GravityPrototype', () => {
       expect(within(region).getByText(row.linkedin)).toBeInTheDocument();
       expect(within(region).getByText(row.onesecondswe)).toBeInTheDocument();
     }
-    for (const step of LANDING_CONTENT.howItWorks.steps) {
-      expect(screen.getByText(step.line)).toBeInTheDocument();
-    }
-    expect(screen.getByText(LANDING_CONTENT.howItWorks.closer.line)).toBeInTheDocument();
-    for (const stat of LANDING_CONTENT.proof.stats) {
-      expect(screen.getByText(stat.sentence)).toBeInTheDocument();
-    }
     for (const feature of LANDING_CONTENT.featureMatrix.features) {
       expect(screen.getByText(feature.detail)).toBeInTheDocument();
     }
@@ -250,16 +242,13 @@ describe('GravityPrototype', () => {
   });
 
   // Order is the section contract: live proof, then the comparison the owner
-  // asked for, then the mechanism, the numbers, the companies, the matrix, the
-  // FAQ, and the closing line last. Assert the whole sequence rather than mere
-  // presence.
-  it('orders the sections: triptych → LinkedIn → how-it-works → numbers → companies → matrix → FAQ → closer', () => {
+  // asked for, then the companies, the matrix, the FAQ, and the closing line
+  // last. Assert the whole sequence rather than mere presence.
+  it('orders the sections: triptych → LinkedIn → companies → matrix → FAQ → closer', () => {
     renderGravity();
     const markers = [
       screen.getByTestId('fresh-jobs-triptych'),
       screen.getByTestId('linkedin-comparison'),
-      screen.getByTestId('how-it-works'),
-      screen.getByTestId('proof-stats'),
       screen.getByRole('heading', { name: LANDING_CONTENT.companies.heading, level: 2 }),
       screen.getByTestId('feature-matrix'),
       screen.getByRole('heading', { name: LANDING_CONTENT.faq.heading, level: 2 }),
@@ -279,7 +268,7 @@ describe('GravityPrototype', () => {
     renderGravity();
     const main = screen.getByRole('main');
     const sections = Array.from(main.querySelectorAll('section'));
-    expect(sections.length).toBeGreaterThanOrEqual(9);
+    expect(sections.length).toBeGreaterThanOrEqual(7);
     for (const section of sections) {
       const labelledBy = section.getAttribute('aria-labelledby');
       expect(labelledBy, 'every section must point at its heading').toBeTruthy();
