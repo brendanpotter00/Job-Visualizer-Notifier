@@ -19,6 +19,17 @@ describe('LinkedInComparisonSection', () => {
     expect(section).toHaveAttribute('aria-labelledby', heading.id);
   });
 
+  // The one section whose heading sits ABOVE its eyebrow (owner, 2026-11-12):
+  // the claim leads and "Why not LinkedIn" captions it.
+  it('puts the heading above the eyebrow', () => {
+    renderSection();
+    const heading = screen.getByRole('heading', { name: comparison.heading, level: 2 });
+    const eyebrow = screen.getByText(comparison.eyebrow);
+    expect(
+      heading.compareDocumentPosition(eyebrow) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+  });
+
   it('renders every row: an h3 label, the LinkedIn fact, and what onesecondswe does', () => {
     renderSection();
     for (const row of comparison.rows) {

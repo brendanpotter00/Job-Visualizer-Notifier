@@ -95,7 +95,7 @@ export function LinkedInComparisonSection({ content }: LinkedInComparisonSection
 
   return (
     <Box component="section" aria-labelledby={HEADING_ID} data-testid="linkedin-comparison">
-      <SectionIntro eyebrow={eyebrow} heading={heading} headingId={HEADING_ID} />
+      <SectionIntro eyebrow={eyebrow} heading={heading} headingId={HEADING_ID} headingFirst />
 
       {/* Decorative: every cell already carries its column name (visually
           hidden from `sm` up), so announcing the head row would say each name
