@@ -22,7 +22,7 @@ function* walkStrings(value: unknown, path = ''): Generator<[string, string]> {
   }
 }
 
-/** Every section that opens with the shared eyebrow + heading. */
+/** Every section that opens with the shared heading. */
 const SECTION_INTROS: Record<string, SectionIntro> = {
   freshJobs: LANDING_CONTENT.freshJobs,
   comparison: LANDING_CONTENT.comparison,
@@ -89,7 +89,8 @@ describe('landing content config', () => {
     ).toBeGreaterThan(0);
   });
 
-  // The page's rhythm is one opening shape repeated: a ≤8-word heading (the
+  // The page's rhythm is one opening shape repeated: a ≤8-word heading, no
+  // trailing period (the
   // eyebrow that used to sit over it was cut on 2026-11-12). A section that
   // needs more words in its heading has started selling in the wrong place.
   it('every section opens with a one-line heading, and no two share one', () => {
@@ -97,6 +98,8 @@ describe('landing content config', () => {
       expect(wordCount(intro.heading), `${name} heading too long`).toBeLessThanOrEqual(8);
       expect(intro.heading.trim().length, `${name} heading empty`).toBeGreaterThan(0);
       expect(intro, `${name} must not carry an eyebrow`).not.toHaveProperty('eyebrow');
+      // Owner-directed 2026-11-12: headings carry no trailing period.
+      expect(intro.heading.endsWith('.'), `${name} heading ends with a period`).toBe(false);
     }
     const headings = Object.values(SECTION_INTROS).map((intro) => intro.heading);
     expect(new Set(headings).size).toBe(headings.length);
@@ -194,9 +197,10 @@ describe('landing content config', () => {
     expect(new Set(comingSoon.map((f) => f.id)).size).toBe(comingSoon.length);
   });
 
-  it('closing line is one short, traceable sentence', () => {
+  it('closing line is one short, traceable line with no trailing period', () => {
     const { heading, evidence } = LANDING_CONTENT.closing;
     expect(wordCount(heading)).toBeLessThanOrEqual(6);
+    expect(heading.endsWith('.')).toBe(false);
     expect(evidence.trim().length).toBeGreaterThan(0);
   });
 

@@ -260,11 +260,11 @@ export const LANDING_CONTENT: LandingContent = {
     secondary: { label: 'Create account', to: ROUTES.ACCOUNT },
   },
   freshJobs: {
-    heading: 'Just posted.',
+    heading: 'Just posted',
   },
   comparison: {
     // Was "Built for the candidate, not the repost." — tail cut 2026-11-12 (owner-directed).
-    heading: 'Built for the candidate.',
+    heading: 'Built for the candidate',
     columns: { linkedin: 'LinkedIn', onesecondswe: 'onesecondswe' },
     rows: [
       {
@@ -302,10 +302,10 @@ export const LANDING_CONTENT: LandingContent = {
       'owner-directed 2026-09-10: "a section on why it is better than linkedin, like there are no reposts and the companies are already curated". Overrides brief §6 (LinkedIn by name); recorded there.',
   },
   companies: {
-    heading: 'Curated companies.',
+    heading: 'Curated companies',
   },
   featureMatrix: {
-    heading: 'What you get.',
+    heading: 'What you get',
     features: [
       {
         id: 'freshness',
@@ -398,7 +398,7 @@ export const LANDING_CONTENT: LandingContent = {
     ],
   },
   closing: {
-    heading: 'Be early.',
+    heading: 'Be early',
     evidence: 'brief §4 supporting beat ("onesecondswe exists so you’re early, every time")',
   },
   seo: {
