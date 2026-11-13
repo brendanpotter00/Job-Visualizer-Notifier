@@ -68,7 +68,7 @@ describe('UserVisitsModal', () => {
   it('shows the loading caption while the request is pending', () => {
     fetchMock.mockReturnValue(new Promise(() => {})); // never resolves
     renderModal();
-    expect(screen.getByText('Loading visit history…')).toBeInTheDocument();
+    expect(screen.getByRole('progressbar', { name: 'Loading visit history' })).toBeInTheDocument();
   });
 
   it('renders visit timestamps in the order the server returned them (newest first)', async () => {

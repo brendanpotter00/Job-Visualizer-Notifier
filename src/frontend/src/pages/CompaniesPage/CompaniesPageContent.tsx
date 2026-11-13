@@ -25,7 +25,7 @@ interface CompaniesPageContentProps {
  */
 export function CompaniesPageContent({ isLoading }: CompaniesPageContentProps) {
   if (isLoading) {
-    return <LoadingState size={60} minHeight={400} />;
+    return <LoadingState minHeight={400} />;
   }
 
   return (

@@ -105,7 +105,7 @@ describe('RecentJobPostingsPage', () => {
       mockSearch({ isAwaitingDeploy: true, isInitialLoading: true });
       renderWithProviders(<RecentJobPostingsPage />, { initialEntries: ['/'] });
 
-      expect(screen.getByText(/Finishing an update/i)).toBeInTheDocument();
+      expect(screen.getByRole('progressbar', { name: /Finishing an update/i })).toBeInTheDocument();
       expect(screen.queryByRole('alert')).not.toBeInTheDocument();
       expect(screen.queryByTestId('recent-jobs-list')).not.toBeInTheDocument();
       expect(screen.queryByText('Past 24 Hours')).not.toBeInTheDocument();
@@ -118,7 +118,7 @@ describe('RecentJobPostingsPage', () => {
       mockSearch({ isAwaitingDeploy: true, error: 'Not Found', errorScope: 'initial' });
       renderWithProviders(<RecentJobPostingsPage />, { initialEntries: ['/'] });
 
-      expect(screen.getByText(/Finishing an update/i)).toBeInTheDocument();
+      expect(screen.getByRole('progressbar', { name: /Finishing an update/i })).toBeInTheDocument();
       expect(screen.queryByRole('alert')).not.toBeInTheDocument();
       expect(screen.queryByText('Not Found')).not.toBeInTheDocument();
     });

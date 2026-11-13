@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { UserMenu } from '../../../components/layout/UserMenu';
@@ -179,6 +179,20 @@ describe('UserMenu', () => {
         expect(avatar).toBeInTheDocument();
         expect(avatar).toHaveAttribute('src', 'https://example.com/photo.jpg');
       });
+    });
+
+    it('shows the waving "Loading" text, and no spinner, while the profile loads', async () => {
+      const { fetchCurrentUser } = await import('../../../features/auth/authService');
+      vi.mocked(fetchCurrentUser).mockReturnValueOnce(new Promise(() => {})); // never resolves
+
+      const user = userEvent.setup();
+      renderWithRouter(<UserMenu />);
+
+      await user.click(await screen.findByLabelText('user menu'));
+
+      const menu = screen.getByRole('menu');
+      expect(within(menu).getByRole('progressbar', { name: 'Loading' })).toBeInTheDocument();
+      expect(menu.querySelector('.MuiCircularProgress-root')).toBeNull();
     });
 
     it('shows error message when profile load fails', async () => {

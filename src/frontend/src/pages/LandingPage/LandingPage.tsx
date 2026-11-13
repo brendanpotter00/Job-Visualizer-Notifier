@@ -55,7 +55,7 @@ export function LandingPage() {
     >
       <LandingSeo content={LANDING_CONTENT} />
       <Box sx={{ flex: 1, overflowY: 'auto' }}>
-        <Suspense fallback={<LoadingState size={60} minHeight={400} caption="Loading…" />}>
+        <Suspense fallback={<LoadingState minHeight={400} caption="Loading…" />}>
           <GravityPrototype
             content={LANDING_CONTENT}
             jobs={sparse ? MOCK_JOBS_SPARSE : MOCK_JOBS}

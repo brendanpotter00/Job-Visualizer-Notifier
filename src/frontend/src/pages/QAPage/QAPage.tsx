@@ -457,7 +457,7 @@ export function QAPage() {
               ? 'Scrape Runs'
               : `${BACKEND_SCRAPER_COMPANIES.find((c) => c.id === selectedCompany)?.name} Scrape Runs`}
           </Typography>
-          {scrapeRunsLoading && <LoadingState size={24} minHeight={48} />}
+          {scrapeRunsLoading && <LoadingState minHeight={48} />}
           {scrapeRunsError && (
             <Box sx={{ mb: 2 }}>
               <ErrorState inline message={scrapeRunsError} />

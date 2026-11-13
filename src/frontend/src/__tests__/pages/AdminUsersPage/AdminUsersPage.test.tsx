@@ -75,10 +75,9 @@ describe('AdminUsersPage', () => {
 
     renderPage();
 
-    // The page-level LoadingState renders a CircularProgress with role
-    // 'progressbar' and the caption "Loading admin data…".
-    expect(screen.getByRole('progressbar')).toBeInTheDocument();
-    expect(screen.getByText(/loading admin data/i)).toBeInTheDocument();
+    // The page-level LoadingState is a progressbar named by its caption
+    // ("Loading admin data…", shown without the ellipsis).
+    expect(screen.getByRole('progressbar', { name: /loading admin data/i })).toBeInTheDocument();
   });
 
   it('renders an error state with a retry button that refetches both queries', async () => {
@@ -251,8 +250,8 @@ describe('AdminUsersPage', () => {
     expect(screen.getByText(/stats kaboom|failed to load admin stats/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument();
 
-    // Users slot shows its spinner with the roster-loading caption.
-    expect(screen.getByText(/loading user roster/i)).toBeInTheDocument();
+    // Users slot shows its loading state with the roster-loading caption.
+    expect(screen.getByRole('progressbar', { name: /loading user roster/i })).toBeInTheDocument();
 
     // Tidy up still-pending fetches so they don't leak into other tests.
     for (const resolve of usersResolvers) {

@@ -17,7 +17,7 @@ vi.mock('../../../components/companies-page/JobList/ListSection', () => ({
 
 describe('CompaniesPageContent', () => {
   describe('isLoading=true', () => {
-    it('renders a LoadingState spinner (role=progressbar)', () => {
+    it('renders a LoadingState (role=progressbar)', () => {
       renderWithProviders(<CompaniesPageContent isLoading />);
 
       expect(screen.getByRole('progressbar')).toBeInTheDocument();
@@ -30,7 +30,9 @@ describe('CompaniesPageContent', () => {
       // that the caption is gone for ANY loading state.
       renderWithProviders(<CompaniesPageContent isLoading />);
 
-      expect(screen.queryByText(/Workday source requires/i)).not.toBeInTheDocument();
+      // The caption is the progressbar's accessible name, so the default word
+      // means no caption was passed.
+      expect(screen.getByRole('progressbar')).toHaveAccessibleName('Loading');
     });
 
     it('does NOT render GraphSection or ListSection while loading', () => {
@@ -49,7 +51,7 @@ describe('CompaniesPageContent', () => {
       expect(screen.getByTestId('list-section')).toBeInTheDocument();
     });
 
-    it('does NOT render a spinner', () => {
+    it('does NOT render a loading state', () => {
       renderWithProviders(<CompaniesPageContent isLoading={false} />);
 
       expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();

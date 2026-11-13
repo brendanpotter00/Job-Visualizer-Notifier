@@ -182,8 +182,9 @@ describe('AdminLocationNormalizationPage', () => {
 
     renderPage();
 
-    expect(screen.getByRole('progressbar')).toBeInTheDocument();
-    expect(screen.getByText(/loading location normalization data/i)).toBeInTheDocument();
+    expect(
+      screen.getByRole('progressbar', { name: /loading location normalization data/i })
+    ).toBeInTheDocument();
   });
 
   it('renders all-error states with retries when health and integrity both fail', async () => {

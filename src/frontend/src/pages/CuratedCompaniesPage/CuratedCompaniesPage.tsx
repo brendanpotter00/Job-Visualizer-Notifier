@@ -26,7 +26,7 @@ export function CuratedCompaniesPage() {
         </Typography>
       </Box>
 
-      {isLoading && <LoadingState size={60} minHeight={400} caption="Loading companies…" />}
+      {isLoading && <LoadingState minHeight={400} caption="Loading companies…" />}
 
       {isError && (
         <ErrorState

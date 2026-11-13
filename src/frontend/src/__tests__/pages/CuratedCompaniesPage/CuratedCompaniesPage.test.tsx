@@ -38,7 +38,7 @@ describe('CuratedCompaniesPage', () => {
   it('shows a loading state while the query is in flight', () => {
     mockResult = { data: undefined, isLoading: true, isError: false, error: undefined, refetch: vi.fn() };
     renderPage();
-    expect(screen.getByText('Loading companies…')).toBeInTheDocument();
+    expect(screen.getByRole('progressbar', { name: 'Loading companies' })).toBeInTheDocument();
   });
 
   it('shows an error state with a retry affordance', () => {
