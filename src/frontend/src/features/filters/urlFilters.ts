@@ -187,10 +187,7 @@ export function parseFiltersFromSearch(search: string): Partial<RecentJobsFilter
  * Render the filter subset this module owns as a query string.
  *
  * Only NON-DEFAULT values are emitted, so an untouched page keeps a clean `/`
- * rather than a URL full of noise the reader did not choose. `company` is
- * deliberately absent: it is the reader's own enabled-companies preference, not
- * a filter they set on this page, and putting someone else's roster in a shared
- * link would silently change which companies the recipient is following.
+ * rather than a URL full of noise the reader did not choose.
  *
  * Any param NOT in `FILTER_PARAMS` is preserved untouched, so this can be called
  * on a URL that carries unrelated query state without eating it.

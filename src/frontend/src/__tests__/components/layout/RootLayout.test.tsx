@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, render as rtlRender } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import type { ReactElement } from 'react';
 import { Provider } from 'react-redux';
 import { MemoryRouter } from 'react-router-dom';
@@ -175,7 +176,7 @@ describe('RootLayout', () => {
   });
 
   describe('Drawer Props Passing', () => {
-    it('GlobalAppBar receives drawer width prop', () => {
+    it('renders the app bar title', () => {
       vi.mocked(useMediaQuery).mockReturnValue(false); // desktop
 
       render(
@@ -186,6 +187,24 @@ describe('RootLayout', () => {
 
       // AppBar should exist with title
       expect(screen.getByLabelText(APP_TITLE)).toBeInTheDocument();
+    });
+
+    it('the sidebar toggle controls the drawer and reflects its state', async () => {
+      vi.mocked(useMediaQuery).mockReturnValue(false); // desktop
+      const user = userEvent.setup();
+
+      render(
+        <MemoryRouter>
+          <RootLayout />
+        </MemoryRouter>
+      );
+
+      const toggle = screen.getByRole('button', { name: 'Toggle sidebar' });
+      expect(document.getElementById(toggle.getAttribute('aria-controls') ?? '')).not.toBeNull();
+      expect(toggle).toHaveAttribute('aria-expanded', 'true');
+
+      await user.click(toggle);
+      expect(toggle).toHaveAttribute('aria-expanded', 'false');
     });
 
     it('NavigationDrawer receives navigation items', () => {

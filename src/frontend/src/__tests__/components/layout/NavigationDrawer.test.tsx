@@ -224,6 +224,30 @@ describe('NavigationDrawer', () => {
       expect(screen.queryByRole('button', { name: 'Toggle sidebar' })).not.toBeInTheDocument();
       expect(screen.queryByTestId('ChevronLeftIcon')).not.toBeInTheDocument();
     });
+
+    it('the mobile overlay has a named close control that calls onClose', async () => {
+      const onClose = vi.fn();
+      const user = userEvent.setup();
+
+      render(
+        <MemoryRouter>
+          <NavigationDrawer {...mockProps} isMobile={true} open={true} onClose={onClose} />
+        </MemoryRouter>
+      );
+
+      await user.click(screen.getByRole('button', { name: 'Close navigation' }));
+      expect(onClose).toHaveBeenCalledTimes(1);
+    });
+
+    it('desktop renders no close control', () => {
+      render(
+        <MemoryRouter>
+          <NavigationDrawer {...mockProps} isMobile={false} />
+        </MemoryRouter>
+      );
+
+      expect(screen.queryByRole('button', { name: 'Close navigation' })).not.toBeInTheDocument();
+    });
   });
 
   describe('Accessibility', () => {

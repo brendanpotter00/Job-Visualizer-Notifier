@@ -4,6 +4,7 @@ import Box from '@mui/material/Box';
 import List from '@mui/material/List';
 import Divider from '@mui/material/Divider';
 import Toolbar from '@mui/material/Toolbar';
+import Button from '@mui/material/Button';
 import ListItem from '@mui/material/ListItem';
 import ListItemButton from '@mui/material/ListItemButton';
 import ListItemIcon from '@mui/material/ListItemIcon';
@@ -309,6 +310,35 @@ export function NavigationDrawer({ open, onClose, drawerWidth, isMobile }: Navig
   const renderDrawerContent = () => (
     <Box id={APP_NAVIGATION_ID} sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <Toolbar />
+      {isMobile && (
+        <Button
+          onClick={onClose}
+          sx={{
+            position: 'absolute',
+            width: '1px',
+            height: '1px',
+            p: 0,
+            m: '-1px',
+            overflow: 'hidden',
+            clip: 'rect(0 0 0 0)',
+            whiteSpace: 'nowrap',
+            border: 0,
+            '&:focus-visible': {
+              position: 'static',
+              width: 'auto',
+              height: 'auto',
+              m: 1,
+              px: 2,
+              py: 1,
+              overflow: 'visible',
+              clip: 'auto',
+              whiteSpace: 'normal',
+            },
+          }}
+        >
+          Close navigation
+        </Button>
+      )}
       {open && (
         <Box sx={{ px: 2.5, pt: 1.25, pb: 0.5 }}>
           <Box

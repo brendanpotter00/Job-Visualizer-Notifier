@@ -115,7 +115,7 @@ describe('GlobalAppBar', () => {
       const { container } = renderAppBar({ ...mockProps, open });
       const appBar = container.querySelector('header');
       expect(appBar).not.toHaveStyle({ marginLeft: '240px' });
-      expect(appBar?.style.marginLeft ?? '').toBe('');
+      expect(appBar).toHaveStyle({ zIndex: '1201' });
     });
   });
 });
