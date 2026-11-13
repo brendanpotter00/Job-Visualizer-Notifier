@@ -1,11 +1,9 @@
-import { styled, useTheme, Theme, CSSObject } from '@mui/material/styles';
+import { styled, Theme, CSSObject } from '@mui/material/styles';
 import MuiDrawer from '@mui/material/Drawer';
 import Box from '@mui/material/Box';
 import List from '@mui/material/List';
 import Divider from '@mui/material/Divider';
-import IconButton from '@mui/material/IconButton';
-import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
-import ChevronRightIcon from '@mui/icons-material/ChevronRight';
+import Toolbar from '@mui/material/Toolbar';
 import ListItem from '@mui/material/ListItem';
 import ListItemButton from '@mui/material/ListItemButton';
 import ListItemIcon from '@mui/material/ListItemIcon';
@@ -38,6 +36,7 @@ import {
 import { useAuth } from '../../features/auth/useAuth';
 import { useCurrentUser } from '../../features/auth/useCurrentUser';
 import { useAppSelector } from '../../app/hooks';
+import { APP_NAVIGATION_ID } from './SidebarToggleButton';
 
 /**
  * Props for the NavigationDrawer component
@@ -47,8 +46,6 @@ interface NavigationDrawerProps {
   open: boolean;
   /** Callback to close the drawer (for mobile) */
   onClose: () => void;
-  /** Callback to toggle collapse state (for desktop) */
-  onToggleCollapse: () => void;
   /** Drawer width in pixels */
   drawerWidth: number;
   /** Whether the current viewport is mobile */
@@ -75,14 +72,6 @@ const closedMixin = (theme: Theme): CSSObject => ({
     width: `calc(${theme.spacing(8)} + 1px)`,
   },
 });
-
-const DrawerHeader = styled('div')(({ theme }) => ({
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'flex-end',
-  padding: theme.spacing(0, 1),
-  ...theme.mixins.toolbar,
-}));
 
 const PermanentDrawer = styled(MuiDrawer, {
   shouldForwardProp: (prop) => prop !== 'open' && prop !== 'drawerWidth',
@@ -122,14 +111,7 @@ const iconMap: Record<IconName, React.ComponentType> = {
   Construction: ConstructionIcon,
 };
 
-export function NavigationDrawer({
-  open,
-  onClose,
-  onToggleCollapse,
-  drawerWidth,
-  isMobile,
-}: NavigationDrawerProps) {
-  const theme = useTheme();
+export function NavigationDrawer({ open, onClose, drawerWidth, isMobile }: NavigationDrawerProps) {
   const navigate = useNavigate();
   const location = useLocation();
   const { isAuthenticated } = useAuth();
@@ -325,13 +307,14 @@ export function NavigationDrawer({
   };
 
   const renderDrawerContent = () => (
-    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <DrawerHeader>
-        <IconButton onClick={isMobile ? onClose : onToggleCollapse}>
-          {theme.direction === 'rtl' ? <ChevronRightIcon /> : <ChevronLeftIcon />}
-        </IconButton>
-      </DrawerHeader>
-      <Divider />
+    <Box id={APP_NAVIGATION_ID} sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      {/* Toolbar-height spacer: the drawer sits UNDER the full-width app bar on
+          every breakpoint (the bar's z-index is drawer + 1, and that includes
+          the mobile overlay, whose modal root also uses zIndex.drawer). The bar
+          owns the one sidebar toggle, so there is deliberately no toggle in
+          here — a copy would be covered by the bar yet still focusable inside
+          the overlay's focus trap. */}
+      <Toolbar />
       {open && (
         <Box sx={{ px: 2.5, pt: 1.25, pb: 0.5 }}>
           <Box

@@ -23,7 +23,6 @@ vi.mock('../../../features/auth/useAuth', () => ({
 const mockProps = {
   open: true,
   onClose: vi.fn(),
-  onToggleCollapse: vi.fn(),
   drawerWidth: 240,
   isMobile: false,
 };
@@ -59,16 +58,20 @@ describe('NavigationDrawer', () => {
       expect(screen.getByTestId('ThumbUpIcon')).toBeInTheDocument();
     });
 
-    it('renders chevron button for collapse/expand', () => {
+    /**
+     * Desktop has NO toggle inside the drawer. The one sidebar toggle lives at
+     * the start of the full-width app bar so it never moves; a chevron at the
+     * drawer's far edge travelled ~170px between open and closed.
+     */
+    it('renders no sidebar toggle on desktop — the app bar owns it', () => {
       render(
         <MemoryRouter>
-          <NavigationDrawer {...mockProps} />
+          <NavigationDrawer {...mockProps} isMobile={false} />
         </MemoryRouter>
       );
 
-      // Chevron button is the icon button in the drawer header
-      const buttons = screen.getAllByRole('button');
-      expect(buttons.length).toBeGreaterThan(0);
+      expect(screen.queryByRole('button', { name: 'Toggle sidebar' })).not.toBeInTheDocument();
+      expect(screen.queryByTestId('ChevronLeftIcon')).not.toBeInTheDocument();
     });
   });
 
@@ -216,40 +219,18 @@ describe('NavigationDrawer', () => {
       expect(onClose).not.toHaveBeenCalled();
     });
 
-    it('clicking chevron on mobile calls onClose', async () => {
-      const onClose = vi.fn();
-      const user = userEvent.setup();
-
+    it('the mobile overlay has no toggle of its own — the app bar stays above it', () => {
+      // The overlay opens beneath the app bar (both use zIndex.drawer, the bar
+      // +1), so the bar's toggle stays visible and is what closes it. A copy in
+      // here would be covered yet still focusable inside the overlay's trap.
       render(
         <MemoryRouter>
-          <NavigationDrawer {...mockProps} isMobile={true} open={true} onClose={onClose} />
+          <NavigationDrawer {...mockProps} isMobile={true} open={true} />
         </MemoryRouter>
       );
 
-      // Find chevron button by test ID icon
-      const chevronButton = screen.getByTestId('ChevronLeftIcon').closest('button');
-      expect(chevronButton).toBeTruthy();
-
-      await user.click(chevronButton!);
-      expect(onClose).toHaveBeenCalledTimes(1);
-    });
-
-    it('clicking chevron on desktop calls onToggleCollapse', async () => {
-      const onToggleCollapse = vi.fn();
-      const user = userEvent.setup();
-
-      render(
-        <MemoryRouter>
-          <NavigationDrawer {...mockProps} isMobile={false} onToggleCollapse={onToggleCollapse} />
-        </MemoryRouter>
-      );
-
-      // First button is the chevron
-      const buttons = screen.getAllByRole('button');
-      const chevronButton = buttons[0];
-
-      await user.click(chevronButton);
-      expect(onToggleCollapse).toHaveBeenCalledTimes(1);
+      expect(screen.queryByRole('button', { name: 'Toggle sidebar' })).not.toBeInTheDocument();
+      expect(screen.queryByTestId('ChevronLeftIcon')).not.toBeInTheDocument();
     });
   });
 

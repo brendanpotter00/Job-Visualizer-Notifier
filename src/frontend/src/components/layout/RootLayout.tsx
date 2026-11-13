@@ -25,8 +25,9 @@ const DrawerHeader = styled('div')(({ theme }) => ({
  * Root layout component for the entire application
  *
  * Features:
- * - Global app bar with drawer toggle
- * - Responsive navigation drawer (persistent on desktop, temporary on mobile)
+ * - Full-width global app bar holding the one sidebar toggle (it never moves)
+ * - Responsive navigation drawer, clipped under the app bar on desktop
+ *   (permanent, full or mini width) and a temporary overlay on mobile
  * - Main content area for page rendering via Outlet
  * - Global footer
  *
@@ -67,16 +68,10 @@ export function RootLayout() {
 
   return (
     <Box sx={{ display: 'flex', minHeight: '100vh', flexDirection: 'column' }}>
-      <GlobalAppBar
-        open={drawerOpen}
-        onDrawerToggle={handleDrawerToggle}
-        drawerWidth={DRAWER_WIDTH}
-        isMobile={isMobile}
-      />
+      <GlobalAppBar open={drawerOpen} onDrawerToggle={handleDrawerToggle} />
       <NavigationDrawer
         open={drawerOpen}
         onClose={handleDrawerClose}
-        onToggleCollapse={handleDrawerToggle}
         drawerWidth={DRAWER_WIDTH}
         isMobile={isMobile}
       />
