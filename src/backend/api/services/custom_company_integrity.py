@@ -74,7 +74,7 @@ from psycopg2.extensions import connection as Connection
 
 logger = logging.getLogger(__name__)
 
-# Bounded read (root CLAUDE.md memory rule). The COUNT is computed separately from the
+# Bounded read (root AGENTS.md memory rule). The COUNT is computed separately from the
 # listing, so a truncated list still reports an honest total rather than "100".
 ORPHAN_LIST_CAP = 100
 

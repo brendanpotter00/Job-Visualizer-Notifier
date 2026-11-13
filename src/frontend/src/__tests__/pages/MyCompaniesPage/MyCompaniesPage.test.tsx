@@ -644,7 +644,7 @@ describe('MyCompaniesPage', () => {
   // any user already tracking a company; it was removed at the owner's request
   // (2026-09-02) — "it's just unnecessary noise. It should only be there when there's an
   // empty state." Its absence is asserted here, and in both directions, so restoring it
-  // is a deliberate act rather than an accident. `src/frontend/CLAUDE.md` records what
+  // is a deliberate act rather than an accident. `src/frontend/AGENTS.md` records what
   // the removal costs.
   describe('the "How it works" link', () => {
     const TRACKED = {

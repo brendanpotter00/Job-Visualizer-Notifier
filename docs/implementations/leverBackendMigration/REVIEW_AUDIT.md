@@ -77,7 +77,7 @@ No Critical or Important findings — no fix commits this pass.
 
 **Verifier results:**
 - Re-ran the inline production verifier checks via MCP. State unchanged from Pass 1 (no traffic between passes). `alembic_version` still `a17b7c0ffee500`; the new revision `b29cd1eef0aab1` chains cleanly off it.
-- Sweep for stale "Lever" doc references across `src/` and `api/` returned the expected hits: 3 `sourceAts: 'lever'` in `companies.ts` (intentional), the Lever Postings API URL in `CLAUDE.md` / `src/frontend/CLAUDE.md` (clarified as "used by backend client"), and the `lever_*` files I created in this PR. No stragglers.
+- Sweep for stale "Lever" doc references across `src/` and `api/` returned the expected hits: 3 `sourceAts: 'lever'` in `companies.ts` (intentional), the Lever Postings API URL in `AGENTS.md` / `src/frontend/AGENTS.md` (clarified as "used by backend client"), and the `lever_*` files I created in this PR. No stragglers.
 - Sweep for stray `'lever'` literals outside the intentional usages (company id, `sourceAts` type, ATSGroupKey, WhyPage test, comments) returned zero matches.
 
 ### Deferred (not fixing this pass)

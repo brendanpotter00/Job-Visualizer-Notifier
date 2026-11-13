@@ -97,7 +97,7 @@ Ran four review agents in parallel (code-reviewer, silent-failure-hunter, pr-tes
 - `get_optional_user` raising 401 on invalid token (not anonymizing) — correct: a bad token is not an anonymous user.
 - JWKS singleton with double-checked locking in `jwt.py:18-36` and `google_jwt.py:19-35` — thread-safe, correct.
 - Provider nesting in `main.tsx` (GoogleOAuthProvider → Auth0Provider → GoogleCredentialProvider) — correct.
-- `ConfigDict(alias_generator=to_camel)` on both `UserResponse` and `UserUpdateRequest` — consistent with backend CLAUDE.md convention.
+- `ConfigDict(alias_generator=to_camel)` on both `UserResponse` and `UserUpdateRequest` — consistent with backend AGENTS.md convention.
 - All identity-resolution tests added in the first audit pass verified present and asserting the right invariants (`test_cross_provider_login_merges_to_one_row`, `test_concurrent_first_login_is_idempotent`, `test_get_me_without_email_claim_returns_401`, `TestGetNormalizedSubject` 5 cases).
 
 ### Already-deferred items re-surfaced (not re-adding to plan)

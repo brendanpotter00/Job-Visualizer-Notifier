@@ -101,7 +101,7 @@ are junk.
 | Nothing / `null` | — | first sight |
 
 `first_seen_at` is the **effective posted date** — the field every recency surface sorts
-by (**`scripts/CLAUDE.md` § Job Lifecycle**). If a board's dates are wrong, the fix belongs
+by (**`scripts/AGENTS.md` § Job Lifecycle**). If a board's dates are wrong, the fix belongs
 in `src/backend/api/services/<ats>_client.py`, or in the recipe for a custom company —
 **never a per-company config toggle.** There is no date-policy column and there is not
 going to be one: every company on the same ATS gets the same rule.

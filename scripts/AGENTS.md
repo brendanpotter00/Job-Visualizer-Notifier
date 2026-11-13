@@ -1,4 +1,4 @@
-# CLAUDE.md
+# AGENTS.md
 
 Multi-Company Job Scraper - A Python-based web scraping framework that extracts job listings from multiple company career sites. Currently supports **Google Careers** (Playwright browser automation), **Apple Jobs** (hybrid HTML + API approach), **Microsoft Careers** (Eightfold ATS JSON APIs), **Amazon Jobs** (public JSON search endpoint, no detail fetch), **TikTok Jobs** (public JSON search endpoint, POST, no detail fetch), and **Meta Jobs** (Playwright GraphQL response sniffing, no pagination, no detail fetch). Designed to feed structured job data into the Job Visualizer application with support for incremental scraping, database persistence, and comprehensive error handling.
 
@@ -100,7 +100,7 @@ pip install -r scripts/requirements-dev.txt      # Install dev dependencies (tes
 - `shared/batch_writer.py` - Buffered batch writing utility
 - `shared/utils.py` - Shared utilities (timestamps)
 - `shared/constants.py` - Shared constants (table names, etc.)
-- Schema is managed by Alembic in `src/backend/alembic/` (see `src/backend/CLAUDE.md` § Schema migrations).
+- Schema is managed by Alembic in `src/backend/alembic/` (see `src/backend/AGENTS.md` § Schema migrations).
 
 **Testing:**
 - `tests/conftest.py` - Shared pytest fixtures
@@ -113,7 +113,7 @@ User runs script → Parse CLI args → Select company scraper → Choose mode (
 
 **Output Format:**
 - **JSON Mode:** Scraped jobs written to `scripts/output/google_jobs.json` with metadata. Schema matches TypeScript `Job` interface from main app (id, source, company, title, location, createdAt, url + 15 extended fields). Compatible with Redux store ingestion.
-- **Database Mode:** Jobs stored in the `job_listings` table (first_seen_at, details_scraped); per-job freshness tracking (last_seen_at, consecutive_misses) lives in the `job_freshness` sidecar table since `18fe9c20a8fd`. Scrape metadata in the `scrape_runs` table. Table names are the same across every environment; test isolation is handled via per-worker Postgres schemas (see `src/backend/CLAUDE.md` § Schema migrations).
+- **Database Mode:** Jobs stored in the `job_listings` table (first_seen_at, details_scraped); per-job freshness tracking (last_seen_at, consecutive_misses) lives in the `job_freshness` sidecar table since `18fe9c20a8fd`. Scrape metadata in the `scrape_runs` table. Table names are the same across every environment; test isolation is handled via per-worker Postgres schemas (see `src/backend/AGENTS.md` § Schema migrations).
 
 **Key Design Patterns:**
 - Async context manager for browser lifecycle
@@ -427,7 +427,7 @@ Edit company-specific `config.py`:
 7. **Rate Limiting is Conservative**: 2-5s delays prevent rate limiting but slow scraping - adjust `config.py` at your own risk
 8. **Run from Project Root**: Always execute as `python scripts/run_scraper.py` not `cd scripts && python run_scraper.py` - path setup depends on project root
 9. **Database Mode Requires --db-url**: Incremental mode requires database connection - use `--db-url postgresql://user:pass@host/db`
-10. **Tables are env-agnostic**: All environments (local, prod, per-worker test schemas) share bare names — `job_listings`, `scrape_runs`, `users`, `user_enabled_companies`. There is no `--env` flag and no `SCRAPER_ENVIRONMENT`. Test isolation uses per-worker Postgres schemas via `PYTEST_SCHEMA` + `search_path`; see `src/backend/CLAUDE.md` § Schema migrations.
+10. **Tables are env-agnostic**: All environments (local, prod, per-worker test schemas) share bare names — `job_listings`, `scrape_runs`, `users`, `user_enabled_companies`. There is no `--env` flag and no `SCRAPER_ENVIRONMENT`. Test isolation uses per-worker Postgres schemas via `PYTEST_SCHEMA` + `search_path`; see `src/backend/AGENTS.md` § Schema migrations.
 11. **Incremental Mode Needs Initial Full Scrape**: First run should be without `--incremental` to populate database, subsequent runs use `--incremental`
 12. **Apple Job IDs Include Location**: Apple job IDs have location suffix for uniqueness - this is intentional to distinguish same role in different locations
 13. **Microsoft Uses Eightfold APIs**: Microsoft scraper primarily uses JSON APIs (`/api/pcsx/*`) with HTML fallback - if APIs change, check Eightfold documentation
@@ -437,5 +437,5 @@ Edit company-specific `config.py`:
 
 - **ARCHITECTURE.md** - Detailed architecture documentation with workflow diagrams
 - **README.md** - User-facing documentation
-- **Root CLAUDE.md** - Parent project documentation
+- **Root AGENTS.md** - Parent project documentation
 - **TypeScript Job Model**: `src/frontend/src/types/index.ts` - Data model that scraper output aligns with

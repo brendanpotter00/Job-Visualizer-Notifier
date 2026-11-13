@@ -543,7 +543,7 @@
             <div class="collapse-title"><div class="flex items-center gap-3 flex-wrap"><span class="badge badge-primary">Unit 3</span><span class="font-semibold">Tier 1 — alias-cache lookup</span></div></div>
             <div class="collapse-content text-sm space-y-2">
               <p><strong>Changes:</strong> new <code>services/location_normalization.py</code> — <code>normalize_string()</code> (pure) + <code>lookup_alias(conn, raw) -&gt; list[int] | None</code>. Reuse the <code>ThreadedConnectionPool</code> + <code>RealDictCursor</code> style from <code>services/database.py</code>.</p>
-              <p class="text-base-content/60"><strong>Verify:</strong> unit tests, seeded aliases — single hit, multi hit, miss→None, normalization edge cases. Coverage &gt;80% (per updated CLAUDE.md).</p>
+              <p class="text-base-content/60"><strong>Verify:</strong> unit tests, seeded aliases — single hit, multi hit, miss→None, normalization edge cases. Coverage &gt;80% (per updated AGENTS.md).</p>
             </div>
           </div>
 

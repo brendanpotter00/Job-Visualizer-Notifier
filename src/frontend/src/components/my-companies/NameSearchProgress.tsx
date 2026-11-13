@@ -42,7 +42,7 @@ import {
  * A staged spinner pretending to watch each stage happen was the alternative, and
  * it is worse than no animation at all: this app's whole claim is that the UI states
  * what it actually knows — see the row-chip and "Last fetched" rules in
- * `src/frontend/CLAUDE.md` — and a progress bar over work that already finished is
+ * `src/frontend/AGENTS.md` — and a progress bar over work that already finished is
  * the one lie that would cost that claim. If a later version wants the stages to
  * land as they truly happen, the fix is to make the endpoint stream them, never to
  * add a timer here.

@@ -464,8 +464,8 @@ The field is optional throughout. Only Greenhouse/Ashby/Lever `backend-scraper` 
 - `src/frontend/src/api/clients/baseClient.ts` — remove `LeverConfig` from `ATSCompanyConfig` union and from APIError construction
 - `src/frontend/src/features/app/appSlice.ts` — if default `selectedATS` was `Lever`, change to `BackendScraper`
 - `vercel.json` / `vercel.ts` — remove the Lever route definition (if present)
-- `CLAUDE.md` (root) — remove Lever from "ATS APIs (Lever, Workday, Gem, Eightfold)" list; update Vercel function list (remove `api/lever.ts`)
-- `src/frontend/CLAUDE.md` — remove Lever from frontend client list; remove `createLeverCompany()` from the factory list; update Vercel functions section
+- `AGENTS.md` (root) — remove Lever from "ATS APIs (Lever, Workday, Gem, Eightfold)" list; update Vercel function list (remove `api/lever.ts`)
+- `src/frontend/AGENTS.md` — remove Lever from frontend client list; remove `createLeverCompany()` from the factory list; update Vercel functions section
 
 **Changes:**
 
@@ -497,8 +497,8 @@ The field is optional throughout. Only Greenhouse/Ashby/Lever `backend-scraper` 
 - Grep for Lever MSW handlers under `src/frontend/src/__tests__/` (commonly in a `handlers.ts` or `mocks/` file). Remove any handlers targeting `api.lever.co` or `/api/lever/*`.
 
 **Doc updates:**
-- Update root `CLAUDE.md`: remove Lever from "ATS APIs (Lever, Workday, Gem, Eightfold)" list; update Vercel function list (remove `api/lever.ts`).
-- Update `src/frontend/CLAUDE.md`: remove Lever from frontend client list; remove `createLeverCompany()` from the factory list; update Vercel functions section.
+- Update root `AGENTS.md`: remove Lever from "ATS APIs (Lever, Workday, Gem, Eightfold)" list; update Vercel function list (remove `api/lever.ts`).
+- Update `src/frontend/AGENTS.md`: remove Lever from frontend client list; remove `createLeverCompany()` from the factory list; update Vercel functions section.
 
 **Tests:**
 - `npm run type-check` clean across `src/frontend/`.
@@ -609,7 +609,7 @@ The field is optional throughout. Only Greenhouse/Ashby/Lever `backend-scraper` 
 | `src/frontend/src/api/clients/baseClient.ts` | edit (drop `LeverConfig` union member) | 7 |
 | `api/lever.ts` | **delete** | 7 |
 | `vercel.json` / `vercel.ts` | edit (route cleanup if present) | 7 |
-| `CLAUDE.md`, `src/frontend/CLAUDE.md` | edit (docs) | 7 |
+| `AGENTS.md`, `src/frontend/AGENTS.md` | edit (docs) | 7 |
 | `src/frontend/src/pages/WhyPage/atsGrouping.ts` | edit (add lever key + display name) | 8 |
 | `src/frontend/src/__tests__/pages/WhyPage/WhyPage.test.tsx` | edit (new Lever column tests) | 8 |
 | `docs/implementations/leverBackendMigration/DEPLOY.md` | new | 9 |

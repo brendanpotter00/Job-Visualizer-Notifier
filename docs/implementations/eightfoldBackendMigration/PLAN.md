@@ -126,7 +126,7 @@ Structural copy of `fetch_ashby_company.py`. Signature: `(company_id, board_toke
 - `POST /trigger-eightfold-fan-out` — admin-only, defers `enqueue_eightfold_fan_out`.
 
 ### Unit 7 — Frontend cutover
-Delete `eightfoldClient.ts`, `eightfoldTransformer.ts`, their tests, `eightfold.serverless.test.ts`, `api/eightfold.ts`, MSW handlers. Flip Netflix in `companies.ts` to `createBackendScraperCompany('netflix', 'Netflix', 'https://explore.jobs.netflix.net/', { sourceAts: 'eightfold', ... })`. Drop `createEightfoldCompany` factory. Widen `Company.sourceAts` union. Remove `'eightfold'` from `ATSProvider` (stays on `ATSGroupKey`). Remove `EightfoldConfig`, `EightfoldJobPosition`, `EightfoldAPIResponse`, etc. Edit `vercel.json` (remove rewrite + `X-Eightfold-Tenant-Host` header). Update `CLAUDE.md`.
+Delete `eightfoldClient.ts`, `eightfoldTransformer.ts`, their tests, `eightfold.serverless.test.ts`, `api/eightfold.ts`, MSW handlers. Flip Netflix in `companies.ts` to `createBackendScraperCompany('netflix', 'Netflix', 'https://explore.jobs.netflix.net/', { sourceAts: 'eightfold', ... })`. Drop `createEightfoldCompany` factory. Widen `Company.sourceAts` union. Remove `'eightfold'` from `ATSProvider` (stays on `ATSGroupKey`). Remove `EightfoldConfig`, `EightfoldJobPosition`, `EightfoldAPIResponse`, etc. Edit `vercel.json` (remove rewrite + `X-Eightfold-Tenant-Host` header). Update `AGENTS.md`.
 
 ### Unit 8 — Why-page Eightfold capitalization
 Edit `atsGrouping.ts`: `ATS_DISPLAY_NAMES.eightfold = 'Eightfold'` (capitalize). Add `'eightfold'` to `NON_CAPITALIZED_GROUPS`. Add WhyPage tests.

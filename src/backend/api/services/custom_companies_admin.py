@@ -74,7 +74,7 @@ _ALL_OUTCOMES = (
     "stuck",
 )
 
-# Hard cap on the per-user rollup (root CLAUDE.md's unbounded-reads rule). The
+# Hard cap on the per-user rollup (root AGENTS.md's unbounded-reads rule). The
 # query fetches cap+1 so a full page can be reported as truncated.
 _USER_ROLLUP_CAP = 200
 

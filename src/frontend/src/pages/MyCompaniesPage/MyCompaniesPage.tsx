@@ -332,7 +332,7 @@ export function MyCompaniesPage() {
      * monthly adds. The disclosure that used to sit under the button — "If this board is
      * new to us, Add company starts a one-time setup right away, about a minute" — was
      * removed at the owner's request on 2026-09-02 (see `ResolveUrlForm` and
-     * `src/frontend/CLAUDE.md`). So from here a single press goes from keystroke to paid
+     * `src/frontend/AGENTS.md`). So from here a single press goes from keystroke to paid
      * discovery with NOTHING on screen saying so. That is the owner's call and the spend
      * is still bounded server-side (20 adds per UTC month, a 10/60s burst limit,
      * `CUSTOM_COMPANY_DISCOVERY_ENABLED`) — what is missing is the disclosure, not the
@@ -455,7 +455,7 @@ export function MyCompaniesPage() {
               noise. It should only be there when there's an empty state, showing how to
               do it." The steps have since gone as well — they described the URL-only
               flow the name search superseded — so there is no explanation left for a
-              link to point back at. See `src/frontend/CLAUDE.md`. */}
+              link to point back at. See `src/frontend/AGENTS.md`. */}
         </Paper>
 
         {/* One spinner for the one call. No `!adding` guard on the outcome below it:

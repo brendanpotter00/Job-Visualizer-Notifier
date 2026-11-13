@@ -106,7 +106,7 @@ None — all findings are nits or design-locked decisions documented in PLAN.md 
 
 ### Methodology
 
-Re-read every file changed by this PR with focus on edge cases NOT covered by tests. Specifically: race conditions between fan-out + admin trigger, JSONB serialization round-trips, CLAUDE.md drift.
+Re-read every file changed by this PR with focus on edge cases NOT covered by tests. Specifically: race conditions between fan-out + admin trigger, JSONB serialization round-trips, AGENTS.md drift.
 
 ### Pass 2 findings
 
@@ -118,15 +118,15 @@ Procrastinate's `queueing_lock` is enforced at the connector layer via `SELECT .
 
 This is intentionally stricter than the precedent. The Eightfold endpoint runs `cur.execute` inside `to_thread` so the FastAPI event loop isn't blocked during the cursor round-trip. The Ashby + Greenhouse triggers carry a small block at `cur.execute` time, but their existing review passes accepted it. Carrying the extra rigor forward without retrofitting the older endpoints is the right call (it's additive, not regressive). **No fix.**
 
-**3. [Important] CLAUDE.md drift check.**
+**3. [Important] AGENTS.md drift check.**
 
-Root `CLAUDE.md`:
+Root `AGENTS.md`:
 - "ATS APIs (Lever, Workday, Gem, Eightfold)" → now "(Lever, Workday, Gem)" (Eightfold moved to backend).
 - Backend-served list now includes "Eightfold/Netflix".
 - Vercel function list: `api/eightfold.ts` removed.
 - "Adding a Company" guidance mentions `sourceAts: 'eightfold'`.
 
-`src/frontend/CLAUDE.md`:
+`src/frontend/AGENTS.md`:
 - "Five ATS providers" → "Four ATS providers".
 - `createEightfoldCompany()` removed.
 - `createBackendScraperCompany` widened to mention `'eightfold'`.

@@ -1,13 +1,13 @@
-# CLAUDE.md
+# AGENTS.md
 
 Job Posting Analytics - A monorepo containing a TypeScript + React frontend, Python FastAPI backend, and Python scraping scripts. The frontend visualizes job posting activity over time for multiple companies, all served from the backend's `/api/jobs` endpoint (Greenhouse, Ashby, Lever, Gem, Eightfold/Netflix, and Workday boards, plus Google, Apple, Microsoft, Amazon, TikTok). Built with Redux Toolkit, Recharts, and Material-UI.
 
 ## Project Structure
 
 ```
-├── src/frontend/          # React SPA (see src/frontend/CLAUDE.md)
-├── src/backend/api/       # FastAPI backend (see src/backend/CLAUDE.md)
-├── scripts/               # Python scrapers (see scripts/CLAUDE.md)
+├── src/frontend/          # React SPA (see src/frontend/AGENTS.md)
+├── src/backend/api/       # FastAPI backend (see src/backend/AGENTS.md)
+├── scripts/               # Python scrapers (see scripts/AGENTS.md)
 ├── api/                   # Vercel serverless functions (ATS proxies)
 └── docs/                  # Docs: local setup, implementations, incidents, analysis, enrichment, animations
 ```
@@ -120,7 +120,7 @@ Automatic per-PR preview deploys are **off** — root `vercel.json` sets `git.de
 
 ## Vercel Serverless Functions (api/)
 
-- `api/jobs.ts` - Backend jobs API proxy for `GET /api/jobs`, `GET /api/jobs/search` (the Recent page's server-side filtered read path; see `src/backend/CLAUDE.md`), `GET /api/jobs/facets` and `GET /api/jobs/settings` — the reachable sub-paths are exactly `facets`, `search`, `settings`. Its repeatable search params are `category`, `subcategory`, `level`, `company`, `location`, `include`, `exclude`; each is **appended**, never `set`, because `String()` on an array comma-joins it and two selected slugs would arrive as one bogus slug that matches nothing, with a 200. Note it **allow-lists** sub-paths AND query params (an unforwarded param is silently dropped, not an error) and must **explicitly re-emit any response header** — the shared `forwardResponse` helper copies status + body only. `X-Next-Cursor` (keyset pagination) is forwarded for exactly this reason; see the keyset section in `src/backend/CLAUDE.md`.
+- `api/jobs.ts` - Backend jobs API proxy for `GET /api/jobs`, `GET /api/jobs/search` (the Recent page's server-side filtered read path; see `src/backend/AGENTS.md`), `GET /api/jobs/facets` and `GET /api/jobs/settings` — the reachable sub-paths are exactly `facets`, `search`, `settings`. Its repeatable search params are `category`, `subcategory`, `level`, `company`, `location`, `include`, `exclude`; each is **appended**, never `set`, because `String()` on an array comma-joins it and two selected slugs would arrive as one bogus slug that matches nothing, with a 200. Note it **allow-lists** sub-paths AND query params (an unforwarded param is silently dropped, not an error) and must **explicitly re-emit any response header** — the shared `forwardResponse` helper copies status + body only. `X-Next-Cursor` (keyset pagination) is forwarded for exactly this reason; see the keyset section in `src/backend/AGENTS.md`.
 - `api/jobs-qa.ts` - Backend QA endpoints proxy
 - `api/users.ts` - Backend users API proxy (forwards Authorization header)
 - `api/features.ts` - Feature voting API proxy (forwards Authorization header)
@@ -133,8 +133,8 @@ Automatic per-PR preview deploys are **off** — root `vercel.json` sets `git.de
 
 - **src/frontend/docs/architecture.md** - Comprehensive Mermaid diagrams for data flow, state shape, factory patterns
 - **src/frontend/docs/IMPLEMENTATION.md** - Detailed implementation notes
-- **src/frontend/CLAUDE.md** - Frontend-specific documentation
-- **src/backend/CLAUDE.md** - Backend API documentation
-- **scripts/CLAUDE.md** - Python scraper documentation
+- **src/frontend/AGENTS.md** - Frontend-specific documentation
+- **src/backend/AGENTS.md** - Backend API documentation
+- **scripts/AGENTS.md** - Python scraper documentation
 - **Greenhouse API**: https://developers.greenhouse.io/job-board.html
 - **Lever Postings API** (used by backend client): https://github.com/lever/postings-api

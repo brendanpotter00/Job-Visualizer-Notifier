@@ -2,7 +2,7 @@
 
 **Date:** 2026-05-02 05:49 UTC (first hard failure), 2026-05-05 (root cause identified and preventive fixes authored)
 **Severity:** High
-**Impact:** All hourly scrape cycles for apple, google, and microsoft failed for ~3 days. Every `BrowserType.launch` aborted before any URL was requested, so no new jobs were ingested and no jobs were updated. Existing data in `job_listings_prod` was unaffected (the incremental safety guard from the 2026-03-29 incident prevented mass closure on 0-job runs). The acute outage cleared on 2026-05-05T14:36:53Z when an unrelated commit (`42b081b2`, PR #95 — `docs(claude): weekly CLAUDE.md audit`) edited `src/backend/CLAUDE.md`, matching the Railway watch pattern `/src/backend/**` and inadvertently triggering a redeploy. The container restart drained the leaked PIDs and restored hourly cycles. This PR's value is therefore strictly preventive — installing the load-bearing init reaper and the defensive cleanup so the next ~13-day buildup cannot recur.
+**Impact:** All hourly scrape cycles for apple, google, and microsoft failed for ~3 days. Every `BrowserType.launch` aborted before any URL was requested, so no new jobs were ingested and no jobs were updated. Existing data in `job_listings_prod` was unaffected (the incremental safety guard from the 2026-03-29 incident prevented mass closure on 0-job runs). The acute outage cleared on 2026-05-05T14:36:53Z when an unrelated commit (`42b081b2`, PR #95 — `docs(claude): weekly CLAUDE.md audit`) edited `src/backend/AGENTS.md`, matching the Railway watch pattern `/src/backend/**` and inadvertently triggering a redeploy. The container restart drained the leaked PIDs and restored hourly cycles. This PR's value is therefore strictly preventive — installing the load-bearing init reaper and the defensive cleanup so the next ~13-day buildup cannot recur.
 
 ## Summary
 
@@ -20,7 +20,7 @@ The Railway-hosted backend container ran continuously for ~13 days from deploy `
 | 2026-05-02 — 2026-05-05 | Every hourly cycle fails identically across all three companies. Per-company try/except keeps the loop alive; incremental safety guard (PR #25) prevents mass closure of existing jobs. |
 | 2026-05-05            | Unit 1 (tini ENTRYPOINT) committed (`6ca8e31`). |
 | 2026-05-05            | Unit 2 (defensive `initialize_browser`) committed (`079df2c`). |
-| 2026-05-05 14:36:53Z  | **Outage cleared (incidentally).** Railway deployment `9c9251cd` goes live, built from unrelated commit `42b081b2` (PR #95, `docs(claude): weekly CLAUDE.md audit`). That commit edits `src/backend/CLAUDE.md`, which matches the watch pattern `/src/backend/**` and triggered a redeploy. The container restart drained the leaked PIDs and the next hourly cycle succeeded. The fix in this PR was not yet deployed at that point; recovery was an unrelated side-effect. |
+| 2026-05-05 14:36:53Z  | **Outage cleared (incidentally).** Railway deployment `9c9251cd` goes live, built from unrelated commit `42b081b2` (PR #95, `docs(claude): weekly CLAUDE.md audit`). That commit edits `src/backend/AGENTS.md`, which matches the watch pattern `/src/backend/**` and triggered a redeploy. The container restart drained the leaked PIDs and the next hourly cycle succeeded. The fix in this PR was not yet deployed at that point; recovery was an unrelated side-effect. |
 | 2026-05-05            | This PR (Units 1–3) merges to `main`. Railway redeploys with tini as PID 1 and the defensive `initialize_browser` cleanup, removing both ratcheting axes for future cycles. |
 
 ## Root Cause

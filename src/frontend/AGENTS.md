@@ -1,8 +1,8 @@
-# Frontend CLAUDE.md
+# Frontend AGENTS.md
 
 React SPA for job posting analytics. Visualizes job posting activity over time for multiple companies, all served via the backend `/api/jobs` endpoint (Greenhouse, Ashby, Lever, Gem, Eightfold/Netflix, and Workday boards, plus Google, Apple, Microsoft, Amazon, TikTok). Built with Redux Toolkit, Recharts, and Material-UI.
 
-**Note:** Commands should be run from project root (not this directory). See root CLAUDE.md for full project context.
+**Note:** Commands should be run from project root (not this directory). See root AGENTS.md for full project context.
 
 ## Commands (from project root)
 
@@ -831,7 +831,7 @@ Located in project root `api/` directory (proxies to avoid CORS):
 
 ## See Also
 
-- **Root CLAUDE.md** - Full project documentation including backend and scripts
+- **Root AGENTS.md** - Full project documentation including backend and scripts
 - **docs/architecture.md** - Comprehensive Mermaid diagrams for data flow, state shape, factory patterns (located at `src/frontend/docs/architecture.md`)
 - **Greenhouse API**: https://developers.greenhouse.io/job-board.html
 - **Lever Postings API** (used by backend client): https://github.com/lever/postings-api

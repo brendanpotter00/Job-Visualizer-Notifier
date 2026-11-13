@@ -534,7 +534,7 @@ existing three onto the seam is optional and must not change behaviour.
 an ATS value for custom companies to satisfy it.
 
 **R8 — half-off deployments.** The frontend flag and the backend flag are independent
-(`src/frontend/CLAUDE.md:279-282`); the backend answers 503 while its flag is off. The custom
+(`src/frontend/AGENTS.md:279-282`); the backend answers 503 while its flag is off. The custom
 branch must render an error state, never a blank chart, on a 503.
 
 ---

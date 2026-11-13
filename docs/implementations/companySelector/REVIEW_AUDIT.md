@@ -6,7 +6,7 @@
 
 ## 2026-04-18 — Round 1 review (PR #67)
 
-Review run via the `/code-review` skill at head SHA `8357868310afb1ef2946888c7e417c9e859c6c80`. Five parallel reviewers (CLAUDE.md compliance, shallow bug scan, git-history context, past-PR comments, code-comment compliance) produced three candidate issues. Each was scored 0–100 for real-vs-false-positive; only issues ≥80 made the posted comment.
+Review run via the `/code-review` skill at head SHA `8357868310afb1ef2946888c7e417c9e859c6c80`. Five parallel reviewers (AGENTS.md compliance, shallow bug scan, git-history context, past-PR comments, code-comment compliance) produced three candidate issues. Each was scored 0–100 for real-vs-false-positive; only issues ≥80 made the posted comment.
 
 Comment posted: https://github.com/brendanpotter00/Job-Visualizer-Notifier/pull/67#issuecomment-4273046171
 
@@ -26,7 +26,7 @@ The mirrored `useCurrentUser.ts` pattern (added in the auth0 second-review pass,
 
 These are tracked so the next reviewer doesn't re-flag them without new evidence:
 
-- **Env-name interpolation bypass (scored 50).** `scripts/shared/database.py:235` and `src/backend/api/services/user_preferences_service.py:13` build the `user_enabled_companies_{env}` table name via raw f-string instead of routing through the `_get_table_name(env, …)` helper that calls `_is_valid_env`. Every other table in the codebase goes through that helper. In practice `env` is validated at app startup by Pydantic config, so the SQL-injection risk is theoretical and no CLAUDE.md explicitly mandates the helper. Worth unifying for consistency/defense-in-depth if this file is touched again, but not blocking.
+- **Env-name interpolation bypass (scored 50).** `scripts/shared/database.py:235` and `src/backend/api/services/user_preferences_service.py:13` build the `user_enabled_companies_{env}` table name via raw f-string instead of routing through the `_get_table_name(env, …)` helper that calls `_is_valid_env`. Every other table in the codebase goes through that helper. In practice `env` is validated at app startup by Pydantic config, so the SQL-injection risk is theoretical and no AGENTS.md explicitly mandates the helper. Worth unifying for consistency/defense-in-depth if this file is touched again, but not blocking.
 - **`reload()` race on rapid successive calls (scored 25).** `useEnabledCompanies.ts` aborts the current promise and then awaits `getToken().then(...)` before setting `activePromise.current`. Two rapid `reload()` calls can both reach `dispatch(loadEnabledCompanies(token))` because the first `getToken()` promise is not abortable. Only matters for external callers invoking `reload()` manually — no such caller exists today; the only internal caller is the `useEffect`, which fires once per auth-state change.
 
 ### Tests added / changed
@@ -39,7 +39,7 @@ These are tracked so the next reviewer doesn't re-flag them without new evidence
 
 ## 2026-04-18 — Round 2 review (PR #67)
 
-Review run via the `/code-review` skill reviewer pattern (manual, 5 parallel perspectives: CLAUDE.md compliance, shallow bug scan, git-history context, past-PR comments, code-comment compliance) at head SHA `a836d20200d96f45eb57df66cc33a7b7c450381c`. No findings scored ≥80 — **no review comment posted** (per skill step 6, skip posting when the filtered set is empty). This Round 2 entry documents the sub-threshold candidates so Round 3 does not re-flag them without new evidence.
+Review run via the `/code-review` skill reviewer pattern (manual, 5 parallel perspectives: AGENTS.md compliance, shallow bug scan, git-history context, past-PR comments, code-comment compliance) at head SHA `a836d20200d96f45eb57df66cc33a7b7c450381c`. No findings scored ≥80 — **no review comment posted** (per skill step 6, skip posting when the filtered set is empty). This Round 2 entry documents the sub-threshold candidates so Round 3 does not re-flag them without new evidence.
 
 ### No findings above threshold
 
@@ -74,7 +74,7 @@ All candidate issues surfaced during Round 2 scored below the 80 posting thresho
 
 ## 2026-04-18 — Round 3 review (PR #67, final)
 
-Review run via the `/code-review` skill reviewer pattern (manual, 5 parallel perspectives: CLAUDE.md compliance, shallow bug scan, git-history context, past-PR comments, code-comment compliance) at head SHA `6626cb4377d7b367fac383e0cfed46a83e79ad51`. No findings scored ≥80 — **no review comment posted** (per skill step 6, skip posting when the filtered set is empty). This Round 3 entry documents what was re-checked and confirms the Round 1 + Round 2 invariants still hold on the current tip.
+Review run via the `/code-review` skill reviewer pattern (manual, 5 parallel perspectives: AGENTS.md compliance, shallow bug scan, git-history context, past-PR comments, code-comment compliance) at head SHA `6626cb4377d7b367fac383e0cfed46a83e79ad51`. No findings scored ≥80 — **no review comment posted** (per skill step 6, skip posting when the filtered set is empty). This Round 3 entry documents what was re-checked and confirms the Round 1 + Round 2 invariants still hold on the current tip.
 
 Note: the only code commits in this PR since Round 2 are docs-only (`6626cb4` appended the Round 2 entry). The on-disk frontend and backend source is the same as the Round 2 tip (`a836d20`), so no new code surface materialized between rounds. Round 3 re-ran the reviewer pattern against the same source to confirm stability before the user merges.
 

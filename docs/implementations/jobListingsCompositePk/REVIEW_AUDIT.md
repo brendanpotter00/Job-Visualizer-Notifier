@@ -155,7 +155,7 @@ Dispatched 5 code-review agents + 2 production verifiers in parallel.
 - Migration docstring two-guard precision — already accurate enough.
 - Rename `greenhouse_fetch` → `fetch_greenhouse_company` in comment at test_fetch_greenhouse_company.py:150 — Suggestion-tier polish.
 - Decide WARNING vs ERROR for divergence — semantic call; defer to user.
-- Larger refactors: `Literal[…]` source_id type, BaseScraper.SOURCE_ID ClassVar, CLAUDE.md API Endpoints update, ARCHITECTURE.md update, Postgres docker image bump.
+- Larger refactors: `Literal[…]` source_id type, BaseScraper.SOURCE_ID ClassVar, AGENTS.md API Endpoints update, ARCHITECTURE.md update, Postgres docker image bump.
 
 ### Implementation applied
 
@@ -210,7 +210,7 @@ Dispatched 5 code-review agents + 2 production verifiers in parallel.
 
 **Suggestion / FYI:**
 
-- `src/backend/CLAUDE.md` API Endpoints section still lists `GET /api/jobs/{id}`; should be `/{source_id}/{id}`. Picked up by `/document-release` post-merge or addressable here. (code-reviewer FYI)
+- `src/backend/AGENTS.md` API Endpoints section still lists `GET /api/jobs/{id}`; should be `/{source_id}/{id}`. Picked up by `/document-release` post-merge or addressable here. (code-reviewer FYI)
 - Migration downgrade pre-flight only checks Greenhouse↔non-Greenhouse `'greenhouse_' || id` collisions, not two distinct non-Greenhouse sources sharing a raw id. Real-world risk is low. (code-reviewer FYI)
 - `SOURCE_ID` is duplicated as class attribute in 3 scrapers and a module constant in `greenhouse_client.py` with no shared registry. (type-design-analyzer Suggestion #4+#5, silent-failure-hunter Suggestion #5)
 - `BaseScraper` docstring doesn't list `SOURCE_ID` in "subclasses must implement". (comment-analyzer Suggestion)
@@ -245,7 +245,7 @@ Dispatched 5 code-review agents + 2 production verifiers in parallel.
 - Centralizing `SOURCE_ID` into a shared registry (new `src/backend/api/services/source_ids.py` or similar). Larger refactor than this PR's stated scope; flag for a follow-up.
 - Adding `SOURCE_ID: ClassVar[str]` to `BaseScraper`. Out of PR scope.
 - Updating `scripts/ARCHITECTURE.md`. Out of PR scope; handled by `/document-release`.
-- Updating `src/backend/CLAUDE.md` API Endpoints section. Out of PR scope; handled by `/document-release`.
+- Updating `src/backend/AGENTS.md` API Endpoints section. Out of PR scope; handled by `/document-release`.
 - Bumping `docker-compose.yml` Postgres image to 17. Out of PR scope; separate concern affecting all migrations.
 - Investigating pre-existing pool exhaustion and silently-broken Greenhouse cron. Separate incidents, surface to user in PR body.
 

@@ -8,7 +8,7 @@ What's growing unevenly and needs to tighten up:
 - **Duplicated loading/error UI at page level.** `AccountPage` and `QAPage` inline `<CircularProgress />` in centered `Box`es and hand-roll `<Alert severity="error" ...>` blocks despite `LoadingIndicator` and `ErrorDisplay` existing and being used elsewhere. `CompaniesPageContent` has its own centered-spinner variant. `EnabledCompaniesSection` does the same. At least 6 duplications to collapse.
 - **Ad-hoc fetch-with-status inside QAPage.** `QAPage.tsx` hand-rolls three `useState(loading/error/data)` + `useEffect(fetch)` blocks for `/api/jobs`, `/api/jobs-qa/scrape-runs`, and `/api/jobs-qa/trigger-scrape`. None has an AbortController (unlike `useCurrentUser.ts` and `useEnabledCompanies.ts`, which do it right). This is a leaking pattern and the only page in the app that still handles its own fetch lifecycle.
 - **`createFilterSlice` has 10+ `as any` casts** suppressing real type drift on department/company field access across `GraphFilters | ListFilters | RecentJobsFilters`. The factory's type variable `T extends Filters` loses narrowing when reducers access fields that only exist on some members. Fixable without changing behavior via a stricter generic plus helper-type guards.
-- **Tests miss the page components** that coordinate state: `RecentJobPostingsPage`, `CompaniesPage`, `CompaniesPageContent`, `WhyPage` have no `*.test.tsx`. Also missing: `GraphFilters`, `ListFilters`, `RecentJobsFilters`, `CompanyChipGrid`, `CompanySearchAddInput`, `SelectedCompaniesPanel`, `BrowseCompaniesAccordion`, `MultiSelectAutocomplete`, `SearchTagsInput`, `SoftwareOnlyToggle`, `TimeWindowSelect`, `SyncFiltersButton`, `JobPostingsChart`, `GraphSection`, `ListSection`, `ChartTooltip`, `CustomDot`, `MetricsRow`, `MetricCard`, `LinksRow`. Vitest coverage thresholds are set at 80%; the project's written bar per `CLAUDE.md` is >85%.
+- **Tests miss the page components** that coordinate state: `RecentJobPostingsPage`, `CompaniesPage`, `CompaniesPageContent`, `WhyPage` have no `*.test.tsx`. Also missing: `GraphFilters`, `ListFilters`, `RecentJobsFilters`, `CompanyChipGrid`, `CompanySearchAddInput`, `SelectedCompaniesPanel`, `BrowseCompaniesAccordion`, `MultiSelectAutocomplete`, `SearchTagsInput`, `SoftwareOnlyToggle`, `TimeWindowSelect`, `SyncFiltersButton`, `JobPostingsChart`, `GraphSection`, `ListSection`, `ChartTooltip`, `CustomDot`, `MetricsRow`, `MetricCard`, `LinksRow`. Vitest coverage thresholds are set at 80%; the project's written bar per `AGENTS.md` is >85%.
 - **Two `// eslint-disable` comments on react-hooks rules** (`useCompanyLoader.ts:39` disables `exhaustive-deps`; `RootLayout.tsx:50` disables `set-state-in-effect`). `useCompanyLoader`'s disable hides a subtle mount-vs-nav issue. `RootLayout`'s is intentional but can be refactored to a `useSyncExternalStore`-free `useLayoutEffect` pattern with an explicit prev ref, eliminating the disable.
 - **No typed error envelope.** `useCompanyLoader` decodes RTK Query errors inline with a nested ternary; the same decode exists in `jobsSelectors.ts` and the page alerts. One shared `extractErrorMessage(err: unknown): string` utility would kill three near-identical blocks.
 
@@ -215,7 +215,7 @@ Tests cover all five branches plus `null`/`undefined`.
 **Prerequisites:** Unit 1 (exhaustive-deps escalated to error)
 **Owned files (modify):**
 - `src/frontend/src/hooks/useCompanyLoader.ts` — the `// eslint-disable-next-line react-hooks/exhaustive-deps` on line 39 papers over an intentional "only re-run on page change, not selectedCompanyId change" choice. Refactor: split the effect into two: (a) an `isCompaniesPage` transition effect that reads URL once, (b) RTK Query's `{ skip }` already handles the fetch lifecycle. Remove the disable.
-- `src/frontend/src/components/layout/RootLayout.tsx` — line 50's `set-state-in-effect` disable is syncing `drawerOpen` with `isMobile` breakpoint. Keep this one: the disable has a clear comment, the pattern is a documented React idiom for external sync, and refactoring to `useSyncExternalStore` against a media-query listener would be a visual-regression risk. Leave as-is; document in `src/frontend/CLAUDE.md` (Unit 10) why.
+- `src/frontend/src/components/layout/RootLayout.tsx` — line 50's `set-state-in-effect` disable is syncing `drawerOpen` with `isMobile` breakpoint. Keep this one: the disable has a clear comment, the pattern is a documented React idiom for external sync, and refactoring to `useSyncExternalStore` against a media-query listener would be a visual-regression risk. Leave as-is; document in `src/frontend/AGENTS.md` (Unit 10) why.
 - `src/frontend/src/components/companies-page/MetricsDashboard/hooks/useTimeBasedJobCounts.ts` — line 19's `react-hooks/purity` disable is on `Date.now()`. Correct behavior; keep with comment. No change.
 - `src/frontend/src/components/companies-page/FetchProgressBar/FetchProgressBar.tsx` — line 65's `set-state-in-effect` disable. Similar "external prop sync" pattern. Keep if behaviorally correct; otherwise refactor to derive `expanded` from props. Investigate during the unit and decide.
 
@@ -332,7 +332,7 @@ Tests cover all five branches plus `null`/`undefined`.
 **Status:** DONE
 **Prerequisites:** Units 1–9 merged
 **Owned files (modify):**
-- `src/frontend/CLAUDE.md` — add a **"Frontend Foundations"** section under "Architecture Quick Reference" documenting: the shared primitives (`LoadingState`, `ErrorState`, `EmptyState`, `extractErrorMessage`, `useFetchWithStatus`), the rule that all Redux consumers use typed hooks from `app/hooks.ts`, the rule that page-level fetch lifecycles use `useFetchWithStatus` or RTK Query (never inline `useState`+`useEffect`+`fetch`), and the explicit list of remaining `eslint-disable` comments with justifications.
+- `src/frontend/AGENTS.md` — add a **"Frontend Foundations"** section under "Architecture Quick Reference" documenting: the shared primitives (`LoadingState`, `ErrorState`, `EmptyState`, `extractErrorMessage`, `useFetchWithStatus`), the rule that all Redux consumers use typed hooks from `app/hooks.ts`, the rule that page-level fetch lifecycles use `useFetchWithStatus` or RTK Query (never inline `useState`+`useEffect`+`fetch`), and the explicit list of remaining `eslint-disable` comments with justifications.
 - `src/frontend/docs/architecture.md` — add a short paragraph pointing at the new shared primitives and `lib/errors.ts`. Don't rewrite Mermaid diagrams.
 
 **Owned files (create):** none.
@@ -367,7 +367,7 @@ Tests cover all five branches plus `null`/`undefined`.
 | `src/frontend/src/pages/CompaniesPage/CompaniesPage.tsx` | Companies shell — adopt LoadingState/ErrorState + page tests | Unit 7 |
 | `src/frontend/src/pages/CompaniesPage/CompaniesPageContent.tsx` | Loading view — adopt LoadingState with caption | Unit 7 |
 | `src/frontend/src/pages/WhyPage/WhyPage.tsx` | No refactor; test backfill | Unit 8 |
-| `src/frontend/CLAUDE.md` | Document new foundations | Unit 10 |
+| `src/frontend/AGENTS.md` | Document new foundations | Unit 10 |
 
 ---
 

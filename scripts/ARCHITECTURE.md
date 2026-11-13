@@ -14,7 +14,7 @@ scripts/
 ├── pytest.ini                               # Test configuration (NEW)
 ├── README.md                                # User documentation
 ├── ARCHITECTURE.md                          # This file
-├── CLAUDE.md                                # Quick reference
+├── AGENTS.md                                # Quick reference
 ├── __init__.py                              # Package marker
 ├── google_jobs_scraper/                     # Google-specific implementation
 │   ├── __init__.py                          # Package metadata
