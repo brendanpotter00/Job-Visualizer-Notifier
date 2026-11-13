@@ -13,9 +13,9 @@
 /** Rise distance (px) — enough to read as "from below", small enough to stay quiet. */
 const RISE_PX = 16;
 /** Duration (ms). */
-const DURATION_MS = 500;
+const DURATION_MS = 750;
 /** Delay between the headline and the CTAs (ms). */
-export const HERO_RISE_STAGGER_MS = 120;
+export const HERO_RISE_STAGGER_MS = 180;
 
 export function heroRiseIn(delayMs = 0) {
   return {
