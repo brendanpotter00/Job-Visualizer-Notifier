@@ -309,7 +309,7 @@ export const LANDING_CONTENT: LandingContent = {
     features: [
       {
         id: 'freshness',
-        name: 'Minutes, not weeks',
+        name: 'Seconds, not weeks',
         detail: 'Jobs minutes after posting.',
         evidence:
           'brief §5 minutes_after_posting (prod median 0.76h). Was "Seconds, not weeks" (owner-directed 2026-08-09); reworded 2026-09-10 when the proof strip put the 45-minute median in a headline two sections away, so the page states ONE freshness number. Reverting is a one-word edit if the owner prefers "seconds".',
@@ -323,7 +323,7 @@ export const LANDING_CONTENT: LandingContent = {
       {
         id: 'saved_filters',
         name: 'Saved filters',
-        detail: 'Set once.',
+        detail: 'Set once. Filtered forever.',
         evidence: 'business-context §feature-set: saved filters, LIVE today',
       },
       {
@@ -359,7 +359,7 @@ export const LANDING_CONTENT: LandingContent = {
       {
         id: 'ai_notifications',
         name: 'AI notifications',
-        detail: 'Alerts on jobs that fit you.',
+        detail: 'Alerts on jobs that fit you. No noise.',
         evidence: 'EPIC Notifications wdwb1cbncb + 12.1/15.9; resume-rubric per Brendan 2026-08-20',
       },
     ],
@@ -371,11 +371,16 @@ export const LANDING_CONTENT: LandingContent = {
   },
   faq: {
     heading: 'FAQ',
+    // Order and set owner-directed 2026-11-12: "Is it free?" leads; the
+    // company-count question was cut.
     entries: [
       {
+        question: 'Is onesecondswe free?',
+        answer: 'Yes. Browsing and accounts are free.',
+      },
+      {
         question: 'How fast do jobs show up on onesecondswe?',
-        answer:
-          'About 45 minutes after a company posts, on median. onesecondswe watches 130+ career pages directly.',
+        answer: 'About 45 minutes after a company posts, on median. onesecondswe watches career pages.',
       },
       {
         question: 'How is onesecondswe different from LinkedIn?',
@@ -385,15 +390,7 @@ export const LANDING_CONTENT: LandingContent = {
       {
         question: 'Why do old jobs look new on big boards?',
         answer:
-          'Reposts reset the date. onesecondswe dates every job when it first appears on the company’s own career page.',
-      },
-      {
-        question: 'How many companies does onesecondswe cover?',
-        answer: '130+ curated tech companies. Thousands of new software engineering jobs a week.',
-      },
-      {
-        question: 'Is onesecondswe free?',
-        answer: 'Yes. Browsing and accounts are free.',
+          'Companies pay to repost or sponsor their jobs and clutter your feed. onesecondswe dates every job when it first appears on the company’s own career page.',
       },
     ],
   },

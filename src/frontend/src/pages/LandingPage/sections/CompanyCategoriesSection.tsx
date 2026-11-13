@@ -56,19 +56,18 @@ export function CompanyCategoriesSection({ content }: CompanyCategoriesSectionPr
         {COMPANY_CATEGORIES.map((category) => {
           const visible = category.companyIds.slice(0, VISIBLE_LOGOS);
           const overflow = category.companyIds.length - visible.length;
-          const count = `${category.companyIds.length} companies`;
 
           return (
             <Box
               key={category.id}
               component={RouterLink}
               to={ROUTES.RECENT_JOBS}
-              aria-label={`${category.label}, ${count}`}
+              aria-label={category.label}
               sx={{
                 display: 'flex',
                 flexDirection: 'column',
                 gap: 1.25,
-                // `minWidth: 0` keeps a long blurb from forcing the grid track
+                // `minWidth: 0` keeps a long label from forcing the grid track
                 // wider than the viewport on a narrow phone.
                 minWidth: 0,
                 p: RESPONSIVE.landingProto.categoryCardPadding,
@@ -82,37 +81,13 @@ export function CompanyCategoriesSection({ content }: CompanyCategoriesSectionPr
                 '&:hover': { borderColor: 'text.primary' },
               }}
             >
-              <Box
-                sx={{
-                  display: 'flex',
-                  alignItems: 'baseline',
-                  justifyContent: 'space-between',
-                  gap: 1,
-                }}
-              >
-                <Typography
-                  component="h3"
-                  sx={{ fontWeight: 500, fontSize: RESPONSIVE.landingProto.blockTitleFontSize }}
-                >
-                  {category.label}
-                </Typography>
-                <Typography
-                  variant="caption"
-                  sx={{ color: 'text.secondary', flexShrink: 0, whiteSpace: 'nowrap' }}
-                >
-                  {count}
-                </Typography>
-              </Box>
-
+              {/* Label and logos only: the per-card member count and the
+                  one-line blurb were cut on 2026-11-12 (owner-directed). */}
               <Typography
-                variant="body2"
-                sx={{
-                  color: 'text.secondary',
-                  fontSize: RESPONSIVE.landingProto.bodyFontSize,
-                  lineHeight: 1.6,
-                }}
+                component="h3"
+                sx={{ fontWeight: 500, fontSize: RESPONSIVE.landingProto.blockTitleFontSize }}
               >
-                {category.blurb}
+                {category.label}
               </Typography>
 
               <Box

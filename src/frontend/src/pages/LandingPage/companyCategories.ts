@@ -84,14 +84,15 @@
  *   gaming/media      7 firms, folded into household_names.
  */
 
-/** One curated entry point: a label, a one-line pitch, and its member roster. */
+/**
+ * One curated entry point: a label and its member roster. (The one-line blurb
+ * under each label was cut on 2026-11-12, owner-directed.)
+ */
 export interface CompanyCategory {
   /** Stable slug. Becomes the preset-filter key when categories are promoted. */
   id: string;
   /** Card heading. */
   label: string;
-  /** One concrete line under the heading. */
-  blurb: string;
   /** Member company ids, most-recognizable-first (see file header). */
   companyIds: readonly string[];
 }
@@ -100,7 +101,6 @@ export const COMPANY_CATEGORIES: readonly CompanyCategory[] = [
   {
     id: 'big_tech',
     label: 'Big tech',
-    blurb: 'FAANG and the big platforms.',
     companyIds: [
       'google',
       'apple',
@@ -123,13 +123,11 @@ export const COMPANY_CATEGORIES: readonly CompanyCategory[] = [
   {
     id: 'ai_labs',
     label: 'AI labs',
-    blurb: 'Frontier model teams.',
     companyIds: ['openai', 'anthropic', 'google', 'xai', 'cohere', 'thinkingmachines'],
   },
   {
     id: 'yc_alumni',
     label: 'Y Combinator alumni',
-    blurb: 'YC companies, S05 to W25.',
     companyIds: [
       'airbnb',
       'stripe',
@@ -163,7 +161,6 @@ export const COMPANY_CATEGORIES: readonly CompanyCategory[] = [
   {
     id: 'unicorns',
     label: 'Unicorns',
-    blurb: 'Private, valued at $1B+.',
     companyIds: [
       'openai',
       'anthropic',
@@ -218,7 +215,6 @@ export const COMPANY_CATEGORIES: readonly CompanyCategory[] = [
   {
     id: 'breakout_startups',
     label: 'Breakout startups',
-    blurb: 'Small teams, big names.',
     companyIds: [
       'cursor',
       'perplexity',
@@ -244,7 +240,6 @@ export const COMPANY_CATEGORIES: readonly CompanyCategory[] = [
   {
     id: 'hard_tech',
     label: 'Space, defense & robotics',
-    blurb: 'Rockets, satellites, drones, robots.',
     companyIds: [
       'spacex',
       'palantir',
@@ -267,7 +262,6 @@ export const COMPANY_CATEGORIES: readonly CompanyCategory[] = [
   {
     id: 'fintech',
     label: 'Fintech & trading',
-    blurb: 'Payments, banking, trading.',
     companyIds: [
       'stripe',
       'paypal',
@@ -293,7 +287,6 @@ export const COMPANY_CATEGORIES: readonly CompanyCategory[] = [
   {
     id: 'dev_tools',
     label: 'Developer tools & infrastructure',
-    blurb: 'What engineers build with.',
     companyIds: [
       'cloudflare',
       'gitlab',
@@ -330,7 +323,6 @@ export const COMPANY_CATEGORIES: readonly CompanyCategory[] = [
   {
     id: 'household_names',
     label: 'Household names',
-    blurb: 'Brands you already know.',
     companyIds: [
       'netflix',
       'disney',

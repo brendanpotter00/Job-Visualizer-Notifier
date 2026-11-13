@@ -132,11 +132,13 @@ describe('landing content config', () => {
     expect(rows.map((row) => row.id)).toEqual(expect.arrayContaining(['reposts', 'companies']));
   });
 
-  // The floor is on COVERAGE, not a quota: five distinct questions, one of which
-  // is the LinkedIn comparison asked the way people ask answer engines.
-  it('FAQ entries are present, answer-first, and include the LinkedIn question', () => {
+  // The floor is on COVERAGE, not a quota: four distinct questions (the
+  // company-count one was cut 2026-11-12), "Is it free?" first, and one of
+  // them the LinkedIn comparison asked the way people ask answer engines.
+  it('FAQ entries are present, answer-first, lead with "free", and include the LinkedIn question', () => {
     const { entries } = LANDING_CONTENT.faq;
-    expect(entries.length).toBeGreaterThanOrEqual(5);
+    expect(entries.length).toBeGreaterThanOrEqual(4);
+    expect(entries[0].question).toBe('Is onesecondswe free?');
     for (const entry of entries) {
       expect(entry.question.trim().endsWith('?')).toBe(true);
       expect(entry.answer.trim().length).toBeGreaterThan(0);
