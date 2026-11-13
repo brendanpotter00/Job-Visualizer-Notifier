@@ -317,6 +317,12 @@ export const RESPONSIVE = {
     /** Curated-category cards: grid gap between cards. */
     categoryGridGap: { xs: 2, sm: 3 },
     rotatingCardMinHeight: { xs: 140, sm: 240 },
+    freshJobsSkeletonMinHeight: {
+      xs: 226,
+      sm: 'calc(914px - 62.9vw)',
+      md: 'calc(654px - 30vw)',
+      lg: 296,
+    },
     heroSceneHeight: { xs: 130, sm: 280 },
     logoTileSize: { compact: 40, default: 52 },
     pileFloorInsetCompact: 48,

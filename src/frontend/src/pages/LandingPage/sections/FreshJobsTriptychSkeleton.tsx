@@ -21,7 +21,7 @@ export function FreshJobsTriptychSkeleton({ content }: { content: LandingContent
               <Box
                 sx={{
                   display: 'grid',
-                  minHeight: RESPONSIVE.landingProto.rotatingCardMinHeight,
+                  minHeight: RESPONSIVE.landingProto.freshJobsSkeletonMinHeight,
                   '& > .MuiCard-root': { height: '100%' },
                 }}
               >

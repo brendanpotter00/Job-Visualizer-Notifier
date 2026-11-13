@@ -204,6 +204,15 @@ describe('RESPONSIVE token invariants', () => {
     it('curatedCard.gridItemSize restates the desktop 1-up / 2-up / 3-up layout', () => {
       expect(RESPONSIVE.curatedCard.gridItemSize).toEqual({ xs: 12, sm: 6, md: 4 });
     });
+
+    it('landingProto.freshJobsSkeletonMinHeight tracks the loaded triptych cell per breakpoint', () => {
+      expect(RESPONSIVE.landingProto.freshJobsSkeletonMinHeight).toEqual({
+        xs: 226,
+        sm: 'calc(914px - 62.9vw)',
+        md: 'calc(654px - 30vw)',
+        lg: 296,
+      });
+    });
   });
 
   // Self-policing backstop: the SM_DESKTOP / DEFAULT_DESKTOP maps above are a
@@ -218,12 +227,14 @@ describe('RESPONSIVE token invariants', () => {
     const compactPaths: string[] = [];
     // Every leaf carrying `xs`/`sm` but NOT exactly `{ xs, sm }` lands here — the
     // symmetric catch-all that makes an sm-omitted or md-gated no-op token
-    // (which matches neither pinned branch) impossible to drop silently. The
-    // ONLY intentional member is the multi-breakpoint Grid-size token below.
+    // (which matches neither pinned branch) impossible to drop silently.
     const otherResponsivePaths: string[] = [];
     // The known intentional multi-breakpoint tokens (NOT pinned-scalar shapes; each
     // has its own dedicated assertion). Adding a new one here is a deliberate act.
-    const KNOWN_MULTI_BREAKPOINT_PATHS = ['curatedCard.gridItemSize'];
+    const KNOWN_MULTI_BREAKPOINT_PATHS = [
+      'curatedCard.gridItemSize',
+      'landingProto.freshJobsSkeletonMinHeight',
+    ];
     collectTokenPaths(
       RESPONSIVE as unknown as Record<string, unknown>,
       '',
