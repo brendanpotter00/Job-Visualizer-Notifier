@@ -286,7 +286,7 @@ export const LANDING_CONTENT: LandingContent = {
         id: 'ranking',
         label: 'Ranking',
         linkedin: 'Paid listings first.',
-        onesecondswe: 'Newest first.',
+        onesecondswe: 'Newest. Filtered. Curated.',
         evidence:
           'business-context §core positioning (no repost mechanism exists and none will be sold); LinkedIn Promoted Jobs is a paid placement product. Board sorts by first_seen desc.',
       },
