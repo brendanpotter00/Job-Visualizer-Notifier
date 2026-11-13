@@ -7,31 +7,54 @@
  * Slots claim in priority order —
  *
  *   1. early_career  intern / new-grad postings (the scarcest, so it claims first)
- *   2. last_24h      anything first seen inside the last day
+ *   2. last_24h
  *   3. big_tech      the `big_tech` roster from COMPANY_CATEGORIES
  *
  * — and each later slot only sees what the earlier ones left. Claiming happens
  * AFTER the per-slot cap, so a job that a full slot could not show is still
  * available to the next one.
  *
- * Every slot is additionally bounded to the last 7 days: the section's whole
- * claim is freshness, so a three-week-old internship has no business in it.
  * A slot whose pool comes back empty is not a bug — it is the weekend reality
  * (brief §8), and it carries the honest `emptyText` the UI renders instead.
  *
  * Time comes from the caller's `now` (repo law: no Date.now() in a render path).
  */
 import type { Job } from '../../../types';
+import type { SearchJobsBatchRequest } from '../../../features/jobs/searchJobsTypes';
 import { COMPANY_CATEGORIES } from '../companyCategories';
 
 const HOUR = 3_600_000;
 
-/** The section's outer bound — everything shown here is "this week" fresh. */
-const FRESH_WINDOW_HOURS = 24 * 7;
-/** Slot 2's window, and the only claim its label makes. */
-const DAY_WINDOW_HOURS = 24;
-/** Past ~4 a slot stops reading as "a couple of fresh ones" and starts nagging. */
-export const DEFAULT_MAX_PER_SLOT = 4;
+export const JOBS_PER_SLOT = 5;
+
+const SOFTWARE_ENGINEERING_CATEGORY = 'software_engineering';
+
+export interface SlotWindow {
+  hours: number;
+  label: string;
+}
+
+export const LATEST_WINDOWS: readonly SlotWindow[] = [
+  { hours: 24, label: 'Last 24 hours' },
+  { hours: 72, label: 'Last 3 days' },
+  { hours: 168, label: 'Last week' },
+  { hours: 336, label: 'Last 2 weeks' },
+  { hours: 720, label: 'Last 30 days' },
+];
+
+export const EARLY_CAREER_WINDOWS: readonly SlotWindow[] = [
+  { hours: 168, label: 'Last week' },
+  { hours: 336, label: 'Last 2 weeks' },
+  { hours: 720, label: 'Last 30 days' },
+  { hours: 1440, label: 'Last 60 days' },
+];
+
+export const BIG_TECH_WINDOWS: readonly SlotWindow[] = [
+  { hours: 168, label: 'Last week' },
+  { hours: 336, label: 'Last 2 weeks' },
+  { hours: 720, label: 'Last 30 days' },
+  { hours: 1440, label: 'Last 60 days' },
+];
 
 export const TRIPTYCH_SLOT_IDS = ['early_career', 'last_24h', 'big_tech'] as const;
 export type TriptychSlotId = (typeof TRIPTYCH_SLOT_IDS)[number];
@@ -46,7 +69,8 @@ export interface TriptychSlot {
   label: string;
   /** Quiet copy shown in place of a card when `jobs` is empty. */
   emptyText: string;
-  /** Newest-first, capped at `maxPerSlot`, disjoint from the other slots. */
+  windowHours: number;
+  /** Newest-first, disjoint from the other slots. */
   jobs: Job[];
 }
 
@@ -66,6 +90,30 @@ const BIG_TECH_COMPANY_IDS: ReadonlySet<string> = new Set(
 
 /** The two levels the first slot speaks for. */
 const EARLY_CAREER_LEVELS: ReadonlySet<string> = new Set(['intern', 'new_grad']);
+
+function capWindow(windows: readonly SlotWindow[]): SlotWindow {
+  return windows[windows.length - 1];
+}
+
+export const TRIPTYCH_REQUESTS: readonly SearchJobsBatchRequest[] = [
+  {
+    level: [...EARLY_CAREER_LEVELS],
+    category: [SOFTWARE_ENGINEERING_CATEGORY],
+    maxAgeHours: capWindow(EARLY_CAREER_WINDOWS).hours,
+    limit: JOBS_PER_SLOT,
+  },
+  {
+    category: [SOFTWARE_ENGINEERING_CATEGORY],
+    maxAgeHours: capWindow(LATEST_WINDOWS).hours,
+    limit: JOBS_PER_SLOT * 2,
+  },
+  {
+    companies: [...BIG_TECH_COMPANY_IDS].sort(),
+    category: [SOFTWARE_ENGINEERING_CATEGORY],
+    maxAgeHours: capWindow(BIG_TECH_WINDOWS).hours,
+    limit: JOBS_PER_SLOT * 3,
+  },
+];
 
 function withinHours(job: Job, now: number, hours: number): boolean {
   return new Date(job.firstSeenAt).getTime() >= now - hours * HOUR;
@@ -90,43 +138,76 @@ function earlyCareerLabel(pool: Job[]): string {
   return 'Internships & new grad';
 }
 
+function emptyTextFor(windows: readonly SlotWindow[]): string {
+  return `None in the ${capWindow(windows).label.toLowerCase()}.`;
+}
+
+interface SlotPick {
+  jobs: Job[];
+  slotWindow: SlotWindow;
+}
+
+function pickFromWindows(
+  candidates: Job[],
+  windows: readonly SlotWindow[],
+  now: number,
+  perSlot: number
+): SlotPick {
+  const slotWindow =
+    windows.find(
+      (candidate) =>
+        candidates.filter((job) => withinHours(job, now, candidate.hours)).length >= perSlot
+    ) ?? capWindow(windows);
+  const pool = candidates.filter((job) => withinHours(job, now, slotWindow.hours));
+  return { jobs: pool.slice(0, perSlot), slotWindow };
+}
+
 export function selectTriptychSlots(
   jobs: Job[],
   now: number,
-  maxPerSlot: number = DEFAULT_MAX_PER_SLOT
+  perSlot: number = JOBS_PER_SLOT
 ): TriptychSlots {
   // Sorted once; every slot filters this list, so every pool is newest-first.
-  const fresh = newestFirst(jobs.filter((job) => withinHours(job, now, FRESH_WINDOW_HOURS)));
+  const engineering = newestFirst(
+    jobs.filter((job) => job.category === SOFTWARE_ENGINEERING_CATEGORY)
+  );
 
   const claimed = new Set<string>();
-  const claim = (candidates: Job[]): Job[] => {
-    const taken = candidates.filter((job) => !claimed.has(job.id)).slice(0, maxPerSlot);
-    for (const job of taken) claimed.add(job.id);
-    return taken;
+  const claim = (matches: (job: Job) => boolean, windows: readonly SlotWindow[]): SlotPick => {
+    const candidates = engineering.filter((job) => !claimed.has(job.id) && matches(job));
+    const pick = pickFromWindows(candidates, windows, now, perSlot);
+    for (const job of pick.jobs) claimed.add(job.id);
+    return pick;
   };
 
-  const earlyCareer = claim(fresh.filter((job) => EARLY_CAREER_LEVELS.has(job.level ?? '')));
-  const lastDay = claim(fresh.filter((job) => withinHours(job, now, DAY_WINDOW_HOURS)));
-  const bigTech = claim(fresh.filter((job) => BIG_TECH_COMPANY_IDS.has(job.company)));
+  const earlyCareer = claim(
+    (job) => EARLY_CAREER_LEVELS.has(job.level ?? ''),
+    EARLY_CAREER_WINDOWS
+  );
+  const latest = claim(() => true, LATEST_WINDOWS);
+  const bigTech = claim((job) => BIG_TECH_COMPANY_IDS.has(job.company), BIG_TECH_WINDOWS);
 
   return [
     {
       id: 'early_career',
-      label: earlyCareerLabel(earlyCareer),
-      emptyText: 'None this week.',
-      jobs: earlyCareer,
+      label: earlyCareerLabel(earlyCareer.jobs),
+      emptyText: emptyTextFor(EARLY_CAREER_WINDOWS),
+      windowHours: earlyCareer.slotWindow.hours,
+      jobs: earlyCareer.jobs,
     },
     {
       id: 'last_24h',
-      label: 'Last 24 hours',
-      emptyText: 'None today.',
-      jobs: lastDay,
+      label: latest.slotWindow.label,
+      emptyText: emptyTextFor(LATEST_WINDOWS),
+      windowHours: latest.slotWindow.hours,
+      jobs: latest.jobs,
     },
     {
       id: 'big_tech',
       label: 'Big tech',
-      emptyText: 'None this week.',
-      jobs: bigTech,
+      emptyText: emptyTextFor(BIG_TECH_WINDOWS),
+      windowHours: bigTech.slotWindow.hours,
+      jobs: bigTech.jobs,
     },
   ];
 }

@@ -2,8 +2,9 @@
 
 The full-bleed marketing landing page, rendered **outside `RootLayout`** (no sidebar
 chrome) so it reads like a standalone page. Static marketing copy + a 3D scene + a
-sign-in CTA that feeds the top of the signup-conversion funnel. Documented here so the
-map is complete and a maintainer knows it is deliberately tool-free, not overlooked.
+sign-in CTA that feeds the top of the signup-conversion funnel, plus one live-data section
+("Just Posted"). Documented here so the map is complete and a maintainer knows it is
+deliberately tool-free, not overlooked.
 
 Page: `src/frontend/src/pages/LandingPage/LandingPage.tsx`, rendered by `app/HomeRoute.tsx`.
 
@@ -13,6 +14,13 @@ Page: `src/frontend/src/pages/LandingPage/LandingPage.tsx`, rendered by `app/Hom
   Nothing to arrange or assert beyond "the page renders".
 - **Sign-in CTA** — the funnel's mid-step; clicking it fires the same global login path
   `request_sign_in` would, not a landing-specific action.
+- **"Just Posted" triptych** — real software-engineering jobs from three anonymous
+  `GET /api/jobs/search` requests fired on mount. `fresh-jobs-skeleton` shows while they
+  load, then `fresh-jobs-triptych` (slots `triptych-slot-early_career`,
+  `triptych-slot-last_24h`, `triptych-slot-big_tech`). If any request fails, or every slot
+  is empty, the section is not rendered at all. In each card, Apply is the job's real
+  posting (new tab) and the rest of the card is a link to `/jobs` named
+  "Browse all recent jobs".
 
 ## How to get to it (user POV)
 
@@ -37,8 +45,9 @@ Like `/why`, this route's "drive" is a plain navigation + a render check, by des
 
 ## Gotchas
 
-- **Nothing to assert past rendering.** Do not invent a tool call; a WebMCP drive here would
-  be theater. The honest proof is "the route loads and `landing-header` renders".
+- **Nothing to drive past rendering.** Do not invent a tool call; a WebMCP drive here would
+  be theater. The honest proof is "the route loads and `landing-header` renders", plus,
+  when the backend is reachable, `fresh-jobs-triptych` replacing `fresh-jobs-skeleton`.
 - **Full-bleed, outside `RootLayout`** — no sidebar/app-bar chrome, so do not assert layout
   handles (the sidebar, the app bar) on this route.
 - **Signed-in sessions skip it.** Drive it signed out (or on a bypass build); a signed-in

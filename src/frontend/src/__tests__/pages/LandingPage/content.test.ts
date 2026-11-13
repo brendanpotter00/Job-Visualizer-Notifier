@@ -50,6 +50,7 @@ describe('landing content config', () => {
       LANDING_CONTENT.ctas.primary,
       LANDING_CONTENT.ctas.secondary,
       LANDING_CONTENT.featureMatrix.nextUp,
+      LANDING_CONTENT.freshJobs.cardLink,
     ];
     for (const link of links) {
       expect(ROUTE_VALUES, `bad link target: ${link.label} -> ${link.to}`).toContain(link.to);

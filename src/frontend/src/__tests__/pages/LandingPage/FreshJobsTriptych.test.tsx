@@ -1,23 +1,31 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { act, fireEvent, screen, within } from '@testing-library/react';
+import { Route, Routes } from 'react-router-dom';
 import { renderWithProviders } from '../../../test/testUtils';
 import { FreshJobsTriptych } from '../../../pages/LandingPage/sections/FreshJobsTriptych';
 import { selectTriptychSlots } from '../../../pages/LandingPage/sections/triptychJobs';
+import { LANDING_CONTENT } from '../../../pages/LandingPage/content';
+import type { Job } from '../../../types';
 import {
-  buildMockJobs,
-  buildSparseMockJobs,
-} from '../../../pages/LandingPage/mockData';
+  buildHolidayLandingJobs,
+  buildRichLandingJobs,
+  LANDING_NOW,
+  makeLandingJob,
+} from './landingJobFixtures';
 
-const NOW = new Date('2026-08-09T18:00:00Z').getTime();
+const NOW = LANDING_NOW;
 /** Mirrors FlippingCard's own constant so expectations track the real cadence. */
 const INTERVAL_MS = 4500;
 /** Mirrors FreshJobsTriptych's PHASE_STEP_MS. */
 const PHASE_STEP_MS = 1500;
 
-const RICH_JOBS = buildMockJobs(NOW);
-const SPARSE_JOBS = buildSparseMockJobs(NOW);
+const RICH_JOBS = buildRichLandingJobs(NOW);
+const QUIET_EARLY_JOBS = buildHolidayLandingJobs(NOW).filter(
+  (job) => job.level !== 'intern' && job.level !== 'new_grad'
+);
 const SLOTS = selectTriptychSlots(RICH_JOBS, NOW);
 const [EARLY, DAY, BIG] = SLOTS;
+const CARD_LINK = LANDING_CONTENT.freshJobs.cardLink;
 
 const TEST_IDS = {
   early: 'triptych-slot-early_career',
@@ -39,10 +47,15 @@ function defineMatchMedia(matches: boolean) {
   );
 }
 
-function renderTriptych(jobs = RICH_JOBS) {
-  return renderWithProviders(<FreshJobsTriptych jobs={jobs} now={NOW} />, {
-    initialEntries: ['/landing'],
-  });
+function renderTriptych(jobs: Job[] = RICH_JOBS) {
+  const slots = selectTriptychSlots(jobs, NOW);
+  return renderWithProviders(
+    <Routes>
+      <Route path="/" element={<FreshJobsTriptych slots={slots} cardLink={CARD_LINK} />} />
+      <Route path="/jobs" element={<div>jobs board</div>} />
+    </Routes>,
+    { initialEntries: ['/'] }
+  );
 }
 
 function activeId(testId: string): string | null {
@@ -110,6 +123,88 @@ describe('FreshJobsTriptych', () => {
     // aria-hidden, so role queries skip them entirely.
     expect(screen.getAllByRole('link', { name: /apply/i })).toHaveLength(3);
     expect(within(activeCard(TEST_IDS.early)).getByText(/^Posted /)).toBeInTheDocument();
+  });
+
+  it('gives every visible card a link to the jobs board and an Apply link to its posting', () => {
+    renderTriptych();
+
+    expect(screen.getAllByRole('link', { name: CARD_LINK.label })).toHaveLength(3);
+    for (const [testId, slot] of [
+      [TEST_IDS.early, EARLY],
+      [TEST_IDS.day, DAY],
+      [TEST_IDS.big, BIG],
+    ] as const) {
+      const card = activeCard(testId);
+      expect(within(card).getByRole('link', { name: CARD_LINK.label })).toHaveAttribute(
+        'href',
+        '/jobs'
+      );
+      const apply = within(card).getByRole('link', { name: /apply/i });
+      expect(apply).toHaveAttribute('href', slot.jobs[0].url);
+      expect(apply).toHaveAttribute('target', '_blank');
+      expect(apply).toHaveAttribute('rel', 'noopener noreferrer');
+    }
+  });
+
+  it('stacks the card link under Apply so Apply stays clickable', () => {
+    renderTriptych();
+    const card = activeCard(TEST_IDS.early);
+    expect(within(card).getByRole('link', { name: CARD_LINK.label })).toHaveStyle({
+      position: 'absolute',
+      zIndex: '1',
+    });
+    expect(within(card).getByRole('link', { name: /apply/i })).toHaveStyle({
+      position: 'relative',
+      zIndex: '2',
+    });
+  });
+
+  it('clicking the card body navigates to the jobs board without opening a tab', () => {
+    const open = vi.spyOn(window, 'open').mockImplementation(() => null);
+    renderTriptych();
+
+    fireEvent.click(within(activeCard(TEST_IDS.day)).getByRole('link', { name: CARD_LINK.label }));
+
+    expect(screen.getByText('jobs board')).toBeInTheDocument();
+    expect(screen.queryByTestId('fresh-jobs-triptych')).not.toBeInTheDocument();
+    expect(open).not.toHaveBeenCalled();
+  });
+
+  it('clicking Apply leaves the page alone and opens nothing from script', () => {
+    const open = vi.spyOn(window, 'open').mockImplementation(() => null);
+    renderTriptych();
+
+    const apply = within(activeCard(TEST_IDS.early)).getByRole('link', { name: /apply/i });
+    apply.addEventListener('click', (event) => event.preventDefault());
+    fireEvent.click(apply);
+
+    expect(screen.getByTestId('fresh-jobs-triptych')).toBeInTheDocument();
+    expect(screen.queryByText('jobs board')).not.toBeInTheDocument();
+    expect(open).not.toHaveBeenCalled();
+  });
+
+  it('clicking the title does not open the posting from script', () => {
+    const open = vi.spyOn(window, 'open').mockImplementation(() => null);
+    renderTriptych();
+
+    fireEvent.click(
+      within(activeCard(TEST_IDS.big)).getByRole('heading', { name: BIG.jobs[0].title })
+    );
+
+    expect(open).not.toHaveBeenCalled();
+  });
+
+  it('pauses a slot while its card link has focus', () => {
+    vi.useFakeTimers();
+    renderTriptych();
+
+    act(() => {
+      within(activeCard(TEST_IDS.day)).getByRole('link', { name: CARD_LINK.label }).focus();
+    });
+    act(() => {
+      vi.advanceTimersByTime(INTERVAL_MS * 3);
+    });
+    expect(activeId(TEST_IDS.day)).toBe(DAY.jobs[0].id);
   });
 
   // The layout-shift fix. One pool card — Microsoft's "Software Engineering
@@ -269,17 +364,17 @@ describe('FreshJobsTriptych', () => {
     }
   });
 
-  it('sparse fixture: an empty slot says so and points at the live board', () => {
-    const sparseSlots = selectTriptychSlots(SPARSE_JOBS, NOW);
-    expect(sparseSlots[0].jobs).toHaveLength(0);
+  it('an empty slot says so and points at the live board', () => {
+    const quietSlots = selectTriptychSlots(QUIET_EARLY_JOBS, NOW);
+    expect(quietSlots[0].jobs).toHaveLength(0);
 
-    renderTriptych(SPARSE_JOBS);
+    renderTriptych(QUIET_EARLY_JOBS);
 
     const emptySlot = screen.getByTestId(TEST_IDS.early);
     expect(emptySlot).toHaveAttribute('data-empty', 'true');
     expect(emptySlot).not.toHaveAttribute('data-active-job-id');
     expect(
-      within(emptySlot).getByText('None this week.')
+      within(emptySlot).getByText('None in the last 60 days.')
     ).toBeInTheDocument();
     expect(within(emptySlot).getByRole('link', { name: 'Browse jobs' })).toHaveAttribute(
       'href',
@@ -288,24 +383,20 @@ describe('FreshJobsTriptych', () => {
     // The caption still names the slot honestly.
     expect(screen.getByText('Internships & new grad')).toBeInTheDocument();
     // ...and the slots that DO have jobs still render their cards.
-    expect(activeId(TEST_IDS.big)).toBe(sparseSlots[2].jobs[0].id);
+    expect(activeId(TEST_IDS.big)).toBe(quietSlots[2].jobs[0].id);
   });
 
   it('a single-job slot renders without scheduling a rotation timer', () => {
     vi.useFakeTimers();
-    const sparseSlots = selectTriptychSlots(SPARSE_JOBS, NOW);
-    expect(sparseSlots[1].jobs).toHaveLength(1);
+    const lone = [makeLandingJob(1, { company: 'ramp', hoursAgo: 3 }, NOW)];
+    const loneSlots = selectTriptychSlots(lone, NOW);
+    expect(loneSlots[1].jobs).toHaveLength(1);
 
-    renderTriptych(SPARSE_JOBS);
+    renderTriptych(lone);
     act(() => {
       vi.advanceTimersByTime(INTERVAL_MS * 4);
     });
-    expect(activeId(TEST_IDS.day)).toBe(sparseSlots[1].jobs[0].id);
+    expect(activeId(TEST_IDS.day)).toBe(loneSlots[1].jobs[0].id);
     expect(sizers(TEST_IDS.day).length).toBeGreaterThan(0);
-  });
-
-  it('renders nothing at all only when every pool is empty', () => {
-    renderTriptych([]);
-    expect(screen.queryByTestId('fresh-jobs-triptych')).not.toBeInTheDocument();
   });
 });

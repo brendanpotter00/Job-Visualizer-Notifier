@@ -1,7 +1,5 @@
 import { Box } from '@mui/material';
-import { useSearchParams } from 'react-router-dom';
 import { LANDING_CONTENT } from './content';
-import { MOCK_JOBS, MOCK_JOBS_SPARSE, MOCK_NOW } from './mockData';
 import { LandingSeo } from './seo/LandingSeo';
 import { GravityPrototype } from './prototypes/GravityPrototype/GravityPrototype';
 
@@ -12,13 +10,9 @@ import { GravityPrototype } from './prototypes/GravityPrototype/GravityPrototype
  *
  * This was a four-tab prototype workspace until the 2026-09-03 consolidation;
  * the tab strip, the registry and the three losing designs are gone, and what
- * is left is a shell whose whole job is the fixture toggle and the document
+ * is left is a shell whose whole job is the document
  * head (`LandingSeo`, rendered here so the title, canonical and JSON-LD exist
  * before the lazy scene loads).
- *
- * URL contract: `?data=sparse` swaps in the weekend-reality fixture. It
- * survived the consolidation because the sparse case is the one that breaks
- * layouts, and flipping it by URL beats editing mock data to see it.
  *
  * The 100dvh column with the inner scroller is load-bearing, not leftover
  * framing: `LandingHeader` is `position: sticky` against the nearest scrolling
@@ -28,9 +22,6 @@ import { GravityPrototype } from './prototypes/GravityPrototype/GravityPrototype
  * left for a later iteration pass rather than smuggled into a restyle.
  */
 export function LandingPage() {
-  const [searchParams] = useSearchParams();
-  const sparse = searchParams.get('data') === 'sparse';
-
   return (
     <Box
       sx={{
@@ -43,12 +34,7 @@ export function LandingPage() {
     >
       <LandingSeo content={LANDING_CONTENT} />
       <Box sx={{ flex: 1, overflowY: 'auto' }}>
-        <GravityPrototype
-          content={LANDING_CONTENT}
-          jobs={sparse ? MOCK_JOBS_SPARSE : MOCK_JOBS}
-          sparse={sparse}
-          now={MOCK_NOW}
-        />
+        <GravityPrototype content={LANDING_CONTENT} />
       </Box>
     </Box>
   );

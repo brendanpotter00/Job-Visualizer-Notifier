@@ -111,7 +111,7 @@ export interface LandingContent {
   header: LandingHeaderContent;
   hero: LandingHero;
   ctas: { primary: LandingCta; secondary: LandingCta };
-  freshJobs: SectionIntro;
+  freshJobs: SectionIntro & { cardLink: LandingCta; loadingLabel: string };
   /**
    * The LinkedIn comparison. Naming LinkedIn in shipped copy was on the brief's
    * do-not-say list (§6) until the owner asked for exactly this section on
@@ -219,6 +219,8 @@ export const LANDING_CONTENT: LandingContent = {
   },
   freshJobs: {
     heading: 'Just Posted',
+    cardLink: { label: 'Browse all recent jobs', to: ROUTES.RECENT_JOBS },
+    loadingLabel: 'Loading recent jobs…',
   },
   comparison: {
     heading: 'Built For The Candidate',

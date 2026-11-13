@@ -28,14 +28,15 @@ export function Eyebrow({ children, muted = false }: EyebrowProps) {
 
 interface SectionIntroProps extends SectionIntroContent {
   headingId: string;
+  as?: 'h2' | 'p';
 }
 
-export function SectionIntro({ heading, headingId }: SectionIntroProps) {
+export function SectionIntro({ heading, headingId, as = 'h2' }: SectionIntroProps) {
   return (
     <Box sx={{ mb: RESPONSIVE.landingProto.sectionTitleMarginBottom }}>
       <Typography
-        component="h2"
-        id={headingId}
+        component={as}
+        id={as === 'h2' ? headingId : undefined}
         sx={{
           fontSize: RESPONSIVE.landingProto.sectionTitleFontSize,
           fontWeight: 500,
