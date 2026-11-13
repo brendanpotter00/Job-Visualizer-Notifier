@@ -1,0 +1,41 @@
+{
+ "script_version": 1,
+ "transport": "http_json",
+ "expected_min_jobs": 50,
+ "base_url": "https://www.atlassian.com",
+ "steps": [
+  {
+   "op": "fetch",
+   "method": "GET",
+   "url": "https://www.atlassian.com/endpoint/careers/listings",
+   "headers": {
+    "accept": "application/json, text/plain, */*"
+   }
+  },
+  {
+   "op": "extract_json_path",
+   "records_path": "",
+   "fields": {
+    "id": "id",
+    "title": "title",
+    "url": "portalJobPost.portalUrl",
+    "location": "locations",
+    "department": "category",
+    "description": "responsibilities"
+   }
+  },
+  {
+   "op": "dedupe_key",
+   "field": "id"
+  },
+  {
+   "op": "assert_unique",
+   "field": "id"
+  }
+ ],
+ "oracle": {
+  "kind": "none"
+ },
+ "discovered_at": "2026-09-09T00:00:00+00:00",
+ "discovered_by": "hand/published-seed"
+}

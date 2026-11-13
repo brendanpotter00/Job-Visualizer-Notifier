@@ -1,7 +1,8 @@
 import type React from 'react';
 import { Chip } from '@mui/material';
 import type { AutocompleteRenderValueGetItemProps } from '@mui/material';
-import { Add as AddIcon, Remove as RemoveIcon } from '@mui/icons-material';
+import AddIcon from '@mui/icons-material/Add';
+import RemoveIcon from '@mui/icons-material/Remove';
 import { parseSearchTagInput } from '../../../features/filters/utils/filterUtils.ts';
 import type { SearchTag } from '../../../types';
 

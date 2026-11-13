@@ -12,6 +12,7 @@ const BASE_FILTERS: RecentJobsFilters = {
   company: undefined,
   category: undefined,
   level: undefined,
+  subcategory: undefined,
 };
 
 function makeState(
@@ -50,6 +51,7 @@ describe('selectRecentJobsFilterSignature', () => {
     ['company', { company: ['netflix'] }],
     ['category', { category: ['backend'] }],
     ['level', { level: ['senior'] }],
+    ['subcategory', { subcategory: ['backend'] }],
     ['search tags', { searchTags: [{ text: 'rust', mode: 'include' as const }] }],
   ])('changes when the %s filter changes', (_label, override) => {
     expect(signatureOf(override)).not.toBe(signatureOf());
@@ -67,6 +69,22 @@ describe('selectRecentJobsFilterSignature', () => {
 
   it('distinguishes "no enabled-companies preference" from an empty set', () => {
     expect(signatureOf({}, null)).not.toBe(signatureOf({}, []));
+  });
+
+  it('ignores the ORDER of a subcategory selection', () => {
+    expect(signatureOf({ subcategory: ['backend', 'frontend'] })).toBe(
+      signatureOf({ subcategory: ['frontend', 'backend'] })
+    );
+  });
+
+  it('distinguishes a category-only selection from category + subcategory', () => {
+    // The narrowing case, and the one that actually breaks in production: the
+    // user already has Software Engineering ticked and then ticks Backend under
+    // it. If the signature ignores `subcategory`, that second tick changes
+    // nothing, no request goes out, and the list silently stays as it was.
+    expect(signatureOf({ category: ['software_engineering'] })).not.toBe(
+      signatureOf({ category: ['software_engineering'], subcategory: ['backend'] })
+    );
   });
 
   it('ignores the ORDER of multi-select values', () => {

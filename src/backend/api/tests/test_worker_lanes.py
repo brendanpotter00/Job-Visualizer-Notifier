@@ -282,6 +282,11 @@ def test_the_lane_table_matches_the_queue_constants():
 # --- /health/worker must be able to see ONE dead lane -------------------------
 
 
+# The /health/worker tests below take `procrastinate_schema` so the
+# `procrastinate_events` / `procrastinate_jobs` they seed and the probe reads exist in
+# this module's own schema. Relying on a copy some earlier module left in `public` only
+# held while one process ran every file in name order; under xdist this file can be the
+# first thing its worker's fresh database sees.
 def _seed_lane_health(db_conn, *, bulk_age_s: float, interactive_age_s: float) -> None:
     """Fresh event stream + one heartbeat per lane at the given ages."""
     now = datetime.now(timezone.utc)
@@ -306,7 +311,7 @@ def _seed_lane_health(db_conn, *, bulk_age_s: float, interactive_age_s: float) -
     db_conn.commit()
 
 
-def test_health_worker_reports_each_lane_separately(client, db_conn):
+def test_health_worker_reports_each_lane_separately(client, db_conn, procrastinate_schema):
     _seed_lane_health(db_conn, bulk_age_s=60, interactive_age_s=90)
     resp = client.get("/health/worker")
     assert resp.status_code == 200
@@ -317,7 +322,9 @@ def test_health_worker_reports_each_lane_separately(client, db_conn):
     assert body["lanes"]["interactive"]["gap_seconds"] < 180
 
 
-def test_health_worker_is_503_when_only_the_interactive_lane_is_dead(client, db_conn):
+def test_health_worker_is_503_when_only_the_interactive_lane_is_dead(
+    client, db_conn, procrastinate_schema
+):
     """The one that matters. The bulk worker keeps `MAX(at)` fresh, so the
     combined `heartbeat_gap_seconds` looks healthy — exactly the blind spot that
     let a dead worker go unnoticed for 14 hours. Only the per-lane check sees it,
@@ -335,7 +342,9 @@ def test_health_worker_is_503_when_only_the_interactive_lane_is_dead(client, db_
     assert body["heartbeat_gap_seconds"] < 10 * 60
 
 
-def test_health_worker_is_503_when_only_the_bulk_lane_is_dead(client, db_conn):
+def test_health_worker_is_503_when_only_the_bulk_lane_is_dead(
+    client, db_conn, procrastinate_schema
+):
     _seed_lane_health(db_conn, bulk_age_s=15 * 60, interactive_age_s=60)
     resp = client.get("/health/worker")
 
@@ -343,7 +352,9 @@ def test_health_worker_is_503_when_only_the_bulk_lane_is_dead(client, db_conn):
     assert resp.json()["stale_lanes"] == ["bulk"]
 
 
-def test_health_worker_stays_cold_on_a_lane_that_has_never_ticked(client, db_conn):
+def test_health_worker_stays_cold_on_a_lane_that_has_never_ticked(
+    client, db_conn, procrastinate_schema
+):
     """A lane with no rows at all is a cold start, not a dead worker — the
     first tick lands within 5 minutes. Failing here would 503 every fresh
     deploy for its first few minutes.

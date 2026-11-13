@@ -88,8 +88,10 @@ Tunable constants (change here, nowhere else):
 | Constant | Value | Rationale |
 |---|---|---|
 | `STALE_AFTER_HOURS` | 6 | 12 missed 30-min ATS ticks; 0 false positives when validated against prod (2026-07-25 and 2026-08-05) |
-| `MASS_CLOSE_COMPANY_MIN` | 50 | per-company 24h closed_jobs floor |
-| `MASS_CLOSE_GLOBAL` | 1000 | global 24h closed_jobs alarm |
+| `MASS_CLOSE_COMPANY_MIN` | 50 | per-company 24h closed_jobs floor. Stays an absolute number because Check B already scales it by the company's own size (`closed_24h > open_rows`) |
+| `MASS_CLOSE_GLOBAL_PER_COMPANY` | 10 | global 24h closed_jobs alarm, **per enabled company** — the alarm level is `greatest(MASS_CLOSE_GLOBAL_FLOOR, MASS_CLOSE_GLOBAL_PER_COMPANY × enabled)`, never a hard-coded count. A fixed global count is a false alarm with a fuse on it: it stays correct only until the fleet grows past it. 2026-09-17: fleet went 133 → 193 companies, the normal weekday closure band rose to ~780–1040/24h, and the old fixed `MASS_CLOSE_GLOBAL = 1000` started paging CRITICAL every 3h against a corpus that was *growing* (2146 new vs 1027 closed, per-company Check B empty, 193/193 scraping, heartbeat 0.9m). 10/company is ~2× the observed weekday peak (~5.4/company) and holds that headroom at any fleet size |
+| `MASS_CLOSE_GLOBAL_FLOOR` | 1000 | absolute floor under the global alarm, so a small fleet (<100 companies) can't scale the threshold down into everyday noise |
+| `MASS_CLOSE_NET_SHRINK_MIN` | 0.05 | a global close wave is CRITICAL only if the OPEN corpus actually **net-shrank** by ≥5% in the window. A real mass closure destroys the corpus; healthy high-volume churn replaces it faster than it closes it. Volume over threshold *without* net shrink is informational (`close_volume_high:global`), never a page |
 | `HEARTBEAT_DEAD_MINUTES` | 15 | task writes every 5 min (`heartbeat.py:106`); app's own threshold is 10 min (`main.py:53`) |
 | `WARM_UP_HOURS` | 6 | reuses the staleness window — a company seeded less than one window ago has not had time to tick; see A1's warm-up guard |
 | `COVERAGE_MIN_FRACTION` | 0.5 | Check D floor — alert if fewer than half of enabled companies had a successful scrape in 24h. On the 2026-08-29 outage this read 5/133 (3.8%); anything under ~50% is a fleet-level failure, not per-company drift |
@@ -207,14 +209,60 @@ ORDER BY l.company;
 > rows, `count(*) = N` requires a full window of N, and the FILTER `= N` requires
 > all N skipped.
 
-Alert **CRITICAL** (key `guard_latched:<company>`) on **any** row — a company that
-has run ≥4 times and written nothing to `job_listings` is dark regardless of what
-`jobs_seen` says, and (for `empty_scrape`) will NOT self-heal:
-`resolve_safety_guard`'s bounded auto-release counts `partial_scrape` only
-(`incremental.py:count_consecutive_partial_skips`), so `empty_scrape` latches
-forever until code is fixed. The 4-run floor (`GUARD_LATCH_MIN_RUNS`) is why a
-normally auto-releasing `partial_scrape` can never trip this: it releases by the
-3rd consecutive skip, so 4 consecutive skips means a non-releasing latch.
+A row here means the company runs and writes nothing, and (for `empty_scrape`)
+will NOT self-heal: `resolve_safety_guard`'s bounded auto-release counts
+`partial_scrape` only (`incremental.py:count_consecutive_partial_skips`), so
+`empty_scrape` latches forever until a human acts. The 4-run floor
+(`GUARD_LATCH_MIN_RUNS`) is why a normally auto-releasing `partial_scrape` can
+never trip this: it releases by the 3rd consecutive skip, so 4 consecutive skips
+means a non-releasing latch.
+
+**Before alerting, PROBE THE BOARD — a latch is not by itself a bug.** A row
+tells you the scraper wrote nothing; it does not tell you whether there was
+anything to write. Those are different incidents with opposite fixes, and the
+board's own API separates them in one request. For an ATS-backed company
+(`ats` in greenhouse/ashby/lever/gem — skip this for `script` and `recipe`,
+which have no single token to probe), fetch the endpoint in §6's probe table for
+the stored `board_token` and branch on the result:
+
+| Probe result | Meaning | Action |
+|---|---|---|
+| **404 / connection error** | the board moved or was deleted | **CRITICAL** `guard_latched:<company>`, and run §6 board research — this is PR-able |
+| **200 with > 0 jobs** | the board is serving roles we are not writing | **CRITICAL** `guard_latched:<company>`, text-only — a genuine scraper bug |
+| **200 with 0 jobs** | the scraper AGREES with the board | **NOT critical** — informational, see below |
+
+**Why 200-with-0-jobs must not page.** The scraper is correct: the company took
+its roles down and our zero matches theirs. Paging CRITICAL on every run for a
+company that is simply not hiring trains the reader to ignore the key that also
+fires for real outages, which is how the 2026-08-29 missed text happened. The
+alert-fatigue risk here is the actual hazard, not the empty board.
+
+MEASURED, 2026-09-11 — the case this rule was written from. `console` latched on
+`empty_scrape` and paged CRITICAL. Its careers page still showed 17 roles, and
+the first read of that was "the board is fine, our scraper broke". It was the
+opposite: **console.com/careers is a Framer page with 17 hand-written
+`jobs.ashbyhq.com/console/<uuid>` links**, and the board behind them is empty —
+posting API `{"jobs": [], "apiVersion": "1"}`, the embed GraphQL 0 postings, and
+a posting fetched **by id** returns `null`. Console removed the roles from Ashby
+and never updated their marketing site. The scraper was right the whole time.
+
+**Do not read a careers page to decide whether a board is alive.** A hardcoded
+link is indistinguishable from a live one, and `jobs.ashbyhq.com/<board>/<uuid>`
+answers **HTTP 200 for any path** because it is a JS shell — the same trap that
+makes `_prove_job_link` blind on iCIMS boards. Only the API answers this.
+
+**What the informational branch must say**, because suppressing the page has a
+real cost: the guard stays latched, so every OPEN row for that company is frozen
+— never refreshed, never closed — until a human closes them or disables the
+company. Emit key `board_empty:<company>` on the 72h informational cooldown
+(§4.3) carrying the frozen-row count and both facts that produced the verdict:
+the probe result AND the stored token. Phrase it as a decision to make, not an
+outage: *"console: Ashby board alive but empty (200, 0 jobs); 15 OPEN rows
+frozen by the guard — close them or disable the company."*
+
+Re-probe on every run. A company that comes back (200 with > 0 jobs) while still
+latched flips straight to CRITICAL, which is the case this branch must never
+swallow.
 
 **Check B — mass closures** (the 2026-03-29 incident closed 3,582 Apple jobs in
 ~6 minutes; see `docs/incidents/2026-03-29-mass-job-closure.md`):
@@ -239,15 +287,70 @@ WHERE r.closed_24h >= 50 AND r.closed_24h > coalesce(o.open_rows, 0)
 ORDER BY r.closed_24h DESC;
 ```
 
-Plus the global alarm:
+Plus the global alarm. It is **fleet-relative and shape-aware** — it must never be
+a bare count compared against a constant, because the fleet grows and the constant
+does not (see `MASS_CLOSE_GLOBAL_PER_COMPANY` for the 2026-09-17 drift). This one
+query returns every number the rule needs, so the threshold can never be eyeballed:
 
 ```sql
-SELECT coalesce(sum(closed_jobs), 0) AS closed_24h_total
-FROM scrape_runs
-WHERE started_at::timestamptz > now() - interval '24 hours';
+WITH window_totals AS (
+  SELECT coalesce(sum(closed_jobs), 0) AS closed_24h_total,
+         coalesce(sum(new_jobs), 0)    AS new_24h_total
+  FROM scrape_runs
+  WHERE started_at::timestamptz > now() - interval '24 hours'
+),
+corpus AS (
+  SELECT count(*) AS open_rows_total FROM job_listings WHERE status = 'OPEN'
+),
+fleet AS (
+  SELECT count(*) AS enabled_companies FROM companies WHERE enabled
+)
+SELECT w.closed_24h_total,
+       w.new_24h_total,
+       c.open_rows_total,
+       f.enabled_companies,
+       -- MASS_CLOSE_GLOBAL_FLOOR / MASS_CLOSE_GLOBAL_PER_COMPANY
+       greatest(1000, 10 * f.enabled_companies) AS close_alarm_threshold,
+       -- >0 means the corpus net-shrank; <0 means it grew despite the closures
+       round(((w.closed_24h_total - w.new_24h_total)::numeric)
+             / nullif(c.open_rows_total, 0), 4) AS net_shrink_fraction
+FROM window_totals w CROSS JOIN corpus c CROSS JOIN fleet f;
 ```
 
-Alert if any per-company row returns, or `closed_24h_total >= 1000`.
+Alert if **any per-company row returns** from the query above, or if the global
+numbers meet BOTH global conditions:
+
+1. `closed_24h_total >= close_alarm_threshold` — the volume is abnormal *for this
+   fleet size*, and
+2. `net_shrink_fraction >= 0.05` (`MASS_CLOSE_NET_SHRINK_MIN`) — the OPEN corpus
+   actually shrank, i.e. jobs were destroyed rather than churned.
+
+Both ⇒ CRITICAL `mass_closure:global` (§4.2, re-texts every run).
+
+**Volume over threshold but the corpus grew or held flat** (condition 1 without
+condition 2) is **not** an outage and must not page: emit INFORMATIONAL
+`close_volume_high:global` on the 72h cooldown (§4.3) carrying all four raw
+numbers, e.g. *"closures 2310/1930 over the fleet-relative alarm but the corpus
+grew (3400 new vs 2310 closed) — churn, not an outage; re-check the alarm level
+if this repeats."* That branch is the standing guard against the failure mode this
+check has already had once: re-texting CRITICAL at every run while every other
+signal (per-company Check B empty, full coverage, live heartbeat, growing corpus)
+says the fleet is healthy.
+
+Sanity-check the shape before believing a global number either way: a **business-hours
+curve** (a low overnight floor rising to a single daytime peak) is normal ATS churn.
+A real mass closure is a **spike** — thousands of rows inside minutes (2026-03-29:
+3,582 Apple jobs in ~6 minutes), and it lands on one company, so Check B's per-company
+arm fires first. If the per-company arm is empty and the hourly curve is business-hours
+shaped, the global number is churn no matter how large it looks:
+
+```sql
+SELECT date_trunc('hour', started_at::timestamptz) AS hour_utc,
+       sum(closed_jobs) AS closed
+FROM scrape_runs
+WHERE started_at::timestamptz > now() - interval '24 hours'
+GROUP BY 1 ORDER BY 1;
+```
 
 **Check C — worker heartbeat:**
 
@@ -291,10 +394,25 @@ staleness list (Check A) can bury a total collapse; this number cannot.
 Severity — highest wins, and it decides the alert cadence (§4):
 
 - **CRITICAL** — an active outage: worker heartbeat dead (C), coverage collapse
-  (D), a mass closure (B), or a latched guard (A3 — a company that runs but writes
-  nothing). These **re-alert on every run until resolved** — never suppressed by
-  the 72h window (§4.2). A3 is text-only (no PR): a latched guard is a scraper
-  code bug a human must fix, not a board move the watchdog can repoint.
+  (D), a mass closure (B — a per-company row, or the global alarm with **both**
+  its conditions met: fleet-relative volume AND a net-shrinking corpus), or a
+  latched guard (A3 — a company that runs but writes
+  nothing) **whose board probe did not come back 200-with-0-jobs**. These
+  **re-alert on every run until resolved** — never suppressed by the 72h window
+  (§4.2). A3 is text-only when the board still serves jobs (a scraper code bug a
+  human must fix); a 404 probe makes it PR-able board research instead (§6).
+- **INFORMATIONAL — `board_empty:<company>`** — A3 latched AND the board probed
+  200 with 0 jobs. The scraper agrees with the board; the company stopped
+  hiring. Not an outage, so it takes the 72h cooldown (§4.3) rather than paging
+  every run. It still has to be said, because the latch freezes every OPEN row
+  for that company until a human closes them or disables it.
+- **INFORMATIONAL — `close_volume_high:global`** — Check B's global volume arm
+  tripped but the OPEN corpus did not net-shrink (and no per-company row fired).
+  High churn on a growing fleet, not an outage, so it takes the 72h cooldown
+  (§4.3) instead of paging every 3h. Read it as a request to re-check the alarm
+  level, not as a closure event; if it recurs for more than a week or two the
+  fleet has outgrown `MASS_CLOSE_GLOBAL_PER_COMPANY` and that constant — not this
+  run's verdict — is what needs changing.
 - **DEGRADED** — per-company staleness / silent-zero (A) with the fleet still
   broadly healthy; carry the per-company list (id, ats, board_token, hours dark,
   signals). PR-able board moves dedupe on the open PR (§4.1).
@@ -324,8 +442,12 @@ Severity — highest wins, and it decides the alert cadence (§4):
    send.
 3. **Informational alerts keep the 72h cooldown** — these are known needs-human
    items, not live outages, so nagging adds nothing: keys `notfound:<company>`,
-   `drill:<scenario>`. Suppress the text if the same key was texted within 72h;
-   still record the finding in the heartbeat line.
+   `board_empty:<company>`, `close_volume_high:global`, `drill:<scenario>`. Suppress the text if the same key
+   was texted within 72h; still record the finding in the heartbeat line.
+   `board_empty` sits here rather than under CRITICAL because the scraper is
+   behaving correctly — but note it is the one informational key that can flip:
+   if the board later probes 200 with > 0 jobs while the guard is still latched,
+   it becomes `guard_latched:<company>` and loses the cooldown.
 4. If everything found is a §4.1/§4.3 suppression (no CRITICAL active): append the
    heartbeat line with `suppressed=<ids/keys>` and end (weekly all-clear still
    applies, §9).
@@ -483,6 +605,16 @@ Fix PR: <url>
 - Non-PR findings get their own line (`worker heartbeat DEAD 47m`,
   `apple: guard-latched, 4/4 runs skipped (empty_scrape, 17 jobs) — scraper writing nothing`,
   `could not determine prod health (MCP error)`, `board not found — needs a human`).
+- A `mass_closure:global` line always names the number **and the fleet-relative
+  level it beat**, so the reader can judge it without opening the log:
+  `mass closure: 4820 closed/24h vs 1930 alarm, corpus -9% (193 companies)`.
+  Never text a bare closed count — a count with no denominator is exactly what
+  made the 2026-09-17 false alarm unreadable as a false alarm.
+- A `board_empty` finding names the probe AND the consequence, so the reader can
+  tell it apart from a latch that IS a bug and knows what is being asked of them:
+  `console: Ashby board alive but empty (200, 0 jobs) — 15 OPEN rows frozen by the
+  guard; close them or disable the company`. Never write it as "dark" or
+  "broken" — the scraper is agreeing with the board.
 - **CRITICAL escalation (§4.2):** when a CRITICAL key is still active on a repeat
   run, lead with the elapsed duration and a day counter so each send is visibly
   worse and can never be mistaken for a prior text, e.g.
@@ -508,8 +640,17 @@ Append exactly one line to `~/Library/Application Support/jvn-health-watch/heart
 (create the directory if needed):
 
 ```
-2026-08-05T16:03Z verdict=DEGRADED severity=degraded checked=133 coverage=131/133 stale=fireworksai,thinkingmachines guard_latched=none mass_closure=none heartbeat_min=3 pr=https://github.com/.../pull/NNN texted=1 suppressed=none
+2026-08-05T16:03Z verdict=DEGRADED severity=degraded checked=133 coverage=131/133 stale=fireworksai,thinkingmachines guard_latched=none mass_closure=none(612/1330) heartbeat_min=3 pr=https://github.com/.../pull/NNN texted=1 suppressed=none
 ```
+
+`mass_closure=` always carries the global arm's raw ratio, even when clean:
+`mass_closure=none(1027/1930)` — observed `closed_24h_total` over the
+fleet-relative `close_alarm_threshold`. That makes threshold drift visible in the
+log *before* it starts paging: a ratio creeping toward 1.0 over successive runs is
+the fleet outgrowing the constant, and is the cue to raise
+`MASS_CLOSE_GLOBAL_PER_COMPANY` rather than to wait for a false CRITICAL. Use
+`mass_closure=global(2310/1930,shrink=0.07)` when it fires and
+`mass_closure=churn(2310/1930,shrink=-0.03)` for the informational branch.
 
 `guard_latched=` lists any Check A3 companies (comma-separated ids, or `none`) —
 a run where `guard_latched=apple` but `coverage` and `stale` look fine is exactly
@@ -517,8 +658,8 @@ the 2026-08-28 blind spot reading correctly at last.
 
 Always include `severity=` (ok|degraded|critical|unknown) and `coverage=<scraped_ok_24h>/<enabled>`
 (Check D) — a collapse then reads at a glance in the log, e.g. a worker-death run is
-`verdict=CRITICAL severity=critical checked=133 coverage=5/133 heartbeat_min=3648 ... texted=1 suppressed=none`.
-(`verdict=OK ... coverage=133/133 ... pr=none texted=0` on the quiet path.) The
+`verdict=CRITICAL severity=critical checked=133 coverage=5/133 mass_closure=none(0/1330) heartbeat_min=3648 ... texted=1 suppressed=none`.
+(`verdict=OK ... coverage=133/133 mass_closure=none(612/1330) ... pr=none texted=0` on the quiet path.) The
 launchd wrapper checks this file's mtime advanced — skipping this line makes the
 wrapper report the run as failed. Print the same line as the final status block,
 then end the turn immediately (headless: no further tool calls).
@@ -535,5 +676,7 @@ then end the turn immediately (headless: no further tool calls).
 | Alembic head moved between reading it and committing | Re-read head, re-parent the new migration, retry once |
 | `gh` unauthenticated or push rejected | Text without PR link + `ALERT-SEND` the failure detail; loud stderr |
 | >1 company degraded | One batched PR, one text listing all |
+| Global closure volume high, but per-company Check B empty AND corpus grew | NOT a mass closure — informational `close_volume_high:global` on the 72h cooldown. Never CRITICAL, never a PR. Recurring for >1–2 weeks means raise `MASS_CLOSE_GLOBAL_PER_COMPANY`, not mute the check |
+| Fleet size changed a lot since the thresholds were last reviewed | Nothing to do — the global closure alarm and Check D are both fleet-relative by construction. Only `MASS_CLOSE_COMPANY_MIN` is absolute, and Check B scales it per company |
 | Branch `fix/board-move-<date>` already exists | Suffix `-2`; if an OPEN PR exists for it, treat as dedupe hit instead |
 | send.sh missing/broken | stderr `ALERT-SEND FAILED`; heartbeat records it; wrapper's own 72h-cooldown failure text is the backstop |

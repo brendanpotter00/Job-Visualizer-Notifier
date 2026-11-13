@@ -303,7 +303,9 @@ export function describeResolveError(error: unknown): ResolveErrorDisplay {
 
     case 502:
       // Shape comes from api/companies.ts (the Vercel proxy), not the backend:
-      // `{ error, details }`. Usually means the backend isn't running locally.
+      // `{ error }`. The proxies no longer send `details` (it leaked the backend
+      // host), so the fallback below is what renders. Usually means the backend
+      // isn't running locally.
       return {
         title: "We couldn't reach the backend",
         detail: (() => {

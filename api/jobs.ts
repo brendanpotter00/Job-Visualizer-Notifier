@@ -2,7 +2,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { getBackendUrl } from './utils/backendUrl';
 import { forwardResponse } from './utils/forwardResponse';
 import { getInternalKeyHeader } from './utils/internalKey';
-import { PROXY_REJECTION, resolveProxyPath } from './utils/proxyPath';
+import { PROXY_REJECTION, buildUpstreamUrl, resolveProxyPath } from './utils/proxyPath';
 
 /**
  * Opaque keyset-pagination token minted by the backend's `GET /api/jobs`.
@@ -28,7 +28,19 @@ const NEXT_CURSOR_HEADER = 'x-next-cursor';
  * also why these cannot be a comma-joined scalar in the first place: canonical
  * location names ("Austin, TX, US") and free-text keywords contain them.
  */
-const REPEATABLE_PARAMS = ['category', 'level', 'company', 'location', 'include', 'exclude'] as const;
+const REPEATABLE_PARAMS = [
+  'category',
+  // FORGETTING THIS ONE WORD IS THE WORST SILENT FAILURE IN THE WORKSTREAM: the
+  // param dies at the proxy, the backend never sees a subcategory filter, and
+  // the caller gets a perfectly ordinary UNFILTERED 200. Nothing in the SPA can
+  // tell that apart from "the filter matched everything".
+  'subcategory',
+  'level',
+  'company',
+  'location',
+  'include',
+  'exclude',
+] as const;
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const { path, status, company, companies, limit, offset, category, level, since, cursor } =
@@ -54,7 +66,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // traversal like `/api/jobs/../admin` is rejected in canonicalization before
   // it can reach this pattern. The GET-only detail read injects the internal key
   // like every other sub-path and 404s cleanly when no row matches.
-  const sub = resolveProxyPath(path, ['', 'facets', 'search', ':source/:job']);
+  const sub = resolveProxyPath(path, ['', 'facets', 'search', 'settings', ':source/:job']);
   if (sub === null) {
     res.status(PROXY_REJECTION.status).json(PROXY_REJECTION.body);
     return;
@@ -99,9 +111,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (level) params.set('level', String(level));
   }
 
-  const backendUrl = getBackendUrl(req);
   const queryString = params.size ? `?${params}` : '';
-  const url = `${backendUrl}/api/jobs${sub ? `/${sub}` : ''}${queryString}`;
+  // Encodes each validated segment and refuses anything that would not land
+  // under /api/jobs — see buildUpstreamUrl. This matters here because of the
+  // `:source/:job` detail route: two free-form segments, and a double-encoded
+  // `%252e%252e` in one of them used to reach `/api/<anything>` once `fetch`
+  // collapsed it. Checked BEFORE the key is attached.
+  const url = buildUpstreamUrl(getBackendUrl(req), '/api/jobs', sub, queryString);
+  if (url === null) {
+    res.status(PROXY_REJECTION.status).json(PROXY_REJECTION.body);
+    return;
+  }
 
   // Forwarded ONLY when the caller sent one, so an anonymous request stays
   // anonymous on the wire — the backend's private-company guard keys off the

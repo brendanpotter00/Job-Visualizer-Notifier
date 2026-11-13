@@ -47,6 +47,13 @@ export const selectRecentJobsFilterSignature = createSelector(
       company: stableList(filters.company),
       category: stableList(filters.category),
       level: stableList(filters.level),
+      // OMITTING THIS LINE MAKES THE SUBCATEGORY CHECKBOX COMPLETELY INERT.
+      // `useRecentJobsSearch` only re-stamps its filter snapshot when this
+      // signature changes; an unchanged signature means the snapshot keeps the
+      // OLD filters, `buildSearchJobsArgs` reads the old filters, RTK Query
+      // addresses the same cache entry, and ticking a box issues NO REQUEST AT
+      // ALL — until some unrelated filter moves and drags it along.
+      subcategory: stableList(filters.subcategory),
       // null (not loaded / no preference) is distinct from [] and from a set.
       enabledCompanies: enabledCompanyIds ? [...enabledCompanyIds].sort() : null,
       demoMode: demoModeEnabled,

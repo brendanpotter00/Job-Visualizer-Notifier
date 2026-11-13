@@ -64,6 +64,13 @@ export interface BackendJobListing {
    */
   category?: string | null;
   level?: string | null;
+  /**
+   * SWE subcategory slugs, ORDERED (index 0 = primary). TRI-STATE on the wire:
+   * absent/`null` = never evaluated (the backfill queue), `[]` = evaluated and
+   * no specialty applies, a non-empty array = labelled. The transformer
+   * preserves all three; it must not coerce `null` to `[]`.
+   */
+  subcategories?: string[] | null;
   /** Free-form enrichment skill tags (job_tags), distinct from ATS-derived Job.tags. */
   tags?: string[];
   enrichmentStatus?: string | null;

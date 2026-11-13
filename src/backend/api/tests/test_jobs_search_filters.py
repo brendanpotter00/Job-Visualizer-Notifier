@@ -24,8 +24,10 @@ So the assertions here are about MEANING, not about mechanics:
   oracle can catch a divergence nobody thought to write a case for.
 """
 
+import json
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 from api.services.job_search import expand_levels
 from scripts.shared.constants import SourceId
@@ -307,6 +309,12 @@ def test_every_dimension_ands_together_on_a_hand_built_corpus(
     predicate would still exclude the row. Here each decoy is held out by exactly
     one clause, so deleting any single clause from the WHERE builder makes exactly
     one decoy leak into the result and this test names it.
+
+    EVERY dimension means every dimension, subcategory included. This is the
+    end-to-end proof that selecting several filters composes with AND rather
+    than OR — `subcategory` is the newest clause and the easiest one for a
+    refactor to drop, because on a corpus where every row happens to be labelled
+    the other predicates hide its absence.
     """
     austin = _insert_location(db_conn, canonical_name="Austin, TX, US", kind="city",
                               city="Austin", region="TX", country="US")
@@ -321,6 +329,7 @@ def test_every_dimension_ands_together_on_a_hand_built_corpus(
             "title": "New Grad Backend Engineer",
             "location": "Austin, TX",
             "enrichment_category": "software_engineering",
+            "enrichment_subcategories": ["backend"],
             "enrichment_level": "new_grad",
             "first_seen_at": BASE_TIME + timedelta(hours=10),
         }
@@ -334,6 +343,11 @@ def test_every_dimension_ands_together_on_a_hand_built_corpus(
     seed("keeper")
     seed("wrong-category", enrichment_category="growth")
     seed("null-category", enrichment_category=None)
+    # `frontend` rather than a random slug: it is one of the two slugs that WIDEN
+    # (into full_stack), so a widening accidentally made symmetric would let this
+    # decoy leak in under a `backend` filter.
+    seed("wrong-subcategory", enrichment_subcategories=["frontend"])
+    seed("null-subcategory", enrichment_subcategories=None)
     seed("wrong-level", enrichment_level="mid")
     seed("null-level", enrichment_level=None)
     seed("wrong-company", company="openai")
@@ -346,12 +360,13 @@ def test_every_dimension_ands_together_on_a_hand_built_corpus(
 
     # Baseline: every decoy really is in the table and really is visible, so the
     # assertion below is about the filters and not about a seeding mistake.
-    assert len(_search(client)["jobs"]) == 11, "all but the CLOSED row are visible"
+    assert len(_search(client)["jobs"]) == 13, "all but the CLOSED row are visible"
 
     body = _search(
         client,
         status="OPEN",
         category="software_engineering",
+        subcategory="backend",
         level="entry",                       # must expand to reach the new_grad keeper
         company=["stripe", "google"],
         location="Austin, TX, US",
@@ -662,4 +677,193 @@ def test_server_results_match_client_filter_oracle(client, db_conn, seed_taxonom
     assert strict_subsets >= len(_ORACLE_FILTER_SETS) - 2, (
         "nearly every filter set must select a non-empty PROPER subset of the "
         "corpus, or this test is not exercising the filters"
+    )
+
+
+# ---------------------------------------------------------------------------
+# (7) subcategory — the third dimension
+# ---------------------------------------------------------------------------
+
+
+def test_subcategory_filter_returns_only_jobs_carrying_that_slug(
+    client, db_conn, seed_taxonomy
+):
+    _seed_job(db_conn, "s-backend", enrichment_category="software_engineering",
+              enrichment_subcategories=["backend"])
+    # The decoy carries a DIFFERENT subcategory rather than none, so a predicate
+    # degraded to "has any subcategory" would still fail here.
+    _seed_job(db_conn, "s-security", enrichment_category="software_engineering",
+              enrichment_subcategories=["security"])
+
+    assert _ids(_search(client, subcategory="backend")) == {"s-backend"}
+
+
+def test_a_secondary_subcategory_label_counts(client, db_conn, seed_taxonomy):
+    """Index 0 is the PRIMARY, but the array is a set for filtering purposes."""
+    _seed_job(db_conn, "s-pair", enrichment_category="software_engineering",
+              enrichment_subcategories=["forward_deployed", "backend"])
+
+    assert _ids(_search(client, subcategory="backend")) == {"s-pair"}
+
+
+def test_two_subcategories_or_together(client, db_conn, seed_taxonomy):
+    _seed_job(db_conn, "s-mobile", enrichment_category="software_engineering",
+              enrichment_subcategories=["mobile"])
+    _seed_job(db_conn, "s-security", enrichment_category="software_engineering",
+              enrichment_subcategories=["security"])
+    _seed_job(db_conn, "s-other", enrichment_category="software_engineering",
+              enrichment_subcategories=["qa_testing"])
+
+    body = _search(client, subcategory=["mobile", "security"])
+    assert _ids(body) == {"s-mobile", "s-security"}
+
+
+def test_frontend_also_matches_full_stack(client, db_conn, seed_taxonomy):
+    _seed_job(db_conn, "s-fe", enrichment_category="software_engineering",
+              enrichment_subcategories=["frontend"])
+    _seed_job(db_conn, "s-fs", enrichment_category="software_engineering",
+              enrichment_subcategories=["full_stack"])
+    _seed_job(db_conn, "s-be", enrichment_category="software_engineering",
+              enrichment_subcategories=["backend"])
+
+    assert _ids(_search(client, subcategory="frontend")) == {"s-fe", "s-fs"}
+
+
+def test_full_stack_stays_exact_the_widening_is_one_way(
+    client, db_conn, seed_taxonomy
+):
+    """A reader who asks specifically for full-stack work must not get every
+    frontend and backend job back — that is the whole reason the map is keyed on
+    the SELECTED slug rather than derived symmetrically."""
+    _seed_job(db_conn, "s-fe", enrichment_category="software_engineering",
+              enrichment_subcategories=["frontend"])
+    _seed_job(db_conn, "s-be", enrichment_category="software_engineering",
+              enrichment_subcategories=["backend"])
+    _seed_job(db_conn, "s-fs", enrichment_category="software_engineering",
+              enrichment_subcategories=["full_stack"])
+
+    assert _ids(_search(client, subcategory="full_stack")) == {"s-fs"}
+
+
+def test_null_and_empty_subcategory_arrays_are_BOTH_hidden(
+    client, db_conn, seed_taxonomy
+):
+    """`NULL && x` is NULL and `'{}' && x` is false — both fall out of the WHERE.
+
+    They mean different things (never evaluated vs evaluated-and-nothing-applies)
+    and the distinction is load-bearing for the BACKFILL, but for a reader with
+    an active filter they are the same: not a match.
+    """
+    _seed_job(db_conn, "s-null", enrichment_category="software_engineering")
+    _seed_job(db_conn, "s-empty", enrichment_category="software_engineering",
+              enrichment_subcategories=[])
+    _seed_job(db_conn, "s-backend", enrichment_category="software_engineering",
+              enrichment_subcategories=["backend"])
+
+    # With no filter all three are visible...
+    assert _ids(_search(client)) == {"s-null", "s-empty", "s-backend"}
+    # ...and the moment one is active, only the labelled row survives.
+    assert _ids(_search(client, subcategory="backend")) == {"s-backend"}
+
+
+def test_subcategory_ands_with_category(client, db_conn, seed_taxonomy):
+    _seed_job(db_conn, "s-swe", enrichment_category="software_engineering",
+              enrichment_subcategories=["backend"])
+    # Data that should not exist, but the predicates are independent conditions
+    # and this proves it: the category clause is what excludes it.
+    _seed_job(db_conn, "s-growth", enrichment_category="growth",
+              enrichment_subcategories=["backend"])
+
+    assert _ids(_search(client, subcategory="backend")) == {"s-swe", "s-growth"}
+    assert _ids(
+        _search(client, category="software_engineering", subcategory="backend")
+    ) == {"s-swe"}
+
+
+def test_expand_subcategories_preserves_order_and_dedupes():
+    from api.services.job_search import expand_subcategories
+
+    assert expand_subcategories(["backend"]) == ["backend", "full_stack"]
+    assert expand_subcategories(["full_stack"]) == ["full_stack"]
+    # frontend and backend both widen into full_stack — exactly once.
+    assert expand_subcategories(["frontend", "backend"]) == [
+        "frontend", "full_stack", "backend",
+    ]
+    # An unknown slug passes through untouched rather than disappearing.
+    assert expand_subcategories(["ai_ml"]) == ["ai_ml"]
+
+
+# ---------------------------------------------------------------------------
+# (8) THE CROSS-LANGUAGE ORACLE — one committed fixture, two languages
+# ---------------------------------------------------------------------------
+
+_SUBCATEGORY_ORACLE_PATH = (
+    Path(__file__).resolve().parent / "fixtures" / "subcategory_filter_oracle.json"
+)
+
+
+def _load_subcategory_oracle() -> dict:
+    with _SUBCATEGORY_ORACLE_PATH.open() as handle:
+        return json.load(handle)
+
+
+def test_subcategory_oracle_expansion_map_matches_the_code():
+    """The fixture's declared expansion IS the code's, or the whole oracle is
+    asserting against a taxonomy nothing implements."""
+    from api.services.enrichment_writer import SUBCATEGORY_FILTER_EXPANSION
+
+    oracle = _load_subcategory_oracle()
+    declared = {k: list(v) for k, v in oracle["expansion"].items()}
+    actual = {k: list(v) for k, v in SUBCATEGORY_FILTER_EXPANSION.items()}
+    assert declared == actual
+
+
+def test_server_matches_the_committed_subcategory_oracle(
+    client, db_conn, seed_taxonomy
+):
+    """THE PYTEST HALF of the cross-repo oracle.
+
+    The vitest half
+    (``src/frontend/src/__tests__/features/filters/subcategoryFilterOracle.test.ts``)
+    reads THIS FILE and asserts the same expected id set per selection against the
+    client matcher. Same file, two readers — the only mechanical way to assert
+    "identical" across two languages.
+    """
+    oracle = _load_subcategory_oracle()
+    source_id = oracle["source_id"]
+
+    for row in oracle["jobs"]:
+        _seed_job(
+            db_conn,
+            row["job_id"],
+            source_id=source_id,
+            enrichment_category=row["enrichment_category"],
+            enrichment_subcategories=row["enrichment_subcategories"],
+        )
+
+    all_ids = {row["job_id"] for row in oracle["jobs"]}
+    strict_subsets = 0
+
+    for case in oracle["selections"]:
+        body = _search(client, subcategory=case["subcategory"] or None)
+        expected = set(case["expected"])
+        assert _ids(body) == expected, (
+            f"{case['name']}: server disagrees with the committed oracle\n"
+            f"  server-only: {sorted(_ids(body) - expected)}\n"
+            f"  oracle-only: {sorted(expected - _ids(body))}"
+        )
+        if 0 < len(expected) < len(all_ids):
+            strict_subsets += 1
+
+    for case in oracle["category_composition"]:
+        body = _search(
+            client,
+            category=case["category"],
+            subcategory=case["subcategory"] or None,
+        )
+        assert _ids(body) == set(case["expected"]), case["name"]
+
+    # Not vacuous: most selections must pick a non-empty PROPER subset.
+    assert strict_subsets >= len(oracle["selections"]) - 3, (
+        "the oracle's selections must actually discriminate, or it proves nothing"
     )

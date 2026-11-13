@@ -15,6 +15,7 @@ import {
   removeRecentJobsCompany,
   setRecentJobsCategory,
   setRecentJobsLevel,
+  setRecentJobsSubcategory,
 } from '../../features/filters/slices/recentJobsFiltersSlice.ts';
 import {
   selectRecentJobsFilters,
@@ -22,7 +23,10 @@ import {
 } from '../../features/filters/selectors/recentJobsSelectors.ts';
 import { useGetFacetsQuery } from '../../features/jobs/jobsApi.ts';
 import { FALLBACK_CATEGORIES, FALLBACK_LEVELS } from '../../constants/enrichment.ts';
+import { useSubcategoryRevealEnabled } from '../../features/settings/subcategoryReveal.tsx';
+// FacetMultiSelect STAYS — it still backs the Level control below.
 import { FacetMultiSelect } from '../shared/filters/FacetMultiSelect.tsx';
+import { FacetTreeMultiSelect } from '../shared/filters/FacetTreeMultiSelect.tsx';
 import { KeywordFilterInput } from '../shared/filters/KeywordFilterInput.tsx';
 import { TimeWindowSelect } from '../shared/filters/TimeWindowSelect.tsx';
 import { MultiSelectAutocomplete } from '../shared/filters/MultiSelectAutocomplete.tsx';
@@ -32,7 +36,7 @@ import { AsyncMultiSelectAutocomplete } from '../shared/filters/AsyncMultiSelect
  * Filter controls for Recent Job Postings page.
  *
  * What is actually rendered: keywords (free text + saved keyword lists), time
- * window, job title (category), level, location, company, and Reset. The slice
+ * window, job category, level, location, company, and Reset. The slice
  * also generates `toggle/setRecentJobsSoftwareOnly`, but
  * NOTHING dispatches them — there is no software-only control on this page; the
  * built-in "Software Engineering" keyword list in the keywords input is how a
@@ -45,8 +49,15 @@ export function RecentJobsFilters() {
   // Facet dropdown options are data-driven (seeded dimension tables); the
   // fallback constants cover the pre-fetch frame and an endpoint outage.
   const { data: facets } = useGetFacetsQuery();
+  const revealSubcategories = useSubcategoryRevealEnabled();
   const categoryOptions = facets?.categories ?? FALLBACK_CATEGORIES;
   const levelOptions = facets?.levels ?? FALLBACK_LEVELS;
+  // `?? []` and NOT the fallback constant, deliberately. THIS SINGLE EXPRESSION
+  // IS the shared contract's `flag && (facets?.subcategories?.length ?? 0) > 0`
+  // gate: an empty catalog renders no child rows at all, so a warm one-hour facets
+  // cache plus a freshly flipped flag cannot produce a parent row that expands
+  // into nothing.
+  const subcategoryOptions = revealSubcategories ? (facets?.subcategories ?? []) : [];
 
   /**
    * Memoized company options for dropdown
@@ -129,22 +140,25 @@ export function RecentJobsFilters() {
           />
 
           {/*
-            The label says "Job title" but the data model underneath is
+            The label reads "Job Category" and the data model underneath is
             "category" all the way down — the `filters.category` slice field, the
             `setRecentJobsCategory` action, the API param, and the DB column are
-            all "category". This is a deliberate UI-only rename: users engage with
-            a "Job title" filter far more than a "Category" one. It stays a
-            category under the hood because these values will subdivide over time
-            (e.g. "Software Engineering" → "Frontend SWE" / "Backend SWE"), at
-            which point they read as categories again. Rename the label only —
-            never the data model.
+            all "category". It previously read "Job title", which was wrong on its
+            face and is about to get worse: these values subdivide (e.g.
+            "Software Engineering" → "Frontend" / "Backend"), so they read as
+            categories, not titles. Rename the copy only — never the data model.
           */}
-          <FacetMultiSelect
-            label="Job title"
+          <FacetTreeMultiSelect
+            label="Job Category"
             options={categoryOptions}
+            childOptions={subcategoryOptions}
             value={filters.category}
-            onChange={(slugs) => dispatch(setRecentJobsCategory(slugs))}
-            tooltip="AI-enriched job title (choose any number). Only jobs matching your selection are shown."
+            childValue={filters.subcategory}
+            onChange={({ category, subcategory }) => {
+              dispatch(setRecentJobsCategory(category));
+              dispatch(setRecentJobsSubcategory(subcategory));
+            }}
+            tooltip="AI-enriched job category (choose any number). Only jobs matching your selection are shown."
           />
           <FacetMultiSelect
             label="Level"

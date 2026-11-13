@@ -6,7 +6,7 @@ import type { Company } from '../../types';
 import { COMPANIES, COMING_SOON_SCRAPERS } from '../../config/companies';
 import { ROUTES } from '../../config/routes';
 import { COMPANY_PARAM } from '../../lib/url';
-import { OpenInNew } from '@mui/icons-material';
+import OpenInNew from '@mui/icons-material/OpenInNew';
 import {
   ATS_DISPLAY_NAMES,
   NON_CAPITALIZED_GROUPS,

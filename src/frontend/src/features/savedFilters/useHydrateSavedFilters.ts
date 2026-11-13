@@ -57,6 +57,13 @@ export function useHydrateSavedFilters(): void {
           location: savedFilters.locations,
           category: savedFilters.category,
           level: savedFilters.level,
+          // Safe by construction on a LEGACY row: the payload is a Partial<T>
+          // applied via Object.assign, and `validateSavedFilters` guarantees
+          // this key is at least `[]`. `[]` hydrates as an empty array rather
+          // than undefined, which every consumer already treats as "no filter"
+          // (matchesSubcategory checks .length, stableList maps both to [], and
+          // the slice reducer normalizes [] back to undefined on the next edit).
+          subcategory: savedFilters.subcategory,
           searchTags: trendTags,
         })
       );
@@ -66,6 +73,7 @@ export function useHydrateSavedFilters(): void {
           location: savedFilters.locations,
           category: savedFilters.category,
           level: savedFilters.level,
+          subcategory: savedFilters.subcategory,
           searchTags: recentTags,
         })
       );

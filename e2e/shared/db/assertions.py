@@ -9,17 +9,27 @@ tests — kept here instead of duplicated per test file, per PLAN.md's
 from __future__ import annotations
 
 import hashlib
+import os
 from typing import Any
 
 import httpx
 import psycopg2
 import psycopg2.extras
 
-EXPECTED_DB = "jobscraper_e2e"
+# Same knob, same default and same fence as ``e2e_app._EXPECTED_DB`` — a
+# section with its own database sets it once, in its run.sh, and the backend
+# and every test-side connection agree without a second place to keep in sync.
+EXPECTED_DB = os.environ.get("E2E_EXPECTED_DB", "jobscraper_e2e")
+if EXPECTED_DB != "jobscraper_e2e" and not EXPECTED_DB.startswith("jobscraper_e2e_"):
+    raise RuntimeError(
+        f"E2E_EXPECTED_DB={EXPECTED_DB!r} is not an e2e database name "
+        f"('jobscraper_e2e' or 'jobscraper_e2e_<section>')."
+    )
 
 
 def connect(dsn: str) -> Any:
-    """A RealDictCursor connection to jobscraper_e2e — refuses anything else.
+    """A RealDictCursor connection to the section's e2e database — refuses
+    anything else.
 
     Same hard guard as e2e_app.py (PLAN.md §2): a helper that *can* connect to
     the owner's database once will connect to it at 2am.

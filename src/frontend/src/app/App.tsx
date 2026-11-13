@@ -41,6 +41,8 @@ import { usePostHogIdentify } from '../features/analytics/usePostHogIdentify';
 import { useSignupFunnel } from '../features/analytics/useSignupFunnel';
 import { WEBMCP_CONFIG, WebMcpBridge } from '../webmcp';
 
+import { SubcategoryRevealProvider } from '../features/settings/subcategoryReveal';
+
 /**
  * Redirects the pre-rename `/my-companies…` path onto `/add-companies…`.
  *
@@ -228,10 +230,7 @@ function AppContent() {
             whole shell (drawer, page hooks, its network calls) for a URL that
             is replaced on the first effect is work nobody ever sees. */}
         {CUSTOM_COMPANIES_CONFIG.isEnabled && (
-          <Route
-            path={`${ROUTES.MY_COMPANIES_LEGACY}/*`}
-            element={<LegacyMyCompaniesRedirect />}
-          />
+          <Route path={`${ROUTES.MY_COMPANIES_LEGACY}/*`} element={<LegacyMyCompaniesRedirect />} />
         )}
       </Routes>
     </>
@@ -256,7 +255,12 @@ function AppContent() {
 function App() {
   return (
     <BrowserRouter>
-      <AppContent />
+      {/* ONE subscription to GET /api/jobs/settings for the whole app. Mounted
+          here rather than per-consumer because JobChipsSection reads the flag
+          once per card inside a virtualized list. */}
+      <SubcategoryRevealProvider>
+        <AppContent />
+      </SubcategoryRevealProvider>
     </BrowserRouter>
   );
 }

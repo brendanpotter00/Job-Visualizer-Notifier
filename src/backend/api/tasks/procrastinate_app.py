@@ -67,6 +67,31 @@ _CONNECTOR_POOL_MAX_SIZE = 16
 # drains it can never drift apart.
 CUSTOM_ATS_FIRST_FETCH_QUEUE = "custom_ats_first_fetch"
 
+# The BULK lane's custom queue — the ``*/15`` claim tick and the nightly
+# re-harvest of every tracked PRIVATE board. Named here so
+# ``claim_custom_companies._count_queued_fetches`` can scope its backpressure
+# count to the custom lane by queue rather than by task name: the SAME
+# ``fetch_custom_company`` task now also runs for published recipe boards on
+# ``RECIPE_FETCH_QUEUE``, and counting those against the private lane's budget
+# of 3 would let a handful of curated boards starve every user-added one.
+CUSTOM_ATS_BULK_FETCH_QUEUE = "custom_ats_fetch"
+
+# Every queue on which a ``fetch_custom_company`` job belongs to the PRIVATE
+# (user-added) lane. This tuple is what the custom backpressure ceiling counts.
+CUSTOM_FETCH_QUEUES: tuple[str, ...] = (
+    CUSTOM_ATS_BULK_FETCH_QUEUE,
+    CUSTOM_ATS_FIRST_FETCH_QUEUE,
+)
+
+# PUBLISHED recipe boards (``companies.ats='recipe'``, ``visibility='public'``)
+# get their own queue, exactly as each vendor ATS fan-out does. It rides the BULK
+# lane (``api.main._BULK_QUEUES``) beside ``greenhouse_fetch`` & friends: these are
+# curated boards on a */30 cron, and nobody is watching a spinner for one.
+#
+# A SEPARATE QUEUE, NOT ``custom_ats_fetch``, is the whole point — see
+# ``CUSTOM_FETCH_QUEUES`` above.
+RECIPE_FETCH_QUEUE = "recipe_fetch"
+
 # Single source of truth for the worker app. Other task modules attach
 # themselves to this instance.
 procrastinate_app: App = App(

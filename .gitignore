@@ -57,6 +57,7 @@ scripts/output/
 __pycache__/
 *.pyc
 .venv/
+.venv
 .env*.local
 
 # Local learning scratchpads (not part of PRs)
@@ -73,3 +74,7 @@ iphone-*.png
 # lavish-axi editor + ad-hoc analysis artifacts (local, not committed)
 .lavish/
 .analysis/
+
+# pytest-cov data file, written at the repo root by a local backend run
+.coverage
+.coverage.*

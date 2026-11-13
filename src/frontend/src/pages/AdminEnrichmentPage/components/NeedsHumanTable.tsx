@@ -12,6 +12,7 @@ import TableCell from '@mui/material/TableCell';
 import TableHead from '@mui/material/TableHead';
 import TablePagination from '@mui/material/TablePagination';
 import TableRow from '@mui/material/TableRow';
+import TableSortLabel from '@mui/material/TableSortLabel';
 import TextField from '@mui/material/TextField';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
@@ -35,6 +36,23 @@ import { format } from 'date-fns';
 import { CorrectionDialog } from './CorrectionDialog';
 import { JobDescriptionDialog } from './JobDescriptionDialog';
 
+/** The four columns the backend's sort allowlist accepts. */
+type SortKey =
+  | 'enriched_at'
+  | 'classify_confidence'
+  | 'judge_confidence'
+  | 'subcategory_confidence';
+
+/**
+ * Rendered through FacetSelect, so these are shaped like facet options. Values
+ * mirror the backend's `_NEEDS_HUMAN_SUBCATEGORY_STATES` keys; 'any' is the
+ * default and is sent as "no filter" rather than as a param.
+ */
+const SUBCATEGORY_STATE_OPTIONS = [
+  { slug: 'unlabelled_swe', label: 'Unlabelled SWE', sortOrder: 0, parentSlug: null },
+  { slug: 'labelled', label: 'Labelled', sortOrder: 1, parentSlug: null },
+];
+
 function facetChip(slug: string | null) {
   if (!slug) {
     return <Chip size="small" variant="outlined" label="—" sx={{ opacity: 0.5 }} />;
@@ -54,6 +72,10 @@ export function NeedsHumanTable() {
   const [company, setCompany] = useState('');
   const [category, setCategory] = useState<string | undefined>(undefined);
   const [level, setLevel] = useState<string | undefined>(undefined);
+  const [subcategory, setSubcategory] = useState<string | undefined>(undefined);
+  const [subcategoryState, setSubcategoryState] = useState<string | undefined>(undefined);
+  const [sort, setSort] = useState<SortKey>('enriched_at');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const [expanded, setExpanded] = useState<string | null>(null);
   const [correcting, setCorrecting] = useState<EnrichmentNeedsHumanRow | null>(null);
   const [viewingDescription, setViewingDescription] = useState<EnrichmentNeedsHumanRow | null>(
@@ -69,11 +91,31 @@ export function NeedsHumanTable() {
     company: company.trim() || undefined,
     category,
     level,
+    sort,
+    sortDir,
+    subcategory,
+    subcategoryState,
   });
   const [reenrich, { isLoading: reenriching }] = useReenrichEnrichmentJobMutation();
   const [confirm, { isLoading: confirming }] = useConfirmEnrichmentMutation();
 
   const rowKey = (row: EnrichmentNeedsHumanRow) => `${row.sourceId}:${row.jobListingId}`;
+
+  /**
+   * Clicking a header sorts by it descending; clicking the SAME header flips
+   * the direction. Every path resets the offset — sorting a paged list without
+   * returning to page 0 shows an arbitrary slice of the NEW order, which reads
+   * as data loss.
+   */
+  const handleSort = (key: SortKey) => {
+    if (sort === key) {
+      setSortDir((dir) => (dir === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSort(key);
+      setSortDir('desc');
+    }
+    setPage(0);
+  };
 
   return (
     <Box>
@@ -103,6 +145,30 @@ export function NeedsHumanTable() {
           value={level}
           onChange={(slug) => {
             setLevel(slug);
+            setPage(0);
+          }}
+        />
+        <FacetSelect
+          label="Proposed subcategory"
+          options={facets?.subcategories ?? []}
+          value={subcategory}
+          onChange={(slug) => {
+            setSubcategory(slug);
+            setPage(0);
+          }}
+        />
+        {/*
+          "Unlabelled SWE" is the lens that surfaces HUMAN-LOCKED SWE rows — the
+          ones an admin corrected before subcategories existed. They are
+          invisible in every other view, and the backfill's per-field unlock is
+          the only thing that can reach them.
+        */}
+        <FacetSelect
+          label="Subcategory state"
+          options={SUBCATEGORY_STATE_OPTIONS}
+          value={subcategoryState}
+          onChange={(slug) => {
+            setSubcategoryState(slug);
             setPage(0);
           }}
         />
@@ -141,8 +207,33 @@ export function NeedsHumanTable() {
                   <TableCell width={36} />
                   <TableCell>Job</TableCell>
                   <TableCell>Proposed</TableCell>
-                  <TableCell align="right">Confidence</TableCell>
-                  <TableCell align="right">Enriched</TableCell>
+                  <TableCell align="right" sortDirection={sort === 'classify_confidence' ? sortDir : false}>
+                    <TableSortLabel
+                      active={sort === 'classify_confidence'}
+                      direction={sort === 'classify_confidence' ? sortDir : 'desc'}
+                      onClick={() => handleSort('classify_confidence')}
+                    >
+                      Confidence
+                    </TableSortLabel>
+                  </TableCell>
+                  <TableCell align="right" sortDirection={sort === 'subcategory_confidence' ? sortDir : false}>
+                    <TableSortLabel
+                      active={sort === 'subcategory_confidence'}
+                      direction={sort === 'subcategory_confidence' ? sortDir : 'desc'}
+                      onClick={() => handleSort('subcategory_confidence')}
+                    >
+                      Sub conf.
+                    </TableSortLabel>
+                  </TableCell>
+                  <TableCell align="right" sortDirection={sort === 'enriched_at' ? sortDir : false}>
+                    <TableSortLabel
+                      active={sort === 'enriched_at'}
+                      direction={sort === 'enriched_at' ? sortDir : 'desc'}
+                      onClick={() => handleSort('enriched_at')}
+                    >
+                      Enriched
+                    </TableSortLabel>
+                  </TableCell>
                   <TableCell align="right">Actions</TableCell>
                 </TableRow>
               </TableHead>
@@ -178,10 +269,26 @@ export function NeedsHumanTable() {
                           <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
                             {facetChip(row.category)}
                             {facetChip(row.level)}
+                            {/* Filled = primary (index 0), outlined = secondary,
+                                so primacy reads at a glance. */}
+                            {(row.subcategories ?? []).map((slug, index) => (
+                              <Chip
+                                key={slug}
+                                size="small"
+                                variant={index === 0 ? 'filled' : 'outlined'}
+                                color={index === 0 ? 'primary' : 'default'}
+                                label={FACET_LABELS[slug] ?? slug}
+                              />
+                            ))}
                           </Box>
                         </TableCell>
                         <TableCell align="right">
                           {row.classifyConfidence != null ? row.classifyConfidence.toFixed(2) : '—'}
+                        </TableCell>
+                        <TableCell align="right">
+                          {row.subcategoryConfidence != null
+                            ? row.subcategoryConfidence.toFixed(2)
+                            : '—'}
                         </TableCell>
                         <TableCell align="right">
                           {row.enrichedAt ? format(new Date(row.enrichedAt), 'MMM d HH:mm') : '—'}
@@ -251,7 +358,11 @@ export function NeedsHumanTable() {
                         </TableCell>
                       </TableRow>
                       <TableRow>
-                        <TableCell colSpan={6} sx={{ py: 0, border: isOpen ? undefined : 0 }}>
+                        {/* ⚠ 7, not 6 — the head row gained the "Sub conf."
+                            column in this same commit. A stale colSpan leaves
+                            the expander short of the full width, which looks
+                            like a rendering bug and is one. */}
+                        <TableCell colSpan={7} sx={{ py: 0, border: isOpen ? undefined : 0 }}>
                           <Collapse in={isOpen} unmountOnExit>
                             <Box sx={{ py: 1.5, pl: 4 }}>
                               {row.judgeNotes && (

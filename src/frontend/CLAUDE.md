@@ -70,6 +70,7 @@ Backend-Scraper (api/clients/backendScraperClient.ts) is the only production cli
 - `/admin/feedback` - Admin Feedback (pages/AdminFeedbackPage/AdminFeedbackPage.tsx) - Admin-only table of user feedback submissions
 - `/landing` - Marketing landing page (pages/LandingPage/LandingPage.tsx) - Full-bleed, OUTSIDE RootLayout, unlisted (no nav entry). All copy lives in `pages/LandingPage/content.ts` and every claim traces to `docs/seo/positioning-brief.md`; the head is `pages/LandingPage/seo/LandingSeo.tsx` — title/description set imperatively (a React 19 hoisted `<title>` lands AFTER `index.html`'s static one and the first wins), canonical hoisted, JSON-LD inline; `index.html`'s static head is the brand-first site default and must stay distinct from the landing title (`indexHtmlHead.test.ts`). Phones and reduced-motion get the DOM logo grid; only desktop mounts the lazy three/rapier scene. Review-round log: `docs/implementations/landingPagePrototypes/PLAN.md`
 - `/admin/custom-companies` - Admin Custom Companies (pages/AdminCustomCompaniesPage/AdminCustomCompaniesPage.tsx) - Admin-only oversight of user-added custom company boards
+- `/landing` - Landing Page (pages/LandingPage/LandingPage.tsx) - Marketing/showcase landing page with animated demo of the product
 
 **Key Algorithms:**
 - Time Bucketing: lib/timeBucketing.ts (dynamic bucket sizing for graph visualization)
@@ -753,6 +754,7 @@ The following `eslint-disable` directives are allowed; all others must be justif
 - `features/filters/slices/graphFiltersSlice.ts:67` — `@typescript-eslint/no-explicit-any`. `createFilterSlice` generates action creators via computed property names (`[set${CapitalizedName}TimeWindow]`), which TypeScript cannot infer through. The `as any` cast on `slice.actions` is the documented TS limitation (see https://github.com/reduxjs/redux-toolkit/issues/368). Types are still enforced at dispatch sites.
 - `features/filters/slices/recentJobsFiltersSlice.ts:71` — `@typescript-eslint/no-explicit-any`. Same rationale as `graphFiltersSlice.ts`.
 - `features/auth/GoogleCredentialContext.tsx:10` — `react-refresh/only-export-components`. The file exports both a React component (`GoogleCredentialProvider`) and the context object (`GoogleCredentialContext`) consumers need for `useContext`. Splitting into two files is possible but adds no runtime value; the disable is the established pattern for context modules.
+- `features/settings/subcategoryReveal.tsx:56` — `react-refresh/only-export-components`. Same rule, same reason, same shape as the entry above: the file exports the `SubcategoryRevealProvider` component alongside the `useSubcategoryRevealEnabled` hook its consumers read the flag through. The two belong together — the whole point of the module is that there is exactly ONE subscription to `GET /api/jobs/settings` in the app, and splitting the provider from its reader invites a second one.
 
 New code must not add disables. If a new disable appears unavoidable, update this list with the file, line, rule, and justification in the same PR.
 
@@ -794,6 +796,9 @@ Use the `add-company` skill (repo-root `.claude/skills/add-company/`, `/add-comp
    - **Tables**: Always paginate tables with 100+ rows - unpaginated tables with thousands of rows cause severe browser memory issues (50+ GB)
    - **Recent jobs are paged server-side**: the Recent page never holds the whole corpus — `useRecentJobsSearch` walks `/api/jobs/search` a page at a time and `VirtualJobRows` renders only the visible window. Do not reintroduce a selector that flattens every loaded page into one array to filter or sort it client-side; send the filter to the endpoint instead
    - **Pattern**: See QAPage jobs table for pagination pattern (useMemo for slice + TablePagination component)
+11. **Test suite speed**: CI runs Vitest in 4 parallel shards on the `threads` pool. Two patterns made it slow before, and both are easy to bring back:
+   - **Import MUI icons by path** (`import AddIcon from '@mui/icons-material/Add'`), never from the package root. The root re-exports ~21k files, and Vitest loads it again in every isolated test file. ESLint (`no-restricted-imports`) blocks the root import.
+   - **Don't use `findByRole('option', { name })` on the company dropdown** (~200 options). It computes an accessible name for every option, ~650ms a call. Use `findListboxOption(label)` from `test/testUtils.tsx` and assert the name on the returned element with `toHaveAccessibleName`. The same applies to any role+name query on `screen` while a big table or list is mounted: scope it with `within(...)` first.
 
 ## Key Files
 

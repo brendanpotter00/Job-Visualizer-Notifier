@@ -42,6 +42,21 @@ export default [
         { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
       ],
       "@typescript-eslint/explicit-module-boundary-types": "off",
+      // The package root re-exports ~2,000 icons (21k files). Vitest loads it
+      // again in every isolated test file, which cost the suite minutes of
+      // import time in CI. Import each icon by its path instead.
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: [
+            {
+              name: "@mui/icons-material",
+              message:
+                "Import the icon by path, e.g. `import AddIcon from '@mui/icons-material/Add'`.",
+            },
+          ],
+        },
+      ],
     },
   },
 ];

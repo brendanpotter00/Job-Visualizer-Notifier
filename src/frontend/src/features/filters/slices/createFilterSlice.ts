@@ -158,16 +158,34 @@ export function createFilterSlice<T extends Filters>(name: FilterSliceName, init
         state.filters.employmentType = action.payload;
       },
 
-      // Enrichment facets (2 actions). Multi-select slug arrays; an empty
+      // Enrichment facets (3 actions). Multi-select slug arrays; an empty
       // selection normalizes to `undefined` (the "All" state), mirroring how
       // `remove${Name}Company` collapses an emptied array. Every filter shape
-      // owns both fields, so no slice-name guard is needed (unlike
+      // owns all three fields, so no slice-name guard is needed (unlike
       // `company`).
+      //
+      // `subcategory` only ever carries children of `software_engineering`, but
+      // the reducer is deliberately TAXONOMY-AGNOSTIC: validation belongs to
+      // the control (`FacetTreeMultiSelect`, which partitions by the child slug
+      // set) and to the server (`/api/jobs/search`'s slug validation), not
+      // here. A reducer that knew the taxonomy would be a fourth copy of it.
+      //
+      // All three are EDIT actions, so the `userModified` matcher in
+      // `extraReducers` covers them for free. They must NOT be added to
+      // `nonEditTypes` — that set is for NON-edit actions only, and listing a
+      // setter there would make the edit invisible to the hydration guard and
+      // let a late saved-filters hydration clobber a live user selection.
       [`set${capitalizedName}Category`]: (state, action: PayloadAction<string[] | undefined>) => {
         state.filters.category = action.payload?.length ? action.payload : undefined;
       },
       [`set${capitalizedName}Level`]: (state, action: PayloadAction<string[] | undefined>) => {
         state.filters.level = action.payload?.length ? action.payload : undefined;
+      },
+      [`set${capitalizedName}Subcategory`]: (
+        state,
+        action: PayloadAction<string[] | undefined>
+      ) => {
+        state.filters.subcategory = action.payload?.length ? action.payload : undefined;
       },
 
       // Company (4 actions)

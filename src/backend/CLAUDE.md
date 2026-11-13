@@ -17,10 +17,34 @@ pip install -r src/backend/api/requirements.txt  # Install API dependencies
 cd src/backend && pytest                                 # Run all backend tests
 cd src/backend && pytest -v                              # Verbose output
 cd src/backend && pytest api/tests/test_jobs_router.py   # Single file
+cd src/backend && pytest -n 4 --dist loadfile            # Parallel, as CI runs it (pytest-xdist)
 
 # Type checking (from src/backend/) — run before committing; CI gates on it
 cd src/backend && mypy                                   # Static type check (config in pyproject.toml)
 ```
+
+## Tests run in parallel in CI
+
+CI runs the suite with **pytest-xdist** (`pytest -n 4 --dist loadfile`). Two things make
+that safe, and new tests must not break either:
+
+- **A file never splits across workers** (`loadfile`), so a module-scoped fixture — every
+  `db_conn` schema — stays in one process.
+- **Each worker has its own database**, `<TEST_DATABASE_URL's db>_gw<N>`, dropped and
+  recreated at the start of every run (`_use_worker_database` in `api/tests/conftest.py`).
+  `DATABASE_URL` is pointed at it too, because the Procrastinate app builds its connector
+  from it at import time. This is what makes per-DATABASE state safe: the
+  `CREATE EXTENSION pg_trgm` bootstrap races between concurrent sessions, and Procrastinate's
+  tables in `public` would otherwise mix jobs from different modules into one count.
+  Two `-n` runs at once against the same `TEST_DATABASE_URL` (two worktrees) want the
+  same `_gw<N>` databases: the second one stops at startup with "is in use" rather than
+  dropping them out from under the first. Give one of them a different database.
+
+Do not make a test depend on what ANOTHER file left in the database — under xdist that
+file may have run in a different worker, or not yet. (The `/health/worker` tests once read
+Procrastinate tables that only an earlier module had created in `public`; a test that needs
+those tables takes the `procrastinate_schema` fixture.) Plain `pytest` (no `-n`) is unchanged
+and still uses `TEST_DATABASE_URL` directly.
 
 ## Type checking
 
@@ -45,7 +69,7 @@ clean before committing (mirrors the frontend's "Zero TypeScript Errors Required
 ## Prerequisites
 
 - PostgreSQL running on localhost:5432 (use `docker compose up -d postgres` from project root)
-- Database: `jobscraper` (created on first lifespan/migration run). Key tables include `job_listings`, `scrape_runs`, `users`, `user_enabled_companies`, `user_saved_filters`, `user_keyword_lists`, `admins`, `features`, `feature_upvotes`, `companies`, `locations`, `job_locations`, `job_enrichment`, `feedback`, `worker_heartbeats`, and others — see `src/backend/docs/database-schema.md` for the full schema.
+- Database: `jobscraper` (created on first lifespan/migration run). Key tables include `job_listings`, `scrape_runs`, `users`, `user_enabled_companies`, `user_saved_filters`, `user_keyword_lists`, `admins`, `features`, `feature_upvotes`, `companies`, `locations`, `job_locations`, `job_enrichment`, `job_categories`, `job_levels`, `job_subcategories`, `app_settings`, `feedback`, `worker_heartbeats`, and others — see `src/backend/docs/database-schema.md` for the full schema.
 - Python 3.13+ with dependencies from `src/backend/api/requirements.txt`
 
 ## Configuration
@@ -161,7 +185,7 @@ All configuration via environment variables:
 - `GET /api/users/enabled-companies` - List user's enabled companies (requires Bearer token)
 - `PUT /api/users/enabled-companies` - Update user's enabled companies (requires Bearer token)
 
-**Saved Filters Router (`/api/users/saved-filters`):** all routes require a Bearer token.
+**Saved Filters Router (`/api/users/saved-filters`):** all routes require a Bearer token. The scalar body carries `category`, `level` and `subcategory` — SINGULAR on a saved FILTER, where the plural `subcategories` is the JOB-side field, and the two must not be mixed. ⚠ **The `[]` collision:** `user_saved_filters.subcategory = []` means "no filter selected, show EVERYTHING", while `job_listings.enrichment_subcategories = '{}'` means "evaluated, and no specialty applies" and is TERMINAL. Same literal, opposite meanings, and the same Redux field name flows through both. The PUT is FULL-REPLACE against an `extra='forbid'` model: omitting `subcategory` clears it, and an unknown key 422s the whole object — which is why the column must exist server-side BEFORE the SPA sends the field (Railway first, Vercel second).
 - `GET /api/users/saved-filters` - Scalar saved filters (per-page time windows, shared locations, active keyword-list pointers); never 404s — returns server defaults (`recent=all`, `trend=90d`, no locations) when the user has no row
 - `PUT /api/users/saved-filters` - Full-replace (upsert) the scalar saved filters; 409 if an active keyword-list pointer is unknown or not owned
 - `GET /api/users/saved-filters/keyword-lists` - List the user's named keyword lists by position, with the read-only built-in "Software Engineering" list (`builtin-swe`) synthesized last
@@ -170,7 +194,11 @@ All configuration via environment variables:
 - `DELETE /api/users/saved-filters/keyword-lists/{list_id}` - Delete a list (204; NULLs any active pointer referencing it); 404 if not owned, 422 on the built-in id
 - `GET /api/users/saved-filters/locations/search` - Substring autocomplete over canonical location names (params: `q`, `limit`, `openOnly`)
 
-**Jobs facets:** `GET /api/jobs/facets` - enrichment dropdown catalog (categories + levels with labels/order/parent) from the seeded dimensions.
+**Jobs facets:** `GET /api/jobs/facets` - enrichment dropdown catalog with THREE dimensions (categories + levels + subcategories, each carrying labels/order/parent) from the seeded tables. All three row shapes match because the categories query selects `NULL AS parent_slug`, so `FacetOption` needs no per-dimension variant. Since SCHEMA-7 the `subcategories` array carries the seventeen seeded rows; the client still normalizes a MISSING key to `[]`, so an older backend renders exactly today's flat dropdown.
+
+⚠ **`parentSlug` carries TWO different meanings and they must never be confused.** On `levels` it is a FILTER-EXPANSION edge (`new_grad` sits under `entry`, so selecting Entry also matches New Grad) — that is what the client's level-expansion builder consumes. On `subcategories` it is a GROUPING edge only (`software_engineering` on every row), naming which parent the option renders under. Feeding the subcategory edges into the level-expansion builder would turn one category selection into seventeen, silently, with a 200. The subcategory FILTER expansion is a separate, static map (`enrichment_writer.SUBCATEGORY_FILTER_EXPANSION`) precisely because `full_stack` has two expansion parents that one self-FK column cannot express.
+
+**Public settings:** `GET /api/jobs/settings` - unauthenticated read of the client-visible feature flags (`sweSubcategoriesEnabled`). It **fails CLOSED**: any read failure returns `false`, because hidden-when-broken costs a feature that is not visible yet while failing open reveals a filter that returns nothing. The CLIENT fails closed too — a non-2xx, a non-object body, a missing key and a non-boolean value all resolve to `false` as DATA, never as an RTK error, so a 404 during a Vercel-ahead-of-Railway window looks exactly like "the flag is off". **It is a UI REVEAL switch only: the backend does NOT gate `?subcategory=` on it**, so flipping it off hides the control without stopping a value a user already saved from filtering. Deliberately NOT a field on `/api/jobs/facets` — that query has no `providesTags` and `keepUnusedDataFor: 3600`, and since the SPA sets no `refetchOnFocus`, a SUBSCRIBED facets entry never refetches for the life of the tab.
 
 **Jobs Search Router (`/api/jobs/search`)** — the Recent Jobs page's read path. Where
 `GET /api/jobs` is a windowed dump the client filters, this applies the user's whole
@@ -194,6 +222,44 @@ filter set in SQL and pages the *result*. Router `routers/jobs_search.py`, SQL
   above a list that hides it. Anonymous emits the blanket guard, byte-identical.
   `api/jobs.ts` forwards `Authorization` only when the caller sent one, and edge-
   caches `facets` only — never `search`.
+
+  (inclusive, tz-aware ISO), `cursor`, `limit` (default 100, max 500), plus seven
+  **repeatable** multi-value filters: `category`, `subcategory`, `level`, `company`,
+  `location`, `include`, `exclude`. Repeated (`?category=a&category=b`) rather than
+  CSV because canonical location names and keywords legitimately contain commas.
+- **`?subcategory=` in full**, because every clause of it is load-bearing:
+  - **Repeatable, OR within the dimension, AND across dimensions.** `?category=growth
+    &subcategory=backend` returns NOTHING — Growth rows carry no subcategories and
+    the two predicates AND. That is the same composition every other dimension uses
+    rather than a special case, and it is worth a product call before the reveal.
+  - **Every slug implies the `software_engineering` parent.** The dimension hangs
+    off exactly one category; the server does not enforce that, it simply falls out
+    of the data.
+  - **HIDES NULL AND EMPTY ARRAYS.** The predicate is `enrichment_subcategories &&
+    %s::text[]`, and `NULL && x` is NULL while `'{}' && x` is false. So an active
+    filter excludes BOTH the rows nobody has evaluated yet AND the rows evaluated to
+    "no specialty applies". Mid-backfill that is most SWE rows; on day 0 it is all
+    of them. **This is why the reveal flag exists.**
+  - **`frontend` and `backend` each also match `full_stack`; `full_stack` alone
+    stays EXACT.** One-way, keyed on the SELECTED slug, same direction as
+    `entry ⊃ new_grad`.
+  - **20-value cap** (400 past it, like `category`/`level`). Note this is the SEARCH
+    cap; `models.py` allows 50 in a SAVED filter, and the two are deliberately
+    different numbers bounding different things.
+  - **A well-formed but UNKNOWN slug matches nothing rather than erroring.**
+    Validating against the live taxonomy would make a taxonomy migration a breaking
+    API change for anyone holding a bookmarked URL.
+  - **It joins the cursor fingerprint ONLY when present.** An absent key leaves the
+    canonical form byte-identical to the pre-subcategory build, so every cursor
+    minted before the deploy stays valid. A key that were always present — even as
+    `[]` — would 409 every in-flight walk once, on deploy day, for every reader.
+- **SOLE-EXPANDER SPLIT.** The `full_stack` widening runs in exactly one place per
+  path. For `/api/jobs/search` that place is `services/job_search.py::expand_subcategories`
+  and **the client sends its selection UNEXPANDED**. For the client-side path — the
+  Companies trend page and demo mode, i.e. `filterJobsByFilters` — it is
+  `matchesSubcategory`. Expanding on both sides would put two copies of the taxonomy
+  in play and would persist the widened pair `['backend','full_stack']` into the
+  user's saved filters and into the chips they see.
 - **Response is an ENVELOPE**, not a bare array: `{jobs, nextCursor, meta}`.
   `nextCursor` present iff the page came back full; **its absence is the only
   end-of-walk signal**. In the body deliberately — `/api/jobs` uses `X-Next-Cursor`
@@ -259,7 +325,30 @@ filter set in SQL and pages the *result*. Router `routers/jobs_search.py`, SQL
 
 **Internal Enrichment Router (`/api/internal/enrichment`, X-Internal-Key):** `GET /pending` (claim batch; title-priority order — entry-level/intern, then software-engineering (which includes the "Member of Technical Staff"/MTS house title and the MTS/SMTS/LMTS/PMTS acronyms), then everything else, newest `first_seen_at` within each tier; the batch is **split** — `ENRICHMENT_CUSTOM_SHARE_PCT` of it is reserved for custom companies, dealt round-robin across them, and each slice absorbs the other's unused budget so the reservation never idles the enricher), `POST /results` (idempotent write-back; returns `written`/`failed[]`(+`source_id`)/`warnings[]`), `GET /sample`, `GET /health`, `POST /metrics` (per-tick push → `enrichment_ticks`, idempotent on `tick_uuid`), `GET /corrections` (human-correction feed for the enricher's golden-merge).
 
-**Admin Enrichment (`/api/admin/enrichment/*`, requires admin):** `GET /health`, `GET /needs-human` (paginated triage queue), `GET /ticks`, `GET /recent`, `POST /jobs/{source_id}/{job_id}/correct` (publish human labels + lock row; sets `human_decision='corrected'`), `POST /jobs/{source_id}/{job_id}/confirm` (one-click validate the proposal as-is + lock row; sets `human_decision='confirmed_correct'`; 409 if the row has no proposed labels), `POST /jobs/{source_id}/{job_id}/reenrich` (reset + unlock; clears `human_decision`). Backing SQL in `services/enrichment_monitor.py`. `job_enrichment.human_decision` (`NULL` | `corrected` | `confirmed_correct`) is the human verdict — distinct from the judge's `judged`/`judge_passed` — and rides the `/api/internal/enrichment/corrections` feed as `decision` so the enricher can tell a fix from a validated raise.
+**Three enrichment write-path contracts — worth stating once, plainly:**
+
+1. **`POST /api/internal/enrichment/results` is FULL-REPLACE, EXCEPT subcategories.**
+   Its `job_enrichment` upsert overwrites the whole audit row from the payload, so
+   every item has to ship `clean_description`. The subcategory triple is the one
+   exception: an item that OMITS the `subcategories` key leaves both columns
+   untouched (`_UNSET`), which is what lets an enricher that has not shipped
+   subcategories keep posting ordinary ticks without NULLing the column on every
+   row — a reversible deploy ORDER instead of a code push.
+2. **`job_listings.enrichment_subcategories` has NO FOREIGN KEY.** Postgres cannot
+   FK-check array elements. `TestTaxonomyParity` (plus `test_taxonomy_artifact.py`
+   and the admin health snapshot's permanently-zero `subcategory_unknown_slugs`
+   counter) is the enforcement.
+3. **`POST /api/internal/enrichment/subcategories` is the ONLY partial write path**
+   into enrichment: two narrow UPDATEs per row and nothing else — not the
+   description, not category/level, not tags, not `enriched_at`. It exists because
+   draining ~8k backfilled labels through `/results` would mean re-shipping ~8k
+   full job descriptions to set two columns.
+
+**Internal Enrichment Router (`/api/internal/enrichment`, X-Internal-Key):** `GET /pending` (claim batch; title-priority order — entry-level/intern, then software-engineering, then everything else, newest `first_seen_at` within each tier), `POST /results` (idempotent write-back; returns `written`/`failed[]`(+`source_id`)/`warnings[]`), `GET /sample`, `GET /health`, `POST /metrics` (per-tick push → `enrichment_ticks`, idempotent on `tick_uuid`), `GET /corrections` (human-correction feed for the enricher's golden-merge — carries `subcategories` AND `taxonomy_version`, the latter being what tells a pre-v7 `confirmed_correct` row from a real subcategory confirmation), `POST /subcategories` (bulk PARTIAL write-back, max 500 items; `extra='forbid'` on each item because it has one client and no legacy fleet).
+
+**Admin Enrichment (`/api/admin/enrichment/*`, requires admin):** `GET /health`, `GET /needs-human` (paginated triage queue), `GET /ticks`, `GET /recent`, `POST /jobs/{source_id}/{job_id}/correct` (publish human labels + lock row; sets `human_decision='corrected'`), `POST /jobs/{source_id}/{job_id}/confirm` (one-click validate the proposal as-is + lock row; sets `human_decision='confirmed_correct'`; 409 if the row has no proposed labels), `POST /jobs/{source_id}/{job_id}/reenrich` (reset + unlock; clears `human_decision`), `POST /enrichment/subcategories/reset` (SCOPED source-keyed rollback — `dryRun` defaults to TRUE, and `source='human'` is never matched implicitly). Backing SQL in `services/enrichment_monitor.py`. `job_enrichment.human_decision` (`NULL` | `corrected` | `confirmed_correct`) is the human verdict — distinct from the judge's `judged`/`judge_passed` — and rides the `/api/internal/enrichment/corrections` feed as `decision` so the enricher can tell a fix from a validated raise.
+
+**Admin settings (`/api/admin/settings`, requires admin):** `GET /settings` (every allowlisted runtime setting, with defaults MATERIALIZED for keys that have no row), `PUT /settings/{key}`. The allowlist lives in `services/app_settings.py`, never in the DDL. `app_settings` has **no seed row** — absent means the code default, so a fresh DB, a deleted flag and a rolled-back migration behave identically.
 
 **Admin Router (`/api/admin`):**
 - `GET /api/admin/users` - List all users with admin flag (requires admin)
@@ -315,12 +404,15 @@ src/backend/api/
 │   ├── jobs.py                  # Jobs list and detail endpoints
 │   ├── jobs_qa.py               # Stats, scrape runs, trigger scrape
 │   ├── users.py                 # User profile + enabled-companies endpoints (auth required)
+│   ├── user_companies.py        # Private custom-company CRUD (GET/POST/DELETE/PATCH /api/users/companies; auth required)
 │   ├── saved_filters.py         # Saved-filters, keyword-list CRUD, location search (auth required)
 │   ├── features.py              # Feature voting endpoints (list, upvote, remove upvote)
 │   ├── admin.py                 # Admin-only endpoints: user management, enrichment oversight, location normalization, and feedback
 │   ├── feedback.py              # Public user-feedback submission (POST /api/feedback; optional auth)
 │   ├── companies.py             # Public curated-companies directory (GET /api/companies; no auth)
 │   ├── locations.py             # Public canonical-location search (GET /api/locations/search; internal-key auth)
+│   ├── jobs_search.py           # Server-side filtered job search (GET /api/jobs/search; optional auth)
+│   ├── dev_reset.py             # Dev-only reset endpoint (registered only when DEV_RESET_ENABLED=true)
 │   └── internal_enrichment.py  # Internal enrichment API (X-Internal-Key; GET /pending, POST /results, etc.)
 ├── services/
 │   ├── database.py      # API query functions (reuses scripts/shared/database.py)
@@ -336,6 +428,7 @@ src/backend/api/
 │   ├── companies_seed.py    # Seed/reconcile the companies table from static config
 │   ├── enrichment_monitor.py    # Admin enrichment triage queries (needs-human queue, ticks, recent)
 │   ├── enrichment_writer.py     # Write-back path for enrichment results and corrections
+│   ├── app_settings.py      # Allowlisted runtime settings (key/value, JSONB) + the public flag read
 │   ├── llm_client.py        # Shared Anthropic API client wrapper
 │   ├── location_normalization.py  # Tier-1/Tier-2 normalization pipeline entry point
 │   ├── location_canonicalize.py   # Claude Haiku prompt + schema for Tier-2 canonicalization
@@ -347,7 +440,8 @@ src/backend/api/
 │   ├── scraper_runner.py # Async subprocess runner for scrapers
 │   ├── scraper_health.py    # Stale-scraper report query (used by GET /api/jobs-qa/scraper-health)
 │   ├── auto_scraper.py  # Background scheduled scraping (Google/Apple/Microsoft/Amazon/TikTok)
-│   ├── db_watchdog.py   # Daemon thread probing the DB; exits process after ~5-6 min unreachability so Railway restarts
+│   ├── db_watchdog.py       # Daemon thread probing the DB; exits process after ~5-6 min unreachability so Railway restarts
+│   ├── worker_watchdog.py   # Daemon thread exiting when worker heartbeat goes stale while DB is reachable (wedged executor)
 │   ├── ashby_client.py      # Ashby ATS HTTP client
 │   ├── eightfold_client.py  # Eightfold ATS HTTP client (SSRF allowlist lives here)
 │   ├── gem_client.py        # Gem ATS HTTP client
@@ -358,7 +452,10 @@ src/backend/api/
     ├── procrastinate_app.py         # Procrastinate App instance (explicit pool sizing — two workers each pin a LISTEN connection) + schema setup + CUSTOM_ATS_FIRST_FETCH_QUEUE
     ├── heartbeat.py                 # Per-lane heartbeat tasks (bulk + interactive) backing /health/worker
     ├── enqueue_*_fan_out.py (×6)    # Fan-out tasks: enqueue per-company fetch for each ATS
-    ├── fetch_*_company.py (×6)      # Leaf tasks: fetch + upsert one company's jobs
+    ├── enqueue_recipe_fan_out.py    # 7th fan-out: */30 over `ats='recipe'` PUBLISHED boards; defers `fetch_custom_company` on `recipe_fetch` with `visibility='public'`
+    ├── fetch_*_company.py (×7)      # Leaf tasks: fetch + upsert one company's jobs (includes fetch_custom_company.py for custom/recipe boards)
+    ├── claim_custom_companies.py    # Periodic task (*/15 min): claim due custom companies and defer fetch_custom_company, with jitter and a global concurrency ceiling
+    ├── discover_custom_company.py   # One-time capture task: run discovery for a non-ATS careers URL (browser + Claude Haiku → accept or refuse)
     ├── normalize_location.py        # Leaf task: normalize one job's free-text location via Claude Haiku
     └── scan_unnormalized.py         # Periodic safety-net task: find NULL-status jobs and defer normalize_location
 ```
@@ -395,7 +492,7 @@ anti-join invariants the `/api/jobs` INNER JOIN depends on — runbook in
 - **Database**: Connection pool managed by `dependencies.py`; table naming reused from `scripts/shared/database.py`
 - **Response serialization**: Pydantic models with `alias_generator=to_camel` produce camelCase JSON matching frontend expectations
 - **Background workers**: Three tasks run in the FastAPI lifespan context — **two Procrastinate workers on disjoint queue sets**, plus the auto-scraper:
-  1. **Bulk Procrastinate worker** (`_BULK_QUEUES` in `main.py`, concurrency 5) — the six public ATS fan-outs + per-company fetches, the `*/15` custom-company claim tick and the recurring custom re-harvests it defers (`custom_ats_fetch`, one per board per `companies.cadence_hours` — **1 h**, matching the `*/30` public crons as closely as the INTEGER column allows; it was 24 h while a harvest still meant a browser session), `heartbeat`, `normalize`. Scheduled, unattended, tens of thousands of jobs.
+  1. **Bulk Procrastinate worker** (`_BULK_QUEUES` in `main.py`, concurrency 5) — the six public ATS fan-outs + per-company fetches, the `*/15` custom-company claim tick and the recurring custom re-harvests it defers (`custom_ats_fetch`, one per board per `companies.cadence_hours` — **1 h**, matching the `*/30` public crons as closely as the INTEGER column allows; it was 24 h while a harvest still meant a browser session), the `*/30` PUBLISHED recipe-board fan-out and its per-company harvests (`recipe_fetch` — its own queue, so curated boards never spend the custom claim's per-tick ceiling of 3), `heartbeat`, `normalize`. Scheduled, unattended, tens of thousands of jobs.
   2. **Interactive Procrastinate worker** (`_INTERACTIVE_QUEUES`, concurrency 2) — a **reserved lane** for work a human is watching a spinner for: `custom_discovery` (a pasted URL + its five-step checklist), `custom_ats_first_fetch` (the add-time first harvest, which closes the checklist's last step), and `interactive_heartbeat`. It exists because these used to share one worker with the bulk queues, so a fan-out tick holding all five slots left a user's discovery job sitting in `todo` (2026-08-26). Splitting by queue rather than by `priority` is deliberate — priority only decides who goes next when a slot frees, and the problem was that no slot ever freed.
   - Both are supervised with auto-restart, and both pass **`install_signal_handlers=False`**. This is load-bearing: Procrastinate's default installs `loop.add_signal_handler(SIGTERM, worker.stop)`, which clobbers the `signal.signal(SIGTERM, server.handle_exit)` uvicorn set in `Server.capture_signals()`. One SIGTERM then stops only the worker — `run_worker_async` returns *normally*, so nothing is logged — and uvicorn keeps serving with no worker while still holding the port. That is exactly what happened on 2026-08-26 (14h of no jobs drained; the operator's replacement uvicorn died on "address already in use"). A normal return from `run_worker_async` is now logged as an error and restarted, never returned from.
   - **Observability:** each lane has its own heartbeat queue, so `worker_heartbeats.lane` tells you *which* worker died and `/health/worker` 503s on either lane going stale. A single undifferentiated heartbeat would let one dead lane hide behind the survivor's ticks.
@@ -414,6 +511,8 @@ anti-join invariants the `/api/jobs` INNER JOIN depends on — runbook in
 ### Schema migrations
 
 Schema is managed by **Alembic** (not the old `scripts/shared/migrations/` runner, which was removed in the Alembic migration PR). Source of truth is `src/backend/api/db_models.py` (SQLAlchemy declarative models). Revision files live in `src/backend/alembic/versions/`, one per schema change, anchored by the empty baseline revision `91337142414f`.
+
+**`src/backend/taxonomy.json`** is the ONE artifact both this repo and the job-enricher read. It is GENERATED from the migration seeds + `services/enrichment_writer.py` (`python tools/generate_taxonomy_artifact.py`), never hand-typed, and `api/tests/test_taxonomy_artifact.py` asserts four-way equality across the artifact, the code constants, the migration seeds and `get_facets`. It exists because every other taxonomy guard is intra-repo — which is exactly how `job_categories` (7 rows) and the enricher's `taxonomy.CATEGORIES` (6) drifted apart for months with both suites green.
 
 For a human-readable overview of every table — an ER diagram plus per-column notes and conventions — see **`src/backend/docs/database-schema.md`** (point-in-time snapshot of `db_models.py`; refresh it when the schema changes).
 

@@ -2,9 +2,14 @@ import { describe, it, expect } from 'vitest';
 import {
   matchesCategory,
   matchesLevel,
+  matchesSubcategory,
   filterJobsByFilters,
 } from '../../../features/filters/utils/jobFilteringUtils';
-import { buildLevelExpansion, LEVEL_FILTER_EXPANSION } from '../../../constants/enrichment';
+import {
+  asExpansionFacets,
+  buildLevelExpansion,
+  LEVEL_FILTER_EXPANSION,
+} from '../../../constants/enrichment';
 import graphFiltersReducer, {
   setGraphCategory,
   setGraphLevel,
@@ -102,6 +107,73 @@ describe('matchesLevel (multi-select) — the new_grad ⊂ entry contract', () =
   });
 });
 
+describe('matchesSubcategory (multi-select, one-way full_stack widening)', () => {
+  it('matches everything when no subcategory filter is set — INCLUDING null and []', () => {
+    // The tri-state collapses to "no opinion" only while the filter is off.
+    expect(matchesSubcategory(makeJob({ subcategories: null }), undefined)).toBe(true);
+    expect(matchesSubcategory(makeJob({ subcategories: [] }), undefined)).toBe(true);
+    expect(matchesSubcategory(makeJob({ subcategories: ['backend'] }), [])).toBe(true);
+    expect(matchesSubcategory(makeJob(), undefined)).toBe(true);
+  });
+
+  it('HIDES both null and [] once a selection is active', () => {
+    // They mean different things to the backfill — never evaluated vs
+    // evaluated-and-nothing-applies — but to a reader with an active filter
+    // they are both simply not a match, exactly like the server's `&&`.
+    expect(matchesSubcategory(makeJob({ subcategories: null }), ['backend'])).toBe(false);
+    expect(matchesSubcategory(makeJob({ subcategories: [] }), ['backend'])).toBe(false);
+    expect(matchesSubcategory(makeJob(), ['backend'])).toBe(false);
+  });
+
+  it('matches an exact slug and rejects a different one', () => {
+    expect(matchesSubcategory(makeJob({ subcategories: ['backend'] }), ['backend'])).toBe(true);
+    expect(matchesSubcategory(makeJob({ subcategories: ['frontend'] }), ['backend'])).toBe(
+      false
+    );
+  });
+
+  it('counts a SECONDARY label, not just the primary at index 0', () => {
+    expect(
+      matchesSubcategory(makeJob({ subcategories: ['forward_deployed', 'backend'] }), [
+        'backend',
+      ])
+    ).toBe(true);
+  });
+
+  it('a frontend filter matches a job labelled full_stack', () => {
+    expect(matchesSubcategory(makeJob({ subcategories: ['full_stack'] }), ['frontend'])).toBe(
+      true
+    );
+    expect(matchesSubcategory(makeJob({ subcategories: ['full_stack'] }), ['backend'])).toBe(
+      true
+    );
+  });
+
+  it('a full_stack filter does NOT match a frontend job — the widening is ONE-WAY', () => {
+    // A reader who asks specifically for full-stack work must not get every
+    // frontend and backend job back.
+    expect(matchesSubcategory(makeJob({ subcategories: ['frontend'] }), ['full_stack'])).toBe(
+      false
+    );
+    expect(matchesSubcategory(makeJob({ subcategories: ['backend'] }), ['full_stack'])).toBe(
+      false
+    );
+    expect(matchesSubcategory(makeJob({ subcategories: ['full_stack'] }), ['full_stack'])).toBe(
+      true
+    );
+  });
+
+  it('ORs multiple selected values', () => {
+    expect(
+      matchesSubcategory(makeJob({ subcategories: ['security'] }), ['mobile', 'security'])
+    ).toBe(true);
+  });
+
+  it('a well-formed unknown slug simply matches nothing', () => {
+    expect(matchesSubcategory(makeJob({ subcategories: ['backend'] }), ['ai_ml'])).toBe(false);
+  });
+});
+
 describe('filterJobsByFilters with facet filters', () => {
   const jobs = [
     makeJob({ id: 'a', category: 'software_engineering', level: 'new_grad' }),
@@ -139,6 +211,29 @@ describe('filterJobsByFilters with facet filters', () => {
     const out = filterJobsByFilters(jobs, baseFilters);
     expect(out).toHaveLength(4);
   });
+
+  it('category + subcategory compose with AND', () => {
+    const subJobs = [
+      makeJob({ id: 'swe-be', category: 'software_engineering', subcategories: ['backend'] }),
+      makeJob({ id: 'swe-fs', category: 'software_engineering', subcategories: ['full_stack'] }),
+      makeJob({ id: 'swe-fe', category: 'software_engineering', subcategories: ['frontend'] }),
+      makeJob({ id: 'swe-null', category: 'software_engineering', subcategories: null }),
+      // A hardware row carrying a stray SWE subcategory — data that should not
+      // exist. The CATEGORY predicate is what excludes it, which is the point:
+      // the two are separate conditions that AND, not one fused check.
+      makeJob({ id: 'hw-stray', category: 'hardware_engineer', subcategories: ['backend'] }),
+    ];
+
+    const out = filterJobsByFilters(subJobs, {
+      ...baseFilters,
+      category: ['software_engineering'],
+      subcategory: ['backend'],
+    });
+
+    // swe-be exact, swe-fs via the one-way widening; swe-fe and swe-null miss
+    // the subcategory predicate and hw-stray misses the category one.
+    expect(out.map((j) => j.id).sort()).toEqual(['swe-be', 'swe-fs']);
+  });
 });
 
 describe('graphFilters slice facet actions (multi-select)', () => {
@@ -170,11 +265,33 @@ describe('buildLevelExpansion', () => {
       { slug: 'entry', label: 'Entry', sortOrder: 1, parentSlug: null },
       { slug: 'mid', label: 'Mid', sortOrder: 2, parentSlug: null },
     ];
-    expect(buildLevelExpansion(levels)).toEqual({ entry: ['entry', 'new_grad'] });
+    expect(buildLevelExpansion(asExpansionFacets(levels))).toEqual({ entry: ['entry', 'new_grad'] });
   });
 
   it('falls back to the static expansion when no edges exist', () => {
-    expect(buildLevelExpansion([])).toEqual(LEVEL_FILTER_EXPANSION);
+    expect(buildLevelExpansion(asExpansionFacets([]))).toEqual(LEVEL_FILTER_EXPANSION);
+  });
+
+  it('⚠ a subcategory facet list CANNOT be passed as a level hierarchy', () => {
+    // Both dimensions carry `parentSlug` and are structurally IDENTICAL, but
+    // the edge means the opposite thing in each: on levels it EXPANDS the
+    // filter (new_grad ⊂ entry), on subcategories it merely GROUPS them under
+    // software_engineering. Passing the second here would turn one Software
+    // Engineering selection into a seventeen-slug OR — silently widening every
+    // user's filter. The brand is what makes that a compile error rather than
+    // a clean-looking call.
+    const subcategories: FacetOption[] = [
+      { slug: 'backend', label: 'Backend', sortOrder: 1, parentSlug: 'software_engineering' },
+      { slug: 'frontend', label: 'Frontend', sortOrder: 6, parentSlug: 'software_engineering' },
+    ];
+    // @ts-expect-error — GROUPING edges are not EXPANSION edges. Drop the brand
+    // from buildLevelExpansion and `npm run type-check` fails HERE, on an
+    // unused @ts-expect-error: this assertion is the guard, not a comment.
+    const wrong = buildLevelExpansion(subcategories);
+    // What it WOULD have produced, spelled out so the hazard is concrete.
+    expect(wrong).toEqual({
+      software_engineering: ['software_engineering', 'backend', 'frontend'],
+    });
   });
 
   it('a standalone intern (parentSlug null) adds no expansion edge', () => {
@@ -183,6 +300,6 @@ describe('buildLevelExpansion', () => {
       { slug: 'new_grad', label: 'New Grad', sortOrder: 1, parentSlug: 'entry' },
       { slug: 'entry', label: 'Entry', sortOrder: 2, parentSlug: null },
     ];
-    expect(buildLevelExpansion(levels)).toEqual({ entry: ['entry', 'new_grad'] });
+    expect(buildLevelExpansion(asExpansionFacets(levels))).toEqual({ entry: ['entry', 'new_grad'] });
   });
 });

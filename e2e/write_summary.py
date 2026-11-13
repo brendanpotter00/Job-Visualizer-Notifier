@@ -98,6 +98,12 @@ def _parse_playwright(path: Path) -> list[CaseResult]:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--artifacts-dir", required=True)
+    parser.add_argument(
+        "--section",
+        default="add-companies",
+        help="Section name, for the summary heading. Defaults to the section this "
+        "file was written for, so nothing that already calls it changes.",
+    )
     parser.add_argument("--elapsed-seconds", type=int, required=True)
     parser.add_argument("--exit-code", type=int, required=True)
     parser.add_argument("--blocked", default="")
@@ -133,7 +139,7 @@ def main() -> None:
     (artifacts_dir / "summary.json").write_text(json.dumps(summary_obj, indent=2))
 
     lines = [
-        "# e2e add-companies run summary",
+        f"# e2e {args.section} run summary",
         "",
         f"- Mode: **{summary_obj['runMode']}**",
         f"- Elapsed: **{args.elapsed_seconds}s**",

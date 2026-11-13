@@ -397,3 +397,39 @@ def test_the_index_skips_rows_with_no_usable_name():
     index = build_name_index([("", "Nameless"), ("ok-co", ""), ("dashes", "---")])
     assert index.get("") is None
     assert match_name_in_url("https://okco.com/careers", index) == "ok-co"
+
+
+# ─────────────────── the vendor domain the recipe boards sit on ──────────────────────
+
+
+def test_a_fusion_tenant_never_name_matches_the_company_called_oracle():
+    """``oraclecloud.com`` is a VENDOR host family, and no company may own it.
+
+    ``*.fa.<region>.oraclecloud.com`` is Oracle Fusion Recruiting — an ATS, one tenant
+    per pod host, tenant selected by a ``siteNumber`` QUERY PARAMETER rather than by the
+    host. Our recipe work has already met two of them: Oracle's own board and JPMorgan
+    Chase's. So the registrable label ``oraclecloud`` names the VENDOR, and anything
+    that reads identity out of it answers the vendor's name for every tenant on it —
+    exactly what ``_NEVER_MATCH_DOMAINS`` is for, and why ``myworkdayjobs.com`` and
+    ``successfactors.com`` are already in it. We do not publish Oracle, but the
+    exclusion stands on its own: a company called **Oracle** or **Oracle Cloud** could
+    be added at any time (or pasted into the add box by a user), and neither may claim
+    a whole ATS estate.
+
+    THE ``oraclecloud`` ROW IS WHAT MAKES THIS TEST DISCRIMINATING. Plain ``oracle``
+    does not decompose out of ``oraclecloud`` under today's closed affix lists, so with
+    only ``("oracle", "Oracle")`` in the index every assertion below would still pass
+    with ``oraclecloud.com`` deleted from ``_NEVER_MATCH_DOMAINS`` — a test that cannot
+    fail for the reason it was written. An index entry whose name normalizes to
+    ``oraclecloud`` exactly is the one thing the exclusion, and only the exclusion,
+    stops.
+    """
+    index = build_name_index(
+        [*PUBLISHED, ("oracle", "Oracle"), ("oraclecloud", "Oracle Cloud")]
+    )
+
+    assert match("https://eeho.fa.us2.oraclecloud.com/hcmRestApi/resources", index) is None
+    assert match("https://jpmc.fa.oraclecloud.com/hcmUI/CandidateExperience", index) is None
+    assert match("https://oraclecloud.com/careers", index) is None
+    # ...and Oracle's REAL careers domain is untouched: different registrable domain.
+    assert match("https://careers.oracle.com/en/sites/jobsearch", index) == "oracle"

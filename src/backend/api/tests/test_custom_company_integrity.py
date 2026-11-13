@@ -162,7 +162,111 @@ class TestGetOwnerlessCustomCompanies:
 
     def test_a_clean_database_reports_nothing(self, db_conn):
         result = get_ownerless_custom_companies(db_conn)
-        assert result == {"schemaPresent": True, "ownerlessCount": 0, "ownerless": []}
+        assert result == {
+            "schemaPresent": True,
+            "ownerlessCount": 0,
+            "ownerless": [],
+            "strandedCount": 0,
+            "strandedJobCount": 0,
+            "stranded": [],
+        }
+
+
+class TestStrandedCorpus:
+    """The MIRROR-IMAGE orphan: job rows whose ``companies`` row is gone.
+
+    THE STATE, and why it needs its own detector. ``TestGetOwnerlessCustomCompanies``
+    asks "is there a company nobody owns?" and is ``visibility='user'``-scoped, which
+    is correct for that question and blind to this one — a stranded corpus HAS no
+    company row, so there is no visibility left to filter on. The recipe seed
+    migration's own ``downgrade()`` produced exactly this shape (~3,000 stranded
+    ``recipe:oracle`` rows) until it was taught to delete the jobs too, and the
+    2026-09-05 purge race produced 2,057 ``custom:`` ones.
+
+    The reason it must be REPORTED rather than merely prevented: the read paths were
+    deliberately taught to hide it (``/api/jobs`` INNER JOINs ``companies``,
+    ``/api/jobs/search`` carries the orphan predicate). Hiding it was the right fix for
+    the leak, and it is what makes the state undetectable by looking at the product.
+    """
+
+    def _seed_stranded(self, conn, company_id: str, source_id: str, *, n: int,
+                       open_n: int) -> None:
+        """``n`` job rows in ``source_id`` with NO ``companies`` row at all."""
+        cur = conn.cursor()
+        for i in range(n):
+            cur.execute(
+                sql.SQL(
+                    "INSERT INTO {} (id, title, company, url, source_id, created_at, "
+                    "first_seen_at, status) VALUES (%s, %s, %s, %s, %s, now(), now(), %s)"
+                ).format(sql.Identifier("job_listings")),
+                (
+                    f"strand-{uuid.uuid4().hex[:8]}", "Engineer", company_id,
+                    "https://example.com/1", source_id,
+                    "OPEN" if i < open_n else "CLOSED",
+                ),
+            )
+        conn.commit()
+
+    def test_a_stranded_published_recipe_corpus_is_reported(self, db_conn):
+        """THE case the ``visibility='user'`` scoping could never see."""
+        self._seed_stranded(db_conn, "oracle", "recipe:oracle", n=3, open_n=2)
+
+        result = get_ownerless_custom_companies(db_conn)
+
+        assert result["strandedCount"] == 1
+        assert result["strandedJobCount"] == 3
+        assert result["stranded"] == [{
+            "sourceId": "recipe:oracle",
+            "companyId": "oracle",
+            "jobCount": 3,
+            "openJobCount": 2,
+        }]
+        # ...and it is NOT reported as an ownerless company: different invariant.
+        assert result["ownerlessCount"] == 0
+
+    def test_a_stranded_private_corpus_is_reported_too(self, db_conn):
+        """The 2026-09-05 shape. Both recipe-engine namespaces, one report."""
+        self._seed_stranded(db_conn, "u-gone01", "custom:u-gone01", n=2, open_n=2)
+
+        result = get_ownerless_custom_companies(db_conn)
+
+        assert result["strandedCount"] == 1
+        assert result["stranded"][0]["sourceId"] == "custom:u-gone01"
+
+    def test_a_live_board_is_not_reported_as_stranded(self, db_conn):
+        """The negative case. A recipe board WITH its company row is the normal state
+        of the published fleet — reporting it would make the check useless on day one."""
+        _seed_company(db_conn, "atlassian", visibility="public")
+        self._seed_stranded(db_conn, "atlassian", "recipe:atlassian", n=2, open_n=2)
+
+        result = get_ownerless_custom_companies(db_conn)
+
+        assert result["strandedCount"] == 0
+        assert result["stranded"] == []
+
+    def test_public_ats_rows_with_no_company_are_not_stranded(self, db_conn):
+        """Scope check. A vendor-ATS row with no ``companies`` row is the documented,
+        deliberate fail-OPEN case (``database._HIDDEN_COMPANY_PREDICATE``) — it is
+        served on purpose, so calling it an integrity failure would be crying wolf."""
+        self._seed_stranded(db_conn, "legacy-co", "greenhouse_api", n=2, open_n=2)
+
+        result = get_ownerless_custom_companies(db_conn)
+
+        assert result["strandedCount"] == 0
+
+    def test_the_stranded_count_is_honest_when_the_list_is_truncated(self, db_conn):
+        """Same bounded-read contract as the ownerless list: the COUNT is computed
+        separately, so a capped list cannot understate a fleet-wide strand."""
+        for i in range(3):
+            self._seed_stranded(
+                db_conn, f"gone{i}", f"recipe:gone{i}", n=2, open_n=1
+            )
+
+        result = get_ownerless_custom_companies(db_conn, limit=1)
+
+        assert result["strandedCount"] == 3
+        assert result["strandedJobCount"] == 6
+        assert len(result["stranded"]) == 1
 
 
 class TestCustomCompanyIntegrityRoute:

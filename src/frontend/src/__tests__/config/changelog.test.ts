@@ -23,6 +23,22 @@ describe('CHANGELOG config', () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 
+  it('keeps the reveal announcement as its OWN entry', () => {
+    // Pinned deliberately. The "Job title" -> "Job Category" RENAME is visible
+    // the day its code merges; the subcategory TREE is invisible until an admin
+    // flips the reveal flag, so one fused entry would have to announce a
+    // feature nobody can see yet.
+    //
+    // The full two-entry pin also asserts `job-category-rename-2026-08`, which
+    // is FE-CL-1's entry and ships in the rename PR — a SIBLING branch, not an
+    // ancestor of this one. Add that half to this assertion when the two merge,
+    // so a future tidy-up cannot fuse them back together and re-introduce the
+    // lie.
+    const ids = CHANGELOG.map((e) => e.id);
+    expect(ids).toContain('swe-subcategories-2026-08');
+    expect(ids.filter((id) => id === 'swe-subcategories-2026-08')).toHaveLength(1);
+  });
+
   it('entry dates parse as valid dates', () => {
     for (const entry of CHANGELOG) {
       const parsed = Date.parse(entry.date);
@@ -60,5 +76,23 @@ describe('CHANGELOG config', () => {
     const entry = CHANGELOG.find((e) => e.id === 'location-normalization');
     expect(entry?.link?.to).toBe(ROUTES.LOCATION_PIPELINE);
     expect(entry?.link?.label).toBeTruthy();
+  });
+
+  /**
+   * The changelog is a dated public record and is append-only: a published
+   * entry is never rewritten, even when a later entry contradicts it. The
+   * 2026-07 entry announced the "Category" -> "Job title" rename that the
+   * 2026-08 entry reverses; both stay, and the newer one reads as the
+   * correction. Editing the older one to match would erase what users were
+   * actually told at the time.
+   */
+  it('keeps the superseded "Job title" entry alongside the entry that corrects it', () => {
+    const ids = new Set(CHANGELOG.map((e) => e.id));
+    expect(ids.has('default-90d-and-job-title')).toBe(true);
+    expect(ids.has('job-category-rename-2026-08')).toBe(true);
+
+    const superseded = CHANGELOG.find((e) => e.id === 'default-90d-and-job-title');
+    const correction = CHANGELOG.find((e) => e.id === 'job-category-rename-2026-08');
+    expect(Date.parse(correction!.date)).toBeGreaterThan(Date.parse(superseded!.date));
   });
 });

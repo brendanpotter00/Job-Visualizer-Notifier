@@ -120,6 +120,23 @@ export function RecentEnrichmentsTable() {
                         {row.level && (
                           <Chip size="small" label={FACET_LABELS[row.level] ?? row.level} />
                         )}
+                        {/*
+                          Subcategory chips ride the EXISTING Labels cell — NO
+                          new column is added. This table's head has 7 cells and
+                          its expander already uses colSpan={7}, so that number
+                          is CORRECT AS-IS and must not be "fixed" to 8 by a
+                          later reader who assumes a column was added. Filled =
+                          primary (index 0), outlined = secondary.
+                        */}
+                        {(row.subcategories ?? []).map((slug, index) => (
+                          <Chip
+                            key={slug}
+                            size="small"
+                            variant={index === 0 ? 'filled' : 'outlined'}
+                            color={index === 0 ? 'primary' : 'default'}
+                            label={FACET_LABELS[slug] ?? slug}
+                          />
+                        ))}
                         {row.tags.slice(0, 3).map((tag) => (
                           <Chip key={tag} size="small" variant="outlined" label={tag} />
                         ))}

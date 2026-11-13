@@ -49,6 +49,11 @@ function draftFromServer(p: SavedFilters): SavedFiltersDraft {
     trendTimeWindow: p.trendTimeWindow,
     locations: [...p.locations],
     category: [...p.category],
+    // A LEGACY row has no `subcategory` key on the wire, but
+    // `validateSavedFilters` normalizes it to `[]` before it ever gets here, so
+    // this spread is safe. Without that normalization it would be a TypeError
+    // on this line for every existing user.
+    subcategory: [...p.subcategory],
     level: [...p.level],
     recentActiveKeywordListId: p.recentActiveKeywordListId,
     trendActiveKeywordListId: p.trendActiveKeywordListId,
@@ -173,6 +178,10 @@ export function SavedFiltersPage() {
     if (!draft || !serverPrefs) return false;
     return (
       listKey(draft.category) !== listKey(serverPrefs.category) ||
+      // Miss this clause and a subcategory-only edit leaves the section's Save
+      // button DISABLED with no feedback — the user ticks a box and the only
+      // affordance for keeping it stays greyed out.
+      listKey(draft.subcategory) !== listKey(serverPrefs.subcategory) ||
       listKey(draft.level) !== listKey(serverPrefs.level)
     );
   }, [draft, serverPrefs]);
@@ -221,6 +230,10 @@ export function SavedFiltersPage() {
         trendTimeWindow: draft.trendTimeWindow,
         locations: draft.locations,
         category: draft.category,
+        // The endpoint takes the WHOLE object (full-replace), so omitting this
+        // key would clear the user's stored subcategory on any OTHER section's
+        // save.
+        subcategory: draft.subcategory,
         level: draft.level,
         recentActiveKeywordListId: draft.recentActiveKeywordListId,
         trendActiveKeywordListId: draft.trendActiveKeywordListId,
@@ -303,8 +316,11 @@ export function SavedFiltersPage() {
           <CategoryLevelDefaults
             category={draft.category}
             level={draft.level}
+            subcategory={draft.subcategory}
             onChangeCategory={(slugs) => patchDraft({ category: slugs })}
             onChangeLevel={(slugs) => patchDraft({ level: slugs })}
+            // Supplying FE-UI-4's optional handler is what turns the chevron on.
+            onChangeSubcategory={(slugs) => patchDraft({ subcategory: slugs })}
             dirty={categoryLevelDirty}
             saving={savingSection === 'categoryLevel'}
             success={successSection === 'categoryLevel'}

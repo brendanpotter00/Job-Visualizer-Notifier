@@ -60,7 +60,18 @@ prefix; 72h cooldown per scenario).
   never re-text. **CRITICAL alerts (worker dead, coverage collapse, mass closure,
   prod unreachable) re-text every run** with an escalating duration — no cooldown
   (SKILL.md §4.2). Only informational, known-needs-human alerts (`notfound:*`,
-  drills) cool down 72h via `state.json`.
+  `close_volume_high:global`, drills) cool down 72h via `state.json`.
+- **Thresholds are fleet-relative, not absolute** (SKILL.md §2 constants). The
+  global mass-closure alarm is `greatest(1000, 10 × enabled_companies)` and fires
+  only when the OPEN corpus also net-shrank ≥5%; coverage collapse is a fraction
+  of the enabled fleet. This is load-bearing: a fixed count silently becomes a
+  false alarm as the fleet grows, and a CRITICAL key re-texts every run, so the
+  drift arrives as a pager that cannot be snoozed (2026-09-17: fleet 133 → 193
+  pushed normal weekday closures to ~780–1040, the fixed `MASS_CLOSE_GLOBAL = 1000`
+  paged every 3h while the corpus was growing). The heartbeat line now logs
+  `mass_closure=none(<observed>/<threshold>)` on every run so the next such drift
+  is visible as a rising ratio long before it pages. **If a threshold starts
+  firing on healthy prod, fix the threshold — never mute the check.**
 - **Safety boundary:** the skill's §0 hard rules — prod strictly read-only,
   never merge/deploy, repo writes only in a throwaway worktree. The fix
   migration's stale-row close-out executes only when Brendan merges + deploys.

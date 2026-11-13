@@ -2,7 +2,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { getBackendUrl } from './utils/backendUrl';
 import { forwardResponse } from './utils/forwardResponse';
 import { getInternalKeyHeader } from './utils/internalKey';
-import { PROXY_REJECTION, resolveProxyPath } from './utils/proxyPath';
+import { PROXY_REJECTION, buildUpstreamUrl, resolveProxyPath } from './utils/proxyPath';
 
 // Public proxy for the curated-companies directory. Mirrors api/features.ts but
 // is read-only and unauthenticated (the backend endpoint takes no auth). The
@@ -44,8 +44,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
   const queryString = params.size ? `?${params}` : '';
 
-  const backendUrl = getBackendUrl(req);
-  const targetUrl = `${backendUrl}/api/companies${targetPath ? `/${targetPath}` : ''}${queryString}`;
+  // Encodes each validated segment and refuses anything that would not land
+  // under /api/companies — see buildUpstreamUrl. Checked BEFORE the key is attached.
+  const targetUrl = buildUpstreamUrl(getBackendUrl(req), '/api/companies', targetPath, queryString);
+  if (targetUrl === null) {
+    res.status(PROXY_REJECTION.status).json(PROXY_REJECTION.body);
+    return;
+  }
 
   const headers: Record<string, string> = {
     Accept: 'application/json',
@@ -96,9 +101,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     await forwardResponse(response, res);
   } catch (error) {
     console.error('[api/companies] Upstream fetch failed:', error);
-    res.status(502).json({
-      error: 'Upstream backend unavailable',
-      details: error instanceof Error ? error.message : String(error),
-    });
+    // Generic body only: the error message names the backend host and port.
+    res.status(502).json({ error: 'Upstream backend unavailable' });
   }
 }

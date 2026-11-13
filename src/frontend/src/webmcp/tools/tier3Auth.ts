@@ -80,7 +80,7 @@ export function tier3Auth(ctx: ToolCtx): WebMcpToolDef[] {
   const save_filter_defaults: WebMcpToolDef = {
     name: 'save_filter_defaults',
     description:
-      'Save the signed-in user’s default filters (PUT /api/users/saved-filters): time windows, locations, category/level, active keyword-list pointers; returns the server echo. Requires sign-in.',
+      'Save the signed-in user’s default filters (PUT /api/users/saved-filters): time windows, locations, category/subcategory/level, active keyword-list pointers; returns the server echo. Requires sign-in.',
     inputSchema: {
       type: 'object',
       additionalProperties: false,
@@ -89,6 +89,7 @@ export function tier3Auth(ctx: ToolCtx): WebMcpToolDef[] {
         trendTimeWindow: { type: 'string', enum: [...TIME_WINDOW_ENUM] },
         locations: { type: 'array', items: { type: 'string' } },
         category: { type: 'array', items: { type: 'string' } },
+        subcategory: { type: 'array', items: { type: 'string' } },
         level: { type: 'array', items: { type: 'string' } },
         recentActiveKeywordListId: { type: ['string', 'null'] },
         trendActiveKeywordListId: { type: ['string', 'null'] },
@@ -104,6 +105,12 @@ export function tier3Auth(ctx: ToolCtx): WebMcpToolDef[] {
         trendTimeWindow: asTimeWindow(rawArgs.trendTimeWindow, '90d'),
         locations: asStringArray(rawArgs.locations) ?? [],
         category: asStringArray(rawArgs.category) ?? [],
+        // REQUIRED on `SavedFilters` and omitted by every stored row that
+        // predates the feature, so the `?? []` is the normalization, not a
+        // convenience: PUT sends the whole document, and dropping the key here
+        // would ask the server to persist filters with no subcategory field at
+        // all.
+        subcategory: asStringArray(rawArgs.subcategory) ?? [],
         level: asStringArray(rawArgs.level) ?? [],
         recentActiveKeywordListId: asString(rawArgs.recentActiveKeywordListId) ?? null,
         trendActiveKeywordListId: asString(rawArgs.trendActiveKeywordListId) ?? null,

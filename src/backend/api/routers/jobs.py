@@ -13,6 +13,7 @@ from ..models import (
     FacetOption,
     JobFacetsResponse,
     JobListingResponse,
+    PublicSettingsResponse,
 )
 from ..pagination import (
     MAX_CURSOR_LENGTH,
@@ -24,6 +25,7 @@ from ..pagination import (
     parse_utc_timestamp,
 )
 from ..services.database import get_jobs, get_job_by_id
+from ..services.app_settings import get_public_settings
 from ..services.enrichment_monitor import get_facets
 
 router = APIRouter()
@@ -277,16 +279,65 @@ def list_jobs(
 @router.get("/facets", response_model=JobFacetsResponse)
 def list_facets(conn: Connection = Depends(get_db)) -> JobFacetsResponse:
     """Dropdown catalog for the enrichment facets, straight from the seeded
-    job_categories / job_levels dimensions — labels, ordering and the
-    new_grad->entry parent all stay data-driven, so a taxonomy change ships as
-    a migration without a frontend redeploy. Declared above the parametrized
-    detail route by convention (different segment count, so no actual overlap).
+    job_categories / job_levels / job_subcategories dimensions — labels,
+    ordering and the parent edges all stay data-driven, so a taxonomy change
+    ships as a migration without a frontend redeploy. Declared above the
+    parametrized detail route by convention (different segment count, so no
+    actual overlap).
+
+    `parentSlug` CARRIES TWO DIFFERENT MEANINGS and they must not be confused:
+
+    * on `levels` it is a FILTER-EXPANSION edge (`new_grad` sits under `entry`,
+      so selecting Entry also matches New Grad) — this is what the client's
+      level-expansion builder consumes;
+    * on `subcategories` it is a GROUPING edge only (`software_engineering` on
+      every row), naming which parent row the option renders under.
+
+    Feeding the subcategory edges into the level-expansion builder would turn
+    one category selection into seventeen, silently and with a 200.
     """
     data = get_facets(conn)
     return JobFacetsResponse(
         categories=[FacetOption(**row) for row in data["categories"]],
         levels=[FacetOption(**row) for row in data["levels"]],
+        # POPULATED since SCHEMA-7 seeded the dimension. Still additive: the
+        # client normalizes a MISSING key to `[]`, so an older backend and a
+        # phase-1 backend both render the same flat dropdown.
+        subcategories=[FacetOption(**row) for row in data.get("subcategories", [])],
     )
+
+
+@router.get("/settings", response_model=PublicSettingsResponse)
+def public_settings(conn: Connection = Depends(get_db)) -> PublicSettingsResponse:
+    """Public, UNAUTHENTICATED read of the client-visible feature flags.
+
+    Declared between `/facets` and the parametrized detail route: one path
+    segment vs two, so there is no actual overlap. No `vercel.json` change is
+    needed — its `/api/jobs/:path(.*)` rewrite already covers it; `api/jobs.ts`
+    gains exactly one member in its sub-path allowlist.
+
+    IT MUST FALL BACK TO `False` ON ANY READ FAILURE, and `get_public_settings`
+    is where that happens. Failing closed is the correct direction for a REVEAL
+    flag: hidden-when-broken costs a feature that is not visible yet, while
+    failing open reveals a filter that returns nothing.
+
+    WHY THIS IS ITS OWN ENDPOINT RATHER THAN A FIELD ON `/api/jobs/facets`, which
+    is the obvious place to put it:
+
+    * `getFacets` has NO `providesTags`, so the flag could never be invalidated
+      by tag — and `keepUnusedDataFor: 3600` only bounds UNSUBSCRIBED cache
+      entries. The SPA sets no `refetchOnFocus` or `refetchOnMountOrArgChange`
+      outside tests, so a SUBSCRIBED facets entry never refetches for the life of
+      the tab. A flag flipped at 09:00 could stay invisible until the reader
+      reloads the page.
+    * Tag invalidation is per-tab, in-memory Redux state. It could never reach
+      another user's session, which is the only thing that matters for a flag an
+      admin flips once for everyone.
+
+    So the flag rides its own query with a short TTL, and the facets catalog
+    keeps its hour-long cache.
+    """
+    return PublicSettingsResponse(**get_public_settings(conn))
 
 
 @router.get("/{source_id}/{job_id}", response_model=JobListingResponse)

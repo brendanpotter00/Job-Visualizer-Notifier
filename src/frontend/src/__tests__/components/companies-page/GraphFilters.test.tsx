@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { renderWithProviders, createTestStore } from '../../../test/testUtils';
 import { GraphFilters } from '../../../components/companies-page/GraphFilters';
 import { jobsApi } from '../../../features/jobs/jobsApi';
+import { SubcategoryRevealProvider } from '../../../features/settings/subcategoryReveal';
 import { ATSConstants } from '../../../api/types';
 import type { Job } from '../../../types';
 
@@ -104,6 +105,20 @@ describe('GraphFilters', () => {
     expect(screen.getByRole('combobox', { name: 'Keywords' })).toBeInTheDocument();
     expect(screen.getAllByText('Time Window').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Location').length).toBeGreaterThan(0);
+  });
+
+  /**
+   * Pins the "Job title" -> "Job Category" rename. The old label was wrong on
+   * its face and gets worse as these values subdivide; the data model stays
+   * `category` everywhere underneath, so nothing but this assertion catches a
+   * silent revert of the copy.
+   */
+  it('labels the category facet "Job Category", not "Job title"', async () => {
+    const store = await seedStore();
+    renderWithProviders(<GraphFilters />, { store });
+
+    expect(screen.getByRole('combobox', { name: 'Job Category' })).toBeInTheDocument();
+    expect(screen.queryByRole('combobox', { name: 'Job title' })).not.toBeInTheDocument();
   });
 
   it('renders Location control unconditionally, even when no job has location data', async () => {
@@ -307,5 +322,100 @@ describe('GraphFilters', () => {
 
     const tags = store.getState().graphFilters.filters.searchTags;
     expect(tags === undefined || tags.length === 0).toBe(true);
+  });
+});
+
+/**
+ * The subcategory tree, on the one page that is still genuinely CLIENT-filtered.
+ *
+ * This file already used `upsertQueryData` — but for `getJobsForCompany`, not
+ * for facets, so seeding the catalog is a new idiom here too. The reveal flag
+ * is seeded the same way and the component is rendered inside
+ * `<SubcategoryRevealProvider>`, matching `App.tsx`.
+ */
+describe('GraphFilters — the subcategory tree', () => {
+  const FACETS = {
+    categories: [
+      { slug: 'software_engineering', label: 'Software Engineering', sortOrder: 0 },
+      { slug: 'growth', label: 'Growth', sortOrder: 1 },
+    ],
+    levels: [{ slug: 'senior', label: 'Senior', sortOrder: 0, parentSlug: null }],
+    subcategories: [
+      { slug: 'backend', label: 'Backend', sortOrder: 1, parentSlug: 'software_engineering' },
+    ],
+  };
+
+  async function seedFacetsAndFlag(
+    store: ReturnType<typeof createTestStore>,
+    { reveal }: { reveal: boolean }
+  ) {
+    await store.dispatch(jobsApi.util.upsertQueryData('getFacets', undefined, FACETS));
+    await store.dispatch(
+      jobsApi.util.upsertQueryData('getPublicSettings', undefined, {
+        sweSubcategoriesEnabled: reveal,
+      })
+    );
+  }
+
+  function renderBar(store: ReturnType<typeof createTestStore>) {
+    return renderWithProviders(
+      <SubcategoryRevealProvider>
+        <GraphFilters />
+      </SubcategoryRevealProvider>,
+      { store }
+    );
+  }
+
+  it('(a) exposes the control as a combobox named "Job Category"', async () => {
+    const store = await seedStore();
+    await seedFacetsAndFlag(store, { reveal: true });
+    renderBar(store);
+
+    expect(screen.getByRole('combobox', { name: 'Job Category' })).toBeInTheDocument();
+  });
+
+  it('(b) renders the SWE children immediately, with no expander', async () => {
+    const store = await seedStore();
+    await seedFacetsAndFlag(store, { reveal: true });
+    const user = userEvent.setup();
+    renderBar(store);
+
+    await user.click(screen.getByRole('combobox', { name: 'Job Category' }));
+    const listbox = await screen.findByRole('listbox');
+    const swe = within(listbox).getByRole('option', { name: /Software Engineering/ });
+    // The accordion is gone: the parent row has no button to press.
+    expect(within(swe).queryByRole('button')).toBeNull();
+
+    expect(within(listbox).getByRole('option', { name: /Backend/ })).toBeInTheDocument();
+  });
+
+  it('(c) ticking a child dispatches BOTH setters onto the GRAPH slice', async () => {
+    const store = await seedStore();
+    await seedFacetsAndFlag(store, { reveal: true });
+    const user = userEvent.setup();
+    renderBar(store);
+
+    await user.click(screen.getByRole('combobox', { name: 'Job Category' }));
+    const listbox = await screen.findByRole('listbox');
+    const swe = within(listbox).getByRole('option', { name: /Software Engineering/ });
+    // The accordion is gone: the parent row has no button to press.
+    expect(within(swe).queryByRole('button')).toBeNull();
+    await user.click(within(listbox).getByRole('option', { name: /Backend/ }));
+
+    const filters = store.getState().graphFilters.filters;
+    expect(filters.subcategory).toEqual(['backend']);
+    expect(filters.category).toEqual(['software_engineering']);
+  });
+
+  it('(d) shows NO chevron with the flag off', async () => {
+    const store = await seedStore();
+    await seedFacetsAndFlag(store, { reveal: false });
+    const user = userEvent.setup();
+    renderBar(store);
+
+    await user.click(screen.getByRole('combobox', { name: 'Job Category' }));
+    const listbox = await screen.findByRole('listbox');
+
+    expect(within(listbox).queryByRole('button')).toBeNull();
   });
 });

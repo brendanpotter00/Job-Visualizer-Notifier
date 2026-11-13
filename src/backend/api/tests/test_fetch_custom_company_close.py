@@ -44,11 +44,14 @@ _WD_CFG = {"base_url": "https://x.wd5.myworkdayjobs.com",
 # helpers
 # --------------------------------------------------------------------------- #
 
-def _seed_open_jobs(db_conn, company_id, lo, hi, *, last_seen_hours_ago=0.0):
-    """Seed OPEN job_listings [lo, hi] under custom:<id>; the AFTER INSERT
-    trigger materializes their job_freshness rows. Optionally backdate every
-    freshness row's last_seen_at (to satisfy the 36h close floor in a test)."""
-    source_id = custom(company_id)
+def _seed_open_jobs(
+    db_conn, company_id, lo, hi, *, last_seen_hours_ago=0.0, source_id=None
+):
+    """Seed OPEN job_listings [lo, hi] under ``source_id`` (default
+    ``custom:<id>``); the AFTER INSERT trigger materializes their job_freshness
+    rows. Optionally backdate every freshness row's last_seen_at (to satisfy the
+    close floor in a test)."""
+    source_id = source_id or custom(company_id)
     cur = db_conn.cursor()
     cur.execute(
         """
@@ -71,20 +74,20 @@ def _seed_open_jobs(db_conn, company_id, lo, hi, *, last_seen_hours_ago=0.0):
     db_conn.commit()
 
 
-def _open_count(db_conn, company_id) -> int:
+def _open_count(db_conn, company_id, *, source_id=None) -> int:
     cur = db_conn.cursor()
     cur.execute(
         "SELECT count(*) AS n FROM job_listings WHERE source_id = %s AND status = 'OPEN'",
-        (custom(company_id),),
+        (source_id or custom(company_id),),
     )
     return int(cur.fetchone()["n"])
 
 
-def _max_misses(db_conn, company_id) -> int:
+def _max_misses(db_conn, company_id, *, source_id=None) -> int:
     cur = db_conn.cursor()
     cur.execute(
         "SELECT COALESCE(max(consecutive_misses), 0) AS m FROM job_freshness WHERE source_id = %s",
-        (custom(company_id),),
+        (source_id or custom(company_id),),
     )
     return int(cur.fetchone()["m"])
 

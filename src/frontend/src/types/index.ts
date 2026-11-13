@@ -94,6 +94,20 @@ export interface Job {
   /** Level slug; filtering must honor the new_grad ⊂ entry hierarchy. */
   level?: string | null;
 
+  /**
+   * SWE subcategory slugs, ORDERED — index 0 is the primary specialty.
+   *
+   * TRI-STATE, and all three states are distinct:
+   *   - `null` / absent  never evaluated (this is the backfill queue)
+   *   - `[]`             evaluated, and no specialty applies (TERMINAL)
+   *   - `['backend', …]` labelled, max 2, primary first
+   *
+   * Read it with `?.length`. The transformer writes `raw.subcategories ?? null`
+   * and NEVER `?? []` — collapsing null into `[]` here would destroy the
+   * distinction the server went to some trouble to ship.
+   */
+  subcategories?: string[] | null;
+
   /** Free-form enrichment skill tags (lowercase slugs). */
   enrichmentTags?: string[];
 
@@ -231,6 +245,23 @@ export interface SavedFilters {
   category: string[];
   /** Enrichment level facet slugs, shared by the Recent and Trend pages. */
   level: string[];
+  /**
+   * SWE subcategory facet slugs, shared by the Recent and Trend pages.
+   *
+   * REQUIRED, even though every stored row predates the feature and omits it:
+   * `validateSavedFilters` normalizes a missing key to `[]` on the way out, so
+   * by the time a `SavedFilters` value exists the field is always an array.
+   * Making it optional instead would push a `?? []` into every consumer and
+   * `draftFromServer`'s `[...p.subcategory]` would still be the one that
+   * throws.
+   *
+   * NOTE the `[]` collision, which is real and deliberate: HERE `[]` means "no
+   * filter selected, show EVERYTHING", while on a JOB
+   * `enrichment_subcategories = '{}'` means "evaluated, and no specialty
+   * applies". Same literal, opposite meanings, and the same Redux field name
+   * flows through both.
+   */
+  subcategory: string[];
   recentActiveKeywordListId: string | null;
   trendActiveKeywordListId: string | null;
 }
@@ -248,6 +279,19 @@ export interface GraphFilters {
   category?: string[];
   /** Enrichment level slugs (multi-select OR; 'entry' also matches new_grad). Jobs not yet enriched (level null) are HIDDEN once this filter is active. */
   level?: string[];
+  /**
+   * SWE subcategory slugs (multi-select OR; empty/undefined = All). SINGULAR,
+   * matching `category`/`level` — the plural `subcategories` is the JOB-side
+   * field. Jobs with a null or empty subcategory array are HIDDEN once this
+   * filter is active, which on day 0 of the backfill is every SWE job — that is
+   * what the reveal flag exists to hold back.
+   *
+   * Stored UNEXPANDED: selecting Frontend widens to Full Stack at query time
+   * (server-side for the Recent page, `matchesSubcategory` for the client-side
+   * Companies path), never here, or the widened pair would be persisted into
+   * saved filters and chips.
+   */
+  subcategory?: string[];
 }
 
 /**
@@ -267,6 +311,19 @@ export interface ListFilters {
   category?: string[];
   /** Enrichment level slugs (multi-select OR; 'entry' also matches new_grad). Jobs not yet enriched (level null) are HIDDEN once this filter is active. */
   level?: string[];
+  /**
+   * SWE subcategory slugs (multi-select OR; empty/undefined = All). SINGULAR,
+   * matching `category`/`level` — the plural `subcategories` is the JOB-side
+   * field. Jobs with a null or empty subcategory array are HIDDEN once this
+   * filter is active, which on day 0 of the backfill is every SWE job — that is
+   * what the reveal flag exists to hold back.
+   *
+   * Stored UNEXPANDED: selecting Frontend widens to Full Stack at query time
+   * (server-side for the Recent page, `matchesSubcategory` for the client-side
+   * Companies path), never here, or the widened pair would be persisted into
+   * saved filters and chips.
+   */
+  subcategory?: string[];
 }
 
 /**
@@ -285,11 +342,33 @@ export interface RecentJobsFilters {
   category?: string[];
   /** Enrichment level slugs (multi-select OR; 'entry' also matches new_grad). Jobs not yet enriched (level null) are HIDDEN once this filter is active. */
   level?: string[];
+  /**
+   * SWE subcategory slugs (multi-select OR; empty/undefined = All). SINGULAR,
+   * matching `category`/`level` — the plural `subcategories` is the JOB-side
+   * field. Jobs with a null or empty subcategory array are HIDDEN once this
+   * filter is active, which on day 0 of the backfill is every SWE job — that is
+   * what the reveal flag exists to hold back.
+   *
+   * Stored UNEXPANDED: selecting Frontend widens to Full Stack at query time
+   * (server-side for the Recent page, `matchesSubcategory` for the client-side
+   * Companies path), never here, or the widened pair would be persisted into
+   * saved filters and chips.
+   */
+  subcategory?: string[];
 }
 /**
- * One dropdown option from GET /api/jobs/facets (job_categories / job_levels).
- * `parentSlug` encodes the level hierarchy (new_grad -> entry) so the
- * client-side filter expansion stays data-driven.
+ * One dropdown option from GET /api/jobs/facets
+ * (job_categories / job_levels / job_subcategories).
+ *
+ * `parentSlug` carries TWO different meanings depending on the dimension it
+ * came from, and they must not be confused:
+ *   - on `job_levels` it is a FILTER-EXPANSION edge (new_grad ⊂ entry), which
+ *     is what the client-side level expansion is built from;
+ *   - on `job_subcategories` it is a GROUPING edge (every subcategory's parent
+ *     is `software_engineering`) and it must NEVER be fed into the
+ *     level-expansion builder — doing so would silently expand a category
+ *     selection into seventeen subcategories.
+ * `job_categories` rows carry `parentSlug: null`.
  */
 export interface FacetOption {
   slug: string;
@@ -302,4 +381,28 @@ export interface FacetOption {
 export interface JobFacets {
   categories: FacetOption[];
   levels: FacetOption[];
+  /**
+   * SWE subcategories. OPTIONAL on the wire — a backend that has not shipped
+   * the dimension yet simply omits the key, and that is a supported response,
+   * not an error. `getFacets` NORMALIZES it to `[]`, so the query RESULT always
+   * carries the key even when the response did not.
+   */
+  subcategories?: FacetOption[];
+}
+
+/**
+ * GET /api/jobs/settings response — the unauthenticated, public read of the
+ * admin-controlled reveal switches.
+ *
+ * Deliberately a separate endpoint from `/api/jobs/facets`: that response is
+ * cached for an hour with no `providesTags`, so a flag riding it would be
+ * invisible for up to an hour after a flip and could not be tag-invalidated.
+ * This one is cached for 60 seconds instead.
+ *
+ * `sweSubcategoriesEnabled` is a UI REVEAL switch only — the backend does not
+ * gate `?subcategory=` on it. Flipping it off hides the control; it does not
+ * make a stored selection stop filtering.
+ */
+export interface PublicSettings {
+  sweSubcategoriesEnabled: boolean;
 }

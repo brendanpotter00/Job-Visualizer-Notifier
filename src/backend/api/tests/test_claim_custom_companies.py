@@ -24,6 +24,29 @@ from api.tasks.claim_custom_companies import (
     _count_queued_fetches,
     defer_fetch,
 )
+from api.tasks.procrastinate_app import (
+    CUSTOM_ATS_BULK_FETCH_QUEUE,
+    CUSTOM_ATS_FIRST_FETCH_QUEUE,
+    RECIPE_FETCH_QUEUE,
+)
+from scripts.shared.constants import RECIPE_ATS
+
+
+def _seed_recipe(db_conn, company_id: str) -> None:
+    """A PUBLISHED recipe board: ``ats='recipe'``, ``visibility='public'``, due now.
+
+    ``next_run_at`` is set deliberately — the point of the claim test below is that
+    visibility, and nothing else, is what keeps this row out of the private tick.
+    """
+    cur = db_conn.cursor()
+    cur.execute(
+        "INSERT INTO companies (id, display_name, ats, board_token, enabled, "
+        "provider_config, visibility, cadence_hours, next_run_at, health_state) "
+        "VALUES (%s, %s, %s, %s, TRUE, '{}'::jsonb, 'public', 1, now(), "
+        "'unverified')",
+        (company_id, company_id.title(), RECIPE_ATS, company_id),
+    )
+    db_conn.commit()
 
 
 def test_count_is_zero_when_procrastinate_table_absent(db_conn):
@@ -31,34 +54,103 @@ def test_count_is_zero_when_procrastinate_table_absent(db_conn):
     assert _count_queued_fetches(db_conn) == 0
 
 
+def _fake_jobs_table(db_conn, rows: list[tuple[str, str, str]]) -> None:
+    """Stand in for Procrastinate's ``procrastinate_jobs`` with (task, queue, status).
+
+    ``queue_name`` is part of the shape because the production count reads it —
+    the budget is scoped to the PRIVATE lane's queues, not to the task name alone.
+    """
+    cur = db_conn.cursor()
+    cur.execute(
+        sql.SQL(
+            "CREATE TABLE {} (id serial PRIMARY KEY, task_name text, "
+            "queue_name text, status text)"
+        ).format(sql.Identifier("procrastinate_jobs"))
+    )
+    cur.executemany(
+        "INSERT INTO procrastinate_jobs (task_name, queue_name, status) "
+        "VALUES (%s, %s, %s)",
+        rows,
+    )
+    db_conn.commit()
+
+
+def _drop_fake_jobs_table(db_conn) -> None:
+    cur = db_conn.cursor()
+    cur.execute(sql.SQL("DROP TABLE {}").format(sql.Identifier("procrastinate_jobs")))
+    db_conn.commit()
+
+
 def test_doing_jobs_do_not_count_toward_the_budget(db_conn):
     """Three wedged 'doing' fetches + one 'todo': the count is 1, and the budget
     stays positive — the fleet keeps being claimed rather than starving."""
-    cur = db_conn.cursor()
-    cur.execute(
-        sql.SQL("CREATE TABLE {} (id serial PRIMARY KEY, task_name text, status text)")
-        .format(sql.Identifier("procrastinate_jobs"))
-    )
-    cur.execute(
-        "INSERT INTO procrastinate_jobs (task_name, status) VALUES "
-        "('fetch_custom_company', 'doing'),"
-        "('fetch_custom_company', 'doing'),"
-        "('fetch_custom_company', 'doing'),"
-        "('fetch_custom_company', 'todo'),"
-        "('fetch_custom_company', 'succeeded'),"
-        "('some_other_task', 'todo')"
-    )
-    db_conn.commit()
+    _fake_jobs_table(db_conn, [
+        ("fetch_custom_company", CUSTOM_ATS_BULK_FETCH_QUEUE, "doing"),
+        ("fetch_custom_company", CUSTOM_ATS_BULK_FETCH_QUEUE, "doing"),
+        ("fetch_custom_company", CUSTOM_ATS_BULK_FETCH_QUEUE, "doing"),
+        ("fetch_custom_company", CUSTOM_ATS_BULK_FETCH_QUEUE, "todo"),
+        ("fetch_custom_company", CUSTOM_ATS_BULK_FETCH_QUEUE, "succeeded"),
+        ("some_other_task", CUSTOM_ATS_BULK_FETCH_QUEUE, "todo"),
+    ])
     try:
         # Only the single 'todo' fetch_custom_company counts.
         assert _count_queued_fetches(db_conn) == 1
         # Budget stays > 0 despite three wedged 'doing' jobs — no starvation.
         assert _QUEUE_BACKPRESSURE_CEILING - _count_queued_fetches(db_conn) > 0
     finally:
-        cur.execute(
-            sql.SQL("DROP TABLE {}").format(sql.Identifier("procrastinate_jobs"))
+        _drop_fake_jobs_table(db_conn)
+
+
+def test_published_recipe_fetches_do_not_spend_the_private_lanes_budget(db_conn):
+    """THE LANE SPLIT, at the budget.
+
+    ``enqueue_recipe_fan_out`` defers the SAME ``fetch_custom_company`` task for
+    published ``ats='recipe'`` boards, on its own ``recipe_fetch`` queue. If the
+    ceiling counted by task name alone, one */30 recipe tick queueing four curated
+    boards would hold ``queued >= 3`` and make the very next */15 claim skip EVERY
+    user-added board — silently, and worse the more curated boards we publish.
+
+    Both custom queues still count (the bulk re-harvest and the add-time first
+    harvest are one budget), which is what stops this from being a filter that
+    quietly counts nothing.
+    """
+    _fake_jobs_table(db_conn, [
+        ("fetch_custom_company", RECIPE_FETCH_QUEUE, "todo"),
+        ("fetch_custom_company", RECIPE_FETCH_QUEUE, "todo"),
+        ("fetch_custom_company", RECIPE_FETCH_QUEUE, "todo"),
+        ("fetch_custom_company", RECIPE_FETCH_QUEUE, "todo"),
+        ("fetch_custom_company", CUSTOM_ATS_BULK_FETCH_QUEUE, "todo"),
+        ("fetch_custom_company", CUSTOM_ATS_FIRST_FETCH_QUEUE, "todo"),
+    ])
+    try:
+        assert _count_queued_fetches(db_conn) == 2, (
+            "the recipe lane's queued fetches were charged to the private lane's "
+            "budget of 3 — four curated boards would starve every user board"
         )
-        db_conn.commit()
+        assert _QUEUE_BACKPRESSURE_CEILING - _count_queued_fetches(db_conn) > 0
+    finally:
+        _drop_fake_jobs_table(db_conn)
+
+
+def test_a_published_recipe_company_is_never_claimed_by_the_custom_tick(db_conn):
+    """The claim tick is the PRIVATE lane and must stay that way.
+
+    A published recipe board is ``visibility='public'`` and has no
+    ``user_companies`` row; claiming it here would spend the user boards' budget
+    on it and (worse) run it through a scheduler it does not participate in. It is
+    due by every OTHER predicate the claim uses — enabled, ``next_run_at <= now()``
+    — so only the visibility filter can be what excludes it.
+    """
+    _seed_recipe(db_conn, "atlassian")
+    _seed(db_conn, "u-claimme001", 1)
+
+    claimed = claim_mod._claim_due_companies(db_conn, 10)
+
+    assert "u-claimme001" in claimed
+    assert "atlassian" not in claimed, (
+        "claim_custom_companies claimed a visibility='public' recipe board — that "
+        "is the custom lane's budget being spent on a curated board"
+    )
 
 
 # --- defer_fetch: the single enqueue path and its per-company lock -------------

@@ -13,6 +13,7 @@ from psycopg2 import sql
 from scripts.shared.database import Connection
 
 from ..pagination import JobCursor
+from .enrichment_writer import SUBCATEGORY_FILTER_EXPANSION
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +66,13 @@ def _row_to_job_dict(row: dict) -> dict:
         d["category"] = d.pop("enrichment_category")
     if "enrichment_level" in d and "level" not in d:
         d["level"] = d.pop("enrichment_level")
+    # Same rename shim, REQUIRED because the detail route returns raw column
+    # names. Deliberately NOT `setdefault(..., [])` — `None` means "never
+    # evaluated" (the backfill queue) and `[]` means "evaluated, nothing
+    # applies", and coercing here would destroy the distinction one layer below
+    # the API that ships it as `list[str] | None`.
+    if "enrichment_subcategories" in d and "subcategories" not in d:
+        d["subcategories"] = d.pop("enrichment_subcategories")
     tags = d.get("tags")
     if isinstance(tags, str):
         tags = json.loads(tags)
@@ -84,6 +92,16 @@ _RUNS_TABLE = sql.Identifier("scrape_runs")
 # "entry" surfaces new-grad roles too; clicking "new_grad" stays exact. Kept in
 # code (fast, no join) as the read-side mirror of the job_levels.parent_slug data.
 _LEVEL_FILTER_EXPANSION: dict[str, list[str]] = {"entry": ["entry", "new_grad"]}
+
+# The subcategory equivalent, IMPORTED rather than re-declared. `enrichment_writer`
+# is the code arbiter for the taxonomy (`SUBCATEGORY_SLUGS` and friends live
+# there), and the read->write import direction already has precedent —
+# `enrichment_monitor.py` imports the facet slug sets from the same module. A
+# local literal here would be a second expansion rule free to drift from the one
+# the frontend's oracle fixture is generated against.
+#
+# Selecting Frontend also matches Full Stack; selecting Full Stack stays exact.
+_SUBCATEGORY_FILTER_EXPANSION = SUBCATEGORY_FILTER_EXPANSION
 
 
 # Hidden-company guard for the PUBLIC job read paths.
@@ -175,17 +193,29 @@ _PRIVATE_COMPANY_ANTIJOIN = sql.SQL(
 # satisfied the anti-join above and was readable by ANONYMOUS callers.
 #
 # So the private-company test is PAIRED with an EXISTENCE test, scoped to the row
-# namespace that can only ever be private. ``custom:<id>`` is written by nothing
-# but ``tasks/fetch_custom_company.py`` (see the ``_OWNED_USER_COMPANY_PREDICATE``
-# note below on why ``source_id`` is the honest key here), so a ``custom:`` row
-# whose company row is absent is an orphan BY DEFINITION and can never be
-# legitimately public. Public-ATS rows never carry the prefix, so their behaviour
-# is byte-for-byte what shipped.
+# namespaces the RECIPE ENGINE writes. ``custom:<id>`` and ``recipe:<id>`` are
+# written by nothing but ``tasks/fetch_custom_company.py`` (see the
+# ``_OWNED_USER_COMPANY_PREDICATE`` note below on why ``source_id`` is the honest
+# key here), so a row in either namespace whose company row is absent is an orphan
+# BY DEFINITION. Public-ATS rows never carry either prefix, so their behaviour is
+# byte-for-byte what shipped.
+#
+# BOTH PREFIXES, NOT JUST ``custom:``. ``recipe:`` is the published half of the same
+# engine, and the existence hole is IDENTICAL there: no FK, the same leaf task, and
+# the same anti-join failing open when the ``companies`` row goes missing. It is not
+# hypothetical either — the seed migration that publishes the recipe boards
+# (``4c1f8a26d7be``) deletes its ``companies`` rows on ``downgrade()``, and the
+# ``recipe:atlassian`` / ``recipe:github`` job rows outlive them. Those rows drop out
+# of ``GET /api/jobs`` (it INNER JOINs ``companies``) but ``GET /api/jobs/search``
+# does not join, so under the old ``custom:``-only predicate a stranded published
+# corpus stayed readable — a board nobody is scraping any more, served as current.
+# The migration now deletes those rows in the same transaction; this predicate is the
+# fail-closed backstop for every OTHER way a company row can vanish.
 #
 # Keyed on "company row EXISTS", deliberately NOT on "exists AND is public": a
 # custom board that were ever promoted to ``visibility='public'`` would still
-# pass, so this closes the orphan hole without hard-coding "custom means private
-# forever" into the read path.
+# pass (and a ``recipe:`` board is public already), so this closes the orphan hole
+# without hard-coding a visibility into the read path.
 #
 # ``starts_with()`` and NOT ``LIKE 'custom:%'`` — load-bearing, not style. These
 # ``sql.SQL`` fragments are handed to ``cursor.execute(query, params)``, where a
@@ -204,8 +234,17 @@ _PRIVATE_COMPANY_ANTIJOIN = sql.SQL(
 # the incident against the largest custom board, whose company row deletion left
 # 2,057 job rows behind: the OLD predicate serves all 2,057 of them, the NEW one
 # serves 0.
+#
+# The two prefixes are SPELLED OUT rather than interpolated from
+# ``scripts.shared.constants``, to keep this fragment a plain ``sql.SQL`` with no
+# rendering context of its own (``sql.Literal`` needs a live connection to render, and
+# this predicate is composed at import time). The anti-drift job is done instead by
+# ``test_visibility_leaks``, which asserts the rendered predicate names every
+# recipe-engine namespace constant — so adding a third one fails a test rather than
+# silently leaving a namespace outside the guard.
 _ORPHANED_CUSTOM_PREDICATE = sql.SQL(
-    "(NOT starts_with(job_listings.source_id, 'custom:')"
+    "(NOT (starts_with(job_listings.source_id, 'custom:')"
+    " OR starts_with(job_listings.source_id, 'recipe:'))"
     " OR EXISTS (SELECT 1 FROM companies c2 WHERE c2.id = job_listings.company))"
 )
 
@@ -330,6 +369,16 @@ def _build_where(
     dropping jobs whose company row is soft-deactivated (``enabled = FALSE``);
     it defaults to ``False`` so admin/diagnostic callers keep seeing them.
 
+    **THERE IS DELIBERATELY NO ``subcategory`` PARAMETER HERE.** ``/api/jobs``
+    is the windowed dump the company hiring-trend page filters client-side; the
+    SERVER-side subcategory filter belongs to ``/api/jobs/search``
+    (``services/job_search.py``), which is the only path that applies the user's
+    whole filter set in SQL. Adding a scalar ``?subcategory=`` to this endpoint
+    would create a SECOND expansion site for ``full_stack`` — and double
+    expansion is what persists ``['backend','full_stack']`` into saved filters
+    and chips. ``_LIST_COLUMNS`` still SERIALIZES the array on both read paths;
+    serializing and filtering are different questions.
+
     ``since`` and ``cursor`` are the keyset-paging bounds (see
     :data:`_SINCE_PREDICATE` / :data:`_CURSOR_PREDICATE`). Like
     ``exclude_hidden_companies`` they emit ``job_listings``-qualified SQL, so they
@@ -428,7 +477,8 @@ _LIST_COLUMNS = sql.SQL(
     " created_at, posted_on, closed_on, status,"
     " has_matched, jsonb_build_object() AS ai_metadata,"
     " first_seen_at, f.last_seen_at, f.consecutive_misses, details_scraped,"
-    " enrichment_category AS category, enrichment_level AS level, enrichment_status, "
+    " enrichment_category AS category, enrichment_level AS level,"
+    " enrichment_subcategories AS subcategories, enrichment_status, "
 ) + _TAGS_SUBQUERY + sql.SQL(", ") + _LOCATIONS_SUBQUERY
 
 # INNER JOIN onto the freshness sidecar. Lossless by construction: the AFTER

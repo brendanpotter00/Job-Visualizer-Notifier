@@ -5,5 +5,9 @@ python-dateutil>=2.8.0
 tenacity>=8.0.0
 rich>=13.0.0
 psycopg2-binary>=2.9.9
+# SQLAlchemy 2.1 made psycopg (v3) the default driver for postgresql:// URLs;
+# the test fixtures build engines from one, so it must be installed here too.
+# Same spec as src/backend/api/requirements.txt.
+psycopg[binary]>=3.1.0
 sqlalchemy>=2.0.0
 alembic>=1.13.0

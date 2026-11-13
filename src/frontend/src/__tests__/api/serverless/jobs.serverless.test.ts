@@ -31,6 +31,7 @@ function mockJsonResponse(status: number, body: unknown, headers: Record<string,
  */
 const REPEATABLE_PARAMS = [
   'category',
+  'subcategory',
   'level',
   'company',
   'location',
@@ -118,6 +119,36 @@ describe('/api/jobs serverless function', () => {
       expect(mockRes.status).toHaveBeenCalledWith(200);
     });
 
+    it('forwards ?path=settings, the public flag read', async () => {
+      mockReq.query = { path: 'settings' };
+      fetchMock.mockResolvedValue(
+        mockJsonResponse(200, { sweSubcategoriesEnabled: false })
+      );
+
+      await handler(mockReq as VercelRequest, mockRes as VercelResponse);
+
+      expect(fetchMock.mock.calls[0][0]).toBe(
+        'http://localhost:8000/api/jobs/settings'
+      );
+      expect(mockRes.status).toHaveBeenCalledWith(200);
+    });
+
+    /**
+     * Regression guard for the shape of the allowlist edit itself. Adding
+     * 'settings' by REPLACING the set — rather than adding one member — would
+     * 404 the entire search endpoint at the proxy while every backend test
+     * stayed green.
+     */
+    it('still forwards ?path=search after settings was added', async () => {
+      mockReq.query = { path: 'search' };
+      fetchMock.mockResolvedValue(mockJsonResponse(200, SEARCH_PAGE));
+
+      await handler(mockReq as VercelRequest, mockRes as VercelResponse);
+
+      expect(forwardedUrl().pathname).toBe('/api/jobs/search');
+      expect(mockRes.status).toHaveBeenCalledWith(200);
+    });
+
     /**
      * The allowlist is a security boundary, not a typo guard: this proxy attaches
      * the internal key unconditionally, so anything it forwards clears the
@@ -136,6 +167,8 @@ describe('/api/jobs serverless function', () => {
     it.each<[string, string | string[]]>([
       ['an internal enrichment route', 'enrich'],
       ['a path too deep for the detail route', 'enrichment/next/deep'],
+      ['the internal prefix itself', 'internal'],
+      ['the internal pending route', 'internal/enrichment/pending'],
       ['a traversal out of the prefix', '../jobs-qa/scraper-health'],
       ['a different case spelling', 'Search'],
       ['a traversal smuggled through the array form', ['..', 'internal']],
@@ -191,6 +224,20 @@ describe('/api/jobs serverless function', () => {
       await handler(mockReq as VercelRequest, mockRes as VercelResponse);
 
       expect(forwardedUrl().pathname).toBe('/api/jobs/workday:tenant/REQ-9');
+    });
+
+    it('forwards a detail route whose job id is literally `internal`', async () => {
+      // `internal` is only refused as the ROUTER segment right after `/api` —
+      // the one position that selects the JWT-less `/api/internal/*` router.
+      // Here it is data under `/api/jobs`, and 404ing it would hide a real row.
+      mockReq.query = { path: 'greenhouse:acme/internal' };
+      fetchMock.mockResolvedValue(mockJsonResponse(200, { id: 'internal' }));
+
+      await handler(mockReq as VercelRequest, mockRes as VercelResponse);
+
+      expect(fetchMock.mock.calls[0][0]).toBe(
+        'http://localhost:8000/api/jobs/greenhouse:acme/internal'
+      );
     });
 
     it('404s a detail route whose source id would traverse the prefix', async () => {
@@ -350,15 +397,16 @@ describe('/api/jobs serverless function', () => {
     });
 
     it('carries every filter of a fully-loaded search in one request', async () => {
-      // The shape the Recent page actually sends once a user has picked from all
-      // six dropdowns — no filter may be dropped or flattened on the way through.
+      // The shape the Recent page actually sends once a user has picked from
+      // every dropdown — no filter may be dropped or flattened on the way through.
       mockReq.query = {
         path: 'search',
         since: '2026-08-09T12:00:00.000Z',
         limit: '100',
         cursor: 'eyJwYWdlIjoyfQ',
         company: ['google', 'stripe'],
-        category: ['backend', 'data'],
+        category: ['software_engineering'],
+        subcategory: ['backend', 'frontend'],
         level: ['entry', 'senior'],
         location: ['Austin, TX, US'],
         include: ['rust', 'distributed systems'],
@@ -373,7 +421,11 @@ describe('/api/jobs serverless function', () => {
       expect(params.get('limit')).toBe('100');
       expect(params.get('cursor')).toBe('eyJwYWdlIjoyfQ');
       expect(params.getAll('company')).toEqual(['google', 'stripe']);
-      expect(params.getAll('category')).toEqual(['backend', 'data']);
+      expect(params.getAll('category')).toEqual(['software_engineering']);
+      // TWO appended params, never the comma-joined 'backend,frontend' that
+      // `String(array)` would produce — that would reach the backend as one
+      // bogus slug and match nothing, with a 200.
+      expect(params.getAll('subcategory')).toEqual(['backend', 'frontend']);
       expect(params.getAll('level')).toEqual(['entry', 'senior']);
       expect(params.getAll('location')).toEqual(['Austin, TX, US']);
       expect(params.getAll('include')).toEqual(['rust', 'distributed systems']);

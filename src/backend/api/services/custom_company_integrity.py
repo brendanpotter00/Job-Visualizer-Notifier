@@ -51,6 +51,14 @@ second one; that order now lives in exactly one place,
 guard → job_tags → job_enrichment → job_listings → company_harvests / scrape_runs /
 company_scripts → companies).
 
+The mirror-image orphan
+-----------------------
+This module also reports the REVERSE state — a recipe-engine ``source_id`` namespace
+whose ``companies`` row is gone, leaving job rows behind (``strandedCount`` /
+``stranded``). It is a different invariant with different causes and it needs a
+detector precisely BECAUSE the read paths were taught to hide it. See
+:data:`_STRANDED_WHERE`.
+
 Connection contract: SELECT-only, never commits, always rolls back so the caller's
 pooled connection is never left idle-in-transaction (that pins the xmin horizon and
 blocks vacuum — cf. ``docs/incidents/2026-05-17-recent-jobs-pool-exhaustion.md``).
@@ -106,6 +114,57 @@ _ORPHAN_LIST_SQL = f"""
 """
 
 
+# The SECOND, MIRROR-IMAGE orphan: a JOB row whose COMPANY row is gone.
+#
+# Everything above asks "is there a company nobody owns?". This asks the reverse — "is
+# there a corpus no company owns?" — and the two are genuinely different states with
+# different causes. A company row can vanish while its ``job_listings`` rows survive
+# (there is no FK; 2026-09-05 produced 2,057 such rows when a purge raced an in-flight
+# harvest, and the recipe seed migration's own ``downgrade()`` produced ~3,000 more
+# until it was taught to delete them).
+#
+# WHY IT NEEDS REPORTING AT ALL, given ``services/database``'s read guard already hides
+# these rows: BECAUSE the read guard hides them. ``GET /api/jobs`` INNER JOINs
+# ``companies`` and ``GET /api/jobs/search`` carries the orphan predicate, so a stranded
+# corpus is invisible on every surface a human looks at while still occupying the table,
+# still marked OPEN, and still counted by any naive query. Hiding it was the right fix
+# for the leak and it is exactly what makes a detector necessary — otherwise the only
+# way to learn the state exists is to go looking for it.
+#
+# BOTH recipe-engine namespaces, and NOT scoped on ``visibility``. The ownerless check
+# above is ``visibility='user'``-scoped for a good reason (a public company has no owner
+# BY DESIGN), but that scoping is precisely what blinds it here: a stranded ``recipe:``
+# corpus has no ``companies`` row at all, so there is no visibility left to filter on.
+# Keyed on the source_id namespace instead, which is the only thing the surviving rows
+# still carry.
+#
+# Grouped by ``source_id`` — one line per stranded board rather than per row — and
+# capped, so a 3,000-row strand is one entry with a count.
+_STRANDED_WHERE = """
+    FROM job_listings j
+    WHERE (starts_with(j.source_id, 'custom:')
+           OR starts_with(j.source_id, 'recipe:'))
+      AND NOT EXISTS (SELECT 1 FROM companies c WHERE c.id = j.company)
+"""
+
+_STRANDED_COUNT_SQL = f"""
+    SELECT count(DISTINCT j.source_id) AS boards,
+           count(*)                    AS jobs
+    {_STRANDED_WHERE}
+"""
+
+_STRANDED_LIST_SQL = f"""
+    SELECT j.source_id                                   AS source_id,
+           min(j.company)                                AS company_id,
+           count(*)                                      AS job_count,
+           count(*) FILTER (WHERE j.status = 'OPEN')     AS open_job_count
+    {_STRANDED_WHERE}
+    GROUP BY j.source_id
+    ORDER BY count(*) DESC, j.source_id ASC
+    LIMIT %s
+"""
+
+
 def _regclass(cur: Any, name: str) -> bool:
     """True when ``to_regclass(name)`` resolves (table exists on the search_path).
 
@@ -121,29 +180,47 @@ def _regclass(cur: Any, name: str) -> bool:
 def get_ownerless_custom_companies(
     conn: Connection, limit: int = ORPHAN_LIST_CAP
 ) -> dict[str, Any]:
-    """Report every ``visibility='user'`` company with zero ``user_companies`` rows.
+    """Report BOTH halves of the ownership invariant, in one read.
 
-    Returns ``{schemaPresent, ownerlessCount, ownerless: [...]}`` with camelCase keys
-    (serialized straight to JSON by the route). ``ownerless`` is capped at ``limit`` and
-    ordered worst-first: still-``enabled`` rows lead, because those are the ones burning
-    a nightly harvest for nobody, then oldest first.
+    Returns ``{schemaPresent, ownerlessCount, ownerless: [...], strandedCount,
+    strandedJobCount, stranded: [...]}`` with camelCase keys (serialized straight to
+    JSON by the route). Both lists are capped at ``limit``.
 
-    ``schemaPresent`` is false — with an empty list, not an error — when
+    * ``ownerless`` — a ``visibility='user'`` company with zero ``user_companies``
+      rows, worst-first: still-``enabled`` rows lead, because those are the ones
+      burning a nightly harvest for nobody, then oldest first.
+    * ``stranded`` — the MIRROR IMAGE: a recipe-engine ``source_id`` namespace whose
+      ``companies`` row is gone, one entry per board with its row counts, biggest
+      first. See :data:`_STRANDED_WHERE` for why a hidden state still needs a
+      detector, and for why this one cannot be ``visibility``-scoped the way the
+      other is.
+
+    ``schemaPresent`` is false — with empty lists, not an error — when
     ``user_companies`` does not exist. Without that guard this endpoint 500s in every
-    environment where E7 has not shipped, which is every environment that most needs a
-    green health check.
+    environment where E7 has not shipped. The STRANDED half is still computed in that
+    case: it reads only ``job_listings`` and ``companies``, both of which predate E7,
+    and a pre-E7 environment is exactly where an old strand would be hiding.
     """
+    schema_present = True
+    rows: list[Any] = []
+    total = 0
     try:
         with conn.cursor() as cursor:
-            if not _regclass(cursor, "user_companies"):
-                return {"schemaPresent": False, "ownerlessCount": 0, "ownerless": []}
+            cursor.execute(_STRANDED_COUNT_SQL)
+            stranded_counts = cursor.fetchone() or {}
+            stranded_boards = int((stranded_counts.get("boards") or 0))
+            stranded_jobs = int((stranded_counts.get("jobs") or 0))
+            cursor.execute(_STRANDED_LIST_SQL, (limit,))
+            stranded_rows = cursor.fetchall()
 
-            cursor.execute(_ORPHAN_COUNT_SQL)
-            count_row = cursor.fetchone()
-            total = int((count_row["n"] if count_row else 0) or 0)
+            schema_present = _regclass(cursor, "user_companies")
+            if schema_present:
+                cursor.execute(_ORPHAN_COUNT_SQL)
+                count_row = cursor.fetchone()
+                total = int((count_row["n"] if count_row else 0) or 0)
 
-            cursor.execute(_ORPHAN_LIST_SQL, (limit,))
-            rows = cursor.fetchall()
+                cursor.execute(_ORPHAN_LIST_SQL, (limit,))
+                rows = cursor.fetchall()
     except psycopg2.Error:
         conn.rollback()
         logger.exception("get_ownerless_custom_companies failed")
@@ -153,6 +230,27 @@ def get_ownerless_custom_companies(
             conn.rollback()
         except psycopg2.Error:
             pass
+
+    stranded = [
+        {
+            "sourceId": r["source_id"],
+            "companyId": r["company_id"],
+            "jobCount": int(r["job_count"] or 0),
+            "openJobCount": int(r["open_job_count"] or 0),
+        }
+        for r in stranded_rows
+    ]
+
+    if stranded_boards:
+        # WARNING for the same reason the ownerless one is: an unreachable state that
+        # was reached, and one that every UI is now deliberately blind to.
+        logger.warning(
+            "custom-company integrity: %d source_id namespace(s) have %d job row(s) "
+            "with no companies row (hidden from every read path, never closable): %s",
+            stranded_boards,
+            stranded_jobs,
+            ", ".join(s["sourceId"] for s in stranded[:10]),
+        )
 
     ownerless = [
         {
@@ -177,4 +275,11 @@ def get_ownerless_custom_companies(
             ", ".join(c["companyId"] for c in ownerless[:10]),
         )
 
-    return {"schemaPresent": True, "ownerlessCount": total, "ownerless": ownerless}
+    return {
+        "schemaPresent": schema_present,
+        "ownerlessCount": total,
+        "ownerless": ownerless,
+        "strandedCount": stranded_boards,
+        "strandedJobCount": stranded_jobs,
+        "stranded": stranded,
+    }

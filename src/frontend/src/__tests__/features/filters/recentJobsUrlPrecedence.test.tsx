@@ -77,6 +77,7 @@ const SAVED: SavedFilters = {
   trendTimeWindow: '90d',
   locations: ['Austin, TX, US'],
   category: ['software_engineering'],
+  subcategory: [],
   level: ['senior'],
   recentActiveKeywordListId: 'list-1',
   trendActiveKeywordListId: null,

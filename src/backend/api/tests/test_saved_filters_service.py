@@ -55,6 +55,7 @@ def _upsert_defaults(db_conn, user_id, **overrides):
         "locations": [],
         "category": [],
         "level": [],
+        "subcategory": [],
         "recent_active_keyword_list_id": None,
         "trend_active_keyword_list_id": None,
     }
@@ -99,6 +100,36 @@ class TestGetSavedFilters:
         got = get_saved_filters(db_conn, user_id)
         assert got["category"] == []
         assert got["level"] == []
+
+    def test_round_trips_a_subcategory_list(self, db_conn):
+        user_id = _seed_user(db_conn)
+        _upsert_defaults(
+            db_conn, user_id,
+            category=["software_engineering"],
+            subcategory=["backend", "ai_engineering"],
+        )
+        got = get_saved_filters(db_conn, user_id)
+        assert got["subcategory"] == ["backend", "ai_engineering"]
+
+    def test_a_user_with_no_row_gets_an_empty_subcategory_list(self, db_conn):
+        user_id = _seed_user(db_conn)
+        assert get_saved_filters(db_conn, user_id)["subcategory"] == []
+
+    def test_upsert_overwrites_subcategory_full_replace(self, db_conn):
+        """An upsert that omits the field clears it — matching category/level.
+
+        THE ``[]`` COLLISION, asserted next to the thing it collides with. Here
+        ``subcategory == []`` means "no filter selected, show EVERYTHING", so a
+        user who clears the box gets an UNFILTERED result set. On a JOB,
+        ``enrichment_subcategories = '{}'`` means the opposite: "evaluated, and
+        no specialty applies" — a TERMINAL state that leaves the backfill queue
+        and is never re-queued. Same literal, opposite meanings, and the same
+        Redux field name flows through both.
+        """
+        user_id = _seed_user(db_conn)
+        _upsert_defaults(db_conn, user_id, subcategory=["backend"])
+        _upsert_defaults(db_conn, user_id)  # omits it -> defaults to []
+        assert get_saved_filters(db_conn, user_id)["subcategory"] == []
 
     def test_isolates_users(self, db_conn):
         a, b = _two_users(db_conn)

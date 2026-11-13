@@ -70,8 +70,11 @@ describe('QAPage', () => {
     const dropdown = screen.getByRole('combobox', { name: /company/i });
     await user.click(dropdown);
 
-    // Wait for menu to be open and option to be available
-    const option = await screen.findByRole('option', { name: companyName });
+    // Wait for menu to be open, then find the option by text INSIDE the listbox.
+    // `findByRole('option', { name })` computes an accessible name for each of the
+    // ~200 company options and costs ~650ms per call; this finds the same element
+    // in ~10ms.
+    const option = within(await screen.findByRole('listbox')).getByText(companyName);
     await user.click(option);
 
     // Wait for the menu to close and state to update

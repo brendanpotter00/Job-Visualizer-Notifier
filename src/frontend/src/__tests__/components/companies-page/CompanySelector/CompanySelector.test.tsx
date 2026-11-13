@@ -4,7 +4,7 @@ import { Provider } from 'react-redux';
 import userEvent from '@testing-library/user-event';
 import { CompanySelector } from '../../../../components/companies-page/CompanySelector/CompanySelector';
 import { store } from '../../../../app/store';
-import { createTestStore } from '../../../../test/testUtils';
+import { createTestStore, findListboxOption } from '../../../../test/testUtils';
 
 describe('CompanySelector', () => {
   it('renders company selector with label', () => {
@@ -40,10 +40,8 @@ describe('CompanySelector', () => {
     await user.click(selector);
 
     // Check for both companies
-    await waitFor(() => {
-      expect(screen.getByRole('option', { name: 'SpaceX' })).toBeInTheDocument();
-      expect(screen.getByRole('option', { name: 'Anduril' })).toBeInTheDocument();
-    });
+    expect(await findListboxOption('SpaceX')).toHaveAccessibleName('SpaceX');
+    expect(await findListboxOption('Anduril')).toHaveAccessibleName('Anduril');
   });
 
   it('changes selected company when option is clicked', async () => {
@@ -60,8 +58,7 @@ describe('CompanySelector', () => {
     await user.click(selector);
 
     // Select Anduril
-    const andurilOption = await screen.findByRole('option', { name: 'Anduril' });
-    await user.click(andurilOption);
+    await user.click(await findListboxOption('Anduril'));
 
     // Verify state changed
     await waitFor(() => {
@@ -117,8 +114,7 @@ describe('CompanySelector', () => {
       await user.click(selector);
 
       // Select a different company
-      const anthropicOption = await screen.findByRole('option', { name: 'Anthropic' });
-      await user.click(anthropicOption);
+      await user.click(await findListboxOption('Anthropic'));
 
       // Verify Redux state changed
       await waitFor(() => {

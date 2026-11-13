@@ -1,21 +1,57 @@
 #!/usr/bin/env bash
-# postgres check -> db ensure -> backend :8201 -> vite :3201 -> wait-for-ready
+# postgres check -> db ensure -> backend -> vite -> wait-for-ready
 # (PLAN.md §1, §2, §12 steps 3-4).
 #
 # Usage: stack_up.sh [--refresh] [--artifacts-dir DIR]
-#   --refresh          force ensure_db.sh to re-clone jobscraper_e2e
+#   --refresh          force ensure_db.sh to re-provision the target database
 #   --artifacts-dir    where backend.log / frontend.log go (default: a
 #                       scratch dir under e2e/add-companies/artifacts/.boot/)
 #
+# PARAMETERISED BY ENV, NOT BY FLAGS, because the same five values have to
+# reach four processes this script does not invoke directly — vite's config,
+# Playwright's config, the section's pytest conftest, and the backend itself.
+# An env var crosses all of those boundaries; a flag would have to be
+# re-plumbed at each one. Every default below is the value that shipped, so
+# `add-companies` and `live-view` are byte-for-byte unaffected.
+#
+#   E2E_BACKEND_PORT    default 8201
+#   E2E_FRONTEND_PORT   default 3201
+#   E2E_ENV_FILE        default $SCRIPT_DIR/env.e2e
+#   E2E_PID_DIR         default $SCRIPT_DIR/.pids
+#   E2E_TARGET_DB       default jobscraper_e2e
+#   E2E_DB_SCHEMA_ONLY  default 0 (1 => ensure_db.sh --schema-only)
+#   E2E_VITE_CONFIG     default $SCRIPT_DIR/vite.e2e.config.ts
+#
 # Never touches :8000/:8100/:3000 — the owner's stack. Only starts processes
-# on :8201/:3201, and only ever kills what stack_down.sh's pidfiles record.
+# on the two ports above, and only ever kills what stack_down.sh's pidfiles
+# record.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
-PID_DIR="$SCRIPT_DIR/.pids"
+
+BACKEND_PORT="${E2E_BACKEND_PORT:-8201}"
+FRONTEND_PORT="${E2E_FRONTEND_PORT:-3201}"
+ENV_FILE="${E2E_ENV_FILE:-$SCRIPT_DIR/env.e2e}"
+PID_DIR="${E2E_PID_DIR:-$SCRIPT_DIR/.pids}"
+TARGET_DB="${E2E_TARGET_DB:-jobscraper_e2e}"
+VITE_CONFIG="${E2E_VITE_CONFIG:-$SCRIPT_DIR/vite.e2e.config.ts}"
+
+# THE OWNER'S PORTS, and the one list this script will not start on. :8000 and
+# :8100 are his backends, :3000 his frontend; a section that fat-fingers a port
+# into one of them takes his dev stack down (and stack_down.sh would then kill
+# it by pidfile on the way out).
+for _reserved in 8000 8100 3000; do
+  if [ "$BACKEND_PORT" = "$_reserved" ] || [ "$FRONTEND_PORT" = "$_reserved" ]; then
+    echo "stack_up.sh: refusing to start on port $_reserved — that is the owner's" \
+      "stack, not an e2e port." >&2
+    exit 1
+  fi
+done
+
 mkdir -p "$PID_DIR"
+export E2E_PID_DIR="$PID_DIR"
 
 REFRESH=0
 ARTIFACTS_DIR="$REPO_ROOT/e2e/add-companies/artifacts/.boot"
@@ -43,7 +79,7 @@ _port_owner_pid() {
   lsof -tiTCP:"$1" -sTCP:LISTEN 2>/dev/null | head -1 || true
 }
 
-for port in 8201 3201; do
+for port in "$BACKEND_PORT" "$FRONTEND_PORT"; do
   owner="$(_port_owner_pid "$port")"
   if [ -n "$owner" ]; then
     echo "stack_up.sh: refusing to start — port $port is already held by pid $owner," \
@@ -59,21 +95,24 @@ if ! docker exec "${E2E_PG_CONTAINER:-jobscraper-postgres}" pg_isready -U postgr
   exit 1
 fi
 
-echo "stack_up.sh: ensuring jobscraper_e2e"
+echo "stack_up.sh: ensuring $TARGET_DB"
+ENSURE_ARGS=(--target-db "$TARGET_DB")
 if [ "$REFRESH" = "1" ]; then
-  bash "$SCRIPT_DIR/../db/ensure_db.sh" --refresh
-else
-  bash "$SCRIPT_DIR/../db/ensure_db.sh"
+  ENSURE_ARGS+=(--refresh)
 fi
+if [ "${E2E_DB_SCHEMA_ONLY:-0}" = "1" ]; then
+  ENSURE_ARGS+=(--schema-only)
+fi
+bash "$SCRIPT_DIR/../db/ensure_db.sh" "${ENSURE_ARGS[@]}"
 
 # --- Backend -----------------------------------------------------------
-echo "stack_up.sh: starting backend on :8201"
+echo "stack_up.sh: starting backend on :$BACKEND_PORT ($ENV_FILE -> $TARGET_DB)"
 
-# Export env.e2e's variables into THIS shell so the uvicorn child inherits
-# them. `set -a` auto-exports every var assigned while sourcing.
+# Export the env file's variables into THIS shell so the uvicorn child
+# inherits them. `set -a` auto-exports every var assigned while sourcing.
 set -a
 # shellcheck disable=SC1091
-source "$SCRIPT_DIR/env.e2e"
+source "$ENV_FILE"
 set +a
 # Defensive: env.e2e deliberately never sets this (see its comment) — but if
 # the calling shell already exported one, drop it so the middleware sees
@@ -90,7 +129,7 @@ fi
 
 cd "$REPO_ROOT"
 nohup "$REPO_ROOT/.venv/bin/python" -m uvicorn e2e.shared.stack.e2e_app:app \
-  --host 127.0.0.1 --port 8201 \
+  --host 127.0.0.1 --port "$BACKEND_PORT" \
   > "$ARTIFACTS_DIR/backend.log" 2>&1 &
 BACKEND_PID=$!
 echo "$BACKEND_PID" > "$PID_DIR/backend.pid"
@@ -104,7 +143,7 @@ for i in $(seq 1 60); do
     tail -n 60 "$ARTIFACTS_DIR/backend.log" >&2 || true
     exit 1
   fi
-  if curl -fsS "http://127.0.0.1:8201/health" >/dev/null 2>&1; then
+  if curl -fsS "http://127.0.0.1:$BACKEND_PORT/health" >/dev/null 2>&1; then
     BACKEND_READY=1
     break
   fi
@@ -118,9 +157,10 @@ fi
 echo "stack_up.sh: backend healthy"
 
 # --- Frontend ------------------------------------------------------------
-echo "stack_up.sh: starting frontend on :3201"
+echo "stack_up.sh: starting frontend on :$FRONTEND_PORT"
 cd "$REPO_ROOT/src/frontend"
-nohup npx vite dev --config "$SCRIPT_DIR/vite.e2e.config.ts" \
+E2E_FRONTEND_PORT="$FRONTEND_PORT" E2E_BACKEND_PORT="$BACKEND_PORT" \
+  nohup npx vite dev --config "$VITE_CONFIG" \
   > "$ARTIFACTS_DIR/frontend.log" 2>&1 &
 FRONTEND_PID=$!
 cd "$REPO_ROOT"
@@ -134,7 +174,7 @@ for i in $(seq 1 60); do
     tail -n 60 "$ARTIFACTS_DIR/frontend.log" >&2 || true
     exit 1
   fi
-  if curl -fsS "http://127.0.0.1:3201/" >/dev/null 2>&1; then
+  if curl -fsS "http://127.0.0.1:$FRONTEND_PORT/" >/dev/null 2>&1; then
     FRONTEND_READY=1
     break
   fi
@@ -147,4 +187,4 @@ if [ "$FRONTEND_READY" != "1" ]; then
 fi
 echo "stack_up.sh: frontend ready"
 
-echo "stack_up.sh: stack is up (backend :8201, frontend :3201)"
+echo "stack_up.sh: stack is up (backend :$BACKEND_PORT, frontend :$FRONTEND_PORT, db $TARGET_DB)"

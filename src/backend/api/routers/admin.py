@@ -5,7 +5,7 @@ import logging
 from urllib.parse import unquote
 
 import psycopg2
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response
 from procrastinate import exceptions as procrastinate_exceptions
 from psycopg2.extensions import connection as Connection
 
@@ -49,6 +49,11 @@ from ..models import (
     AdminEnrichmentTicksResponse,
     AdminUserVisitsResponse,
     AdminUsersStatsResponse,
+    AdminSettingRow,
+    AdminSettingUpdateRequest,
+    AdminSettingsResponse,
+    AdminSubcategoryResetRequest,
+    AdminSubcategoryResetResponse,
     FeedbackResponse,
 )
 from ..services.admin_service import (
@@ -82,7 +87,9 @@ from ..services.enrichment_monitor import (
     list_recent,
     list_ticks,
     request_reenrich,
+    reset_subcategories,
 )
+from ..services.app_settings import SettingError, get_settings, set_setting
 from ..services.location_monitor import get_health, get_integrity
 from ..services.location_normalization import normalize_string
 from ..services.user_service import (
@@ -695,8 +702,21 @@ def admin_enrichment_needs_human(
     level: str | None = Query(default=None, pattern=r"^[a-z_]{1,20}$"),
     include_corrected: bool = Query(default=False, alias="includeCorrected"),
     only_open: bool = Query(default=True, alias="onlyOpen"),
+    sort: str = Query(default="enriched_at", pattern=r"^[a-z_]{1,40}$"),
+    sort_dir: str = Query(default="desc", pattern=r"^(asc|desc)$", alias="sortDir"),
+    subcategory: str | None = Query(default=None, pattern=r"^[a-z_]{1,40}$"),
+    subcategory_state: str = Query(
+        default="any",
+        pattern=r"^(any|unlabelled_swe|labelled)$",
+        alias="subcategoryState",
+    ),
 ) -> AdminEnrichmentNeedsHumanResponse:
-    """One page of the needs-human triage queue (ordered newest-first)."""
+    """One page of the needs-human triage queue.
+
+    Default order is newest-first. `sort` is resolved through the service's
+    allowlist (`enriched_at` | `classify_confidence` | `judge_confidence` |
+    `subcategory_confidence`), always NULLS LAST in both directions, with the
+    composite PK as a tiebreak so OFFSET paging over ties is stable."""
     try:
         rows, total = list_needs_human(
             conn,
@@ -707,6 +727,10 @@ def admin_enrichment_needs_human(
             level=level,
             include_corrected=include_corrected,
             only_open=only_open,
+            sort=sort,
+            sort_dir=sort_dir,
+            subcategory=subcategory,
+            subcategory_state=subcategory_state,
         )
     except psycopg2.Error:
         conn.rollback()
@@ -783,6 +807,12 @@ def admin_enrichment_correct(
             tags=body.tags,
             note=body.note,
             admin_email=admin.get("email", "unknown"),
+            subcategories=body.subcategories,
+            # `None` and "key absent" are the SAME VALUE by the time they reach
+            # apply_correction; `model_fields_set` is the only thing that can
+            # still tell them apart, and the difference is whether a level-only
+            # correction wipes the row's subcategories.
+            subcategories_provided="subcategories" in body.model_fields_set,
         )
     except CorrectionError as exc:
         raise HTTPException(status_code=404 if exc.not_found else 409, detail=str(exc))
@@ -823,6 +853,83 @@ def admin_enrichment_confirm(
         logger.exception("Failed to confirm enrichment")
         raise HTTPException(status_code=500, detail="Failed to confirm enrichment")
     return AdminEnrichmentCorrectionResponse(**result)
+
+
+@router.get("/settings", response_model=AdminSettingsResponse)
+def admin_settings(
+    conn: Connection = Depends(get_db),
+    _admin: TokenClaims = Depends(require_admin),
+) -> AdminSettingsResponse:
+    """Every allowlisted runtime setting, with defaults MATERIALIZED.
+
+    There is no seed row, so a key with no DB row is the NORMAL state and comes
+    back with `value` = the code default and `updatedAt` = null. The UI never has
+    to render "missing"."""
+    try:
+        rows = get_settings(conn)
+    except psycopg2.Error:
+        conn.rollback()
+        logger.exception("Failed to load app settings")
+        raise HTTPException(status_code=500, detail="Failed to load settings")
+    return AdminSettingsResponse(settings=[AdminSettingRow(**r) for r in rows])
+
+
+@router.put("/settings/{key}", response_model=AdminSettingRow)
+def admin_set_setting(
+    body: AdminSettingUpdateRequest,
+    key: str = Path(pattern=r"^[a-z_]{1,64}$"),
+    conn: Connection = Depends(get_db),
+    admin: TokenClaims = Depends(require_admin),
+) -> AdminSettingRow:
+    """Upsert one allowlisted setting. 404 for an un-allowlisted key (a typo must
+    not persist happily while the setting it meant stays at its default), 400 for
+    a value the key's coercer rejects."""
+    try:
+        row = set_setting(
+            conn,
+            key=key,
+            value=body.value,
+            updated_by=admin.get("email", "unknown"),
+        )
+    except SettingError as exc:
+        raise HTTPException(status_code=404 if exc.not_found else 400, detail=str(exc))
+    except psycopg2.Error:
+        conn.rollback()
+        logger.exception("Failed to update app setting")
+        raise HTTPException(status_code=500, detail="Failed to update setting")
+    return AdminSettingRow(**row)
+
+
+@router.post(
+    "/enrichment/subcategories/reset",
+    response_model=AdminSubcategoryResetResponse,
+)
+def admin_enrichment_subcategory_reset(
+    body: AdminSubcategoryResetRequest,
+    conn: Connection = Depends(get_db),
+    _admin: TokenClaims = Depends(require_admin),
+) -> AdminSubcategoryResetResponse:
+    """Scoped, source-keyed reversal of automated subcategory labels.
+
+    NULLs `enrichment_subcategories` and `enrichment_subcategory_source` for
+    every row whose source matches — which re-queues them for the backfill,
+    because a NULL array IS the queue.
+
+    `dryRun` defaults to TRUE: the destructive form needs an explicit `false`.
+    `source='human'` is only matched when passed explicitly; there is no
+    unscoped variant, because one would destroy the only ground truth the eval
+    gate has."""
+    try:
+        result = reset_subcategories(
+            conn, source=body.source, dry_run=body.dry_run
+        )
+    except CorrectionError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except psycopg2.Error:
+        conn.rollback()
+        logger.exception("Failed to reset subcategories")
+        raise HTTPException(status_code=500, detail="Failed to reset subcategories")
+    return AdminSubcategoryResetResponse(**result)
 
 
 @router.post(

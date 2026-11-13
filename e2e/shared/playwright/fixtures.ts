@@ -9,7 +9,10 @@ import { signInContext, type TestIdentity } from '../auth/storage_state';
 
 const REPO_ROOT = path.resolve(__dirname, '../../..');
 const PYTHON = path.join(REPO_ROOT, '.venv', 'bin', 'python');
-const BASE_URL = 'http://127.0.0.1:8201';
+// The section's own backend, from the environment its run.sh exports (see
+// stack_up.sh's header). Defaults to the port `add-companies` and `live-view`
+// share, so neither changes.
+const BASE_URL = process.env.E2E_BACKEND_URL ?? `http://127.0.0.1:${process.env.E2E_BACKEND_PORT ?? 8201}`;
 
 interface Fixtures {
   /** A page already signed in as the primary e2e identity. */

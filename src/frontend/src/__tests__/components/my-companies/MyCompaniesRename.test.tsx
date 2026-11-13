@@ -133,7 +133,9 @@ describe('renaming a company from its card', () => {
     // The editor closes, and the refetched list — not the mutation's own response —
     // is what the row renders.
     await waitFor(() => expect(screen.getByTestId('my-company-link')).toBeInTheDocument());
-    expect(within(screen.getByTestId('my-company-row')).getByText('Raindrop')).toBeInTheDocument();
+    expect(
+      await within(screen.getByTestId('my-company-row')).findByText('Raindrop')
+    ).toBeInTheDocument();
   });
 
   it('commits on the Save button too', async () => {

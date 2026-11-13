@@ -16,6 +16,8 @@ const BASE_ROW: EnrichmentNeedsHumanRow = {
   enrichmentStatus: 'done',
   category: 'growth',
   level: 'mid',
+  subcategories: null,
+  subcategoryConfidence: null,
   tags: ['sql'],
   cleanDescription: 'Own the growth funnel end to end.\n\nSecond paragraph with detail.',
   classifyConfidence: 0.55,

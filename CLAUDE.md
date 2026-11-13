@@ -120,7 +120,7 @@ Automatic per-PR preview deploys are **off** — root `vercel.json` sets `git.de
 
 ## Vercel Serverless Functions (api/)
 
-- `api/jobs.ts` - Backend jobs API proxy for both `GET /api/jobs` and `GET /api/jobs/search` (the Recent page's server-side filtered read path; see `src/backend/CLAUDE.md`). Note it **allow-lists** sub-paths AND query params (an unforwarded param is silently dropped, not an error) and must **explicitly re-emit any response header** — the shared `forwardResponse` helper copies status + body only. `X-Next-Cursor` (keyset pagination) is forwarded for exactly this reason; see the keyset section in `src/backend/CLAUDE.md`.
+- `api/jobs.ts` - Backend jobs API proxy for `GET /api/jobs`, `GET /api/jobs/search` (the Recent page's server-side filtered read path; see `src/backend/CLAUDE.md`), `GET /api/jobs/facets` and `GET /api/jobs/settings` — the reachable sub-paths are exactly `facets`, `search`, `settings`. Its repeatable search params are `category`, `subcategory`, `level`, `company`, `location`, `include`, `exclude`; each is **appended**, never `set`, because `String()` on an array comma-joins it and two selected slugs would arrive as one bogus slug that matches nothing, with a 200. Note it **allow-lists** sub-paths AND query params (an unforwarded param is silently dropped, not an error) and must **explicitly re-emit any response header** — the shared `forwardResponse` helper copies status + body only. `X-Next-Cursor` (keyset pagination) is forwarded for exactly this reason; see the keyset section in `src/backend/CLAUDE.md`.
 - `api/jobs-qa.ts` - Backend QA endpoints proxy
 - `api/users.ts` - Backend users API proxy (forwards Authorization header)
 - `api/features.ts` - Feature voting API proxy (forwards Authorization header)

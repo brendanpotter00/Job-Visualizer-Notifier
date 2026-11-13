@@ -99,6 +99,37 @@ describe('/api/feedback serverless function', () => {
     await handler(mockReq as VercelRequest, mockRes as VercelResponse);
     expect(mockRes.status).toHaveBeenCalledWith(502);
   });
+
+  it('never echoes the upstream error on a 502 — it carries the backend hostname', async () => {
+    // A public, unauthenticated endpoint: anything in this body is handed to
+    // whoever asks. Node's fetch errors name the internal host and port.
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    fetchMock.mockRejectedValue(
+      new Error('getaddrinfo ENOTFOUND backend-prod.railway.internal:8080')
+    );
+
+    await handler(mockReq as VercelRequest, mockRes as VercelResponse);
+
+    expect(mockRes.status).toHaveBeenCalledWith(502);
+    expect(mockRes.json).toHaveBeenCalledWith({ error: 'Upstream backend unavailable' });
+    expect(JSON.stringify((mockRes.json as ReturnType<typeof vi.fn>).mock.calls)).not.toContain(
+      'railway.internal'
+    );
+    // Still logged server-side, so the failure stays debuggable.
+    expect(consoleError).toHaveBeenCalled();
+    consoleError.mockRestore();
+  });
+
+  it('forwards a `#` inside a query value encoded, never as a fragment', async () => {
+    // buildUpstreamUrl refuses a raw `#` in the query string; URLSearchParams
+    // encodes one as %23, so a legitimate value must still forward.
+    mockReq.query = { ref: 'issue#12' };
+    fetchMock.mockResolvedValue(mockJsonResponse(201, { id: 'fb1' }));
+
+    await handler(mockReq as VercelRequest, mockRes as VercelResponse);
+
+    expect(fetchMock.mock.calls[0][0]).toBe('http://localhost:8000/api/feedback?ref=issue%2312');
+  });
 });
 
 /**

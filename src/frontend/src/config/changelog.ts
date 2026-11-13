@@ -17,7 +17,237 @@ export interface ChangelogEntry {
   link?: ChangelogLink;
 }
 
+/**
+ * The day the SWE-subcategory REVEAL FLAG is flipped on in production.
+ *
+ * UNMEASURED — placeholder; set by FE-CL-2
+ *
+ * NOT the day this code lands. The tree is invisible until an admin flips
+ * `swe_subcategories_enabled`, which Brendan does by hand once `ADM-11`'s
+ * coverage tile crosses 90%. This entry must merge in the SAME deploy as that
+ * flip, so a reader who follows the link actually finds the specialties there.
+ */
+const SWE_SUBCATEGORIES_REVEAL_DATE = '2026-08-20';
+
 export const CHANGELOG: readonly ChangelogEntry[] = [
+  {
+    id: 'add-mecka-ai',
+    title: 'Added Mecka AI',
+    description:
+      'Mecka AI — a New York and Toronto startup building the data and deployment layer for physical AI, capturing real-world human demonstrations with its own multi-sensor hardware and turning them into robot-training datasets — is now tracked via its Ashby job board. It raised a $60M Series B led by Sequoia Capital in October 2026, with NVIDIA, M12, Qualcomm Ventures and Samsung joining the round.',
+    tags: ['new-companies'],
+    date: '2026-11-09',
+    link: {
+      to: ROUTES.ACCOUNT,
+      label: 'Add Mecka AI to your company preferences',
+    },
+  },
+  {
+    id: 'add-bedrock-robotics',
+    title: 'Added Bedrock Robotics',
+    description:
+      'Bedrock Robotics — a construction-autonomy startup founded in 2024 by former Waymo leads whose Bedrock Operator is a bolt-on sensor-and-compute kit that turns existing 20–80 ton excavators (and soon bulldozers and wheel loaders) into supervised-autonomous machines without permanent modification — is now tracked via its Ashby job board. It raised a $270M Series B in February 2026 at a $1.75B valuation, co-led by CapitalG and the Valor Atreides AI Fund, bringing total funding past $350M.',
+    tags: ['new-companies'],
+    date: '2026-10-26',
+    link: {
+      to: ROUTES.ACCOUNT,
+      label: 'Add Bedrock Robotics to your company preferences',
+    },
+  },
+  {
+    id: 'add-companies-2026-10-22-seven',
+    title: 'Added seven more companies',
+    description:
+      'Seven more boards, about 1,000 open roles between them. Shield AI brings most of them, roughly 660 roles across its Hivemind AI-pilot software, its V-BAT drone and the X-BAT jet it is developing. K2 Space adds about 250 as it builds high-power satellites in Torrance, after raising a 500 million dollar Series D in July. Kalshi, the regulated event-contract exchange, has 28 openings in New York; Reflection AI has 45, almost all in New York and San Francisco, and released the weights for Beam, its first open-weight model, this month. Generalist, which trains foundation models for robots, has 22 roles in San Mateo and Somerville. The two smallest are humans&, a human-centric AI lab with two roles in San Francisco, and Discovery Loop, the research-automation lab that Jeff Dean, Sanjay Ghemawat, Quoc Le and Oriol Vinyals started in August, which has a single opening.',
+    tags: ['new-companies'],
+    date: '2026-10-22',
+    link: {
+      to: ROUTES.ACCOUNT,
+      label: 'Add them to your company preferences',
+    },
+  },
+  {
+    id: 'add-companies-2026-10-21-disruptors-60',
+    title: 'Added 39 companies from the Disruptors 60',
+    description:
+      "Greenfield Partners' Disruptors 60 names sixty early-stage AI startups each year, unveiled at TechCrunch Disrupt, alongside a group of later-stage Pioneers. We already tracked seven of the 2026 class and most of the Pioneers; these are 39 more, with about 900 open roles between them. On infrastructure and chips: Etched builds transformer-specific inference chips (it raised 700 million dollars at a 21 billion dollar valuation in August), Ricursive Intelligence uses AI to design chips, Normal Computing builds chip-design AI and thermodynamic hardware, Callosum routes AI workloads across mixed hardware, Ornn runs a market for GPU compute, LiveKit powers real-time voice agents, and Patronus AI builds environments for stress-testing agents. In science and the physical world: Periodic Labs runs autonomous experiments for materials discovery, Chai Discovery and Boltz design molecules for drug discovery, Hemispheric reads brain activity from short EEG scans, Hadrian, Foundry Robotics and Nox Metals automate factories, Westmag builds drone motors and robot actuators, XDOF collects robot-training data, Revel builds software for testing hardware, and Code Metal generates verifiably correct code for defense. In security: Corma, Glow, Irregular and COMO. The rest bring AI to specific jobs and industries: Surge AI (training data for frontier labs), Fundamental (a foundation model for tabular data), Engram (models that learn a team's context), Accomplish (governed sandboxes for agents), Conduct (SAP changes and migrations), Duvo (retail operations agents), Lio (procurement), Sphere (global tax), Starbridge (public-sector sales), Corridor (small-business benefits), Probook (home services), Pace (insurance), Scope (industrial inspection), Endra (building-services design), Lawhive and Wordsmith (legal), and Dwelly (UK lettings). Nineteen of the class, and the Pioneer Cyera, hire through boards we can't read yet (Comeet, Pinpoint, Welcome to the Jungle and others) or have no public board, so they are not tracked yet. Every board was verified live before it shipped.",
+    tags: ['new-companies'],
+    date: '2026-10-21',
+    link: {
+      to: ROUTES.ACCOUNT,
+      label: 'Add them to your company preferences',
+    },
+  },
+  {
+    id: 'add-companies-2026-10-21-picks',
+    title: 'Added seven more companies',
+    description:
+      'Seven more boards, about 130 open roles between them. Tools for Humanity builds the technology behind World (the Orb iris scanner, World ID and World App), and shipped World ID 4.0 in April with Tinder, Zoom and Docusign among the apps adopting it. Hex is a collaborative data platform that pairs SQL and Python notebooks with AI agents; Render is a cloud platform for deploying web services, databases and agents, and raised a 100 million dollar extension at a 1.5 billion dollar valuation in February; Attio is an AI-native CRM; Momentic lets teams write and maintain end-to-end tests in plain English; Melius is a creative workspace where people and AI agents make images, video and audio together, and raised a 20 million dollar Series A led by CRV this month; and Ghost, which came out of stealth this month with an 11 million dollar seed round led by Andreessen Horowitz, is building Core, a screenless personal AI computer that runs agents locally.',
+    tags: ['new-companies'],
+    date: '2026-10-21',
+    link: {
+      to: ROUTES.ACCOUNT,
+      label: 'Add them to your company preferences',
+    },
+  },
+  {
+    id: 'add-arena',
+    title: 'Added Arena',
+    description:
+      'Arena — a community-powered platform where people vote on anonymous AI model outputs to produce public leaderboards, plus paid real-world evaluations for AI labs and enterprises — is now tracked via its Ashby job board. Raised a 200 million dollar Series B at a 3.1 billion dollar valuation in October 2026, co-led by Lightspeed and Khosla Ventures.',
+    tags: ['new-companies'],
+    date: '2026-10-15',
+    link: {
+      to: ROUTES.ACCOUNT,
+      label: 'Add Arena to your company preferences',
+    },
+  },
+  {
+    id: 'add-lightfield',
+    title: 'Added Lightfield',
+    description:
+      'Lightfield — an AI-native CRM that turns calls, emails and meetings into a living model of customer relationships that both people and AI agents can act on — is now tracked via its Ashby job board. Raised a 47 million dollar Series A led by Andreessen Horowitz in September 2026, with Greylock, Coatue and Lightspeed joining.',
+    tags: ['new-companies'],
+    date: '2026-10-09',
+    link: {
+      to: ROUTES.ACCOUNT,
+      label: 'Add Lightfield to your company preferences',
+    },
+  },
+  {
+    id: 'hightouch-board-move-2026-10',
+    title: 'Hightouch is live again after its board moved',
+    description:
+      'Hightouch moved its job board from Greenhouse to Ashby. The old board started returning "not found" this evening, so for a few hours this site could not refresh Hightouch listings — the 82 roles it was showing were frozen rather than current. It now reads from the new board, and those 82 roles are live and up to date again. Nothing closed and nothing was lost; the listings are the same postings, just at their new links.',
+    tags: ['improvement'],
+    date: '2026-10-02',
+    link: {
+      to: ROUTES.SAVED_FILTERS,
+      label: 'Review your saved companies',
+    },
+  },
+  {
+    id: 'add-llamaindex-ando-firecrawl',
+    title: 'Added LlamaIndex, Ando and Firecrawl',
+    description:
+      "Three AI companies are now tracked via their Ashby job boards. LlamaIndex — the open-source framework for connecting LLMs to private data, now building agentic OCR and document intelligence with LlamaParse and LlamaCloud — raised a $19M Series A and shipped LiteParse, an open-source local parsing library, this year; it has nine roles open, mostly in San Francisco. Ando — a team-messaging platform rebuilt around AI agents as first-class teammates, pitched as a Slack replacement — came out of stealth on September 24 with $20M in pre-seed and seed funding from Accel, Index Ventures and Emergence Capital; it has six roles open in San Francisco. Firecrawl — the web-scraping and crawling API that turns websites into LLM-ready data for AI agents — raised a $75M Series B led by Smash Capital this month and launched Alexandria, a single API over web search, third-party data and its own index; it has 31 roles open across San Francisco and Toronto, eleven of them in Engineering.",
+    tags: ['new-companies'],
+    date: '2026-09-27',
+    link: {
+      to: ROUTES.ACCOUNT,
+      label: 'Add LlamaIndex, Ando and Firecrawl to your company preferences',
+    },
+  },
+  {
+    id: 'retire-yutori-2026-09',
+    title: 'Yutori has been retired',
+    description:
+      'Yutori took its public job board down. The company is still going — it is shipping and updating its product — it has simply stopped advertising open roles, and the careers link on its own site now points at a board that is no longer there. Rather than leave three frozen postings on this site that can never update or close, Yutori has been retired from the tracked list. Its history is preserved rather than deleted, so if the board comes back it can be switched on again without losing anything. If Yutori was in your saved companies you can safely leave it there; it simply no longer appears.',
+    tags: ['improvement'],
+    date: '2026-09-23',
+    link: {
+      to: ROUTES.SAVED_FILTERS,
+      label: 'Review your saved companies',
+    },
+  },
+  {
+    id: 'workweave-board-move-2026-09',
+    title: 'Workweave is live again after its board moved',
+    description:
+      'Workweave has rebranded to Weave, and in the process moved its Ashby job board to a new address. The old one started returning "not found" overnight, so for a few hours this site could not refresh Workweave listings — the twelve roles it was showing were frozen rather than current. It now reads from the new board, and those twelve roles are live and up to date again. Nothing closed and nothing was lost; the listings are the same postings, just at their new links. The company is still listed here under its old name for now, since that is what its logo still says.',
+    tags: ['improvement'],
+    date: '2026-09-23',
+    link: {
+      to: ROUTES.SAVED_FILTERS,
+      label: 'Review your saved companies',
+    },
+  },
+  {
+    id: 'add-david-ai',
+    title: 'Added David AI',
+    description:
+      "David AI — which calls itself the first audio data research company, building the high-quality speech and audio datasets that AI labs train on — is now tracked via its Ashby job board. It was founded in 2024 by former Scale AI engineers and operators, counts most of the large tech companies and AI labs among its customers, and has raised $50M. Thirteen roles are open, all in San Francisco, five of them in Engineering.",
+    tags: ['new-companies'],
+    date: '2026-09-16',
+    link: {
+      to: ROUTES.ACCOUNT,
+      label: 'Add David AI to your company preferences',
+    },
+  },
+  {
+    id: 'job-category-rename-2026-08',
+    title: '“Job title” is now “Job Category”, and the department chip is gone',
+    description:
+      "Two bits of housekeeping on the filters and the job cards. First, the filter labeled “Job title” is now labeled “Job Category” — on both Recent Job Postings and Company Hiring Trends, and in your saved-filter defaults. It is the same filter with the same options; the old name was a stretch, and it is about to become a worse one, because these categories are being subdivided (Software Engineering into Frontend, Backend, Machine Learning and the rest). “Category” is what they are. Second, the grey department chip on each job card — the raw team name straight from the company's job board — has been removed. It mostly restated the category and level chips right beside it, and when it didn't, it was noise. The department filter on Company Hiring Trends is unchanged and still works. One correction while we're here: the saved-filter defaults page used to say “Jobs not yet enriched still appear.” That was not true — setting a default job category filters unenriched jobs out, exactly as setting the filter on the page does. The wording now says what actually happens.",
+    tags: ['improvement'],
+    // Set to the day PR-A merges (see FE-CL-1). Entries are ordered newest-first
+    // by hand — this one sits above 'add-meta' (2026-09-03) because it ships after it.
+    date: '2026-09-15',
+    link: {
+      to: ROUTES.RECENT_JOBS,
+      label: 'See the renamed filter',
+    },
+  },
+  {
+    id: 'add-typesafe-retire-console',
+    title: 'Added TypeSafe, retired Console',
+    description:
+      "TypeSafe — an AI lab building what it calls intelligence beyond chat: models meant to run inside software and be invoked, inspected and constrained like any other dependency, built by a small team out of OpenAI, Google Brain and Meta's FAIR — is now tracked via its Ashby job board. Five roles, all in San Francisco. Console has been retired in the same change: it was acquired by Palo Alto Networks and took its job board down, so there is nothing left to read. Its past postings are preserved rather than deleted, so if the board ever returns it can be switched back on without losing history.",
+    tags: ['new-companies'],
+    date: '2026-09-15',
+    link: {
+      to: ROUTES.ACCOUNT,
+      label: 'Add TypeSafe to your company preferences',
+    },
+  },
+  {
+    id: 'resolve-ai-board-move-2026-09',
+    title: 'Resolve AI is reading from its job board again',
+    description:
+      'Resolve AI renamed its Ashby job board, which broke the address this site was using to read it. Nothing was showing as changed, but nothing was updating either — the roles you saw were frozen at whatever was live before the rename. The site now reads the new address, so Resolve AI openings are current again. No roles were lost: the fourteen jobs on the new board are the same fourteen already listed here.',
+    tags: ['improvement'],
+    date: '2026-09-11',
+    link: {
+      to: ROUTES.SAVED_FILTERS,
+      label: 'Review your saved companies',
+    },
+  },
+  {
+    id: 'add-blacksmith',
+    title: 'Added Blacksmith',
+    description:
+      "Blacksmith — which makes GitHub Actions run substantially faster and cheaper by owning its own fleet of bare-metal machines instead of renting generic cloud VMs — is now tracked via its Ashby job board. It runs CI for more than 3,000 companies, orchestrates tens of millions of Firecracker VMs a month, and reached roughly $10M in annual recurring revenue in under two years on $58.5M raised. Twenty roles are open, split between New York and San Francisco, seven of them in Engineering.",
+    tags: ['new-companies'],
+    date: '2026-09-11',
+    link: {
+      to: ROUTES.ACCOUNT,
+      label: 'Add Blacksmith to your company preferences',
+    },
+  },
+  {
+    id: 'add-tavus',
+    title: 'Added Tavus',
+    description:
+      "Tavus — a research lab building what it calls AI Humans: real-time models that let a machine see, hear and respond face to face, so a conversation with software feels like a conversation with a person — is now tracked via its Ashby job board. It is Series B, backed by Sequoia among others. Fourteen roles are open, eight of them in Engineering, Product and Design, and eleven based in San Francisco with the rest remote.",
+    tags: ['new-companies'],
+    date: '2026-09-11',
+    link: {
+      to: ROUTES.ACCOUNT,
+      label: 'Add Tavus to your company preferences',
+    },
+  },
+  {
+    id: 'add-tomo',
+    title: 'Added Tomo',
+    description:
+      "Tomo — a personal AI that lives in your text messages, learning what you are trying to get done and nudging you through it — is now tracked via its Ashby job board. It is a small, early team: four roles open, all in San Francisco, across Engineering, Design, and Growth and Ops. Worth knowing there is an unrelated mortgage lender also called Tomo; this is the AI one at tomo.ai.",
+    tags: ['new-companies'],
+    date: '2026-09-10',
+    link: {
+      to: ROUTES.ACCOUNT,
+      label: 'Add Tomo to your company preferences',
+    },
+  },
   {
     id: 'saved-companies-simplified',
     title: 'Simpler company picker in Saved Filters',
@@ -28,6 +258,18 @@ export const CHANGELOG: readonly ChangelogEntry[] = [
     link: {
       to: ROUTES.SAVED_FILTERS,
       label: 'Open Saved Filters',
+    },
+  },
+  {
+    id: 'add-companies-2026-09-09-recipe-boards',
+    title: 'Added Atlassian and GitHub',
+    description:
+      "Two big career sites are now tracked, about 310 open roles between them. Neither runs on a job board we already read — Atlassian and GitHub each publish their own bespoke jobs API — so each is read by a scraper written once and then replayed on a schedule, the same engine that powers the add-your-own-company feature. Atlassian, the company behind Jira, Confluence and Bitbucket, brings about 230 roles, and GitHub another 81. Every run is checked for completeness before anything is marked closed, so a role that gets filled drops off your chart instead of sitting there forever.",
+    tags: ['new-companies'],
+    date: '2026-09-09',
+    link: {
+      to: ROUTES.ACCOUNT,
+      label: 'Add them to your company preferences',
     },
   },
   {
@@ -76,6 +318,18 @@ export const CHANGELOG: readonly ChangelogEntry[] = [
     link: {
       to: ROUTES.ACCOUNT,
       label: 'Add Parallel to your company preferences',
+    },
+  },
+  {
+    id: 'swe-subcategories-2026-08',
+    title: 'Software Engineering now opens up into seventeen specialties',
+    description:
+      'The “Job category” filter has a new second level. Expand Software Engineering — on Recent Job Postings, on Company Hiring Trends, and in your saved-filter defaults — and you can now narrow to a specialty instead of taking the whole field: AI Engineering, Backend, Data Engineering, DevOps & Site Reliability, Embedded & Low-Level Systems, Forward Deployed, Frontend, Full Stack, Growth Engineering, Infrastructure & Platform, Machine Learning, Mobile, Product Engineering, QA & Testing, Quantitative & Trading Systems, Robotics & Autonomy, and Security. Pick as many as you like; they combine the same way every other filter does. Frontend and Backend each also surface Full Stack roles, since those genuinely span both — picking Full Stack on its own stays exact. A job can carry up to two specialties, and its card shows them in place of the broader “Software Engineering” chip. Nothing you have saved changes: leave the filter alone and every Software Engineering job still shows up exactly as before.',
+    tags: ['feature'],
+    date: SWE_SUBCATEGORIES_REVEAL_DATE,
+    link: {
+      to: ROUTES.RECENT_JOBS,
+      label: 'Narrow to your specialty',
     },
   },
   {

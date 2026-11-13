@@ -1,5 +1,6 @@
 import { Box, Typography, Button, Paper, Alert } from '@mui/material';
-import { ErrorOutline, Refresh } from '@mui/icons-material';
+import ErrorOutline from '@mui/icons-material/ErrorOutline';
+import Refresh from '@mui/icons-material/Refresh';
 
 /**
  * Props for {@link ErrorDisplay}. Modeled as a discriminated union so the

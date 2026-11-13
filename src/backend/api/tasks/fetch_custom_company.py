@@ -44,7 +44,7 @@ from procrastinate import RetryStrategy
 from procrastinate import exceptions as procrastinate_exceptions
 
 from scripts.shared import database as db
-from scripts.shared.constants import custom
+from scripts.shared.constants import PUBLIC_VISIBILITY, harvest_source_id
 from scripts.shared.incremental import GuardReason, resolve_safety_guard
 from scripts.shared.models import JobListing, ScrapeRun
 from scripts.shared.utils import get_iso_timestamp
@@ -538,6 +538,7 @@ async def _run_discovered_script(
     script: dict[str, Any],
     company_id: str,
     *,
+    source_id: str,
     transport: str,
     oracle_kind: str,
 ) -> tuple[list[JobListing], HarvestEvidence]:
@@ -561,7 +562,10 @@ async def _run_discovered_script(
             )
         finally:
             http.close()
-        return recipe_rows_to_job_listings(company_id, rows), evidence
+        return (
+            recipe_rows_to_job_listings(company_id, rows, source_id=source_id),
+            evidence,
+        )
 
     return await asyncio.to_thread(_run)
 
@@ -570,6 +574,7 @@ async def _run_browser_fetch_script(
     script: dict[str, Any],
     company_id: str,
     *,
+    source_id: str,
     transport: str,
     oracle_kind: str,
 ) -> tuple[list[JobListing], HarvestEvidence]:
@@ -594,7 +599,10 @@ async def _run_browser_fetch_script(
     rows, evidence = await browser_fetch_runner.run_browser_fetch(
         script, transport=transport, oracle_kind=oracle_kind
     )
-    return recipe_rows_to_job_listings(company_id, rows), evidence
+    return (
+        recipe_rows_to_job_listings(company_id, rows, source_id=source_id),
+        evidence,
+    )
 
 
 @procrastinate_app.task(
@@ -608,8 +616,34 @@ async def _run_browser_fetch_script(
     # an in-run retry — is acceptable for a daily-cadence private board.
     retry=RetryStrategy(max_attempts=1),
 )
-async def fetch_custom_company(company_id: str) -> None:
-    """Harvest one custom company: run the script, gate it, upsert (never close).
+async def fetch_custom_company(
+    company_id: str, visibility: str = "user"
+) -> None:
+    """Harvest one recipe-engine company: run the script, gate it, upsert.
+
+    THE ONE leaf task for the deterministic recipe engine, used by BOTH lanes:
+
+    * ``claim_custom_companies`` (*/15) for a PRIVATE, user-added board
+      (``visibility='user'``) — it defers without passing ``visibility``, so the
+      ``"user"`` default keeps that path's job args byte-identical to what
+      shipped;
+    * ``enqueue_recipe_fan_out`` (*/30) for a PUBLISHED curated board
+      (``companies.ats='recipe'``, ``visibility='public'``) — it passes
+      ``visibility="public"``.
+
+    THE ONLY THING ``visibility`` CHANGES is which ``source_id`` namespace this
+    run writes into (``custom:<id>`` vs ``recipe:<id>`` — see
+    ``scripts.shared.constants.recipe``) and whether the display-only
+    published-board suggestion runs. Every gate, verdict and close-out rung below
+    is the same code on both lanes, deliberately: a second copy of the
+    close-eligibility ladder is how one of the two lanes quietly loses a guard.
+
+    AND IT IS NOT TRUSTED. The argument rides in a Procrastinate job payload, so
+    ``_work`` re-reads ``companies.visibility`` and REFUSES the run (FAILED,
+    writes nothing, closes nothing, not a miss) if the two disagree. A wrong
+    namespace is not cosmetic — it decides which enrichment slice the rows land
+    in and whether the orphan guard in ``services/database`` covers them — so the
+    database, not the deferrer, gets the last word.
 
     Procrastinate retries on any unhandled exception per RetryStrategy. The
     transport/parse/gate failure paths convert to a recorded FAILED run and
@@ -618,7 +652,11 @@ async def fetch_custom_company(company_id: str) -> None:
     """
     run_id = str(uuid.uuid4())
     started_at = get_iso_timestamp()
-    source_id = custom(company_id)
+    # Provisional: derived from the DECLARED visibility so the bookkeeping rows in
+    # the ``finally`` have a namespace even on a run that dies before it can read
+    # the company. ``_work`` re-derives it from the row itself and refuses on a
+    # mismatch, so no job row is ever written under an unconfirmed namespace.
+    source_id = harvest_source_id(company_id, visibility=visibility)
     jobs_seen = 0
     new_jobs_count = 0
     closed_jobs_count = 0
@@ -675,6 +713,40 @@ async def fetch_custom_company(company_id: str) -> None:
                     logger.info("fetch_custom_company: %s is disabled; skipping", company_id)
                     return
 
+                # THE NAMESPACE IS DECIDED BY THE ROW, NOT BY THE DEFERRER.
+                #
+                # ``visibility`` arrives as a Procrastinate job argument, and the
+                # whole point of the two lanes is that they never overlap: the
+                # ``*/15`` claim selects ``visibility='user'`` and the ``*/30``
+                # recipe fan-out selects ``visibility='public'``. If those two ever
+                # disagree with the row — a hand-deferred job, a board promoted from
+                # private to public while its harvest sat in ``todo``, a future
+                # third caller that forgot the argument — the run would write
+                # ``job_listings`` rows under the WRONG ``source_id`` namespace, and
+                # every consequence of that is silent:
+                #
+                #   * a published board on ``custom:`` rides the ~10% private-board
+                #     enrichment brake (``routers/internal_enrichment``), and
+                #   * a private board on ``recipe:`` drops out of the orphan guard
+                #     (``services/database._ORPHANED_CUSTOM_PREDICATE``) and out of
+                #     the owner-scoped read exemption on ``/api/jobs/search``.
+                #
+                # So refuse. FAILED writes nothing, closes nothing and is NOT a miss
+                # (invariant #2) — the same shape as the disabled-company path above
+                # — so the board simply goes stale until it is deferred correctly.
+                # That is strictly safer than harvesting into a namespace we cannot
+                # confirm.
+                actual_visibility = company.get("visibility")
+                if actual_visibility != visibility:
+                    verdict_reason = "visibility_mismatch"
+                    logger.error(
+                        "fetch_custom_company: %s was deferred as visibility=%r but "
+                        "the row says %r; refusing to harvest into an unconfirmed "
+                        "source_id namespace (writing nothing, closing nothing)",
+                        company_id, visibility, actual_visibility,
+                    )
+                    return
+
                 script = company["script"]
                 transport = str(company.get("transport") or "ats_client")
                 cadence_hours = float(
@@ -724,7 +796,7 @@ async def fetch_custom_company(company_id: str) -> None:
                     # provider, so ``effective_oracle_kind`` does not apply.
                     oracle_kind_effective = str(company.get("oracle_kind") or "none")
                     raw_jobs, evidence = await _run_browser_fetch_script(
-                        script, company_id,
+                        script, company_id, source_id=source_id,
                         transport=transport, oracle_kind=oracle_kind_effective,
                     )
                 elif transport in ("http_json", "http_html"):
@@ -734,7 +806,7 @@ async def fetch_custom_company(company_id: str) -> None:
                     # ``effective_oracle_kind`` (provider-derived) does not apply.
                     oracle_kind_effective = str(company.get("oracle_kind") or "none")
                     raw_jobs, evidence = await _run_discovered_script(
-                        script, company_id,
+                        script, company_id, source_id=source_id,
                         transport=transport, oracle_kind=oracle_kind_effective,
                     )
                 else:
@@ -1212,7 +1284,17 @@ async def fetch_custom_company(company_id: str) -> None:
         # for the whole ``finally``, so one rollback at the swallow site covers every way
         # that call can fail, including a raise from ``store_suggestion`` (which already
         # rolled back — a second rollback on a clean connection is a no-op).
-        if success and comparable_read:
+        #
+        # PRIVATE BOARDS ONLY. Every statement in ``published_board_match`` is
+        # scoped ``WHERE id = %s AND visibility = 'user'`` and its candidate title
+        # set is read from ``source_id = custom:<id>``, so on a PUBLISHED recipe
+        # board it can only ever be a no-op — it would read an empty candidate
+        # set, match nothing, and fail to set its own once-latch, which means
+        # paying for the fleet-wide ``_open_titles_by_public_company`` scan on
+        # EVERY harvest, forever. It is also nonsense on its face: asking whether
+        # a board we publish looks like a board we publish. Skip it explicitly
+        # rather than relying on it to no-op.
+        if success and comparable_read and visibility != PUBLIC_VISIBILITY:
             try:
                 await asyncio.to_thread(
                     published_board_match.suggest_published_board, conn, company_id
