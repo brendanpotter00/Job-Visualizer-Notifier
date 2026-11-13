@@ -23,14 +23,12 @@ interface GlobalAppBarProps {
 }
 
 /**
- * Global application header with app name and the sidebar toggle.
+ * Global application header with app name and drawer toggle
  *
- * The bar always spans the full width and sits ABOVE the drawer (a "clipped"
- * drawer), so nothing in it moves when the drawer opens or closes. It used to
- * slide right with an open drawer, which meant the toggle lived in two places —
- * a hamburger here while closed, a chevron at the drawer's far edge while open —
- * and jumped ~170px every time it was pressed. Now there is one toggle, at the
- * start of this toolbar, on every breakpoint.
+ * Features:
+ * - Displays app title
+ * - Sidebar toggle button
+ * - Spans the full width above the drawer
  *
  * @param props - Component props
  * @returns Global app bar component

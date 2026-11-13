@@ -20,15 +20,7 @@ import {
   TIME_WINDOW_ENUM,
 } from './shared';
 
-/**
- * Property set shared with `search_jobs`, minus the query-only cursor/limit — and
- * minus `company`. `search_jobs` still takes one (it queries the API directly),
- * but the feed has no company control to drive: it was removed from the Recent
- * page, and its slice field with it, on 2026-11-12. The shim runs no JSON
- * Schema validator, so `apply_feed_filters` rejects a `company` argument by hand
- * rather than let it be silently ignored — a caller asserting "every card is
- * Apple" against an unfiltered feed would otherwise fail far from the cause.
- */
+/** Property set shared with `search_jobs`, minus the query-only cursor/limit and `company`. */
 const ARRANGE_PROPERTIES: Record<string, JSONSchema7Definition> = {
   include: {
     type: 'array',

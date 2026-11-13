@@ -195,11 +195,9 @@ export interface Company {
 
   /**
    * For companies whose `ats === 'backend-scraper'`, the ATS that originally
-   * served their jobs before migration to the backend. Used by
-   * `getCompanySourceLabel` (config/atsSource.ts) to label migrated providers
-   * (Ashby, Greenhouse, Lever, Gem, Eightfold, Workday) by their original
-   * provider instead of lumping them with the true Custom Web Scrapers
-   * (Google/Apple/Microsoft/Amazon).
+   * served their jobs before migration to the backend. Used to label migrated
+   * providers (Ashby, Greenhouse, Lever, Gem, Eightfold, Workday) instead of
+   * lumping them with the true Custom Web Scrapers (Google/Apple/Microsoft/Amazon).
    */
   sourceAts?: 'ashby' | 'eightfold' | 'gem' | 'greenhouse' | 'lever' | 'workday';
 
@@ -328,12 +326,8 @@ export interface ListFilters {
 }
 
 /**
- * Recent jobs filter state (for all-companies view).
- *
- * No `company` field: which companies the feed covers is the reader's company
- * preferences (`enabledCompanies`), folded into the request by
- * `buildSearchJobsArgs`. The page-local Company dropdown and the field behind it
- * were removed on 2026-11-12.
+ * Recent jobs filter state (for all-companies view)
+ * Subset of GraphFilters/ListFilters
  */
 export interface RecentJobsFilters {
   timeWindow: TimeWindow;

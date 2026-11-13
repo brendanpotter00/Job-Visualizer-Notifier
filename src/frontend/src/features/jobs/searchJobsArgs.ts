@@ -96,14 +96,7 @@ export interface BuildSearchJobsArgsInput {
 }
 
 /**
- * Build the search arguments for one walk.
- *
- * The `companies` param is the reader's company preferences and nothing else —
- * the page has no company filter of its own (removed 2026-11-12). That is also
- * why this can no longer return `null`: the one filter set that provably matched
- * nothing was an explicit company filter disjoint from the enabled set, and an
- * empty company list cannot be sent on the wire (omitted means "all companies",
- * an empty param is a 422).
+ * Build the search arguments.
  */
 export function buildSearchJobsArgs({
   filters,

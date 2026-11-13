@@ -50,7 +50,6 @@ describe('GlobalAppBar', () => {
       renderAppBar(mockProps);
       const toolbar = toggle().closest('.MuiToolbar-root') as HTMLElement;
       expect(toolbar).not.toBeNull();
-      // First focusable thing in the bar: the toggle precedes the logo link.
       const logo = screen.getByLabelText(APP_TITLE);
       expect(
         toggle().compareDocumentPosition(logo) & Node.DOCUMENT_POSITION_FOLLOWING
@@ -65,11 +64,6 @@ describe('GlobalAppBar', () => {
   });
 
   describe('Sidebar toggle', () => {
-    /**
-     * The toggle used to exist only while the drawer was closed (a hamburger
-     * here) and moved to a chevron at the drawer edge once open. It is now ONE
-     * button that is always present, in both states.
-     */
     it.each([false, true])('is visible whether the drawer is open or not (open=%s)', (open) => {
       renderAppBar({ ...mockProps, open });
       expect(toggle()).toBeVisible();
@@ -117,10 +111,6 @@ describe('GlobalAppBar', () => {
   });
 
   describe('Layout', () => {
-    /**
-     * The bar spans the full width in both states — the drawer is clipped
-     * beneath it — so nothing in it (toggle, logo) moves when the drawer opens.
-     */
     it.each([false, true])('never shifts right (open=%s)', (open) => {
       const { container } = renderAppBar({ ...mockProps, open });
       const appBar = container.querySelector('header');

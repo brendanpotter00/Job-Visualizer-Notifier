@@ -25,9 +25,8 @@ const DrawerHeader = styled('div')(({ theme }) => ({
  * Root layout component for the entire application
  *
  * Features:
- * - Full-width global app bar holding the one sidebar toggle (it never moves)
- * - Responsive navigation drawer, clipped under the app bar on desktop
- *   (permanent, full or mini width) and a temporary overlay on mobile
+ * - Global app bar with drawer toggle
+ * - Responsive navigation drawer (persistent on desktop, temporary on mobile)
  * - Main content area for page rendering via Outlet
  * - Global footer
  *

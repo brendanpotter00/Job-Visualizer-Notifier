@@ -7,11 +7,7 @@ import { RESPONSIVE } from '../../config/responsive';
 const sectionPaperSx: SxProps<Theme> = { p: RESPONSIVE.spacing.paperPadding, mb: 4 };
 
 /**
- * WhyPage - Explains the purpose of this application.
- *
- * Static copy only. The "Supported Companies" section that listed every tracked
- * company grouped by ATS provider was removed on 2026-11-12 at the owner's
- * request; the Curated Companies page is the directory of tracked companies.
+ * WhyPage - Explains the purpose of this application
  *
  * @returns Why This Was Built page component
  */

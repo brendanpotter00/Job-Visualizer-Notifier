@@ -170,10 +170,6 @@ export function resolveCompany(nameOrId: string): string | null {
  * byte-for-byte. `search_jobs` feeds this straight into `buildSearchJobsArgs`, so
  * the tool and the Recent page turn identical filter state into an identical
  * server-side `GET /api/jobs/search` query.
- *
- * `company` is not a filter field (the slice has none since 2026-11-12); a
- * caller's company tokens go through `resolveCompanyScope` instead and reach the
- * builder as its company scope.
  */
 export function buildRecentFilters(args: RecentToolArgs): RecentJobsFilters {
   const filters: RecentJobsFilters = {
@@ -201,11 +197,6 @@ export function buildRecentFilters(args: RecentToolArgs): RecentJobsFilters {
   return filters;
 }
 
-/**
- * Resolve a caller's company tokens (ids or display names) to the company scope
- * `buildSearchJobsArgs` takes as `enabledCompanyIds`. Unresolved tokens are
- * dropped; `null` (nothing given, or nothing resolved) means "all companies".
- */
 export function resolveCompanyScope(company: string[] | undefined): string[] | null {
   const ids = (company ?? []).map(resolveCompany).filter((id): id is string => id !== null);
   return ids.length > 0 ? ids : null;

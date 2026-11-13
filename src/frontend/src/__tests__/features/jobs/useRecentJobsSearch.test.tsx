@@ -251,10 +251,6 @@ describe('useRecentJobsSearch — when it is allowed to fetch', () => {
   });
 
   it('counts the demo recency tiles over the whole fixture, whatever narrows the rows', async () => {
-    // The server's two recency counts are company-scoped and scoped to nothing
-    // else (see `_header_counts_where`). Demo mode applies no company scope at
-    // all — it serves the whole fixture regardless of preferences — so a keyword
-    // that narrows the rows must leave the tiles exactly where they were.
     const wide = renderSearch(makeStore({ demoModeEnabled: true }));
     await flush();
     const narrowed = renderSearch(
@@ -265,8 +261,6 @@ describe('useRecentJobsSearch — when it is allowed to fetch', () => {
     );
     await flush();
 
-    // Precondition: the keyword really narrows the rows, or "tiles unchanged"
-    // would be vacuous.
     expect(narrowed.result.current.jobs.length).toBeGreaterThan(0);
     expect(narrowed.result.current.jobs.length).toBeLessThan(wide.result.current.jobs.length);
     expect(wide.result.current.counts?.last24h).toBeGreaterThan(0);

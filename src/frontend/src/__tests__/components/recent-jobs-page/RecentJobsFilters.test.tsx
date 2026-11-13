@@ -91,11 +91,6 @@ describe('RecentJobsFilters', () => {
     expect(screen.getByRole('button', { name: /reset filters/i })).toBeInTheDocument();
   });
 
-  /**
-   * Pins the removal of the page-local Company dropdown (2026-11-12, owner's
-   * request). Which companies the feed covers is the reader's company
-   * preferences; nothing but this assertion catches the control coming back.
-   */
   it('renders no Company control', async () => {
     const store = await seedRecentStore();
     renderWithProviders(<RecentJobsFilters />, { store });

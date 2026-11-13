@@ -5,8 +5,7 @@ import { selectRecentJobsFilters } from '../../../features/filters/selectors/rec
 
 /**
  * What is left of the Recent page's selectors after filtering moved to the
- * server and the company dropdown was removed (2026-11-12): the filter slice
- * accessor.
+ * server: the filter slice accessor.
  */
 
 const BASE_FILTERS: RecentJobsFilters = {

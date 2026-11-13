@@ -4,14 +4,6 @@ import { tier1Read } from '../../webmcp/tools/tier1Read';
 import { tier2DriveUi } from '../../webmcp/tools/tier2DriveUi';
 import type { AppStore, ToolCtx, WebMcpToolDef } from '../../webmcp/types';
 
-/**
- * The Recent feed lost its company filter on 2026-11-12. These pin the two
- * WebMCP consequences: the UI-driving tool refuses a `company` argument (the shim
- * runs no schema validator, so without the guard it would be silently dropped),
- * and the read tool still scopes by company — now through the builder's company
- * scope instead of a slice field that no longer exists.
- */
-
 function makeCtx() {
   const store = createTestStore() as unknown as AppStore;
   const navigate = vi.fn();
@@ -37,7 +29,6 @@ describe('apply_feed_filters', () => {
 
     expect(res.isError).toBe(true);
     expect(JSON.stringify(res.structuredContent)).toContain('search_jobs');
-    // Nothing applied and no navigation: a rejected call must not half-apply.
     expect(store.getState().recentJobsFilters.filters).toBe(before);
     expect(navigate).not.toHaveBeenCalled();
   });
@@ -60,7 +51,6 @@ describe('search_jobs company scope', () => {
 
   beforeEach(() => {
     fetchMock.mockReset();
-    // The request URL is the assertion; the response only has to end the call.
     fetchMock.mockResolvedValue(new Response('{}', { status: 500 }));
     vi.stubGlobal('fetch', fetchMock);
   });

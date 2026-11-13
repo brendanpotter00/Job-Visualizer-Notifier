@@ -338,13 +338,11 @@ export function useRecentJobsSearch(): RecentJobsSearch {
       (a, b) => new Date(b.firstSeenAt).getTime() - new Date(a.firstSeenAt).getTime()
     );
     // The recency tiles are COMPANY-SCOPED and scoped to nothing else — see
-    // `get_search_counts` / `_header_counts_where`. Demo mode serves the whole
-    // curated fixture regardless of the reader's company preferences (applying
-    // them would empty the demo for any admin whose followed companies miss
-    // `DEMO_COMPANY_IDS`), so the tiles count all of DEMO_JOBS. Every OTHER
-    // dimension — category, level, keywords, locations, the time window — stays
-    // ignored here just as it is there, so a narrowed list still sits under an
-    // unchanged market reading.
+    // `get_search_counts` / `_header_counts_where`. Demo mode has no company
+    // scope, so they count the whole fixture. Every OTHER dimension — category,
+    // level, keywords, locations, the time window — stays ignored here just as
+    // it is there, so a narrowed list still sits under an unchanged market
+    // reading.
     return {
       jobs: matched,
       counts: {

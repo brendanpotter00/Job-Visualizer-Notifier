@@ -82,10 +82,7 @@ test('[@drive] Recent feed — filtering: Tier-1 meta anchor + Tier-2 DOM reflec
   }
   writeEvidence('recent-feed-filter.meta.json', JSON.stringify(search.meta, null, 2));
 
-  // Tier-2: arrange the live page. The DOM must reflect it. The feed has no
-  // company control (removed 2026-11-12, and `apply_feed_filters` rejects a
-  // `company` argument), so narrow by keyword instead: an include keyword matches
-  // the company column too, so "apple" keeps every Apple card and drops SpaceX.
+  // Tier-2: arrange the live page. The DOM must reflect it.
   const applied = await call<{ applied: { searchTags?: { text: string; mode: string }[] } }>(
     page,
     'apply_feed_filters',

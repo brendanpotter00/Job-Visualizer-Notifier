@@ -34,14 +34,6 @@ import { AsyncMultiSelectAutocomplete } from '../shared/filters/AsyncMultiSelect
  * NOTHING dispatches them — there is no software-only control on this page; the
  * built-in "Software Engineering" keyword list in the keywords input is how a
  * reader gets that filter now.
- *
- * There is NO company control, and that is deliberate. A per-page Company
- * dropdown stood here until 2026-11-12, when it was removed at the owner's
- * request along with the slice's whole `company` field. Which companies the feed
- * covers is the reader's company preferences (the "Edit company preferences"
- * link above the filters), which `useRecentJobsSearch` already folds into the
- * request's `company` param — a second, page-local narrowing on top of that was
- * redundant with it.
  */
 export function RecentJobsFilters() {
   const dispatch = useAppDispatch();

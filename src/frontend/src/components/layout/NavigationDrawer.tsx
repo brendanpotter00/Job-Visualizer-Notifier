@@ -308,12 +308,6 @@ export function NavigationDrawer({ open, onClose, drawerWidth, isMobile }: Navig
 
   const renderDrawerContent = () => (
     <Box id={APP_NAVIGATION_ID} sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      {/* Toolbar-height spacer: the drawer sits UNDER the full-width app bar on
-          every breakpoint (the bar's z-index is drawer + 1, and that includes
-          the mobile overlay, whose modal root also uses zIndex.drawer). The bar
-          owns the one sidebar toggle, so there is deliberately no toggle in
-          here — a copy would be covered by the bar yet still focusable inside
-          the overlay's focus trap. */}
       <Toolbar />
       {open && (
         <Box sx={{ px: 2.5, pt: 1.25, pb: 0.5 }}>

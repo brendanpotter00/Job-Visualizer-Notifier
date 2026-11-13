@@ -20,11 +20,6 @@ describe('WhyPage', () => {
     expect(link).toHaveAttribute('rel', 'noopener noreferrer');
   });
 
-  /**
-   * Pins the removal of the "Supported Companies" section (2026-11-12, owner's
-   * request): the per-ATS company list and its "We currently track N companies"
-   * caption. The Curated Companies page is the directory now.
-   */
   it('renders no Supported Companies section', () => {
     renderWithProviders(<WhyPage />, { initialEntries: ['/why'] });
 

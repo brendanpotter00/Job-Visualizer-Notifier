@@ -137,14 +137,12 @@ export function tier1Read(ctx: ToolCtx): WebMcpToolDef[] {
 
       // Reuse the exact builders the Recent page's read path uses — no duplicated
       // filter or query logic. The company scope is the agent's explicit
-      // `company` argument and nothing else (never an operator preference): it
-      // goes in as `enabledCompanyIds`, which is exactly the slot the page fills
-      // from the reader's preferences, and `null` there means "all companies".
+      // `company` filter (never an operator preference), and
       // `isSignedOut: false` skips the signed-out overlay's row cap.
       const filters = buildRecentFilters(parsed);
       // `ownedCompanyIds: []` because this tool has no reader to own anything —
-      // it scopes by the agent's explicit argument alone. The backend still
-      // decides authorization from the bearer token, not from this list.
+      // it scopes by the agent's explicit filter alone. The backend still
+      // decides that authorization from the bearer token, not from this list.
       const args = buildSearchJobsArgs({
         filters,
         enabledCompanyIds: resolveCompanyScope(parsed.company),

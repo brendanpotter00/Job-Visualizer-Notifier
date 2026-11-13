@@ -70,9 +70,6 @@ describe('createFilterSlice', () => {
         expect(actionNames).toContain(actionName);
       });
 
-      // 23 until 2026-11-12, when the four company actions (set/add/remove
-      // {Name}Company, clear{Name}Companies) went with the Recent page's company
-      // filter — the only slice that ever owned the field.
       expect(actionNames).toHaveLength(19);
       expect(actionNames.filter((n) => /Compan/.test(n))).toEqual([]);
     });

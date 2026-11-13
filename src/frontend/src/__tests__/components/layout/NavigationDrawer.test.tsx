@@ -58,11 +58,6 @@ describe('NavigationDrawer', () => {
       expect(screen.getByTestId('ThumbUpIcon')).toBeInTheDocument();
     });
 
-    /**
-     * Desktop has NO toggle inside the drawer. The one sidebar toggle lives at
-     * the start of the full-width app bar so it never moves; a chevron at the
-     * drawer's far edge travelled ~170px between open and closed.
-     */
     it('renders no sidebar toggle on desktop — the app bar owns it', () => {
       render(
         <MemoryRouter>
@@ -220,9 +215,6 @@ describe('NavigationDrawer', () => {
     });
 
     it('the mobile overlay has no toggle of its own — the app bar stays above it', () => {
-      // The overlay opens beneath the app bar (both use zIndex.drawer, the bar
-      // +1), so the bar's toggle stays visible and is what closes it. A copy in
-      // here would be covered yet still focusable inside the overlay's trap.
       render(
         <MemoryRouter>
           <NavigationDrawer {...mockProps} isMobile={true} open={true} />

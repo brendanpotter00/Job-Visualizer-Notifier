@@ -69,11 +69,6 @@ describe('buildSearchJobsArgs — the reader’s own custom companies', () => {
 });
 
 describe('buildSearchJobsArgs — companies', () => {
-  /**
-   * The company scope is the reader's preference and nothing else: the Recent
-   * page has no company filter of its own (removed 2026-11-12), so there is no
-   * selection to intersect it with and no provably-empty case left.
-   */
   it('sends the enabled preference as the company scope, sorted', () => {
     expect(build({}, ['stripe', 'apple']).companies).toEqual(['apple', 'stripe']);
   });
@@ -81,7 +76,7 @@ describe('buildSearchJobsArgs — companies', () => {
   it('omits companies entirely when the preference does not constrain them', () => {
     // `[]` is what the preference API returns for a user who has never picked
     // companies. Reading it as "match nothing" would show an empty page to
-    // every brand-new signed-in user, so it means "all", same as null.
+    // every brand-new signed-in user.
     expect(build({}, null).companies).toBeUndefined();
     expect(build({}, []).companies).toBeUndefined();
   });

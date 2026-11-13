@@ -222,7 +222,6 @@ describe('searchJobs request shape', () => {
   });
 
   it('sends every multi-value filter as repeated params in sorted order', async () => {
-    // The company scope comes from the reader's preference, also out of order.
     const url = await requestUrlFor(argsFromFilters(MULTI_FILTERS, ['stripe', 'airbnb']));
     const params = paramsOf(url);
 
