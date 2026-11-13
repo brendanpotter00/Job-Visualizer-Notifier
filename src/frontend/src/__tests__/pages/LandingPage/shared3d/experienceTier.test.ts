@@ -22,6 +22,7 @@ describe('resolveExperienceTier', () => {
       tier: 'full',
       bodyCount: DESKTOP_BODY_COUNT,
       maxDpr: 2,
+      compact: false,
     });
   });
 
@@ -32,7 +33,7 @@ describe('resolveExperienceTier', () => {
         hardwareConcurrency: undefined,
         deviceMemory: undefined,
       })
-    ).toEqual({ tier: 'full', bodyCount: DESKTOP_BODY_COUNT, maxDpr: 2 });
+    ).toEqual({ tier: 'full', bodyCount: DESKTOP_BODY_COUNT, maxDpr: 2, compact: false });
   });
 
   it('prefers-reduced-motion forces the fallback tier on any hardware', () => {
@@ -40,6 +41,7 @@ describe('resolveExperienceTier', () => {
       tier: 'fallback',
       bodyCount: CONSTRAINED_BODY_COUNT,
       maxDpr: 1,
+      compact: false,
     });
   });
 
@@ -48,6 +50,7 @@ describe('resolveExperienceTier', () => {
       tier: 'fallback',
       bodyCount: CONSTRAINED_BODY_COUNT,
       maxDpr: 1,
+      compact: false,
     });
   });
 
@@ -62,16 +65,38 @@ describe('resolveExperienceTier', () => {
     ).toBe('fallback');
   });
 
-  // A phone-width canvas stacks the pile seven tiles high (fixed vertical FOV
-  // over a MIN_ARENA_WIDTH floor) and buries the hero copy, so phones get the
-  // static DOM grid regardless of how capable the hardware is (2026-09-10).
-  it('mobile viewport → fallback tier, even on capable hardware', () => {
+  // Phones were the static grid from 2026-09-10 until the owner asked for the
+  // pile back (2026-11-12): a capable phone gets the full tier, framed compact
+  // (camera pulled back so tiles render at the grid's size), with the
+  // constrained roster so the pile fits the band under the CTAs.
+  it('mobile viewport on capable hardware → full compact tier, constrained roster, dpr 2', () => {
     expect(
       resolveExperienceTier({ ...CAPABLE, isMobileViewport: true, hardwareConcurrency: 12 })
+    ).toEqual({
+      tier: 'full',
+      bodyCount: CONSTRAINED_BODY_COUNT,
+      maxDpr: 2,
+      compact: true,
+    });
+  });
+
+  it('mobile viewport on low-end hardware → full compact tier with the lower dpr cap', () => {
+    expect(resolveExperienceTier({ ...CAPABLE, isMobileViewport: true, deviceMemory: 2 })).toEqual({
+      tier: 'full',
+      bodyCount: CONSTRAINED_BODY_COUNT,
+      maxDpr: 1.5,
+      compact: true,
+    });
+  });
+
+  it('a phone without WebGL still gets the DOM fallback (never compact)', () => {
+    expect(
+      resolveExperienceTier({ ...CAPABLE, isMobileViewport: true, webglSupported: false })
     ).toEqual({
       tier: 'fallback',
       bodyCount: CONSTRAINED_BODY_COUNT,
       maxDpr: 1,
+      compact: false,
     });
   });
 
@@ -87,6 +112,7 @@ describe('resolveExperienceTier', () => {
     expect(result.tier).toBe('full');
     expect(result.bodyCount).toBe(expectedBodies);
     expect(result.maxDpr).toBe(expectedBodies === DESKTOP_BODY_COUNT ? 2 : 1.5);
+    expect(result.compact).toBe(false);
   });
 });
 

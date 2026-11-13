@@ -344,10 +344,28 @@ export const RESPONSIVE = {
     /** Reserved height for the rotating single-job card, so the page does not
      *  twitch as cards of slightly different content length swap in (px). */
     rotatingCardMinHeight: { xs: 260, sm: 240 },
-    /** Gravity hero: reserved vertical room for the 3D pile (px height). */
-    heroSceneHeight: { xs: 200, sm: 280 },
-    /** Logo-wall tile edge (raw px via `useIsMobile` → `CompanyLogo size`). */
+    /**
+     * Gravity hero: reserved vertical room for the 3D pile (px height). The
+     * phone pile (40 tiles at ~40px, see `pileFloorInsetCompact`) settles about
+     * three tiles high on a 375px screen and four on a 320px one, so 130 keeps
+     * it clear of the CTAs without a dead band above it.
+     */
+    heroSceneHeight: { xs: 130, sm: 280 },
+    /**
+     * Logo-wall tile edge (raw px via `useIsMobile` → `CompanyLogo size`). The
+     * `compact` value also sizes the phone physics pile: on a phone the Gravity
+     * camera is framed so one tile renders this many CSS px (see
+     * `GravityPrototype/compactFraming.ts`), so the pile and the static grid
+     * read at the same scale.
+     */
     logoTileSize: { compact: 40, default: 52 },
+    /**
+     * Phone physics pile: CSS px from the bottom of the hero canvas up to the
+     * pile's floor. Flat and phone-only — desktop frames the pile with its
+     * fixed camera. Sits inside the hero's bottom padding so the settled pile
+     * fills the reserved `heroSceneHeight` band under the CTAs.
+     */
+    pileFloorInsetCompact: 48,
     /** Fresh-jobs ticker logo edge (raw px via `useIsMobile`). */
     tickerLogoSize: { compact: 22, default: 28 },
   },

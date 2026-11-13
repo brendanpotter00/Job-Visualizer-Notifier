@@ -5,7 +5,7 @@
  * lives in the pure modules (spawnPlan, arenaLayout, pointerInput,
  * experienceTier, logoRoster).
  */
-import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import {
   BallCollider,
@@ -15,6 +15,7 @@ import {
   type RapierRigidBody,
 } from '@react-three/rapier';
 import { Vector3 } from 'three';
+import { RESPONSIVE } from '../../../../config/responsive';
 import type { LogoRosterEntry } from '../shared3d/logoRoster';
 import {
   ARENA_RESIZE_DEBOUNCE_MS,
@@ -22,7 +23,8 @@ import {
   shouldRebuildArena,
 } from './arenaLayout';
 import { HERO_TOUCH_ACTION, shouldRetractOnRelease, toNdcPointer } from './pointerInput';
-import { buildSpawnPlan } from './spawnPlan';
+import { buildSpawnPlan, DEFAULT_DROP_BASE_Y } from './spawnPlan';
+import { resolveCompactFraming } from './compactFraming';
 import { LogoTileBody, type TileTone } from './LogoTileBody';
 import { useSettleGovernor, type SettleGovernor } from './useSettleGovernor';
 
@@ -247,13 +249,15 @@ function PointerRepelBall({ governor }: { governor: SettleGovernor }) {
 function GravityPile({
   roster,
   arenaWidth,
+  dropBaseY,
 }: {
   roster: readonly LogoRosterEntry[];
   arenaWidth: number;
+  dropBaseY: number;
 }) {
   const spawnPlan = useMemo(
-    () => buildSpawnPlan(roster.length, SPAWN_SEED, arenaWidth),
-    [roster.length, arenaWidth]
+    () => buildSpawnPlan(roster.length, SPAWN_SEED, arenaWidth, dropBaseY),
+    [roster.length, arenaWidth, dropBaseY]
   );
   const governor = useSettleGovernor(roster.length);
 
@@ -276,16 +280,61 @@ function GravityPile({
   );
 }
 
-interface GravitySceneContentProps {
-  roster: readonly LogoRosterEntry[];
+/**
+ * Phone camera. R3F applies the Canvas `camera` prop once, at creation, before
+ * the canvas is measured — but the phone framing depends on the measured size
+ * (see compactFraming), so this moves the live camera instead. Layout effect:
+ * the move lands before the first frame paints, so the pile is never seen from
+ * the desktop distance. `invalidate` covers a parked frameloop (a resize after
+ * the pile has settled).
+ */
+function CompactCameraRig({ position }: { position: readonly [number, number, number] }) {
+  const camera = useThree((state) => state.camera);
+  const invalidate = useThree((state) => state.invalidate);
+  const [x, y, z] = position;
+  useLayoutEffect(() => {
+    camera.position.set(x, y, z);
+    camera.updateMatrixWorld();
+    invalidate();
+  }, [camera, invalidate, x, y, z]);
+  return null;
 }
 
-function GravitySceneContent({ roster }: GravitySceneContentProps) {
+interface GravitySceneContentProps {
+  roster: readonly LogoRosterEntry[];
+  compact: boolean;
+}
+
+function GravitySceneContent({ roster, compact }: GravitySceneContentProps) {
   // Reactive: R3F recomputes `viewport` from the measured canvas on every
   // resize / orientation change, so this is the live arena target.
   const viewportWidth = useThree((state) => state.viewport.width);
+  const canvasWidth = useThree((state) => state.size.width);
+  const canvasHeight = useThree((state) => state.size.height);
+  // Phones only. `viewport` is computed from the camera R3F created, not the
+  // one CompactCameraRig moves, so the phone arena width comes from the
+  // framing itself rather than from `viewport`.
+  const framing = useMemo(
+    () =>
+      compact
+        ? resolveCompactFraming(
+            canvasWidth,
+            canvasHeight,
+            RESPONSIVE.landingProto.logoTileSize.compact,
+            RESPONSIVE.landingProto.pileFloorInsetCompact,
+            CAMERA.fov
+          )
+        : null,
+    [compact, canvasWidth, canvasHeight]
+  );
+  const liveWidth = framing ? framing.visibleWidth : viewportWidth;
+  const liveDropBaseY = framing ? framing.dropBaseY : DEFAULT_DROP_BASE_Y;
+  // The drop height is frozen per pile (like the width): it feeds the tiles'
+  // spawn points, which double as their escape-respawn points, so it must not
+  // drift under a pile that is already down.
   const [arena, setArena] = useState(() => ({
-    width: resolveArenaWidth(viewportWidth),
+    width: resolveArenaWidth(liveWidth),
+    dropBaseY: liveDropBaseY,
     generation: 0,
   }));
 
@@ -301,21 +350,31 @@ function GravitySceneContent({ roster }: GravitySceneContentProps) {
    * pending timer.
    */
   useEffect(() => {
-    const next = resolveArenaWidth(viewportWidth);
+    const next = resolveArenaWidth(liveWidth);
     if (!shouldRebuildArena(arena.width, next)) return undefined;
     const timer = window.setTimeout(() => {
-      setArena((prev) => ({ width: next, generation: prev.generation + 1 }));
+      setArena((prev) => ({
+        width: next,
+        dropBaseY: liveDropBaseY,
+        generation: prev.generation + 1,
+      }));
     }, ARENA_RESIZE_DEBOUNCE_MS);
     return () => window.clearTimeout(timer);
-  }, [viewportWidth, arena.width]);
+  }, [liveWidth, liveDropBaseY, arena.width]);
 
   return (
     <>
+      {framing && <CompactCameraRig position={framing.cameraPosition} />}
       <ambientLight intensity={0.9} />
       <directionalLight position={[4, 8, 6]} intensity={1.1} />
       <Suspense fallback={null}>
         <Physics timeStep={1 / 60}>
-          <GravityPile key={arena.generation} roster={roster} arenaWidth={arena.width} />
+          <GravityPile
+            key={arena.generation}
+            roster={roster}
+            arenaWidth={arena.width}
+            dropBaseY={arena.dropBaseY}
+          />
         </Physics>
       </Suspense>
     </>
@@ -326,6 +385,8 @@ export interface GravitySceneProps {
   roster: readonly LogoRosterEntry[];
   /** Upper bound of the Canvas dpr clamp (from the experience tier). */
   maxDpr: number;
+  /** Phone framing: pull the camera back so tiles render small (see compactFraming). */
+  compact: boolean;
 }
 
 /**
@@ -346,10 +407,10 @@ const CAMERA = { position: [0, 3, 9] as const, rotation: [0, 0, 0] as const, fov
  */
 const CANVAS_STYLE = { touchAction: HERO_TOUCH_ACTION } as const;
 
-export function GravityScene({ roster, maxDpr }: GravitySceneProps) {
+export function GravityScene({ roster, maxDpr, compact }: GravitySceneProps) {
   return (
     <Canvas dpr={[1, maxDpr]} camera={CAMERA} frameloop="always" style={CANVAS_STYLE}>
-      <GravitySceneContent roster={roster} />
+      <GravitySceneContent roster={roster} compact={compact} />
     </Canvas>
   );
 }

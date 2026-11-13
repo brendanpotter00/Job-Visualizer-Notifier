@@ -157,7 +157,8 @@ export interface LandingContent {
   productName: string;
   /**
    * Entity + category co-occurrence line (brief §10 P3) — the one sentence that
-   * says what the product is. Rendered in the footer and reused in the head.
+   * says what the product is. Feeds the head's JSON-LD `WebSite.description`;
+   * no longer rendered on the page since the footer was cut (2026-11-12).
    */
   categoryLine: string;
   /** The sticky top bar the page opens with. */
@@ -214,10 +215,9 @@ export interface LandingContent {
     nextUp: LandingCta;
   };
   faq: SectionIntro & { entries: readonly LandingFaqEntry[] };
-  /** The last line before the footer, over the same two CTAs as the hero. */
+  /** The page's last line, over the same two CTAs as the hero. */
   closing: { heading: string; evidence: string };
   /** Footer nav only. */
-  footer: { links: readonly LandingCta[] };
   seo: LandingSeoContent;
 }
 
@@ -263,8 +263,9 @@ export const LANDING_CONTENT: LandingContent = {
     // public changelog: shipped work moves out of the vote list into its
     // read-only "Shipped — built with the community" section. It replaced the
     // "Why" link on 2026-09-03 (owner-directed) — what shipped recently is a
-    // better second link than the origin story, and the footer still carries
-    // "Why this was built" for anyone who wants it.
+    // better second link than the origin story. (The footer that carried
+    // "Why this was built" was cut on 2026-11-12, so the page no longer links
+    // the origin story at all.)
     nav: [
       { label: 'Companies', to: ROUTES.CURATED_COMPANIES },
       { label: 'Changelog', to: ROUTES.VOTE_FEATURES },
@@ -488,14 +489,6 @@ export const LANDING_CONTENT: LandingContent = {
   closing: {
     heading: 'Be early, every time.',
     evidence: 'brief §4 supporting beat ("onesecondswe exists so you’re early, every time")',
-  },
-  footer: {
-    links: [
-      { label: 'Browse jobs', to: ROUTES.RECENT_JOBS },
-      { label: 'Companies we track', to: ROUTES.CURATED_COMPANIES },
-      { label: 'Why this was built', to: ROUTES.WHY },
-      { label: 'Create free account', to: ROUTES.ACCOUNT },
-    ],
   },
   seo: {
     title: 'Software Engineer Jobs, Minutes After They’re Posted | onesecondswe',

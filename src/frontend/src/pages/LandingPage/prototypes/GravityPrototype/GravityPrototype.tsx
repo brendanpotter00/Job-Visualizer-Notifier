@@ -14,7 +14,6 @@ import { CompanyCategoriesSection } from '../../sections/CompanyCategoriesSectio
 import { FeatureMatrixSection } from '../../sections/FeatureMatrixSection';
 import { FAQSection } from '../../sections/FAQSection';
 import { ClosingCtaSection } from '../../sections/ClosingCtaSection';
-import { FooterLite } from '../../sections/FooterLite';
 import { useExperienceTier } from '../shared3d/useExperienceTier';
 import { selectLogoRoster } from '../shared3d/logoRoster';
 import { LogoGridFallback } from '../shared3d/LogoGridFallback';
@@ -47,6 +46,8 @@ function SectionBand({ children }: { children: ReactNode }) {
  * positioned behind; the copy layer is pointer-events transparent except on
  * CTAs so the canvas still receives pointer moves). The settled pile IS the
  * logo wall — there is deliberately no second DOM logo section below it.
+ * Phones get the same pile with the camera pulled back (`tier.compact`), so the
+ * tiles render at the static grid's size and settle under the CTAs.
  * Reduced-motion / no-WebGL tiers render the pre-settled LogoGridFallback grid
  * instead.
  *
@@ -86,7 +87,15 @@ export function GravityPrototype({ content, jobs, now }: LandingPrototypeProps) 
           {tier.tier === 'full' && (
             <Box aria-hidden sx={{ position: 'absolute', inset: 0 }}>
               <Suspense fallback={null}>
-                <GravityScene roster={roster} maxDpr={tier.maxDpr} />
+                {/* Keyed on the framing: crossing the phone breakpoint swaps the
+                    camera AND the roster size, so it gets a fresh Canvas rather
+                    than a live pile whose tiles and camera change underneath it. */}
+                <GravityScene
+                  key={tier.compact ? 'compact' : 'default'}
+                  roster={roster}
+                  maxDpr={tier.maxDpr}
+                  compact={tier.compact}
+                />
               </Suspense>
             </Box>
           )}
@@ -142,9 +151,9 @@ export function GravityPrototype({ content, jobs, now }: LandingPrototypeProps) 
           </SectionBand>
         </Container>
       </Box>
-      <Container maxWidth="lg">
-        <FooterLite content={content} />
-      </Container>
+      {/* No footer: its links row and category line were cut on 2026-11-12
+          (owner-directed). The closing CTA is the last thing on the page, and
+          its section band's bottom padding is the page's bottom margin. */}
     </Box>
   );
 }

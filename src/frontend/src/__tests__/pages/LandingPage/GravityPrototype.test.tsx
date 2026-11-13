@@ -17,11 +17,16 @@ import { buildMockJobs } from '../../../pages/LandingPage/mockData';
 vi.mock(
   '../../../pages/LandingPage/prototypes/GravityPrototype/GravityScene',
   () => ({
-    default: (props: { roster: readonly { companyId: string }[]; maxDpr: number }) => (
+    default: (props: {
+      roster: readonly { companyId: string }[];
+      maxDpr: number;
+      compact: boolean;
+    }) => (
       <div
         data-testid="gravity-scene"
         data-roster-size={props.roster.length}
         data-max-dpr={props.maxDpr}
+        data-compact={String(props.compact)}
       />
     ),
   })
@@ -55,12 +60,15 @@ function stubCores(cores: number) {
   });
 }
 
-function stubMatchMedia(reduceMotion: boolean) {
+function stubMatchMedia(reduceMotion: boolean, phone = false) {
   Object.defineProperty(window, 'matchMedia', {
     configurable: true,
     writable: true,
     value: (query: string) => ({
-      matches: reduceMotion && query === '(prefers-reduced-motion: reduce)',
+      matches:
+        (reduceMotion && query === '(prefers-reduced-motion: reduce)') ||
+        // MUI's `breakpoints.down('sm')` → `(max-width:599.95px)`.
+        (phone && query.includes('max-width')),
       media: query,
       onchange: null,
       addEventListener: () => {},
@@ -157,6 +165,7 @@ describe('GravityPrototype', () => {
     const scene = await screen.findByTestId('gravity-scene');
     expect(scene).toHaveAttribute('data-roster-size', String(DESKTOP_BODY_COUNT));
     expect(scene).toHaveAttribute('data-max-dpr', '2');
+    expect(scene).toHaveAttribute('data-compact', 'false');
     // The settled pile IS the logo wall — no DOM grid/marquee duplicate below.
     expect(screen.queryByLabelText(PILE_LABEL)).not.toBeInTheDocument();
   });
@@ -168,6 +177,19 @@ describe('GravityPrototype', () => {
     const scene = await screen.findByTestId('gravity-scene');
     expect(scene).toHaveAttribute('data-roster-size', String(CONSTRAINED_BODY_COUNT));
     expect(scene).toHaveAttribute('data-max-dpr', '1.5');
+  });
+
+  // Phones get the physics pile back (2026-11-12), framed compact so the tiles
+  // render at the static grid's size — not the DOM grid.
+  it('phone with WebGL: mounts the scene compact, with the constrained roster', async () => {
+    vi.mocked(detectWebGLSupport).mockReturnValue(true);
+    stubCores(8);
+    stubMatchMedia(false, true);
+    renderGravity();
+    const scene = await screen.findByTestId('gravity-scene');
+    expect(scene).toHaveAttribute('data-compact', 'true');
+    expect(scene).toHaveAttribute('data-roster-size', String(CONSTRAINED_BODY_COUNT));
+    expect(screen.queryByLabelText(PILE_LABEL)).not.toBeInTheDocument();
   });
 
   it('prefers-reduced-motion forces the DOM fallback even with WebGL available', () => {
@@ -216,14 +238,22 @@ describe('GravityPrototype', () => {
       screen.getByRole('link', { name: LANDING_CONTENT.featureMatrix.nextUp.label })
     ).toBeInTheDocument();
     expect(screen.getByText(LANDING_CONTENT.faq.entries[0].question)).toBeInTheDocument();
-    expect(screen.getByText(LANDING_CONTENT.categoryLine)).toBeInTheDocument();
+  });
+
+  // The footer (links row + category line) was cut on 2026-11-12: the closing
+  // CTA ends the page. categoryLine lives on only in the head's JSON-LD.
+  it('ends on the closing CTA with no footer', () => {
+    renderGravity();
+    expect(screen.queryByRole('contentinfo')).not.toBeInTheDocument();
+    expect(screen.queryByText(LANDING_CONTENT.categoryLine)).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Why this was built' })).not.toBeInTheDocument();
   });
 
   // Order is the section contract: live proof, then the comparison the owner
   // asked for, then the mechanism, the numbers, the companies, the matrix, the
-  // FAQ, and the closing line before the footer. Assert the whole sequence
-  // rather than mere presence.
-  it('orders the sections: triptych → LinkedIn → how-it-works → numbers → companies → matrix → FAQ → closer → footer', () => {
+  // FAQ, and the closing line last. Assert the whole sequence rather than mere
+  // presence.
+  it('orders the sections: triptych → LinkedIn → how-it-works → numbers → companies → matrix → FAQ → closer', () => {
     renderGravity();
     const markers = [
       screen.getByTestId('fresh-jobs-triptych'),
@@ -234,7 +264,6 @@ describe('GravityPrototype', () => {
       screen.getByTestId('feature-matrix'),
       screen.getByRole('heading', { name: LANDING_CONTENT.faq.heading, level: 2 }),
       screen.getByTestId('closing-cta'),
-      screen.getByText(LANDING_CONTENT.categoryLine),
     ];
     for (let i = 1; i < markers.length; i += 1) {
       expect(
@@ -245,7 +274,7 @@ describe('GravityPrototype', () => {
   });
 
   // Landmarks for crawlers and screen readers: one main, every section named
-  // by its own heading, and the footer outside main.
+  // by its own heading.
   it('wraps the page in a main landmark of labelled sections', () => {
     renderGravity();
     const main = screen.getByRole('main');
@@ -256,6 +285,5 @@ describe('GravityPrototype', () => {
       expect(labelledBy, 'every section must point at its heading').toBeTruthy();
       expect(document.getElementById(labelledBy!), `missing heading #${labelledBy}`).not.toBeNull();
     }
-    expect(main.contains(screen.getByRole('contentinfo'))).toBe(false);
   });
 });

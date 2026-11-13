@@ -1,7 +1,7 @@
 /**
  * Deterministic spawn choreography for the Gravity pile.
  *
- * Pure function of (count, seed, viewportWidth): tiles get staggered drop
+ * Pure function of (count, seed, viewportWidth, dropBaseY): tiles get staggered drop
  * heights (index-scaled `y`) so the pile rains in over ~2.5–3s of simulated
  * fall with ZERO timers — physics alone spaces the arrivals. No
  * Date.now()/Math.random() anywhere (react-hooks/purity); jitter comes from
@@ -16,8 +16,13 @@ export interface SpawnTile {
   rotation: [number, number, number];
 }
 
-/** Lowest drop height (world units above the floor at y=0). */
-const DROP_BASE_Y = 5;
+/**
+ * Default lowest drop height (world units above the floor at y=0) — the
+ * desktop camera's view. Phones pass their own (see compactFraming), because
+ * their pulled-back view is ~20 units tall and a tile spawned at 5 would
+ * appear mid-air in the middle of the hero.
+ */
+export const DEFAULT_DROP_BASE_Y = 5;
 /** Per-index height step — the "stagger" that spaces out arrivals. */
 const DROP_STEP_Y = 0.55;
 /** Height jitter; strictly < DROP_STEP_Y so `y` stays strictly increasing. */
@@ -32,14 +37,15 @@ const TILT_RANGE = 0.4;
 export function buildSpawnPlan(
   count: number,
   seed: number,
-  viewportWidth: number
+  viewportWidth: number,
+  dropBaseY: number = DEFAULT_DROP_BASE_Y
 ): SpawnTile[] {
   const random = mulberry32(seed);
   const halfSpan = Math.max(viewportWidth / 2 - WALL_MARGIN, 0.5);
   const tiles: SpawnTile[] = [];
   for (let i = 0; i < count; i += 1) {
     const x = (random() * 2 - 1) * halfSpan;
-    const y = DROP_BASE_Y + i * DROP_STEP_Y + random() * DROP_JITTER_Y;
+    const y = dropBaseY + i * DROP_STEP_Y + random() * DROP_JITTER_Y;
     const z = (random() * 2 - 1) * DEPTH_JITTER;
     const rotation: [number, number, number] = [
       (random() * 2 - 1) * TILT_RANGE,

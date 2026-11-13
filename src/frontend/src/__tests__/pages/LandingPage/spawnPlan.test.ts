@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { buildSpawnPlan } from '../../../pages/LandingPage/prototypes/GravityPrototype/spawnPlan';
+import {
+  buildSpawnPlan,
+  DEFAULT_DROP_BASE_Y,
+} from '../../../pages/LandingPage/prototypes/GravityPrototype/spawnPlan';
 
 const SEED = 1337;
 const WIDTH = 12;
@@ -24,6 +27,20 @@ describe('buildSpawnPlan', () => {
       expect(plan[i].position[1]).toBeGreaterThan(plan[i - 1].position[1]);
     }
     expect(plan[0].position[1]).toBeGreaterThan(0);
+  });
+
+  it('defaults the drop base to the desktop view and honours an explicit one', () => {
+    const desktop = buildSpawnPlan(10, SEED, WIDTH);
+    expect(desktop[0].position[1]).toBeGreaterThanOrEqual(DEFAULT_DROP_BASE_Y);
+    // Phones drop from above their much taller view (see compactFraming): the
+    // whole plan shifts up by the difference, x/z/tumble unchanged.
+    const phone = buildSpawnPlan(10, SEED, WIDTH, DEFAULT_DROP_BASE_Y + 16);
+    for (let i = 0; i < desktop.length; i += 1) {
+      expect(phone[i].position[1]).toBeCloseTo(desktop[i].position[1] + 16);
+      expect(phone[i].position[0]).toBe(desktop[i].position[0]);
+      expect(phone[i].position[2]).toBe(desktop[i].position[2]);
+      expect(phone[i].rotation).toEqual(desktop[i].rotation);
+    }
   });
 
   it('keeps x inside the viewport-derived arena', () => {
