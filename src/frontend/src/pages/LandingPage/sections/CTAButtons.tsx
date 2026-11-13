@@ -2,6 +2,7 @@ import { Box, Button } from '@mui/material';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 import { Link as RouterLink } from 'react-router-dom';
 import type { LandingContent } from '../content';
+import { AuthEntryButton } from './AuthEntryButton';
 
 interface CTAButtonsProps {
   ctas: LandingContent['ctas'];
@@ -43,15 +44,14 @@ export function CTAButtons({
         {ctas.primary.label}
       </Button>
       {showSecondary && (
-        <Button
-          component={RouterLink}
-          to={ctas.secondary.to}
+        <AuthEntryButton
+          cta={ctas.secondary}
+          mode="signup"
+          location="landing_cta"
           variant="text"
           size={size}
           sx={{ borderRadius: 999, px: 2, color: 'text.primary' }}
-        >
-          {ctas.secondary.label}
-        </Button>
+        />
       )}
     </Box>
   );

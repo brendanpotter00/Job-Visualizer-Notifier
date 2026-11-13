@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { Box, Button, Container, Link } from '@mui/material';
+import { Box, Container, Link } from '@mui/material';
 import { alpha } from '@mui/material/styles';
 import { Link as RouterLink } from 'react-router-dom';
 import { RESPONSIVE } from '../../../config/responsive';
 import { OneSecondMark } from '../../../components/shared/OneSecondMark';
+import { AuthEntryButton } from './AuthEntryButton';
 import type { LandingContent } from '../content';
 
 interface LandingHeaderProps {
@@ -130,25 +131,23 @@ export function LandingHeader({ content }: LandingHeaderProps) {
           {/* Pushes the auth cluster to the right edge of the container. */}
           <Box sx={{ flexGrow: 1 }} />
 
-          <Button
-            component={RouterLink}
-            to={header.logIn.to}
+          <AuthEntryButton
+            cta={header.logIn}
+            mode="login"
+            location="landing_header"
             variant="text"
             size="small"
             sx={{ display: { xs: 'none', sm: 'inline-flex' }, color: 'text.primary' }}
-          >
-            {header.logIn.label}
-          </Button>
+          />
 
-          <Button
-            component={RouterLink}
-            to={header.signUp.to}
+          <AuthEntryButton
+            cta={header.signUp}
+            mode="signup"
+            location="landing_header"
             variant="contained"
             size="small"
             sx={{ borderRadius: 999, px: 2 }}
-          >
-            {header.signUp.label}
-          </Button>
+          />
         </Container>
       </Box>
     </>

@@ -36,7 +36,13 @@ import { POSTHOG_CONFIG } from '../../config/posthog';
  * new-user tap, so counting it as a CTA click would be noise. One-Tap signups are still
  * captured (server-side `user_signed_up`) and attributed via the signup-provider split.
  */
-export type SignInLocation = 'appbar' | 'job_overlay' | 'edit_prefs_link' | 'account_page';
+export type SignInLocation =
+  | 'appbar'
+  | 'job_overlay'
+  | 'edit_prefs_link'
+  | 'account_page'
+  | 'landing_header'
+  | 'landing_cta';
 
 /** Which surface showed the signed-out sign-in overlay. */
 export type OverlayPage = 'recent' | 'companies' | 'bucket_modal';
