@@ -20,10 +20,6 @@ export function CuratedCompaniesPage() {
         <Typography variant="h4" component="h1">
           Curated Companies
         </Typography>
-        <Typography variant="body2" color="text.secondary" sx={{ mt: 1, maxWidth: 720 }}>
-          Every company this site tracks, hand-picked into one place. Search to see what each company
-          does and one thing it’s known for — then jump into its hiring trends.
-        </Typography>
       </Box>
 
       {isLoading && <LoadingState size={60} minHeight={400} caption="Loading companies…" />}
