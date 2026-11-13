@@ -379,6 +379,11 @@ export const LANDING_CONTENT: LandingContent = {
         answer: 'Yes. Browsing and accounts are free.',
       },
       {
+        question: 'Why do old jobs look new on big boards?',
+        answer:
+          'Companies pay to repost or sponsor their jobs and clutter your feed. onesecondswe dates every job when it first appears on the company’s own career page.',
+      },
+      {
         question: 'How fast do jobs show up on onesecondswe?',
         answer: 'About 45 minutes after a company posts, on median. onesecondswe watches career pages.',
       },
@@ -386,11 +391,6 @@ export const LANDING_CONTENT: LandingContent = {
         question: 'How is onesecondswe different from LinkedIn?',
         answer:
           'onesecondswe reads career pages directly and never reposts, so every date is real. LinkedIn lets companies repost with a fresh date and ranks paid listings first.',
-      },
-      {
-        question: 'Why do old jobs look new on big boards?',
-        answer:
-          'Companies pay to repost or sponsor their jobs and clutter your feed. onesecondswe dates every job when it first appears on the company’s own career page.',
       },
     ],
   },
