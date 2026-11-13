@@ -21,8 +21,6 @@ function renderAppBar(props = {}) {
   const defaultProps = {
     open: false,
     onDrawerToggle: vi.fn(),
-    drawerWidth: 240,
-    isMobile: false,
   };
   return render(
     <MemoryRouter>
@@ -35,9 +33,9 @@ describe('GlobalAppBar', () => {
   const mockProps = {
     open: false,
     onDrawerToggle: vi.fn(),
-    drawerWidth: 240,
-    isMobile: false,
   };
+
+  const toggle = () => screen.getByRole('button', { name: 'Toggle sidebar' });
 
   describe('Rendering', () => {
     it(`renders brand logo with "${APP_TITLE}" accessible label`, () => {
@@ -48,10 +46,14 @@ describe('GlobalAppBar', () => {
       expect(logo).toHaveAttribute('href', '/jobs');
     });
 
-    it('renders hamburger menu button with MenuIcon', () => {
+    it('renders the sidebar toggle as the first control in the toolbar', () => {
       renderAppBar(mockProps);
-      const button = screen.getByLabelText('open drawer');
-      expect(button).toBeInTheDocument();
+      const toolbar = toggle().closest('.MuiToolbar-root') as HTMLElement;
+      expect(toolbar).not.toBeNull();
+      const logo = screen.getByLabelText(APP_TITLE);
+      expect(
+        toggle().compareDocumentPosition(logo) & Node.DOCUMENT_POSITION_FOLLOWING
+      ).toBeTruthy();
     });
 
     it('AppBar has fixed positioning', () => {
@@ -61,88 +63,59 @@ describe('GlobalAppBar', () => {
     });
   });
 
-  describe('Button Visibility', () => {
-    it('menu button visible when drawer closed (desktop)', () => {
-      renderAppBar({ ...mockProps, open: false, isMobile: false });
-      const button = screen.getByLabelText('open drawer');
-      expect(button).toBeVisible();
+  describe('Sidebar toggle', () => {
+    it.each([false, true])('is visible whether the drawer is open or not (open=%s)', (open) => {
+      renderAppBar({ ...mockProps, open });
+      expect(toggle()).toBeVisible();
     });
 
-    it('menu button hidden when drawer open (desktop)', () => {
-      renderAppBar({ ...mockProps, open: true, isMobile: false });
-      const button = screen.getByLabelText('open drawer');
-      expect(button).not.toBeVisible();
+    it.each([
+      [false, 'false'],
+      [true, 'true'],
+    ])('reports the drawer state through aria-expanded (open=%s)', (open, expected) => {
+      renderAppBar({ ...mockProps, open });
+      expect(toggle()).toHaveAttribute('aria-expanded', expected);
+      expect(toggle()).toHaveAttribute('aria-controls', 'app-navigation');
     });
 
-    it('menu button always visible on mobile (drawer closed)', () => {
-      renderAppBar({ ...mockProps, open: false, isMobile: true });
-      const button = screen.getByLabelText('open drawer');
-      expect(button).toBeVisible();
-    });
-
-    it('menu button always visible on mobile (drawer open)', () => {
-      renderAppBar({ ...mockProps, open: true, isMobile: true });
-      const button = screen.getByLabelText('open drawer');
-      expect(button).toBeVisible();
-    });
-
-    it('button has correct aria-label', () => {
+    it('draws the sidebar glyph, not a hamburger or chevron', () => {
       renderAppBar(mockProps);
-      expect(screen.getByLabelText('open drawer')).toBeInTheDocument();
+      expect(screen.queryByTestId('MenuIcon')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('ChevronLeftIcon')).not.toBeInTheDocument();
+      expect(toggle().querySelector('svg')).not.toBeNull();
     });
   });
 
   describe('Interactions', () => {
-    it('clicking button calls onDrawerToggle callback', async () => {
+    it('clicking the toggle calls onDrawerToggle', async () => {
       const onDrawerToggle = vi.fn();
       const user = userEvent.setup();
 
       renderAppBar({ ...mockProps, onDrawerToggle });
-
-      const button = screen.getByLabelText('open drawer');
-      await user.click(button);
+      await user.click(toggle());
 
       expect(onDrawerToggle).toHaveBeenCalledTimes(1);
     });
 
-    it('button is keyboard accessible', async () => {
+    it('the toggle is keyboard accessible', async () => {
       const onDrawerToggle = vi.fn();
       const user = userEvent.setup();
 
       renderAppBar({ ...mockProps, onDrawerToggle });
-
-      const button = screen.getByLabelText('open drawer');
-      button.focus();
-
-      expect(button).toHaveFocus();
+      toggle().focus();
+      expect(toggle()).toHaveFocus();
 
       await user.keyboard('{Enter}');
       expect(onDrawerToggle).toHaveBeenCalled();
     });
   });
 
-  describe('Responsive Behavior', () => {
-    it('AppBar full width when drawer closed', () => {
-      const { container } = renderAppBar({ ...mockProps, open: false });
+  describe('Layout', () => {
+    it.each([false, true])('never shifts right (open=%s)', (open) => {
+      const { container } = renderAppBar({ ...mockProps, open });
       const appBar = container.querySelector('header');
       expect(appBar).not.toHaveStyle({ marginLeft: '240px' });
-    });
-
-    it('AppBar shifts right when drawer open', () => {
-      const { container } = renderAppBar({ ...mockProps, open: true, drawerWidth: 240 });
-      const appBar = container.querySelector('header');
-      expect(appBar).toHaveStyle({ marginLeft: '240px' });
-    });
-
-    it('props handling works correctly', () => {
-      const customDrawerWidth = 300;
-      const { container } = renderAppBar({
-        ...mockProps,
-        open: true,
-        drawerWidth: customDrawerWidth,
-      });
-      const appBar = container.querySelector('header');
-      expect(appBar).toHaveStyle({ marginLeft: `${customDrawerWidth}px` });
+      expect(appBar).toHaveStyle({ zIndex: '1201' });
     });
   });
 });

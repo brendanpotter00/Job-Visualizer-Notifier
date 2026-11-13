@@ -20,7 +20,7 @@ import {
   useUpdateAdminSettingMutation,
 } from '../../features/admin/adminApi';
 import { useAppDispatch } from '../../app/hooks';
-import { LoadingState } from '../../components/shared/LoadingIndicator';
+import { PageHeaderSkeleton, SkeletonRegion } from '../../components/shared/Skeletons';
 import { ErrorState } from '../../components/shared/ErrorDisplay';
 import { extractErrorMessage } from '../../lib/errors';
 import { RESPONSIVE } from '../../config/responsive';
@@ -32,6 +32,11 @@ import { TickCharts } from './components/TickCharts';
 import { ScorecardPanel } from './components/ScorecardPanel';
 import { NeedsHumanTable } from './components/NeedsHumanTable';
 import { RecentEnrichmentsTable } from './components/RecentEnrichmentsTable';
+import {
+  EnrichmentPageBodySkeleton,
+  HealthSlotSkeleton,
+  TicksSlotSkeleton,
+} from './components/EnrichmentSkeletons';
 
 /**
  * Admin oversight for the external-enrichment pull pipeline. The pull model's
@@ -53,6 +58,11 @@ import { RecentEnrichmentsTable } from './components/RecentEnrichmentsTable';
 const REVEAL_THRESHOLD_PCT = 90;
 
 const SWE_SUBCATEGORIES_KEY = 'swe_subcategories_enabled';
+
+const PAGE_TITLE = 'Admin · Enrichment Pipeline';
+const PAGE_SUBTITLE =
+  'The laptop-side Claude agent that classifies jobs (category · level · tags), its ' +
+  'liveness, quality, and the queue of rows waiting on a human.';
 
 export function AdminEnrichmentPage() {
   const dispatch = useAppDispatch();
@@ -80,12 +90,19 @@ export function AdminEnrichmentPage() {
   const ticks = ticksQuery.data;
 
   // Per-slot loading semantics (AdminLocationNormalizationPage pattern): the
-  // full-page spinner shows only while BOTH top reads are pending; afterwards
-  // each section renders its own state.
+  // whole-page placeholder shows only while BOTH top reads are pending;
+  // afterwards each section renders its own state.
   const healthSlotLoading = healthQuery.isLoading && !health;
   const ticksSlotLoading = ticksQuery.isLoading && !ticks;
   if (healthSlotLoading && ticksSlotLoading && !healthQuery.error && !ticksQuery.error) {
-    return <LoadingState fullPage caption="Loading enrichment pipeline…" />;
+    return (
+      <Container maxWidth="xl" sx={{ py: RESPONSIVE.spacing.pageMarginY }}>
+        <SkeletonRegion label="Loading enrichment pipeline…">
+          <PageHeaderSkeleton title={PAGE_TITLE} subtitle={PAGE_SUBTITLE} actions={2} />
+          <EnrichmentPageBodySkeleton />
+        </SkeletonRegion>
+      </Container>
+    );
   }
 
   const verdict = health ? computeEnrichmentVerdict(health) : null;
@@ -118,11 +135,10 @@ export function AdminEnrichmentPage() {
       >
         <Box>
           <Typography variant="h4" component="h1" gutterBottom>
-            Admin · Enrichment Pipeline
+            {PAGE_TITLE}
           </Typography>
           <Typography variant="body2" color="text.secondary">
-            The laptop-side Claude agent that classifies jobs (category · level · tags), its
-            liveness, quality, and the queue of rows waiting on a human.
+            {PAGE_SUBTITLE}
           </Typography>
         </Box>
         <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'center' }}>
@@ -183,7 +199,7 @@ export function AdminEnrichmentPage() {
             </Box>
           )}
         </Paper>
-      ) : (
+      ) : healthQuery.error ? (
         <Paper
           variant="outlined"
           sx={{
@@ -193,16 +209,16 @@ export function AdminEnrichmentPage() {
             borderLeftColor: 'text.disabled',
           }}
         >
-          {healthQuery.error ? (
-            <ErrorState
-              inline
-              message={extractErrorMessage(healthQuery.error, 'Failed to load pipeline health')}
-              onRetry={() => healthQuery.refetch()}
-            />
-          ) : (
-            <LoadingState minHeight={48} caption="Loading health…" />
-          )}
+          <ErrorState
+            inline
+            message={extractErrorMessage(healthQuery.error, 'Failed to load pipeline health')}
+            onRetry={() => healthQuery.refetch()}
+          />
         </Paper>
+      ) : (
+        <SkeletonRegion label="Loading health…">
+          <HealthSlotSkeleton />
+        </SkeletonRegion>
       )}
 
       {/* 2. Backlog funnel + key stats. */}
@@ -342,7 +358,9 @@ export function AdminEnrichmentPage() {
             onRetry={() => ticksQuery.refetch()}
           />
         ) : ticksSlotLoading || !ticks ? (
-          <LoadingState minHeight={120} caption="Loading ticks…" />
+          <SkeletonRegion label="Loading ticks…">
+            <TicksSlotSkeleton />
+          </SkeletonRegion>
         ) : (
           <>
             <TickStrip ticks={ticks.ticks} windowHours={ticks.windowHours} />

@@ -138,15 +138,6 @@ describe('buildSearchFromFilters', () => {
     expect(buildSearchFromFilters({ ...base, timeWindow: '24h' })).toBe('?time=24h');
   });
 
-  it('never emits company', () => {
-    // The enabled-companies roster is the reader's own preference, not a filter
-    // set on this page. Putting it in a shared link would change which companies
-    // the RECIPIENT follows.
-    const search = buildSearchFromFilters({ ...base, company: ['tiktok', 'spacex'] });
-    expect(search).toBe('');
-    expect(search).not.toContain('tiktok');
-  });
-
   it('preserves query params it does not own', () => {
     const search = buildSearchFromFilters({ ...base, level: ['entry'] }, '?utm_source=slack');
     expect(search).toContain('utm_source=slack');

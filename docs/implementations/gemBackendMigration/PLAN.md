@@ -453,9 +453,9 @@ The field is optional throughout. Only Greenhouse / Ashby / Gem `backend-scraper
 - Wherever `gemClient` is registered in the client-selection logic (likely `jobsApi.ts` or a similar dispatch module) — remove the `gem` branch
 - MSW handler in `src/frontend/src/__tests__/mocks/handlers.ts` (or equivalent) — remove the Gem handler if present
 - `vercel.json` / `vercel.ts` — remove the Gem route definition
-- `CLAUDE.md` (root) — remove Gem from "ATS APIs (Lever, Workday, Gem, Eightfold)"; update Vercel function list (remove `api/gem.ts`); add Gem to the backend-scraper section
-- `src/frontend/CLAUDE.md` — remove Gem from frontend client list; remove `createGemCompany()` from the factory list; update Vercel functions section
-- `scripts/CLAUDE.md` — no edits expected (Gem is not a scripts/ scraper)
+- `AGENTS.md` (root) — remove Gem from "ATS APIs (Lever, Workday, Gem, Eightfold)"; update Vercel function list (remove `api/gem.ts`); add Gem to the backend-scraper section
+- `src/frontend/AGENTS.md` — remove Gem from frontend client list; remove `createGemCompany()` from the factory list; update Vercel functions section
+- `scripts/AGENTS.md` — no edits expected (Gem is not a scripts/ scraper)
 
 **Changes:**
 
@@ -484,8 +484,8 @@ The field is optional throughout. Only Greenhouse / Ashby / Gem `backend-scraper
 - Update `vercel.json` (and/or `vercel.ts`) to remove the Gem rewrite/route definition.
 
 **Doc updates:**
-- Update root `CLAUDE.md`: remove Gem from "ATS APIs (Lever, Workday, Gem, Eightfold)"; update Vercel function list (remove `api/gem.ts`); add Gem to the backend-scraper provider list alongside Greenhouse/Ashby.
-- Update `src/frontend/CLAUDE.md`: remove Gem from frontend client list; remove `createGemCompany()` from the factory list; update Vercel functions section; add Gem to the backend-scraper provider list.
+- Update root `AGENTS.md`: remove Gem from "ATS APIs (Lever, Workday, Gem, Eightfold)"; update Vercel function list (remove `api/gem.ts`); add Gem to the backend-scraper provider list alongside Greenhouse/Ashby.
+- Update `src/frontend/AGENTS.md`: remove Gem from frontend client list; remove `createGemCompany()` from the factory list; update Vercel functions section; add Gem to the backend-scraper provider list.
 
 **Tests:**
 - `npm run type-check` clean across `src/frontend/`.
@@ -631,7 +631,7 @@ The field is optional throughout. Only Greenhouse / Ashby / Gem `backend-scraper
 | `src/frontend/src/api/clients/baseClient.ts` | edit (drop `GemConfig` union member) | 7 |
 | `api/gem.ts` | **delete** | 7 |
 | `vercel.json` / `vercel.ts` | edit (route cleanup) | 7 |
-| `CLAUDE.md`, `src/frontend/CLAUDE.md` | edit (docs) | 7 |
+| `AGENTS.md`, `src/frontend/AGENTS.md` | edit (docs) | 7 |
 | `src/frontend/src/types/index.ts` | edit (widen `sourceAts`) | 8 |
 | `src/frontend/src/pages/WhyPage/atsGrouping.ts` | edit (add `gem` key + display name) | 8 |
 | `src/frontend/src/__tests__/pages/WhyPage/WhyPage.test.tsx` | edit (new Gem column tests) | 8 |

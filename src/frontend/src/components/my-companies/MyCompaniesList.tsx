@@ -17,7 +17,8 @@ import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import CloseIcon from '@mui/icons-material/Close';
 import RenameIcon from '@mui/icons-material/DriveFileRenameOutlineOutlined';
-import { LoadingState } from '../shared/LoadingIndicator';
+import { SkeletonRegion } from '../shared/Skeletons';
+import { MyCompaniesListSkeleton } from './MyCompaniesListSkeleton';
 import { ErrorState } from '../shared/ErrorDisplay';
 import { extractErrorMessage } from '../../lib/errors';
 import { buildMyCompanyDetailPath } from '../../config/routes';
@@ -557,7 +558,11 @@ export function MyCompaniesList() {
   };
 
   if (isLoading) {
-    return <LoadingState minHeight={120} caption="Loading your companies…" />;
+    return (
+      <SkeletonRegion label="Loading your companies…">
+        <MyCompaniesListSkeleton />
+      </SkeletonRegion>
+    );
   }
 
   // ONLY when there is nothing to show. RTK Query keeps `data` from the last good fetch

@@ -183,7 +183,7 @@ export function JobListingCard({ job }: JobListingCardProps) {
                 cursor: 'pointer',
               }}
             >
-              DM the hiring team on LinkedIn
+              DM the hiring team
               <OpenInNew sx={{ fontSize: '0.875rem' }} />
             </Link>
           )}

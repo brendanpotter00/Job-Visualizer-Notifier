@@ -55,7 +55,7 @@ describe('JobListingCard', () => {
     // show hiring posts from every company instead of this one.
     render(<JobListingCard job={mockJob} />);
     const linkedIn = screen.getByRole('link', {
-      name: 'DM the hiring team on LinkedIn',
+      name: 'DM the hiring team',
     });
     expect(linkedIn).toHaveAttribute('target', '_blank');
     expect(linkedIn).toHaveAttribute('rel', 'noopener noreferrer');

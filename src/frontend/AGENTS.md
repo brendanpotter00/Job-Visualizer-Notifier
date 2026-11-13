@@ -1,8 +1,8 @@
-# Frontend CLAUDE.md
+# Frontend AGENTS.md
 
 React SPA for job posting analytics. Visualizes job posting activity over time for multiple companies, all served via the backend `/api/jobs` endpoint (Greenhouse, Ashby, Lever, Gem, Eightfold/Netflix, and Workday boards, plus Google, Apple, Microsoft, Amazon, TikTok). Built with Redux Toolkit, Recharts, and Material-UI.
 
-**Note:** Commands should be run from project root (not this directory). See root CLAUDE.md for full project context.
+**Note:** Commands should be run from project root (not this directory). See root AGENTS.md for full project context.
 
 ## Commands (from project root)
 
@@ -725,7 +725,8 @@ This section documents the shared primitives and cross-cutting rules every page 
 
 ### Shared primitives
 
-- **`LoadingState`** — `components/shared/LoadingIndicator.tsx`. Centered loading view with **no spinner**: the `caption` (default "Loading", trailing "…"/"..." dropped) is drawn by `LoadingText` (`components/shared/LoadingText.tsx`) as a "wave" — each letter breathes 0.25↔1 opacity over 1.6s, 0.1s behind the last (static under `prefers-reduced-motion`). It is one `role="progressbar"` named by the caption, letters `aria-hidden`, so tests use `getByRole('progressbar', { name: 'Loading feedback' })`, not `getByText`. Exported as `LoadingState` (preferred alias) and `LoadingIndicator` (original name). Use for any loading view: `<LoadingState fullPage />` for page-level initial loads, `<LoadingState minHeight={400} caption="…" />` in-layout; `<LoadingText />` alone for inline spots (e.g. the user menu).
+- **Skeletons** — `components/shared/Skeletons.tsx`. The first-load placeholders: every page that waits on data shows a skeleton shaped like its loaded content, not a spinner. Pieces: `SkeletonRegion` (the ONE accessible signal per wait — `role="status"`, `aria-busy`, `aria-label` + visually hidden label text), `TextSkeleton`, `PageHeaderSkeleton`, `ControlsRowSkeleton`, `SectionSkeleton` (titled Paper), `StatusBannerSkeleton` (admin verdict banner), `StatTileSkeleton`/`StatTilesSkeleton`, `TableSkeleton` (real header labels, optional toolbar/pagination, `mobileVariant="list"` for tables that become lists on phones), `ListSkeleton`, `CardListSkeleton`, `CardSkeleton`/`CardGridSkeleton`, `ChipRowSkeleton`, and `PageSkeleton` (generic page — the route `Suspense` fallback and the `AdminRoute` guard). The pieces are visual only (no role); wrap a slot — or a whole page of them — in one `SkeletonRegion` naming the wait (`label="Loading feedback…"`). Every repeated piece is clamped to `MAX_SKELETON_ITEMS` (12). Static copy (page titles, section titles, table header labels) renders as real text so it doesn't shift — but never as a heading element: the `h1`/`h2`s arrive with the loaded page, so "the heading is there" keeps meaning "the page loaded" (many page tests wait on exactly that). Only data is a placeholder. Page-specific compositions live next to their page (e.g. `pages/AdminEnrichmentPage/components/EnrichmentSkeletons.tsx`) and are built from these pieces. Gate on RTK Query's `isLoading` (first load), never `isFetching`, so refetches keep the data on screen. Tests assert the signal with `getByRole('status', { name: 'Loading …' })`.
+- **`LoadingState`** — `components/shared/LoadingIndicator.tsx`. Centered loading view with **no spinner**: the `caption` (default "Loading", trailing "…"/"..." dropped) is drawn by `LoadingText` (`components/shared/LoadingText.tsx`) as a wave — each letter breathes 0.25↔1 opacity over 1.6s, 0.1s behind the last (static under `prefers-reduced-motion`). It is one `role="progressbar"` named by the caption, letters `aria-hidden`, so tests use `getByRole('progressbar', { name: 'Loading feedback' })`. Exported as `LoadingState` (preferred alias) and `LoadingIndicator`. Only for waits that have no content shape to preview (e.g. the Recent page's awaiting-deploy message, "Adding this company…"); page/section first loads use the skeletons above. `<LoadingText />` alone covers inline spots (e.g. the user menu).
 - **`ErrorState`** — `components/shared/ErrorDisplay.tsx`. Error view with optional `inline` (Alert) vs card mode and optional `onRetry`. Exported as `ErrorState` (preferred alias) and `ErrorDisplay` (original name). Use `<ErrorState inline message={msg} onRetry={fn} />` for in-page errors; omit `inline` for the full-card variant.
 - **`EmptyState`** — `components/shared/ErrorDisplay.tsx`. Empty-results view. Exported as `EmptyState` (preferred alias) and `EmptyStateDisplay` (original name). The job-specific `EmptyJobListState` wrapper stays — it reads copy from `constants/messages.ts`.
 - **`extractErrorMessage(err, fallback?)`** — `lib/errors.ts`. Single source for decoding unknown errors (RTK Query `{ data }` shape, `Error` instances, strings, generic `{ message }` objects). Replaces the `err instanceof Error ? err.message : '…'` boilerplate and the nested RTK-Query ternaries. Always use this instead of hand-rolling the decode at the call site.
@@ -736,7 +737,7 @@ This section documents the shared primitives and cross-cutting rules every page 
 1. **Typed Redux hooks only.** All Redux consumers import `useAppDispatch` and `useAppSelector` from `app/hooks.ts`. Raw `useDispatch` / `useSelector` from `react-redux` is forbidden in `src/` outside that single file (it is the intended entry point). If a new file imports raw hooks, the review is rejected.
 2. **Page-level fetch lifecycles use `useFetchWithStatus` or RTK Query — never both, never neither.** Inline `useState` + `useEffect` + `fetch` blocks for page/component data are prohibited. If a fetch needs caching, invalidation, or cross-page sharing, use RTK Query (`features/jobs/jobsApi.ts` pattern). If a fetch is page-local and read-only with a simple lifecycle, use `useFetchWithStatus`. User-action mutations (e.g. QAPage's trigger-scrape button) stay hand-rolled and do not fall under this rule — `useFetchWithStatus` is read-only by design.
 3. **All error decoding goes through `extractErrorMessage`.** Do not introduce new `err instanceof Error ? err.message : '…'` ternaries or new `'data' in err` blocks.
-4. **All page loading / error UI uses `LoadingState` / `ErrorState`.** Do not render raw `<CircularProgress />` in a centered `<Box>` or raw `<Alert severity="error">` at the page level. Nested-component spinners (e.g. chart skeletons, job-card skeletons) are fine and live alongside `LoadingState` in `components/shared/LoadingIndicator.tsx`.
+4. **All page loading / error UI uses the shared skeletons / `ErrorState`.** A page's (or section's) first load renders a skeleton built from `components/shared/Skeletons.tsx` (plus `ChartSkeleton` / `JobListSkeleton` in `LoadingIndicator.tsx`), wrapped in one `SkeletonRegion`. Do not render raw `<CircularProgress />` in a centered `<Box>`, a centered `LoadingState` for a first load, or raw `<Alert severity="error">` at the page level. Small in-button / inline spinners (save buttons, autocomplete fetches, step indicators) stay as spinners.
 5. **Mobile sizing goes through `RESPONSIVE` tokens — no hard-coded px.** Every page/component must look good on an iPhone in portrait (~390px) **without** changing the desktop/tablet (>= 600px) look. Consume the `RESPONSIVE` tokens in `config/responsive.ts` (and the `useIsMobile` hook for raw-number props) instead of inlining mobile pixel sizes/fonts/paddings. Each `{ xs, sm }` token's `sm` slot restates the current desktop value, so applying a token is a no-op >= 600px. Wide tables wrap in `TABLE_SCROLL_SX`. **Before adding any page or restyling one, read `src/frontend/docs/RESPONSIVE.md`** — the agent dock with the token catalog, the three token shapes, the "add a token" recipe, and the mobile checklist. A new magic number that should be a token is rejected in review.
 
 ### Remaining `eslint-disable` comments (authoritative list)
@@ -798,7 +799,7 @@ Use the `add-company` skill (repo-root `.claude/skills/add-company/`, `/add-comp
    - **Pattern**: See QAPage jobs table for pagination pattern (useMemo for slice + TablePagination component)
 11. **Test suite speed**: CI runs Vitest in 4 parallel shards on the `threads` pool. Two patterns made it slow before, and both are easy to bring back:
    - **Import MUI icons by path** (`import AddIcon from '@mui/icons-material/Add'`), never from the package root. The root re-exports ~21k files, and Vitest loads it again in every isolated test file. ESLint (`no-restricted-imports`) blocks the root import.
-   - **Don't use `findByRole('option', { name })` on the company dropdown** (~200 options). It computes an accessible name for every option, ~650ms a call. Use `findListboxOption(label)` from `test/testUtils.tsx` and assert the name on the returned element with `toHaveAccessibleName`. The same applies to any role+name query on `screen` while a big table or list is mounted: scope it with `within(...)` first.
+   - **Don't use `findByRole('option', { name })` on the Companies page's `CompanySelector`** (~250 options). It computes an accessible name for every option, ~650ms a call. Use `findListboxOption(label)` from `test/testUtils.tsx` and assert the name on the returned element with `toHaveAccessibleName`. The same applies to any role+name query on `screen` while a big table or list is mounted: scope it with `within(...)` first.
 
 ## Key Files
 
@@ -813,7 +814,7 @@ All paths relative to `src/frontend/src/`:
 - Filter Slice Factory: `features/filters/slices/createFilterSlice.ts`
 - Jobs RTK Query API: `features/jobs/jobsApi.ts`, `jobsSelectors.ts`
 - Recent Jobs search: `features/jobs/searchJobsArgs.ts` (args + query serialization), `validateSearchJobsResponse.ts`, `hooks/useRecentJobsSearch.ts`
-- Recent Jobs Filters: `features/filters/slices/recentJobsFiltersSlice.ts`, `features/filters/selectors/recentJobsSelectors.ts` (filter state + the company dropdown's options; all job filtering is server-side)
+- Recent Jobs Filters: `features/filters/slices/recentJobsFiltersSlice.ts`, `features/filters/selectors/recentJobsSelectors.ts` (filter state; all job filtering is server-side). There is no company filter on the Recent page: the feed covers the reader's company preferences, which `buildSearchJobsArgs` sends as the `company` param
 - Time Bucketing: `lib/timeBucketing.ts`
 - Main App: `app/App.tsx`
 
@@ -821,7 +822,7 @@ All paths relative to `src/frontend/src/`:
 
 Located in project root `api/` directory (proxies to avoid CORS):
 
-- `jobs.ts` - Backend jobs API proxy. Allow-lists both query params and sub-paths (`facets`, `search`). The `search` sub-path's multi-value filters must be **appended** as repeated params — `String()` on an array joins with commas and would turn two selected categories into one bogus slug
+- `jobs.ts` - Backend jobs API proxy. Allow-lists both query params and sub-paths (`facets`, `search`, `settings`, and `:source/:job` for the single-job detail endpoint used by the WebMCP `get_job` tool). The `search` sub-path's multi-value filters must be **appended** as repeated params — `String()` on an array joins with commas and would turn two selected categories into one bogus slug
 - `jobs-qa.ts` - Backend QA endpoints proxy (scraper triggers, run history)
 - `users.ts` - Backend users API proxy (forwards Authorization header)
 - `features.ts` - Feature voting API proxy (forwards Authorization header)
@@ -832,7 +833,7 @@ Located in project root `api/` directory (proxies to avoid CORS):
 
 ## See Also
 
-- **Root CLAUDE.md** - Full project documentation including backend and scripts
+- **Root AGENTS.md** - Full project documentation including backend and scripts
 - **docs/architecture.md** - Comprehensive Mermaid diagrams for data flow, state shape, factory patterns (located at `src/frontend/docs/architecture.md`)
 - **Greenhouse API**: https://developers.greenhouse.io/job-board.html
 - **Lever Postings API** (used by backend client): https://github.com/lever/postings-api

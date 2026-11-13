@@ -31,7 +31,7 @@
 - `src/backend/api/tasks/fetch_ashby_company.py:249-253` — When both primary and fallback `record_scrape_run` writes fail, the function continues. If the fetch otherwise succeeded, the task exits cleanly with a missing `scrape_runs` row and no visible signal in Procrastinate. (agent: silent-failure-hunter) — **DEFER: this mirrors `fetch_greenhouse_company.py`'s pattern exactly. Fixing for Ashby alone would create inconsistency; track as a follow-up to fix both ATSes together.**
 
 **Suggestion / Nit:**
-- `CLAUDE.md:74` — "Adding a Company" example shows `createBackendScraperCompany(id, name, 'https://boards.greenhouse.io/${id}')` without `sourceAts: 'greenhouse'`. After Unit 9, every Greenhouse entry needs `sourceAts: 'greenhouse'` or it falls into "Custom Web Scrapers". (agent: code-reviewer) — **FIX this pass.**
+- `AGENTS.md:74` — "Adding a Company" example shows `createBackendScraperCompany(id, name, 'https://boards.greenhouse.io/${id}')` without `sourceAts: 'greenhouse'`. After Unit 9, every Greenhouse entry needs `sourceAts: 'greenhouse'` or it falls into "Custom Web Scrapers". (agent: code-reviewer) — **FIX this pass.**
 - 3 frontend test files still register MSW handlers for `/api/ashby/v1/jobBoard/:boardName/jobs` (`App.test.tsx:39`, `AppEnabledCompaniesGlobalLoad.test.tsx:62`, `useCompanyLoader.test.tsx:40`). Dead code post-cutover. (agent: vercel-prod-verifier) — **FIX this pass.**
 - `src/backend/api/services/ashby_client.py:88` — Cross-ATS comparison comment "Ashby's `location` is already a flat string (unlike Greenhouse's `{name: ...}` object)" ages poorly. (agent: comment-analyzer) — DEFER (Nit).
 - Seed migration docstring line-range reference to `companies.ts (lines ~280-410)` will rot. (agent: comment-analyzer) — DEFER (Nit).
@@ -76,7 +76,7 @@
 4. Add test for race between `enqueue_ashby_fan_out` defer + manual `/trigger-ashby-fetch` (cross-origin queueing-lock dedupe).
 5. Add cold-start safety-guard test (`active_count == 0` + 0 jobs returned → no guard trip).
 6. Delete 3 dead MSW handlers for `/api/ashby/v1/jobBoard/:boardName/jobs` in `App.test.tsx`, `AppEnabledCompaniesGlobalLoad.test.tsx`, `useCompanyLoader.test.tsx`.
-7. Update root `CLAUDE.md:74` Greenhouse example to include `sourceAts: 'greenhouse'`.
+7. Update root `AGENTS.md:74` Greenhouse example to include `sourceAts: 'greenhouse'`.
 
 ### Implementation applied
 
@@ -90,7 +90,7 @@
 - `src/frontend/src/__tests__/app/App.test.tsx` — Fix 6: removed dead `http.get('/api/ashby/v1/jobBoard/:boardName/jobs', ...)` MSW handler.
 - `src/frontend/src/__tests__/app/AppEnabledCompaniesGlobalLoad.test.tsx` — Fix 6: removed dead Ashby MSW handler.
 - `src/frontend/src/__tests__/app/hooks/useCompanyLoader.test.tsx` — Fix 6: removed dead Ashby MSW handler.
-- `CLAUDE.md` — Fix 7: updated the "Adding a Company" example to `createBackendScraperCompany(id, name, 'https://boards.greenhouse.io/${id}', { sourceAts: 'greenhouse' })` and added an explicit note that omitting `sourceAts` drops the company into "Custom Web Scrapers".
+- `AGENTS.md` — Fix 7: updated the "Adding a Company" example to `createBackendScraperCompany(id, name, 'https://boards.greenhouse.io/${id}', { sourceAts: 'greenhouse' })` and added an explicit note that omitting `sourceAts` drops the company into "Custom Web Scrapers".
 
 **Verification:**
 - Backend: `cd src/backend && pytest -q` → `384 passed` (380 → 384, +4 new tests: 2x 401 trigger tests, 1x cross-origin race-collapse, 1x cold-start safety-guard).

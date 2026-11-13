@@ -1,10 +1,12 @@
 import Container from '@mui/material/Container';
 import { Navigate } from 'react-router-dom';
-import { LoadingState } from '../shared/LoadingIndicator';
+import { PageSkeleton } from '../shared/Skeletons';
 import { ErrorState } from '../shared/ErrorDisplay';
 import { useAuth } from '../../features/auth/useAuth';
 import { useCurrentUser } from '../../features/auth/useCurrentUser';
 import { ROUTES } from '../../config/routes';
+
+const checkingAccess = <PageSkeleton maxWidth="xl" label="Checking admin access…" />;
 
 /**
  * Guards admin-only routes.
@@ -35,9 +37,9 @@ export function AdminRoute({ children }: { children: React.ReactNode }) {
   const { user, loading: userLoading, error: userError, reload: refetchUser } =
     useCurrentUser();
 
-  if (authLoading) return <LoadingState fullPage />;
+  if (authLoading) return checkingAccess;
   if (!isAuthenticated) return <Navigate to={ROUTES.RECENT_JOBS} replace />;
-  if (userLoading) return <LoadingState fullPage />;
+  if (userLoading) return checkingAccess;
   if (userError && !user) {
     return (
       <Container maxWidth="sm" sx={{ py: 6 }}>
@@ -53,7 +55,7 @@ export function AdminRoute({ children }: { children: React.ReactNode }) {
   // "Not yet fetched" — fetch hasn't begun (useCurrentUser initializes
   // loading=false, so a brand-new admin reload momentarily looks like
   // user=null/error=null. Treat as still-resolving.
-  if (!user) return <LoadingState fullPage />;
+  if (!user) return checkingAccess;
   if (!user.isAdmin) return <Navigate to={ROUTES.RECENT_JOBS} replace />;
 
   return <>{children}</>;

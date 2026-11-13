@@ -1,4 +1,5 @@
 import { Box, CircularProgress, Skeleton, Stack, Card, CardContent } from '@mui/material';
+import type { Breakpoint } from '@mui/material';
 import { LoadingText } from './LoadingText';
 
 /**
@@ -54,9 +55,13 @@ export { LoadingIndicator as LoadingState };
 /**
  * Loading skeleton for the chart/graph component
  */
-export function ChartSkeleton() {
+export function ChartSkeleton({
+  height = 400,
+}: {
+  height?: number | string | Partial<Record<Breakpoint, number | string>>;
+} = {}) {
   return (
-    <Box sx={{ width: '100%', height: 400 }}>
+    <Box sx={{ width: '100%', height }} data-testid="chart-skeleton">
       <Skeleton variant="rectangular" width="100%" height="100%" />
     </Box>
   );

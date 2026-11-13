@@ -14,7 +14,7 @@ import {
 import CloseIcon from '@mui/icons-material/Close';
 import { format } from 'date-fns';
 import { useGetUserVisitsQuery, type AdminUserRow } from '../../../features/admin/adminApi';
-import { LoadingState } from '../../../components/shared/LoadingIndicator';
+import { ListSkeleton, SkeletonRegion } from '../../../components/shared/Skeletons';
 import { ErrorState } from '../../../components/shared/ErrorDisplay';
 import { extractErrorMessage } from '../../../lib/errors';
 
@@ -74,7 +74,9 @@ export function UserVisitsModal({ user, onClose }: UserVisitsModalProps) {
       </DialogTitle>
       <DialogContent>
         {isLoading ? (
-          <LoadingState minHeight={160} caption="Loading visit history…" />
+          <SkeletonRegion label="Loading visit history…">
+            <ListSkeleton rows={6} />
+          </SkeletonRegion>
         ) : error ? (
           <ErrorState inline message={extractErrorMessage(error, 'Failed to load visit history')} />
         ) : historyCount === 0 ? (

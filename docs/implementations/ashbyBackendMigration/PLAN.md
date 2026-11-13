@@ -452,8 +452,8 @@ The field is optional throughout. Only Greenhouse/Ashby `backend-scraper` rows c
 - `src/frontend/src/api/clients/baseClient.ts` — remove `AshbyConfig` from `ATSCompanyConfig` union and from APIError construction
 - `src/frontend/src/features/app/appSlice.ts` — if default `selectedATS` was `Ashby`, change to `BackendScraper`
 - `vercel.json` / `vercel.ts` — remove the Ashby route definition
-- `CLAUDE.md` (root) — remove Ashby from "ATS APIs (Lever, Ashby, Workday, Gem, Eightfold)"; update Vercel function list (remove `api/ashby.ts`)
-- `src/frontend/CLAUDE.md` — remove Ashby from frontend client list; remove `createAshbyCompany()` from the factory list; update Vercel functions section
+- `AGENTS.md` (root) — remove Ashby from "ATS APIs (Lever, Ashby, Workday, Gem, Eightfold)"; update Vercel function list (remove `api/ashby.ts`)
+- `src/frontend/AGENTS.md` — remove Ashby from frontend client list; remove `createAshbyCompany()` from the factory list; update Vercel functions section
 
 **Changes:**
 
@@ -485,8 +485,8 @@ The field is optional throughout. Only Greenhouse/Ashby `backend-scraper` rows c
 - Update `vercel.json` (and/or `vercel.ts`) to remove the Ashby route definition.
 
 **Doc updates:**
-- Update root `CLAUDE.md`: remove Ashby from "ATS APIs (Lever, Ashby, Workday, Gem, Eightfold)"; update Vercel function list (remove `api/ashby.ts`).
-- Update `src/frontend/CLAUDE.md`: remove Ashby from frontend client list; remove `createAshbyCompany()` from the factory list; update Vercel functions section.
+- Update root `AGENTS.md`: remove Ashby from "ATS APIs (Lever, Ashby, Workday, Gem, Eightfold)"; update Vercel function list (remove `api/ashby.ts`).
+- Update `src/frontend/AGENTS.md`: remove Ashby from frontend client list; remove `createAshbyCompany()` from the factory list; update Vercel functions section.
 
 **Tests:**
 - `npm run type-check` clean across `src/frontend/`.
@@ -653,7 +653,7 @@ The field is optional throughout. Only Greenhouse/Ashby `backend-scraper` rows c
 | `src/frontend/src/api/clients/baseClient.ts` | edit (drop `AshbyConfig` union member) | 7 |
 | `api/ashby.ts` | **delete** | 7 |
 | `vercel.json` / `vercel.ts` | edit (route cleanup) | 7 |
-| `CLAUDE.md`, `src/frontend/CLAUDE.md` | edit (docs) | 7 |
+| `AGENTS.md`, `src/frontend/AGENTS.md` | edit (docs) | 7 |
 | `src/frontend/src/pages/WhyPage/atsGrouping.ts` | edit (add ashby key + display name) | 8 |
 | `src/frontend/src/__tests__/pages/WhyPage/WhyPage.test.tsx` | edit (new Ashby column tests) | 8 |
 | `src/frontend/src/config/companies.ts` | edit (add `sourceAts: 'greenhouse'` to 45 entries) | 9 |

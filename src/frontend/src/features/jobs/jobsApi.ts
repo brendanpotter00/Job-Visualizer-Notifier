@@ -137,7 +137,7 @@ async function readErrorResponse(response: Response): Promise<SearchErrorRespons
     // Wrapped as `{ data }` because that is the shape `extractErrorMessage`
     // decodes: it owns the `detail` / `message` precedence and the "a 422's LIST
     // detail is developer output, not reader output" rule, and re-implementing
-    // either here is exactly the duplication rule 3 in `src/frontend/CLAUDE.md`
+    // either here is exactly the duplication rule 3 in `src/frontend/AGENTS.md`
     // forbids. What stays local is the STATUS gate above, which is a different
     // decision entirely — see `READER_FACING_ERROR_STATUSES`.
     return {

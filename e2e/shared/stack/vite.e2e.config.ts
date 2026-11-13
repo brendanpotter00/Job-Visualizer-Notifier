@@ -2,7 +2,7 @@
 //
 // Trap 1: `vercel dev` cannot be pointed at :8201 reliably — Vercel Dev's
 // cloud env vars override `.env.local` AND shell env vars for `api/*.ts`
-// (root CLAUDE.md gotcha #3). So the e2e frontend runs under plain `vite dev`
+// (root AGENTS.md gotcha #3). So the e2e frontend runs under plain `vite dev`
 // instead, at the honest cost that the Vercel proxy layer (`api/users.ts`,
 // `api/companies.ts`) is NOT exercised by this suite — those proxies are thin
 // and separately covered; see CASES.md's non-coverage note.

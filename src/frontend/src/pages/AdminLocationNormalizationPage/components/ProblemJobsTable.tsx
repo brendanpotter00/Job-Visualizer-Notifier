@@ -15,7 +15,8 @@ import {
   useListProblemJobsQuery,
   useRenormalizeJobMutation,
 } from '../../../features/admin/adminApi';
-import { LoadingState } from '../../../components/shared/LoadingIndicator';
+import { SkeletonRegion } from '../../../components/shared/Skeletons';
+import { ProblemJobsTableSkeleton } from './LocationSkeletons';
 import { ErrorState } from '../../../components/shared/ErrorDisplay';
 import { EmptyState } from '../../../components/shared/ErrorDisplay';
 import { extractErrorMessage } from '../../../lib/errors';
@@ -58,7 +59,11 @@ export function ProblemJobsTable() {
   };
 
   if (query.isLoading && !query.data) {
-    return <LoadingState minHeight={160} caption="Loading problem jobs…" />;
+    return (
+      <SkeletonRegion label="Loading problem jobs…">
+        <ProblemJobsTableSkeleton />
+      </SkeletonRegion>
+    );
   }
   if (query.error && !query.data) {
     return (

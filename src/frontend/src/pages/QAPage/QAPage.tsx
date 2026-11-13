@@ -23,7 +23,7 @@ import {
   Stack,
 } from '@mui/material';
 import { SearchTagsInput } from '../../components/shared/filters/SearchTagsInput.tsx';
-import { LoadingState } from '../../components/shared/LoadingIndicator';
+import { SkeletonRegion, TableSkeleton } from '../../components/shared/Skeletons';
 import { ErrorState } from '../../components/shared/ErrorDisplay';
 import { useFetchWithStatus } from '../../hooks/useFetchWithStatus';
 import { extractErrorMessage } from '../../lib/errors';
@@ -36,6 +36,29 @@ import { DevResetPanel } from './DevResetPanel';
 
 // Backend scraper companies for QA filtering
 const BACKEND_SCRAPER_COMPANIES = COMPANIES.filter((c) => c.ats === 'backend-scraper');
+
+const SCRAPE_RUN_COLUMNS = [
+  'Company',
+  'Started At',
+  'Completed At',
+  'Mode',
+  'Jobs Seen',
+  'New',
+  'Closed',
+  'Details',
+  'Errors',
+  'Guard Skipped',
+] as const;
+
+const JOB_COLUMNS = [
+  'Title',
+  'Company',
+  'Location',
+  'Status',
+  'First Seen',
+  'Last Seen',
+  'Posted On',
+] as const;
 
 type QACompanySelection = 'all' | string;
 
@@ -457,7 +480,11 @@ export function QAPage() {
               ? 'Scrape Runs'
               : `${BACKEND_SCRAPER_COMPANIES.find((c) => c.id === selectedCompany)?.name} Scrape Runs`}
           </Typography>
-          {scrapeRunsLoading && <LoadingState minHeight={48} />}
+          {scrapeRunsLoading && (
+            <SkeletonRegion label="Loading scrape runs…">
+              <TableSkeleton columns={SCRAPE_RUN_COLUMNS} surface="elevation" pagination />
+            </SkeletonRegion>
+          )}
           {scrapeRunsError && (
             <Box sx={{ mb: 2 }}>
               <ErrorState inline message={scrapeRunsError} />
@@ -567,7 +594,11 @@ export function QAPage() {
           </Stack>
         </Box>
 
-        {loading && <LoadingState minHeight={96} />}
+        {loading && (
+          <SkeletonRegion label="Loading jobs…">
+            <TableSkeleton columns={JOB_COLUMNS} surface="elevation" pagination />
+          </SkeletonRegion>
+        )}
 
         {error && (
           <Box sx={{ mb: 3 }}>

@@ -1,6 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import { LoadingIndicator, LoadingState } from '../../../components/shared/LoadingIndicator';
+import {
+  ChartSkeleton,
+  LoadingIndicator,
+  LoadingState,
+} from '../../../components/shared/LoadingIndicator';
 
 describe('LoadingIndicator', () => {
   describe('Default rendering', () => {
@@ -79,6 +83,23 @@ describe('LoadingIndicator', () => {
 
       const b = render(<LoadingState caption="x" fullPage />);
       expect(b.container.innerHTML).toBe(aHtml);
+    });
+  });
+
+  describe('ChartSkeleton', () => {
+    it('defaults to the 400px desktop chart height', () => {
+      render(<ChartSkeleton />);
+      expect(screen.getByTestId('chart-skeleton')).toHaveStyle({ height: '400px' });
+    });
+
+    it('accepts an explicit height', () => {
+      render(<ChartSkeleton height={210} />);
+      expect(screen.getByTestId('chart-skeleton')).toHaveStyle({ height: '210px' });
+    });
+
+    it('accepts a responsive height object without throwing', () => {
+      render(<ChartSkeleton height={{ xs: 210, sm: 400 }} />);
+      expect(screen.getByTestId('chart-skeleton')).toBeInTheDocument();
     });
   });
 });

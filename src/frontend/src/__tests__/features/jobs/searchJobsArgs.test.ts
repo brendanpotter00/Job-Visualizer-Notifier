@@ -63,77 +63,22 @@ describe('buildSearchJobsArgs — the reader’s own custom companies', () => {
     expect(build({}, [], false, ['u-e95ejyhhwg'])?.companies).toBeUndefined();
   });
 
-  it('still returns null when the selection and the widened set are disjoint', () => {
-    // The union must not accidentally rescue a provably-empty filter set into a
-    // corpus-wide request. Selecting a company you do not follow is still "no
-    // jobs", and `null` is how the caller is told to render that without a fetch.
-    expect(build({ company: ['netflix'] }, ['apple'], false, ['u-e95ejyhhwg'])).toBeNull();
-  });
-
-  it('lets an explicit selection of an owned board through the enabled ceiling', () => {
-    // The reader filtering their Recent feed down to just their own custom board.
-    // Without the union `enabled` would not contain it, the intersection would be
-    // empty, and this would wrongly short-circuit to "no jobs".
-    const args = build({ company: ['u-e95ejyhhwg'] }, ['apple'], false, ['u-e95ejyhhwg']);
-
-    expect(args?.companies).toEqual(['u-e95ejyhhwg']);
-  });
-
   it('is inert when the reader owns nothing', () => {
     expect(build({}, ['apple', 'stripe'], false, [])?.companies).toEqual(['apple', 'stripe']);
   });
 });
 
 describe('buildSearchJobsArgs — companies', () => {
-  it('sends only the companies that are both enabled and explicitly selected', () => {
-    // The saved-companies preference is a hard ceiling: an explicit filter can
-    // narrow it but must never widen it back to a company the user disabled.
-    const args = build({ company: ['apple', 'netflix', 'stripe'] }, ['apple', 'stripe', 'figma']);
-
-    expect(args?.companies).toEqual(['apple', 'stripe']);
+  it('sends the enabled preference as the company scope, sorted', () => {
+    expect(build({}, ['stripe', 'apple']).companies).toEqual(['apple', 'stripe']);
   });
 
-  it('returns null when the enabled set and the selected set are disjoint', () => {
-    // The provably-empty case. An empty `company` param cannot express "no
-    // companies" on the wire (omitted means ALL), so the caller has to render
-    // the empty state without issuing a request.
-    const args = build({ company: ['netflix'] }, ['apple', 'stripe']);
-
-    expect(args).toBeNull();
-  });
-
-  it('treats null enabled ids as "all companies", leaving only the explicit filter', () => {
-    const args = build({ company: ['netflix'] }, null);
-
-    expect(args?.companies).toEqual(['netflix']);
-  });
-
-  it('treats an empty enabled-ids array as "all companies", same as null', () => {
+  it('omits companies entirely when the preference does not constrain them', () => {
     // `[]` is what the preference API returns for a user who has never picked
     // companies. Reading it as "match nothing" would show an empty page to
     // every brand-new signed-in user.
-    const args = build({ company: ['netflix'] }, []);
-
-    expect(args?.companies).toEqual(['netflix']);
-  });
-
-  it('omits companies entirely when neither the preference nor the filter constrains them', () => {
-    expect(build({}, null)?.companies).toBeUndefined();
-    expect(build({}, [])?.companies).toBeUndefined();
-  });
-
-  it('falls back to the enabled preference when no company filter is applied', () => {
-    const args = build({ company: [] }, ['stripe', 'apple']);
-
-    // An empty explicit filter is "no filter", not "nothing matches" — so the
-    // preference alone governs, and it comes out sorted.
-    expect(args?.companies).toEqual(['apple', 'stripe']);
-  });
-
-  it('never returns null when only one side is constrained, however unrelated the values', () => {
-    // The null contract is narrow on purpose: it requires BOTH sides non-empty.
-    expect(build({ company: ['netflix'] }, [])).not.toBeNull();
-    expect(build({}, ['apple'])).not.toBeNull();
+    expect(build({}, null).companies).toBeUndefined();
+    expect(build({}, []).companies).toBeUndefined();
   });
 });
 
@@ -141,7 +86,6 @@ describe('buildSearchJobsArgs — list normalization', () => {
   it('sorts and de-duplicates every multi-value list', () => {
     const args = build(
       {
-        company: ['stripe', 'apple', 'stripe'],
         category: ['software_engineering', 'design', 'design'],
         subcategory: ['frontend', 'backend', 'backend'],
         level: ['senior', 'entry', 'entry'],
@@ -155,7 +99,7 @@ describe('buildSearchJobsArgs — list normalization', () => {
           { text: 'staff', mode: 'exclude' },
         ],
       },
-      null,
+      ['stripe', 'apple', 'stripe'],
     );
 
     expect(args?.companies).toEqual(['apple', 'stripe']);
@@ -172,7 +116,6 @@ describe('buildSearchJobsArgs — list normalization', () => {
     // mint a new cache entry and re-fetch the walk from page 1.
     const forward = build(
       {
-        company: ['apple', 'stripe'],
         category: ['design', 'software_engineering'],
         subcategory: ['backend', 'frontend'],
         level: ['entry', 'senior'],
@@ -189,7 +132,6 @@ describe('buildSearchJobsArgs — list normalization', () => {
 
     const reversed = build(
       {
-        company: ['stripe', 'apple'],
         category: ['software_engineering', 'design'],
         subcategory: ['frontend', 'backend'],
         level: ['senior', 'entry'],
@@ -211,7 +153,6 @@ describe('buildSearchJobsArgs — list normalization', () => {
     // `[]` and `undefined` serialize to different cache keys but mean the same
     // thing, so only one of them is ever allowed to reach the args.
     const args = build({
-      company: [],
       category: [],
       subcategory: [],
       level: [],
@@ -496,20 +437,19 @@ describe('buildSearchJobsQuery', () => {
     // what goes on the wire.
     const args = buildSearchJobsArgs({
       filters: makeFilters({
-        company: ['stripe', 'apple'],
         location: ['Austin, TX, US'],
         searchTags: [
           { text: 'senior engineer', mode: 'include' },
           { text: 'manager', mode: 'exclude' },
         ],
       }),
-      enabledCompanyIds: ['apple', 'stripe', 'figma'],
+      enabledCompanyIds: ['stripe', 'apple'],
       ownedCompanyIds: [],
       since: FROZEN_SINCE,
       isSignedOut: true,
     });
 
-    const params = new URLSearchParams(buildSearchJobsQuery(args as SearchJobsArgs, null));
+    const params = new URLSearchParams(buildSearchJobsQuery(args, null));
 
     expect(params.getAll('company')).toEqual(['apple', 'stripe']);
     expect(params.getAll('location')).toEqual(['Austin, TX, US']);

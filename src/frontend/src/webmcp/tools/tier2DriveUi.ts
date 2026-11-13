@@ -2,7 +2,6 @@ import type { JSONSchema7Definition } from 'json-schema';
 import {
   resetRecentJobsFilters,
   setRecentJobsCategory,
-  setRecentJobsCompany,
   setRecentJobsEmploymentType,
   setRecentJobsLevel,
   setRecentJobsLocation,
@@ -19,11 +18,10 @@ import {
   navigateTo,
   ok,
   parseRecentArgs,
-  resolveCompany,
   TIME_WINDOW_ENUM,
 } from './shared';
 
-/** Property set shared with `search_jobs`, minus the query-only cursor/limit. */
+/** Property set shared with `search_jobs`, minus the query-only cursor/limit and `company`. */
 const ARRANGE_PROPERTIES: Record<string, JSONSchema7Definition> = {
   include: {
     type: 'array',
@@ -40,11 +38,6 @@ const ARRANGE_PROPERTIES: Record<string, JSONSchema7Definition> = {
     type: 'array',
     items: { type: 'string' },
     description: "Enrichment level slugs; 'entry' also matches new_grad.",
-  },
-  company: {
-    type: 'array',
-    items: { type: 'string' },
-    description: 'Company id or display name.',
   },
   location: {
     type: 'array',
@@ -68,6 +61,11 @@ export function tier2DriveUi(ctx: ToolCtx): WebMcpToolDef[] {
     },
     annotations: { readOnlyHint: false },
     execute: async (rawArgs) => {
+      if ('company' in rawArgs) {
+        return err(
+          "apply_feed_filters has no `company` filter: the Recent feed covers the reader's company preferences. Use search_jobs to query by company."
+        );
+      }
       const args = parseRecentArgs(rawArgs);
       const dispatch = ctx.store.dispatch;
 
@@ -82,12 +80,6 @@ export function tier2DriveUi(ctx: ToolCtx): WebMcpToolDef[] {
       }
       if ('softwareOnly' in rawArgs) {
         dispatch(setRecentJobsSoftwareOnly(Boolean(rawArgs.softwareOnly)));
-      }
-      if ('company' in rawArgs) {
-        const ids = (args.company ?? [])
-          .map(resolveCompany)
-          .filter((id): id is string => id !== null);
-        dispatch(setRecentJobsCompany(ids));
       }
       if ('include' in rawArgs || 'exclude' in rawArgs) {
         const tags = buildSearchTags(args.include, args.exclude);

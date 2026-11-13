@@ -17,10 +17,23 @@ vi.mock('../../../components/companies-page/JobList/ListSection', () => ({
 
 describe('CompaniesPageContent', () => {
   describe('isLoading=true', () => {
-    it('renders a LoadingState (role=progressbar)', () => {
+    it('renders the page skeleton (status region), not a spinner', () => {
       renderWithProviders(<CompaniesPageContent isLoading />);
 
-      expect(screen.getByRole('progressbar')).toBeInTheDocument();
+      expect(screen.getByRole('status', { name: 'Loading job data…' })).toBeInTheDocument();
+      expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+    });
+
+    it('shapes the skeleton like the loaded page: metrics card over the graph + list card', () => {
+      const { container } = renderWithProviders(<CompaniesPageContent isLoading />);
+
+      expect(screen.getByText('Past 3 Days')).toBeInTheDocument();
+      expect(screen.getByText('Find Recruiters')).toBeInTheDocument();
+      expect(screen.getByText('Job Posting Timeline')).toBeInTheDocument();
+      expect(screen.getByText('Job Listings')).toBeInTheDocument();
+      expect(screen.getByTestId('chart-skeleton')).toBeInTheDocument();
+      expect(container.querySelectorAll('.MuiCard-root')).toHaveLength(3);
+      expect(screen.queryByTestId('metrics-dashboard')).not.toBeInTheDocument();
     });
 
     it('does NOT render the legacy Workday caption (Workday rows are now backend-scraper)', () => {
@@ -30,7 +43,7 @@ describe('CompaniesPageContent', () => {
       // that the caption is gone for ANY loading state.
       renderWithProviders(<CompaniesPageContent isLoading />);
 
-      expect(screen.getByRole('progressbar')).toHaveAccessibleName('Loading');
+      expect(screen.queryByText(/Workday source requires/i)).not.toBeInTheDocument();
     });
 
     it('does NOT render GraphSection or ListSection while loading', () => {
@@ -49,10 +62,11 @@ describe('CompaniesPageContent', () => {
       expect(screen.getByTestId('list-section')).toBeInTheDocument();
     });
 
-    it('does NOT render a loading state', () => {
+    it('does NOT render a spinner or the skeleton', () => {
       renderWithProviders(<CompaniesPageContent isLoading={false} />);
 
       expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
     });
 
     it('renders the graph and list inside a single Paper card separated by a divider', () => {

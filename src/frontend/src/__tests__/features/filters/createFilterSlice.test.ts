@@ -70,9 +70,8 @@ describe('createFilterSlice', () => {
         expect(actionNames).toContain(actionName);
       });
 
-      // main's 22 (18 prior + hydrate{Name}Filters + set{Name}Hydrated
-      // + set{Name}Category + set{Name}Level) plus set{Name}Subcategory.
-      expect(actionNames).toHaveLength(23);
+      expect(actionNames).toHaveLength(19);
+      expect(actionNames.filter((n) => /Compan/.test(n))).toEqual([]);
     });
   });
 
@@ -622,9 +621,8 @@ describe('createFilterSlice', () => {
       name: FilterSliceName;
       // Build the slice's initial filters with the correct shape for this name.
       makeSlice: () => ReturnType<typeof createFilterSlice>;
-      // Two representative EDIT actions. `recentJobs` uses the one no-op-guarded
-      // action left in the factory (add{Name}Company); graph/list have none, so
-      // they use a plain multi-select edit
+      // Two representative EDIT actions: a scalar setter and a plain
+      // multi-select edit.
       editActions: { type: string; payload: unknown }[];
     };
 
@@ -642,7 +640,6 @@ describe('createFilterSlice', () => {
       timeWindow: '3h',
       searchTags: undefined,
       softwareOnly: false,
-      company: undefined,
     };
 
     const cases: SliceCase[] = [
@@ -667,8 +664,7 @@ describe('createFilterSlice', () => {
         makeSlice: () => createFilterSlice('recentJobs', recentJobsInitial),
         editActions: [
           { type: 'recentJobsFilters/setRecentJobsTimeWindow', payload: '24h' as TimeWindow },
-          // Only `recentJobs` owns `company`, so this is the no-op-guarded edit.
-          { type: 'recentJobsFilters/addRecentJobsCompany', payload: 'netflix' },
+          { type: 'recentJobsFilters/addRecentJobsLocation', payload: 'Austin, TX' },
         ],
       },
     ];

@@ -47,7 +47,6 @@ const BASE_FILTERS: RecentJobsFilters = {
   location: undefined,
   employmentType: undefined,
   softwareOnly: false,
-  company: undefined,
   category: undefined,
   level: undefined,
   subcategory: undefined,
@@ -249,33 +248,24 @@ describe('useRecentJobsSearch — when it is allowed to fetch', () => {
     // skeletons or a "load more" sentinel over a fixture that is already whole.
     expect(result.current.isInitialLoading).toBe(false);
     expect(result.current.hasNextPage).toBe(false);
-    expect(result.current.isSkippedEmpty).toBe(false);
   });
 
-  it('scopes the demo recency tiles to the companies in play, like the server does', async () => {
-    // The server's two recency counts honour `company` and nothing else (see
-    // `_header_counts_where`, Ledger #3). Demo mode counted the WHOLE fixture, so
-    // narrowing to one company left the tiles frozen at the corpus-wide number
-    // while the rows below shrank — the same inflation the server-side count was
-    // re-scoped to remove, reintroduced on the one path with no request to check.
+  it('counts the demo recency tiles over the whole fixture, whatever narrows the rows', async () => {
     const wide = renderSearch(makeStore({ demoModeEnabled: true }));
     await flush();
-    const wideCounts = wide.result.current.counts;
-
-    const scoped = renderSearch(
-      makeStore({ demoModeEnabled: true, filters: { company: ['google'] } })
+    const narrowed = renderSearch(
+      makeStore({
+        demoModeEnabled: true,
+        filters: { searchTags: [{ text: 'Developer', mode: 'include' }] },
+      })
     );
     await flush();
-    const scopedCounts = scoped.result.current.counts;
 
-    // Precondition: the fixture actually has recent google rows AND recent rows
-    // elsewhere, or "scoped is smaller" would be vacuous.
-    expect(wideCounts?.last24h).toBeGreaterThan(0);
-    expect(scopedCounts?.last24h).toBeGreaterThan(0);
-    expect(scopedCounts?.last24h).toBeLessThan(wideCounts?.last24h as number);
-    expect(scopedCounts?.last3h).toBeLessThanOrEqual(wideCounts?.last3h as number);
-    // ...and the tiles agree with the rows they sit above.
-    expect(scoped.result.current.jobs.every((job) => job.company === 'google')).toBe(true);
+    expect(narrowed.result.current.jobs.length).toBeGreaterThan(0);
+    expect(narrowed.result.current.jobs.length).toBeLessThan(wide.result.current.jobs.length);
+    expect(wide.result.current.counts?.last24h).toBeGreaterThan(0);
+    expect(narrowed.result.current.counts?.last24h).toBe(wide.result.current.counts?.last24h);
+    expect(narrowed.result.current.counts?.last3h).toBe(wide.result.current.counts?.last3h);
   });
 
   it("waits for auth to resolve and for the signed-in user's companies to load", async () => {
@@ -292,7 +282,6 @@ describe('useRecentJobsSearch — when it is allowed to fetch', () => {
     // render "No jobs found" for a search it never ran. That is the exact shape
     // of the 2026-08-10 failure.
     expect(result.current.isInitialLoading).toBe(true);
-    expect(result.current.isSkippedEmpty).toBe(false);
     expect(result.current.error).toBeNull();
 
     // Auth resolved, but this user's enabled-company list is still in flight.
@@ -320,27 +309,6 @@ describe('useRecentJobsSearch — when it is allowed to fetch', () => {
     expect(params.getAll('company')).toEqual(['apple', 'google']);
     expect(params.get('limit')).toBe(String(RECENT_SEARCH_PAGE_SIZE));
     expect(params.get('limit')).not.toBe(String(SIGNED_OUT_FETCH_LIMIT));
-  });
-
-  it('makes no request at all when the company filter and the enabled companies are disjoint', async () => {
-    // An empty company list cannot be expressed on the wire (an omitted param
-    // means "all companies"), so the only correct request here is no request.
-    const store = makeStore({
-      enabledCompanyIds: ['google'],
-      filters: { company: ['apple'] },
-    });
-    const { result } = renderSearch(store);
-    await flush();
-
-    expect(fetchMock).not.toHaveBeenCalled();
-    expect(result.current.isSkippedEmpty).toBe(true);
-    expect(result.current.jobs).toEqual([]);
-    expect(result.current.counts).toBeNull();
-    // The page renders a terminal empty state, so it must not also claim to be
-    // loading or to hold another page.
-    expect(result.current.isInitialLoading).toBe(false);
-    expect(result.current.hasNextPage).toBe(false);
-    expect(result.current.error).toBeNull();
   });
 });
 

@@ -195,10 +195,9 @@ export interface Company {
 
   /**
    * For companies whose `ats === 'backend-scraper'`, the ATS that originally
-   * served their jobs before migration to the backend. Used by the Why page
-   * to group migrated providers (Ashby, Greenhouse, Lever, Gem, Eightfold,
-   * Workday) under their own column instead of lumping them with the true
-   * Custom Web Scrapers (Google/Apple/Microsoft/Amazon).
+   * served their jobs before migration to the backend. Used to label migrated
+   * providers (Ashby, Greenhouse, Lever, Gem, Eightfold, Workday) instead of
+   * lumping them with the true Custom Web Scrapers (Google/Apple/Microsoft/Amazon).
    */
   sourceAts?: 'ashby' | 'eightfold' | 'gem' | 'greenhouse' | 'lever' | 'workday';
 
@@ -328,7 +327,7 @@ export interface ListFilters {
 
 /**
  * Recent jobs filter state (for all-companies view)
- * Subset of GraphFilters/ListFilters, plus a `company` multi-select
+ * Subset of GraphFilters/ListFilters
  */
 export interface RecentJobsFilters {
   timeWindow: TimeWindow;
@@ -337,7 +336,6 @@ export interface RecentJobsFilters {
   /** @deprecated Dead: no UI control renders it and the scraper never sets it. */
   employmentType?: string;
   softwareOnly: boolean;
-  company?: string[];
   /** Enrichment category slugs (multi-select OR; empty/undefined = All). Jobs not yet enriched (category null) are HIDDEN once this filter is active. */
   category?: string[];
   /** Enrichment level slugs (multi-select OR; 'entry' also matches new_grad). Jobs not yet enriched (level null) are HIDDEN once this filter is active. */

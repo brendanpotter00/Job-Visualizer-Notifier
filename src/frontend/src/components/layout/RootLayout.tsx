@@ -6,7 +6,7 @@ import { Outlet } from 'react-router-dom';
 import { GlobalAppBar } from './GlobalAppBar';
 import { NavigationDrawer } from './NavigationDrawer';
 import { AppFooter } from './AppFooter';
-import { LoadingState } from '../shared/LoadingIndicator';
+import { PageSkeleton } from '../shared/Skeletons';
 
 const DRAWER_WIDTH = 240;
 export const MINI_DRAWER_WIDTH = 65; // Match NavigationDrawer's calculated width
@@ -51,7 +51,7 @@ export function RootLayout() {
   // it into local state via an effect is the recommended pattern here. A
   // useSyncExternalStore rewrite against matchMedia would be net-neutral for
   // behavior and adds visual-regression risk around drawer-width transitions,
-  // so we keep the disable. See src/frontend/CLAUDE.md "Frontend Foundations"
+  // so we keep the disable. See src/frontend/AGENTS.md "Frontend Foundations"
   // for the authoritative eslint-disable justification list.
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional external-sync pattern; see block comment above
@@ -68,16 +68,10 @@ export function RootLayout() {
 
   return (
     <Box sx={{ display: 'flex', minHeight: '100vh', flexDirection: 'column' }}>
-      <GlobalAppBar
-        open={drawerOpen}
-        onDrawerToggle={handleDrawerToggle}
-        drawerWidth={DRAWER_WIDTH}
-        isMobile={isMobile}
-      />
+      <GlobalAppBar open={drawerOpen} onDrawerToggle={handleDrawerToggle} />
       <NavigationDrawer
         open={drawerOpen}
         onClose={handleDrawerClose}
-        onToggleCollapse={handleDrawerToggle}
         drawerWidth={DRAWER_WIDTH}
         isMobile={isMobile}
       />
@@ -107,7 +101,7 @@ export function RootLayout() {
             child of a column flex container still stretches to full width and keeps its
             natural height, because nothing here sets `flexGrow` on it. */}
         <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-          <Suspense fallback={<LoadingState minHeight={400} />}>
+          <Suspense fallback={<PageSkeleton />}>
             <Outlet />
           </Suspense>
         </Box>

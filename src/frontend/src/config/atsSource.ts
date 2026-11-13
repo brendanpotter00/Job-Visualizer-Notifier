@@ -34,24 +34,13 @@ export const ATS_DISPLAY_NAMES: Record<ATSGroupKey, string> = {
   workday: 'Workday',
 };
 
-export const NON_CAPITALIZED_GROUPS: ReadonlySet<ATSGroupKey> = new Set([
-  'backend-scraper',
-  'greenhouse',
-  'ashby',
-  'lever',
-  'gem',
-  'eightfold',
-  'workday',
-]);
-
 /**
  * Human-readable label for a single company's *true* data source, used by the
  * Company Hiring Trends header. The `backend-scraper` ATS type is only the
  * fetch mechanism — every company's jobs originate from its original provider,
  * so we resolve that via `sourceAts` (Greenhouse/Ashby/Lever/Gem/Eightfold/
  * Workday). The true custom scrapers (Google/Apple/Microsoft/Amazon) carry no
- * `sourceAts` and are labeled "Custom Web Scraper" (singular, unlike the Why
- * page's plural column header which groups all four).
+ * `sourceAts` and are labeled "Custom Web Scraper".
  */
 export function getCompanySourceLabel(company: Company): string {
   const key = getATSGroupKey(company);

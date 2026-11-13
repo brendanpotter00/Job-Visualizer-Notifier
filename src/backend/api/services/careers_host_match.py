@@ -11,7 +11,7 @@ resolver only names Greenhouse / Ashby / Lever / Gem / Workday / Eightfold. Amaz
 Apple, Google, Microsoft and TikTok are published with ``ats='script'`` — a sentinel the
 resolver never emits and no URL ever spells — so their careers URLs resolve to no
 candidate at all and fall through to discovery. That limit was documented (in
-``user_companies.py`` and ``src/frontend/CLAUDE.md``) and documenting it did not make it
+``user_companies.py`` and ``src/frontend/AGENTS.md``) and documenting it did not make it
 acceptable: the user asked for a company we already have and we charged an LLM call for
 the privilege.
 

@@ -167,9 +167,8 @@ export function resolveCompany(nameOrId: string): string | null {
 /**
  * Build a `RecentJobsFilters` from parsed tool args, reusing the filter slice's
  * own mutation utils so keyword-tag and softwareOnly semantics match the UI
- * byte-for-byte. Company tokens are resolved to ids; unresolved ones are
- * dropped. `search_jobs` feeds this straight into `buildSearchJobsArgs`, so the
- * tool and the Recent page turn identical filter state into an identical
+ * byte-for-byte. `search_jobs` feeds this straight into `buildSearchJobsArgs`, so
+ * the tool and the Recent page turn identical filter state into an identical
  * server-side `GET /api/jobs/search` query.
  */
 export function buildRecentFilters(args: RecentToolArgs): RecentJobsFilters {
@@ -179,7 +178,6 @@ export function buildRecentFilters(args: RecentToolArgs): RecentJobsFilters {
     location: undefined,
     employmentType: undefined,
     softwareOnly: false,
-    company: undefined,
     category: undefined,
     level: undefined,
   };
@@ -192,18 +190,16 @@ export function buildRecentFilters(args: RecentToolArgs): RecentJobsFilters {
   if (args.level) filters.level = args.level;
   if (args.employmentType) filters.employmentType = args.employmentType;
 
-  if (args.company) {
-    const ids = args.company
-      .map(resolveCompany)
-      .filter((id): id is string => id !== null);
-    filters.company = ids.length > 0 ? ids : undefined;
-  }
-
   // softwareOnly last: it mutates searchTags via the shared util, so it must run
   // after any explicit include/exclude tags are already in place.
   if (args.softwareOnly) setSoftwareOnlyInFilters(filters, true);
 
   return filters;
+}
+
+export function resolveCompanyScope(company: string[] | undefined): string[] | null {
+  const ids = (company ?? []).map(resolveCompany).filter((id): id is string => id !== null);
+  return ids.length > 0 ? ids : null;
 }
 
 /** Turn include/exclude keyword lists into the slice's `SearchTag[]` shape. */

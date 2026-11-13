@@ -95,7 +95,7 @@ and Vercel's Fluid Compute runtime, so the abort fix is portable. `companyId`
 is non-optional and every caller provides it. I found one legitimate data-
 correctness bug in the client (AbortError wrapped as retryable APIError),
 one design omission (`MAX_ITERATIONS` silently returns partial results), one
-doc gap (CLAUDE.md unchanged), and a couple of minor cleanups. None is a hard
+doc gap (AGENTS.md unchanged), and a couple of minor cleanups. None is a hard
 blocker, but finding 1 below is worth addressing before merge if RTK Query
 retries are wired up.
 
@@ -143,7 +143,7 @@ _(none that weren't already flagged by Reviewer 1)_
 
 #### Nice-to-have
 
-3. **CLAUDE.md docs not updated** — root `CLAUDE.md` and `src/frontend/CLAUDE.md` still list Greenhouse/Lever/Ashby/Workday/Gem as the ATS set and don't mention Eightfold. The plan's §11 step 11 explicitly called for this. The frontend CLAUDE.md even says "Six ATS providers … supported" and enumerates them. Minor; easy fix.
+3. **AGENTS.md docs not updated** — root `AGENTS.md` and `src/frontend/AGENTS.md` still list Greenhouse/Lever/Ashby/Workday/Gem as the ATS set and don't mention Eightfold. The plan's §11 step 11 explicitly called for this. The frontend AGENTS.md even says "Six ATS providers … supported" and enumerates them. Minor; easy fix.
 
 4. **Stale "Netflix" in `workdayClient.test.ts:591`** — A test named `'should send correct header for wd1 instance (Netflix)'` still uses `netflix.wd1.myworkdayjobs.com` as the generic wd1 example. Test still passes (the logic is tenant-agnostic), but the fixture is misleading post-migration. Rename the case to a non-Netflix wd1 tenant or drop it.
 

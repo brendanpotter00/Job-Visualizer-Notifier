@@ -62,23 +62,10 @@ beforeEach(() => {
 interface PreloadedOverrides {
   searchTags?: { text: string; mode: 'include' | 'exclude' }[];
   location?: string[];
-  company?: string[];
   softwareOnly?: boolean;
 }
 
-/**
- * The Company dropdown's options come from `selectRecentCompanyOptions` — the
- * static company config intersected with the user's enabled-companies
- * preference — NOT from jobs in the RTK Query cache. The page filters
- * server-side now, so the rows on screen are already narrowed by every other
- * active filter and deriving options from them would make the dropdown shrink
- * as the reader searched. Seeding the preference is therefore the only setup
- * the dropdown needs; no jobs cache is involved.
- */
-async function seedRecentStore(
-  overrides: PreloadedOverrides = {},
-  enabledCompanyIds: string[] = ['spacex']
-) {
+async function seedRecentStore(overrides: PreloadedOverrides = {}) {
   return createTestStore({
     recentJobsFilters: {
       filters: {
@@ -90,26 +77,27 @@ async function seedRecentStore(
         ...overrides,
       },
     },
-    enabledCompanies: {
-      ids: enabledCompanyIds,
-      autoEnroll: false,
-      loading: false,
-      error: null,
-      activeLoadRequestId: null,
-    },
   });
 }
 
 describe('RecentJobsFilters', () => {
-  it('renders the merged KeywordFilterInput, TimeWindowSelect, Company, Location, Reset button', async () => {
+  it('renders the merged KeywordFilterInput, TimeWindowSelect, Location, Reset button', async () => {
     const store = await seedRecentStore();
     renderWithProviders(<RecentJobsFilters />, { store });
 
     expect(screen.getByRole('combobox', { name: 'Keywords' })).toBeInTheDocument();
     expect(screen.getAllByText('Time Window').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('Company').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Location').length).toBeGreaterThan(0);
     expect(screen.getByRole('button', { name: /reset filters/i })).toBeInTheDocument();
+  });
+
+  it('renders no Company control', async () => {
+    const store = await seedRecentStore();
+    renderWithProviders(<RecentJobsFilters />, { store });
+
+    expect(screen.queryByRole('combobox', { name: 'Company' })).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText('Select company...')).not.toBeInTheDocument();
+    expect(screen.queryByText('Company')).not.toBeInTheDocument();
   });
 
   /**
@@ -180,39 +168,6 @@ describe('RecentJobsFilters', () => {
     expect(tags?.[0].mode).toBe('exclude');
   });
 
-  it('dispatches addRecentJobsCompany (resolves name->id) when company option selected', async () => {
-    const store = await seedRecentStore();
-    const user = userEvent.setup();
-    renderWithProviders(<RecentJobsFilters />, { store });
-
-    const companyInput = screen.getByPlaceholderText('Select company...');
-    await user.click(companyInput);
-    const listbox = await screen.findByRole('listbox');
-    const firstOption = within(listbox).getAllByRole('option')[0];
-    expect(firstOption).toBeDefined();
-    await user.click(firstOption);
-
-    // Should store company IDs (not names). The only enabled company is 'spacex'.
-    expect(store.getState().recentJobsFilters.filters.company).toContain('spacex');
-  });
-
-  it('offers every followed company as an option, not just ones with jobs on screen', async () => {
-    // Regression guard for the server-side-filtering cutover: options are the
-    // user's enabled set, so the list stays stable no matter how narrow the
-    // current result set is (here: no jobs loaded at all).
-    const store = await seedRecentStore({}, ['spacex', 'airtable']);
-    const user = userEvent.setup();
-    renderWithProviders(<RecentJobsFilters />, { store });
-
-    await user.click(screen.getByPlaceholderText('Select company...'));
-    const listbox = await screen.findByRole('listbox');
-    const optionNames = within(listbox)
-      .getAllByRole('option')
-      .map((o) => o.textContent);
-    // Sorted by display name.
-    expect(optionNames).toEqual(['Airtable', 'SpaceX']);
-  });
-
   it('dispatches addRecentJobsLocation when location option selected', async () => {
     // The Location control sources its options from the server-backed search
     // hook, not from loaded jobs — mock it with a couple of canned rows.
@@ -277,7 +232,6 @@ describe('RecentJobsFilters', () => {
     const store = await seedRecentStore({
       searchTags: [{ text: 'senior', mode: 'include' }],
       location: ['SF'],
-      company: ['spacex'],
     });
     const user = userEvent.setup();
     renderWithProviders(<RecentJobsFilters />, { store });
@@ -290,23 +244,6 @@ describe('RecentJobsFilters', () => {
     expect(filters.timeWindow).toBe('all');
     expect(filters.searchTags).toBeUndefined();
     expect(filters.location).toBeUndefined();
-    expect(filters.company).toBeUndefined();
-  });
-
-  it('dispatches removeRecentJobsCompany when a selected company chip is removed', async () => {
-    const store = await seedRecentStore({ company: ['spacex'] });
-    const user = userEvent.setup();
-    renderWithProviders(<RecentJobsFilters />, { store });
-
-    // Find the Company field's chip (SpaceX by display name). The chip has a
-    // delete button (CancelIcon) rendered inside it.
-    const spacexChip = screen.getByText('SpaceX').closest('.MuiChip-root') as HTMLElement;
-    expect(spacexChip).not.toBeNull();
-    const deleteBtn = within(spacexChip).getByTestId('CancelIcon');
-    await user.click(deleteBtn);
-
-    const company = store.getState().recentJobsFilters.filters.company;
-    expect(company === undefined || company.length === 0).toBe(true);
   });
 
   it('dispatches removeRecentJobsLocation when a selected location chip is removed', async () => {

@@ -343,14 +343,14 @@ Eight small, individually mergeable units. Order is load-bearing.
   - (b) write Greenhouse-specific details into the `details` JSONB column in Unit 3's transform so the existing parser sees consistent fields.
   - Option (b) is cleaner; keep the JSONB structurally consistent across sources.
 - After all entries are flipped: delete `api/greenhouse.ts` (Vercel function). Update `vercel.json`/`vercel.ts` if it references the route.
-- Update `src/frontend/CLAUDE.md` and project root `CLAUDE.md` to reflect that Greenhouse is now backend-served.
+- Update `src/frontend/AGENTS.md` and project root `AGENTS.md` to reflect that Greenhouse is now backend-served.
 
 **Files:**
 - `src/frontend/src/config/companies.ts`
 - `src/frontend/src/api/transformers/backendScraperTransformer.ts` (possibly)
 - `api/greenhouse.ts` (delete)
 - `vercel.json` / `vercel.ts` (cleanup if needed)
-- `CLAUDE.md` (update both root and `src/frontend/CLAUDE.md`)
+- `AGENTS.md` (update both root and `src/frontend/AGENTS.md`)
 
 **Verification:**
 - `npm run dev:vercel -w src/frontend`, navigate to a Greenhouse company (e.g. Stripe), confirm jobs render.

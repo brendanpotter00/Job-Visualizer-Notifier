@@ -28,6 +28,56 @@ import Divider from '@mui/material/Divider';
 import { ResolveUrlForm } from '../../components/my-companies/ResolveUrlForm';
 import { AddCompanyOutcome } from '../../components/my-companies/AddCompanyOutcome';
 import { MyCompaniesList } from '../../components/my-companies/MyCompaniesList';
+import { MyCompaniesListSkeleton } from '../../components/my-companies/MyCompaniesListSkeleton';
+import {
+  SkeletonRegion,
+  SKELETON_CONTROL_HEIGHT,
+  TextSkeleton,
+} from '../../components/shared/Skeletons';
+import Box from '@mui/material/Box';
+import Skeleton from '@mui/material/Skeleton';
+
+function MyCompaniesPageSkeleton() {
+  return (
+    <Container maxWidth="md" sx={{ py: RESPONSIVE.spacing.pageMarginY }}>
+      <Typography
+        variant="h4"
+        component="div"
+        gutterBottom
+        sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 1 }}
+      >
+        Add Companies
+        <BetaBadge />
+      </Typography>
+      <SkeletonRegion label="Loading Add Companies…">
+        <Typography variant="body2" component="div" sx={{ mb: 2 }}>
+          <Skeleton width={220} />
+        </Typography>
+        <Stack spacing={3}>
+          <Paper sx={{ p: RESPONSIVE.spacing.paperPaddingLg }}>
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+              <Skeleton
+                variant="rounded"
+                height={SKELETON_CONTROL_HEIGHT}
+                sx={{ flex: { xs: 'none', sm: 1 } }}
+              />
+              <Skeleton
+                variant="rounded"
+                height={SKELETON_CONTROL_HEIGHT}
+                sx={{ width: { xs: '100%', sm: 140 } }}
+              />
+            </Stack>
+            <Box sx={{ mt: 1.5 }}>
+              <TextSkeleton lines={1} />
+            </Box>
+          </Paper>
+          <Divider />
+          <MyCompaniesListSkeleton />
+        </Stack>
+      </SkeletonRegion>
+    </Container>
+  );
+}
 
 /**
  * "Add Companies" — paste a careers URL, get the company tracked.
@@ -102,7 +152,7 @@ export function MyCompaniesPage() {
 
   // ── auth ladder (mirrors SavedFiltersPage / AccountPage) ─────────────────
   if (authLoading) {
-    return <LoadingState fullPage />;
+    return <MyCompaniesPageSkeleton />;
   }
 
   if (!isAuthenticated) {
@@ -332,7 +382,7 @@ export function MyCompaniesPage() {
      * monthly adds. The disclosure that used to sit under the button — "If this board is
      * new to us, Add company starts a one-time setup right away, about a minute" — was
      * removed at the owner's request on 2026-09-02 (see `ResolveUrlForm` and
-     * `src/frontend/CLAUDE.md`). So from here a single press goes from keystroke to paid
+     * `src/frontend/AGENTS.md`). So from here a single press goes from keystroke to paid
      * discovery with NOTHING on screen saying so. That is the owner's call and the spend
      * is still bounded server-side (20 adds per UTC month, a 10/60s burst limit,
      * `CUSTOM_COMPANY_DISCOVERY_ENABLED`) — what is missing is the disclosure, not the
@@ -455,7 +505,7 @@ export function MyCompaniesPage() {
               noise. It should only be there when there's an empty state, showing how to
               do it." The steps have since gone as well — they described the URL-only
               flow the name search superseded — so there is no explanation left for a
-              link to point back at. See `src/frontend/CLAUDE.md`. */}
+              link to point back at. See `src/frontend/AGENTS.md`. */}
         </Paper>
 
         {/* One spinner for the one call. No `!adding` guard on the outcome below it:

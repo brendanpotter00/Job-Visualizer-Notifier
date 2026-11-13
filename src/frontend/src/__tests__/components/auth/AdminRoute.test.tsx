@@ -73,7 +73,8 @@ describe('AdminRoute', () => {
   it('shows loading state while the auth SDK is booting', () => {
     mockAuthState.isLoading = true;
     renderAt('/admin/users');
-    expect(screen.getByRole('progressbar')).toBeInTheDocument();
+    expect(screen.getByRole('status', { name: 'Checking admin access…' })).toBeInTheDocument();
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
     expect(screen.queryByText('Home')).not.toBeInTheDocument();
     expect(screen.queryByText('Admin Content')).not.toBeInTheDocument();
   });
@@ -97,7 +98,8 @@ describe('AdminRoute', () => {
       reload: vi.fn(),
     };
     renderAt('/admin/users');
-    expect(screen.getByRole('progressbar')).toBeInTheDocument();
+    expect(screen.getByRole('status', { name: 'Checking admin access…' })).toBeInTheDocument();
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
     expect(screen.queryByText('Home')).not.toBeInTheDocument();
     expect(screen.queryByText('Admin Content')).not.toBeInTheDocument();
   });
@@ -110,7 +112,8 @@ describe('AdminRoute', () => {
       reload: vi.fn(),
     };
     renderAt('/admin/users');
-    expect(screen.getByRole('progressbar')).toBeInTheDocument();
+    expect(screen.getByRole('status', { name: 'Checking admin access…' })).toBeInTheDocument();
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
     expect(screen.queryByText('Admin Content')).not.toBeInTheDocument();
   });
 

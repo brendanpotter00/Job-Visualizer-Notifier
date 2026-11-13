@@ -385,17 +385,6 @@ export function matchesSubcategory(job: Job, subcategories: string[] | undefined
 }
 
 /**
- * Check if a job matches company filter (multi-select with OR logic)
- */
-export function matchesCompany(job: Job, companies: string[] | undefined): boolean {
-  if (!companies || companies.length === 0) {
-    return true;
-  }
-
-  return companies.some((filterCompany) => job.company === filterCompany);
-}
-
-/**
  * Filter jobs based on provided filters
  * Works with GraphFilters, ListFilters, and RecentJobsFilters
  *
@@ -450,12 +439,6 @@ export function filterJobsByFilters(
       return false;
     }
     if (!matchesLevel(job, filters.level)) {
-      return false;
-    }
-
-    // Company filter (multi-select with OR logic)
-    // Only check if company exists on filters (RecentJobsFilters only)
-    if ('company' in filters && !matchesCompany(job, filters.company)) {
       return false;
     }
 

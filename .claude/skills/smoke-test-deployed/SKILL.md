@@ -172,7 +172,7 @@ Step 2 ONCE from the navigate. Only a second consecutive failure counts.
    as a regression; only `freshness_behind > 0` is one.
 5. Run each `extra_checks` SQL assertion.
 
-Gotcha (from CLAUDE.md): this MCP mis-renders `timestamptz -> timestamp`
+Gotcha (from AGENTS.md): this MCP mis-renders `timestamptz -> timestamp`
 casts as local time. For any time-elapsed assertion use
 `EXTRACT(EPOCH FROM now())::bigint` comparisons, never `AT TIME ZONE`.
 

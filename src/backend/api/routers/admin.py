@@ -104,7 +104,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# Hard cap on the alias-inspect page size. The root CLAUDE.md memory rule
+# Hard cap on the alias-inspect page size. The root AGENTS.md memory rule
 # forbids unbounded reads, so the GET endpoint enforces this both via the
 # Query(le=...) validator (422 above cap) and the service's always-applied LIMIT.
 _ALIAS_LIST_CAP = 200

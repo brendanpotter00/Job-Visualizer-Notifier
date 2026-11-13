@@ -127,7 +127,7 @@ PORT=8201
 ### Two traps the implementation agent will hit
 
 **Trap 1 — `vercel dev` cannot be pointed at port 8201 reliably.**
-`api/utils/backendUrl.ts` honours `LOCAL_BACKEND_URL`, but root `CLAUDE.md` gotcha #3 says Vercel
+`api/utils/backendUrl.ts` honours `LOCAL_BACKEND_URL`, but root `AGENTS.md` gotcha #3 says Vercel
 Dev's cloud env vars override `.env.local` **and shell env vars** for `api/*.ts`. So use **plain
 `vite dev`** with an e2e-only config that proxies `^/api` → `http://127.0.0.1:8201`.
 *Honest cost of that choice:* the Vercel proxy layer (`api/users.ts`, `api/companies.ts`) is then
@@ -730,11 +730,11 @@ outcome and stays red until it is decided.
   drained. The e2e stack sidesteps it by running its own worker.
   *(The reserved interactive lane HAS landed: `_INTERACTIVE_QUEUES` = `custom_discovery`,
   `custom_ats_first_fetch`, `interactive_heartbeat` at `main.py:100-115`. AC-03 assertion #6 depends on it.)*
-* **`src/frontend/CLAUDE.md:173-175` says "Discovery has its own server flag" and `:190-193` says
+* **`src/frontend/AGENTS.md:173-175` says "Discovery has its own server flag" and `:190-193` says
   "Two independent flags."** The code says **one**: `routers/user_companies.py:328-336` —
   *"It is one flag rather than the retired pair."* **Code wins.** The doc is stale, and so is
   `MEMORY.md`'s note that already supersedes it.
-* **`src/frontend/CLAUDE.md:186-189` says the dedupe cannot catch `ats='script'` boards.**
+* **`src/frontend/AGENTS.md:186-189` says the dedupe cannot catch `ats='script'` boards.**
   As of 11.1 the mechanism exists to catch them; only the wiring is missing. That doc line and
   `custom_companies_service.py:100-103` (already updated) disagree until the router lands.
 

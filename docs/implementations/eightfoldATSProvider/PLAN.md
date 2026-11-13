@@ -440,7 +440,7 @@ Add a test for the ATS dispatch helper covering `'eightfold'`.
 8. Manual dev smoke test (§9 steps 5–7).
 9. `vercel.json` review (§9 step 8).
 10. Prod build (§9 step 9).
-11. Update root `CLAUDE.md` and `src/frontend/CLAUDE.md` to mention Eightfold.
+11. Update root `AGENTS.md` and `src/frontend/AGENTS.md` to mention Eightfold.
 
 ---
 

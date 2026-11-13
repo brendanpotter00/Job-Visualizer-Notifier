@@ -12,7 +12,7 @@ hazard rather than a pedantic one:
    runs `command.upgrade(cfg, "head")`). The schema moves when a container that
    contains the new code actually BOOTS — not when the merge button is pressed.
 2. Railway's **merge-train deploy-skip trap** is documented at
-   `src/backend/CLAUDE.md` and it has bitten this repo before, on 2026-08-05:
+   `src/backend/AGENTS.md` and it has bitten this repo before, on 2026-08-05:
    #232 was stacked under #235/#238, queued deployments were deduped to the
    newest commit, that commit matched no watch path, the whole queue skipped, and
    `alembic_version` stayed at the previous head while everything looked green.

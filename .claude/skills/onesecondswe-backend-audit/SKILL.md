@@ -71,7 +71,7 @@ Verify tools are wired up. If any of these fail, abort with a clear message.
 > 2. For elapsed-time math use `EXTRACT(EPOCH FROM now())::bigint` and subtract integers.
 > 3. Cross-check any "X hours ago" claim against bare `now()` before reporting.
 > See `docs/incidents/` and the `## Critical Gotchas` block in repo-root
-> `CLAUDE.md` for the May-2026 false-investigation this caused.
+> `AGENTS.md` for the May-2026 false-investigation this caused.
 
 ```sql
 -- mcp__postgres-prod__query — use bare now() (renders as …Z correctly)
@@ -507,7 +507,7 @@ Apple:      24/25 confirmed CLOSED ✅
 …
 ```
 
-If the false-close count > 0, dig into each one: pull `consecutive_misses`, `created_at`, `last_seen_at`, `closed_on` and look for patterns (timing tied to a recent deploy? pagination boundary? dedup collision?). **Use `created_at`, not `first_seen_at`** — `first_seen_at` now holds the board's posting date, so a run of identical values means "the board stamped them the same day," not "we inserted them in one batch." `created_at` is the only column that still means insert time (`scripts/CLAUDE.md` § Job Lifecycle).
+If the false-close count > 0, dig into each one: pull `consecutive_misses`, `created_at`, `last_seen_at`, `closed_on` and look for patterns (timing tied to a recent deploy? pagination boundary? dedup collision?). **Use `created_at`, not `first_seen_at`** — `first_seen_at` now holds the board's posting date, so a run of identical values means "the board stamped them the same day," not "we inserted them in one batch." `created_at` is the only column that still means insert time (`scripts/AGENTS.md` § Job Lifecycle).
 
 ```sql
 -- last_seen_at / consecutive_misses exist ONLY in the sidecar; the

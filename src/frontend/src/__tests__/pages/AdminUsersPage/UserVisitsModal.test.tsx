@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import { Provider } from 'react-redux';
 import { configureStore } from '@reduxjs/toolkit';
 import { format } from 'date-fns';
@@ -68,7 +68,15 @@ describe('UserVisitsModal', () => {
   it('shows the loading caption while the request is pending', () => {
     fetchMock.mockReturnValue(new Promise(() => {})); // never resolves
     renderModal();
-    expect(screen.getByRole('progressbar', { name: 'Loading visit history' })).toBeInTheDocument();
+    expect(screen.getByText('Loading visit history…')).toBeInTheDocument();
+  });
+
+  it('shows a list-shaped skeleton (not a spinner) while the request is pending', () => {
+    fetchMock.mockReturnValue(new Promise(() => {})); // never resolves
+    renderModal();
+    const region = screen.getByRole('status', { name: 'Loading visit history…' });
+    expect(within(region).getAllByRole('listitem')).toHaveLength(6);
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
   });
 
   it('renders visit timestamps in the order the server returned them (newest first)', async () => {

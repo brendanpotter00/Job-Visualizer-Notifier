@@ -56,7 +56,7 @@ Dispatched in parallel: `pr-review-toolkit:code-reviewer`, `pr-review-toolkit:si
 ### Deferred (not fixing this pass)
 
 - Parity test soundness hole: `Base.metadata` is on both sides of the `create_all` + autogenerate comparison; it catches model-vs-autogen drift but not model-vs-real-prod drift. Acknowledged in PLAN Unit 6 rewrite; the original stronger invariant cannot be restored because the old runner is deleted. Mitigation: `postgres-prod-verifier` confirms parity today, and operator-run `alembic stamp` is a one-time check. (pr-test-analyzer C2)
-- `db_models._resolve_env()` silently defaults to `"local"` when `SCRAPER_ENVIRONMENT` is unset. Same default is in `api.config.Settings`; documented in `src/backend/CLAUDE.md` as intentional for dev UX. Making it mandatory would break `docker compose up postgres && pytest` for contributors. Not fixing in this PR. (silent-failure-hunter I2)
+- `db_models._resolve_env()` silently defaults to `"local"` when `SCRAPER_ENVIRONMENT` is unset. Same default is in `api.config.Settings`; documented in `src/backend/AGENTS.md` as intentional for dev UX. Making it mandatory would break `docker compose up postgres && pytest` for contributors. Not fixing in this PR. (silent-failure-hunter I2)
 - Function-scoped fixture performance (`scripts/tests/conftest.py`). Correctness-irrelevant; leave for a follow-up perf PR. (code-reviewer 3)
 - Dev-layout path detection collision risk in `_resolve_alembic_paths`. Low probability; fix would complicate the function. Defer unless the logging fix (I3) doesn't disambiguate enough. (code-reviewer 4)
 - Duplicate allow-list in `db_models.py` vs `api.config`. Architectural import-cycle concern; separate refactor. (code-reviewer S3)

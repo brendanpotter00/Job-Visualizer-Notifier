@@ -81,7 +81,7 @@ describe('LiveScrapersTable', () => {
     const user = userEvent.setup();
     render(<LiveScrapersTable {...baseProps} />);
 
-    // An unpaginated admin table is a repo-level incident (root CLAUDE.md #7),
+    // An unpaginated admin table is a repo-level incident (root AGENTS.md #7),
     // so the pager must survive the mobile swap.
     expect(screen.getByText('Rows per page:')).toBeInTheDocument();
     expect(screen.queryByRole('table')).not.toBeInTheDocument();

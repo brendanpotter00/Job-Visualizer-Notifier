@@ -255,7 +255,7 @@ function AppContent() {
  * - / - Landing page for signed-out visitors; signed-in visitors go to /jobs
  * - /jobs - Recent job postings page (all jobs across companies)
  * - /companies - Companies page (job analytics for selected company)
- * - /why - Why This Was Built page (about and supported companies)
+ * - /why - Why This Was Built page (about)
  * - /qa - QA page (scraper triggers, run history, debugging)
  * - /account - Account page (user profile management)
  * - /vote-features - Vote for features page (changelog + feature voting)

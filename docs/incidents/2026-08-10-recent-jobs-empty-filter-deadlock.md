@@ -72,7 +72,7 @@ how much further to dig. That guess only exists because the client was filtering
 the server had already sent it.
 
 A follow-up PR moved the Recent page's entire filter set into SQL behind a new
-`GET /api/jobs/search` (see `src/backend/CLAUDE.md`). Every page the endpoint returns
+`GET /api/jobs/search` (see `src/backend/AGENTS.md`). Every page the endpoint returns
 contains only matching rows, so "the page came back empty" means "there are none
 left" — and the machinery that had to be kept alive is simply gone: the client-side
 keyset walk, the complete-prefix horizon, window widening, the empty-fetch budget,
@@ -92,7 +92,7 @@ What that resolves from the lists above:
   keyword box. Widening them back to the whole visible corpus would inflate them
   ~40x for a reader following 3 of 133 companies — see `_header_counts_where` in
   `src/backend/api/services/job_search.py` and the contract in
-  `src/backend/CLAUDE.md`.
+  `src/backend/AGENTS.md`.
 - **Wholesale page-1 failure** is fixed: a failed first page renders a real error
   with a retry, never an empty-results state.
 - **Demo mode** no longer fires real pages — it short-circuits the query entirely.

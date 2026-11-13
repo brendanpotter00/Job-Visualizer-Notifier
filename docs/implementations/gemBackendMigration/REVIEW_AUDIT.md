@@ -70,7 +70,7 @@ No Critical or Important findings — no fix commits this pass.
 
 **Verifier results:**
 - Re-ran the inline production verifier checks via MCP. `alembic_version` in prod is `a17b7c0ffee500` (the Ashby seed), which is exactly the `down_revision` of the new migration `b29c1ef8800600`. Migration chain is clean — `alembic upgrade head` will apply this PR's migration in one step on next backend deploy.
-- Sweep for stale "Lever, Gem, Workday" doc references across `src/` and `api/` returned zero matches — root CLAUDE.md and `src/frontend/CLAUDE.md` updates from Unit 7 caught everything.
+- Sweep for stale "Lever, Gem, Workday" doc references across `src/` and `api/` returned zero matches — root AGENTS.md and `src/frontend/AGENTS.md` updates from Unit 7 caught everything.
 - Sweep for stray `'gem'` literals outside the intentional usages (company id, `sourceAts` type, ATSGroupKey, WhyPage test, comments) returned zero matches.
 
 ### Deferred (not fixing this pass)

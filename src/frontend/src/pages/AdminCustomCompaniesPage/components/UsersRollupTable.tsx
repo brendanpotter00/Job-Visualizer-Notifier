@@ -23,7 +23,7 @@ import type { ChipColor } from '../statusChips';
  * it must not shrink as you filter by user) and ships whole in the attempts
  * response, capped server-side. Pagination is therefore CLIENT-side here —
  * still mandatory, still 25 by default: the cap is 200 rows and the rule is
- * that no admin table renders unbounded (root CLAUDE.md gotcha #7).
+ * that no admin table renders unbounded (root AGENTS.md gotcha #7).
  *
  * "Owns now" is deliberately its own column rather than a synonym for "Added":
  * deleting a custom company hard-deletes its `companies` row, so a user with

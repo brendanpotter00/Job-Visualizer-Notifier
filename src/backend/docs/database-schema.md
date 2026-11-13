@@ -268,7 +268,7 @@ labels the eval gate is built on.
   it for "freshest first" (the keyset ordering below; the `/api/internal/enrichment/pending`
   claim orders `first_seen_at DESC`). The full rule — including why a relative bucket like
   Workday's `"Posted 30+ Days Ago"` counts as no date at all — is in
-  **`scripts/CLAUDE.md` § Job Lifecycle**.
+  **`scripts/AGENTS.md` § Job Lifecycle**.
 - **`last_seen_at`** (on **`job_freshness`**, NOT `job_listings` — see below) — last scrape
   that still saw the job; **bumped to now() on every pass a job is still OPEN**, and drives
   close-detection (`consecutive_misses`). It signals "still actively listed," NOT freshness:

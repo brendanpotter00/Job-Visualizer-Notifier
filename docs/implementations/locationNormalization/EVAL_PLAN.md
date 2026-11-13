@@ -74,7 +74,7 @@ src/backend/api/eval/
 ├── prod_sample.json       # labeled sample pulled from prod (data file)
 ├── scoring.py             # field-normalization + match/score logic (pure, unit-testable)
 ├── eval_locations.py      # the runnable CLI entrypoint
-└── README.md              # how to run + when to run (also linked from backend CLAUDE.md)
+└── README.md              # how to run + when to run (also linked from backend AGENTS.md)
 ```
 
 Plus a unit test for the **pure** scorer (the only deterministic part):
@@ -148,7 +148,7 @@ MCP. Per the plan addendum there are **1,438 distinct non-null location strings*
    LIMIT 40;
    -- second query: ORDER BY random() LIMIT 30 (long-tail coverage)
    ```
-   (No timezone math here, so the `CLAUDE.md` Postgres-MCP timezone gotcha does
+   (No timezone math here, so the `AGENTS.md` Postgres-MCP timezone gotcha does
    not apply.)
 2. **Hand-label** `expected` for each by geographic judgment. For genuinely
    ambiguous strings, set `"gating": False` so they're reported but don't gate.
@@ -297,7 +297,7 @@ Make these edits as part of the deliverable:
    - How to refresh `prod_sample.json` (the §3c queries + relabel step).
    - Expected cost (~a few cents/run) and that it is **never** part of CI.
 
-2. **`src/backend/CLAUDE.md`** — add a short **"Evals"** subsection (near
+2. **`src/backend/AGENTS.md`** — add a short **"Evals"** subsection (near
    "Testing" / "Key Files") that points to `api/eval/README.md`, states the
    harness needs `ANTHROPIC_API_KEY` and real spend, and lists the canonical
    run command. Keep it brief; link, don't duplicate.
@@ -311,7 +311,7 @@ Make these edits as part of the deliverable:
    `src/backend/api/eval/` and when to run it — so future sessions know it exists.
    Add the matching line to `MEMORY.md`.
 
-### "When to run" — put this exact trigger list in the README and CLAUDE.md
+### "When to run" — put this exact trigger list in the README and AGENTS.md
 **The governing rule: run the golden-set eval (and compare to a saved baseline)
 before merging ANY change to the location-normalization logic** — if a diff
 touches how a raw location string becomes structured locations, run it. The
@@ -358,7 +358,7 @@ Also run it:
       (catch `MissingAnthropicKeyError`).
 - [ ] A real run on `--set all` completes and reports gating accuracy (record the
       first number as the initial baseline in the README).
-- [ ] Docs updated per §7 (README, backend CLAUDE.md, PLAN.md line, memory).
+- [ ] Docs updated per §7 (README, backend AGENTS.md, PLAN.md line, memory).
 - [ ] No change to production code paths — this is additive tooling only.
 
 ---
@@ -374,4 +374,4 @@ Also run it:
 | `src/backend/api/tests/test_llm_client.py` | Mock seam reference — what the unit tests do (and why they can't catch quality drift) |
 | `src/backend/api/requirements.txt` | `anthropic>=0.107.0,<1.0.0` SDK pin |
 | `docs/implementations/locationNormalization/PLAN.md` | Prod facts: 1,438 distinct strings (`:544`), no-key degradation (`:578`) |
-| `src/backend/CLAUDE.md` | Backend test conventions; add "Evals" subsection here |
+| `src/backend/AGENTS.md` | Backend test conventions; add "Evals" subsection here |

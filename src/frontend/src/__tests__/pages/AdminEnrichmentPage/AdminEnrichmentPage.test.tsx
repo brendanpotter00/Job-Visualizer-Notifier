@@ -315,6 +315,69 @@ describe('AdminEnrichmentPage', () => {
     vi.clearAllMocks();
   });
 
+  function pendingFor(...fragments: string[]) {
+    const base = routedFetch();
+    return (input: unknown) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (fragments.some((f) => url.includes(f))) return new Promise(() => {});
+      return base(input);
+    };
+  }
+
+  it('renders the whole-page skeleton while health and ticks are both pending', () => {
+    fetchMock.mockImplementation(pendingFor('/enrichment/health', '/enrichment/ticks'));
+    renderPage();
+
+    const region = screen.getByRole('status', { name: 'Loading enrichment pipeline…' });
+    expect(screen.getAllByRole('status')).toHaveLength(1);
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+    expect(within(region).getByText('Admin · Enrichment Pipeline')).toBeInTheDocument();
+    for (const title of [
+      'Backlog funnel',
+      'Subcategory rollout',
+      'Ticks',
+      'Needs human',
+      'Recent enrichments',
+    ]) {
+      expect(within(region).getByText(title)).toBeInTheDocument();
+    }
+    expect(screen.queryByRole('heading')).not.toBeInTheDocument();
+    expect(within(region).getAllByRole('columnheader', { name: 'Enriched' })).toHaveLength(2);
+  });
+
+  it('holds the banner + funnel + rollout space while only health is pending', async () => {
+    fetchMock.mockImplementation(pendingFor('/enrichment/health'));
+    renderPage();
+
+    expect(await screen.findByText(/2 tick\(s\) \/ 24h/)).toBeInTheDocument();
+    const region = screen.getByRole('status', { name: 'Loading health…' });
+    expect(within(region).getByText('Backlog funnel')).toBeInTheDocument();
+    expect(within(region).getByText('Subcategory rollout')).toBeInTheDocument();
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+  });
+
+  it('renders the ticks skeleton while only ticks are pending', async () => {
+    fetchMock.mockImplementation(pendingFor('/enrichment/ticks'));
+    renderPage();
+
+    expect(await screen.findByText('HEALTHY')).toBeInTheDocument();
+    const region = screen.getByRole('status', { name: 'Loading ticks…' });
+    expect(within(region).getAllByTestId('chart-skeleton')).toHaveLength(2);
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+  });
+
+  it('renders table skeletons for the self-contained queue and recent tables', async () => {
+    fetchMock.mockImplementation(pendingFor('/enrichment/needs-human', '/enrichment/recent'));
+    renderPage();
+
+    expect(await screen.findByText('HEALTHY')).toBeInTheDocument();
+    const queue = await screen.findByRole('status', { name: 'Loading queue…' });
+    expect(within(queue).getByRole('columnheader', { name: 'Sub conf.' })).toBeInTheDocument();
+    const recent = screen.getByRole('status', { name: 'Loading recent enrichments…' });
+    expect(within(recent).getByRole('columnheader', { name: 'Outcome' })).toBeInTheDocument();
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+  });
+
   it('renders the full healthy dashboard: verdict, funnel, ticks, scorecard, queue, recent', async () => {
     renderPage();
 
@@ -430,10 +493,9 @@ describe('AdminEnrichmentPage', () => {
     const user = userEvent.setup();
     renderPage();
 
-    await screen.findByText('Subcategory rollout');
-    const toggle = screen.getByLabelText(
+    const toggle = (await screen.findByLabelText(
       /show the subcategory filter to users/i
-    ) as HTMLInputElement;
+    )) as HTMLInputElement;
     expect(toggle.checked).toBe(false);
 
     await user.click(toggle);
@@ -467,10 +529,9 @@ describe('AdminEnrichmentPage', () => {
       })
     );
     renderPage();
-    await screen.findByText('Subcategory rollout');
-    const toggle = screen.getByLabelText(
+    const toggle = (await screen.findByLabelText(
       /show the subcategory filter to users/i
-    ) as HTMLInputElement;
+    )) as HTMLInputElement;
     await waitFor(() => expect(toggle.checked).toBe(true));
   });
 

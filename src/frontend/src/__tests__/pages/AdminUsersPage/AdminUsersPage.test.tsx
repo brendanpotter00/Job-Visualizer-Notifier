@@ -69,13 +69,19 @@ describe('AdminUsersPage', () => {
     global.fetch = fetchMock as unknown as typeof fetch;
   });
 
-  it('renders a loading spinner on initial mount while both queries are pending', async () => {
+  it('renders the page skeleton on initial mount while both queries are pending', async () => {
     // Never-resolving fetches so the page stays in the loading state.
     fetchMock.mockImplementation(() => new Promise(() => {}));
 
     renderPage();
 
-    expect(screen.getByRole('progressbar', { name: /loading admin data/i })).toBeInTheDocument();
+    expect(screen.getByRole('status', { name: 'Loading admin data…' })).toBeInTheDocument();
+    expect(screen.getAllByRole('status')).toHaveLength(1);
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+    expect(screen.getByText('Signup providers')).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: 'Last active' })).toBeInTheDocument();
+    // The page's h1 only arrives with the data — tests below wait on it.
+    expect(screen.queryByRole('heading', { name: /admin · users/i })).not.toBeInTheDocument();
   });
 
   it('renders an error state with a retry button that refetches both queries', async () => {
@@ -213,17 +219,17 @@ describe('AdminUsersPage', () => {
     expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument();
   });
 
-  it('renders the users-section spinner and stats-section error when stats errors before users resolves', async () => {
+  it('renders the users-section skeleton and stats-section error when stats errors before users resolves', async () => {
     // Audit pass-3 finding: the prior loading gate had carve-outs for
     // ``!usersError && !statsError`` so if query A errored while B was
     // still loading, the page skipped the spinner and rendered an empty
     // roster (or empty stat slot) with no indicator that the other
     // query was still loading. The fix: each slot independently shows
-    // its OWN spinner while loading-with-no-data, regardless of the
-    // other slot's state.
+    // its OWN loading placeholder while loading-with-no-data, regardless
+    // of the other slot's state.
     //
     // Setup: stats returns a 500 immediately. The users fetch is left
-    // pending forever, so the roster slot must render its spinner while
+    // pending forever, so the roster slot must render its skeleton while
     // the stats slot renders the inline error.
     const usersResolvers: Array<(value: unknown) => void> = [];
     fetchMock.mockImplementation((input: unknown) => {
@@ -231,7 +237,7 @@ describe('AdminUsersPage', () => {
       if (url.includes('/api/admin/users/stats')) {
         return Promise.resolve(jsonResponse({ detail: 'stats kaboom' }, 500));
       }
-      // Users query: never resolves so we can assert the slot spinner.
+      // Users query: never resolves so we can assert the slot skeleton.
       return new Promise<unknown>((resolve) => {
         usersResolvers.push(resolve);
       });
@@ -241,14 +247,16 @@ describe('AdminUsersPage', () => {
 
     // Wait for the heading to confirm we got past the page-level loading
     // gate (i.e. the page IS rendering the partial UI rather than the
-    // full-page spinner).
+    // whole-page skeleton).
     await screen.findByRole('heading', { name: /admin · users/i });
 
     // Stats slot shows its inline error + retry button.
     expect(screen.getByText(/stats kaboom|failed to load admin stats/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument();
 
-    expect(screen.getByRole('progressbar', { name: /loading user roster/i })).toBeInTheDocument();
+    // Users slot shows its own skeleton region, shaped like the roster table.
+    expect(screen.getByRole('status', { name: 'Loading user roster…' })).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: 'Provider' })).toBeInTheDocument();
 
     // Tidy up still-pending fetches so they don't leak into other tests.
     for (const resolve of usersResolvers) {

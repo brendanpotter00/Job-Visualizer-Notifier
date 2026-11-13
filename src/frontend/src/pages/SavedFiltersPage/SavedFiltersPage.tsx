@@ -17,7 +17,8 @@ import {
   activeListContentPropagationActions,
   deletedListPropagationActions,
 } from '../../features/savedFilters/propagateSavedFilters';
-import { LoadingState } from '../../components/shared/LoadingIndicator';
+import { SkeletonRegion } from '../../components/shared/Skeletons';
+import { SavedFiltersSectionSkeleton } from '../../components/saved-filters/SavedFiltersSectionSkeleton';
 import { ErrorState } from '../../components/shared/ErrorDisplay';
 import { extractErrorMessage } from '../../lib/errors';
 import { TimeWindowDefaults } from '../../components/saved-filters/TimeWindowDefaults';
@@ -58,6 +59,37 @@ function draftFromServer(p: SavedFilters): SavedFiltersDraft {
     recentActiveKeywordListId: p.recentActiveKeywordListId,
     trendActiveKeywordListId: p.trendActiveKeywordListId,
   };
+}
+
+function PrefsSectionsSkeleton() {
+  return (
+    <>
+      <SavedFiltersSectionSkeleton title="Default time windows" controls={2} />
+      <SavedFiltersSectionSkeleton title="Default job category & level" controls={2} />
+      <SavedFiltersSectionSkeleton title="Default locations" controls={1} />
+    </>
+  );
+}
+
+function KeywordListsSkeleton() {
+  return <SavedFiltersSectionSkeleton title="Keyword lists" controls={2} />;
+}
+
+function SavedFiltersPageSkeleton() {
+  return (
+    <Container maxWidth="md" sx={{ py: RESPONSIVE.spacing.pageMarginY }}>
+      <Typography variant="h4" component="div" gutterBottom>
+        Saved Filters
+      </Typography>
+      <SkeletonRegion label="Loading your saved filters…">
+        <Stack spacing={3}>
+          <PrefsSectionsSkeleton />
+          <KeywordListsSkeleton />
+          <SavedFiltersSectionSkeleton title="Saved companies" controls={1} />
+        </Stack>
+      </SkeletonRegion>
+    </Container>
+  );
 }
 
 export function SavedFiltersPage() {
@@ -251,7 +283,7 @@ export function SavedFiltersPage() {
 
   // ── auth ladder (mirrors AccountPage) ────────────────────────────────────
   if (authLoading) {
-    return <LoadingState fullPage />;
+    return <SavedFiltersPageSkeleton />;
   }
 
   if (!isAuthenticated) {
@@ -295,9 +327,11 @@ export function SavedFiltersPage() {
             onRetry={() => prefsQuery.refetch()}
           />
         ) : prefsLoading || !draft ? (
-          <Paper sx={{ p: RESPONSIVE.spacing.paperPaddingLg }}>
-            <LoadingState minHeight={140} caption="Loading your saved filters…" />
-          </Paper>
+          <SkeletonRegion label="Loading your saved filters…">
+            <Stack spacing={3}>
+              <PrefsSectionsSkeleton />
+            </Stack>
+          </SkeletonRegion>
         ) : (
           <TimeWindowDefaults
             recentTimeWindow={draft.recentTimeWindow}
@@ -355,9 +389,9 @@ export function SavedFiltersPage() {
             onRetry={() => listsQuery.refetch()}
           />
         ) : !listsReady ? (
-          <Paper sx={{ p: RESPONSIVE.spacing.paperPaddingLg }}>
-            <LoadingState minHeight={140} caption="Loading keyword lists…" />
-          </Paper>
+          <SkeletonRegion label="Loading keyword lists…">
+            <KeywordListsSkeleton />
+          </SkeletonRegion>
         ) : (
           <KeywordListsEditor
             lists={displayLists}

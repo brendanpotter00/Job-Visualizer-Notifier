@@ -99,7 +99,7 @@ export function useRecentJobsUrlSync(): void {
     // shared link, and on a slice that is not yet hydrated that would flip
     // `hydrated` and lock the reader out of their own saved filters.
     // `window.location` is not reactive, so this dep list is complete and no lint
-    // suppression is needed — src/frontend/CLAUDE.md forbids new eslint-disable
+    // suppression is needed — src/frontend/AGENTS.md forbids new eslint-disable
     // directives.
   }, [dispatch, isRecentJobsPage]);
 
