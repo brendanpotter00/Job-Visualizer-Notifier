@@ -140,6 +140,11 @@
       "source": "/landing",
       "destination": "/",
       "permanent": true
+    },
+    {
+      "source": "/recent-jobs",
+      "destination": "/jobs",
+      "permanent": true
     }
   ],
   "headers": [
