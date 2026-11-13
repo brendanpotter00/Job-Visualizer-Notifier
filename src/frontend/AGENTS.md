@@ -820,7 +820,7 @@ All paths relative to `src/frontend/src/`:
 
 Located in project root `api/` directory (proxies to avoid CORS):
 
-- `jobs.ts` - Backend jobs API proxy. Allow-lists both query params and sub-paths (`facets`, `search`). The `search` sub-path's multi-value filters must be **appended** as repeated params — `String()` on an array joins with commas and would turn two selected categories into one bogus slug
+- `jobs.ts` - Backend jobs API proxy. Allow-lists both query params and sub-paths (`facets`, `search`, `settings`, and `:source/:job` for the single-job detail endpoint used by the WebMCP `get_job` tool). The `search` sub-path's multi-value filters must be **appended** as repeated params — `String()` on an array joins with commas and would turn two selected categories into one bogus slug
 - `jobs-qa.ts` - Backend QA endpoints proxy (scraper triggers, run history)
 - `users.ts` - Backend users API proxy (forwards Authorization header)
 - `features.ts` - Feature voting API proxy (forwards Authorization header)
