@@ -47,7 +47,12 @@ describe('LocationSkeletons', () => {
 
   it('LocationPageBodySkeleton holds every section in page order, with no headings', () => {
     render(<LocationPageBodySkeleton />);
-    const titles = ['Health overview', 'Integrity invariants', 'Alias cache browser', 'Problem jobs'];
+    const titles = [
+      'Health overview',
+      'Integrity invariants',
+      'Alias cache browser',
+      'Problem jobs',
+    ];
     for (const title of titles) expect(screen.getByText(title)).toBeInTheDocument();
     expect(screen.queryByRole('heading')).not.toBeInTheDocument();
     expect(screen.queryByRole('status')).not.toBeInTheDocument();

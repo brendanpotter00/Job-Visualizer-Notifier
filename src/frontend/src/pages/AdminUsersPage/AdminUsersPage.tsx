@@ -27,19 +27,13 @@ import { UserRosterTable } from './components/UserRosterTable';
 
 type SignupChartTab = 'over-time' | 'per-day';
 
-/** UserRosterTable's header labels (the last, unlabelled column holds row actions). */
 const ROSTER_COLUMNS = ['Email', 'Name', 'Joined', 'Visits', 'Last active', 'Provider', 'Admin', ''] as const;
 
-/** The signup charts are shorter on phones (`adminChart.height`). */
 const SIGNUP_CHART_HEIGHT = {
   xs: RESPONSIVE.adminChart.height.compact,
   sm: RESPONSIVE.adminChart.height.default,
 } as const;
 
-/**
- * Placeholder for the stats slot: the "Total users" tile, the Signups chart
- * card and the providers card, in the same order and boxes as the loaded slot.
- */
 function StatsSlotSkeleton() {
   return (
     <>
@@ -54,7 +48,6 @@ function StatsSlotSkeleton() {
   );
 }
 
-/** Placeholder for the roster slot: the titled, searchable, paginated table. */
 function RosterSlotSkeleton() {
   return (
     <TableSkeleton

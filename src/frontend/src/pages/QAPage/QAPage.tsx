@@ -37,7 +37,6 @@ import { DevResetPanel } from './DevResetPanel';
 // Backend scraper companies for QA filtering
 const BACKEND_SCRAPER_COMPANIES = COMPANIES.filter((c) => c.ats === 'backend-scraper');
 
-/** Header labels of the scrape-runs table, for its loading placeholder. */
 const SCRAPE_RUN_COLUMNS = [
   'Company',
   'Started At',
@@ -51,7 +50,6 @@ const SCRAPE_RUN_COLUMNS = [
   'Guard Skipped',
 ] as const;
 
-/** Header labels of the jobs table, for its loading placeholder. */
 const JOB_COLUMNS = [
   'Title',
   'Company',

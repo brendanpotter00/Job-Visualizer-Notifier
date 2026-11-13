@@ -6,18 +6,10 @@ import { extractErrorMessage } from '../../lib/errors';
 import { CuratedCompaniesGrid } from './CuratedCompaniesGrid';
 import { RESPONSIVE } from '../../config/responsive';
 
-/** Cards in the first-load grid: two full rows of the 3-up desktop layout. */
 const SKELETON_CARD_COUNT = 6;
 
-/** The search field above the grid is MUI's default (medium) outlined input. */
 const SEARCH_FIELD_HEIGHT = 56;
 
-/**
- * First-load placeholder for the directory, shaped like `CuratedCompaniesGrid`:
- * the full-width search field, then the responsive card grid (1-up phone,
- * 2-up tablet, 3-up desktop) with a wordmark block, blurb lines and the
- * "See company hiring trends" link line in each card.
- */
 function CuratedCompaniesSkeleton() {
   return (
     <SkeletonRegion label="Loading companies…">

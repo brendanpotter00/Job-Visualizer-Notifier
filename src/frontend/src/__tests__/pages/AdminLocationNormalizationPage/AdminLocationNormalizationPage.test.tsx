@@ -186,8 +186,6 @@ describe('AdminLocationNormalizationPage', () => {
       screen.getByRole('status', { name: 'Loading location normalization data…' })
     ).toBeInTheDocument();
     expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
-    // The placeholder keeps the page shape (header copy + section titles) but
-    // the page's real h1 only arrives with the data.
     expect(screen.getByText('Admin · Location Normalization')).toBeInTheDocument();
     expect(screen.getByText('Problem jobs')).toBeInTheDocument();
     expect(screen.queryByRole('heading', { level: 1 })).not.toBeInTheDocument();
@@ -199,12 +197,9 @@ describe('AdminLocationNormalizationPage', () => {
     );
     renderPage();
 
-    // Integrity landed, so the page is past its whole-page placeholder.
     await screen.findByRole('heading', { name: /admin · location normalization/i });
     const health = screen.getByRole('status', { name: 'Loading health…' });
-    // Four stat-tile placeholders, like HealthOverview.
     expect(health.querySelectorAll('.MuiPaper-outlined')).toHaveLength(4);
-    // The verdict is pending, not "could not be loaded".
     expect(screen.getByRole('status', { name: 'Loading verdict…' })).toBeInTheDocument();
     expect(screen.queryByText('VERDICT UNKNOWN')).not.toBeInTheDocument();
     expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();

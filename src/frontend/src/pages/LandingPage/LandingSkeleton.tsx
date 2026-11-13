@@ -9,22 +9,8 @@ import {
 } from '../../components/shared/Skeletons';
 import { RESPONSIVE } from '../../config/responsive';
 
-/** HeroCopy's centered column width (px), mirrored so the lines wrap the same. */
 const HERO_COPY_MAX_WIDTH = 780;
 
-/**
- * Placeholder for the landing scene while its lazy chunk loads, built from the
- * same `landingProto` tokens the real page uses so nothing jumps when it lands:
- *
- *  - the sticky header bar (`headerHeight`): wordmark on the left, sign-up on
- *    the right;
- *  - the hero (`heroPaddingY`): a two-line centered headline at
- *    `heroHeadlineFontSize`, the subheadline at `heroSubFontSize`, the two CTA
- *    buttons, and the reserved scene height (`heroSceneHeight`);
- *  - the first section (`sectionPaddingY`): the fresh-jobs card row.
- *
- * Imports no landing content or mock data, so it stays out of the scene chunk.
- */
 export function LandingSkeleton() {
   return (
     <SkeletonRegion label="Loading…">

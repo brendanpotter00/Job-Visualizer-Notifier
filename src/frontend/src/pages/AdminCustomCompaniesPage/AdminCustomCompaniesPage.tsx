@@ -63,7 +63,6 @@ import {
  */
 const DEFAULT_ROWS_PER_PAGE = 25;
 
-/** Header copy, shared by the loaded header and its first-load placeholder. */
 const PAGE_TITLE = 'Admin · Custom Companies';
 const PAGE_SUBTITLE = 'Boards users added themselves, and every attempt to add one.';
 
@@ -208,8 +207,6 @@ export function AdminCustomCompaniesPage() {
     return (
       <Container maxWidth="xl" sx={{ py: RESPONSIVE.spacing.pageMarginY }}>
         <SkeletonRegion label="Loading custom companies…">
-          {/* The header as text + button placeholders: the real one (an h1 and
-              live controls) arrives with the data — see Skeletons.tsx. */}
           <PageHeaderSkeleton title={PAGE_TITLE} subtitle={PAGE_SUBTITLE} actions={1} />
           <CustomCompaniesBodySkeleton />
         </SkeletonRegion>

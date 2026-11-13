@@ -12,10 +12,7 @@ describe('LandingSkeleton', () => {
 
   it('lays out header bar, hero and the first section in the landing containers', () => {
     const { container } = render(<LandingSkeleton />);
-    // Header bar, hero and first section each sit in their own `lg` container,
-    // like LandingHeader / GravityPrototype.
     expect(container.querySelectorAll('.MuiContainer-maxWidthLg')).toHaveLength(3);
-    // The first section's card row.
     expect(container.querySelectorAll('.MuiCard-root')).toHaveLength(3);
   });
 

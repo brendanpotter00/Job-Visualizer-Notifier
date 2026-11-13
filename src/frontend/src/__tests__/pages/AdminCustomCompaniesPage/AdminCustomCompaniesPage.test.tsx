@@ -96,13 +96,10 @@ describe('AdminCustomCompaniesPage', () => {
     const region = screen.getByRole('status', { name: 'Loading custom companies…' });
     expect(screen.getAllByRole('status')).toHaveLength(1);
     expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
-    // Header copy and the three section titles hold their place as text; the
-    // page's headings arrive with the data.
     expect(within(region).getByText('Admin · Custom Companies')).toBeInTheDocument();
     expect(within(region).getByText('Add attempts')).toBeInTheDocument();
     expect(within(region).getByText('Users')).toBeInTheDocument();
     expect(screen.queryByRole('heading')).not.toBeInTheDocument();
-    // Four headline tile placeholders + three tables with real column labels.
     expect(within(region).getByRole('columnheader', { name: 'Live?' })).toBeInTheDocument();
     expect(within(region).getByRole('columnheader', { name: 'Resolved as' })).toBeInTheDocument();
     expect(within(region).getByRole('columnheader', { name: 'Owns now' })).toBeInTheDocument();
@@ -116,7 +113,6 @@ describe('AdminCustomCompaniesPage', () => {
     });
     renderPage();
 
-    // Past the whole-page placeholder: the real section headings are up.
     expect(
       await screen.findByRole('heading', { name: 'Live scrapers', level: 2 })
     ).toBeInTheDocument();

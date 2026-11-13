@@ -128,14 +128,12 @@ describe('MyCompanyTrendPage', () => {
   });
 
   it('shows the chart + list skeleton under the real header while jobs load', () => {
-    // Never resolves: the jobs query stays on its first load.
     fetchMock.mockImplementation(() => new Promise(() => {}));
     renderTrendPage();
 
     expect(screen.getByRole('heading', { name: 'Hiring trend', level: 1 })).toBeInTheDocument();
     const region = screen.getByRole('status', { name: "Loading this company's jobs…" });
     expect(region.querySelector('[data-testid="chart-skeleton"]')).not.toBeNull();
-    // A bounded handful of job-card placeholders.
     expect(region.querySelectorAll('.MuiCard-root')).toHaveLength(3);
     expect(screen.queryByTestId('chart')).not.toBeInTheDocument();
     expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();

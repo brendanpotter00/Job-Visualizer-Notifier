@@ -59,7 +59,6 @@ const REVEAL_THRESHOLD_PCT = 90;
 
 const SWE_SUBCATEGORIES_KEY = 'swe_subcategories_enabled';
 
-/** Header copy, shared by the loaded header and its first-load placeholder. */
 const PAGE_TITLE = 'Admin · Enrichment Pipeline';
 const PAGE_SUBTITLE =
   'The laptop-side Claude agent that classifies jobs (category · level · tags), its ' +
@@ -99,8 +98,6 @@ export function AdminEnrichmentPage() {
     return (
       <Container maxWidth="xl" sx={{ py: RESPONSIVE.spacing.pageMarginY }}>
         <SkeletonRegion label="Loading enrichment pipeline…">
-          {/* The header as text + button placeholders: the real one (an h1 and
-              live controls) arrives with the data — see Skeletons.tsx. */}
           <PageHeaderSkeleton title={PAGE_TITLE} subtitle={PAGE_SUBTITLE} actions={2} />
           <EnrichmentPageBodySkeleton />
         </SkeletonRegion>
@@ -219,9 +216,6 @@ export function AdminEnrichmentPage() {
           />
         </Paper>
       ) : (
-        // Health still pending (ticks already in): hold the space of all three
-        // health-driven sections — banner, funnel, rollout — so they fill in
-        // place rather than pushing the ticks card down when health lands.
         <SkeletonRegion label="Loading health…">
           <HealthSlotSkeleton />
         </SkeletonRegion>

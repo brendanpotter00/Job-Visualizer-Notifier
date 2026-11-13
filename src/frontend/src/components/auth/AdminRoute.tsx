@@ -6,11 +6,6 @@ import { useAuth } from '../../features/auth/useAuth';
 import { useCurrentUser } from '../../features/auth/useCurrentUser';
 import { ROUTES } from '../../config/routes';
 
-/**
- * What the guard shows while it cannot decide yet. Every admin page is an `xl`
- * container, so the generic page placeholder uses that width; the page's own
- * skeleton takes over in the same column once access is confirmed.
- */
 const checkingAccess = <PageSkeleton maxWidth="xl" label="Checking admin access…" />;
 
 /**

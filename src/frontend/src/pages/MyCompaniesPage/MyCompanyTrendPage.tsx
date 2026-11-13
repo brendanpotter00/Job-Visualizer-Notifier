@@ -59,11 +59,6 @@ function countSeedJobs(jobs: Job[]): number {
     .length;
 }
 
-/**
- * The chart card over the job list — the body of the page once jobs arrive.
- * The chart is `JobPostingsChart`'s default 400px at every width here (this
- * page passes no `height`), so the placeholder is too.
- */
 function TrendBodySkeleton() {
   return (
     <Stack spacing={3}>
@@ -75,10 +70,6 @@ function TrendBodySkeleton() {
   );
 }
 
-/**
- * Whole-page placeholder while the auth SDK resolves: the back link, the title
- * and board-link lines beside the time-window select, then the chart + list.
- */
 function MyCompanyTrendPageSkeleton() {
   return (
     <Container maxWidth="lg" sx={{ py: RESPONSIVE.spacing.pageMarginY }}>

@@ -3,9 +3,6 @@ import { screen, within } from '@testing-library/react';
 import { renderWithProviders } from '../../../test/testUtils';
 import type { KeywordList, SavedFilters } from '../../../types';
 
-// First-load placeholders for the Saved Filters page: the whole page while the
-// auth SDK resolves, then each independently-loading section on its own.
-
 const mockAuthState = {
   isEnabled: true,
   isAuthenticated: true,
@@ -19,8 +16,6 @@ vi.mock('../../../features/auth/useAuth', () => ({
   useAuth: () => mockAuthState,
 }));
 
-// The heavy sibling sections are stubbed; their own loading states are covered
-// by their own tests.
 vi.mock('../../../components/saved-filters/EnabledCompaniesSection', () => ({
   EnabledCompaniesSection: () => <div data-testid="enabled-companies-stub" />,
 }));
@@ -98,7 +93,6 @@ describe('SavedFiltersPage — first-load skeletons', () => {
       'Saved companies',
     ]);
     expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
-    // The page's h1 arrives with the page, not with the placeholder.
     expect(screen.queryByRole('heading', { level: 1 })).not.toBeInTheDocument();
     expect(screen.queryByTestId('enabled-companies-stub')).not.toBeInTheDocument();
   });
@@ -111,7 +105,6 @@ describe('SavedFiltersPage — first-load skeletons', () => {
     expect(within(prefs).getAllByTestId('saved-filters-section-skeleton')).toHaveLength(3);
     const lists = screen.getByRole('status', { name: 'Loading keyword lists…' });
     expect(within(lists).getByText('Keyword lists')).toBeInTheDocument();
-    // The independently-loading companies section is already mounted.
     expect(screen.getByTestId('enabled-companies-stub')).toBeInTheDocument();
     expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
   });

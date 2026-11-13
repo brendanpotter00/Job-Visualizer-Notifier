@@ -15,10 +15,8 @@ import { extractErrorMessage } from '../../lib/errors';
 import { FeedbackTable } from './components/FeedbackTable';
 import { RESPONSIVE } from '../../config/responsive';
 
-/** FeedbackTable's desktop header labels. */
 const FEEDBACK_COLUMNS = ['From', 'Message', 'Submitted'] as const;
 
-/** Placeholder rows — enough to fill the first screen, far below the 25-row page. */
 const SKELETON_ROWS = 6;
 
 export function AdminFeedbackPage() {
@@ -50,7 +48,6 @@ export function AdminFeedbackPage() {
       <Container maxWidth="lg" sx={{ py: RESPONSIVE.spacing.pageMarginY }}>
         <SkeletonRegion label="Loading feedback…">
           <PageHeaderSkeleton title="Admin · User Feedback" />
-          {/* FeedbackTable is a table on desktop and a tappable list on phones. */}
           <TableSkeleton
             columns={FEEDBACK_COLUMNS}
             rows={SKELETON_ROWS}

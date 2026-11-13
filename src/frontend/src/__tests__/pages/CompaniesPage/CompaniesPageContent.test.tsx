@@ -27,13 +27,11 @@ describe('CompaniesPageContent', () => {
     it('shapes the skeleton like the loaded page: metrics card over the graph + list card', () => {
       const { container } = renderWithProviders(<CompaniesPageContent isLoading />);
 
-      // Static labels render as real text so they don't shift when data lands.
       expect(screen.getByText('Past 3 Days')).toBeInTheDocument();
       expect(screen.getByText('Find Recruiters')).toBeInTheDocument();
       expect(screen.getByText('Job Posting Timeline')).toBeInTheDocument();
       expect(screen.getByText('Job Listings')).toBeInTheDocument();
       expect(screen.getByTestId('chart-skeleton')).toBeInTheDocument();
-      // A bounded handful of job-card placeholders under the list heading.
       expect(container.querySelectorAll('.MuiCard-root')).toHaveLength(3);
       expect(screen.queryByTestId('metrics-dashboard')).not.toBeInTheDocument();
     });

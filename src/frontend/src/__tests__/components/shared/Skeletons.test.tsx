@@ -23,7 +23,6 @@ import { useIsMobile } from '../../../hooks/useIsMobile';
 
 vi.mock('../../../hooks/useIsMobile');
 
-/** MUI renders every `<Skeleton>` with this class. */
 const skeletons = (root: ParentNode) => root.querySelectorAll('.MuiSkeleton-root');
 
 describe('Skeletons', () => {
@@ -39,8 +38,6 @@ describe('Skeletons', () => {
 
       const region = screen.getByRole('status', { name: 'Loading feedback…' });
       expect(region).toHaveAttribute('aria-busy', 'true');
-      // The visually hidden copy keeps text-based queries (and every screen
-      // reader) working, not just the aria-label.
       expect(within(region).getByText('Loading feedback…')).toBeInTheDocument();
       expect(within(region).getByTestId('child')).toBeInTheDocument();
     });
@@ -88,7 +85,6 @@ describe('Skeletons', () => {
   describe('bounded rendering', () => {
     it('clamps table rows to MAX_SKELETON_ITEMS', () => {
       render(<TableSkeleton columns={2} rows={10_000} />);
-      // +1 for the header row.
       expect(screen.getAllByRole('row')).toHaveLength(MAX_SKELETON_ITEMS + 1);
     });
 
@@ -141,13 +137,11 @@ describe('Skeletons', () => {
       expect(screen.getByText('Admin · Users')).toBeInTheDocument();
       expect(screen.getByText('Who signed up')).toBeInTheDocument();
       expect(screen.queryByRole('heading')).not.toBeInTheDocument();
-      // Only the action placeholder remains a skeleton.
       expect(skeletons(container)).toHaveLength(1);
     });
 
     it('renders a title bar, the requested subtitle lines and action placeholders', () => {
       const { container } = render(<PageHeaderSkeleton subtitleLines={2} actions={2} />);
-      // title + 2 subtitle lines + 2 actions
       expect(skeletons(container)).toHaveLength(5);
     });
 
@@ -166,8 +160,6 @@ describe('Skeletons', () => {
     it('renders a known title as text, but not as a heading', () => {
       render(<SectionSkeleton title="Health overview" />);
       expect(screen.getByText('Health overview')).toBeInTheDocument();
-      // The section's h2 arrives with its data, so "heading present" keeps
-      // meaning "loaded".
       expect(screen.queryByRole('heading')).not.toBeInTheDocument();
     });
 
@@ -206,7 +198,6 @@ describe('Skeletons', () => {
       render(<TableSkeleton columns={['Email', 'Name', 'Joined']} rows={2} />);
       const headers = screen.getAllByRole('columnheader');
       expect(headers.map((h) => h.textContent)).toEqual(['Email', 'Name', 'Joined']);
-      // 1 header row + 2 body rows
       expect(screen.getAllByRole('row')).toHaveLength(3);
     });
 
@@ -223,7 +214,6 @@ describe('Skeletons', () => {
       );
       expect(screen.getByText('User roster')).toBeInTheDocument();
       expect(screen.queryByRole('heading')).not.toBeInTheDocument();
-      // count line + 2 controls + 2 header cells
       expect(skeletons(container)).toHaveLength(5);
     });
 
@@ -273,12 +263,8 @@ describe('Skeletons', () => {
 
     it('CardListSkeleton adds leading and trailing placeholders on request', () => {
       const { container: plain } = render(<CardListSkeleton count={1} lines={1} />);
-      // title + 1 line
       expect(skeletons(plain)).toHaveLength(2);
-      const { container: full } = render(
-        <CardListSkeleton count={1} lines={1} leading trailing />
-      );
-      // + vote circle + count + trailing circle
+      const { container: full } = render(<CardListSkeleton count={1} lines={1} leading trailing />);
       expect(skeletons(full)).toHaveLength(5);
     });
   });

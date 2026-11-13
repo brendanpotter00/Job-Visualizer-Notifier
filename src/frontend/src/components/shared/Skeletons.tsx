@@ -22,64 +22,19 @@ import type { GridProps } from '@mui/material/Grid';
 import { RESPONSIVE, TABLE_SCROLL_SX } from '../../config/responsive';
 import { useIsMobile } from '../../hooks/useIsMobile';
 
-/**
- * Shared skeleton building blocks for first-load states.
- *
- * Every page that waits on data renders a skeleton shaped like its loaded
- * content instead of a centered spinner, so the layout does not jump when the
- * data lands. Pages compose these pieces (and the older `ChartSkeleton` /
- * `JobListSkeleton` in `LoadingIndicator.tsx`) rather than hand-rolling
- * `<Skeleton>` stacks.
- *
- * Three rules every piece here follows:
- *
- *  - **Bounded.** A skeleton is a stand-in, not a list. Every repeated piece
- *    (rows, cards, tiles, lines) is clamped to {@link MAX_SKELETON_ITEMS} no
- *    matter what the caller passes — see the "never render unbounded lists"
- *    gotcha in the root CLAUDE.md.
- *  - **Visual only.** None of these carries a role. Wrap a skeleton (or a whole
- *    page of them) in ONE {@link SkeletonRegion}, which supplies the accessible
- *    loading signal: `role="status"`, `aria-busy`, and a visually hidden label.
- *    Nesting regions would announce the same wait several times.
- *  - **Static copy is text, never a heading.** A title that is known up front
- *    (a page title, a section name, a table header label) renders as real text
- *    so it does not shift when the data lands — but as a plain `div`, not an
- *    `h1`/`h2`. The page's heading outline appears with the loaded content, so
- *    "the heading is there" keeps meaning "the page has loaded" for screen
- *    reader users and for tests alike.
- *
- * Colors come from MUI's `Skeleton` (a translucent `text.primary`), so the
- * pieces follow the theme palette rather than hard-coding a gray.
- */
-
-/** Label used by {@link SkeletonRegion} when the caller does not name the wait. */
 export const SKELETON_DEFAULT_LABEL = 'Loading…';
 
-/** Upper bound on any repeated skeleton piece (rows, cards, tiles, lines). */
 export const MAX_SKELETON_ITEMS = 12;
 
-/**
- * Height of a skeleton standing in for a button, text field or select. Restates
- * the theme's 44px `minHeight` floor on `MuiButton` / `MuiTextField` /
- * `MuiSelect` (`config/theme.ts`), which applies at every width.
- */
 export const SKELETON_CONTROL_HEIGHT = 44;
 
-/** MUI's small `<Chip>` height, for chip-shaped placeholders. */
 const SKELETON_CHIP_HEIGHT = 24;
 
-/**
- * MUI `TablePagination`'s toolbar min-height, so a paginated table's footer
- * placeholder occupies the same band as the real footer.
- */
 const TABLE_PAGINATION_HEIGHT = 52;
 
-/** A plain value or a per-breakpoint object, as MUI `sx` accepts it. */
 type Responsive<T> = T | Partial<Record<Breakpoint, T>>;
 
-/** Text widths cycled across rows/cells so a skeleton doesn't read as a grid of bars. */
 const CELL_WIDTHS = ['80%', '60%', '70%', '45%', '65%'] as const;
-/** Screen-reader-only text (the standard clip pattern MUI's `visuallyHidden` uses). */
 const VISUALLY_HIDDEN_SX = {
   border: 0,
   clip: 'rect(0 0 0 0)',
@@ -92,21 +47,15 @@ const VISUALLY_HIDDEN_SX = {
   width: '1px',
 } as const;
 
-/**
- * Clamps a requested repeat count into `[0, MAX_SKELETON_ITEMS]`. Non-finite or
- * negative input yields 0, so a bad prop can never ask for an unbounded loop.
- */
 function clampSkeletonCount(count: number): number {
   if (!Number.isFinite(count) || count <= 0) return 0;
   return Math.min(Math.floor(count), MAX_SKELETON_ITEMS);
 }
 
-/** Indices `0..n-1` after clamping. Tiny (<= 12 entries), so no memo needed. */
 function indices(count: number): number[] {
   return Array.from({ length: clampSkeletonCount(count) }, (_, i) => i);
 }
 
-/** Merges a base sx object with an optional caller sx (object, array or function). */
 function mergeSx(base: SxProps<Theme>, sx?: SxProps<Theme>): SxProps<Theme> {
   if (!sx) return base;
   return [
@@ -115,25 +64,17 @@ function mergeSx(base: SxProps<Theme>, sx?: SxProps<Theme>): SxProps<Theme> {
   ] as SxProps<Theme>;
 }
 
-// ─── Accessibility wrapper ──────────────────────────────────────────────────
-
 export interface SkeletonRegionProps {
-  /**
-   * What is loading, e.g. "Loading feedback…". Used as the region's accessible
-   * name and as visually hidden text inside it.
-   */
   label?: string;
   children: ReactNode;
   sx?: SxProps<Theme>;
 }
 
-/**
- * The accessible loading signal for a skeleton. Exactly one per wait: it is a
- * polite live region (`role="status"`) marked `aria-busy`, named by `label`,
- * and carries the same label as visually hidden text so it reads the same in
- * every screen reader.
- */
-export function SkeletonRegion({ label = SKELETON_DEFAULT_LABEL, children, sx }: SkeletonRegionProps) {
+export function SkeletonRegion({
+  label = SKELETON_DEFAULT_LABEL,
+  children,
+  sx,
+}: SkeletonRegionProps) {
   return (
     <Box role="status" aria-busy="true" aria-label={label} sx={sx}>
       <Box component="span" sx={VISUALLY_HIDDEN_SX}>
@@ -144,25 +85,15 @@ export function SkeletonRegion({ label = SKELETON_DEFAULT_LABEL, children, sx }:
   );
 }
 
-// ─── Text ───────────────────────────────────────────────────────────────────
-
 type TextVariant = 'h3' | 'h4' | 'h5' | 'h6' | 'body1' | 'body2' | 'caption' | 'overline';
 
 export interface TextSkeletonProps {
-  /** Number of lines (clamped). The last line is shorter, like a paragraph. */
   lines?: number;
-  /** Typography variant the real text uses, so line height matches exactly. */
   variant?: TextVariant;
-  /** Width of the final line of a multi-line block (a single line is full width). */
   lastLineWidth?: string | number;
   sx?: SxProps<Theme>;
 }
 
-/**
- * Lines of text placeholder. Each line is a `Skeleton` inside the same
- * `Typography` variant the real copy uses — MUI's recommended way to inherit
- * the exact line height, so swapping in the text causes no vertical shift.
- */
 export function TextSkeleton({
   lines = 3,
   variant = 'body2',
@@ -181,36 +112,16 @@ export function TextSkeleton({
   );
 }
 
-// ─── Page header ────────────────────────────────────────────────────────────
-
 export interface PageHeaderSkeletonProps {
-  /**
-   * The page's real title, when it is static copy. Renders as text in the
-   * title's Typography variant (not as a heading — see the file header); a
-   * skeleton bar stands in when omitted.
-   */
   title?: ReactNode;
-  /**
-   * The page's real subtitle, when it is static copy. Replaces the
-   * `subtitleLines` placeholders.
-   */
   subtitle?: ReactNode;
-  /** Typography variant of the real page title (`h4` on most pages). */
   titleVariant?: 'h3' | 'h4';
-  /** Extra sx for the title line, e.g. `{ fontSize: RESPONSIVE.fontSize.pageTitle }`. */
   titleSx?: SxProps<Theme>;
-  /** Subtitle lines under the title (0 hides them). */
   subtitleLines?: number;
-  /** Button-shaped placeholders on the right (e.g. a Refresh button). */
   actions?: number;
   sx?: SxProps<Theme>;
 }
 
-/**
- * A page title + subtitle + optional trailing actions, laid out like the admin
- * pages' header row (title block left, buttons right, `mb: 3`). Static title and
- * subtitle copy can be passed in as text; anything unknown is a placeholder.
- */
 export function PageHeaderSkeleton({
   title,
   subtitle: subtitleText,
@@ -264,19 +175,13 @@ export function PageHeaderSkeleton({
   );
 }
 
-// ─── Controls ───────────────────────────────────────────────────────────────
-
 export interface ControlsRowSkeletonProps {
-  /** Number of control placeholders (selects / inputs / buttons). */
   count?: number;
-  /** Width of each control. A responsive value is allowed. */
   width?: Responsive<number | string>;
-  /** Height of each control; defaults to the theme's 44px control floor. */
   height?: Responsive<number | string>;
   sx?: SxProps<Theme>;
 }
 
-/** A wrapping row of control-shaped placeholders (filter selects, search box, buttons). */
 export function ControlsRowSkeleton({
   count = 2,
   width = { xs: '100%', sm: 200 },
@@ -292,30 +197,15 @@ export function ControlsRowSkeleton({
   );
 }
 
-// ─── Sections ───────────────────────────────────────────────────────────────
-
 export interface SectionSkeletonProps {
-  /**
-   * The section's real title, rendered as text when known (static titles like
-   * "Health overview") — as a plain `div`, not the `h2` it becomes once loaded.
-   * A skeleton bar stands in when omitted.
-   */
   title?: ReactNode;
-  /** Body placeholder. Defaults to {@link TextSkeleton} with `lines` lines. */
   children?: ReactNode;
-  /** Lines in the default body (ignored when `children` is given). */
   lines?: number;
-  /** `outlined` for admin sections, `elevation` for the default Paper. */
   variant?: 'outlined' | 'elevation';
-  /** Paper padding; defaults to `RESPONSIVE.spacing.paperPadding`. */
   padding?: Responsive<number | string>;
   sx?: SxProps<Theme>;
 }
 
-/**
- * A titled `<Paper>` section placeholder, matching the `Paper` + `h6` title
- * shape the admin pages use for every section.
- */
 export function SectionSkeleton({
   title,
   children,
@@ -337,10 +227,6 @@ export function SectionSkeleton({
   );
 }
 
-/**
- * The left-bordered verdict banner the admin oversight pages lead with (chip +
- * one-line summary + a detail line), in its neutral "unknown" color.
- */
 export function StatusBannerSkeleton({ sx }: { sx?: SxProps<Theme> }) {
   return (
     <Paper
@@ -368,9 +254,6 @@ export function StatusBannerSkeleton({ sx }: { sx?: SxProps<Theme> }) {
   );
 }
 
-// ─── Stat tiles ─────────────────────────────────────────────────────────────
-
-/** One admin `StatTile` placeholder: overline label, big value, meta line. */
 export function StatTileSkeleton() {
   return (
     <Paper
@@ -390,8 +273,6 @@ export function StatTileSkeleton() {
       <Typography variant="h4" component="div">
         <Skeleton width="40%" />
       </Typography>
-      {/* `minHeight: 24` restates StatTile's meta row, which reserves that band
-          whether or not a meta line is present. */}
       <Box sx={{ minHeight: 24 }}>
         <Typography variant="body2" component="div">
           <Skeleton width="65%" />
@@ -402,15 +283,16 @@ export function StatTileSkeleton() {
 }
 
 export interface StatTilesSkeletonProps {
-  /** Number of tiles (clamped). */
   count?: number;
-  /** MUI Grid `size` per tile — match the real grid (e.g. `{ xs: 6, sm: 3 }`). */
   size?: GridProps['size'];
   sx?: SxProps<Theme>;
 }
 
-/** A grid row of {@link StatTileSkeleton}s, laid out like the real tile grid. */
-export function StatTilesSkeleton({ count = 4, size = { xs: 6, sm: 3 }, sx }: StatTilesSkeletonProps) {
+export function StatTilesSkeleton({
+  count = 4,
+  size = { xs: 6, sm: 3 },
+  sx,
+}: StatTilesSkeletonProps) {
   return (
     <Grid container spacing={2} sx={sx}>
       {indices(count).map((i) => (
@@ -422,42 +304,16 @@ export function StatTilesSkeleton({ count = 4, size = { xs: 6, sm: 3 }, sx }: St
   );
 }
 
-// ─── Tables ─────────────────────────────────────────────────────────────────
-
 export interface TableSkeletonProps {
-  /**
-   * Column count, or the real header labels. Labels render as real header text
-   * (they are static), so the header row doesn't shift when the data arrives.
-   */
   columns: number | readonly string[];
-  /** Body rows (clamped). */
   rows?: number;
-  /**
-   * Surface: `outlined` Paper (default), `elevation` Paper (the
-   * `TableContainer component={Paper}` tables), or `none` when the table sits
-   * directly inside an already-padded section Paper.
-   */
   surface?: 'outlined' | 'elevation' | 'none';
-  /** Real table title (as text, not a heading), in a padded toolbar above the table. */
   title?: ReactNode;
-  /** Control placeholders on the right of the toolbar (search box, switches). */
   toolbarControls?: number;
-  /** Render a pagination-footer placeholder under the table. */
   pagination?: boolean;
-  /**
-   * What to draw below 600px. `table` (default) keeps the table, which scrolls
-   * sideways like the real one. `list` draws stacked two-line rows instead, for
-   * the admin tables that swap to a tappable list on phones.
-   */
   mobileVariant?: 'table' | 'list';
 }
 
-/**
- * A small MUI table placeholder for the admin tables: header row, a bounded
- * number of body rows, optional titled toolbar and pagination footer. Wraps in
- * `TABLE_SCROLL_SX` like the real tables, so a wide header scrolls on mobile —
- * or, with `mobileVariant="list"`, draws the phone list those tables swap to.
- */
 export function TableSkeleton({
   columns,
   rows = 5,
@@ -574,16 +430,11 @@ export function TableSkeleton({
   return <Paper variant={surface}>{table}</Paper>;
 }
 
-// ─── Lists ──────────────────────────────────────────────────────────────────
-
 export interface ListSkeletonProps {
-  /** Rows (clamped). */
   rows?: number;
-  /** Matches `<List dense>`. */
   dense?: boolean;
 }
 
-/** A divided MUI `<List>` placeholder (one primary text line per row). */
 export function ListSkeleton({ rows = 6, dense = true }: ListSkeletonProps) {
   return (
     <List dense={dense} disablePadding>
@@ -597,23 +448,13 @@ export function ListSkeleton({ rows = 6, dense = true }: ListSkeletonProps) {
 }
 
 export interface CardListSkeletonProps {
-  /** Cards (clamped). */
   count?: number;
-  /** Body lines under each card's title. */
   lines?: number;
-  /** A narrow leading column (e.g. a vote button over its count). */
   leading?: boolean;
-  /** A trailing icon-button placeholder (e.g. a remove control). */
   trailing?: boolean;
-  /** Gap between cards in theme units. */
   spacing?: number;
 }
 
-/**
- * A vertical stack of outlined cards — the shape of the feature-vote list and
- * the user's tracked-companies list: an `h6` title, a few body lines, and an
- * optional leading column / trailing control.
- */
 export function CardListSkeleton({
   count = 3,
   lines = 2,
@@ -663,21 +504,19 @@ export function CardListSkeleton({
   );
 }
 
-// ─── Card grids ─────────────────────────────────────────────────────────────
-
 export interface CardSkeletonProps {
-  /** Height of a leading media/logo block; omitted = no media block. */
   mediaHeight?: Responsive<number | string>;
-  /** Body text lines. */
   lines?: number;
-  /** A trailing link/action line. */
   action?: boolean;
-  /** CardContent padding; defaults to MUI's 16px. */
   contentPadding?: Responsive<number | string>;
 }
 
-/** One grid card placeholder: optional logo block, body lines, optional action line. */
-export function CardSkeleton({ mediaHeight, lines = 3, action = false, contentPadding = 2 }: CardSkeletonProps) {
+export function CardSkeleton({
+  mediaHeight,
+  lines = 3,
+  action = false,
+  contentPadding = 2,
+}: CardSkeletonProps) {
   return (
     <Card variant="outlined" sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       <CardContent sx={{ flexGrow: 1, p: contentPadding }}>
@@ -696,15 +535,11 @@ export function CardSkeleton({ mediaHeight, lines = 3, action = false, contentPa
 }
 
 export interface CardGridSkeletonProps extends CardSkeletonProps {
-  /** Cards (clamped). */
   count?: number;
-  /** MUI Grid `size` per card — match the real grid. */
   itemSize?: GridProps['size'];
-  /** Grid spacing — match the real grid. */
   spacing?: GridProps['spacing'];
 }
 
-/** A responsive grid of {@link CardSkeleton}s laid out like the real card grid. */
 export function CardGridSkeleton({
   count = 6,
   itemSize = { xs: 12, sm: 6, md: 4 },
@@ -722,7 +557,6 @@ export function CardGridSkeleton({
   );
 }
 
-/** A chip-shaped placeholder row (tag chips under a title). */
 export function ChipRowSkeleton({ count = 3 }: { count?: number }) {
   return (
     <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
@@ -738,25 +572,13 @@ export function ChipRowSkeleton({ count = 3 }: { count?: number }) {
   );
 }
 
-// ─── Whole page ─────────────────────────────────────────────────────────────
-
 export interface PageSkeletonProps {
-  /** Accessible label for the wait. */
   label?: string;
-  /** Fill the viewport (for routes rendered outside the app shell). */
   fullPage?: boolean;
-  /** Container width — match the page family (`lg` default, `xl` for admin). */
   maxWidth?: Breakpoint;
-  /** Number of section placeholders under the header (clamped). */
   sections?: number;
 }
 
-/**
- * The generic page placeholder, for waits that happen before the page's own
- * shape is known: the route-level `Suspense` fallback and the admin route guard
- * while auth resolves. A page header and a few titled sections, in the app's
- * standard page container.
- */
 export function PageSkeleton({
   label = 'Loading page…',
   fullPage = false,

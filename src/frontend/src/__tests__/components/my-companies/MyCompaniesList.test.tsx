@@ -65,7 +65,6 @@ afterEach(() => {
 
 describe('MyCompaniesList', () => {
   it('shows row-shaped skeletons (not a spinner) on the first load', () => {
-    // Never resolves: the list stays on its first load.
     fetchMock.mockImplementation(() => new Promise(() => {}));
     renderWithProviders(<MyCompaniesList />);
 
@@ -75,7 +74,6 @@ describe('MyCompaniesList', () => {
     );
     expect(region.querySelectorAll('.MuiCard-root')).toHaveLength(3);
     expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
-    // No empty-state flash while the first load is in flight.
     expect(screen.queryByTestId('my-companies-empty')).not.toBeInTheDocument();
   });
 

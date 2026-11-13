@@ -11,7 +11,6 @@ describe('SavedFiltersSectionSkeleton', () => {
 
   it('renders the description line, one placeholder per control, and the save button', () => {
     const { container } = render(<SavedFiltersSectionSkeleton title="Locations" controls={3} />);
-    // description + 3 controls + save button
     expect(container.querySelectorAll('.MuiSkeleton-root')).toHaveLength(5);
   });
 

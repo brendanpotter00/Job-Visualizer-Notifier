@@ -315,9 +315,6 @@ describe('AdminEnrichmentPage', () => {
     vi.clearAllMocks();
   });
 
-  // ── First-load skeletons ────────────────────────────────────────────────
-
-  /** Routes like `routedFetch()` but leaves the matching URLs pending forever. */
   function pendingFor(...fragments: string[]) {
     const base = routedFetch();
     return (input: unknown) => {
@@ -334,8 +331,6 @@ describe('AdminEnrichmentPage', () => {
     const region = screen.getByRole('status', { name: 'Loading enrichment pipeline…' });
     expect(screen.getAllByRole('status')).toHaveLength(1);
     expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
-    // Header copy and every section title, in place, as text — the page's
-    // headings arrive with the data.
     expect(within(region).getByText('Admin · Enrichment Pipeline')).toBeInTheDocument();
     for (const title of [
       'Backlog funnel',
@@ -347,7 +342,6 @@ describe('AdminEnrichmentPage', () => {
       expect(within(region).getByText(title)).toBeInTheDocument();
     }
     expect(screen.queryByRole('heading')).not.toBeInTheDocument();
-    // The placeholder tables carry the real column labels.
     expect(within(region).getAllByRole('columnheader', { name: 'Enriched' })).toHaveLength(2);
   });
 
@@ -355,7 +349,6 @@ describe('AdminEnrichmentPage', () => {
     fetchMock.mockImplementation(pendingFor('/enrichment/health'));
     renderPage();
 
-    // Ticks landed, so the page is past its whole-page placeholder.
     expect(await screen.findByText(/2 tick\(s\) \/ 24h/)).toBeInTheDocument();
     const region = screen.getByRole('status', { name: 'Loading health…' });
     expect(within(region).getByText('Backlog funnel')).toBeInTheDocument();
@@ -500,8 +493,6 @@ describe('AdminEnrichmentPage', () => {
     const user = userEvent.setup();
     renderPage();
 
-    // Wait on the switch itself: the loading skeleton already shows the
-    // "Subcategory rollout" section title.
     const toggle = (await screen.findByLabelText(
       /show the subcategory filter to users/i
     )) as HTMLInputElement;
@@ -538,8 +529,6 @@ describe('AdminEnrichmentPage', () => {
       })
     );
     renderPage();
-    // Wait on the switch itself: the loading skeleton already shows the
-    // "Subcategory rollout" section title.
     const toggle = (await screen.findByLabelText(
       /show the subcategory filter to users/i
     )) as HTMLInputElement;

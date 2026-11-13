@@ -90,7 +90,6 @@ describe('VotingColumn', () => {
       const { container } = render(<VotingColumn />);
       const region = screen.getByRole('status', { name: 'Loading features…' });
       expect(region).toBeInTheDocument();
-      // A bounded handful of card placeholders shaped like FeatureVoteCard.
       expect(region.querySelectorAll('.MuiCard-root')).toHaveLength(3);
       expect(container.querySelectorAll('.MuiSkeleton-root').length).toBeGreaterThan(0);
       expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();

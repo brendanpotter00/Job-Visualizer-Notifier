@@ -61,11 +61,6 @@ function draftFromServer(p: SavedFilters): SavedFiltersDraft {
   };
 }
 
-/**
- * The three sections that render off the saved-filters payload, in page order.
- * While that payload loads they stand in as placeholders together, because all
- * three appear the moment it arrives.
- */
 function PrefsSectionsSkeleton() {
   return (
     <>
@@ -76,20 +71,13 @@ function PrefsSectionsSkeleton() {
   );
 }
 
-/** Placeholder for the keyword-lists section while its own request loads. */
 function KeywordListsSkeleton() {
   return <SavedFiltersSectionSkeleton title="Keyword lists" controls={2} />;
 }
 
-/**
- * Whole-page placeholder while the auth SDK resolves: the page title and every
- * section in order, so a signed-in user's page fills in rather than jumping
- * from a spinner to five sections.
- */
 function SavedFiltersPageSkeleton() {
   return (
     <Container maxWidth="md" sx={{ py: RESPONSIVE.spacing.pageMarginY }}>
-      {/* The title as text, not yet the page's h1 (see Skeletons.tsx). */}
       <Typography variant="h4" component="div" gutterBottom>
         Saved Filters
       </Typography>

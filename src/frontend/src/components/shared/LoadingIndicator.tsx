@@ -64,11 +64,7 @@ export function LoadingIndicator(props: LoadingIndicatorProps) {
 export { LoadingIndicator as LoadingState };
 
 /**
- * Loading skeleton for the chart/graph component.
- *
- * `height` defaults to the 400px desktop chart. Pass a responsive sx value
- * (e.g. `{ xs: RESPONSIVE.chart.height.compact, sm: RESPONSIVE.chart.height.default }`)
- * so the placeholder matches a chart that is shorter on phones.
+ * Loading skeleton for the chart/graph component
  */
 export function ChartSkeleton({
   height = 400,

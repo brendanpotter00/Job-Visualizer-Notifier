@@ -123,15 +123,11 @@ describe('QAPage', () => {
       mockScrapeRuns([baseRun]);
       render(<QAPage />);
 
-      // Wait for the loaded run row first: the loading skeleton already shows
-      // the real column labels, so the header alone does not prove the table
-      // loaded.
       await screen.findByText('2585');
       expect(screen.getByRole('columnheader', { name: /guard skipped/i })).toBeInTheDocument();
     });
 
     it('shows table skeletons with the real column labels while loading', () => {
-      // Never-resolving fetch: both tables stay in their first load.
       mockFetch.mockImplementation(() => new Promise(() => {}));
       render(<QAPage />);
 

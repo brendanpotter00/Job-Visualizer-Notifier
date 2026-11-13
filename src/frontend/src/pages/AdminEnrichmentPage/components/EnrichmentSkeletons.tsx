@@ -14,35 +14,32 @@ import {
 } from '../../../components/shared/Skeletons';
 import { RESPONSIVE } from '../../../config/responsive';
 
-/*
- * Placeholders for the enrichment oversight page, one per slot, built from the
- * shared skeleton pieces. All purely visual: the page wraps each in a single
- * `SkeletonRegion` naming what is loading.
- */
-
-/** `PipelineFunnel`'s stacked bar is a fixed 28px band. */
 const FUNNEL_BAR_HEIGHT = 28;
 
-/**
- * `TickCharts` height: `adminChart.height.compact` on phones, 240px on desktop
- * (the charts' own desktop literal).
- */
 const TICK_CHART_HEIGHT = { xs: RESPONSIVE.adminChart.height.compact, sm: 240 } as const;
 
-/** `NeedsHumanTable`'s header (the first, unlabelled column holds the expand toggle). */
-const NEEDS_HUMAN_COLUMNS = ['', 'Job', 'Proposed', 'Confidence', 'Sub conf.', 'Enriched', 'Actions'] as const;
+const NEEDS_HUMAN_COLUMNS = [
+  '',
+  'Job',
+  'Proposed',
+  'Confidence',
+  'Sub conf.',
+  'Enriched',
+  'Actions',
+] as const;
 
-/** `RecentEnrichmentsTable`'s header. */
-const RECENT_COLUMNS = ['', 'Job', 'Labels', 'Confidence', 'Outcome', 'Enriched', 'Actions'] as const;
+const RECENT_COLUMNS = [
+  '',
+  'Job',
+  'Labels',
+  'Confidence',
+  'Outcome',
+  'Enriched',
+  'Actions',
+] as const;
 
-/** Company search + four facet selects above the needs-human table. */
 const NEEDS_HUMAN_FILTER_COUNT = 5;
 
-/**
- * Everything the health read paints: the verdict banner, the backlog funnel
- * (bar, legend, four stat tiles) and the subcategory-rollout card. All three
- * appear together when health lands, so they hold their space together.
- */
 export function HealthSlotSkeleton() {
   return (
     <>
@@ -72,7 +69,6 @@ export function HealthSlotSkeleton() {
   );
 }
 
-/** The ticks card body: the EKG strip over the two side-by-side charts. */
 export function TicksSlotSkeleton() {
   return (
     <>
@@ -98,21 +94,14 @@ export function TicksSlotSkeleton() {
   );
 }
 
-/** The needs-human queue table (header, rows, pagination). */
 export function NeedsHumanTableSkeleton() {
   return <TableSkeleton columns={NEEDS_HUMAN_COLUMNS} surface="none" pagination />;
 }
 
-/** The recent-enrichments table (no pagination — it is a fixed last-25 glance). */
 export function RecentEnrichmentsTableSkeleton() {
   return <TableSkeleton columns={RECENT_COLUMNS} surface="none" />;
 }
 
-/**
- * The page below the header, for the first load when nothing has arrived:
- * every slot's placeholder in page order, including the two self-contained
- * tables (whose own requests only start once the page renders them).
- */
 export function EnrichmentPageBodySkeleton() {
   return (
     <>
@@ -122,10 +111,7 @@ export function EnrichmentPageBodySkeleton() {
       </SectionSkeleton>
       <SectionSkeleton title="Needs human">
         <TextSkeleton lines={1} sx={{ mb: 2 }} />
-        <ControlsRowSkeleton
-          count={NEEDS_HUMAN_FILTER_COUNT}
-          width={{ xs: '100%', sm: 180 }}
-        />
+        <ControlsRowSkeleton count={NEEDS_HUMAN_FILTER_COUNT} width={{ xs: '100%', sm: 180 }} />
         <NeedsHumanTableSkeleton />
       </SectionSkeleton>
       <SectionSkeleton title="Recent enrichments">

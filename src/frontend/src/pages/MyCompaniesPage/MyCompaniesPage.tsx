@@ -37,15 +37,9 @@ import {
 import Box from '@mui/material/Box';
 import Skeleton from '@mui/material/Skeleton';
 
-/**
- * Whole-page placeholder while the auth SDK resolves, in the loaded page's own
- * `md` column: the real heading, the monthly-quota line, the add form (field +
- * button over the one-line consent note), the divider, and the company list.
- */
 function MyCompaniesPageSkeleton() {
   return (
     <Container maxWidth="md" sx={{ py: RESPONSIVE.spacing.pageMarginY }}>
-      {/* The title as text, not yet the page's h1 (see Skeletons.tsx). */}
       <Typography
         variant="h4"
         component="div"
@@ -62,8 +56,6 @@ function MyCompaniesPageSkeleton() {
         <Stack spacing={3}>
           <Paper sx={{ p: RESPONSIVE.spacing.paperPaddingLg }}>
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-              {/* `flex` only in the row layout: a zero flex-basis in the stacked
-                  phone column would collapse an empty placeholder's height. */}
               <Skeleton
                 variant="rounded"
                 height={SKELETON_CONTROL_HEIGHT}

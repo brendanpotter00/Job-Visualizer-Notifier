@@ -21,31 +21,18 @@ import { extractErrorMessage } from '../../lib/errors';
 import { trackSignInClick } from '../../features/analytics/events';
 import { RESPONSIVE } from '../../config/responsive';
 
-/** Profile avatar edge (px), shared by the loaded avatar and its placeholder. */
 const AVATAR_SIZE = 80;
 
-/**
- * First-load placeholder for the profile card: the avatar over the email, the
- * name block, the display-name field and the save button, in the same `sm`
- * container and padded Paper the loaded page uses. Shown while the auth SDK
- * boots and again while the profile request is in flight.
- */
 function AccountPageSkeleton() {
   return (
     <Container maxWidth="sm" sx={{ py: RESPONSIVE.spacing.pageMarginY }}>
-      {/* The title as text, not yet the page's h1 (see Skeletons.tsx). */}
       <Typography variant="h4" component="div" gutterBottom>
         Account
       </Typography>
       <SkeletonRegion label="Loading your account…">
         <Paper sx={{ p: RESPONSIVE.spacing.paperPaddingLg }}>
           <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', mb: 3 }}>
-            <Skeleton
-              variant="circular"
-              width={AVATAR_SIZE}
-              height={AVATAR_SIZE}
-              sx={{ mb: 2 }}
-            />
+            <Skeleton variant="circular" width={AVATAR_SIZE} height={AVATAR_SIZE} sx={{ mb: 2 }} />
             <Typography variant="body2" component="div" sx={{ width: '50%' }}>
               <Skeleton />
             </Typography>
@@ -141,10 +128,6 @@ export function AccountPage() {
     );
   }
 
-  // No user and no error yet: `useCurrentUser` starts with `loading: false` and
-  // only flips it inside its mount effect, so the very first authenticated frame
-  // lands here before the fetch has begun. It is still a wait — show the same
-  // placeholder rather than a blank frame.
   if (!user) return <AccountPageSkeleton />;
 
   const isDirty = displayName !== (user.displayName ?? '');

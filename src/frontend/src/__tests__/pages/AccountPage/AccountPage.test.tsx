@@ -114,8 +114,6 @@ describe('AccountPage', () => {
       renderPage();
       expect(screen.getByRole('status', { name: 'Loading your account…' })).toBeInTheDocument();
       expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
-      // The static title shows as text right away; the page's h1 (and the
-      // profile) arrive once the account has loaded.
       expect(screen.getByText('Account')).toBeInTheDocument();
       expect(screen.queryByRole('heading', { level: 1 })).not.toBeInTheDocument();
       expect(screen.queryByRole('button', { name: /save changes/i })).not.toBeInTheDocument();

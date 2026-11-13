@@ -75,8 +75,6 @@ describe('AdminUsersPage', () => {
 
     renderPage();
 
-    // One status region for the whole page, shaped like it: header copy, the
-    // stat/chart/provider cards, and the roster table's real column headers.
     expect(screen.getByRole('status', { name: 'Loading admin data…' })).toBeInTheDocument();
     expect(screen.getAllByRole('status')).toHaveLength(1);
     expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();

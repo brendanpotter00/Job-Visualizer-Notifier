@@ -33,7 +33,6 @@ import {
   LocationPageBodySkeleton,
 } from './components/LocationSkeletons';
 
-/** Header copy, shared by the loaded header and its first-load placeholder. */
 const PAGE_TITLE = 'Admin · Location Normalization';
 const PAGE_SUBTITLE =
   'Health, integrity invariants, and the alias cache for location normalization.';
@@ -79,8 +78,6 @@ export function AdminLocationNormalizationPage() {
     return (
       <Container maxWidth="xl" sx={{ py: RESPONSIVE.spacing.pageMarginY }}>
         <SkeletonRegion label="Loading location normalization data…">
-          {/* The header as text + button placeholders: the real one (an h1 and
-              live controls) arrives with the data — see Skeletons.tsx. */}
           <PageHeaderSkeleton title={PAGE_TITLE} subtitle={PAGE_SUBTITLE} actions={1} />
           <LocationPageBodySkeleton />
         </SkeletonRegion>
@@ -151,9 +148,6 @@ export function AdminLocationNormalizationPage() {
           )}
         </Paper>
       ) : (healthSlotLoading || integritySlotLoading) && !healthError && !integrityError ? (
-        // One input is in and the other is still on its way, with nothing
-        // failed: the verdict is pending, not unavailable — hold its place
-        // rather than claiming the data "could not be loaded".
         <SkeletonRegion label="Loading verdict…">
           <StatusBannerSkeleton />
         </SkeletonRegion>

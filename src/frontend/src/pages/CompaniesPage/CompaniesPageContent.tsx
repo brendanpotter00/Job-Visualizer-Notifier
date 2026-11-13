@@ -14,25 +14,15 @@ interface CompaniesPageContentProps {
   isLoading: boolean;
 }
 
-/** The three window labels `MetricsRow` renders, so the skeleton shows them too. */
 const METRIC_LABELS = ['Past 3 Days', 'Past 24 Hours', 'Past 12 Hours'] as const;
-/** The two link labels `LinksRow` renders. */
 const LINK_LABELS = ['Official Job Postings', 'Find Recruiters'] as const;
-/** GraphFilters' second row: time window, category, level, location. */
 const FILTER_ROW_CONTROLS = [0, 1, 2, 3] as const;
 
-/** Responsive chart height, matching what `GraphSection` hands `JobPostingsChart`. */
 const CHART_HEIGHT = {
   xs: RESPONSIVE.chart.height.compact,
   sm: RESPONSIVE.chart.height.default,
 } as const;
 
-/**
- * First-load placeholder for the company hiring-trend page, laid out like the
- * loaded content: the metrics card (three window counts over the two links) on
- * top, then the shared graph + list card. Static labels render as real text;
- * only the numbers, filters, chart and job cards are placeholders.
- */
 function CompaniesPageContentSkeleton() {
   return (
     <SkeletonRegion label="Loading job data…">
@@ -88,13 +78,14 @@ function CompaniesPageContentSkeleton() {
             sx={{ mb: RESPONSIVE.spacing.sectionMarginB }}
           >
             <Skeleton variant="rounded" sx={{ height: RESPONSIVE.control.minHeight }} />
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={RESPONSIVE.spacing.filterSpacing}>
+            <Stack
+              direction={{ xs: 'column', sm: 'row' }}
+              spacing={RESPONSIVE.spacing.filterSpacing}
+            >
               {FILTER_ROW_CONTROLS.map((i) => (
                 <Skeleton
                   key={i}
                   variant="rounded"
-                  // Row on desktop (equal widths); stacked full-width on phones,
-                  // where a zero flex-basis would collapse each one's height.
                   sx={{ flex: { xs: 'none', sm: 1 }, height: RESPONSIVE.control.minHeight }}
                 />
               ))}
