@@ -39,7 +39,7 @@
 ### Production-environment findings
 
 **Critical:**
-- **Live outage was already resolved by an unrelated redeploy.** Railway deployment `9c9251cd` went live at 2026-05-05T14:36:53Z, triggered by PR #95 (`docs(claude): weekly CLAUDE.md audit`) editing `src/backend/AGENTS.md` — which matches the watch pattern `/src/backend/**`. The PR #95 redeploy restarted the container, draining the leaked PIDs from the b0b36aa1 deployment. The acute outage is no longer active. **This PR's value is now strictly preventive (no recurrence after the next ~13 days of uptime), not curative.** Incident doc and PLAN narrative must be updated. (railway-prod-verifier)
+- **Live outage was already resolved by an unrelated redeploy.** Railway deployment `9c9251cd` went live at 2026-05-05T14:36:53Z, triggered by PR #95 (`docs(claude): weekly CLAUDE.md audit`) editing `src/backend/CLAUDE.md` — which matches the watch pattern `/src/backend/**`. The PR #95 redeploy restarted the container, draining the leaked PIDs from the b0b36aa1 deployment. The acute outage is no longer active. **This PR's value is now strictly preventive (no recurrence after the next ~13 days of uptime), not curative.** Incident doc and PLAN narrative must be updated. (railway-prod-verifier)
 
 **Important:**
 - **Live container does not yet have tini as PID 1.** The 9c9251cd deployment was built from commit `42b081b2` (before Unit 1's Dockerfile change). Logs at 14:39:50Z confirm `Started server process [1]` for uvicorn directly. Merging this PR will trigger a Railway redeploy (watch patterns `/src/backend/**` and `/scripts/**` both match this PR's diff), which will then deploy the tini'd image. (railway-prod-verifier)
