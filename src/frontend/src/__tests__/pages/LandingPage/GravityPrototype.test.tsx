@@ -121,7 +121,7 @@ describe('GravityPrototype', () => {
   });
 
   // The same pair, hero and closer: a filled "Browse jobs" and a quiet text
-  // "Create free account". Two of each, and never an outlined variant.
+  // "Create account". Two of each, and never an outlined variant.
   it('carries the CTA pair in the hero and again in the closing block', () => {
     renderGravity();
     const primaries = buttonLinks(LANDING_CONTENT.ctas.primary.label);

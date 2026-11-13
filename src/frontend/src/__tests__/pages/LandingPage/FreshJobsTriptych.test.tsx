@@ -120,19 +120,21 @@ describe('FreshJobsTriptych', () => {
   // card, so the cell is the height of the tallest card from first paint and
   // stays there for the whole rotation. Immune by construction: it holds for
   // any pool, any title length, no measurement and no magic number.
-  it('reserves the tallest card in each pool by rendering every job as a hidden sizer', () => {
+  //
+  // 2026-11-12 (owner rule: "I never want the height to differ on these
+  // cards"): the reservation is now the UNION of all three pools, in every
+  // slot, so the three cells — and the cards that fill them — are always the
+  // same height, side by side on desktop and stacked on a phone.
+  it('reserves the tallest card in ANY slot by giving every slot a sizer for every job', () => {
     renderTriptych();
 
-    for (const [slot, testId] of [
-      [EARLY, TEST_IDS.early],
-      [DAY, TEST_IDS.day],
-      [BIG, TEST_IDS.big],
-    ] as const) {
-      expect(sizers(testId)).toHaveLength(slot.jobs.length);
-      // Every job in the pool is present, in pool order — including the ones
-      // not currently on screen. That is what makes the height a max(), not a
-      // property of whichever card happens to be showing.
-      expect(sizerTitles(testId)).toEqual(slot.jobs.map((j) => j.title));
+    const union = [...new Map(SLOTS.flatMap((slot) => slot.jobs).map((j) => [j.id, j])).values()];
+    for (const testId of Object.values(TEST_IDS)) {
+      expect(sizers(testId)).toHaveLength(union.length);
+      // Every job in every pool is present — including the ones not currently
+      // on screen anywhere. That is what makes the height one max() for the
+      // whole section, not a property of whichever cards happen to be showing.
+      expect(sizerTitles(testId)).toEqual(union.map((j) => j.title));
     }
   });
 
@@ -270,10 +272,10 @@ describe('FreshJobsTriptych', () => {
     expect(activeId(TEST_IDS.early)).toBe(EARLY.jobs[0].id);
     expect(activeId(TEST_IDS.day)).toBe(DAY.jobs[0].id);
     expect(activeId(TEST_IDS.big)).toBe(BIG.jobs[0].id);
-    // No sizers either: a card that never changes has no height to reserve
-    // against, so the reduced-motion path stays the leanest DOM of the three.
+    // Sizers still: nothing flips, but the three cards must stay one height
+    // (owner rule, 2026-11-12), and that is the sizers' job.
     for (const testId of Object.values(TEST_IDS)) {
-      expect(sizers(testId)).toHaveLength(0);
+      expect(sizers(testId).length).toBeGreaterThan(0);
     }
   });
 
@@ -291,7 +293,7 @@ describe('FreshJobsTriptych', () => {
     ).toBeInTheDocument();
     expect(within(emptySlot).getByRole('link', { name: 'Check the board' })).toHaveAttribute(
       'href',
-      '/'
+      '/jobs'
     );
     // The caption still names the slot honestly.
     expect(screen.getByText('Internships & new grad')).toBeInTheDocument();
@@ -309,9 +311,9 @@ describe('FreshJobsTriptych', () => {
       vi.advanceTimersByTime(INTERVAL_MS * 4);
     });
     expect(activeId(TEST_IDS.day)).toBe(sparseSlots[1].jobs[0].id);
-    // ...and no sizer stack: with nothing to flip to, the visible card already
-    // is the tallest card in its pool.
-    expect(sizers(TEST_IDS.day)).toHaveLength(0);
+    // It still carries the section-wide reservation, so it is exactly as tall
+    // as its neighbours even though it never flips.
+    expect(sizers(TEST_IDS.day).length).toBeGreaterThan(0);
   });
 
   it('renders nothing at all only when every pool is empty', () => {

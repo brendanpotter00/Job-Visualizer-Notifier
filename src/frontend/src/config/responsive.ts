@@ -341,9 +341,14 @@ export const RESPONSIVE = {
     categoryGridGap: { xs: 2, sm: 3 },
     /** Quotable-claims / body emphasis font size (a step above `bodyFontSize`). */
     quotableFontSize: { xs: '1.0625rem', sm: '1.25rem' },
-    /** Reserved height for the rotating single-job card, so the page does not
-     *  twitch as cards of slightly different content length swap in (px). */
-    rotatingCardMinHeight: { xs: 260, sm: 240 },
+    /**
+     * Floor under each fresh-jobs slot (px), and the height of an empty slot's
+     * message box. The rotating card's real reservation is FlippingCard's
+     * sizer stack (the tallest card in the pool), so this only has to sit at
+     * or below the shortest card. Phone cards measure 150-173px; the old 260
+     * floor left ~90px of blank space under every card (2026-11-12).
+     */
+    rotatingCardMinHeight: { xs: 140, sm: 240 },
     /**
      * Gravity hero: reserved vertical room for the 3D pile (px height). The
      * phone pile (40 tiles at ~40px, see `pileFloorInsetCompact`) settles about

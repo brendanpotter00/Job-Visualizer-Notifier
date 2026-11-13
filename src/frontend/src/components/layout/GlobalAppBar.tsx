@@ -7,6 +7,7 @@ import IconButton from '@mui/material/IconButton';
 import MenuIcon from '@mui/icons-material/Menu';
 import { Link as RouterLink } from 'react-router-dom';
 import { UserMenu } from './UserMenu';
+import { ROUTES } from '../../config/routes';
 
 const recBlink = keyframes`
   0%, 55% { opacity: 1; }
@@ -87,9 +88,11 @@ export function GlobalAppBar({ open, onDrawerToggle, drawerWidth, isMobile }: Gl
         >
           <MenuIcon />
         </IconButton>
+        {/* The app's home is the jobs board, not `/` — signed-out visitors
+            at `/` get the marketing landing page, which is outside the app. */}
         <Box
           component={RouterLink}
-          to="/"
+          to={ROUTES.RECENT_JOBS}
           aria-label={APP_TITLE}
           sx={{
             display: 'inline-flex',

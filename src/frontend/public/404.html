@@ -1,0 +1,28 @@
+<!doctype html>
+<!--
+  Vercel serves this for any path no file and no vercel.json rewrite claims,
+  with a real 404 status (so crawlers drop the dead URL rather than indexing a
+  soft 404). People are sent on to `/`, the landing page, with the query and
+  hash kept — owner decision, 2026-11-12: "if we cannot find the page then it
+  should lead to /".
+
+  Deliberately NOT a catch-all rewrite to index.html in vercel.json: `vercel
+  dev` applies rewrites to every request, Vite's own module URLs included
+  (`/@vite/client`, `/src/main.tsx`), and a catch-all broke local dev outright.
+  Paths that DO reach the SPA are handled by the router's own catch-all
+  (UnknownPathRedirect in app/HomeRoute.tsx).
+-->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="robots" content="noindex" />
+    <meta http-equiv="refresh" content="0; url=/" />
+    <title>onesecondswe</title>
+    <script>
+      location.replace('/' + location.search + location.hash);
+    </script>
+  </head>
+  <body>
+    <p><a href="/">Go to onesecondswe</a></p>
+  </body>
+</html>

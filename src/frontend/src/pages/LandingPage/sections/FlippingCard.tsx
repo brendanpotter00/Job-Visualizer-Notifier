@@ -10,6 +10,8 @@ import { usePrefersReducedMotion } from '../usePrefersReducedMotion';
 const ROTATE_INTERVAL_MS = 4500;
 /** Crossfade duration (seconds, framer's unit) — restraint over flash. */
 const CROSSFADE_SECONDS = 0.3;
+/** Stretch the visible card to the full height of its grid cell. */
+const FILL_CELL_SX = { height: '100%', '& > .MuiCard-root': { height: '100%' } } as const;
 
 /**
  * The overline above a card. Exported as a component (not a style object) so an
@@ -43,6 +45,13 @@ interface FlippingCardProps {
   phaseMs?: number;
   /** Test hook on the swapping region; also carries `data-active-job-id`. */
   testId: string;
+  /**
+   * Jobs whose cards reserve this slot's height. Defaults to the slot's own
+   * pool. FreshJobsTriptych passes EVERY slot's pool, so all three slots
+   * reserve the same tallest card and the cards never differ in height —
+   * across slots or as a slot flips (owner rule, 2026-11-12).
+   */
+  sizerJobs?: Job[];
 }
 
 /**
@@ -71,7 +80,7 @@ interface FlippingCardProps {
  * `JobListingCard` itself, and the pool was selected against the caller's
  * `now`, keeping react-hooks/purity honestly clean.
  */
-export function FlippingCard({ jobs, caption, phaseMs = 0, testId }: FlippingCardProps) {
+export function FlippingCard({ jobs, caption, phaseMs = 0, testId, sizerJobs }: FlippingCardProps) {
   const reducedMotion = usePrefersReducedMotion();
   const [index, setIndex] = useState(0);
   const [hovered, setHovered] = useState(false);
@@ -125,11 +134,16 @@ export function FlippingCard({ jobs, caption, phaseMs = 0, testId }: FlippingCar
           minHeight: RESPONSIVE.landingProto.rotatingCardMinHeight,
         }}
       >
+        {/* A shared reservation needs its sizers even when this slot's own
+            pool is one job, and even under reduced motion: the height rule
+            is about the cards, not about the flip. */}
+        {(sizerJobs !== undefined || !reducedMotion) && <SizerStack jobs={sizerJobs ?? jobs} />}
         {reducedMotion ? (
-          <JobListingCard job={job} />
+          <Box sx={{ gridArea: '1 / 1', ...FILL_CELL_SX }}>
+            <JobListingCard job={job} />
+          </Box>
         ) : (
           <>
-            <SizerStack jobs={jobs} />
             <AnimatePresence initial={false}>
               <motion.div
                 key={job.id}
@@ -142,7 +156,12 @@ export function FlippingCard({ jobs, caption, phaseMs = 0, testId }: FlippingCar
                 exit={{ opacity: 0 }}
                 transition={{ duration: CROSSFADE_SECONDS, ease: 'easeOut' }}
               >
-                <JobListingCard job={job} />
+                {/* The card fills the cell (which the sizers hold at the
+                    pool's tallest card), so a shorter card grows its own box
+                    instead of leaving a strip of page under it. */}
+                <Box sx={FILL_CELL_SX}>
+                  <JobListingCard job={job} />
+                </Box>
               </motion.div>
             </AnimatePresence>
           </>
@@ -167,12 +186,15 @@ export function FlippingCard({ jobs, caption, phaseMs = 0, testId }: FlippingCar
  * thing to assistive tech and to the focus order explicitly, so a screen-reader
  * user hears one job per slot, not seven.
  *
- * Skipped entirely when the pool holds a single job (nothing ever flips, so the
- * visible card already IS the tallest) and in the reduced-motion path (a static
- * card whose height never changes has nothing to reserve against).
+ * Exported so an EMPTY slot can reserve the same height as its neighbours
+ * (FreshJobsTriptych's QuietSlot). In the triptych every slot is handed the
+ * union of all three pools, so all three cells are the same height whichever
+ * jobs are showing — on a phone, where they stack, as much as on desktop.
  */
-function SizerStack({ jobs }: { jobs: Job[] }) {
-  if (jobs.length < 2) return null;
+export function SizerStack({ jobs }: { jobs: Job[] }) {
+  // One job reserves exactly its own visible card, so a lone sizer adds
+  // nothing — except when the reservation is a different pool (see sizerJobs).
+  if (jobs.length === 0) return null;
 
   return (
     <>

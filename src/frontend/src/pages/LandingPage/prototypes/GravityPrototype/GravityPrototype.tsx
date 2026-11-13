@@ -5,6 +5,7 @@ import { COMPANIES } from '../../../../config/companies';
 import type { LandingPrototypeProps } from '../../types';
 import { LandingHeader } from '../../sections/LandingHeader';
 import { HeroCopy } from '../../sections/HeroCopy';
+import { heroRiseIn, HERO_RISE_STAGGER_MS } from '../../sections/heroRiseIn';
 import { CTAButtons } from '../../sections/CTAButtons';
 import { FreshJobsTriptych } from '../../sections/FreshJobsTriptych';
 import { LinkedInComparisonSection } from '../../sections/LinkedInComparisonSection';
@@ -110,7 +111,8 @@ export function GravityPrototype({ content, jobs, now }: LandingPrototypeProps) 
             }}
           >
             <HeroCopy hero={content.hero} headingId={HERO_HEADING_ID} />
-            <Box sx={{ mt: 5, pointerEvents: 'auto' }}>
+            {/* Follows the headline in, one stagger step behind it. */}
+            <Box sx={{ mt: 5, pointerEvents: 'auto', ...heroRiseIn(HERO_RISE_STAGGER_MS) }}>
               <CTAButtons ctas={content.ctas} showSecondary />
             </Box>
             {tier.tier === 'fallback' ? (

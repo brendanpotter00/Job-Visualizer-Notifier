@@ -61,12 +61,14 @@ describe('landing content config', () => {
     }
   });
 
-  // The header is chrome, not a site map: the two-link cap is the whole point
-  // of the section, so it is asserted rather than left to reviewer discipline.
-  it('header carries a wordmark, exactly two nav links, and both auth labels', () => {
+  // The header is chrome, not a site map: the link cap is the whole point of
+  // the section, so it is asserted rather than left to reviewer discipline. It
+  // went from two to three on 2026-11-12 (owner-directed): "Jobs" leads, now
+  // that the board lives at /jobs rather than at the root.
+  it('header carries a wordmark, exactly three nav links, and both auth labels', () => {
     const { wordmark, nav, logIn, signUp, sourceCode, evidence } = LANDING_CONTENT.header;
     expect(wordmark.label).toBe(LANDING_CONTENT.productName);
-    expect(nav).toHaveLength(2);
+    expect(nav).toHaveLength(3);
     for (const link of [wordmark, ...nav, logIn, signUp]) {
       expect(link.label.trim().length, `header link ${link.to} needs a label`).toBeGreaterThan(0);
     }
@@ -74,8 +76,9 @@ describe('landing content config', () => {
     // Owner-directed 2026-09-03: "Why" gave up the second slot to "Changelog",
     // pointed at the vote-features page (which IS the public changelog — its
     // shipped section).
-    expect(nav.map((item) => item.label)).toEqual(['Companies', 'Changelog']);
-    expect(nav[1].to).toBe(ROUTES.VOTE_FEATURES);
+    expect(nav.map((item) => item.label)).toEqual(['Jobs', 'Companies', 'Changelog']);
+    expect(nav[0].to).toBe(ROUTES.RECENT_JOBS);
+    expect(nav[2].to).toBe(ROUTES.VOTE_FEATURES);
     expect(evidence.trim().length, 'header needs an owner breadcrumb').toBeGreaterThan(0);
     // External by definition, so it must NOT masquerade as an internal route.
     expect(sourceCode.href.startsWith('https://')).toBe(true);
@@ -231,7 +234,7 @@ describe('landing content config', () => {
 
   // Brief §9 title shape and §10 P3: the query phrase, the brand, and a
   // description short enough to survive a results page uncut.
-  it('seo: keyword-first title with brand suffix, short description, landing canonical', () => {
+  it('seo: keyword-first title with brand suffix, short description, root canonical', () => {
     const { title, description, siteUrl, canonicalPath, ogImagePath } = LANDING_CONTENT.seo;
     expect(title).toMatch(/^software engineer jobs/i);
     expect(title).toMatch(/\| onesecondswe$/);
@@ -239,7 +242,7 @@ describe('landing content config', () => {
     expect(description.length).toBeLessThanOrEqual(160);
     expect(description).toMatch(/software engineers/i);
     expect(siteUrl).toBe('https://onesecondswe.dev');
-    expect(canonicalPath).toBe(ROUTES.LANDING);
+    expect(canonicalPath).toBe(ROUTES.HOME);
     expect(ogImagePath.startsWith('/')).toBe(true);
   });
 

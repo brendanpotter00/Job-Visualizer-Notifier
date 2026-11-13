@@ -15,7 +15,6 @@ describe('routes config', () => {
     });
 
     it('keeps existing routes stable', () => {
-      expect(ROUTES.RECENT_JOBS).toBe('/');
       expect(ROUTES.COMPANIES).toBe('/companies');
       expect(ROUTES.WHY).toBe('/why');
       expect(ROUTES.QA).toBe('/qa');
@@ -31,28 +30,20 @@ describe('routes config', () => {
       expect(new Set(paths).size).toBe(paths.length);
     });
 
-    // The landing page replaced the four-tab prototype workspace on 2026-09-03
-    // and moved off /admin/…, which is the part with a deployment consequence:
-    // /admin/:path(.*) already rewrote to index.html in vercel.json, and /landing
-    // does not, so it needs its own rewrite or a hard refresh 404s.
-    it('exposes the LANDING path at /landing, outside the /admin prefix', () => {
-      expect(ROUTES.LANDING).toBe('/landing');
-      expect(ROUTES.LANDING.startsWith('/admin')).toBe(false);
-    });
-
-    it('keeps the pre-consolidation landing path as a legacy alias only', () => {
-      // Not a free-floating string: App.tsx builds the redirect route from it.
-      expect(ROUTES.LANDING_LEGACY).toBe('/admin/landing-prototypes');
-      expect(ROUTES.LANDING_LEGACY).not.toBe(ROUTES.LANDING);
+    // 2026-11-12 (owner decision): the landing page took `/` and the jobs board
+    // moved to `/jobs`. `/jobs` needs its own rewrite in vercel.json or a hard
+    // refresh on it 404s at the edge before the SPA ever loads.
+    it('puts the landing page at / and the jobs board at /jobs', () => {
+      expect(ROUTES.HOME).toBe('/');
+      expect(ROUTES.RECENT_JOBS).toBe('/jobs');
     });
   });
 
-  // The landing page is UNLISTED by owner decision: reachable by direct URL
-  // only, so reviewers can open it without signing in and nobody stumbles into
-  // it from the sidebar. A nav entry is the one change that would silently
-  // undo that, so every nav array is checked rather than just the combined one.
-  describe('the landing page stays unlisted', () => {
-    it('appears in no nav array, new path or legacy', () => {
+  // The sidebar is the app's navigation; the landing page is the front door,
+  // outside the app shell. `/` must never be a nav entry — a signed-in reader
+  // clicking it would only bounce straight back to /jobs.
+  describe('the landing page stays out of the app nav', () => {
+    it('appears in no nav array', () => {
       const navGroups = {
         PRIMARY_NAV_ITEMS,
         INFO_NAV_ITEMS,
@@ -62,10 +53,7 @@ describe('routes config', () => {
       };
       for (const [name, group] of Object.entries(navGroups)) {
         const paths = group.map((item) => item.path);
-        expect(paths, `${name} must not link the landing page`).not.toContain(ROUTES.LANDING);
-        expect(paths, `${name} must not link the legacy landing path`).not.toContain(
-          ROUTES.LANDING_LEGACY
-        );
+        expect(paths, `${name} must not link the landing page`).not.toContain(ROUTES.HOME);
       }
     });
   });

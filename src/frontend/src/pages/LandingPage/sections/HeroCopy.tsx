@@ -1,6 +1,7 @@
 import { Box, Typography } from '@mui/material';
 import { RESPONSIVE } from '../../../config/responsive';
 import type { LandingHero } from '../content';
+import { heroRiseIn } from './heroRiseIn';
 
 interface HeroCopyProps {
   hero: LandingHero;
@@ -28,6 +29,8 @@ export function HeroCopy({ hero, headingId }: HeroCopyProps) {
         letterSpacing: '-0.03em',
         lineHeight: 1.08,
         maxWidth: 1000,
+        // Rises and fades in once on load (see heroRiseIn).
+        ...heroRiseIn(),
       }}
     >
       {hero.headline}{' '}

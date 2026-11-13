@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { Box, Button, Container, IconButton, Link } from '@mui/material';
+import { Box, Button, Container, Link } from '@mui/material';
 import { alpha } from '@mui/material/styles';
-import GitHubIcon from '@mui/icons-material/GitHub';
 import { Link as RouterLink } from 'react-router-dom';
 import { RESPONSIVE } from '../../../config/responsive';
 import type { LandingContent } from '../content';
@@ -129,24 +128,8 @@ export function LandingHeader({ content }: LandingHeaderProps) {
           {/* Pushes the auth cluster to the right edge of the container. */}
           <Box sx={{ flexGrow: 1 }} />
 
-          <IconButton
-            component="a"
-            href={header.sourceCode.href}
-            target="_blank"
-            rel="noopener noreferrer"
-            aria-label={header.sourceCode.label}
-            size="small"
-            sx={{
-              display: { xs: 'none', sm: 'inline-flex' },
-              color: 'text.secondary',
-              '&:hover': { color: 'text.primary' },
-            }}
-          >
-            {/* Desktop-only mark, so no mobile token: 20px reads as a peer of
-                the body2 nav links beside it without becoming a third CTA. */}
-            <GitHubIcon sx={{ fontSize: 20 }} />
-          </IconButton>
-
+          {/* No GitHub mark: cut 2026-11-12 (owner-directed). The repo URL
+              lives on in the JSON-LD `sameAs` only (header.sourceCode). */}
           <Button
             component={RouterLink}
             to={header.logIn.to}

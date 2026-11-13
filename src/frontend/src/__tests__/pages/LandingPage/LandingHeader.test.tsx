@@ -30,7 +30,7 @@ describe('LandingHeader', () => {
     expect(mark).toHaveTextContent('onesecondswe');
   });
 
-  it('renders exactly the two quiet nav links from content, with their route targets', () => {
+  it('renders exactly the quiet nav links from content, with their route targets', () => {
     renderHeader();
     const nav = screen.getByRole('navigation', { name: 'Landing' });
     const links = within(nav).getAllByRole('link');
@@ -51,13 +51,12 @@ describe('LandingHeader', () => {
     expect(signUp).toHaveAttribute('href', header.signUp.to);
   });
 
-  it('exposes the source-code mark as a labelled, safely-targeted external link', () => {
+  // The GitHub mark was cut on 2026-11-12 (owner-directed); the repo URL is
+  // only in the JSON-LD now.
+  it('renders no source-code link', () => {
     renderHeader();
-    const source = screen.getByRole('link', { name: header.sourceCode.label });
-    expect(source).toHaveAttribute('href', header.sourceCode.href);
-    expect(source).toHaveAttribute('target', '_blank');
-    expect(source).toHaveAttribute('rel', expect.stringContaining('noopener'));
-    expect(source).toHaveAttribute('aria-label', 'Source code');
+    expect(screen.queryByRole('link', { name: header.sourceCode.label })).not.toBeInTheDocument();
+    expect(document.querySelector(`a[href="${header.sourceCode.href}"]`)).toBeNull();
   });
 
   it('starts transparent over the hero, with the scroll sentinel above the bar', () => {

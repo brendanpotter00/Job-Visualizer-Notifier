@@ -5,7 +5,7 @@ import type { Job } from '../../../types';
 import { RESPONSIVE } from '../../../config/responsive';
 import { ROUTES } from '../../../config/routes';
 import type { SectionIntro as SectionIntroContent } from '../content';
-import { FlippingCard, SlotCaption } from './FlippingCard';
+import { FlippingCard, SizerStack, SlotCaption } from './FlippingCard';
 import { SectionIntro } from './SectionIntro';
 import { selectTriptychSlots, type TriptychSlot } from './triptychJobs';
 
@@ -48,6 +48,14 @@ interface FreshJobsTriptychProps {
  */
 export function FreshJobsTriptych({ jobs, now, intro }: FreshJobsTriptychProps) {
   const slots = useMemo(() => selectTriptychSlots(jobs, now), [jobs, now]);
+  // Every slot reserves the tallest card in ANY slot, so the three cards are
+  // always the same height (owner rule, 2026-11-12) — see FlippingCard.sizerJobs.
+  // De-duplicated by id: pools may share a job (the slots only promise never to
+  // SHOW it at the same time), and sizers are keyed by job id.
+  const allSlotJobs = useMemo(
+    () => [...new Map(slots.flatMap((slot) => slot.jobs).map((job) => [job.id, job])).values()],
+    [slots]
+  );
 
   if (slots.every((slot) => slot.jobs.length === 0)) return null;
 
@@ -69,9 +77,10 @@ export function FreshJobsTriptych({ jobs, now, intro }: FreshJobsTriptychProps) 
                 caption={slot.label}
                 phaseMs={i * PHASE_STEP_MS}
                 testId={slotTestId(slot.id)}
+                sizerJobs={allSlotJobs}
               />
             ) : (
-              <QuietSlot slot={slot} />
+              <QuietSlot slot={slot} sizerJobs={allSlotJobs} />
             )}
           </Grid>
         ))}
@@ -93,7 +102,7 @@ function slotTestId(id: TriptychSlot['id']): string {
  * content. On a quiet weekend this is the truthful answer, and the one useful
  * next step is the live board.
  */
-function QuietSlot({ slot }: { slot: TriptychSlot }) {
+function QuietSlot({ slot, sizerJobs }: { slot: TriptychSlot; sizerJobs: Job[] }) {
   return (
     <>
       <SlotCaption>{slot.label}</SlotCaption>
@@ -102,19 +111,30 @@ function QuietSlot({ slot }: { slot: TriptychSlot }) {
         data-empty="true"
         sx={{
           display: 'grid',
-          alignContent: 'center',
-          justifyItems: 'center',
-          gap: 1,
-          textAlign: 'center',
+          gridTemplateColumns: 'minmax(0, 1fr)',
           minHeight: RESPONSIVE.landingProto.rotatingCardMinHeight,
         }}
       >
-        <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-          {slot.emptyText}
-        </Typography>
-        <Link component={RouterLink} to={ROUTES.RECENT_JOBS} variant="body2">
-          Check the board
-        </Link>
+        {/* Same reservation as the card slots, so an empty slot is exactly as
+            tall as its neighbours. */}
+        <SizerStack jobs={sizerJobs} />
+        <Box
+          sx={{
+            gridArea: '1 / 1',
+            display: 'grid',
+            alignContent: 'center',
+            justifyItems: 'center',
+            gap: 1,
+            textAlign: 'center',
+          }}
+        >
+          <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+            {slot.emptyText}
+          </Typography>
+          <Link component={RouterLink} to={ROUTES.RECENT_JOBS} variant="body2">
+            Check the board
+          </Link>
+        </Box>
       </Box>
     </>
   );

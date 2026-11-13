@@ -6,7 +6,7 @@ import type { LandingContent } from '../content';
 interface CTAButtonsProps {
   ctas: LandingContent['ctas'];
   /**
-   * Renders "Create free account" as a quiet text button beside the contained
+   * Renders "Create account" as a quiet text button beside the contained
    * primary. The hero and the closer both carry the pair: signing up is the
    * conversion, so it stays one click away at both ends of the page, but it
    * never competes with "Browse jobs" for the eye.

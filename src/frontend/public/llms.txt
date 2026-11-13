@@ -11,8 +11,8 @@
 
 ## Pages
 
-- [Jobs board](https://onesecondswe.dev/): every tracked job, newest first.
-- [About onesecondswe](https://onesecondswe.dev/landing): what it is and how it compares to LinkedIn.
+- [About onesecondswe](https://onesecondswe.dev/): what it is and how it compares to LinkedIn.
+- [Jobs board](https://onesecondswe.dev/jobs): every tracked job, newest first.
 - [Companies we track](https://onesecondswe.dev/curated-companies): the curated roster.
 - [Why this was built](https://onesecondswe.dev/why)
 - [Changelog](https://onesecondswe.dev/vote-features): shipped features and what to vote on next.

@@ -89,7 +89,7 @@ actually reads your resume. onesecondswe exists so you're early — every time."
   Data-forward proof, but **live/event-shaped**, not vanity metrics (Q7): "SpaceX posted 25
   jobs in the past hour", "1,000 jobs tracked in the past 24 hours" — never static
   "trusted by 10,000 users" energy.
-- Primary CTA: **"Browse jobs"** → the live board (Q3). Secondary: "Create free account"
+- Primary CTA: **"Browse jobs"** → the live board (Q3). Secondary: "Create account" (was "Create free account"; shortened by owner decision 2026-11-12 — "free" is already said in the FAQ and the proof strip)
   (unlocks full board beyond the 12-job preview, saved filters, defaults).
 
 ## 8. Curated "top companies" (Q6 — hand-picked; **Brendan edits this list**)

@@ -16,7 +16,7 @@ interface LandingSeoProps {
  * the static ones `index.html` already carries, and the browser (and Google)
  * resolve `document.title` and the description from the FIRST match — so a
  * rendered `<title>` would never win. The effect edits the static elements in
- * place and restores them on unmount, which is what lets `/landing` carry a
+ * place and restores them on unmount, which is what lets `/` carry a
  * keyword-first title while every other route keeps the app default.
  *
  * The canonical link and the JSON-LD have no static counterpart, so they are
@@ -26,7 +26,7 @@ interface LandingSeoProps {
  *
  * Known limit, not a bug here: none of this reaches a crawler that does not
  * run JavaScript (brief §10 P0). For those, `index.html`'s static head is the
- * whole page; prerendering `/landing` is the 11.2 lever.
+ * whole page; prerendering `/` is the 11.2 lever.
  */
 export function LandingSeo({ content }: LandingSeoProps) {
   const { seo } = content;

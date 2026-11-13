@@ -21,15 +21,7 @@ import { AdminEnrichmentPage } from '../pages/AdminEnrichmentPage/AdminEnrichmen
 import { AdminLocationPipelinePage } from '../pages/AdminLocationPipelinePage/AdminLocationPipelinePage.tsx';
 import { AdminCustomCompaniesPage } from '../pages/AdminCustomCompaniesPage/AdminCustomCompaniesPage.tsx';
 import { AdminFeedbackPage } from '../pages/AdminFeedbackPage/AdminFeedbackPage.tsx';
-import { lazy, Suspense } from 'react';
-import { LoadingState } from '../components/shared/LoadingIndicator';
-
-/**
- * Lazy at the ROUTE, not just the 3D scene: the landing page's copy config and
- * mock-job fixtures would otherwise ride the main bundle onto every page and
- * build 28 fabricated jobs at app boot for a page most visitors never open.
- */
-const LandingPage = lazy(() => import('../pages/LandingPage/LandingPage.tsx'));
+import { HomeRoute, UnknownPathRedirect } from './HomeRoute';
 import { AdminRoute } from '../components/auth/AdminRoute.tsx';
 import { useEnabledCompanies } from '../features/preferences/useEnabledCompanies';
 import { useHydrateSavedFilters } from '../features/savedFilters/useHydrateSavedFilters';
@@ -58,22 +50,6 @@ function LegacyMyCompaniesRedirect() {
   const { pathname, search, hash } = useLocation();
   const suffix = pathname.slice(ROUTES.MY_COMPANIES_LEGACY.length);
   return <Navigate to={`${ROUTES.MY_COMPANIES}${suffix}${search}${hash}`} replace />;
-}
-
-/**
- * Redirects the pre-consolidation `/admin/landing-prototypes` path onto
- * `/landing`.
- *
- * The old path had no sub-paths (the four designs were `?proto=` values, not
- * segments), so unlike the my-companies redirect there is no suffix to rebuild
- * — but `search` and `hash` still ride along, because the surviving `?data=`
- * fixture toggle is a query param and dropping it would silently change what a
- * shared link renders. `replace` keeps the dead path out of history so Back
- * doesn't land on it and bounce forward again.
- */
-function LegacyLandingRedirect() {
-  const { search, hash } = useLocation();
-  return <Navigate to={`${ROUTES.LANDING}${search}${hash}`} replace />;
 }
 
 /**
@@ -127,8 +103,14 @@ function AppContent() {
           null and touches no other state. */}
       {WEBMCP_CONFIG.isEnabled && <WebMcpBridge />}
       <Routes>
-        <Route path="/" element={<RootLayout />}>
-          <Route index element={<RecentJobPostingsPage />} />
+        {/* `/` is the landing page for signed-out visitors and a redirect to
+            the jobs board for signed-in ones (HomeRoute). A SIBLING of the
+            layout route, so the landing page renders full-bleed (no
+            drawer/appbar) and its lazy chunk stays off every other page. */}
+        <Route path={ROUTES.HOME} element={<HomeRoute />} />
+        {/* Pathless layout route: the app shell around every app page. */}
+        <Route element={<RootLayout />}>
+          <Route path={ROUTES.RECENT_JOBS} element={<RecentJobPostingsPage />} />
           <Route path={ROUTES.COMPANIES} element={<CompaniesPage />} />
           <Route path={ROUTES.CURATED_COMPANIES} element={<CuratedCompaniesPage />} />
           <Route path={ROUTES.WHY} element={<WhyPage />} />
@@ -191,36 +173,19 @@ function AppContent() {
           <Route path={ROUTES.SAVED_FILTERS} element={<SavedFiltersPage />} />
           <Route path={ROUTES.VOTE_FEATURES} element={<VoteFeaturesPage />} />
           {/* Flag-gated: with VITE_CUSTOM_COMPANIES_ENABLED off the route is
-              not registered at all, so /add-companies is a 404 rather than a
-              reachable-but-hidden page. */}
+              not registered at all, so /add-companies falls through to the
+              catch-all (→ `/`) rather than being a reachable-but-hidden page. */}
           {CUSTOM_COMPANIES_CONFIG.isEnabled && (
             <Route path={ROUTES.MY_COMPANIES} element={<MyCompaniesPage />} />
           )}
           {/* Private per-company trend page. Same flag gate — with the flag off
               the `/add-companies/:id` route is not registered, so a runtime id
-              is a 404 rather than a reachable-but-empty page. */}
+              falls through to the catch-all rather than a reachable-but-empty
+              page. */}
           {CUSTOM_COMPANIES_CONFIG.isEnabled && (
             <Route path={ROUTES.MY_COMPANY_DETAIL} element={<MyCompanyTrendPage />} />
           )}
         </Route>
-        {/* Sibling of the RootLayout route: renders full-bleed (no drawer/appbar)
-            so the landing page reads like a real standalone page.
-            Deliberately UNLISTED rather than admin-gated (owner decision,
-            2026-08-10, reaffirmed on the 2026-09-03 consolidation): reachable
-            by direct URL only — no nav entry, no changelog card — so reviewers
-            can open it without signing in. Mock data only; nothing here touches
-            real APIs. */}
-        <Route
-          path={ROUTES.LANDING}
-          element={
-            <Suspense fallback={<LoadingState fullPage />}>
-              <LandingPage />
-            </Suspense>
-          }
-        />
-        {/* The pre-consolidation path, still routable so links already sent out
-            keep working now that the four-prototype workspace is one page. */}
-        <Route path={ROUTES.LANDING_LEGACY} element={<LegacyLandingRedirect />} />
         {/* The pre-rename path, still routable so tabs and bookmarks on
             /my-companies survive the rename. Behind the SAME flag as the two
             routes above: with the feature off neither the new path nor the old
@@ -232,6 +197,9 @@ function AppContent() {
         {CUSTOM_COMPANIES_CONFIG.isEnabled && (
           <Route path={`${ROUTES.MY_COMPANIES_LEGACY}/*`} element={<LegacyMyCompaniesRedirect />} />
         )}
+        {/* Anything unclaimed — the landing page's old `/landing` and
+            `/admin/landing-prototypes` included — goes to `/`. */}
+        <Route path="*" element={<UnknownPathRedirect />} />
       </Routes>
     </>
   );
@@ -245,12 +213,14 @@ function AppContent() {
  * for URL/state synchronization.
  *
  * Routes:
- * - / - Recent job postings page (all jobs across companies)
+ * - / - Landing page for signed-out visitors; signed-in visitors go to /jobs
+ * - /jobs - Recent job postings page (all jobs across companies)
  * - /companies - Companies page (job analytics for selected company)
  * - /why - Why This Was Built page (about and supported companies)
  * - /qa - QA page (scraper triggers, run history, debugging)
  * - /account - Account page (user profile management)
  * - /vote-features - Vote for features page (changelog + feature voting)
+ * - anything else - redirected to /
  */
 function App() {
   return (

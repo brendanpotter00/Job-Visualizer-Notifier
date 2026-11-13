@@ -112,10 +112,11 @@ export interface LandingFaqEntry {
 
 /**
  * The landing header — the page's only chrome.
- * Deliberately four slots and no menu: a wordmark, two quiet nav links, and the
- * two auth actions. The header is wayfinding; the sections below do the selling,
- * so a third nav link (or a dropdown) is a content bug, not a layout choice. The
- * two-link cap is enforced by the content test, not by convention.
+ * Deliberately no menu: a wordmark, three quiet nav links (Jobs, Companies,
+ * Changelog — "Jobs" added 2026-11-12, owner-directed), and the two auth
+ * actions. The header is wayfinding; the sections below do the selling, so a
+ * fourth nav link (or a dropdown) is a content bug, not a layout choice. The
+ * cap is enforced by the content test, not by convention.
  */
 export interface LandingHeaderContent {
   /** Plain-text wordmark, top-left. No logo image — the product name IS the mark. */
@@ -127,8 +128,9 @@ export interface LandingHeaderContent {
   /** Contained auth CTA — the only button that survives to the xs layout. */
   signUp: LandingCta;
   /**
-   * Source-code mark on the right. External, so it carries an absolute `href`
-   * rather than a `to` (nothing in ROUTES can describe it).
+   * The public repo. No longer rendered (the header's GitHub mark was cut on
+   * 2026-11-12, owner-directed); kept because it is the Organization's
+   * JSON-LD `sameAs`. External, so an absolute `href` rather than a `to`.
    */
   sourceCode: { label: string; href: string; evidence: string };
   /** Traceability breadcrumb (not rendered). */
@@ -265,8 +267,11 @@ export const LANDING_CONTENT: LandingContent = {
     // "Why" link on 2026-09-03 (owner-directed) — what shipped recently is a
     // better second link than the origin story. (The footer that carried
     // "Why this was built" was cut on 2026-11-12, so the page no longer links
-    // the origin story at all.)
+    // the origin story at all.) "Jobs" was added in front on 2026-11-12
+    // (owner-directed) once the landing page took `/` and the board moved to
+    // `/jobs` — the header needs a plain way into the board.
     nav: [
+      { label: 'Jobs', to: ROUTES.RECENT_JOBS },
       { label: 'Companies', to: ROUTES.CURATED_COMPANIES },
       { label: 'Changelog', to: ROUTES.VOTE_FEATURES },
     ],
@@ -289,7 +294,7 @@ export const LANDING_CONTENT: LandingContent = {
   },
   ctas: {
     primary: { label: 'Browse jobs', to: ROUTES.RECENT_JOBS },
-    secondary: { label: 'Create free account', to: ROUTES.ACCOUNT },
+    secondary: { label: 'Create account', to: ROUTES.ACCOUNT },
   },
   freshJobs: {
     eyebrow: 'Fresh jobs',
@@ -495,7 +500,7 @@ export const LANDING_CONTENT: LandingContent = {
     description:
       'A free job board for software engineers. Jobs straight from 130+ curated company career pages, a median of 45 minutes after posting. No reposts, no noise.',
     siteUrl: 'https://onesecondswe.dev',
-    canonicalPath: ROUTES.LANDING,
+    canonicalPath: ROUTES.HOME,
     ogImagePath: '/og-image.png',
   },
 };
