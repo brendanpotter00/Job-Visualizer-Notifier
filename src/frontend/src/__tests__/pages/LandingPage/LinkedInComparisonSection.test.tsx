@@ -32,10 +32,6 @@ describe('LinkedInComparisonSection', () => {
     expect(rendered).toEqual(comparison.rows.map((row) => row.label));
   });
 
-  // Every cell carries its column name in the DOM at every width: visible on a
-  // phone (no head row there), visually hidden from `sm` up where the
-  // decorative head row shows the names. jsdom only applies the `xs` branch,
-  // so this pins presence, not the clip — the clip is CSS on the same span.
   it('names both columns on every row so no cell is ever an unattributed paragraph', () => {
     renderSection();
     for (const row of comparison.rows) {
@@ -45,10 +41,6 @@ describe('LinkedInComparisonSection', () => {
     }
   });
 
-  // Facts, not a scorecard: no ticks, no crosses, nothing to click.
-  // Phone redesign (2026-11-12): one head row names the columns, sentence
-  // case. Decorative — every cell already carries its (visually hidden)
-  // column name.
   it('gives phones one decorative head row naming both columns', () => {
     renderSection();
     const head = screen.getByTestId('comparison-head-compact');
@@ -58,8 +50,6 @@ describe('LinkedInComparisonSection', () => {
     expect(within(head).queryByTestId('one-second-mark')).not.toBeInTheDocument();
   });
 
-  // Ours first (owner-directed 2026-11-12): onesecondswe's answer precedes the
-  // LinkedIn fact in every row and in the phone head.
   it('puts onesecondswe before LinkedIn in every row and in the head', () => {
     renderSection();
     const follows = (a: Element, b: Element) =>

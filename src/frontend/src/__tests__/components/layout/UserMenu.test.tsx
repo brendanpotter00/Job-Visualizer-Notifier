@@ -183,7 +183,7 @@ describe('UserMenu', () => {
 
     it('shows the waving "Loading" text, and no spinner, while the profile loads', async () => {
       const { fetchCurrentUser } = await import('../../../features/auth/authService');
-      vi.mocked(fetchCurrentUser).mockReturnValueOnce(new Promise(() => {})); // never resolves
+      vi.mocked(fetchCurrentUser).mockReturnValueOnce(new Promise(() => {}));
 
       const user = userEvent.setup();
       renderWithRouter(<UserMenu />);

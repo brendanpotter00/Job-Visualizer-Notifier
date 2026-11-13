@@ -16,10 +16,6 @@ interface CTAButtonsProps {
   align?: 'left' | 'center';
 }
 
-/**
- * The page's two calls to action. One filled pill with an arrow, one plain
- * text link: the same pair, in the same order, everywhere they appear.
- */
 export function CTAButtons({
   ctas,
   showSecondary = false,

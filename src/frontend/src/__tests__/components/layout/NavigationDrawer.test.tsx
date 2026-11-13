@@ -135,7 +135,6 @@ describe('NavigationDrawer', () => {
         </MemoryRouter>
       );
 
-      // Check that the Recent Jobs button has selected styling via computed styles (/jobs is the board)
       const recentJobsButton = screen
         .getByText('Recent Job Postings')
         .closest('div[role="button"]');

@@ -32,8 +32,6 @@ describe('buildSpawnPlan', () => {
   it('defaults the drop base to the desktop view and honours an explicit one', () => {
     const desktop = buildSpawnPlan(10, SEED, WIDTH);
     expect(desktop[0].position[1]).toBeGreaterThanOrEqual(DEFAULT_DROP_BASE_Y);
-    // Phones drop from above their much taller view (see compactFraming): the
-    // whole plan shifts up by the difference, x/z/tumble unchanged.
     const phone = buildSpawnPlan(10, SEED, WIDTH, DEFAULT_DROP_BASE_Y + 16);
     for (let i = 0; i < desktop.length; i += 1) {
       expect(phone[i].position[1]).toBeCloseTo(desktop[i].position[1] + 16);

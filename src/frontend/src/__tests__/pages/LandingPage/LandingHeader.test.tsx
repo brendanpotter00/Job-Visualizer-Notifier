@@ -24,7 +24,6 @@ function buttonLink(name: string) {
 describe('LandingHeader', () => {
   it('renders the wordmark as a link home, led by the decorative 1s mark', () => {
     renderHeader();
-    // The accessible name is the wordmark alone: the mark is aria-hidden.
     const mark = screen.getByRole('link', { name: header.wordmark.label });
     expect(mark).toHaveAttribute('href', header.wordmark.to);
     expect(mark).not.toHaveClass('MuiButton-root');
@@ -55,8 +54,6 @@ describe('LandingHeader', () => {
     expect(signUp).toHaveAttribute('href', header.signUp.to);
   });
 
-  // The GitHub mark was cut on 2026-11-12 (owner-directed); the repo URL is
-  // only in the JSON-LD now.
   it('renders no source-code link', () => {
     renderHeader();
     expect(screen.queryByRole('link', { name: header.sourceCode.label })).not.toBeInTheDocument();

@@ -269,57 +269,21 @@ export const RESPONSIVE = {
     headerHeight: { xs: 52, sm: 64 },
     /** Landing header: plain-text wordmark font size (rendered at weight 600). */
     headerWordmarkFontSize: { xs: '0.9375rem', sm: '1.0625rem' },
-    /**
-     * Landing header: the "1s" brand mark beside the wordmark (OneSecondMark).
-     * A notch above the wordmark, like the app bar's 22px mark over its 20px
-     * title, so the mark leads without shouting.
-     */
     headerMarkFontSize: { xs: '1.125rem', sm: '1.3125rem' },
-    /** Landing header: gap between the 1s mark and the wordmark (theme units). */
     headerMarkGap: { xs: 1, sm: 1.25 },
     /** Landing header: gap between the right-hand cluster items (theme units). */
     headerGap: { xs: 1, sm: 1.5 },
-    /**
-     * Hero h1 (rendered at weight 500, tight tracking). One tone, eight words
-     * since 2026-11-12 ("…No noise. Just jobs.").
-     */
     heroHeadlineFontSize: { xs: '1.875rem', sm: '3.25rem' },
     /** Hero subheadline (fragment stack under the h1). */
     heroSubFontSize: { xs: '1rem', sm: '1.25rem' },
     /** Hero block vertical padding (theme units). */
     heroPaddingY: { xs: 8, sm: 14 },
-    /** Section h2 font size (rendered at weight 500, tight tracking). */
     sectionTitleFontSize: { xs: '1.5rem', sm: '2rem' },
-    /**
-     * The small uppercase label (`Eyebrow`): the feature matrix's coming-soon
-     * tier label and the comparison's column heads. (Sections no longer open
-     * with one — cut 2026-11-12.) Deliberately the smallest type on the page:
-     * it names a thing, it is not content to read.
-     */
     eyebrowFontSize: { xs: '0.75rem', sm: '0.8125rem' },
-    /** LinkedIn comparison: vertical padding on each ruled row (theme units). */
     comparisonRowPaddingY: { xs: 2.5, sm: 3 },
-    /**
-     * LinkedIn comparison: gap between the two fact columns (theme units). On a
-     * phone the facts sit side by side too (2026-11-12 mobile redesign), so the
-     * gap is what keeps two ~160px columns reading as two.
-     */
     comparisonColumnGap: { xs: 2, sm: 4 },
-    /**
-     * LinkedIn comparison: fact text. A notch under `bodyFontSize` on a phone so
-     * each of the two columns holds ~20 characters a line; `sm` restates the
-     * body size the desktop cells already used.
-     */
     comparisonCellFontSize: { xs: '0.9375rem', sm: '1.0625rem' },
-    /**
-     * LinkedIn comparison: the row label ("Reposts", "Companies", …). On a
-     * phone it sits ABOVE the two facts, so it has to read as their heading:
-     * a step up in size (paired with weight 600 at the call site) over the
-     * 15px facts. `sm` restates `blockTitleFontSize`'s desktop value, where
-     * the label has its own column and needs no extra emphasis.
-     */
     comparisonRowLabelFontSize: { xs: '1.125rem', sm: '1.1875rem' },
-    /** Closing block: the one centred line over the final CTAs. */
     closingHeadingFontSize: { xs: '1.75rem', sm: '2.5rem' },
     /**
      * Sub-heading inside a section (step label, matrix cell name, FAQ question,
@@ -358,35 +322,9 @@ export const RESPONSIVE = {
     categoryGridGap: { xs: 2, sm: 3 },
     /** Quotable-claims / body emphasis font size (a step above `bodyFontSize`). */
     quotableFontSize: { xs: '1.0625rem', sm: '1.25rem' },
-    /**
-     * Floor under each fresh-jobs slot (px), and the height of an empty slot's
-     * message box. The rotating card's real reservation is FlippingCard's
-     * sizer stack (the tallest card in the pool), so this only has to sit at
-     * or below the shortest card. Phone cards measure 150-173px; the old 260
-     * floor left ~90px of blank space under every card (2026-11-12).
-     */
     rotatingCardMinHeight: { xs: 140, sm: 240 },
-    /**
-     * Gravity hero: reserved vertical room for the 3D pile (px height). The
-     * phone pile (40 tiles at ~40px, see `pileFloorInsetCompact`) settles about
-     * three tiles high on a 375px screen and four on a 320px one, so 130 keeps
-     * it clear of the CTAs without a dead band above it.
-     */
     heroSceneHeight: { xs: 130, sm: 280 },
-    /**
-     * Logo-wall tile edge (raw px via `useIsMobile` → `CompanyLogo size`). The
-     * `compact` value also sizes the phone physics pile: on a phone the Gravity
-     * camera is framed so one tile renders this many CSS px (see
-     * `GravityPrototype/compactFraming.ts`), so the pile and the static grid
-     * read at the same scale.
-     */
     logoTileSize: { compact: 40, default: 52 },
-    /**
-     * Phone physics pile: CSS px from the bottom of the hero canvas up to the
-     * pile's floor. Flat and phone-only — desktop frames the pile with its
-     * fixed camera. Sits inside the hero's bottom padding so the settled pile
-     * fills the reserved `heroSceneHeight` band under the CTAs.
-     */
     pileFloorInsetCompact: 48,
     /** Fresh-jobs ticker logo edge (raw px via `useIsMobile`). */
     tickerLogoSize: { compact: 22, default: 28 },

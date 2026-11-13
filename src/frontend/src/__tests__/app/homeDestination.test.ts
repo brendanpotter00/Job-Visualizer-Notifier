@@ -6,7 +6,6 @@ import {
   type HomeDestinationInput,
 } from '../../app/homeDestination';
 
-/** Signed-out, auth settled, nothing in the URL or storage; each test overrides one axis. */
 const ANON: HomeDestinationInput = {
   isAuthenticated: false,
   isLoading: false,
@@ -24,8 +23,6 @@ describe('resolveHomeDestination', () => {
     expect(resolveHomeDestination({ ...ANON, isAuthenticated: true })).toBe('jobs');
   });
 
-  // No spinner in front of the page that has to win a stranger over: with no
-  // sign-in history the landing page renders while auth is still resolving.
   it('auth still loading, no sign-in history → landing at once', () => {
     expect(resolveHomeDestination({ ...ANON, isLoading: true })).toBe('landing');
   });
@@ -46,8 +43,6 @@ describe('resolveHomeDestination', () => {
     expect(resolveHomeDestination({ ...ANON, hasStoredSession: true })).toBe('landing');
   });
 
-  // The bypass user is fake and always signed in; redirecting it would make the
-  // landing page unreachable on every QA/Preview build.
   it('auth bypass (QA/Preview) → landing even though "signed in"', () => {
     expect(resolveHomeDestination({ ...ANON, bypassEnabled: true, isAuthenticated: true })).toBe(
       'landing'

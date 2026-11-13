@@ -65,10 +65,6 @@ describe('resolveExperienceTier', () => {
     ).toBe('fallback');
   });
 
-  // Phones were the static grid from 2026-09-10 until the owner asked for the
-  // pile back (2026-11-12): a capable phone gets the full tier, framed compact
-  // (camera pulled back so tiles render at the grid's size), with the
-  // constrained roster so the pile fits the band under the CTAs.
   it('mobile viewport on capable hardware → full compact tier, constrained roster, dpr 2', () => {
     expect(
       resolveExperienceTier({ ...CAPABLE, isMobileViewport: true, hardwareConcurrency: 12 })

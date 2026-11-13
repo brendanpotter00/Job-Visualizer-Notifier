@@ -16,12 +16,6 @@ export interface SpawnTile {
   rotation: [number, number, number];
 }
 
-/**
- * Default lowest drop height (world units above the floor at y=0) — the
- * desktop camera's view. Phones pass their own (see compactFraming), because
- * their pulled-back view is ~20 units tall and a tile spawned at 5 would
- * appear mid-air in the middle of the hero.
- */
 export const DEFAULT_DROP_BASE_Y = 5;
 /** Per-index height step — the "stagger" that spaces out arrivals. */
 const DROP_STEP_Y = 0.55;

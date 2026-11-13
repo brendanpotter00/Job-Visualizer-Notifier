@@ -107,8 +107,6 @@ export function UserMenu() {
   function renderMenuContent() {
     if (userLoading) {
       return (
-        // Full opacity, not MUI's dimmed disabled item: the wave already dims its
-        // own letters, and 0.38 on top of that leaves the dim end barely visible.
         <MenuItem disabled sx={{ '&.Mui-disabled': { opacity: 1 } }}>
           <LoadingText />
         </MenuItem>

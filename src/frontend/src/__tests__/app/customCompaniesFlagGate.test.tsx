@@ -166,8 +166,6 @@ describe('custom company sources — feature flag gate', () => {
     it('registers NO legacy /my-companies redirect either', async () => {
       // The redirect is a route like any other, and it is gated on the same flag.
       // If it leaked past the gate, the old path would bounce a flag-off visitor
-      // onto `/add-companies` — a URL that is not registered either — instead
-      // of the catch-all every other unclaimed path takes (→ `/`, 2026-11-12).
       await renderAppAt('/my-companies/u-abc1234567', false);
 
       await waitFor(() => expect(window.location.pathname).toBe('/'));
@@ -187,7 +185,6 @@ describe('custom company sources — feature flag gate', () => {
       await renderAppAt('/jobs', false);
       await findShell();
 
-      // `getAllBy*`: at `/jobs` the board also has a "Recent Job Postings"
       // heading, so the nav label is not the only match.
       expect(screen.getAllByText('Recent Job Postings').length).toBeGreaterThan(0);
       expect(screen.getAllByText('Company Hiring Trends').length).toBeGreaterThan(0);

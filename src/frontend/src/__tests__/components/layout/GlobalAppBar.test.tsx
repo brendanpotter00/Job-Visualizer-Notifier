@@ -45,7 +45,6 @@ describe('GlobalAppBar', () => {
       const logo = screen.getByLabelText(APP_TITLE);
       expect(logo).toBeInTheDocument();
       expect(logo).toHaveTextContent('1s');
-      // The app's home is the jobs board; `/` is the landing page now.
       expect(logo).toHaveAttribute('href', '/jobs');
     });
 

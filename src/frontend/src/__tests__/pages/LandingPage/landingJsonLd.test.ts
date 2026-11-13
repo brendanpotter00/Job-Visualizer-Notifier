@@ -14,8 +14,6 @@ function nodeOfType(type: string): Node {
 }
 
 describe('buildLandingJsonLd', () => {
-  // Brief §9: landing schema is Organization + WebSite (+ the page itself and
-  // its FAQ). JobPosting belongs on a per-job page and must never appear here.
   it('emits exactly Organization, WebSite, WebPage and FAQPage, and no JobPosting', () => {
     const graph = buildLandingJsonLd(LANDING_CONTENT);
     expect(graph['@context']).toBe('https://schema.org');
@@ -43,8 +41,6 @@ describe('buildLandingJsonLd', () => {
     expect(page.isPartOf).toEqual({ '@id': website['@id'] });
   });
 
-  // The FAQ schema is built from the SAME entries the FAQ section renders, so
-  // the two can never drift: one question per entry, answer text verbatim.
   it('mirrors every FAQ entry as a Question with its verbatim Answer', () => {
     const faq = nodeOfType('FAQPage');
     const questions = faq.mainEntity as Node[];
@@ -66,7 +62,6 @@ describe('serializeJsonLd', () => {
     const json = serializeJsonLd(graph);
     expect(json).not.toContain('</script>');
     expect(json).toContain('\\u003c/script>');
-    // Still valid JSON that round-trips to the original string.
     const page = (JSON.parse(json)['@graph'] as Node[]).find((n) => n['@type'] === 'WebPage');
     expect(page?.name).toBe('x</script><script>alert(1)');
   });

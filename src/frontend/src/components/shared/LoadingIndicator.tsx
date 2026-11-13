@@ -11,7 +11,6 @@ export type LoadingIndicatorProps =
   | {
       /** Fill the viewport (minHeight: 100vh) for page-level initial loads. */
       fullPage: true;
-      /** What is loading, shown as the waving text. Defaults to "Loading". */
       caption?: string;
       /** Not allowed when `fullPage: true`. */
       minHeight?: never;
@@ -21,7 +20,6 @@ export type LoadingIndicatorProps =
       fullPage?: false;
       /** Minimum height for the container (defaults to 200). */
       minHeight?: number | string;
-      /** What is loading, shown as the waving text. Defaults to "Loading". */
       caption?: string;
     };
 

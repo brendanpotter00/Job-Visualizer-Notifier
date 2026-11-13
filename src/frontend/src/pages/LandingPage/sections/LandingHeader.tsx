@@ -64,9 +64,6 @@ export function LandingHeader({ content }: LandingHeaderProps) {
           // Swallows the sentinel's 1px so the bar still starts flush with the
           // top of the page rather than one pixel down.
           mt: '-1px',
-          // Above the Gravity canvas, a plain absolutely-positioned layer at
-          // auto z-index: once the bar goes opaque, hero content has to pass
-          // UNDER it.
           zIndex: 10,
           borderBottom: '1px solid',
           borderColor: scrolled ? 'divider' : 'transparent',
@@ -107,9 +104,6 @@ export function LandingHeader({ content }: LandingHeaderProps) {
               whiteSpace: 'nowrap',
             }}
           >
-            {/* The app bar's "1s" mark, in the header's ink (owner request,
-                2026-11-12). aria-hidden, so the link's name stays the
-                wordmark. */}
             <OneSecondMark fontSize={RESPONSIVE.landingProto.headerMarkFontSize} />
             {header.wordmark.label}
           </Link>
@@ -136,8 +130,6 @@ export function LandingHeader({ content }: LandingHeaderProps) {
           {/* Pushes the auth cluster to the right edge of the container. */}
           <Box sx={{ flexGrow: 1 }} />
 
-          {/* No GitHub mark: cut 2026-11-12 (owner-directed). The repo URL
-              lives on in the JSON-LD `sameAs` only (header.sourceCode). */}
           <Button
             component={RouterLink}
             to={header.logIn.to}
@@ -153,8 +145,6 @@ export function LandingHeader({ content }: LandingHeaderProps) {
             to={header.signUp.to}
             variant="contained"
             size="small"
-            // Pill, like the hero CTA: the two filled buttons on the page share
-            // one shape.
             sx={{ borderRadius: 999, px: 2 }}
           >
             {header.signUp.label}

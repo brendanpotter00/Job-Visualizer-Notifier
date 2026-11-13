@@ -34,16 +34,11 @@ export interface ExperienceTierResult {
   bodyCount: number;
   /** Upper bound for the Canvas dpr clamp `[1, maxDpr]`. */
   maxDpr: number;
-  /**
-   * Phone framing for the full tier: the scene pulls its camera back so tiles
-   * render small. Always false on the fallback tier, which has no scene.
-   */
   compact: boolean;
 }
 
 /** Full-fat desktop tier body count. */
 export const DESKTOP_BODY_COUNT = 72;
-/** Constrained (phone / low-end hardware) tier body count. */
 export const CONSTRAINED_BODY_COUNT = 40;
 
 /** Hints at or below these read as "low-end"; absent hints read as capable. */
@@ -60,9 +55,6 @@ export function resolveExperienceTier(input: ExperienceTierInput): ExperienceTie
       input.hardwareConcurrency <= LOW_END_MAX_CORES) ||
     (input.deviceMemory !== undefined && input.deviceMemory <= LOW_END_MAX_MEMORY_GB);
   if (input.isMobileViewport) {
-    // A phone always gets the constrained roster (the band under the CTAs
-    // holds ~40 small tiles), but keeps dpr 2 when it can afford it: at ~40px
-    // a tile's logo turns soft below that on a high-density screen.
     return {
       tier: 'full',
       bodyCount: CONSTRAINED_BODY_COUNT,

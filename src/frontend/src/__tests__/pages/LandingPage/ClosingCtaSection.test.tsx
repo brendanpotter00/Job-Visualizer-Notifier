@@ -19,7 +19,6 @@ describe('ClosingCtaSection', () => {
     expect(screen.getByTestId('closing-cta')).toHaveAttribute('aria-labelledby', heading.id);
   });
 
-  // The same pair as the hero, in the same order: filled primary, text secondary.
   it('renders the filled primary and the text secondary CTA, on their routes', () => {
     renderSection();
     const links = screen.getAllByRole('link');

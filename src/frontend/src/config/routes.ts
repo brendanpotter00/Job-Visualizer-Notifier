@@ -7,13 +7,7 @@
 import { CUSTOM_COMPANIES_CONFIG } from './customCompanies';
 
 export const ROUTES = {
-  // The marketing landing page, full-bleed (outside RootLayout). Signed-in
-  // visitors are sent on to RECENT_JOBS; signed-out ones see the landing page.
-  // It moved here from `/landing` on 2026-11-12 (owner decision), and the old
-  // path now falls through to the catch-all, which redirects to `/`.
   HOME: '/',
-  // The jobs board — the app's home for signed-in users. Was `/` until the
-  // landing page took the root on 2026-11-12.
   RECENT_JOBS: '/jobs',
   COMPANIES: '/companies',
   CURATED_COMPANIES: '/curated-companies',

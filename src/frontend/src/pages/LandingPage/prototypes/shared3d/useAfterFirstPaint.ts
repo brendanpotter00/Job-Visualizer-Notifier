@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 
-/** Upper bound on how long an idle callback may wait before firing anyway (ms). */
 const IDLE_TIMEOUT_MS = 1500;
 
 type IdleWindow = Window & {
@@ -8,16 +7,6 @@ type IdleWindow = Window & {
   cancelIdleCallback?: (id: number) => void;
 };
 
-/**
- * False on the first render; true once the page has painted and the browser
- * is idle (or IDLE_TIMEOUT_MS has passed). Gate heavy, decorative work on it —
- * the landing page's three/rapier scene — so the hero text paints first and
- * the scene's multi-megabyte download and parse never compete with it.
- *
- * rAF → setTimeout(0) lands after the frame that painted the first commit;
- * requestIdleCallback then waits for a quiet moment. Safari has no
- * requestIdleCallback, so it goes straight on after the paint.
- */
 export function useAfterFirstPaint(): boolean {
   const [ready, setReady] = useState(false);
 

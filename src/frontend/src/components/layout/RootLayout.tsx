@@ -107,8 +107,6 @@ export function RootLayout() {
             child of a column flex container still stretches to full width and keeps its
             natural height, because nothing here sets `flexGrow` on it. */}
         <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-          {/* Pages are lazy route chunks (App.tsx): the shell stays put and only
-              the content area shows the loading state while one arrives. */}
           <Suspense fallback={<LoadingState minHeight={400} />}>
             <Outlet />
           </Suspense>

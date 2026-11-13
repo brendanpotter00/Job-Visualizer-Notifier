@@ -5,7 +5,6 @@ import { heroRiseIn } from './heroRiseIn';
 
 interface HeroCopyProps {
   hero: LandingHero;
-  /** Set on the h1 so the hero `<section>` can point `aria-labelledby` at it. */
   headingId: string;
 }
 
@@ -30,10 +29,7 @@ export function HeroCopy({ hero, headingId }: HeroCopyProps) {
         letterSpacing: '-0.03em',
         lineHeight: 1.08,
         maxWidth: 1000,
-        // Even line lengths: without it "jobs." orphans onto its own line at
-        // common desktop widths.
         textWrap: 'balance',
-        // Rises and fades in once on load (see heroRiseIn).
         ...heroRiseIn(),
       }}
     >

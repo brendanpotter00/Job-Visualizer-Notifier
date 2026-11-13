@@ -67,7 +67,6 @@ function stubMatchMedia(reduceMotion: boolean, phone = false) {
     value: (query: string) => ({
       matches:
         (reduceMotion && query === '(prefers-reduced-motion: reduce)') ||
-        // MUI's `breakpoints.down('sm')` → `(max-width:599.95px)`.
         (phone && query.includes('max-width')),
       media: query,
       onchange: null,
@@ -80,7 +79,6 @@ function stubMatchMedia(reduceMotion: boolean, phone = false) {
   });
 }
 
-/** CTA buttons only — the footer carries plain text links with the same labels. */
 function buttonLinks(name: string) {
   return screen
     .getAllByRole('link', { name })
@@ -110,7 +108,6 @@ describe('GravityPrototype', () => {
     ).toBeTruthy();
   });
 
-  // One h1, one tone, since 2026-11-12: "…No noise. Just jobs."
   it('renders the hero as the single h1', () => {
     renderGravity();
     const h1 = screen.getByRole('heading', { level: 1 });
@@ -119,8 +116,6 @@ describe('GravityPrototype', () => {
     expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
   });
 
-  // The same pair, hero and closer: a filled "Browse jobs" and a quiet text
-  // "Create account". Two of each, and never an outlined variant.
   it('carries the CTA pair in the hero and again in the closing block', () => {
     renderGravity();
     const primaries = buttonLinks(LANDING_CONTENT.ctas.primary.label);
@@ -141,8 +136,6 @@ describe('GravityPrototype', () => {
     );
   });
 
-  // The mock posting-cadence line behind the hero copy was removed
-  // (owner-directed 2026-09-10): the pile is the hero's only picture.
   it('draws nothing decorative behind the hero copy', () => {
     renderGravity();
     expect(screen.queryByTestId('hero-trendline')).not.toBeInTheDocument();
@@ -178,8 +171,6 @@ describe('GravityPrototype', () => {
     expect(scene).toHaveAttribute('data-max-dpr', '1.5');
   });
 
-  // Phones get the physics pile back (2026-11-12), framed compact so the tiles
-  // render at the static grid's size — not the DOM grid.
   it('phone with WebGL: mounts the scene compact, with the constrained roster', async () => {
     vi.mocked(detectWebGLSupport).mockReturnValue(true);
     stubCores(8);
@@ -232,8 +223,6 @@ describe('GravityPrototype', () => {
     expect(screen.getByText(LANDING_CONTENT.faq.entries[0].question)).toBeInTheDocument();
   });
 
-  // The footer (links row + category line) was cut on 2026-11-12: the closing
-  // CTA ends the page. categoryLine lives on only in the head's JSON-LD.
   it('ends on the closing CTA with no footer', () => {
     renderGravity();
     expect(screen.queryByRole('contentinfo')).not.toBeInTheDocument();
@@ -241,9 +230,6 @@ describe('GravityPrototype', () => {
     expect(screen.queryByRole('link', { name: 'Why this was built' })).not.toBeInTheDocument();
   });
 
-  // Order is the section contract: live proof, then the comparison the owner
-  // asked for, then the companies, the matrix, the FAQ, and the closing line
-  // last. Assert the whole sequence rather than mere presence.
   it('orders the sections: triptych → LinkedIn → companies → matrix → FAQ → closer', () => {
     renderGravity();
     const markers = [
@@ -262,8 +248,6 @@ describe('GravityPrototype', () => {
     }
   });
 
-  // Landmarks for crawlers and screen readers: one main, every section named
-  // by its own heading.
   it('wraps the page in a main landmark of labelled sections', () => {
     renderGravity();
     const main = screen.getByRole('main');

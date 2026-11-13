@@ -120,20 +120,12 @@ describe('FreshJobsTriptych', () => {
   // card, so the cell is the height of the tallest card from first paint and
   // stays there for the whole rotation. Immune by construction: it holds for
   // any pool, any title length, no measurement and no magic number.
-  //
-  // 2026-11-12 (owner rule: "I never want the height to differ on these
-  // cards"): the reservation is now the UNION of all three pools, in every
-  // slot, so the three cells — and the cards that fill them — are always the
-  // same height, side by side on desktop and stacked on a phone.
   it('reserves the tallest card in ANY slot by giving every slot a sizer for every job', () => {
     renderTriptych();
 
     const union = [...new Map(SLOTS.flatMap((slot) => slot.jobs).map((j) => [j.id, j])).values()];
     for (const testId of Object.values(TEST_IDS)) {
       expect(sizers(testId)).toHaveLength(union.length);
-      // Every job in every pool is present — including the ones not currently
-      // on screen anywhere. That is what makes the height one max() for the
-      // whole section, not a property of whichever cards happen to be showing.
       expect(sizerTitles(testId)).toEqual(union.map((j) => j.title));
     }
   });
@@ -272,8 +264,6 @@ describe('FreshJobsTriptych', () => {
     expect(activeId(TEST_IDS.early)).toBe(EARLY.jobs[0].id);
     expect(activeId(TEST_IDS.day)).toBe(DAY.jobs[0].id);
     expect(activeId(TEST_IDS.big)).toBe(BIG.jobs[0].id);
-    // Sizers still: nothing flips, but the three cards must stay one height
-    // (owner rule, 2026-11-12), and that is the sizers' job.
     for (const testId of Object.values(TEST_IDS)) {
       expect(sizers(testId).length).toBeGreaterThan(0);
     }
@@ -311,8 +301,6 @@ describe('FreshJobsTriptych', () => {
       vi.advanceTimersByTime(INTERVAL_MS * 4);
     });
     expect(activeId(TEST_IDS.day)).toBe(sparseSlots[1].jobs[0].id);
-    // It still carries the section-wide reservation, so it is exactly as tall
-    // as its neighbours even though it never flips.
     expect(sizers(TEST_IDS.day).length).toBeGreaterThan(0);
   });
 

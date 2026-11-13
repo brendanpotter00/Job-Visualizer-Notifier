@@ -19,30 +19,12 @@ export interface LandingCta {
   to: string;
 }
 
-/**
- * The opening every section shares: one heading, the one line a skimming eye is
- * guaranteed to read.
- */
 export interface SectionIntro {
-  /** ≤ 8 words. */
   heading: string;
 }
 
-/**
- * The single h1: the anti-noise hook (brief §4 B1) plus "Just jobs.", in one
- * tone. Until 2026-11-12 a gray continuation carried the brief §9 query phrase
- * and number inside the same h1; the owner cut it, so that phrase now lives in
- * the title and meta description only.
- */
 export interface LandingHero {
-  /**
-   * The whole h1, one tone. It used to be two (a black hook over a gray
-   * continuation carrying "software engineer jobs" and the 130+ number); the
-   * gray half was cut on 2026-11-12 (owner-directed) for "Just jobs." The query
-   * phrase now lives in the title and meta description only.
-   */
   headline: string;
-  /** Traceability breadcrumb (not rendered). */
   evidence: string;
 }
 
@@ -53,7 +35,6 @@ export interface LandingHero {
  */
 export interface ComparisonRow {
   id: string;
-  /** ≤ 3 words. */
   label: string;
   linkedin: string;
   onesecondswe: string;
@@ -94,7 +75,6 @@ export interface LandingFaqEntry {
  * cap is enforced by the content test, not by convention.
  */
 export interface LandingHeaderContent {
-  /** Wordmark, top-left, led by the app bar's "1s" mark (added 2026-11-12, owner-directed). */
   wordmark: LandingCta;
   /** Quiet nav, desktop only (hidden at xs, where the bar is wordmark + Sign up). */
   nav: readonly LandingCta[];
@@ -112,21 +92,11 @@ export interface LandingHeaderContent {
   evidence: string;
 }
 
-/**
- * What the document head says about the page (title, description, canonical,
- * social card). Rendered by `LandingSeo`, and repeated into the JSON-LD there,
- * so the entity + category line (brief §10 P3) reaches crawlers three ways.
- */
 export interface LandingSeoContent {
-  /** Brief §9 title shape: keyword-first + freshness cue + brand suffix. */
   title: string;
-  /** ≤ 160 characters, answer-first. */
   description: string;
-  /** Absolute origin, no trailing slash. */
   siteUrl: string;
-  /** Path of the canonical URL for this page. */
   canonicalPath: string;
-  /** Path of the social-card image (1200×630), served from `public/`. */
   ogImagePath: string;
 }
 
@@ -138,13 +108,9 @@ export interface LandingContent {
    * no longer rendered on the page since the footer was cut (2026-11-12).
    */
   categoryLine: string;
-  /** The sticky top bar the page opens with. */
   header: LandingHeaderContent;
   hero: LandingHero;
-  /** Primary = browse (contained); secondary = create account. Both render in
-   *  the hero and again in the closing block. */
   ctas: { primary: LandingCta; secondary: LandingCta };
-  /** Overline + heading above the three live job cards. */
   freshJobs: SectionIntro;
   /**
    * The LinkedIn comparison. Naming LinkedIn in shipped copy was on the brief's
@@ -155,10 +121,8 @@ export interface LandingContent {
   comparison: SectionIntro & {
     columns: { linkedin: string; onesecondswe: string };
     rows: readonly ComparisonRow[];
-    /** Traceability breadcrumb (not rendered). */
     evidence: string;
   };
-  /** Overline + heading above the curated-category grid. */
   companies: SectionIntro;
   /**
    * The feature set as a skimmable matrix, in two tiers: `features` is live
@@ -182,9 +146,7 @@ export interface LandingContent {
     nextUp: LandingCta;
   };
   faq: SectionIntro & { entries: readonly LandingFaqEntry[] };
-  /** The page's last line, over the same two CTAs as the hero. */
   closing: { heading: string; evidence: string };
-  /** Footer nav only. */
   seo: LandingSeoContent;
 }
 
@@ -230,11 +192,6 @@ export const LANDING_CONTENT: LandingContent = {
     // public changelog: shipped work moves out of the vote list into its
     // read-only "Shipped — built with the community" section. It replaced the
     // "Why" link on 2026-09-03 (owner-directed) — what shipped recently is a
-    // better second link than the origin story. (The footer that carried
-    // "Why this was built" was cut on 2026-11-12, so the page no longer links
-    // the origin story at all.) "Jobs" was added in front on 2026-11-12
-    // (owner-directed) once the landing page took `/` and the board moved to
-    // `/jobs` — the header needs a plain way into the board.
     nav: [
       { label: 'Jobs', to: ROUTES.RECENT_JOBS },
       { label: 'Companies', to: ROUTES.CURATED_COMPANIES },
@@ -263,7 +220,6 @@ export const LANDING_CONTENT: LandingContent = {
     heading: 'Just posted',
   },
   comparison: {
-    // Was "Built for the candidate, not the repost." — tail cut 2026-11-12 (owner-directed).
     heading: 'Built for the candidate',
     columns: { linkedin: 'LinkedIn', onesecondswe: 'onesecondswe' },
     rows: [
@@ -351,7 +307,6 @@ export const LANDING_CONTENT: LandingContent = {
     comingSoon: [
       {
         id: 'mcp_access',
-        // Was "Bring your AI"; renamed 2026-11-12 (owner-directed).
         name: 'MCP',
         detail: 'Build your own integrations.',
         evidence: 'EPIC Power-user data access (replica + MCP), wdwb1cbnce',
@@ -364,15 +319,12 @@ export const LANDING_CONTENT: LandingContent = {
       },
     ],
     nextUp: {
-      // Shortened 2026-11-12 (owner-directed).
       label: 'Built with community. Vote.',
       to: ROUTES.VOTE_FEATURES,
     },
   },
   faq: {
     heading: 'FAQ',
-    // Order and set owner-directed 2026-11-12: "Is it free?" leads; the
-    // company-count question was cut.
     entries: [
       {
         question: 'Is onesecondswe free?',

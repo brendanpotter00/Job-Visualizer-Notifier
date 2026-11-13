@@ -280,14 +280,6 @@ function GravityPile({
   );
 }
 
-/**
- * Phone camera. R3F applies the Canvas `camera` prop once, at creation, before
- * the canvas is measured — but the phone framing depends on the measured size
- * (see compactFraming), so this moves the live camera instead. Layout effect:
- * the move lands before the first frame paints, so the pile is never seen from
- * the desktop distance. `invalidate` covers a parked frameloop (a resize after
- * the pile has settled).
- */
 function CompactCameraRig({ position }: { position: readonly [number, number, number] }) {
   const camera = useThree((state) => state.camera);
   const invalidate = useThree((state) => state.invalidate);
@@ -311,9 +303,6 @@ function GravitySceneContent({ roster, compact }: GravitySceneContentProps) {
   const viewportWidth = useThree((state) => state.viewport.width);
   const canvasWidth = useThree((state) => state.size.width);
   const canvasHeight = useThree((state) => state.size.height);
-  // Phones only. `viewport` is computed from the camera R3F created, not the
-  // one CompactCameraRig moves, so the phone arena width comes from the
-  // framing itself rather than from `viewport`.
   const framing = useMemo(
     () =>
       compact
@@ -329,9 +318,6 @@ function GravitySceneContent({ roster, compact }: GravitySceneContentProps) {
   );
   const liveWidth = framing ? framing.visibleWidth : viewportWidth;
   const liveDropBaseY = framing ? framing.dropBaseY : DEFAULT_DROP_BASE_Y;
-  // The drop height is frozen per pile (like the width): it feeds the tiles'
-  // spawn points, which double as their escape-respawn points, so it must not
-  // drift under a pile that is already down.
   const [arena, setArena] = useState(() => ({
     width: resolveArenaWidth(liveWidth),
     dropBaseY: liveDropBaseY,
@@ -385,7 +371,6 @@ export interface GravitySceneProps {
   roster: readonly LogoRosterEntry[];
   /** Upper bound of the Canvas dpr clamp (from the experience tier). */
   maxDpr: number;
-  /** Phone framing: pull the camera back so tiles render small (see compactFraming). */
   compact: boolean;
 }
 

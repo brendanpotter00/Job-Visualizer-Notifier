@@ -5,8 +5,6 @@ import { LandingPage } from '../../../pages/LandingPage/LandingPage';
 import { LANDING_CONTENT } from '../../../pages/LandingPage/content';
 import type { LandingPrototypeProps } from '../../../pages/LandingPage/types';
 
-// Mock the body so the shell's own contract (fixture toggle, prop plumbing,
-// the document head) is exercised without mounting the scene.
 vi.mock('../../../pages/LandingPage/prototypes/GravityPrototype/GravityPrototype', () => {
   const GravityPrototype = (props: LandingPrototypeProps) => (
     <div data-testid="landing-body">
@@ -58,9 +56,6 @@ describe('LandingPage', () => {
     expect(now).toBeGreaterThan(0);
   });
 
-  // The head is the shell's job, not the scene's: the title and description
-  // are applied the moment the route mounts, before (and regardless of
-  // whether) the lazy scene chunk arrives, and the canonical is hoisted.
   it('puts the SEO head on the page: title, description, canonical', async () => {
     renderPage();
     await screen.findByTestId('landing-body');
@@ -77,10 +72,6 @@ describe('LandingPage', () => {
     );
   });
 
-  // The title and description are edited IN PLACE on the static head (a
-  // rendered <title> would sit behind index.html's and never win), so leaving
-  // the route must hand the app back exactly what it had — otherwise every
-  // page after /landing would carry the landing title.
   it('overrides the static title and description in place, and restores them on unmount', async () => {
     const staticTitle = 'app default title';
     const staticDescription = 'app default description';

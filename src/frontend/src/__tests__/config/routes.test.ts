@@ -30,18 +30,12 @@ describe('routes config', () => {
       expect(new Set(paths).size).toBe(paths.length);
     });
 
-    // 2026-11-12 (owner decision): the landing page took `/` and the jobs board
-    // moved to `/jobs`. `/jobs` needs its own rewrite in vercel.json or a hard
-    // refresh on it 404s at the edge before the SPA ever loads.
     it('puts the landing page at / and the jobs board at /jobs', () => {
       expect(ROUTES.HOME).toBe('/');
       expect(ROUTES.RECENT_JOBS).toBe('/jobs');
     });
   });
 
-  // The sidebar is the app's navigation; the landing page is the front door,
-  // outside the app shell. `/` must never be a nav entry — a signed-in reader
-  // clicking it would only bounce straight back to /jobs.
   describe('the landing page stays out of the app nav', () => {
     it('appears in no nav array', () => {
       const navGroups = {

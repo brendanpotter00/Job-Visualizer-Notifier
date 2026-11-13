@@ -30,8 +30,6 @@ describe('CompaniesPageContent', () => {
       // that the caption is gone for ANY loading state.
       renderWithProviders(<CompaniesPageContent isLoading />);
 
-      // The caption is the progressbar's accessible name, so the default word
-      // means no caption was passed.
       expect(screen.getByRole('progressbar')).toHaveAccessibleName('Loading');
     });
 

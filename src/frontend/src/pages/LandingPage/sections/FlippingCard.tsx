@@ -10,7 +10,6 @@ import { usePrefersReducedMotion } from '../usePrefersReducedMotion';
 const ROTATE_INTERVAL_MS = 4500;
 /** Crossfade duration (seconds, framer's unit) — restraint over flash. */
 const CROSSFADE_SECONDS = 0.3;
-/** Stretch the visible card to the full height of its grid cell. */
 const FILL_CELL_SX = { height: '100%', '& > .MuiCard-root': { height: '100%' } } as const;
 
 /**
@@ -22,8 +21,6 @@ export function SlotCaption({ children }: { children: ReactNode }) {
   return (
     <Typography
       variant="overline"
-      // h3, not h2: the triptych section owns the h2 above the row, and each
-      // slot's caption is a sub-heading of it.
       component="h3"
       sx={{ display: 'block', color: 'text.secondary', mb: 1 }}
     >
@@ -45,12 +42,6 @@ interface FlippingCardProps {
   phaseMs?: number;
   /** Test hook on the swapping region; also carries `data-active-job-id`. */
   testId: string;
-  /**
-   * Jobs whose cards reserve this slot's height. Defaults to the slot's own
-   * pool. FreshJobsTriptych passes EVERY slot's pool, so all three slots
-   * reserve the same tallest card and the cards never differ in height —
-   * across slots or as a slot flips (owner rule, 2026-11-12).
-   */
   sizerJobs?: Job[];
 }
 
@@ -134,9 +125,6 @@ export function FlippingCard({ jobs, caption, phaseMs = 0, testId, sizerJobs }: 
           minHeight: RESPONSIVE.landingProto.rotatingCardMinHeight,
         }}
       >
-        {/* A shared reservation needs its sizers even when this slot's own
-            pool is one job, and even under reduced motion: the height rule
-            is about the cards, not about the flip. */}
         {(sizerJobs !== undefined || !reducedMotion) && <SizerStack jobs={sizerJobs ?? jobs} />}
         {reducedMotion ? (
           <Box sx={{ gridArea: '1 / 1', ...FILL_CELL_SX }}>
@@ -156,9 +144,6 @@ export function FlippingCard({ jobs, caption, phaseMs = 0, testId, sizerJobs }: 
                 exit={{ opacity: 0 }}
                 transition={{ duration: CROSSFADE_SECONDS, ease: 'easeOut' }}
               >
-                {/* The card fills the cell (which the sizers hold at the
-                    pool's tallest card), so a shorter card grows its own box
-                    instead of leaving a strip of page under it. */}
                 <Box sx={FILL_CELL_SX}>
                   <JobListingCard job={job} />
                 </Box>
@@ -192,8 +177,6 @@ export function FlippingCard({ jobs, caption, phaseMs = 0, testId, sizerJobs }: 
  * jobs are showing — on a phone, where they stack, as much as on desktop.
  */
 export function SizerStack({ jobs }: { jobs: Job[] }) {
-  // One job reserves exactly its own visible card, so a lone sizer adds
-  // nothing — except when the reservation is a different pool (see sizerJobs).
   if (jobs.length === 0) return null;
 
   return (

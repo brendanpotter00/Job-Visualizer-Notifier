@@ -75,8 +75,6 @@ describe('AdminUsersPage', () => {
 
     renderPage();
 
-    // The page-level LoadingState is a progressbar named by its caption
-    // ("Loading admin data…", shown without the ellipsis).
     expect(screen.getByRole('progressbar', { name: /loading admin data/i })).toBeInTheDocument();
   });
 
@@ -250,7 +248,6 @@ describe('AdminUsersPage', () => {
     expect(screen.getByText(/stats kaboom|failed to load admin stats/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument();
 
-    // Users slot shows its loading state with the roster-loading caption.
     expect(screen.getByRole('progressbar', { name: /loading user roster/i })).toBeInTheDocument();
 
     // Tidy up still-pending fetches so they don't leak into other tests.

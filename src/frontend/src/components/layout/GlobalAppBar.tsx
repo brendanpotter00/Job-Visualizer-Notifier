@@ -84,8 +84,6 @@ export function GlobalAppBar({ open, onDrawerToggle, drawerWidth, isMobile }: Gl
         >
           <MenuIcon />
         </IconButton>
-        {/* The app's home is the jobs board, not `/` — signed-out visitors
-            at `/` get the marketing landing page, which is outside the app. */}
         <Box
           component={RouterLink}
           to={ROUTES.RECENT_JOBS}

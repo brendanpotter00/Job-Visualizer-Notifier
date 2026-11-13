@@ -30,12 +30,6 @@ const ROSTER_SEED = 20260809;
 
 const HERO_HEADING_ID = 'landing-hero-heading';
 
-/**
- * Vertical rhythm: every section wrapper carries the same `py`, so the air
- * BETWEEN two sections is double the token (80px on a phone, 160px on
- * desktop). That doubling is the point — the sections are quiet blocks that
- * need to float in their own space rather than stack.
- */
 function SectionBand({ children }: { children: ReactNode }) {
   return <Box sx={{ py: RESPONSIVE.landingProto.sectionPaddingY }}>{children}</Box>;
 }
@@ -67,9 +61,6 @@ function SectionBand({ children }: { children: ReactNode }) {
  */
 export function GravityPrototype({ content, jobs, now }: LandingPrototypeProps) {
   const tier = useExperienceTier();
-  // The scene (three + rapier, ~3MB) starts downloading only after the hero
-  // text has painted and the browser is idle. Its band is reserved below the
-  // CTAs either way, so nothing shifts when the pile arrives.
   const sceneReady = useAfterFirstPaint();
   const roster = useMemo(
     () => selectLogoRoster(COMPANIES, tier.bodyCount, ROSTER_SEED),
@@ -84,7 +75,6 @@ export function GravityPrototype({ content, jobs, now }: LandingPrototypeProps) 
           below it, so falling tiles never cross the links. */}
       <LandingHeader content={content} />
       <Box component="main">
-        {/* Hero region: DOM copy over the physics canvas. */}
         <Box
           component="section"
           aria-labelledby={HERO_HEADING_ID}
@@ -93,9 +83,6 @@ export function GravityPrototype({ content, jobs, now }: LandingPrototypeProps) 
           {tier.tier === 'full' && sceneReady && (
             <Box aria-hidden sx={{ position: 'absolute', inset: 0 }}>
               <Suspense fallback={null}>
-                {/* Keyed on the framing: crossing the phone breakpoint swaps the
-                    camera AND the roster size, so it gets a fresh Canvas rather
-                    than a live pile whose tiles and camera change underneath it. */}
                 <GravityScene
                   key={tier.compact ? 'compact' : 'default'}
                   roster={roster}
@@ -110,13 +97,10 @@ export function GravityPrototype({ content, jobs, now }: LandingPrototypeProps) 
             sx={{
               position: 'relative',
               py: RESPONSIVE.landingProto.heroPaddingY,
-              // The copy floats over the canvas; only interactive elements
-              // capture the pointer so the physics keeps feeling the cursor.
               pointerEvents: 'none',
             }}
           >
             <HeroCopy hero={content.hero} headingId={HERO_HEADING_ID} />
-            {/* Follows the headline in, one stagger step behind it. */}
             <Box sx={{ mt: 5, pointerEvents: 'auto', ...heroRiseIn(HERO_RISE_STAGGER_MS) }}>
               <CTAButtons ctas={content.ctas} showSecondary />
             </Box>
@@ -125,7 +109,6 @@ export function GravityPrototype({ content, jobs, now }: LandingPrototypeProps) 
                 <LogoGridFallback roster={roster} />
               </Box>
             ) : (
-              // Reserved vertical room where the pile settles in the canvas.
               <Box sx={{ mt: 6, height: RESPONSIVE.landingProto.heroSceneHeight }} />
             )}
           </Container>
@@ -152,9 +135,6 @@ export function GravityPrototype({ content, jobs, now }: LandingPrototypeProps) 
           </SectionBand>
         </Container>
       </Box>
-      {/* No footer: its links row and category line were cut on 2026-11-12
-          (owner-directed). The closing CTA is the last thing on the page, and
-          its section band's bottom padding is the page's bottom margin. */}
     </Box>
   );
 }

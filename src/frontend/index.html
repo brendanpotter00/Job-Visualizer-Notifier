@@ -13,8 +13,6 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="preconnect" href="https://api.fontshare.com" crossorigin />
-    <!-- Non-blocking: Infra Mono only draws the small "1s" mark, so its
-         stylesheet must not hold up the first paint of everything else. -->
     <link
       rel="preload"
       as="style"
@@ -28,14 +26,6 @@
       />
     </noscript>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <!--
-      Static head = the site-wide default, the link-preview card, and the ONLY
-      thing a crawler that does not run JavaScript ever sees (every
-      answer-engine bot except Googlebot). Brand-first on purpose: the landing
-      page at `/` swaps in its own keyword-first title and description at
-      runtime (pages/LandingPage/seo/LandingSeo.tsx), so it never shares one
-      with the app pages (`/jobs` and the rest) that keep this default.
-    -->
     <meta
       name="description"
       content="Browse software engineer jobs minutes after companies post them on their own career pages. 130+ curated companies, no reposts, free."

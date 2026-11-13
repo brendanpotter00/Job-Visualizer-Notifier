@@ -2,7 +2,6 @@ import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { LoadingText } from '../../../components/shared/LoadingText';
 
-/** The animated letter spans, in document order. */
 function letterSpans(container: HTMLElement): HTMLElement[] {
   return Array.from(container.querySelectorAll<HTMLElement>('.LoadingText-letter'));
 }
@@ -54,7 +53,6 @@ describe('LoadingText', () => {
     it('keeps the spaces between words as real (non-animated) text', () => {
       const { container } = render(<LoadingText text="Loading your companies" />);
       expect(screen.getByRole('progressbar')).toHaveTextContent(/^Loading your companies$/);
-      // No letter span holds a space: inline-block would swallow it.
       expect(letterSpans(container).some((s) => /\s/.test(s.textContent ?? ''))).toBe(false);
     });
 
@@ -103,7 +101,6 @@ describe('LoadingText', () => {
 
     it('counts the space between words, so the rhythm follows the width', () => {
       const { container } = render(<LoadingText text="ab cd" />);
-      // a=0, b=1, (space)=2, c=3, d=4
       expect(letterSpans(container).map((s) => s.style.animationDelay)).toEqual([
         '-1.6s',
         '-1.5s',
@@ -117,7 +114,6 @@ describe('LoadingText', () => {
       const delays = letterSpans(container).map((s) => s.style.animationDelay);
       expect(delays[16]).toBe(delays[0]);
       expect(delays[33]).toBe(delays[1]);
-      // Every letter is already moving on the first frame: no positive delay.
       expect(delays.every((d) => d.startsWith('-'))).toBe(true);
     });
   });

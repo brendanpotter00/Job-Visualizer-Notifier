@@ -9,11 +9,6 @@ interface ClosingCtaSectionProps {
   content: LandingContent;
 }
 
-/**
- * The last thing on the page: one line and the same two CTAs the hero opened
- * with. Centred, unlike everything above it, so the page visibly changes gear
- * as it ends. (There is no footer below it since 2026-11-12.)
- */
 export function ClosingCtaSection({ content }: ClosingCtaSectionProps) {
   return (
     <Box

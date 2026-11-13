@@ -22,11 +22,6 @@ interface FreshJobsTriptychProps {
   jobs: Job[];
   /** The fixtures' MOCK_NOW — see LandingPrototypeProps.now. */
   now: number;
-  /**
-   * Heading over the three cards. Optional so the triptych can be
-   * rendered bare; when given, it lives INSIDE the section so an all-empty
-   * fixture drops the heading together with the cards it would have labelled.
-   */
   intro?: SectionIntroContent;
 }
 
@@ -48,10 +43,6 @@ interface FreshJobsTriptychProps {
  */
 export function FreshJobsTriptych({ jobs, now, intro }: FreshJobsTriptychProps) {
   const slots = useMemo(() => selectTriptychSlots(jobs, now), [jobs, now]);
-  // Every slot reserves the tallest card in ANY slot, so the three cards are
-  // always the same height (owner rule, 2026-11-12) — see FlippingCard.sizerJobs.
-  // De-duplicated by id: pools may share a job (the slots only promise never to
-  // SHOW it at the same time), and sizers are keyed by job id.
   const allSlotJobs = useMemo(
     () => [...new Map(slots.flatMap((slot) => slot.jobs).map((job) => [job.id, job])).values()],
     [slots]
@@ -113,8 +104,6 @@ function QuietSlot({ slot, sizerJobs }: { slot: TriptychSlot; sizerJobs: Job[] }
           minHeight: RESPONSIVE.landingProto.rotatingCardMinHeight,
         }}
       >
-        {/* Same reservation as the card slots, so an empty slot is exactly as
-            tall as its neighbours. */}
         <SizerStack jobs={sizerJobs} />
         <Box
           sx={{

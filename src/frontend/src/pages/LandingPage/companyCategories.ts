@@ -84,10 +84,6 @@
  *   gaming/media      7 firms, folded into household_names.
  */
 
-/**
- * One curated entry point: a label and its member roster. (The one-line blurb
- * under each label was cut on 2026-11-12, owner-directed.)
- */
 export interface CompanyCategory {
   /** Stable slug. Becomes the preset-filter key when categories are promoted. */
   id: string;

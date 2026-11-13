@@ -22,7 +22,6 @@ function* walkStrings(value: unknown, path = ''): Generator<[string, string]> {
   }
 }
 
-/** Every section that opens with the shared heading. */
 const SECTION_INTROS: Record<string, SectionIntro> = {
   freshJobs: LANDING_CONTENT.freshJobs,
   comparison: LANDING_CONTENT.comparison,
@@ -32,9 +31,6 @@ const SECTION_INTROS: Record<string, SectionIntro> = {
 };
 
 describe('landing content config', () => {
-  // One h1, one tone (owner-directed 2026-11-12): the brief §4 B1 hook plus
-  // "Just jobs." The gray continuation that carried the query phrase is gone,
-  // so the phrase must survive in the title and description instead.
   it('hero: one short line, and the query phrase still in the head', () => {
     const { headline, evidence } = LANDING_CONTENT.hero;
     expect(headline).toBe('No reposts. No stale listings. No noise. Just jobs.');
@@ -60,10 +56,6 @@ describe('landing content config', () => {
     }
   });
 
-  // The header is chrome, not a site map: the link cap is the whole point of
-  // the section, so it is asserted rather than left to reviewer discipline. It
-  // went from two to three on 2026-11-12 (owner-directed): "Jobs" leads, now
-  // that the board lives at /jobs rather than at the root.
   it('header carries a wordmark, exactly three nav links, and both auth labels', () => {
     const { wordmark, nav, logIn, signUp, sourceCode, evidence } = LANDING_CONTENT.header;
     expect(wordmark.label).toBe(LANDING_CONTENT.productName);
@@ -74,7 +66,6 @@ describe('landing content config', () => {
     expect(new Set(nav.map((item) => item.label)).size).toBe(nav.length);
     // Owner-directed 2026-09-03: "Why" gave up the second slot to "Changelog",
     // pointed at the vote-features page (which IS the public changelog — its
-    // shipped section).
     expect(nav.map((item) => item.label)).toEqual(['Jobs', 'Companies', 'Changelog']);
     expect(nav[0].to).toBe(ROUTES.RECENT_JOBS);
     expect(nav[2].to).toBe(ROUTES.VOTE_FEATURES);
@@ -89,26 +80,17 @@ describe('landing content config', () => {
     ).toBeGreaterThan(0);
   });
 
-  // The page's rhythm is one opening shape repeated: a ≤8-word heading, no
-  // trailing period (the
-  // eyebrow that used to sit over it was cut on 2026-11-12). A section that
-  // needs more words in its heading has started selling in the wrong place.
   it('every section opens with a one-line heading, and no two share one', () => {
     for (const [name, intro] of Object.entries(SECTION_INTROS)) {
       expect(wordCount(intro.heading), `${name} heading too long`).toBeLessThanOrEqual(8);
       expect(intro.heading.trim().length, `${name} heading empty`).toBeGreaterThan(0);
       expect(intro, `${name} must not carry an eyebrow`).not.toHaveProperty('eyebrow');
-      // Owner-directed 2026-11-12: headings carry no trailing period.
       expect(intro.heading.endsWith('.'), `${name} heading ends with a period`).toBe(false);
     }
     const headings = Object.values(SECTION_INTROS).map((intro) => intro.heading);
     expect(new Set(headings).size).toBe(headings.length);
   });
 
-  // Naming LinkedIn was on the brief's do-not-say list until the owner asked
-  // for this section (2026-09-10). The override must stay visibly recorded on
-  // the section, and every cell stays a short, checkable fact — the only
-  // comparison framing that survives being quoted (brief §10 P4).
   it('LinkedIn comparison: a few short factual rows, owner-traced', () => {
     const { columns, rows, evidence } = LANDING_CONTENT.comparison;
     expect(columns.linkedin).toBe('LinkedIn');
@@ -128,13 +110,9 @@ describe('landing content config', () => {
       ).toBeLessThanOrEqual(8);
       expect(row.evidence.trim().length, `row ${row.id} needs a breadcrumb`).toBeGreaterThan(0);
     }
-    // The two claims the owner named are the two the section must make.
     expect(rows.map((row) => row.id)).toEqual(expect.arrayContaining(['reposts', 'companies']));
   });
 
-  // The floor is on COVERAGE, not a quota: four distinct questions (the
-  // company-count one was cut 2026-11-12), "Is it free?" first, and one of
-  // them the LinkedIn comparison asked the way people ask answer engines.
   it('FAQ entries are present, answer-first, lead with "free", and include the LinkedIn question', () => {
     const { entries } = LANDING_CONTENT.faq;
     expect(entries.length).toBeGreaterThanOrEqual(4);
@@ -173,7 +151,6 @@ describe('landing content config', () => {
   // The grayed tier is the ONE place unshipped work may appear (owner decision
   // 2026-08-20, docs/marketing/business-context.md). It is held to the live
   // cells' terseness because it renders in the same grid, and to a small CAP so
-  // the exception cannot quietly grow into a roadmap page.
   it('coming-soon tier is a small set of terse, traceable cells, disjoint from the live set', () => {
     const { comingSoonLabel, comingSoon, features } = LANDING_CONTENT.featureMatrix;
     expect(comingSoonLabel.trim().length).toBeGreaterThan(0);
@@ -206,8 +183,6 @@ describe('landing content config', () => {
     expect(evidence.trim().length).toBeGreaterThan(0);
   });
 
-  // Brief §9 title shape and §10 P3: the query phrase, the brand, and a
-  // description short enough to survive a results page uncut.
   it('seo: keyword-first title with brand suffix, short description, root canonical', () => {
     const { title, description, siteUrl, canonicalPath, ogImagePath } = LANDING_CONTENT.seo;
     expect(title).toMatch(/^software engineer jobs/i);
@@ -231,7 +206,6 @@ describe('landing content config', () => {
       ...walkStrings(COMPANY_CATEGORIES, 'COMPANY_CATEGORIES'),
     ];
     // The walk is only a guarantee over the keys it actually reaches, so pin
-    // that the newest copy branches are among them.
     for (const prefix of [
       'LANDING_CONTENT.featureMatrix.comingSoon[',
       'LANDING_CONTENT.header.',

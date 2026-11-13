@@ -6,14 +6,12 @@ const TILE_PX = 40;
 const INSET_PX = 48;
 const tan = Math.tan((FOV * Math.PI) / 360);
 
-/** Where world point (0, y, 0) lands, in CSS px from the canvas top. */
 function screenY(worldY: number, cameraY: number, cameraZ: number, heightPx: number) {
   const halfViewHeight = cameraZ * tan;
   return heightPx / 2 - ((worldY - cameraY) / halfViewHeight) * (heightPx / 2);
 }
 
 describe('resolveCompactFraming', () => {
-  // A 375 × 858 hero is the iPhone-portrait case the pile was dropped for.
   const W = 375;
   const H = 858;
 

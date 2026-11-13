@@ -5,25 +5,8 @@ import App from '../../app/App';
 import { createTestStore } from '../../test/testUtils';
 import { ROUTES } from '../../config/routes';
 
-/**
- * What `/` and unclaimed paths do, asserted against a real `<App />` because
- * that is where the routes live — the routes config alone cannot say whether a
- * path is mounted, mounted OUTSIDE RootLayout, or redirected.
- *
- * 2026-11-12 (owner decision): the landing page took `/` from the jobs board,
- * which moved to `/jobs`. Signed-out visitors see the landing page at `/`;
- * signed-in ones are sent to `/jobs`; anything unclaimed (the landing page's
- * old `/landing` included) goes to `/`. The branch logic itself is covered
- * exhaustively in `homeDestination.test.ts`; this file pins the wiring.
- */
-
-// Stand-ins for the real pages: this file gates routing, not page internals,
-// and the markers make "which route matched?" unambiguous. Mocking the landing
-// page also keeps the lazy three/rapier scene out of this test process.
 vi.mock('../../pages/LandingPage/LandingPage', () => {
   const LandingPage = () => <div data-testid="landing-page">Landing page body</div>;
-  // Named export for direct imports, default for the React.lazy boundary in
-  // HomeRoute — the route suspends forever if the default is missing.
   return { LandingPage, default: LandingPage };
 });
 
@@ -31,7 +14,6 @@ vi.mock('../../pages/RecentJobPostingsPage/RecentJobPostingsPage', () => ({
   RecentJobPostingsPage: () => <div data-testid="recent-jobs-page">Jobs board</div>,
 }));
 
-/** Flipped per test; read by the useAuth mock on every render. */
 const authState = { isAuthenticated: false, isLoading: false };
 
 vi.mock('../../features/auth/useAuth', () => ({
@@ -42,7 +24,6 @@ vi.mock('../../features/auth/useAuth', () => ({
     user: authState.isAuthenticated ? { sub: 'auth0|test' } : null,
     login: vi.fn(),
     logout: vi.fn(),
-    // Resolves: signed-in app hooks (enabled companies, saved filters) call it.
     getToken: () => Promise.resolve('test-token'),
   }),
 }));
@@ -85,8 +66,6 @@ function renderAppAt(path: string) {
 beforeEach(() => {
   authState.isAuthenticated = false;
   authState.isLoading = false;
-  // Safety net: any hook that still reaches for the network gets an empty
-  // object rather than an unhandled rejection.
   globalThis.fetch = vi.fn(
     async () => new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } })
   ) as unknown as typeof fetch;
@@ -105,8 +84,6 @@ describe('home route (/)', () => {
     async () => {
       renderAppAt(ROUTES.HOME);
       expect(await screen.findByTestId('landing-page')).toBeInTheDocument();
-      // The sidebar's group caption is the cheapest proof the app chrome is
-      // absent — only NavigationDrawer renders it.
       expect(screen.queryByText('JOBS FROM THE SOURCE')).not.toBeInTheDocument();
       expect(screen.queryByRole('banner')).not.toBeInTheDocument();
       expect(window.location.pathname).toBe('/');
@@ -126,7 +103,6 @@ describe('home route (/)', () => {
     FULL_APP_RENDER_TIMEOUT_MS
   );
 
-  // `replace`: Back from the board must not land on `/` and bounce forward.
   it(
     'replaces / in history rather than pushing when it redirects',
     async () => {
@@ -140,8 +116,6 @@ describe('home route (/)', () => {
     FULL_APP_RENDER_TIMEOUT_MS
   );
 
-  // A fresh Auth0 login returns to `/?code=…&state=…`; the board URL must not
-  // inherit the callback params.
   it(
     'drops the Auth0 callback params on the way to /jobs',
     async () => {
@@ -153,7 +127,6 @@ describe('home route (/)', () => {
     FULL_APP_RENDER_TIMEOUT_MS
   );
 
-  // Recent Jobs filter links were shared as `/?category=…` before the move.
   it(
     'forwards an old shared filter link to /jobs, query intact, even signed out',
     async () => {
@@ -186,8 +159,6 @@ describe('unclaimed paths', () => {
     FULL_APP_RENDER_TIMEOUT_MS
   );
 
-  // The `?data=` fixture toggle is the one query the landing page reads, so a
-  // redirect that dropped it would silently change what a shared link renders.
   it(
     'carries the query string and hash through the redirect',
     async () => {

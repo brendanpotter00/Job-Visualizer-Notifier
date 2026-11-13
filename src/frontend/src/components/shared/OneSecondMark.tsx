@@ -7,22 +7,9 @@ const recBlink = keyframes`
 `;
 
 interface OneSecondMarkProps {
-  /**
-   * Glyph size. A plain value or an MUI breakpoint object (`{ xs, sm }`), so a
-   * caller can pass a RESPONSIVE token straight through.
-   */
   fontSize?: number | string | Record<string, number | string>;
 }
 
-/**
- * The "1s" brand mark with its blinking recording dot — the one drawn in the
- * app bar and in the landing page header. Shared so the two can never drift.
- *
- * Takes its colour from the parent (`currentColor`), so it reads cream on the
- * black app bar and black on the white landing header. Decorative: the
- * enclosing link carries the accessible name, so the mark is `aria-hidden`.
- * Reduced motion keeps the dot lit and still.
- */
 export function OneSecondMark({ fontSize = '22px' }: OneSecondMarkProps) {
   return (
     <Box

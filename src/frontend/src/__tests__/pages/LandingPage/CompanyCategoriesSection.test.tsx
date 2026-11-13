@@ -32,8 +32,6 @@ describe('CompanyCategoriesSection', () => {
     }
   });
 
-  // Owner-directed 2026-11-12: cards carry the label and logos only — no
-  // member count, no blurb.
   it('shows no member count and no description on the cards', () => {
     renderSection();
     expect(screen.queryByText(/\d+ companies/)).not.toBeInTheDocument();

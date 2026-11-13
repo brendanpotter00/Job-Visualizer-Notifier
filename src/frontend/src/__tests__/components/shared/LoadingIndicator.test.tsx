@@ -7,7 +7,6 @@ describe('LoadingIndicator', () => {
     it('renders a progressbar named "Loading" and no spinner', () => {
       const { container } = render(<LoadingIndicator />);
       expect(screen.getByRole('progressbar')).toHaveAccessibleName('Loading');
-      // The wave replaced the spinner outright: no CircularProgress SVG anywhere.
       expect(container.querySelector('svg')).toBeNull();
       expect(container.querySelector('.MuiCircularProgress-root')).toBeNull();
     });

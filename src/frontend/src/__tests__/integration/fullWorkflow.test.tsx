@@ -132,8 +132,6 @@ describe('Full Application Workflow', () => {
     );
   };
 
-  // Pages are lazy route chunks, so the first render shows the loading state;
-  // every assertion waits for the page module to load.
   const PAGE_LOAD = { timeout: 15_000 };
 
   it('renders application structure', async () => {

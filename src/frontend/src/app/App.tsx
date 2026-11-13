@@ -18,11 +18,6 @@ import { WEBMCP_CONFIG, WebMcpBridge } from '../webmcp';
 
 import { SubcategoryRevealProvider } from '../features/settings/subcategoryReveal';
 
-/**
- * Every app page is its own chunk, loaded when its route is first visited, so
- * the landing page at `/` does not download the whole app before it paints.
- * RootLayout shows the loading state in the content area while a page loads.
- */
 const CompaniesPage = lazy(() =>
   import('../pages/CompaniesPage/CompaniesPage').then((m) => ({ default: m.CompaniesPage }))
 );
@@ -154,12 +149,7 @@ function AppContent() {
           null and touches no other state. */}
       {WEBMCP_CONFIG.isEnabled && <WebMcpBridge />}
       <Routes>
-        {/* `/` is the landing page for signed-out visitors and a redirect to
-            the jobs board for signed-in ones (HomeRoute). A SIBLING of the
-            layout route, so the landing page renders full-bleed (no
-            drawer/appbar) and its lazy chunk stays off every other page. */}
         <Route path={ROUTES.HOME} element={<HomeRoute />} />
-        {/* Pathless layout route: the app shell around every app page. */}
         <Route element={<RootLayout />}>
           <Route path={ROUTES.RECENT_JOBS} element={<RecentJobPostingsPage />} />
           <Route path={ROUTES.COMPANIES} element={<CompaniesPage />} />
@@ -248,8 +238,6 @@ function AppContent() {
         {CUSTOM_COMPANIES_CONFIG.isEnabled && (
           <Route path={`${ROUTES.MY_COMPANIES_LEGACY}/*`} element={<LegacyMyCompaniesRedirect />} />
         )}
-        {/* Anything unclaimed — the landing page's old `/landing` and
-            `/admin/landing-prototypes` included — goes to `/`. */}
         <Route path="*" element={<UnknownPathRedirect />} />
       </Routes>
     </>
