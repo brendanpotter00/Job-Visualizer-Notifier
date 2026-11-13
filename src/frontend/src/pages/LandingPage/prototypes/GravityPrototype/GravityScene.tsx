@@ -382,7 +382,7 @@ export interface GravitySceneProps {
  * ~93% of the canvas height, so the pile fills the reserved band at the bottom
  * of the hero and the copy sits over clean space above it.
  */
-const CAMERA = { position: [0, 3, 9] as const, rotation: [0, 0, 0] as const, fov: 42 };
+const CAMERA = { position: [0, 3.45, 10.35] as const, rotation: [0, 0, 0] as const, fov: 42 };
 
 /**
  * `touch-action` goes on R3F's wrapper div (it owns the only style hook the
