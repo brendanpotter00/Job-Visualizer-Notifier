@@ -31,6 +31,18 @@ const SWE_SUBCATEGORIES_REVEAL_DATE = '2026-08-20';
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    id: 'shield-ai-ashby-2026-11',
+    title: 'Shield AI’s openings are current again',
+    description:
+      'Shield AI moved its job board to Ashby, and because the old board was emptied out rather than taken down, this site had no way to tell that the roles had gone somewhere else — it simply stopped seeing new ones. Shield AI now reads from its new board, so all of its openings are showing again, and the stale listings from the old board have been closed out. If Shield AI is in your saved companies you do not need to change anything.',
+    tags: ['improvement'],
+    date: '2026-11-13',
+    link: {
+      to: ROUTES.SAVED_FILTERS,
+      label: 'Review your saved companies',
+    },
+  },
+  {
     id: 'add-mecka-ai',
     title: 'Added Mecka AI',
     description:
