@@ -192,6 +192,7 @@ export const LANDING_CONTENT: LandingContent = {
     // public changelog: shipped work moves out of the vote list into its
     // read-only "Shipped — built with the community" section. It replaced the
     // "Why" link on 2026-09-03 (owner-directed) — what shipped recently is a
+    // better second link than the origin story.
     nav: [
       { label: 'Jobs', to: ROUTES.RECENT_JOBS },
       { label: 'Companies', to: ROUTES.CURATED_COMPANIES },

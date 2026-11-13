@@ -274,8 +274,6 @@ export const RESPONSIVE = {
     /** Landing header: gap between the right-hand cluster items (theme units). */
     headerGap: { xs: 1, sm: 1.5 },
     heroHeadlineFontSize: { xs: '1.875rem', sm: '3.25rem' },
-    /** Hero subheadline (fragment stack under the h1). */
-    heroSubFontSize: { xs: '1rem', sm: '1.25rem' },
     /** Hero block vertical padding (theme units). */
     heroPaddingY: { xs: 8, sm: 14 },
     sectionTitleFontSize: { xs: '1.5rem', sm: '2rem' },
@@ -320,8 +318,6 @@ export const RESPONSIVE = {
     categoryCardPadding: { xs: 2.5, sm: 3 },
     /** Curated-category cards: grid gap between cards. */
     categoryGridGap: { xs: 2, sm: 3 },
-    /** Quotable-claims / body emphasis font size (a step above `bodyFontSize`). */
-    quotableFontSize: { xs: '1.0625rem', sm: '1.25rem' },
     rotatingCardMinHeight: { xs: 140, sm: 240 },
     heroSceneHeight: { xs: 130, sm: 280 },
     logoTileSize: { compact: 40, default: 52 },

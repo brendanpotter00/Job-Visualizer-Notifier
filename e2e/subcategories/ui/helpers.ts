@@ -16,7 +16,7 @@ const REPO_ROOT = path.resolve(__dirname, '../../..');
 const PYTHON = path.join(REPO_ROOT, '.venv', 'bin', 'python');
 const SEED_PY = path.join(REPO_ROOT, 'e2e', 'subcategories', 'seed.py');
 
-export const RECENT_JOBS_PATH = '/';
+export const RECENT_JOBS_PATH = '/jobs';
 /** The `FacetTreeMultiSelect`'s label — `RecentJobsFilters.tsx`. */
 export const CATEGORY_CONTROL_LABEL = 'Job Category';
 export const LEVEL_CONTROL_LABEL = 'Level';

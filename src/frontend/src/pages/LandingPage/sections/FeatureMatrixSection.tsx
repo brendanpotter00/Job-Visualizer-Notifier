@@ -97,8 +97,7 @@ function MatrixCell({ feature, muted = false, spans }: MatrixCellProps) {
             aria-hidden
             // Fixed 20px at every breakpoint on purpose: the glyph is a bullet
             // mark, not text, and scaling it against bodyFontSize makes the
-            // rows shimmer between breakpoints. Same rationale as the header's
-            // GitHub mark.
+            // rows shimmer between breakpoints.
             sx={{ fontSize: 20, color: muted ? 'text.disabled' : 'text.primary', flexShrink: 0 }}
           />
         )}

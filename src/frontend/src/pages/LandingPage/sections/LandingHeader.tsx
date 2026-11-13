@@ -12,8 +12,8 @@ interface LandingHeaderProps {
 }
 
 /**
- * The shared landing header — wordmark left, two quiet nav links beside it, and
- * the source-code mark + Log in / Sign up on the right. Every label and target
+ * The shared landing header — wordmark left, quiet nav links beside it, and
+ * Log in / Sign up on the right. Every label and target
  * comes from `content.header`; this file only decides how they look.
  *
  * Placement contract: render it as the FIRST child of the page's root box,
@@ -23,9 +23,6 @@ interface LandingHeaderProps {
  * hero wrapper would scroll it away with the hero. Sitting
  * above the hero also means the falling-logo canvas starts below the bar, so
  * the pile never occludes the links and the pointer-repel keeps the full canvas.
- *
- * Auth targets are the mock ACCOUNT route the hero CTAs already use. Wiring
- * these to real Auth0 login/signup is promotion-time work, not prototype work.
  */
 export function LandingHeader({ content }: LandingHeaderProps) {
   const { header } = content;

@@ -55,7 +55,6 @@ const SM_DESKTOP: Record<string, number | string> = {
   'landingProto.headerMarkGap': 1.25,
   'landingProto.headerGap': 1.5,
   'landingProto.heroHeadlineFontSize': '3.25rem',
-  'landingProto.heroSubFontSize': '1.25rem',
   'landingProto.heroPaddingY': 14,
   'landingProto.sectionTitleFontSize': '2rem',
   'landingProto.eyebrowFontSize': '0.8125rem',
@@ -73,7 +72,6 @@ const SM_DESKTOP: Record<string, number | string> = {
   'landingProto.faqRowPaddingY': 1.75,
   'landingProto.categoryCardPadding': 3,
   'landingProto.categoryGridGap': 3,
-  'landingProto.quotableFontSize': '1.25rem',
   'landingProto.rotatingCardMinHeight': 240,
   'landingProto.heroSceneHeight': 280,
 };

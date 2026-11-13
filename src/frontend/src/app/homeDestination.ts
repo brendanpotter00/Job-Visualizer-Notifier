@@ -37,9 +37,15 @@ export function jobsSearchFrom(search: string): string {
   return rest ? `?${rest}` : '';
 }
 
-export function hasStoredAuthSession(
-  storage: Storage | undefined = typeof window === 'undefined' ? undefined : window.localStorage
-): boolean {
+function defaultStorage(): Storage | undefined {
+  try {
+    return typeof window === 'undefined' ? undefined : window.localStorage;
+  } catch {
+    return undefined;
+  }
+}
+
+export function hasStoredAuthSession(storage: Storage | undefined = defaultStorage()): boolean {
   if (!storage) return false;
   try {
     for (let i = 0; i < storage.length; i += 1) {

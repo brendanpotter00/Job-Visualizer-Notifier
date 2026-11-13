@@ -55,7 +55,7 @@ Backend-Scraper (api/clients/backendScraperClient.ts) is the only production cli
 - `useRecentJobsSearch` (features/jobs/hooks/useRecentJobsSearch.ts) - The Recent page's ENTIRE data path: debounces the filters, freezes the recency bound, and drives the `searchJobs` infinite query against `GET /api/jobs/search`. The page filters server-side now; there is no `selectRecentFilteredJobs` and no client-side keyset walk (both retired with the 2026-08-10 deadlock's root cause)
 
 **Routes/Pages:**
-- `/` - Home (app/HomeRoute.tsx): the marketing landing page for signed-out visitors; signed-in visitors are redirected to `/jobs`, as is any old shared `/?category=…` filter link (decision logic: `app/homeDestination.ts`). Mounted OUTSIDE RootLayout (full-bleed). Unclaimed paths — the landing page's old `/landing` included — redirect to `/` (SPA catch-all + a `vercel.json` catch-all rewrite; `/landing` also has a permanent edge redirect)
+- `/` - Home (app/HomeRoute.tsx): the marketing landing page for signed-out visitors; signed-in visitors are redirected to `/jobs`, as is any old shared `/?category=…` filter link (decision logic: `app/homeDestination.ts`). Mounted OUTSIDE RootLayout (full-bleed). Unclaimed paths — the landing page's old `/landing` included — redirect to `/` (SPA catch-all; a hard load of a path `vercel.json` does not rewrite gets `public/404.html`, which forwards to `/`; `/landing` also has a permanent edge redirect). There is deliberately NO catch-all rewrite in `vercel.json` (it rewrote Vite's module URLs under `vercel dev`), so every app route needs its own rewrite — `config/vercelSpaRewrites.test.ts` enforces it
 - `/jobs` - Recent Job Postings (pages/RecentJobPostingsPage/RecentJobPostingsPage.tsx) - Aggregated recent jobs across all companies; the app's home (the app-bar logo links here)
 - `/companies` - Company Job Postings (pages/CompaniesPage/CompaniesPage.tsx) - Per-company job visualization with graph
 - `/curated-companies` - Curated Companies (pages/CuratedCompaniesPage/CuratedCompaniesPage.tsx) - Searchable directory of all tracked companies with brand info
@@ -116,7 +116,7 @@ own eventual signup. Event taxonomy (custom events live in `features/analytics/e
   `auto_select`) are excluded. Existing account-holders never fire it. Props:
   `landing_path`, `referrer`.
 - `signin_cta_clicked` — mid-funnel. Fired before `login()` from each sign-in CTA, with a
-  `location` of `appbar | job_overlay | edit_prefs_link | account_page`. (Google One-Tap is
+  `location` of `appbar | job_overlay | edit_prefs_link | account_page | landing_header | landing_cta`. (Google One-Tap is
   intentionally excluded — its success callback can't distinguish a silent re-auth from a
   real tap; One-Tap signups are attributed via the backend signup-provider split.)
 - `signin_overlay_viewed` — mid-funnel. Fired when the signed-out job-list overlay becomes

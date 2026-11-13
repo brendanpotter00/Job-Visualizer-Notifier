@@ -67,6 +67,7 @@ export function CompanyCategoriesSection({ content }: CompanyCategoriesSectionPr
                 display: 'flex',
                 flexDirection: 'column',
                 gap: 1.25,
+                // `minWidth: 0` keeps a long label from forcing the grid track
                 // wider than the viewport on a narrow phone.
                 minWidth: 0,
                 p: RESPONSIVE.landingProto.categoryCardPadding,

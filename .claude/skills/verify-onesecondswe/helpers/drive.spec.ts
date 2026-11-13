@@ -47,7 +47,7 @@ async function call<T = any>(page: Page, name: string, args: Record<string, unkn
 test('[@drive] Recent feed — company filter: Tier-1 meta anchor + Tier-2 DOM reflect', async ({
   page,
 }) => {
-  await page.goto('/');
+  await page.goto('/jobs');
   // The feed's own query has to have loaded at least one card before a filter can
   // narrow it (the list filters useGetAllJobsQuery's cached set client-side).
   await expect(page.getByRole('heading', { level: 3 }).first()).toBeVisible({ timeout: 30_000 });

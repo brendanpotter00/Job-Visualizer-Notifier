@@ -19,7 +19,7 @@ import { selectLogoRoster } from '../shared3d/logoRoster';
 import { LogoGridFallback } from '../shared3d/LogoGridFallback';
 
 /**
- * Nested lazy INSIDE the already-lazy prototype entry: the tier is resolved
+ * Lazy: the tier is resolved
  * before this component ever mounts, so fallback-tier visitors (reduced
  * motion / no WebGL) never download the three/rapier scene chunk at all.
  */
@@ -138,5 +138,3 @@ export function GravityPrototype({ content, jobs, now }: LandingPrototypeProps) 
     </Box>
   );
 }
-
-export default GravityPrototype;

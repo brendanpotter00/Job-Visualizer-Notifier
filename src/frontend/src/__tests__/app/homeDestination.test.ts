@@ -107,4 +107,21 @@ describe('hasStoredAuthSession', () => {
     } as unknown as Storage;
     expect(hasStoredAuthSession(throwing)).toBe(false);
   });
+
+  it('false (not a crash) when merely reading window.localStorage throws', () => {
+    const original = Object.getOwnPropertyDescriptor(window, 'localStorage');
+    Object.defineProperty(window, 'localStorage', {
+      configurable: true,
+      get() {
+        throw new DOMException('The operation is insecure.', 'SecurityError');
+      },
+    });
+    try {
+      expect(hasStoredAuthSession()).toBe(false);
+    } finally {
+      if (original) Object.defineProperty(window, 'localStorage', original);
+      else Reflect.deleteProperty(window, 'localStorage');
+    }
+    expect(() => window.localStorage).not.toThrow();
+  });
 });

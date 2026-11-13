@@ -11,7 +11,7 @@ vi.mock('../../../pages/LandingPage/prototypes/GravityPrototype/GravityPrototype
       gravity ({props.sparse ? 'sparse' : 'rich'}, {props.jobs.length} jobs, now={props.now})
     </div>
   );
-  return { GravityPrototype, default: GravityPrototype };
+  return { GravityPrototype };
 });
 
 function renderPage(url = '/landing') {

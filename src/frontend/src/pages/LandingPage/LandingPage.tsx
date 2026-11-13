@@ -12,9 +12,9 @@ import { GravityPrototype } from './prototypes/GravityPrototype/GravityPrototype
  *
  * This was a four-tab prototype workspace until the 2026-09-03 consolidation;
  * the tab strip, the registry and the three losing designs are gone, and what
- * is left is a shell whose whole job is the lazy boundary, the fixture toggle,
- * and the document head (`LandingSeo`, rendered here rather than inside the
- * lazy chunk so the title, canonical and JSON-LD exist before the scene loads).
+ * is left is a shell whose whole job is the fixture toggle and the document
+ * head (`LandingSeo`, rendered here so the title, canonical and JSON-LD exist
+ * before the lazy scene loads).
  *
  * URL contract: `?data=sparse` swaps in the weekend-reality fixture. It
  * survived the consolidation because the sparse case is the one that breaks
@@ -53,5 +53,3 @@ export function LandingPage() {
     </Box>
   );
 }
-
-export default LandingPage;

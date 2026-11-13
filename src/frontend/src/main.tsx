@@ -11,7 +11,12 @@ import { AuthProviders } from './components/shared/AuthProviders';
 import { CookieConsentBanner } from './components/shared/CookieConsentBanner';
 import { POSTHOG_CONFIG } from './config/posthog';
 import { posthog } from './lib/posthog';
+import { installStaleChunkReload } from './lib/staleChunkReload';
 import { WEBMCP_CONFIG, registerWebMcpTools } from './webmcp';
+
+if (import.meta.env.PROD) {
+  installStaleChunkReload();
+}
 
 // WebMCP agent-driving surface — dead branch unless VITE_WEBMCP === '1' (only
 // the e2e verification harness sets it). Store-only; the bridge in App captures

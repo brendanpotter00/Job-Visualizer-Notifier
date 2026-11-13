@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { buildMockJobs, buildSparseMockJobs } from '../../../pages/LandingPage/mockData';
 import { COMPANIES } from '../../../config/companies';
+import { ROUTES } from '../../../config/routes';
 import { FALLBACK_CATEGORIES, FALLBACK_LEVELS } from '../../../constants/enrichment';
 
 const NOW = new Date('2026-08-09T18:00:00Z').getTime();
@@ -38,6 +39,15 @@ describe('landing prototype mock data', () => {
       const seen = new Date(job.firstSeenAt).getTime();
       expect(seen).toBeLessThanOrEqual(NOW);
       expect(seen).toBeGreaterThanOrEqual(NOW - 7 * DAY);
+    }
+  });
+
+  it.each([
+    ['rich', rich],
+    ['sparse', sparse],
+  ])('%s fixture cards link to the jobs board, not the landing page', (_name, jobs) => {
+    for (const job of jobs) {
+      expect(new URL(job.url).pathname).toBe(ROUTES.RECENT_JOBS);
     }
   });
 

@@ -7,7 +7,7 @@ import { ROUTES } from '../../config/routes';
 
 vi.mock('../../pages/LandingPage/LandingPage', () => {
   const LandingPage = () => <div data-testid="landing-page">Landing page body</div>;
-  return { LandingPage, default: LandingPage };
+  return { LandingPage };
 });
 
 vi.mock('../../pages/RecentJobPostingsPage/RecentJobPostingsPage', () => ({

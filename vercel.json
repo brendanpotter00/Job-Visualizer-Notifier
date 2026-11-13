@@ -127,6 +127,10 @@
       "destination": "/index.html"
     },
     {
+      "source": "/location-pipeline",
+      "destination": "/index.html"
+    },
+    {
       "source": "/admin/:path(.*)",
       "destination": "/index.html"
     }
