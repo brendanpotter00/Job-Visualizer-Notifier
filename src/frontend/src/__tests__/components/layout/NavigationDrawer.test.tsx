@@ -23,7 +23,6 @@ vi.mock('../../../features/auth/useAuth', () => ({
 const mockProps = {
   open: true,
   onClose: vi.fn(),
-  onToggleCollapse: vi.fn(),
   drawerWidth: 240,
   isMobile: false,
 };
@@ -59,16 +58,15 @@ describe('NavigationDrawer', () => {
       expect(screen.getByTestId('ThumbUpIcon')).toBeInTheDocument();
     });
 
-    it('renders chevron button for collapse/expand', () => {
+    it('renders no sidebar toggle on desktop — the app bar owns it', () => {
       render(
         <MemoryRouter>
-          <NavigationDrawer {...mockProps} />
+          <NavigationDrawer {...mockProps} isMobile={false} />
         </MemoryRouter>
       );
 
-      // Chevron button is the icon button in the drawer header
-      const buttons = screen.getAllByRole('button');
-      expect(buttons.length).toBeGreaterThan(0);
+      expect(screen.queryByRole('button', { name: 'Toggle sidebar' })).not.toBeInTheDocument();
+      expect(screen.queryByTestId('ChevronLeftIcon')).not.toBeInTheDocument();
     });
   });
 
@@ -216,7 +214,18 @@ describe('NavigationDrawer', () => {
       expect(onClose).not.toHaveBeenCalled();
     });
 
-    it('clicking chevron on mobile calls onClose', async () => {
+    it('the mobile overlay has no toggle of its own — the app bar stays above it', () => {
+      render(
+        <MemoryRouter>
+          <NavigationDrawer {...mockProps} isMobile={true} open={true} />
+        </MemoryRouter>
+      );
+
+      expect(screen.queryByRole('button', { name: 'Toggle sidebar' })).not.toBeInTheDocument();
+      expect(screen.queryByTestId('ChevronLeftIcon')).not.toBeInTheDocument();
+    });
+
+    it('the mobile overlay has a named close control that calls onClose', async () => {
       const onClose = vi.fn();
       const user = userEvent.setup();
 
@@ -226,30 +235,18 @@ describe('NavigationDrawer', () => {
         </MemoryRouter>
       );
 
-      // Find chevron button by test ID icon
-      const chevronButton = screen.getByTestId('ChevronLeftIcon').closest('button');
-      expect(chevronButton).toBeTruthy();
-
-      await user.click(chevronButton!);
+      await user.click(screen.getByRole('button', { name: 'Close navigation' }));
       expect(onClose).toHaveBeenCalledTimes(1);
     });
 
-    it('clicking chevron on desktop calls onToggleCollapse', async () => {
-      const onToggleCollapse = vi.fn();
-      const user = userEvent.setup();
-
+    it('desktop renders no close control', () => {
       render(
         <MemoryRouter>
-          <NavigationDrawer {...mockProps} isMobile={false} onToggleCollapse={onToggleCollapse} />
+          <NavigationDrawer {...mockProps} isMobile={false} />
         </MemoryRouter>
       );
 
-      // First button is the chevron
-      const buttons = screen.getAllByRole('button');
-      const chevronButton = buttons[0];
-
-      await user.click(chevronButton);
-      expect(onToggleCollapse).toHaveBeenCalledTimes(1);
+      expect(screen.queryByRole('button', { name: 'Close navigation' })).not.toBeInTheDocument();
     });
   });
 

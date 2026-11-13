@@ -36,7 +36,6 @@ vi.mock('../../../features/auth/useCurrentUser', () => ({
 const mockProps = {
   open: true,
   onClose: vi.fn(),
-  onToggleCollapse: vi.fn(),
   drawerWidth: 240,
   isMobile: false,
 };

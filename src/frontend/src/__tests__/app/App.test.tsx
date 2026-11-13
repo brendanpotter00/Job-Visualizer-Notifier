@@ -140,7 +140,7 @@ describe('App', () => {
   });
 
   describe('Loading States', () => {
-    it('should render loading indicator when globalLoading is true', async () => {
+    it('should render the companies-page skeleton when globalLoading is true', async () => {
       const store = createTestStore({
         ui: { globalLoading: true, graphModal: { isOpen: false } },
       });
@@ -151,8 +151,9 @@ describe('App', () => {
       );
 
       await waitFor(() => {
-        expect(screen.getByRole('progressbar')).toBeInTheDocument();
+        expect(screen.getByRole('status', { name: 'Loading job data…' })).toBeInTheDocument();
       });
+      expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
     });
 
     it('should render content when not loading', async () => {
@@ -176,8 +177,9 @@ describe('App', () => {
       );
 
       await waitFor(() => {
-        expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+        expect(screen.queryByRole('status', { name: 'Loading job data…' })).not.toBeInTheDocument();
       });
+      expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
     });
   });
 

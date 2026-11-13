@@ -64,6 +64,19 @@ afterEach(() => {
 });
 
 describe('MyCompaniesList', () => {
+  it('shows row-shaped skeletons (not a spinner) on the first load', () => {
+    fetchMock.mockImplementation(() => new Promise(() => {}));
+    renderWithProviders(<MyCompaniesList />);
+
+    const region = screen.getByRole('status', { name: 'Loading your companies…' });
+    expect(within(region).getByTestId('my-companies-list-skeleton')).toHaveTextContent(
+      'Your companies'
+    );
+    expect(region.querySelectorAll('.MuiCard-root')).toHaveLength(3);
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('my-companies-empty')).not.toBeInTheDocument();
+  });
+
   it('renders each company with a health badge, open-job count, and last-fetched', async () => {
     fetchMock.mockResolvedValue(jsonResponse({ companies: [COMPANY_A, COMPANY_B] }));
     renderWithProviders(<MyCompaniesList />);

@@ -29,7 +29,12 @@ import {
   type ReverseLocation,
   type ReverseResult,
 } from '../../../features/admin/adminApi';
-import { LoadingState } from '../../../components/shared/LoadingIndicator';
+import { SkeletonRegion } from '../../../components/shared/Skeletons';
+import {
+  AliasForwardTableSkeleton,
+  AliasOriginalsSkeleton,
+  AliasReverseTableSkeleton,
+} from './LocationSkeletons';
 import { ErrorState } from '../../../components/shared/ErrorDisplay';
 import { EmptyState } from '../../../components/shared/ErrorDisplay';
 import { extractErrorMessage } from '../../../lib/errors';
@@ -164,7 +169,11 @@ function ForwardTable({
   const total = query.data?.total ?? 0;
 
   if (query.isLoading && !query.data) {
-    return <LoadingState minHeight={160} caption="Loading aliases…" />;
+    return (
+      <SkeletonRegion label="Loading aliases…">
+        <AliasForwardTableSkeleton />
+      </SkeletonRegion>
+    );
   }
   if (query.error && !query.data) {
     return (
@@ -279,7 +288,11 @@ function AliasOriginals({ rawText }: { rawText: string }) {
   const { data, isLoading, error, refetch } = useGetAliasOriginalsQuery({ rawText, limit: 50 });
 
   if (isLoading && !data) {
-    return <LoadingState minHeight={80} caption="Loading original strings…" />;
+    return (
+      <SkeletonRegion label="Loading original strings…">
+        <AliasOriginalsSkeleton />
+      </SkeletonRegion>
+    );
   }
   if (error && !data) {
     return (
@@ -337,7 +350,11 @@ function ReverseTable({ query }: ReverseTableProps) {
   const results = useMemo<ReverseResult[]>(() => query.data?.results ?? [], [query.data]);
 
   if (query.isLoading && !query.data) {
-    return <LoadingState minHeight={160} caption="Loading canonical locations…" />;
+    return (
+      <SkeletonRegion label="Loading canonical locations…">
+        <AliasReverseTableSkeleton />
+      </SkeletonRegion>
+    );
   }
   if (query.error && !query.data) {
     return (

@@ -119,7 +119,7 @@ a JWKS-seam minted token injected the app's own way) and the base
 `playwright.config.ts`. The drive specs here import `test`/`expect` from that
 fixtures module, never from `@playwright/test` directly.
 
-Run the bundled proof drive (one fully-worked feature: Recent-feed company filter,
+Run the bundled proof drive (one fully-worked feature: Recent-feed filtering,
 plus two Tier-3 side effects), from `$REPO/e2e` so Node resolves `e2e/node_modules`:
 
 ```bash
@@ -243,7 +243,7 @@ here needs reverse-engineering.
 | `helpers/db_assert.py` | read a Tier-3 side-effect row from `jobscraper_e2e` (via `assertions.connect`) | `.venv/bin/python …/db_assert.py --table … [--email …] [--contains …] [--feature-id …]` |
 | `helpers/verify.playwright.config.ts` | Playwright config extending `e2e/shared/playwright/playwright.config.ts` | passed as `--config` to `npx playwright test` |
 | `helpers/doctor.spec.ts` | `@doctor` — asserts the 14-tool shim surface | `npx --no-install playwright test --config … --grep '@doctor'` (run by `doctor.sh`) |
-| `helpers/drive.spec.ts` | `@drive` — the worked proof: Recent company-filter + `submit_feedback` + `set_enabled_companies`, writing evidence | `npx --no-install playwright test --config … --grep '@drive'` (run from `$REPO/e2e`) |
+| `helpers/drive.spec.ts` | `@drive` — the worked proof: Recent feed filtering + `submit_feedback` + `set_enabled_companies`, writing evidence | `npx --no-install playwright test --config … --grep '@drive'` (run from `$REPO/e2e`) |
 | `helpers/seed_live_view.py` | arrange ONE `discovering` row carrying a full-length live-view URL, through the product's own writers (`add_discovering_placeholder` + `ProgressLedger` + `record_discovery_progress`) | called by `live_view.spec.ts`; standalone: `.venv/bin/python …/seed_live_view.py --live-view-url '…'` |
 | `helpers/live_view.spec.ts` | `@live-view` — the discovery live view: the URL reaches the `<iframe src>` UNCLIPPED, and the frame is **alive** rather than merely mounted | `npx --no-install playwright test --config … --grep '@live-view'` (run from `$REPO/e2e`) |
 | `helpers/name_search.sh` | the folded company-name-search feature: `cases.toml` validity + the dead-endpoint judge pins + re-judge a recorded paid run + the `@name-search` drive. **$0**; `--live` (~$0.27) `exec`s `e2e/run.sh` | `bash …/name_search.sh [--prove-it \| --live]` |

@@ -85,10 +85,14 @@ describe('VotingColumn', () => {
   });
 
   describe('loading branch', () => {
-    it('renders the LoadingState spinner when isLoading is true', () => {
+    it('renders feature-card skeletons (not a spinner) when isLoading is true', () => {
       mockQueryResult = { ...mockQueryResult, isLoading: true };
-      render(<VotingColumn />);
-      expect(screen.getByRole('progressbar')).toBeInTheDocument();
+      const { container } = render(<VotingColumn />);
+      const region = screen.getByRole('status', { name: 'Loading features…' });
+      expect(region).toBeInTheDocument();
+      expect(region.querySelectorAll('.MuiCard-root')).toHaveLength(3);
+      expect(container.querySelectorAll('.MuiSkeleton-root').length).toBeGreaterThan(0);
+      expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
       expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     });
   });

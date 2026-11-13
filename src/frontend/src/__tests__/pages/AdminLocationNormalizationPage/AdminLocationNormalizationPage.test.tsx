@@ -164,7 +164,7 @@ describe('AdminLocationNormalizationPage', () => {
     vi.clearAllMocks();
   });
 
-  it('renders a page-level spinner while both health and integrity are pending', () => {
+  it('renders a page-level skeleton while both health and integrity are pending', () => {
     // Never-resolving health + integrity keeps the page in the full-page
     // loading gate. (Other endpoints can resolve; the gate is on the two.)
     fetchMock.mockImplementation((input: unknown) => {
@@ -182,8 +182,56 @@ describe('AdminLocationNormalizationPage', () => {
 
     renderPage();
 
-    expect(screen.getByRole('progressbar')).toBeInTheDocument();
-    expect(screen.getByText(/loading location normalization data/i)).toBeInTheDocument();
+    expect(
+      screen.getByRole('status', { name: 'Loading location normalization data…' })
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+    expect(screen.getByText('Admin · Location Normalization')).toBeInTheDocument();
+    expect(screen.getByText('Problem jobs')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { level: 1 })).not.toBeInTheDocument();
+  });
+
+  it('shows the health skeleton and a pending verdict while only health is loading', async () => {
+    fetchMock.mockImplementation(
+      routedFetch({ health: () => new Promise<Response>(() => {}) })
+    );
+    renderPage();
+
+    await screen.findByRole('heading', { name: /admin · location normalization/i });
+    const health = screen.getByRole('status', { name: 'Loading health…' });
+    expect(health.querySelectorAll('.MuiPaper-outlined')).toHaveLength(4);
+    expect(screen.queryByRole('status', { name: 'Loading verdict…' })).not.toBeInTheDocument();
+    expect(screen.queryByText('VERDICT UNKNOWN')).not.toBeInTheDocument();
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+  });
+
+  it('shows the integrity table skeleton while only integrity is loading', async () => {
+    fetchMock.mockImplementation(
+      routedFetch({ integrity: () => new Promise<Response>(() => {}) })
+    );
+    renderPage();
+
+    await screen.findByRole('heading', { name: /admin · location normalization/i });
+    const integrity = screen.getByRole('status', { name: 'Loading integrity checks…' });
+    expect(within(integrity).getByRole('columnheader', { name: 'Invariant' })).toBeInTheDocument();
+  });
+
+  it('shows table skeletons for the alias browser and problem jobs on their first load', async () => {
+    fetchMock.mockImplementation(
+      routedFetch({
+        aliases: () => new Promise<Response>(() => {}),
+        problemJobs: () => new Promise<Response>(() => {}),
+      })
+    );
+    renderPage();
+
+    await screen.findByRole('heading', { name: /admin · location normalization/i });
+    const aliases = await screen.findByRole('status', { name: 'Loading aliases…' });
+    expect(within(aliases).getByRole('columnheader', { name: 'Raw text' })).toBeInTheDocument();
+    const problems = screen.getByRole('status', { name: 'Loading problem jobs…' });
+    expect(within(problems).getByRole('columnheader', { name: 'Location' })).toBeInTheDocument();
+    expect(within(problems).getByTestId('table-skeleton-pagination')).toBeInTheDocument();
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
   });
 
   it('renders all-error states with retries when health and integrity both fail', async () => {

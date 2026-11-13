@@ -1,6 +1,6 @@
 // verify-onesecondswe :: the worked proof drive (@drive)
 //
-// One fully-worked feature (Recent feed, company filter) + two Tier-3 side
+// One fully-worked feature (Recent feed, filtering) + two Tier-3 side
 // effects (anonymous submit_feedback, signed-in set_enabled_companies). It
 // imports `test`/`expect` from the SHARED e2e fixtures — `signedInPage` is a page
 // already carrying a JWKS-seam minted token, injected the app's own way. WebMCP
@@ -44,7 +44,7 @@ async function call<T = any>(page: Page, name: string, args: Record<string, unkn
   );
 }
 
-test('[@drive] Recent feed — company filter: Tier-1 meta anchor + Tier-2 DOM reflect', async ({
+test('[@drive] Recent feed — filtering: Tier-1 meta anchor + Tier-2 DOM reflect', async ({
   page,
 }) => {
   await page.goto('/');
@@ -80,13 +80,15 @@ test('[@drive] Recent feed — company filter: Tier-1 meta anchor + Tier-2 DOM r
   for (const job of search.jobs) {
     expect(job.company, 'every returned job must be Apple after a company filter').toBe('apple');
   }
-  writeEvidence('recent-company-filter.meta.json', JSON.stringify(search.meta, null, 2));
+  writeEvidence('recent-feed-filter.meta.json', JSON.stringify(search.meta, null, 2));
 
   // Tier-2: arrange the live page. The DOM must reflect it.
-  const applied = await call<{ applied: { company: string[] } }>(page, 'apply_feed_filters', {
-    company: ['apple'],
-  });
-  expect(applied.applied.company).toContain('apple');
+  const applied = await call<{ applied: { searchTags?: { text: string; mode: string }[] } }>(
+    page,
+    'apply_feed_filters',
+    { include: ['apple'] },
+  );
+  expect(applied.applied.searchTags).toContainEqual({ text: 'apple', mode: 'include' });
 
   // DOM assert — NOT a row-count equality (the list is virtualized / capped, so it
   // never mounts all N rows). Assert the per-card invariant instead: Apple cards
@@ -104,8 +106,8 @@ test('[@drive] Recent feed — company filter: Tier-1 meta anchor + Tier-2 DOM r
   // Evidence: ARIA snapshot of the page's main region + a screenshot.
   const main = page.locator('main, [role="main"]').first();
   const region = (await main.count()) ? main : page.locator('body');
-  writeEvidence('recent-company-filter.aria.txt', await region.ariaSnapshot());
-  await page.screenshot({ path: path.join(ARTIFACTS, 'recent-company-filter.png'), fullPage: false });
+  writeEvidence('recent-feed-filter.aria.txt', await region.ariaSnapshot());
+  await page.screenshot({ path: path.join(ARTIFACTS, 'recent-feed-filter.png'), fullPage: false });
 });
 
 test('[@drive] submit_feedback (anonymous) returns submitted:true', async ({ page }) => {

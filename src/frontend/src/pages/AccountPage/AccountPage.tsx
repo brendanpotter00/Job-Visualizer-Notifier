@@ -9,16 +9,49 @@ import Avatar from '@mui/material/Avatar';
 import Alert from '@mui/material/Alert';
 import Switch from '@mui/material/Switch';
 import FormControlLabel from '@mui/material/FormControlLabel';
+import Skeleton from '@mui/material/Skeleton';
 import { useAppDispatch, useAppSelector } from '../../app/hooks';
 import { setHideAdminFeatures, setDemoModeEnabled } from '../../features/ui/uiSlice';
 import { useAuth } from '../../features/auth/useAuth';
 import { useCurrentUser } from '../../features/auth/useCurrentUser';
 import { updateCurrentUser } from '../../features/auth/authService';
-import { LoadingState } from '../../components/shared/LoadingIndicator';
+import { SkeletonRegion, SKELETON_CONTROL_HEIGHT } from '../../components/shared/Skeletons';
 import { ErrorState } from '../../components/shared/ErrorDisplay';
 import { extractErrorMessage } from '../../lib/errors';
 import { trackSignInClick } from '../../features/analytics/events';
 import { RESPONSIVE } from '../../config/responsive';
+
+const AVATAR_SIZE = 80;
+
+function AccountPageSkeleton() {
+  return (
+    <Container maxWidth="sm" sx={{ py: RESPONSIVE.spacing.pageMarginY }}>
+      <Typography variant="h4" component="div" gutterBottom>
+        Account
+      </Typography>
+      <SkeletonRegion label="Loading your account…">
+        <Paper sx={{ p: RESPONSIVE.spacing.paperPaddingLg }}>
+          <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', mb: 3 }}>
+            <Skeleton variant="circular" width={AVATAR_SIZE} height={AVATAR_SIZE} sx={{ mb: 2 }} />
+            <Typography variant="body2" component="div" sx={{ width: '50%' }}>
+              <Skeleton />
+            </Typography>
+          </Box>
+          <Box sx={{ mb: 2 }}>
+            <Typography variant="caption" component="div">
+              <Skeleton width={48} />
+            </Typography>
+            <Typography variant="body1" component="div">
+              <Skeleton width="40%" />
+            </Typography>
+          </Box>
+          <Skeleton variant="rounded" height={SKELETON_CONTROL_HEIGHT} sx={{ mb: 3 }} />
+          <Skeleton variant="rounded" height={SKELETON_CONTROL_HEIGHT} />
+        </Paper>
+      </SkeletonRegion>
+    </Container>
+  );
+}
 
 export function AccountPage() {
   const { isAuthenticated, isLoading: authLoading, login, getToken } = useAuth();
@@ -56,7 +89,7 @@ export function AccountPage() {
   };
 
   if (authLoading) {
-    return <LoadingState fullPage />;
+    return <AccountPageSkeleton />;
   }
 
   if (!isAuthenticated) {
@@ -84,7 +117,7 @@ export function AccountPage() {
   }
 
   if (loading) {
-    return <LoadingState fullPage />;
+    return <AccountPageSkeleton />;
   }
 
   if (error) {
@@ -95,12 +128,12 @@ export function AccountPage() {
     );
   }
 
-  if (!user) return null;
+  if (!user) return <AccountPageSkeleton />;
 
   const isDirty = displayName !== (user.displayName ?? '');
   const fullName = [user.givenName, user.familyName].filter(Boolean).join(' ');
   const initials = [user.givenName?.[0], user.familyName?.[0]].filter(Boolean).join('');
-  const avatarSize = { width: 80, height: 80, mb: 2 };
+  const avatarSize = { width: AVATAR_SIZE, height: AVATAR_SIZE, mb: 2 };
 
   return (
     <Container maxWidth="sm" sx={{ py: RESPONSIVE.spacing.pageMarginY }}>

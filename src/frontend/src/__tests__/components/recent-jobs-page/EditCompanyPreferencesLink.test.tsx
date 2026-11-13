@@ -134,7 +134,7 @@ describe('EditCompanyPreferencesLink', () => {
       renderWithRouter();
 
       expect(getCaption('sign-in-to-edit-preferences-link')).toHaveTextContent(
-        'Sign in to customize this feed to the companies you care about'
+        'Sign in to customize this feed'
       );
       expect(screen.getByTestId('sign-in-to-edit-preferences-link')).toHaveTextContent('Sign in');
     });

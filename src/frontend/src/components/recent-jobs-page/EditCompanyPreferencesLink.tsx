@@ -33,7 +33,7 @@ export function EditCompanyPreferencesLink() {
         >
           Sign in
         </Link>{' '}
-        to customize this feed to the companies you care about
+        to customize this feed
       </Typography>
     );
   }

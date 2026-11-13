@@ -140,13 +140,15 @@ async function submitUrl(url = 'https://intel.com/careers') {
 }
 
 describe('MyCompaniesPage', () => {
-  it('shows a spinner while auth is still resolving', () => {
+  it('shows the page skeleton while auth is still resolving', () => {
     // Without this branch the page would flash the signed-out prompt at an
     // already-signed-in user on every load.
     mockAuthState.isLoading = true;
     renderWithProviders(<MyCompaniesPage />);
 
-    expect(screen.getByRole('progressbar')).toBeInTheDocument();
+    expect(screen.getByRole('status', { name: 'Loading Add Companies…' })).toBeInTheDocument();
+    expect(screen.getByTestId('my-companies-list-skeleton')).toBeInTheDocument();
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /sign in/i })).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/careers page link/i)).not.toBeInTheDocument();
   });

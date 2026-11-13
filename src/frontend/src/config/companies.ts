@@ -1923,7 +1923,3 @@ export function getCompanyWordmarkUrl(id: string): string {
   return `/logos/wordmarks/${encodeURIComponent(id)}.png`;
 }
 
-/**
- * Coming soon companies for custom scrapers section
- */
-export const COMING_SOON_SCRAPERS: readonly { name: string; jobsUrl: string }[] = [];

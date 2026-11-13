@@ -20,7 +20,8 @@ import {
   type EnrichmentRecentRow,
 } from '../../../features/admin/adminApi';
 import { FACET_LABELS } from '../../../constants/enrichment';
-import { LoadingState } from '../../../components/shared/LoadingIndicator';
+import { SkeletonRegion } from '../../../components/shared/Skeletons';
+import { RecentEnrichmentsTableSkeleton } from './EnrichmentSkeletons';
 import { ErrorState } from '../../../components/shared/ErrorDisplay';
 import { extractErrorMessage } from '../../../lib/errors';
 import { TABLE_SCROLL_SX } from '../../../config/responsive';
@@ -53,7 +54,11 @@ export function RecentEnrichmentsTable() {
     );
   }
   if (isLoading || !rows) {
-    return <LoadingState minHeight={120} caption="Loading recent enrichments…" />;
+    return (
+      <SkeletonRegion label="Loading recent enrichments…">
+        <RecentEnrichmentsTableSkeleton />
+      </SkeletonRegion>
+    );
   }
   if (rows.length === 0) {
     return (

@@ -7,12 +7,14 @@ import Button from '@mui/material/Button';
 import Container from '@mui/material/Container';
 import Link from '@mui/material/Link';
 import Paper from '@mui/material/Paper';
+import Skeleton from '@mui/material/Skeleton';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 import { RESPONSIVE } from '../../config/responsive';
 import { ROUTES } from '../../config/routes';
 import { useAuth } from '../../features/auth/useAuth';
-import { LoadingState } from '../../components/shared/LoadingIndicator';
+import { ChartSkeleton, JobListSkeleton } from '../../components/shared/LoadingIndicator';
+import { SkeletonRegion, SKELETON_CONTROL_HEIGHT } from '../../components/shared/Skeletons';
 import { EmptyState, ErrorState } from '../../components/shared/ErrorDisplay';
 import { TimeWindowSelect } from '../../components/shared/filters/TimeWindowSelect';
 import { JobPostingsChart } from '../../components/companies-page/JobPostingsChart/JobPostingsChart';
@@ -55,6 +57,48 @@ function countSeedJobs(jobs: Job[]): number {
   const earliest = Math.min(...jobs.map((job) => new Date(job.firstSeenAt).getTime()));
   return jobs.filter((job) => new Date(job.firstSeenAt).getTime() <= earliest + SEED_WINDOW_MS)
     .length;
+}
+
+function TrendBodySkeleton() {
+  return (
+    <Stack spacing={3}>
+      <Paper sx={{ p: RESPONSIVE.spacing.paperPaddingLg }}>
+        <ChartSkeleton />
+      </Paper>
+      <JobListSkeleton count={3} />
+    </Stack>
+  );
+}
+
+function MyCompanyTrendPageSkeleton() {
+  return (
+    <Container maxWidth="lg" sx={{ py: RESPONSIVE.spacing.pageMarginY }}>
+      <SkeletonRegion label="Loading this company's jobs…">
+        <Stack spacing={3}>
+          <Typography variant="body2" component="div">
+            <Skeleton width={160} />
+          </Typography>
+          <Stack
+            direction={{ xs: 'column', sm: 'row' }}
+            spacing={2}
+            justifyContent="space-between"
+            alignItems={{ xs: 'flex-start', sm: 'center' }}
+          >
+            <Box sx={{ minWidth: 0, flex: 1, width: '100%' }}>
+              <Typography variant="h4" component="div">
+                <Skeleton width="50%" />
+              </Typography>
+              <Typography variant="body2" component="div" sx={{ mt: 0.5 }}>
+                <Skeleton width={180} />
+              </Typography>
+            </Box>
+            <Skeleton variant="rounded" width={200} height={SKELETON_CONTROL_HEIGHT} />
+          </Stack>
+          <TrendBodySkeleton />
+        </Stack>
+      </SkeletonRegion>
+    </Container>
+  );
 }
 
 /** Reads the `:id` param and treats a 403 (owner-scoped) as its own state. */
@@ -116,7 +160,7 @@ export function MyCompanyTrendPage() {
   const seedCount = useMemo(() => countSeedJobs(jobs ?? []), [jobs]);
 
   if (authLoading) {
-    return <LoadingState fullPage />;
+    return <MyCompanyTrendPageSkeleton />;
   }
 
   if (!isAuthenticated) {
@@ -199,7 +243,9 @@ export function MyCompanyTrendPage() {
             message={extractErrorMessage(error, "We couldn't load this company's jobs.")}
           />
         ) : isLoading ? (
-          <LoadingState minHeight={400} caption="Loading this company's jobs…" />
+          <SkeletonRegion label="Loading this company's jobs…">
+            <TrendBodySkeleton />
+          </SkeletonRegion>
         ) : sortedJobs.length === 0 ? (
           <EmptyState
             title="Tracking started — no history yet"

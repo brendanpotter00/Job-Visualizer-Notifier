@@ -1,5 +1,4 @@
 import { Box, Stack, Button } from '@mui/material';
-import { useMemo, useCallback } from 'react';
 import { RESPONSIVE } from '../../config/responsive';
 import { useAppDispatch, useAppSelector } from '../../app/hooks.ts';
 import {
@@ -11,16 +10,11 @@ import {
   toggleRecentJobsSearchTagMode,
   setRecentJobsSearchTags,
   resetRecentJobsFilters,
-  addRecentJobsCompany,
-  removeRecentJobsCompany,
   setRecentJobsCategory,
   setRecentJobsLevel,
   setRecentJobsSubcategory,
 } from '../../features/filters/slices/recentJobsFiltersSlice.ts';
-import {
-  selectRecentJobsFilters,
-  selectRecentCompanyOptions,
-} from '../../features/filters/selectors/recentJobsSelectors.ts';
+import { selectRecentJobsFilters } from '../../features/filters/selectors/recentJobsSelectors.ts';
 import { useGetFacetsQuery } from '../../features/jobs/jobsApi.ts';
 import { FALLBACK_CATEGORIES, FALLBACK_LEVELS } from '../../constants/enrichment.ts';
 import { useSubcategoryRevealEnabled } from '../../features/settings/subcategoryReveal.tsx';
@@ -29,14 +23,13 @@ import { FacetMultiSelect } from '../shared/filters/FacetMultiSelect.tsx';
 import { FacetTreeMultiSelect } from '../shared/filters/FacetTreeMultiSelect.tsx';
 import { KeywordFilterInput } from '../shared/filters/KeywordFilterInput.tsx';
 import { TimeWindowSelect } from '../shared/filters/TimeWindowSelect.tsx';
-import { MultiSelectAutocomplete } from '../shared/filters/MultiSelectAutocomplete.tsx';
 import { AsyncMultiSelectAutocomplete } from '../shared/filters/AsyncMultiSelectAutocomplete.tsx';
 
 /**
  * Filter controls for Recent Job Postings page.
  *
  * What is actually rendered: keywords (free text + saved keyword lists), time
- * window, job category, level, location, company, and Reset. The slice
+ * window, job category, level, location, and Reset. The slice
  * also generates `toggle/setRecentJobsSoftwareOnly`, but
  * NOTHING dispatches them — there is no software-only control on this page; the
  * built-in "Software Engineering" keyword list in the keywords input is how a
@@ -45,7 +38,6 @@ import { AsyncMultiSelectAutocomplete } from '../shared/filters/AsyncMultiSelect
 export function RecentJobsFilters() {
   const dispatch = useAppDispatch();
   const filters = useAppSelector(selectRecentJobsFilters);
-  const availableCompanies = useAppSelector(selectRecentCompanyOptions);
   // Facet dropdown options are data-driven (seeded dimension tables); the
   // fallback constants cover the pre-fetch frame and an endpoint outage.
   const { data: facets } = useGetFacetsQuery();
@@ -58,49 +50,6 @@ export function RecentJobsFilters() {
   // cache plus a freshly flipped flag cannot produce a parent row that expands
   // into nothing.
   const subcategoryOptions = revealSubcategories ? (facets?.subcategories ?? []) : [];
-
-  /**
-   * Memoized company options for dropdown
-   * Avoids recreating array on every render
-   */
-  const companyOptions = useMemo(() => availableCompanies.map((c) => c.name), [availableCompanies]);
-
-  /**
-   * Memoized selected company names
-   * Converts company IDs to names for display
-   */
-  const selectedCompanyNames = useMemo(
-    () =>
-      (filters.company || []).map((id) => {
-        const company = availableCompanies.find((c) => c.id === id);
-        return company?.name || id;
-      }),
-    [filters.company, availableCompanies]
-  );
-
-  /**
-   * Memoized handler for adding company filter
-   * Avoids recreating function on every render
-   */
-  const handleAddCompany = useCallback(
-    (name: string) => {
-      const company = availableCompanies.find((c) => c.name === name);
-      if (company) dispatch(addRecentJobsCompany(company.id));
-    },
-    [availableCompanies, dispatch]
-  );
-
-  /**
-   * Memoized handler for removing company filter
-   * Avoids recreating function on every render
-   */
-  const handleRemoveCompany = useCallback(
-    (name: string) => {
-      const company = availableCompanies.find((c) => c.name === name);
-      if (company) dispatch(removeRecentJobsCompany(company.id));
-    },
-    [availableCompanies, dispatch]
-  );
 
   return (
     <Box sx={{ mb: RESPONSIVE.spacing.sectionMarginB }}>
@@ -173,14 +122,6 @@ export function RecentJobsFilters() {
             value={filters.location || []}
             onAdd={(loc) => dispatch(addRecentJobsLocation(loc))}
             onRemove={(loc) => dispatch(removeRecentJobsLocation(loc))}
-          />
-
-          <MultiSelectAutocomplete
-            label="Company"
-            options={companyOptions}
-            value={selectedCompanyNames}
-            onAdd={handleAddCompany}
-            onRemove={handleRemoveCompany}
           />
         </Stack>
 

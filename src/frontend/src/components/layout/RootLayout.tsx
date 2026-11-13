@@ -67,16 +67,10 @@ export function RootLayout() {
 
   return (
     <Box sx={{ display: 'flex', minHeight: '100vh', flexDirection: 'column' }}>
-      <GlobalAppBar
-        open={drawerOpen}
-        onDrawerToggle={handleDrawerToggle}
-        drawerWidth={DRAWER_WIDTH}
-        isMobile={isMobile}
-      />
+      <GlobalAppBar open={drawerOpen} onDrawerToggle={handleDrawerToggle} />
       <NavigationDrawer
         open={drawerOpen}
         onClose={handleDrawerClose}
-        onToggleCollapse={handleDrawerToggle}
         drawerWidth={DRAWER_WIDTH}
         isMobile={isMobile}
       />

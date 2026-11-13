@@ -109,10 +109,14 @@ describe('AccountPage', () => {
   });
 
   describe('when auth is loading', () => {
-    it('shows loading spinner', () => {
+    it('shows the account skeleton (not a spinner)', () => {
       mockAuthState.isLoading = true;
       renderPage();
-      expect(screen.getByRole('progressbar')).toBeInTheDocument();
+      expect(screen.getByRole('status', { name: 'Loading your account…' })).toBeInTheDocument();
+      expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+      expect(screen.getByText('Account')).toBeInTheDocument();
+      expect(screen.queryByRole('heading', { level: 1 })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /save changes/i })).not.toBeInTheDocument();
     });
   });
 

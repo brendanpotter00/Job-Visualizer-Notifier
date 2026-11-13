@@ -135,7 +135,6 @@ function makeSearch(overrides: Partial<RecentJobsSearch> = {}): RecentJobsSearch
     errorScope: null,
     isAwaitingDeploy: false,
     retry: vi.fn(),
-    isSkippedEmpty: false,
     displayedJobs: [],
     resultTotal: { kind: 'unknown' },
     ...overrides,
@@ -326,17 +325,6 @@ describe('RecentJobsList', () => {
       renderList({ jobs: [], error: 'Failed to load job postings. Please try again later.' });
 
       expect(screen.queryByText(EMPTY_TITLE)).not.toBeInTheDocument();
-    });
-
-    it('renders with no request at all when the filter set provably matches nothing', () => {
-      // `isSkippedEmpty` is the one terminal case reached without asking the
-      // server anything: the company filter and the user's enabled companies are
-      // disjoint. Terminal, so the empty state is honest — and no fetch may fire.
-      const { container, search } = renderList({ jobs: [], isSkippedEmpty: true });
-
-      expect(screen.getByText(EMPTY_TITLE)).toBeInTheDocument();
-      expect(container.querySelector(SENTINEL_SELECTOR)).not.toBeInTheDocument();
-      expect(search.fetchNextPage).not.toHaveBeenCalled();
     });
 
     it('renders once a walk that started with pages outstanding runs dry', () => {

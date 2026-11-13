@@ -5,11 +5,19 @@ import {
   useListAdminFeedbackQuery,
   type AdminFeedbackListResponse,
 } from '../../features/admin/adminApi';
-import { LoadingState } from '../../components/shared/LoadingIndicator';
+import {
+  PageHeaderSkeleton,
+  SkeletonRegion,
+  TableSkeleton,
+} from '../../components/shared/Skeletons';
 import { ErrorState } from '../../components/shared/ErrorDisplay';
 import { extractErrorMessage } from '../../lib/errors';
 import { FeedbackTable } from './components/FeedbackTable';
 import { RESPONSIVE } from '../../config/responsive';
+
+const FEEDBACK_COLUMNS = ['From', 'Message', 'Submitted'] as const;
+
+const SKELETON_ROWS = 6;
 
 export function AdminFeedbackPage() {
   // Pagination/sort state lives here because it drives the server query — each
@@ -36,7 +44,19 @@ export function AdminFeedbackPage() {
   const total = data?.total ?? 0;
 
   if (query.isLoading && !lastData) {
-    return <LoadingState fullPage caption="Loading feedback…" />;
+    return (
+      <Container maxWidth="lg" sx={{ py: RESPONSIVE.spacing.pageMarginY }}>
+        <SkeletonRegion label="Loading feedback…">
+          <PageHeaderSkeleton title="Admin · User Feedback" />
+          <TableSkeleton
+            columns={FEEDBACK_COLUMNS}
+            rows={SKELETON_ROWS}
+            pagination
+            mobileVariant="list"
+          />
+        </SkeletonRegion>
+      </Container>
+    );
   }
 
   if (query.error && !lastData) {

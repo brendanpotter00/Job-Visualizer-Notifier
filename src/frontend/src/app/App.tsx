@@ -22,7 +22,7 @@ import { AdminLocationPipelinePage } from '../pages/AdminLocationPipelinePage/Ad
 import { AdminCustomCompaniesPage } from '../pages/AdminCustomCompaniesPage/AdminCustomCompaniesPage.tsx';
 import { AdminFeedbackPage } from '../pages/AdminFeedbackPage/AdminFeedbackPage.tsx';
 import { lazy, Suspense } from 'react';
-import { LoadingState } from '../components/shared/LoadingIndicator';
+import { PageSkeleton } from '../components/shared/Skeletons';
 
 /**
  * Lazy at the ROUTE, not just the 3D scene: the landing page's copy config and
@@ -213,7 +213,7 @@ function AppContent() {
         <Route
           path={ROUTES.LANDING}
           element={
-            <Suspense fallback={<LoadingState fullPage />}>
+            <Suspense fallback={<PageSkeleton fullPage />}>
               <LandingPage />
             </Suspense>
           }
@@ -247,7 +247,7 @@ function AppContent() {
  * Routes:
  * - / - Recent job postings page (all jobs across companies)
  * - /companies - Companies page (job analytics for selected company)
- * - /why - Why This Was Built page (about and supported companies)
+ * - /why - Why This Was Built page (about)
  * - /qa - QA page (scraper triggers, run history, debugging)
  * - /account - Account page (user profile management)
  * - /vote-features - Vote for features page (changelog + feature voting)

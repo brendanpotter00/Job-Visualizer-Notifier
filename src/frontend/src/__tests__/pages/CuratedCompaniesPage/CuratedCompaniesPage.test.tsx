@@ -41,6 +41,15 @@ describe('CuratedCompaniesPage', () => {
     expect(screen.getByText('Loading companies…')).toBeInTheDocument();
   });
 
+  it('shapes the loading state like the grid: search field + a bounded set of company cards', () => {
+    mockResult = { data: undefined, isLoading: true, isError: false, error: undefined, refetch: vi.fn() };
+    renderPage();
+    const region = screen.getByRole('status', { name: 'Loading companies…' });
+    expect(region.querySelectorAll('.MuiCard-root')).toHaveLength(6);
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Search companies')).not.toBeInTheDocument();
+  });
+
   it('shows an error state with a retry affordance', () => {
     mockResult = {
       data: undefined,

@@ -31,25 +31,6 @@ export type FilterSliceName = 'graph' | 'list' | 'recentJobs';
 export type Filters = GraphFilters | ListFilters | RecentJobsFilters;
 
 /**
- * Subset of `Filters` that owns a `company?: string[]` field.
- * Matches `RecentJobsFilters`; excludes the graph/list variants.
- */
-type FiltersWithCompany = RecentJobsFilters;
-
-/**
- * Slice-name-based guard: narrows a `Filters` (or draft thereof) to a
- * variant that carries a `company` field. Only `recentJobs` slices own
- * `company`; `graph` and `list` do not. Used by the recent-jobs reducers.
- */
-function hasCompanyField<T extends Filters>(
-  name: FilterSliceName,
-  filters: T
-): filters is T & FiltersWithCompany {
-  void filters;
-  return name === 'recentJobs';
-}
-
-/**
  * Filter state structure.
  *
  * `hydrated` guards the one-time hydration from saved filters (see the
@@ -160,9 +141,8 @@ export function createFilterSlice<T extends Filters>(name: FilterSliceName, init
 
       // Enrichment facets (3 actions). Multi-select slug arrays; an empty
       // selection normalizes to `undefined` (the "All" state), mirroring how
-      // `remove${Name}Company` collapses an emptied array. Every filter shape
-      // owns all three fields, so no slice-name guard is needed (unlike
-      // `company`).
+      // `remove${Name}Location` collapses an emptied array. Every filter shape
+      // owns all three fields, so no slice-name guard is needed.
       //
       // `subcategory` only ever carries children of `software_engineering`, but
       // the reducer is deliberately TAXONOMY-AGNOSTIC: validation belongs to
@@ -186,38 +166,6 @@ export function createFilterSlice<T extends Filters>(name: FilterSliceName, init
         action: PayloadAction<string[] | undefined>
       ) => {
         state.filters.subcategory = action.payload?.length ? action.payload : undefined;
-      },
-
-      // Company (4 actions)
-      [`set${capitalizedName}Company`]: (state, action: PayloadAction<string[] | undefined>) => {
-        if (hasCompanyField(name, state.filters)) {
-          state.filters.company = action.payload;
-        }
-      },
-      [`add${capitalizedName}Company`]: (state, action: PayloadAction<string>) => {
-        if (!hasCompanyField(name, state.filters)) return;
-        const filters = state.filters;
-        if (!filters.company) {
-          filters.company = [];
-        }
-        if (!filters.company.includes(action.payload)) {
-          filters.company.push(action.payload);
-        }
-      },
-      [`remove${capitalizedName}Company`]: (state, action: PayloadAction<string>) => {
-        if (!hasCompanyField(name, state.filters)) return;
-        const filters = state.filters;
-        if (filters.company) {
-          filters.company = filters.company.filter((c) => c !== action.payload);
-          if (filters.company.length === 0) {
-            filters.company = undefined;
-          }
-        }
-      },
-      [`clear${capitalizedName}Companies`]: (state) => {
-        if (hasCompanyField(name, state.filters)) {
-          state.filters.company = undefined;
-        }
       },
 
       // Software only (2 actions) - manages search tags instead of boolean flag

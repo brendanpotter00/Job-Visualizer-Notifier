@@ -8,7 +8,15 @@ import Tabs from '@mui/material/Tabs';
 import Typography from '@mui/material/Typography';
 import { useGetAdminUsersStatsQuery, useListAdminUsersQuery } from '../../features/admin/adminApi';
 import { RESPONSIVE } from '../../config/responsive';
-import { LoadingState } from '../../components/shared/LoadingIndicator';
+import { ChartSkeleton } from '../../components/shared/LoadingIndicator';
+import {
+  PageHeaderSkeleton,
+  SectionSkeleton,
+  SkeletonRegion,
+  StatTilesSkeleton,
+  TableSkeleton,
+  TextSkeleton,
+} from '../../components/shared/Skeletons';
 import { ErrorState } from '../../components/shared/ErrorDisplay';
 import { extractErrorMessage } from '../../lib/errors';
 import { StatTile } from './components/StatTile';
@@ -18,6 +26,39 @@ import { SignupsPerDayChart } from './components/SignupsPerDayChart';
 import { UserRosterTable } from './components/UserRosterTable';
 
 type SignupChartTab = 'over-time' | 'per-day';
+
+const ROSTER_COLUMNS = ['Email', 'Name', 'Joined', 'Visits', 'Last active', 'Provider', 'Admin', ''] as const;
+
+const SIGNUP_CHART_HEIGHT = {
+  xs: RESPONSIVE.adminChart.height.compact,
+  sm: RESPONSIVE.adminChart.height.default,
+} as const;
+
+function StatsSlotSkeleton() {
+  return (
+    <>
+      <StatTilesSkeleton count={1} size={{ xs: 12 }} sx={{ mb: 3 }} />
+      <SectionSkeleton title="Signups">
+        <ChartSkeleton height={SIGNUP_CHART_HEIGHT} />
+      </SectionSkeleton>
+      <SectionSkeleton title="Signup providers">
+        <TextSkeleton lines={3} lastLineWidth="40%" />
+      </SectionSkeleton>
+    </>
+  );
+}
+
+function RosterSlotSkeleton() {
+  return (
+    <TableSkeleton
+      columns={ROSTER_COLUMNS}
+      rows={6}
+      title="User roster"
+      toolbarControls={1}
+      pagination
+    />
+  );
+}
 
 export function AdminUsersPage() {
   const usersQuery = useListAdminUsersQuery();
@@ -35,19 +76,27 @@ export function AdminUsersPage() {
   const statsError = statsQuery.error;
 
   // Per-slot loading semantics (audit pass-3 "Important" finding):
-  //   - Page-level full spinner: only when BOTH queries are still loading
+  //   - Page-level skeleton: only when BOTH queries are still loading
   //     AND neither has any data yet AND neither has errored. As soon as
   //     either side resolves or errors, we render the partial page so the
   //     loading slot doesn't mask the other slot's progress.
-  //   - Each slot independently spins iff its own query is still loading
-  //     and has no data yet. If a slot errors, it renders an inline error;
-  //     if it has data, it renders normally.
+  //   - Each slot independently shows its skeleton iff its own query is
+  //     still loading and has no data yet. If a slot errors, it renders an
+  //     inline error; if it has data, it renders normally.
   const usersSlotLoading = usersQuery.isLoading && users.length === 0;
   const statsSlotLoading = statsQuery.isLoading && !stats;
   const pageLevelLoading = usersSlotLoading && statsSlotLoading && !usersError && !statsError;
 
   if (pageLevelLoading) {
-    return <LoadingState fullPage caption="Loading admin data…" />;
+    return (
+      <Container maxWidth="xl" sx={{ py: RESPONSIVE.spacing.pageMarginY }}>
+        <SkeletonRegion label="Loading admin data…">
+          <PageHeaderSkeleton title="Admin · Users" />
+          <StatsSlotSkeleton />
+          <RosterSlotSkeleton />
+        </SkeletonRegion>
+      </Container>
+    );
   }
 
   // Only fall back to the full-page error state when BOTH queries fail.
@@ -103,9 +152,11 @@ export function AdminUsersPage() {
         />
       ) : statsSlotLoading ? (
         // Stats query still pending while the roster has resolved — show
-        // the stats-slot spinner so the admin sees explicit progress on
+        // the stats-slot placeholder so the admin sees explicit progress on
         // the half that hasn't loaded yet.
-        <LoadingState minHeight={120} caption="Loading stats…" />
+        <SkeletonRegion label="Loading stats…">
+          <StatsSlotSkeleton />
+        </SkeletonRegion>
       ) : (
         <>
           <Grid container spacing={2} sx={{ mb: 3 }}>
@@ -167,8 +218,10 @@ export function AdminUsersPage() {
         />
       ) : usersSlotLoading ? (
         // Roster query still pending while stats has resolved (or
-        // errored) — show the roster-slot spinner.
-        <LoadingState minHeight={240} caption="Loading user roster…" />
+        // errored) — show the roster-slot placeholder.
+        <SkeletonRegion label="Loading user roster…">
+          <RosterSlotSkeleton />
+        </SkeletonRegion>
       ) : (
         <UserRosterTable users={users} />
       )}

@@ -13,7 +13,11 @@ import {
   type AliasRow,
 } from '../../features/admin/adminApi';
 import { useAppDispatch } from '../../app/hooks';
-import { LoadingState } from '../../components/shared/LoadingIndicator';
+import {
+  PageHeaderSkeleton,
+  SkeletonRegion,
+  StatusBannerSkeleton,
+} from '../../components/shared/Skeletons';
 import { ErrorState } from '../../components/shared/ErrorDisplay';
 import { extractErrorMessage } from '../../lib/errors';
 import { RESPONSIVE } from '../../config/responsive';
@@ -23,6 +27,15 @@ import { IntegrityTable } from './components/IntegrityTable';
 import { AliasBrowser } from './components/AliasBrowser';
 import { AliasEditDialog } from './components/AliasEditDialog';
 import { ProblemJobsTable } from './components/ProblemJobsTable';
+import {
+  HealthOverviewSkeleton,
+  IntegrityTableSkeleton,
+  LocationPageBodySkeleton,
+} from './components/LocationSkeletons';
+
+const PAGE_TITLE = 'Admin · Location Normalization';
+const PAGE_SUBTITLE =
+  'Health, integrity invariants, and the alias cache for location normalization.';
 
 export function AdminLocationNormalizationPage() {
   const dispatch = useAppDispatch();
@@ -38,8 +51,8 @@ export function AdminLocationNormalizationPage() {
   const healthError = healthQuery.error;
   const integrityError = integrityQuery.error;
 
-  // Per-slot loading semantics (cloned from AdminUsersPage): the full-page
-  // spinner shows only when BOTH the health and integrity reads are still
+  // Per-slot loading semantics (cloned from AdminUsersPage): the whole-page
+  // placeholder shows only when BOTH the health and integrity reads are still
   // loading with no data and no error. As soon as either resolves or errors,
   // render the partial page so each section can show its own state.
   const healthSlotLoading = healthQuery.isLoading && !health;
@@ -62,7 +75,14 @@ export function AdminLocationNormalizationPage() {
   };
 
   if (pageLevelLoading) {
-    return <LoadingState fullPage caption="Loading location normalization data…" />;
+    return (
+      <Container maxWidth="xl" sx={{ py: RESPONSIVE.spacing.pageMarginY }}>
+        <SkeletonRegion label="Loading location normalization data…">
+          <PageHeaderSkeleton title={PAGE_TITLE} subtitle={PAGE_SUBTITLE} actions={1} />
+          <LocationPageBodySkeleton />
+        </SkeletonRegion>
+      </Container>
+    );
   }
 
   // The verdict is the focal element. It is derived ONLY from a trusted
@@ -85,10 +105,10 @@ export function AdminLocationNormalizationPage() {
       >
         <Box>
           <Typography variant="h4" component="h1" gutterBottom>
-            Admin · Location Normalization
+            {PAGE_TITLE}
           </Typography>
           <Typography variant="body2" color="text.secondary">
-            Health, integrity invariants, and the alias cache for location normalization.
+            {PAGE_SUBTITLE}
           </Typography>
         </Box>
         <Button variant="outlined" startIcon={<RefreshIcon />} onClick={handleRefresh}>
@@ -127,6 +147,8 @@ export function AdminLocationNormalizationPage() {
             </Typography>
           )}
         </Paper>
+      ) : (healthSlotLoading || integritySlotLoading) && !healthError && !integrityError ? (
+        <StatusBannerSkeleton />
       ) : (
         <Paper
           variant="outlined"
@@ -161,7 +183,9 @@ export function AdminLocationNormalizationPage() {
             onRetry={() => healthQuery.refetch()}
           />
         ) : healthSlotLoading ? (
-          <LoadingState minHeight={160} caption="Loading health…" />
+          <SkeletonRegion label="Loading health…">
+            <HealthOverviewSkeleton />
+          </SkeletonRegion>
         ) : health ? (
           <HealthOverview health={health} />
         ) : null}
@@ -182,7 +206,9 @@ export function AdminLocationNormalizationPage() {
             onRetry={() => integrityQuery.refetch()}
           />
         ) : integritySlotLoading ? (
-          <LoadingState minHeight={160} caption="Loading integrity checks…" />
+          <SkeletonRegion label="Loading integrity checks…">
+            <IntegrityTableSkeleton />
+          </SkeletonRegion>
         ) : integrity ? (
           <IntegrityTable checks={integrity} />
         ) : null}

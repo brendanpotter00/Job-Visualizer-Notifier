@@ -39,8 +39,8 @@ Sidebar (INFO group) "Curated Companies", route `/curated-companies`. Public.
 
 - **`list_companies` filters over `id` OR `displayName`**, case-insensitive substring — the
   same predicate the page's SearchBar uses, so their results should agree.
-- **This is the resolver of record for company names.** `search_jobs` / `apply_feed_filters`
-  / `get_company_hiring_trend` accept a display name and resolve it via the compile-time
+- **This is the resolver of record for company names.** `search_jobs` /
+  `get_company_hiring_trend` accept a display name and resolve it via the compile-time
   `COMPANIES` list; when a name is ambiguous or you want the exact id, read it here first.
 - **User-added (`u-…`) boards are not in this directory** — it is the curated/public set
   only. A `u-…` id resolves nowhere here; that's expected.
