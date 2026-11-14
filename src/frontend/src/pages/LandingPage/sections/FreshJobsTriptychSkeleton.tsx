@@ -14,7 +14,7 @@ export function FreshJobsTriptychSkeleton({ content }: { content: LandingContent
         <SectionIntro heading={content.heading} headingId={FRESH_JOBS_HEADING_ID} as="p" />
         <Grid container spacing={{ xs: 2, sm: 3 }}>
           {TRIPTYCH_SLOT_IDS.map((id) => (
-            <Grid key={id} size={{ xs: 12, sm: 4 }} data-testid="fresh-jobs-skeleton-slot">
+            <Grid key={id} size={{ xs: 12, md: 4 }} data-testid="fresh-jobs-skeleton-slot">
               <Typography variant="overline" component="div" sx={{ display: 'block', mb: 1 }}>
                 <Skeleton width="45%" />
               </Typography>

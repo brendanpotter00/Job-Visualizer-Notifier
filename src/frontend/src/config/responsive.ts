@@ -316,10 +316,10 @@ export const RESPONSIVE = {
     categoryCardPadding: { xs: 2.5, sm: 3 },
     /** Curated-category cards: grid gap between cards. */
     categoryGridGap: { xs: 2, sm: 3 },
-    rotatingCardMinHeight: { xs: 140, sm: 240 },
+    rotatingCardMinHeight: { xs: 140, md: 240 },
     freshJobsSkeletonMinHeight: {
       xs: 'calc(290px - 18vw)',
-      sm: 'calc(914px - 62.9vw)',
+      sm: 'calc(296px - 8vw)',
       md: 'calc(654px - 30vw)',
       lg: 296,
     },

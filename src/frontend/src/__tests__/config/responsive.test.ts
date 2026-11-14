@@ -73,7 +73,6 @@ const SM_DESKTOP: Record<string, number | string> = {
   'landingProto.faqRowPaddingY': 1.75,
   'landingProto.categoryCardPadding': 3,
   'landingProto.categoryGridGap': 3,
-  'landingProto.rotatingCardMinHeight': 240,
   'landingProto.heroSceneHeight': 280,
 };
 
@@ -205,10 +204,14 @@ describe('RESPONSIVE token invariants', () => {
       expect(RESPONSIVE.curatedCard.gridItemSize).toEqual({ xs: 12, sm: 6, md: 4 });
     });
 
+    it('landingProto.rotatingCardMinHeight keeps the phone floor until the triptych goes 3-up at md', () => {
+      expect(RESPONSIVE.landingProto.rotatingCardMinHeight).toEqual({ xs: 140, md: 240 });
+    });
+
     it('landingProto.freshJobsSkeletonMinHeight tracks the loaded triptych cell per breakpoint', () => {
       expect(RESPONSIVE.landingProto.freshJobsSkeletonMinHeight).toEqual({
         xs: 'calc(290px - 18vw)',
-        sm: 'calc(914px - 62.9vw)',
+        sm: 'calc(296px - 8vw)',
         md: 'calc(654px - 30vw)',
         lg: 296,
       });
@@ -233,6 +236,7 @@ describe('RESPONSIVE token invariants', () => {
     // has its own dedicated assertion). Adding a new one here is a deliberate act.
     const KNOWN_MULTI_BREAKPOINT_PATHS = [
       'curatedCard.gridItemSize',
+      'landingProto.rotatingCardMinHeight',
       'landingProto.freshJobsSkeletonMinHeight',
     ];
     collectTokenPaths(

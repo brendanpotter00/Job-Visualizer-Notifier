@@ -5,12 +5,12 @@
  * media queries (jsdom does not resolve them, so a DOM-level assertion about a
  * responsive `gridColumn` would pass no matter what this returned).
  */
-export const MATRIX_COLUMNS = { xs: 2, sm: 3 } as const;
+export const MATRIX_COLUMNS = { xs: 2, md: 3 } as const;
 
 /** Whether a cell should span its whole row, per breakpoint. */
 export interface MatrixCellSpans {
   xs: boolean;
-  sm: boolean;
+  md: boolean;
 }
 
 /**
@@ -32,6 +32,6 @@ export function matrixCellSpans(count: number, index: number): MatrixCellSpans {
   const isLast = index === count - 1;
   return {
     xs: isLast && count % MATRIX_COLUMNS.xs === 1,
-    sm: isLast && count % MATRIX_COLUMNS.sm === 1,
+    md: isLast && count % MATRIX_COLUMNS.md === 1,
   };
 }
