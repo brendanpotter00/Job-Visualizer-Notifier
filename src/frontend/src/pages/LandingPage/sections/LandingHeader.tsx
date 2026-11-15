@@ -109,7 +109,7 @@ export function LandingHeader({ content }: LandingHeaderProps) {
           <Box
             component="nav"
             aria-label="Landing"
-            sx={{ display: { xs: 'none', sm: 'flex' }, alignItems: 'center', gap: 3, ml: 2 }}
+            sx={{ display: { xs: 'none', md: 'flex' }, alignItems: 'center', gap: 3, ml: 2 }}
           >
             {header.nav.map((item) => (
               <Link
@@ -134,7 +134,7 @@ export function LandingHeader({ content }: LandingHeaderProps) {
             location="landing_header"
             variant="text"
             size="small"
-            sx={{ display: { xs: 'none', sm: 'inline-flex' }, color: 'text.primary' }}
+            sx={{ display: { xs: 'none', md: 'inline-flex' }, color: 'text.primary' }}
           />
 
           <AuthEntryButton

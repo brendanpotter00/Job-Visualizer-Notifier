@@ -14,14 +14,14 @@ describe('matrixCellSpans', () => {
   it('never widens a cell that is not the last one', () => {
     for (const count of [1, 2, 3, 4, 5, 6, 7, 8, 9]) {
       for (const spans of spansFor(count).slice(0, -1)) {
-        expect(spans).toEqual({ xs: false, sm: false });
+        expect(spans).toEqual({ xs: false, md: false });
       }
     }
   });
 
   // The rule in both grids: widen only when the trailing cell would be ALONE.
   it.each([
-    // count, xs (2-up), sm (3-up)
+    // count, xs (2-up), md (3-up)
     [1, true, true],
     [2, false, false],
     [3, true, false],
@@ -31,8 +31,8 @@ describe('matrixCellSpans', () => {
     [7, true, true],
     [8, false, false],
     [9, true, false],
-  ])('a %i-cell tier ends with spans xs=%s sm=%s', (count, xs, sm) => {
-    expect(matrixCellSpans(count, count - 1)).toEqual({ xs, sm });
+  ])('a %i-cell tier ends with spans xs=%s md=%s', (count, xs, md) => {
+    expect(matrixCellSpans(count, count - 1)).toEqual({ xs, md });
   });
 
   // A widened trailing cell must exactly close its row, never overflow it.
@@ -40,7 +40,7 @@ describe('matrixCellSpans', () => {
     for (let count = 1; count <= 12; count += 1) {
       const spans = matrixCellSpans(count, count - 1);
       if (spans.xs) expect((count - 1) % MATRIX_COLUMNS.xs).toBe(0);
-      if (spans.sm) expect((count - 1) % MATRIX_COLUMNS.sm).toBe(0);
+      if (spans.md) expect((count - 1) % MATRIX_COLUMNS.md).toBe(0);
     }
   });
 

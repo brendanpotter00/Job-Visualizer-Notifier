@@ -47,7 +47,7 @@ const MATRIX_GRID_SX = {
   display: 'grid',
   gridTemplateColumns: {
     xs: `repeat(${MATRIX_COLUMNS.xs}, minmax(0, 1fr))`,
-    sm: `repeat(${MATRIX_COLUMNS.sm}, minmax(0, 1fr))`,
+    md: `repeat(${MATRIX_COLUMNS.md}, minmax(0, 1fr))`,
   },
   gap: 0,
 } as const;
@@ -83,10 +83,10 @@ function MatrixCell({ feature, muted = false, spans }: MatrixCellProps) {
         py: RESPONSIVE.landingProto.matrixCellPaddingY,
         pr: RESPONSIVE.landingProto.matrixCellPaddingRight,
         ...(spans &&
-          (spans.xs || spans.sm) && {
+          (spans.xs || spans.md) && {
             gridColumn: {
               xs: spans.xs ? `span ${MATRIX_COLUMNS.xs}` : 'span 1',
-              sm: spans.sm ? `span ${MATRIX_COLUMNS.sm}` : 'span 1',
+              md: spans.md ? `span ${MATRIX_COLUMNS.md}` : 'span 1',
             },
           }),
       }}
@@ -134,7 +134,7 @@ interface FeatureMatrixSectionProps {
  * The feature matrix: every live capability, absorbable in about three seconds,
  * followed by a grayed-out coming-soon tier.
  *
- * Layout is a zero-gap CSS grid (2 columns on phones, 3 from `sm`) where each
+ * Layout is a zero-gap CSS grid (2 columns below `md`, 3 from `md`) where each
  * cell draws its own top hairline, so adjacent cells fuse into continuous rules
  * and the block reads as a ruled matrix rather than floating cards. Neither
  * tier's count is required to divide evenly — `matrixCellSpans` widens a

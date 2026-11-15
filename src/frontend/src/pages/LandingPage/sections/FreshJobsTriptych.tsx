@@ -39,7 +39,7 @@ interface FreshJobsTriptychProps {
  * neighbours. A slot with an empty pool says so plainly and points at the live
  * board.
  *
- * Stacks to a single column below `sm` via the standard Grid idiom.
+ * Stacks to a single column below `md` via the standard Grid idiom.
  */
 export function FreshJobsTriptych({ slots, intro, cardLink }: FreshJobsTriptychProps) {
   const allSlotJobs = useMemo(
@@ -56,7 +56,7 @@ export function FreshJobsTriptych({ slots, intro, cardLink }: FreshJobsTriptychP
       {intro && <SectionIntro heading={intro.heading} headingId={FRESH_JOBS_HEADING_ID} />}
       <Grid container spacing={{ xs: 2, sm: 3 }}>
         {slots.map((slot, i) => (
-          <Grid key={slot.id} size={{ xs: 12, sm: 4 }}>
+          <Grid key={slot.id} size={{ xs: 12, md: 4 }}>
             {slot.jobs.length > 0 ? (
               <FlippingCard
                 jobs={slot.jobs}
