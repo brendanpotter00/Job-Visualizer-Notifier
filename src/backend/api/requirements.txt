@@ -18,6 +18,9 @@ beautifulsoup4>=4.12.0
 soupsieve>=2.8.4
 anthropic>=0.107.0,<1.0.0
 posthog>=6.0.0
+# Stripe billing (services/billing_service.py). Pinned to a major: the webhook
+# parser and StripeClient.v1 shapes it relies on change across majors.
+stripe>=17.0.0,<18.0.0
 # Playwright: used by the Google/Apple/Microsoft scraper subprocesses (the backend
 # image runs scripts/run_scraper.py in-process-family via subprocess) AND by the two
 # E7 custom-company child processes — api/services/capture/_capture_main.py (discovery:

@@ -302,6 +302,22 @@ class Settings(BaseSettings):
     # at 0 logs a startup WARNING (``services/add_quota.warn_if_adds_disabled``).
     custom_company_monthly_add_limit: int = Field(default=20, ge=0)
 
+    # Billing (Stripe). All optional: with any of the three secrets unset the
+    # billing routes that talk to Stripe answer 503 instead of crashing boot, and
+    # the read-only GET /api/billing/subscription still works off the DB. Test-mode
+    # keys locally (sk_test_…); live keys only in Railway prod, only at launch.
+    # str|None to match internal_api_key (NOT SecretStr).
+    stripe_secret_key: str | None = None
+    # whsec_… — from `stripe listen` locally, from the Dashboard endpoint in prod.
+    # The two are DIFFERENT secrets; a local one in prod rejects every event (400).
+    stripe_webhook_secret: str | None = None
+    # price_… for the $6/month Pro plan. Stripe's Price is the source of truth
+    # for the amount; the frontend's "$6" is display copy only.
+    stripe_price_id_pro: str | None = None
+    # Origin the browser returns to after Checkout / the Customer Portal. No
+    # trailing slash. Must be the FRONTEND origin (Vercel), never the backend.
+    public_app_url: str = "http://localhost:3000"
+
     # Server
     port: int = 8080
     cors_origins: str = "http://localhost:3000,http://localhost:5173,http://localhost:8000"

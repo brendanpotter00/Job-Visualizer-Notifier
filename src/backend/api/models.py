@@ -2256,3 +2256,42 @@ class AdminCustomCompanyAttemptsResponse(BaseModel):
     # true when the rollup hit its 200-row cap (mirrors AdminUserVisitsResponse).
     users_truncated: bool = False
     schema_present: bool = True
+
+
+# ---------------------------------------------------------------------------
+# Billing (/api/billing)
+# ---------------------------------------------------------------------------
+
+
+class SubscriptionResponse(BaseModel):
+    """GET /api/billing/subscription — the caller's billing state + entitlement.
+
+    ``plan`` is BILLING state (what the current subscription is for); ``is_pro``
+    is ENTITLEMENT (services/entitlements.is_pro: admins, the past-due grace). The
+    page needs both: an admin is Pro with nothing to manage, and a lapsed user
+    still has a subscription (``plan='pro'``) to fix while ``is_pro`` is False.
+    ``has_subscription`` is the CTA switch: True → "Manage billing" (Portal),
+    False → "Upgrade to Pro" (Checkout).
+    """
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    plan: Literal["free", "pro"]
+    status: str | None = None
+    is_pro: bool
+    has_subscription: bool
+    current_period_end: datetime | None = None
+    cancel_at_period_end: bool = False
+    past_due_since: datetime | None = None
+    grace_ends_at: datetime | None = None
+    # False while the Stripe secrets are unset: the page shows the plans but
+    # disables the Upgrade button instead of letting it 503.
+    billing_enabled: bool
+
+
+class BillingRedirectResponse(BaseModel):
+    """POST /api/billing/checkout-session and /portal-session — where to send the browser."""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    url: str

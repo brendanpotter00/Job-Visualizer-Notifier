@@ -25,7 +25,11 @@ logger = logging.getLogger(__name__)
 # without the key (the prober can't send it), so neither can ever be gated or
 # the deploy fails its healthcheck and never goes live. Keep this in sync with
 # railway.toml's healthcheckPath.
-_EXEMPT_PATHS = frozenset({"/health", "/health/worker"})
+# /api/billing/webhook is called by STRIPE, which cannot send X-Internal-Key; its
+# authentication is the Stripe-Signature HMAC over the raw body, verified in
+# routers/billing.py (a bad or missing signature is a 400 before any DB write).
+# It is never proxied by Vercel (absent from api/billing.ts's allowlist).
+_EXEMPT_PATHS = frozenset({"/health", "/health/worker", "/api/billing/webhook"})
 
 _HEADER_NAME = "X-Internal-Key"
 

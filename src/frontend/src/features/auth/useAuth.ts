@@ -24,6 +24,13 @@ interface AuthResult {
   isLoading: boolean;
   user: User | undefined;
   login: () => Promise<void>;
+  /**
+   * Sign in, then land on `returnTo` instead of the default. A separate method,
+   * not an optional arg on `login`, because `login` is passed straight to
+   * `onClick` in several places and would receive the click event. Only
+   * same-origin paths are honoured (`safeReturnTo`, applied in AuthProviders).
+   */
+  loginWithReturnTo: (returnTo: string) => Promise<void>;
   signup: () => Promise<void>;
   logout: () => void;
   getToken: () => Promise<string>;
@@ -75,6 +82,18 @@ function useAuthReal(): AuthResult {
     }
   }, [loginWithRedirect]);
 
+  const loginWithReturnTo = useCallback(
+    async (returnTo: string) => {
+      try {
+        await loginWithRedirect({ appState: { returnTo } });
+      } catch (error) {
+        console.error('[useAuth] Login redirect failed:', error);
+        throw error;
+      }
+    },
+    [loginWithRedirect]
+  );
+
   const signup = useCallback(async () => {
     try {
       await loginWithRedirect({ authorizationParams: { screen_hint: 'signup' } });
@@ -97,6 +116,7 @@ function useAuthReal(): AuthResult {
     isLoading,
     user: auth0User,
     login,
+    loginWithReturnTo,
     signup,
     logout,
     getToken,
@@ -129,6 +149,7 @@ const BYPASS_AUTH_RESULT: AuthResult = {
   login: async () => {
     // No-op — already "signed in" as the bypass user.
   },
+  loginWithReturnTo: async () => {},
   signup: async () => {},
   logout: () => {
     // No-op — bypass is controlled by the env var, not runtime state.

@@ -17,6 +17,7 @@ import { adminApi } from '../features/admin/adminApi';
 import { savedFiltersApi } from '../features/savedFilters/savedFiltersApi';
 import { locationsApi } from '../features/locations/locationsApi';
 import { userCompaniesApi } from '../features/userCompanies/userCompaniesApi';
+import { billingApi } from '../features/billing/billingApi';
 import locationCatalogReducer from '../features/locations/locationCatalogSlice';
 import { getTokenOrNull } from '../features/features/getTokenOrNull';
 
@@ -43,6 +44,7 @@ export function createTestStore(preloadedState: Partial<RootState> | Record<stri
       [savedFiltersApi.reducerPath]: savedFiltersApi.reducer,
       [locationsApi.reducerPath]: locationsApi.reducer,
       [userCompaniesApi.reducerPath]: userCompaniesApi.reducer,
+      [billingApi.reducerPath]: billingApi.reducer,
     },
     middleware: (getDefaultMiddleware) =>
       getDefaultMiddleware({
@@ -55,7 +57,8 @@ export function createTestStore(preloadedState: Partial<RootState> | Record<stri
         .concat(adminApi.middleware)
         .concat(savedFiltersApi.middleware)
         .concat(locationsApi.middleware)
-        .concat(userCompaniesApi.middleware),
+        .concat(userCompaniesApi.middleware)
+        .concat(billingApi.middleware),
     preloadedState: preloadedState as RootState,
   });
 }
@@ -121,9 +124,7 @@ export function renderWithProviders(
  */
 export async function findListboxOption(label: string): Promise<HTMLElement> {
   const listbox = await screen.findByRole('listbox');
-  const option = (await within(listbox).findByText(label)).closest<HTMLElement>(
-    '[role="option"]'
-  );
+  const option = (await within(listbox).findByText(label)).closest<HTMLElement>('[role="option"]');
   if (!option) {
     throw new Error(`"${label}" is in the listbox but not inside an element with role="option"`);
   }

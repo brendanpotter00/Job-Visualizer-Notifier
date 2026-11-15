@@ -67,6 +67,10 @@
       "destination": "/api/feedback?path=:path"
     },
     {
+      "source": "/api/billing/:path(.*)",
+      "destination": "/api/billing?path=:path"
+    },
+    {
       "source": "/api/admin",
       "destination": "/api/admin"
     },
@@ -124,6 +128,10 @@
     },
     {
       "source": "/jobs",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/pricing",
       "destination": "/index.html"
     },
     {

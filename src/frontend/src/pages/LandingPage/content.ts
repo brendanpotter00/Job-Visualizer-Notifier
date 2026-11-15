@@ -68,11 +68,12 @@ export interface LandingFaqEntry {
 
 /**
  * The landing header — the page's only chrome.
- * Deliberately no menu: a wordmark, three quiet nav links (Jobs, Companies,
- * Changelog — "Jobs" added 2026-11-12, owner-directed), and the two auth
- * actions. The header is wayfinding; the sections below do the selling, so a
- * fourth nav link (or a dropdown) is a content bug, not a layout choice. The
- * cap is enforced by the content test, not by convention.
+ * Deliberately no menu: a wordmark, four quiet nav links (Jobs, Companies,
+ * Changelog, Pricing — "Jobs" added 2026-11-12 and "Pricing" 2026-11-15, both
+ * owner-directed), and the two auth actions. The header is wayfinding; the
+ * sections below do the selling, so a FIFTH nav link (or a dropdown) is a
+ * content bug, not a layout choice. The cap is enforced by the content test,
+ * not by convention.
  */
 export interface LandingHeaderContent {
   wordmark: LandingCta;
@@ -197,6 +198,10 @@ export const LANDING_CONTENT: LandingContent = {
       { label: 'Jobs', to: ROUTES.RECENT_JOBS },
       { label: 'Companies', to: ROUTES.CURATED_COMPANIES },
       { label: 'Changelog', to: ROUTES.VOTE_FEATURES },
+      // The fourth link, by owner decision on the pricing plan (2026-11-15):
+      // "Add “Pricing” as a fourth header link". It overrides the three-link
+      // rule in the LandingHeaderContent comment above for this one entry.
+      { label: 'Pricing', to: ROUTES.PRICING },
     ],
     logIn: { label: 'Log in', to: ROUTES.ACCOUNT },
     signUp: { label: 'Sign up', to: ROUTES.ACCOUNT },
@@ -340,7 +345,8 @@ export const LANDING_CONTENT: LandingContent = {
       },
       {
         question: 'How fast do jobs show up on onesecondswe?',
-        answer: 'About 45 minutes after a company posts, on median. onesecondswe watches career pages.',
+        answer:
+          'About 45 minutes after a company posts, on median. onesecondswe watches career pages.',
       },
       {
         question: 'How is onesecondswe different from LinkedIn?',
