@@ -84,12 +84,11 @@ describe('PricingPage', () => {
   it('shows Free as ruled rows and Pro as one large line, with no FAQ', () => {
     global.fetch = vi.fn() as unknown as typeof fetch;
     renderWithProviders(<PricingPage />, { initialEntries: ['/pricing'] });
+    expect(screen.getByRole('heading', { level: 1, name: 'Pricing' })).toBeInTheDocument();
+    // No eyebrow and no tagline (owner, 2026-11-15): "Pricing" appears once, as the h1.
     expect(
-      screen.getByRole('heading', {
-        level: 1,
-        name: 'Free to browse. $6 a month for unlimited MCP.',
-      })
-    ).toBeInTheDocument();
+      screen.getAllByText('Pricing', { exact: true }).filter((el) => el.tagName !== 'A')
+    ).toHaveLength(1);
     const free = screen.getByRole('region', { name: 'Free' });
     expect(
       within(free)

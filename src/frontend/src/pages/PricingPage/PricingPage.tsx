@@ -12,7 +12,6 @@ import {
 import { extractErrorMessage } from '../../lib/errors';
 import { LANDING_CONTENT } from '../LandingPage/content';
 import { LandingHeader } from '../LandingPage/sections/LandingHeader';
-import { Eyebrow } from '../LandingPage/sections/SectionIntro';
 import {
   ACTIVATION_POLL_LIMIT_MS,
   ACTIVATION_POLL_MS,
@@ -179,11 +178,9 @@ export function PricingPage() {
       <Box sx={{ flex: 1, overflowY: 'auto' }}>
         <LandingHeader content={LANDING_CONTENT} />
         <Container component="main" maxWidth="lg" sx={{ py: RESPONSIVE.pricing.pagePaddingY }}>
-          <Eyebrow>{PRICING_CONTENT.eyebrow}</Eyebrow>
           <Typography
             variant="h1"
             sx={{
-              mt: 1.5,
               mb: RESPONSIVE.landingProto.sectionTitleMarginBottom,
               fontSize: RESPONSIVE.landingProto.heroHeadlineFontSize,
               fontWeight: 500,
@@ -193,7 +190,7 @@ export function PricingPage() {
               textWrap: 'balance',
             }}
           >
-            {PRICING_CONTENT.headline}
+            {PRICING_CONTENT.title}
           </Typography>
           {notice && <PricingNotice notice={notice} />}
           <Box

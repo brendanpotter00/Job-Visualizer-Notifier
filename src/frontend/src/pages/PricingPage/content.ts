@@ -8,6 +8,7 @@ import { ROUTES } from '../../config/routes';
  *   no list to pad, no "cancel any time", no "new Pro features" line.
  * - The Free MCP row says "Limited MCP access", no number, until the limiter ships.
  * - No FAQ and no "billed through Stripe" note.
+ * - The h1 is "Pricing" alone; no eyebrow above it.
  */
 
 /** Display only. The amount charged is the Stripe Price (`STRIPE_PRICE_ID_PRO`). */
@@ -27,8 +28,8 @@ export const PRICING_CONTENT = {
     description:
       'onesecondswe is free to browse. Pro is $6 a month for unlimited MCP access to fresh software engineering job postings.',
   },
-  eyebrow: 'Pricing',
-  headline: 'Free to browse. $6 a month for unlimited MCP.',
+  // The h1 is just the page name (owner, 2026-11-15): no eyebrow, no tagline.
+  title: 'Pricing',
   free: {
     name: 'Free',
     price: '$0',
