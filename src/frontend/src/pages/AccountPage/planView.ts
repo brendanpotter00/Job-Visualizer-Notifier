@@ -40,6 +40,18 @@ export function describePlan(sub: SubscriptionStatus): PlanView {
           actionLabel: 'Update card',
         };
   }
+  if (sub.hasSubscription && !sub.isPro) {
+    // A live subscription that does not entitle: unpaid, incomplete, paused.
+    // Never "Pro · Active" — the card must agree with what is enforced.
+    return {
+      plan: 'Free',
+      tag: 'Payment needed',
+      line: 'Pro is paused until your payment goes through.',
+      danger: true,
+      action: 'portal',
+      actionLabel: 'Update card',
+    };
+  }
   if (sub.hasSubscription && sub.cancelAtPeriodEnd) {
     const end = formatDate(sub.currentPeriodEnd);
     return {

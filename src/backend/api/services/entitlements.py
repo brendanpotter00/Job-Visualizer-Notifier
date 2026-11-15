@@ -67,7 +67,9 @@ def is_pro(
 
 
 def upgrade_url(reason: str | None = None) -> str:
-    base = f"{settings.public_app_url.rstrip('/')}/pricing"
+    # Relative when the origin is unset (local dev without billing): still a
+    # usable link for a browser, and never a wrong absolute host.
+    base = f"{(settings.public_app_url or '').rstrip('/')}/pricing"
     return f"{base}?reason={reason}" if reason else base
 
 

@@ -207,6 +207,32 @@ describe('PricingPage', () => {
     expect(screen.queryByRole('status')).toBeNull();
   });
 
+  it('a 409 from Checkout re-reads the plan so the button becomes Manage billing', async () => {
+    mockAuth = { ...mockAuth, isAuthenticated: true };
+    let calls = 0;
+    global.fetch = routeFetch({
+      '/api/billing/subscription': () =>
+        json(
+          200,
+          calls++ === 0
+            ? FREE
+            : { ...FREE, plan: 'pro', status: 'active', isPro: true, hasSubscription: true }
+        ),
+      '/api/billing/checkout-session': () =>
+        json(409, {
+          detail: 'You already have a Pro subscription. Use Manage billing to change it.',
+        }),
+    }) as unknown as typeof fetch;
+    renderWithProviders(<PricingPage />, { initialEntries: ['/pricing'] });
+    const button = await within(proCard()).findByRole('button', { name: 'Upgrade to Pro' });
+    await waitFor(() => expect(button).toBeEnabled());
+    await userEvent.click(button);
+    expect(
+      await within(proCard()).findByRole('button', { name: 'Manage billing' })
+    ).toBeInTheDocument();
+    expect(mockGoToStripe).not.toHaveBeenCalled();
+  });
+
   it('after Checkout, says "Turning on Pro" until the webhook lands, then "You’re on Pro"', async () => {
     mockAuth = { ...mockAuth, isAuthenticated: true };
     let isPro = false;
@@ -221,6 +247,10 @@ describe('PricingPage', () => {
     }) as unknown as typeof fetch;
     renderWithProviders(<PricingPage />, { initialEntries: ['/pricing?checkout=success'] });
     expect(await screen.findByRole('status')).toHaveTextContent('Payment received. Turning on Pro');
+    // While waiting for the webhook the button cannot open a second Checkout.
+    expect(
+      await within(proCard()).findByRole('button', { name: 'Turning on Pro…' })
+    ).toBeDisabled();
     isPro = true;
     await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('You’re on Pro.'), {
       timeout: 4000,

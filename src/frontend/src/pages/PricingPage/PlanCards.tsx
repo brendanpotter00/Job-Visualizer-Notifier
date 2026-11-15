@@ -159,6 +159,8 @@ function proCtaLabel(cta: ProCta): string {
       return labels.manage;
     case 'included':
       return labels.included;
+    case 'activating':
+      return labels.activating;
     case 'loading':
     case 'upgrade':
       return labels.upgrade;
@@ -178,6 +180,7 @@ export function ProPlanCard({
     busy ||
     cta.kind === 'loading' ||
     cta.kind === 'included' ||
+    cta.kind === 'activating' ||
     (cta.kind === 'upgrade' && cta.disabled);
   const onClick =
     cta.kind === 'signin'

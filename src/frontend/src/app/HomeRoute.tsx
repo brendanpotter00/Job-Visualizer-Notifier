@@ -13,6 +13,13 @@ export function HomeRoute() {
   const { search, hash } = useLocation();
   const [hasStoredSession] = useState(() => hasStoredAuthSession());
 
+  // The URL already left "/" underneath the router: Auth0's onRedirectCallback
+  // replaceState'd to the sign-in's returnTo (e.g. /pricing?intent=pro) and React
+  // Router applies that popstate as a TRANSITION, while auth0-react's
+  // "signed in" lands as an URGENT update first. Deciding now would <Navigate>
+  // to /jobs over the pending route; wait one beat and let the router catch up.
+  if (window.location.pathname !== ROUTES.HOME) return <LoadingState fullPage />;
+
   const destination = resolveHomeDestination({
     isAuthenticated,
     isLoading,

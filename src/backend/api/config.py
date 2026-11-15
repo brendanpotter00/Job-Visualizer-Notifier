@@ -314,9 +314,12 @@ class Settings(BaseSettings):
     # price_… for the $6/month Pro plan. Stripe's Price is the source of truth
     # for the amount; the frontend's "$6" is display copy only.
     stripe_price_id_pro: str | None = None
-    # Origin the browser returns to after Checkout / the Customer Portal. No
-    # trailing slash. Must be the FRONTEND origin (Vercel), never the backend.
-    public_app_url: str = "http://localhost:3000"
+    # Origin the browser returns to after Checkout / the Customer Portal, e.g.
+    # https://onesecondswe.dev (local: http://localhost:3000). No trailing slash.
+    # The FRONTEND origin (Vercel), never the backend. Deliberately no default:
+    # billing_configured() requires it, so a prod deploy with keys but no origin
+    # disables billing instead of sending paying users to localhost.
+    public_app_url: str | None = None
 
     # Server
     port: int = 8080

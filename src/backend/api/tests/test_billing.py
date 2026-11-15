@@ -40,6 +40,7 @@ def no_stripe_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "stripe_secret_key", None)
     monkeypatch.setattr(settings, "stripe_webhook_secret", None)
     monkeypatch.setattr(settings, "stripe_price_id_pro", None)
+    monkeypatch.setattr(settings, "public_app_url", None)
 
 
 @pytest.fixture
@@ -56,8 +57,26 @@ class FakeStripe:
     def __init__(self) -> None:
         self.calls: list[tuple[str, Any]] = []
         self.subscriptions: dict[str, dict[str, Any]] = {}
+        # What Stripe itself reports for the customer (Checkout's double-billing guard).
+        self.customer_subscriptions: list[dict[str, Any]] = []
+        self.open_sessions: list[str] = []
         self.fail_retrieve = False
         outer = self
+
+        def _listing(items: list[Any]) -> Any:
+            return SimpleNamespace(auto_paging_iter=lambda: iter(items))
+
+        def list_subscriptions(params: dict) -> Any:
+            outer.calls.append(("subscriptions.list", params))
+            return _listing([SimpleNamespace(**s) for s in outer.customer_subscriptions])
+
+        def list_sessions(params: dict) -> Any:
+            outer.calls.append(("checkout.list", params))
+            return _listing([SimpleNamespace(id=sid) for sid in outer.open_sessions])
+
+        def expire_session(session_id: str) -> Any:
+            outer.calls.append(("checkout.expire", session_id))
+            return SimpleNamespace(id=session_id)
 
         def create_customer(params: dict, options: dict | None = None) -> Any:
             outer.calls.append(("customers.create", params))
@@ -80,9 +99,13 @@ class FakeStripe:
 
         self.v1 = SimpleNamespace(
             customers=SimpleNamespace(create=create_customer),
-            checkout=SimpleNamespace(sessions=SimpleNamespace(create=create_checkout)),
+            checkout=SimpleNamespace(
+                sessions=SimpleNamespace(
+                    create=create_checkout, list=list_sessions, expire=expire_session
+                )
+            ),
             billing_portal=SimpleNamespace(sessions=SimpleNamespace(create=create_portal)),
-            subscriptions=SimpleNamespace(retrieve=retrieve),
+            subscriptions=SimpleNamespace(retrieve=retrieve, list=list_subscriptions),
         )
 
 
@@ -241,6 +264,30 @@ class TestCheckout:
         db_conn.commit()
         assert client.post("/api/billing/checkout-session").status_code == 409
 
+    def test_409_when_stripe_has_a_live_subscription_the_webhook_has_not_written(
+        self, client, db_conn, fake_stripe
+    ):
+        # Paid, but the webhook is slow or misconfigured: the row still says free.
+        _seed_customer(db_conn, client)
+        fake_stripe.customer_subscriptions = [{"id": "sub_paid", "status": "active"}]
+        assert client.post("/api/billing/checkout-session").status_code == 409
+        assert not [c for c in fake_stripe.calls if c[0] == "checkout.create"]
+
+    def test_expires_earlier_open_sessions_before_opening_a_new_one(
+        self, client, db_conn, fake_stripe
+    ):
+        _seed_customer(db_conn, client)
+        fake_stripe.customer_subscriptions = [{"id": "sub_old", "status": "canceled"}]
+        fake_stripe.open_sessions = ["cs_tab_a", "cs_tab_b"]
+        assert client.post("/api/billing/checkout-session").status_code == 200
+        expired = [c[1] for c in fake_stripe.calls if c[0] == "checkout.expire"]
+        assert expired == ["cs_tab_a", "cs_tab_b"]
+
+    def test_503_without_public_app_url(self, client, db_conn, fake_stripe, monkeypatch):
+        monkeypatch.setattr(settings, "public_app_url", None)
+        assert client.post("/api/billing/checkout-session").status_code == 503
+        assert client.get("/api/billing/subscription").json()["billingEnabled"] is False
+
     def test_a_canceled_subscription_can_check_out_again(self, client, db_conn, fake_stripe):
         uid = _seed_customer(db_conn, client)
         with db_conn.cursor() as cur:
@@ -273,6 +320,14 @@ class TestWebhook:
     def test_503_when_not_configured(self, client, db_conn):
         payload = _event("customer.subscription.updated", _sub())
         assert _post_webhook(client, payload).status_code == 503
+
+    def test_413_on_an_oversized_body_before_any_signature_work(
+        self, client, db_conn, fake_stripe
+    ):
+        from api.routers.billing import MAX_WEBHOOK_BODY_BYTES
+
+        payload = b"x" * (MAX_WEBHOOK_BODY_BYTES + 1)
+        assert _post_webhook(client, payload, sig="t=1,v1=0").status_code == 413
 
     def test_400_on_a_bad_signature(self, client, db_conn, fake_stripe):
         payload = _event("customer.subscription.updated", _sub())
@@ -337,12 +392,27 @@ class TestWebhook:
         fake_stripe.subscriptions["sub_1"] = _sub(status="past_due")
         later = NOW + timedelta(hours=5)
         _post_webhook(client, _event("invoice.payment_failed", {"subscription": "sub_1"}, event_id="e1", created=later))
-        _post_webhook(client, _event("customer.subscription.updated", {"id": "sub_1"}, event_id="e2", created=NOW))
+        # The status flip is also a failure signal; the earlier of the two wins.
+        flip = json.loads(_event("customer.subscription.updated", {"id": "sub_1"}, event_id="e2", created=NOW))
+        flip["data"]["previous_attributes"] = {"status": "active"}
+        _post_webhook(client, json.dumps(flip).encode())
         assert _sub_row(db_conn, uid)["past_due_since"] == NOW
         fake_stripe.subscriptions["sub_1"] = _sub(status="active")
         _post_webhook(client, _event("invoice.paid", {"parent": {"subscription_details": {"subscription": "sub_1"}}}, event_id="e3"))
         row = _sub_row(db_conn, uid)
         assert row["status"] == "active" and row["past_due_since"] is None
+
+    def test_a_late_non_failure_event_does_not_backdate_the_grace(
+        self, client, db_conn, fake_stripe
+    ):
+        uid = _seed_customer(db_conn, client)
+        fake_stripe.subscriptions["sub_1"] = _sub(status="past_due")
+        _post_webhook(client, _event("invoice.payment_failed", {"subscription": "sub_1"}, event_id="f", created=NOW))
+        # Created a day BEFORE the failure, delivered late (a retry): it re-reads
+        # past_due but is not about the failure, so it must not move the start.
+        early = NOW - timedelta(days=1)
+        _post_webhook(client, _event("customer.subscription.updated", {"id": "sub_1"}, event_id="late", created=early))
+        assert _sub_row(db_conn, uid)["past_due_since"] == NOW
 
     def test_deleted_subscription_drops_to_free_and_keeps_the_row(self, client, db_conn, fake_stripe):
         uid = _seed_customer(db_conn, client)
@@ -518,3 +588,13 @@ class TestSchema:
                     (user["id"],),
                 )
         db_conn.rollback()
+
+
+def test_the_real_stripe_client_builds_with_a_bounded_timeout() -> None:
+    """The SDK default is 80 s with retries; a stuck call must not pin a worker."""
+    billing_service._client_for.cache_clear()
+    try:
+        client = billing_service._client_for("sk_test_construct_only")
+        assert client is billing_service._client_for("sk_test_construct_only")
+    finally:
+        billing_service._client_for.cache_clear()

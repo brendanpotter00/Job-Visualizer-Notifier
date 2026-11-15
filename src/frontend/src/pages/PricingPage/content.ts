@@ -53,6 +53,7 @@ export const PRICING_CONTENT = {
       upgrade: 'Upgrade to Pro',
       manage: 'Manage billing',
       included: 'Included with your account',
+      activating: 'Turning on Pro…',
     },
     unavailable: 'Checkout is not open yet.',
   },

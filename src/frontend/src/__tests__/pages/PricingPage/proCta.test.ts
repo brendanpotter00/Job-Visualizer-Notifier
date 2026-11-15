@@ -53,6 +53,21 @@ describe('resolveProCta', () => {
     };
     expect(resolveProCta({ ...base, subscription: lapsed })).toEqual({ kind: 'manage' });
   });
+  it('just back from a paid Checkout: disabled until the webhook lands (no double billing)', () => {
+    expect(resolveProCta({ ...base, subscription: FREE, returnedFromCheckout: true })).toEqual({
+      kind: 'activating',
+    });
+    const landed = {
+      ...FREE,
+      plan: 'pro' as const,
+      status: 'active',
+      isPro: true,
+      hasSubscription: true,
+    };
+    expect(resolveProCta({ ...base, subscription: landed, returnedFromCheckout: true })).toEqual({
+      kind: 'manage',
+    });
+  });
   it('shows Pro without a subscription (admins) as included', () => {
     expect(resolveProCta({ ...base, subscription: { ...FREE, isPro: true } })).toEqual({
       kind: 'included',
@@ -118,6 +133,13 @@ describe('describePlan (the /account card)', () => {
       actionLabel: 'Update card',
     });
   });
+  it.each(['unpaid', 'incomplete', 'paused'])(
+    'a live but non-entitled %s subscription is never "Active"',
+    (status) => {
+      const v = describePlan({ ...FREE, plan: 'pro', status, hasSubscription: true, isPro: false });
+      expect(v).toMatchObject({ plan: 'Free', tag: 'Payment needed', actionLabel: 'Update card' });
+    }
+  );
   it('admin', () => {
     expect(describePlan({ ...FREE, isPro: true })).toMatchObject({ plan: 'Pro', action: null });
   });

@@ -90,6 +90,7 @@ export function PricingPage() {
     authLoading,
     subscription,
     subscriptionLoading: subscriptionQuery.isLoading,
+    returnedFromCheckout: checkout === 'success',
   });
 
   // --- after Checkout: poll until the webhook lands (or give up after a minute)
@@ -107,16 +108,22 @@ export function PricingPage() {
     return () => clearInterval(id);
   }, [polling, refetch]);
 
-  const go = useCallback(async (request: () => Promise<{ url: string }>) => {
-    setError(null);
-    try {
-      const { url } = await request();
-      setRedirecting(true);
-      goToStripe(url);
-    } catch (err) {
-      setError(extractErrorMessage(err, PRICING_CONTENT.notices.startFailed));
-    }
-  }, []);
+  const go = useCallback(
+    async (request: () => Promise<{ url: string }>) => {
+      setError(null);
+      try {
+        const { url } = await request();
+        setRedirecting(true);
+        goToStripe(url);
+      } catch (err) {
+        setError(extractErrorMessage(err, PRICING_CONTENT.notices.startFailed));
+        // 409 = "you already have a subscription": the cached plan is stale, so
+        // re-read it and the button turns into Manage billing.
+        if ((err as { status?: unknown } | null)?.status === 409) void refetch();
+      }
+    },
+    [refetch]
+  );
   const onUpgrade = useCallback(() => void go(() => startCheckout().unwrap()), [go, startCheckout]);
   const onManage = useCallback(() => void go(() => openPortal().unwrap()), [go, openPortal]);
   const onSignIn = useCallback(

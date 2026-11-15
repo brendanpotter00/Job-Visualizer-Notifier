@@ -17,6 +17,7 @@ import psycopg2
 import stripe
 from fastapi import APIRouter, Depends, HTTPException, Request
 from psycopg2.extensions import connection as Connection
+from starlette.concurrency import run_in_threadpool
 
 from ..auth.dependencies import TokenClaims, get_current_user
 from ..auth.jwt import get_normalized_subject
@@ -36,6 +37,15 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 _NOT_CONFIGURED = "Billing is not configured on this server."
+
+# The webhook is the one public, body-reading POST (everything else sits behind
+# X-Internal-Key), and the body must be read before the signature can be checked.
+# Real Stripe events are a few KB; refuse anything near this before buffering it.
+MAX_WEBHOOK_BODY_BYTES = 1_000_000
+
+# Every handler below that calls Stripe or psycopg2 is a plain ``def``: FastAPI
+# runs those in its threadpool. As ``async def`` they would block the one event
+# loop the Procrastinate worker lanes and the auto-scraper also run on.
 
 
 def _resolve_user(conn: Connection, user: TokenClaims) -> UserRow:
@@ -61,7 +71,7 @@ def _resolve_user(conn: Connection, user: TokenClaims) -> UserRow:
 
 
 @router.get("/subscription", response_model=SubscriptionResponse)
-async def get_subscription(
+def get_subscription(
     conn: Connection = Depends(get_db),
     user: TokenClaims = Depends(get_current_user),
 ) -> SubscriptionResponse:
@@ -82,7 +92,7 @@ async def get_subscription(
 
 
 @router.post("/checkout-session", response_model=BillingRedirectResponse)
-async def create_checkout_session(
+def create_checkout_session(
     conn: Connection = Depends(get_db),
     user: TokenClaims = Depends(get_current_user),
 ) -> BillingRedirectResponse:
@@ -104,7 +114,7 @@ async def create_checkout_session(
 
 
 @router.post("/portal-session", response_model=BillingRedirectResponse)
-async def create_portal_session(
+def create_portal_session(
     conn: Connection = Depends(get_db),
     user: TokenClaims = Depends(get_current_user),
 ) -> BillingRedirectResponse:
@@ -134,13 +144,22 @@ async def stripe_webhook(
     """
     if not billing_service.billing_configured():
         raise HTTPException(status_code=503, detail=_NOT_CONFIGURED)
-    payload = await request.body()
+    declared = request.headers.get("content-length")
+    if declared and declared.isdigit() and int(declared) > MAX_WEBHOOK_BODY_BYTES:
+        raise HTTPException(status_code=413, detail="Payload too large")
+    body = bytearray()
+    async for chunk in request.stream():
+        body += chunk
+        if len(body) > MAX_WEBHOOK_BODY_BYTES:  # chunked, or a lying Content-Length
+            raise HTTPException(status_code=413, detail="Payload too large")
+    payload = bytes(body)
     try:
         event = billing_service.construct_event(payload, request.headers.get("stripe-signature"))
     except (ValueError, stripe.SignatureVerificationError):
         raise HTTPException(status_code=400, detail="Invalid Stripe signature")
     try:
-        billing_service.process_event(conn, event)
+        # Stripe + psycopg2 are blocking: off the event loop (see module note).
+        await run_in_threadpool(billing_service.process_event, conn, event)
     except Exception:
         logger.exception("Stripe webhook %s (%s) failed; Stripe will retry", event.get("id"), event.get("type"))
         raise HTTPException(status_code=500, detail="Webhook processing failed")

@@ -8,7 +8,8 @@ The plan this implements (owner-reviewed, with UI mockups): [`plan.html`](./plan
 1. Create a Stripe account and stay in **Test mode** (Sandbox).
 2. Product catalog → add product **"onesecondswe Pro"**, recurring price **$6.00 USD / month**. Copy the `price_…` id.
 3. Settings → Billing → **Customer portal** → allow *cancel subscriptions (at end of billing period)* and *update payment methods* → Save. (The Portal is what "Manage billing" opens.)
-4. Developers → API keys → copy the **secret** key `sk_test_…`.
+4. Settings → Checkout and Payment Links → turn on **Limit customers to one subscription** (Stripe-side backstop to the app's own double-billing guard).
+5. Developers → API keys → copy the **secret** key `sk_test_…`.
 
 ## Local
 

@@ -86,17 +86,34 @@ class SubscriptionRow(TypedDict):
 
 
 def billing_configured() -> bool:
-    """True iff all three Stripe secrets are set."""
+    """True iff the three Stripe secrets AND the return origin are set.
+
+    ``PUBLIC_APP_URL`` is required, not defaulted: a prod deploy with keys but no
+    origin would send paying users back to localhost after Checkout.
+    """
     return bool(
         settings.stripe_secret_key
         and settings.stripe_webhook_secret
         and settings.stripe_price_id_pro
+        and settings.public_app_url
     )
+
+
+# Stripe calls run in FastAPI's threadpool (the billing routes are plain ``def``),
+# but a stuck call still pins a worker thread and a DB connection. Bound it: the
+# SDK default is an 80 s timeout with retries. httpx is already a direct
+# dependency, so the client is the same in every environment.
+STRIPE_TIMEOUT_SECONDS = 10
+STRIPE_MAX_NETWORK_RETRIES = 1
 
 
 @lru_cache(maxsize=1)
 def _client_for(api_key: str) -> stripe.StripeClient:
-    return stripe.StripeClient(api_key)
+    return stripe.StripeClient(
+        api_key,
+        http_client=stripe.HTTPXClient(timeout=STRIPE_TIMEOUT_SECONDS, allow_sync_methods=True),
+        max_network_retries=STRIPE_MAX_NETWORK_RETRIES,
+    )
 
 
 def _client() -> stripe.StripeClient:
@@ -106,6 +123,8 @@ def _client() -> stripe.StripeClient:
 
 
 def _app_url(path: str) -> str:
+    if not settings.public_app_url:
+        raise BillingNotConfiguredError("PUBLIC_APP_URL is not set")
     return f"{settings.public_app_url.rstrip('/')}{path}"
 
 
@@ -182,7 +201,23 @@ def create_checkout_session(conn: Connection, user_id: str, email: str) -> str:
     if is_live(get_subscription(conn, user_id)):
         raise AlreadySubscribedError(user_id)
     customer_id = ensure_stripe_customer(conn, user_id, email)
-    session = _client().v1.checkout.sessions.create(
+    client = _client()
+    # The row only learns about a subscription when its webhook lands, so between
+    # payment and webhook (or forever, if the webhook is misconfigured) the DB
+    # check above passes. Ask Stripe — the source of truth — before opening a
+    # second Checkout that would bill the user twice.
+    for sub in client.v1.subscriptions.list(
+        params={"customer": customer_id, "status": "all", "limit": 100}
+    ).auto_paging_iter():
+        if sub.status not in TERMINAL_STATUSES:
+            raise AlreadySubscribedError(user_id)
+    # One open Checkout per customer: expire any earlier one (another tab, the
+    # browser history) so it can never be completed into a second subscription.
+    for open_session in client.v1.checkout.sessions.list(
+        params={"customer": customer_id, "status": "open", "limit": 100}
+    ).auto_paging_iter():
+        client.v1.checkout.sessions.expire(open_session.id)
+    session = client.v1.checkout.sessions.create(
         params={
             "mode": "subscription",
             "customer": customer_id,
@@ -282,6 +317,15 @@ def process_event(conn: Connection, event: dict[str, Any]) -> bool:
             return False
         sub_id = subscription_id_of(event)
         if sub_id:
+            # Serialize every event about one subscription BEFORE re-reading it.
+            # Without this, handler A can read an older state, handler B read and
+            # commit a newer one, and A commit last — writing stale state over
+            # fresh (two replicas, or two threadpool workers, make it real).
+            # Released at commit/rollback.
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (sub_id,)
+                )
             obj = event.get("data", {}).get("object", {}) or {}
             fallback_user_id = (
                 obj.get("client_reference_id")
@@ -293,12 +337,27 @@ def process_event(conn: Connection, event: dict[str, Any]) -> bool:
                 sub_id,
                 event_created=_epoch(event.get("created")) or datetime.now(timezone.utc),
                 fallback_user_id=fallback_user_id,
+                marks_failure=_marks_payment_failure(event),
             )
         conn.commit()
         return True
     except Exception:
         conn.rollback()
         raise
+
+
+def _marks_payment_failure(event: dict[str, Any]) -> bool:
+    """True iff this event IS the renewal failing (its time starts the grace).
+
+    Any other event that merely re-reads a past_due subscription — a late or
+    retried one created before the failure, say — must not backdate the grace.
+    """
+    if event.get("type") == "invoice.payment_failed":
+        return True
+    if event.get("type") == "customer.subscription.updated":
+        previous = (event.get("data") or {}).get("previous_attributes") or {}
+        return "status" in previous and previous.get("status") != "past_due"
+    return False
 
 
 def _period_end(sub: dict[str, Any]) -> datetime | None:
@@ -336,13 +395,20 @@ def sync_subscription(
     *,
     event_created: datetime,
     fallback_user_id: str | None = None,
+    marks_failure: bool = False,
 ) -> None:
     """Re-read one subscription from Stripe and write it to its user's row.
 
     Does NOT commit — ``process_event`` owns the transaction.
     """
     sub = _client().v1.subscriptions.retrieve(subscription_id).to_dict()
-    apply_subscription(conn, sub, event_created=event_created, fallback_user_id=fallback_user_id)
+    apply_subscription(
+        conn,
+        sub,
+        event_created=event_created,
+        fallback_user_id=fallback_user_id,
+        marks_failure=marks_failure,
+    )
 
 
 def apply_subscription(
@@ -351,6 +417,7 @@ def apply_subscription(
     *,
     event_created: datetime,
     fallback_user_id: str | None = None,
+    marks_failure: bool = False,
 ) -> None:
     """Write a Stripe subscription object to ``user_subscriptions``. No commit."""
     customer_id = _id_of(sub.get("customer"))
@@ -443,7 +510,14 @@ def apply_subscription(
         # delivery must not push the 3-day grace back. Keep the earliest
         # observation while the SAME subscription stays past_due.
         previous = row["past_due_since"] if row["stripe_subscription_id"] == sub_id else None
-        past_due_since = min(previous, event_created) if previous else event_created
+        if previous is None:
+            past_due_since = event_created
+        elif marks_failure:
+            # Two failure signals for one episode (payment_failed + the status
+            # flip) can arrive in either order; the earlier one started it.
+            past_due_since = min(previous, event_created)
+        else:
+            past_due_since = previous
 
     with conn.cursor() as cur:
         cur.execute(

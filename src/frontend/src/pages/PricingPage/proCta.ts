@@ -13,19 +13,26 @@ import type { SubscriptionStatus } from '../../features/billing/billingApi';
  *              entitlement on purpose: a lapsed user is not Pro but still has a
  *              card to fix, and Checkout would bill them twice.
  * - `included` Pro without a subscription (admins) → nothing to buy or manage
+ * - `activating` back from a paid Checkout, webhook not landed yet → disabled.
+ *              The row says "free" until the webhook writes it, so an enabled
+ *              Upgrade here would open a SECOND Checkout and bill twice (the
+ *              backend also refuses it by asking Stripe; this is the UI half).
  */
 export type ProCta =
   | { kind: 'signin' }
   | { kind: 'loading' }
   | { kind: 'upgrade'; disabled: boolean }
   | { kind: 'manage' }
-  | { kind: 'included' };
+  | { kind: 'included' }
+  | { kind: 'activating' };
 
 export interface ProCtaInput {
   isAuthenticated: boolean;
   authLoading: boolean;
   subscription: SubscriptionStatus | undefined;
   subscriptionLoading: boolean;
+  /** `?checkout=success` is on the URL: the user just paid. */
+  returnedFromCheckout?: boolean;
 }
 
 export function resolveProCta({
@@ -33,6 +40,7 @@ export function resolveProCta({
   authLoading,
   subscription,
   subscriptionLoading,
+  returnedFromCheckout = false,
 }: ProCtaInput): ProCta {
   if (authLoading) return { kind: 'loading' };
   if (!isAuthenticated) return { kind: 'signin' };
@@ -40,5 +48,6 @@ export function resolveProCta({
     return subscriptionLoading ? { kind: 'loading' } : { kind: 'upgrade', disabled: true };
   if (subscription.hasSubscription) return { kind: 'manage' };
   if (subscription.isPro) return { kind: 'included' };
+  if (returnedFromCheckout) return { kind: 'activating' };
   return { kind: 'upgrade', disabled: !subscription.billingEnabled };
 }
