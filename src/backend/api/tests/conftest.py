@@ -528,6 +528,18 @@ def clean_tables(db_conn):
 
 
 @pytest.fixture(autouse=True)
+def reset_workday_rate_limit(monkeypatch):
+    """Isolate the Workday client's process-wide 429 cooldown between tests,
+    and drop its inter-page delay so multi-page fixtures don't sleep."""
+    from api.services import workday_client
+
+    workday_client._cooldown_until.clear()
+    monkeypatch.setattr(workday_client, "WORKDAY_INTER_PAGE_DELAY_SECONDS", 0.0)
+    yield
+    workday_client._cooldown_until.clear()
+
+
+@pytest.fixture(autouse=True)
 def disable_db_watchdog():
     """Keep lifespan-driven tests from starting real watchdogs.
 

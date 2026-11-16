@@ -186,6 +186,8 @@ async def test_target_workday_cap_regression(db_conn, monkeypatch):
 # --------------------------------------------------------------------------- #
 
 class _Resp:
+    status_code = 200
+
     def __init__(self, payload):
         self._payload = payload
 

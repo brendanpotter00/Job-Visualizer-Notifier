@@ -8,8 +8,10 @@ from typing import Any
 import httpx
 import pytest
 
+from api.services import workday_client
 from api.services.workday_client import (
     SOURCE_ID,
+    WorkdayRateLimitedError,
     WORKDAY_MAX_PAGES,
     WORKDAY_PAGE_SIZE,
     _parse_workday_date,
@@ -615,3 +617,229 @@ class TestParseWorkdayDate:
         # platforms; the helper must not crash.
         naive = datetime(2026, 5, 19, 15, 30, 0)
         assert _parse_workday_date("Posted Today", now=naive) == self.TODAY_MIDNIGHT
+
+
+# ---------------------------------------------------------------------------
+# fetch_jobs — 429 handling (retry in place, Retry-After, pod cooldown)
+# ---------------------------------------------------------------------------
+
+class TestFetchJobsRateLimit:
+    @pytest.fixture(autouse=True)
+    def _no_sleep(self, monkeypatch: pytest.MonkeyPatch) -> list[float]:
+        slept: list[float] = []
+
+        async def fake_sleep(seconds: float) -> None:
+            slept.append(seconds)
+
+        monkeypatch.setattr(workday_client.asyncio, "sleep", fake_sleep)
+        self.slept = slept
+        return slept
+
+    async def test_429_then_200_retries_and_honors_retry_after(self) -> None:
+        calls = {"n": 0}
+
+        def handler(req: httpx.Request) -> httpx.Response:
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return httpx.Response(429, headers={"Retry-After": "7"})
+            return httpx.Response(200, json={"total": 1, "jobPostings": [_job(1)]})
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+            result = await fetch_jobs(PROVIDER_CONFIG_NVIDIA, http)
+
+        assert len(result) == 1
+        assert calls["n"] == 2
+        assert self.slept == [7.0]
+
+    async def test_retry_after_is_capped(self) -> None:
+        calls = {"n": 0}
+
+        def handler(req: httpx.Request) -> httpx.Response:
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return httpx.Response(429, headers={"Retry-After": "3600"})
+            return httpx.Response(200, json={"total": 0, "jobPostings": []})
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+            await fetch_jobs(PROVIDER_CONFIG_NVIDIA, http)
+
+        assert self.slept == [workday_client.WORKDAY_429_MAX_SLEEP_SECONDS]
+
+    async def test_persistent_429_raises_after_bounded_retries(self) -> None:
+        calls = {"n": 0}
+
+        def handler(req: httpx.Request) -> httpx.Response:
+            calls["n"] += 1
+            return httpx.Response(429)
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+            with pytest.raises(WorkdayRateLimitedError):
+                await fetch_jobs(PROVIDER_CONFIG_NVIDIA, http)
+
+        assert calls["n"] == workday_client.WORKDAY_429_MAX_RETRIES + 1
+        # No Retry-After → jittered exponential backoff, each under its ceiling.
+        assert len(self.slept) == workday_client.WORKDAY_429_MAX_RETRIES
+        for attempt, s in enumerate(self.slept):
+            assert 0 <= s <= workday_client.WORKDAY_429_BACKOFF_BASE_SECONDS * 2 ** attempt
+
+    async def test_cooldown_short_circuits_same_pod_only(self) -> None:
+        hosts: list[str] = []
+
+        def handler(req: httpx.Request) -> httpx.Response:
+            hosts.append(req.url.host)
+            if req.url.host.endswith("wd5.myworkdayjobs.com"):
+                return httpx.Response(429)
+            return httpx.Response(200, json={"total": 0, "jobPostings": []})
+
+        other_tenant_same_pod = {
+            "base_url": "https://acme.wd5.myworkdayjobs.com",
+            "tenant_slug": "acme",
+            "career_site_slug": "External",
+        }
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+            with pytest.raises(WorkdayRateLimitedError):
+                await fetch_jobs(PROVIDER_CONFIG_NVIDIA, http)
+            n_after_trip = len(hosts)
+
+            # Same pod, different tenant: fails fast, zero requests.
+            with pytest.raises(WorkdayRateLimitedError, match="cooling down"):
+                await fetch_jobs(other_tenant_same_pod, http)
+            assert len(hosts) == n_after_trip
+
+            # Different pod (wd12): unaffected.
+            assert await fetch_jobs(PROVIDER_CONFIG_SLACK, http) == []
+            assert len(hosts) == n_after_trip + 1
+
+    async def test_cooldown_expires(self) -> None:
+        workday_client._cooldown_until["wd5.myworkdayjobs.com"] = 0.0  # in the past
+
+        def handler(req: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, json={"total": 0, "jobPostings": []})
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+            assert await fetch_jobs(PROVIDER_CONFIG_NVIDIA, http) == []
+        assert "wd5.myworkdayjobs.com" not in workday_client._cooldown_until
+
+    async def test_rate_limited_error_is_an_httpx_error(self) -> None:
+        # Existing `except httpx.HTTPError` handlers in the tasks must catch it.
+        assert issubclass(WorkdayRateLimitedError, httpx.HTTPError)
+
+    async def test_pod_key(self) -> None:
+        assert (
+            workday_client._pod_key("https://nvidia.wd5.myworkdayjobs.com/wday/cxs/x/y/jobs")
+            == "wd5.myworkdayjobs.com"
+        )
+        assert workday_client._pod_key("https://jobs.example.com/a") == "jobs.example.com"
+
+    async def test_retry_after_http_date(self) -> None:
+        resp = httpx.Response(429, headers={"Retry-After": "Wed, 21 Oct 2015 07:28:00 GMT"})
+        assert workday_client._retry_after_seconds(resp) == 0.0
+        assert workday_client._retry_after_seconds(httpx.Response(429)) is None
+        bad = httpx.Response(429, headers={"Retry-After": "soon"})
+        assert workday_client._retry_after_seconds(bad) is None
+
+
+# ---------------------------------------------------------------------------
+# Non-2xx diagnostics — who issued the block, Cloudflare or Workday?
+# ---------------------------------------------------------------------------
+
+class TestNon2xxDiagnostics:
+    @pytest.fixture(autouse=True)
+    def _no_sleep(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        async def fake_sleep(seconds: float) -> None:
+            return None
+
+        monkeypatch.setattr(workday_client.asyncio, "sleep", fake_sleep)
+
+    async def _diag_records(
+        self, caplog: pytest.LogCaptureFixture, response: httpx.Response
+    ) -> list[Any]:
+        import logging
+
+        def handler(req: httpx.Request) -> httpx.Response:
+            return response
+
+        with caplog.at_level(logging.WARNING, logger="api.services.workday_client"):
+            async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+                with pytest.raises(httpx.HTTPError):
+                    await fetch_jobs(PROVIDER_CONFIG_NVIDIA, http)
+        return [r for r in caplog.records if "non-2xx" in r.getMessage()]
+
+    async def test_cloudflare_challenge_429_is_logged_with_headers_and_body(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        response = httpx.Response(
+            429,
+            headers=[
+                ("Server", "cloudflare"),
+                ("CF-RAY", "abc123-IAH"),
+                ("cf-mitigated", "challenge"),
+                ("Retry-After", "30"),
+                ("Set-Cookie", "__cf_bm=SECRETVALUE; path=/; HttpOnly"),
+                ("Set-Cookie", "other=ALSOSECRET"),
+                ("Authorization", "Bearer SECRETTOKEN"),
+            ],
+            text="<html><title>Just a moment...</title></html>",
+        )
+        records = await self._diag_records(caplog, response)
+
+        # One per attempt (initial + in-place retries); behavior unchanged.
+        assert len(records) == workday_client.WORKDAY_429_MAX_RETRIES + 1
+        msg = records[0].getMessage()
+        assert records[0].levelname == "WARNING"
+        assert "status=429" in msg
+        assert "blocker=cloudflare" in msg
+        assert "host=nvidia.wd5.myworkdayjobs.com" in msg
+        assert "'cf-ray': 'abc123-IAH'" in msg
+        assert "'cf-mitigated': 'challenge'" in msg
+        assert "'retry-after': '30'" in msg
+        assert "'set-cookie': '__cf_bm, other'" in msg
+        assert "Just a moment" in msg
+        # Secrets never logged.
+        assert "SECRETVALUE" not in msg
+        assert "ALSOSECRET" not in msg
+        assert "SECRETTOKEN" not in msg
+
+    async def test_cloudflare_headers_alone_do_not_mean_cloudflare_blocked(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        # Workday is behind Cloudflare: Server/CF-RAY are on every response.
+        # A 429 that reached Workday's origin carries x-wd-request-id.
+        response = httpx.Response(
+            429,
+            headers={
+                "Server": "cloudflare",
+                "CF-RAY": "abc123-IAH",
+                "x-wd-request-id": "VPS|00000000-0000-0000-0000-000000000000",
+            },
+            json={"errorCode": "TOO_MANY_REQUESTS"},
+        )
+        msg = (await self._diag_records(caplog, response))[0].getMessage()
+        assert "blocker=workday" in msg
+
+    async def test_body_is_truncated_and_unknown_without_markers(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        response = httpx.Response(503, text="x" * 5000)
+        records = await self._diag_records(caplog, response)
+        assert len(records) == 1  # non-429: logged once, no retry
+        msg = records[0].getMessage()
+        assert "status=503" in msg
+        assert "blocker=unknown" in msg
+        assert "x" * 1000 in msg
+        assert "x" * 1001 not in msg
+
+    async def test_success_is_not_logged(self, caplog: pytest.LogCaptureFixture) -> None:
+        import logging
+
+        def handler(req: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, json={"total": 0, "jobPostings": []})
+
+        with caplog.at_level(logging.WARNING, logger="api.services.workday_client"):
+            async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+                await fetch_jobs(PROVIDER_CONFIG_NVIDIA, http)
+        assert not [r for r in caplog.records if "non-2xx" in r.getMessage()]
+
+    def test_cloudflare_rate_limit_error_page_body(self) -> None:
+        resp = httpx.Response(429, text="error code: 1015")
+        assert workday_client._diag_blocker(resp, resp.text) == "cloudflare"
