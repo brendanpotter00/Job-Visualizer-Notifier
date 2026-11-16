@@ -20,17 +20,19 @@ const PYTHON = path.join(REPO_ROOT, '.venv', 'bin', 'python');
 
 export const GOOGLE_CREDENTIAL_STORAGE_KEY = 'jvn.googleCredential.v1';
 
-export type TestIdentity = 'primary' | 'other';
+/** A named identity, or a one-off one a section creates per test (mint.py's `custom`). */
+export type TestIdentity = 'primary' | 'other' | { sub: string; email: string };
 
 /** Mint a token for `identity` by shelling out to shared/auth/mint.py. */
 export function mintToken(identity: TestIdentity = 'primary'): string {
-  const out = execFileSync(PYTHON, ['-m', 'e2e.shared.auth.mint', identity], {
+  const args = typeof identity === 'string' ? [identity] : ['custom', identity.sub, identity.email];
+  const out = execFileSync(PYTHON, ['-m', 'e2e.shared.auth.mint', ...args], {
     cwd: REPO_ROOT,
     encoding: 'utf-8',
   });
   const token = out.trim();
   if (!token || token.split('.').length !== 3) {
-    throw new Error(`mintToken(${identity}): mint.py did not print a JWT — got: ${out}`);
+    throw new Error(`mintToken(${args.join(' ')}): mint.py did not print a JWT — got: ${out}`);
   }
   return token;
 }

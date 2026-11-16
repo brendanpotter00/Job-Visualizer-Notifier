@@ -21,6 +21,8 @@
 #   E2E_TARGET_DB       default jobscraper_e2e
 #   E2E_DB_SCHEMA_ONLY  default 0 (1 => ensure_db.sh --schema-only)
 #   E2E_VITE_CONFIG     default $SCRIPT_DIR/vite.e2e.config.ts
+#   E2E_APP_MODULE      default e2e.shared.stack.e2e_app:app (a section's own
+#                       wrapper that adds boot guards)
 #
 # Never touches :8000/:8100/:3000 — the owner's stack. Only starts processes
 # on the two ports above, and only ever kills what stack_down.sh's pidfiles
@@ -37,6 +39,7 @@ ENV_FILE="${E2E_ENV_FILE:-$SCRIPT_DIR/env.e2e}"
 PID_DIR="${E2E_PID_DIR:-$SCRIPT_DIR/.pids}"
 TARGET_DB="${E2E_TARGET_DB:-jobscraper_e2e}"
 VITE_CONFIG="${E2E_VITE_CONFIG:-$SCRIPT_DIR/vite.e2e.config.ts}"
+APP_MODULE="${E2E_APP_MODULE:-e2e.shared.stack.e2e_app:app}"
 
 # THE OWNER'S PORTS, and the one list this script will not start on. :8000 and
 # :8100 are his backends, :3000 his frontend; a section that fat-fingers a port
@@ -128,7 +131,7 @@ if [ -z "${ANTHROPIC_API_KEY:-}" ] && [ -f "$REPO_ROOT/.env.local" ]; then
 fi
 
 cd "$REPO_ROOT"
-nohup "$REPO_ROOT/.venv/bin/python" -m uvicorn e2e.shared.stack.e2e_app:app \
+nohup "$REPO_ROOT/.venv/bin/python" -m uvicorn "$APP_MODULE" \
   --host 127.0.0.1 --port "$BACKEND_PORT" \
   > "$ARTIFACTS_DIR/backend.log" 2>&1 &
 BACKEND_PID=$!

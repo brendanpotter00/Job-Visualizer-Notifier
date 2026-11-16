@@ -22,6 +22,8 @@ if [ -z "$SECTION" ]; then
   echo "  live-view            \$0. --live opens ONE real Browserbase session (~1 billed min)." >&2
   echo "  subcategories        \$0, with no opt-in that changes that. Seeded rows, own" >&2
   echo "                       stack on :8203/:3203, own database. No LLM, no browser hour." >&2
+  echo "  billing              \$0. Real Stripe SANDBOX (test cards, test clocks); a live" >&2
+  echo "                       key is refused. Own stack :8204/:3204. Needs 'stripe login'." >&2
   echo >&2
   echo "the verify-onesecondswe skill is the \$0 front door to the same features:" >&2
   echo "  .claude/skills/verify-onesecondswe/helpers/name_search.sh   (\$0; --live ~\$0.27)" >&2
@@ -57,6 +59,9 @@ case "$SECTION" in
     echo "run.sh: COST — \$0, unconditionally. Every fact it asserts is a property of" \
          "one SQL operator over eleven seeded rows: no LLM call, no Browserbase" \
          "session, no request to any host but its own stack." ;;
+  billing)
+    echo "run.sh: COST — \$0. Talks to a Stripe SANDBOX only (test-card payments and test" \
+         "clocks are free; a live key is refused). No LLM call, no Browserbase session." ;;
 esac
 
 # `company-name-search` brings its own runner and hands off BEFORE anything below
@@ -90,6 +95,11 @@ fi
 # (`--keep-up`) the same way live-view does.
 if [ "$SECTION" = "subcategories" ]; then
   exec bash "$SCRIPT_DIR/subcategories/run.sh" "$@"
+fi
+
+# `billing` owns its database, ports, lock and a `stripe listen` forwarder.
+if [ "$SECTION" = "billing" ]; then
+  exec bash "$SCRIPT_DIR/billing/run.sh" "$@"
 fi
 
 FAST=0
