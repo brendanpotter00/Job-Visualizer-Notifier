@@ -16,16 +16,22 @@ The plan this implements (owner-reviewed, with UI mockups): [`plan.html`](./plan
 Backend `.env.local` (repo root):
 
 ```
-STRIPE_SECRET_KEY=sk_test_…
+STRIPE_SECRET_KEY=sk_test_…     # or: bash docs/implementations/pricingStripe/set_stripe_key.sh
 STRIPE_PRICE_ID_PRO=price_…
 PUBLIC_APP_URL=http://localhost:3000
 STRIPE_WEBHOOK_SECRET=whsec_…   # printed by `stripe listen` below
 ```
 
+Use a **sandbox** (not the live account): authorize the CLI for it on `stripe login`, and copy
+`sk_test_…` from that same sandbox. `set_stripe_key.sh` reads the key silently and refuses one that
+cannot see `STRIPE_PRICE_ID_PRO` (a key from a different sandbox).
+
 ```bash
-brew install stripe/stripe-cli/stripe
+npm install -g @stripe/cli        # or: brew install stripe/stripe-cli/stripe
 stripe login
-stripe listen --forward-to localhost:8000/api/billing/webhook   # leave running; copy its whsec_…
+# leave running; copy its whsec_… (CLI 1.55+ requires --events)
+stripe listen --forward-to localhost:8000/api/billing/webhook \
+  --events checkout.session.completed,customer.subscription.created,customer.subscription.updated,customer.subscription.deleted,invoice.paid,invoice.payment_failed
 ```
 
 Run the backend + `npm run dev:vercel -w src/frontend`, sign in, open `/pricing`.
@@ -41,7 +47,6 @@ Run the backend + `npm run dev:vercel -w src/frontend`, sign in, open `/pricing`
 | 5 | Test Clock, card `4000 0000 0000 0341`, advance one month | `past_due`, still Pro; advance 3 more days → Free; update card → Pro |
 | 6 | `stripe events resend evt_…` | 200, no second write (`stripe_events`) |
 | 7 | `curl -X POST localhost:8000/api/billing/webhook -d '{}'` | 400 |
-| 8 | `/pricing?reason=mcp_limit` | One line: "You reached the free MCP limit. Pro removes it." |
 
 Check the row: `SELECT plan, status, past_due_since FROM user_subscriptions;`
 
