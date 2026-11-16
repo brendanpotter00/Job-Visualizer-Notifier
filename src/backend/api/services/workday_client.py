@@ -208,6 +208,65 @@ def _trip_cooldown(pod: str, retry_after: Optional[float]) -> float:
     return seconds
 
 
+# Diagnostics for non-2xx responses: who answered, Cloudflare or Workday?
+# Workday sits behind Cloudflare, so ``Server: cloudflare`` and ``CF-RAY`` are
+# on EVERY response, 200s included — they can't tell us who issued a 429.
+# Only ``cf-mitigated`` or a Cloudflare challenge/error body means Cloudflare
+# blocked us at the edge. ``x-wd-request-id`` means the request reached Workday.
+_DIAG_BODY_CHARS = 1000
+_SECRET_HEADER_HINTS = ("cookie", "authorization", "token", "secret", "api-key", "apikey")
+_CLOUDFLARE_BODY_MARKERS = (
+    "just a moment",
+    "attention required! | cloudflare",
+    "cf-chl",
+    "challenge-platform",
+    "cf-error-details",
+    "error code: 1015",
+    "you are being rate limited",
+)
+
+
+def _diag_blocker(response: httpx.Response, body: str) -> str:
+    """Best guess at who issued a non-2xx: "cloudflare", "workday", or "unknown"."""
+    if "cf-mitigated" in response.headers:
+        return "cloudflare"
+    lowered = body.lower()
+    if any(marker in lowered for marker in _CLOUDFLARE_BODY_MARKERS):
+        return "cloudflare"
+    if "x-wd-request-id" in response.headers:
+        return "workday"
+    return "unknown"
+
+
+def _diag_headers(response: httpx.Response) -> dict[str, str]:
+    """All response headers, minus secret values. Set-Cookie keeps names only."""
+    out: dict[str, str] = {}
+    for name, value in response.headers.multi_items():
+        key = name.lower()
+        if key == "set-cookie":
+            cookie_name = value.split("=", 1)[0].strip()
+            out[key] = f"{out[key]}, {cookie_name}" if key in out else cookie_name
+        elif any(hint in key for hint in _SECRET_HEADER_HINTS):
+            out[key] = "<redacted>"
+        else:
+            out[key] = f"{out[key]}, {value}" if key in out else value
+    return out
+
+
+def _log_non_2xx(response: httpx.Response, url: str, label: str) -> None:
+    """WARNING with status, host, headers, body head, and a blocker guess."""
+    try:
+        body = response.text[:_DIAG_BODY_CHARS]
+    except Exception:  # pragma: no cover - undecodable body
+        body = "<undecodable>"
+    logger.warning(
+        "Workday non-2xx for %s: status=%d blocker=%s host=%s url=%s "
+        "headers=%r body=%r",
+        label, response.status_code, _diag_blocker(response, body),
+        urlsplit(url).hostname, url, _diag_headers(response), body,
+    )
+
+
 async def _post_page(
     http: httpx.AsyncClient,
     url: str,
@@ -231,6 +290,8 @@ async def _post_page(
             },
             timeout=DEFAULT_TIMEOUT_SECONDS,
         )
+        if not 200 <= response.status_code < 300:
+            _log_non_2xx(response, url, label)
         if response.status_code != 429:
             return response
 
