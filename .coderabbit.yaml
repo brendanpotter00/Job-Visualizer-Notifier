@@ -144,7 +144,7 @@ reviews:
         These are Vercel serverless functions. Do not rely on process.env for
         local-development configuration — `vercel dev` pulls env vars from the
         linked Vercel project and they take absolute precedence over every local
-        .env file and even shell env vars; the api/utils/backendUrl.ts helper is
+        .env file and even shell env vars; the api/_utils/backendUrl.ts helper is
         the sanctioned workaround. Note that forwardResponse copies status and
         body only, so any response header the backend emits must be re-emitted
         explicitly in the proxy or it is dropped. Flag any user-controlled value

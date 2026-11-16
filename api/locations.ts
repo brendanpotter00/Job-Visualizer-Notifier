@@ -1,8 +1,8 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { getBackendUrl } from "./utils/backendUrl";
-import { forwardResponse } from "./utils/forwardResponse";
-import { getInternalKeyHeader } from "./utils/internalKey";
-import { PROXY_REJECTION, buildUpstreamUrl, resolveProxyPath } from "./utils/proxyPath";
+import { getBackendUrl } from "./_utils/backendUrl";
+import { forwardResponse } from "./_utils/forwardResponse";
+import { getInternalKeyHeader } from "./_utils/internalKey";
+import { PROXY_REJECTION, buildUpstreamUrl, resolveProxyPath } from "./_utils/proxyPath";
 
 /**
  * Public proxy for canonical-location search — forwards to the backend

@@ -112,7 +112,7 @@ npm run dev:vercel -w src/frontend
 
 Vercel Dev detects `localhost` in the Host header and routes `/api/*` calls to
 your local backend on port 8000 instead of the production Railway backend.
-(See `api/utils/backendUrl.ts` for the routing logic.)
+(See `api/_utils/backendUrl.ts` for the routing logic.)
 
 ---
 

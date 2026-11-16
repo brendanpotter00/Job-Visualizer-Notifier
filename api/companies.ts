@@ -1,8 +1,8 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { getBackendUrl } from './utils/backendUrl';
-import { forwardResponse } from './utils/forwardResponse';
-import { getInternalKeyHeader } from './utils/internalKey';
-import { PROXY_REJECTION, buildUpstreamUrl, resolveProxyPath } from './utils/proxyPath';
+import { getBackendUrl } from './_utils/backendUrl';
+import { forwardResponse } from './_utils/forwardResponse';
+import { getInternalKeyHeader } from './_utils/internalKey';
+import { PROXY_REJECTION, buildUpstreamUrl, resolveProxyPath } from './_utils/proxyPath';
 
 // Public proxy for the curated-companies directory. Mirrors api/features.ts but
 // is read-only and unauthenticated (the backend endpoint takes no auth). The
@@ -12,7 +12,7 @@ const METHODS_WITH_BODY = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
 /**
  * Every backend route reachable under `/api/companies`, and nothing else. See
- * `api/utils/proxyPath.ts` for why this is an allowlist and not a `..` filter.
+ * `api/_utils/proxyPath.ts` for why this is an allowlist and not a `..` filter.
  *
  * Two routes exist on the backend `companies` router and the frontend uses
  * both: `features/companies/companiesApi.ts` reads the bare directory, and

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import handler from '../../../../../../api/users';
 import { runProxyAllowlistGuard } from './proxyAllowlistGuard';
-import { getBackendUrl } from '../../../../../../api/utils/backendUrl';
+import { getBackendUrl } from '../../../../../../api/_utils/backendUrl';
 
 function mockJsonResponse(status: number, body: unknown) {
   const serialized = JSON.stringify(body);

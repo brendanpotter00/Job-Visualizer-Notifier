@@ -4,7 +4,7 @@ import {
   buildUpstreamUrlWithEncoder,
   canonicalizeProxyPath,
   resolveProxyPath,
-} from '../../../../../../api/utils/proxyPath';
+} from '../../../../../../api/_utils/proxyPath';
 import {
   DOT_SEGMENT_SPELLINGS,
   NFKC_HAZARD_SEGMENTS,
@@ -58,7 +58,7 @@ describe('canonicalizeProxyPath', () => {
   });
 
   it('rejects every character that can restructure the upstream URL', () => {
-    // Each verified against Node's WHATWG URL; see api/utils/proxyPath.ts.
+    // Each verified against Node's WHATWG URL; see api/_utils/proxyPath.ts.
     expect(canonicalizeProxyPath('a\\b')).toBeNull(); // backslash IS a separator
     expect(canonicalizeProxyPath('a?b')).toBeNull(); // query injection
     expect(canonicalizeProxyPath('a#b')).toBeNull(); // fragment truncation
@@ -185,7 +185,7 @@ describe('canonicalizeProxyPath', () => {
 
 describe('the WHATWG URL behaviour these layers defend against', () => {
   // Pinned so the threat model is executable, not folklore: if Node ever stops
-  // doing this, these fail and the comments in api/utils/proxyPath.ts are stale.
+  // doing this, these fail and the comments in api/_utils/proxyPath.ts are stale.
   it('collapses a percent-encoded dot segment inside fetch', () => {
     const naive = 'http://h/api/admin/locations/aliases/%2e%2e/%2e%2e/%2e%2e/internal/x';
     expect(new URL(naive).pathname).toBe('/api/internal/x');

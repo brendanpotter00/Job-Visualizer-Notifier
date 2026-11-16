@@ -451,7 +451,7 @@ class TestProxyAllowlistInvariant:
         # Accepts both spellings of the allowlist literal: the original
         # ``new Set([...])`` and the ``[...] as const`` array the proxy moved to
         # when the canonicalize-and-match logic was hoisted into the shared
-        # ``api/utils/proxyPath.ts`` (so all seven internal-key proxies use one
+        # ``api/_utils/proxyPath.ts`` (so all seven internal-key proxies use one
         # implementation). Only the SHAPE is flexible — the invariant this
         # class enforces is unchanged, and a denylist still fails the assert.
         match = re.search(
@@ -549,7 +549,7 @@ class TestProxyAllowlistInvariant:
         but ``scrape-runs/`` would then 404 a legitimate caller. The
         canonicalizer is what makes both directions correct.
 
-        The canonicalizer now lives in ``api/utils/proxyPath.ts``, shared with
+        The canonicalizer now lives in ``api/_utils/proxyPath.ts``, shared with
         the six other internal-key proxies (``users``, ``companies``,
         ``feedback``, ``features``, ``admin``, ``jobs``) after the same
         ``?path=`` traversal was found live on five of them. This test follows
@@ -558,10 +558,10 @@ class TestProxyAllowlistInvariant:
         URL-restructuring characters the way two fixed literals were.
         """
         assert (
-            "from './utils/proxyPath'" in self.PROXY.read_text()
+            "from './_utils/proxyPath'" in self.PROXY.read_text()
         ), "api/jobs-qa.ts must use the shared canonicalizer, not a private copy"
 
-        shared = self.PROXY.parent / "utils" / "proxyPath.ts"
+        shared = self.PROXY.parent / "_utils" / "proxyPath.ts"
         assert shared.exists(), shared
         src = shared.read_text()
         assert "function canonicalizeProxyPath" in src
