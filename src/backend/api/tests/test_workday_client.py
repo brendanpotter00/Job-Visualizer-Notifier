@@ -737,3 +737,109 @@ class TestFetchJobsRateLimit:
         assert workday_client._retry_after_seconds(httpx.Response(429)) is None
         bad = httpx.Response(429, headers={"Retry-After": "soon"})
         assert workday_client._retry_after_seconds(bad) is None
+
+
+# ---------------------------------------------------------------------------
+# Non-2xx diagnostics — who issued the block, Cloudflare or Workday?
+# ---------------------------------------------------------------------------
+
+class TestNon2xxDiagnostics:
+    @pytest.fixture(autouse=True)
+    def _no_sleep(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        async def fake_sleep(seconds: float) -> None:
+            return None
+
+        monkeypatch.setattr(workday_client.asyncio, "sleep", fake_sleep)
+
+    async def _diag_records(
+        self, caplog: pytest.LogCaptureFixture, response: httpx.Response
+    ) -> list[Any]:
+        import logging
+
+        def handler(req: httpx.Request) -> httpx.Response:
+            return response
+
+        with caplog.at_level(logging.WARNING, logger="api.services.workday_client"):
+            async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+                with pytest.raises(httpx.HTTPError):
+                    await fetch_jobs(PROVIDER_CONFIG_NVIDIA, http)
+        return [r for r in caplog.records if "non-2xx" in r.getMessage()]
+
+    async def test_cloudflare_challenge_429_is_logged_with_headers_and_body(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        response = httpx.Response(
+            429,
+            headers=[
+                ("Server", "cloudflare"),
+                ("CF-RAY", "abc123-IAH"),
+                ("cf-mitigated", "challenge"),
+                ("Retry-After", "30"),
+                ("Set-Cookie", "__cf_bm=SECRETVALUE; path=/; HttpOnly"),
+                ("Set-Cookie", "other=ALSOSECRET"),
+                ("Authorization", "Bearer SECRETTOKEN"),
+            ],
+            text="<html><title>Just a moment...</title></html>",
+        )
+        records = await self._diag_records(caplog, response)
+
+        # One per attempt (initial + in-place retries); behavior unchanged.
+        assert len(records) == workday_client.WORKDAY_429_MAX_RETRIES + 1
+        msg = records[0].getMessage()
+        assert records[0].levelname == "WARNING"
+        assert "status=429" in msg
+        assert "blocker=cloudflare" in msg
+        assert "host=nvidia.wd5.myworkdayjobs.com" in msg
+        assert "'cf-ray': 'abc123-IAH'" in msg
+        assert "'cf-mitigated': 'challenge'" in msg
+        assert "'retry-after': '30'" in msg
+        assert "'set-cookie': '__cf_bm, other'" in msg
+        assert "Just a moment" in msg
+        # Secrets never logged.
+        assert "SECRETVALUE" not in msg
+        assert "ALSOSECRET" not in msg
+        assert "SECRETTOKEN" not in msg
+
+    async def test_cloudflare_headers_alone_do_not_mean_cloudflare_blocked(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        # Workday is behind Cloudflare: Server/CF-RAY are on every response.
+        # A 429 that reached Workday's origin carries x-wd-request-id.
+        response = httpx.Response(
+            429,
+            headers={
+                "Server": "cloudflare",
+                "CF-RAY": "abc123-IAH",
+                "x-wd-request-id": "VPS|00000000-0000-0000-0000-000000000000",
+            },
+            json={"errorCode": "TOO_MANY_REQUESTS"},
+        )
+        msg = (await self._diag_records(caplog, response))[0].getMessage()
+        assert "blocker=workday" in msg
+
+    async def test_body_is_truncated_and_unknown_without_markers(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        response = httpx.Response(503, text="x" * 5000)
+        records = await self._diag_records(caplog, response)
+        assert len(records) == 1  # non-429: logged once, no retry
+        msg = records[0].getMessage()
+        assert "status=503" in msg
+        assert "blocker=unknown" in msg
+        assert "x" * 1000 in msg
+        assert "x" * 1001 not in msg
+
+    async def test_success_is_not_logged(self, caplog: pytest.LogCaptureFixture) -> None:
+        import logging
+
+        def handler(req: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, json={"total": 0, "jobPostings": []})
+
+        with caplog.at_level(logging.WARNING, logger="api.services.workday_client"):
+            async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+                await fetch_jobs(PROVIDER_CONFIG_NVIDIA, http)
+        assert not [r for r in caplog.records if "non-2xx" in r.getMessage()]
+
+    def test_cloudflare_rate_limit_error_page_body(self) -> None:
+        resp = httpx.Response(429, text="error code: 1015")
+        assert workday_client._diag_blocker(resp, resp.text) == "cloudflare"
