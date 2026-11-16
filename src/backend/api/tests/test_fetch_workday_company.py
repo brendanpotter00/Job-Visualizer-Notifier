@@ -519,6 +519,48 @@ class TestFetchWorkdayCompany:
         assert row["attempts"] >= 1
         assert row["status"] in ("todo", "failed", "doing")
 
+    async def test_http_429_records_failed_run_and_does_not_retry(
+        self, procrastinate_open, db_conn, monkeypatch
+    ):
+        """A 429 that survives the client's in-place retries fails the job
+        for good — no Procrastinate re-run on top (that was the retry storm).
+        """
+        from api.services import workday_client
+
+        async def no_sleep(_seconds: float) -> None:
+            return None
+
+        monkeypatch.setattr(workday_client.asyncio, "sleep", no_sleep)
+
+        company = "expedia"
+        token = "expedia"
+        _seed_company(db_conn, company, token)
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(429, headers={"Retry-After": "1"})
+
+        _patch_httpx(monkeypatch, handler)
+
+        await fetch_workday_company.defer_async(
+            company_id=company, board_token=token, provider_config=_PROVIDER_CONFIG,
+        )
+        await _drain()
+        db_conn.rollback()
+
+        runs = _scrape_runs(db_conn, company)
+        assert len(runs) == 1
+        assert runs[0]["error_count"] == 1
+
+        cur = db_conn.cursor()
+        cur.execute(
+            "SELECT status, attempts FROM procrastinate_jobs "
+            "WHERE task_name = 'fetch_workday_company' "
+            "ORDER BY id DESC LIMIT 1"
+        )
+        row = cur.fetchone()
+        assert row is not None, "procrastinate_jobs row missing"
+        assert row["status"] == "failed"
+
     async def test_missing_provider_config_keys_records_failed_run(
         self, procrastinate_open, db_conn, monkeypatch
     ):
@@ -733,3 +775,19 @@ async def test_task_timeout_records_failed_run(
     assert len(runs) == 1, "timed-out task must still record a scrape_runs row"
     assert runs[0]["error_count"] == 1
     assert runs[0]["jobs_seen"] == 0
+
+
+def test_retry_strategy_skips_rate_limit_but_keeps_other_retries():
+    from types import SimpleNamespace
+
+    from api.services.workday_client import WorkdayRateLimitedError
+    from api.tasks.fetch_workday_company import _NoRetryOnRateLimit
+
+    strategy = _NoRetryOnRateLimit(max_attempts=5, exponential_wait=2)
+    job = SimpleNamespace(attempts=0)
+    assert strategy.get_retry_decision(
+        exception=WorkdayRateLimitedError("429"), job=job
+    ) is None
+    assert strategy.get_retry_decision(
+        exception=httpx.ConnectError("boom"), job=job
+    ) is not None

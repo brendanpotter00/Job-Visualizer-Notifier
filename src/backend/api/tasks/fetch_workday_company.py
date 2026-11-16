@@ -67,6 +67,8 @@ import httpx
 import psycopg2
 from procrastinate import RetryStrategy
 from procrastinate import exceptions as procrastinate_exceptions
+from procrastinate.jobs import Job
+from procrastinate.retry import RetryDecision
 
 from scripts.shared import database as db
 from scripts.shared.incremental import (
@@ -82,6 +84,7 @@ from scripts.shared.utils import get_iso_timestamp
 from ..config import settings
 from ..services.workday_client import (
     SOURCE_ID,
+    WorkdayRateLimitedError,
     _validate_provider_config,
     fetch_jobs,
     transform_to_job_listings,
@@ -99,10 +102,27 @@ logger = logging.getLogger(__name__)
 _TASK_TIMEOUT_S: float = 120.0
 
 
+class _NoRetryOnRateLimit(RetryStrategy):
+    """Same as the stock strategy, except a 429 is never re-run.
+
+    The client already retried the 429 in place and put the pod on cooldown.
+    Re-running the task within seconds (exponential_wait=2) only adds load to
+    a limiter that is already tripped — it was the retry storm behind the
+    all-16-companies-429 incident. The next 30-minute fan-out tick retries.
+    """
+
+    def get_retry_decision(
+        self, *, exception: BaseException, job: Job
+    ) -> RetryDecision | None:
+        if isinstance(exception, WorkdayRateLimitedError):
+            return None
+        return super().get_retry_decision(exception=exception, job=job)
+
+
 @procrastinate_app.task(
     queue="workday_fetch",
     name="fetch_workday_company",
-    retry=RetryStrategy(max_attempts=5, exponential_wait=2),
+    retry=_NoRetryOnRateLimit(max_attempts=5, exponential_wait=2),
 )
 async def fetch_workday_company(
     company_id: str,
