@@ -26,8 +26,6 @@ function PlanCardShell({ inverted = false, labelledBy, children }: PlanCardShell
         p: RESPONSIVE.pricing.cardPadding,
         borderRadius: CARD_RADIUS,
         border: '1px solid',
-        // Pro is the only inverted (black) surface on the page — the one bold
-        // move; everything else stays in the monochrome landing language.
         borderColor: inverted ? 'text.primary' : 'divider',
         bgcolor: inverted ? 'text.primary' : 'background.default',
         color: inverted ? 'background.default' : 'text.primary',
@@ -105,7 +103,6 @@ export function FreePlanCard() {
     <PlanCardShell labelledBy="plan-free">
       <PlanName id="plan-free">{free.name}</PlanName>
       <Price amount={free.price} />
-      {/* Ruled rows, no bullets (owner, 2026-11-15). */}
       <Box component="ul" sx={{ listStyle: 'none', p: 0, m: 0, mt: 1, mb: 3 }}>
         {free.rows.map((row) => (
           <Box
@@ -210,7 +207,6 @@ export function ProPlanCard({
       </PlanName>
       <Price amount={pro.price} period={pro.period} inverted />
       <Typography sx={{ mt: 2, fontSize: '0.9375rem', color: 'grey.500' }}>{pro.plus}</Typography>
-      {/* Option B (owner, 2026-11-15): the one feature, set large, in place of a list. */}
       <Typography
         component="p"
         sx={{
@@ -224,8 +220,7 @@ export function ProPlanCard({
       >
         {pro.headline}
       </Typography>
-      {/* With Auth0 unconfigured (local Vite without env), there is no sign-in to
-          start; fall back to the account route like AuthEntryButton does. */}
+      {/* No Auth0 (local Vite without env): link to /account, like AuthEntryButton. */}
       {cta.kind === 'signin' && !authEnabled ? (
         <Button component={RouterLink} to={ROUTES.ACCOUNT} variant="contained" sx={buttonSx}>
           {proCtaLabel(cta)}

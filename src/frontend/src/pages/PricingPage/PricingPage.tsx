@@ -3,13 +3,8 @@ import { Box, Container, Typography } from '@mui/material';
 import { useSearchParams } from 'react-router-dom';
 import { RESPONSIVE } from '../../config/responsive';
 import { useAuth } from '../../features/auth/useAuth';
-import {
-  goToStripe,
-  useCreateCheckoutSessionMutation,
-  useCreatePortalSessionMutation,
-  useGetSubscriptionQuery,
-} from '../../features/billing/billingApi';
-import { extractErrorMessage } from '../../lib/errors';
+import { useGetSubscriptionQuery } from '../../features/billing/billingApi';
+import { useStripeRedirect } from '../../features/billing/useStripeRedirect';
 import { LANDING_CONTENT } from '../LandingPage/content';
 import { LandingHeader } from '../LandingPage/sections/LandingHeader';
 import {
@@ -45,14 +40,9 @@ function PricingNotice({ notice }: { notice: Notice }) {
 }
 
 /**
- * /pricing — Free vs Pro ($6/month, unlimited MCP).
- *
- * Mounted OUTSIDE RootLayout, full-bleed with the landing header, like `/`.
- * Query params it reads:
- * - `?reason=mcp_limit`  the MCP 429's upgradeUrl → one line above the plans
- * - `?intent=pro`        set by "Sign in to upgrade" → resumes Checkout once
- * - `?checkout=success`  Stripe's success_url → poll until the WEBHOOK grants Pro
- *                        (the redirect itself proves nothing)
+ * /pricing — Free vs Pro. Query params:
+ * - `?intent=pro`        after "Sign in to upgrade": resume Checkout once
+ * - `?checkout=success`  Stripe's success_url: poll until the webhook grants Pro
  * - `?checkout=cancel`   Stripe's cancel_url
  */
 export function PricingPage() {
@@ -63,7 +53,6 @@ export function PricingPage() {
     loginWithReturnTo,
   } = useAuth();
   const [params, setParams] = useSearchParams();
-  const reason = params.get('reason');
   const checkout = params.get('checkout');
   const intent = params.get('intent');
 
@@ -71,19 +60,7 @@ export function PricingPage() {
   const subscription = subscriptionQuery.data;
   const { refetch } = subscriptionQuery;
 
-  const [startCheckout, checkoutState] = useCreateCheckoutSessionMutation();
-  const [openPortal, portalState] = useCreatePortalSessionMutation();
-  const [redirecting, setRedirecting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  // Back-button from Stripe restores this page from the bfcache with the button
-  // still "redirecting"; re-enable it.
-  useEffect(() => {
-    const onPageShow = (event: PageTransitionEvent) => {
-      if (event.persisted) setRedirecting(false);
-    };
-    window.addEventListener('pageshow', onPageShow);
-    return () => window.removeEventListener('pageshow', onPageShow);
-  }, []);
+  const { upgrade, manage, error, busy } = useStripeRedirect(PRICING_CONTENT.notices.startFailed);
 
   const cta = resolveProCta({
     isAuthenticated,
@@ -93,7 +70,7 @@ export function PricingPage() {
     returnedFromCheckout: checkout === 'success',
   });
 
-  // --- after Checkout: poll until the webhook lands (or give up after a minute)
+  // After Checkout: poll until the webhook lands, or give up after a minute.
   const awaitingWebhook = checkout === 'success';
   const [pollExpired, setPollExpired] = useState(false);
   useEffect(() => {
@@ -108,30 +85,12 @@ export function PricingPage() {
     return () => clearInterval(id);
   }, [polling, refetch]);
 
-  const go = useCallback(
-    async (request: () => Promise<{ url: string }>) => {
-      setError(null);
-      try {
-        const { url } = await request();
-        setRedirecting(true);
-        goToStripe(url);
-      } catch (err) {
-        setError(extractErrorMessage(err, PRICING_CONTENT.notices.startFailed));
-        // 409 = "you already have a subscription": the cached plan is stale, so
-        // re-read it and the button turns into Manage billing.
-        if ((err as { status?: unknown } | null)?.status === 409) void refetch();
-      }
-    },
-    [refetch]
-  );
-  const onUpgrade = useCallback(() => void go(() => startCheckout().unwrap()), [go, startCheckout]);
-  const onManage = useCallback(() => void go(() => openPortal().unwrap()), [go, openPortal]);
   const onSignIn = useCallback(
     () => void loginWithReturnTo(PRICING_RESUME_PATH).catch(() => undefined),
     [loginWithReturnTo]
   );
 
-  // --- back from sign-in with ?intent=pro: resume Checkout exactly once
+  // Back from sign-in with ?intent=pro: resume Checkout exactly once.
   const resumed = useRef(false);
   useEffect(() => {
     if (intent !== 'pro' || resumed.current) return;
@@ -145,11 +104,8 @@ export function PricingPage() {
       },
       { replace: true }
     );
-    // Started from a timer callback, not the effect body (no setState in an
-    // effect). Deliberately not cleared on cleanup: removing ?intent re-runs this
-    // effect, and the `resumed` ref already makes it fire exactly once.
-    if (cta.kind === 'upgrade' && !cta.disabled) window.setTimeout(onUpgrade, 0);
-  }, [intent, cta, onUpgrade, setParams]);
+    if (cta.kind === 'upgrade' && !cta.disabled) upgrade();
+  }, [intent, cta, upgrade, setParams]);
 
   const notice: Notice | null = error
     ? { text: error, tone: 'error' }
@@ -164,11 +120,7 @@ export function PricingPage() {
         }
       : checkout === 'cancel'
         ? { text: PRICING_CONTENT.notices.checkoutCanceled, tone: 'info' }
-        : reason === 'mcp_limit'
-          ? { text: PRICING_CONTENT.notices.mcpLimit, tone: 'info' }
-          : null;
-
-  const busy = redirecting || checkoutState.isLoading || portalState.isLoading;
+        : null;
 
   return (
     <Box
@@ -181,7 +133,7 @@ export function PricingPage() {
       }}
     >
       <PricingSeo />
-      {/* Same scroller contract as LandingPage: the sticky header sticks to this. */}
+      {/* The sticky landing header sticks to this scroller, as on LandingPage. */}
       <Box sx={{ flex: 1, overflowY: 'auto' }}>
         <LandingHeader content={LANDING_CONTENT} />
         <Container component="main" maxWidth="lg" sx={{ py: RESPONSIVE.pricing.pagePaddingY }}>
@@ -214,8 +166,8 @@ export function PricingPage() {
               busy={busy}
               authEnabled={authEnabled}
               onSignIn={onSignIn}
-              onUpgrade={onUpgrade}
-              onManage={onManage}
+              onUpgrade={upgrade}
+              onManage={manage}
             />
           </Box>
         </Container>

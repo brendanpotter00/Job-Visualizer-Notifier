@@ -302,23 +302,14 @@ class Settings(BaseSettings):
     # at 0 logs a startup WARNING (``services/add_quota.warn_if_adds_disabled``).
     custom_company_monthly_add_limit: int = Field(default=20, ge=0)
 
-    # Billing (Stripe). All optional: with any of the three secrets unset the
-    # billing routes that talk to Stripe answer 503 instead of crashing boot, and
-    # the read-only GET /api/billing/subscription still works off the DB. Test-mode
-    # keys locally (sk_test_…); live keys only in Railway prod, only at launch.
-    # str|None to match internal_api_key (NOT SecretStr).
+    # Billing (Stripe). With any unset, the Stripe-calling billing routes answer 503.
     stripe_secret_key: str | None = None
-    # whsec_… — from `stripe listen` locally, from the Dashboard endpoint in prod.
-    # The two are DIFFERENT secrets; a local one in prod rejects every event (400).
+    # Per endpoint: `stripe listen` and the Dashboard endpoint have different secrets.
     stripe_webhook_secret: str | None = None
-    # price_… for the $6/month Pro plan. Stripe's Price is the source of truth
-    # for the amount; the frontend's "$6" is display copy only.
+    # The $6/month Pro Price; the amount charged comes from Stripe, not this app.
     stripe_price_id_pro: str | None = None
-    # Origin the browser returns to after Checkout / the Customer Portal, e.g.
-    # https://onesecondswe.dev (local: http://localhost:3000). No trailing slash.
-    # The FRONTEND origin (Vercel), never the backend. Deliberately no default:
-    # billing_configured() requires it, so a prod deploy with keys but no origin
-    # disables billing instead of sending paying users to localhost.
+    # Frontend origin Stripe returns the browser to. No default, so a missing one
+    # disables billing rather than sending paying users to localhost.
     public_app_url: str | None = None
 
     # Server

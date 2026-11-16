@@ -154,8 +154,7 @@ function AppContent() {
       {WEBMCP_CONFIG.isEnabled && <WebMcpBridge />}
       <Routes>
         <Route path={ROUTES.HOME} element={<HomeRoute />} />
-        {/* Full-bleed like the landing page: outside RootLayout, so it carries its
-            own Suspense (RootLayout's wraps only the routes inside it). */}
+        {/* Outside RootLayout, so it needs its own Suspense. */}
         <Route
           path={ROUTES.PRICING}
           element={

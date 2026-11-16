@@ -24,12 +24,7 @@ interface AuthResult {
   isLoading: boolean;
   user: User | undefined;
   login: () => Promise<void>;
-  /**
-   * Sign in, then land on `returnTo` instead of the default. A separate method,
-   * not an optional arg on `login`, because `login` is passed straight to
-   * `onClick` in several places and would receive the click event. Only
-   * same-origin paths are honoured (`safeReturnTo`, applied in AuthProviders).
-   */
+  /** Sign in, then land on `returnTo` (a same-origin path) instead of the default. */
   loginWithReturnTo: (returnTo: string) => Promise<void>;
   signup: () => Promise<void>;
   logout: () => void;

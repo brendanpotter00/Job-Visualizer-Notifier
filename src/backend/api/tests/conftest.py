@@ -358,8 +358,6 @@ def _clear_tables(conn) -> None:
         sql.Identifier("location_aliases"),
         sql.Identifier("scrape_runs"),
         sql.Identifier("admins"),
-        # Billing. user_subscriptions FKs users with ON DELETE RESTRICT, which a
-        # TRUNCATE ... CASCADE ignores — list both explicitly anyway.
         sql.Identifier("user_subscriptions"),
         sql.Identifier("stripe_events"),
         sql.Identifier("users"),

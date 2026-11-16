@@ -626,57 +626,37 @@ class Admin(Base):
 
 
 class UserSubscription(Base):
-    """A user's Stripe billing state: a 1:1 sidecar of ``users``, keyed by the
-    parent PK (the same shape as ``job_freshness``). Checked against
-    docs/implementations/performance-audit/POSTGRES-PRINCIPLES.md (P) and
-    POSTGRES-ANTI-PATTERNS.md (AP); the section numbers are cited inline.
+    """A user's Stripe billing state: a 1:1 sidecar of ``users``.
 
-    Only the Stripe webhook writes the subscription columns (routers/billing.py),
-    and every write re-reads the subscription FROM Stripe, so event order does not
-    matter. The row is created when the user first starts Checkout (it holds the
-    Stripe customer id) and is NEVER deleted when Pro ends: ``status='canceled'``
-    is a lifecycle state, not a soft delete (P3), and the customer id is reused if
-    the user subscribes again.
+    Only the Stripe webhook writes the subscription columns. The row is kept
+    when Pro ends (``status='canceled'`` is a lifecycle state, P3) so the
+    customer id is reused on a re-subscribe.
     """
 
     __tablename__ = "user_subscriptions"
 
-    # P4 / AP9: a real FK. RESTRICT, not CASCADE: this row maps a LIVE Stripe
-    # subscription that keeps charging after a users row is gone, so the database
-    # refuses to hard-delete a user who still has billing state. Cancel in Stripe,
-    # then delete. (P4's "CASCADE only when the child has no independent
-    # retention" — this child does.)
+    # RESTRICT (P4): a live Stripe subscription keeps charging after its user is
+    # gone, so cancel in Stripe before deleting the user.
     user_id = Column(
         Text,
         ForeignKey("users.id", ondelete="RESTRICT"),
         primary_key=True,
     )
-    # P5: each UNIQUE supplies the index the webhook looks rows up by. No second
-    # index on either (AP6).
+    # Each UNIQUE is the index the webhook looks rows up by (P5).
     stripe_customer_id = Column(Text, nullable=False, unique=True)
     stripe_subscription_id = Column(Text, nullable=True, unique=True)
-    # 'free' | 'pro' — the plan the CURRENT subscription is for. Billing state,
-    # not entitlement: services/entitlements.is_pro() also reads ``status`` (and
-    # the past-due grace) before answering "is this user Pro right now".
+    # What the current subscription is for; entitlements.is_pro() decides access.
     plan = Column(Text, nullable=False, server_default=text("'free'"))
-    # Stripe's subscription status verbatim (active, past_due, canceled, …).
-    # Deliberately no CHECK: Stripe adds statuses, and a new one must not make the
-    # webhook's UPDATE fail (and Stripe retry it forever).
+    # Stripe's status verbatim. No CHECK: a new Stripe status must not fail the webhook.
     status = Column(Text, nullable=True)
-    # AP4: real TIMESTAMPTZ, parsed from Stripe's epoch ints at the webhook
-    # boundary — never TEXT, never defaulted to now().
     current_period_end = Column(TIMESTAMP(timezone=True), nullable=True)
     cancel_at_period_end = Column(Boolean, nullable=False, server_default=text("false"))
-    # When the subscription FIRST went past_due, taken from Stripe's
-    # ``event.created`` — never now() (AP4): a late webhook delivery must not
-    # stretch the 3-day grace in entitlements.PAST_DUE_GRACE. Cleared when the
-    # subscription leaves past_due.
+    # Start of the past-due grace, from the failure event's Stripe time (AP4).
     past_due_since = Column(TIMESTAMP(timezone=True), nullable=True)
-    # P2: created_at everywhere; updated_at kept honest by the shared
-    # set_updated_at() BEFORE UPDATE trigger below, not by app code.
     created_at = Column(
         TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
     )
+    # Kept current by the set_updated_at() trigger below (P2).
     updated_at = Column(
         TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
     )
@@ -689,23 +669,10 @@ class UserSubscription(Base):
 
 
 class StripeEvent(Base):
-    """Append-only dedupe log of processed Stripe webhook events.
-
-    Stripe delivers at least once, so the webhook INSERTs ``event_id`` with
-    ``ON CONFLICT (event_id) DO NOTHING`` in the SAME transaction as the
-    subscription sync: a replay is a 200 no-op, and a sync that fails rolls the
-    insert back so Stripe's retry is not mistaken for a replay.
-
-    P2: append-only, so no updated_at. P7 / AP6: roughly five rows per subscriber
-    per month, so no TTL sweep and no index beyond the UNIQUE yet; if it grows,
-    add a bounded-batch delete on ``created_at`` then.
-    """
+    """Append-only dedupe log of processed Stripe webhook events (P2: no updated_at)."""
 
     __tablename__ = "stripe_events"
 
-    # P1 / AP10: a DB-assigned BIGINT surrogate PK, the repo's convention for
-    # append-only logs (user_visits, company_add_attempts) — not Stripe's random
-    # ``evt_…`` string, which lives in the UNIQUE column below.
     id = Column(BigInteger, primary_key=True)
     event_id = Column(Text, nullable=False, unique=True)
     type = Column(Text, nullable=False)
@@ -714,12 +681,8 @@ class StripeEvent(Base):
     )
 
 
-# P2: the shared ``set_updated_at()`` trigger function — the first in this
-# schema, defined once and attachable to any later mutable table. Without it
-# ``updated_at`` only ever records insert time, and any write path that forgets
-# to set it leaves it stale. Mirrored here (not only in the migration) so
-# ``Base.metadata.create_all`` test schemas get the same trigger as production;
-# Alembic does not autogenerate functions or triggers.
+# Alembic does not autogenerate functions or triggers; mirrored here so
+# create_all test schemas match the migration.
 _SET_UPDATED_AT_FUNCTION = DDL(
     """
     CREATE OR REPLACE FUNCTION set_updated_at() RETURNS trigger
@@ -752,10 +715,8 @@ event.listen(
 )
 event.listen(
     UserSubscription.__table__,
-    "before_drop",
-    DDL(
-        "DROP TRIGGER IF EXISTS user_subscriptions_set_updated_at ON user_subscriptions"
-    ).execute_if(dialect="postgresql"),
+    "after_drop",
+    DDL("DROP FUNCTION IF EXISTS set_updated_at()").execute_if(dialect="postgresql"),
 )
 
 

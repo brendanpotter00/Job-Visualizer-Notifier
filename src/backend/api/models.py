@@ -2264,14 +2264,10 @@ class AdminCustomCompanyAttemptsResponse(BaseModel):
 
 
 class SubscriptionResponse(BaseModel):
-    """GET /api/billing/subscription — the caller's billing state + entitlement.
+    """GET /api/billing/subscription.
 
-    ``plan`` is BILLING state (what the current subscription is for); ``is_pro``
-    is ENTITLEMENT (services/entitlements.is_pro: admins, the past-due grace). The
-    page needs both: an admin is Pro with nothing to manage, and a lapsed user
-    still has a subscription (``plan='pro'``) to fix while ``is_pro`` is False.
-    ``has_subscription`` is the CTA switch: True → "Manage billing" (Portal),
-    False → "Upgrade to Pro" (Checkout).
+    ``plan`` is billing state; ``is_pro`` is entitlement (admins, the past-due
+    grace). ``has_subscription`` picks Manage billing over Upgrade.
     """
 
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
@@ -2284,8 +2280,6 @@ class SubscriptionResponse(BaseModel):
     cancel_at_period_end: bool = False
     past_due_since: datetime | None = None
     grace_ends_at: datetime | None = None
-    # False while the Stripe secrets are unset: the page shows the plans but
-    # disables the Upgrade button instead of letting it 503.
     billing_enabled: bool
 
 

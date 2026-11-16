@@ -1,17 +1,13 @@
 """Billing endpoints (``/api/billing``): Stripe Checkout, Portal, status, webhook.
 
-The first three are user-facing (Bearer token, reached through the Vercel
-``api/billing.ts`` proxy). The webhook is called by Stripe itself, DIRECTLY on
-the Railway origin: it is exempt from the X-Internal-Key middleware
-(``auth/internal_key._EXEMPT_PATHS``) because Stripe cannot send that header,
-and it is deliberately NOT in the Vercel proxy's allowlist — the Stripe
-signature over the raw body is its only authentication, and a proxy hop that
-re-serializes the body would break it.
+Stripe calls the webhook directly on this origin; its signature is the only
+auth, so it is exempt from X-Internal-Key and never proxied by Vercel.
 """
 
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 import psycopg2
 import stripe
@@ -38,14 +34,10 @@ router = APIRouter()
 
 _NOT_CONFIGURED = "Billing is not configured on this server."
 
-# The webhook is the one public, body-reading POST (everything else sits behind
-# X-Internal-Key), and the body must be read before the signature can be checked.
-# Real Stripe events are a few KB; refuse anything near this before buffering it.
+# Real Stripe events are a few KB.
 MAX_WEBHOOK_BODY_BYTES = 1_000_000
 
-# Every handler below that calls Stripe or psycopg2 is a plain ``def``: FastAPI
-# runs those in its threadpool. As ``async def`` they would block the one event
-# loop the Procrastinate worker lanes and the auto-scraper also run on.
+# Handlers that call Stripe or psycopg2 are plain ``def`` so they run in the threadpool.
 
 
 def _resolve_user(conn: Connection, user: TokenClaims) -> UserRow:
@@ -132,16 +124,8 @@ def create_portal_session(
     return BillingRedirectResponse(url=url)
 
 
-@router.post("/webhook", include_in_schema=False)
-async def stripe_webhook(
-    request: Request,
-    conn: Connection = Depends(get_db),
-) -> dict[str, bool]:
-    """Stripe → us. 400 on a bad signature, 500 (Stripe retries) on a failed sync.
-
-    Every 2xx tells Stripe "done": unknown event types and replays get a 200 so
-    they are not retried for days.
-    """
+async def _verified_event(request: Request) -> dict[str, Any]:
+    """Read and verify the body. A dependency so it runs before get_db: this route is public."""
     if not billing_service.billing_configured():
         raise HTTPException(status_code=503, detail=_NOT_CONFIGURED)
     declared = request.headers.get("content-length")
@@ -152,13 +136,22 @@ async def stripe_webhook(
         body += chunk
         if len(body) > MAX_WEBHOOK_BODY_BYTES:  # chunked, or a lying Content-Length
             raise HTTPException(status_code=413, detail="Payload too large")
-    payload = bytes(body)
     try:
-        event = billing_service.construct_event(payload, request.headers.get("stripe-signature"))
+        return billing_service.construct_event(bytes(body), request.headers.get("stripe-signature"))
     except (ValueError, stripe.SignatureVerificationError):
         raise HTTPException(status_code=400, detail="Invalid Stripe signature")
+
+
+@router.post("/webhook", include_in_schema=False)
+async def stripe_webhook(
+    event: dict[str, Any] = Depends(_verified_event),
+    conn: Connection = Depends(get_db),
+) -> dict[str, bool]:
+    """Stripe → us. 400 on a bad signature, 500 (Stripe retries) on a failed sync.
+
+    Unknown event types and replays get a 200 so Stripe does not retry them.
+    """
     try:
-        # Stripe + psycopg2 are blocking: off the event loop (see module note).
         await run_in_threadpool(billing_service.process_event, conn, event)
     except Exception:
         logger.exception("Stripe webhook %s (%s) failed; Stripe will retry", event.get("id"), event.get("type"))

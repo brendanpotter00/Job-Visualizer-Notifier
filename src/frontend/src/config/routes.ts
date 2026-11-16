@@ -30,8 +30,7 @@ export const ROUTES = {
   WHY: '/why',
   QA: '/qa',
   ACCOUNT: '/account',
-  // Free vs Pro + Stripe Checkout. Full-bleed like the landing page (mounted
-  // OUTSIDE RootLayout). Also the target of the MCP 429's upgradeUrl.
+  // Full-bleed, outside RootLayout, like the landing page.
   PRICING: '/pricing',
   SAVED_FILTERS: '/saved-filters',
   VOTE_FEATURES: '/vote-features',

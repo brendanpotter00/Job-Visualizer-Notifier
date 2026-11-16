@@ -1,22 +1,16 @@
 import type { SubscriptionStatus } from '../../features/billing/billingApi';
 
 /**
- * What the Pro card's button is, as a pure function of auth + billing state.
- * Kept out of the component so every branch is unit-testable without Stripe.
+ * The Pro card's button, from auth + billing state.
  *
- * - `signin`   signed out → "Sign in to upgrade" (Auth0, then back to /pricing)
- * - `loading`  auth or the subscription read is still in flight
- * - `upgrade`  free → "Upgrade to Pro" (Checkout); `disabled` while the backend
- *              has no Stripe keys, so the button never leads to a 503
- * - `manage`   a live subscription (active, past due, cancel scheduled) →
- *              "Manage billing" (Customer Portal). This is checked BEFORE
- *              entitlement on purpose: a lapsed user is not Pro but still has a
- *              card to fix, and Checkout would bill them twice.
- * - `included` Pro without a subscription (admins) → nothing to buy or manage
- * - `activating` back from a paid Checkout, webhook not landed yet → disabled.
- *              The row says "free" until the webhook writes it, so an enabled
- *              Upgrade here would open a SECOND Checkout and bill twice (the
- *              backend also refuses it by asking Stripe; this is the UI half).
+ * - `signin`     signed out
+ * - `loading`    auth or the subscription read in flight
+ * - `upgrade`    free; `disabled` while the backend has no Stripe keys
+ * - `manage`     any live subscription, checked before entitlement: a lapsed
+ *                user still has a card to fix, and Checkout would bill twice
+ * - `included`   Pro without a subscription (admins)
+ * - `activating` back from a paid Checkout before the webhook lands; disabled
+ *                so it cannot open a second Checkout
  */
 export type ProCta =
   | { kind: 'signin' }
@@ -26,7 +20,7 @@ export type ProCta =
   | { kind: 'included' }
   | { kind: 'activating' };
 
-export interface ProCtaInput {
+interface ProCtaInput {
   isAuthenticated: boolean;
   authLoading: boolean;
   subscription: SubscriptionStatus | undefined;

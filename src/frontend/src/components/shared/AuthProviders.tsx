@@ -1,25 +1,10 @@
 import React from 'react';
 import { GoogleOAuthProvider } from '@react-oauth/google';
-import { Auth0Provider, type AppState } from '@auth0/auth0-react';
+import { Auth0Provider } from '@auth0/auth0-react';
 import { AUTH_CONFIG } from '../../config/auth';
 import { GoogleCredentialProvider } from '../../features/auth/GoogleCredentialContext';
 import { GoogleOneTap } from '../../features/auth/GoogleOneTap';
-import { safeReturnTo } from '../../features/auth/safeReturnTo';
-
-/**
- * Auth0's default callback strips `?code=&state=` with `history.replaceState`.
- * We do the same, but when the sign-in carried a `returnTo` (the /pricing
- * "Sign in to upgrade" button does) we land THERE instead. Auth0Provider sits
- * OUTSIDE BrowserRouter, so `navigate()` is not available; a synthetic
- * `popstate` is what tells the router the URL changed underneath it.
- */
-function handleRedirectCallback(appState?: AppState): void {
-  const target = safeReturnTo(appState?.returnTo);
-  window.history.replaceState({}, document.title, target ?? window.location.pathname);
-  if (target) {
-    window.dispatchEvent(new PopStateEvent('popstate', { state: {} }));
-  }
-}
+import { handleAuthRedirect } from '../../features/auth/returnTo';
 
 export function AuthProviders({ children }: { children: React.ReactNode }) {
   // Bypass short-circuits above real providers: dynamic preview URLs can't
@@ -47,7 +32,7 @@ export function AuthProviders({ children }: { children: React.ReactNode }) {
         // isLoading still true" window that gates UserMenu / SignInOverlay /
         // EditCompanyPreferencesLink.
         authorizeTimeoutInSeconds={8}
-        onRedirectCallback={handleRedirectCallback}
+        onRedirectCallback={handleAuthRedirect}
         authorizationParams={{
           redirect_uri: AUTH_CONFIG.redirectUri,
           audience: AUTH_CONFIG.audience,

@@ -196,8 +196,6 @@ export function AccountPage() {
         </Button>
       </Paper>
 
-      {/* Below the profile card, above the admin-only cards (owner, 2026-11-15).
-          Off by default — see config/billing.ts. */}
       {BILLING_CONFIG.showAccountPlanCard && <PlanSection />}
 
       {user.isAdmin && (

@@ -624,9 +624,7 @@ app.include_router(features.router, prefix="/api/features", tags=["features"])
 app.include_router(companies.router, prefix="/api/companies", tags=["companies"])
 app.include_router(feedback.router, prefix="/api/feedback", tags=["feedback"])
 app.include_router(admin.router, prefix="/api/admin", tags=["admin"])
-# Stripe billing. /api/billing/webhook is called by Stripe directly on this
-# origin and is exempt from the X-Internal-Key gate (auth/internal_key.py); the
-# Stripe signature is its authentication. The other three go through api/billing.ts.
+# Stripe calls /api/billing/webhook directly; the rest go through api/billing.ts.
 app.include_router(billing.router, prefix="/api/billing", tags=["billing"])
 app.include_router(
     internal_enrichment.router,

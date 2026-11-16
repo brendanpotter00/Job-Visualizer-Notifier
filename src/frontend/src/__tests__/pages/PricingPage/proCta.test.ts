@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { resolveProCta } from '../../../pages/PricingPage/proCta';
-import { safeReturnTo } from '../../../features/auth/safeReturnTo';
+import { safeReturnTo } from '../../../features/auth/returnTo';
 import { describePlan } from '../../../pages/AccountPage/planView';
 import type { SubscriptionStatus } from '../../../features/billing/billingApi';
 

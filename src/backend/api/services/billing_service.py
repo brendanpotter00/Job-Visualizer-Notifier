@@ -1,21 +1,9 @@
 """Stripe billing: Checkout, the Customer Portal, and webhook → ``user_subscriptions``.
 
-Three rules shape this module:
-
-1. **Only the webhook grants Pro.** Checkout's ``success_url`` is a page the user
-   can type into the address bar; it proves nothing. The page polls
-   ``GET /api/billing/subscription`` and waits for the webhook to land.
-2. **Every webhook re-reads the subscription FROM Stripe** (``sync_subscription``)
-   instead of trusting the event payload. Stripe does not guarantee delivery
-   order, so applying payloads in arrival order could write an old state over a
-   new one; the live object is always the newest state.
-3. **Replays are no-ops, failures are retried.** The ``stripe_events`` INSERT and
-   the sync commit in ONE transaction: a duplicate ``event_id`` short-circuits,
-   and a sync that raises rolls the INSERT back so Stripe's retry (it retries any
-   non-2xx for up to three days) is processed rather than mistaken for a replay.
-
-The Stripe SDK is reached only through ``_client()``, which tests monkeypatch —
-no test needs network access or a key.
+- Only the webhook grants Pro; Checkout's ``success_url`` proves nothing.
+- Every webhook re-reads the subscription from Stripe, so delivery order does not matter.
+- The ``stripe_events`` dedupe INSERT commits with the sync: a replay is a no-op,
+  and a failed sync rolls it back so Stripe's retry runs.
 """
 
 from __future__ import annotations
@@ -37,42 +25,38 @@ _SUBS = sql.Identifier("user_subscriptions")
 _EVENTS = sql.Identifier("stripe_events")
 _USERS = sql.Identifier("users")
 
-# A subscription in one of these is over: it neither grants Pro nor blocks a new
-# Checkout. Everything else (active, trialing, past_due, unpaid, incomplete,
-# paused) is a LIVE subscription — starting a second Checkout on top of one
-# would bill the user twice, so Checkout is refused and the user is sent to the
-# Customer Portal instead.
+# Over: neither grants Pro nor blocks a new Checkout. Any other status is live.
 TERMINAL_STATUSES = frozenset({"canceled", "incomplete_expired"})
 
-# The webhook acts on these and acknowledges everything else with a 200 (a
-# non-2xx for an event we do not care about would make Stripe retry it for days).
+# Everything else is acknowledged with a 200 so Stripe does not retry it.
 HANDLED_EVENT_TYPES = frozenset(
     {
-        "checkout.session.completed",  # first payment: links customer → subscription
+        "checkout.session.completed",
         "customer.subscription.created",
-        "customer.subscription.updated",  # renewal, past_due, cancel_at_period_end, resume
-        "customer.subscription.deleted",  # ended → plan 'free'
-        "invoice.payment_failed",  # backstop for the past_due flip
-        "invoice.paid",  # backstop for leaving past_due
+        "customer.subscription.updated",
+        "customer.subscription.deleted",
+        "invoice.payment_failed",
+        "invoice.paid",
     }
 )
 
+STRIPE_TIMEOUT_SECONDS = 10
+STRIPE_MAX_NETWORK_RETRIES = 1
+
 
 class BillingNotConfiguredError(Exception):
-    """A Stripe secret this call needs is unset. The router answers 503."""
+    """A Stripe setting this call needs is unset (503)."""
 
 
 class AlreadySubscribedError(Exception):
-    """The user already has a live subscription. The router answers 409."""
+    """The user already has a live subscription (409)."""
 
 
 class NoBillingAccountError(Exception):
-    """The user has never started Checkout, so has no Stripe customer (404)."""
+    """The user has no Stripe customer yet (404)."""
 
 
 class SubscriptionRow(TypedDict):
-    """One ``user_subscriptions`` row, as ``RealDictCursor`` returns it."""
-
     user_id: str
     stripe_customer_id: str
     stripe_subscription_id: str | None
@@ -86,25 +70,13 @@ class SubscriptionRow(TypedDict):
 
 
 def billing_configured() -> bool:
-    """True iff the three Stripe secrets AND the return origin are set.
-
-    ``PUBLIC_APP_URL`` is required, not defaulted: a prod deploy with keys but no
-    origin would send paying users back to localhost after Checkout.
-    """
+    """True iff every Stripe setting and the return origin are set."""
     return bool(
         settings.stripe_secret_key
         and settings.stripe_webhook_secret
         and settings.stripe_price_id_pro
         and settings.public_app_url
     )
-
-
-# Stripe calls run in FastAPI's threadpool (the billing routes are plain ``def``),
-# but a stuck call still pins a worker thread and a DB connection. Bound it: the
-# SDK default is an 80 s timeout with retries. httpx is already a direct
-# dependency, so the client is the same in every environment.
-STRIPE_TIMEOUT_SECONDS = 10
-STRIPE_MAX_NETWORK_RETRIES = 1
 
 
 @lru_cache(maxsize=1)
@@ -136,14 +108,18 @@ def _epoch(value: Any) -> datetime | None:
 
 def _id_of(value: Any) -> str | None:
     """A Stripe reference is an id string, or the object itself when expanded."""
-    if value is None:
-        return None
     if isinstance(value, str):
         return value
     if isinstance(value, dict):
         ref = value.get("id")
         return ref if isinstance(ref, str) else None
     return None
+
+
+def _xact_lock(conn: Connection, key: str) -> None:
+    """Serialize on ``key`` until the current transaction ends."""
+    with conn.cursor() as cur:
+        cur.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (key,))
 
 
 def is_live(row: SubscriptionRow | None) -> bool:
@@ -165,16 +141,11 @@ def get_subscription(conn: Connection, user_id: str) -> SubscriptionRow | None:
 
 
 def ensure_stripe_customer(conn: Connection, user_id: str, email: str) -> str:
-    """Return the user's Stripe customer id, creating customer + row on first use.
-
-    One Stripe customer per ``users.id``, ever: it is reused for every later
-    Checkout and the Portal. The idempotency key makes two concurrent first
-    clicks create ONE customer, and ``ON CONFLICT DO NOTHING`` makes them write
-    one row.
-    """
+    """The user's one Stripe customer id, created (with its row) on first use."""
     existing = get_subscription(conn, user_id)
     if existing:
         return existing["stripe_customer_id"]
+    # The idempotency key makes two concurrent first clicks create one customer.
     customer = _client().v1.customers.create(
         params={"email": email, "metadata": {"user_id": user_id}},
         options={"idempotency_key": f"jvn-customer-{user_id}"},
@@ -195,41 +166,40 @@ def ensure_stripe_customer(conn: Connection, user_id: str, email: str) -> str:
 
 
 def create_checkout_session(conn: Connection, user_id: str, email: str) -> str:
-    """Start a hosted Checkout for the $6/month Pro Price; return its URL."""
+    """Start a hosted Checkout for the Pro Price; return its URL."""
     if not settings.stripe_price_id_pro:
         raise BillingNotConfiguredError("STRIPE_PRICE_ID_PRO is not set")
     if is_live(get_subscription(conn, user_id)):
         raise AlreadySubscribedError(user_id)
     customer_id = ensure_stripe_customer(conn, user_id, email)
     client = _client()
-    # The row only learns about a subscription when its webhook lands, so between
-    # payment and webhook (or forever, if the webhook is misconfigured) the DB
-    # check above passes. Ask Stripe — the source of truth — before opening a
-    # second Checkout that would bill the user twice.
-    for sub in client.v1.subscriptions.list(
-        params={"customer": customer_id, "status": "all", "limit": 100}
-    ).auto_paging_iter():
-        if sub.status not in TERMINAL_STATUSES:
-            raise AlreadySubscribedError(user_id)
-    # One open Checkout per customer: expire any earlier one (another tab, the
-    # browser history) so it can never be completed into a second subscription.
-    for open_session in client.v1.checkout.sessions.list(
-        params={"customer": customer_id, "status": "open", "limit": 100}
-    ).auto_paging_iter():
-        client.v1.checkout.sessions.expire(open_session.id)
-    session = client.v1.checkout.sessions.create(
-        params={
-            "mode": "subscription",
-            "customer": customer_id,
-            "client_reference_id": user_id,
-            "line_items": [{"price": settings.stripe_price_id_pro, "quantity": 1}],
-            "subscription_data": {"metadata": {"user_id": user_id}},
-            # The success page proves nothing (rule 1 above); it only tells the
-            # page to poll until the webhook lands.
-            "success_url": _app_url("/pricing?checkout=success"),
-            "cancel_url": _app_url("/pricing?checkout=cancel"),
-        }
-    )
+    # Two concurrent requests would each find no open session and leave two payable.
+    _xact_lock(conn, customer_id)
+    try:
+        # The row learns of a payment only when its webhook lands, so ask Stripe.
+        for sub in client.v1.subscriptions.list(
+            params={"customer": customer_id, "status": "all", "limit": 100}
+        ).auto_paging_iter():
+            if sub.status not in TERMINAL_STATUSES:
+                raise AlreadySubscribedError(user_id)
+        # An earlier session (another tab) could otherwise become a second subscription.
+        for open_session in client.v1.checkout.sessions.list(
+            params={"customer": customer_id, "status": "open", "limit": 100}
+        ).auto_paging_iter():
+            client.v1.checkout.sessions.expire(open_session.id)
+        session = client.v1.checkout.sessions.create(
+            params={
+                "mode": "subscription",
+                "customer": customer_id,
+                "client_reference_id": user_id,
+                "line_items": [{"price": settings.stripe_price_id_pro, "quantity": 1}],
+                "subscription_data": {"metadata": {"user_id": user_id}},
+                "success_url": _app_url("/pricing?checkout=success"),
+                "cancel_url": _app_url("/pricing?checkout=cancel"),
+            }
+        )
+    finally:
+        conn.rollback()  # nothing to write; releases the lock
     if not session.url:  # pragma: no cover - hosted Checkout always has a URL
         raise RuntimeError("Stripe returned a Checkout session without a URL")
     return session.url
@@ -255,10 +225,9 @@ def create_portal_session(conn: Connection, user_id: str) -> str:
 
 
 def construct_event(payload: bytes, sig_header: str | None) -> dict[str, Any]:
-    """Verify the signature and parse the event. Raises on a bad signature.
+    """Verify the signature and parse the event.
 
-    Raises ``ValueError`` (bad JSON) or ``stripe.SignatureVerificationError``;
-    the router turns both into a 400.
+    Raises ``ValueError`` (bad JSON) or ``stripe.SignatureVerificationError``.
     """
     if not settings.stripe_webhook_secret:
         raise BillingNotConfiguredError("STRIPE_WEBHOOK_SECRET is not set")
@@ -277,8 +246,7 @@ def subscription_id_of(event: dict[str, Any]) -> str | None:
     if event_type == "checkout.session.completed":
         return _id_of(obj.get("subscription"))
     if event_type.startswith("invoice."):
-        # API 2025-03-31 moved invoice.subscription under
-        # parent.subscription_details; accept both shapes.
+        # API 2025-03-31 moved it under parent.subscription_details.
         direct = _id_of(obj.get("subscription"))
         if direct:
             return direct
@@ -303,9 +271,8 @@ def _record_event_once(conn: Connection, event_id: str, event_type: str) -> bool
 def process_event(conn: Connection, event: dict[str, Any]) -> bool:
     """Apply one verified webhook event. Returns True if it changed anything.
 
-    Commits on success. On ANY exception it rolls back (the ``stripe_events``
-    INSERT included) and re-raises, so the router can answer 500 and Stripe
-    retries the delivery.
+    Commits on success; on any exception rolls back (the dedupe row included)
+    and re-raises so the router answers 500 and Stripe retries.
     """
     event_type = str(event.get("type", ""))
     if event_type not in HANDLED_EVENT_TYPES:
@@ -317,15 +284,8 @@ def process_event(conn: Connection, event: dict[str, Any]) -> bool:
             return False
         sub_id = subscription_id_of(event)
         if sub_id:
-            # Serialize every event about one subscription BEFORE re-reading it.
-            # Without this, handler A can read an older state, handler B read and
-            # commit a newer one, and A commit last — writing stale state over
-            # fresh (two replicas, or two threadpool workers, make it real).
-            # Released at commit/rollback.
-            with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (sub_id,)
-                )
+            # Without it, a handler that read older state could commit after a newer one.
+            _xact_lock(conn, sub_id)
             obj = event.get("data", {}).get("object", {}) or {}
             fallback_user_id = (
                 obj.get("client_reference_id")
@@ -347,11 +307,7 @@ def process_event(conn: Connection, event: dict[str, Any]) -> bool:
 
 
 def _marks_payment_failure(event: dict[str, Any]) -> bool:
-    """True iff this event IS the renewal failing (its time starts the grace).
-
-    Any other event that merely re-reads a past_due subscription — a late or
-    retried one created before the failure, say — must not backdate the grace.
-    """
+    """True iff this event IS the renewal failing, so its time starts the grace."""
     if event.get("type") == "invoice.payment_failed":
         return True
     if event.get("type") == "customer.subscription.updated":
@@ -371,12 +327,7 @@ def _period_end(sub: dict[str, Any]) -> datetime | None:
 
 def _price_ids(sub: dict[str, Any]) -> list[str]:
     items = (sub.get("items") or {}).get("data") or []
-    out: list[str] = []
-    for item in items:
-        price_id = _id_of(item.get("price"))
-        if price_id:
-            out.append(price_id)
-    return out
+    return [p for p in (_id_of(item.get("price")) for item in items) if p]
 
 
 def _user_exists(conn: Connection, user_id: str) -> bool:
@@ -397,10 +348,7 @@ def sync_subscription(
     fallback_user_id: str | None = None,
     marks_failure: bool = False,
 ) -> None:
-    """Re-read one subscription from Stripe and write it to its user's row.
-
-    Does NOT commit — ``process_event`` owns the transaction.
-    """
+    """Re-read one subscription from Stripe and write it to its user's row. No commit."""
     sub = _client().v1.subscriptions.retrieve(subscription_id).to_dict()
     apply_subscription(
         conn,
@@ -433,11 +381,9 @@ def apply_subscription(
     row = cast(SubscriptionRow, dict(found)) if found else None
 
     if row is None:
-        # Normally ensure_stripe_customer wrote the row before Checkout. Without
-        # one (a customer made in the Dashboard, a lost write) we link through the
-        # user id we stamped on the subscription — but only to a user that exists
-        # here, so a test-mode event from another environment can never FK-fail
-        # (which would 500 and make Stripe retry it for three days).
+        # No row (a Dashboard-made customer): link via the user id stamped on the
+        # subscription, but only to a user that exists here, so an event from
+        # another environment is ignored instead of failing the FK forever.
         metadata = sub.get("metadata") or {}
         user_id = metadata.get("user_id") or fallback_user_id
         if not user_id or not _user_exists(conn, str(user_id)):
@@ -451,34 +397,23 @@ def apply_subscription(
             cur.execute(
                 sql.SQL(
                     "INSERT INTO {} (user_id, stripe_customer_id) VALUES (%s, %s)"
-                    " ON CONFLICT (user_id) DO NOTHING RETURNING user_id"
+                    " ON CONFLICT (user_id) DO NOTHING RETURNING *"
                 ).format(_SUBS),
                 (str(user_id), customer_id),
             )
-            if cur.fetchone() is None:
-                logger.error(
-                    "User %s already has a different Stripe customer; not linking %s",
-                    user_id,
-                    customer_id,
-                )
-                return
-        row = {
-            "user_id": str(user_id),
-            "stripe_customer_id": customer_id,
-            "stripe_subscription_id": None,
-            "plan": "free",
-            "status": None,
-            "current_period_end": None,
-            "cancel_at_period_end": False,
-            "past_due_since": None,
-            "created_at": event_created,
-            "updated_at": event_created,
-        }
+            inserted = cur.fetchone()
+        if inserted is None:
+            logger.error(
+                "User %s already has a different Stripe customer; not linking %s",
+                user_id,
+                customer_id,
+            )
+            return
+        row = cast(SubscriptionRow, dict(inserted))
 
     sub_id = str(sub.get("id"))
     status = str(sub.get("status") or "")
-    # A late event about an OLD, finished subscription must not overwrite the
-    # user's newer one (a user who cancelled and re-subscribed has two).
+    # A late event about an old, finished subscription must not overwrite a newer live one.
     if (
         row["stripe_subscription_id"]
         and row["stripe_subscription_id"] != sub_id
@@ -506,18 +441,13 @@ def apply_subscription(
 
     past_due_since: datetime | None = None
     if status == "past_due":
-        # Stripe's event time, never now() (POSTGRES-ANTI-PATTERNS §4): a late
-        # delivery must not push the 3-day grace back. Keep the earliest
-        # observation while the SAME subscription stays past_due.
         previous = row["past_due_since"] if row["stripe_subscription_id"] == sub_id else None
-        if previous is None:
-            past_due_since = event_created
-        elif marks_failure:
-            # Two failure signals for one episode (payment_failed + the status
-            # flip) can arrive in either order; the earlier one started it.
-            past_due_since = min(previous, event_created)
+        if marks_failure:
+            # Stripe's time for the failure; the earlier of two failure signals wins.
+            past_due_since = event_created if previous is None else min(previous, event_created)
         else:
-            past_due_since = previous
+            # Any other event only shows it is past_due by now; a failure event replaces this.
+            past_due_since = previous or datetime.now(timezone.utc)
 
     with conn.cursor() as cur:
         cur.execute(
@@ -532,9 +462,7 @@ def apply_subscription(
                 plan,
                 status,
                 _period_end(sub),
-                # The Portal can schedule a cancel either way: the legacy
-                # cancel_at_period_end flag, or a cancel_at timestamp. Both mean
-                # "Pro until the period ends, then Free".
+                # The Portal schedules a cancel with either the flag or a cancel_at date.
                 bool(sub.get("cancel_at_period_end")) or sub.get("cancel_at") is not None,
                 past_due_since,
                 customer_id,

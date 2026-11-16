@@ -1,11 +1,6 @@
 import { createApi, fetchBaseQuery } from '@reduxjs/toolkit/query/react';
 
-/**
- * GET /api/billing/subscription. `plan` is BILLING state (what the current
- * subscription is for); `isPro` is ENTITLEMENT (admins, the 3-day past-due
- * grace). `hasSubscription` is the CTA switch: true → "Manage billing"
- * (Customer Portal), false → "Upgrade to Pro" (Checkout).
- */
+/** GET /api/billing/subscription. `plan` is billing state; `isPro` is entitlement. */
 export interface SubscriptionStatus {
   plan: 'free' | 'pro';
   status: string | null;
@@ -15,11 +10,10 @@ export interface SubscriptionStatus {
   cancelAtPeriodEnd: boolean;
   pastDueSince: string | null;
   graceEndsAt: string | null;
-  /** False while the backend has no Stripe keys: Upgrade is disabled, not a 503. */
   billingEnabled: boolean;
 }
 
-export interface BillingRedirect {
+interface BillingRedirect {
   url: string;
 }
 
@@ -46,9 +40,7 @@ export const billingApi = createApi({
       query: () => 'subscription',
       providesTags: ['Subscription'],
     }),
-    // Both mutations return a Stripe-hosted URL the caller sends the browser to.
-    // Neither changes the subscription by itself — only the webhook does — so
-    // neither invalidates the Subscription tag.
+    // Only the webhook changes the subscription, so neither mutation invalidates it.
     createCheckoutSession: builder.mutation<BillingRedirect, void>({
       query: () => ({ url: 'checkout-session', method: 'POST' }),
     }),
@@ -64,7 +56,7 @@ export const {
   useCreatePortalSessionMutation,
 } = billingApi;
 
-/** Send the browser to a Stripe-hosted page. A seam so tests can assert the URL. */
+/** Send the browser to a Stripe-hosted page (a seam for tests). */
 export function goToStripe(url: string): void {
   window.location.assign(url);
 }

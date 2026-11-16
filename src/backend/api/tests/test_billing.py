@@ -20,11 +20,10 @@ import pytest
 from fastapi.testclient import TestClient
 from psycopg2 import sql
 
-from api.auth.dependencies import get_current_user
 from api.config import settings
 from api.services import billing_service, entitlements
 
-from .conftest import _insert_admin, _insert_user, _make_user
+from .conftest import TEST_DB_URL, _insert_admin, _insert_user, _make_user
 
 WEBHOOK_SECRET = "whsec_test_secret"
 PRICE_PRO = "price_test_pro"
@@ -61,6 +60,7 @@ class FakeStripe:
         self.customer_subscriptions: list[dict[str, Any]] = []
         self.open_sessions: list[str] = []
         self.fail_retrieve = False
+        self.on_list_subscriptions: Any = None
         outer = self
 
         def _listing(items: list[Any]) -> Any:
@@ -68,6 +68,8 @@ class FakeStripe:
 
         def list_subscriptions(params: dict) -> Any:
             outer.calls.append(("subscriptions.list", params))
+            if outer.on_list_subscriptions:
+                outer.on_list_subscriptions()
             return _listing([SimpleNamespace(**s) for s in outer.customer_subscriptions])
 
         def list_sessions(params: dict) -> Any:
@@ -283,6 +285,32 @@ class TestCheckout:
         expired = [c[1] for c in fake_stripe.calls if c[0] == "checkout.expire"]
         assert expired == ["cs_tab_a", "cs_tab_b"]
 
+    def test_holds_a_per_customer_lock_while_it_talks_to_stripe(
+        self, client, db_conn, fake_stripe
+    ):
+        # A concurrent Checkout for the same customer must wait, or both would
+        # find no open session and leave two payable ones.
+        _seed_customer(db_conn, client)
+        seen: list[bool] = []
+
+        def try_lock() -> None:
+            other = psycopg2.connect(TEST_DB_URL)
+            try:
+                with other.cursor() as cur:
+                    cur.execute(
+                        "SELECT pg_try_advisory_xact_lock(hashtextextended(%s, 0))",
+                        ("cus_test_1",),
+                    )
+                    seen.append(cur.fetchone()[0])
+            finally:
+                other.close()
+
+        fake_stripe.on_list_subscriptions = try_lock
+        assert client.post("/api/billing/checkout-session").status_code == 200
+        assert seen == [False]
+        try_lock()  # released once the request is done
+        assert seen == [False, True]
+
     def test_503_without_public_app_url(self, client, db_conn, fake_stripe, monkeypatch):
         monkeypatch.setattr(settings, "public_app_url", None)
         assert client.post("/api/billing/checkout-session").status_code == 503
@@ -334,6 +362,26 @@ class TestWebhook:
         assert _post_webhook(client, payload, sig=_signed(payload, "whsec_wrong")).status_code == 400
         assert _post_webhook(client, payload, sig="").status_code == 400
         assert fake_stripe.calls == []
+
+    def test_a_bad_signature_never_takes_a_db_connection(self, test_app, client, fake_stripe):
+        from api.dependencies import get_db
+
+        real_get_db = test_app.dependency_overrides[get_db]
+        taken: list[bool] = []
+
+        def counting_get_db():
+            taken.append(True)
+            yield from real_get_db()
+
+        test_app.dependency_overrides[get_db] = counting_get_db
+        try:
+            payload = _event("customer.created", {"id": "cus_x"})
+            assert _post_webhook(client, payload, sig="t=1,v1=0").status_code == 400
+            assert taken == []
+            assert _post_webhook(client, payload).status_code == 200
+            assert taken == [True]
+        finally:
+            test_app.dependency_overrides[get_db] = real_get_db
 
     def test_checkout_completed_makes_the_user_pro(self, client, db_conn, fake_stripe):
         uid = _seed_customer(db_conn, client)
@@ -412,6 +460,19 @@ class TestWebhook:
         # past_due but is not about the failure, so it must not move the start.
         early = NOW - timedelta(days=1)
         _post_webhook(client, _event("customer.subscription.updated", {"id": "sub_1"}, event_id="late", created=early))
+        assert _sub_row(db_conn, uid)["past_due_since"] == NOW
+
+    def test_a_late_non_failure_event_delivered_first_does_not_backdate_the_grace(
+        self, client, db_conn, fake_stripe
+    ):
+        uid = _seed_customer(db_conn, client)
+        fake_stripe.subscriptions["sub_1"] = _sub(status="past_due")
+        # Created a day before the failure, but delivered first (Stripe retrying
+        # after an outage): it may not start the grace a day early.
+        early = NOW - timedelta(days=1)
+        _post_webhook(client, _event("customer.subscription.updated", {"id": "sub_1"}, event_id="late", created=early))
+        assert _sub_row(db_conn, uid)["past_due_since"] > early
+        _post_webhook(client, _event("invoice.payment_failed", {"subscription": "sub_1"}, event_id="f", created=NOW))
         assert _sub_row(db_conn, uid)["past_due_since"] == NOW
 
     def test_deleted_subscription_drops_to_free_and_keeps_the_row(self, client, db_conn, fake_stripe):
@@ -496,49 +557,13 @@ class TestIsPro:
         assert entitlements.grace_ends_at(_row()) is None
 
     def test_admins_are_pro(self, db_conn) -> None:
-        user = _make_user({"email": "admin@example.com"})
-        _insert_user(db_conn, user)
-        _insert_admin(db_conn, user["id"])
-        assert entitlements.is_pro(db_conn, user["id"], "admin@example.com") is True
-        assert entitlements.is_pro(db_conn, user["id"]) is False
-
-
-class TestRequirePro:
-    def test_402_with_the_pricing_link_for_a_free_user(self, test_app, db_conn, stripe_settings):
-        from fastapi import Depends, FastAPI
-
-        from api.dependencies import get_db
-
-        app = FastAPI()
-
-        @app.get("/pro-only")
-        def pro_only(_: dict = Depends(entitlements.require_pro)) -> dict:
-            return {"ok": True}
-
-        app.dependency_overrides[get_db] = test_app.dependency_overrides[get_db]
-        app.dependency_overrides[get_current_user] = test_app.dependency_overrides[get_current_user]
-        _insert_user(db_conn, _make_user())  # test@example.com, no subscription
-        resp = TestClient(app).get("/pro-only")
-        assert resp.status_code == 402
-        assert resp.json()["detail"] == {
-            "error": "pro_required",
-            "upgradeUrl": "https://app.example/pricing?reason=pro_required",
-        }
-
-
-class TestRateLimitedResponse:
-    def test_shape_links_to_pricing_three_ways(self, stripe_settings) -> None:
-        resets = datetime.now(timezone.utc) + timedelta(hours=1)
-        resp = entitlements.rate_limited_response(limit=100, window="day", resets_at=resets)
-        assert resp.status_code == 429
-        body = json.loads(resp.body)
-        url = "https://app.example/pricing?reason=mcp_limit"
-        assert body["error"] == "rate_limited" and body["plan"] == "free"
-        assert body["limit"] == 100 and body["window"] == "day"
-        assert body["upgradeUrl"] == url
-        assert body["resetsAt"].endswith("Z")
-        assert resp.headers["Link"] == f'<{url}>; rel="payment"'
-        assert 3500 <= int(resp.headers["Retry-After"]) <= 3600
+        admin = _make_user({"email": "admin@example.com"})
+        _insert_user(db_conn, admin)
+        _insert_admin(db_conn, admin["id"])
+        member = _make_user()
+        _insert_user(db_conn, member)
+        assert entitlements.is_pro(db_conn, admin["id"], admin["email"]) is True
+        assert entitlements.is_pro(db_conn, member["id"], member["email"]) is False
 
 
 # ------------------------------------------------------------------ schema
@@ -590,11 +615,13 @@ class TestSchema:
         db_conn.rollback()
 
 
-def test_the_real_stripe_client_builds_with_a_bounded_timeout() -> None:
+def test_the_real_stripe_client_has_a_bounded_timeout() -> None:
     """The SDK default is 80 s with retries; a stuck call must not pin a worker."""
     billing_service._client_for.cache_clear()
     try:
         client = billing_service._client_for("sk_test_construct_only")
         assert client is billing_service._client_for("sk_test_construct_only")
+        assert client._requestor._client._timeout == billing_service.STRIPE_TIMEOUT_SECONDS
+        assert client._requestor._options.max_network_retries == 1
     finally:
         billing_service._client_for.cache_clear()

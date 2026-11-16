@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
@@ -8,26 +7,14 @@ import Typography from '@mui/material/Typography';
 import { Link as RouterLink } from 'react-router-dom';
 import { RESPONSIVE } from '../../config/responsive';
 import { ROUTES } from '../../config/routes';
-import {
-  goToStripe,
-  useCreateCheckoutSessionMutation,
-  useCreatePortalSessionMutation,
-  useGetSubscriptionQuery,
-} from '../../features/billing/billingApi';
-import { extractErrorMessage } from '../../lib/errors';
+import { useGetSubscriptionQuery } from '../../features/billing/billingApi';
+import { useStripeRedirect } from '../../features/billing/useStripeRedirect';
 import { describePlan } from './planView';
 
-/**
- * The /account Plan card. Rendered only when `BILLING_CONFIG.showAccountPlanCard`
- * is on (default OFF — nothing to charge for yet); with it off this component is
- * never mounted, so /account makes no billing request at all.
- */
+/** The /account Plan card, mounted only behind `BILLING_CONFIG.showAccountPlanCard`. */
 export function PlanSection() {
   const { data, isLoading, isError } = useGetSubscriptionQuery();
-  const [startCheckout, checkoutState] = useCreateCheckoutSessionMutation();
-  const [openPortal, portalState] = useCreatePortalSessionMutation();
-  const [error, setError] = useState<string | null>(null);
-  const [redirecting, setRedirecting] = useState(false);
+  const { upgrade, manage, error, busy } = useStripeRedirect('Couldn’t open billing. Try again.');
 
   if (isError) return null; // billing is optional here; never break /account
   if (isLoading || !data) {
@@ -40,17 +27,6 @@ export function PlanSection() {
   }
 
   const view = describePlan(data);
-  const busy = redirecting || checkoutState.isLoading || portalState.isLoading;
-  const run = async (request: () => Promise<{ url: string }>) => {
-    setError(null);
-    try {
-      const { url } = await request();
-      setRedirecting(true);
-      goToStripe(url);
-    } catch (err) {
-      setError(extractErrorMessage(err, 'Couldn’t open billing. Try again.'));
-    }
-  };
 
   return (
     <Paper
@@ -84,11 +60,7 @@ export function PlanSection() {
           <Button
             variant={view.action === 'upgrade' ? 'contained' : 'outlined'}
             disabled={busy || (view.action === 'upgrade' && !data.billingEnabled)}
-            onClick={() =>
-              void run(() =>
-                view.action === 'upgrade' ? startCheckout().unwrap() : openPortal().unwrap()
-              )
-            }
+            onClick={view.action === 'upgrade' ? upgrade : manage}
             sx={{ borderRadius: 999, px: 2.5 }}
           >
             {view.actionLabel}

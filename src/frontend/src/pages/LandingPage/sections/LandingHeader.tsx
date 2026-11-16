@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import { Box, Container, Link } from '@mui/material';
+import { Box, Button, Container, Link } from '@mui/material';
 import { alpha } from '@mui/material/styles';
 import { Link as RouterLink } from 'react-router-dom';
 import { RESPONSIVE } from '../../../config/responsive';
+import { useAuth } from '../../../features/auth/useAuth';
 import { OneSecondMark } from '../../../components/shared/OneSecondMark';
 import { AuthEntryButton } from './AuthEntryButton';
 import type { LandingContent } from '../content';
@@ -13,7 +14,7 @@ interface LandingHeaderProps {
 
 /**
  * The shared landing header — wordmark left, quiet nav links beside it, and
- * Log in / Sign up on the right. Every label and target
+ * Log in / Sign up on the right (one Account button once signed in). Every label and target
  * comes from `content.header`; this file only decides how they look.
  *
  * Placement contract: render it as the FIRST child of the page's root box,
@@ -26,6 +27,8 @@ interface LandingHeaderProps {
  */
 export function LandingHeader({ content }: LandingHeaderProps) {
   const { header } = content;
+  // `/pricing` reuses this header and signed-in users reach it; `/` redirects them.
+  const { isAuthenticated } = useAuth();
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   const [scrolled, setScrolled] = useState(false);
 
@@ -128,23 +131,36 @@ export function LandingHeader({ content }: LandingHeaderProps) {
           {/* Pushes the auth cluster to the right edge of the container. */}
           <Box sx={{ flexGrow: 1 }} />
 
-          <AuthEntryButton
-            cta={header.logIn}
-            mode="login"
-            location="landing_header"
-            variant="text"
-            size="small"
-            sx={{ display: { xs: 'none', md: 'inline-flex' }, color: 'text.primary' }}
-          />
-
-          <AuthEntryButton
-            cta={header.signUp}
-            mode="signup"
-            location="landing_header"
-            variant="contained"
-            size="small"
-            sx={{ borderRadius: 999, px: 2 }}
-          />
+          {isAuthenticated ? (
+            <Button
+              component={RouterLink}
+              to={header.account.to}
+              variant="contained"
+              size="small"
+              sx={{ borderRadius: 999, px: 2 }}
+            >
+              {header.account.label}
+            </Button>
+          ) : (
+            <>
+              <AuthEntryButton
+                cta={header.logIn}
+                mode="login"
+                location="landing_header"
+                variant="text"
+                size="small"
+                sx={{ display: { xs: 'none', md: 'inline-flex' }, color: 'text.primary' }}
+              />
+              <AuthEntryButton
+                cta={header.signUp}
+                mode="signup"
+                location="landing_header"
+                variant="contained"
+                size="small"
+                sx={{ borderRadius: 999, px: 2 }}
+              />
+            </>
+          )}
         </Container>
       </Box>
     </>

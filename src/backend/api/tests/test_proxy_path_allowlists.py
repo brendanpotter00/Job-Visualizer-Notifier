@@ -97,11 +97,8 @@ NOT_PROXIED: dict[str, set[str]] = {
     # write on the public edge for no caller. Admin auth is a second lock, not a
     # reason to hang the first one outside. Run it against the backend directly.
     "admin": {"enrichment/subcategories/reset"},
-    # Stripe calls the webhook DIRECTLY on the Railway origin. Its only
-    # authentication is the Stripe-Signature HMAC over the raw body, and Vercel
-    # parses the body before a function sees it, so a proxy hop would break every
-    # signature. It is exempt from the internal key (auth/internal_key.py) for the
-    # same reason — Stripe cannot send it.
+    # Stripe calls it on Railway directly: its signature covers the raw body,
+    # which a Vercel hop would re-serialize.
     "billing": {"webhook"},
 }
 

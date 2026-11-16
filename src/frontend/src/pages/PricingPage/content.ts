@@ -1,15 +1,6 @@
 import { ROUTES } from '../../config/routes';
 
-/**
- * Every word on /pricing. Owner-reviewed in the html plan
- * (docs/implementations/pricingStripe/plan.html), 2026-11-15:
- * - Free is five ruled rows, no bullets.
- * - Pro is "Everything in Free, plus" over ONE line set large (option B) —
- *   no list to pad, no "cancel any time", no "new Pro features" line.
- * - The Free MCP row says "Limited MCP access", no number, until the limiter ships.
- * - No FAQ and no "billed through Stripe" note.
- * - The h1 is "Pricing" alone; no eyebrow above it.
- */
+/** Every word on /pricing (owner-reviewed: docs/implementations/pricingStripe/plan.html). */
 
 /** Display only. The amount charged is the Stripe Price (`STRIPE_PRICE_ID_PRO`). */
 export const PRO_PRICE_USD = 6;
@@ -28,7 +19,6 @@ export const PRICING_CONTENT = {
     description:
       'onesecondswe is free to browse. Pro is $6 a month for unlimited MCP access to fresh software engineering job postings.',
   },
-  // The h1 is just the page name (owner, 2026-11-15): no eyebrow, no tagline.
   title: 'Pricing',
   free: {
     name: 'Free',
@@ -58,7 +48,6 @@ export const PRICING_CONTENT = {
     unavailable: 'Checkout is not open yet.',
   },
   notices: {
-    mcpLimit: 'You reached the free MCP limit. Pro removes it.',
     checkoutCanceled: 'Checkout canceled. You were not charged.',
     activating: 'Payment received. Turning on Pro…',
     activatingSlow: 'Payment received. Pro can take a minute to turn on. Refresh this page.',

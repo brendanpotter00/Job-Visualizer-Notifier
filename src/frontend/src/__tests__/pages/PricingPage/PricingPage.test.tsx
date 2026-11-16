@@ -192,13 +192,12 @@ describe('PricingPage', () => {
     expect(mockGoToStripe).not.toHaveBeenCalled();
   });
 
-  it.each([
-    ['/pricing?reason=mcp_limit', 'You reached the free MCP limit. Pro removes it.'],
-    ['/pricing?checkout=cancel', 'Checkout canceled. You were not charged.'],
-  ])('%s shows one notice above the plans', (entry, text) => {
+  it('?checkout=cancel shows one notice above the plans', () => {
     global.fetch = vi.fn() as unknown as typeof fetch;
-    renderWithProviders(<PricingPage />, { initialEntries: [entry] });
-    expect(screen.getByRole('status')).toHaveTextContent(text);
+    renderWithProviders(<PricingPage />, { initialEntries: ['/pricing?checkout=cancel'] });
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'Checkout canceled. You were not charged.'
+    );
   });
 
   it('a plain visit shows no notice', () => {
