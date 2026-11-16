@@ -290,7 +290,7 @@ async def _post_page(
             },
             timeout=DEFAULT_TIMEOUT_SECONDS,
         )
-        if not response.is_success:
+        if not 200 <= response.status_code < 300:
             _log_non_2xx(response, url, label)
         if response.status_code != 429:
             return response
