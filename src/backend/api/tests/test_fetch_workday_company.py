@@ -775,6 +775,15 @@ async def test_task_timeout_records_failed_run(
     assert len(runs) == 1, "timed-out task must still record a scrape_runs row"
     assert runs[0]["error_count"] == 1
     assert runs[0]["jobs_seen"] == 0
+    # Not re-run: each re-run is a full re-scrape through the paid proxy.
+    assert _latest_job_status(db_conn) == "failed"
+
+
+def test_task_timeout_leaves_room_for_proxied_runs():
+    """Direct runs already hit 111-120s; the proxy adds latency per POST."""
+    import api.tasks.fetch_workday_company as task_mod
+
+    assert task_mod._TASK_TIMEOUT_S == 600.0
 
 
 def test_retry_strategy_skips_rate_limit_but_keeps_other_retries():
@@ -791,6 +800,10 @@ def test_retry_strategy_skips_rate_limit_but_keeps_other_retries():
     # A Cloudflare challenge is never re-run either: same IP, same challenge.
     assert strategy.get_retry_decision(
         exception=WorkdayBlockedError("Cloudflare challenge"), job=job
+    ) is None
+    # Nor a timeout: the next fan-out tick is the retry.
+    assert strategy.get_retry_decision(
+        exception=asyncio.TimeoutError(), job=job
     ) is None
     assert strategy.get_retry_decision(
         exception=httpx.ConnectError("boom"), job=job
@@ -928,3 +941,42 @@ async def test_proxy_failure_records_failed_run_and_logs_no_credentials(
         assert "user:" not in rendered
     for run in runs:
         assert "secret" not in json.dumps(run, default=str)
+
+
+async def test_challenge_on_a_later_page_raises_and_writes_nothing(
+    procrastinate_open, db_conn, monkeypatch
+):
+    """Page 3 of 5 challenged: the whole fetch fails, so nothing is upserted,
+    no miss is counted, and nothing closes."""
+    company = "nvidia"
+    _seed_company(db_conn, company, company)
+    _seed_job(db_conn, "JR-OLD", company, consecutive_misses=2)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        offset = json.loads(request.content)["offset"]
+        if offset == 40:  # page 3
+            return httpx.Response(
+                429, headers={"cf-mitigated": "challenge"}, text="Just a moment...",
+            )
+        jobs = [_make_raw_workday_posting(f"JR-{offset + i}") for i in range(20)]
+        return httpx.Response(200, json=_make_workday_response(jobs, total=100))
+
+    _patch_httpx(monkeypatch, handler)
+
+    await fetch_workday_company.defer_async(
+        company_id=company, board_token=company, provider_config=_PROVIDER_CONFIG,
+    )
+    await _drain()
+    db_conn.rollback()
+
+    runs = _scrape_runs(db_conn, company)
+    assert len(runs) == 1
+    assert runs[0]["error_count"] == 1
+    assert runs[0]["jobs_seen"] == 0
+    assert runs[0]["new_jobs"] == 0
+    assert runs[0]["closed_jobs"] == 0
+    assert _job_row(db_conn, "JR-0") is None, "page-1 jobs must not be upserted"
+    old = _job_row(db_conn, "JR-OLD")
+    assert old["status"] == "OPEN"
+    assert old["consecutive_misses"] == 2
+    assert _latest_job_status(db_conn) == "failed"

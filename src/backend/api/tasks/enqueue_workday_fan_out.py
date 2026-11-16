@@ -9,8 +9,8 @@ through a paid residential proxy (``WORKDAY_PROXY_URL``, since direct egress
 from Railway is Cloudflare-challenged as of 2026-11-16), and 4x fewer ticks
 is ~4x less proxy bandwidth. Two monitors keyed to cadence still hold:
 ``_WORKER_FRESHNESS_SECONDS`` in main.py rides the */5 heartbeat and the other
-*/30 fan-outs, not this one; the health-watch ``STALE_AFTER_HOURS = 6`` is
-still 3 Workday ticks.
+*/30 fan-outs, not this one; the health-watch ``STALE_AFTER_HOURS = 6`` still
+covers 2-3 Workday ticks (the 15s-per-company stagger decides which).
 
 For each enabled Workday company, defers one ``fetch_workday_company``
 job with a per-company queueing lock so:

@@ -986,16 +986,47 @@ class TestCloudflareChallenge:
         assert "nvidia.wd5.myworkdayjobs.com" in msg
         assert "egress=direct" in msg
 
+    def _shared_and_fresh(
+        self, monkeypatch: pytest.MonkeyPatch, handler: Any,
+    ) -> tuple[httpx.AsyncClient, list[str], list[httpx.AsyncClient]]:
+        """The caller's shared client, plus a stand-in for the fresh clients
+        challenge retries build. ``served`` names who answered each request."""
+        served: list[str] = []
+        built: list[httpx.AsyncClient] = []
+
+        def tagged(tag: str) -> httpx.MockTransport:
+            def serve(req: httpx.Request) -> httpx.Response:
+                served.append(tag)
+                response: httpx.Response = handler(req)
+                return response
+            return httpx.MockTransport(serve)
+
+        def build(proxy_url: str | None) -> httpx.AsyncClient:
+            assert proxy_url == _SECRET_PROXY
+            client = httpx.AsyncClient(transport=tagged(f"fresh{len(built)}"))
+            built.append(client)
+            return client
+
+        monkeypatch.setattr(workday_client, "_build_client", build)
+        return httpx.AsyncClient(transport=tagged("shared")), served, built
+
     async def test_proxy_retries_in_place_then_raises_without_cooldown(
         self, monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         monkeypatch.setattr(settings, "workday_proxy_url", SecretStr(_SECRET_PROXY))
         calls, handler = self._counting(_challenge())
-        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        shared, served, built = self._shared_and_fresh(monkeypatch, handler)
+        async with shared as http:
             with pytest.raises(WorkdayBlockedError) as exc_info:
                 await fetch_jobs(PROVIDER_CONFIG_NVIDIA, http)
 
             assert calls["n"] == workday_client.WORKDAY_429_MAX_RETRIES + 1
+            # Each retry on its own new client: a new CONNECT tunnel, so a new
+            # exit IP. Never the shared client's pooled (challenged) tunnel.
+            assert served == ["shared"] + [
+                f"fresh{i}" for i in range(workday_client.WORKDAY_429_MAX_RETRIES)
+            ]
+            assert all(c.is_closed for c in built)
             assert len(self.slept) == workday_client.WORKDAY_429_MAX_RETRIES
             assert workday_client._cooldown_until == {}
             assert "egress=proxy" in str(exc_info.value)
@@ -1024,10 +1055,29 @@ class TestCloudflareChallenge:
         calls, handler = self._counting(
             _challenge(), httpx.Response(200, json={"total": 1, "jobPostings": [_job(1)]}),
         )
-        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        shared, served, built = self._shared_and_fresh(monkeypatch, handler)
+        async with shared as http:
             result = await fetch_jobs(PROVIDER_CONFIG_NVIDIA, http)
         assert len(result) == 1
         assert calls["n"] == 2
+        assert served == ["shared", "fresh0"]
+        assert len(built) == 1 and built[0] is not shared
+
+    async def test_pagination_returns_to_the_shared_client_after_a_retry(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr(settings, "workday_proxy_url", SecretStr(_SECRET_PROXY))
+        page1 = httpx.Response(
+            200, json={"total": 40, "jobPostings": [_job(i) for i in range(20)]},
+        )
+        page2 = httpx.Response(
+            200, json={"total": 40, "jobPostings": [_job(i) for i in range(20, 40)]},
+        )
+        calls, handler = self._counting(_challenge(), page1, page2)
+        shared, served, _ = self._shared_and_fresh(monkeypatch, handler)
+        async with shared as http:
+            assert len(await fetch_jobs(PROVIDER_CONFIG_NVIDIA, http)) == 40
+        assert served == ["shared", "fresh0", "shared"]
 
     async def test_403_challenge_is_blocked_too(self) -> None:
         calls, handler = self._counting(
@@ -1037,6 +1087,46 @@ class TestCloudflareChallenge:
             with pytest.raises(WorkdayBlockedError):
                 await fetch_jobs(PROVIDER_CONFIG_NVIDIA, http)
         assert calls["n"] == 1
+
+    @pytest.mark.parametrize("status", [503, 520, 400])
+    async def test_cf_mitigated_header_is_blocked_at_any_status(self, status: int) -> None:
+        # e.g. the legacy 503 "Just a moment" interstitial.
+        calls, handler = self._counting(
+            httpx.Response(status, headers=_CHALLENGE_HEADERS, text="Just a moment..."),
+        )
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+            with pytest.raises(WorkdayBlockedError):
+                await fetch_jobs(PROVIDER_CONFIG_NVIDIA, http)
+        assert calls["n"] == 1
+
+    async def test_challenge_body_without_header_counts_only_on_403_429(self) -> None:
+        calls, handler = self._counting(httpx.Response(503, text="Just a moment..."))
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+            with pytest.raises(httpx.HTTPStatusError):
+                await fetch_jobs(PROVIDER_CONFIG_NVIDIA, http)
+
+        calls, handler = self._counting(httpx.Response(403, text="Just a moment..."))
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+            with pytest.raises(WorkdayBlockedError):
+                await fetch_jobs(PROVIDER_CONFIG_NVIDIA, http)
+
+    @pytest.mark.parametrize("body", ["error code: 1015", "<title>You are being rate limited</title>"])
+    @pytest.mark.parametrize("proxied", [False, True])
+    async def test_cloudflare_1015_is_a_rate_limit_not_a_block(
+        self, monkeypatch: pytest.MonkeyPatch, body: str, proxied: bool,
+    ) -> None:
+        if proxied:
+            monkeypatch.setattr(settings, "workday_proxy_url", SecretStr(_SECRET_PROXY))
+        calls, handler = self._counting(
+            httpx.Response(429, headers={"Server": "cloudflare"}, text=body),
+        )
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+            with pytest.raises(WorkdayRateLimitedError) as exc_info:
+                await fetch_jobs(PROVIDER_CONFIG_NVIDIA, http)
+
+        assert not isinstance(exc_info.value, WorkdayBlockedError)
+        assert calls["n"] == workday_client.WORKDAY_429_MAX_RETRIES + 1
+        assert "wd5.myworkdayjobs.com" in workday_client._cooldown_until
 
     async def test_cloudflare_5xx_error_page_is_not_a_challenge(self) -> None:
         # 52x origin-down pages carry Cloudflare markup but say nothing about
