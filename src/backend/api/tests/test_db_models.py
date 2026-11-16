@@ -18,6 +18,8 @@ def test_all_tables_present():
         "user_saved_filters",
         "user_keyword_lists",
         "user_visits",
+        "user_subscriptions",
+        "stripe_events",
         "features",
         "feature_upvotes",
         "feedback",

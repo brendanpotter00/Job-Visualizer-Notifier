@@ -4,6 +4,7 @@ import { Auth0Provider } from '@auth0/auth0-react';
 import { AUTH_CONFIG } from '../../config/auth';
 import { GoogleCredentialProvider } from '../../features/auth/GoogleCredentialContext';
 import { GoogleOneTap } from '../../features/auth/GoogleOneTap';
+import { handleAuthRedirect } from '../../features/auth/returnTo';
 
 export function AuthProviders({ children }: { children: React.ReactNode }) {
   // Bypass short-circuits above real providers: dynamic preview URLs can't
@@ -31,6 +32,7 @@ export function AuthProviders({ children }: { children: React.ReactNode }) {
         // isLoading still true" window that gates UserMenu / SignInOverlay /
         // EditCompanyPreferencesLink.
         authorizeTimeoutInSeconds={8}
+        onRedirectCallback={handleAuthRedirect}
         authorizationParams={{
           redirect_uri: AUTH_CONFIG.redirectUri,
           audience: AUTH_CONFIG.audience,

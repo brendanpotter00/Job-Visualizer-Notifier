@@ -42,6 +42,7 @@ import pytest
 
 from api.routers import (
     admin,
+    billing,
     companies,
     dev_reset,
     features,
@@ -72,6 +73,7 @@ PROXIES: dict[str, list[tuple[object, str]]] = {
     "feedback": [(feedback, "")],
     "features": [(features, "")],
     "admin": [(admin, "")],
+    "billing": [(billing, "")],
 }
 
 # Backend routes deliberately NOT reachable through the public proxy, each with
@@ -95,6 +97,9 @@ NOT_PROXIED: dict[str, set[str]] = {
     # write on the public edge for no caller. Admin auth is a second lock, not a
     # reason to hang the first one outside. Run it against the backend directly.
     "admin": {"enrichment/subcategories/reset"},
+    # Stripe calls it on Railway directly: its signature covers the raw body,
+    # which a Vercel hop would re-serialize.
+    "billing": {"webhook"},
 }
 
 

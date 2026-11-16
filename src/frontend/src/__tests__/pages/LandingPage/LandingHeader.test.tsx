@@ -1,8 +1,20 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { screen, within } from '@testing-library/react';
 import { renderWithProviders } from '../../../test/testUtils';
 import { LandingHeader } from '../../../pages/LandingPage/sections/LandingHeader';
 import { LANDING_CONTENT } from '../../../pages/LandingPage/content';
+
+const signedIn = vi.hoisted(() => ({ value: false }));
+vi.mock('../../../features/auth/useAuth', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../features/auth/useAuth')>();
+  return {
+    ...actual,
+    useAuth: () => ({ ...actual.useAuth(), isAuthenticated: signedIn.value }),
+  };
+});
+afterEach(() => {
+  signedIn.value = false;
+});
 
 const { header } = LANDING_CONTENT;
 
@@ -71,5 +83,15 @@ describe('LandingHeader', () => {
       sentinel.compareDocumentPosition(bar) & Node.DOCUMENT_POSITION_FOLLOWING,
       'the sentinel must precede the bar or it can never report the top of the page'
     ).toBeTruthy();
+  });
+
+  it('swaps Log in / Sign up for one Account button once signed in', () => {
+    signedIn.value = true;
+    renderHeader();
+    const account = buttonLink(header.account.label);
+    expect(account).toHaveClass('MuiButton-contained');
+    expect(account).toHaveAttribute('href', header.account.to);
+    expect(screen.queryByRole('link', { name: header.logIn.label })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: header.signUp.label })).not.toBeInTheDocument();
   });
 });

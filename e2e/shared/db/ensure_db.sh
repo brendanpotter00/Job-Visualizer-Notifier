@@ -33,7 +33,7 @@
 
 set -euo pipefail
 
-SOURCE_DB="jobscraper_pr243"
+SOURCE_DB="${E2E_SOURCE_DB:-jobscraper_pr243}"
 TARGET_DB="jobscraper_e2e"
 CONTAINER="${E2E_PG_CONTAINER:-jobscraper-postgres}"
 PGUSER="postgres"

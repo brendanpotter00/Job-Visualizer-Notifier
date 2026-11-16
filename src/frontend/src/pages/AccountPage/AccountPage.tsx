@@ -20,6 +20,8 @@ import { ErrorState } from '../../components/shared/ErrorDisplay';
 import { extractErrorMessage } from '../../lib/errors';
 import { trackSignInClick } from '../../features/analytics/events';
 import { RESPONSIVE } from '../../config/responsive';
+import { BILLING_CONFIG } from '../../config/billing';
+import { PlanSection } from './PlanSection';
 
 const AVATAR_SIZE = 80;
 
@@ -193,6 +195,8 @@ export function AccountPage() {
           {isSaving ? 'Saving...' : 'Save Changes'}
         </Button>
       </Paper>
+
+      {BILLING_CONFIG.showAccountPlanCard && <PlanSection />}
 
       {user.isAdmin && (
         <>

@@ -2256,3 +2256,36 @@ class AdminCustomCompanyAttemptsResponse(BaseModel):
     # true when the rollup hit its 200-row cap (mirrors AdminUserVisitsResponse).
     users_truncated: bool = False
     schema_present: bool = True
+
+
+# ---------------------------------------------------------------------------
+# Billing (/api/billing)
+# ---------------------------------------------------------------------------
+
+
+class SubscriptionResponse(BaseModel):
+    """GET /api/billing/subscription.
+
+    ``plan`` is billing state; ``is_pro`` is entitlement (admins, the past-due
+    grace). ``has_subscription`` picks Manage billing over Upgrade.
+    """
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    plan: Literal["free", "pro"]
+    status: str | None = None
+    is_pro: bool
+    has_subscription: bool
+    current_period_end: datetime | None = None
+    cancel_at_period_end: bool = False
+    past_due_since: datetime | None = None
+    grace_ends_at: datetime | None = None
+    billing_enabled: bool
+
+
+class BillingRedirectResponse(BaseModel):
+    """POST /api/billing/checkout-session and /portal-session — where to send the browser."""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    url: str

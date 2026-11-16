@@ -5,7 +5,8 @@
   "description": "E2E regression gate suites (PLAN.md). Self-contained — not an npm workspace member of the repo root.",
   "scripts": {
     "test:add-companies": "playwright test --config=add-companies/playwright.config.ts",
-    "test:subcategories": "playwright test --config=subcategories/playwright.config.ts"
+    "test:subcategories": "playwright test --config=subcategories/playwright.config.ts",
+    "test:billing": "playwright test --config=billing/playwright.config.ts"
   },
   "devDependencies": {
     "@playwright/test": "^1.57.0"

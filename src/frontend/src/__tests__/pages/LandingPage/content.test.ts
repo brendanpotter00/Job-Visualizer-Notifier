@@ -57,19 +57,21 @@ describe('landing content config', () => {
     }
   });
 
-  it('header carries a wordmark, exactly three nav links, and both auth labels', () => {
+  it('header carries a wordmark, exactly four nav links, and both auth labels', () => {
     const { wordmark, nav, logIn, signUp, sourceCode, evidence } = LANDING_CONTENT.header;
     expect(wordmark.label).toBe(LANDING_CONTENT.productName);
-    expect(nav).toHaveLength(3);
+    expect(nav).toHaveLength(4);
     for (const link of [wordmark, ...nav, logIn, signUp]) {
       expect(link.label.trim().length, `header link ${link.to} needs a label`).toBeGreaterThan(0);
     }
     expect(new Set(nav.map((item) => item.label)).size).toBe(nav.length);
     // Owner-directed 2026-09-03: "Why" gave up the second slot to "Changelog",
     // pointed at the vote-features page (which IS the public changelog — its
-    expect(nav.map((item) => item.label)).toEqual(['Jobs', 'Companies', 'Changelog']);
+    expect(nav.map((item) => item.label)).toEqual(['Jobs', 'Companies', 'Changelog', 'Pricing']);
     expect(nav[0].to).toBe(ROUTES.RECENT_JOBS);
     expect(nav[2].to).toBe(ROUTES.VOTE_FEATURES);
+    // Owner-directed 2026-11-15 (pricing plan, decision 1): a fourth link.
+    expect(nav[3].to).toBe(ROUTES.PRICING);
     expect(evidence.trim().length, 'header needs an owner breadcrumb').toBeGreaterThan(0);
     // External by definition, so it must NOT masquerade as an internal route.
     expect(sourceCode.href.startsWith('https://')).toBe(true);
@@ -162,9 +164,10 @@ describe('landing content config', () => {
       expect(liveIds, `coming-soon id ${feature.id} collides with a live cell`).not.toContain(
         feature.id
       );
-      expect(wordCount(feature.name), `coming-soon ${feature.id} name too long`).toBeLessThanOrEqual(
-        4
-      );
+      expect(
+        wordCount(feature.name),
+        `coming-soon ${feature.id} name too long`
+      ).toBeLessThanOrEqual(4);
       expect(
         wordCount(feature.detail),
         `coming-soon ${feature.id} detail too long`

@@ -64,8 +64,17 @@ def mint_token(user: dict[str, str] | None = None, *, ttl_seconds: int = 8 * 360
     return pyjwt.encode(payload, private_key, algorithm="RS256", headers={"kid": KID})
 
 
+def custom_user(sub: str, email: str) -> dict[str, str]:
+    """A one-off identity, for a section that needs a fresh user per case."""
+    return {"sub": sub, "email": email, "given_name": "E2E", "family_name": "Custom"}
+
+
 if __name__ == "__main__":
     import sys
 
-    who = OTHER_USER if len(sys.argv) > 1 and sys.argv[1] == "other" else PRIMARY_USER
-    print(mint_token(who))
+    # `mint.py`, `mint.py other`, or `mint.py custom <sub> <email>`.
+    if len(sys.argv) == 4 and sys.argv[1] == "custom":
+        print(mint_token(custom_user(sys.argv[2], sys.argv[3])))
+    else:
+        who = OTHER_USER if len(sys.argv) > 1 and sys.argv[1] == "other" else PRIMARY_USER
+        print(mint_token(who))

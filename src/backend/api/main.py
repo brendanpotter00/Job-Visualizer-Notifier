@@ -20,6 +20,7 @@ from .config import settings
 from .dependencies import get_db, init_pool, close_pool, pool_is_healthy
 from .routers import (
     admin,
+    billing,
     companies,
     dev_reset,
     feedback,
@@ -623,6 +624,8 @@ app.include_router(features.router, prefix="/api/features", tags=["features"])
 app.include_router(companies.router, prefix="/api/companies", tags=["companies"])
 app.include_router(feedback.router, prefix="/api/feedback", tags=["feedback"])
 app.include_router(admin.router, prefix="/api/admin", tags=["admin"])
+# Stripe calls /api/billing/webhook directly; the rest go through api/billing.ts.
+app.include_router(billing.router, prefix="/api/billing", tags=["billing"])
 app.include_router(
     internal_enrichment.router,
     prefix="/api/internal/enrichment",

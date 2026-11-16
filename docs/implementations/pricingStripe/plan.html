@@ -1,0 +1,630 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Pricing Stripe Plan</title>
+<link rel="stylesheet" href="/Users/brendanpotter/.claude/plugins/cache/claude-community/html-plan/1.0.0/skills/html-plan/runtime/htmlplan.css">
+<script src="/Users/brendanpotter/.claude/plugins/cache/claude-community/html-plan/1.0.0/skills/html-plan/runtime/htmlplan.js" defer></script>
+<style data-mock-shared>
+  /* The landing language (theme.ts + LandingPage Round 7, the natural.com pass):
+     monochrome, Helvetica, regular-weight left-aligned headings, tiny uppercase
+     eyebrow, black pill CTAs, a lot of air. The one bold move here: Pro is the
+     only inverted (black) surface on the page. */
+  .pg { font: 15px/1.45 Helvetica, Arial, sans-serif; color: #000; background: #fff; }
+  .pg .bar { display: flex; align-items: center; gap: 18px; padding: 14px 24px; font-size: 13px; color: #666; }
+  .pg .bar .wm { color: #000; font-weight: 500; margin-right: auto; letter-spacing: -0.01em; }
+  .pg .bar .su { color: #fff; background: #000; border-radius: 999px; padding: 6px 14px; }
+  .pg .wrap { padding: 28px 24px 32px; }
+  .pg .eb { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: #666; font-weight: 500; margin: 0 0 10px; }
+  .pg h1 { font-size: 40px; line-height: 1.08; letter-spacing: -0.03em; font-weight: 500; margin: 0 0 28px; max-width: 560px; }
+  .pg .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .pg .plan { border: 1px solid #e0e0e0; border-radius: 18px; padding: 22px; display: flex; flex-direction: column; gap: 14px; }
+  .pg .plan.pro { background: #000; color: #fff; border-color: #000; }
+  .pg .plan .nm { font-size: 14px; color: #666; } .pg .plan.pro .nm { color: #999; }
+  .pg .plan .pr { font-size: 52px; line-height: 1; letter-spacing: -0.04em; font-weight: 400; }
+  .pg .plan .pr small { font-size: 15px; letter-spacing: 0; color: #666; margin-left: 4px; } .pg .plan.pro .pr small { color: #999; }
+  .pg .plan ul { list-style: none; padding: 0; margin: 4px 0 0; font-size: 14px; }
+  .pg .plan li { padding: 9px 0; border-top: 1px solid #e6e6e6; }
+  .pg .plan .plus { font-size: 14px; color: #999; margin-top: 10px; }
+  .pg .plan .big { font-size: 34px; line-height: 1.05; letter-spacing: -0.03em; font-weight: 400; max-width: 260px; }
+  .pg .plan .btn { margin-top: auto; }
+  .pg .btn { display: inline-flex; align-self: flex-start; align-items: center; gap: 8px; border-radius: 999px; padding: 10px 20px; font-size: 14px; border: 1px solid #000; }
+  .pg .btn.inv { background: #fff; color: #000; border-color: #fff; }
+  .pg .btn.ghost { background: transparent; color: #000; border-color: #e0e0e0; }
+  .pg .btn.dis { color: #999; border-color: #e0e0e0; }
+  .pg .note { font-size: 12.5px; color: #999; margin-top: 2px; }
+  .pg .limit { border: 1px solid #000; border-radius: 12px; padding: 12px 16px; font-size: 14px; margin: 0 0 22px; display: flex; gap: 12px; align-items: baseline; }
+  .pg .limit b { font-weight: 500; }
+  /* Account card */
+  .ac { font: 14px/1.45 Helvetica, Arial, sans-serif; color: #000; background: #fff; border: 1px solid #e0e0e0; border-radius: 14px; padding: 18px 20px; display: grid; gap: 10px; }
+  .ac .h { font-size: 12px; color: #666; } .ac .v { font-size: 22px; letter-spacing: -0.02em; font-weight: 400; }
+  .ac .s { color: #666; font-size: 13px; } .ac .bad { color: #d32f2f; }
+  .ac .row { display: flex; gap: 8px; } .ac .btn { border-radius: 999px; padding: 8px 16px; font-size: 13px; border: 1px solid #000; }
+  .ac .btn.pri { background: #000; color: #fff; }
+  .ac .tag { display: inline-block; border-radius: 999px; padding: 2px 9px; font-size: 11.5px; border: 1px solid #000; margin-left: 6px; vertical-align: 3px; }
+  .ac .tag.inv { background: #000; color: #fff; }
+  /* /account as it is today (MUI theme: Helvetica, grey Paper, h4 600) + the new Plan card */
+  .acct { font: 14px/1.45 Helvetica, Arial, sans-serif; color: #000; background: #fff; padding: 26px 0 30px; }
+  .acct .in { width: 520px; margin: 0 auto; display: grid; gap: 18px; }
+  .acct h4 { font-size: 24px; font-weight: 600; margin: 0; }
+  .acct .paper { background: #f5f5f5; border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,.2); padding: 24px; }
+  .acct .cap { font-size: 12px; color: #666; }
+  .acct .plan-row { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; }
+  .acct .plan-v { font-size: 28px; letter-spacing: -0.02em; line-height: 1.1; }
+  .acct .pitch { color: #666; margin: 8px 0 16px; max-width: 360px; }
+  .acct .acts { display: flex; align-items: center; gap: 14px; }
+  .acct .pill { background: #000; color: #fff; border-radius: 999px; padding: 9px 18px; font-size: 14px; }
+  .acct .lnk { color: #000; text-decoration: underline; text-underline-offset: 3px; font-size: 13.5px; }
+  .acct .av { width: 64px; height: 64px; border-radius: 50%; background: #bdbdbd; color: #fff; display: grid; place-items: center; font-size: 24px; margin: 0 auto 8px; }
+  .acct .em { text-align: center; color: #666; font-size: 13px; margin-bottom: 18px; }
+  .acct .fld { border: 1px solid #c4c4c4; border-radius: 4px; padding: 9px 12px; color: #000; margin: 4px 0 18px; position: relative; }
+  .acct .fld span { position: absolute; top: -8px; left: 9px; background: #f5f5f5; padding: 0 4px; font-size: 11px; color: #666; }
+  .acct .save { background: #e0e0e0; color: #9e9e9e; text-align: center; border-radius: 4px; padding: 9px; font-size: 13px; font-weight: 500; letter-spacing: .02em; }
+  /* Stripe-hosted page, drawn only to show "you leave the site here" */
+  .st { font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; display: grid; grid-template-columns: 1fr 1fr; min-height: 210px; border: 1px solid #e3e8ee; border-radius: 10px; overflow: hidden; }
+  .st .l { background: #f6f9fc; padding: 18px; color: #3c4257; display: grid; align-content: start; gap: 6px; } .st .l b { font-size: 26px; color: #1a1f36; font-weight: 600; }
+  .st .r { padding: 18px; display: grid; gap: 8px; align-content: start; color: #697386; } .st .f { border: 1px solid #e3e8ee; border-radius: 6px; padding: 7px 9px; color: #1a1f36; }
+  .st .pay { background: #635bff; color: #fff; text-align: center; border-radius: 6px; padding: 9px; font-weight: 600; }
+  .st .tm { justify-self: start; background: #ffde92; color: #5c4400; border-radius: 4px; padding: 1px 6px; font-size: 11px; font-weight: 600; }
+</style>
+<body>
+
+<header>
+  <h1>Pro Plan and Stripe Billing on /pricing</h1>
+  <doc-changes new="15" changed="15"></doc-changes>
+  <details class="thread"><summary>Why · 1 request, 4 answers</summary>
+    <doc-quote via="prompt" from="Brendan">I want a prototype pricing page at /pricing but we only need one option and right now it would be unlimited mcp access basically … we will rate limit it and when they hit a rate limit they will be directed to that page. we will add new features soon. but I want to wire stripe up and get it working before I build out the features … lets say that it would be 6$ a month right now</doc-quote>
+    <doc-quote via="prompt" from="Brendan">you should use the natural docs on how to style it</doc-quote>
+    <doc-quote via="transcript" from="Brendan" where="answers to 4 questions">Checkout: Signed-in only · Layout: Free vs Pro · Scope: Billing + entitlement · Plan name: Pro</doc-quote>
+    <doc-quote via="doc" from="landing content" where="src/frontend/src/pages/LandingPage/content.ts:315">EPIC Power-user data access (replica + MCP), wdwb1cbnce</doc-quote>
+  </details>
+</header>
+
+<main>
+<doc-plan>
+
+<!-- ═════ 1 · the page ═════ -->
+<doc-claim>
+  <p>A visitor sees Free and Pro side by side at <code>/pricing</code>.</p>
+  <doc-mock frame="browser" url="onesecondswe.dev/pricing" w="760" thumbnail caption="Pro is the only black surface on the page. Everything else stays in the landing language."><template>
+<div class="pg">
+  <div class="bar"><span class="wm">onesecondswe</span><span>Jobs</span><span>Companies</span><span>Changelog</span><span>Log in</span><span class="su">Sign up</span></div>
+  <div class="wrap">
+    <p class="eb">Pricing</p>
+    <h1 data-ref="h1">Free to browse. $6 a month for unlimited MCP.</h1>
+    <div class="grid">
+      <div class="plan" data-ref="free">
+        <div class="nm">Free</div>
+        <div class="pr">$0</div>
+        <ul>
+          <li>Unlimited job access</li>
+          <li>Curated companies</li>
+          <li>Saved filters</li>
+          <li>Hiring trends</li>
+          <li>Limited MCP access</li>
+        </ul>
+        <span class="btn ghost">Browse jobs</span>
+      </div>
+      <div class="plan pro" data-ref="pro">
+        <div class="nm">Pro</div>
+        <div class="pr">$6<small>/ month</small></div>
+        <div class="plus">Everything in Free, plus</div>
+        <div class="big" data-ref="big">Unlimited MCP access</div>
+        <span class="btn inv" data-ref="cta">Upgrade to Pro</span>
+      </div>
+    </div>
+  </div>
+</div></template>
+    <doc-pin ref="h1" anchor="r" title="One tone, regular weight">Same h1 treatment as the hero.</doc-pin>
+    <doc-pin ref="big" anchor="tr" title="One feature, set large">Fills the card. No list to pad.</doc-pin>
+    <doc-pin ref="cta" anchor="r" title="Label follows auth state">Signed out: “Sign in to upgrade”. Pro: “Manage billing”.</doc-pin>
+  </doc-mock>
+  <doc-ask id="nav">
+    <p>Where does a reader find <code>/pricing</code> without a 429?</p>
+    <label><input type="radio" name="nav" value="no-header" checked> Account page, landing FAQ and the 429 only <small>the header keeps three links</small></label>
+    <label><input type="radio" name="nav" value="header"> Add “Pricing” as a fourth header link <small>content.ts calls a fourth link a content bug</small></label>
+  </doc-ask>
+
+  <doc-claim>
+    <p>The route renders outside <code>RootLayout</code>, with the landing header.</p>
+    <doc-calls title="Route and page" caption="Same chrome as / so the page reads as part of the landing site.">
+<script type="text/plain">
+~ ROUTES                                       @ src/frontend/src/config/routes.ts:32   -- + PRICING: '/pricing'
+~ <App/>                                       @ src/frontend/src/app/App.tsx:152
++   <Route path={ROUTES.PRICING}>              @ src/frontend/src/app/App.tsx:152   -- sibling of HOME, lazy()
++     <**PricingPage**/>                       @ src/frontend/src/pages/PricingPage/PricingPage.tsx:1
+        <LandingHeader/>                       @ src/frontend/src/pages/LandingPage/sections/LandingHeader.tsx:90
+        <Eyebrow/>                             @ src/frontend/src/pages/LandingPage/sections/SectionIntro.tsx:10
++       <**PlanCard** variant="free|pro"/>     @ src/frontend/src/pages/PricingPage/PlanCard.tsx:1
++       <**UpgradeButton**/>                   @ src/frontend/src/pages/PricingPage/UpgradeButton.tsx:1
++       <**PricingSeo**/>                      @ src/frontend/src/pages/PricingPage/PricingSeo.tsx:1   -- title and canonical link
+</script>
+    </doc-calls>
+  </doc-claim>
+
+  <doc-claim>
+    <p>All page copy lives in one <code>content.ts</code>, like the landing page.</p>
+    <doc-code title="PricingPage/content.ts · sketch" lang="ts" wrap>
+<script type="text/plain">
+export const PRO_PRICE_USD = 6; // display only — Stripe's Price is the source of truth
+
+export const pricingContent = {
+  eyebrow: 'Pricing',
+  headline: 'Free to browse. $6 a month for unlimited MCP.',
+  limitNotice: 'You reached the free MCP limit. It resets {resetsAt}. Pro removes it.',
+  free: { name: 'Free', price: '$0', cta: { label: 'Browse jobs', to: ROUTES.RECENT_JOBS },
+    rows: ['Unlimited job access', 'Curated companies', 'Saved filters',
+           'Hiring trends', 'Limited MCP access'] },
+  pro: { name: 'Pro', price: `$${PRO_PRICE_USD}`, period: '/ month',
+    plus: 'Everything in Free, plus',
+    headline: 'Unlimited MCP access', // one line, set large — no list
+    cta: { signedOut: 'Sign in to upgrade', free: 'Upgrade to Pro', pro: 'Manage billing' } },
+} as const;
+</script>
+    </doc-code>
+  </doc-claim>
+</doc-claim>
+
+<!-- ═════ 2 · lifecycle ═════ -->
+<doc-claim>
+  <p>A signed-in user subscribes, manages and cancels Pro without help.</p>
+  <doc-machine name="sub" caption="Tap a state to see the screen for it. Stripe owns every arrow after checkout.">
+<script type="text/plain">
+machine sub initial free
+state free        # No subscription row, or a row that ended.
+state checkout    # On the Stripe-hosted Checkout page.
+state pro         # Paid. is_pro() is true.
+state past_due    # A renewal failed. Still Pro for 3 days. Stripe retries.
+state lapsed      # Grace over. Free until the card works. Stripe still retries.
+state canceling   # Cancel at period end. Still Pro until then.
+state ended final # Subscription deleted. Back to Free.
+
+| free | checkout | pro      | canceling |
+| .    | .        | past_due | ended     |
+| .    | .        | lapsed   | .         |
+
+free      -upgrade->  checkout  : Upgrade
+checkout  -paid->     pro       : 4242…
+checkout  -back->     free      : cancel_url
+pro       -fail->     past_due  : invoice failed
+past_due  -fixed->    pro       : card updated
++ past_due -grace->   lapsed    : 3 days
++ lapsed   -fixed->   pro       : card updated
++ lapsed   -gaveup->  ended     : retries end
+pro       -cancel->   canceling : Portal
+canceling -resume->   pro       : Portal
+canceling -end->      ended     : period end
+</script>
+    <div data-state="free"><doc-mock frame="none" w="420"><template>
+<div class="ac"><div class="h">Plan</div><div class="v">Free</div><div class="s">Limited MCP access.</div><div class="row"><span class="btn pri">Upgrade to Pro · $6/mo</span></div></div></template></doc-mock></div>
+    <div data-state="checkout"><doc-mock frame="browser" url="checkout.stripe.com/c/pay/cs_test_…" w="520"><template>
+<div class="st"><div class="l"><span class="tm">TEST MODE</span><span>Subscribe to onesecondswe Pro</span><b>$6.00</b><span>per month</span></div>
+<div class="r"><span>Email</span><div class="f">you@example.com</div><span>Card</span><div class="f">4242 4242 4242 4242 · 12/34 · 123</div><div class="pay">Subscribe</div></div></div></template></doc-mock></div>
+    <div data-state="pro"><doc-mock frame="none" w="420"><template>
+<div class="ac"><div class="h">Plan</div><div class="v">Pro <span class="tag inv">Active</span></div><div class="s">$6 a month. Renews Dec 15, 2026.</div><div class="row"><span class="btn">Manage billing</span></div></div></template></doc-mock></div>
+    <div data-state="past_due"><doc-mock frame="none" w="420"><template>
+<div class="ac"><div class="h">Plan</div><div class="v">Pro <span class="tag">Payment failed</span></div><div class="s bad">Your last payment failed. Update your card by Nov 18 to keep Pro.</div><div class="row"><span class="btn pri">Update card</span></div></div></template></doc-mock></div>
+    <div data-state="lapsed"><doc-mock frame="none" w="420"><template>
+<div class="ac"><div class="h">Plan</div><div class="v">Free <span class="tag">Payment failed</span></div><div class="s bad">Pro is paused until your payment goes through.</div><div class="row"><span class="btn pri">Update card</span></div></div></template></doc-mock></div>
+    <div data-state="canceling"><doc-mock frame="none" w="420"><template>
+<div class="ac"><div class="h">Plan</div><div class="v">Pro <span class="tag">Ends Dec 15</span></div><div class="s">You keep Pro until Dec 15, 2026. Then you move to Free.</div><div class="row"><span class="btn">Resume Pro</span></div></div></template></doc-mock></div>
+    <div data-state="ended"><doc-mock frame="none" w="420"><template>
+<div class="ac"><div class="h">Plan</div><div class="v">Free</div><div class="s">Your Pro plan ended on Dec 15, 2026.</div><div class="row"><span class="btn pri">Upgrade to Pro · $6/mo</span></div></div></template></doc-mock></div>
+  </doc-machine>
+  <doc-ask id="pastdue">
+    <p>How long does a user in <code>past_due</code> keep Pro?</p>
+    <label><input type="radio" name="pastdue" value="3d" checked> 3 days, then Free until the card works <small>Stripe keeps retrying; a fix restores Pro</small></label>
+    <label><input type="radio" name="pastdue" value="yes"> Until Stripe deletes the subscription <small>approximately 2 weeks of retries</small></label>
+    <label><input type="radio" name="pastdue" value="no"> No grace: Free at the first failed payment</label>
+  </doc-ask>
+
+  <doc-claim>
+    <p>“Upgrade” asks the backend for a Checkout URL and goes there.</p>
+    <doc-calls title="Start checkout" caption="The browser never sees a Price id or a secret key.">
+<script type="text/plain">
++ <**UpgradeButton**/>                         @ src/frontend/src/pages/PricingPage/UpgradeButton.tsx:1
++   useCreateCheckoutSessionMutation()         @ src/frontend/src/features/billing/billingApi.ts:1
++     POST /api/billing/checkout-session       @ api/billing.ts:1   -- Vercel proxy, forwards Authorization
++   window.location.assign(url)                @ src/frontend/src/pages/PricingPage/UpgradeButton.tsx:1
+
++ **create_checkout_session**(user)           @ src/backend/api/routers/billing.py:1
++   get_or_create_user(...)                    @ src/backend/api/routers/users.py:67   -- the users row is the owner
++   **ensure_stripe_customer**(conn, user_id)  @ src/backend/api/services/billing_service.py:1
++   stripe.checkout.Session.create(mode="subscription")   @ src/backend/api/services/billing_service.py:1
+</script>
+    </doc-calls>
+    <doc-claim at="src/backend/api/services/billing_service.py:1">
+      <p><b>billing_service.py</b> · create_checkout_session()</p>
+      <doc-code title="billing_service.py · sketch" lang="py" hl="5,11-12" wrap>
+<script type="text/plain">
+def create_checkout_session(conn: Connection, user_id: str, email: str) -> str:
+    if is_pro(conn, user_id):
+        raise HTTPException(409, "Already on Pro — use Manage billing")
+    customer_id = ensure_stripe_customer(conn, user_id, email)  # one Customer per users.id
+    session = stripe.checkout.Session.create(
+        mode="subscription",
+        customer=customer_id,
+        client_reference_id=user_id,
+        line_items=[{"price": settings.stripe_price_id_pro, "quantity": 1}],
+        subscription_data={"metadata": {"user_id": user_id}},
+        success_url=f"{settings.public_app_url}/pricing?checkout=success",
+        cancel_url=f"{settings.public_app_url}/pricing?checkout=cancel",
+        allow_promotion_codes=False,
+    )
+    return session.url
+</script>
+        <doc-pin line="5" tone="info" title="Hosted Checkout">No card form in our code. No PCI scope.</doc-pin>
+        <doc-pin line="11" tone="warn" title="Success is not proof">The page polls status. Only the webhook grants Pro.</doc-pin>
+      </doc-code>
+    </doc-claim>
+  </doc-claim>
+
+  <doc-claim>
+    <p>A signed-out click signs in, then returns to <code>/pricing</code> and continues.</p>
+    <doc-code diff file="src/frontend/src/features/auth/useAuth.ts" lang="ts" start="67">
+<script type="text/plain">
+@@ -67,4 +67,6 @@
+-  const login = useCallback(async () => {
++  const login = useCallback(async (opts?: { returnTo?: string }) => {
+     try {
+-      await loginWithRedirect();
++      await loginWithRedirect(
++        opts?.returnTo ? { appState: { returnTo: opts.returnTo } } : undefined,
++      );
+     } catch (error) {
+</script>
+      <doc-pin line="70" tone="info" title="returnTo = /pricing?intent=pro">AuthProviders gets an onRedirectCallback that navigates there.</doc-pin>
+    </doc-code>
+  </doc-claim>
+
+  <doc-claim>
+    <p>A Free user sees an Upgrade button on <code>/account</code>, but it ships off.</p>
+    <doc-mock frame="browser" url="onesecondswe.dev/account" w="640" caption="With the flag off, /account is the same as today. With it on, the Plan card goes below the profile card."><template>
+<div class="acct"><div class="in">
+  <h4>Account</h4>
+  <div class="paper">
+    <div class="av">AL</div>
+    <div class="em">you@example.com</div>
+    <div class="cap">Name</div>
+    <div style="margin-bottom:14px">Alex Lee</div>
+    <div class="fld"><span>Display Name</span>Alex</div>
+    <div class="save">SAVE CHANGES</div>
+  </div>
+  <div class="paper" data-ref="plan">
+    <div class="cap">Plan</div>
+    <div class="plan-v">Free</div>
+    <p class="pitch">Get unlimited MCP calls.</p>
+    <div class="acts">
+      <span class="pill" data-ref="up">Upgrade to Pro · $6/mo</span>
+      <span class="lnk" data-ref="cmp">Compare plans</span>
+    </div>
+  </div>
+</div></div></template>
+      <doc-pin ref="plan" anchor="tl" title="New Plan card, at the bottom">Same Paper as the profile card.</doc-pin>
+      <doc-pin ref="up" anchor="tr" title="Goes straight to Stripe Checkout">One click. It skips /pricing.</doc-pin>
+      <doc-pin ref="cmp" anchor="r" offset="10,0" title="Compare plans opens /pricing"></doc-pin>
+    </doc-mock>
+    <doc-claim at="src/frontend/src/config/billing.ts:1">
+      <p><b>billing.ts</b> · BILLING_CONFIG.showAccountPlanCard</p>
+      <doc-code title="config/billing.ts + AccountPage.tsx · sketch" lang="ts" hl="9,15">
+<script type="text/plain">
+/**
+ * Default OFF: there is nothing to charge for yet. With the flag off, /account
+ * is byte-for-byte what ships today (no Plan card, no billing request).
+ * /pricing, Checkout and the webhook stay live so Stripe can be tested.
+ */
+export const BILLING_CONFIG = {
+  /** True only when the value is exactly the string 'true'. */
+  showAccountPlanCard: import.meta.env.VITE_ACCOUNT_PLAN_CARD_ENABLED === 'true',
+} as const;
+
+// AccountPage.tsx, below the profile <Paper> (above the admin-only cards):
+{BILLING_CONFIG.showAccountPlanCard && <PlanSection />}
+</script>
+      </doc-code>
+    </doc-claim>
+  </doc-claim>
+
+  <doc-claim>
+    <p>“Manage billing” opens the Stripe Customer Portal for card, invoices and cancel.</p>
+    <doc-calls title="Portal and status" caption="Cancel, resume and card changes all happen on Stripe pages.">
+<script type="text/plain">
+~ <AccountPage/>                               @ src/frontend/src/pages/AccountPage/AccountPage.tsx:140
++   <**PlanSection**/>                         @ src/frontend/src/pages/AccountPage/PlanSection.tsx:1
++     useGetSubscriptionQuery()                @ src/frontend/src/features/billing/billingApi.ts:1   -- GET /api/billing/subscription
++     useCreatePortalSessionMutation()         @ src/frontend/src/features/billing/billingApi.ts:1   -- POST /api/billing/portal-session
+
++ **get_subscription**(user)                  @ src/backend/api/routers/billing.py:1   -- reads user_subscriptions only, never Stripe
++ **create_portal_session**(user)             @ src/backend/api/routers/billing.py:1
++   stripe.billing_portal.Session.create(customer, return_url=/account)   @ src/backend/api/services/billing_service.py:1
+</script>
+    </doc-calls>
+  </doc-claim>
+</doc-claim>
+
+<!-- ═════ 3 · webhook ═════ -->
+<doc-claim>
+  <p>Only a signed Stripe webhook changes the plan of a user.</p>
+  <doc-calls title="Webhook" caption="Every event re-reads the subscription from Stripe, so event order does not matter.">
+<script type="text/plain">
+~ require_internal_key()                       @ src/backend/api/auth/internal_key.py:28   -- + "/api/billing/webhook" in _EXEMPT_PATHS
++ **stripe_webhook**(request)                  @ src/backend/api/routers/billing.py:1
++   stripe.Webhook.construct_event(raw_body, sig, secret)   @ src/backend/api/routers/billing.py:1   -- 400 if bad
++   **record_event_once**(conn, event.id)      @ src/backend/api/services/billing_service.py:1   -- ON CONFLICT (event_id); 200 no-op on a repeat
++   **sync_subscription**(conn, sub_id)        @ src/backend/api/services/billing_service.py:1
++     stripe.Subscription.retrieve(sub_id)     @ src/backend/api/services/billing_service.py:1
++     upsert user_subscriptions                @ src/backend/api/services/billing_service.py:1
+~ app.include_router(billing.router)           @ src/backend/api/main.py:598
+</script>
+  </doc-calls>
+  <doc-ask id="hook">
+    <p>Which URL does Stripe call for the webhook?</p>
+    <label><input type="radio" name="hook" value="railway" checked> Railway directly: <code>…railway.app/api/billing/webhook</code> <small>raw body intact; exempt from the internal key</small></label>
+    <label><input type="radio" name="hook" value="vercel"> Through a Vercel proxy route <small>needs bodyParser off and a raw re-send</small></label>
+  </doc-ask>
+
+  <doc-claim>
+    <p>The backend keeps one subscription row per user, and a log of event ids.</p>
+    <doc-schema id="subs" lang="py" diff title="db_models.py · new tables (Alembic autogenerate)" caption="Checked against POSTGRES-PRINCIPLES.md and POSTGRES-ANTI-PATTERNS.md. Section numbers are in the comments." wrap>
+<script type="text/plain">
++class UserSubscription(Base):
++    """1:1 billing sidecar of users, keyed by the parent PK (like job_freshness).
++    A row is never deleted when Pro ends: status='canceled' is a lifecycle
++    state, not a soft delete (P3), and the customer id is reused on re-subscribe."""
++    __tablename__ = "user_subscriptions"
++    # P4/AP9: real FK. RESTRICT, not CASCADE: the row maps a live Stripe
++    # subscription that outlives the user row, so a user who still pays
++    # cannot be hard-deleted until the subscription is cancelled.
++    user_id = Column(Text, ForeignKey("users.id", ondelete="RESTRICT"), primary_key=True)
++    stripe_customer_id = Column(Text, nullable=False, unique=True)      # P5: UNIQUE = the webhook lookup index
++    stripe_subscription_id = Column(Text, nullable=True, unique=True)   # P5: same
++    plan = Column(Text, nullable=False, server_default=text("'free'"))
++    status = Column(Text, nullable=True)    # Stripe's value as-is; no CHECK, Stripe adds statuses
++    # AP4: TIMESTAMPTZ from Stripe's epoch ints, parsed at the webhook boundary.
++    current_period_end = Column(TIMESTAMP(timezone=True), nullable=True)
++    cancel_at_period_end = Column(Boolean, nullable=False, server_default=text("false"))
++    # AP4: Stripe's event.created of the first past_due event, never now()
++    # (a late webhook delivery must not stretch the 3-day grace).
++    past_due_since = Column(TIMESTAMP(timezone=True), nullable=True)
++    created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())  # P2
++    updated_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())  # P2 + trigger
++    __table_args__ = (
++        CheckConstraint("plan IN ('free', 'pro')", name="user_subscriptions_plan_check"),
++    )
++
++class StripeEvent(Base):
++    """Append-only dedupe log (P2: no updated_at). About 5 rows per subscriber per
++    month, so no TTL sweep yet (P7, AP6); add a bounded-batch one if it grows."""
++    __tablename__ = "stripe_events"
++    id = Column(BigInteger, Identity(always=True), primary_key=True)  # P1/AP10: like user_visits
++    event_id = Column(Text, nullable=False, unique=True)  # evt_… ; ON CONFLICT (event_id) DO NOTHING
++    type = Column(Text, nullable=False)
++    created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())  # P2
+</script>
+    </doc-schema>
+    <doc-ask id="store">
+      <p>Where does the subscription state live?</p>
+      <label><input type="radio" name="store" value="table" checked> A new <code>user_subscriptions</code> table <small>users stays the identity record</small></label>
+      <label><input type="radio" name="store" value="columns"> Five new columns on <code>users</code> <small>one less join; mixes billing into identity</small></label>
+    </doc-ask>
+    <doc-claim at="src/backend/alembic/versions/">
+      <p><b>alembic/versions/…_billing_tables.py</b> · the first shared <code>set_updated_at()</code></p>
+      <doc-code title="migration · sketch (autogenerate + hand-added trigger)" lang="py" wrap>
+<script type="text/plain">
+def upgrade() -> None:
+    # Autogenerated: create_table user_subscriptions, stripe_events (new tables
+    # only, so P10 holds: no ALTER on a big table, nothing is rewritten).
+    ...
+    # Hand-added: Alembic does not autogenerate functions or triggers. P2 says the
+    # trigger is the point; this is the first one in the repo, defined once.
+    op.execute("""
+        CREATE OR REPLACE FUNCTION set_updated_at() RETURNS trigger AS $$
+        BEGIN NEW.updated_at = now(); RETURN NEW; END;
+        $$ LANGUAGE plpgsql
+    """)
+    op.execute("""
+        CREATE TRIGGER user_subscriptions_set_updated_at
+        BEFORE UPDATE ON user_subscriptions
+        FOR EACH ROW EXECUTE FUNCTION set_updated_at()
+    """)
+
+def downgrade() -> None:
+    op.execute("DROP TRIGGER IF EXISTS user_subscriptions_set_updated_at ON user_subscriptions")
+    op.drop_table("stripe_events")
+    op.drop_table("user_subscriptions")
+    # set_updated_at() stays: later tables may attach to it.
+</script>
+      </doc-code>
+    </doc-claim>
+  </doc-claim>
+
+  <doc-claim>
+    <p>The webhook handles five event types and ignores all others.</p>
+    <doc-code title="billing.py · sketch" lang="py">
+<script type="text/plain">
+HANDLED = {
+    "checkout.session.completed",       # first payment: links customer → subscription
+    "customer.subscription.created",
+    "customer.subscription.updated",    # renew, past_due, cancel_at_period_end, resume
+    "customer.subscription.deleted",    # ended → plan = 'free'
+    "invoice.payment_failed",           # status flips to past_due via the re-read
+}
+
+@router.post("/webhook", include_in_schema=False)
+async def stripe_webhook(request: Request, conn: Connection = Depends(get_db)):
+    payload = await request.body()
+    try:
+        event = stripe.Webhook.construct_event(
+            payload, request.headers.get("stripe-signature"), settings.stripe_webhook_secret)
+    except (ValueError, stripe.SignatureVerificationError):
+        raise HTTPException(400, "Invalid signature")
+    if event.type in HANDLED and record_event_once(conn, event.id, event.type):
+        sync_subscription(conn, subscription_id_of(event))
+    return {"received": True}   # 2xx for unknown types too, or Stripe retries forever
+</script>
+    </doc-code>
+  </doc-claim>
+</doc-claim>
+
+<!-- ═════ 4 · entitlement + 429 ═════ -->
+<doc-claim>
+  <p>A free user over the MCP limit gets a 429 that links to <code>/pricing</code>.</p>
+  <doc-mock frame="terminal" title="MCP client · free user" w="480"><template><span class="dim">→</span> tools/call search_jobs {"query":"backend sf"}
+<span class="r">HTTP/1.1 429 Too Many Requests</span>
+Retry-After: <b>3600</b>
+Link: &lt;https://onesecondswe.dev/pricing?reason=mcp_limit&gt;; rel="payment"
+
+{ <span class="y">"error"</span>: "rate_limited",
+  <span class="y">"plan"</span>: "free",
+  <span class="y">"limit"</span>: 100, <span class="y">"window"</span>: "day",
+  <span class="y">"resetsAt"</span>: "2026-11-16T00:00:00Z",
+  <span class="y">"upgradeUrl"</span>: "<span class="b">https://onesecondswe.dev/pricing?reason=mcp_limit</span>" }</template></doc-mock>
+  <doc-ask id="limitcopy">
+    <p>What does the Free card say about the MCP limit for now?</p>
+    <label><input type="radio" name="limitcopy" value="vague" checked> “Limited MCP access” <small>no number until the limiter ships</small></label>
+    <label><input type="radio" name="limitcopy" value="number"> A number now: <input type="text" name="limitnum" placeholder="100 calls a day"></label>
+  </doc-ask>
+
+  <doc-claim>
+    <p><code>is_pro()</code> is the one rule. Admins count as Pro.</p>
+    <doc-code title="services/entitlements.py · sketch" lang="py" hl="11-12">
+<script type="text/plain">
+PAST_DUE_GRACE = timedelta(days=3)                  # decision 2
+
+def is_pro(conn: Connection, user_id: str, email: str | None = None) -> bool:
+    if email and is_admin_by_email(conn, email):     # same exemption as the add quota
+        return True
+    row = conn.execute(SELECT_SUB, {"user_id": user_id}).fetchone()
+    if not row or row.plan != "pro":
+        return False
+    if row.status in {"active", "trialing"}:
+        return True
+    if row.status == "past_due" and row.past_due_since:
+        return utcnow() < row.past_due_since + PAST_DUE_GRACE
+    return False
+
+async def require_pro(conn=Depends(get_db), user=Depends(get_current_user)) -> TokenClaims:
+    if not is_pro(conn, user_id_for(conn, user), user.get("email")):
+        raise HTTPException(402, detail=upgrade_body("pro_required"))
+    return user
+
+def rate_limited_response(limit: int, window: str, resets_at: datetime) -> JSONResponse:
+    """The 429 the MCP limiter will return. Built now so its shape is pinned by a test."""
+</script>
+    </doc-code>
+  </doc-claim>
+
+  <doc-claim>
+    <p><code>/pricing?reason=mcp_limit</code> shows one line above the plans.</p>
+    <doc-mock frame="none" w="480"><template>
+<div class="pg"><div class="wrap" style="padding:18px 20px">
+  <div class="limit" data-ref="lim"><b>You reached the free MCP limit.</b><span style="color:#666">It resets at 00:00 UTC. Pro removes it.</span></div>
+  <p class="eb">Pricing</p>
+  <h1 style="font-size:28px;margin:0">Free to browse. $6 a month for unlimited MCP.</h1>
+</div></div></template>
+      <doc-pin ref="lim" anchor="tr" title="Only with ?reason=mcp_limit">A plain visit shows no notice.</doc-pin>
+    </doc-mock>
+  </doc-claim>
+</doc-claim>
+
+<!-- ═════ 5 · test it ═════ -->
+<doc-claim>
+  <p>You can run the full flow locally in Stripe test mode.</p>
+  <doc-mock frame="terminal" title="local test" w="480"><template><span class="dim">$</span> stripe listen --forward-to localhost:8000/api/billing/webhook
+<span class="g">Ready!</span> Your webhook signing secret is <b>whsec_…</b>
+
+<span class="dim">#</span> /pricing → Upgrade → card 4242 4242 4242 4242
+<span class="dim">--></span> checkout.session.completed        [<span class="g">200</span>]
+<span class="dim">--></span> customer.subscription.created     [<span class="g">200</span>]
+<span class="dim">--></span> invoice.paid                      [<span class="g">200</span>]
+
+<span class="dim">$</span> psql -c "select plan,status from user_subscriptions"
+ pro  | active</template></doc-mock>
+
+  <doc-claim>
+    <p>You do six one-time steps in Stripe and the env files.</p>
+    <doc-code title="one-time setup" lang="text" wrap>
+<script type="text/plain">
+1 Account   Create a Stripe account. Stay in Test mode (Sandbox).
+2 Product   "onesecondswe Pro", recurring Price $6.00 USD / month. Copy price_…
+3 Portal    Settings > Billing > Customer portal: allow cancel at period end
+            and card updates. Save.
+4 Keys      Copy sk_test_…. Put it, the price id and PUBLIC_APP_URL in the
+            backend .env.local.
+5 CLI       brew install stripe/stripe-cli/stripe; stripe login;
+            stripe listen --forward-to localhost:8000/api/billing/webhook
+            Put its whsec_… in STRIPE_WEBHOOK_SECRET.
+6 Prod      Later: a Dashboard webhook endpoint on the Railway URL, its own
+            whsec_…, the four vars in Railway. Live keys only at launch.
+</script>
+    </doc-code>
+  </doc-claim>
+
+  <doc-claim>
+    <p>Five test cases cover each arrow of the lifecycle.</p>
+    <doc-code title="manual test matrix" lang="text">
+<script type="text/plain">
+1  Happy path     card 4242 4242 4242 4242      → /account shows "Pro · Active"
+2  Declined       card 4000 0000 0000 0002      → Checkout shows the error, plan stays Free
+3  3-D Secure     card 4000 0025 0000 3155      → challenge, then Pro
+4  Cancel         /account → Manage billing → Cancel   → "Ends <date>"; then
+                  stripe trigger customer.subscription.deleted (or Test Clock) → Free
+5  Renew fails    Test Clock: card 4000 0000 0000 0341, advance 1 month → "Payment failed", still Pro;
+                  advance 3 more days → Free (lapsed); update card → Pro again
++  Replay         stripe events resend evt_…   → 200, no second write (stripe_events)
++  Bad signature  curl -X POST …/webhook -d '{}' → 400
++  Query plans    EXPLAIN (ANALYZE, BUFFERS) the is_pro() read and both webhook
+                  lookups → Index Scan on the PK / UNIQUE index, no Seq Scan
+</script>
+    </doc-code>
+  </doc-claim>
+
+  <doc-claim>
+    <p>Automated tests pin the webhook, <code>is_pro()</code>, the 429 shape and the page.</p>
+    <doc-tree caption="Stripe calls are mocked. No test needs network or a key.">
+<script type="text/plain">
+src/backend/api/tests/
+  + test_billing_webhook.py      # signature 400, replay no-op, each status → plan
+  + test_billing_schema.py       # RESTRICT on delete, trigger stamps updated_at
+  + test_billing_checkout.py     # 401 signed out, 409 already Pro, URL returned
+  + test_entitlements.py         # is_pro matrix, 3-day grace, 429 shape
+  ~ test_proxy_path_allowlists.py  # billing routes proxied; webhook in NOT_PROXIED
+src/frontend/src/__tests__/
+  + pages/PricingPage.test.tsx   # 3 CTA labels by auth state; ?reason notice
+  ~ pages/AccountPage/AccountPage.test.tsx  # flag off: no Plan card, no billing call
+  + api/serverless/billing.serverless.test.ts
+</script>
+    </doc-tree>
+  </doc-claim>
+</doc-claim>
+
+<!-- ═════ shared ═════ -->
+<doc-claim aux="shared">
+  <p>Shared: four new backend settings, all secret except the URL.</p>
+  <doc-schema id="cfg" lang="py" diff title="src/backend/api/config.py · Settings" caption="Missing keys disable billing routes with a 503; they never crash boot.">
+<script type="text/plain">
+     # Server
+     port: int = 8080
++    # Billing (Stripe). Test-mode keys locally; live keys only in Railway prod.
++    stripe_secret_key: str | None = None        # sk_test_… / sk_live_…
++    stripe_webhook_secret: str | None = None    # whsec_… (CLI locally, Dashboard in prod)
++    stripe_price_id_pro: str | None = None      # price_… for $6/month
++    public_app_url: str = "http://localhost:3000"   # success/cancel/return URLs
+</script>
+  </doc-schema>
+</doc-claim>
+
+<!-- ═════ scope ═════ -->
+<doc-claim aux="scope">
+  <p>Not changing: the MCP server, the real limiter, and what Free can do today.</p>
+  <ul>
+    <li>No MCP server and no limiter. This plan only gives them <code>is_pro()</code> and the 429 shape.</li>
+    <li>No annual price, trial, coupon, tax or team seat.</li>
+    <li>No emails from us. Stripe sends the receipts.</li>
+    <li>No live keys. Production stays in test mode until you switch it.</li>
+    <li>No change to the landing page, except one FAQ entry if decision 1 stays as proposed.</li>
+  </ul>
+</doc-claim>
+
+</doc-plan>
+</main>
+</body></html>

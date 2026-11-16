@@ -302,6 +302,16 @@ class Settings(BaseSettings):
     # at 0 logs a startup WARNING (``services/add_quota.warn_if_adds_disabled``).
     custom_company_monthly_add_limit: int = Field(default=20, ge=0)
 
+    # Billing (Stripe). With any unset, the Stripe-calling billing routes answer 503.
+    stripe_secret_key: str | None = None
+    # Per endpoint: `stripe listen` and the Dashboard endpoint have different secrets.
+    stripe_webhook_secret: str | None = None
+    # The $6/month Pro Price; the amount charged comes from Stripe, not this app.
+    stripe_price_id_pro: str | None = None
+    # Frontend origin Stripe returns the browser to. No default, so a missing one
+    # disables billing rather than sending paying users to localhost.
+    public_app_url: str | None = None
+
     # Server
     port: int = 8080
     cors_origins: str = "http://localhost:3000,http://localhost:5173,http://localhost:8000"

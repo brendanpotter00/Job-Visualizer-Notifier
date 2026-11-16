@@ -1,4 +1,4 @@
-import { lazy } from 'react';
+import { lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { useURLSync, useBrowserNavigation } from './hooks';
 import { RootLayout } from '../components/layout/RootLayout.tsx';
@@ -6,6 +6,7 @@ import { ROUTES } from '../config/routes';
 import { CUSTOM_COMPANIES_CONFIG } from '../config/customCompanies';
 import { HomeRoute, UnknownPathRedirect } from './HomeRoute';
 import { AdminRoute } from '../components/auth/AdminRoute.tsx';
+import { PageSkeleton } from '../components/shared/Skeletons';
 import { useEnabledCompanies } from '../features/preferences/useEnabledCompanies';
 import { useHydrateSavedFilters } from '../features/savedFilters/useHydrateSavedFilters';
 import { useRecentJobsUrlSync } from '../features/filters/useRecentJobsUrlSync';
@@ -31,6 +32,9 @@ const RecentJobPostingsPage = lazy(() =>
 );
 const WhyPage = lazy(() =>
   import('../pages/WhyPage/WhyPage.tsx').then((m) => ({ default: m.WhyPage }))
+);
+const PricingPage = lazy(() =>
+  import('../pages/PricingPage/PricingPage').then((m) => ({ default: m.PricingPage }))
 );
 const AccountPage = lazy(() =>
   import('../pages/AccountPage/AccountPage.tsx').then((m) => ({ default: m.AccountPage }))
@@ -150,6 +154,15 @@ function AppContent() {
       {WEBMCP_CONFIG.isEnabled && <WebMcpBridge />}
       <Routes>
         <Route path={ROUTES.HOME} element={<HomeRoute />} />
+        {/* Outside RootLayout, so it needs its own Suspense. */}
+        <Route
+          path={ROUTES.PRICING}
+          element={
+            <Suspense fallback={<PageSkeleton fullPage />}>
+              <PricingPage />
+            </Suspense>
+          }
+        />
         <Route element={<RootLayout />}>
           <Route path={ROUTES.RECENT_JOBS} element={<RecentJobPostingsPage />} />
           <Route path={ROUTES.COMPANIES} element={<CompaniesPage />} />

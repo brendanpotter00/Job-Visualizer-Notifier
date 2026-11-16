@@ -74,6 +74,13 @@ const SM_DESKTOP: Record<string, number | string> = {
   'landingProto.categoryCardPadding': 3,
   'landingProto.categoryGridGap': 3,
   'landingProto.heroSceneHeight': 280,
+  // /pricing — new tokens, so `sm` IS the desktop design value (no prior page).
+  'pricing.pagePaddingY': 10,
+  'pricing.cardGap': 3,
+  'pricing.cardPadding': 4,
+  'pricing.priceFontSize': '3.5rem',
+  'pricing.proHeadlineFontSize': '2.25rem',
+  'pricing.rowFontSize': '1rem',
 };
 
 // Desktop (`default`) value expected for each `{ compact, default }` token.

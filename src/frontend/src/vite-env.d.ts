@@ -19,6 +19,7 @@ interface ImportMetaEnv {
   // WebMCP tool surface — '1' turns on the e2e agent-driving shim + tool
   // registration (see src/webmcp). Unset in every normal/prod build.
   readonly VITE_WEBMCP?: string;
+  readonly VITE_ACCOUNT_PLAN_CARD_ENABLED?: string;
 }
 
 interface ImportMeta {

@@ -30,6 +30,8 @@ export const ROUTES = {
   WHY: '/why',
   QA: '/qa',
   ACCOUNT: '/account',
+  // Full-bleed, outside RootLayout, like the landing page.
+  PRICING: '/pricing',
   SAVED_FILTERS: '/saved-filters',
   VOTE_FEATURES: '/vote-features',
   ADMIN_USERS: '/admin/users',

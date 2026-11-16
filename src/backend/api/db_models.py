@@ -19,6 +19,7 @@ from __future__ import annotations
 from sqlalchemy import (
     BigInteger,
     Boolean,
+    CheckConstraint,
     Column,
     DDL,
     Float,
@@ -622,6 +623,101 @@ class Admin(Base):
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
     )
+
+
+class UserSubscription(Base):
+    """A user's Stripe billing state: a 1:1 sidecar of ``users``.
+
+    Only the Stripe webhook writes the subscription columns. The row is kept
+    when Pro ends (``status='canceled'`` is a lifecycle state, P3) so the
+    customer id is reused on a re-subscribe.
+    """
+
+    __tablename__ = "user_subscriptions"
+
+    # RESTRICT (P4): a live Stripe subscription keeps charging after its user is
+    # gone, so cancel in Stripe before deleting the user.
+    user_id = Column(
+        Text,
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+    # Each UNIQUE is the index the webhook looks rows up by (P5).
+    stripe_customer_id = Column(Text, nullable=False, unique=True)
+    stripe_subscription_id = Column(Text, nullable=True, unique=True)
+    # What the current subscription is for; entitlements.is_pro() decides access.
+    plan = Column(Text, nullable=False, server_default=text("'free'"))
+    # Stripe's status verbatim. No CHECK: a new Stripe status must not fail the webhook.
+    status = Column(Text, nullable=True)
+    current_period_end = Column(TIMESTAMP(timezone=True), nullable=True)
+    cancel_at_period_end = Column(Boolean, nullable=False, server_default=text("false"))
+    # Start of the past-due grace, from the failure event's Stripe time (AP4).
+    past_due_since = Column(TIMESTAMP(timezone=True), nullable=True)
+    created_at = Column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
+    )
+    # Kept current by the set_updated_at() trigger below (P2).
+    updated_at = Column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "plan IN ('free', 'pro')", name="ck_user_subscriptions_plan"
+        ),
+    )
+
+
+class StripeEvent(Base):
+    """Append-only dedupe log of processed Stripe webhook events (P2: no updated_at)."""
+
+    __tablename__ = "stripe_events"
+
+    id = Column(BigInteger, primary_key=True)
+    event_id = Column(Text, nullable=False, unique=True)
+    type = Column(Text, nullable=False)
+    created_at = Column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+# Alembic does not autogenerate functions or triggers; mirrored here so
+# create_all test schemas match the migration.
+_SET_UPDATED_AT_FUNCTION = DDL(
+    """
+    CREATE OR REPLACE FUNCTION set_updated_at() RETURNS trigger
+    LANGUAGE plpgsql AS $$
+    BEGIN
+        NEW.updated_at = now();
+        RETURN NEW;
+    END;
+    $$;
+    """
+)
+_USER_SUBSCRIPTIONS_SET_UPDATED_AT_TRIGGER = DDL(
+    """
+    CREATE TRIGGER user_subscriptions_set_updated_at
+        BEFORE UPDATE ON user_subscriptions
+        FOR EACH ROW
+        EXECUTE FUNCTION set_updated_at();
+    """
+)
+
+event.listen(
+    UserSubscription.__table__,
+    "after_create",
+    _SET_UPDATED_AT_FUNCTION.execute_if(dialect="postgresql"),
+)
+event.listen(
+    UserSubscription.__table__,
+    "after_create",
+    _USER_SUBSCRIPTIONS_SET_UPDATED_AT_TRIGGER.execute_if(dialect="postgresql"),
+)
+event.listen(
+    UserSubscription.__table__,
+    "after_drop",
+    DDL("DROP FUNCTION IF EXISTS set_updated_at()").execute_if(dialect="postgresql"),
+)
 
 
 class UserEnabledCompany(Base):

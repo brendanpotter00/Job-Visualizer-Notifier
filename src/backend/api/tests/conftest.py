@@ -358,6 +358,8 @@ def _clear_tables(conn) -> None:
         sql.Identifier("location_aliases"),
         sql.Identifier("scrape_runs"),
         sql.Identifier("admins"),
+        sql.Identifier("user_subscriptions"),
+        sql.Identifier("stripe_events"),
         sql.Identifier("users"),
         sql.Identifier("companies"),
         sql.Identifier("worker_heartbeats"),
@@ -561,6 +563,7 @@ def test_app(db_conn):
     """FastAPI test app with database connection wired up (no auto-scraper)."""
     from api.routers import (
         admin,
+        billing,
         companies,
         features,
         feedback,
@@ -589,6 +592,7 @@ def test_app(db_conn):
     app.include_router(companies.router, prefix="/api/companies")
     app.include_router(feedback.router, prefix="/api/feedback")
     app.include_router(admin.router, prefix="/api/admin")
+    app.include_router(billing.router, prefix="/api/billing")
 
     @app.get("/health")
     def health():

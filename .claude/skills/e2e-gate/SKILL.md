@@ -42,6 +42,7 @@ attempts this itself but a pre-set `PATH` wins.
 | `add-companies` | `sections/add-companies.md` |
 | `company-name-search` | `sections/company-name-search.md` — **spends real money** (~$0.21/run) |
 | `subcategories` | `sections/subcategories.md` — $0, unconditionally |
+| `billing` | `sections/billing.md` — $0, Stripe sandbox; needs `stripe login`, local-only |
 
 Adding a section: create `e2e/<section>/` (its own `PLAN.md`, `CASES.md`, `api/`, `ui/`),
 add a row here and to `e2e/README.md`, and write `sections/<section>.md`. Never grow

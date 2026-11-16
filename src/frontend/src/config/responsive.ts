@@ -329,6 +329,21 @@ export const RESPONSIVE = {
     /** Fresh-jobs ticker logo edge (raw px via `useIsMobile`). */
     tickerLogoSize: { compact: 22, default: 28 },
   },
+  /** /pricing (pages/PricingPage). Same type language as the landing page. */
+  pricing: {
+    /** Top/bottom air around the whole page body (theme units). */
+    pagePaddingY: { xs: 5, sm: 10 },
+    /** Gap between the two plan cards (theme units). */
+    cardGap: { xs: 2, sm: 3 },
+    /** Interior padding of a plan card (theme units). */
+    cardPadding: { xs: 3, sm: 4 },
+    /** The big price ("$0", "$6"). */
+    priceFontSize: { xs: '2.75rem', sm: '3.5rem' },
+    /** Pro's one-line feature, set large in place of a list. */
+    proHeadlineFontSize: { xs: '1.75rem', sm: '2.25rem' },
+    /** A plan-card row (Free's list). */
+    rowFontSize: { xs: '0.9375rem', sm: '1rem' },
+  },
 } as const;
 
 /**
