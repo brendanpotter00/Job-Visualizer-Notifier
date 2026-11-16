@@ -1,14 +1,14 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { getBackendUrl } from './utils/backendUrl';
-import { forwardResponse } from './utils/forwardResponse';
-import { getInternalKeyHeader } from './utils/internalKey';
-import { PROXY_REJECTION, buildUpstreamUrl, resolveProxyPath } from './utils/proxyPath';
+import { getBackendUrl } from './_utils/backendUrl';
+import { forwardResponse } from './_utils/forwardResponse';
+import { getInternalKeyHeader } from './_utils/internalKey';
+import { PROXY_REJECTION, buildUpstreamUrl, resolveProxyPath } from './_utils/proxyPath';
 
 const METHODS_WITH_BODY = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
 /**
  * Every backend route reachable under `/api/feedback`, and nothing else. See
- * `api/utils/proxyPath.ts` for why this is an allowlist and not a `..` filter.
+ * `api/_utils/proxyPath.ts` for why this is an allowlist and not a `..` filter.
  *
  * The backend `feedback` router declares exactly ONE route — `POST ""` — and
  * `features/feedback/feedbackApi.ts` spells its url as the empty string. So the

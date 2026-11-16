@@ -140,7 +140,7 @@ def _shape(path: str) -> tuple[str, ...]:
 
 
 def _allowlist_entry_matches(entry: str, path: str) -> bool:
-    """``matchesRoute`` from ``api/utils/proxyPath.ts``, in Python.
+    """``matchesRoute`` from ``api/_utils/proxyPath.ts``, in Python.
 
     Mirrored rather than approximated with a string compare because the whole point
     is the part a string compare misses: ``:id`` matches ANY single segment (the name
@@ -214,7 +214,7 @@ class TestProxyPathAllowlists:
         Recording a route in NOT_PROXIED documents a decision; on its own it enforces
         nothing, because ``test_every_backend_route_is_reachable_or_explicitly_refused``
         is satisfied by the entry existing. This is the half that bites: it replays
-        ``api/utils/proxyPath.ts``'s matcher against every allowlist entry and fails
+        ``api/_utils/proxyPath.ts``'s matcher against every allowlist entry and fails
         if ANY of them — including a dynamic ``:id`` or a trailing ``*`` — resolves to
         a path we said must never be publicly reachable.
 
@@ -300,7 +300,7 @@ def test_every_proxy_uses_the_shared_allowlist() -> None:
         )
         assert "resolveProxyPath" in src, (
             f"api/{name}.ts must resolve ?path= through the shared allowlist "
-            f"in api/utils/proxyPath.ts, not a private check"
+            f"in api/_utils/proxyPath.ts, not a private check"
         )
         assert "redirect: 'manual'" in src or 'redirect: "manual"' in src, (
             f"api/{name}.ts must not follow redirects: Node's fetch preserves "
@@ -343,7 +343,7 @@ def test_every_proxy_builds_its_upstream_url_through_build_upstream_url() -> Non
         src = (API_DIR / f"{name}.ts").read_text()
         assert "buildUpstreamUrl(" in src, (
             f"api/{name}.ts calls fetch() but never builds its URL with "
-            f"buildUpstreamUrl() from api/utils/proxyPath.ts — the only builder "
+            f"buildUpstreamUrl() from api/_utils/proxyPath.ts — the only builder "
             f"that encodes each validated segment and asserts the result stays "
             f"under the proxy's prefix"
         )

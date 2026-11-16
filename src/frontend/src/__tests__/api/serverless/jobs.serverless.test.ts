@@ -178,7 +178,7 @@ describe('/api/jobs serverless function', () => {
       await handler(mockReq as VercelRequest, mockRes as VercelResponse);
 
       expect(mockRes.status).toHaveBeenCalledWith(404);
-      // The SHARED rejection body (`PROXY_REJECTION` in api/utils/proxyPath.ts),
+      // The SHARED rejection body (`PROXY_REJECTION` in api/_utils/proxyPath.ts),
       // not this proxy's old hand-rolled `{ error: 'Not found' }`. Adopting
       // `resolveProxyPath` here put /api/jobs behind the same control as the
       // other seven proxies — which is the point, and it means the shape is
@@ -215,7 +215,7 @@ describe('/api/jobs serverless function', () => {
     });
 
     it('preserves a colon in the source id of the detail route', async () => {
-      // Source ids can carry a colon (see api/utils/proxyPath.ts) — the `:param`
+      // Source ids can carry a colon (see api/_utils/proxyPath.ts) — the `:param`
       // allowlist deliberately does not constrain the segment charset, so it must
       // survive to the upstream path intact.
       mockReq.query = { path: 'workday:tenant/REQ-9' };

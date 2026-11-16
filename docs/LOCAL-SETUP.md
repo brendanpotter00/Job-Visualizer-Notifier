@@ -288,7 +288,7 @@ These TypeScript functions proxy external ATS API calls to avoid browser CORS re
 | `api/jobs.ts` | FastAPI backend `/api/jobs` |
 | `api/jobs-qa.ts` | FastAPI backend `/api/jobs-qa` |
 
-Backend URL resolution (`api/utils/backendUrl.ts`): uses `http://localhost:8000` for local dev, `BACKEND_API_URL` env var in production.
+Backend URL resolution (`api/_utils/backendUrl.ts`): uses `http://localhost:8000` for local dev, `BACKEND_API_URL` env var in production.
 
 ### PostgreSQL Database
 

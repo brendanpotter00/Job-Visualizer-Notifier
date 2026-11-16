@@ -8,7 +8,7 @@ anonymous prober that a "delete everything a user added" endpoint exists here.
 
 WHY ``/api/users/dev-reset`` AND NOT ``/api/users/companies/dev-reset``. The
 ``api/users.ts`` proxy allowlists ``companies/:id``, and ``:id`` matches ANY single
-segment (``api/utils/proxyPath.ts`` — the name is documentation only). So a route at
+segment (``api/_utils/proxyPath.ts`` — the name is documentation only). So a route at
 ``companies/dev-reset`` would be reachable from the public internet as
 ``GET /api/users?path=companies/dev-reset`` the moment the flag was ever on in a
 deployed environment. One segment up, nothing in that allowlist matches

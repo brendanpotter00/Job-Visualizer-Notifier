@@ -127,7 +127,7 @@ PORT=8201
 ### Two traps the implementation agent will hit
 
 **Trap 1 — `vercel dev` cannot be pointed at port 8201 reliably.**
-`api/utils/backendUrl.ts` honours `LOCAL_BACKEND_URL`, but root `AGENTS.md` gotcha #3 says Vercel
+`api/_utils/backendUrl.ts` honours `LOCAL_BACKEND_URL`, but root `AGENTS.md` gotcha #3 says Vercel
 Dev's cloud env vars override `.env.local` **and shell env vars** for `api/*.ts`. So use **plain
 `vite dev`** with an e2e-only config that proxies `^/api` → `http://127.0.0.1:8201`.
 *Honest cost of that choice:* the Vercel proxy layer (`api/users.ts`, `api/companies.ts`) is then

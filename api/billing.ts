@@ -1,11 +1,11 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { getBackendUrl } from './utils/backendUrl';
-import { forwardResponse } from './utils/forwardResponse';
-import { getInternalKeyHeader } from './utils/internalKey';
-import { PROXY_REJECTION, buildUpstreamUrl, resolveProxyPath } from './utils/proxyPath';
+import { getBackendUrl } from './_utils/backendUrl';
+import { forwardResponse } from './_utils/forwardResponse';
+import { getInternalKeyHeader } from './_utils/internalKey';
+import { PROXY_REJECTION, buildUpstreamUrl, resolveProxyPath } from './_utils/proxyPath';
 
 /**
- * Every backend billing route reachable under `/api/billing` (see `api/utils/proxyPath.ts`).
+ * Every backend billing route reachable under `/api/billing` (see `api/_utils/proxyPath.ts`).
  * `webhook` is absent: Stripe calls Railway directly, signing the raw body a hop would re-serialize.
  */
 const PROXIED_ROUTES = ['subscription', 'checkout-session', 'portal-session'] as const;

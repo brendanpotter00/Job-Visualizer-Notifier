@@ -331,7 +331,7 @@ describe('/api/jobs-qa serverless function', () => {
  * The shared corpus, run against jobs-qa too.
  *
  * jobs-qa was hardened first and independently; it now shares
- * `api/utils/proxyPath.ts` with the other six proxies. Running the common
+ * `api/_utils/proxyPath.ts` with the other six proxies. Running the common
  * vectors here is what proves that hoisting did not regress the allowlist that
  * was already guarding this file, and it extends jobs-qa's coverage to the
  * spellings discovered later (backslash separators, tab-stuffed dot segments,

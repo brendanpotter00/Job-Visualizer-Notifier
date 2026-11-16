@@ -1,8 +1,8 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { getBackendUrl } from './utils/backendUrl';
-import { forwardResponse } from './utils/forwardResponse';
-import { getInternalKeyHeader } from './utils/internalKey';
-import { PROXY_REJECTION, buildUpstreamUrl, resolveProxyPath } from './utils/proxyPath';
+import { getBackendUrl } from './_utils/backendUrl';
+import { forwardResponse } from './_utils/forwardResponse';
+import { getInternalKeyHeader } from './_utils/internalKey';
+import { PROXY_REJECTION, buildUpstreamUrl, resolveProxyPath } from './_utils/proxyPath';
 
 const METHODS_WITH_BODY = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
@@ -67,7 +67,7 @@ const PROXIED_PATHS = ['scrape-runs', 'trigger-scrape'] as const;
 /**
  * Historical note: this file used to carry its own copy of
  * `canonicalizeProxyPath`. It now shares one implementation with the other six
- * proxies (`api/utils/proxyPath.ts`), because the same `?path=` hole was later
+ * proxies (`api/_utils/proxyPath.ts`), because the same `?path=` hole was later
  * found live in production on `api/users|companies|feedback|features|admin`,
  * and seven divergent copies of a security control is how that happens again.
  *
