@@ -75,10 +75,15 @@ silently land on today's row in the visualization).
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import random
 import re
+import time
 from datetime import datetime, timedelta, timezone
+from email.utils import parsedate_to_datetime
 from typing import Any, Optional
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -101,6 +106,154 @@ WORKDAY_PAGE_SIZE = 20
 WORKDAY_MAX_PAGES = 100
 DEFAULT_TIMEOUT_SECONDS = 30.0
 SOURCE_ID = SourceId.WORKDAY
+
+# 429 handling. Before this, a 429 raised straight out of fetch_jobs, the task
+# re-raised it, and Procrastinate re-ran the whole company 5 more times within
+# ~60s (exponential_wait=2 → 2/4/8/16/32s). 16 companies x 6 runs each, all
+# from one Railway egress IP, kept Workday's limiter tripped.
+#
+# Now: a 429 is retried in place a couple of times (honoring Retry-After,
+# else exponential backoff with full jitter). If it still 429s, the pod
+# (``wd5.myworkdayjobs.com`` etc.) is put on cooldown and every other company
+# on that pod fails fast without touching the network until it expires.
+# Sleeps are capped so the worst case stays well inside the task's 120s
+# wait_for.
+WORKDAY_429_MAX_RETRIES = 2
+WORKDAY_429_BACKOFF_BASE_SECONDS = 2.0
+WORKDAY_429_MAX_SLEEP_SECONDS = 20.0
+WORKDAY_COOLDOWN_SECONDS = 15 * 60
+WORKDAY_MAX_COOLDOWN_SECONDS = 60 * 60
+# Small gap between pages so one big tenant doesn't fire 50+ POSTs
+# back-to-back. 0.25s x 100 pages (the cap) adds at most 25s.
+WORKDAY_INTER_PAGE_DELAY_SECONDS = 0.25
+
+# pod key -> monotonic deadline. Process-local: one worker process per Railway
+# deploy, and a restart clearing it is fine (worst case is one more 429).
+_cooldown_until: dict[str, float] = {}
+
+
+class WorkdayRateLimitedError(httpx.HTTPError):
+    """Workday answered 429 (after in-place retries) or its pod is cooling down.
+
+    Subclasses ``httpx.HTTPError`` so existing ``except httpx.HTTPError``
+    handlers still record a clean failed run. ``fetch_workday_company``'s retry
+    strategy checks for this type and does NOT re-run the task — the next
+    30-minute tick is the retry.
+    """
+
+
+def _pod_key(url: str) -> str:
+    """Rate-limit key for a Workday URL: the pod, not the tenant.
+
+    ``nvidia.wd5.myworkdayjobs.com`` -> ``wd5.myworkdayjobs.com``. Tenants on
+    one pod share Workday's infrastructure, so a 429 for one is a signal for
+    the rest. Non-``myworkdayjobs.com`` hosts key on the full host.
+    """
+    host = (urlsplit(url).hostname or "").lower()
+    parts = host.split(".")
+    if host.endswith(".myworkdayjobs.com") and len(parts) > 3:
+        return ".".join(parts[1:])
+    return host
+
+
+def _retry_after_seconds(response: httpx.Response) -> Optional[float]:
+    """Parse ``Retry-After`` (delta-seconds or HTTP-date). None if absent/bad."""
+    value = response.headers.get("Retry-After")
+    if not value:
+        return None
+    value = value.strip()
+    try:
+        return max(float(value), 0.0)
+    except ValueError:
+        pass
+    try:
+        when = parsedate_to_datetime(value)
+    except (TypeError, ValueError):
+        return None
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=timezone.utc)
+    return max((when - datetime.now(tz=timezone.utc)).total_seconds(), 0.0)
+
+
+def _backoff_seconds(attempt: int, retry_after: Optional[float]) -> float:
+    """Sleep before retry ``attempt`` (0-based). Retry-After wins; else full jitter."""
+    if retry_after is not None:
+        return min(retry_after, WORKDAY_429_MAX_SLEEP_SECONDS)
+    ceiling = min(
+        WORKDAY_429_BACKOFF_BASE_SECONDS * (2 ** attempt),
+        WORKDAY_429_MAX_SLEEP_SECONDS,
+    )
+    return random.uniform(0, ceiling)
+
+
+def _check_cooldown(pod: str) -> None:
+    deadline = _cooldown_until.get(pod)
+    if deadline is None:
+        return
+    remaining = deadline - time.monotonic()
+    if remaining > 0:
+        raise WorkdayRateLimitedError(
+            f"Workday pod {pod} is rate-limited; cooling down for "
+            f"another {remaining:.0f}s (skipping request)"
+        )
+    _cooldown_until.pop(pod, None)
+
+
+def _trip_cooldown(pod: str, retry_after: Optional[float]) -> float:
+    seconds = min(
+        max(retry_after or 0.0, WORKDAY_COOLDOWN_SECONDS),
+        WORKDAY_MAX_COOLDOWN_SECONDS,
+    )
+    _cooldown_until[pod] = time.monotonic() + seconds
+    return seconds
+
+
+async def _post_page(
+    http: httpx.AsyncClient,
+    url: str,
+    pod: str,
+    body: dict,
+    label: str,
+) -> httpx.Response:
+    """POST one page, retrying 429 in place. Other statuses pass through."""
+    for attempt in range(WORKDAY_429_MAX_RETRIES + 1):
+        _check_cooldown(pod)
+        response = await http.post(
+            url,
+            json=body,
+            headers={
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+                # Workday's CXS endpoint is usually fine without a UA but
+                # some tenants 403 a missing one. Mirror what `api/workday.ts`
+                # sent so behavior is preserved across the migration.
+                "User-Agent": "Job-Visualizer-Notifier/1.0",
+            },
+            timeout=DEFAULT_TIMEOUT_SECONDS,
+        )
+        if response.status_code != 429:
+            return response
+
+        retry_after = _retry_after_seconds(response)
+        if attempt == WORKDAY_429_MAX_RETRIES:
+            cooldown = _trip_cooldown(pod, retry_after)
+            # ERROR: Railway @level routing (see _configure_logging in main.py).
+            logger.error(
+                "Workday 429 for %s after %d retries; pausing pod %s for %.0fs",
+                label, WORKDAY_429_MAX_RETRIES, pod, cooldown,
+            )
+            raise WorkdayRateLimitedError(
+                f"Workday returned 429 for {label} "
+                f"(Retry-After={response.headers.get('Retry-After')!r})"
+            )
+        sleep_s = _backoff_seconds(attempt, retry_after)
+        logger.warning(
+            "Workday 429 for %s (Retry-After=%r); retry %d/%d in %.1fs",
+            label, response.headers.get("Retry-After"),
+            attempt + 1, WORKDAY_429_MAX_RETRIES, sleep_s,
+        )
+        await asyncio.sleep(sleep_s)
+    raise AssertionError("unreachable")  # pragma: no cover
 
 # Required keys in `provider_config`. Validated at the call site (the
 # task in Unit 4) and again here for defense in depth.
@@ -187,6 +340,8 @@ async def fetch_jobs_with_meta(
     url = (
         f"{base_url}/wday/cxs/{tenant_slug}/{career_site_slug}/jobs"
     )
+    pod = _pod_key(url)
+    label = f"{tenant_slug}/{career_site_slug}"
 
     all_postings: list[dict] = []
     offset = 0
@@ -201,6 +356,8 @@ async def fetch_jobs_with_meta(
     )
 
     while page_idx < WORKDAY_MAX_PAGES:
+        if page_idx > 0:
+            await asyncio.sleep(WORKDAY_INTER_PAGE_DELAY_SECONDS)
         page_idx += 1
         body = {
             "appliedFacets": default_facets,
@@ -209,19 +366,7 @@ async def fetch_jobs_with_meta(
             "searchText": "",
         }
 
-        response = await http.post(
-            url,
-            json=body,
-            headers={
-                "Accept": "application/json",
-                "Content-Type": "application/json",
-                # Workday's CXS endpoint is usually fine without a UA but
-                # some tenants 403 a missing one. Mirror what `api/workday.ts`
-                # sent so behavior is preserved across the migration.
-                "User-Agent": "Job-Visualizer-Notifier/1.0",
-            },
-            timeout=DEFAULT_TIMEOUT_SECONDS,
-        )
+        response = await _post_page(http, url, pod, body, label)
         response.raise_for_status()
         payload = response.json()
 
@@ -321,6 +466,8 @@ async def fetch_jobs(
     Raises:
       - ``ValueError`` for malformed `provider_config` or response shape.
       - ``httpx.HTTPStatusError`` for non-2xx responses.
+      - ``WorkdayRateLimitedError`` for a 429 that survived in-place retries,
+        or when the pod is already cooling down from one.
     """
     postings, _ = await fetch_jobs_with_meta(provider_config, http)
     return postings

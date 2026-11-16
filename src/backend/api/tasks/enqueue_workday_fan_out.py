@@ -49,6 +49,13 @@ from .procrastinate_app import procrastinate_app
 
 logger = logging.getLogger(__name__)
 
+# Seconds between consecutive company start times within one tick. Deferring
+# all companies at once let the bulk worker run up to 5 Workday harvests in
+# parallel from one egress IP, which is what Workday's limiter sees. 15s x 16
+# companies spreads a tick over ~4 min — well inside the 30-min period, so the
+# per-company queueing lock never collides with the next tick.
+_DEFER_SPACING_S = 15
+
 
 @procrastinate_app.periodic(
     cron="*/30 * * * *",
@@ -95,7 +102,7 @@ async def enqueue_workday_fan_out(timestamp: int) -> int:
 
     deferred = 0
     failed = 0
-    for c in companies:
+    for i, c in enumerate(companies):
         company_id = c["id"]
         board_token = c["board_token"]
         # Workday-specific: pass provider_config along. The schema
@@ -106,6 +113,7 @@ async def enqueue_workday_fan_out(timestamp: int) -> int:
         try:
             await fetch_workday_company.configure(
                 queueing_lock=f"workday:{company_id}",
+                schedule_in={"seconds": i * _DEFER_SPACING_S},
             ).defer_async(
                 company_id=company_id,
                 board_token=board_token,

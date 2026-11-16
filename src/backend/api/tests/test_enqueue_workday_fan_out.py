@@ -148,6 +148,27 @@ class TestEnqueueWorkdayFanOut:
             assert cfg["career_site_slug"] == f"{args['company_id']}_site"
             assert cfg["base_url"] == _DEFAULT_PROVIDER_CONFIG["base_url"]
 
+    async def test_defers_are_staggered(self, procrastinate_open, db_conn):
+        """Companies start _DEFER_SPACING_S apart instead of all at once."""
+        import api.tasks.enqueue_workday_fan_out as fan_out_mod
+
+        for i in range(3):
+            _seed_company(db_conn, f"co{i}")
+
+        await enqueue_workday_fan_out(timestamp=0)
+        db_conn.rollback()
+
+        cur = db_conn.cursor()
+        cur.execute(
+            "SELECT scheduled_at FROM procrastinate_jobs "
+            "WHERE task_name = 'fetch_workday_company' ORDER BY id"
+        )
+        scheduled = [r["scheduled_at"] for r in cur.fetchall()]
+        assert len(scheduled) == 3
+        gaps = [(b - a).total_seconds() for a, b in zip(scheduled, scheduled[1:])]
+        for gap in gaps:
+            assert gap == pytest.approx(fan_out_mod._DEFER_SPACING_S, abs=2)
+
     async def test_already_enqueued_per_company_continues_loop(
         self, procrastinate_open, db_conn
     ):
