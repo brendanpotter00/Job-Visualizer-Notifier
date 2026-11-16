@@ -91,6 +91,7 @@ from scripts.shared.constants import SourceId
 from scripts.shared.models import JobListing
 from scripts.shared.utils import get_iso_timestamp
 
+from ..config import settings
 from .harvest_meta import HarvestEvidence
 from .job_details import has_description
 from .posted_date import effective_posted_date
@@ -138,8 +139,71 @@ class WorkdayRateLimitedError(httpx.HTTPError):
     Subclasses ``httpx.HTTPError`` so existing ``except httpx.HTTPError``
     handlers still record a clean failed run. ``fetch_workday_company``'s retry
     strategy checks for this type and does NOT re-run the task — the next
-    30-minute tick is the retry.
+    fan-out tick is the retry.
     """
+
+
+class WorkdayBlockedError(WorkdayRateLimitedError):
+    """Cloudflare challenged the request: our exit IP is flagged, not the pod busy.
+
+    Since 2026-11-16 every request from Railway's datacenter IP gets
+    ``429`` + ``cf-mitigated: challenge``. That never clears on retry from the
+    same IP, so with no proxy it raises after one request. Through a rotating
+    proxy each retry gets a new exit IP, so it is retried in place first.
+
+    Never trips the pod cooldown: the pod isn't overloaded, and cooling it down
+    would block other tenants' requests from fresh proxy IPs. Subclasses
+    ``WorkdayRateLimitedError`` so the task's retry strategy skips it too.
+    """
+
+
+# A Cloudflare block arrives as 403 (challenge / firewall) or 429 (this
+# incident, and error 1015). Other statuses with a Cloudflare body — e.g. the
+# 52x origin-down pages, which carry ``cf-error-details`` — are not about our
+# IP and stay plain HTTPStatusErrors.
+_CHALLENGE_STATUSES = frozenset({403, 429})
+
+
+def _proxy_url() -> Optional[str]:
+    """``WORKDAY_PROXY_URL``, or None for direct egress. Holds credentials."""
+    secret = settings.workday_proxy_url
+    if secret is None:
+        return None
+    return secret.get_secret_value().strip() or None
+
+
+def _proxy_host(proxy_url: str) -> Optional[str]:
+    """The proxy's host for logs. Never the userinfo, which is a credential."""
+    try:
+        return urlsplit(proxy_url).hostname
+    except ValueError:
+        return None
+
+
+def workday_http_client() -> httpx.AsyncClient:
+    """The client every Workday scrape uses: proxied when ``WORKDAY_PROXY_URL`` is set.
+
+    No fallback to direct when the proxy fails: direct is known-blocked, and a
+    silent fallback would hide a broken proxy. A proxy failure (ProxyError,
+    407, connect error) is an ``httpx.HTTPError``, so the task records a
+    failed run. Logs the egress once per call, host only.
+    """
+    proxy_url = _proxy_url()
+    if proxy_url is None:
+        logger.info("Workday egress=direct")
+        return httpx.AsyncClient()
+    host = _proxy_host(proxy_url)
+    try:
+        client = httpx.AsyncClient(proxy=proxy_url)
+    except (ValueError, httpx.InvalidURL):
+        # httpx echoes the whole URL, credentials included, in some of these
+        # messages. Re-raise without it, and `from None` keeps it out of the
+        # traceback too.
+        raise ValueError(
+            f"WORKDAY_PROXY_URL is not a valid proxy URL (host={host!r})"
+        ) from None
+    logger.info("Workday egress=proxy host=%s", host)
+    return client
 
 
 def _pod_key(url: str) -> str:
@@ -253,18 +317,24 @@ def _diag_headers(response: httpx.Response) -> dict[str, str]:
     return out
 
 
-def _log_non_2xx(response: httpx.Response, url: str, label: str) -> None:
-    """WARNING with status, host, headers, body head, and a blocker guess."""
+def _log_non_2xx(response: httpx.Response, url: str, label: str) -> str:
+    """WARNING with status, host, headers, body head, and a blocker guess.
+
+    Returns the blocker guess so the caller can act on it without re-reading
+    the body.
+    """
     try:
         body = response.text[:_DIAG_BODY_CHARS]
     except Exception:  # pragma: no cover - undecodable body
         body = "<undecodable>"
+    blocker = _diag_blocker(response, body)
     logger.warning(
         "Workday non-2xx for %s: status=%d blocker=%s host=%s url=%s "
         "headers=%r body=%r",
-        label, response.status_code, _diag_blocker(response, body),
+        label, response.status_code, blocker,
         urlsplit(url).hostname, url, _diag_headers(response), body,
     )
+    return blocker
 
 
 async def _post_page(
@@ -274,7 +344,12 @@ async def _post_page(
     body: dict,
     label: str,
 ) -> httpx.Response:
-    """POST one page, retrying 429 in place. Other statuses pass through."""
+    """POST one page, retrying 429 in place. Other statuses pass through.
+
+    A Cloudflare challenge raises ``WorkdayBlockedError`` instead: retried in
+    place only through a proxy (a new exit IP per request), never with direct
+    egress, and never tripping the pod cooldown.
+    """
     for attempt in range(WORKDAY_429_MAX_RETRIES + 1):
         _check_cooldown(pod)
         response = await http.post(
@@ -290,13 +365,33 @@ async def _post_page(
             },
             timeout=DEFAULT_TIMEOUT_SECONDS,
         )
-        if not 200 <= response.status_code < 300:
-            _log_non_2xx(response, url, label)
-        if response.status_code != 429:
+        if 200 <= response.status_code < 300:
+            return response
+        challenged = (
+            _log_non_2xx(response, url, label) == "cloudflare"
+            and response.status_code in _CHALLENGE_STATUSES
+        )
+        if not challenged and response.status_code != 429:
             return response
 
         retry_after = _retry_after_seconds(response)
-        if attempt == WORKDAY_429_MAX_RETRIES:
+        if challenged:
+            proxied = _proxy_url() is not None
+            if not proxied or attempt == WORKDAY_429_MAX_RETRIES:
+                egress = "proxy" if proxied else "direct"
+                host = urlsplit(url).hostname
+                # ERROR: Railway @level routing (see _configure_logging in main.py).
+                logger.error(
+                    "Workday Cloudflare challenge for %s (host=%s egress=%s) "
+                    "after %d attempt(s); pod %s NOT cooled down",
+                    label, host, egress, attempt + 1, pod,
+                )
+                raise WorkdayBlockedError(
+                    f"Workday blocked by Cloudflare challenge for {label} "
+                    f"(host={host}, status={response.status_code}, "
+                    f"egress={egress}, attempts={attempt + 1})"
+                )
+        elif attempt == WORKDAY_429_MAX_RETRIES:
             cooldown = _trip_cooldown(pod, retry_after)
             # ERROR: Railway @level routing (see _configure_logging in main.py).
             logger.error(
@@ -309,7 +404,8 @@ async def _post_page(
             )
         sleep_s = _backoff_seconds(attempt, retry_after)
         logger.warning(
-            "Workday 429 for %s (Retry-After=%r); retry %d/%d in %.1fs",
+            "Workday %s for %s (Retry-After=%r); retry %d/%d in %.1fs",
+            "Cloudflare challenge" if challenged else "429",
             label, response.headers.get("Retry-After"),
             attempt + 1, WORKDAY_429_MAX_RETRIES, sleep_s,
         )
@@ -529,6 +625,8 @@ async def fetch_jobs(
       - ``httpx.HTTPStatusError`` for non-2xx responses.
       - ``WorkdayRateLimitedError`` for a 429 that survived in-place retries,
         or when the pod is already cooling down from one.
+      - ``WorkdayBlockedError`` (a ``WorkdayRateLimitedError``) for a
+        Cloudflare challenge.
     """
     postings, _ = await fetch_jobs_with_meta(provider_config, http)
     return postings

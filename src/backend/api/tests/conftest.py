@@ -528,11 +528,15 @@ def clean_tables(db_conn):
 @pytest.fixture(autouse=True)
 def reset_workday_rate_limit(monkeypatch):
     """Isolate the Workday client's process-wide 429 cooldown between tests,
-    and drop its inter-page delay so multi-page fixtures don't sleep."""
+    and drop its inter-page delay so multi-page fixtures don't sleep. Also
+    pin direct egress, so a WORKDAY_PROXY_URL in a local .env can't leak in;
+    proxy tests set it themselves."""
+    from api.config import settings
     from api.services import workday_client
 
     workday_client._cooldown_until.clear()
     monkeypatch.setattr(workday_client, "WORKDAY_INTER_PAGE_DELAY_SECONDS", 0.0)
+    monkeypatch.setattr(settings, "workday_proxy_url", None)
     yield
     workday_client._cooldown_until.clear()
 

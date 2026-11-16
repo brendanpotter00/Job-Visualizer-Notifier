@@ -2,15 +2,20 @@
 
 from __future__ import annotations
 
+import logging
+import socket
 from datetime import datetime, timezone
 from typing import Any
 
 import httpx
 import pytest
+from pydantic import SecretStr
 
+from api.config import settings
 from api.services import workday_client
 from api.services.workday_client import (
     SOURCE_ID,
+    WorkdayBlockedError,
     WorkdayRateLimitedError,
     WORKDAY_MAX_PAGES,
     WORKDAY_PAGE_SIZE,
@@ -18,6 +23,7 @@ from api.services.workday_client import (
     _validate_provider_config,
     fetch_jobs,
     transform_to_job_listings,
+    workday_http_client,
 )
 
 pytestmark = pytest.mark.asyncio
@@ -783,8 +789,8 @@ class TestNon2xxDiagnostics:
         )
         records = await self._diag_records(caplog, response)
 
-        # One per attempt (initial + in-place retries); behavior unchanged.
-        assert len(records) == workday_client.WORKDAY_429_MAX_RETRIES + 1
+        # A challenge with no proxy is not retried: exactly one request.
+        assert len(records) == 1
         msg = records[0].getMessage()
         assert records[0].levelname == "WARNING"
         assert "status=429" in msg
@@ -843,3 +849,222 @@ class TestNon2xxDiagnostics:
     def test_cloudflare_rate_limit_error_page_body(self) -> None:
         resp = httpx.Response(429, text="error code: 1015")
         assert workday_client._diag_blocker(resp, resp.text) == "cloudflare"
+
+
+# ---------------------------------------------------------------------------
+# Egress proxy (WORKDAY_PROXY_URL) and Cloudflare challenge ≠ rate limit
+# ---------------------------------------------------------------------------
+
+_SECRET_PROXY = "http://user:secret@proxy.example.net:8080"
+
+_CHALLENGE_HEADERS = {
+    "Server": "cloudflare",
+    "cf-mitigated": "challenge",
+}
+
+
+def _challenge() -> httpx.Response:
+    return httpx.Response(
+        429, headers=_CHALLENGE_HEADERS,
+        text="<html><title>Just a moment...</title></html>",
+    )
+
+
+def _closed_loopback_port() -> int:
+    """A loopback port nothing listens on, so a proxied request fails locally."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
+
+
+class TestWorkdayHttpClient:
+    def _record_kwargs(self, monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
+        calls: list[dict[str, Any]] = []
+
+        class _Recorder(httpx.AsyncClient):
+            def __init__(self, *args: Any, **kwargs: Any) -> None:
+                calls.append(kwargs)
+                super().__init__(*args, **kwargs)
+
+        monkeypatch.setattr(workday_client.httpx, "AsyncClient", _Recorder)
+        return calls
+
+    @pytest.mark.parametrize("value", [None, SecretStr(""), SecretStr("   ")])
+    async def test_unset_or_empty_is_direct(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture,
+        value: SecretStr | None,
+    ) -> None:
+        monkeypatch.setattr(settings, "workday_proxy_url", value)
+        calls = self._record_kwargs(monkeypatch)
+        with caplog.at_level(logging.INFO, logger="api.services.workday_client"):
+            async with workday_http_client():
+                pass
+        assert calls == [{}]
+        assert "Workday egress=direct" in caplog.text
+
+    async def test_set_builds_a_proxied_client_and_logs_host_only(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        monkeypatch.setattr(settings, "workday_proxy_url", SecretStr(_SECRET_PROXY))
+        calls = self._record_kwargs(monkeypatch)
+        with caplog.at_level(logging.DEBUG):
+            async with workday_http_client():
+                pass
+        assert calls == [{"proxy": _SECRET_PROXY}]
+        assert "Workday egress=proxy host=proxy.example.net" in caplog.text
+        assert "secret" not in caplog.text
+        assert "user:" not in caplog.text
+
+    async def test_invalid_proxy_url_error_has_no_credentials(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        # httpx's own message for a bad scheme echoes the whole URL.
+        monkeypatch.setattr(
+            settings, "workday_proxy_url", SecretStr("ftp://user:secret@proxy.example.net:21"),
+        )
+        with pytest.raises(ValueError) as exc_info:
+            workday_http_client()
+        assert "secret" not in str(exc_info.value)
+        assert "proxy.example.net" in str(exc_info.value)
+        assert exc_info.value.__suppress_context__
+
+    async def test_proxy_failure_logs_no_credentials_and_does_not_go_direct(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        port = _closed_loopback_port()
+        monkeypatch.setattr(
+            settings, "workday_proxy_url",
+            SecretStr(f"http://user:secret@127.0.0.1:{port}"),
+        )
+        with caplog.at_level(logging.DEBUG):
+            async with workday_http_client() as http:
+                # A connect error to the proxy surfaces as-is: no fallback to
+                # direct, and it's an httpx.HTTPError the task records.
+                with pytest.raises(httpx.ConnectError):
+                    await fetch_jobs(PROVIDER_CONFIG_NVIDIA, http)
+            logging.getLogger("api.tasks.fetch_workday_company").error(
+                "fetch_workday_company failed", exc_info=True,
+            )
+        formatter = logging.Formatter()
+        for record in caplog.records:
+            rendered = formatter.format(record)
+            assert "secret" not in rendered
+            assert "user:" not in rendered
+
+
+class TestCloudflareChallenge:
+    @pytest.fixture(autouse=True)
+    def _no_sleep(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        slept: list[float] = []
+
+        async def fake_sleep(seconds: float) -> None:
+            slept.append(seconds)
+
+        monkeypatch.setattr(workday_client.asyncio, "sleep", fake_sleep)
+        self.slept = slept
+
+    def _counting(self, *responses: httpx.Response) -> tuple[dict[str, int], Any]:
+        calls = {"n": 0}
+
+        def handler(req: httpx.Request) -> httpx.Response:
+            calls["n"] += 1
+            return responses[min(calls["n"], len(responses)) - 1]
+
+        return calls, handler
+
+    async def test_no_proxy_raises_blocked_after_exactly_one_request(self) -> None:
+        calls, handler = self._counting(_challenge())
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+            with pytest.raises(WorkdayBlockedError) as exc_info:
+                await fetch_jobs(PROVIDER_CONFIG_NVIDIA, http)
+
+        assert calls["n"] == 1
+        assert self.slept == []
+        assert workday_client._cooldown_until == {}
+        msg = str(exc_info.value)
+        assert "Cloudflare challenge" in msg
+        assert "nvidia.wd5.myworkdayjobs.com" in msg
+        assert "egress=direct" in msg
+
+    async def test_proxy_retries_in_place_then_raises_without_cooldown(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr(settings, "workday_proxy_url", SecretStr(_SECRET_PROXY))
+        calls, handler = self._counting(_challenge())
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+            with pytest.raises(WorkdayBlockedError) as exc_info:
+                await fetch_jobs(PROVIDER_CONFIG_NVIDIA, http)
+
+            assert calls["n"] == workday_client.WORKDAY_429_MAX_RETRIES + 1
+            assert len(self.slept) == workday_client.WORKDAY_429_MAX_RETRIES
+            assert workday_client._cooldown_until == {}
+            assert "egress=proxy" in str(exc_info.value)
+            assert "secret" not in str(exc_info.value)
+
+            # The pod is not cooled down: another tenant on wd5 still fetches.
+            ok_calls = {"n": 0}
+
+            def ok(req: httpx.Request) -> httpx.Response:
+                ok_calls["n"] += 1
+                return httpx.Response(200, json={"total": 0, "jobPostings": []})
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(ok)) as http:
+            other_tenant_same_pod = {
+                "base_url": "https://acme.wd5.myworkdayjobs.com",
+                "tenant_slug": "acme",
+                "career_site_slug": "External",
+            }
+            assert await fetch_jobs(other_tenant_same_pod, http) == []
+        assert ok_calls["n"] == 1
+
+    async def test_proxy_challenge_then_200_succeeds(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr(settings, "workday_proxy_url", SecretStr(_SECRET_PROXY))
+        calls, handler = self._counting(
+            _challenge(), httpx.Response(200, json={"total": 1, "jobPostings": [_job(1)]}),
+        )
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+            result = await fetch_jobs(PROVIDER_CONFIG_NVIDIA, http)
+        assert len(result) == 1
+        assert calls["n"] == 2
+
+    async def test_403_challenge_is_blocked_too(self) -> None:
+        calls, handler = self._counting(
+            httpx.Response(403, headers=_CHALLENGE_HEADERS, text="Just a moment..."),
+        )
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+            with pytest.raises(WorkdayBlockedError):
+                await fetch_jobs(PROVIDER_CONFIG_NVIDIA, http)
+        assert calls["n"] == 1
+
+    async def test_cloudflare_5xx_error_page_is_not_a_challenge(self) -> None:
+        # 52x origin-down pages carry Cloudflare markup but say nothing about
+        # our IP: a plain HTTPStatusError, so Procrastinate still re-runs it.
+        calls, handler = self._counting(
+            httpx.Response(522, text='<div id="cf-error-details">timed out</div>'),
+        )
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+            with pytest.raises(httpx.HTTPStatusError):
+                await fetch_jobs(PROVIDER_CONFIG_NVIDIA, http)
+        assert calls["n"] == 1
+
+    @pytest.mark.parametrize("proxied", [False, True])
+    async def test_plain_429_still_retries_then_cools_down_the_pod(
+        self, monkeypatch: pytest.MonkeyPatch, proxied: bool,
+    ) -> None:
+        if proxied:
+            monkeypatch.setattr(settings, "workday_proxy_url", SecretStr(_SECRET_PROXY))
+        calls, handler = self._counting(
+            httpx.Response(429, headers={"x-wd-request-id": "VPS|0"}),
+        )
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+            with pytest.raises(WorkdayRateLimitedError) as exc_info:
+                await fetch_jobs(PROVIDER_CONFIG_NVIDIA, http)
+
+        assert not isinstance(exc_info.value, WorkdayBlockedError)
+        assert calls["n"] == workday_client.WORKDAY_429_MAX_RETRIES + 1
+        assert "wd5.myworkdayjobs.com" in workday_client._cooldown_until
+
+    async def test_blocked_error_is_a_rate_limited_error(self) -> None:
+        assert issubclass(WorkdayBlockedError, WorkdayRateLimitedError)

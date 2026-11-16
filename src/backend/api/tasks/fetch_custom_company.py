@@ -817,7 +817,14 @@ async def fetch_custom_company(
                     # NOT from the stored oracle_kind — so a Phase-1 row seeded 'none'
                     # graduates with no backfill.
                     oracle_kind_effective = effective_oracle_kind(provider)
-                    async with httpx.AsyncClient() as http:
+                    # A Workday board egresses like the public Workday cron:
+                    # through WORKDAY_PROXY_URL when set. Other ATSs: direct.
+                    client = (
+                        workday_client.workday_http_client()
+                        if provider == "workday"
+                        else httpx.AsyncClient()
+                    )
+                    async with client as http:
                         raw_jobs, evidence = await _fetch_and_transform(
                             provider, board_token, provider_config, company_id, http
                         )

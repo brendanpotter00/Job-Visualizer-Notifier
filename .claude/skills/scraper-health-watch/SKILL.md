@@ -87,7 +87,7 @@ Tunable constants (change here, nowhere else):
 
 | Constant | Value | Rationale |
 |---|---|---|
-| `STALE_AFTER_HOURS` | 6 | 12 missed 30-min ATS ticks; 0 false positives when validated against prod (2026-07-25 and 2026-08-05) |
+| `STALE_AFTER_HOURS` | 6 | 12 missed 30-min ATS ticks (Workday runs every 2h since 2026-11-16, so 3 of its ticks); 0 false positives when validated against prod (2026-07-25 and 2026-08-05) |
 | `MASS_CLOSE_COMPANY_MIN` | 50 | per-company 24h closed_jobs floor. Stays an absolute number because Check B already scales it by the company's own size (`closed_24h > open_rows`) |
 | `MASS_CLOSE_GLOBAL_PER_COMPANY` | 10 | global 24h closed_jobs alarm, **per enabled company** — the alarm level is `greatest(MASS_CLOSE_GLOBAL_FLOOR, MASS_CLOSE_GLOBAL_PER_COMPANY × enabled)`, never a hard-coded count. A fixed global count is a false alarm with a fuse on it: it stays correct only until the fleet grows past it. 2026-09-17: fleet went 133 → 193 companies, the normal weekday closure band rose to ~780–1040/24h, and the old fixed `MASS_CLOSE_GLOBAL = 1000` started paging CRITICAL every 3h against a corpus that was *growing* (2146 new vs 1027 closed, per-company Check B empty, 193/193 scraping, heartbeat 0.9m). 10/company is ~2× the observed weekday peak (~5.4/company) and holds that headroom at any fleet size |
 | `MASS_CLOSE_GLOBAL_FLOOR` | 1000 | absolute floor under the global alarm, so a small fleet (<100 companies) can't scale the threshold down into everyday noise |
