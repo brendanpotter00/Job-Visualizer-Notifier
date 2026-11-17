@@ -85,6 +85,7 @@ All configuration via environment variables:
 | `SCRAPER_TIMEOUT_MINUTES` | Max time per scrape | `90` |
 | `SCRAPER_SCRIPTS_PATH` | Path to Python scripts | `../../scripts` (local) / `/app/scripts` (Docker) |
 | `SCRAPER_PYTHON_PATH` | Python interpreter path | `python3` |
+| `WORKDAY_PROXY_URL` | Rotating residential proxy for all Workday traffic, `http://user:pass@host:port`. Holds credentials: a `SecretStr`, logged as host only, never in an exception or `scrape_runs`. Unset/empty = direct egress, which Cloudflare challenges from Railway (see **Workday egress** below) | *(unset)* |
 | `DB_POOL_MIN` | Minimum database connections in pool | `1` |
 | `DB_POOL_MAX` | Maximum database connections in pool | `15` |
 | `DB_POOL_TIMEOUT` | Database pool connection timeout (seconds) | `5` |
@@ -517,6 +518,35 @@ anti-join invariants the `/api/jobs` INNER JOIN depends on — runbook in
     quiet — `/health/worker` still 503s on it (that probe is per-lane), but nothing
     auto-restarts. Making the restart per-lane means grouping by `lane`, which is a
     deliberate follow-up rather than part of the lane split.
+
+### Workday egress
+
+- **Direct egress from Railway is Cloudflare-challenged as of 2026-11-16.** Every
+  Workday request from Railway's datacenter IP gets `429` + `cf-mitigated: challenge`;
+  the same POST from a residential IP returns 200. So Workday traffic goes through
+  `WORKDAY_PROXY_URL` (`workday_client.workday_http_client()`, shared by
+  `fetch_workday_company` and the Workday branch of `fetch_custom_company`). There is
+  **no fallback to direct** when the proxy fails — a proxy error is a recorded failed
+  run. Each task logs `egress=proxy host=<host>` or `egress=direct` once.
+- **Challenge is not a rate limit.** A Cloudflare block raises `WorkdayBlockedError`
+  (a `WorkdayRateLimitedError`, so Procrastinate never re-runs it): a `cf-mitigated`
+  header at any non-2xx status, or a Cloudflare challenge body (`_diag_blocker`) on a
+  403/429. It never trips the per-pod cooldown. Through the proxy it is retried in place
+  (`WORKDAY_429_MAX_RETRIES`), **each retry on a brand-new client**: Workday is HTTPS, so
+  httpx reaches it through a CONNECT tunnel, a rotating proxy picks the exit IP per
+  tunnel, and httpcore pools tunnels by origin, so a retry on the shared client would
+  reuse the challenged exit IP. With direct egress it raises after one request. A real
+  429 — no challenge marker, **including Cloudflare's own 1015 rate limit** — keeps the
+  retry-then-cooldown path. A 52x `cf-error-details` page stays a plain HTTP error.
+- **Cadence is every 2h** (`0 */2 * * *` in `enqueue_workday_fan_out.py`), not `*/30`
+  like the other fan-outs, to keep proxy bandwidth down. `/health/worker` freshness does
+  not depend on it. The health watch's 6h staleness window covers only 2–3 Workday
+  ticks (the per-company stagger shifts where a run lands against the boundary).
+- **Task timeout is 600s** (`_TASK_TIMEOUT_S`): the biggest tenants already took
+  111–120s direct, and the proxy adds latency per POST. A timeout is not re-run by
+  Procrastinate either — each re-run is a full paid re-scrape; the next tick retries.
+- Not proxied: the add-time discovery probe (`ats_discovery._count_workday`) still
+  egresses direct.
 
 ### Schema migrations
 

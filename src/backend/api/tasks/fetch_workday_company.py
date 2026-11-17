@@ -88,6 +88,7 @@ from ..services.workday_client import (
     _validate_provider_config,
     fetch_jobs,
     transform_to_job_listings,
+    workday_http_client,
 )
 from .normalize_location import normalize_location
 from .procrastinate_app import procrastinate_app
@@ -95,26 +96,36 @@ from .procrastinate_app import procrastinate_app
 logger = logging.getLogger(__name__)
 
 
-# Per-task wall-clock cap. Slowest observed prod task is Workday ~43s; 120s
-# leaves ~3x headroom. Hitting this raises asyncio.TimeoutError → Procrastinate
-# retries via RetryStrategy. Tests monkeypatch this to a low value to
-# exercise the timeout path without sleeping for two minutes.
-_TASK_TIMEOUT_S: float = 120.0
+# Per-task wall-clock cap. Direct-egress prod runs for the biggest tenants
+# (~80-100 pages) already took 111-120s against the old 120s cap, and the
+# residential proxy adds ~0.5-1s per POST, so 600s. At a 2h cadence a long
+# run can't collide with the next tick. Hitting this raises
+# asyncio.TimeoutError, which is NOT re-run (see _NoRetryOnRateLimit). Tests
+# monkeypatch this to a low value to exercise the timeout path.
+_TASK_TIMEOUT_S: float = 600.0
 
 
 class _NoRetryOnRateLimit(RetryStrategy):
-    """Same as the stock strategy, except a 429 is never re-run.
+    """Same as the stock strategy, except a 429 or a timeout is never re-run.
 
     The client already retried the 429 in place and put the pod on cooldown.
     Re-running the task within seconds (exponential_wait=2) only adds load to
     a limiter that is already tripped — it was the retry storm behind the
-    all-16-companies-429 incident. The next 30-minute fan-out tick retries.
+    all-16-companies-429 incident. The next 2-hour fan-out tick retries.
+
+    Covers ``WorkdayBlockedError`` (a Cloudflare challenge) too, as a
+    subclass: a re-run from the same IP is challenged again, and through the
+    proxy the client already spent its in-place retries on fresh IPs.
+
+    A timeout (``_TASK_TIMEOUT_S``) is not re-run either: each re-run is a
+    full re-scrape through the paid proxy, and one that just ran out of time
+    will likely do so again. The next tick is the retry.
     """
 
     def get_retry_decision(
         self, *, exception: BaseException, job: Job
     ) -> RetryDecision | None:
-        if isinstance(exception, WorkdayRateLimitedError):
+        if isinstance(exception, (WorkdayRateLimitedError, asyncio.TimeoutError)):
             return None
         return super().get_retry_decision(exception=exception, job=job)
 
@@ -180,7 +191,9 @@ async def fetch_workday_company(
                 # narrow except below and is recorded as a failed run.
                 _validate_provider_config(provider_config)
 
-                async with httpx.AsyncClient() as http:
+                # Proxied when WORKDAY_PROXY_URL is set (direct egress from
+                # Railway is Cloudflare-challenged); see workday_http_client.
+                async with workday_http_client() as http:
                     raw_jobs = await fetch_jobs(provider_config, http)
                 jobs = transform_to_job_listings(
                     company_id, raw_jobs, provider_config,
@@ -349,7 +362,8 @@ async def fetch_workday_company(
             # ===== end Unit 6 =====
         except asyncio.TimeoutError as e:
             logger.error(
-                "fetch_workday_company exceeded %ss for %s — Procrastinate will retry",
+                "fetch_workday_company exceeded %ss for %s — not re-run; "
+                "the next fan-out tick retries",
                 _TASK_TIMEOUT_S,
                 company_id,
             )

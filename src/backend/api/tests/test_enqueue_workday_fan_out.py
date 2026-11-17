@@ -301,3 +301,11 @@ class TestEnqueueWorkdayFanOut:
         assert len(jobs) == 1
         # The empty dict made it through end-to-end.
         assert jobs[0]["args"]["provider_config"] == {}
+
+
+def test_periodic_cron_is_every_two_hours():
+    """Every 2h (not */30): Workday egresses through a paid residential proxy."""
+    periodic = procrastinate_app.periodic_registry.periodic_tasks[
+        ("enqueue_workday_fan_out", "workday_fan_out")
+    ]
+    assert periodic.cron == "0 */2 * * *"

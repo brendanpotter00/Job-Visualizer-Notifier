@@ -91,6 +91,7 @@ from scripts.shared.constants import SourceId
 from scripts.shared.models import JobListing
 from scripts.shared.utils import get_iso_timestamp
 
+from ..config import settings
 from .harvest_meta import HarvestEvidence
 from .job_details import has_description
 from .posted_date import effective_posted_date
@@ -138,8 +139,82 @@ class WorkdayRateLimitedError(httpx.HTTPError):
     Subclasses ``httpx.HTTPError`` so existing ``except httpx.HTTPError``
     handlers still record a clean failed run. ``fetch_workday_company``'s retry
     strategy checks for this type and does NOT re-run the task — the next
-    30-minute tick is the retry.
+    fan-out tick is the retry.
     """
+
+
+class WorkdayBlockedError(WorkdayRateLimitedError):
+    """Cloudflare challenged the request: our exit IP is flagged, not the pod busy.
+
+    Since 2026-11-16 every request from Railway's datacenter IP gets
+    ``429`` + ``cf-mitigated: challenge``. That never clears on retry from the
+    same IP, so with no proxy it raises after one request. Through the proxy it
+    is retried in place, each retry on a brand-new connection: Workday is HTTPS,
+    so httpx reaches it through a CONNECT tunnel, a rotating proxy picks the exit
+    IP per tunnel, and httpcore pools tunnels by origin. A retry on the shared
+    client would reuse the challenged tunnel, i.e. the same exit IP.
+
+    Never trips the pod cooldown: the pod isn't overloaded, and cooling it down
+    would block other tenants' requests from fresh proxy IPs. Subclasses
+    ``WorkdayRateLimitedError`` so the task's retry strategy skips it too.
+    """
+
+
+# Statuses a Cloudflare challenge BODY is trusted on: 403 (challenge /
+# firewall) and 429 (this incident). Elsewhere a Cloudflare body — e.g. the 52x
+# origin-down pages, which carry ``cf-error-details`` — is not about our IP
+# and stays a plain HTTPStatusError. The ``cf-mitigated`` header is trusted at
+# any status (see ``_is_challenge``).
+_CHALLENGE_STATUSES = frozenset({403, 429})
+
+
+def _proxy_url() -> Optional[str]:
+    """``WORKDAY_PROXY_URL``, or None for direct egress. Holds credentials."""
+    secret = settings.workday_proxy_url
+    if secret is None:
+        return None
+    return secret.get_secret_value().strip() or None
+
+
+def _proxy_host(proxy_url: str) -> Optional[str]:
+    """The proxy's host for logs. Never the userinfo, which is a credential."""
+    try:
+        return urlsplit(proxy_url).hostname
+    except ValueError:
+        return None
+
+
+def _build_client(proxy_url: Optional[str]) -> httpx.AsyncClient:
+    """A new client, through ``proxy_url`` if given. Never logs the URL."""
+    if proxy_url is None:
+        return httpx.AsyncClient()
+    try:
+        return httpx.AsyncClient(proxy=proxy_url)
+    except (ValueError, httpx.InvalidURL):
+        # httpx echoes the whole URL, credentials included, in some of these
+        # messages. Re-raise without it, and `from None` keeps it out of the
+        # traceback too.
+        raise ValueError(
+            "WORKDAY_PROXY_URL is not a valid proxy URL "
+            f"(host={_proxy_host(proxy_url)!r})"
+        ) from None
+
+
+def workday_http_client() -> httpx.AsyncClient:
+    """The client every Workday scrape uses: proxied when ``WORKDAY_PROXY_URL`` is set.
+
+    No fallback to direct when the proxy fails: direct is known-blocked, and a
+    silent fallback would hide a broken proxy. A proxy failure (ProxyError,
+    407, connect error) is an ``httpx.HTTPError``, so the task records a
+    failed run. Logs the egress once per call, host only.
+    """
+    proxy_url = _proxy_url()
+    client = _build_client(proxy_url)
+    if proxy_url is None:
+        logger.info("Workday egress=direct")
+    else:
+        logger.info("Workday egress=proxy host=%s", _proxy_host(proxy_url))
+    return client
 
 
 def _pod_key(url: str) -> str:
@@ -215,15 +290,19 @@ def _trip_cooldown(pod: str, retry_after: Optional[float]) -> float:
 # blocked us at the edge. ``x-wd-request-id`` means the request reached Workday.
 _DIAG_BODY_CHARS = 1000
 _SECRET_HEADER_HINTS = ("cookie", "authorization", "token", "secret", "api-key", "apikey")
+# Cloudflare error 1015 is Cloudflare's own rate limit, not a challenge: it
+# takes the 429 retry-then-cooldown path (see ``_is_challenge``).
+_CLOUDFLARE_RATE_LIMIT_MARKERS = (
+    "error code: 1015",
+    "you are being rate limited",
+)
 _CLOUDFLARE_BODY_MARKERS = (
     "just a moment",
     "attention required! | cloudflare",
     "cf-chl",
     "challenge-platform",
     "cf-error-details",
-    "error code: 1015",
-    "you are being rate limited",
-)
+) + _CLOUDFLARE_RATE_LIMIT_MARKERS
 
 
 def _diag_blocker(response: httpx.Response, body: str) -> str:
@@ -236,6 +315,24 @@ def _diag_blocker(response: httpx.Response, body: str) -> str:
     if "x-wd-request-id" in response.headers:
         return "workday"
     return "unknown"
+
+
+def _is_challenge(response: httpx.Response, body: str) -> bool:
+    """True when Cloudflare blocked our exit IP (vs. a rate limit or an outage).
+
+    * ``cf-mitigated`` header: blocked, at any non-2xx status.
+    * Cloudflare 1015 body: a rate limit, not a block.
+    * Otherwise a Cloudflare body (``_diag_blocker``): blocked only on 403/429.
+    """
+    if "cf-mitigated" in response.headers:
+        return True
+    lowered = body.lower()
+    if any(marker in lowered for marker in _CLOUDFLARE_RATE_LIMIT_MARKERS):
+        return False
+    return (
+        response.status_code in _CHALLENGE_STATUSES
+        and _diag_blocker(response, body) == "cloudflare"
+    )
 
 
 def _diag_headers(response: httpx.Response) -> dict[str, str]:
@@ -253,8 +350,12 @@ def _diag_headers(response: httpx.Response) -> dict[str, str]:
     return out
 
 
-def _log_non_2xx(response: httpx.Response, url: str, label: str) -> None:
-    """WARNING with status, host, headers, body head, and a blocker guess."""
+def _log_non_2xx(response: httpx.Response, url: str, label: str) -> str:
+    """WARNING with status, host, headers, body head, and a blocker guess.
+
+    Returns the body head so the caller can classify the response without
+    re-reading it.
+    """
     try:
         body = response.text[:_DIAG_BODY_CHARS]
     except Exception:  # pragma: no cover - undecodable body
@@ -265,6 +366,24 @@ def _log_non_2xx(response: httpx.Response, url: str, label: str) -> None:
         label, response.status_code, _diag_blocker(response, body),
         urlsplit(url).hostname, url, _diag_headers(response), body,
     )
+    return body
+
+
+async def _post(http: httpx.AsyncClient, url: str, body: dict) -> httpx.Response:
+    """One CXS POST on ``http``. No status handling; see ``_post_page``."""
+    return await http.post(
+        url,
+        json=body,
+        headers={
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            # Workday's CXS endpoint is usually fine without a UA but
+            # some tenants 403 a missing one. Mirror what `api/workday.ts`
+            # sent so behavior is preserved across the migration.
+            "User-Agent": "Job-Visualizer-Notifier/1.0",
+        },
+        timeout=DEFAULT_TIMEOUT_SECONDS,
+    )
 
 
 async def _post_page(
@@ -274,29 +393,47 @@ async def _post_page(
     body: dict,
     label: str,
 ) -> httpx.Response:
-    """POST one page, retrying 429 in place. Other statuses pass through."""
+    """POST one page, retrying 429 in place. Other statuses pass through.
+
+    A Cloudflare challenge raises ``WorkdayBlockedError`` instead: retried in
+    place only through a proxy, each retry on a NEW client (new CONNECT tunnel,
+    so a new exit IP from a rotating proxy — see ``WorkdayBlockedError``),
+    never with direct egress, and never tripping the pod cooldown. Pagination
+    otherwise stays on the caller's shared client.
+    """
+    fresh_connection = False
     for attempt in range(WORKDAY_429_MAX_RETRIES + 1):
         _check_cooldown(pod)
-        response = await http.post(
-            url,
-            json=body,
-            headers={
-                "Accept": "application/json",
-                "Content-Type": "application/json",
-                # Workday's CXS endpoint is usually fine without a UA but
-                # some tenants 403 a missing one. Mirror what `api/workday.ts`
-                # sent so behavior is preserved across the migration.
-                "User-Agent": "Job-Visualizer-Notifier/1.0",
-            },
-            timeout=DEFAULT_TIMEOUT_SECONDS,
-        )
-        if not 200 <= response.status_code < 300:
-            _log_non_2xx(response, url, label)
-        if response.status_code != 429:
+        if fresh_connection:
+            async with _build_client(_proxy_url()) as retry_http:
+                response = await _post(retry_http, url, body)
+        else:
+            response = await _post(http, url, body)
+        if 200 <= response.status_code < 300:
+            return response
+        challenged = _is_challenge(response, _log_non_2xx(response, url, label))
+        if not challenged and response.status_code != 429:
             return response
 
         retry_after = _retry_after_seconds(response)
-        if attempt == WORKDAY_429_MAX_RETRIES:
+        if challenged:
+            proxied = _proxy_url() is not None
+            if not proxied or attempt == WORKDAY_429_MAX_RETRIES:
+                egress = "proxy" if proxied else "direct"
+                host = urlsplit(url).hostname
+                # ERROR: Railway @level routing (see _configure_logging in main.py).
+                logger.error(
+                    "Workday Cloudflare challenge for %s (host=%s egress=%s) "
+                    "after %d attempt(s); pod %s NOT cooled down",
+                    label, host, egress, attempt + 1, pod,
+                )
+                raise WorkdayBlockedError(
+                    f"Workday blocked by Cloudflare challenge for {label} "
+                    f"(host={host}, status={response.status_code}, "
+                    f"egress={egress}, attempts={attempt + 1})"
+                )
+            fresh_connection = True
+        elif attempt == WORKDAY_429_MAX_RETRIES:
             cooldown = _trip_cooldown(pod, retry_after)
             # ERROR: Railway @level routing (see _configure_logging in main.py).
             logger.error(
@@ -309,7 +446,8 @@ async def _post_page(
             )
         sleep_s = _backoff_seconds(attempt, retry_after)
         logger.warning(
-            "Workday 429 for %s (Retry-After=%r); retry %d/%d in %.1fs",
+            "Workday %s for %s (Retry-After=%r); retry %d/%d in %.1fs",
+            "Cloudflare challenge" if challenged else "429",
             label, response.headers.get("Retry-After"),
             attempt + 1, WORKDAY_429_MAX_RETRIES, sleep_s,
         )
@@ -529,6 +667,8 @@ async def fetch_jobs(
       - ``httpx.HTTPStatusError`` for non-2xx responses.
       - ``WorkdayRateLimitedError`` for a 429 that survived in-place retries,
         or when the pod is already cooling down from one.
+      - ``WorkdayBlockedError`` (a ``WorkdayRateLimitedError``) for a
+        Cloudflare challenge.
     """
     postings, _ = await fetch_jobs_with_meta(provider_config, http)
     return postings

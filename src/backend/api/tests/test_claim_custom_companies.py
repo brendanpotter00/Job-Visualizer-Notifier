@@ -246,8 +246,8 @@ def _published_fan_out_interval_minutes() -> int:
     """The interval a PUBLISHED company is actually re-read on, read off the app.
 
     Read from Procrastinate's live periodic registry rather than from a literal, so
-    this measures the deployed schedule instead of a copy of it. All six ATS fan-outs
-    share one cron; if that ever stops being true the assert below fails, which is the
+    this measures the deployed schedule instead of a copy of it. The ATS fan-outs
+    other than Workday share one cron; if that ever stops being true the assert below fails, which is the
     correct outcome — "what a published company gets" would no longer be one number.
     """
     import api.tasks.enqueue_ashby_fan_out  # noqa: F401
@@ -259,12 +259,16 @@ def _published_fan_out_interval_minutes() -> int:
     from api.tasks.procrastinate_app import procrastinate_app
 
     registry = procrastinate_app.periodic_registry.periodic_tasks
+    # Workday is the one deliberate exception: every 2h since 2026-11-16, because
+    # its traffic goes through a paid residential proxy (WORKDAY_PROXY_URL) and
+    # the interval is a bandwidth bill, not a freshness choice.
     crons = {
         task.cron
         for (task_name, _), task in registry.items()
         if task_name.startswith("enqueue_") and task_name.endswith("_fan_out")
+        and task_name != "enqueue_workday_fan_out"
     }
-    assert len(crons) == 1, f"the six ATS fan-outs no longer share one cron: {crons}"
+    assert len(crons) == 1, f"the ATS fan-outs no longer share one cron: {crons}"
     cron = crons.pop()
     minute_field = cron.split()[0]
     assert minute_field.startswith("*/"), f"unexpected fan-out cron {cron!r}"
