@@ -817,8 +817,9 @@ async def fetch_custom_company(
                     # NOT from the stored oracle_kind — so a Phase-1 row seeded 'none'
                     # graduates with no backfill.
                     oracle_kind_effective = effective_oracle_kind(provider)
-                    # A Workday board egresses like the public Workday cron:
-                    # through WORKDAY_PROXY_URL when set. Other ATSs: direct.
+                    # A Workday board uses the same client as the public Workday
+                    # cron (Cloudflare challenges Python's stock TLS
+                    # fingerprint; see workday_http_client). Other ATSs: plain.
                     client = (
                         workday_client.workday_http_client()
                         if provider == "workday"

@@ -1,16 +1,8 @@
 """Procrastinate periodic task: fan out per-company Workday fetches.
 
-Fires every 2 hours via Procrastinate's built-in periodic deferrer
+Fires every 30 minutes via Procrastinate's built-in periodic deferrer
 (no external cron needed — the in-process worker started in FastAPI's
 lifespan runs the deferrer alongside its task loop).
-
-Every 2h, not every 30 min like the other fan-outs: Workday traffic goes
-through a paid residential proxy (``WORKDAY_PROXY_URL``, since direct egress
-from Railway is Cloudflare-challenged as of 2026-11-16), and 4x fewer ticks
-is ~4x less proxy bandwidth. Two monitors keyed to cadence still hold:
-``_WORKER_FRESHNESS_SECONDS`` in main.py rides the */5 heartbeat and the other
-*/30 fan-outs, not this one; the health-watch ``STALE_AFTER_HOURS = 6`` still
-covers 2-3 Workday ticks (the 15s-per-company stagger decides which).
 
 For each enabled Workday company, defers one ``fetch_workday_company``
 job with a per-company queueing lock so:
@@ -60,13 +52,13 @@ logger = logging.getLogger(__name__)
 # Seconds between consecutive company start times within one tick. Deferring
 # all companies at once let the bulk worker run up to 5 Workday harvests in
 # parallel from one egress IP, which is what Workday's limiter sees. 15s x 16
-# companies spreads a tick over ~4 min — well inside the 2-hour period, so the
+# companies spreads a tick over ~4 min — well inside the 30-min period, so the
 # per-company queueing lock never collides with the next tick.
 _DEFER_SPACING_S = 15
 
 
 @procrastinate_app.periodic(
-    cron="0 */2 * * *",
+    cron="*/30 * * * *",
     periodic_id="workday_fan_out",
 )
 @procrastinate_app.task(
@@ -74,7 +66,7 @@ _DEFER_SPACING_S = 15
     name="enqueue_workday_fan_out",
     # Three exponential-wait attempts (2s, 4s, 8s) cover transient
     # connector failures while bounding the worst case so a persistently
-    # broken DB doesn't pile up retries on the 2-hour cron tick.
+    # broken DB doesn't pile up retries on the 30-min cron tick.
     retry=RetryStrategy(max_attempts=3, exponential_wait=2),
 )
 async def enqueue_workday_fan_out(timestamp: int) -> int:
@@ -137,7 +129,7 @@ async def enqueue_workday_fan_out(timestamp: int) -> int:
         except (procrastinate_exceptions.ConnectorException, psycopg2.Error):
             # Per-company isolation: a transient connector blip on
             # company N must NOT abort the loop and leave alphabetically-
-            # later companies unprocessed for the entire 2-hour window.
+            # later companies unprocessed for the entire 30-min window.
             # Narrow on purpose — programmer errors propagate.
             failed += 1
             logger.exception(

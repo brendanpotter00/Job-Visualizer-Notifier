@@ -52,9 +52,7 @@ from .services.posthog_client import init_posthog, shutdown_posthog
 # so anything older than 35 min indicates the connector / scheduler is dead.
 # The 35 = 30 (worst-case */30 fan-out tick) + 5 (slack) framing covers the
 # fallback case where the heartbeat is also stuck. Consulted by Railway's
-# healthcheckPath at deploy cutover only (see railway.toml). The Workday
-# fan-out runs every 2h (enqueue_workday_fan_out.py), but this needs no change:
-# the heartbeat and the other */30 fan-outs still write events far more often.
+# healthcheckPath at deploy cutover only (see railway.toml).
 _WORKER_FRESHNESS_SECONDS = 35 * 60
 
 # Heartbeat freshness threshold. The heartbeat task fires every 5 min;

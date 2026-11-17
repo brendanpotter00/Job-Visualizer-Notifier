@@ -775,12 +775,12 @@ async def test_task_timeout_records_failed_run(
     assert len(runs) == 1, "timed-out task must still record a scrape_runs row"
     assert runs[0]["error_count"] == 1
     assert runs[0]["jobs_seen"] == 0
-    # Not re-run: each re-run is a full re-scrape through the paid proxy.
+    # Not re-run: each re-run is a full re-scrape; the next tick retries.
     assert _latest_job_status(db_conn) == "failed"
 
 
-def test_task_timeout_leaves_room_for_proxied_runs():
-    """Direct runs already hit 111-120s; the proxy adds latency per POST."""
+def test_task_timeout_leaves_room_for_the_biggest_tenants():
+    """The biggest tenants already took 111-120s against the old 120s cap."""
     import api.tasks.fetch_workday_company as task_mod
 
     assert task_mod._TASK_TIMEOUT_S == 600.0
@@ -811,17 +811,8 @@ def test_retry_strategy_skips_rate_limit_but_keeps_other_retries():
 
 
 # ---------------------------------------------------------------------------
-# Egress proxy (WORKDAY_PROXY_URL) + Cloudflare challenge, end to end
+# Cloudflare challenge, end to end
 # ---------------------------------------------------------------------------
-
-
-def _set_proxy(monkeypatch, url: str) -> None:
-    from pydantic import SecretStr
-
-    from api.config import settings
-
-    monkeypatch.setattr(settings, "workday_proxy_url", SecretStr(url))
-
 
 def _latest_job_status(db_conn) -> str:
     cur = db_conn.cursor()
@@ -835,7 +826,7 @@ def _latest_job_status(db_conn) -> str:
     return row["status"]
 
 
-async def test_cloudflare_challenge_without_proxy_fails_fast_and_does_not_retry(
+async def test_cloudflare_challenge_fails_fast_and_does_not_retry(
     procrastinate_open, db_conn, monkeypatch
 ):
     calls = {"n": 0}
@@ -861,86 +852,6 @@ async def test_cloudflare_challenge_without_proxy_fails_fast_and_does_not_retry(
     assert len(runs) == 1
     assert runs[0]["error_count"] == 1
     assert _latest_job_status(db_conn) == "failed"
-
-
-async def test_task_uses_the_proxy_when_configured(
-    procrastinate_open, db_conn, monkeypatch, caplog
-):
-    import logging
-
-    secret_url = "http://user:secret@proxy.example.net:8080"
-    _set_proxy(monkeypatch, secret_url)
-
-    transport = httpx.MockTransport(
-        lambda request: httpx.Response(
-            200, json=_make_workday_response([_make_raw_workday_posting("JR-1")]),
-        )
-    )
-    proxies: list[object] = []
-
-    class _ProxyRecordingClient(httpx.AsyncClient):
-        def __init__(self, *args, **kwargs):
-            # Record, then drop: a real proxy mount would bypass the mock.
-            proxies.append(kwargs.pop("proxy", None))
-            kwargs["transport"] = transport
-            super().__init__(*args, **kwargs)
-
-    monkeypatch.setattr(httpx, "AsyncClient", _ProxyRecordingClient)
-    company = "nvidia"
-    _seed_company(db_conn, company, company)
-
-    with caplog.at_level(logging.DEBUG):
-        await fetch_workday_company.defer_async(
-            company_id=company, board_token=company, provider_config=_PROVIDER_CONFIG,
-        )
-        await _drain()
-    db_conn.rollback()
-
-    assert secret_url in proxies
-    runs = _scrape_runs(db_conn, company)
-    assert len(runs) == 1
-    assert runs[0]["error_count"] == 0
-    assert runs[0]["jobs_seen"] == 1
-    assert "egress=proxy host=proxy.example.net" in caplog.text
-    assert "secret" not in caplog.text
-
-
-async def test_proxy_failure_records_failed_run_and_logs_no_credentials(
-    procrastinate_open, db_conn, monkeypatch, caplog
-):
-    """A dead proxy is a recorded failure, never a silent fallback to direct,
-    and no log line (exc_info included) carries the proxy's userinfo."""
-    import logging
-    import socket
-
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind(("127.0.0.1", 0))
-        port = sock.getsockname()[1]
-    _set_proxy(monkeypatch, f"http://user:secret@127.0.0.1:{port}")
-    company = "nvidia"
-    _seed_company(db_conn, company, company)
-
-    with caplog.at_level(logging.DEBUG):
-        await fetch_workday_company.defer_async(
-            company_id=company, board_token=company, provider_config=_PROVIDER_CONFIG,
-        )
-        await _drain()
-    db_conn.rollback()
-
-    runs = _scrape_runs(db_conn, company)
-    assert runs, "a proxy failure must still record a scrape run"
-    assert all(r["error_count"] == 1 and r["jobs_seen"] == 0 for r in runs)
-    assert any(
-        r.exc_info and isinstance(r.exc_info[1], httpx.ConnectError)
-        for r in caplog.records
-    ), "expected the proxy ConnectError to be logged"
-    formatter = logging.Formatter()
-    for record in caplog.records:
-        rendered = formatter.format(record)
-        assert "secret" not in rendered
-        assert "user:" not in rendered
-    for run in runs:
-        assert "secret" not in json.dumps(run, default=str)
 
 
 async def test_challenge_on_a_later_page_raises_and_writes_nothing(
