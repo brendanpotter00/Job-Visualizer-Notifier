@@ -333,6 +333,8 @@ export const RESPONSIVE = {
   pricing: {
     /** Top/bottom air around the whole page body (theme units). */
     pagePaddingY: { xs: 5, sm: 10 },
+    /** Width of the centered heading + plan-cards block (px): the two cards + gap. */
+    contentMaxWidth: 880,
     /** Gap between the two plan cards (theme units). */
     cardGap: { xs: 2, sm: 3 },
     /** Interior padding of a plan card (theme units). */
