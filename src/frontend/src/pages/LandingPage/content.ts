@@ -13,6 +13,7 @@
  * each heading was cut on 2026-11-12, owner-directed.)
  */
 import { ROUTES } from '../../config/routes';
+import { BILLING_CONFIG } from '../../config/billing';
 
 export interface LandingCta {
   label: string;
@@ -197,7 +198,7 @@ export const LANDING_CONTENT: LandingContent = {
       { label: 'Jobs', to: ROUTES.RECENT_JOBS },
       { label: 'Companies', to: ROUTES.CURATED_COMPANIES },
       { label: 'Changelog', to: ROUTES.VOTE_FEATURES },
-      { label: 'Pricing', to: ROUTES.PRICING },
+      ...(BILLING_CONFIG.showPricingNav ? [{ label: 'Pricing', to: ROUTES.PRICING }] : []),
     ],
     logIn: { label: 'Log in', to: ROUTES.ACCOUNT },
     signUp: { label: 'Sign up', to: ROUTES.ACCOUNT },
