@@ -72,6 +72,33 @@ range"). We should have answered that before shipping a rate-limit fix.
 Brendan sets `WORKDAY_PROXY_URL` on Railway. Agents never handle the
 credentials.
 
+## Second cause: Python's TLS fingerprint (2026-11-17)
+
+The proxy alone didn't fix it. After #368 went live, Workday runs through the
+DataImpulse proxy still got `429 cf-mitigated: challenge` for 13–16 of 16
+companies per tick (04:00Z–12:00Z on 11-17).
+
+Cloudflare scores the client and the IP together. Same POST, same headers:
+
+| Client | From home IP | Through the proxy |
+|---|---|---|
+| curl | 200 | 15/15 |
+| stock httpx | 200 | 6/15 |
+| httpx + OpenSSL `DEFAULT` ciphers | 200 | 15/15 |
+
+Python's `ssl` module ships its own short cipher list, so a stock httpx
+client has a rare TLS fingerprint. On a clean home IP that passes. On shared
+residential exit IPs it tips the bot score into a challenge. The same split
+held on the `python:3.13-slim` prod image (OpenSSL 3.5.7): with `DEFAULT`
+ciphers, 20/20 paginated pages across NVIDIA, Zoom, Snap and Intel; stock
+httpx was challenged on 3 of 4 on the first page. The proxy pool itself was
+fine: curl through it got 12/12, both worldwide and US-only.
+
+Fix: the Workday client uses httpx's verifying TLS context with
+`set_ciphers("DEFAULT")` (`_tls_context()` in `workday_client.py`). Certificate
+and hostname checks are unchanged, and the User-Agent still names us. This is
+not browser impersonation.
+
 ## Prevention
 
 - **Classify before you fix.** For any upstream 4xx/5xx wave, check the
@@ -87,6 +114,7 @@ credentials.
 
 ## Follow-ups
 
-- If the residential proxy starts getting challenged too (cheap pools carry
-  flagged IPs), switch to a higher-quality pool or static ISP IPs before
-  considering anything else. Never impersonate a browser (repo rule).
+- If challenges come back, test the client and the IP separately before
+  changing anything (curl vs httpx, home vs proxy, interleaved, 15+ tries:
+  single tries are noise). Then switch to a higher-quality pool or static ISP
+  IPs. Never impersonate a browser (repo rule).

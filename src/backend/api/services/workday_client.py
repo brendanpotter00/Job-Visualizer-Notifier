@@ -79,6 +79,7 @@ import asyncio
 import logging
 import random
 import re
+import ssl
 import time
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
@@ -184,12 +185,35 @@ def _proxy_host(proxy_url: str) -> Optional[str]:
         return None
 
 
+_TLS_CONTEXT: Optional[ssl.SSLContext] = None
+
+
+def _tls_context() -> ssl.SSLContext:
+    """httpx's verifying TLS context with OpenSSL's ``DEFAULT`` cipher list.
+
+    Python's ``ssl`` module ships its own short cipher string, so a stock
+    httpx client has a TLS fingerprint few other clients share. On
+    residential-proxy exit IPs Workday's Cloudflare challenges that
+    fingerprint (2026-11-17: stock httpx 6/15 OK through the proxy, curl and
+    this context 15/15; same split on the python:3.13-slim prod image).
+    ``DEFAULT`` is what curl and most OpenSSL clients offer. Certificate and
+    hostname verification are unchanged. Not browser impersonation: the
+    User-Agent still names us.
+    """
+    global _TLS_CONTEXT
+    if _TLS_CONTEXT is None:
+        ctx = httpx.create_ssl_context()
+        ctx.set_ciphers("DEFAULT")
+        _TLS_CONTEXT = ctx
+    return _TLS_CONTEXT
+
+
 def _build_client(proxy_url: Optional[str]) -> httpx.AsyncClient:
     """A new client, through ``proxy_url`` if given. Never logs the URL."""
     if proxy_url is None:
-        return httpx.AsyncClient()
+        return httpx.AsyncClient(verify=_tls_context())
     try:
-        return httpx.AsyncClient(proxy=proxy_url)
+        return httpx.AsyncClient(proxy=proxy_url, verify=_tls_context())
     except (ValueError, httpx.InvalidURL):
         # httpx echoes the whole URL, credentials included, in some of these
         # messages. Re-raise without it, and `from None` keeps it out of the
