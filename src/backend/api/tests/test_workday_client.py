@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import socket
+import ssl
 from datetime import datetime, timezone
 from typing import Any
 
@@ -899,7 +900,7 @@ class TestWorkdayHttpClient:
         with caplog.at_level(logging.INFO, logger="api.services.workday_client"):
             async with workday_http_client():
                 pass
-        assert calls == [{}]
+        assert len(calls) == 1 and set(calls[0]) == {"verify"}
         assert "Workday egress=direct" in caplog.text
 
     async def test_set_builds_a_proxied_client_and_logs_host_only(
@@ -910,10 +911,31 @@ class TestWorkdayHttpClient:
         with caplog.at_level(logging.DEBUG):
             async with workday_http_client():
                 pass
-        assert calls == [{"proxy": _SECRET_PROXY}]
+        assert len(calls) == 1 and calls[0]["proxy"] == _SECRET_PROXY
+        assert set(calls[0]) == {"proxy", "verify"}
         assert "Workday egress=proxy host=proxy.example.net" in caplog.text
         assert "secret" not in caplog.text
         assert "user:" not in caplog.text
+
+    def test_tls_context_uses_openssl_default_ciphers_and_still_verifies(self) -> None:
+        ctx = workday_client._tls_context()
+        assert ctx.verify_mode == ssl.CERT_REQUIRED
+        assert ctx.check_hostname
+        stock = httpx.create_ssl_context()
+        # A wider list than Python's stock one: that stock fingerprint is what
+        # Cloudflare challenges on proxy exit IPs (2026-11-17).
+        assert len(ctx.get_ciphers()) > len(stock.get_ciphers())
+        assert workday_client._tls_context() is ctx
+
+    async def test_both_egress_paths_use_the_tls_context(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        calls = self._record_kwargs(monkeypatch)
+        for value in (None, SecretStr(_SECRET_PROXY)):
+            monkeypatch.setattr(settings, "workday_proxy_url", value)
+            async with workday_http_client():
+                pass
+        assert [c["verify"] for c in calls] == [workday_client._tls_context()] * 2
 
     async def test_invalid_proxy_url_error_has_no_credentials(
         self, monkeypatch: pytest.MonkeyPatch,
