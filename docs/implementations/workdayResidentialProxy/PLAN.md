@@ -1,5 +1,10 @@
 # Workday via residential proxy, every 2h
 
+> **Superseded 2026-11-17.** The proxy turned out to be unnecessary: the real
+> trigger was Python's TLS fingerprint, fixed by OpenSSL `DEFAULT` ciphers. The
+> proxy code was removed and the cadence went back to `*/30`. See
+> `docs/incidents/2026-11-16-workday-cloudflare-challenge.md`.
+
 Incident: `docs/incidents/2026-11-16-workday-cloudflare-challenge.md`.
 
 ## Why

@@ -25,8 +25,10 @@ cf-ray: …-IAD
 
 `cf-mitigated: challenge` means Cloudflare's bot management sent a challenge.
 It is **not** a rate limit. The origin never saw the request. The same POST
-with the same `User-Agent` from a residential IP returns 200. The trigger is
-the reputation of Railway's datacenter egress IP, not our request rate.
+with the same `User-Agent` from a residential IP returns 200, so we first
+blamed Railway's datacenter IP. That was half right: Cloudflare scores the
+client's TLS fingerprint and the IP together, and the fingerprint was the
+part we could fix. See "Second cause" and "Resolution" below.
 
 The rollout was progressive across tenants, so it looked like a slide rather
 than a cliff:
@@ -54,7 +56,7 @@ The PR description of #365 already flagged the open question ("whether the
 429s come from our request rate or from Workday blocking Railway's IP
 range"). We should have answered that before shipping a rate-limit fix.
 
-## Fix
+## First fix (#368, later removed)
 
 `docs/implementations/workdayResidentialProxy/PLAN.md`:
 
@@ -69,8 +71,8 @@ range"). We should have answered that before shipping a rate-limit fix.
 3. **Workday cadence 30 min → 2h.** This cuts proxy bandwidth from ~7–15 GB/mo
    to ~2–4 GB/mo. The health-watch's 6h staleness window is still 3 ticks.
 
-Brendan sets `WORKDAY_PROXY_URL` on Railway. Agents never handle the
-credentials.
+Brendan set `WORKDAY_PROXY_URL` on Railway. It did not fix the problem on
+its own (next section).
 
 ## Second cause: Python's TLS fingerprint (2026-11-17)
 
@@ -99,22 +101,35 @@ Fix: the Workday client uses httpx's verifying TLS context with
 and hostname checks are unchanged, and the User-Agent still names us. This is
 not browser impersonation.
 
+## Resolution: the proxy is not needed (2026-11-17)
+
+With the cipher fix live, we unset `WORKDAY_PROXY_URL` and let the 18:00Z
+tick run direct from Railway. All 16 companies scraped: 10,627 jobs, 0
+errors, every request logged `egress=direct`, and no Cloudflare challenges.
+The proxy before that tick hit the same 16/16. So the TLS fingerprint was
+the cause we could act on, and Railway's IP is fine with it fixed.
+
+The proxy code (`WORKDAY_PROXY_URL`, the proxied client, the fresh-IP
+challenge retries) was removed. A challenge now raises `WorkdayBlockedError`
+after one request. The cadence went back to `*/30`.
+
 ## Prevention
 
 - **Classify before you fix.** For any upstream 4xx/5xx wave, check the
   `blocker=` field (#366) first. `cloudflare` means an IP/bot problem, not a
   rate problem, and needs an egress fix, not backoff.
-- **Direct datacenter egress is a known risk** for every scraped source
-  (Meta was already flagged in `config.py`). Workday is the first to go dark
-  from it. If another ATS starts returning `cf-mitigated`, route it through
-  the same proxy pattern rather than adding retries.
-- **A challenge fails fast.** Without a proxy it is one request per company
-  per tick. That keeps a blocked source from adding load or log noise while
+- **Check the client before blaming the IP.** If another ATS starts
+  returning `cf-mitigated`, compare curl and httpx from the same IP first.
+  Python's stock TLS fingerprint was enough to get challenged here. A paid
+  proxy is the last resort, not the first.
+- **A challenge fails fast.** It is one request per company per tick. That keeps a blocked source from adding load or log noise while
   the health-watch alarm stays loud.
 
 ## Follow-ups
 
 - If challenges come back, test the client and the IP separately before
-  changing anything (curl vs httpx, home vs proxy, interleaved, 15+ tries:
-  single tries are noise). Then switch to a higher-quality pool or static ISP
-  IPs. Never impersonate a browser (repo rule).
+  changing anything (curl vs httpx, Railway vs home, interleaved, 15+ tries:
+  single tries are noise). Only if the IP itself is the problem, bring back a
+  residential proxy (#368 has the code). Never impersonate a browser (repo
+  rule).
+- Brendan can cancel the DataImpulse plan.

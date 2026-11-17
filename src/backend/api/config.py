@@ -1,6 +1,6 @@
 """Application configuration via environment variables."""
 
-from pydantic import Field, SecretStr, model_validator
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings
 
 
@@ -30,15 +30,6 @@ class Settings(BaseSettings):
     scraper_timeout_minutes: int = Field(default=90, gt=0)
     scraper_scripts_path: str = "../../scripts"
     scraper_python_path: str = "python3"
-
-    # Workday egress proxy (WORKDAY_PROXY_URL). Since 2026-11-16 Workday's
-    # Cloudflare challenges every request from Railway's datacenter IP, so
-    # Workday traffic goes through a rotating residential proxy when this is
-    # set (see workday_client.workday_http_client). It carries credentials
-    # (http://user:pass@host:port), hence SecretStr: never logged, never in an
-    # exception message, never written to scrape_runs. Unset or empty means a
-    # direct connection (local dev, tests).
-    workday_proxy_url: SecretStr | None = None
 
     # Database pool
     db_pool_min: int = Field(default=1, ge=1, le=20)

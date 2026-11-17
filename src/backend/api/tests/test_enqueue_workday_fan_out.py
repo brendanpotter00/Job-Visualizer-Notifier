@@ -303,9 +303,9 @@ class TestEnqueueWorkdayFanOut:
         assert jobs[0]["args"]["provider_config"] == {}
 
 
-def test_periodic_cron_is_every_two_hours():
-    """Every 2h (not */30): Workday egresses through a paid residential proxy."""
+def test_periodic_cron_is_every_thirty_minutes():
+    """Same */30 cadence as the other ATS fan-outs."""
     periodic = procrastinate_app.periodic_registry.periodic_tasks[
         ("enqueue_workday_fan_out", "workday_fan_out")
     ]
-    assert periodic.cron == "0 */2 * * *"
+    assert periodic.cron == "*/30 * * * *"
