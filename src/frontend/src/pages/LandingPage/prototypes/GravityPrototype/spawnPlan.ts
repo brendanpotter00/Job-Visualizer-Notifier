@@ -16,7 +16,12 @@ export interface SpawnTile {
   rotation: [number, number, number];
 }
 
-export const DEFAULT_DROP_BASE_Y = 5;
+const SPAWN_CLEARANCE = 1;
+
+export function dropBaseAboveView(cameraY: number, cameraZ: number, fovDeg: number): number {
+  return cameraY + cameraZ * Math.tan((fovDeg * Math.PI) / 360) + SPAWN_CLEARANCE;
+}
+
 /** Per-index height step — the "stagger" that spaces out arrivals. */
 const DROP_STEP_Y = 0.55;
 /** Height jitter; strictly < DROP_STEP_Y so `y` stays strictly increasing. */
@@ -32,7 +37,7 @@ export function buildSpawnPlan(
   count: number,
   seed: number,
   viewportWidth: number,
-  dropBaseY: number = DEFAULT_DROP_BASE_Y
+  dropBaseY: number
 ): SpawnTile[] {
   const random = mulberry32(seed);
   const halfSpan = Math.max(viewportWidth / 2 - WALL_MARGIN, 0.5);
