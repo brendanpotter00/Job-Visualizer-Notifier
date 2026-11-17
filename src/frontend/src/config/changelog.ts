@@ -31,6 +31,18 @@ const SWE_SUBCATEGORIES_REVEAL_DATE = '2026-08-20';
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    id: 'browserbase-greenhouse-2026-11',
+    title: 'Browserbase’s openings are current again',
+    description:
+      'Browserbase moved its job board to Greenhouse and took the old board down, so this site stopped seeing its new roles. Browserbase now reads from its new board, so all of its openings are showing again, and the stale listings from the old board have been closed out. If Browserbase is in your saved companies you do not need to change anything.',
+    tags: ['improvement'],
+    date: '2026-11-17',
+    link: {
+      to: ROUTES.SAVED_FILTERS,
+      label: 'Review your saved companies',
+    },
+  },
+  {
     id: 'shield-ai-ashby-2026-11',
     title: 'Shield AI’s openings are current again',
     description:
