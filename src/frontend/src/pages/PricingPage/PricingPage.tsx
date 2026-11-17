@@ -31,7 +31,6 @@ function PricingNotice({ notice }: { notice: Notice }) {
         px: 2,
         py: 1.5,
         mb: 3,
-        maxWidth: 880,
       }}
     >
       {notice.text}
@@ -137,38 +136,41 @@ export function PricingPage() {
       <Box sx={{ flex: 1, overflowY: 'auto' }}>
         <LandingHeader content={LANDING_CONTENT} />
         <Container component="main" maxWidth="lg" sx={{ py: RESPONSIVE.pricing.pagePaddingY }}>
-          <Typography
-            variant="h1"
-            sx={{
-              mb: RESPONSIVE.landingProto.sectionTitleMarginBottom,
-              fontSize: RESPONSIVE.landingProto.heroHeadlineFontSize,
-              fontWeight: 500,
-              letterSpacing: '-0.03em',
-              lineHeight: 1.08,
-              maxWidth: 820,
-              textWrap: 'balance',
-            }}
-          >
-            {PRICING_CONTENT.title}
-          </Typography>
-          {notice && <PricingNotice notice={notice} />}
-          <Box
-            sx={{
-              display: 'grid',
-              gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' },
-              gap: RESPONSIVE.pricing.cardGap,
-              maxWidth: 880,
-            }}
-          >
-            <FreePlanCard />
-            <ProPlanCard
-              cta={cta}
-              busy={busy}
-              authEnabled={authEnabled}
-              onSignIn={onSignIn}
-              onUpgrade={upgrade}
-              onManage={manage}
-            />
+          {/* Heading, notice, and cards share one centered column, so the heading's
+              left edge stays on the Free card's left edge. */}
+          <Box sx={{ maxWidth: RESPONSIVE.pricing.contentMaxWidth, mx: 'auto' }}>
+            <Typography
+              variant="h1"
+              sx={{
+                mb: RESPONSIVE.landingProto.sectionTitleMarginBottom,
+                fontSize: RESPONSIVE.landingProto.heroHeadlineFontSize,
+                fontWeight: 500,
+                letterSpacing: '-0.03em',
+                lineHeight: 1.08,
+                maxWidth: 820,
+                textWrap: 'balance',
+              }}
+            >
+              {PRICING_CONTENT.title}
+            </Typography>
+            {notice && <PricingNotice notice={notice} />}
+            <Box
+              sx={{
+                display: 'grid',
+                gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' },
+                gap: RESPONSIVE.pricing.cardGap,
+              }}
+            >
+              <FreePlanCard />
+              <ProPlanCard
+                cta={cta}
+                busy={busy}
+                authEnabled={authEnabled}
+                onSignIn={onSignIn}
+                onUpgrade={upgrade}
+                onManage={manage}
+              />
+            </Box>
           </Box>
         </Container>
       </Box>
