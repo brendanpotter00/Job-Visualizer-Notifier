@@ -358,9 +358,9 @@ export const LANDING_CONTENT: LandingContent = {
     evidence: 'brief §4 supporting beat ("onesecondswe exists so you’re early, every time")',
   },
   seo: {
-    title: 'Software Engineer Jobs, Minutes After They’re Posted | onesecondswe',
+    title: 'Best Tech Job Board | onesecondswe',
     description:
-      'A free job board for software engineers. Jobs straight from 130+ curated company career pages, a median of 45 minutes after posting. No reposts, no noise.',
+      'The best tech job board for candidates with curated companies, no reposts, no sponsored listings. Just jobs.',
     siteUrl: 'https://onesecondswe.dev',
     canonicalPath: ROUTES.HOME,
     ogImagePath: '/og-image.png',

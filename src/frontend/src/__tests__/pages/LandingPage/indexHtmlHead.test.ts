@@ -12,25 +12,15 @@ function tag(pattern: RegExp): string {
 }
 
 describe('index.html static head', () => {
-  it('carries exactly one brand-first title with the query phrase', () => {
+  it('carries exactly one title, the same one the landing page sets', () => {
     expect(html.match(/<title>/g)).toHaveLength(1);
-    const title = tag(/<title>([^<]+)<\/title>/);
-    expect(title).toMatch(/^onesecondswe/);
-    expect(title).toMatch(/software engineer jobs/i);
-    expect(title.length).toBeLessThanOrEqual(70);
+    expect(tag(/<title>([^<]+)<\/title>/)).toBe(LANDING_CONTENT.seo.title);
   });
 
-  it('does not share its title or description with the landing page', () => {
-    const title = tag(/<title>([^<]+)<\/title>/);
-    const description = tag(/<meta\s+name="description"\s+content="([^"]+)"/);
-    expect(title).not.toBe(LANDING_CONTENT.seo.title);
-    expect(description).not.toBe(LANDING_CONTENT.seo.description);
-  });
-
-  it('carries a short, answer-first description', () => {
-    const description = tag(/<meta\s+name="description"\s+content="([^"]+)"/);
-    expect(description.length).toBeLessThanOrEqual(160);
-    expect(description).toMatch(/software engineer jobs/i);
+  it('carries the landing page description', () => {
+    expect(tag(/<meta\s+name="description"\s+content="([^"]+)"/)).toBe(
+      LANDING_CONTENT.seo.description
+    );
   });
 
   it('points the social card at an absolute production image', () => {
@@ -38,8 +28,13 @@ describe('index.html static head', () => {
     const twitterImage = tag(/<meta\s+name="twitter:image"\s+content="([^"]+)"/);
     expect(ogImage).toBe(`${LANDING_CONTENT.seo.siteUrl}${LANDING_CONTENT.seo.ogImagePath}`);
     expect(twitterImage).toBe(ogImage);
-    expect(tag(/<meta\s+property="og:title"\s+content="([^"]+)"/)).toBe(
-      tag(/<title>([^<]+)<\/title>/)
+    expect(tag(/<meta\s+property="og:title"\s+content="([^"]+)"/)).toBe(LANDING_CONTENT.seo.title);
+    expect(tag(/<meta\s+name="twitter:title"\s+content="([^"]+)"/)).toBe(LANDING_CONTENT.seo.title);
+    expect(tag(/<meta\s+property="og:description"\s+content="([^"]+)"/)).toBe(
+      LANDING_CONTENT.seo.description
+    );
+    expect(tag(/<meta\s+name="twitter:description"\s+content="([^"]+)"/)).toBe(
+      LANDING_CONTENT.seo.description
     );
   });
 });
