@@ -1,4 +1,4 @@
-const SPAWN_CLEARANCE = 1;
+import { dropBaseAboveView } from './spawnPlan';
 
 export interface CompactFraming {
   cameraPosition: [number, number, number];
@@ -24,6 +24,6 @@ export function resolveCompactFraming(
   return {
     cameraPosition: [0, cameraY, z],
     visibleWidth: width / tilePx,
-    dropBaseY: cameraY + halfViewHeight + SPAWN_CLEARANCE,
+    dropBaseY: dropBaseAboveView(cameraY, z, fovDeg),
   };
 }

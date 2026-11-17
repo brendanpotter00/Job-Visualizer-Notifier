@@ -23,7 +23,7 @@ import {
   shouldRebuildArena,
 } from './arenaLayout';
 import { HERO_TOUCH_ACTION, shouldRetractOnRelease, toNdcPointer } from './pointerInput';
-import { buildSpawnPlan, DEFAULT_DROP_BASE_Y } from './spawnPlan';
+import { buildSpawnPlan, dropBaseAboveView } from './spawnPlan';
 import { resolveCompactFraming } from './compactFraming';
 import { LogoTileBody, type TileTone } from './LogoTileBody';
 import { useSettleGovernor, type SettleGovernor } from './useSettleGovernor';
@@ -383,6 +383,8 @@ export interface GravitySceneProps {
  * of the hero and the copy sits over clean space above it.
  */
 const CAMERA = { position: [0, 3.45, 10.35] as const, rotation: [0, 0, 0] as const, fov: 42 };
+
+const DEFAULT_DROP_BASE_Y = dropBaseAboveView(CAMERA.position[1], CAMERA.position[2], CAMERA.fov);
 
 /**
  * `touch-action` goes on R3F's wrapper div (it owns the only style hook the
