@@ -32,13 +32,11 @@ const SECTION_INTROS: Record<string, SectionIntro> = {
 };
 
 describe('landing content config', () => {
-  it('hero: one short line, and the query phrase still in the head', () => {
+  it('hero: one short line', () => {
     const { headline, evidence } = LANDING_CONTENT.hero;
     expect(headline).toBe('No reposts. No stale listings. No noise. Just jobs.');
     expect(wordCount(headline)).toBeLessThanOrEqual(9);
     expect(LANDING_CONTENT.hero).not.toHaveProperty('continuation');
-    expect(LANDING_CONTENT.seo.title).toMatch(/software engineer jobs/i);
-    expect(LANDING_CONTENT.seo.description).toMatch(/software engineers/i);
     expect(evidence.trim().length, 'hero needs a brief breadcrumb').toBeGreaterThan(0);
   });
 
@@ -192,13 +190,11 @@ describe('landing content config', () => {
     expect(evidence.trim().length).toBeGreaterThan(0);
   });
 
-  it('seo: keyword-first title with brand suffix, short description, root canonical', () => {
+  it('seo: "Best Tech Job Board" title with brand suffix, short description, root canonical', () => {
     const { title, description, siteUrl, canonicalPath, ogImagePath } = LANDING_CONTENT.seo;
-    expect(title).toMatch(/^software engineer jobs/i);
-    expect(title).toMatch(/\| onesecondswe$/);
-    expect(title.length).toBeLessThanOrEqual(70);
+    expect(title).toBe('Best Tech Job Board | onesecondswe');
     expect(description.length).toBeLessThanOrEqual(160);
-    expect(description).toMatch(/software engineers/i);
+    expect(description).toMatch(/^The best tech job board/);
     expect(siteUrl).toBe('https://onesecondswe.dev');
     expect(canonicalPath).toBe(ROUTES.HOME);
     expect(ogImagePath.startsWith('/')).toBe(true);
