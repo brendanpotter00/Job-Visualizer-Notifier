@@ -3,6 +3,7 @@ import { LANDING_CONTENT, TOP_COMPANY_IDS } from '../../../pages/LandingPage/con
 import type { SectionIntro } from '../../../pages/LandingPage/content';
 import { COMPANY_CATEGORIES } from '../../../pages/LandingPage/companyCategories';
 import { ROUTES } from '../../../config/routes';
+import { BILLING_CONFIG } from '../../../config/billing';
 import { COMPANIES } from '../../../config/companies';
 
 const ROUTE_VALUES = new Set<string>(Object.values(ROUTES));
@@ -57,21 +58,25 @@ describe('landing content config', () => {
     }
   });
 
-  it('header carries a wordmark, exactly four nav links, and both auth labels', () => {
+  it('header carries a wordmark, the nav links, and both auth labels', () => {
     const { wordmark, nav, logIn, signUp, sourceCode, evidence } = LANDING_CONTENT.header;
     expect(wordmark.label).toBe(LANDING_CONTENT.productName);
-    expect(nav).toHaveLength(4);
     for (const link of [wordmark, ...nav, logIn, signUp]) {
       expect(link.label.trim().length, `header link ${link.to} needs a label`).toBeGreaterThan(0);
     }
     expect(new Set(nav.map((item) => item.label)).size).toBe(nav.length);
     // Owner-directed 2026-09-03: "Why" gave up the second slot to "Changelog",
     // pointed at the vote-features page (which IS the public changelog — its
-    expect(nav.map((item) => item.label)).toEqual(['Jobs', 'Companies', 'Changelog', 'Pricing']);
+    // "Pricing" is the fourth link only while BILLING_CONFIG.showPricingNav is on
+    // (owner-directed 2026-11-17: hidden until there is something to sell).
+    expect(nav.map((item) => item.label)).toEqual(
+      BILLING_CONFIG.showPricingNav
+        ? ['Jobs', 'Companies', 'Changelog', 'Pricing']
+        : ['Jobs', 'Companies', 'Changelog']
+    );
     expect(nav[0].to).toBe(ROUTES.RECENT_JOBS);
     expect(nav[2].to).toBe(ROUTES.VOTE_FEATURES);
-    // Owner-directed 2026-11-15 (pricing plan, decision 1): a fourth link.
-    expect(nav[3].to).toBe(ROUTES.PRICING);
+    if (BILLING_CONFIG.showPricingNav) expect(nav[3].to).toBe(ROUTES.PRICING);
     expect(evidence.trim().length, 'header needs an owner breadcrumb').toBeGreaterThan(0);
     // External by definition, so it must NOT masquerade as an internal route.
     expect(sourceCode.href.startsWith('https://')).toBe(true);
