@@ -31,6 +31,18 @@ const SWE_SUBCATEGORIES_REVEAL_DATE = '2026-08-20';
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    id: 'boltz-ashby-2026-11',
+    title: 'Boltz’s openings are current again',
+    description:
+      'Boltz moved its job board to Ashby, and because the old board was emptied out rather than taken down, this site had no way to tell that the roles had gone somewhere else — it simply stopped seeing new ones. Boltz now reads from its new board, so all twelve of its openings are showing again, and the stale listings from the old board have been closed out. If Boltz is in your saved companies you do not need to change anything.',
+    tags: ['improvement'],
+    date: '2026-11-18',
+    link: {
+      to: ROUTES.SAVED_FILTERS,
+      label: 'Review your saved companies',
+    },
+  },
+  {
     id: 'browserbase-greenhouse-2026-11',
     title: 'Browserbase’s openings are current again',
     description:

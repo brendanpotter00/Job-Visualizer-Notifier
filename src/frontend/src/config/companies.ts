@@ -1331,8 +1331,11 @@ export const COMPANIES: Company[] = [
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22111126113%22%5D',
   }),
-  createBackendScraperCompany('boltz', 'Boltz', 'https://jobs.gem.com/boltz', {
-    sourceAts: 'gem',
+  // Moved Gem -> Ashby (2026-11-18). The Gem board was not deleted, it was drained:
+  // api.gem.com/job_board/v0/boltz/job_posts/ still answers 200 with `[]`, so there
+  // was never a 404 to mark the move. All 12 roles are on Ashby under the same token.
+  createBackendScraperCompany('boltz', 'Boltz', 'https://jobs.ashbyhq.com/boltz', {
+    sourceAts: 'ashby',
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22110446491%22%5D',
   }),
