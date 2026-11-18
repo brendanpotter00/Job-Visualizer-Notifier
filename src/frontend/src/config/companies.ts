@@ -399,11 +399,6 @@ export const COMPANIES: Company[] = [
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2273802019%22%5D',
   }),
-  createBackendScraperCompany('browserbase', 'Browserbase', 'https://careers.ashbyhq.com/browserbase', {
-    sourceAts: 'ashby',
-    recruiterLinkedInUrl:
-      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22100530625%22%5D',
-  }),
   createBackendScraperCompany('base-power', 'Base Power Company', 'https://careers.ashbyhq.com/base-power', {
     sourceAts: 'ashby',
     recruiterLinkedInUrl:
@@ -692,6 +687,24 @@ export const COMPANIES: Company[] = [
     sourceAts: 'ashby',
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2242344868%22%5D',
+  }),
+
+  // Migrated the OTHER way — off Ashby to Greenhouse (2026-11-17). Same rule as
+  // the block above: the JVN `id` is the PK + logo key and never changes, only
+  // the board token and `sourceAts` move.
+  //   browserbase -> greenhouse token `browserbaseinc`
+  // Greenhouse token is `browserbaseinc`, NOT `browserbase`: the bare
+  // `browserbase` token 404s on Greenhouse. The Ashby board was DELETED rather
+  // than drained — api.ashbyhq.com/posting-api/job-board/browserbase returns a
+  // hard 404 (same as a bogus token), so there is no 200-empty ambiguity here.
+  // Verified live 2026-11-17: `browserbaseinc` serves 16 jobs with
+  // company_name "Browserbase", and its titles match the 9 frozen Ashby rows
+  // (Content Lead, Sales Engineer, Software Engineer (Agent Platform),
+  // Technical Customer Success Manager, Account Executive, Recruiter).
+  createBackendScraperCompany('browserbase', 'Browserbase', 'https://job-boards.greenhouse.io/browserbaseinc', {
+    sourceAts: 'greenhouse',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22100530625%22%5D',
   }),
 
   // Batch add (2026-09-02) — Ashby boards (every token verified live). Note the
