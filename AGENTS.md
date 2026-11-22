@@ -2,9 +2,19 @@
 
 Job Posting Analytics - A monorepo containing a TypeScript + React frontend, Python FastAPI backend, and Python scraping scripts. The frontend visualizes job posting activity over time for multiple companies, all served from the backend's `/api/jobs` endpoint (Greenhouse, Ashby, Lever, Gem, Eightfold/Netflix, and Workday boards, plus Google, Apple, Microsoft, Amazon, TikTok). Built with Redux Toolkit, Recharts, and Material-UI.
 
+## Strategy Check (before every change)
+
+`STRATEGY.md` at the repo root holds the product Vision: what onesecondswe is, what it refuses to become, and the "A change aligns when…" / "A change should be resisted when…" tests at the end.
+
+1. **Before you start any change**, read the Vision and check the change against its principles and the align/resist tests.
+2. **If the change conflicts** (the resist test fires, or it contradicts a principle), **stop before writing code and raise it with the user who asked for it**: quote the conflicting STRATEGY.md line, say how the change conflicts, and ask whether to proceed anyway, change the approach, or update STRATEGY.md first.
+3. **Don't resolve the conflict yourself.** Don't quietly reshape the request to fit, and don't edit the Vision section of STRATEGY.md without the user's explicit yes.
+4. If you find existing code that already contradicts STRATEGY.md, mention it to the user as a follow-up rather than fixing it unasked.
+
 ## Project Structure
 
 ```
+├── STRATEGY.md            # Product vision: accept/resist tests for every change (read first)
 ├── src/frontend/          # React SPA (see src/frontend/AGENTS.md)
 ├── src/backend/api/       # FastAPI backend (see src/backend/AGENTS.md)
 ├── scripts/               # Python scrapers (see scripts/AGENTS.md)
