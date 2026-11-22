@@ -122,14 +122,27 @@ WITH clicks AS (
     WHERE NOT u.is_internal
     GROUP BY 1
 ),
+-- A session is any session id seen on a visit or a click that week: PostHog
+-- rotates the id after 30 idle minutes without a page load, so a click can
+-- carry a session no visit row has.
 sessions AS (
-    SELECT date_trunc('week', v.visited_at AT TIME ZONE 'UTC')::date AS week,
-           count(DISTINCT v.session_id) AS sessions
-    FROM user_visits v
-    JOIN users u ON u.id = v.user_id
-    WHERE NOT u.is_internal
-      AND v.session_id IS NOT NULL
-    GROUP BY 1
+    SELECT week, count(DISTINCT session_id) AS sessions
+    FROM (
+        SELECT date_trunc('week', v.visited_at AT TIME ZONE 'UTC')::date AS week,
+               v.session_id
+        FROM user_visits v
+        JOIN users u ON u.id = v.user_id
+        WHERE NOT u.is_internal
+          AND v.session_id IS NOT NULL
+        UNION
+        SELECT date_trunc('week', c.clicked_at AT TIME ZONE 'UTC')::date,
+               c.session_id
+        FROM job_apply_clicks c
+        JOIN users u ON u.id = c.user_id
+        WHERE NOT u.is_internal
+          AND c.session_id IS NOT NULL
+    ) s
+    GROUP BY week
 )
 SELECT week,
        COALESCE(c.clicks, 0) AS clicks,
@@ -137,6 +150,20 @@ SELECT week,
        round(COALESCE(c.clicks, 0)::numeric / NULLIF(s.sessions, 0), 4) AS clicks_per_session
 FROM clicks c
 FULL OUTER JOIN sessions s USING (week)
+"""
+
+# The analysis MCP logs in as claude_readonly (no CREATE anywhere). The guard
+# lets databases without that role (local, CI) migrate unchanged.
+READONLY_GRANTS_SQL = """
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'claude_readonly') THEN
+        GRANT USAGE ON SCHEMA metrics TO claude_readonly;
+        GRANT SELECT ON ALL TABLES IN SCHEMA metrics TO claude_readonly;
+        GRANT SELECT ON job_apply_clicks TO claude_readonly;
+    END IF;
+END
+$$
 """
 
 
@@ -168,6 +195,7 @@ def upgrade() -> None:
     op.execute(SIGNUP_RETENTION_SQL)
     op.execute(NORTH_STAR_WEEKLY_SQL)
     op.execute(APPLY_CLICKS_WEEKLY_SQL)
+    op.execute(READONLY_GRANTS_SQL)
 
 
 def downgrade() -> None:

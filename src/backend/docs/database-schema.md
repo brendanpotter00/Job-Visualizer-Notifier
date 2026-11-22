@@ -204,7 +204,7 @@ are Monday-start UTC.
 - `metrics.north_star_weekly` — one row per `cohort_week`: `signups`, `mature` (whole week is
   31+ days old), `weeks_returned_mature` (week 8 has ended), the fractions, `avg_weeks_returned`.
 - `metrics.apply_clicks_weekly` — one row per week: `clicks`, `sessions` (distinct non-null
-  `user_visits.session_id`), `clicks_per_session`.
+  session ids across `user_visits` and `job_apply_clicks`), `clicks_per_session`.
 
 ### `user_enabled_companies`
 Join table — which companies a user has explicitly enabled in their feed. Composite PK

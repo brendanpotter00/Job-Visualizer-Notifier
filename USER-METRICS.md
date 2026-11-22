@@ -24,7 +24,7 @@ A visit the same day or the next two days does not count toward 3-day+, so a sin
 | **Weeks returned** | Of weeks 1-8 after signup, how many had at least one visit | 0.98 weeks on average; 69% came back in no week, 6% in 6+ weeks |
 | **Comeback after a 2-week gap** | Of users who went 14+ days without a visit, the share who visited again afterwards | 19% (60 of 318) |
 | **Signup conversion** | `user_signed_up` ÷ `signup_funnel_landing` over 30 days | ~1.3% (5 of 382) |
-| **Apply clicks per session** | Click-throughs to a job's application page ÷ sessions | ~0.05 (rough; see below) |
+| **Apply clicks per session** | Click-throughs to a job's application page ÷ sessions, where a session is a distinct PostHog session id seen that week on a visit or an apply click | ~0.05 (rough; see below) |
 
 ## Notification quality (once alerts ship)
 

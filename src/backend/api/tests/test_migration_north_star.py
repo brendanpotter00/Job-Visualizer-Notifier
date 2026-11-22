@@ -208,12 +208,14 @@ def test_north_star_migration_upgrade_views_and_downgrade(
                 " AND visited_at = %s::timestamptz + interval '8 days'", (_SIGNUP,)
             )
             cur.execute("UPDATE user_visits SET session_id = 'sx' WHERE user_id = 'uint'")
-            for uid in ("ua", "ua", "uint"):
+            # 's1' is also on a visit; 's2' only on a click (PostHog rotated the
+            # id after 30 idle minutes, no page load), so it adds a session.
+            for uid, sid in (("ua", "s1"), ("ua", "s2"), ("uint", "sy")):
                 cur.execute(
                     "INSERT INTO job_apply_clicks"
-                    " (clicked_at, user_id, source_id, job_id, surface)"
-                    " VALUES (%s::timestamptz + interval '8 days', %s, 's', 'j', 'recent')",
-                    (_SIGNUP, uid),
+                    " (clicked_at, user_id, session_id, source_id, job_id, surface)"
+                    " VALUES (%s::timestamptz + interval '8 days', %s, %s, 's', 'j', 'recent')",
+                    (_SIGNUP, uid, sid),
                 )
             cur.execute("SELECT * FROM metrics.apply_clicks_weekly ORDER BY week")
             weekly = [
@@ -222,8 +224,20 @@ def test_north_star_migration_upgrade_views_and_downgrade(
             ]
             assert weekly == [
                 ("2026-07-06", 0, 1, Decimal("0.0000")),
-                ("2026-07-13", 2, 1, Decimal("2.0000")),
+                ("2026-07-13", 2, 2, Decimal("1.0000")),
             ]
+
+            # The read-only grant is guarded on the role existing: without it
+            # the upgrade above still ran; with it the role can read the views.
+            cur.execute("SELECT 1 FROM pg_roles WHERE rolname = 'claude_readonly'")
+            if cur.fetchone() is not None:
+                cur.execute(
+                    "SELECT has_schema_privilege('claude_readonly', 'metrics', 'USAGE') AS s,"
+                    " has_table_privilege('claude_readonly',"
+                    " 'metrics.north_star_weekly', 'SELECT') AS v,"
+                    " has_table_privilege('claude_readonly', 'job_apply_clicks', 'SELECT') AS t"
+                )
+                assert cur.fetchone() == {"s": True, "v": True, "t": True}
         finally:
             conn.close()
 

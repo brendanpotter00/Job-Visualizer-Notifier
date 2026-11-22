@@ -170,7 +170,7 @@ class UserUpdateRequest(BaseModel):
 
 
 # Where a job card was rendered when its Apply button was pressed. Mirrors
-# ``ApplyClickSurface`` in the frontend (features/analytics/applyClick.ts):
+# ``ApplyClickSurface`` in the frontend (src/frontend/src/features/auth/authService.ts):
 # the Recent Jobs list, the company hiring-trend list, that page's graph-bucket
 # modal, a user's own tracked-company trend page, and the landing page cards.
 ApplyClickSurface = Literal["recent", "company", "company_bucket", "my_company", "landing"]
