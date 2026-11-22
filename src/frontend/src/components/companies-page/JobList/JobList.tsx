@@ -3,6 +3,7 @@ import { JobListingCard } from '../../shared/JobCard/JobListingCard.tsx';
 import { JobListSkeleton } from '../../shared/LoadingIndicator.tsx';
 import { EmptyJobListState } from '../../shared/EmptyJobListState.tsx';
 import type { Job } from '../../../types';
+import type { ApplyClickSurface } from '../../../features/auth/authService';
 
 interface JobListProps {
   /** Jobs to display */
@@ -10,12 +11,15 @@ interface JobListProps {
 
   /** Loading state */
   isLoading?: boolean;
+
+  /** Where the list is rendered, logged with each apply click. */
+  surface: ApplyClickSurface;
 }
 
 /**
  * List component for displaying job postings
  */
-export function JobList({ jobs, isLoading = false }: JobListProps) {
+export function JobList({ jobs, isLoading = false, surface }: JobListProps) {
   if (isLoading) {
     return <JobListSkeleton count={5} />;
   }
@@ -30,7 +34,7 @@ export function JobList({ jobs, isLoading = false }: JobListProps) {
         {jobs.length} {jobs.length === 1 ? 'job' : 'jobs'} found
       </Typography>
       {jobs.map((job) => (
-        <JobListingCard key={job.id} job={job} />
+        <JobListingCard key={job.id} job={job} surface={surface} />
       ))}
     </Stack>
   );

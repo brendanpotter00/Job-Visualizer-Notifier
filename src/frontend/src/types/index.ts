@@ -36,6 +36,13 @@ export interface Job {
   /** ATS source system */
   source: ATSProvider;
 
+  /**
+   * Backend `source_id` (e.g. `greenhouse_api`). With `id` it is the job's key,
+   * `job_listings (source_id, id)`. Optional so hand-built fixtures stay valid;
+   * every job from the backend carries it.
+   */
+  sourceId?: string;
+
   /** Company identifier (e.g., 'spacex', 'anthropic') */
   company: string;
 

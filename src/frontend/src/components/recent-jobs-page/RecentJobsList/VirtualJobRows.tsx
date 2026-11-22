@@ -181,7 +181,7 @@ export function VirtualJobRows({ jobs, totalCount }: VirtualJobRowsProps) {
               transform: `translateY(${virtualRow.start - virtualizer.options.scrollMargin}px)`,
             }}
           >
-            <JobListingCard job={job} />
+            <JobListingCard job={job} surface="recent" />
           </div>
         );
       })}

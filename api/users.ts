@@ -14,7 +14,8 @@ const METHODS_WITH_BODY = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
  * under it (`users`, `saved_filters` at `/api/users/saved-filters`, and
  * `user_companies` at `/api/users/companies`). The list below is the full
  * `app.openapi()["paths"]` set for that prefix, cross-checked against the
- * callers: `features/auth/authService.ts` (bare, `visit`, `enabled-companies`),
+ * callers: `features/auth/authService.ts` (bare, `visit`, `apply-click`,
+ * `enabled-companies`),
  * `features/savedFilters/savedFiltersApi.ts` (the `saved-filters` family),
  * `features/userCompanies/userCompaniesApi.ts` (the `companies` family) and
  * `features/userCompanies/customJobsClient.ts` (`companies/jobs`).
@@ -26,6 +27,7 @@ const METHODS_WITH_BODY = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 const PROXIED_ROUTES = [
   '', // GET/PUT /api/users
   'visit', // POST
+  'apply-click', // POST
   'enabled-companies', // GET/PUT
   'saved-filters', // GET/PUT
   'saved-filters/keyword-lists', // GET/POST

@@ -43,6 +43,7 @@ erDiagram
         boolean auto_enroll_new_companies "NOT NULL default true"
         int visit_count "NOT NULL default 0"
         timestamptz last_visit_at "nullable"
+        boolean is_internal "NOT NULL default false"
     }
 
     user_enabled_companies {
@@ -175,6 +176,35 @@ Authenticated accounts (Auth0 / Google One Tap). One row per person.
 | `auto_enroll_new_companies` | boolean | Global per-user opt-out for auto-enroll. `NOT NULL DEFAULT true`. |
 | `visit_count` | integer | Page-load count for the admin roster's "most frequent users" view; incremented once per full load via `POST /api/users/visit`. `NOT NULL DEFAULT 0`. |
 | `last_visit_at` | timestamptz | Most recent page-load time; `NULL` until the user's first visit after this feature shipped. |
+| `is_internal` | boolean | Accounts the `metrics` views skip. Only the owner's account is flagged (rev `bcbc67dbd87e`); the `nonadmin@nonadmin.com` prod test account is deliberately counted. `NOT NULL DEFAULT false`. |
+
+### `user_visits`
+Append-only log, one row per `POST /api/users/visit` (one full page load). `visited_at`
+timestamptz `DEFAULT now()`; `session_id` text, nullable — the page load's PostHog
+`$session_id` (NULL before rev `bcbc67dbd87e` and when the SPA has no PostHog). Indexed on
+`(user_id, visited_at)`.
+
+### `job_apply_clicks`
+Append-only log, one row per Apply press by a **signed-in** user
+(`POST /api/users/apply-click`; anonymous clicks are not logged). `user_id` FK -> `users.id`
+`ON DELETE CASCADE`; `(source_id, job_id)` is the job key with deliberately NO FK (a click
+outlives its listing); `job_age_seconds` is `now() - job_listings.first_seen_at`, computed
+server-side at insert (NULL when the job is not found); `surface` is where the card was
+(`recent | company | company_bucket | my_company | landing`); `session_id` is the PostHog
+`$session_id`. Indexed on `clicked_at` and `(user_id, clicked_at)`.
+
+### `metrics` schema (views)
+Read-only views holding the USER-METRICS.md definitions, so a read-only SQL client gets each
+North Star number with one `SELECT` (rev `bcbc67dbd87e`; views store no data). All skip
+`users.is_internal`; cohorts are signups from 2026-06-25 (`created_at::timestamptz`); weeks
+are Monday-start UTC.
+- `metrics.signup_retention` — one row per cohort user: `back_day3plus` / `back_day7plus`
+  (a visit on day 3-30 / 7-30), `weeks_returned` (weeks 1-8 with a visit), `came_back_after_14d`,
+  and `had_14d_gap` (its denominator).
+- `metrics.north_star_weekly` — one row per `cohort_week`: `signups`, `mature` (whole week is
+  31+ days old), `weeks_returned_mature` (week 8 has ended), the fractions, `avg_weeks_returned`.
+- `metrics.apply_clicks_weekly` — one row per week: `clicks`, `sessions` (distinct non-null
+  `user_visits.session_id`), `clicks_per_session`.
 
 ### `user_enabled_companies`
 Join table — which companies a user has explicitly enabled in their feed. Composite PK

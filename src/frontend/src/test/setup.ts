@@ -12,6 +12,7 @@ vi.mock('posthog-js', () => ({
     identify: vi.fn(),
     reset: vi.fn(),
     register: vi.fn(),
+    get_session_id: vi.fn(() => ''),
     opt_in_capturing: vi.fn(),
     opt_out_capturing: vi.fn(),
     set_config: vi.fn(),

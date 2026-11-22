@@ -98,6 +98,9 @@ Use the `add-company` skill (`.claude/skills/add-company/`, `/add-company`) — 
 **Checking Scraper Health:**
 Use the `scraper-health-watch` skill (`.claude/skills/scraper-health-watch/`) — detects dead/stale scrape sources, mass closures, and worker death against prod; researches moved boards and opens a fix PR (never merges); texts Brendan only when something is wrong. Runs daily via launchd (`com.bp.jvn-health-watch`); ops runbook in `scripts/health_watch/README.md`.
 
+**Reading the North Star metrics:**
+The USER-METRICS.md definitions live as read-only views in the Postgres `metrics` schema: `SELECT * FROM metrics.north_star_weekly ORDER BY cohort_week` (also `metrics.signup_retention`, one row per user, and `metrics.apply_clicks_weekly`). Use only rows with `mature = true`. Accounts with `users.is_internal` are skipped. The same numbers are tiles on the PostHog "North Star" dashboard, computed from the mirrored `user_signed_up` / `user_visited` / `job_apply_clicked` events.
+
 **Adding ATS Provider:**
 1. Create transformer in `src/frontend/src/api/transformers/[provider]Transformer.ts`
 2. Create client using `createAPIClient` factory (~15 lines)

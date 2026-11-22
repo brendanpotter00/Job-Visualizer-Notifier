@@ -18,6 +18,7 @@ import {
   trackSignInClick,
   trackSignInOverlayViewed,
   setAuthStateProperty,
+  getPostHogSessionId,
 } from '../../../features/analytics/events';
 
 describe('analytics/events (enabled)', () => {
@@ -102,5 +103,35 @@ describe('analytics/events (best-effort)', () => {
     expect(() => setAuthStateProperty(true)).not.toThrow();
 
     warn.mockRestore();
+  });
+});
+
+describe('getPostHogSessionId', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockConfig.isEnabled = true;
+  });
+
+  it('returns the PostHog session id when enabled', () => {
+    vi.mocked(posthog.get_session_id).mockReturnValueOnce('sess-1');
+    expect(getPostHogSessionId()).toBe('sess-1');
+  });
+
+  it('returns undefined for an empty session id', () => {
+    vi.mocked(posthog.get_session_id).mockReturnValueOnce('');
+    expect(getPostHogSessionId()).toBeUndefined();
+  });
+
+  it('returns undefined without calling PostHog when disabled', () => {
+    mockConfig.isEnabled = false;
+    expect(getPostHogSessionId()).toBeUndefined();
+    expect(posthog.get_session_id).not.toHaveBeenCalled();
+  });
+
+  it('returns undefined instead of throwing when PostHog throws', () => {
+    vi.mocked(posthog.get_session_id).mockImplementationOnce(() => {
+      throw new Error('boom');
+    });
+    expect(getPostHogSessionId()).toBeUndefined();
   });
 });

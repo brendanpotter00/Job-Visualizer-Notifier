@@ -169,6 +169,41 @@ class UserUpdateRequest(BaseModel):
     display_name: str | None = Field(default=None, max_length=100)
 
 
+# Where a job card was rendered when its Apply button was pressed. Mirrors
+# ``ApplyClickSurface`` in the frontend (features/analytics/applyClick.ts):
+# the Recent Jobs list, the company hiring-trend list, that page's graph-bucket
+# modal, a user's own tracked-company trend page, and the landing page cards.
+ApplyClickSurface = Literal["recent", "company", "company_bucket", "my_company", "landing"]
+
+# A PostHog ``$session_id`` (a UUIDv7 string today). Bounded so a junk client
+# value cannot bloat a row.
+SessionId = Annotated[str, StringConstraints(min_length=1, max_length=128)]
+
+
+class VisitRequest(BaseModel):
+    """Optional body of ``POST /api/users/visit``. An empty body is still valid."""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True, extra="forbid")
+
+    session_id: SessionId | None = None
+
+
+class ApplyClickRequest(BaseModel):
+    """Body of ``POST /api/users/apply-click``.
+
+    Carries only the job key, the surface and the session. The job's age is
+    computed by the server from ``job_listings.first_seen_at``; no client value
+    for it is accepted (``extra='forbid'``).
+    """
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True, extra="forbid")
+
+    source_id: Annotated[str, StringConstraints(min_length=1, max_length=200)]
+    job_id: Annotated[str, StringConstraints(min_length=1, max_length=500)]
+    surface: ApplyClickSurface
+    session_id: SessionId | None = None
+
+
 class EnabledCompaniesResponse(BaseModel):
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
 

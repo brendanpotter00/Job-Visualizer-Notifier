@@ -274,7 +274,7 @@ export function MyCompanyTrendPage() {
             </Paper>
 
             <Box>
-              <JobList jobs={sortedJobs} />
+              <JobList jobs={sortedJobs} surface="my_company" />
             </Box>
           </>
         )}

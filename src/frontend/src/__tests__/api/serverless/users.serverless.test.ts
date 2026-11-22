@@ -82,10 +82,7 @@ describe('/api/users serverless function', () => {
 
       await handler(mockReq as VercelRequest, mockRes as VercelResponse);
 
-      expect(fetchMock).toHaveBeenCalledWith(
-        'http://localhost:8000/api/users',
-        expect.any(Object)
-      );
+      expect(fetchMock).toHaveBeenCalledWith('http://localhost:8000/api/users', expect.any(Object));
     });
 
     // These four used to use `profile`, `settings/notifications`, `search` and
@@ -103,6 +100,23 @@ describe('/api/users serverless function', () => {
         'http://localhost:8000/api/users/visit',
         expect.any(Object)
       );
+    });
+
+    it('forwards POST /api/users/apply-click with its body', async () => {
+      mockReq.method = 'POST';
+      mockReq.query = { path: 'apply-click' };
+      mockReq.body = { sourceId: 's', jobId: 'j', surface: 'recent' };
+
+      fetchMock.mockResolvedValue(mockJsonResponse(204, null));
+
+      await handler(mockReq as VercelRequest, mockRes as VercelResponse);
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        'http://localhost:8000/api/users/apply-click',
+        expect.any(Object)
+      );
+      const calledOptions = fetchMock.mock.calls[0][1] as RequestInit;
+      expect(calledOptions.body).toBe('{"sourceId":"s","jobId":"j","surface":"recent"}');
     });
 
     it('should handle multiple path segments as array', async () => {
@@ -592,10 +606,7 @@ runProxyAllowlistGuard({
     ['enabled-companies', '/api/users/enabled-companies'],
     ['saved-filters', '/api/users/saved-filters'],
     ['saved-filters/keyword-lists', '/api/users/saved-filters/keyword-lists'],
-    [
-      ['saved-filters', 'keyword-lists', 'kl-42'],
-      '/api/users/saved-filters/keyword-lists/kl-42',
-    ],
+    [['saved-filters', 'keyword-lists', 'kl-42'], '/api/users/saved-filters/keyword-lists/kl-42'],
     ['companies', '/api/users/companies'],
     ['companies/jobs', '/api/users/companies/jobs'],
     ['companies/u-abc123', '/api/users/companies/u-abc123'],

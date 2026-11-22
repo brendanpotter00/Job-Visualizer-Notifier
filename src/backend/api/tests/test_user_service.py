@@ -424,3 +424,17 @@ class TestGetUserVisitCount:
 
     def test_returns_none_for_missing_user(self, db_conn):
         assert get_user_visit_count(db_conn, "no-such-id") is None
+
+
+class TestRecordApplyClick:
+    def test_missing_user_row_is_a_noop(self, db_conn):
+        """A user deleted mid-request writes nothing and does not raise."""
+        from api.services.user_service import record_apply_click
+
+        age = record_apply_click(
+            db_conn, "no-such-user", source_id="s", job_id="j", surface="recent"
+        )
+        assert age is None
+        cursor = db_conn.cursor()
+        cursor.execute("SELECT count(*) AS n FROM job_apply_clicks")
+        assert cursor.fetchone()["n"] == 0

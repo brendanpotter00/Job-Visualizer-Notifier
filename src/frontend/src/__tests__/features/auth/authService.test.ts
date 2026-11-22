@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   fetchCurrentUser,
+  recordApplyClick,
   recordVisit,
   updateCurrentUser,
 } from '../../../features/auth/authService';
@@ -257,6 +258,24 @@ describe('authService', () => {
       });
     });
 
+    it('sends the PostHog session id as a JSON body when given', async () => {
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockResolvedValue(new Response(null, { status: 204 }));
+
+      await recordVisit('my-token', 'sess-1');
+
+      expect(fetchSpy).toHaveBeenCalledWith('/api/users/visit', {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer my-token',
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+        },
+        body: '{"sessionId":"sess-1"}',
+      });
+    });
+
     it('resolves on 204 No Content', async () => {
       vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 204 }));
 
@@ -269,6 +288,39 @@ describe('authService', () => {
       );
 
       await expect(recordVisit('token')).rejects.toThrow('Failed to record visit (500)');
+    });
+  });
+
+  describe('recordApplyClick', () => {
+    it('POSTs the payload with keepalive and the Bearer token', async () => {
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockResolvedValue(new Response(null, { status: 204 }));
+
+      await recordApplyClick('my-token', {
+        sourceId: 'greenhouse_api',
+        jobId: '42',
+        surface: 'recent',
+        sessionId: 'sess-1',
+      });
+
+      expect(fetchSpy).toHaveBeenCalledWith('/api/users/apply-click', {
+        method: 'POST',
+        keepalive: true,
+        headers: {
+          Authorization: 'Bearer my-token',
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+        body: '{"sourceId":"greenhouse_api","jobId":"42","surface":"recent","sessionId":"sess-1"}',
+      });
+    });
+
+    it('throws on a non-2xx so the caller can swallow it', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 500 }));
+      await expect(
+        recordApplyClick('t', { sourceId: 's', jobId: 'j', surface: 'company' })
+      ).rejects.toThrow('500');
     });
   });
 });

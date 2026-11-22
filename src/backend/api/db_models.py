@@ -560,6 +560,11 @@ class User(Base):
     # do NOT mimic the legacy Text-typed created_at/updated_at.
     visit_count = Column(Integer, nullable=False, server_default=text("0"))
     last_visit_at = Column(TIMESTAMP(timezone=True), nullable=True)
+    # Accounts the ``metrics`` views (USER-METRICS.md) skip, so internal use
+    # never shows up as retention or apply clicks. Set by hand; the North Star
+    # migration flags only the owner's account (the nonadmin@nonadmin.com test
+    # account is deliberately NOT internal and stays counted).
+    is_internal = Column(Boolean, nullable=False, server_default=text("false"))
 
     __table_args__ = (
         UniqueConstraint("email", name="users_email_key"),
@@ -594,6 +599,10 @@ class UserVisit(Base):
     visited_at = Column(
         TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
     )
+    # PostHog ``$session_id`` of the page load, sent by the SPA when PostHog is
+    # enabled. NULL for rows written before it was collected and for loads
+    # without PostHog. ``metrics.apply_clicks_weekly`` counts sessions from it.
+    session_id = Column(Text, nullable=True)
 
     __table_args__ = (
         # Serves the modal query (WHERE user_id = %s ORDER BY visited_at DESC
@@ -604,6 +613,42 @@ class UserVisit(Base):
             "user_id",
             "visited_at",
         ),
+    )
+
+
+class JobApplyClick(Base):
+    __tablename__ = "job_apply_clicks"
+
+    # Append-only log: one row per press of a job card's Apply button by a
+    # SIGNED-IN user (POST /api/users/apply-click). Anonymous clicks are not
+    # logged. Mirrored to PostHog as ``job_apply_clicked``.
+    id = Column(BigInteger, primary_key=True)
+    clicked_at = Column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
+    )
+    user_id = Column(
+        Text,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    # PostHog ``$session_id`` of the click, when PostHog is enabled.
+    session_id = Column(Text, nullable=True)
+    # The job key (job_listings' composite PK is (source_id, id)). Deliberately
+    # NOT a foreign key: a click is a historical fact and must survive the
+    # listing being deleted.
+    source_id = Column(Text, nullable=False)
+    job_id = Column(Text, nullable=False)
+    # Seconds between job_listings.first_seen_at and the click, computed by the
+    # SERVER at insert time (never a client value). NULL when the job is not
+    # found.
+    job_age_seconds = Column(Integer, nullable=True)
+    # Where the card was rendered: recent | company | company_bucket |
+    # my_company | landing (see ApplyClickSurface in models.py).
+    surface = Column(Text, nullable=False)
+
+    __table_args__ = (
+        Index("idx_job_apply_clicks_clicked_at", "clicked_at"),
+        Index("idx_job_apply_clicks_user_id_clicked_at", "user_id", "clicked_at"),
     )
 
 

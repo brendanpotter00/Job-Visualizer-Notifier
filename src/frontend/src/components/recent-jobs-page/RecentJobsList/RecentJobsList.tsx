@@ -132,7 +132,7 @@ export function RecentJobsList({ search }: RecentJobsListProps) {
             <Box role="list">
               {displayedJobs.map((job) => (
                 <Box key={job.id} role="listitem">
-                  <JobListingCard job={job} />
+                  <JobListingCard job={job} surface="recent" />
                 </Box>
               ))}
             </Box>

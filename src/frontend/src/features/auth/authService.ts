@@ -117,18 +117,58 @@ export async function fetchCurrentUser(token: string, signal?: AbortSignal): Pro
  * Throws on a non-2xx so the caller can log-and-swallow (a failed visit count
  * must never break the app).
  */
-export async function recordVisit(token: string): Promise<void> {
-  const response = await fetch('/api/users/visit', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      Accept: 'application/json',
-    },
-  });
+export async function recordVisit(token: string, sessionId?: string): Promise<void> {
+  // The body is optional server-side; send one only when there is a session id
+  // so a build without PostHog makes exactly the request it always made.
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${token}`,
+    Accept: 'application/json',
+  };
+  const init: RequestInit = { method: 'POST', headers };
+  if (sessionId) {
+    headers['Content-Type'] = 'application/json';
+    init.body = JSON.stringify({ sessionId });
+  }
+  const response = await fetch('/api/users/visit', init);
 
   if (!response.ok) {
     const detail = await extractErrorDetail(response);
     throw new Error(detail || `Failed to record visit (${response.status})`);
+  }
+}
+
+/** Where a job card was rendered. Mirrors `ApplyClickSurface` in the backend `models.py`. */
+export type ApplyClickSurface = 'recent' | 'company' | 'company_bucket' | 'my_company' | 'landing';
+
+export interface ApplyClickPayload {
+  sourceId: string;
+  jobId: string;
+  surface: ApplyClickSurface;
+  sessionId?: string;
+}
+
+/**
+ * Log one press of a job card's Apply button (signed-in users only).
+ *
+ * `keepalive` lets the request finish even if the page goes away, so the caller
+ * never has to wait for it: the job opens in its new tab at once. The backend
+ * computes the job's age itself. Throws on a non-2xx so the caller can
+ * log-and-swallow, like `recordVisit`.
+ */
+export async function recordApplyClick(token: string, payload: ApplyClickPayload): Promise<void> {
+  const response = await fetch('/api/users/apply-click', {
+    method: 'POST',
+    keepalive: true,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to record apply click (${response.status})`);
   }
 }
 

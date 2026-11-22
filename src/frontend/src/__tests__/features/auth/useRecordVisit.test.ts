@@ -5,13 +5,18 @@ import { renderHook, waitFor } from '@testing-library/react';
 // Mock the two collaborators. The hook only reads `isAuthenticated` / `getToken`
 // from useAuth and calls recordVisit — mock both so the test is isolated.
 const recordVisitMock = vi.fn();
+const getSessionIdMock = vi.fn<() => string | undefined>();
 let authState: { isAuthenticated: boolean; getToken: () => Promise<string> };
 
 vi.mock('../../../features/auth/useAuth', () => ({
   useAuth: () => authState,
 }));
 vi.mock('../../../features/auth/authService', () => ({
-  recordVisit: (token: string) => recordVisitMock(token),
+  recordVisit: (token: string, sessionId?: string) =>
+    sessionId === undefined ? recordVisitMock(token) : recordVisitMock(token, sessionId),
+}));
+vi.mock('../../../features/analytics/events', () => ({
+  getPostHogSessionId: () => getSessionIdMock(),
 }));
 
 import { useRecordVisit } from '../../../features/auth/useRecordVisit';
@@ -19,6 +24,7 @@ import { useRecordVisit } from '../../../features/auth/useRecordVisit';
 describe('useRecordVisit', () => {
   beforeEach(() => {
     recordVisitMock.mockReset().mockResolvedValue(undefined);
+    getSessionIdMock.mockReset().mockReturnValue(undefined);
     authState = {
       isAuthenticated: true,
       getToken: vi.fn().mockResolvedValue('tok'),
@@ -29,6 +35,13 @@ describe('useRecordVisit', () => {
     renderHook(() => useRecordVisit());
     await waitFor(() => expect(recordVisitMock).toHaveBeenCalledTimes(1));
     expect(recordVisitMock).toHaveBeenCalledWith('tok');
+  });
+
+  it('sends the PostHog session id when there is one', async () => {
+    getSessionIdMock.mockReturnValue('sess-1');
+    renderHook(() => useRecordVisit());
+    await waitFor(() => expect(recordVisitMock).toHaveBeenCalledTimes(1));
+    expect(recordVisitMock).toHaveBeenCalledWith('tok', 'sess-1');
   });
 
   it('records nothing when unauthenticated (anonymous load)', async () => {

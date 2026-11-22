@@ -760,3 +760,218 @@ class TestRecordVisit:
         finally:
             if saved_override is not None:
                 test_app.dependency_overrides[get_current_user] = saved_override
+
+
+class _FakePostHog:
+    """Records ``capture`` calls; optionally raises to prove analytics never
+    fails the request."""
+
+    def __init__(self, *, fail: bool = False) -> None:
+        self.calls: list[dict] = []
+        self.fail = fail
+
+    def capture(self, event, *, distinct_id, properties):
+        if self.fail:
+            raise RuntimeError("simulated PostHog outage")
+        self.calls.append(
+            {"event": event, "distinct_id": distinct_id, "properties": properties}
+        )
+
+
+def _install_fake_posthog(monkeypatch, *, fail: bool = False) -> _FakePostHog:
+    import api.routers.users as users_router
+
+    fake = _FakePostHog(fail=fail)
+    monkeypatch.setattr(users_router, "get_posthog", lambda: fake)
+    return fake
+
+
+class TestRecordVisitSessionId:
+    """POST /api/users/visit — optional PostHog session id + `user_visited` mirror."""
+
+    @staticmethod
+    def _session_ids(db_conn) -> list:
+        cursor = db_conn.cursor()
+        cursor.execute(
+            "SELECT v.session_id FROM user_visits v JOIN users u ON u.id = v.user_id"
+            " WHERE u.auth0_id = 'auth0|test_user_123' ORDER BY v.id"
+        )
+        return [r["session_id"] for r in cursor.fetchall()]
+
+    def test_session_id_is_stored_on_the_visit_row(self, client, db_conn):
+        resp = client.post("/api/users/visit", json={"sessionId": "sess-abc"})
+        assert resp.status_code == 204
+        assert self._session_ids(db_conn) == ["sess-abc"]
+
+    def test_no_body_stores_null_session_id(self, client, db_conn):
+        """Older SPA builds send no body; the visit still counts."""
+        resp = client.post("/api/users/visit")
+        assert resp.status_code == 204
+        assert self._session_ids(db_conn) == [None]
+
+    def test_null_session_id_is_accepted(self, client, db_conn):
+        resp = client.post("/api/users/visit", json={"sessionId": None})
+        assert resp.status_code == 204
+        assert self._session_ids(db_conn) == [None]
+
+    def test_unknown_body_key_is_rejected(self, client):
+        resp = client.post("/api/users/visit", json={"bogus": 1})
+        assert resp.status_code == 422
+
+    def test_mirrors_user_visited_with_session_id(self, client, monkeypatch):
+        fake = _install_fake_posthog(monkeypatch)
+        client.post("/api/users/visit", json={"sessionId": "sess-abc"})
+        assert fake.calls == [
+            {
+                "event": "user_visited",
+                "distinct_id": "auth0|test_user_123",
+                "properties": {"$session_id": "sess-abc"},
+            }
+        ]
+
+    def test_mirror_omits_session_id_when_absent(self, client, monkeypatch):
+        fake = _install_fake_posthog(monkeypatch)
+        client.post("/api/users/visit")
+        assert fake.calls[0]["properties"] == {}
+
+    def test_posthog_failure_does_not_fail_the_visit(self, client, db_conn, monkeypatch):
+        _install_fake_posthog(monkeypatch, fail=True)
+        resp = client.post("/api/users/visit", json={"sessionId": "sess-abc"})
+        assert resp.status_code == 204
+        assert self._session_ids(db_conn) == ["sess-abc"]
+
+
+class TestApplyClick:
+    """POST /api/users/apply-click — one row per Apply press, signed-in only."""
+
+    @staticmethod
+    def _rows(db_conn) -> list:
+        cursor = db_conn.cursor()
+        cursor.execute(
+            "SELECT c.*, u.auth0_id FROM job_apply_clicks c"
+            " JOIN users u ON u.id = c.user_id ORDER BY c.id"
+        )
+        return cursor.fetchall()
+
+    @staticmethod
+    def _seed_job(db_conn, *, hours_old: float) -> dict:
+        from datetime import datetime, timedelta, timezone
+
+        from .conftest import _insert_job, _make_job
+
+        seen = datetime.now(timezone.utc) - timedelta(hours=hours_old)
+        job = _make_job({"first_seen_at": seen.isoformat(), "last_seen_at": seen.isoformat()})
+        _insert_job(db_conn, job)
+        return job
+
+    def test_logs_a_row_with_server_computed_job_age(self, client, db_conn):
+        job = self._seed_job(db_conn, hours_old=2)
+        resp = client.post(
+            "/api/users/apply-click",
+            json={
+                "sourceId": job["source_id"],
+                "jobId": job["id"],
+                "surface": "recent",
+                "sessionId": "sess-1",
+            },
+        )
+        assert resp.status_code == 204
+        rows = self._rows(db_conn)
+        assert len(rows) == 1
+        row = rows[0]
+        assert row["auth0_id"] == "auth0|test_user_123"
+        assert (row["source_id"], row["job_id"]) == (job["source_id"], job["id"])
+        assert row["surface"] == "recent"
+        assert row["session_id"] == "sess-1"
+        assert row["clicked_at"] is not None
+        # 2h = 7200s; allow slack for test runtime.
+        assert 7190 <= row["job_age_seconds"] <= 7300
+
+    def test_unknown_job_logs_null_age(self, client, db_conn):
+        resp = client.post(
+            "/api/users/apply-click",
+            json={"sourceId": "nope", "jobId": "missing", "surface": "company"},
+        )
+        assert resp.status_code == 204
+        rows = self._rows(db_conn)
+        assert len(rows) == 1
+        assert rows[0]["job_age_seconds"] is None
+        assert rows[0]["session_id"] is None
+
+    def test_client_supplied_job_age_is_rejected(self, client, db_conn):
+        """The age is computed server-side; a client value is never trusted."""
+        resp = client.post(
+            "/api/users/apply-click",
+            json={
+                "sourceId": "s",
+                "jobId": "j",
+                "surface": "recent",
+                "jobAgeSeconds": 1,
+            },
+        )
+        assert resp.status_code == 422
+        assert self._rows(db_conn) == []
+
+    def test_unknown_surface_is_rejected(self, client, db_conn):
+        resp = client.post(
+            "/api/users/apply-click",
+            json={"sourceId": "s", "jobId": "j", "surface": "sidebar"},
+        )
+        assert resp.status_code == 422
+        assert self._rows(db_conn) == []
+
+    def test_empty_job_key_is_rejected(self, client):
+        resp = client.post(
+            "/api/users/apply-click",
+            json={"sourceId": "", "jobId": "j", "surface": "recent"},
+        )
+        assert resp.status_code == 422
+
+    def test_without_auth_returns_401(self, test_app):
+        """Signed-out clicks are not logged."""
+        from fastapi.testclient import TestClient
+        from api.auth.dependencies import get_current_user
+
+        saved_override = test_app.dependency_overrides.pop(get_current_user, None)
+        try:
+            resp = TestClient(test_app).post(
+                "/api/users/apply-click",
+                json={"sourceId": "s", "jobId": "j", "surface": "recent"},
+            )
+            assert resp.status_code == 401
+        finally:
+            if saved_override is not None:
+                test_app.dependency_overrides[get_current_user] = saved_override
+
+    def test_mirrors_job_apply_clicked_to_posthog(self, client, db_conn, monkeypatch):
+        fake = _install_fake_posthog(monkeypatch)
+        job = self._seed_job(db_conn, hours_old=1)
+        client.post(
+            "/api/users/apply-click",
+            json={
+                "sourceId": job["source_id"],
+                "jobId": job["id"],
+                "surface": "landing",
+                "sessionId": "sess-9",
+            },
+        )
+        assert len(fake.calls) == 1
+        call = fake.calls[0]
+        assert call["event"] == "job_apply_clicked"
+        assert call["distinct_id"] == "auth0|test_user_123"
+        props = call["properties"]
+        assert props["source_id"] == job["source_id"]
+        assert props["job_id"] == job["id"]
+        assert props["surface"] == "landing"
+        assert props["$session_id"] == "sess-9"
+        # Same value the row holds — the two stores agree.
+        assert props["job_age_seconds"] == self._rows(db_conn)[0]["job_age_seconds"]
+
+    def test_posthog_failure_does_not_fail_the_click(self, client, db_conn, monkeypatch):
+        _install_fake_posthog(monkeypatch, fail=True)
+        resp = client.post(
+            "/api/users/apply-click",
+            json={"sourceId": "s", "jobId": "j", "surface": "my_company"},
+        )
+        assert resp.status_code == 204
+        assert len(self._rows(db_conn)) == 1

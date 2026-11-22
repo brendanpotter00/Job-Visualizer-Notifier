@@ -139,7 +139,7 @@ export function FlippingCard({
         {(sizerJobs !== undefined || !reducedMotion) && <SizerStack jobs={sizerJobs ?? jobs} />}
         {reducedMotion ? (
           <Box sx={{ gridArea: '1 / 1', ...FILL_CELL_SX }}>
-            <JobListingCard job={job} cardLink={cardLink} />
+            <JobListingCard job={job} cardLink={cardLink} surface="landing" />
           </Box>
         ) : (
           <>
@@ -156,7 +156,7 @@ export function FlippingCard({
                 transition={{ duration: CROSSFADE_SECONDS, ease: 'easeOut' }}
               >
                 <Box sx={FILL_CELL_SX}>
-                  <JobListingCard job={job} cardLink={cardLink} />
+                  <JobListingCard job={job} cardLink={cardLink} surface="landing" />
                 </Box>
               </motion.div>
             </AnimatePresence>

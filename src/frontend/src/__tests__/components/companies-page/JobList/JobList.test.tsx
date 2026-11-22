@@ -28,35 +28,35 @@ describe('JobList', () => {
   ];
 
   it('displays loading skeletons when loading', () => {
-    const { container } = render(<JobList jobs={[]} isLoading={true} />);
+    const { container } = render(<JobList jobs={[]} isLoading={true} surface="company" />);
     // Check for skeleton elements (MUI Skeleton uses span with specific class)
     const skeletons = container.querySelectorAll('.MuiSkeleton-root');
     expect(skeletons.length).toBeGreaterThan(0);
   });
 
   it('displays empty state when no jobs', () => {
-    render(<JobList jobs={[]} isLoading={false} />);
+    render(<JobList jobs={[]} isLoading={false} surface="company" />);
     expect(screen.getByText(/no jobs found matching your filters/i)).toBeInTheDocument();
   });
 
   it('displays job count with correct pluralization for multiple jobs', () => {
-    render(<JobList jobs={mockJobs} isLoading={false} />);
+    render(<JobList jobs={mockJobs} isLoading={false} surface="company" />);
     expect(screen.getByText('2 jobs found')).toBeInTheDocument();
   });
 
   it('displays job count with correct pluralization for single job', () => {
-    render(<JobList jobs={[mockJobs[0]]} isLoading={false} />);
+    render(<JobList jobs={[mockJobs[0]]} isLoading={false} surface="company" />);
     expect(screen.getByText('1 job found')).toBeInTheDocument();
   });
 
   it('renders all jobs', () => {
-    render(<JobList jobs={mockJobs} isLoading={false} />);
+    render(<JobList jobs={mockJobs} isLoading={false} surface="company" />);
     expect(screen.getByText('Frontend Engineer')).toBeInTheDocument();
     expect(screen.getByText('Backend Engineer')).toBeInTheDocument();
   });
 
   it('does not show jobs when loading', () => {
-    render(<JobList jobs={mockJobs} isLoading={true} />);
+    render(<JobList jobs={mockJobs} isLoading={true} surface="company" />);
     expect(screen.queryByText('Frontend Engineer')).not.toBeInTheDocument();
     expect(screen.queryByText('Backend Engineer')).not.toBeInTheDocument();
   });
