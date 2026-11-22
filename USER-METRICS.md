@@ -6,6 +6,10 @@ It serves the Vision in [STRATEGY.md](STRATEGY.md): get a candidate to a real, f
 The model is Chris Raroque's: fix the leaky bucket before spending on growth, and make week-1 retention the north star (his target is 30-40%).
 One difference matters here: people leave a job board when they get hired, so retention is measured while someone is searching, and coming back after a break counts for a lot.
 
+**Where to see them:**
+- PostHog: the [North Star dashboard](https://us.posthog.com/project/483508/dashboard/2397096) shows apply clicks per session and signup conversion at the top, then 3-day+ return, 7-day+ return, weeks returned, and comeback after a 14+ day gap per weekly signup cohort.
+- Postgres: the `metrics` views (`metrics.north_star_weekly`, `metrics.signup_retention`, `metrics.apply_clicks_weekly`) hold the same definitions for SQL access.
+
 ## North Star
 
 Both are measured per signup cohort, for signed-up users only.
@@ -41,7 +45,6 @@ A visit the same day or the next two days does not count toward 3-day+, so a sin
 - `user_visits` starts on 2026-06-24, so cohorts start with signups on 2026-06-25.
 - A cohort is reported only once it is 31+ days old (8+ weeks for weeks returned), so young cohorts never look worse than they are.
 - Accounts with `users.is_internal = true` (the owner's) are excluded. The test account `nonadmin@nonadmin.com` is counted, so it can be used to test in prod.
-- The same definitions are live as views: `metrics.signup_retention`, `metrics.north_star_weekly`, `metrics.apply_clicks_weekly`.
 - **Signup conversion** is the "Conversion rate %" tile on the PostHog [Signup Conversion](https://us.posthog.com/project/483508/dashboard/1768649) dashboard.
 - **Apply clicks per session**: the ~0.05 baseline is a rough estimate from before click logging, autocapture clicks on apply or ATS links (51) over sessions (1,128) in the last 30 days.
   It is now exact, for signed-in users only: each Apply press writes a `job_apply_clicks` row (with the job's age at click time) and a PostHog `job_apply_clicked` event, read by `metrics.apply_clicks_weekly`. There is no backfill.
