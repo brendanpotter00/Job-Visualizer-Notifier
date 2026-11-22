@@ -1,0 +1,28 @@
+# no-mistakes repo config. Reference:
+# https://kunchenguid.github.io/no-mistakes/reference/repo-config/
+#
+# `commands` (and `document`) are read only from the copy of this file on
+# main, never from the pushed branch, so edits here take effect after merge.
+# `intent` is read from the pushed branch.
+
+# Never read local agent chat transcripts to infer intent. Intent comes only
+# from an explicit `no-mistakes axi run --intent "..."`.
+intent:
+  enabled: false
+
+commands:
+  # Run worktrees start with tracked files only (no node_modules).
+  prepare: "npm ci --prefer-offline --no-audit --no-fund"
+  # Same eslint invocation and type-check as the "Frontend checks" CI job.
+  lint: "npx -w src/frontend eslint src --max-warnings 149 && npm run type-check"
+  # No `test`: the Test step stays agent-driven and targeted to the change.
+  # The full Vitest, pytest and mypy suites run in GitHub CI (.github/workflows/ci.yml).
+  # No `format`: most of src/frontend is not Prettier-formatted yet, so a
+  # repo-wide `npm run format` would rewrite unrelated files on every fix commit.
+
+document:
+  instructions: |
+    Agent-facing facts live in the per-area AGENTS.md files (root,
+    src/frontend, src/backend, scripts); longer write-ups live under docs/.
+    Correct an existing section rather than adding a new one, and do not
+    document what the code already makes obvious.
