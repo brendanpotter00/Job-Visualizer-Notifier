@@ -837,6 +837,7 @@ Located in project root `api/` directory (proxies to avoid CORS):
 - `companies.ts` - Curated-companies directory proxy (public, unauthenticated)
 - `feedback.ts` - User feedback submission proxy (public, optional auth — stores anonymous if token missing/invalid)
 - `locations.ts` - Canonical-location search proxy (public, internal-key auth; feeds Location filter dropdowns)
+- `billing.ts` - Stripe billing proxy (forwards Authorization): `subscription`, `checkout-session`, `portal-session` only. The Stripe **webhook is deliberately NOT proxied** — Stripe calls `POST /api/billing/webhook` directly on Railway (its signature covers the raw body, which a Vercel hop would re-serialize). Setup + test runbook: `docs/implementations/pricingStripe/SETUP.md`
 
 ## See Also
 
