@@ -6,6 +6,10 @@ It serves the Vision in [STRATEGY.md](STRATEGY.md): get a candidate to a real, f
 The model is Chris Raroque's: fix the leaky bucket before spending on growth, and make week-1 retention the north star (his target is 30-40%).
 One difference matters here: people leave a job board when they get hired, so retention is measured while someone is searching, and coming back after a break counts for a lot.
 
+**Where to see them:**
+- PostHog: the [North Star dashboard](https://us.posthog.com/project/483508/dashboard/2397096) shows apply clicks per session and signup conversion at the top, then 3-day+ return, 7-day+ return, weeks returned, and comeback after a 14+ day gap per weekly signup cohort.
+- Postgres: the `metrics` views (`metrics.north_star_weekly`, `metrics.signup_retention`, `metrics.apply_clicks_weekly`) hold the same definitions for SQL access.
+
 ## North Star
 
 Both are measured per signup cohort, for signed-up users only.
