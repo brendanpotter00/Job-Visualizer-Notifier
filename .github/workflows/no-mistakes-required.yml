@@ -1,0 +1,42 @@
+name: Require no-mistakes
+run-name: "PR #${{ github.event.pull_request.number }} no-mistakes attestation - ${{ github.event.action }}"
+
+# Deterministic check, no agent and no checkout: the PR body must carry the
+# signature and pipeline attestation that `git push no-mistakes` writes, bound
+# to the current head SHA, with review, test and document completed. It is an
+# honor-system guardrail (the body is editable), not a security boundary.
+on:
+  pull_request:
+    # synchronize: a push that bypasses the gate moves the head past the
+    # attested SHA and must fail. edited: the body, and so the attestation,
+    # can change after the PR opens.
+    types: [opened, edited, synchronize, reopened]
+    branches: [main]
+
+permissions:
+  contents: read
+  # The action reads the live PR body and head SHA; without this it fails closed.
+  pull-requests: read
+
+concurrency:
+  group: no-mistakes-required-${{ github.event.pull_request.number }}-${{ (github.event.action == 'opened' || github.event.action == 'edited') && github.run_id || 'head-change' }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    # Keep this name exactly: the main branch ruleset requires it by name.
+    name: PR must be raised via no-mistakes
+    runs-on: ubuntu-latest
+    steps:
+      # Pinned to the v1.106.1 commit, never a branch: the PR being judged
+      # must not be able to change the code that judges it.
+      - uses: kunchenguid/no-mistakes/.github/actions/require-no-mistakes@5732d1ed88a1572fa6115d6ede5d69bfec097946 # v1.106.1
+        with:
+          # Unattended automations that open PRs as the repo owner and push
+          # straight to origin: scraper-health-watch board moves and the
+          # weekly AGENTS.md / CLAUDE.md audits. They pass as "exempt", not
+          # as validated.
+          exempt-head-branches: |
+            fix/board-move-*
+            docs/agents-md/audit-*
+            docs/claude/claude.md/audit-*

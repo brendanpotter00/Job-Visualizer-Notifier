@@ -113,6 +113,9 @@ Use the `scraper-health-watch` skill (`.claude/skills/scraper-health-watch/`) �
 **Deploying a Vercel Preview:**
 Automatic per-PR preview deploys are **off** — root `vercel.json` sets `git.deploymentEnabled` to `{ "main": true, "**": false }`, so merging to `main` still auto-deploys production but no other branch auto-deploys on push. For a one-off preview that posts the native Vercel comment on the open PR, use the `deploy-to-vercel` skill (`.claude/skills/deploy-to-vercel/`, `/deploy-to-vercel`) — say "deploy to vercel".
 
+**Opening a PR (no-mistakes gate):**
+PRs to `main` must go through the local no-mistakes pipeline: `git push no-mistakes <branch>` (or the `/no-mistakes` skill). Don't `git push origin` and `gh pr create` by hand. The required `PR must be raised via no-mistakes` check (`.github/workflows/no-mistakes-required.yml`) reads the attestation the pipeline writes into the PR body, and that attestation is tied to the head SHA. A later direct push to `origin` (for example a review-fix commit) moves the head and fails the check, so send follow-up commits through the gate too. Only the automation branches listed in that workflow's `exempt-head-branches` skip it. Repo settings live in `.no-mistakes.yaml`; its `commands` take effect only from `main`. Transcript-based intent is off, so pass `--intent "..."` when driving it with `no-mistakes axi run`.
+
 **Debugging:**
 - Redux DevTools for state inspection
 - Selector tests: src/frontend/src/__tests__/features/filters/
