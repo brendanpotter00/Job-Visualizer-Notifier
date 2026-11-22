@@ -67,3 +67,9 @@ Hiring-trend charts serve a candidate deciding where to apply, and the product i
 
 A change aligns when it gets a candidate to a real, fresh, relevant opening faster, or makes what the board shows more true.
 A change should be resisted when it adds engagement for its own sake, lets money shape what a candidate sees, shows data the system cannot vouch for, acts for a candidate without their approval, or adds runtime cost with no named cap.
+
+## User Metrics
+
+What we optimize lives in [USER-METRICS.md](USER-METRICS.md), with each metric's definition, data source, and baseline.
+The North Star is retention per signup cohort: the share of new users who come back on day 3 or later, and on day 7 or later.
+Supporting metrics are weeks returned, comeback after a two-week gap, signup conversion, and apply clicks per session; once alerts ship, clicks per email and unsubscribe rate measure whether what we send is worth sending.
