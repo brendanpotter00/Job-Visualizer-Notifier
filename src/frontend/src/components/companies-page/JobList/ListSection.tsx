@@ -43,7 +43,7 @@ export function ListSection() {
           ...(showSignInOverlay && { overflow: 'hidden' }),
         }}
       >
-        <JobList jobs={visibleJobs} isLoading={isLoading} />
+        <JobList jobs={visibleJobs} isLoading={isLoading} surface="company" />
         {showSignInOverlay && <SignInOverlay background="paper" page="companies" />}
       </Box>
     </>

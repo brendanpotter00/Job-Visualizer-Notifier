@@ -1,6 +1,7 @@
 """User profile endpoints."""
 
 import logging
+from typing import Any
 
 import psycopg2
 from fastapi import APIRouter, Depends, HTTPException, Response
@@ -11,10 +12,12 @@ from ..auth.dependencies import TokenClaims, get_current_user
 from ..auth.jwt import get_normalized_subject
 from ..dependencies import get_db
 from ..models import (
+    ApplyClickRequest,
     EnabledCompaniesResponse,
     EnabledCompaniesUpdateRequest,
     UserResponse,
     UserUpdateRequest,
+    VisitRequest,
 )
 from ..services.admin_service import is_admin_by_email
 from ..services.posthog_client import get_posthog
@@ -26,6 +29,7 @@ from ..services.user_service import (
     UserRow,
     get_or_create_user,
     get_user_by_email,
+    record_apply_click,
     record_visit,
     update_user,
 )
@@ -33,6 +37,34 @@ from ..services.user_service import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def _capture_event(
+    event: str,
+    auth0_id: str,
+    properties: dict[str, Any],
+    session_id: str | None,
+) -> None:
+    """Mirror one server-side event to PostHog. Never raises.
+
+    Same pattern as ``user_signed_up``: ``distinct_id`` is the provider subject
+    the SPA ``identify()``s with, so the event joins the person. ``$session_id``
+    ties it to the browser session when the SPA sent one. Analytics must never
+    fail the request, so any error is logged and dropped; with PostHog unset
+    (``get_posthog() is None``) this is a no-op.
+    """
+    ph = get_posthog()
+    if ph is None:
+        return
+    props = dict(properties)
+    if session_id:
+        props["$session_id"] = session_id
+    try:
+        with new_context():
+            identify_context(auth0_id)
+            ph.capture(event, distinct_id=auth0_id, properties=props)
+    except Exception:
+        logger.warning("PostHog capture failed for %s", event, exc_info=True)
 
 
 def _row_to_user_response(row: UserRow, *, is_admin: bool) -> UserResponse:
@@ -101,26 +133,15 @@ async def get_current_user_profile(
         logger.exception("Failed to get/create user profile for sub=%s", auth0_id)
         raise HTTPException(status_code=500, detail="Failed to load user profile")
     is_new_user = result["created_at"] == result["updated_at"]
-    ph = get_posthog()
-    if ph and is_new_user:
-        try:
-            with new_context():
-                identify_context(auth0_id)
-                ph.capture(
-                    "user_signed_up",
-                    distinct_id=auth0_id,
-                    properties={"$set": {"email": email}},
-                )
-        except Exception:
-            logger.warning(
-                "PostHog capture failed for user_signed_up", exc_info=True
-            )
+    if is_new_user:
+        _capture_event("user_signed_up", auth0_id, {"$set": {"email": email}}, None)
     is_admin = is_admin_by_email(conn, email)
     return _row_to_user_response(result, is_admin=is_admin)
 
 
 @router.post("/visit", status_code=204)
 async def record_user_visit(
+    body: VisitRequest | None = None,
     conn: Connection = Depends(get_db),
     user: TokenClaims = Depends(get_current_user),
 ) -> Response:
@@ -135,6 +156,53 @@ async def record_user_visit(
     Subject/email resolution mirrors ``get_current_user_profile``. Only
     ``psycopg2.Error`` is caught (→ 500); ``RuntimeError`` from
     ``get_or_create_user`` on ambiguous identity must propagate, as in the GET.
+
+    The body is optional: ``{"sessionId": ...}`` carries the page load's
+    PostHog session id, stored on the ``user_visits`` row. After the write the
+    visit is mirrored to PostHog as ``user_visited`` (best-effort).
+    """
+    session_id = body.session_id if body is not None else None
+    auth0_id = get_normalized_subject(user)
+    if not auth0_id:
+        raise HTTPException(status_code=401, detail="Token missing required 'sub' claim")
+    email = user.get("email")
+    if not email:
+        raise HTTPException(status_code=401, detail="Token missing required 'email' claim")
+    try:
+        result = get_or_create_user(
+            conn,
+            auth0_id=auth0_id,
+            email=email,
+            given_name=user.get("given_name"),
+            family_name=user.get("family_name"),
+            picture_url=user.get("picture"),
+        )
+        record_visit(conn, result["id"], session_id)
+    except psycopg2.Error:
+        logger.exception("Failed to record visit for sub=%s", auth0_id)
+        raise HTTPException(status_code=500, detail="Failed to record visit")
+    _capture_event("user_visited", auth0_id, {}, session_id)
+    return Response(status_code=204)
+
+
+@router.post("/apply-click", status_code=204)
+async def record_user_apply_click(
+    body: ApplyClickRequest,
+    conn: Connection = Depends(get_db),
+    user: TokenClaims = Depends(get_current_user),
+) -> Response:
+    """Log one press of a job card's Apply button by the signed-in user.
+
+    Signed-in only (anonymous clicks are not logged). Writes one
+    ``job_apply_clicks`` row, with the job's age computed server-side from
+    ``job_listings.first_seen_at``, then mirrors it to PostHog as
+    ``job_apply_clicked`` (best-effort). The SPA fires this with
+    ``keepalive`` while the job opens in a new tab and ignores the result.
+
+    Subject/email resolution and error handling mirror ``record_user_visit``:
+    the user row is upserted first (a first page load can race ahead of
+    ``GET /api/users``), only ``psycopg2.Error`` becomes a 500, and a user row
+    deleted mid-request is a logged no-op.
     """
     auth0_id = get_normalized_subject(user)
     if not auth0_id:
@@ -151,10 +219,28 @@ async def record_user_visit(
             family_name=user.get("family_name"),
             picture_url=user.get("picture"),
         )
-        record_visit(conn, result["id"])
+        job_age_seconds = record_apply_click(
+            conn,
+            result["id"],
+            source_id=body.source_id,
+            job_id=body.job_id,
+            surface=body.surface,
+            session_id=body.session_id,
+        )
     except psycopg2.Error:
-        logger.exception("Failed to record visit for sub=%s", auth0_id)
-        raise HTTPException(status_code=500, detail="Failed to record visit")
+        logger.exception("Failed to record apply click for sub=%s", auth0_id)
+        raise HTTPException(status_code=500, detail="Failed to record apply click")
+    _capture_event(
+        "job_apply_clicked",
+        auth0_id,
+        {
+            "source_id": body.source_id,
+            "job_id": body.job_id,
+            "surface": body.surface,
+            "job_age_seconds": job_age_seconds,
+        },
+        body.session_id,
+    )
     return Response(status_code=204)
 
 

@@ -331,6 +331,8 @@ def _clear_tables(conn) -> None:
         # user_visits FKs users with ON DELETE CASCADE, so a users CASCADE would
         # already clear it; list it explicitly for clarity / future-proofing.
         sql.Identifier("user_visits"),
+        # Same as user_visits: CASCADE from users would clear it already.
+        sql.Identifier("job_apply_clicks"),
         # E7 custom-company tables. user_companies FKs users (CASCADE), the
         # other three are soft-linked (no FK) so they need explicit truncation.
         sql.Identifier("user_companies"),

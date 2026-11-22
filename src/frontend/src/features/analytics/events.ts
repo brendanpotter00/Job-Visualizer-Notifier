@@ -92,6 +92,20 @@ export function trackSignInOverlayViewed(page: OverlayPage): void {
 }
 
 /**
+ * The current PostHog `$session_id`, or `undefined` when PostHog is off or has no
+ * session yet. Sent with the visit and apply-click calls so the backend can store
+ * it and stamp it on the events it mirrors to PostHog. Never throws.
+ */
+export function getPostHogSessionId(): string | undefined {
+  if (!POSTHOG_CONFIG.isEnabled) return undefined;
+  let id: string | undefined;
+  safeAnalytics(() => {
+    id = posthog.get_session_id() || undefined;
+  });
+  return id;
+}
+
+/**
  * Register `is_authenticated` as a super-property so it rides on every captured event.
  * Lets the funnel filter the landing/pageview steps to genuinely-anonymous traffic and
  * slice any event by auth state. Set as a super-property (persists for the session)

@@ -28,6 +28,8 @@ logger = logging.getLogger(__name__)
 
 _USERS_TABLE = sql.Identifier("users")
 _USER_VISITS_TABLE = sql.Identifier("user_visits")
+_JOB_APPLY_CLICKS_TABLE = sql.Identifier("job_apply_clicks")
+_JOB_LISTINGS_TABLE = sql.Identifier("job_listings")
 
 # Hard cap on a per-user visit-history page (root AGENTS.md gotcha #7 — never
 # return an unbounded list). The admin modal shows the most recent visits;
@@ -63,6 +65,7 @@ class UserRow(TypedDict):
     auto_enroll_new_companies: bool
     visit_count: int
     last_visit_at: datetime | None
+    is_internal: bool
 
 
 def get_or_create_user(
@@ -217,7 +220,9 @@ def update_user(
     return cast(UserRow, dict(row)) if row else None
 
 
-def record_visit(conn: Connection, user_id: str) -> None:
+def record_visit(
+    conn: Connection, user_id: str, session_id: str | None = None
+) -> None:
     """Record one page-load visit for a user (POST /api/users/visit).
 
     A "visit" is one full page load / refresh by the authenticated user — NOT
@@ -228,10 +233,12 @@ def record_visit(conn: Connection, user_id: str) -> None:
        — the denormalized counters the admin roster reads/sorts on. The
        increment is read-modify-write in one statement, so concurrent loads
        from multiple tabs can't lose an increment.
-    2. ``INSERT INTO user_visits (user_id)`` — the append-only per-visit log
-       that backs the admin roster's clickable "Visits" modal. ``visited_at``
-       defaults to ``now()``, so the newest log row matches ``last_visit_at``
-       to the same transaction timestamp.
+    2. ``INSERT INTO user_visits (user_id, session_id)`` — the append-only
+       per-visit log that backs the admin roster's clickable "Visits" modal
+       and the ``metrics`` views. ``visited_at`` defaults to ``now()``, so the
+       newest log row matches ``last_visit_at`` to the same transaction
+       timestamp. ``session_id`` is the page load's PostHog session (NULL when
+       the SPA has no PostHog).
 
     Because both run on the same connection before one commit, the count and
     the log can never diverge. The INSERT is gated on the UPDATE matching a row:
@@ -255,8 +262,10 @@ def record_visit(conn: Connection, user_id: str) -> None:
         matched = cursor.rowcount
         if matched > 0:
             cursor.execute(
-                sql.SQL("INSERT INTO {} (user_id) VALUES (%s)").format(visits),
-                (user_id,),
+                sql.SQL("INSERT INTO {} (user_id, session_id) VALUES (%s, %s)").format(
+                    visits
+                ),
+                (user_id, session_id),
             )
         conn.commit()
     except psycopg2.Error as exc:
@@ -270,6 +279,65 @@ def record_visit(conn: Connection, user_id: str) -> None:
         raise
     if matched == 0:
         logger.warning("record_visit matched no user row for user_id=%s", user_id)
+
+
+def record_apply_click(
+    conn: Connection,
+    user_id: str,
+    *,
+    source_id: str,
+    job_id: str,
+    surface: str,
+    session_id: str | None = None,
+) -> int | None:
+    """Log one Apply press (POST /api/users/apply-click). Returns the job's age.
+
+    ``job_age_seconds`` is computed HERE, in the same statement, as
+    ``now() - job_listings.first_seen_at`` for ``(source_id, job_id)`` — never
+    taken from the client. It is NULL when no such listing exists (a user's own
+    board, or a job deleted since the page loaded); the click is still logged.
+
+    Same no-op contract as ``record_visit``: the INSERT is gated on the user row
+    still existing (the caller upserts it first), so a row deleted mid-request
+    logs a warning and writes nothing instead of raising a ForeignKeyViolation.
+    A driver error rolls back and re-raises.
+
+    Returns the computed age (or ``None``), for the PostHog mirror.
+    """
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            sql.SQL(
+                "INSERT INTO {clicks}"
+                " (user_id, session_id, source_id, job_id, surface, job_age_seconds)"
+                " SELECT u.id, %s, %s, %s, %s,"
+                "   (SELECT floor(extract(epoch FROM now() - jl.first_seen_at))::integer"
+                "    FROM {listings} jl WHERE jl.source_id = %s AND jl.id = %s)"
+                " FROM {users} u WHERE u.id = %s"
+                " RETURNING job_age_seconds"
+            ).format(
+                clicks=_JOB_APPLY_CLICKS_TABLE,
+                listings=_JOB_LISTINGS_TABLE,
+                users=_USERS_TABLE,
+            ),
+            (session_id, source_id, job_id, surface, source_id, job_id, user_id),
+        )
+        row = cursor.fetchone()
+        conn.commit()
+    except psycopg2.Error as exc:
+        conn.rollback()
+        logger.error(
+            "Database error in record_apply_click for user_id=%s: %s",
+            user_id,
+            exc,
+            exc_info=True,
+        )
+        raise
+    if row is None:
+        logger.warning("record_apply_click matched no user row for user_id=%s", user_id)
+        return None
+    age = row["job_age_seconds"]
+    return int(age) if age is not None else None
 
 
 def list_user_visits(

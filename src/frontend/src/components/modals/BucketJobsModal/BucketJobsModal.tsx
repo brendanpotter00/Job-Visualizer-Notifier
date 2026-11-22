@@ -94,7 +94,7 @@ export function BucketJobsModal() {
             ...(showSignInOverlay && { overflow: 'hidden' }),
           }}
         >
-          <JobList jobs={visibleJobs} isLoading={false} />
+          <JobList jobs={visibleJobs} isLoading={false} surface="company_bucket" />
           {showSignInOverlay && <SignInOverlay background="paper" page="bucket_modal" />}
         </Box>
       </DialogContent>

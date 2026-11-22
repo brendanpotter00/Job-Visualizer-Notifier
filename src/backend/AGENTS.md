@@ -183,7 +183,8 @@ All configuration via environment variables:
 **Users Router (`/api/users`):**
 - `GET /api/users` - Get or create authenticated user's profile (requires Bearer token)
 - `PUT /api/users` - Update display name (requires Bearer token)
-- `POST /api/users/visit` - Record one full-page-load visit (204; upserts the row then increments `visit_count` + stamps `last_visit_at`; requires Bearer token)
+- `POST /api/users/visit` - Record one full-page-load visit (204; upserts the row then increments `visit_count` + stamps `last_visit_at`; requires Bearer token). Optional body `{"sessionId"}` (the PostHog session) is stored on the `user_visits` row; the visit is mirrored to PostHog as `user_visited` (best-effort)
+- `POST /api/users/apply-click` - Log one Apply press by a signed-in user (204; body `sourceId`, `jobId`, `surface`, optional `sessionId`; `extra='forbid'`). Writes `job_apply_clicks` with `job_age_seconds` computed server-side from `job_listings.first_seen_at`, then mirrors PostHog `job_apply_clicked` (best-effort). Feeds `metrics.apply_clicks_weekly` and the PostHog "North Star" dashboard
 - `GET /api/users/enabled-companies` - List user's enabled companies (requires Bearer token)
 - `PUT /api/users/enabled-companies` - Update user's enabled companies (requires Bearer token)
 

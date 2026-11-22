@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useAuth } from './useAuth';
 import { recordVisit } from './authService';
+import { getPostHogSessionId } from '../analytics/events';
 
 /**
  * Record exactly one "visit" per full page load / refresh for the signed-in
@@ -19,6 +20,9 @@ import { recordVisit } from './authService';
  * row to attribute them to; Google Analytics covers anonymous traffic). The
  * POST is fire-and-forget — a failure is logged and swallowed so visit
  * telemetry can never break the app (mirrors `useCurrentUser`).
+ *
+ * When PostHog is enabled the POST carries `posthog.get_session_id()`, which the
+ * backend stores on the visit row and stamps on its `user_visited` event.
  */
 export function useRecordVisit(): void {
   const { isAuthenticated, getToken } = useAuth();
@@ -33,7 +37,7 @@ export function useRecordVisit(): void {
     const send = async () => {
       try {
         const token = await getToken();
-        await recordVisit(token);
+        await recordVisit(token, getPostHogSessionId());
       } catch (err) {
         console.error('[useRecordVisit] failed to record visit', err);
       }

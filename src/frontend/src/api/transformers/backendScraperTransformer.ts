@@ -31,6 +31,7 @@ export function transformBackendJob(raw: BackendJobListing, companyId: string): 
   return {
     id: raw.id,
     source: 'backend-scraper' as const,
+    sourceId: raw.sourceId,
     company: companyId,
     title: raw.title,
     location: raw.location || undefined,

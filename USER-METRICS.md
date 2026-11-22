@@ -24,7 +24,7 @@ A visit the same day or the next two days does not count toward 3-day+, so a sin
 | **Weeks returned** | Of weeks 1-8 after signup, how many had at least one visit | 0.98 weeks on average; 69% came back in no week, 6% in 6+ weeks |
 | **Comeback after a 2-week gap** | Of users who went 14+ days without a visit, the share who visited again afterwards | 19% (60 of 318) |
 | **Signup conversion** | `user_signed_up` ÷ `signup_funnel_landing` over 30 days | ~1.3% (5 of 382) |
-| **Apply clicks per session** | Click-throughs to a job's application page ÷ sessions | ~0.05 (rough; see below) |
+| **Apply clicks per session** | Click-throughs to a job's application page ÷ sessions, where a session is a distinct PostHog session id seen that week on a visit or an apply click | ~0.05 (rough; see below) |
 
 ## Notification quality (once alerts ship)
 
@@ -40,17 +40,18 @@ A visit the same day or the next two days does not count toward 3-day+, so a sin
 - A visit is one full page load by a signed-in user (`useRecordVisit` → `POST /api/users/visit`); in-app route changes do not count.
 - `user_visits` starts on 2026-06-24, so cohorts start with signups on 2026-06-25.
 - A cohort is reported only once it is 31+ days old (8+ weeks for weeks returned), so young cohorts never look worse than they are.
-- The owner's account and `nonadmin@nonadmin.com` are excluded.
+- Accounts with `users.is_internal = true` (the owner's) are excluded. The test account `nonadmin@nonadmin.com` is counted, so it can be used to test in prod.
+- The same definitions are live as views: `metrics.signup_retention`, `metrics.north_star_weekly`, `metrics.apply_clicks_weekly`.
 - **Signup conversion** is the "Conversion rate %" tile on the PostHog [Signup Conversion](https://us.posthog.com/project/483508/dashboard/1768649) dashboard.
-- **Apply clicks per session** is a rough estimate today: autocapture clicks on apply or ATS links (51) over sessions (1,128) in the last 30 days.
-  It needs a `job_apply_clicked` event, with the job's age at click time, to be exact.
+- **Apply clicks per session**: the ~0.05 baseline is a rough estimate from before click logging, autocapture clicks on apply or ATS links (51) over sessions (1,128) in the last 30 days.
+  It is now exact, for signed-in users only: each Apply press writes a `job_apply_clicks` row (with the job's age at click time) and a PostHog `job_apply_clicked` event, read by `metrics.apply_clicks_weekly`. There is no backfill.
 
 7-day+ return, per cohort:
 
 ```sql
 WITH u AS (
   SELECT id, created_at::timestamptz AS c FROM users
-  WHERE email NOT IN ('brendanpotter00@gmail.com', 'nonadmin@nonadmin.com')
+  WHERE NOT is_internal
     AND created_at::timestamptz >= '2026-06-25'
     AND created_at::timestamptz < now() - interval '31 days'
 )

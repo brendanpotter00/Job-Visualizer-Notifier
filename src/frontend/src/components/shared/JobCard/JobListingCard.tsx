@@ -9,6 +9,8 @@ import { CARD_HOVER_SX, CARD_VARIANT } from './jobCardStyles.ts';
 import { getCompanyById } from '../../../config/companies.ts';
 import { RESPONSIVE } from '../../../config/responsive';
 import { useIsMobile } from '../../../hooks/useIsMobile';
+import { useTrackApplyClick } from '../../../features/analytics/useTrackApplyClick';
+import type { ApplyClickSurface } from '../../../features/auth/authService';
 
 export interface JobCardLink {
   to: string;
@@ -18,6 +20,12 @@ export interface JobCardLink {
 interface JobListingCardProps {
   job: Job;
   cardLink?: JobCardLink;
+  /**
+   * Where the card is rendered, logged with each apply click (signed-in users
+   * only). Omit it only for a hidden, non-interactive copy (the landing page's
+   * height sizers), which then logs nothing.
+   */
+  surface?: ApplyClickSurface;
 }
 
 const RAISED_SX = { position: 'relative', zIndex: 2 } as const;
@@ -58,7 +66,7 @@ function locationAlreadySaysRemote(job: Job): boolean {
  * lookup: it is hand-curated per first-party company and a user-added board
  * never has one.
  */
-export function JobListingCard({ job, cardLink }: JobListingCardProps) {
+export function JobListingCard({ job, cardLink, surface }: JobListingCardProps) {
   // "Posted X ago" is keyed off `firstSeenAt` (when WE first saw the listing), so
   // the label matches the recency sort/time-window/enricher-claim ordering. Using
   // the ATS posted date (`createdAt` = postedOn || firstSeenAt) instead made the
@@ -68,11 +76,22 @@ export function JobListingCard({ job, cardLink }: JobListingCardProps) {
   const isMobile = useIsMobile();
   const recruiterLinkedInUrl = getCompanyById(job.company)?.recruiterLinkedInUrl;
 
+  const trackApplyClick = useTrackApplyClick(job, surface);
+
+  // A card without `cardLink` opens the posting when its body is clicked, which
+  // is the same click-through as Apply, so it is logged the same way.
   const openJob = () => {
     window.open(job.url, '_blank', 'noopener,noreferrer');
+    trackApplyClick();
   };
   const stop = (e: React.MouseEvent) => {
     e.stopPropagation();
+  };
+  // The anchor opens the posting natively; the log call runs alongside it and
+  // never calls preventDefault, so the new tab is not delayed.
+  const onApplyClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    trackApplyClick();
   };
 
   return (
@@ -152,7 +171,7 @@ export function JobListingCard({ job, cardLink }: JobListingCardProps) {
               href={job.url}
               target="_blank"
               rel="noopener noreferrer"
-              onClick={stop}
+              onClick={onApplyClick}
               variant="contained"
               size="small"
               sx={{
