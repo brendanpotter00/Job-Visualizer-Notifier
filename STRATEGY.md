@@ -25,9 +25,10 @@ The board never mass-applies, because flooding employers with applications makes
 
 ### Every claim on screen is true
 
-The date on a job is when this board first saw it, and that date is the source of truth.
-A company's own posted date is not shown in its place, because companies repost years-old jobs under fresh dates.
-A date is never synthesized and never refreshed by a repost.
+The date on a job is when the company posted it, taken from its own board when the board gives a real date, and otherwise when this board first saw it.
+A date is set once and never refreshed, so a job that closes and comes back keeps its original date.
+A date is never synthesized, and a bucket such as "30+ days ago" counts as no date.
+A board that recycles old listings shows its own old dates, and that is accepted rather than guessing which of its jobs are new.
 Fewer correct results beat a list that only looks complete.
 A listing the system cannot vouch for is hidden or closed out, not shown as live.
 Public copy says only what the product does today, so unverifiable claims, numbers that rot, and ambitions dressed as features do not ship.
