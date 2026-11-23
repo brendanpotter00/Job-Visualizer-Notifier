@@ -25,7 +25,11 @@ import { createTestStore } from '../../../test/testUtils';
 vi.mock('@mui/material/useMediaQuery');
 
 const { authState, TOKEN_GETTER } = vi.hoisted(() => ({
-  authState: { isAuthenticated: true, sub: 'auth0|brand-new' as string | undefined },
+  authState: {
+    isAuthenticated: true,
+    isLoading: false,
+    sub: 'auth0|brand-new' as string | undefined,
+  },
   TOKEN_GETTER: async () => 'token',
 }));
 
@@ -33,7 +37,7 @@ vi.mock('../../../features/auth/useAuth', () => ({
   useAuth: () => ({
     isEnabled: true,
     isAuthenticated: authState.isAuthenticated,
-    isLoading: false,
+    isLoading: authState.isLoading,
     user: authState.isAuthenticated ? { sub: authState.sub } : undefined,
     login: vi.fn(),
     logout: vi.fn(),
@@ -90,8 +94,8 @@ function installFetch() {
   });
 }
 
-function renderApp() {
-  return render(
+function app() {
+  return (
     <Provider store={createTestStore()}>
       <CurrentUserProvider>
         <MemoryRouter initialEntries={['/jobs']}>
@@ -104,6 +108,10 @@ function renderApp() {
       </CurrentUserProvider>
     </Provider>
   );
+}
+
+function renderApp() {
+  return render(app());
 }
 
 const page = () => screen.queryByRole('heading', { name: 'Recent Job Postings', hidden: true });
@@ -121,6 +129,7 @@ describe('RootLayout holds the page until the first-sign-in decision is in', () 
     vi.mocked(useMediaQuery).mockReturnValue(false);
     window.localStorage.clear();
     authState.isAuthenticated = true;
+    authState.isLoading = false;
     authState.sub = NEW_SUBJECT;
     pageMounts = [];
     fetchSpy = installFetch();
@@ -209,5 +218,39 @@ describe('RootLayout holds the page until the first-sign-in decision is in', () 
     renderApp();
 
     expect(screen.getByRole('heading', { name: 'Recent Job Postings' })).toBeInTheDocument();
+  });
+
+  it('a deep link while Auth0 restores a stored session is held until the answer, never painting the page first', async () => {
+    window.localStorage.setItem('@@auth0spajs@@::client::audience::openid', '{}');
+    authState.isAuthenticated = false;
+    authState.isLoading = true;
+    authState.sub = undefined;
+    const { rerender } = renderApp();
+    expect(page()).toBeNull();
+
+    authState.isAuthenticated = true;
+    authState.isLoading = false;
+    authState.sub = NEW_SUBJECT;
+    rerender(app());
+    expect(page()).toBeNull();
+
+    await answer(new Response(JSON.stringify(row(null)), { status: 200 }));
+
+    expect(await screen.findByRole('dialog', { hidden: true })).toBeInTheDocument();
+    expect(pageMounts.every((questionsWereOpen) => questionsWereOpen)).toBe(true);
+  });
+
+  it('signing in from a page already showing never swaps it for the loading screen', async () => {
+    authState.isAuthenticated = false;
+    authState.sub = undefined;
+    const { rerender } = renderApp();
+    expect(page()).toBeInTheDocument();
+
+    authState.isAuthenticated = true;
+    authState.sub = NEW_SUBJECT;
+    rerender(app());
+
+    expect(page()).toBeInTheDocument();
+    expect(pageMounts).toHaveLength(1);
   });
 });
