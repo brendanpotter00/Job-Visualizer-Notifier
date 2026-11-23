@@ -22,7 +22,8 @@ A prepare  (worker still running)  mirror, derive the ref, clone, ``uv sync``
 B park     claim the tick lock at idle, THEN ``launchctl unload``
 C copy     sqlite online backup + checks, untracked state, health equality
 D swap     roles, plist rewrite (the switch point), ``launchctl load``
-E verify   the first tick in the new prod closes ``ok`` and does the work
+E verify   the first tick in the new prod closes ``ok`` and does the work (a tick
+           its dead wrapper left ``running`` is skipped for the next one)
 F retire   markers, bundle, README banner, archive the old repo, text
 
 Any failure before the plist write restores the old prod exactly as found;
@@ -83,6 +84,9 @@ SWAPPED_MARKER = ".cutover-swapped"  # replaces OWNED_MARKER once prod runs here
 RETIRED_NOTE_HEADER = "# RETIRED checkout"
 
 TERMINAL_PHASES = ("DONE", "FAILED", "ROLLED_BACK")
+#: Phase E skips a first tick its dead wrapper left ``running`` (a reboot or a power
+#: loss mid-tick). This many in a row is the new prod's fault, not bad luck: roll back.
+MAX_ORPHANED_FIRST_TICKS = 3
 PRE_SWAP_PHASES = ("PENDING", "PREPARED", "PARKED", "COPIED")
 
 #: Untracked paths that are regenerated, never copied, into the new prod.
@@ -644,9 +648,10 @@ class Tick:
     claimed: int
     classified: int
     sent: int
+    started_at: str | None = None
 
 
-_TICK_SQL = "SELECT id, status, claimed, classified, sent FROM ticks"
+_TICK_SQL = "SELECT id, status, claimed, classified, sent, started_at FROM ticks"
 
 
 def first_tick_after(db: Path, after_id: int) -> Tick | None:
@@ -691,6 +696,37 @@ def recent_closed_ticks(db: Path, at_or_below: int, n: int = 3) -> list[Tick]:
     finally:
         conn.close()
     return [Tick(*r) for r in rows]
+
+
+def iso_epoch(text: str | None) -> float | None:
+    """``ticks.started_at`` (ISO 8601; a bare one is UTC) as an epoch, or None."""
+    if not text:
+        return None
+    try:
+        dt = datetime.fromisoformat(text.strip().replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.timestamp()
+
+
+def orphaned_because(db: Path, tick: Tick, boot: float | None) -> str | None:
+    """Why a tick that still says ``running`` can never close, or None.
+
+    The enricher is single flight: ``tick-acquire`` inserts a tick row only while
+    it holds ``data/.tick.lock``, and a live holder is never reclaimed. So a LATER
+    tick means this one's wrapper is gone, and a tick that started before the
+    current boot cannot have survived it. Nothing reaps such rows (the live DB
+    carries several from past power losses), so waiting on one would run into the
+    hard cap and roll a healthy cutover back."""
+    later = first_tick_after(db, tick.id)
+    if later is not None:
+        return f"tick #{later.id} started after it"
+    started = iso_epoch(tick.started_at)
+    if boot is not None and started is not None and started < boot:
+        return "it started before the current boot"
+    return None
 
 
 def judge_first_tick(tick: Tick, old_recent: list[Tick]) -> tuple[bool, str]:
@@ -1620,39 +1656,64 @@ def finish_swap(cfg: Config, st: State, launchd: Launchd) -> None:
 
 
 # --------------------------------------------------------------------------- phase E
+def _wait_tick_start(cfg: Config, clock: "park_worker.WallClock", db: Path, after_id: int,
+                     since: str) -> Tick:
+    start_dl = park_worker.Deadline(clock, cfg.first_tick_start_s)
+    tick = first_tick_after(db, after_id)
+    while tick is None:
+        if start_dl.expired():
+            raise VerifyFailure(f"no tick started in the new prod within "
+                                f"{cfg.first_tick_start_s:.0f}s of {since}")
+        clock.sleep()
+        tick = first_tick_after(db, after_id)
+    return tick
+
+
 def phase_e(cfg: Config, st: State, launchd: Launchd) -> None:
     log("E: verify the first tick in the new prod")
     db = cfg.new_enricher / "data" / "enricher.db"
     copied_max = int(st.data["copied_max_tick_id"] or 0)
     clock = park_worker.WallClock(cfg.poll_s, log=log)
-    start_dl = park_worker.Deadline(clock, cfg.first_tick_start_s)
-    tick = first_tick_after(db, copied_max)
-    while tick is None:
-        if start_dl.expired():
-            raise VerifyFailure(f"no tick started in the new prod within "
-                                f"{cfg.first_tick_start_s:.0f}s of the swap")
-        clock.sleep()
-        tick = first_tick_after(db, copied_max)
-    if st.data.get("first_tick_id") != tick.id:
-        st.data["first_tick_id"] = tick.id
-        st.event(f"first tick #{tick.id} started")
-        st.save()
-    log(f"E: first tick #{tick.id} is {tick.status}")
-    close_dl = park_worker.Deadline(clock, cfg.first_tick_close_s)
     hard_dl = park_worker.Deadline(clock, cfg.first_tick_hard_cap_s)
-    while tick.status == "running":
-        if close_dl.expired():
-            if hard_dl.expired():
-                raise VerifyFailure(f"first tick #{tick.id} still running after the "
-                                    f"{cfg.first_tick_hard_cap_s:.0f}s hard cap")
-            idle = time.time() - db_mtime(db)
-            if idle > cfg.progress_window_s:
-                raise VerifyFailure(f"first tick #{tick.id} stalled: no DB write for {idle:.0f}s")
-            close_dl.extend(cfg.progress_window_s)
-            log(f"E: tick #{tick.id} still progressing (last DB write {idle:.0f}s ago); "
-                f"extending by {cfg.progress_window_s:.0f}s")
-        clock.sleep()
-        tick = read_tick(db, tick.id) or tick
+    boot = park_worker.boot_epoch()
+    orphaned = [int(i) for i in st.data.get("orphaned_first_ticks") or []]
+    while True:
+        since = f"orphaned tick #{orphaned[-1]}" if orphaned else "the swap"
+        tick = _wait_tick_start(cfg, clock, db, max([copied_max, *orphaned]), since)
+        if st.data.get("first_tick_id") != tick.id:
+            st.data["first_tick_id"] = tick.id
+            st.event(f"first tick #{tick.id} started")
+            st.save()
+        log(f"E: first tick #{tick.id} is {tick.status}")
+        close_dl = park_worker.Deadline(clock, cfg.first_tick_close_s)
+        why_orphaned = None
+        while tick.status == "running":
+            why_orphaned = orphaned_because(db, tick, boot)
+            if why_orphaned:
+                break
+            if close_dl.expired():
+                if hard_dl.expired():
+                    raise VerifyFailure(f"first tick #{tick.id} still running after the "
+                                        f"{cfg.first_tick_hard_cap_s:.0f}s hard cap")
+                idle = time.time() - db_mtime(db)
+                if idle > cfg.progress_window_s:
+                    raise VerifyFailure(f"first tick #{tick.id} stalled: no DB write for {idle:.0f}s")
+                close_dl.extend(cfg.progress_window_s)
+                log(f"E: tick #{tick.id} still progressing (last DB write {idle:.0f}s ago); "
+                    f"extending by {cfg.progress_window_s:.0f}s")
+            clock.sleep()
+            tick = read_tick(db, tick.id) or tick
+        if why_orphaned is None:
+            break
+        orphaned.append(tick.id)
+        st.data["orphaned_first_ticks"] = orphaned
+        st.event(f"first tick #{tick.id} orphaned ({why_orphaned}); judging the next one")
+        st.save()
+        log(f"E: tick #{tick.id} can never close ({why_orphaned}: its wrapper is gone); "
+            "judging the next tick instead")
+        if len(orphaned) >= MAX_ORPHANED_FIRST_TICKS:
+            raise VerifyFailure(f"{len(orphaned)} ticks in a row were left running by a dead "
+                                f"wrapper in the new prod: {orphaned}")
     ok, why = judge_first_tick(tick, recent_closed_ticks(
         cfg.old_prod / "data" / "enricher.db", copied_max))
     log(f"E: {why}")

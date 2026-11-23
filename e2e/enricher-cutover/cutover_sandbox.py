@@ -538,6 +538,35 @@ class Sandbox:
                           "stdout": cp.stdout, "stderr": cp.stderr})
         return cp
 
+    def start_cutover(self, *args: str, env_extra: dict[str, str] | None = None,
+                      label: str = "") -> dict[str, Any]:
+        """``run_cutover`` in the background (output to files, so a long run never
+        blocks on a full pipe). Pair it with ``finish_cutover``."""
+        env = {**self.env, **(env_extra or {})}
+        n = len(list(self.root.glob("cutover-bg-*.out")))
+        out, err = self.root / f"cutover-bg-{n}.out", self.root / f"cutover-bg-{n}.err"
+        with open(out, "wb") as so, open(err, "wb") as se:
+            proc = subprocess.Popen(["/bin/sh", str(self.cutover_sh()), *args], env=env,
+                                    stdout=so, stderr=se, stdin=subprocess.DEVNULL,
+                                    cwd=str(self.tmp))
+        return {"proc": proc, "out": out, "err": err, "t0": time.time(),
+                "what": f"cutover.sh {' '.join(args)} (background)", "label": label}
+
+    def finish_cutover(self, bg: dict[str, Any], timeout: float = 300) -> subprocess.CompletedProcess[str]:
+        """Wait for a ``start_cutover`` run (SIGKILL it after ``timeout``) and record it."""
+        proc = bg["proc"]
+        try:
+            rc = proc.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            rc = proc.wait()
+        stdout = bg["out"].read_text(encoding="utf-8", errors="replace")
+        stderr = bg["err"].read_text(encoding="utf-8", errors="replace")
+        self.runs.append({"what": bg["what"], "label": bg["label"], "rc": rc,
+                          "seconds": round(time.time() - bg["t0"], 1),
+                          "stdout": stdout, "stderr": stderr})
+        return subprocess.CompletedProcess(proc.args, rc, stdout, stderr)
+
     def install_watcher_copy(self) -> Path:
         """What install_watcher.sh does to the script: a copy in the state dir."""
         self.state_dir.mkdir(parents=True, exist_ok=True)
