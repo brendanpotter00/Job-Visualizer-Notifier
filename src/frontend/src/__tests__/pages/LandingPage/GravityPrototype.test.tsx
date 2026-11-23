@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach, beforeAll } from 'vitest';
 import { screen, within } from '@testing-library/react';
 import { createTestStore, renderWithProviders } from '../../../test/testUtils';
 import { GravityPrototype } from '../../../pages/LandingPage/prototypes/GravityPrototype/GravityPrototype';
@@ -81,6 +81,12 @@ function buttonLinks(name: string) {
     .getAllByRole('link', { name })
     .filter((el) => el.classList.contains('MuiButton-root'));
 }
+
+// Warm the lazy scene chunk once: otherwise the first test to mount it pays the
+// cold dynamic import inside findByTestId's 1 s window, which flakes on busy CI.
+beforeAll(async () => {
+  await import('../../../pages/LandingPage/prototypes/GravityPrototype/GravityScene');
+});
 
 afterEach(() => {
   Reflect.deleteProperty(window.navigator, 'hardwareConcurrency');
