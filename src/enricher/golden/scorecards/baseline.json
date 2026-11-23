@@ -1,0 +1,21 @@
+{
+  "category_accuracy": 0.7778,
+  "category_f1_macro": 0.679,
+  "level_exact_accuracy": 0.7897,
+  "level_filter_consistent_accuracy": 0.8214,
+  "tags_f1": 0.2159,
+  "tags_precision": 0.15,
+  "tags_recall_micro": 0.3852,
+  "tags_jaccard": 0.1336,
+  "tags_overlap": 0.4321,
+  "tags_recall": 0.4319,
+  "tags_token_f1": 0.289,
+  "tags_token_precision": 0.1954,
+  "tags_token_recall": 0.5545,
+  "location_primary_accuracy": 1.0,
+  "clean_residual_html": 0,
+  "calibration_error_rate_below": 0.4937,
+  "calibration_error_rate_above": 0.1702,
+  "judge_kappa_prejudge": 0.0319,
+  "n": 252
+}

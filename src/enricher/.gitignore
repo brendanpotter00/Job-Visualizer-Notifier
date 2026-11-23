@@ -1,0 +1,20 @@
+.venv/
+data/*.db
+data/*.db-*
+data/.tick.lock
+data/chunks/
+.env.local
+.checkout-role
+__pycache__/
+*.pyc
+.pytest_cache/
+.coverage
+golden/scorecards/predictions*.json
+golden/scorecards/scorecard*.json
+
+# dashboard (Vite/React) build artifacts + deps — never commit
+dashboard/node_modules/
+dashboard/dist/
+dashboard/coverage/
+dashboard/.vite/
+node_modules/

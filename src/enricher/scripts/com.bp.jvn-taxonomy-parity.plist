@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  ENR-PAR-2 (b) — daily cross-repo taxonomy parity watchdog.
+
+  Mirrors the existing com.bp.jvn-health-watch precedent (daily, texts on
+  divergence). NOT INSTALLED BY THIS PR — copy it into ~/Library/LaunchAgents/,
+  substitute REPO_ROOT_PLACEHOLDER and JVN_BASE_URL_PLACEHOLDER, then
+  `launchctl bootstrap gui/$UID <plist>`.
+
+  Two EXPECTED-RED WINDOWS are documented in
+  docs/RUNBOOK-subcategory-backfill.md; run with ALLOW_EMPTY_SUBCATEGORIES=1
+  until SCHEMA-7 has seeded the 15 rows, or this is red for the whole of Phase 1.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.bp.jvn-taxonomy-parity</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>REPO_ROOT_PLACEHOLDER/scripts/check_taxonomy_parity.sh</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>REPO_ROOT_PLACEHOLDER</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PARITY_CHECK</key>
+        <string>1</string>
+        <key>JVN_BASE_URL</key>
+        <string>JVN_BASE_URL_PLACEHOLDER</string>
+        <key>ALLOW_EMPTY_SUBCATEGORIES</key>
+        <string>1</string>
+    </dict>
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>9</integer>
+        <key>Minute</key>
+        <integer>15</integer>
+    </dict>
+    <key>StandardOutPath</key>
+    <string>REPO_ROOT_PLACEHOLDER/../../Library/Logs/jvn-taxonomy-parity.out</string>
+    <key>StandardErrorPath</key>
+    <string>REPO_ROOT_PLACEHOLDER/../../Library/Logs/jvn-taxonomy-parity.err</string>
+    <key>RunAtLoad</key>
+    <false/>
+</dict>
+</plist>
