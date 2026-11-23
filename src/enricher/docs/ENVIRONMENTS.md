@@ -22,8 +22,8 @@ into production within one tick.
 `~/developer/personal/app` (the pre-monorepo prod clone of the old `job-enricher` repo — it
 stays as the rollback artifact) and `~/developer/personal/job-enricher` (the old dev clone).
 
-> Until the post-merge cutover has run, prod is still `~/developer/personal/app`. The truth
-> is the plist: `/usr/libexec/PlistBuddy -c 'Print :WorkingDirectory'
+> Until the post-merge cutover has run (below), prod is still `~/developer/personal/app`.
+> The truth is always the plist: `/usr/libexec/PlistBuddy -c 'Print :WorkingDirectory'
 > ~/Library/LaunchAgents/com.bp.job-enricher.plist`.
 
 ## How to tell which one you're in
@@ -78,20 +78,31 @@ write back **real production jobs to real JVN**. Keep dev harmless:
 
 ## Deploy (dev → prod)
 
-Develop in dev on a branch → PR → merge to `main` → deploy pulls `main` into prod. The deploy
-is a controlled swap between ticks (`scripts/deploy.sh`, run **from the prod checkout**):
+**Merging to JVN `main` deploys nothing to the enricher.** Prod is a JVN clone detached at
+the deployed commit, and it moves only when you run `scripts/deploy.sh <ref>` against it:
 
 ```bash
-cd ~/developer/personal/app
-scripts/deploy.sh            # fast-forward the current branch (main)
-scripts/deploy.sh v1.2.0     # or check out an exact tag/branch/sha
+cd ~/developer/personal/enricher-prod/src/enricher
+scripts/deploy.sh <tag|sha|branch>   # a branch name deploys origin's copy, detached
 ```
 
-The script: refuses unless `.checkout-role == prod`; pauses the launchd worker
-(`launchctl unload`); aborts if a tick is mid-flight or the tree has uncommitted tracked
-changes; `git fetch` + fast-forward/checkout; `uv sync`; reloads the worker; runs
-`cli health`. The single-flight lock is a second guard — a tick that starts during a checkout
-exits 75 ("lock held") rather than reading a half-updated tree.
+The no-arg form ("fast-forward the current branch") is refused on prod's detached HEAD.
+In order, the script:
+
+1. refuses unless `.checkout-role` is `prod`;
+2. **parks the worker between ticks**: waits (wall clock, up to `DEPLOY_PARK_BUDGET_S`,
+   default 4 h) for the running tick to end, then holds `data/.tick.lock` with its own pid
+   (`scripts/lib/park_worker.py`, shared with the cutover). Every launchd fire from then on
+   exits 75 ("lock held"). Ticks run back to back with a ~60 s gap, so it never unloads
+   mid-tick — `launchctl unload` SIGTERMs a running tick;
+3. `launchctl unload`, then re-checks that the label is gone and the lock is its own;
+4. aborts on tracked changes; `git fetch --tags origin`; `git checkout --detach <ref>`;
+5. `uv sync --frozen` (never re-resolves in prod);
+6. `cli health`, with the worker still parked;
+7. on **every** exit: releases the lock (only if it holds its pid) and reloads the worker.
+
+`DEPLOY_PROJECT_DIR=<prod src/enricher>` runs a deploy.sh from somewhere else against prod
+(the first deploy of `main` needs it; see below).
 
 > ⚠ **Schema migrations run inside step 6's `cli health`, with the worker PARKED.**
 > `cli health` opens the DB, which runs `init_schema()`, which runs the migration
@@ -114,18 +125,95 @@ exits 75 ("lock held") rather than reading a half-updated tree.
 > unless the matching engine is `claude-code`. To make prod follow the newly-deployed default,
 > `cli reset-knob <meta:key>` clears the override (or `set-<knob>` sets it explicitly).
 
-**Rollback:**
+**Rollback (code only):**
 ```bash
-cd ~/developer/personal/app
+cd ~/developer/personal/enricher-prod/src/enricher
 scripts/deploy.sh <previous-tag-or-sha>
 ```
+For a deploy that migrated the schema, restore the `.backup` DB first (next section).
+
+## Deploying `main` for the first time (PRs #18–#20 — a separate decision)
+
+The cutover put prod on `enricher-prod-eeff1c9`, the code `app/` ran. JVN `main` also
+carries job-enricher #18 (v7 taxonomy + the **one-way** store v4 migration + a changed
+classify prompt), #19 (evals) and #20 (backfill), merged in the old repo but never deployed.
+Deploying them is its own decision. When you make it:
+
+1. Read what changes: `git -C ~/developer/personal/enricher-prod log --oneline
+   enricher-prod-eeff1c9..origin/main -- src/enricher` (after a `fetch`).
+2. Rehearse the v4 migration on an online-backup copy:
+   `scripts/rehearse_v4_migration.sh` (its default `LIVE` is the new prod DB). Split the
+   migration if it takes more than 30 s.
+3. Keep a rollback copy: `sqlite3 ~/developer/personal/enricher-prod/src/enricher/data/enricher.db
+   ".backup '$HOME/enricher-pre-v4.db'"` right before step 4. Rows a tick enriches between
+   the backup and the deploy are already in JVN; a restore only forgets them locally.
+4. Deploy with **main's** script — the tag's own `deploy.sh` predates the park helper — by
+   extracting main's whole `scripts/` dir and pointing it at prod:
+   ```bash
+   P=~/developer/personal/enricher-prod
+   git -C "$P" fetch --tags origin
+   D="$(mktemp -d)" && git -C "$P" archive origin/main src/enricher/scripts | tar -x -C "$D"
+   DEPLOY_PROJECT_DIR="$P/src/enricher" sh "$D/src/enricher/scripts/deploy.sh" "$(git -C "$P" rev-parse origin/main)"
+   ```
+5. Verify: the deploy's `cli health` shows the same engines as before; watch one tick close
+   `ok` in `~/Library/Logs/job-enricher.log`.
+
+**Rolling it back** needs the DB AND the code, in that order, with the worker parked:
+
+```bash
+P=~/developer/personal/enricher-prod/src/enricher; cd "$P"
+.venv/bin/python -I scripts/lib/park_worker.py claim --lock data/.tick.lock \
+  --wrapper "$P/scripts/enrich_tick_wrapper.sh" --budget-s 14400 --owner-pid $$
+launchctl unload ~/Library/LaunchAgents/com.bp.job-enricher.plist
+mkdir -p data/pre-restore && mv data/enricher.db data/enricher.db-wal data/enricher.db-shm data/pre-restore/ 2>/dev/null
+cp "$HOME/enricher-pre-v4.db" data/enricher.db          # the .backup file is not live: cp is fine
+.venv/bin/python -I scripts/lib/park_worker.py release --lock data/.tick.lock --owner-pid $$
+scripts/deploy.sh enricher-prod-eeff1c9                  # main's deploy.sh now; it reloads the worker
+```
+
+(`$$` is your shell's pid: the lock stays "live" while that shell is open. The worker is
+unloaded between the release and the deploy, so nothing runs in that gap.)
+
+After the first `main` deploy, prod's own `scripts/deploy.sh` is main's and the extract step
+is no longer needed.
+
+## The cutover from `app/` (one time, automated)
+
+Until the consolidation PR merged, prod was `~/developer/personal/app`, a clone of the old
+`job-enricher` repo. The launchd agent `com.bp.jvn-enricher-cutover` watches JVN `main` and,
+once the PR is merged, runs `scripts/cutover/cutover.sh --run` **from merged `main`**. It:
+
+1. clones `enricher-prod` at the JVN commit whose `src/enricher` tree equals `app/`'s tree
+   (tag `enricher-prod-eeff1c9`) and runs `uv sync --frozen` with `app/`'s interpreter;
+2. parks `app/`'s worker between ticks, exactly as `deploy.sh` does;
+3. copies `data/enricher.db` with the SQLite online-backup API (counts, `meta`, max tick,
+   integrity all checked), `.env.local` and the other untracked files (sha256-checked), and
+   compares `cli health` in both;
+4. rewrites the plist (two path changes) and loads it, then waits for the first tick in
+   `enricher-prod` to close `ok` and do the work;
+5. marks `app/` and `job-enricher/` `retired`, pushes a "moved" banner to the old repo,
+   archives it, and texts Brendan.
+
+So the cutover changes **where** prod's code lives, not **what** runs. Any failure before
+the plist write leaves `app/` as found; any failure after it rolls back to `app/` (the new
+DB is copied back if it did work). Modes, states, knobs and the re-arm steps:
+`scripts/cutover/README.md`.
+
+**Back to `app/` by hand** (only if needed after the cutover said `DONE`): park and unload
+`enricher-prod` as in the rollback above; copy its DB into `app/` with
+`sqlite3 … ".backup '…/app/data/enricher.db.rollback-tmp'"` and swap it in (keep the old
+one); restore the saved plist from
+`~/Library/Application Support/jvn-enricher-cutover/com.bp.job-enricher.plist.orig`; set
+`app/.checkout-role` back to `prod` and `enricher-prod/src/enricher/.checkout-role` to
+`retired`; `launchctl load` the plist.
 
 ## How prod runs
 
 - **launchd agent** `~/Library/LaunchAgents/com.bp.job-enricher.plist` — `StartInterval=60`,
-  `WorkingDirectory` + `ProgramArguments` point at the prod checkout; regenerate it by running
-  `scripts/install_launchagents.sh` **from the prod checkout** (it derives the path from its
-  own location — no hardcoded path).
+  `WorkingDirectory` + `ProgramArguments` point at the prod checkout
+  (`~/developer/personal/enricher-prod/src/enricher` once the cutover is done). Regenerate it
+  with `scripts/install_launchagents.sh` **run from the prod checkout** (it derives the path
+  from its own location — no hardcoded path).
 - **Wrapper** `scripts/enrich_tick_wrapper.sh` — acquires the lock, pre-runs `pull`+`clean`,
   then runs the in-process `classify-run`/`judge-run` pipeline for the local engines (prod:
   `ollama`, no `claude` call) or hands off to `claude -p /enrich-tick-once` for `claude-code`;
@@ -150,26 +238,26 @@ travels via git or deploy), and serves on `127.0.0.1:8788`. `cli dashboard` refu
 stale scratch worktree can't quietly keep serving an old build. Never run it from the prod
 checkout, and never place it behind the Cloudflare tunnel.
 
-## First-time prod setup (how `app/` was created)
+## Rebuilding prod from scratch
 
-Recorded so prod can be rebuilt. Run with the worker paused; keep the source DB intact until
-prod is verified so rollback is just re-pointing launchd back.
+`enricher-prod` is made by the cutover. To rebuild it by hand (worker parked, the source DB
+kept until the new prod is verified):
 
-1. `launchctl unload ~/Library/LaunchAgents/com.bp.job-enricher.plist` (confirm no tick running).
-2. `git clone https://github.com/brendanpotter00/job-enricher.git ~/developer/personal/app`
-   then check out the production commit; `cd ~/developer/personal/app && uv sync`.
-3. Copy authoritative state into prod: `data/enricher.db` (+ loose `data/` files) and
-   `.env.local` from the old checkout → `app/`. Write `echo prod > app/.checkout-role`.
-4. `cd ~/developer/personal/app && scripts/install_launchagents.sh` (regenerates the plist
-   pointing at `app`), which loads the worker.
-5. Verify prod green (below). Only then convert `~/developer/personal/job-enricher` to dev:
-   reset its `data/` to a fresh `cli init`, point `.env.local` at local/staging (or remove it),
-   `echo dev > .checkout-role`, and `git worktree prune`.
+1. Park the current prod (`scripts/lib/park_worker.py claim …`, then `launchctl unload`).
+2. `git clone https://github.com/brendanpotter00/Job-Visualizer-Notifier.git
+   ~/developer/personal/enricher-prod && git -C ~/developer/personal/enricher-prod checkout
+   --detach <ref>`; `cd ~/developer/personal/enricher-prod/src/enricher && uv sync --frozen`.
+3. Copy authoritative state in: `data/enricher.db` with `sqlite3 ".backup"` (never `cp`),
+   `.env.local` (keep its mode), any loose `data/` logs. `echo prod > .checkout-role`.
+4. `scripts/install_launchagents.sh` **from that checkout** (rewrites the plist to point
+   there) loads the worker.
+5. Verify (below) before deleting anything from the old location.
 
 ## Verification
 
-- **Prod:** `cd ~/developer/personal/app && uv run python -m job_enricher.cli health` (job
-  counts match pre-migration); `cat .checkout-role` = `prod`; watch one interval of
+- **Prod:** `cd "$(/usr/libexec/PlistBuddy -c 'Print :WorkingDirectory'
+  ~/Library/LaunchAgents/com.bp.job-enricher.plist)"`; `cat .checkout-role` = `prod`;
+  `uv run python -m job_enricher.cli health` (engines as expected); watch one interval of
   `~/Library/Logs/job-enricher.log` for a clean tick + `metrics-push`.
 - **Dev:** `cd ~/developer/personal/Job-Visualizer-Notifier/src/enricher`; `cat .checkout-role` = `dev` (or absent);
   `uv run pytest` passes; a `cli pull` does **not** reach real JVN.

@@ -28,7 +28,7 @@ One PR. Five sequential units (§9). Each leaves the branch green.
 
 | Fact | Evidence |
 |---|---|
-| Prod DB is **`journal_mode=delete`, not WAL**, `user_version=3`, ~636 MB | `sqlite3 "file:…/app/data/enricher.db?immutable=1" "PRAGMA journal_mode; PRAGMA user_version"` → `delete`, `3` |
+| Prod DB is `user_version=3`, ~636 MB, and **WAL** while in use *(Unit 3 correction: `-wal`/`-shm` sit next to it during a tick and vanish when the last connection closes; the planning probe's `immutable=1` open always reports `delete`)* | `ls app/data` mid-tick; `init_schema` sets `journal_mode=WAL` on every CLI start |
 | `sqlite3 -readonly` on the live DB fails with `CANTOPEN (14)` from an agent shell | same probe; use `?mode=ro` URIs, fall back to `?immutable=1` (may read a torn page; informational only) |
 | Ticks run back-to-back, ~2 h 15 m each; the idle gap between ticks is **~60 s** | ticks 2213→2215 (`ended_at` 02:15:56, next `started_at` 02:16:58) |
 | Prod engine = committed default `ollama` / `qwen3:32b` (no `classify:engine` override in `meta`) | `meta` rows; `enrich_config.py` at the tag |
@@ -509,6 +509,62 @@ print the next steps. `--dry-run` prints without doing.
 
 ---
 
+### 4.10 As built (Unit 3, 2026-11-23)
+
+Code: `src/enricher/scripts/cutover/` + `scripts/lib/park_worker.py`; runbook
+`scripts/cutover/README.md`. Unit tests: `tests/test_cutover_{ref,plist,untracked,health_normalize,clock,resume}.py`,
+`tests/test_park_worker.py`, `tests/test_deploy_script.py` (now also sandboxed behaviour).
+A scratch sandbox (fake HOME, stub launchctl that really fires the wrapper, the real tag tree)
+ran: happy path → `DONE`; first tick never starts → `ROLLED_BACK`, no copy-back; first tick
+"stalls" → `ROLLED_BACK` **with** DB copy-back; wedged tick → exit 10 + one text → redo →
+orphan reclaim → `DONE`; phase-C health failure → `FAILED`, `app/` reloaded as found.
+Unit 4 turns these into the `enricher-cutover` section. Decisions and corrections:
+
+- **No `<new prod>/CLAUDE.local.md`** (resolves the Unit 1 flag): an ancestor
+  `CLAUDE.local.md` would be injected into every `claude-code`-engine prompt. The new prod
+  gets a root `.checkout-role=prod` instead (plus `src/enricher/.checkout-role`).
+- The clone is `mkdir` + `.cutover-owned` **first**, then `git init`/`fetch`/`checkout
+  --detach` (not `git clone --no-checkout`), so a crash mid-clone leaves a deletable dir.
+  Markers go in the clone's `.git/info/exclude` (the tag tree has no root `.gitignore`), so
+  `status --porcelain` stays clean.
+- History walk = every commit (`git rev-list --all`, one batched `cat-file`), not a
+  path-limited walk that history simplification could prune.
+- `--run` itself defers (exit 10) unless the mirror's `main` holds `cutover.py` — belt and
+  braces against a manual run before the merge.
+- B also waits for the finishing wrapper **before** the unload (launchd SIGTERMs a running
+  job, which would cut the previous tick's final `metrics-push`), not only after.
+- `park_worker.py` ignores orphaned watchdog subshells (ppid 1, only a `sleep` child):
+  found in the sandbox — a wrapper killed mid-tick leaves one carrying the wrapper's command
+  line for up to 3 h, which would otherwise read as "a wrapper is running".
+- Old prod's `cli health` runs `uv run --frozen --no-sync` (never touches `app/.venv`); the
+  new prod's runs plain `uv run` like the wrapper, then must leave no tracked change.
+- `copy_sha256`/`old_db_sha256` are taken at the END of C (after both health runs).
+- "Progressing" in E = the new DB file (or its `-wal`) written within
+  `CUTOVER_PROGRESS_WINDOW_S`. Sleep credit = wall − monotonic (Darwin's
+  `mach_absolute_time` stops in sleep) once a gap exceeds `max(60, 6×poll)`, so a slow
+  subprocess is not credited.
+- Extra phases: `SWAPPING` (written before the plist write) and `ROLLING_BACK` (a rollback
+  that cannot finish texts `ROLLBACK_STUCK` once and retries every fire; not terminal).
+  Extra texts: `DEFERRED:repeated` (24 deferrals), `UNPARK_FAILED`. A refused half-built new
+  prod is marked `.checkout-role=failed-cutover`.
+- Extra knobs: `CUTOVER_LOCK_POLL_S` (1), `CUTOVER_WRAPPER_EXIT_S` (120),
+  `CUTOVER_ROLLBACK_PARK_BUDGET_S` (1800), `CUTOVER_PROGRESS_WINDOW_S` (1800),
+  `CUTOVER_DEFER_ALERT_AFTER` (24), `CUTOVER_{NET,UV,HEALTH}_TIMEOUT_S`,
+  `CUTOVER_OLD_REPO_SLUG`, `CUTOVER_{GIT,PLUTIL,LSOF}_BIN`, `CUTOVER_LAUNCHD_DOMAIN`,
+  `CUTOVER_PYTHON` (cutover.sh); watcher/installer: `CUTOVER_WATCHER_PLIST`,
+  `CUTOVER_WATCHER_NET_TIMEOUT_S`, `CUTOVER_LAUNCHAGENTS_DIR`.
+- `cutover.lock` and `watcher.lock` are reclaimed when their dir predates the current boot
+  (a reused pid after a reboot must not block forever).
+- `install_watcher.sh`: refuses after `DONE`; refuses a terminal `FAILED`/`ROLLED_BACK`
+  unless `--rearm` (which archives `state.json`); refuses a new-prod dir without
+  `.cutover-owned`; `--dry-run` lints the render via stdin and writes nothing.
+- `--preflight` on the real machine (2026-11-23, mid-tick): exit 0, ref
+  `enricher-prod-eeff1c9` → `3ea04981`, tree `471165a3`; a sha256 manifest of `app/` (minus
+  the live DB, lock and chunks), both plists and the state dir showed **0 changes**. Its
+  only warning: the tag is not on the remote yet (the orchestrator pushes it).
+
+---
+
 ## 5. Sandboxed test of the cutover + watcher — section `enricher-cutover` (Unit 4)
 
 `e2e/enricher-cutover/` (`PLAN.md`, `CASES.md`, `run.sh`, `api/`, `fixtures/`), a skill
@@ -585,6 +641,12 @@ Unit 3 makes main's tooling ready and documents the runbook in `docs/ENVIRONMENT
   migration on an online-backup copy (`scripts/rehearse_v4_migration.sh`, new default path);
   split it if > 30 s; then
   `git -C ~/developer/personal/enricher-prod fetch origin && git -C … show origin/main:src/enricher/scripts/deploy.sh > "$TMPDIR/deploy.sh" && DEPLOY_PROJECT_DIR=~/developer/personal/enricher-prod/src/enricher sh "$TMPDIR/deploy.sh" <main-sha>`.
+  *(As built: main's `deploy.sh` needs `lib/park_worker.py` next to it, so the runbook in
+  `docs/ENVIRONMENTS.md` extracts the whole dir — `git archive origin/main
+  src/enricher/scripts | tar -x -C "$D"` — and runs `$D/src/enricher/scripts/deploy.sh`.
+  deploy.sh also resolves a branch name to origin's copy and always checks out detached;
+  it reloads the worker only once the unload was issued, so a park timeout leaves launchd
+  untouched.)*
   Rollback = restore the backup DB **and** `deploy.sh <previous ref>` (a git rollback alone
   does not undo `user_version`). After that first deploy the checkout's own `deploy.sh` is main's.
 - `install_launchagents.sh` already derives its path (→ `…/src/enricher`); no change.
