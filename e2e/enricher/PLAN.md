@@ -119,7 +119,7 @@ Measured 2026-11-23, and the same in every local `jobscraper*` database:
 | `job_categories.data_scientist` | `0fa33aca5bda` | a correct data-science label FK-fails |
 | `job_levels.intern` | `0b61e444ea25` | a correct intern label FK-fails |
 
-`seed.repair_known_drift()` (run by `run.sh` after the stack is up) adds the two columns as
+`seed.repair_known_drift()` (run by `run.sh` before the backend boots) adds the two columns as
 the migration declares them (nullable `text`, no default) and upserts both dimension tables
 from `src/backend/taxonomy.json` — JVN's **generated** taxonomy artifact, read, never
 re-typed. Idempotent, printed (`artifacts/<run>/drift-repair.txt`), and section-local on
@@ -132,10 +132,15 @@ pre-existing base schema: `relation "users" does not exist`).
 that creates a job listing). Two writes reach beyond those rows, both in this section's own
 database and both documented in `seed.py`: `enrichment_ticks` is cleared per case (only this
 section ever pushes metrics here), and **every company except the fixture company is
-disabled** — the schema-only clone arrives with enabled ashby companies, and the backend's
-`*/30` fan-outs would otherwise scrape real boards into this database, rows the enricher
-would then claim. `assert_no_foreign_claimable_rows` fails loudly if a fan-out got there
-first.
+disabled** — the schema-only clone arrives with enabled ashby/greenhouse companies, and the
+backend's `*/30` fan-outs would otherwise scrape real boards into this database, rows the
+enricher would then claim. `seed.py --repair` does this **before the backend boots**, and
+every reseed repeats it: Procrastinate's deferrer runs a fan-out it missed in the last 10
+minutes as soon as the worker starts, so on a fresh clone booted at hh:00–hh:10 or
+hh:30–hh:40 a disable that waited for the first case came too late (found 2026-11-23: 2,403
+foreign rows after `--refresh-db`, 14 of 16 cases red). `env.enricher` also blanks
+`SCRAPER_COMPANIES`, so the backend's auto-scraper never starts the script scrapers.
+`assert_no_foreign_claimable_rows` fails loudly if a fan-out got there first.
 
 ---
 

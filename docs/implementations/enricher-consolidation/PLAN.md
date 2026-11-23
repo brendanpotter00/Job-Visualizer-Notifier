@@ -224,8 +224,10 @@ sandbox path. That assertion is the isolation proof; the run refuses if it fails
 (the local source DB is stamped past migrations it never ran), which makes EVERY `/results`
 item fail. `e2e/enricher/seed.py` repairs the section's own DB idempotently from
 `src/backend/taxonomy.json` + the migration's column definition; `ensure_db.sh` is unchanged.
-It also disables every non-fixture company so the backend's `*/30` fan-outs cannot scrape real
-boards into the DB the enricher claims from. Details: `e2e/enricher/PLAN.md` §4.
+It also disables every non-fixture company, before the backend boots, so the backend's `*/30`
+fan-outs cannot scrape real boards into the DB the enricher claims from (verification pass:
+done only after boot, a fresh clone booted at hh:00–hh:10 or hh:30–hh:40 went 14/16 red).
+Details: `e2e/enricher/PLAN.md` §4.
 
 **`--enricher-ref <ref>`** runs the same cases against another version — notably
 `enricher-prod-eeff1c9`, the code the cutover will put in prod. Cases that need v7-only

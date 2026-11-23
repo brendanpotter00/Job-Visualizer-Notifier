@@ -18,13 +18,15 @@ database and both on purpose:
   enricher ever pushes metrics into this database, so every row there is one of
   ours from an earlier case — and EN-03 asserts the tick table holds exactly the
   one tick its case ran.
-* Every company except the fixture company is DISABLED. The schema-only clone
-  arrives with a handful of enabled ashby/script companies seeded by
+* Every company except the fixture company is DISABLED, by ``--repair`` BEFORE
+  the backend boots and again on every reseed. The schema-only clone arrives
+  with a handful of enabled ashby/greenhouse/script companies seeded by
   migrations, and the backend's periodic fan-outs (``*/30``) would scrape their
   real boards into this database — rows the enricher would then CLAIM, breaking
-  every exact-set assertion and reaching a third-party host. Disabling them
-  makes the fan-outs a no-op. :func:`assert_no_foreign_claimable_rows` fails
-  loudly if a fan-out got there first (fix: ``--refresh-db``).
+  every exact-set assertion and reaching a third-party host. It has to happen
+  before the boot: Procrastinate's deferrer runs a fan-out it missed in the last
+  10 minutes as soon as the worker starts. :func:`assert_no_foreign_claimable_rows`
+  fails loudly if a fan-out got there first (fix: ``--refresh-db``).
 """
 
 from __future__ import annotations
@@ -61,7 +63,7 @@ _CHILD_TABLES = (
 )
 
 
-def _upsert_company(cur: Any) -> None:
+def _upsert_company(cur: Any) -> int:
     # ats='custom': no fan-out task scrapes a 'custom' row without a recipe, so
     # the fixture company can never pull real jobs into this database.
     cur.execute(
@@ -80,6 +82,20 @@ def _upsert_company(cur: Any) -> None:
         "UPDATE companies SET enabled = FALSE WHERE id <> %s AND enabled",
         (fixtures.COMPANY_ID,),
     )
+    return cur.rowcount
+
+
+def quiesce_companies(dsn: str = DEFAULT_DSN) -> int:
+    """Upsert the fixture company and disable every other one, BEFORE the backend
+    boots (run.sh, via ``--repair``). Returns how many it disabled just now."""
+    conn = db.connect(dsn)
+    try:
+        with conn.cursor() as cur:
+            disabled = _upsert_company(cur)
+        conn.commit()
+    finally:
+        conn.close()
+    return disabled
 
 
 def _delete_fixture_rows(cur: Any) -> None:
@@ -319,6 +335,7 @@ if __name__ == "__main__":
     if sys.argv[1:2] == ["--repair"]:
         done = repair_known_drift()
         print("seed: drift repair — " + ("; ".join(done) if done else "nothing to repair"))
+        print(f"seed: disabled {quiesce_companies()} non-fixture companies before the backend boots")
         raise SystemExit(0)
     group = sys.argv[1] if len(sys.argv) > 1 else "EN01"
     n = reseed(fixtures.GROUPS[group])

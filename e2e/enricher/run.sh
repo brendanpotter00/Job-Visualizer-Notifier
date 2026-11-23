@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # e2e/run.sh enricher [--fast] [--case EN-04] [--refresh-db] [--keep-up] [--enricher-ref REF]
 #
-# Stack up (backend :8207, NO frontend, db jobscraper_e2e_enricher, internal-key
+# Provision db jobscraper_e2e_enricher, repair its drift and disable every
+# foreign company -> stack up (backend :8207, NO frontend, internal-key
 # middleware ARMED) -> stub ollama on :8215 -> sandbox enricher (a copy of
 # src/enricher, or `git archive REF:src/enricher`) -> boot guards -> pytest
 # (API tier: real wrapper, real CLI) -> collect -> tear down.
@@ -203,19 +204,32 @@ on_signal() {
 trap cleanup EXIT
 trap on_signal INT TERM
 
-echo "enricher: === stack up (backend only) ==="
-STACK_UP_ARGS=(--artifacts-dir "$E2E_ARTIFACTS_DIR/stack")
+# Provision the database and quiesce it BEFORE the backend boots. A fresh clone
+# (the first run on a machine, or --refresh-db) arrives with enabled
+# ashby/greenhouse/... companies, and Procrastinate's periodic deferrer runs any
+# `*/30` fan-out it missed in the last 10 minutes the moment the worker starts.
+# So a boot at hh:00-hh:10 or hh:30-hh:40 scraped real boards into this database
+# before the first case's reseed could disable those companies (2026-11-23:
+# 2,403 foreign rows, 14 of 16 cases red). `seed.py --repair` disables them here,
+# so the boot-time fan-outs find nothing to fetch. stack_up.sh's own ensure_db.sh
+# call then finds the database already provisioned.
+echo "enricher: === provision $E2E_TARGET_DB, repair its drift, disable foreign companies (before the backend boots) ==="
+ENSURE_ARGS=(--target-db "$E2E_TARGET_DB" --schema-only)
 if [ "$REFRESH_DB" = "1" ]; then
-  STACK_UP_ARGS+=(--refresh)
+  ENSURE_ARGS+=(--refresh)
 fi
-if ! bash "$REPO_ROOT/e2e/shared/stack/stack_up.sh" "${STACK_UP_ARGS[@]}"; then
-  echo "enricher: stack failed to come up" >&2
+if ! bash "$REPO_ROOT/e2e/shared/db/ensure_db.sh" "${ENSURE_ARGS[@]}"; then
+  echo "enricher: could not provision $E2E_TARGET_DB" >&2
+  exit 1
+fi
+if ! "$PY" "$SCRIPT_DIR/seed.py" --repair 2>&1 | tee "$E2E_ARTIFACTS_DIR/drift-repair.txt"; then
+  echo "enricher: drift repair failed — see $E2E_ARTIFACTS_DIR/drift-repair.txt" >&2
   exit 1
 fi
 
-echo "enricher: === repair the source clone's known drift (seed.py docstring) ==="
-if ! "$PY" "$SCRIPT_DIR/seed.py" --repair 2>&1 | tee "$E2E_ARTIFACTS_DIR/drift-repair.txt"; then
-  echo "enricher: drift repair failed — see $E2E_ARTIFACTS_DIR/drift-repair.txt" >&2
+echo "enricher: === stack up (backend only) ==="
+if ! bash "$REPO_ROOT/e2e/shared/stack/stack_up.sh" --artifacts-dir "$E2E_ARTIFACTS_DIR/stack"; then
+  echo "enricher: stack failed to come up" >&2
   exit 1
 fi
 
