@@ -32,10 +32,11 @@ State: `scripts/north_star_loop/loop.py` (SQLite at `~/Library/Application Suppo
   4. **Signup conversion** — does not move the rate, but more signups make every readout readable sooner. Target it only when readouts are starved.
 - **GUARDRAILS** = 3-day+ return, signup conversion, apply clicks per session. A drop of more than 10% (relative) in any of them is a regression.
 - **SCORING** — rate each candidate 1-5 on three axes and rank by `Impact × Confidence ÷ Effort` (max 25):
-  - **Impact**: size of the driver's leak × how much of it the change can plausibly close.
+  - **Impact**: the effect on **7-day+ return**, through the driver: size of the driver's leak × how much of it the change can plausibly close. Driver 4 (signup conversion) does not move the rate, so a signup-conversion idea scores Impact at most 2 however big its own leak is.
   - **Confidence** (what is likely to work): 5 = a pattern proven at other job boards or products (name it) *and* supported by our data; 4 = proven elsewhere; 3 = a strong correlation in our data with a causal story; 2 = a weak or confounded correlation; 1 = a hunch.
   - **Effort**: 1 = a small diff in a day; 3 = several files or a migration; 5 = multi-week or new infrastructure. Bigger is allowed; the score just has to earn it.
   - Ties go to the smaller change.
+- **STAGES** — a build is one autonomous run that ends in one PR. If the winner needs more than one PR, or steps only Brendan can do (create an account, add DNS records, set a secret, make a product decision), the brief's **Change** section splits it into stages and lists those human prerequisites. NS-N proposes and builds **stage 1 only**: the first PR-sized step that stands on its own. Later stages come back as their own ideas on later propose runs, re-scored. Name any human prerequisite of stage 1 in the text (§3) so Brendan sees it before saying yes.
 
 ## §2 Modes
 
@@ -44,7 +45,7 @@ Pick the mode from the argument (`propose`, `build N`, `readout N`). With no arg
 ### propose
 
 1. Run `LOOP sync` then `LOOP next`. If it does not print `propose`, write the heartbeat (`outcome=none`) and stop before spending any queries.
-2. **Strategy and history.** Read STRATEGY.md (Vision + align/resist tests) and USER-METRICS.md. Then read **every past idea**: `LOOP list`, and `LOOP show N` on each (or `LOOP dump`). For each **rejected** idea, note Brendan's reason (`decision_note`) and treat it as a rule about what he does not want; for expired ones (no reply), note that too; read every logged mistake. Never re-propose a rejected or expired idea, or a lightly reworded version of one, unless the brief names what changed since and answers his reason directly. Ideas a past brief ranked but did not pick are fair candidates again; re-score them.
+2. **Strategy and history.** Read STRATEGY.md (Vision + align/resist tests) and USER-METRICS.md. Then read **every past idea**: `LOOP list`, and `LOOP show N` on each (or `LOOP dump`). For each **rejected** idea, note Brendan's reason (`decision_note`) and treat it as a rule about what he does not want; for expired ones (no reply), note that too; read every logged mistake. Never re-propose a rejected idea, or a lightly reworded version of one, unless the brief names what changed since and answers his reason directly. An expired idea got no answer (check its events: if it was never actually sent, e.g. a dry run, it carries no signal at all); it may come back after 4 weeks, re-scored, with the earlier expiry named. Ideas a past brief ranked but did not pick are fair candidates again; re-score them.
 3. **Current numbers.** Read the PostHog **North Star dashboard** (project 483508, dashboard 2397096: apply clicks per session, signup conversion, 3-day+ / 7-day+ return, weeks returned, comeback) and the prod `metrics` views (`metrics.north_star_weekly`, `metrics.signup_retention`, `metrics.apply_clicks_weekly`). Recompute the §1 DRIVERS. **Postgres is the source of truth for returns**; PostHog person-level data does not match it for cohorts before about 2026-11 (`user_visited` starts with PR #382), so use PostHog for recent behaviour and the dashboard tiles. `job_apply_clicks` starts 2026-11-22; do not treat its early weeks as evidence.
 4. **Existing work.** Search the ClickUp list `1000430000001112` (open tasks, and recently closed ones) for work that targets the same leak. Do not propose a duplicate. If an existing ticket would move a driver, it is a candidate in its own right: propose raising it (name and link it) instead of inventing a parallel idea.
 5. **Evidence.** Dig into the biggest leaks with read-only queries (`user_visits`, `users`, `user_saved_filters`, `user_keyword_lists`, `users.onboarding_completed_at`, PostHog funnels for recent weeks). Prefer facts about what returning users do that one-time users do not. Keep a list of every choice you make; you will `LOOP log` them after step 8 creates N.
@@ -64,7 +65,7 @@ Pick the mode from the argument (`propose`, `build N`, `readout N`). With no arg
 ### build N
 
 1. `LOOP show N`. It must be `approved` (or `building` from an interrupted run; if so, `LOOP log N mistake "previous build run did not finish"` and resume). `LOOP set N status=building`.
-2. Re-run the brief's key query. If the problem no longer holds, log a mistake, `LOOP set N status=blocked`, text (§3, blocked), stop.
+2. Re-run the brief's key query. If the problem no longer holds, log a mistake, `LOOP set N status=blocked`, text (§3, blocked), stop. If stage 1 has a human prerequisite that is not yet done (check it, do not assume), `LOOP set N status=paused`, text (§3, needs you) with the checklist, stop; Brendan sets `status=approved` once it is done.
 3. `git fetch origin main` and create a worktree outside the checkout: `git worktree add "$HOME/Library/Application Support/jvn-north-star-loop/worktrees/ns-N" -b loop/ns-N-<slug> origin/main`. If that worktree or a `loop/ns-N-*` branch already exists from an earlier run: when step 1 found `building`, reuse it (`git worktree add <path> loop/ns-N-<slug>` when only the branch is left); when step 1 found `approved` (a fresh build or a rebuild from scratch), remove them first (`git worktree remove --force <path>`, `git branch -D <branch>`) and `LOOP log N decision "removed stale worktree/branch from an earlier run"`. Work only there. `LOOP set N branch=loop/ns-N-<slug>`.
 4. Write the plan doc `docs/north-star-loop/ns-N-<slug>.md`: the brief verbatim, then **Plan** (ordered steps, files), **Decisions** (every choice made without asking, each with why — also `LOOP log`ged), **Log** (empty; the readout fills it). If any measured idea has a result not yet in its own plan doc, append it there too. `LOOP set N plan_path=docs/north-star-loop/ns-N-<slug>.md`.
 5. Re-check the plan against STRATEGY.md (§0.5). Building can surface what proposing missed; if it now conflicts, stop: log it, `LOOP set N status=blocked`, text (§3, blocked).
@@ -93,6 +94,7 @@ Short enough to read on a lock screen. No greeting, no sign-off. notify.sh adds 
   Risk: <low|med|high> · ~<k> files · score <s>/25 · undo = revert PR
   Reply "yes {N}" or "no {N} <why>"
   ```
+  If stage 1 needs something from Brendan first, replace the Why line with `Needs you first: <≤10 words>`. If the idea has later stages, end the change line with `(stage 1 of <m>)`.
 - PR ready: `NS-N PR ready, checks green: <url>` / `Merge = ship. Readout ~<date>.`
 - Needs you: `NS-N paused: <one line>. <url or "LOOP show N">` / `After the gate: loop.py set N status=pr_open pr_url=<url>`
 - Blocked: `NS-N blocked: <one line>. Nothing shipped.`
