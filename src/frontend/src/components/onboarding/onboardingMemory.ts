@@ -9,7 +9,10 @@
  * page until the answer is in (`useOnboardingHold`). Holding EVERY signed-in
  * load for one round trip would slow every returning reader to fix a screen
  * each account sees once, so an account this browser has seen stamped is not
- * held: the page renders at once, exactly as before.
+ * held once its subject is known: the page renders at once, exactly as before.
+ * (While Auth0 is still restoring a stored session the subject is not known
+ * yet, so `useOnboardingHold` holds every account for that short wait — the
+ * same wait `HomeRoute` makes.)
  *
  * Only a performance hint. The server's `onboarding_completed_at` stays the
  * one source of truth — the gate still opens on `null` whatever this says, and
