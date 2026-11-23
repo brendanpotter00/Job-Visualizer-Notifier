@@ -52,7 +52,8 @@ def test_coreal_prod_tag_tree_cuts_over(make_sandbox, step, host):
     assert sb.git(sb.new, "rev-parse", "HEAD:src/enricher").strip() == want_tree
 
     step("real uv sync gave an equivalent venv; real cli health was identical")
-    m = re.search(r"venv equivalent: python (3\.12\.\d+), (\d+) packages identical", cp.stdout)
+    m = re.search(r"venv equivalent: CPython (3\.12\.\d+) running in both, (\d+) packages "
+                  r"identical", cp.stdout)
     assert m and int(m.group(2)) >= 10, sb.output()
     assert "`cli health` identical in both checkouts" in cp.stdout
     assert (sb.new_enricher / ".env.local").read_bytes() == (sb.old / ".env.local").read_bytes()

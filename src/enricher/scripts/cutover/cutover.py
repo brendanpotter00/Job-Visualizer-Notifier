@@ -1393,7 +1393,7 @@ def sync_and_compare_venv(cfg: Config, interp: Path, new_enricher: Path) -> None
         only_old = sorted(set(old_f) - set(new_f))[:5]
         only_new = sorted(set(new_f) - set(old_f))[:5]
         raise Refuse(f"installed packages differ: old-only {only_old}, new-only {only_new}")
-    log(f"venv equivalent: python {new_v}, {len(new_f)} packages identical")
+    log(f"venv equivalent: {new_v} running in both, {len(new_f)} packages identical")
 
 
 def phase_a(cfg: Config, st: State, launchd: Launchd) -> None:
