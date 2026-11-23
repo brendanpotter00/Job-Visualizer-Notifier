@@ -1,6 +1,8 @@
 # Enricher consolidation — job-enricher moves into JVN `src/enricher/`
 
-**Status: PLANNED.** Branch `feat/consolidate-enricher` (cut from `origin/main` @ `0c773ae0`).
+**Status: BUILT** (2026-11-23) — all five units committed, verification matrix green (§10).
+Branch `feat/consolidate-enricher` (cut from `origin/main` @ `0c773ae0`; main has moved
+since — see §8 step 4).
 Commit `402919b5` already imported job-enricher **with history** into `src/enricher/`
 (tree byte-identical to job-enricher@`66f768b`). Never amend or rewrite that commit; every
 unit below adds new commits on top.
@@ -690,6 +692,24 @@ Unit 3 makes main's tooling ready and documents the runbook in `docs/ENVIRONMENT
 - Verify with `bash -n` and by running **only** the extracted derivation snippet (it prints a
   path). **Do not run `check.sh` itself** — it runs `cli health` against prod.
 
+**As built (Unit 5, 2026-11-23).** Backups of both files before the edit:
+the session scratchpad `u5/skill-backup/`.
+
+- `check.sh` reads `WorkingDirectory` only when the plist **file exists** and keeps the
+  value only if it is an absolute path: on a missing plist `PlistBuddy` prints `File Doesn't
+  Exist, Will Create: …` to **stdout** (exit 1), which would otherwise become the path. The
+  fallback is whichever of `enricher-prod/src/enricher` or `app` has `.checkout-role` =
+  `prod`, else `app` — so a lost plist after the cutover still finds the new prod, and after
+  a rollback (`failed-cutover`) finds `app`.
+- `check.sh` prints a second header line, `== enricher prod dir: <dir> (from plist|fallback) ==`;
+  `SKILL.md`'s commands (`cli health`, the reinstall line, the paths registry) point at it.
+- `SKILL.md` also: the dev home is JVN `src/enricher` once the PR has merged; a
+  known-harmless line for the `com.bp.jvn-enricher-cutover` agent (while it parks the
+  enricher, `lock.enricher` shows its live pid).
+- Verified: `bash -n` OK; the extracted snippet prints `/Users/bpotter/developer/personal/app
+  (plist)` on this machine, and the right dir for five fake HOMEs (no plist, plist without
+  the key, new prod `prod`, new prod `failed-cutover` + app `prod`, plist pointing elsewhere).
+
 ---
 
 ## 8. Orchestrator checklist (not a unit — the orchestrator does these)
@@ -734,3 +754,25 @@ Each unit is a coherent commit series, conventional-commit subjects, trailer
    (enricher unit, both e2e sections incl. `--enricher-ref`, `--preflight` and `--rehearse` on
    the real machine — both read-only toward prod — frontend type-check/build, backend pytest
    vs main's baseline).
+
+---
+
+## 10. Verification results (Unit 5, 2026-11-23, at the branch HEAD)
+
+| Check | Result | Time |
+|---|---|---|
+| Enricher unit suite (`cd src/enricher && uv sync --locked && uv run pytest`) | 1000 passed, 9 skipped | 28 s |
+| `e2e/run.sh enricher` (HEAD) | **GREEN** 16/16 — before and after the move to `:8207` | 64–67 s |
+| `e2e/run.sh enricher --fast` | **GREEN** 7/7 | 28 s |
+| `e2e/run.sh enricher --enricher-ref enricher-prod-eeff1c9` | **GREEN** 12/12, 4 `v7` deselected — before and after the port move | 52–54 s |
+| `e2e/run.sh enricher-cutover` | **GREEN** 29/29 (28 cases + the real-machine isolation check) | 181 s |
+| `cutover.sh --preflight --jvn-repo <JVN> --json` (real machine, mid-tick) | exit 0; ref `enricher-prod-eeff1c9` → `3ea04981`, tree `471165a3`; the only warning is the tag not yet on the remote | 2 s |
+| `cutover.sh --rehearse --scratch <scratchpad> --jvn-repo <JVN>` (real machine, mid-tick) | exit 0; online backup of the 637 MB live DB in 1.8 s, `integrity_check` ok, `user_version` 3, max tick 2221; `uv sync` → Python 3.12.13, 34 packages identical; `.env.local` not copied; scratch `cli health` = `ollama`/`ollama`. An independent read-only compare of the copy against the live DB: `meta` equal, every table count equal except `enrichments` +1 (the live tick recorded a row after the backup). Scratch copy deleted (moved to the Trash) | 4.4 s |
+| Real-machine isolation | sha256 manifest of `app/` (minus `data/`, `.venv/`, caches), `ls` of `app/data`, all `com.bp.*` plists, the cutover state dir, `enricher-prod` absent, `app/` HEAD + tracked status, `launchctl list` (no cutover agent): **0 changes** after preflight and after rehearse | — |
+| Frontend `npm run type-check` + `npx -w src/frontend vite build` (Node 22.14.0) | both exit 0 | 10 s + 9 s |
+| Backend `cd src/backend && pytest -n 4 --dist loadfile` | **4194 passed, 1 skipped, 0 failed, 0 errors** — better than the old bare-DB baseline (~21 failed / ~197 errors); the only backend diff on this branch is one docstring line | 272 s |
+| `everything-running` derivation snippet | prints `/Users/bpotter/developer/personal/app (plist)`; `bash -n check.sh` OK (§7) | — |
+
+Not verified here (by design or out of reach): real launchd, real GitHub (banner push,
+`gh repo archive`), a real text, GitHub CI (nothing pushed), and the branch merged with
+today's `main` (§8 step 4).
