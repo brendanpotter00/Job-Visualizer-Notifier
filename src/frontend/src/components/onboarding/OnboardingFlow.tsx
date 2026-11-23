@@ -196,16 +196,22 @@ export function OnboardingFlow({ open, onDone, onDismiss, onExited }: Onboarding
     trackOnboardingViewed();
   }, []);
 
-  // Name the step in the tab title; put the page's title back on close.
+  // Name the step in the tab title while the questions are open, and put the
+  // page's title back the moment they close. Keyed on `open`, not on mount: a
+  // Skip that fails to save closes the dialog but leaves this component
+  // mounted (the stamp is still null), and the step title must not outlive it
+  // (WCAG 2.4.2 Page Titled).
   useEffect(() => {
+    if (!open) return;
     const previous = document.title;
     return () => {
       document.title = previous;
     };
-  }, []);
+  }, [open]);
   useEffect(() => {
+    if (!open) return;
     document.title = onboardingDocumentTitle(step, APP_TITLE);
-  }, [step]);
+  }, [open, step]);
 
   // The bottom bar's top hairline shows only while the question scrolls under it.
   const updateEdge = useCallback(() => {

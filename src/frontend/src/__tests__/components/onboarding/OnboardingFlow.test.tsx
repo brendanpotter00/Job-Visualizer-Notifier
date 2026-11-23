@@ -96,14 +96,16 @@ async function renderFlow({ reveal = true }: { reveal?: boolean } = {}) {
     })
   );
   const user = userEvent.setup();
-  const view = renderWithProviders(
+  const tree = (open: boolean) => (
     <SubcategoryRevealProvider>
-      <OnboardingFlow open onDone={onDone} onDismiss={onDismiss} onExited={vi.fn()} />
+      <OnboardingFlow open={open} onDone={onDone} onDismiss={onDismiss} onExited={vi.fn()} />
       <PathProbe />
-    </SubcategoryRevealProvider>,
-    { store, initialEntries: ['/companies'] }
+    </SubcategoryRevealProvider>
   );
-  return { ...view, store, user, onDone, onDismiss };
+  const view = renderWithProviders(tree(true), { store, initialEntries: ['/companies'] });
+  /** Re-render with the dialog open or closed, keeping the flow mounted. */
+  const setOpen = (open: boolean) => view.rerender(tree(open));
+  return { ...view, store, user, onDone, onDismiss, setOpen };
 }
 
 const heading = () => screen.getByRole('heading', { level: 1 });
@@ -164,6 +166,19 @@ describe('OnboardingFlow — the screens', () => {
     await user.click(backButton());
     await waitFor(() => expect(heading()).toHaveFocus());
     expect(heading()).toHaveTextContent('Which levels fit you?');
+  });
+
+  it('puts the page title back when the questions close but stay mounted', async () => {
+    // A Skip whose save fails only closes the dialog (open=false): the gate
+    // keeps the flow mounted because the stamp is still null. The tab must go
+    // back to the page's own title, not keep "Question N of 3" for the visit
+    // (WCAG 2.4.2 Page Titled). Wrong behaviour this rejects: restoring the
+    // title only on unmount.
+    document.title = 'Company Hiring Trends | onesecondswe';
+    const { setOpen } = await renderFlow();
+    await waitFor(() => expect(document.title).toBe('Question 1 of 3: Roles | onesecondswe'));
+    setOpen(false);
+    expect(document.title).toBe('Company Hiring Trends | onesecondswe');
   });
 
   it('fills the progress bar one third per question', async () => {
