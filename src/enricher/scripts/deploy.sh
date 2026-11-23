@@ -54,12 +54,25 @@ fi
 #    (only if it still records OUR pid) and reloads the worker once the unload has
 #    been issued — on EVERY exit path, success or abort. A FAILED reload is loud and
 #    forces a non-zero exit so a workerless prod is never mistaken for a healthy deploy.
+#    The release is plain sh on purpose: by then step 4 may have checked out a ref with
+#    no scripts/lib/park_worker.py (every pre-consolidation tag, e.g. a rollback to
+#    enricher-prod-eeff1c9) and step 5 may have rebuilt the venv under $PY. A lock left
+#    naming our dead pid would make every worker fire skip for 3 h.
 CLAIMED=0
 UNLOADED=0
+release_tick_lock() {
+  [ -f "$LOCK_FILE" ] || return 0
+  holder="$(cut -d'|' -f1 "$LOCK_FILE" 2>/dev/null | head -n 1 | tr -d '[:space:]')"
+  if [ "$holder" = "$$" ]; then
+    rm -f "$LOCK_FILE" && echo "[deploy] released our tick lock"
+  else
+    echo "[deploy] the tick lock is not ours (holder='$holder'); left alone"
+  fi
+}
 resume() {
   status=$?                         # capture the pending exit status FIRST, before any command resets $?
   if [ "$CLAIMED" = "1" ]; then
-    "$PY" -I "$PARK" release --lock "$LOCK_FILE" --owner-pid "$$" || echo "[deploy] WARN: could not release the tick lock" >&2
+    release_tick_lock || echo "[deploy] WARN: could not release the tick lock" >&2
   fi
   if [ "$UNLOADED" = "1" ]; then
     echo "[deploy] resuming launchd worker…"

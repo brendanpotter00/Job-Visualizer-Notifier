@@ -95,10 +95,15 @@ def test_parks_with_the_shared_helper_before_unloading():
 
 
 def test_releases_only_its_own_lock_in_the_exit_trap():
+    """In plain sh, never through $PARK: by the time the trap runs, step 4 may
+    have checked out a ref without scripts/lib/ (behaviour test below)."""
     text = _text()
+    release = text[text.index("release_tick_lock() {"):text.index("resume() {")]
+    assert '[ "$holder" = "$$" ]' in release and 'rm -f "$LOCK_FILE"' in release
+    assert "$PARK" not in release
     body = text[text.index("resume() {"):text.index("trap resume EXIT")]
-    assert '"$PARK" release' in body and '--owner-pid "$$"' in body
-    assert body.index('"$PARK" release') < body.index('launchctl load "$PLIST"')
+    assert "$PARK" not in body
+    assert body.index("release_tick_lock") < body.index('launchctl load "$PLIST"')
 
 
 def test_refuses_the_no_arg_form_on_a_detached_head():
@@ -143,6 +148,12 @@ def sandbox(tmp_path):
     _g(seed, "commit", "-qam", "v2")
     v2 = _g(seed, "rev-parse", "HEAD")
     _g(seed, "tag", "enricher-prod-v2", v2)
+    # A pre-consolidation-style ref: no scripts/lib/ (like enricher-prod-eeff1c9).
+    _g(seed, "-c", "advice.detachedHead=false", "checkout", "-q", "--detach", v1)
+    _g(seed, "rm", "-rq", "scripts/lib")
+    _g(seed, "commit", "-qm", "no lib")
+    _g(seed, "tag", "enricher-prod-nolib")
+    _g(seed, "checkout", "-q", "main")
     origin = tmp_path / "origin.git"
     subprocess.run(["git", "clone", "-q", "--bare", str(seed), str(origin)], check=True, env=GIT_ENV)
     prod = tmp_path / "prod"
@@ -204,6 +215,37 @@ def test_behaviour_deploys_a_ref_parking_first_and_releasing_after(sandbox):
     assert "claimed" in cp.stdout  # park_worker held the lock before the unload
     assert not (sandbox["prod"] / "data" / ".tick.lock").exists()  # released on exit
     assert sandbox["loaded"].exists()
+
+
+def test_behaviour_a_ref_without_lib_still_releases_the_lock(sandbox):
+    """Rolling back to a pre-consolidation tag deletes scripts/lib/park_worker.py
+    from under the running script. The EXIT trap must still drop the lock: one
+    naming deploy's dead pid makes every worker fire skip for 3 h."""
+    cp = _deploy(sandbox, "enricher-prod-nolib")
+    assert cp.returncode == 0, cp.stdout + cp.stderr
+    assert not (sandbox["prod"] / "scripts" / "lib" / "park_worker.py").exists()
+    assert "released our tick lock" in cp.stdout, cp.stdout + cp.stderr
+    assert "WARN" not in cp.stderr, cp.stderr
+    assert not (sandbox["prod"] / "data" / ".tick.lock").exists()
+    assert sandbox["loaded"].exists()
+
+
+def test_behaviour_the_trap_leaves_a_lock_that_is_not_ours(sandbox):
+    """The release compares the recorded pid with $$ — never a blind rm."""
+    other = sandbox["tmp"] / "other-scripts" / "scripts"
+    shutil.copytree(sandbox["prod"] / "scripts", other)
+    deploy = other / "deploy.sh"
+    # Swap the lock's holder for someone else's pid right after the checkout.
+    lock = sandbox["prod"] / "data" / ".tick.lock"
+    text = deploy.read_text().replace(
+        '# 5. Resync deps',
+        f'printf "1|someone-else" > "{lock}"\n# 5. Resync deps', 1)
+    deploy.write_text(text)
+    cp = _deploy(sandbox, "enricher-prod-v2", script=deploy,
+                 env_extra={"DEPLOY_PROJECT_DIR": str(sandbox["prod"])})
+    assert cp.returncode == 0, cp.stdout + cp.stderr
+    assert "not ours (holder='1')" in cp.stdout, cp.stdout
+    assert lock.read_text() == "1|someone-else"
 
 
 def test_behaviour_a_branch_name_deploys_origins_copy_detached(sandbox):
