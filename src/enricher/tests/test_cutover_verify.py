@@ -2,10 +2,12 @@
 
 * A first tick whose wrapper died (reboot, power loss, SIGKILL) stays ``running``
   forever; phase E skips it for the next tick instead of waiting into the hard cap.
+* The "old prod DB changed" tripwire compares content, not bytes.
 """
 
 from __future__ import annotations
 
+import hashlib
 import sqlite3
 import threading
 import time
@@ -151,3 +153,34 @@ def test_a_tick_still_running_in_this_boot_is_not_orphaned(tmp_path):
 ])
 def test_iso_epoch(text, want):
     assert co.iso_epoch(text) == want
+
+
+# ------------------------------------------------------------------ the old-prod tripwire
+def test_a_header_rewrite_in_the_old_db_is_not_a_change(verify):
+    """`cli init` (any init_schema) re-sets user_version to the same value: the
+    file's bytes change, its rows do not. That must not roll back."""
+    cfg, st, old_db, new_db = verify
+    conn = sqlite3.connect(old_db)
+    conn.isolation_level = None
+    conn.execute("PRAGMA user_version = 3")
+    conn.close()
+    assert co.sha256_file(old_db) != st.data["old_db_sha256"], "the premise: bytes changed"
+    _add_tick(new_db, 6, "ok")
+    co.phase_e(cfg, st, None)
+    assert st.phase == "VERIFIED"
+
+
+def test_a_new_row_in_the_old_db_is_a_change(verify):
+    cfg, st, old_db, new_db = verify
+    _add_tick(old_db, 6, "running")  # something still ticks there
+    _add_tick(new_db, 6, "ok")
+    with pytest.raises(co.VerifyFailure, match=r"old prod DB changed after the swap .*ticks"):
+        co.phase_e(cfg, st, None)
+
+
+def test_a_state_without_a_snapshot_falls_back_to_the_bytes(verify):
+    cfg, st, old_db, _ = verify
+    del st.data["old_db_snapshot"]
+    assert co.old_db_unchanged(cfg, st) is None
+    st.data["old_db_sha256"] = hashlib.sha256(b"something else").hexdigest()
+    assert co.old_db_unchanged(cfg, st) == "its bytes changed"

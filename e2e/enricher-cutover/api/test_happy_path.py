@@ -81,6 +81,7 @@ def test_co01_happy_path_end_to_end(happy, step):
     first = st["first_tick"]
     assert first["id"] > copied and first["status"] == "ok" and new_ticks[first["id"]]["status"] == "ok"
     assert cs.sha256_bytes((sb.old / "data" / "enricher.db").read_bytes()) == st["old_db_sha256"]
+    assert st["old_db_snapshot"]["max_tick_id"] == copied  # phase E's content tripwire baseline
 
     step("the new worker keeps ticking under launchd")
     cs.wait_for(lambda: any(t["id"] > first["id"] and t["status"] == "ok"

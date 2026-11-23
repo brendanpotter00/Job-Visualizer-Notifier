@@ -1591,9 +1591,15 @@ def phase_c(cfg: Config, st: State, launchd: Launchd) -> None:
     if dirty:
         raise Refuse("new prod has tracked changes after `uv run` (lockfile rewritten?)")
 
+    old_db = cfg.old_prod / "data" / "enricher.db"
+    o_conn, _ = connect_ro(old_db)
+    try:
+        old_snapshot = db_snapshot(o_conn)  # phase E's "nothing ran there since" baseline
+    finally:
+        o_conn.close()
     st.set_phase("COPIED", copied_max_tick_id=copied_max,
                  copy_sha256=sha256_file(cfg.new_enricher / "data" / "enricher.db"),
-                 old_db_sha256=sha256_file(cfg.old_prod / "data" / "enricher.db"),
+                 old_db_sha256=sha256_file(old_db), old_db_snapshot=old_snapshot,
                  untracked_copied=[{"path": c["path"], "size": c["size"]} for c in copied])
 
 
@@ -1669,6 +1675,30 @@ def _wait_tick_start(cfg: Config, clock: "park_worker.WallClock", db: Path, afte
     return tick
 
 
+def old_db_unchanged(cfg: Config, st: State) -> str | None:
+    """None when the old prod DB holds what phase C saw, else what differs.
+
+    Compares CONTENT (row counts, max tick id, meta rows, user_version), not
+    bytes: any read-write open of the file (``cli init``, a WAL checkpoint, a
+    same-value ``PRAGMA user_version``) rewrites its header without changing a
+    row, and that must not roll a good cutover back."""
+    db = cfg.old_prod / "data" / "enricher.db"
+    want = st.data.get("old_db_snapshot")
+    if want is None:  # a state written before the snapshot existed
+        same = sha256_file(db) == st.data.get("old_db_sha256")
+        return None if same else "its bytes changed"
+    try:
+        conn, _ = connect_ro(db, allow_immutable=True)
+    except sqlite3.Error as exc:
+        return f"it cannot be read ({exc})"
+    try:
+        got = json.loads(json.dumps(db_snapshot(conn)))  # same shape as the stored copy
+    finally:
+        conn.close()
+    diffs = compare_snapshots(want, got)
+    return "; ".join(diffs) if diffs else None
+
+
 def phase_e(cfg: Config, st: State, launchd: Launchd) -> None:
     log("E: verify the first tick in the new prod")
     db = cfg.new_enricher / "data" / "enricher.db"
@@ -1719,8 +1749,10 @@ def phase_e(cfg: Config, st: State, launchd: Launchd) -> None:
     log(f"E: {why}")
     if not ok:
         raise VerifyFailure(why)
-    if sha256_file(cfg.old_prod / "data" / "enricher.db") != st.data.get("old_db_sha256"):
-        raise VerifyFailure("the old prod DB changed after the swap — something still runs there")
+    changed = old_db_unchanged(cfg, st)
+    if changed:
+        raise VerifyFailure(f"the old prod DB changed after the swap ({changed}) — "
+                            "something still runs there")
     if plist_where(cfg, read_plist(cfg.enricher_plist)) != "new":
         raise VerifyFailure("the plist no longer points at the new prod")
     st.set_phase("VERIFIED", first_tick={"id": tick.id, "status": tick.status,
