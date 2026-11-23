@@ -23,6 +23,7 @@ commands:
 document:
   instructions: |
     Agent-facing facts live in the per-area AGENTS.md files (root,
-    src/frontend, src/backend, scripts); longer write-ups live under docs/.
+    src/frontend, src/backend, src/enricher, scripts); longer write-ups live
+    under docs/ (the enricher's under src/enricher/docs/).
     Correct an existing section rather than adding a new one, and do not
     document what the code already makes obvious.

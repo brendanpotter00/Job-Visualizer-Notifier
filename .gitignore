@@ -78,3 +78,7 @@ iphone-*.png
 # pytest-cov data file, written at the repo root by a local backend run
 .coverage
 .coverage.*
+
+# Per-checkout markers (the enricher cutover writes these into a JVN clone)
+.checkout-role
+CLAUDE.local.md
