@@ -175,6 +175,20 @@ describe('OnboardingGate — after the questions', () => {
     expect(screen.queryByText('Saved as your filters.')).toBeNull();
   });
 
+  it('closes for this visit, unstamped, when a Skip fails to save', async () => {
+    completeMock.mockImplementationOnce(() => ({
+      unwrap: () => Promise.reject({ status: 500, data: { detail: 'Failed to save onboarding' } }),
+    }));
+    const user = userEvent.setup();
+    renderGate();
+    await screen.findByRole('dialog');
+    await user.click(screen.getByRole('button', { name: 'Skip' }));
+
+    await waitFor(() => expect(questions()).toBeNull());
+    expect(userState.setUserCalls).toHaveLength(0);
+    expect(screen.queryByRole('link', { name: 'Saved filters' })).toBeNull();
+  });
+
   it('Skip with an answer still shows the toast (Skip keeps the answers)', async () => {
     const user = userEvent.setup();
     renderGate();

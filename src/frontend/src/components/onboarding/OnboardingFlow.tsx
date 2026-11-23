@@ -37,6 +37,7 @@ import {
   ONBOARDING_SAVE_ERROR,
   ONBOARDING_STEP_COUNT,
   onboardingDocumentTitle,
+  savedFiltersHaveAnswers,
   stepHasAnswer,
   toRequestAnswers,
   type OnboardingStep,
@@ -140,6 +141,8 @@ export interface OnboardingFlowProps {
   open: boolean;
   /** The answers are saved and the account is stamped. */
   onDone: (result: OnboardingResult) => void;
+  /** A Skip could not be saved: close for this visit, and ask again on the next load. */
+  onDismiss: () => void;
   /** The dialog has finished closing. */
   onExited: () => void;
 }
@@ -157,9 +160,11 @@ export interface OnboardingFlowProps {
  * Finish ("Show my jobs") and Skip both send the answers given so far in one
  * request, and so do Escape and any other close of the dialog (they count as
  * Skip). Once saved, the answers reach the live filters without a reload, and
- * the app lands on Recent Job Postings with them in its filter fields.
+ * if any were given the app lands on Recent Job Postings with them in its
+ * filter fields. A Skip that fails to save still closes the questions, for
+ * this visit only: the stamp stays unset, so they open again on the next load.
  */
-export function OnboardingFlow({ open, onDone, onExited }: OnboardingFlowProps) {
+export function OnboardingFlow({ open, onDone, onDismiss, onExited }: OnboardingFlowProps) {
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
   const [step, setStep] = useState<OnboardingStep>(0);
@@ -251,10 +256,14 @@ export function OnboardingFlow({ open, onDone, onExited }: OnboardingFlowProps) 
       savedFiltersPropagationActions(result.savedFilters, keywordLists ?? [], {
         listsLoaded: Boolean(keywordLists),
       }).forEach((action) => dispatch(action));
-      navigate(ROUTES.RECENT_JOBS);
+      if (savedFiltersHaveAnswers(result.savedFilters)) navigate(ROUTES.RECENT_JOBS);
       onDone(result);
     } catch (err) {
       submitting.current = false;
+      if (skipped) {
+        onDismiss();
+        return;
+      }
       setError(extractErrorMessage(err, ONBOARDING_SAVE_ERROR));
     }
   };

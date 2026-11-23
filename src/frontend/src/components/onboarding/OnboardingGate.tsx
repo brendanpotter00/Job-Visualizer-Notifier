@@ -29,12 +29,16 @@ import {
  * toast shows and the live region says "Saved as your filters." once. The
  * announcement waits for the fade so it is not spoken from under the dialog,
  * which hides the rest of the page from screen readers while it is open.
+ *
+ * A Skip that fails to save closes the questions for this visit only; the
+ * stamp stays `null`, so they open again on the next page load.
  */
 export function OnboardingGate() {
   const { isAuthenticated } = useAuth();
   const { user, setUser } = useCurrentUser();
   const { pathname } = useLocation();
   const [saved, setSaved] = useState<OnboardingResult | null>(null);
+  const [dismissed, setDismissed] = useState(false);
   const [toastOpen, setToastOpen] = useState(false);
   const [announcement, setAnnouncement] = useState('');
 
@@ -61,7 +65,12 @@ export function OnboardingGate() {
   return (
     <>
       {eligible && (
-        <OnboardingFlow open={saved === null} onDone={setSaved} onExited={handleExited} />
+        <OnboardingFlow
+          open={saved === null && !dismissed}
+          onDone={setSaved}
+          onDismiss={() => setDismissed(true)}
+          onExited={handleExited}
+        />
       )}
       <OnboardingSavedToast open={toastOpen} onClose={closeToast} />
       <Box aria-live="polite" sx={VISUALLY_HIDDEN_SX}>

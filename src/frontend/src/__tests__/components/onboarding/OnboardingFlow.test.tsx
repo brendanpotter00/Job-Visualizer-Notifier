@@ -81,6 +81,7 @@ function PathProbe() {
 
 async function renderFlow({ reveal = true }: { reveal?: boolean } = {}) {
   const onDone = vi.fn<(result: OnboardingResult) => void>();
+  const onDismiss = vi.fn<() => void>();
   const store = createTestStore();
   await store.dispatch(
     jobsApi.util.upsertQueryData('getFacets', undefined, {
@@ -97,12 +98,12 @@ async function renderFlow({ reveal = true }: { reveal?: boolean } = {}) {
   const user = userEvent.setup();
   const view = renderWithProviders(
     <SubcategoryRevealProvider>
-      <OnboardingFlow open onDone={onDone} onExited={vi.fn()} />
+      <OnboardingFlow open onDone={onDone} onDismiss={onDismiss} onExited={vi.fn()} />
       <PathProbe />
     </SubcategoryRevealProvider>,
     { store, initialEntries: ['/companies'] }
   );
-  return { ...view, store, user, onDone };
+  return { ...view, store, user, onDone, onDismiss };
 }
 
 const heading = () => screen.getByRole('heading', { level: 1 });
@@ -392,19 +393,40 @@ describe('OnboardingFlow — saving', () => {
     });
   });
 
-  it('shows the error and stays open when saving fails, then retries', async () => {
+  it('shows the error and stays open when finishing fails, then retries', async () => {
     completeMock.mockImplementationOnce(() => ({
       unwrap: () => Promise.reject({ status: 500, data: { detail: 'Failed to save onboarding' } }),
     }));
-    const { user, onDone } = await renderFlow();
-    await user.click(screen.getByRole('button', { name: 'Skip' }));
+    const { user, onDone, onDismiss } = await renderFlow();
+    await user.click(continueButton());
+    await user.click(continueButton());
+    await user.click(screen.getByRole('button', { name: 'Show my jobs' }));
     expect(await screen.findByText('Failed to save onboarding')).toBeInTheDocument();
     expect(onDone).not.toHaveBeenCalled();
+    expect(onDismiss).not.toHaveBeenCalled();
     expect(screen.getByRole('dialog')).toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: 'Skip' }));
+    await user.click(screen.getByRole('button', { name: 'Show my jobs' }));
     await waitFor(() => expect(onDone).toHaveBeenCalledTimes(1));
     expect(completeMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('lets the user out when a Skip fails to save, without stamping the account', async () => {
+    completeMock.mockImplementationOnce(() => ({
+      unwrap: () => Promise.reject({ status: 500, data: { detail: 'Failed to save onboarding' } }),
+    }));
+    const { user, onDone, onDismiss } = await renderFlow();
+    await user.click(screen.getByRole('button', { name: 'Skip' }));
+    await waitFor(() => expect(onDismiss).toHaveBeenCalledTimes(1));
+    expect(onDone).not.toHaveBeenCalled();
+    expect(screen.getByTestId('path')).toHaveTextContent('/companies');
+  });
+
+  it('stays on the page it opened over when skipped with no answers', async () => {
+    const { user, onDone } = await renderFlow();
+    await user.click(screen.getByRole('button', { name: 'Skip' }));
+    await waitFor(() => expect(onDone).toHaveBeenCalledTimes(1));
+    expect(screen.getByTestId('path')).toHaveTextContent('/companies');
   });
 });
 
