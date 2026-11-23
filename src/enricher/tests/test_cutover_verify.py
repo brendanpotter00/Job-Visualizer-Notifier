@@ -3,12 +3,15 @@
 * A first tick whose wrapper died (reboot, power loss, SIGKILL) stays ``running``
   forever; phase E skips it for the next tick instead of waiting into the hard cap.
 * The "old prod DB changed" tripwire compares content, not bytes.
+* Venv equivalence compares the interpreters that run, not pyvenv.cfg.
 """
 
 from __future__ import annotations
 
 import hashlib
+import os
 import sqlite3
+import sys
 import threading
 import time
 from pathlib import Path
@@ -184,3 +187,16 @@ def test_a_state_without_a_snapshot_falls_back_to_the_bytes(verify):
     assert co.old_db_unchanged(cfg, st) is None
     st.data["old_db_sha256"] = hashlib.sha256(b"something else").hexdigest()
     assert co.old_db_unchanged(cfg, st) == "its bytes changed"
+
+
+# ------------------------------------------------------------------ venv equivalence
+def test_running_python_asks_the_interpreter_not_pyvenv_cfg(tmp_path):
+    venv = tmp_path / "venv"
+    (venv / "bin").mkdir(parents=True)
+    # What a uv venv looks like after `uv python upgrade`: the cfg is frozen at the
+    # patch it was made with, bin/python follows uv's minor-version link.
+    (venv / "pyvenv.cfg").write_text("home = /x\nversion_info = 3.12.13\n")
+    os.symlink(sys.executable, venv / "bin" / "python")
+    want = f"CPython {'.'.join(map(str, sys.version_info[:3]))}"
+    assert co.running_python(venv) == want
+    assert co.running_python(tmp_path / "missing") is None

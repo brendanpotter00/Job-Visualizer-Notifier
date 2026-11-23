@@ -913,6 +913,20 @@ def app_interpreter(cfg: Config) -> tuple[Path | None, str]:
     return interp, pv.get("version_info", "?")
 
 
+def running_python(venv: Path) -> str | None:
+    """What ``<venv>/bin/python`` really runs (``CPython 3.12.13``), or None.
+
+    Not pyvenv.cfg's ``version_info``: that is frozen when the venv is made,
+    while ``bin/python`` follows uv's minor-version link, so after a
+    ``uv python upgrade`` an old venv says 3.12.13 and runs 3.12.14."""
+    cp = run([str(venv / "bin" / "python"), "-I", "-c",
+              "import platform, sys; print(platform.python_implementation(), "
+              "'.'.join(map(str, sys.version_info[:3])))"], timeout=60)
+    if cp.returncode != 0:
+        return None
+    return cp.stdout.strip() or None
+
+
 def freeze(cfg: Config, venv_python: Path) -> list[str]:
     cp = run([cfg.uv_bin, "pip", "list", "--format=freeze", "--python", str(venv_python)],
              timeout=300)
@@ -1362,8 +1376,8 @@ def sync_and_compare_venv(cfg: Config, interp: Path, new_enricher: Path) -> None
              timeout=cfg.uv_timeout_s)
     if cp.returncode != 0:
         raise Defer(f"uv sync --frozen failed ({cp.returncode}): {tail(cp.stderr, 8)}")
-    old_v = read_pyvenv_cfg(cfg.old_prod / ".venv").get("version_info")
-    new_v = read_pyvenv_cfg(new_enricher / ".venv").get("version_info")
+    old_v = running_python(cfg.old_prod / ".venv")
+    new_v = running_python(new_enricher / ".venv")
     if not old_v or old_v != new_v:
         raise Refuse(f"new venv python {new_v} != old prod venv python {old_v}")
     old_f = freeze(cfg, cfg.old_prod / ".venv" / "bin" / "python")
