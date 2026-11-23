@@ -38,6 +38,13 @@ python3 scripts/north_star_loop/loop.py decide <N> no <reason words...>
 
 Tell Boop once: *when I text "yes N" or "no N …", run that command and reply with its output.* The next scheduled fire (within ~4h) starts the build. Without Boop, run the command yourself.
 
+A "NS-N paused" text means a no-mistakes gate is waiting on you; the idea stays `paused` (holding the one-idea slot, never rebuilt by the schedule) until you answer the gate and then run one of:
+
+```sh
+python3 scripts/north_star_loop/loop.py set <N> status=pr_open pr_url=<url>   # the PR went up
+python3 scripts/north_star_loop/loop.py set <N> status=approved               # rebuild from scratch
+```
+
 ## Ops
 
 ```sh

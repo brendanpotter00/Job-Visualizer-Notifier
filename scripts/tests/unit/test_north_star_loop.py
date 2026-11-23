@@ -139,3 +139,19 @@ def test_only_known_fields_can_be_set(loop):
     loop.add()
     out = loop("set", "1", "brief=overwritten", check=False)
     assert out.returncode != 0 and "cannot set brief" in out.stderr
+
+
+def test_paused_idea_holds_the_slot_and_is_not_rebuilt(loop):
+    loop.add()
+    loop("decide", "1", "yes")
+    loop("set", "1", "status=building")
+    loop("set", "1", "status=paused")
+    later = "2026-12-09T09:00:00+00:00"
+    for _ in range(3):
+        loop("sync", now=later)
+        assert next_action(loop, now=later) == "none"
+    assert "status: paused" in loop("show", "1").stdout
+    assert loop.add(now=later, check=False).returncode != 0
+
+    loop("set", "1", "status=pr_open", "pr_url=https://github.com/x/y/pull/9")
+    assert "status: pr_open" in loop("show", "1").stdout

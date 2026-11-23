@@ -8,6 +8,8 @@ one-line summary. Lifecycle:
     proposed -> approved -> building -> pr_open -> shipped -> measured
              \-> rejected | expired           \-> closed  (PR closed unmerged)
                             building -> blocked (build failed twice)
+                            building -> paused  (a no-mistakes gate asks Brendan;
+                                                 he sets pr_open, or approved to rebuild)
 
 `next` prints the one action the scheduled run should take. `sync` does the
 token-free bookkeeping first (merge detection via `gh`, expiry). See
@@ -31,7 +33,7 @@ EXPIRE_DAYS = 7  # an unanswered idea expires so the next one can go out
 # the same "week + 38 days" rule as metrics.north_star_weekly.mature.
 READOUT_DAYS = 38
 MAX_BUILD_ATTEMPTS = 2
-OPEN = ("proposed", "approved", "building", "pr_open")
+OPEN = ("proposed", "approved", "building", "paused", "pr_open")
 SETTABLE = {"status", "pr_url", "branch", "clickup_id", "plan_path", "result", "readout_at"}
 
 SCHEMA = """

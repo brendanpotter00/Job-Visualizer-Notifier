@@ -1,6 +1,6 @@
 ---
 name: north-star-loop
-description: The north-star improvement loop. Once a week it proposes ONE small improvement aimed at the North Star (7-day+ return) and texts Brendan a 4-line summary. Only after he replies "yes N" does it write the plan doc, create the ClickUp task, build the change in a worktree and open a PR through no-mistakes (never merges). After merge it reads out the result. Use when asked to run the north-star loop, propose an improvement, build an approved NS idea, or read one out. Headless runs come from scripts/north_star_loop/wrapper.sh.
+description: The north-star improvement loop. Once a week it proposes ONE small improvement aimed at the North Star (7-day+ return) and texts Brendan a 5-line summary. Only after he replies "yes N" does it write the plan doc, create the ClickUp task, build the change in a worktree and open a PR through no-mistakes (never merges). After merge it reads out the result. Use when asked to run the north-star loop, propose an improvement, build an approved NS idea, or read one out. Headless runs come from scripts/north_star_loop/wrapper.sh.
 ---
 
 # north-star-loop
@@ -49,14 +49,14 @@ Pick the mode from the argument (`propose`, `build N`, `readout N`). With no arg
 
 ### build N
 
-1. `LOOP show N`. It must be `approved` (or `building` from an interrupted run; if so, `LOOP log N mistake "previous build run did not finish"` and resume). `LOOP set N status=building`.
+1. `LOOP show N`. It must be `approved` (or `building` from an interrupted run; if so, `LOOP log N mistake "previous build run did not finish"` and resume, reusing the branch and worktree from step 3 if they exist). `LOOP set N status=building`.
 2. Re-run the brief's key query. If the problem no longer holds, log a mistake, `LOOP set N status=blocked`, text (§3, blocked), stop.
-3. `git fetch origin main` and create a worktree outside the checkout: `git worktree add "$HOME/Library/Application Support/jvn-north-star-loop/worktrees/ns-N" -b loop/ns-N-<slug> origin/main`. Work only there. `LOOP set N branch=loop/ns-N-<slug>`.
+3. `git fetch origin main` and create a worktree outside the checkout: `git worktree add "$HOME/Library/Application Support/jvn-north-star-loop/worktrees/ns-N" -b loop/ns-N-<slug> origin/main`. If that worktree or branch already exists (an earlier run), reuse it instead (`git worktree add <path> loop/ns-N-<slug>` when only the branch is left). Work only there. `LOOP set N branch=loop/ns-N-<slug>`.
 4. Write the plan doc `docs/north-star-loop/ns-N-<slug>.md`: the brief verbatim, then **Plan** (ordered steps, files), **Decisions** (every choice made without asking, each with why — also `LOOP log`ged), **Log** (empty; the readout fills it). If any measured idea has a result not yet in its own plan doc, append it there too. `LOOP set N plan_path=docs/north-star-loop/ns-N-<slug>.md`.
 5. If the plan breaks `TRUST_LEVEL` limits, stop: log it, `LOOP set N status=blocked`, text (§3, blocked).
 6. Only now create the ClickUp task: list `1000430000001112`, name `NS-N · <title>`, description = the Change + Measurement sections and the plan doc path. `LOOP set N clickup_id=<id>`. If the ClickUp tools are missing or fail, `LOOP log N warn ...` and go on; the PR is what matters.
 7. Implement. Follow the area AGENTS.md files. Add or update a behaviour test for the change. Run the targeted tests and `npm run type-check` (frontend) or the touched backend tests. Commit on the branch.
-8. Ship: `no-mistakes axi run --intent-file <file>`, where the intent is the brief plus "Approved by Brendan by text on <decided_at>; built autonomously by the north-star loop at trust level 1". At a gate: fix `auto-fix` findings; for an `ask-user` finding, leave the run parked, log it, text (§3, needs you), stop. On `checks-passed`: `LOOP set N status=pr_open pr_url=<url>`.
+8. Ship: `no-mistakes axi run --intent-file <file>`, where the intent is the brief plus "Approved by Brendan by text on <decided_at>; built autonomously by the north-star loop at trust level 1". At a gate: fix `auto-fix` findings; for an `ask-user` finding, leave the run parked, log it, `LOOP set N status=paused`, text (§3, needs you), stop. A paused idea holds the one-idea slot and is never rebuilt by the schedule; Brendan answers the parked gate, then runs `LOOP set N status=pr_open pr_url=<url>` (or `status=approved` to rebuild from scratch). On `checks-passed`: `LOOP set N status=pr_open pr_url=<url>`.
 9. Remove the worktree (`git worktree remove`). Text (§3, PR ready).
 
 ### readout N
@@ -81,7 +81,7 @@ Short enough to read on a lock screen. No greeting, no sign-off.
   Reply "yes {N}" or "no {N} <why>"
   ```
 - PR ready: `NS-N PR ready, checks green: <url>` / `Merge = ship. Readout ~<date>.`
-- Needs you: `NS-N paused: <one line>. <url or "LOOP show N">`
+- Needs you: `NS-N paused: <one line>. <url or "LOOP show N">` / `After the gate: loop.py set N status=pr_open pr_url=<url>`
 - Blocked: `NS-N blocked: <one line>. Nothing shipped.`
 - Readout: `NS-N result: <verdict>. 7d <before>%→<after>% (n=<b>/<a>). <one confounder or "no confounders">`
 
