@@ -14,6 +14,17 @@ export interface User {
   createdAt: string;
   updatedAt: string;
   isAdmin: boolean;
+  /**
+   * When this account answered or skipped the first-sign-in questions (ISO
+   * 8601), or `null` when it has not yet. `null` is the ONLY value that opens
+   * the questions (`OnboardingGate` checks it with `=== null`).
+   *
+   * OPTIONAL in the type because a backend older than the field omits it,
+   * and `parseUserResponse` keeps that as `undefined` rather than inventing a
+   * value: `undefined` means "unknown", and an unknown stamp must never show
+   * the questions to an account that may have answered them long ago.
+   */
+  onboardingCompletedAt?: string | null;
 }
 
 /**
@@ -87,6 +98,17 @@ function parseUserResponse(raw: unknown): User {
     // ``undefined`` and ``!user.isAdmin`` would silently demote the admin
     // in AdminRoute. Surface as a hard failure instead.
     throw new Error('Invalid /api/users response: missing isAdmin field');
+  }
+  // ABSENT is legal (a backend older than the field) and stays `undefined`.
+  // PRESENT must be a string or `null`: anything else is a serializer bug, and
+  // passing it through would make `=== null` and the string checks disagree
+  // about whether the account has onboarded.
+  if (
+    obj.onboardingCompletedAt !== undefined &&
+    obj.onboardingCompletedAt !== null &&
+    typeof obj.onboardingCompletedAt !== 'string'
+  ) {
+    throw new Error('Invalid /api/users response: onboardingCompletedAt must be a string or null');
   }
   return obj as unknown as User;
 }

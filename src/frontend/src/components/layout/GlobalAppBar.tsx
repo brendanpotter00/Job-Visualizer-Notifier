@@ -7,6 +7,7 @@ import { UserMenu } from './UserMenu';
 import { ROUTES } from '../../config/routes';
 import { OneSecondMark } from '../shared/OneSecondMark';
 import { SidebarToggleButton } from './SidebarToggleButton';
+import { WORDMARK_COLOR, WORDMARK_FONT_FAMILY } from '../../config/brand';
 
 /**
  * Props for the GlobalAppBar component
@@ -44,10 +45,9 @@ export function GlobalAppBar({ open, onDrawerToggle }: GlobalAppBarProps) {
             display: 'inline-flex',
             alignItems: 'center',
             gap: '14px',
-            color: '#F2EEE9',
+            color: WORDMARK_COLOR,
             textDecoration: 'none',
-            fontFamily:
-              '"Infra Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
+            fontFamily: WORDMARK_FONT_FAMILY,
             fontWeight: 700,
             letterSpacing: '-0.03em',
             lineHeight: 1,

@@ -49,7 +49,7 @@ from psycopg2 import sql
 from scripts.shared.database import Connection
 
 from ..pagination import JobCursor
-from .enrichment_writer import SUBCATEGORY_FILTER_EXPANSION
+from .enrichment_writer import SUBCATEGORY_FILTER_EXPANSION, SUBCATEGORY_PARENT
 from .database import (
     _CURSOR_PREDICATE,
     _FRESHNESS_JOIN,
@@ -709,7 +709,10 @@ def build_search_where(
     """Compose the full filter set into one WHERE clause.
 
     Every dimension ANDs with the others, and multi-value dimensions OR within
-    themselves — the same shape as the frontend's ``filterJobsByFilters``.
+    themselves — the same shape as the frontend's ``filterJobsByFilters``. ONE
+    exception: a subcategory is a software-engineering specialty, so it narrows
+    only the software rows. With another category selected too (Product Manager
+    + Backend), the other category keeps all its rows.
 
     NULL-HIDING: ``enrichment_category = ANY(...)`` evaluates to NULL for an
     unenriched row, so an active category or level filter excludes the 65% of OPEN
@@ -754,7 +757,23 @@ def build_search_where(
         # evaluated-but-no-specialty terminal state drop out the moment a filter
         # is active. It ANDs with every other condition, including the cursor
         # comparison, and never touches `_KEYSET_ORDER_BY`.
-        conditions.append(sql.SQL("job_listings.enrichment_subcategories && %s::text[]"))
+        overlap = sql.SQL("job_listings.enrichment_subcategories && %s::text[]")
+        if categories and any(c != SUBCATEGORY_PARENT for c in categories):
+            # A specialty narrows SOFTWARE jobs only. With another role picked
+            # too (Product Manager + Backend), that role keeps all its jobs:
+            # every row that passed the category clause above and is not
+            # software engineering skips the overlap. The category clause has
+            # already dropped NULL-category rows, so `<>` never sees a NULL.
+            # Mirrored by `matchesSubcategory` in the frontend's
+            # jobFilteringUtils.ts, and pinned for both by the committed
+            # subcategory oracle.
+            conditions.append(
+                sql.SQL("(job_listings.enrichment_category <> {} OR {})").format(
+                    sql.Literal(SUBCATEGORY_PARENT), overlap
+                )
+            )
+        else:
+            conditions.append(overlap)
         params.append(expand_subcategories(subcategories))
 
     if levels:

@@ -161,6 +161,13 @@ class UserResponse(BaseModel):
     # admin flag will fail Pydantic validation rather than silently demoting
     # the user to non-admin in the response.
     is_admin: bool
+    # When the first-sign-in questions were answered or skipped. ``None``
+    # (JSON ``null``) means "not yet", and it is the ONLY value that opens the
+    # SPA's OnboardingGate. Required with no default for the same reason as
+    # ``is_admin``: a response built without reading the column must fail
+    # validation, not serialize a ``null`` that shows the questions to an
+    # account that already answered them.
+    onboarding_completed_at: datetime | None
 
 
 class UserUpdateRequest(BaseModel):
@@ -800,6 +807,73 @@ class SavedFiltersUpdateRequest(BaseModel):
     @classmethod
     def _dedup_facet_field(cls, value: list[str]) -> list[str]:
         return _dedup_strings(value)
+
+
+# One enrichment facet slug, bounded exactly like the saved-filters fields above.
+_FacetSlug = Annotated[
+    str, StringConstraints(min_length=1, max_length=_MAX_FACET_SLUG_LEN)
+]
+_LocationName = Annotated[
+    str, StringConstraints(min_length=1, max_length=_MAX_LOCATION_LEN)
+]
+# The first-sign-in flow asks three questions (roles, levels, places).
+_ONBOARDING_STEPS = 3
+
+
+class OnboardingRequest(BaseModel):
+    """Body of ``POST /api/users/onboarding``: the first-sign-in answers.
+
+    Sent once, by Finish or by Skip (any close of the questions counts as
+    Skip). Every answer is optional and an empty list means "any". Skip keeps
+    whatever was answered before it, so a skipped body can still carry
+    answers. The four lists are bounded and deduped exactly like
+    ``SavedFiltersUpdateRequest``, because they land in the same
+    ``user_saved_filters`` columns. ``subcategory`` is saved only when
+    ``software_engineering`` is among ``category`` (the service drops it
+    otherwise).
+
+    ``step`` is the question on screen when the flow ended (1-3), sent for the
+    ``onboarding_skipped`` analytics event; it is not stored.
+    """
+
+    model_config = ConfigDict(
+        alias_generator=to_camel, populate_by_name=True, extra="forbid"
+    )
+
+    skipped: bool = False
+    category: list[_FacetSlug] = Field(
+        default_factory=list, max_length=_MAX_FACET_VALUES
+    )
+    subcategory: list[_FacetSlug] = Field(
+        default_factory=list, max_length=_MAX_FACET_VALUES
+    )
+    level: list[_FacetSlug] = Field(default_factory=list, max_length=_MAX_FACET_VALUES)
+    locations: list[_LocationName] = Field(
+        default_factory=list, max_length=_MAX_LOCATIONS
+    )
+    step: int | None = Field(default=None, ge=1, le=_ONBOARDING_STEPS)
+    session_id: SessionId | None = None
+
+    @field_validator("category", "level", "subcategory", "locations")
+    @classmethod
+    def _dedup_lists(cls, value: list[str]) -> list[str]:
+        return _dedup_strings(value)
+
+
+class OnboardingResponse(BaseModel):
+    """Answer of ``POST /api/users/onboarding``.
+
+    ``onboarding_completed_at`` is the account's stamp: the one this request
+    set, or the earlier one when the account had already finished (a second
+    request changes nothing). ``saved_filters`` is what the account's saved
+    filters are now, so the SPA can update its cache and live filters without
+    a second request.
+    """
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    onboarding_completed_at: datetime
+    saved_filters: SavedFiltersResponse
 
 
 class KeywordListResponse(BaseModel):

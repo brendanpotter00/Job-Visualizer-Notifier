@@ -780,6 +780,47 @@ def test_subcategory_ands_with_category(client, db_conn, seed_taxonomy):
     ) == {"s-swe"}
 
 
+def test_subcategory_narrows_only_software_jobs(client, db_conn, seed_taxonomy):
+    """Product Manager + Backend shows EVERY PM job plus the Backend SWE jobs.
+
+    A specialty is a software-engineering refinement. Before the onboarding
+    flow it ANDed with the category clause like any other dimension, so ticking
+    Backend next to Product Manager silently emptied the PM half of the list.
+    Now the specialty applies to the software rows only. The decoys: a
+    Frontend SWE row and a never-evaluated SWE row (both must drop), and a PM
+    row with no subcategories at all (must stay — it is never tested against
+    the array). A Data Scientist row proves the category clause still holds.
+    """
+    _seed_job(db_conn, "swe-backend", enrichment_category="software_engineering",
+              enrichment_subcategories=["backend"])
+    _seed_job(db_conn, "swe-full-stack", enrichment_category="software_engineering",
+              enrichment_subcategories=["full_stack"])
+    _seed_job(db_conn, "swe-frontend", enrichment_category="software_engineering",
+              enrichment_subcategories=["frontend"])
+    _seed_job(db_conn, "swe-null", enrichment_category="software_engineering")
+    _seed_job(db_conn, "pm-a", enrichment_category="product_manager")
+    _seed_job(db_conn, "pm-b", enrichment_category="product_manager",
+              enrichment_subcategories=[])
+    _seed_job(db_conn, "ds", enrichment_category="data_scientist")
+
+    body = _search(
+        client,
+        category=["product_manager", "software_engineering"],
+        subcategory="backend",
+    )
+    # backend widens into full_stack, exactly as for SWE alone.
+    assert _ids(body) == {"swe-backend", "swe-full-stack", "pm-a", "pm-b"}
+
+    # SWE alone keeps the old narrowing: only the specialty rows.
+    assert _ids(
+        _search(client, category="software_engineering", subcategory="backend")
+    ) == {"swe-backend", "swe-full-stack"}
+    # A non-SWE role alone ignores the specialty entirely.
+    assert _ids(
+        _search(client, category="product_manager", subcategory="backend")
+    ) == {"pm-a", "pm-b"}
+
+
 def test_expand_subcategories_preserves_order_and_dedupes():
     from api.services.job_search import expand_subcategories
 

@@ -346,6 +346,34 @@ export const RESPONSIVE = {
     /** A plan-card row (Free's list). */
     rowFontSize: { xs: '0.9375rem', sm: '1rem' },
   },
+  /**
+   * The first-sign-in questions (`components/onboarding/`). A NEW surface, so
+   * each `sm` slot IS the desktop design value (the prototype in
+   * `docs/implementations/onboardingFlow/proto-lab.js`). A full-screen page at
+   * every size: the phone layout runs full width, the desktop one centers a
+   * single `columnMaxWidth` column.
+   */
+  onboarding: {
+    /** Black top bar height (px): the app bar's toolbar height at each size. */
+    barHeight: { xs: 56, sm: 64 },
+    /** Side padding of the top bar, step row, question body and bottom bar (theme units). */
+    gutterX: { xs: 2, sm: 3 },
+    /** Space above the "1/3 · Skip" line (string px; spacing props multiply numbers). */
+    stepRowPaddingTop: { xs: '6px', sm: '24px' },
+    /** Question body padding above / below (theme units). */
+    bodyPaddingTop: { xs: 2, sm: 3 },
+    bodyPaddingBottom: { xs: 3, sm: 4 },
+    /** Bottom bar (Back + Continue) padding above / below (string px). */
+    footPaddingTop: { xs: '12px', sm: '14px' },
+    footPaddingBottom: { xs: '16px', sm: '22px' },
+    /** The question (the h1). */
+    questionFontSize: { xs: '1.625rem', sm: '1.875rem' },
+    /** The one centered content column on a desktop (px). */
+    columnMaxWidth: 560,
+    /** "Saved filters" toast: distance from the top (just under the 56/64px app bar) and the right edge (px). */
+    toastTop: { xs: 64, sm: 80 },
+    toastRight: { xs: 12, sm: 24 },
+  },
 } as const;
 
 /**

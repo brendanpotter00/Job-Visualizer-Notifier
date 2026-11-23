@@ -7,6 +7,7 @@ import { GlobalAppBar } from './GlobalAppBar';
 import { NavigationDrawer } from './NavigationDrawer';
 import { AppFooter } from './AppFooter';
 import { PageSkeleton } from '../shared/Skeletons';
+import { OnboardingGate } from '../onboarding/OnboardingGate';
 
 const DRAWER_WIDTH = 240;
 export const MINI_DRAWER_WIDTH = 65; // Match NavigationDrawer's calculated width
@@ -105,6 +106,10 @@ export function RootLayout() {
             <Outlet />
           </Suspense>
         </Box>
+        {/* First-sign-in questions (full screen) and their "Saved filters" toast.
+            Here, not around the routes, so `/` and `/pricing` (outside this
+            layout) never show them. */}
+        <OnboardingGate />
         <AppFooter />
       </Box>
     </Box>
