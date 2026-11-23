@@ -20,7 +20,7 @@ real backend endpoints, a real Postgres — with only the model weights replaced
 |---|---|
 | **Run it** | `e2e/run.sh enricher` (measured 60 s, 16 cases) · `--fast` (27 s, 7 cases) · `--enricher-ref enricher-prod-eeff1c9` (51 s, 12 cases) |
 | **Cost** | **$0, unconditionally.** The model is a stub on loopback. No `claude`, no real ollama, no Browserbase, a blank Anthropic key on the backend. |
-| **Ports** | backend `8205`, kill-switch backend `8206` (EN-08 only), stub model `8215`. No frontend. |
+| **Ports** | backend `8207`, kill-switch backend `8206` (EN-08 only), stub model `8215`. No frontend. |
 | **Database** | **its own** — `jobscraper_e2e_enricher`, schema-only, plus a drift repair (§4) |
 | **What runs** | a throwaway COPY of the enricher, outside the repo (§2) — never `src/enricher` itself |
 | **Nothing starts red** | every case was green on a real run at HEAD and at the prod tag, and two deliberate mutations were used to prove they bite (§6) |
@@ -31,7 +31,7 @@ real backend endpoints, a real Postgres — with only the model weights replaced
 
 | Piece | What it is |
 |---|---|
-| Backend | the real `e2e.shared.stack.e2e_app:app` on :8205, `ENRICHMENT_USE_EXTERNAL=true`, the **internal-key middleware armed** with the test key from `env.enricher` |
+| Backend | the real `e2e.shared.stack.e2e_app:app` on :8207, `ENRICHMENT_USE_EXTERNAL=true`, the **internal-key middleware armed** with the test key from `env.enricher` |
 | Kill-switch backend | a second, short-lived backend on :8206 over the same database with `ENRICHMENT_USE_EXTERNAL=false` (EN-08 only; the add-companies AC-09 pattern) |
 | Model | `stub_ollama.py` on :8215 — stdlib HTTP, implements ollama's `POST /api/chat` |
 | Enricher | a sandbox copy, its own venv (`uv sync --frozen --python 3.12`), its own `.env.local` |
@@ -61,7 +61,7 @@ the owner's checkout. So `sandbox.py`:
    `dashboard/node_modules`, `dashboard/dist`) — or, with `--enricher-ref <ref>`,
    `git archive <ref>:src/enricher`;
 2. `uv sync --frozen --python 3.12` (the only step allowed network, for a cold uv cache);
-3. writes a `.env.local` with **test values only** (`JVN_BASE_URL=:8205`,
+3. writes a `.env.local` with **test values only** (`JVN_BASE_URL=:8207`,
    `INTERNAL_API_KEY=e2e-enricher-not-a-secret`, `OLLAMA_BASE_URL=:8215`) and a
    `.checkout-role` of `e2e-sandbox`;
 4. **proves the isolation**: the sandbox's own interpreter must report
@@ -101,7 +101,7 @@ e2e-only additions, none of which changes what the wrapper does:
 **Boot guards** (`sandbox.py guard`, before any case): the sandbox path is not under
 `~/developer/personal/{app,enricher-prod,job-enricher}` or `src/enricher`;
 `.env.local`'s `OLLAMA_BASE_URL` is loopback `:8215` (never `:11434`), `JVN_BASE_URL`
-loopback `:8205`, the key is the test key; `cli init` + `cli health` report
+loopback `:8207`, the key is the test key; `cli init` + `cli health` report
 `classify_engine=ollama` and `judge_engine=ollama` — so the wrapper can never take the
 `claude -p` branch.
 

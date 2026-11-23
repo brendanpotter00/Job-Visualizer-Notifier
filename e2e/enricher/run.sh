@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # e2e/run.sh enricher [--fast] [--case EN-04] [--refresh-db] [--keep-up] [--enricher-ref REF]
 #
-# Stack up (backend :8205, NO frontend, db jobscraper_e2e_enricher, internal-key
+# Stack up (backend :8207, NO frontend, db jobscraper_e2e_enricher, internal-key
 # middleware ARMED) -> stub ollama on :8215 -> sandbox enricher (a copy of
 # src/enricher, or `git archive REF:src/enricher`) -> boot guards -> pytest
 # (API tier: real wrapper, real CLI) -> collect -> tear down.
@@ -54,8 +54,8 @@ if [ ! -x "$PY" ]; then
 fi
 
 # --- The stack this section owns -----------------------------------------
-export E2E_BACKEND_PORT=8205
-export E2E_FRONTEND_PORT=3205          # never started (E2E_SKIP_FRONTEND=1)
+export E2E_BACKEND_PORT=8207
+export E2E_FRONTEND_PORT=3207          # never started (E2E_SKIP_FRONTEND=1)
 export E2E_BACKEND_URL="http://127.0.0.1:${E2E_BACKEND_PORT}"
 export E2E_TARGET_DB="jobscraper_e2e_enricher"
 export E2E_EXPECTED_DB="$E2E_TARGET_DB"
@@ -86,7 +86,7 @@ else
   OTHER_PID="$(cat "$LOCK_DIR/pid" 2>/dev/null || true)"
   if [ -n "$OTHER_PID" ] && ps -p "$OTHER_PID" -o pid= >/dev/null 2>&1; then
     echo "enricher: REFUSING TO START — another enricher run (pid $OTHER_PID) holds" \
-      ":8205/:8215 and reseeds the same fixtures. Wait for it, or stop it." >&2
+      ":8207/:8215 and reseeds the same fixtures. Wait for it, or stop it." >&2
     exit 2
   fi
   echo "enricher: clearing a stale run lock left by pid ${OTHER_PID:-unknown}"
@@ -170,7 +170,7 @@ write_summary() {
 cleanup() {
   local rc=$?
   if [ "$KEEP_UP" = "1" ]; then
-    echo "enricher: --keep-up given; leaving backend :8205, stub :8215 and the sandbox" \
+    echo "enricher: --keep-up given; leaving backend :8207, stub :8215 and the sandbox" \
          "at $E2E_SANDBOX_DIR"
   else
     _kill_sandbox_processes

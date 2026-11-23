@@ -74,7 +74,7 @@ BLOCKED semantics, and `features/add-companies.md` points at it rather than dupl
   `stack_down.sh` kill the owner's dev server by pidfile on the way out. Ports in use today:
   `:8201`/`:3201` (add-companies + live-view, sharing one stack and one lock), `:8202`
   (add-companies' short-lived flagged backends), `:8203`/`:3203` (subcategories),
-  `:8204`/`:3204` (billing), `:8205` + `:8206` + `:8215` (enricher: backend, its short-lived
+  `:8204`/`:3204` (billing), `:8207` + `:8206` + `:8215` (enricher: backend, its short-lived
   kill-switch backend, the stub ollama; no frontend). `enricher-cutover` binds no port at all.
 - **A section that SEEDS rows owns its own database.** Two sections writing fixtures into one
   database is the same class of bug as two runs sharing one stack — one silently changes the

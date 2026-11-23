@@ -21,7 +21,7 @@ loopback. The boot guards refuse to run unless the sandbox's engines are `ollama
 real ollama on `:11434`, which prod uses). The backend runs with Browserbase off and an
 EMPTY Anthropic key. Nothing touches real JVN, prod's checkout or any prod database.
 
-**Ports `8205` (backend), `8206` (EN-08's kill-switch backend), `8215` (stub), no frontend;
+**Ports `8207` (backend), `8206` (EN-08's kill-switch backend), `8215` (stub), no frontend;
 database `jobscraper_e2e_enricher`.** Its own run lock — it runs alongside every other
 section, never alongside a second copy of itself.
 

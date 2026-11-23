@@ -50,7 +50,7 @@ UV_BIN = "/opt/homebrew/bin/uv"
 #: The prod plist's EnvironmentVariables.PATH, verbatim.
 LAUNCHD_PATH = "/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 STUB_PORT = 8215
-BACKEND_PORT = 8205
+BACKEND_PORT = 8207
 REAL_OLLAMA_PORT = 11434
 LOOPBACK = ("127.0.0.1", "localhost")
 

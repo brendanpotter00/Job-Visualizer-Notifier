@@ -26,7 +26,7 @@ if [ -z "$SECTION" ]; then
   echo "  billing              \$0. Real Stripe SANDBOX (test cards, test clocks); a live" >&2
   echo "                       key is refused. Own stack :8204/:3204. Needs 'stripe login'." >&2
   echo "  enricher             \$0, unconditionally. Real enricher CLI + wrapper against a" >&2
-  echo "                       real backend on :8205 and a STUB ollama on :8215 (never" >&2
+  echo "                       real backend on :8207 and a STUB ollama on :8215 (never" >&2
   echo "                       :11434). --enricher-ref <ref> runs another version." >&2
   echo "  enricher-cutover     \$0, no network: the enricher cutover + its merge watcher in a" >&2
   echo "                       sandbox (fake HOME, stub launchd/gh/send.sh, local remotes)." >&2

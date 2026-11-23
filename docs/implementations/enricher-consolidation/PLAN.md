@@ -46,7 +46,7 @@ One PR. Five sequential units (§9). Each leaves the branch green.
 | Recent JVN merges are **squash** merges; merge commits are allowed in repo settings | `git log --merges`; `gh api repos/…` |
 | `~/.claude/skills/everything-running/check.sh` hardcodes `ENRICHER_DIR=$HOME/developer/personal/app` | line 15 |
 | Imported history (22 commits) has no hits for common secret patterns | pattern scan of `git log -p 402919b5^2` (redacted) |
-| Ports `8205`, `8206`, `8215`, `3205` are free; `8204`/`3204` belong to `billing` | `lsof` |
+| Ports `8205`, `8206`, `8215`, `3205` are free; `8204`/`3204` belong to `billing` *(Unit 5 correction: main's `onboarding` section, #385, took `8205`/`3205` on 2026-11-23, so the enricher backend moved to **`8207`** (placeholder frontend `3207`); `8206`/`8215` stay)* | `lsof` |
 | `src/backend/uv.lock` is untracked in the JVN checkout and is **not ours** | `git status` — never `git add -A` |
 
 **Unverified (designed around, not relied on):** whether `launchctl unload` SIGTERMs an
@@ -178,7 +178,7 @@ a row in `e2e/README.md` and in the skill's table, a cost banner + hand-off in `
 
 | | |
 |---|---|
-| Backend | real `e2e.shared.stack.e2e_app:app` on **:8205**; a short-lived kill-switch backend on **:8206** (EN-08) |
+| Backend | real `e2e.shared.stack.e2e_app:app` on **:8207** *(was :8205 — see §1)*; a short-lived kill-switch backend on **:8206** (EN-08) |
 | Frontend | **none** — new `stack_up.sh` knob `E2E_SKIP_FRONTEND=1` |
 | Database | **`jobscraper_e2e_enricher`**, `--schema-only` (it seeds its own rows) |
 | LLM | `e2e/enricher/stub_ollama.py` on **:8215** — a stdlib HTTP server implementing `POST /api/chat` |
@@ -209,7 +209,7 @@ sandbox path. That assertion is the isolation proof; the run refuses if it fails
 
 **Boot guards (`run.sh`, before any case):** sandbox `.env.local` has
 `OLLAMA_BASE_URL=http://127.0.0.1:8215` (refuse `:11434` or any non-loopback host),
-`JVN_BASE_URL=http://127.0.0.1:8205`, `INTERNAL_API_KEY=e2e-enricher-not-a-secret`
+`JVN_BASE_URL=http://127.0.0.1:8207`, `INTERNAL_API_KEY=e2e-enricher-not-a-secret`
 (committed in `env.enricher`; it is a test value); the sandbox path is not under
 `~/developer/personal/{app,enricher-prod,job-enricher}`; `cli health` in the sandbox reports
 `classify_engine=ollama` and `judge_engine=ollama` (so the wrapper can never reach `claude -p`).
@@ -699,12 +699,18 @@ Unit 3 makes main's tooling ready and documents the runbook in `docs/ENVIRONMENT
 2. Run `cutover.sh --preflight --jvn-repo <JVN checkout>` (and optionally `--rehearse`) on the
    real machine; attach the report to the PR.
 3. Run `e2e/run.sh enricher` at HEAD **and** `--enricher-ref enricher-prod-eeff1c9`.
-4. Raise the PR through no-mistakes. In the PR body: **merge with "Create a merge commit"** to
+4. **Bring in current `main` first.** Since 2026-11-23 it carries #385/#386 (onboarding),
+   which conflict textually with this branch in `e2e/README.md`,
+   `.claude/skills/e2e-gate/SKILL.md` and `e2e/run.sh` (both sides added a section row,
+   usage line and banner — keep both). The port clash is already fixed on this branch:
+   `onboarding` keeps `:8205`/`:3205`, the enricher backend moved to `:8207`. Re-run both
+   `enricher` gates after the merge.
+5. Raise the PR through no-mistakes. In the PR body: **merge with "Create a merge commit"** to
    keep the enricher history on main (squash still works for the cutover — the tag carries the
    prod commit — but flattens 22 imported commits into one).
-5. After the PR is up and green: `install_watcher.sh` (from this branch's copy). It idles until
+6. After the PR is up and green: `install_watcher.sh` (from this branch's copy). It idles until
    the merge.
-6. After `DONE`: update auto-memory notes that name `~/developer/personal/app` (job-enricher
+7. After `DONE`: update auto-memory notes that name `~/developer/personal/app` (job-enricher
    entries, everything-running entry, personal-services launchd map).
 
 ---

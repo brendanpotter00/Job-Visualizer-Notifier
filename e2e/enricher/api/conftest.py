@@ -1,6 +1,6 @@
 """pytest fixtures for the enricher section (PLAN.md §3).
 
-Assumes ``e2e/enricher/run.sh`` already brought up: the backend on :8205 with
+Assumes ``e2e/enricher/run.sh`` already brought up: the backend on :8207 with
 the internal-key middleware armed, ``stub_ollama.py`` on :8215, and a guarded
 sandbox enricher (``sandbox.json`` in the run's artifacts). Starts nothing
 itself except the short-lived kill-switch backend EN-08 needs, so a fix loop can
@@ -53,7 +53,7 @@ import seed  # noqa: E402
 
 from e2e.shared.db import assertions as db  # noqa: E402
 
-BASE_URL = os.environ.get("E2E_BACKEND_URL", "http://127.0.0.1:8205")
+BASE_URL = os.environ.get("E2E_BACKEND_URL", "http://127.0.0.1:8207")
 INTERNAL_KEY = os.environ.get("E2E_INTERNAL_API_KEY", "e2e-enricher-not-a-secret")
 STUB_URL = os.environ.get("E2E_STUB_URL", "http://127.0.0.1:8215")
 KILLSWITCH_PORT = int(os.environ.get("E2E_KILLSWITCH_PORT", "8206"))
