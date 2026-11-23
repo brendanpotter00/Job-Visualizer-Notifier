@@ -6,7 +6,11 @@ ISOLATION BREACH (PLAN.md §5). Read-only: stat + sha256 + read-only git queries
 * ``~/Library/LaunchAgents/com.bp.*`` — sha256 (the only agents the cutover or
   the watcher could write; other software rewrites its own plists at will — a
   Creative Cloud agent did, mid-run, which is why this is not the whole dir);
-* the real cutover state dir and the watcher's real log files — exists? + sha256;
+* the real cutover state dir — sha256 of every file EXCEPT the installed watcher's own
+  working dirs (``jvn.git``, ``run/``, ``watcher.lock``, and their ``.tmp-<pid>`` forms):
+  it fires every 5 min on its own schedule, and a case that leaked out of its sandbox
+  would write ``state.json``, which IS hashed;
+* the watcher's real log files — exists? only, since every fire appends a line to them;
 * ``~/developer/personal/{app,job-enricher,enricher-prod}`` — git HEAD, tracked
   changes, ``.checkout-role`` / ``CLAUDE.local.md``, and a stat manifest of every
   file EXCEPT what the live worker itself writes (``data/``, ``.venv/``,
@@ -25,6 +29,10 @@ from pathlib import Path
 HOME = Path(os.path.expanduser("~"))
 PERSONAL = HOME / "developer" / "personal"
 LIVE_WRITES = {"data", ".venv", "__pycache__", "node_modules", ".pytest_cache"}
+#: First path components of the state dir that the installed watcher rewrites on its own
+#: 5-minute schedule: the bare JVN mirror, the scripts it extracts from merged main, and
+#: its single-flight lock. Matched as prefixes, so the ``.tmp-<pid>`` forms count too.
+WATCHER_WRITES = ("jvn.git", "run", "watcher.lock")
 
 
 def sha(p: Path) -> str:
@@ -34,13 +42,16 @@ def sha(p: Path) -> str:
         return f"unreadable:{exc.errno}"
 
 
-def files_sha(root: Path, pattern: str = "*") -> dict[str, str]:
+def files_sha(root: Path, pattern: str = "*", exclude: tuple[str, ...] = ()) -> dict[str, str]:
     if not root.exists():
         return {"<absent>": ""}
     out = {}
     for p in sorted(root.rglob(pattern)):
+        rel = p.relative_to(root)
+        if exclude and rel.parts[0].startswith(exclude):
+            continue
         if p.is_file() or p.is_symlink():
-            out[str(p.relative_to(root))] = "link" if p.is_symlink() else sha(p)
+            out[str(rel)] = "link" if p.is_symlink() else sha(p)
     return out
 
 
@@ -73,10 +84,10 @@ def checkout(root: Path) -> dict[str, object]:
 def snapshot() -> dict[str, object]:
     return {
         "launchagents": files_sha(HOME / "Library" / "LaunchAgents", "com.bp.*"),
-        "state_dir": files_sha(HOME / "Library" / "Application Support" / "jvn-enricher-cutover"),
-        "watcher_logs": {n: sha(HOME / "Library" / "Logs" / n)
-                         for n in ("jvn-enricher-cutover.log", "jvn-enricher-cutover.err")
-                         if (HOME / "Library" / "Logs" / n).exists()},
+        "state_dir": files_sha(HOME / "Library" / "Application Support" / "jvn-enricher-cutover",
+                               exclude=WATCHER_WRITES),
+        "watcher_logs": {n: (HOME / "Library" / "Logs" / n).exists()
+                         for n in ("jvn-enricher-cutover.log", "jvn-enricher-cutover.err")},
         "app": checkout(PERSONAL / "app"),
         "job-enricher": checkout(PERSONAL / "job-enricher"),
         "enricher-prod": checkout(PERSONAL / "enricher-prod"),

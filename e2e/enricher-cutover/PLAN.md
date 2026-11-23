@@ -123,9 +123,11 @@ at phase C's untracked scan and waits until it is writing (CO-16).
   `GIT_ALLOW_PROTOCOL=file` (git refuses http/https/ssh outright — WT-02 shows it);
   `UV_OFFLINE=1`; the stubs. CO-11's manifest and CO-14's scan cover the sandbox side.
 * **Around the run:** `real_manifest.py` fingerprints the real `~/Library/LaunchAgents/com.bp.*`,
-  the real cutover state dir and watcher logs, and `~/developer/personal/{app,job-enricher,
-  enricher-prod}` (HEAD, tracked changes, role, `CLAUDE.local.md`, a stat of every file except
-  what the live worker writes: `data/`, `.venv/`, `__pycache__/`), before and after pytest.
+  the real cutover state dir (every file except the installed watcher's own `jvn.git`, `run/` and
+  `watcher.lock` — it fires every 5 min; `state.json` IS hashed), whether the watcher's log files
+  exist, and `~/developer/personal/{app,job-enricher,enricher-prod}` (HEAD, tracked changes, role,
+  `CLAUDE.local.md`, a stat of every file except what the live worker writes: `data/`, `.venv/`,
+  `__pycache__/`), before and after pytest.
   A difference is recorded as a FAILED case `real_machine_paths_unchanged` in the JUnit
   file, so the summary's verdict is RED. It started out fingerprinting all of
   `LaunchAgents` and immediately flagged a Creative Cloud agent rewriting its own plist
