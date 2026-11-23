@@ -36,7 +36,7 @@ One PR. Five sequential units (§9). Each leaves the branch green.
 | Tag commit `3ea04981`'s tree contains **only** `src/` (= `src/enricher`) | `git ls-tree 3ea04981` |
 | App untracked state: `.env.local`, `.checkout-role`, `.venv/`, `data/enricher.db`, `data/.tick.lock`, `data/chunks/`, `data/classify-run-t*.log` (×3), `__pycache__/` | `git -C app status --ignored --untracked-files=all` |
 | App venv: CPython **3.12.13** at `~/.local/share/uv/python/cpython-3.12-macos-aarch64-none/bin`, uv 0.11.14 | `app/.venv/pyvenv.cfg`; `/opt/homebrew/bin/uv --version` |
-| Wrapper / deploy / installer / dashboard scripts are **identical** at the tag and at main | `git diff enricher-prod-eeff1c9 HEAD -- src/enricher/scripts/{enrich_tick_wrapper,deploy,install_launchagents,run_dashboard}.sh` → empty |
+| Wrapper / deploy / installer / dashboard scripts are **identical** at the tag and at main | `git diff enricher-prod-eeff1c9 HEAD -- src/enricher/scripts/{enrich_tick_wrapper,deploy,install_launchagents,run_dashboard}.sh` → empty *(at planning time; Unit 1 then rewrote `run_dashboard.sh` and one comment in `install_launchagents.sh` on main — the cutover runs the tag's copies, so prod is unaffected)* |
 | Enricher unit suite passes **in the monorepo location**: 814 passed, 9 skipped, 11 s | `cd src/enricher && uv sync --locked && uv run pytest` |
 | JVN `src/backend/taxonomy.json` is **byte-identical** to the enricher's vendored `golden/taxonomy-parity/jvn_facets.json` | `cmp` |
 | JVN root has **no** `CLAUDE.md`/`CLAUDE.local.md`; root `.claude/settings.json` holds only `enabledPlugins` (no hooks) | `ls`; `cat` |
@@ -120,6 +120,17 @@ settings/commands/agents from the cwd's `.claude/`. Today no ancestor inside JVN
    - `store.REPO_ROOT` resolves to `src/enricher` (package-relative state stays per-area).
    Each test skips with a clear reason when run outside the monorepo (e.g. the prod tag's
    tree, which has no JVN root) — the CI run is always inside it.
+
+**Unit 1 findings (Claude Code docs: memory, large-codebases, skills, sub-agents, settings;
+no model run).** CLAUDE.md/CLAUDE.local.md load from the cwd and every ancestor, into the
+tick AND every sub-agent. AGENTS.md loads only when no CLAUDE.md exists at or above the cwd
+(default mode), so `src/enricher/CLAUDE.md` keeps every JVN AGENTS.md out. Project skills
+load from the cwd up to the repo root and a **root skill wins** over a nested namesake (a
+skill also beats a commands file) — so the guard file also asserts no JVN-root skill/command
+shadows an enricher one, and that `src/enricher/CLAUDE.md` exists. Shared
+`.claude/settings.json` is read from the starting dir only (the root-settings guard is a
+tripwire), but `.claude/settings.local.json` is read from the **git root** (untracked, so not
+CI-guardable; documented in `src/enricher/AGENTS.md`).
 
 ### 2.5 Docs
 
@@ -357,6 +368,10 @@ each DB?), then continues from the first incomplete phase.
 **D — Swap (the atomic switch point is the plist write).**
 1. `<new prod>/src/enricher/.checkout-role` = `prod`; `<new prod>/CLAUDE.local.md` = "PROD
    enricher checkout — do not edit; dev is `~/developer/personal/Job-Visualizer-Notifier/src/enricher`".
+   ⚠ *(Unit 1 finding)* an ancestor `CLAUDE.local.md` is loaded into every `claude -p`
+   enrichment prompt and sub-agent. Harmless on prod's ollama path (no `claude` call), but
+   it would change prompts once main's `claude-code` engine runs there — Unit 3 decides
+   whether to keep it or use a non-auto-loaded marker.
    Old prod `.checkout-role` = `retiring` (its `deploy.sh` then refuses to run there).
 2. New plist = original bytes with the old-prod path replaced by `<new prod>/src/enricher`;
    **exactly two replacements** (`ProgramArguments[0]`'s prefix and `WorkingDirectory`) or
