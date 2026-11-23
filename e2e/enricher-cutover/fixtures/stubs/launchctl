@@ -1,0 +1,298 @@
+#!/usr/bin/env python3
+"""Stub ``launchctl`` for the enricher-cutover e2e section (PLAN.md §2).
+
+conftest installs it as ``<sandbox>/bin/launchctl`` with the shebang rewritten
+to the test interpreter (``-I``). It stands in for launchd closely enough for
+the cutover and the watcher, and records everything:
+
+* state (which labels are loaded, from which plist) lives in ``$FAKE_LAUNCHD_DIR``,
+  guarded by an flock, so concurrent callers never tear it;
+* ``load <plist>`` starts a detached FIRE LOOP that runs the plist's
+  ``ProgramArguments`` in its ``WorkingDirectory`` every ``$FAKE_INTERVAL_S``
+  seconds after the previous run ended (and at once with ``RunAtLoad``), never
+  two at a time — launchd's ``StartInterval`` semantics. Each run gets a
+  launchd-like environment built from scratch: HOME/USER/LOGNAME/SHELL/TMPDIR,
+  the plist's ``EnvironmentVariables``, ``PATH`` = the stub dir + the plist's
+  PATH, plus the sandbox's knobs (``FAKE_*``, ``UV_*``, ``CUTOVER_*``, ``GIT_*``,
+  ``JVN_REMOTE_URL``, ``LAUNCHCTL``, ``GH_BIN``, proxy vars). stdout/stderr go to
+  the plist's ``StandardOutPath``/``StandardErrorPath``. Each run is its own
+  process group (``start_new_session``), like a launchd job;
+* ``unload <plist>`` / ``remove <label>`` stop the loop; with
+  ``FAKE_UNLOAD_KILLS=1`` (the default — the real label's exit timeout is 5 s)
+  a running job's process group is SIGTERMed, with ``0`` it is left running, so
+  both possible real behaviours are testable;
+* ``list`` and ``print gui/<uid>/<label>`` answer in launchd's shape.
+
+Records: ``calls.jsonl`` (every invocation: time, argv, caller pid; for an
+unload/remove also whether a job was running and the tick lock's content at
+that instant) and ``jobs.jsonl`` (every run: pid, start, end, exit code).
+
+Test hooks (env): ``FAKE_JOB_OVERRIDE=<script>`` runs ``/bin/sh <script>``
+instead of the program (CO-REAL's faked first tick); ``FAKE_KILL_CALLER_ON_LOAD=
+<substring>`` SIGKILLs the CALLER once, instead of loading, when the plist's
+WorkingDirectory contains it (CO-09's crash after the swap). Hidden command
+``__seed <plist>`` marks a label loaded without a loop (WT-05).
+"""
+
+import fcntl
+import json
+import os
+import plistlib
+import signal
+import subprocess
+import sys
+import time
+from contextlib import contextmanager
+from pathlib import Path
+
+D = Path(os.environ["FAKE_LAUNCHD_DIR"])
+D.mkdir(parents=True, exist_ok=True)
+STATE = D / "state.json"
+PASS_PREFIXES = ("FAKE_", "UV_", "CUTOVER_", "GIT_")
+PASS_NAMES = ("JVN_REMOTE_URL", "LAUNCHCTL", "GH_BIN", "http_proxy", "https_proxy",
+              "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "all_proxy", "NO_PROXY", "no_proxy")
+
+
+@contextmanager
+def locked():
+    with open(D / "state.lock", "a+") as fh:
+        fcntl.flock(fh, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(fh, fcntl.LOCK_UN)
+
+
+def load_state() -> dict:
+    try:
+        return json.loads(STATE.read_text())
+    except (OSError, ValueError):
+        return {}
+
+
+def save_state(s: dict) -> None:
+    tmp = STATE.with_name(f".state.{os.getpid()}")
+    tmp.write_text(json.dumps(s, indent=1))
+    os.replace(tmp, STATE)
+
+
+def append(name: str, rec: dict) -> None:
+    fd = os.open(D / name, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o644)
+    try:
+        os.write(fd, (json.dumps(rec) + "\n").encode())
+    finally:
+        os.close(fd)
+
+
+def alive(pid) -> bool:
+    if not pid:
+        return False
+    try:
+        os.kill(int(pid), 0)
+    except (ProcessLookupError, ValueError):
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def lock_content(workdir: str):
+    try:
+        return (Path(workdir) / "data" / ".tick.lock").read_text()
+    except OSError:
+        return None
+
+
+def parse(plist: str) -> dict:
+    return plistlib.loads(Path(plist).read_bytes())
+
+
+def job_env(info: dict) -> dict:
+    env = {
+        "HOME": os.environ["HOME"],
+        "USER": os.environ.get("USER", "e2e"),
+        "LOGNAME": os.environ.get("LOGNAME", os.environ.get("USER", "e2e")),
+        "SHELL": "/bin/zsh",
+        "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
+    }
+    env.update({k: v for k, v in os.environ.items()
+                if k.startswith(PASS_PREFIXES) or k in PASS_NAMES})
+    env.update(info.get("env") or {})
+    env["PATH"] = f"{Path(__file__).resolve().parent}:" + (info.get("env") or {}).get(
+        "PATH", "/usr/bin:/bin:/usr/sbin:/sbin")
+    return env
+
+
+def fire(label: str, info: dict) -> None:
+    out = info.get("stdout") or os.devnull
+    err = info.get("stderr") or out
+    args = list(info["args"])
+    override = os.environ.get("FAKE_JOB_OVERRIDE")
+    if override:
+        args = ["/bin/sh", override]
+    with open(out, "ab") as so, open(err, "ab") as se:
+        t0 = time.time()
+        job = subprocess.Popen(args, cwd=info["workdir"], env=job_env(info), stdin=subprocess.DEVNULL,
+                               stdout=so, stderr=se, start_new_session=True)
+        with locked():
+            s = load_state()
+            if label in s and s[label]["gen"] == info["gen"]:
+                s[label]["job_pid"] = job.pid
+                save_state(s)
+        append("jobs.jsonl", {"event": "start", "label": label, "pid": job.pid, "t": t0,
+                              "workdir": info["workdir"], "program": args[0]})
+        rc = job.wait()
+        with locked():
+            s = load_state()
+            if label in s and s[label].get("job_pid") == job.pid:
+                s[label]["job_pid"] = None
+                save_state(s)
+        append("jobs.jsonl", {"event": "end", "label": label, "pid": job.pid, "t": time.time(),
+                              "rc": rc, "workdir": info["workdir"]})
+
+
+def loop(label: str, gen: str) -> int:
+    interval = float(os.environ.get("FAKE_INTERVAL_S", "1"))
+    first = True
+    # An unload TERMs this loop. Finish recording the job in flight (if any)
+    # instead of dying mid-wait, so jobs.jsonl always holds its end time.
+    signal.signal(signal.SIGTERM, lambda *_: None)
+    while True:
+        with locked():
+            info = load_state().get(label)
+        if not info or info["gen"] != gen:
+            return 0
+        if not (first and info.get("run_at_load")):
+            deadline = time.time() + interval
+            while time.time() < deadline:
+                time.sleep(min(0.1, interval))
+                with locked():
+                    cur = load_state().get(label)
+                if not cur or cur["gen"] != gen:
+                    return 0
+        first = False
+        with locked():
+            info = load_state().get(label)
+        if not info or info["gen"] != gen:
+            return 0
+        fire(label, info)
+
+
+def stop(label: str, s: dict) -> dict:
+    """Unload ``label`` (caller holds the state lock). Returns the record."""
+    info = s.pop(label)
+    save_state(s)
+    if info.get("loop_pid") and alive(info["loop_pid"]):
+        try:
+            os.kill(int(info["loop_pid"]), signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+    job = info.get("job_pid")
+    running = alive(job)
+    killed = False
+    if running and os.environ.get("FAKE_UNLOAD_KILLS", "1") == "1":
+        try:
+            os.killpg(int(job), signal.SIGTERM)
+            killed = True
+        except (ProcessLookupError, PermissionError):
+            pass
+    return {"job_running": running, "job_pid": job, "job_killed": killed,
+            "lock": lock_content(info["workdir"]), "workdir": info["workdir"]}
+
+
+def main() -> int:
+    argv = sys.argv[1:]
+    cmd = argv[0] if argv else ""
+    rec = {"t": time.time(), "argv": argv, "caller": os.getppid()}
+
+    if cmd == "__loop":
+        return loop(argv[1], argv[2])
+
+    if cmd == "list":
+        append("calls.jsonl", rec)
+        with locked():
+            s = load_state()
+        print("PID\tStatus\tLabel")
+        for label, info in sorted(s.items()):
+            pid = info.get("job_pid")
+            print(f"{pid if alive(pid) else '-'}\t0\t{label}")
+        return 0
+
+    if cmd == "print":
+        append("calls.jsonl", rec)
+        label = argv[1].rsplit("/", 1)[-1] if len(argv) > 1 else ""
+        with locked():
+            info = load_state().get(label)
+        if not info:
+            print(f"Could not find service \"{label}\" in domain for port", file=sys.stderr)
+            return 113
+        running = alive(info.get("job_pid"))
+        print(f"{argv[1]} = {{\n\tactive count = {1 if running else 0}\n"
+              f"\tpath = {info['plist']}\n\ttype = LaunchAgent\n"
+              f"\tstate = {'running' if running else 'not running'}\n\n"
+              f"\tprogram = {info['args'][0]}\n\targuments = {{\n"
+              + "".join(f"\t\t{a}\n" for a in info["args"])
+              + f"\t}}\n\n\tworking directory = {info['workdir']}\n}}")
+        return 0
+
+    if cmd in ("load", "__seed"):
+        plist = argv[1]
+        d = parse(plist)
+        label = d["Label"]
+        rec.update(label=label, workdir=d.get("WorkingDirectory"),
+                   program=(d.get("ProgramArguments") or [None])[0])
+        kill_on = os.environ.get("FAKE_KILL_CALLER_ON_LOAD")
+        marker = D / "killed-caller"
+        if (cmd == "load" and kill_on and kill_on in str(d.get("WorkingDirectory", ""))
+                and not marker.exists()):
+            marker.write_text(str(os.getppid()))
+            rec["killed_caller"] = True
+            append("calls.jsonl", rec)
+            os.kill(os.getppid(), signal.SIGKILL)
+            return 1
+        append("calls.jsonl", rec)
+        with locked():
+            s = load_state()
+            if label in s:
+                print(f"{plist}: service already loaded", file=sys.stderr)
+                return 0
+            gen = f"{time.time():.6f}-{os.getpid()}"
+            s[label] = {"plist": plist, "args": d["ProgramArguments"],
+                        "workdir": d.get("WorkingDirectory", "/"),
+                        "env": d.get("EnvironmentVariables") or {},
+                        "stdout": d.get("StandardOutPath"), "stderr": d.get("StandardErrorPath"),
+                        "run_at_load": bool(d.get("RunAtLoad")), "gen": gen, "job_pid": None,
+                        "loop_pid": None}
+            save_state(s)
+        if cmd == "load":
+            proc = subprocess.Popen([sys.executable, "-I", str(Path(__file__).resolve()),
+                                     "__loop", label, gen],
+                                    stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                    stderr=subprocess.DEVNULL, start_new_session=True)
+            with locked():
+                s = load_state()
+                if label in s and s[label]["gen"] == gen:
+                    s[label]["loop_pid"] = proc.pid
+                    save_state(s)
+        return 0
+
+    if cmd in ("unload", "remove"):
+        label = parse(argv[1])["Label"] if cmd == "unload" else argv[1]
+        with locked():
+            s = load_state()
+            if label not in s:
+                rec.update(label=label, loaded=False)
+                append("calls.jsonl", rec)
+                print(f"Could not find specified service: {label}", file=sys.stderr)
+                return 113
+            rec.update(label=label, loaded=True, **stop(label, s))
+        append("calls.jsonl", rec)
+        return 0
+
+    append("calls.jsonl", rec)
+    print(f"stub launchctl: unsupported subcommand {argv!r}", file=sys.stderr)
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())

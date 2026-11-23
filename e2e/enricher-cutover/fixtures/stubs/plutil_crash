@@ -1,0 +1,15 @@
+#!/bin/sh
+# CO-09 crash hook, used as CUTOVER_PLUTIL_BIN. Every call is the real plutil,
+# except call number $FAKE_PLUTIL_KILL_ON_CALL (once): it SIGKILLs its caller —
+# the cutover — and exits. Phase A lints the would-be plist (call 1); phase D
+# lints the rewrite right before the plist write (call 2), so killing on call 2
+# is "crashed after the copy, before the switch".
+N_FILE="${FAKE_LAUNCHD_DIR:?}/plutil-calls"
+N=$(( $(cat "$N_FILE" 2>/dev/null || echo 0) + 1 ))
+echo "$N" > "$N_FILE"
+if [ "$N" = "${FAKE_PLUTIL_KILL_ON_CALL:-0}" ]; then
+  echo "plutil_crash: SIGKILL caller $PPID on call $N" >> "${FAKE_LAUNCHD_DIR}/plutil-crash.log"
+  kill -KILL "$PPID"
+  exit 1
+fi
+exec /usr/bin/plutil "$@"

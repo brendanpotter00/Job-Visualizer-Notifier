@@ -28,6 +28,9 @@ if [ -z "$SECTION" ]; then
   echo "  enricher             \$0, unconditionally. Real enricher CLI + wrapper against a" >&2
   echo "                       real backend on :8205 and a STUB ollama on :8215 (never" >&2
   echo "                       :11434). --enricher-ref <ref> runs another version." >&2
+  echo "  enricher-cutover     \$0, no network: the enricher cutover + its merge watcher in a" >&2
+  echo "                       sandbox (fake HOME, stub launchd/gh/send.sh, local remotes)." >&2
+  echo "                       No stack, no ports. Also runs in GitHub CI." >&2
   echo >&2
   echo "the verify-onesecondswe skill is the \$0 front door to the same features:" >&2
   echo "  .claude/skills/verify-onesecondswe/helpers/name_search.sh   (\$0; --live ~\$0.27)" >&2
@@ -69,6 +72,9 @@ case "$SECTION" in
   enricher)
     echo "run.sh: COST — \$0, unconditionally. The enricher's model is a deterministic stub" \
          "on loopback; no claude, no real ollama, no Browserbase, a blank Anthropic key." ;;
+  enricher-cutover)
+    echo "run.sh: COST — \$0, unconditionally, and no network: local file remotes, uv offline," \
+         "stub launchctl/gh/send.sh. It never touches the real HOME, launchd or app/." ;;
 esac
 
 # `company-name-search` brings its own runner and hands off BEFORE anything below
@@ -114,6 +120,13 @@ fi
 # no frontend and no boards.
 if [ "$SECTION" = "enricher" ]; then
   exec bash "$SCRIPT_DIR/enricher/run.sh" "$@"
+fi
+
+# `enricher-cutover` needs no stack at all: every case builds its own sandboxed
+# "machine" (fake HOME, stub launchd, local remotes) around the real cutover and
+# watcher scripts. It owns its lock and flags (`--keep`).
+if [ "$SECTION" = "enricher-cutover" ]; then
+  exec bash "$SCRIPT_DIR/enricher-cutover/run.sh" "$@"
 fi
 
 FAST=0

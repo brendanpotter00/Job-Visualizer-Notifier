@@ -1,0 +1,12 @@
+# e2e FIXTURE — a fake job-enricher for the enricher-cutover section
+# (e2e/enricher-cutover/PLAN.md §2). Zero dependencies and not a package, so
+# `uv sync --frozen` needs no network and no build backend.
+[project]
+name = "job-enricher"
+version = "0.0.0"
+description = "e2e fixture: a fake job-enricher (see e2e/enricher-cutover/PLAN.md)"
+requires-python = ">=3.11"
+dependencies = []
+
+[tool.uv]
+package = false
