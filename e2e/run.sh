@@ -24,6 +24,9 @@ if [ -z "$SECTION" ]; then
   echo "                       stack on :8203/:3203, own database. No LLM, no browser hour." >&2
   echo "  billing              \$0. Real Stripe SANDBOX (test cards, test clocks); a live" >&2
   echo "                       key is refused. Own stack :8204/:3204. Needs 'stripe login'." >&2
+  echo "  onboarding           \$0, with no opt-in that changes that. First-sign-in questions:" >&2
+  echo "                       fresh identities, own stack :8205/:3205, own database. No LLM," >&2
+  echo "                       no browser hour, PostHog off, the browser fenced to 127.0.0.1." >&2
   echo >&2
   echo "the verify-onesecondswe skill is the \$0 front door to the same features:" >&2
   echo "  .claude/skills/verify-onesecondswe/helpers/name_search.sh   (\$0; --live ~\$0.27)" >&2
@@ -62,6 +65,9 @@ case "$SECTION" in
   billing)
     echo "run.sh: COST — \$0. Talks to a Stripe SANDBOX only (test-card payments and test" \
          "clocks are free; a live key is refused). No LLM call, no Browserbase session." ;;
+  onboarding)
+    echo "run.sh: COST — \$0, unconditionally. Brand-new identities against its own stack;" \
+         "no LLM call, no Browserbase session, no PostHog event, no host but 127.0.0.1." ;;
 esac
 
 # `company-name-search` brings its own runner and hands off BEFORE anything below
@@ -100,6 +106,12 @@ fi
 # `billing` owns its database, ports, lock and a `stripe listen` forwarder.
 if [ "$SECTION" = "billing" ]; then
   exec bash "$SCRIPT_DIR/billing/run.sh" "$@"
+fi
+
+# `onboarding` owns its database (it creates a users row per case and seeds a
+# stamped account), ports :8205/:3205, lock and flags (`--keep-up`).
+if [ "$SECTION" = "onboarding" ]; then
+  exec bash "$SCRIPT_DIR/onboarding/run.sh" "$@"
 fi
 
 FAST=0

@@ -52,7 +52,7 @@ def mint_token(user: dict[str, str] | None = None, *, ttl_seconds: int = 8 * 360
     now = int(time.time())
     payload = {
         "sub": user["sub"],
-        "email": user["email"],
+        "email": user.get("email"),
         "given_name": user.get("given_name"),
         "family_name": user.get("family_name"),
         "iss": ISSUER,
@@ -60,6 +60,11 @@ def mint_token(user: dict[str, str] | None = None, *, ttl_seconds: int = 8 * 360
         "iat": now,
         "exp": now + ttl_seconds,
     }
+    # A user with `email: None` gets a token with NO `email` claim at all — a
+    # perfectly signed token the backend must still 401 (onboarding OB-08).
+    # Every identity above carries an email, so their tokens are unchanged.
+    if payload["email"] is None:
+        del payload["email"]
     private_key = load_or_create_private_key()
     return pyjwt.encode(payload, private_key, algorithm="RS256", headers={"kid": KID})
 
