@@ -98,6 +98,9 @@ Use the `add-company` skill (`.claude/skills/add-company/`, `/add-company`) — 
 **Checking Scraper Health:**
 Use the `scraper-health-watch` skill (`.claude/skills/scraper-health-watch/`) — detects dead/stale scrape sources, mass closures, and worker death against prod; researches moved boards and opens a fix PR (never merges); texts Brendan only when something is wrong. Runs daily via launchd (`com.bp.jvn-health-watch`); ops runbook in `scripts/health_watch/README.md`.
 
+**Improving the North Star (autonomous loop):**
+Use the `north-star-loop` skill (`.claude/skills/north-star-loop/`) — texts Brendan once a week with up to 3 small ideas aimed at 7-day+ return plus the best big initiative for him to build (ranked against past ideas and existing ClickUp work, checked against STRATEGY.md); builds only the small ideas he picks (plan doc in `docs/north-star-loop/`, ClickUp task, PR via no-mistakes, never merges), never the big ones; reads out the result after merge. State and every decision/mistake live in `scripts/north_star_loop/loop.py` (`loop.py show N`); runbook in `scripts/north_star_loop/README.md`.
+
 **Reading the North Star metrics:**
 The USER-METRICS.md definitions live as read-only views in the Postgres `metrics` schema: `SELECT * FROM metrics.north_star_weekly ORDER BY cohort_week` (also `metrics.signup_retention`, one row per user, and `metrics.apply_clicks_weekly`). Use only rows with `mature = true`. Accounts with `users.is_internal` are skipped. The same numbers are tiles on the PostHog "North Star" dashboard, computed from the mirrored `user_signed_up` / `user_visited` / `job_apply_clicked` events.
 
