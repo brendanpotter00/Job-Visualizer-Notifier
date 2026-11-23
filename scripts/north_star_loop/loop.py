@@ -3,16 +3,22 @@ r"""State store for the north-star improvement loop (stdlib only, Python 3.9+).
 
 One SQLite file holds every proposal and every step taken on it, so the agent
 that builds an idea reads the full brief the proposing agent wrote, not a
-one-line summary. Lifecycle:
+one-line summary.
+
+Each weekly propose run records up to 3 SMALL ideas (status `proposed`, the
+loop may build them once Brendan picks them) and at most 1 BIG initiative
+(status `flagged`: shown to Brendan, never built by the loop), all named in
+one text. Small-idea lifecycle:
 
     proposed -> approved -> building -> pr_open -> shipped -> measured
              \-> rejected | expired           \-> closed  (PR closed unmerged)
                             building -> blocked (build failed twice, or the
                                                  skill found the problem no longer holds)
                             building -> paused  (a no-mistakes gate asks Brendan: he
-                                                 sets pr_open, or approved to rebuild;
-                                                 or stage 1 needs a human prerequisite:
-                                                 he sets approved once it is done)
+                                                 sets pr_open, or approved to rebuild)
+    flagged  -> rejected (Brendan says why not; otherwise it stays flagged as a record)
+
+At most 3 small ideas are in flight (approved through pr_open) at once.
 
 `next` prints the one action the scheduled run should take. `sync` does the
 token-free bookkeeping first (merge detection via `gh`, expiry). See
@@ -33,14 +39,17 @@ STATE_DIR = Path(
     os.environ.get("JVN_LOOP_STATE_DIR")
     or Path.home() / "Library/Application Support/jvn-north-star-loop"
 )
-PROPOSE_EVERY_DAYS = 7  # at most one new idea a week
-EXPIRE_DAYS = 7  # an unanswered idea expires so the next one can go out
+PROPOSE_EVERY_DAYS = 7  # one batch a week
+EXPIRE_DAYS = 7  # an unpicked idea expires so the next batch can go out
+BATCH_SIZE = 3  # small ideas per weekly text
+MAX_IN_FLIGHT = 3  # small ideas approved but not yet merged or closed
 # Signups in the week after ship need 31 days to mature (USER-METRICS.md),
 # the same "week + 38 days" rule as metrics.north_star_weekly.mature.
 READOUT_DAYS = 38
 MAX_BUILD_ATTEMPTS = 2
-OPEN = ("proposed", "approved", "building", "paused", "pr_open")
-STATUSES = (*OPEN, "shipped", "measured", "rejected", "expired", "closed", "blocked")
+IN_FLIGHT = ("approved", "building", "paused", "pr_open")
+STATUSES = ("proposed", *IN_FLIGHT, "flagged", "shipped", "measured", "rejected",
+            "expired", "closed", "blocked")
 SETTABLE = {"status", "pr_url", "branch", "clickup_id", "plan_path", "result", "readout_at"}
 
 SCHEMA = """
@@ -49,11 +58,12 @@ CREATE TABLE IF NOT EXISTS proposals (
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'proposed',
+  scope TEXT NOT NULL DEFAULT 'small',
   title TEXT NOT NULL,
   metric TEXT NOT NULL,
   expected TEXT NOT NULL,
   risk TEXT NOT NULL,
-  sms TEXT NOT NULL,
+  sms TEXT NOT NULL DEFAULT '',
   brief TEXT NOT NULL,
   decision_note TEXT,
   decided_at TEXT,
@@ -91,7 +101,18 @@ def connect() -> sqlite3.Connection:
     db = sqlite3.connect(path)
     db.row_factory = sqlite3.Row
     db.executescript(SCHEMA)
+    if "scope" not in {c[1] for c in db.execute("PRAGMA table_info(proposals)")}:
+        db.execute("ALTER TABLE proposals ADD COLUMN scope TEXT NOT NULL DEFAULT 'small'")
     return db
+
+
+def count(db, where: str, *params) -> int:
+    return db.execute(f"SELECT count(*) FROM proposals WHERE {where}", params).fetchone()[0]
+
+
+def in_flight(db) -> int:
+    marks = ",".join("?" * len(IN_FLIGHT))
+    return count(db, f"scope = 'small' AND status IN ({marks})", *IN_FLIGHT)
 
 
 def log_event(db, pid, kind: str, detail: str) -> None:
@@ -115,28 +136,46 @@ def get(db, pid: int):
 
 
 def cmd_add(db, a) -> None:
-    if db.execute(
-        f"SELECT 1 FROM proposals WHERE status IN ({','.join('?' * len(OPEN))})", OPEN
-    ).fetchone():
-        sys.exit("refused: an idea is already open; one at a time")
-    brief = Path(a.brief_file).read_text()
     t = iso(now())
+    if a.scope == "small":
+        if count(db, "scope = 'small' AND status = 'proposed'") >= BATCH_SIZE:
+            sys.exit(f"refused: this week's batch already has {BATCH_SIZE} small ideas")
+        status = "proposed"
+    else:
+        week_ago = iso(now() - timedelta(days=PROPOSE_EVERY_DAYS))
+        if count(db, "scope = 'big' AND created_at > ?", week_ago):
+            sys.exit("refused: one big initiative a week")
+        status = "flagged"
+    brief = Path(a.brief_file).read_text()
     cur = db.execute(
-        "INSERT INTO proposals (created_at, updated_at, title, metric, expected,"
-        " risk, sms, brief) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        (t, t, a.title, a.metric, a.expected, a.risk, a.sms, brief),
+        "INSERT INTO proposals (created_at, updated_at, status, scope, title, metric,"
+        " expected, risk, sms, brief) VALUES (?, ?, ?, ?, ?, ?, ?, ?, '', ?)",
+        (t, t, status, a.scope, a.title, a.metric, a.expected, a.risk, brief),
     )
-    pid = cur.lastrowid
-    # The text names the id ("NS-{N} ...", "yes {N}") before the id exists.
-    db.execute("UPDATE proposals SET sms = ? WHERE id = ?", (a.sms.replace("{N}", str(pid)), pid))
-    log_event(db, pid, "proposed", a.title)
-    print(pid)
+    log_event(db, cur.lastrowid, status, a.title)
+    print(cur.lastrowid)
+
+
+def cmd_texted(db, a) -> None:
+    """Record the one weekly text on every idea it names."""
+    for pid in a.ids:
+        get(db, pid)
+        update(db, pid, sms=a.message)
+        log_event(db, pid, "texted", "named in the text sent to Brendan")
 
 
 def cmd_decide(db, a) -> None:
     row = get(db, a.id)
-    if row["status"] != "proposed":
+    if row["scope"] == "big":
+        if a.answer == "yes":
+            sys.exit(f"NS-{a.id} is a big initiative: the loop never builds it. "
+                     f"Build it yourself, or reply \"no {a.id} <why>\" to record why not.")
+        if row["status"] != "flagged":
+            sys.exit(f"NS-{a.id} is {row['status']}, not waiting on a decision")
+    elif row["status"] != "proposed":
         sys.exit(f"NS-{a.id} is {row['status']}, not waiting on a decision")
+    elif a.answer == "yes" and in_flight(db) >= MAX_IN_FLIGHT:
+        sys.exit(f"refused: {MAX_IN_FLIGHT} ideas are already in flight; NS-{a.id} stays proposed")
     status = "approved" if a.answer == "yes" else "rejected"
     note = " ".join(a.note) or None
     update(db, a.id, status=status, decided_at=iso(now()), decision_note=note)
@@ -184,8 +223,8 @@ def cmd_show(db, a) -> None:
 
 
 def cmd_list(db, a) -> None:
-    for r in db.execute("SELECT id, status, metric, title FROM proposals ORDER BY id"):
-        print(f"NS-{r['id']}  {r['status']:<9} {r['metric']:<12} {r['title']}")
+    for r in db.execute("SELECT id, status, scope, metric, title FROM proposals ORDER BY id"):
+        print(f"NS-{r['id']}  {r['status']:<9} {r['scope']:<5} {r['metric']:<12} {r['title']}")
 
 
 def gh_pr_state(url: str):
@@ -239,10 +278,8 @@ def next_action(db) -> str:
     ).fetchone()
     if r:
         return f"readout {r['id']}"
-    if db.execute(
-        f"SELECT 1 FROM proposals WHERE status IN ({','.join('?' * len(OPEN))})", OPEN
-    ).fetchone():
-        return "none"
+    if count(db, "status = 'proposed'") or in_flight(db) >= MAX_IN_FLIGHT:
+        return "none"  # waiting on the weekly answer, or every slot is taken
     last = db.execute("SELECT max(created_at) AS c FROM proposals").fetchone()["c"]
     if last is None or datetime.fromisoformat(last) <= now() - timedelta(days=PROPOSE_EVERY_DAYS):
         return "propose"
@@ -265,13 +302,16 @@ def render_log(db) -> str:
     if not rows:
         out.append("No ideas yet.")
     for r in rows:
-        out += [f"## NS-{r['id']} · {r['title']}", "", f"**Status:** {r['status']}", ""]
+        out += [f"## NS-{r['id']} · {r['title']}", "",
+                f"**Status:** {r['status']} · **Scope:** {r['scope']}", ""]
         for k in ("created_at", "metric", "expected", "risk", "decided_at",
                   "decision_note", "branch", "pr_url", "clickup_id", "plan_path",
                   "shipped_at", "readout_at", "result"):
             if r[k] not in (None, ""):
                 out.append(f"- {k}: {r[k]}")
-        out += ["", "### Text sent", "", "```", r["sms"], "```", "", "### Brief", "",
+        if r["sms"]:
+            out += ["", "### Text sent", "", "```", r["sms"], "```"]
+        out += ["", "### Brief", "",
                 r["brief"].strip(), "", "### Events", ""]
         for e in db.execute(
             "SELECT at, kind, detail FROM events WHERE proposal_id = ? ORDER BY id", (r["id"],)
@@ -288,13 +328,17 @@ def cmd_dump(db, a) -> None:
 def main(argv=None) -> None:
     p = argparse.ArgumentParser(prog="loop.py", description=__doc__.splitlines()[0])
     sub = p.add_subparsers(dest="cmd", required=True)
-    s = sub.add_parser("add", help="record a new idea (refused if one is open)")
+    s = sub.add_parser("add", help=f"record an idea: up to {BATCH_SIZE} small + 1 big a week")
+    s.add_argument("--scope", choices=["small", "big"], required=True,
+                   help="small: the loop may build it once picked; big: shown, never built")
     s.add_argument("--title", required=True)
     s.add_argument("--metric", required=True)
     s.add_argument("--expected", required=True)
     s.add_argument("--risk", choices=["low", "medium", "high"], required=True)
-    s.add_argument("--sms", required=True, help="the text to send; {N} becomes the new id")
     s.add_argument("--brief-file", required=True, help="markdown file with the full brief")
+    s = sub.add_parser("texted", help="record the weekly text on every idea it names")
+    s.add_argument("message")
+    s.add_argument("ids", type=int, nargs="+")
     s = sub.add_parser("decide", help="Brendan's answer to an idea")
     s.add_argument("id", type=int)
     s.add_argument("answer", choices=["yes", "no"])

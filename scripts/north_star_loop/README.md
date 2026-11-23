@@ -1,17 +1,18 @@
 # north-star loop — runbook
 
-An agent that proposes ONE improvement a week aimed at the North Star (7-day+ return, see USER-METRICS.md), texts Brendan a 5-line summary, and builds it only after he replies yes. The procedure lives in `.claude/skills/north-star-loop/SKILL.md`; this directory is the state store and the scheduling shell around it.
+An agent that, once a week, texts Brendan up to 3 **small** improvements aimed at the North Star (7-day+ return, see USER-METRICS.md) that it can build on its own, plus one line naming the best **big** initiative for him to build himself. It builds only the small ideas he picks. The procedure lives in `.claude/skills/north-star-loop/SKILL.md`; this directory is the state store and the scheduling shell around it.
 
 ## Flow
 
 ```
-propose ──text──> Brendan ──"yes N"──> build N ──> PR (via no-mistakes) ──merge──> readout N ──text
-   │                  └─"no N <why>"──> rejected (the reason steers every later proposal)
-   └─ no reply in 7 days ──> expired
+propose ──weekly text──> Brendan ──"yes 4 6"──> build 4, build 6 ──> PRs (via no-mistakes) ──merge──> readout ──text
+   │  (3 small + 1 big)      └─"no 5 <why>"──> rejected (the reason steers every later proposal)
+   ├─ small ideas not picked in 7 days ──> expired
+   └─ the big initiative stays "flagged": a record for Brendan, never built by the loop
 ```
 
-- **propose** (at most weekly, only when no idea is open): reads STRATEGY.md, every past idea (rejected ones and Brendan's reasons first), the PostHog North Star dashboard, the prod `metrics` views, and the ClickUp list (so it never duplicates a ticket and can raise an existing one instead). Scores 3 candidates by Impact × Confidence ÷ Effort against the drivers of 7-day+ return (SKILL.md §1), keeps only ones STRATEGY.md's align test passes, saves the full brief, sends one text. No ClickUp write, branch, or repo change yet.
-- **build N** (after "yes N"): plan doc at `docs/north-star-loop/ns-N-<slug>.md` (brief, plan, every decision it made), ClickUp task in list `1000430000001112` (or a comment on the existing ticket it raised), change + test in a throwaway worktree, PR through no-mistakes. Never merges.
+- **propose** (weekly, once last week's ideas are answered or expired and fewer than 3 small ideas are in flight): reads STRATEGY.md, every past idea (rejected ones and Brendan's reasons first), the PostHog North Star dashboard, the prod `metrics` views, and the ClickUp list (so it never duplicates a ticket and can raise an existing one instead). Scores 5-6 candidates by Impact × Confidence ÷ Effort against the drivers of 7-day+ return (SKILL.md §1), keeps only ones STRATEGY.md's align test passes, and judges each small or big with a one-line reason. Saves a full brief for the top 3 small and the top big, then sends one text. No ClickUp write, branch, or repo change yet.
+- **build N** (a small idea he picked): plan doc at `docs/north-star-loop/ns-N-<slug>.md` (brief, plan, every decision it made), ClickUp task in list `1000430000001112` (or a comment on the existing ticket it raised), change + test in a throwaway worktree, PR through no-mistakes. Never merges.
 - **readout N** (38+ days after merge, deferred until 30+ post-ship signups or 120 days): before/after 7-day+ return, the targeted driver and guardrails with n, confounders named, verdict keep / revert suggested / inconclusive.
 
 ## Pieces
@@ -32,7 +33,7 @@ State never goes into git: briefs quote prod data and the repo is public. Agents
 
 ## Texts and replies (Boop)
 
-`notify.sh` sends through `message-brendan/send.sh` (Sendblue), then writes the same text into Brendan's Boop conversation as an assistant message via Convex `messages:send` (the call Boop's own automations use). The stored copy carries a note telling Boop what to run, so when he replies "yes 3" Boop already has the idea in context. One-time setup on the server, in `~/Library/Application Support/jvn-north-star-loop/notify.env` (not in git):
+`notify.sh` sends through `message-brendan/send.sh` (Sendblue), then writes the same text into Brendan's Boop conversation as an assistant message via Convex `messages:send` (the call Boop's own automations use). The stored copy carries a note telling Boop what to run, so when he replies "yes 4 6" Boop already has the ideas in context. One-time setup on the server, in `~/Library/Application Support/jvn-north-star-loop/notify.env` (not in git):
 
 ```sh
 BOOP_DIR=/path/to/boop-agent            # the checkout whose .env.local points at Boop's Convex deployment
@@ -40,19 +41,16 @@ BOOP_CONVERSATION_ID=sms:+1XXXXXXXXXX   # the id Boop uses for Brendan's thread 
 # SEND_WRITES_BOOP_HISTORY=1            # only if send.sh already records into Boop
 ```
 
-Without it, texts still go out, but `notify.sh` exits 4 and the run logs a mistake, because Boop would see the reply without the question. Boop turns a reply into one command, run from the repo root on the server:
+Without it, texts still go out, but `notify.sh` exits 4 and the run logs a mistake, because Boop would see the reply without the question. Boop turns a reply into one command per number, run from the repo root on the server:
 
 ```sh
-python3 scripts/north_star_loop/loop.py decide <N> yes
-python3 scripts/north_star_loop/loop.py decide <N> no <reason words...>
+python3 scripts/north_star_loop/loop.py decide <N> yes                    # once per picked small idea
+python3 scripts/north_star_loop/loop.py decide <N> no <reason words...>   # small or big
 ```
 
-The next scheduled fire (within ~4h) starts the build. Without Boop, run the command yourself.
+`decide` refuses a yes on a big initiative (the loop never builds those) and a yes beyond 3 small ideas in flight. Each scheduled fire (every ~4h) builds the next picked idea. Without Boop, run the commands yourself.
 
-An idea is `paused` (holding the one-idea slot, never rebuilt by the schedule) for one of two reasons, each with its own text:
-
-- **"NS-N needs you first: <checklist>"** — stage 1 needs something only you can do (an account, a DNS record, a secret). Do it, then run `python3 scripts/north_star_loop/loop.py set <N> status=approved`; the next fire builds it.
-- **"NS-N paused: ..."** — a no-mistakes gate is waiting on you. Answer the gate, then run one of:
+A **"NS-N paused: ..."** text means a no-mistakes gate is waiting on you; the idea keeps its in-flight slot and is never rebuilt by the schedule. Answer the gate, then run one of:
 
 ```sh
 python3 scripts/north_star_loop/loop.py set <N> status=pr_open pr_url=<url>   # the PR went up
@@ -76,7 +74,7 @@ Dry run anywhere (no texts, ClickUp writes or pushes): invoke the `north-star-lo
 ## Design notes
 
 - **The brief is the hand-off.** The builder reads the proposer's full evidence, scores and reasoning, not one sentence. Unapproved ideas never reach `main`; they live only in the local DB.
-- **One idea open at a time**, so before/after readouts are not confounded by the loop's own changes. Shipped ideas being measured do not block the next proposal; the readout lists them as confounders.
-- **No size cap.** Ideas are ranked by Impact × Confidence ÷ Effort, so a bigger change has to earn its effort. Every build still goes through no-mistakes and Brendan's merge, and STRATEGY.md is the only hard filter.
+- **Small vs big is the agent's judgment**, stated in each brief: small = it could build it in one run and one PR, with nothing Brendan must do first, and he would merge after a skim; big = he would want to own it. Big initiatives are surfaced, never built. There is no size cap; ideas are ranked by Impact × Confidence ÷ Effort.
+- **Up to 3 small ideas in flight** (approved through PR open). Ideas shipped close together confound each other's before/after readouts; each readout names the others in its window.
 - **No A/B split yet.** At ~10 signups a month a 50/50 flag halves an already tiny sample; readouts are before/after with named confounders and say "inconclusive" when n is small. Revisit flags once weekly signups reach ~60.
 - The wrapper and paths assume the server laptop (`/Users/bpotter`, main checkout at `~/developer/personal/Job-Visualizer-Notifier`), like `scripts/health_watch/`. Keep that checkout on `main`; skill edits take effect only once it has them.

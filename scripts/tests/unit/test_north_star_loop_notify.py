@@ -70,7 +70,8 @@ def test_notify_sends_and_writes_the_same_text_into_boop_history(notify):
     assert payload["conversationId"] == "sms:+15550001111"
     assert payload["role"] == "assistant"
     assert "Reply \"yes 2\"" in payload["content"]
-    assert "loop.py decide N yes" in payload["content"]  # Boop is told how to act on the reply
+    # Boop is told how to act on a multi-number reply like "yes 4 6"
+    assert "loop.py decide <N> yes` once for each number" in payload["content"]
     assert "/srv/jvn" in payload["content"]
 
 

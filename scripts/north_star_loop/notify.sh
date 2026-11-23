@@ -35,7 +35,7 @@ if [ -z "${BOOP_DIR:-}" ] || [ -z "${BOOP_CONVERSATION_ID:-}" ]; then
   exit 4
 fi
 
-CONTENT=$(printf '[north-star loop]\n\n%s\n\n(For Boop: this came from the north-star loop. If Brendan replies "yes N" or "no N <reason>", run `python3 scripts/north_star_loop/loop.py decide N yes` (or `decide N no <reason words>`) from %s and reply with its output. `loop.py show N` gives the full brief.)' "$MSG" "$PROJECT_DIR")
+CONTENT=$(printf '[north-star loop]\n\n%s\n\n(For Boop: this came from the north-star loop. When Brendan replies "yes 4 6" run `python3 scripts/north_star_loop/loop.py decide <N> yes` once for each number; for "no 5 <reason>" run `decide 5 no <reason words>`. Run them from %s and reply with their output; if one refuses (a big initiative, or 3 ideas already in flight), tell him why. `loop.py show <N>` gives the full brief of any idea.)' "$MSG" "$PROJECT_DIR")
 ARGS=$(python3 -c 'import json, sys; print(json.dumps({"conversationId": sys.argv[1], "role": "assistant", "content": sys.argv[2]}))' "$BOOP_CONVERSATION_ID" "$CONTENT")
 if ! (cd "$BOOP_DIR" && npx --yes convex run messages:send "$ARGS") >/dev/null; then
   echo "notify: sent, but writing Boop history failed (cd $BOOP_DIR && npx convex run messages:send)" >&2
