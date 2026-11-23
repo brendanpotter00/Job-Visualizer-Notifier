@@ -1,16 +1,19 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
-  ENR-PAR-2 (b) — daily cross-repo taxonomy parity watchdog.
+  ENR-PAR-2 (b) — daily taxonomy parity watchdog (enricher vs live JVN).
 
   Mirrors the existing com.bp.jvn-health-watch precedent (daily, texts on
-  divergence). NOT INSTALLED BY THIS PR — copy it into ~/Library/LaunchAgents/,
-  substitute REPO_ROOT_PLACEHOLDER and JVN_BASE_URL_PLACEHOLDER, then
-  `launchctl bootstrap gui/$UID <plist>`.
+  divergence). NOT INSTALLED — to install, copy it into ~/Library/LaunchAgents/
+  and substitute:
+    REPO_ROOT_PLACEHOLDER     the enricher dir, e.g. <JVN checkout>/src/enricher
+    HOME_PLACEHOLDER          your $HOME (the logs go to ~/Library/Logs)
+    JVN_BASE_URL_PLACEHOLDER  e.g. https://onesecondswe.dev
+  then `launchctl bootstrap gui/$UID <plist>`.
 
   Two EXPECTED-RED WINDOWS are documented in
   docs/RUNBOOK-subcategory-backfill.md; run with ALLOW_EMPTY_SUBCATEGORIES=1
-  until SCHEMA-7 has seeded the 15 rows, or this is red for the whole of Phase 1.
+  until SCHEMA-7 has seeded the 17 rows, or this is red for the whole of Phase 1.
 -->
 <plist version="1.0">
 <dict>
@@ -39,9 +42,9 @@
         <integer>15</integer>
     </dict>
     <key>StandardOutPath</key>
-    <string>REPO_ROOT_PLACEHOLDER/../../Library/Logs/jvn-taxonomy-parity.out</string>
+    <string>HOME_PLACEHOLDER/Library/Logs/jvn-taxonomy-parity.out</string>
     <key>StandardErrorPath</key>
-    <string>REPO_ROOT_PLACEHOLDER/../../Library/Logs/jvn-taxonomy-parity.err</string>
+    <string>HOME_PLACEHOLDER/Library/Logs/jvn-taxonomy-parity.err</string>
     <key>RunAtLoad</key>
     <false/>
 </dict>

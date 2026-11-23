@@ -2,8 +2,8 @@
 
 The enum assertions here freeze the slug set against a typo. The slugs must be
 byte-identical in six places (see `taxonomy.SUBCATEGORIES`' comment); this file
-owns the intra-repo half of that guard and `tests/test_cross_repo_parity.py`
-owns the cross-repo half.
+owns the enricher-internal half of that guard and `tests/test_taxonomy_parity.py`
+owns the half that compares against the JVN backend.
 """
 
 from __future__ import annotations
@@ -317,8 +317,8 @@ class TestAgentSpecs:
 #
 # ⚠ THE ONE GUARD THIS FILE CANNOT PROVIDE is a live check of JVN's
 # `/api/jobs/facets` against `tax.SUBCATEGORIES`. That is `ENR-PAR-2`, in
-# `tests/test_cross_repo_parity.py` plus `cli parity-check`. Nothing here crosses
-# the repo boundary, which is precisely how the 6-vs-7 drift survived.
+# `tests/test_taxonomy_parity.py` plus `cli parity-check`. Nothing here looks at
+# the backend's side, which is precisely how the 6-vs-7 drift survived.
 
 def _slug_cells(table_text: str) -> set[str]:
     """Every `| `slug` |` cell in a markdown table body."""

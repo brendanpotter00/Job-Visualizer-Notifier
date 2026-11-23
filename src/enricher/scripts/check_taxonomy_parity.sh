@@ -1,17 +1,13 @@
 #!/usr/bin/env bash
-# ENR-PAR-2 (b) — the SCHEDULED, LIVE cross-repo taxonomy parity check.
+# ENR-PAR-2 (b) — the SCHEDULED, LIVE taxonomy parity check.
 #
-# GETs JVN's /api/jobs/facets, compares it against this repo's
+# GETs JVN's /api/jobs/facets, compares it against the enricher's
 # taxonomy.CATEGORIES / taxonomy.SUBCATEGORIES / taxonomy.SUBCATEGORY_SOURCES,
-# exits non-zero on ANY mismatch, and texts on divergence.
-#
-# It refreshes golden/taxonomy-parity/jvn_facets.json (+ its .sha256) ONLY when
-# the check PASSES. Writing on a divergence would overwrite the vendored
-# "verbatim JVN copy" with the drifted live data -- a watchdog erasing the
-# evidence it exists to catch, and permanently masking that drift from the
-# PR-blocking offline half. Mirrors the existing com.bp.jvn-health-watch
-# precedent: the drift this catches is slow, silent and only observable in
-# production, so a scheduled job that TEXTS is the right shape.
+# exits non-zero on ANY mismatch, and texts on divergence. It writes nothing:
+# the offline half reads the backend's src/backend/taxonomy.json in this
+# monorepo. Mirrors the existing com.bp.jvn-health-watch precedent: the drift
+# this catches is slow, silent and only observable in production, so a
+# scheduled job that TEXTS is the right shape.
 #
 # Env:
 #   JVN_BASE_URL                 required, e.g. https://onesecondswe.dev
@@ -32,7 +28,7 @@ if [[ -z "${JVN_BASE_URL:-}" ]]; then
   exit 2
 fi
 
-args=(--base-url "$JVN_BASE_URL" --write-snapshot --text-on-divergence)
+args=(--base-url "$JVN_BASE_URL" --text-on-divergence)
 if [[ "${ALLOW_EMPTY_SUBCATEGORIES:-}" == "1" ]]; then
   args+=(--allow-empty-subcategories)
 fi

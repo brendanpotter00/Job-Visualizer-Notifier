@@ -1,18 +1,14 @@
-"""ENR-PAR-2 — the CROSS-REPO taxonomy parity guard.
+"""ENR-PAR-2 — taxonomy parity between the enricher and the JVN backend.
 
-Every other guard in this epic is intra-repo: SCHEMA-5/SCHEMA-9 assert JVN
-migration <-> JVN API, ENR-PAR-1 asserts frozenset <-> two markdown files <->
-ollama enum <-> live prompt, FE-CT-2 asserts frontend arity. NOTHING compares
-ACROSS the repos, which is precisely how the current 6-vs-7 category drift
-survived — and this plan widens that surface from 6 slugs to 23.
+ENR-PAR-1 (tests/test_taxonomy.py) checks the enricher's own copies of the
+slugs against each other. This file compares them with the backend's.
 
 TWO HALVES.
 
-(a) PR-blocking, no network — compare the VENDORED snapshot at
-    `golden/taxonomy-parity/jvn_facets.json`. That file is JVN's
-    `src/backend/taxonomy.json` (SCHEMA-15's artifact) copied verbatim, plus a
-    recorded sha256. It is DELIBERATELY not re-derived here: re-typing a slug
-    list in this repo is exactly the seam SCHEMA-15 exists to close.
+(a) PR-blocking, no network — compare the backend's generated artifact,
+    `src/backend/taxonomy.json` (SCHEMA-15), read straight from this monorepo.
+    It is DELIBERATELY not re-derived here: re-typing a slug list in the
+    enricher is exactly the seam SCHEMA-15 exists to close.
 
 (b) Scheduled, live — `cli parity-check --base-url <JVN>`, run daily by
     launchd (`scripts/com.bp.jvn-taxonomy-parity.plist`), which texts on
@@ -25,7 +21,6 @@ the checker itself is tested without a network in either case.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 
@@ -34,14 +29,13 @@ import pytest
 from job_enricher import cli
 from job_enricher import taxonomy as tax
 
-SNAPSHOT = cli.TAXONOMY_PARITY_SNAPSHOT
-SNAPSHOT_SHA_FILE = SNAPSHOT.with_suffix(".sha256")
+ARTIFACT = cli.JVN_TAXONOMY_ARTIFACT
 
 
 def _canonical_payload() -> dict:
     """A payload matching the contract exactly — the fixture the negative cases
     are perturbed from. This is a TEST FIXTURE for the comparator, not a
-    substitute for the vendored snapshot."""
+    substitute for the backend artifact."""
     return {
         "categories": [{"slug": c} for c in sorted(tax.CATEGORIES)],
         "subcategories": [
@@ -57,48 +51,35 @@ def _canonical_payload() -> dict:
     }
 
 
-# ---- (a) the vendored snapshot --------------------------------------------
-# These two tests used to `pytest.skip()` when the snapshot was absent. That
-# made half (a) — the PR-BLOCKING, no-network half — report success while
-# asserting nothing: the cross-repo drift surface stayed wide open and green.
-# The snapshot is now vendored, so its ABSENCE is a hard failure. Never turn
-# these back into skips; a missing snapshot IS the defect.
+# ---- (a) the backend's artifact, in-tree -----------------------------------
+# A missing artifact is a hard FAILURE, never a skip: a skip would let half (a)
+# report success while asserting nothing.
 _MISSING = (
-    f"{SNAPSHOT} is MISSING. This is half (a) of ENR-PAR-2 — the PR-blocking, "
-    "no-network cross-repo guard — and without the file it asserts NOTHING. "
-    "The file is JVN's `src/backend/taxonomy.json` (SCHEMA-15's artifact) "
-    "copied VERBATIM; never re-derive the slug list here. Restore both files "
-    "together with the commands in golden/taxonomy-parity/README.md."
+    f"{ARTIFACT} is MISSING. Half (a) of ENR-PAR-2 reads the JVN backend's "
+    "generated taxonomy artifact from this monorepo (it expects src/enricher at "
+    f"<JVN>/src/enricher). Regenerate it with {cli.JVN_TAXONOMY_GENERATOR}; "
+    "never re-derive the slug list in the enricher."
 )
 
 
-def test_vendored_snapshot_matches_the_enricher_taxonomy():
-    assert SNAPSHOT.exists(), _MISSING
-    snap = json.loads(SNAPSHOT.read_text(encoding="utf-8"))
-    problems = cli.compare_taxonomy_snapshot(snap)
+def _artifact() -> dict:
+    assert ARTIFACT.exists(), _MISSING
+    return json.loads(ARTIFACT.read_text(encoding="utf-8"))
+
+
+def test_the_backend_artifact_matches_the_enricher_taxonomy():
+    problems = cli.compare_taxonomy_snapshot(_artifact())
     assert problems == [], problems
 
 
-def test_vendored_snapshot_sha256_is_recorded_and_matches():
-    """A recorded sha means a hand-edit of the vendored copy is caught. If the
-    snapshot legitimately changed, refresh BOTH files together."""
-    assert SNAPSHOT.exists(), _MISSING
-    assert SNAPSHOT_SHA_FILE.exists(), f"{SNAPSHOT_SHA_FILE} is MISSING. " + _MISSING
-    recorded = SNAPSHOT_SHA_FILE.read_text(encoding="utf-8").split()[0].strip()
-    actual = hashlib.sha256(SNAPSHOT.read_bytes()).hexdigest()
-    assert actual == recorded
-
-
-def test_the_vendored_snapshot_is_the_jvn_artifact_not_a_rederived_list():
-    """The snapshot must be JVN's whole `taxonomy.json`, not a slug list typed
-    (or `--write-snapshot`-normalised) in THIS repo. The generator emits
-    `levels` too and this repo never writes that key, so its presence is a cheap
-    proof the file came from the other side of the seam."""
-    assert SNAPSHOT.exists(), _MISSING
-    snap = json.loads(SNAPSHOT.read_text(encoding="utf-8"))
+def test_the_backend_artifact_levels_match_the_enricher_levels():
+    """The generator emits `levels` too. Checking it keeps the level slugs in
+    parity, and its presence shows the file is the generator's output rather
+    than a list typed by hand."""
+    snap = _artifact()
     assert "levels" in snap, (
-        "vendored snapshot has no `levels` key — it looks re-derived in this "
-        "repo rather than copied from JVN's src/backend/taxonomy.json"
+        f"{ARTIFACT} has no `levels` key — it does not look like "
+        f"{cli.JVN_TAXONOMY_GENERATOR}'s output"
     )
     assert {lv["slug"] for lv in snap["levels"]} == set(tax.LEVELS)
 
@@ -196,15 +177,7 @@ def test_allow_empty_subcategories_gates_only_the_subcategory_half():
     assert any("project_manager" in p for p in problems)
 
 
-# ---- `--write-snapshot`: the watchdog must not erase its own evidence -------
-#
-# ⚠ `scripts/check_taxonomy_parity.sh` ALWAYS passes `--write-snapshot`, and the
-# launchd job runs it daily. The write used to happen BEFORE the `if problems`
-# return, so a genuine divergence overwrote the vendored "verbatim JVN copy" with
-# the drifted live data — destroying half (a)'s only reference, reddening the two
-# vendored-snapshot tests, and leaving a dirty TRACKED file that aborts
-# `deploy.sh` step 3 on every prod deploy afterwards.
-
+# ---- the live command, with the network stubbed ----------------------------
 def _payload_with_levels():
     payload = _canonical_payload()
     payload["levels"] = [
@@ -213,13 +186,6 @@ def _payload_with_levels():
         for i, lv in enumerate(sorted(tax.LEVELS))
     ]
     return payload
-
-
-def _point_snapshot_at(monkeypatch, tmp_path):
-    snap_path = tmp_path / "jvn_facets.json"
-    monkeypatch.setattr(cli, "TAXONOMY_PARITY_SNAPSHOT", snap_path)
-    monkeypatch.setattr(cli, "TAXONOMY_PARITY_SHA", snap_path.with_suffix(".sha256"))
-    return snap_path
 
 
 def _run_parity_check(monkeypatch, payload, **overrides):
@@ -236,7 +202,7 @@ def _run_parity_check(monkeypatch, payload, **overrides):
 
     monkeypatch.setattr(httpx, "get", lambda *a, **kw: _Resp())
     args = argparse.Namespace(
-        base_url="http://jvn.test", timeout=5.0, write_snapshot=True,
+        base_url="http://jvn.test", timeout=5.0, write_snapshot=False,
         allow_empty_subcategories=False, text_on_divergence=False,
     )
     for k, v in overrides.items():
@@ -244,76 +210,36 @@ def _run_parity_check(monkeypatch, payload, **overrides):
     return cli._cmd_parity_check(args)
 
 
-def test_a_divergent_payload_NEVER_overwrites_the_vendored_snapshot(
-    monkeypatch, tmp_path, capsys
-):
-    snap_path = _point_snapshot_at(monkeypatch, tmp_path)
-    snap_path.write_text('{"the": "vendored JVN artifact"}\n', encoding="utf-8")
+def test_a_clean_live_payload_passes(monkeypatch, capsys):
+    assert _run_parity_check(monkeypatch, _payload_with_levels()) == 0
+    assert "17/17 match" in capsys.readouterr().out
+
+
+def test_a_divergent_live_payload_exits_1(monkeypatch, capsys):
     payload = _payload_with_levels()
-    payload["subcategories"] = payload["subcategories"][:-1]   # a real divergence
-
-    rc = _run_parity_check(monkeypatch, payload)
-
-    assert rc == 1
-    assert snap_path.read_text(encoding="utf-8") == '{"the": "vendored JVN artifact"}\n'
-    assert "snapshot NOT refreshed" in capsys.readouterr().err
+    payload["subcategories"] = payload["subcategories"][:-1]
+    assert _run_parity_check(monkeypatch, payload) == 1
+    assert "enricher-only" in capsys.readouterr().err
 
 
-def test_a_clean_payload_refreshes_the_snapshot_AND_its_recorded_sha(
-    monkeypatch, tmp_path
+def test_write_snapshot_is_retired_and_refuses_before_any_network_call(
+    monkeypatch, capsys
 ):
-    """`--write-snapshot` must leave the pair CONSISTENT. Writing the json and
-    not the sha is what turns `test_vendored_snapshot_sha256_is_recorded_and_
-    matches` red the next time the offline half runs."""
-    import hashlib as _hashlib
+    """The flag stays accepted (an old installed caller gets a clear message,
+    not an argparse error) but exits 2 and never touches the network."""
+    import httpx
 
-    snap_path = _point_snapshot_at(monkeypatch, tmp_path)
-    rc = _run_parity_check(monkeypatch, _payload_with_levels())
+    def _no_network(*a, **kw):
+        raise AssertionError("--write-snapshot must refuse before any GET")
 
-    assert rc == 0
-    written = json.loads(snap_path.read_text(encoding="utf-8"))
-    assert cli.compare_taxonomy_snapshot(written) == []
-    recorded = snap_path.with_suffix(".sha256").read_text(encoding="utf-8").split()[0]
-    assert recorded == _hashlib.sha256(snap_path.read_bytes()).hexdigest()
-
-
-def test_the_written_snapshot_still_looks_like_the_JVN_artifact(monkeypatch, tmp_path):
-    """The same assertion `test_the_vendored_snapshot_is_the_jvn_artifact_not_a_
-    rederived_list` makes, applied to what `--write-snapshot` produces: the
-    normalizer dropped `levels`, so every refresh degraded the vendored artifact
-    into a list re-derived in this repo."""
-    snap_path = _point_snapshot_at(monkeypatch, tmp_path)
-    _run_parity_check(monkeypatch, _payload_with_levels())
-    written = json.loads(snap_path.read_text(encoding="utf-8"))
-    assert "levels" in written
-    assert {lv["slug"] for lv in written["levels"]} == set(tax.LEVELS)
-
-
-def test_a_payload_without_levels_is_refused_rather_than_written(
-    monkeypatch, tmp_path, capsys
-):
-    snap_path = _point_snapshot_at(monkeypatch, tmp_path)
-    rc = _run_parity_check(monkeypatch, _canonical_payload())   # parity OK, no levels
-
-    assert rc == 0                       # parity itself passed
-    assert not snap_path.exists()        # ...but the artifact was not degraded
-    assert "no `levels`" in capsys.readouterr().out
-
-
-def test_an_unchanged_snapshot_is_not_rewritten(monkeypatch, tmp_path, capsys):
-    """The watchdog runs DAILY with `--write-snapshot`. Re-serializing an
-    identical file still churns its bytes (the vendored copy carries the
-    generator's formatting, not ours) and dirties a tracked file every day."""
-    snap_path = _point_snapshot_at(monkeypatch, tmp_path)
-    payload = _payload_with_levels()
-    _run_parity_check(monkeypatch, payload)
-    first = snap_path.read_bytes()
-    capsys.readouterr()
-
-    _run_parity_check(monkeypatch, payload)
-
-    assert snap_path.read_bytes() == first
-    assert "already up to date" in capsys.readouterr().out
+    monkeypatch.setattr(httpx, "get", _no_network)
+    args = cli.build_parser().parse_args(
+        ["parity-check", "--base-url", "http://jvn.test", "--write-snapshot"]
+    )
+    assert args.func(args) == 2
+    err = capsys.readouterr().err
+    assert "src/backend/taxonomy.json" in err
+    assert cli.JVN_TAXONOMY_GENERATOR in err
 
 
 # ---- the divergence text is an ALARM, so its failure cannot be silent -------

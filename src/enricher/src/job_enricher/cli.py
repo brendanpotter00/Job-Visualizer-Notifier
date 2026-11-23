@@ -7,7 +7,6 @@ args.func. Return codes: 0 ok, 1 uncaught error, 2 bad usage, 75 lock held.
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import logging
 import os
@@ -31,6 +30,7 @@ from job_enricher.eval.params import (
 UNMATCHED_WORKLIST_REL = "golden/review/unmatched-corrections.json"
 from job_enricher.health import collect_health
 from job_enricher.store import (
+    JVN_ROOT,
     LAST_SCORECARD_HASH_KEY,
     REPO_ROOT,
     SCOPE_MAX_AGE_HOURS,
@@ -2549,23 +2549,19 @@ def _cmd_unfail(args: argparse.Namespace) -> int:
     return 0
 
 
-# ---- cross-repo taxonomy parity (ENR-PAR-2) --------------------------------
-# EVERY OTHER GUARD IN THIS EPIC IS INTRA-REPO. Nothing compared ACROSS the two
-# repos, which is exactly how the current 6-vs-7 category drift survived; the
-# plan widens that surface from 6 slugs to 21. This is the enricher half of the
-# cross-repo check (ENR-PAR-1 is the intra-repo half).
+# ---- taxonomy parity with the JVN backend (ENR-PAR-2) ----------------------
+# ENR-PAR-1 checks the enricher's own copies of the slugs against each other.
+# This half compares them with what the JVN backend serves, which is how the
+# old 6-vs-7 category drift would have been caught.
 #
 # Two halves:
-#   (a) PR-blocking, NO NETWORK — tests/test_cross_repo_parity.py compares the
-#       VENDORED snapshot at golden/taxonomy-parity/jvn_facets.json.
+#   (a) PR-blocking, NO NETWORK — tests/test_taxonomy_parity.py reads the
+#       backend's generated artifact in this monorepo, src/backend/taxonomy.json.
 #   (b) Scheduled, LIVE — `cli parity-check --base-url <JVN>` GETs
 #       /api/jobs/facets, runs the same assertions against the live payload,
-#       refreshes the snapshot, exits 1 on any mismatch and texts on divergence.
-TAXONOMY_PARITY_SNAPSHOT = REPO_ROOT / "golden" / "taxonomy-parity" / "jvn_facets.json"
-# The recorded sha256 half (a) checks the vendored copy against. It is written
-# TOGETHER with the snapshot or not at all: refreshing one without the other is
-# what turns `test_vendored_snapshot_sha256_is_recorded_and_matches` red.
-TAXONOMY_PARITY_SHA = TAXONOMY_PARITY_SNAPSHOT.with_suffix(".sha256")
+#       exits 1 on any mismatch and texts on divergence.
+JVN_TAXONOMY_ARTIFACT = JVN_ROOT / "src" / "backend" / "taxonomy.json"
+JVN_TAXONOMY_GENERATOR = "src/backend/tools/generate_taxonomy_artifact.py"
 
 # The canonical table from the shared contract, sort_order 0..16. Label- and
 # slug-alphabetical (for this set they coincide). parent_slug is
@@ -2598,8 +2594,8 @@ CANONICAL_SUBCATEGORY_TABLE: list[tuple[int, str, str]] = [
 
 def normalize_facets_payload(payload: dict[str, Any]) -> dict[str, Any]:
     """Normalize a LIVE `/api/jobs/facets` body (camelCase FacetOption) into the
-    same snake_case shape SCHEMA-15's vendored `taxonomy.json` uses, so exactly
-    ONE comparison function serves both halves."""
+    same snake_case shape the backend's `taxonomy.json` uses, so exactly ONE
+    comparison function serves both halves."""
 
     def opts(raw: Any) -> list[dict[str, Any]]:
         out = []
@@ -2618,13 +2614,10 @@ def normalize_facets_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "categories": opts(payload.get("categories")),
         "subcategories": opts(payload.get("subcategories")),
     }
-    # ⚠ `levels` RIDES ALONG when the payload carries it, so a normalized live
-    # payload has the SAME SHAPE as SCHEMA-15's vendored artifact. Dropping it
-    # made `--write-snapshot` degrade the vendored file into exactly the
-    # re-derived-in-this-repo list `test_the_vendored_snapshot_is_the_jvn_artifact
-    # _not_a_rederived_list` exists to reject. Conditional (like
-    # `subcategory_sources`) so a payload without the key is not given an empty
-    # one — see `_write_parity_snapshot`, which refuses to write in that case.
+    # `levels` rides along when the payload carries it, so a normalized live
+    # payload has the same shape as the backend's taxonomy.json. Conditional
+    # (like `subcategory_sources`) so a payload without the key is not given an
+    # empty one.
     levels = payload.get("levels")
     if levels is not None:
         snap["levels"] = opts(levels)
@@ -2700,49 +2693,6 @@ def compare_taxonomy_snapshot(
     return problems
 
 
-def _write_parity_snapshot(snap: dict[str, Any]) -> tuple[bool, str]:
-    """Refresh the vendored snapshot AND its recorded sha256, together.
-
-    Returns ``(written, reason)``. `written` is False both when the write is
-    REFUSED and when the file already holds exactly this content.
-
-    Two refusals, and both exist because this file is TRACKED and PR-BLOCKING:
-
-    * a snapshot with no ``levels`` key is not JVN's artifact, it is a list
-      re-derived in this repo — precisely what half (a)'s
-      `test_the_vendored_snapshot_is_the_jvn_artifact_not_a_rederived_list`
-      rejects. Writing one turns that test red and leaves a dirty tracked file,
-      which aborts `deploy.sh` step 3 on every subsequent prod deploy.
-    * an unchanged snapshot is not rewritten at all: the daily launchd watchdog
-      runs with `--write-snapshot`, and re-serializing an identical file would
-      still churn its bytes (the vendored copy is the generator's formatting,
-      not ours) and dirty the tree every single day.
-    """
-    if "levels" not in snap:
-        return False, (
-            "live payload carries no `levels`; writing would degrade the vendored "
-            "JVN artifact into a list re-derived in this repo"
-        )
-    if TAXONOMY_PARITY_SNAPSHOT.exists():
-        try:
-            current = json.loads(TAXONOMY_PARITY_SNAPSHOT.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            current = None
-        if current == snap:
-            return False, "already up to date (byte-for-byte content match)"
-    text = json.dumps(snap, indent=2, sort_keys=True) + "\n"
-    TAXONOMY_PARITY_SNAPSHOT.parent.mkdir(parents=True, exist_ok=True)
-    TAXONOMY_PARITY_SNAPSHOT.write_text(text, encoding="utf-8")
-    # ⚠ SAME CALL, NOT A SEPARATE STEP. README.md's manual recipe says "refresh
-    # BOTH files together"; leaving it to the operator is how the recorded sha
-    # went stale and reddened half (a).
-    digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
-    TAXONOMY_PARITY_SHA.write_text(
-        f"{digest}  {TAXONOMY_PARITY_SNAPSHOT.name}\n", encoding="utf-8"
-    )
-    return True, "refreshed"
-
-
 def _text_brendan(message: str) -> None:
     """Best-effort SMS on divergence — the same channel the existing
     com.bp.jvn-health-watch launchd job uses. The drift this catches is slow,
@@ -2774,8 +2724,20 @@ def _text_brendan(message: str) -> None:
 
 
 def _cmd_parity_check(args: argparse.Namespace) -> int:
-    """GET the live /api/jobs/facets, assert parity, refresh the snapshot."""
+    """GET the live /api/jobs/facets and assert parity."""
     import httpx
+
+    if args.write_snapshot:
+        # There is no vendored snapshot any more: the offline half reads the
+        # backend's own artifact in this monorepo. The flag stays accepted so a
+        # stale caller gets this message, not an argparse usage error.
+        print(
+            "parity-check: --write-snapshot is retired. The snapshot is JVN's "
+            f"generated {JVN_TAXONOMY_ARTIFACT.relative_to(JVN_ROOT)}; regenerate "
+            f"it with {JVN_TAXONOMY_GENERATOR}.",
+            file=sys.stderr,
+        )
+        return 2
 
     url = f"{args.base_url.rstrip('/')}/api/jobs/facets"
     try:
@@ -2801,27 +2763,6 @@ def _cmd_parity_check(args: argparse.Namespace) -> int:
     sys.stdout.flush()  # keep the summary above the problems in a combined log
     for problem in problems:
         print(f"  - {problem}", file=sys.stderr)
-
-    # ⚠ GATED ON SUCCESS. This block used to run BEFORE the `if problems` return
-    # below, and `scripts/check_taxonomy_parity.sh` always passes
-    # `--write-snapshot` on the daily launchd watchdog — so a GENUINE divergence
-    # overwrote the vendored "verbatim JVN copy" with the drifted live data and
-    # permanently masked that exact drift from the PR-blocking offline half.
-    # A watchdog that erases the evidence it exists to catch.
-    if args.write_snapshot:
-        if problems:
-            print(
-                "parity-check: snapshot NOT refreshed — refusing to overwrite the "
-                "vendored JVN copy with diverged live data (that is the evidence "
-                "this check exists to preserve)",
-                file=sys.stderr,
-            )
-        else:
-            written, reason = _write_parity_snapshot(snap)
-            if written:
-                print(f"parity-check: snapshot refreshed at {TAXONOMY_PARITY_SNAPSHOT}")
-            else:
-                print(f"parity-check: snapshot NOT refreshed — {reason}")
 
     if problems:
         if args.text_on_divergence:
@@ -3316,7 +3257,8 @@ def build_parser() -> argparse.ArgumentParser:
              "SCHEMA-7 seeds the 17 rows)",
     )
     pc.add_argument("--write-snapshot", action="store_true",
-                    help="refresh golden/taxonomy-parity/jvn_facets.json")
+                    help="retired: exits 2 (the snapshot is the backend's "
+                         "src/backend/taxonomy.json)")
     pc.add_argument("--text-on-divergence", action="store_true",
                     help="send an SMS via the message-brendan skill on mismatch")
     pc.set_defaults(func=_cmd_parity_check)

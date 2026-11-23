@@ -38,6 +38,10 @@ from typing import Any, Iterable, Iterator
 logger = logging.getLogger(__name__)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+# The enricher lives at <JVN>/src/enricher, so the JVN monorepo root is two
+# levels up. Outside the monorepo (a bare copy of src/enricher) this path
+# holds no JVN files; callers that read from it must say so.
+JVN_ROOT = REPO_ROOT.parents[1]
 DEFAULT_DB_PATH = REPO_ROOT / "data" / "enricher.db"
 
 # meta keys
