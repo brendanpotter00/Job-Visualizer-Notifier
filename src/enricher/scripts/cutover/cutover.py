@@ -551,9 +551,20 @@ def ro_uri(path: Path, immutable: bool = False) -> str:
     return path.resolve().as_uri() + ("?immutable=1" if immutable else "?mode=ro")
 
 
-def connect_ro(path: Path, *, allow_immutable: bool = False) -> tuple[sqlite3.Connection, str]:
+def connect_ro(path: Path, *, allow_immutable: bool = False,
+               quiescent_immutable: bool = False) -> tuple[sqlite3.Connection, str]:
     """Read-only connection (``mode=ro``); with ``allow_immutable`` fall back to
-    ``immutable=1`` (no locking at all — may read a torn page; informational)."""
+    ``immutable=1`` (no locking at all — may read a torn page; informational).
+
+    ``quiescent_immutable`` is for the strictly read-only modes: a ``mode=ro``
+    reader of a WAL database CREATES its ``-wal``/``-shm`` files when they are
+    absent, which would leave files in prod's ``data/``. No ``-wal`` file means no
+    connection has the database open, so read it ``immutable=1`` instead (writes
+    land in the ``-wal`` first, so the main file stays consistent while we read)."""
+    if quiescent_immutable and not Path(f"{path}-wal").exists():
+        conn = sqlite3.connect(ro_uri(path, immutable=True), uri=True, timeout=10)
+        conn.execute("SELECT count(*) FROM sqlite_master").fetchone()
+        return conn, "immutable (quiescent: no -wal)"
     try:
         conn = sqlite3.connect(ro_uri(path), uri=True, timeout=10)
         conn.execute("SELECT count(*) FROM sqlite_master").fetchone()
@@ -1077,7 +1088,8 @@ def _local_checks(cfg: Config, launchd: Launchd, rep: Report, *, in_run: bool,
     db = old / "data" / "enricher.db"
     if db.exists():
         try:
-            conn, mode = connect_ro(db, allow_immutable=not in_run)
+            conn, mode = connect_ro(db, allow_immutable=not in_run,
+                                    quiescent_immutable=not in_run)
             try:
                 snap = db_snapshot(conn)
             finally:
@@ -1161,7 +1173,7 @@ def _tick_info(cfg: Config) -> dict[str, Any] | None:
     if not db.exists():
         return None
     try:
-        conn, _ = connect_ro(db, allow_immutable=True)
+        conn, _ = connect_ro(db, allow_immutable=True, quiescent_immutable=True)
     except sqlite3.Error:
         return None
     try:

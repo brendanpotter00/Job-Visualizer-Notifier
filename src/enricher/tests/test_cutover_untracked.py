@@ -201,6 +201,37 @@ def test_online_backup_copies_a_consistent_db_and_snapshots_match(tmp_path):
     assert b["meta"] == [["classify:engine", "ollama", "2026-01-01"]]
 
 
+def test_quiescent_read_leaves_no_sqlite_sidecars(tmp_path):
+    """--preflight is read-only: a plain mode=ro reader of an idle WAL database
+    CREATES its -wal/-shm files (found by e2e CO-11), the quiescent read does not."""
+    db = tmp_path / "enricher.db"
+    conn = sqlite3.connect(db)
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.executescript("CREATE TABLE ticks (id INTEGER PRIMARY KEY); INSERT INTO ticks VALUES (7);")
+    conn.commit()
+    conn.close()  # last connection: checkpointed, -wal/-shm removed
+    sidecars = [Path(f"{db}-wal"), Path(f"{db}-shm")]
+    assert not any(p.exists() for p in sidecars)
+
+    q, mode = co.connect_ro(db, quiescent_immutable=True)
+    assert q.execute("SELECT id FROM ticks").fetchone()[0] == 7
+    q.close()
+    assert mode.startswith("immutable") and not any(p.exists() for p in sidecars)
+
+    plain, mode = co.connect_ro(db)
+    plain.close()
+    assert mode == "ro" and any(p.exists() for p in sidecars), "the reason for the flag is gone"
+
+    # A live connection (a -wal exists) is read through the WAL, as before.
+    w = sqlite3.connect(db)
+    w.execute("INSERT INTO ticks VALUES (8)")
+    w.commit()
+    q, mode = co.connect_ro(db, quiescent_immutable=True)
+    assert mode == "ro" and q.execute("SELECT max(id) FROM ticks").fetchone()[0] == 8
+    q.close()
+    w.close()
+
+
 def test_compare_snapshots_names_what_differs():
     a = {"user_version": 3, "counts": {"ticks": 3, "meta": 1}, "max_tick_id": 3, "meta": [["k", "v", "t"]]}
     b = {"user_version": 4, "counts": {"ticks": 2, "meta": 1}, "max_tick_id": 2, "meta": [["k", "w", "t"]]}
