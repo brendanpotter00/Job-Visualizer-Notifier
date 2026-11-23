@@ -131,3 +131,21 @@ jobs:
       - run: cd scripts && pytest
         env:
           TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/jobscraper
+
+  # The local enrichment worker (src/enricher). macOS because prod is a Mac:
+  # the scripts lean on BSD stat, `sysctl kern.boottime` and plutil.
+  enricher:
+    name: Enricher
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history + tags: the cutover tests look up the prod tag.
+          fetch-depth: 0
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.11.14"
+
+      # --locked also proves no root uv workspace has captured src/enricher.
+      - run: cd src/enricher && uv sync --locked && uv run pytest
