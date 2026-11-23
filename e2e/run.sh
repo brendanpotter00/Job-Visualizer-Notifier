@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # e2e/run.sh <section> [--fast] [--case AC-06] [--refresh-db]
+#   (sections that hand off below own their flags — see each <section>/run.sh)
 #
 # Stack-up -> pre-flight -> pytest -> playwright -> stack-down -> summary
 # (PLAN.md §9). ALWAYS tears the stack down, including on failure and on
@@ -24,6 +25,9 @@ if [ -z "$SECTION" ]; then
   echo "                       stack on :8203/:3203, own database. No LLM, no browser hour." >&2
   echo "  billing              \$0. Real Stripe SANDBOX (test cards, test clocks); a live" >&2
   echo "                       key is refused. Own stack :8204/:3204. Needs 'stripe login'." >&2
+  echo "  enricher             \$0, unconditionally. Real enricher CLI + wrapper against a" >&2
+  echo "                       real backend on :8205 and a STUB ollama on :8215 (never" >&2
+  echo "                       :11434). --enricher-ref <ref> runs another version." >&2
   echo >&2
   echo "the verify-onesecondswe skill is the \$0 front door to the same features:" >&2
   echo "  .claude/skills/verify-onesecondswe/helpers/name_search.sh   (\$0; --live ~\$0.27)" >&2
@@ -62,6 +66,9 @@ case "$SECTION" in
   billing)
     echo "run.sh: COST — \$0. Talks to a Stripe SANDBOX only (test-card payments and test" \
          "clocks are free; a live key is refused). No LLM call, no Browserbase session." ;;
+  enricher)
+    echo "run.sh: COST — \$0, unconditionally. The enricher's model is a deterministic stub" \
+         "on loopback; no claude, no real ollama, no Browserbase, a blank Anthropic key." ;;
 esac
 
 # `company-name-search` brings its own runner and hands off BEFORE anything below
@@ -100,6 +107,13 @@ fi
 # `billing` owns its database, ports, lock and a `stripe listen` forwarder.
 if [ "$SECTION" = "billing" ]; then
   exec bash "$SCRIPT_DIR/billing/run.sh" "$@"
+fi
+
+# `enricher` owns its database, its backend port, a stub model, a throwaway
+# enricher checkout and its own flags (`--keep-up`, `--enricher-ref`); it has
+# no frontend and no boards.
+if [ "$SECTION" = "enricher" ]; then
+  exec bash "$SCRIPT_DIR/enricher/run.sh" "$@"
 fi
 
 FAST=0
