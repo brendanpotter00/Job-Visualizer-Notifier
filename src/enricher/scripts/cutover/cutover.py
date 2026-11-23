@@ -2063,7 +2063,11 @@ def rehearse(cfg: Config, scratch: Path, jvn_repo: Path | None) -> int:
     a few seconds); ``.env.local`` is NOT copied, so the scratch checkout can
     never reach real JVN."""
     t_all = time.time()
-    scratch.mkdir(parents=True, exist_ok=True)
+    try:
+        scratch.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        log(f"--scratch {scratch}: {exc}")
+        return EXIT_USAGE
     if any(scratch.iterdir()):
         log(f"--scratch {scratch} must be empty")
         return EXIT_USAGE

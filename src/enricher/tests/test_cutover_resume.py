@@ -197,6 +197,15 @@ def test_cli_usage(tmp_path):
     assert cp.returncode == 0 and "no cutover state" in cp.stdout
 
 
+def test_rehearse_needs_a_usable_empty_scratch_dir(tmp_path):
+    (tmp_path / "afile").write_text("x")
+    assert _run(["--rehearse", "--scratch", str(tmp_path / "afile" / "sub")], tmp_path).returncode == 2
+    full = tmp_path / "full"
+    full.mkdir()
+    (full / "x").write_text("x")
+    assert _run(["--rehearse", "--scratch", str(full)], tmp_path).returncode == 2
+
+
 def test_cutover_sh_refuses_without_an_interpreter(tmp_path):
     env = {"HOME": str(tmp_path), "PATH": "/usr/bin:/bin", "UV_BIN": "/nonexistent/uv"}
     cp = subprocess.run(["/bin/sh", str(SCRIPTS / "cutover" / "cutover.sh"), "--status"],
