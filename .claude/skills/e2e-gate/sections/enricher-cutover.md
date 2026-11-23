@@ -7,7 +7,7 @@ each case proves, what to look at first when it goes red.
 ## Run it
 
 ```bash
-e2e/run.sh enricher-cutover               # full gate, measured ~3 min
+e2e/run.sh enricher-cutover               # full gate, measured ~3.3 min
 e2e/run.sh enricher-cutover --fast        # refusals, preflight, watcher no-ops (28 s)
 e2e/run.sh enricher-cutover --case CO-07  # one case (CO-REAL -> coreal, WT-05 -> its 3 phases)
 e2e/run.sh enricher-cutover --keep        # keep the sandboxes for a fix loop
@@ -62,6 +62,8 @@ of a bug there, the case is doing its job — report it; never bend the test.
 | **CO-15** | `--run` after `DONE` is a no-op; the watcher then retires itself | `runs.txt` (`-> noop_done`) |
 | **CO-16** | An unfaithful copy (a rogue writer moves the old DB during the backup) → unpark exactly as found, exit 20 | `state.json` `failed_reason`; `launchctl-calls.jsonl` (unload then load of the OLD plist) |
 | **CO-17** | A first tick that never ends: E extends while it progresses, then the hard cap; the rollback TERMs only the python stage and still copies the DB back | `cutover.log` (`still progressing`, `TERM python stage pid(s)`) |
+| **CO-18** | A power loss mid first tick (cutover + tick SIGKILLed, the tick's lock and `started_at` back-dated before the boot): the resumed run skips the dead tick and judges the next → `DONE` | `state.json` `orphaned_first_ticks` + history (`orphaned (it started before the current boot)`) |
+| **CO-19** | The first tick's wrapper alone SIGKILLed while the cutover waits: once the worker reclaims the lock, tick N+1 takes over → `DONE`, no rollback | `cutover.log` (`can never close (tick #N+1 started after it`) |
 | **CO-REAL** | The real `enricher-prod-eeff1c9` tree as old prod: real `uv sync` venv equivalence + real `cli health` equality, then `DONE` | a missing tag FAILS with the fix (`git fetch --tags`; CI needs `fetch-depth: 0` and the pushed tag) |
 | **WT-01** | `main` without `cutover.py` → `not merged yet`, nothing else | `runs.txt` |
 | **WT-02** | Refused transport (no mirror) and a vanished remote (mirror exists) → exit 0, `retry next interval` | `runs.txt` |
@@ -69,6 +71,7 @@ of a bug there, the case is doing its job — report it; never bend the test.
 | **WT-04** | A second watcher exits at once while the first runs | `runs.txt` |
 | **WT-05** | `DONE`/`FAILED`/`ROLLED_BACK` → plist moved to `retired/`, `launchctl remove`, no fetch | `launchctl-calls.jsonl` |
 | **WT-06** | `install_watcher.sh`: `--dry-run` writes nothing; install copies + loads and the `RunAtLoad` fire runs; refuses after `DONE` | `watcher-launchd.log` |
+| **WT-07** | JVN unreachable while a cutover is mid-flight (killed right after the plist switch, no worker loaded) → the watcher resumes it from the last fetched `main` → `DONE`; the cutover drops the watcher's lock | `runs.txt` (`resuming it from the last fetched main`) |
 
 ## Reading a red
 

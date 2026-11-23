@@ -17,8 +17,8 @@ end here, against the REAL scripts.
 
 | | |
 |---|---|
-| Runs | `e2e/run.sh enricher-cutover` (full, ~2.8 min) · `--fast` (~28 s) · `--case CO-07` · `--keep` |
-| Cases | CO-01..CO-17, CO-REAL, WT-01..WT-06 (28) + the isolation check (1) |
+| Runs | `e2e/run.sh enricher-cutover` (full, ~3.3 min) · `--fast` (~28 s) · `--case CO-07` · `--keep` |
+| Cases | CO-01..CO-19, CO-REAL, WT-01..WT-07 (31) + the isolation check (1) |
 | Stack | **none** — no backend, no ports, no Postgres |
 | Cost | **$0, unconditionally, and no network** |
 | Where | locally **and** in GitHub CI (the `enricher` job, macOS) |
@@ -112,8 +112,10 @@ at phase C's untracked scan and waits until it is writing (CO-16).
 | CO-15 | (the CO-01 run) a second `--run`, `--status`, a watcher fire | `-> noop_done` with state, plist, launchd and texts unchanged; the watcher retires itself |
 | CO-16 | `git_rogue` moves the old DB during the backup | exit 20 (`row counts differ in: enrichments`); unload then load of the OLD plist; `unloaded_by_us` false; as found; the old worker ticks again |
 | CO-17 | `NEW_TICK_S=600` with short close/progress/hard-cap budgets | E extends while the tick writes progress rows, then the hard cap; the rollback TERMs the python stage only, the wrapper closes the tick, the DB is copied back |
+| CO-18 | `NEW_TICK_S=600`; SIGKILL the cutover AND the first tick's job group (a power loss), then predate the boot on the tick's lock + `started_at`; worker held off (`NEW_START=0`) until phase E has skipped it | the resumed run (`continue_swap`, no re-copy) records the tick in `orphaned_first_ticks` by the boot rule, waits for the next tick, judges it ok → `DONE`, one text |
+| CO-19 | `NEW_TICK_S=600`; SIGKILL only the first tick's job group while the cutover waits; age its lock past 3 h so the worker reclaims it | the later-tick rule hands phase E to tick N+1 → `DONE`, no rollback |
 | CO-REAL | `git archive enricher-prod-eeff1c9:src/enricher` as old prod | real `uv sync` venv equivalence (≥ 10 packages), real `cli health` identical, ref = the tag, first tick through the real CLI (`real_first_tick.sh`), `DONE`; a missing tag **fails** with the fix |
-| WT-01..06 | see `CASES.md` | |
+| WT-01..07 | see `CASES.md` | |
 
 ## 4. Isolation — proven, not assumed
 
@@ -166,9 +168,11 @@ Reproduce: copy `src/enricher/scripts/{cutover,lib}` somewhere, edit the copy, t
   `bootstrap`/`bootout`, throttling, the exact `unload` exit codes).
 * **Real GitHub**: the banner push to the private job-enricher repo (credentials under a
   launchd job) and `gh repo archive`; a real text.
-* **A real multi-hour tick and a real laptop sleep.** CO-17 exercises the close-deadline
-  extension and the hard cap with second-scale budgets; the sleep-gap credit itself is
-  unit-tested with injected clocks (`tests/test_cutover_clock.py`).
+* **A real multi-hour tick, a real laptop sleep and a real reboot.** CO-17 exercises the
+  close-deadline extension and the hard cap with second-scale budgets; the sleep-gap credit
+  itself is unit-tested with injected clocks (`tests/test_cutover_clock.py`). CO-18 stands
+  in for the reboot by SIGKILLing everything and back-dating the dead tick's lock mtime and
+  `started_at` before `kern.boottime`.
 * **The rollback's last resort** (unload + SIGTERM/SIGKILL the wrapper when TERMing the
   python stage does not free the lock): CO-17 shows the first step suffices.
 * **`--rehearse`** (unit-tested by Unit 3 and run in its scratch sandbox; a `mode=ro`

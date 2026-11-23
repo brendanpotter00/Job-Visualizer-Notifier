@@ -348,8 +348,10 @@ each DB?), then continues from the first incomplete phase.
    $JVN_REMOTE_URL`, `checkout --detach <commit>`, write `<new prod>/.cutover-owned` (the only
    dirs the cutover may delete are ones carrying this marker). Assert
    `rev-parse HEAD:src/enricher == APP_TREE` and a clean `status --porcelain`.
-5. `uv sync --frozen --python <app interpreter>` in `<new prod>/src/enricher`. Assert the new
-   `.venv/pyvenv.cfg` `version_info` equals old prod's, and
+5. `uv sync --frozen --python <app interpreter>` in `<new prod>/src/enricher`. Assert both
+   venvs' `bin/python` report the same implementation + version (asked, not read from
+   `pyvenv.cfg`: that freezes at creation while `bin/python` follows uv's minor-version link,
+   so it goes stale after a `uv python upgrade`), and
    `uv pip list --format=freeze` equals old prod's after dropping the editable
    `job-enricher` line.
 
@@ -374,7 +376,8 @@ each DB?), then continues from the first incomplete phase.
 2. Every SQLite file under `data/` (`*.db`, today just `enricher.db`): Python
    `sqlite3` online backup (`src.backup(dst)`), then on the copy `PRAGMA integrity_check` =
    `ok`, `user_version` equal, every table's `COUNT(*)` equal, `max(ticks.id)` equal, `meta`
-   rows byte-equal. Record `copy_sha256` and `old_db_sha256` (both files, after the backup).
+   rows byte-equal. Record `copy_sha256`, `old_db_sha256` and `old_db_snapshot` (those
+   counts + max tick + meta + `user_version` of the old DB), after the backup.
    Never `cp` a database. Skip `-wal`/`-shm`/`-journal` (the backup reads through them).
 3. Untracked state from `git -C <old prod> status --porcelain --ignored --untracked-files=all -z`:
    **regenerate** (skip) `.venv/`, `__pycache__/`, `*.pyc`, `.pytest_cache/`, `data/chunks/`,
@@ -414,11 +417,16 @@ each DB?), then continues from the first incomplete phase.
    `CUTOVER_FIRST_TICK_START_S` (launchd's first fire is ≤ 60 s after load).
 2. It must close within `CUTOVER_FIRST_TICK_CLOSE_S`; if that passes while the tick is still
    **progressing** (new `stage_timings` rows / heartbeat in the last 30 min), extend, up to
-   `CUTOVER_FIRST_TICK_HARD_CAP_S`.
+   `CUTOVER_FIRST_TICK_HARD_CAP_S`. A tick still `running` whose wrapper is gone — a later
+   tick exists (the tick lock is single flight), or it started before the current boot (a
+   reboot / power loss mid-tick; nothing ever closes such a row) — is recorded in
+   `orphaned_first_ticks` and the next tick is judged instead; 3 in a row fail.
 3. Pass = `status == 'ok'` **and** behavioural equivalence: if `claimed > 0` then
    `classified > 0` and `sent > 0` — unless old prod's last 3 closed ticks show the same stall
-   (then it is not the cutover's fault; log it). Also: old prod's DB sha256 is still
-   `old_db_sha256` (nothing ran there), and the plist still points at the new prod.
+   (then it is not the cutover's fault; log it). Also: old prod's DB content still equals
+   `old_db_snapshot` (nothing ran there; content, not sha256 — any read-write open such as
+   `cli init` rewrites the header without changing a row), and the plist still points at
+   the new prod.
 4. Pass → `VERIFIED`. Fail → rollback (§4.5).
 
 **F — Retire (only after `VERIFIED`; each step best-effort, recorded, never rolls back).**
@@ -497,7 +505,9 @@ on that). Each fire:
    `$STATE/retired/`, `launchctl remove com.bp.jvn-enricher-cutover`, exit.
 2. mkdir-lock `$STATE/watcher.lock` (pid liveness) — launchd never overlaps a label anyway.
 3. Fetch the mirror (as §4.4 A2, with timeouts). Failure → log "fetch failed, retry next
-   interval", exit 0.
+   interval", exit 0 — unless `state.json` is mid-flight (`PARKED`, `COPIED`, `SWAPPING`,
+   `SWAPPED`, `ROLLING_BACK`): the rest of that run is local, so it resumes from the last
+   fetched `main`.
 4. `git -C $STATE/jvn.git cat-file -e main:src/enricher/scripts/cutover/cutover.py` absent →
    "not merged yet", exit 0.
 5. Present → `git archive main src/enricher/scripts | tar -x -C $STATE/run/<sha>` (the
@@ -558,7 +568,8 @@ Unit 4 turns these into the `enricher-cutover` section. Decisions and correction
   `CUTOVER_PYTHON` (cutover.sh); watcher/installer: `CUTOVER_WATCHER_PLIST`,
   `CUTOVER_WATCHER_NET_TIMEOUT_S`, `CUTOVER_LAUNCHAGENTS_DIR`.
 - `cutover.lock` and `watcher.lock` are reclaimed when their dir predates the current boot
-  (a reused pid after a reboot must not block forever).
+  (a reused pid after a reboot must not block forever). `cutover.py --run` also removes
+  `watcher.lock` on exit when it names its own pid (the watcher hands it over via `exec`).
 - `install_watcher.sh`: refuses after `DONE`; refuses a terminal `FAILED`/`ROLLED_BACK`
   unless `--rearm` (which archives `state.json`); refuses a new-prod dir without
   `.cutover-owned`; `--dry-run` lints the render via stdin and writes nothing.
@@ -643,6 +654,9 @@ park → CO-02 red in both unload modes) and M2 (skip the copy-back → CO-07 re
 - **Added:** CO-17 (a first tick that never ends: the close-deadline extension, the hard
   cap, and the rollback's TERM-the-python-stage path, all previously unexercised) and WT-06
   (`install_watcher.sh`: dry run, install + `RunAtLoad` fire, refusal after `DONE`).
+  The self-review added CO-18 / CO-19 (a first tick left `running` by a power loss or a
+  SIGKILL: judge the next tick, never roll back) and WT-07 (offline resume of a
+  mid-flight cutover).
 - **Isolation** is a case: `real_manifest.py` fingerprints the real `com.bp.*` LaunchAgents,
   state dir and `~/developer/personal/{app,job-enricher,enricher-prod}` before/after; a
   difference turns the verdict RED. Not the whole LaunchAgents dir: a third-party agent

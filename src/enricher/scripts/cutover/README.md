@@ -51,11 +51,11 @@ sh cutover.sh --status     # print state.json
 
 | Phase | Worker | Steps |
 |---|---|---|
-| A prepare | running | read-only checks; refresh the JVN mirror; refuse unless `main` has the cutover; derive the ref (tags `enricher-prod-*` first, then all history); clone into `enricher-prod` (writes `.cutover-owned` first); `uv sync --frozen` with `app/`'s interpreter; same Python + same `uv pip list` |
+| A prepare | running | read-only checks; refresh the JVN mirror; refuse unless `main` has the cutover; derive the ref (tags `enricher-prod-*` first, then all history); clone into `enricher-prod` (writes `.cutover-owned` first); `uv sync --frozen` with `app/`'s interpreter; the same Python actually running in both venvs (each `bin/python` is asked; `pyvenv.cfg` goes stale after a `uv python upgrade`) + the same `uv pip list` |
 | B park | parked | wait (≤ 4 h) for the gap between ticks; take `data/.tick.lock` with `O_EXCL`; let the wrapper exit; **then** `launchctl unload`; no process may hold the DB |
 | C copy | parked | SQLite online backup of each `data/*.db`; integrity, `user_version`, every table count, max tick, `meta` equal; copy untracked files (`.env.local`, logs) with mode, checked by sha256; `cli health` equal in both |
 | D swap | — | roles (`app/` → `retiring`); rewrite the plist (exactly two path changes, `plutil -lint`, atomic). **This write is the switch.** `launchctl load`; `launchctl print` must name the new wrapper |
-| E verify | new | a new tick must start (≤ 15 min) and close (≤ 5 h, extended while the DB keeps changing, ≤ 24 h) with `status=ok`, and if it claimed rows it must classify and send some |
+| E verify | new | a new tick must start (≤ 15 min) and close (≤ 5 h, extended while the DB keeps changing, ≤ 24 h) with `status=ok`, and if it claimed rows it must classify and send some. A tick its dead wrapper left `running` (a later tick exists, or it started before this boot: a reboot or power loss mid-tick) is skipped and the next one judged; 3 in a row roll back. `app/`'s DB must still hold the rows it held at the copy (content, not bytes: a `cli init` there rewrites the header only) |
 | F retire | new | `.checkout-role=retired` + `CLAUDE.local.md` in `app/` and `job-enricher/`; a bundle of every `job-enricher` ref; a "moved" banner pushed to `job-enricher` `main`; `gh repo archive`; a text. Each step is best effort and never rolls back |
 
 Failure handling:
@@ -68,7 +68,10 @@ Failure handling:
   and retries on the next fire.
 
 Every start re-derives where the plist points before trusting `phase`, so a crash or reboot
-at any point resumes safely. It never re-copies the DB after the swap.
+at any point resumes safely. It never re-copies the DB after the swap. A cutover that has
+parked or swapped the worker (`PARKED` … `SWAPPED`, `ROLLING_BACK`) resumes even while JVN
+is unreachable: the watcher runs it from the last fetched `main`, since what is left is
+local. The cutover removes the watcher's lock (handed over through `exec`) on exit.
 
 ## Knobs
 
@@ -127,7 +130,7 @@ Re-arm after `FAILED` or `ROLLED_BACK` (a human decides):
 
 The cutover relies only on these, all present at `enricher-prod-eeff1c9` and on `main`:
 
-- `data/enricher.db` with tables `ticks(id, status, claimed, classified, sent, …)` and `meta`;
+- `data/enricher.db` with tables `ticks(id, started_at, status, claimed, classified, sent, …)` and `meta`;
 - the lock `data/.tick.lock` holding `"<pid>|<iso>"`, and `cli tick-acquire` exiting 75 while
   a live pid holds it;
 - `scripts/enrich_tick_wrapper.sh`, the launchd program, run with cwd = the checkout;
