@@ -83,11 +83,9 @@ OWNED_MARKER = ".cutover-owned"      # the only dirs the cutover may delete carr
 SWAPPED_MARKER = ".cutover-swapped"  # replaces OWNED_MARKER once prod runs here
 RETIRED_NOTE_HEADER = "# RETIRED checkout"
 
-TERMINAL_PHASES = ("DONE", "FAILED", "ROLLED_BACK")
 #: Phase E skips a first tick its dead wrapper left ``running`` (a reboot or a power
 #: loss mid-tick). This many in a row is the new prod's fault, not bad luck: roll back.
 MAX_ORPHANED_FIRST_TICKS = 3
-PRE_SWAP_PHASES = ("PENDING", "PREPARED", "PARKED", "COPIED")
 
 #: Untracked paths that are regenerated, never copied, into the new prod.
 REGENERATE_PREFIXES = (
@@ -98,6 +96,12 @@ REGENERATE_EXACT = frozenset({
     ".checkout-role", "data/.tick.lock", "data/.backfill.lock", "data/.subcategory-push.lock",
 })
 _LOCK_LEFTOVER_RE = re.compile(r"^data/\.(tick|backfill|subcategory-push)\.lock\.")
+#: What a rollback leaves in the old prod: its scratch copy, and the stale DB (plus
+#: sidecars) it keeps aside. ``copy_db_back`` names both from these suffixes.
+DB_ROLLBACK_TMP_SUFFIX = ".rollback-tmp"
+DB_PRE_ROLLBACK_SUFFIX = ".pre-rollback-"
+_DB_ROLLBACK_ARTIFACT_RE = re.compile(
+    rf"^data/.+\.db({re.escape(DB_ROLLBACK_TMP_SUFFIX)}|{re.escape(DB_PRE_ROLLBACK_SUFFIX)})")
 _DB_RE = re.compile(r"^data/.+\.db$")
 _DB_SIDECAR_RE = re.compile(r"^data/.+\.db-(wal|shm|journal)$")
 
@@ -771,7 +775,7 @@ def classify_untracked(rel: str) -> str:
         return "regenerate"
     if any(rel.startswith(p) or rel + "/" == p for p in REGENERATE_PREFIXES):
         return "regenerate"
-    if _LOCK_LEFTOVER_RE.match(rel):
+    if _LOCK_LEFTOVER_RE.match(rel) or _DB_ROLLBACK_ARTIFACT_RE.match(rel):
         return "regenerate"
     if _DB_RE.match(rel):
         return "db"
@@ -1990,7 +1994,7 @@ def copy_db_back(cfg: Config, st: State) -> bool:
     holders = wait_no_holders(cfg, old_db, cfg.wrapper_exit_s)
     if holders:
         raise RuntimeError(f"old prod DB is open by {holders}; cannot copy back")
-    tmp = old_db.with_name("enricher.db.rollback-tmp")
+    tmp = old_db.with_name(old_db.name + DB_ROLLBACK_TMP_SUFFIX)
     online_backup(new_db, tmp)
     ok, why = integrity_ok(tmp)
     if not ok:
@@ -1999,8 +2003,9 @@ def copy_db_back(cfg: Config, st: State) -> bool:
     for suffix in ("-journal", "-wal", "-shm"):
         side = Path(f"{old_db}{suffix}")
         if side.exists():
-            os.replace(side, old_db.with_name(f"enricher.db.pre-rollback-{stamp}{suffix}"))
-    os.replace(old_db, old_db.with_name(f"enricher.db.pre-rollback-{stamp}"))
+            os.replace(side, old_db.with_name(
+                f"{old_db.name}{DB_PRE_ROLLBACK_SUFFIX}{stamp}{suffix}"))
+    os.replace(old_db, old_db.with_name(f"{old_db.name}{DB_PRE_ROLLBACK_SUFFIX}{stamp}"))
     os.replace(tmp, old_db)
     st.data["rollback_db_copied"] = True
     st.event(f"new prod DB copied back into the old prod (old kept as pre-rollback-{stamp})")
@@ -2061,7 +2066,6 @@ class Reality:
     where: str
     new_exists: bool
     new_owned: bool
-    new_swapped: bool
 
 
 def observe(cfg: Config) -> Reality:
@@ -2070,7 +2074,6 @@ def observe(cfg: Config) -> Reality:
         where=plist_where(cfg, info),
         new_exists=cfg.new_prod.exists(),
         new_owned=(cfg.new_prod / OWNED_MARKER).is_file(),
-        new_swapped=(cfg.new_prod / SWAPPED_MARKER).is_file(),
     )
 
 
@@ -2188,10 +2191,11 @@ def run_mode(cfg: Config) -> int:
 
 # --------------------------------------------------------------------------- rehearse
 def rehearse(cfg: Config, scratch: Path, jvn_repo: Path | None) -> int:
-    """Phases A + C into ``scratch``: no launchd call, no write to the old prod,
-    no state dir. The live DB is read with one online backup (a shared lock of
-    a few seconds); ``.env.local`` is NOT copied, so the scratch checkout can
-    never reach real JVN."""
+    """Phases A + C into ``scratch``: no launchd call, no state dir, and the only
+    write to the old prod is SQLite's own ``-wal``/``-shm`` beside the live DB (a
+    ``mode=ro`` reader creates them when absent; the worker recreates them every
+    tick). That DB is read with one online backup (a shared lock of a few seconds);
+    ``.env.local`` is NOT copied, so the scratch checkout can never reach real JVN."""
     t_all = time.time()
     try:
         scratch.mkdir(parents=True, exist_ok=True)

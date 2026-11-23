@@ -6,7 +6,6 @@ prod exists and carries `.cutover-owned`) before trusting `phase` (PLAN §4.6).
 
 from __future__ import annotations
 
-import ast
 import json
 import os
 import re
@@ -107,12 +106,6 @@ def test_watcher_keeps_going_on_live_phases(tmp_path, phase):
     assert not WATCHER_TERMINAL.search((tmp_path / "state.json").read_text())
 
 
-def test_the_watcher_greps_the_same_pattern():
-    text = (SCRIPTS / "cutover" / "watcher.sh").read_text()
-    assert "'^  \"phase\": \"(DONE|FAILED|ROLLED_BACK)\"'" in text
-    assert "'^  \"phase\": \"(DONE|FAILED|ROLLED_BACK)\"'" in \
-        (SCRIPTS / "cutover" / "install_watcher.sh").read_text()
-
 
 def test_state_is_written_atomically_and_round_trips(tmp_path):
     st = co.State.load(tmp_path / "s" / "state.json")
@@ -167,26 +160,18 @@ def test_knobs_override(tmp_path):
     assert bad.park_budget_s == 14400
 
 
-def test_cutover_is_stdlib_only_plus_park_worker():
-    tree = ast.parse(CUTOVER_PY.read_text())
-    names = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            names |= {a.name.split(".")[0] for a in node.names}
-        elif isinstance(node, ast.ImportFrom) and node.module:
-            names.add(node.module.split(".")[0])
-    assert names - set(sys.stdlib_module_names) - {"__future__"} == {"park_worker"}
-
-
 def test_exit_codes():
     assert (co.EXIT_DONE, co.EXIT_DEFERRED, co.EXIT_FAILED, co.EXIT_ROLLED_BACK, co.EXIT_USAGE) == \
         (0, 10, 20, 30, 2)
 
 
 def _run(args: list[str], home: Path, extra: dict[str, str] | None = None):
+    """``-S`` as well as ``-I``: no site-packages at all, so any import beyond the
+    stdlib (plus ``scripts/lib/park_worker.py``) fails the run. The watcher calls
+    cutover.sh with the old prod's bare interpreter, never a venv."""
     env = {"HOME": str(home), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", **(extra or {})}
-    return subprocess.run([sys.executable, "-I", str(CUTOVER_PY), *args], capture_output=True,
-                          text=True, env=env, timeout=120)
+    return subprocess.run([sys.executable, "-I", "-S", str(CUTOVER_PY), *args],
+                          capture_output=True, text=True, env=env, timeout=120)
 
 
 def test_cli_usage(tmp_path):

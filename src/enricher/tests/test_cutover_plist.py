@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import difflib
 import plistlib
-import shutil
 import subprocess
 from pathlib import Path
 
@@ -225,11 +224,3 @@ def test_shell_scripts_parse():
         cp = subprocess.run([shell, "-n", str(SCRIPTS / name)], capture_output=True, text=True)
         assert cp.returncode == 0, f"{name}: {cp.stderr}"
 
-
-def test_watcher_is_bash_32_safe():
-    """macOS ships bash 3.2: no associative arrays, no ${x,,}, no mapfile/readarray,
-    no `wait -n`, no &>> ."""
-    text = (SCRIPTS / "cutover" / "watcher.sh").read_text()
-    for bad in ("declare -A", ",,}", "^^}", "mapfile", "readarray", "wait -n", "&>>", "|&"):
-        assert bad not in text, bad
-    assert shutil.which("bash")

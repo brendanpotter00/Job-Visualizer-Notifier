@@ -69,7 +69,13 @@ node_modules/
         ("data/enricher.db-wal", "db-sidecar"),
         ("data/enricher.db-shm", "db-sidecar"),
         ("data/enricher.db-journal", "db-sidecar"),
-        ("data/enricher.db.pre-rollback-20260101T000000Z", "copy"),
+        # a rollback's own leftovers belong to the OLD prod: never carried over
+        ("data/enricher.db.pre-rollback-20260101T000000Z", "regenerate"),
+        ("data/enricher.db.pre-rollback-20260101T000000Z-wal", "regenerate"),
+        ("data/enricher.db.pre-rollback-20260101T000000Z-shm", "regenerate"),
+        ("data/enricher.db.pre-rollback-20260101T000000Z-journal", "regenerate"),
+        ("data/enricher.db.rollback-tmp", "regenerate"),
+        ("data/enricher.db.rollback-tmp-journal", "regenerate"),
     ],
 )
 def test_classify_untracked(rel, cls):
@@ -92,6 +98,7 @@ def old_prod(tmp_path) -> Path:
         "data/chunks/classify-t1-01.json": "[]",
         "data/.tick.lock": "123|x",
         "data/classify-run-t44.log": "old log\n",
+        "data/enricher.db.pre-rollback-20260101T000000Z": "the stale DB a rollback kept\n",
         "golden/scorecards/predictions-1.json": "{}",
         "src/job_enricher/__pycache__/a.cpython-312.pyc": "x",
         "notes.txt": "untracked, not ignored\n",
@@ -132,7 +139,8 @@ def test_copy_carries_exactly_the_copy_class_with_mode_and_mtime(cfg, old_prod, 
     assert (dst / ".env.local").stat().st_mode & 0o777 == 0o600
     assert (dst / "data" / "classify-run-t44.log").stat().st_mtime == 1_700_000_000
     for skipped in (".checkout-role", ".venv/bin/python", "data/.tick.lock", "data/enricher.db",
-                    "data/chunks/classify-t1-01.json"):
+                    "data/chunks/classify-t1-01.json",
+                    "data/enricher.db.pre-rollback-20260101T000000Z"):
         assert not (dst / skipped).exists(), skipped
     for c in copied:
         assert c["sha256"] == co.sha256_file(dst / c["path"])

@@ -224,7 +224,10 @@ def test_boot_epoch_parses_sysctl_on_macos():
 
 # ---------------------------------------------------------------------------- CLI
 def _cli(*args: str, timeout: float = 30) -> subprocess.CompletedProcess[str]:
-    return subprocess.run([sys.executable, "-I", str(LIB / "park_worker.py"), *args],
+    """``-S`` as well as ``-I``: no site-packages at all, so any import beyond the
+    stdlib fails the run. deploy.sh and cutover.py both call this file with a bare
+    interpreter, and a rolled-back checkout may have no venv at all."""
+    return subprocess.run([sys.executable, "-I", "-S", str(LIB / "park_worker.py"), *args],
                           capture_output=True, text=True, timeout=timeout)
 
 
@@ -258,15 +261,3 @@ def test_cli_usage_error_is_exit_2():
     assert _cli("claim").returncode == 2
     assert _cli("bogus").returncode == 2
 
-
-def test_is_stdlib_only():
-    import ast
-
-    tree = ast.parse((LIB / "park_worker.py").read_text())
-    names = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            names |= {a.name.split(".")[0] for a in node.names}
-        elif isinstance(node, ast.ImportFrom) and node.module:
-            names.add(node.module.split(".")[0])
-    assert names <= set(sys.stdlib_module_names) | {"__future__"}, names

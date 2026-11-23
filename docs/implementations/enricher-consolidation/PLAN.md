@@ -382,7 +382,9 @@ each DB?), then continues from the first incomplete phase.
 3. Untracked state from `git -C <old prod> status --porcelain --ignored --untracked-files=all -z`:
    **regenerate** (skip) `.venv/`, `__pycache__/`, `*.pyc`, `.pytest_cache/`, `data/chunks/`,
    `data/.tick.lock`, `data/.backfill.lock`, `data/.subcategory-push.lock`,
-   `dashboard/node_modules/`, `dashboard/dist/`, `.checkout-role`; **DB** handled above;
+   `dashboard/node_modules/`, `dashboard/dist/`, `.checkout-role`, and a rollback's own
+   leftovers (`data/enricher.db.pre-rollback-*`, `data/enricher.db.rollback-tmp` — they belong
+   to the old prod, and a re-armed cutover must not copy a stale DB); **DB** handled above;
    **everything else is copied** with `shutil.copy2` (mode + mtime kept — `.env.local`, the
    `data/classify-run-*.log` files, any `golden/scorecards/predictions*.json`), each verified by
    sha256. The log lists names and sizes only — **never** contents. `.env.local` must arrive
@@ -486,7 +488,8 @@ hard check passes.
 
 `--rehearse --scratch <dir>` runs A + C into `<dir>` (clone, uv sync, online-backup of the
 **live** DB — a shared lock for ~2 s — untracked copy **minus `.env.local`**, counts, `cli
-health` on the **scratch copy only**) and stops. No launchd call, no write to old prod.
+health` on the **scratch copy only**) and stops. No launchd call; the only write to old
+prod is SQLite's own `-wal`/`-shm` beside the live DB (the worker recreates them every tick).
 
 ### 4.8 Notifications
 

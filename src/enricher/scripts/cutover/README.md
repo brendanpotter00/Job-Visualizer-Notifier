@@ -44,7 +44,8 @@ sh cutover.sh --status     # print state.json
   `launchctl` only for `list`/`print`, and deletes its temp dir.
 - `--rehearse` runs phases A + C into `--scratch`: clone, `uv sync`, an online backup of
   the **live** DB (a shared lock of a few seconds), untracked files **except `.env.local`**,
-  `cli health` on the scratch copy only. No launchd call, no write to `app/`. Report:
+  `cli health` on the scratch copy only. No launchd call; the only write to `app/` is
+  SQLite's own `-wal`/`-shm` beside the live DB (the worker recreates them every tick). Report:
   `<scratch>/rehearsal.json`.
 
 ## What `--run` does

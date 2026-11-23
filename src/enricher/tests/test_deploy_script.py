@@ -73,7 +73,7 @@ def test_runs_a_health_check_after_the_swap():
 
 
 # ---------------------------------------------------------------------------
-# Monorepo-era guards (PLAN §6): text first, then behaviour in a sandbox.
+# Monorepo-era guards (PLAN §6): the real script in a sandbox.
 # ---------------------------------------------------------------------------
 import os  # noqa: E402
 import shutil  # noqa: E402
@@ -83,39 +83,6 @@ import sys  # noqa: E402
 import pytest  # noqa: E402
 
 _SCRIPTS = _DEPLOY.parent
-_PARK_CLAIM = '"$PARK" claim'
-
-
-def test_parks_with_the_shared_helper_before_unloading():
-    text = _text()
-    assert "lib/park_worker.py" in text and "DEPLOY_PARK_BUDGET_S" in text
-    unload_cmd = 'launchctl unload "$PLIST"'
-    assert text.index("trap resume EXIT") < text.index(_PARK_CLAIM) < text.index(unload_cmd)
-    assert '--owner-pid "$$"' in text
-
-
-def test_releases_only_its_own_lock_in_the_exit_trap():
-    """In plain sh, never through $PARK: by the time the trap runs, step 4 may
-    have checked out a ref without scripts/lib/ (behaviour test below)."""
-    text = _text()
-    release = text[text.index("release_tick_lock() {"):text.index("resume() {")]
-    assert '[ "$holder" = "$$" ]' in release and 'rm -f "$LOCK_FILE"' in release
-    assert "$PARK" not in release
-    body = text[text.index("resume() {"):text.index("trap resume EXIT")]
-    assert "$PARK" not in body
-    assert body.index("release_tick_lock") < body.index('launchctl load "$PLIST"')
-
-
-def test_refuses_the_no_arg_form_on_a_detached_head():
-    text = _text()
-    assert "symbolic-ref" in text and "pass a ref" in text
-
-
-def test_syncs_frozen_and_honours_deploy_project_dir():
-    text = _text()
-    assert "sync --frozen" in text
-    assert "DEPLOY_PROJECT_DIR" in text
-
 
 GIT_ENV = {
     **{k: v for k, v in os.environ.items() if not k.startswith("GIT_")},

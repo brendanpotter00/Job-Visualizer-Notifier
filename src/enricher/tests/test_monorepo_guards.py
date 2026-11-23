@@ -25,6 +25,7 @@ from __future__ import annotations
 import json
 import re
 import subprocess
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -145,7 +146,8 @@ def test_package_relative_state_stays_inside_src_enricher():
     JVN root."""
     root = _jvn_root()
     assert REPO_ROOT == root / "src" / "enricher"
-    assert 'name = "job-enricher"' in (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    manifest = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    assert manifest["project"]["name"] == "job-enricher"
 
 
 @pytest.mark.parametrize(
