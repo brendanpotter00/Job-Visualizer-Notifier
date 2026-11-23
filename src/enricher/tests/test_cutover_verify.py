@@ -4,6 +4,7 @@
   forever; phase E skips it for the next tick instead of waiting into the hard cap.
 * The "old prod DB changed" tripwire compares content, not bytes.
 * Venv equivalence compares the interpreters that run, not pyvenv.cfg.
+* The watcher's lock, handed over through ``exec``, is dropped on exit.
 """
 
 from __future__ import annotations
@@ -200,3 +201,14 @@ def test_running_python_asks_the_interpreter_not_pyvenv_cfg(tmp_path):
     want = f"CPython {'.'.join(map(str, sys.version_info[:3]))}"
     assert co.running_python(venv) == want
     assert co.running_python(tmp_path / "missing") is None
+
+
+# ------------------------------------------------------------------ the watcher's lock
+def test_release_if_ours_only_drops_our_own_lock(tmp_path):
+    lock = tmp_path / "watcher.lock"
+    lock.mkdir()
+    (lock / "pid").write_text("1\n")
+    assert co.release_if_ours(lock) is False and lock.is_dir()
+    (lock / "pid").write_text(f"{os.getpid()}\n")
+    assert co.release_if_ours(lock) is True and not lock.exists()
+    assert co.release_if_ours(lock) is False  # absent: no error

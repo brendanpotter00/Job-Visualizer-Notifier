@@ -6,7 +6,9 @@
 # Each fire:
 #   1. state.json terminal (DONE / FAILED / ROLLED_BACK) -> retire this agent and exit.
 #   2. single flight (mkdir lock + pid; a dead or pre-boot holder is reclaimed).
-#   3. refresh the bare JVN mirror (main + tags). Network down -> retry next interval.
+#   3. refresh the bare JVN mirror (main + tags). Network down -> retry next interval,
+#      unless a cutover is mid-flight (parked, swapped, rolling back): that resumes
+#      offline from the last fetched main, since its remaining steps are all local.
 #   4. main lacks src/enricher/scripts/cutover/cutover.py -> "not merged yet", exit 0.
 #   5. extract src/enricher/scripts from MERGED main and exec its cutover.sh --run,
 #      so the cutover that runs is always the reviewed, merged one.
@@ -67,7 +69,8 @@ if [ -f "$STATE/state.json" ] \
 fi
 
 # 2. Single flight. The lock outlives an `exec` into the cutover (same pid), so a
-#    running cutover also blocks the next fire; a dead or pre-boot holder is reclaimed.
+#    running cutover also blocks the next fire, and cutover.py removes it on exit; a
+#    dead or pre-boot holder is reclaimed.
 LOCK="$STATE/watcher.lock"
 if ! mkdir "$LOCK" 2>/dev/null; then
   HOLDER="$(cat "$LOCK/pid" 2>/dev/null || echo '')"
@@ -105,8 +108,21 @@ if [ ! -f "$MIRROR/HEAD" ]; then
 fi
 if ! run_with_timeout "$NET_TIMEOUT" "$GIT" -C "$MIRROR" fetch --quiet --prune --tags origin \
      '+refs/heads/main:refs/heads/main'; then
-  log "fetch failed, retry next interval"
-  exit 0
+  # A cutover that already parked or swapped the worker must not wait for the
+  # network: resuming it (or its rollback, or putting the parked old worker back)
+  # is local. PENDING / PREPARED leave the old worker running and VERIFIED's
+  # phase F pushes + archives, so those wait for the network.
+  PHASE=""
+  if [ -f "$STATE/state.json" ]; then
+    PHASE="$(sed -n 's/^  "phase": "\([A-Z_]*\)".*/\1/p' "$STATE/state.json" | head -1)"
+  fi
+  case "$PHASE" in
+    PARKED|COPIED|SWAPPING|SWAPPED|ROLLING_BACK)
+      log "fetch failed; the cutover is mid-flight ($PHASE), resuming it from the last fetched main" ;;
+    *)
+      log "fetch failed, retry next interval"
+      exit 0 ;;
+  esac
 fi
 
 # 4. Merged yet?
@@ -133,5 +149,5 @@ if [ ! -f "$RUN_DIR/src/enricher/scripts/cutover/cutover.sh" ]; then
   mv "$TMP" "$RUN_DIR"
 fi
 log "main $SHA contains the cutover; running it"
-trap - EXIT   # the lock now belongs to the cutover (same pid after exec)
+trap - EXIT   # the lock now belongs to the cutover (same pid after exec; it removes it)
 exec /bin/sh "$RUN_DIR/src/enricher/scripts/cutover/cutover.sh" --run

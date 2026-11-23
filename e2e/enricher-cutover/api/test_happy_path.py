@@ -37,6 +37,8 @@ def test_co01_happy_path_end_to_end(happy, step):
     assert st.get("phase") == "DONE", sb.output()
     assert (st["ref"], st["ref_source"], st["commit"]) == (cs.FAKE_TAG, "tag", sb.jvn_prod_commit)
     assert "Traceback" not in sb.all_output()
+    assert not (sb.state_dir / "watcher.lock").exists(), \
+        "the cutover left behind the lock the watcher handed it through exec"
 
     step("park before unload: the old label was unloaded only while the cutover held the lock")
     calls = [c for c in sb.lifecycle_calls() if c["t"] > sb.t_start]

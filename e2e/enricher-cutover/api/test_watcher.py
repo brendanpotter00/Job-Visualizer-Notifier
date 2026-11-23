@@ -12,6 +12,8 @@ WT-04  a second watcher while the first runs -> exits at once
 WT-05  terminal state -> plist moved to retired/, ``launchctl remove``, no cutover
 WT-06  install_watcher.sh: --dry-run writes nothing; install copies + loads and
        the RunAtLoad fire runs; refuses after DONE
+WT-07  offline, a cutover killed right after the plist switch (no worker loaded)
+       still resumes from the last fetched main, and drops the watcher's lock
 """
 
 from __future__ import annotations
@@ -179,3 +181,29 @@ def test_wt06_install_watcher(make_sandbox, step):
     cp = sb.sh(["/bin/sh", str(install)], check=False)
     assert cp.returncode == 1 and "already DONE" in cp.stderr, cp.stdout + cp.stderr
     assert os.path.exists(sb.watcher_plist)
+
+
+def test_wt07_offline_resumes_a_mid_flight_cutover(make_sandbox, step):
+    sb = make_sandbox()
+    sb.env["FAKE_KILL_CALLER_ON_LOAD"] = str(sb.new_enricher)
+    step("a cutover is SIGKILLed between the plist switch and the load: no worker runs")
+    cp = sb.run_cutover("--run", label="killed after the switch")
+    assert cp.returncode == -9, sb.output()
+    assert sb.state()["phase"] == "SWAPPING", sb.output()
+    assert cs.ENRICHER_LABEL not in sb.launchd_state(), "something is loaded"
+    del sb.env["FAKE_KILL_CALLER_ON_LOAD"]
+
+    step("the watcher fires while JVN is unreachable (the remote is gone)")
+    shutil.move(str(sb.jvn_remote), str(sb.root / "jvn-remote-gone.git"))
+    cp = sb.run_watcher(label="offline resume")
+    assert cp.returncode == 0, sb.output()
+    assert ("fetch failed; the cutover is mid-flight (SWAPPING), resuming it from the last "
+            "fetched main") in cp.stdout, sb.output()
+    assert "-> continue_swap" in cp.stdout, sb.output()
+    st = sb.state()
+    assert st["phase"] == "DONE", sb.output()
+    assert st["first_tick"]["status"] == "ok"
+    assert sb.loaded_program() == str(sb.new_enricher / cs.WRAPPER_REL)
+
+    step("the cutover dropped the lock the watcher handed it through exec")
+    assert not (sb.state_dir / "watcher.lock").exists()

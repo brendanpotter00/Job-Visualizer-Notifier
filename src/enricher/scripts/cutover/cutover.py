@@ -1010,8 +1010,15 @@ class SingleFlight:
         return False
 
     def release(self) -> None:
-        if park_worker.payload_pid(read_text(self.dir / "pid") or "") == os.getpid():
-            shutil.rmtree(self.dir, ignore_errors=True)
+        release_if_ours(self.dir)
+
+
+def release_if_ours(lock_dir: Path) -> bool:
+    """Remove a mkdir lock whose ``pid`` file names this process."""
+    if park_worker.payload_pid(read_text(lock_dir / "pid") or "") != os.getpid():
+        return False
+    shutil.rmtree(lock_dir, ignore_errors=True)
+    return True
 
 
 # --------------------------------------------------------------------------- notifications
@@ -2173,6 +2180,10 @@ def run_mode(cfg: Config) -> int:
         return drive(cfg, st, Launchd(cfg))
     finally:
         flight.release()
+        # watcher.sh hands us its lock through `exec` (same pid). Drop it on the way
+        # out, or a later fire could read a recycled pid as a live cutover and wait
+        # for a reboot.
+        release_if_ours(cfg.state_dir / "watcher.lock")
 
 
 # --------------------------------------------------------------------------- rehearse
