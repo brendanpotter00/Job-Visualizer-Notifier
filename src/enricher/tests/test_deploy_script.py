@@ -1,8 +1,9 @@
 """DEP-1 — a TEXT GUARD on scripts/deploy.sh.
 
-Merging to this repo's `main` deploys NOTHING: the live worker runs from
-`/Users/bpotter/developer/personal/app` (`.checkout-role='prod'`, launchd label
-`com.bp.job-enricher`). `scripts/deploy.sh` is the only supported path there, and
+Merging to JVN `main` deploys NOTHING to the enricher: the live worker runs from
+`/Users/bpotter/developer/personal/enricher-prod/src/enricher`
+(`.checkout-role='prod'`, launchd label `com.bp.job-enricher`).
+`scripts/deploy.sh` is the only supported path there, and
 each of the guards asserted below closes a specific way a deploy strands prod:
 
 * the `.checkout-role` check — deploying into the DEV checkout is a silent no-op;

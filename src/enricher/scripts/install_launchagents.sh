@@ -4,7 +4,7 @@ set -eu
 PLIST="$HOME/Library/LaunchAgents/com.bp.job-enricher.plist"
 # Anchor to the checkout this script is run FROM (its parent dir), so the generated plist
 # points the launchd worker at whichever checkout you install from — run it from the prod
-# checkout (~/developer/personal/app). See docs/ENVIRONMENTS.md.
+# checkout (~/developer/personal/enricher-prod/src/enricher). See docs/ENVIRONMENTS.md.
 PROJECT="$(cd "$(dirname "$0")/.." && pwd)"
 # 60s = "continuous worker": the local (ollama) engine has no fan-out, so a batch
 # tick runs for many minutes. The single-flight O_EXCL lock makes every fire during

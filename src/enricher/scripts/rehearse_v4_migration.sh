@@ -2,7 +2,7 @@
 # P0-7 — rehearse the SQLite v3->v4 migration on a CONSISTENT copy of the prod DB.
 #
 # ⚠ THIS IS THE ONE REHEARSAL STEP, and ENR-ST-1's migration may not reach
-# /Users/bpotter/developer/personal/app until it has recorded
+# /Users/bpotter/developer/personal/enricher-prod/src/enricher until it has recorded
 # MIGRATION_V3_V4_SECONDS.
 #
 # ⚠ COPY WITH `sqlite3 ".backup"`, NEVER `cp`: the prod DB is WAL-mode, so a plain
@@ -21,7 +21,7 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
-LIVE="${1:-/Users/bpotter/developer/personal/app/data/enricher.db}"
+LIVE="${1:-/Users/bpotter/developer/personal/enricher-prod/src/enricher/data/enricher.db}"
 COPY="${2:-/tmp/enricher-v4-rehearsal-$(date +%Y%m%d-%H%M%S).db}"
 
 if [[ ! -f "$LIVE" ]]; then

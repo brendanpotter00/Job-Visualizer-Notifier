@@ -20,10 +20,10 @@ Two lanes, two commands, one ledger:
 cat .checkout-role     # must print: prod
 ```
 
-The file exists **only** in `/Users/bpotter/developer/personal/app`. **The
-job-enricher repo checkout has no such file — that absence is itself the signal.**
+It says `prod` **only** in `/Users/bpotter/developer/personal/enricher-prod/src/enricher`. **A dev checkout (your JVN checkout's
+`src/enricher`) has no such file, or says `dev` — either is the signal to stop.**
 
-> ⚠ **Merging to `job-enricher` main deploys NOTHING.** `scripts/deploy.sh` is
+> ⚠ **Merging to JVN main deploys NOTHING to the enricher.** `scripts/deploy.sh` is
 > the path. Running the backfill from the dev checkout against the prod DB is on
 > the DO-NOT list below.
 

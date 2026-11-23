@@ -10,19 +10,19 @@ Everything here is a **procedure a human runs**, not something a tick does.
 
 ---
 
-## 0. Prod is `/Users/bpotter/developer/personal/app`, not this repo
+## 0. Prod is `/Users/bpotter/developer/personal/enricher-prod/src/enricher`, not this checkout
 
-Merging to `job-enricher` `main` **deploys nothing**. See
+Merging to JVN `main` **deploys nothing** to the enricher. See
 [`ENVIRONMENTS.md`](./ENVIRONMENTS.md) and the deploy procedure in §6 below.
 
 ---
 
-## 1. Cross-repo taxonomy parity (`ENR-PAR-2`)
+## 1. Taxonomy parity with JVN (`ENR-PAR-2`)
 
-Every other guard in this epic is intra-repo. This is the only check that
-compares the enricher's slug sets against JVN's live API — the drift it catches
-is slow, silent and only observable in production (the current `project_manager`
-6-vs-7 category drift is exactly this failure, and it survived for a year).
+This is the only check that compares the enricher's slug sets against JVN's
+live API — the drift it catches is slow, silent and only observable in
+production (the `project_manager` 6-vs-7 category drift was exactly this
+failure, and it survived for a year).
 
 ```sh
 PARITY_CHECK=1 JVN_BASE_URL=https://onesecondswe.dev scripts/check_taxonomy_parity.sh
@@ -30,8 +30,7 @@ PARITY_CHECK=1 JVN_BASE_URL=https://onesecondswe.dev scripts/check_taxonomy_pari
 
 Exits 0 and prints `subcategories: 17/17 match, categories: 6/6 match` when
 parity holds; exits 1, prints each problem, and texts via the `message-brendan`
-skill otherwise. `--write-snapshot` refreshes
-`golden/taxonomy-parity/jvn_facets.json`.
+skill otherwise. It writes nothing (`--write-snapshot` is retired and exits 2).
 
 Installed as launchd `com.bp.jvn-taxonomy-parity` (daily 09:15), mirroring
 `com.bp.jvn-health-watch`. The plist template is
@@ -44,32 +43,17 @@ Installed as launchd `com.bp.jvn-taxonomy-parity` (daily 09:15), mirroring
 | **Before `SCHEMA-11` ships** (retire `project_manager`) | `categories: JVN-only ['project_manager']` | Expected. This non-zero exit **is the proof the check works.** Do not "fix" it here — SCHEMA-11 fixes it JVN-side. |
 | **Before `SCHEMA-7` seeds the 17 rows** | `subcategories: enricher-only [all 17]` | Run with `ALLOW_EMPTY_SUBCATEGORIES=1` (the plist sets it). Remove that env var the day SCHEMA-7 lands, or the guard is armed against nothing. |
 
-### The vendored snapshot
+### The offline half
 
-`golden/taxonomy-parity/jvn_facets.json` is **JVN's
-`src/backend/taxonomy.json` (SCHEMA-15's artifact) copied verbatim**, with its
-sha256 in `jvn_facets.sha256`. **Never re-derive the slug list in this repo** —
-two independently-typed lists agree right up until one of them is edited, which
-is the seam SCHEMA-15 exists to close.
+`tests/test_taxonomy_parity.py` reads the backend's generated
+`src/backend/taxonomy.json` (SCHEMA-15's artifact) straight from this monorepo.
+**Never re-derive the slug list in the enricher** — two independently-typed
+lists agree right up until one of them is edited, which is the seam SCHEMA-15
+exists to close. Change a slug in the backend, regenerate with
+`src/backend/tools/generate_taxonomy_artifact.py`, and update
+`job_enricher.taxonomy` in the same PR.
 
-**It is vendored** — from `origin/feat/swe-subcat-b-backend` (PR-B) commit
-`b1356ca`, so half (a) is armed and green today. Provenance and the two refresh
-recipes live in `golden/taxonomy-parity/README.md`; **refresh the `.json` and
-the `.sha256` together** or the recorded-sha test goes red. ⚠ **Re-copy it once
-PR-B merges to JVN `main`.**
-
-⚠ **Third expected-red window, and it is live NOW.** The 15 → 17 widening
-(`growth_engineering`, `product_engineering`) landed in the ENRICHER first, so
-JVN's artifact is a slug set behind. The vendored `.json` therefore carries a
-**locally regenerated** 17-slug `subcategories` block — the generator's exact
-output shape — instead of a verbatim copy, and the LIVE half (b) will report
-`subcategories: enricher-only ['growth_engineering', 'product_engineering']`
-plus nine `sort_order` mismatches until JVN ships the new rows. That non-zero
-exit **is the proof the check works**; do not silence it here. The fix is
-JVN-side, then one `git show` re-copy. See
-`golden/taxonomy-parity/README.md` → *"RIGHT NOW THIS COPY IS A FORECAST"*.
-
-⚠ The snapshot tests **FAIL** if the file is missing. They used to `skip`, which
+⚠ The tests **FAIL** if the artifact is missing. They used to `skip`, which
 made the PR-blocking half report success while asserting nothing. Do not turn
 them back into skips.
 
@@ -83,7 +67,7 @@ them back into skips.
 # From the DEV worktree. Read-only by construction: PRAGMA query_only=ON, and the
 # script ABORTS if that pragma does not read back 1.
 uv run python scripts/diagnose_stuck_cohort.py \
-  --db /Users/bpotter/developer/personal/app/data/enricher.db
+  --db /Users/bpotter/developer/personal/enricher-prod/src/enricher/data/enricher.db
 ```
 
 Why the connection recipe is not the obvious one:
@@ -189,10 +173,10 @@ the backfill disagree about what 90% means.
 ## 4. Rehearsing the v3→v4 SQLite migration (`P0-7`)
 
 **This is the ONE rehearsal step.** It gates the migration reaching
-`/Users/bpotter/developer/personal/app`.
+`/Users/bpotter/developer/personal/enricher-prod/src/enricher`.
 
 ```sh
-scripts/rehearse_v4_migration.sh /Users/bpotter/developer/personal/app/data/enricher.db
+scripts/rehearse_v4_migration.sh /Users/bpotter/developer/personal/enricher-prod/src/enricher/data/enricher.db
 ```
 
 ### 4.1 ⚠ Copy with `.backup`, NEVER `cp`
@@ -239,17 +223,17 @@ ticks that restoring it would lose.
 
 ## 5. Deploying the enricher (`DEP-1`)
 
-### 5.1 ⚠ Merging to `job-enricher` main deploys NOTHING
+### 5.1 ⚠ Merging to JVN main deploys NOTHING to the enricher
 
-The live worker runs from **`/Users/bpotter/developer/personal/app`**
+The live worker runs from **`/Users/bpotter/developer/personal/enricher-prod/src/enricher`**
 (`.checkout-role='prod'`), launchd label **`com.bp.job-enricher`**,
 `StartInterval` 60, `ProgramArguments` = `<prod>/scripts/enrich_tick_wrapper.sh`.
-This repo is the DEV checkout; nothing you merge here reaches production on its own.
+Your JVN checkout's `src/enricher` is DEV; nothing you merge reaches production on its own.
 
 ### 5.2 The procedure
 
 ```
-dev worktree  ->  PR  ->  merge to main  ->  cd ~/developer/personal/app && scripts/deploy.sh
+dev worktree  ->  PR  ->  merge to main  ->  cd ~/developer/personal/enricher-prod/src/enricher && scripts/deploy.sh
 ```
 
 ⚠ **The idle window is unhittable by guessing.** Ticks run ~6,700 s and fire
@@ -344,7 +328,7 @@ Both live in the **JVN** repo and are run by hand as part of `GO-1` item 3:
 ### 7.3 After the enricher deploy
 
 ```sh
-# from the PROD checkout, /Users/bpotter/developer/personal/app
+# from the PROD checkout, /Users/bpotter/developer/personal/enricher-prod/src/enricher
 sqlite3 data/enricher.db 'PRAGMA user_version;'      # -> 4  (read-only)
 uv run python -m job_enricher.cli health             # must exit 0
 uv run python -m job_enricher.cli health | jq .inbox.cleaned   # must TREND DOWN

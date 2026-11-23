@@ -2064,7 +2064,7 @@ def _cmd_dashboard(args: argparse.Namespace) -> int:
     whatever commit that worktree happened to be on — see
     docs/handoffs/2026-07-12-prod-monitoring-after-ollama-cutover.md for the
     incident this guards against. Prefer `scripts/run_dashboard.sh`, which always
-    runs from the main checkout on an up-to-date `main`."""
+    builds and serves the checked-out commit and prints its branch + sha."""
     import subprocess
     import uvicorn
 

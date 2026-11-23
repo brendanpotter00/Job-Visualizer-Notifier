@@ -4,7 +4,7 @@
 Run from the DEV worktree with `--db` pointing at the prod DB:
 
     uv run python scripts/diagnose_stuck_cohort.py \\
-        --db /Users/bpotter/developer/personal/app/data/enricher.db
+        --db /Users/bpotter/developer/personal/enricher-prod/src/enricher/data/enricher.db
 
 CONNECTION RECIPE, and why it is not the obvious one:
 
