@@ -402,7 +402,11 @@ describe('OnboardingFlow — saving', () => {
     expect(cached?.category).toEqual(['software_engineering']);
     expect(cached?.locations).toEqual(['Seattle, WA, US']);
 
-    expect(screen.getByTestId('path')).toHaveTextContent('/jobs');
+    // React Router applies a navigation as a transition, so the new path can
+    // render after `onDone` has already fired (the flow calls navigate first).
+    // Wait for it rather than reading it in the same tick: under CI load the
+    // immediate read saw '/companies' (main, run 45189069195).
+    await waitFor(() => expect(screen.getByTestId('path')).toHaveTextContent('/jobs'));
     expect(onDone.mock.calls[0][0]).toMatchObject({
       onboardingCompletedAt: '2026-11-22T10:00:00+00:00',
     });
