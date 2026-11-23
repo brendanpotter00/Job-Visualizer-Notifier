@@ -95,8 +95,9 @@ asleep is credited back to every deadline, so a night's sleep never reads as a w
 ## Texts
 
 One per event, never repeated: `DONE`, `FAILED`, `ROLLED_BACK`, `ROLLBACK_STUCK`,
-`DEFERRED:wedged` (a tick outlived the 4 h park budget), `DEFERRED:repeated`. Texts never
-contain secrets or `.env.local` content.
+`DEFERRED:wedged` (a tick outlived the 4 h park budget), `DEFERRED:repeated`,
+`UNPARK_FAILED` (`app/`'s worker did not reload after an unpark; the text names the
+`launchctl load` to run). Texts never contain secrets or `.env.local` content.
 
 ## Operating it
 

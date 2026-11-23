@@ -19,6 +19,8 @@ untracked marker `.checkout-role` — run `cat .checkout-role`:
   edit; DB + `.env.local` are throwaway/staging. This is where you and agents work.
 - **`retired`** → `~/developer/personal/app` (the old prod, kept as a rollback artifact) or
   `~/developer/personal/job-enricher` (the old repo). **Stop** and work in JVN instead.
+  Until the post-merge cutover has run, `app/` is still prod; the launchd plist's
+  `WorkingDirectory` is always the truth.
 - **Missing** → assume dev, but confirm you're not in a prod or retired path.
 
 Full details + deploy/rollback runbook: **`docs/ENVIRONMENTS.md`**.
