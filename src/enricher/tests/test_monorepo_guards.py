@@ -146,3 +146,18 @@ def test_package_relative_state_stays_inside_src_enricher():
     root = _jvn_root()
     assert REPO_ROOT == root / "src" / "enricher"
     assert 'name = "job-enricher"' in (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    "repo_root, want",
+    [
+        ("/Users/x/JVN/src/enricher", "/Users/x/JVN"),
+        ("/tmp/enricher", "/"),
+        ("/enricher", "/enricher"),  # a bare copy right under / : no IndexError at import
+        ("/", "/"),
+    ],
+)
+def test_monorepo_root_never_raises(repo_root, want):
+    from job_enricher.store import monorepo_root
+
+    assert monorepo_root(Path(repo_root)) == Path(want)

@@ -38,10 +38,19 @@ from typing import Any, Iterable, Iterator
 logger = logging.getLogger(__name__)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-# The enricher lives at <JVN>/src/enricher, so the JVN monorepo root is two
-# levels up. Outside the monorepo (a bare copy of src/enricher) this path
-# holds no JVN files; callers that read from it must say so.
-JVN_ROOT = REPO_ROOT.parents[1]
+
+
+def monorepo_root(repo_root: Path) -> Path:
+    """The enricher lives at <JVN>/src/enricher, so the JVN monorepo root is two
+    levels up. Outside the monorepo (a bare copy of src/enricher) that path holds
+    no JVN files and callers that read from it must say so; a copy too close to
+    ``/`` to have two parents gets ``repo_root`` itself rather than an import-time
+    IndexError that would take every CLI command down with it."""
+    parents = repo_root.parents
+    return parents[1] if len(parents) > 1 else repo_root
+
+
+JVN_ROOT = monorepo_root(REPO_ROOT)
 DEFAULT_DB_PATH = REPO_ROOT / "data" / "enricher.db"
 
 # meta keys
