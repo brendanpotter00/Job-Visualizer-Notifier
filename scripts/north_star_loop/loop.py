@@ -118,8 +118,11 @@ def cmd_add(db, a) -> None:
         " risk, sms, brief) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (t, t, a.title, a.kind, a.metric, a.expected, a.risk, a.sms, brief),
     )
-    log_event(db, cur.lastrowid, "proposed", a.title)
-    print(cur.lastrowid)
+    pid = cur.lastrowid
+    # The text names the id ("NS-{N} ...", "yes {N}") before the id exists.
+    db.execute("UPDATE proposals SET sms = ? WHERE id = ?", (a.sms.replace("{N}", str(pid)), pid))
+    log_event(db, pid, "proposed", a.title)
+    print(pid)
 
 
 def cmd_decide(db, a) -> None:
@@ -148,6 +151,7 @@ def cmd_set(db, a) -> None:
 
 
 def cmd_log(db, a) -> None:
+    get(db, a.id)  # no orphan events
     log_event(db, a.id, a.kind, " ".join(a.detail))
 
 
@@ -240,7 +244,7 @@ def main(argv=None) -> None:
     s.add_argument("--metric", required=True)
     s.add_argument("--expected", required=True)
     s.add_argument("--risk", choices=["low", "medium", "high"], required=True)
-    s.add_argument("--sms", required=True, help="the exact text that was sent")
+    s.add_argument("--sms", required=True, help="the text to send; {N} becomes the new id")
     s.add_argument("--brief-file", required=True, help="markdown file with the full brief")
     s = sub.add_parser("decide", help="Brendan's answer to an idea")
     s.add_argument("id", type=int)

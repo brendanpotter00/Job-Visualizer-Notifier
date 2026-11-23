@@ -49,7 +49,7 @@ python3 scripts/north_star_loop/loop.py show <N>                 # full brief + 
 tail -5 "$HOME/Library/Application Support/jvn-north-star-loop/heartbeat.log"
 ```
 
-Dry run anywhere (no texts, ClickUp writes, or pushes): invoke the `north-star-loop` skill in a Claude session with `JVN_LOOP_DRY_RUN=1` and `JVN_LOOP_DB` pointing at a throwaway file.
+Dry run anywhere (no texts, ClickUp writes, or pushes): invoke the `north-star-loop` skill in a Claude session with `JVN_LOOP_DRY_RUN=1`, `JVN_LOOP_DB` pointing at a throwaway file, and `JVN_LOOP_STATE_DIR` at a throwaway folder (heartbeat). A real run with a missing `send.sh` is an error, not a silent dry run. `JVN_LOOP_SEND` overrides the send script path.
 
 ## Design notes
 

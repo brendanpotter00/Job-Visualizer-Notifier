@@ -122,6 +122,19 @@ def test_build_that_fails_twice_is_blocked_and_logged_as_a_mistake(loop):
     assert next_action(loop, now="2026-12-08T09:00:00+00:00") == "propose"
 
 
+def test_text_gets_its_own_id_and_log_needs_a_real_idea(loop, tmp_path):
+    brief = tmp_path / "brief.md"
+    out = loop(
+        "add", "--title", "t", "--metric", "7d return", "--expected", "26% -> 28%",
+        "--risk", "low", "--sms", 'NS-{N} idea\nReply "yes {N}"', "--brief-file", str(brief),
+    )
+    assert out.stdout.strip() == "1"
+    shown = loop("show", "1").stdout
+    assert 'NS-1 idea\nReply "yes 1"' in shown
+    orphan = loop("log", "99", "note", "x", check=False)
+    assert orphan.returncode != 0 and "no proposal 99" in orphan.stderr
+
+
 def test_only_known_fields_can_be_set(loop):
     loop.add()
     out = loop("set", "1", "brief=overwritten", check=False)

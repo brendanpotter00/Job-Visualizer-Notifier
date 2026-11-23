@@ -10,8 +10,8 @@ set -u
 
 CLAUDE_BIN="/Users/bpotter/.local/bin/claude"
 PROJECT_DIR="${JVN_LOOP_PROJECT_DIR:-/Users/bpotter/developer/personal/Job-Visualizer-Notifier}"
-SEND="/Users/bpotter/.claude/skills/message-brendan/send.sh"
-STATE_DIR="$HOME/Library/Application Support/jvn-north-star-loop"
+SEND="${JVN_LOOP_SEND:-/Users/bpotter/.claude/skills/message-brendan/send.sh}"
+STATE_DIR="${JVN_LOOP_STATE_DIR:-$HOME/Library/Application Support/jvn-north-star-loop}"
 HEARTBEAT="$STATE_DIR/heartbeat.log"
 LOCK_DIR="$STATE_DIR/.run.lock"
 FAIL_STAMP="$STATE_DIR/wrapper-fail-last-text"
