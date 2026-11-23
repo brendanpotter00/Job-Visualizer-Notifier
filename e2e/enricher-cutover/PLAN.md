@@ -138,6 +138,7 @@ at phase C's untracked scan and waits until it is writing (CO-16).
 `.github/workflows/ci.yml`, job `enricher` (macOS, `fetch-depth: 0`): after the unit suite,
 `bash e2e/run.sh enricher-cutover`; on failure the artifacts are uploaded. There is no root
 venv in CI, so `run.sh` runs pytest under `uv run --project src/enricher --frozen python`
+(`E2E_CUTOVER_ROOT_VENV=0` forces that path locally — measured GREEN, 29/29, 174 s)
 (the enricher's dev group has pytest; `pytest-timeout` is used only when present). The unit
 step's `uv sync` fills the uv cache, which is what lets every `uv sync` here run offline;
 the step runs `uv python install 3.12` first, because the sandboxes are built on a

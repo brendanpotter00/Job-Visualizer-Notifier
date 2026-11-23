@@ -44,8 +44,10 @@ echo "enricher-cutover: COST — \$0. No network (local file remotes, uv offline
 
 # The test interpreter: the root venv when it can run pytest, else the
 # enricher's own project env (what CI has — there is no root venv there).
+# E2E_CUTOVER_ROOT_VENV=0 forces the CI path locally.
 PY=()
-if [ -x "$REPO_ROOT/.venv/bin/python" ] && "$REPO_ROOT/.venv/bin/python" -c 'import pytest' 2>/dev/null; then
+if [ "${E2E_CUTOVER_ROOT_VENV:-1}" = "1" ] && [ -x "$REPO_ROOT/.venv/bin/python" ] \
+   && "$REPO_ROOT/.venv/bin/python" -c 'import pytest' 2>/dev/null; then
   PY=("$REPO_ROOT/.venv/bin/python")
 elif command -v uv >/dev/null 2>&1; then
   PY=(uv run --project "$REPO_ROOT/src/enricher" --frozen python)
