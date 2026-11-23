@@ -13,7 +13,8 @@ one text. Small-idea lifecycle:
     proposed -> approved -> building -> pr_open -> shipped -> measured
              \-> rejected | expired           \-> closed  (PR closed unmerged)
                             building -> blocked (build failed twice, or the
-                                                 skill found the problem no longer holds)
+                                                 skill found the problem no longer holds,
+                                                 the idea mis-scoped, or a STRATEGY.md conflict)
                             building -> paused  (a no-mistakes gate asks Brendan: he
                                                  sets pr_open, or approved to rebuild)
     flagged  -> rejected (Brendan says why not; otherwise it stays flagged as a record)
