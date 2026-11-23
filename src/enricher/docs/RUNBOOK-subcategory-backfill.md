@@ -30,7 +30,7 @@ PARITY_CHECK=1 JVN_BASE_URL=https://onesecondswe.dev scripts/check_taxonomy_pari
 
 Exits 0 and prints `subcategories: 17/17 match, categories: 6/6 match` when
 parity holds; exits 1, prints each problem, and texts via the `message-brendan`
-skill otherwise. It writes nothing (`--write-snapshot` is retired and exits 2).
+skill otherwise. It writes nothing (the old `--write-snapshot` flag is gone).
 
 Installed as launchd `com.bp.jvn-taxonomy-parity` (daily 09:15), mirroring
 `com.bp.jvn-health-watch`. The plist template is

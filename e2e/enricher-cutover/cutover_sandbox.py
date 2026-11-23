@@ -417,6 +417,15 @@ class Sandbox:
             f"INTERNAL_API_KEY={CANARY}\n"
             "OLLAMA_BASE_URL=http://127.0.0.1:9\n", encoding="utf-8")
         env_local.chmod(0o600)
+        if self.real_tag:
+            # Give the real old prod the same history its faked first tick will
+            # make in the new prod: 3 closed ticks through the REAL CLI lifecycle,
+            # with no pull and no model (no JVN here). Phase E then sees the new
+            # prod do exactly what the old one did, as on the real machine.
+            for _ in range(3):
+                self.sh(["/bin/sh", str(STUBS / "real_first_tick.sh")], cwd=self.old,
+                        env={**self.env, "FAKE_NEW_ENRICHER": str(self.old)}, timeout=300)
+            (self.old / "data" / ".tick.lock").unlink(missing_ok=True)
         (self.old / ".checkout-role").write_text("prod\n", encoding="utf-8")
         (self.old / "data" / "classify-run-t1.log").write_text("an untracked tick log\n")
         self.old_head = g("rev-parse", "HEAD").strip()

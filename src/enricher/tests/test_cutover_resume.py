@@ -71,13 +71,22 @@ T = co.Tick
     "tick, old, ok",
     [
         (T(10, "ok", 40, 40, 40), [], True),
-        (T(10, "ok", 0, 0, 0), [], True),                       # nothing to claim: same as old prod
+        (T(10, "ok", 0, 5, 5), [], True),                       # drained earlier claims end to end
         (T(10, "error", 40, 40, 40), [], False),
         (T(10, "running", 40, 0, 0), [], False),
+        # idle (claimed nothing): JVN unreachable from the new prod looks like this
+        (T(10, "ok", 0, 0, 0), [], False),
+        (T(10, "ok", 0, 0, 0), [T(9, "ok", 40, 40, 40)] * 3, False),
+        (T(10, "ok", 0, 5, 0), [T(9, "ok", 40, 40, 40)] * 3, False),
+        (T(10, "ok", 0, 0, 0), [T(9, "ok", 0, 0, 0)] * 3, True),  # old prod idle too
         (T(10, "ok", 40, 0, 0), [], False),                     # claimed but did no work
         (T(10, "ok", 40, 40, 0), [], False),                    # classified but sent nothing
-        # ... unless the old prod's last 3 closed ticks stalled exactly the same way
-        (T(10, "ok", 40, 0, 0), [T(9, "ok", 40, 0, 0), T(8, "ok", 40, 40, 0), T(7, "ok", 5, 0, 0)], True),
+        # a stall passes only when the old prod's last 3 closed ticks stalled the SAME way
+        (T(10, "ok", 40, 0, 0), [T(9, "ok", 40, 0, 0), T(8, "ok", 12, 0, 0), T(7, "ok", 5, 0, 0)], True),
+        (T(10, "ok", 40, 40, 0), [T(9, "ok", 40, 40, 0)] * 3, True),
+        (T(10, "ok", 40, 0, 0), [T(9, "ok", 40, 40, 0)] * 3, False),  # old send-stall, new classify-stall
+        (T(10, "ok", 40, 40, 0), [T(9, "ok", 40, 0, 0)] * 3, False),  # old classify-stall, new send-stall
+        (T(10, "ok", 40, 0, 0), [T(9, "ok", 40, 0, 0), T(8, "ok", 40, 40, 0), T(7, "ok", 5, 0, 0)], False),
         (T(10, "ok", 40, 0, 0), [T(9, "ok", 40, 0, 0), T(8, "ok", 40, 40, 40), T(7, "ok", 5, 0, 0)], False),
         (T(10, "ok", 40, 0, 0), [T(9, "ok", 40, 0, 0), T(8, "ok", 40, 0, 0)], False),  # < 3 ticks
     ],

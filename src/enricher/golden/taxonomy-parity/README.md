@@ -16,7 +16,7 @@ artifact with `src/backend/tools/generate_taxonomy_artifact.py`, and its own
 `api/tests/test_taxonomy_artifact.py` guards it. To change a slug, change the
 backend, regenerate, and keep `job_enricher.taxonomy` in step in the same PR.
 
-`cli parity-check --write-snapshot` is retired: it exits 2 and names the
-generator.
+`cli parity-check --write-snapshot` is gone; regenerate the backend artifact
+with the generator above instead.
 
 This directory stays only so old links resolve.

@@ -9,7 +9,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import os
 import sqlite3
 import sys
@@ -182,12 +181,10 @@ def test_a_new_row_in_the_old_db_is_a_change(verify):
         co.phase_e(cfg, st, None)
 
 
-def test_a_state_without_a_snapshot_falls_back_to_the_bytes(verify):
-    cfg, st, old_db, _ = verify
+def test_a_state_without_a_snapshot_fails_closed(verify):
+    cfg, st, _, _ = verify
     del st.data["old_db_snapshot"]
-    assert co.old_db_unchanged(cfg, st) is None
-    st.data["old_db_sha256"] = hashlib.sha256(b"something else").hexdigest()
-    assert co.old_db_unchanged(cfg, st) == "its bytes changed"
+    assert co.old_db_unchanged(cfg, st) == "no old_db_snapshot in the state file"
 
 
 # ------------------------------------------------------------------ venv equivalence
@@ -212,3 +209,98 @@ def test_release_if_ours_only_drops_our_own_lock(tmp_path):
     (lock / "pid").write_text(f"{os.getpid()}\n")
     assert co.release_if_ours(lock) is True and not lock.exists()
     assert co.release_if_ours(lock) is False  # absent: no error
+
+
+def test_a_busy_cutover_still_drops_the_watchers_lock(tmp_path):
+    """The busy path returns before the main try: it must still release the
+    lock watcher.sh handed over through exec, or a recycled pid stalls it."""
+    cfg = co.Config.from_env({"HOME": str(tmp_path / "home")})
+    cfg.state_dir.mkdir(parents=True)
+    held = cfg.state_dir / "cutover.lock"
+    held.mkdir()
+    (held / "pid").write_text(f"{os.getppid()}\n")  # a live holder
+    ours = cfg.state_dir / "watcher.lock"
+    ours.mkdir()
+    (ours / "pid").write_text(f"{os.getpid()}\n")
+    assert co.run_mode(cfg) == co.EXIT_DEFERRED
+    assert not ours.exists() and held.is_dir()
+
+
+# ------------------------------------------------------------------ rollback copy-back
+@pytest.fixture
+def rolled(verify):
+    cfg, st, old_db, new_db = verify
+    st.data["copy_sha256"] = co.sha256_file(new_db)
+    return cfg, st, old_db, new_db
+
+
+def _max(db: Path) -> int:
+    conn = sqlite3.connect(db)
+    try:
+        return conn.execute("SELECT MAX(id) FROM ticks").fetchone()[0]
+    finally:
+        conn.close()
+
+
+def _pre_rollback(old_db: Path) -> list[Path]:
+    return sorted(p for p in old_db.parent.iterdir()
+                  if p.name.startswith(old_db.name + co.DB_PRE_ROLLBACK_SUFFIX)
+                  and not p.name.endswith(("-wal", "-shm", "-journal")))
+
+
+def test_copy_back_skips_a_new_db_that_did_nothing(rolled):
+    cfg, st, old_db, _ = rolled
+    assert co.copy_db_back(cfg, st) is False
+    assert not st.data.get("rollback_db_copied") and not _pre_rollback(old_db)
+
+
+def test_copy_back_brings_the_new_ticks_home(rolled):
+    cfg, st, old_db, new_db = rolled
+    _add_tick(new_db, 6, "ok")
+    assert co.copy_db_back(cfg, st) is True
+    assert _max(old_db) == 6 and len(_pre_rollback(old_db)) == 1
+    assert st.data["rollback_db_copied_max_tick"] == 6
+
+
+def test_copy_back_is_redone_when_the_new_prod_ran_again(rolled):
+    """A reboot mid-rollback lets launchd start the new prod: its later ticks
+    must not stay behind in the new DB."""
+    cfg, st, old_db, new_db = rolled
+    _add_tick(new_db, 6, "ok")
+    assert co.copy_db_back(cfg, st) is True
+    assert co.copy_db_back(cfg, st) is True  # nothing new: no second copy
+    assert len(_pre_rollback(old_db)) == 1
+    _add_tick(new_db, 7, "ok")
+    time.sleep(1.1)  # the aside name carries a 1 s timestamp
+    assert co.copy_db_back(cfg, st) is True
+    assert _max(old_db) == 7 and st.data["rollback_db_copied_max_tick"] == 7
+
+
+def test_copy_back_survives_a_crash_between_its_renames(rolled):
+    """Old DB already moved aside, the copy not yet in place: the retry must
+    finish, not trip over the missing file forever."""
+    cfg, st, old_db, new_db = rolled
+    _add_tick(new_db, 6, "ok")
+    os.replace(old_db, old_db.with_name(old_db.name + co.DB_PRE_ROLLBACK_SUFFIX + "crashed"))
+    assert co.copy_db_back(cfg, st) is True
+    assert _max(old_db) == 6
+
+
+def test_copy_back_sees_rows_that_only_reached_the_wal(rolled):
+    """A writer killed before a checkpoint leaves committed rows in -wal only:
+    the main file's bytes and max tick id do not move."""
+    cfg, st, old_db, new_db = rolled
+    conn = sqlite3.connect(new_db)
+    conn.execute("PRAGMA wal_autocheckpoint=0")
+    conn.execute("INSERT INTO meta VALUES ('wal-only', 'x', 'now')")
+    conn.commit()
+    try:
+        assert co.sha256_file(new_db) == st.data["copy_sha256"]
+        assert co.copy_db_back(cfg, st) is True
+    finally:
+        conn.close()
+    conn = sqlite3.connect(old_db)
+    try:
+        assert conn.execute("SELECT value FROM meta WHERE key='wal-only'").fetchone() == ("x",)
+    finally:
+        conn.close()

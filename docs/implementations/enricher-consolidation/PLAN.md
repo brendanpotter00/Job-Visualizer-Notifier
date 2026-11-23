@@ -96,7 +96,7 @@ upstream (a future root `pyproject.toml` with `[tool.uv.workspace]`) captured `s
 | Where | Today | After |
 |---|---|---|
 | `tests/test_cross_repo_parity.py` + `cli.TAXONOMY_PARITY_SNAPSHOT` | reads a **vendored copy** of JVN's `taxonomy.json` + a `.sha256` | reads **`<JVN root>/src/backend/taxonomy.json` directly** (`REPO_ROOT.parents[1] / "src" / "backend" / "taxonomy.json"` — define one helper, `JVN_ROOT`, in `store.py` or `cli.py`). Delete `golden/taxonomy-parity/jvn_facets.json` + `.sha256`; rewrite that dir's README to say "the artifact is in-tree now". The sha test goes (git + the backend's `test_taxonomy_artifact.py` already guard the file). The "levels key proves provenance" test stays, pointed at the in-tree file. Rename the test module to `test_taxonomy_parity.py` and drop "cross-repo" wording. |
-| `cli parity-check --write-snapshot` | refreshes the vendored copy | **refuses** with exit 2 and a message ("the snapshot is JVN's generated `src/backend/taxonomy.json`; regenerate it with `src/backend/tools/generate_taxonomy_artifact.py`"). Keep the flag accepted so an installed plist cannot crash on argparse. Drop it from `check_taxonomy_parity.sh`. |
+| `cli parity-check --write-snapshot` | refreshes the vendored copy | **removed** (argparse rejects it; the snapshot is JVN's generated `src/backend/taxonomy.json`, regenerated with `src/backend/tools/generate_taxonomy_artifact.py`). Dropped from `check_taxonomy_parity.sh`; the parity plist is not installed on this machine. |
 | `scripts/com.bp.jvn-taxonomy-parity.plist` | log paths `REPO_ROOT_PLACEHOLDER/../../Library/Logs` (assumes the repo is 2 levels below `$HOME` — wrong in the monorepo) | `HOME_PLACEHOLDER/Library/Logs/…`; update the substitution instructions in its header. It is not installed on this machine (verified) — no live change. |
 | `scripts/rehearse_v4_migration.sh` default `LIVE=` | `…/personal/app/data/enricher.db` | `…/personal/enricher-prod/src/enricher/data/enricher.db` |
 | `scripts/run_dashboard.sh` | `PROJECT_DIR=$HOME/developer/personal/job-enricher`; **`git switch main && git pull`** | derive `PROJECT_DIR` from the script's own location; **remove all git mutation** (in the monorepo it would switch Brendan's whole JVN checkout — and `com.bp.jvn-health-watch` runs from that working tree). Print branch + short sha; keep the prod-role refusal and the dirty-tree refusal; `cli dashboard`'s own off-main warning stays the staleness signal. |
@@ -423,12 +423,14 @@ each DB?), then continues from the first incomplete phase.
    tick exists (the tick lock is single flight), or it started before the current boot (a
    reboot / power loss mid-tick; nothing ever closes such a row) — is recorded in
    `orphaned_first_ticks` and the next tick is judged instead; 3 in a row fail.
-3. Pass = `status == 'ok'` **and** behavioural equivalence: if `claimed > 0` then
-   `classified > 0` and `sent > 0` — unless old prod's last 3 closed ticks show the same stall
-   (then it is not the cutover's fault; log it). Also: old prod's DB content still equals
-   `old_db_snapshot` (nothing ran there; content, not sha256 — any read-write open such as
-   `cli init` rewrites the header without changing a row), and the plist still points at
-   the new prod.
+3. Pass = `status == 'ok'` **and** behavioural equivalence: the tick classified **and** sent
+   rows. Anything less — an idle tick (`claimed = 0`, which is also what "the new prod cannot
+   reach JVN" looks like) or a stall at classify or send — passes only when old prod's last 3
+   closed ticks did **exactly** the same (same stages with and without work; then it is not
+   the cutover's fault; log it). Also: old prod's DB content still equals `old_db_snapshot`
+   (nothing ran there; content, not sha256 — any read-write open such as `cli init` rewrites
+   the header without changing a row; a state without the snapshot fails closed), and the
+   plist still points at the new prod.
 4. Pass → `VERIFIED`. Fail → rollback (§4.5).
 
 **F — Retire (only after `VERIFIED`; each step best-effort, recorded, never rolls back).**

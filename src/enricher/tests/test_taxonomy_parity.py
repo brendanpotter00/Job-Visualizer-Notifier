@@ -202,7 +202,7 @@ def _run_parity_check(monkeypatch, payload, **overrides):
 
     monkeypatch.setattr(httpx, "get", lambda *a, **kw: _Resp())
     args = argparse.Namespace(
-        base_url="http://jvn.test", timeout=5.0, write_snapshot=False,
+        base_url="http://jvn.test", timeout=5.0,
         allow_empty_subcategories=False, text_on_divergence=False,
     )
     for k, v in overrides.items():
@@ -220,26 +220,6 @@ def test_a_divergent_live_payload_exits_1(monkeypatch, capsys):
     payload["subcategories"] = payload["subcategories"][:-1]
     assert _run_parity_check(monkeypatch, payload) == 1
     assert "enricher-only" in capsys.readouterr().err
-
-
-def test_write_snapshot_is_retired_and_refuses_before_any_network_call(
-    monkeypatch, capsys
-):
-    """The flag stays accepted (an old installed caller gets a clear message,
-    not an argparse error) but exits 2 and never touches the network."""
-    import httpx
-
-    def _no_network(*a, **kw):
-        raise AssertionError("--write-snapshot must refuse before any GET")
-
-    monkeypatch.setattr(httpx, "get", _no_network)
-    args = cli.build_parser().parse_args(
-        ["parity-check", "--base-url", "http://jvn.test", "--write-snapshot"]
-    )
-    assert args.func(args) == 2
-    err = capsys.readouterr().err
-    assert "src/backend/taxonomy.json" in err
-    assert cli.JVN_TAXONOMY_GENERATOR in err
 
 
 # ---- the divergence text is an ALARM, so its failure cannot be silent -------

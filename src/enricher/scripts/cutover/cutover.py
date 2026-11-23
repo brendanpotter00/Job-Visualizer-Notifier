@@ -733,23 +733,29 @@ def orphaned_because(db: Path, tick: Tick, boot: float | None) -> str | None:
     return None
 
 
+def _work_shape(t: Tick) -> tuple[bool, bool, bool]:
+    """Which stages did any work: (claimed, classified, sent) each > 0."""
+    return (t.claimed > 0, t.classified > 0, t.sent > 0)
+
+
 def judge_first_tick(tick: Tick, old_recent: list[Tick]) -> tuple[bool, str]:
-    """Pass = closed ``ok`` AND it did the work: when it claimed rows it also
-    classified and sent some — unless the old prod's last 3 closed ticks show
-    the very same stall (then the stall predates the cutover)."""
+    """Pass = closed ``ok`` AND it did the work end to end (classified and sent
+    rows). A tick that did less — an idle tick (claimed nothing: JVN unreachable
+    from the new prod reads exactly like this) or a stall at classify or at send —
+    passes only when the old prod's last 3 closed ticks did EXACTLY the same
+    (same stages with and without work), so the shortfall predates the cutover."""
     if tick.status != "ok":
         return False, f"first tick #{tick.id} closed status={tick.status!r}"
-    if tick.claimed > 0 and (tick.classified == 0 or tick.sent == 0):
-        def stalled(t: Tick) -> bool:
-            return t.claimed > 0 and (t.classified == 0 or t.sent == 0)
-        if len(old_recent) >= 3 and all(stalled(t) for t in old_recent[:3]):
-            return True, (f"first tick #{tick.id} claimed {tick.claimed} but classified "
-                          f"{tick.classified}/sent {tick.sent}; the old prod's last 3 ticks "
-                          "stalled the same way, so this predates the cutover")
-        return False, (f"first tick #{tick.id} claimed {tick.claimed} but classified "
-                       f"{tick.classified}, sent {tick.sent}")
-    return True, (f"first tick #{tick.id} ok (claimed {tick.claimed}, classified "
-                  f"{tick.classified}, sent {tick.sent})")
+    counts = (f"claimed {tick.claimed}, classified {tick.classified}, "
+              f"sent {tick.sent}")
+    if tick.classified > 0 and tick.sent > 0:
+        return True, f"first tick #{tick.id} ok ({counts})"
+    shape = _work_shape(tick)
+    if len(old_recent) >= 3 and all(_work_shape(t) == shape for t in old_recent[:3]):
+        return True, (f"first tick #{tick.id} {counts}; the old prod's last 3 ticks "
+                      "did exactly the same, so this predates the cutover")
+    return False, (f"first tick #{tick.id} {counts}; the old prod's last 3 ticks "
+                   "did not do the same, so the new prod is not doing the work")
 
 
 def db_mtime(db: Path) -> float:
@@ -834,6 +840,14 @@ def copy_untracked(src_root: Path, dst_root: Path, rels: Iterable[str],
         dst.parent.mkdir(parents=True, exist_ok=True)
         if src.is_symlink():
             target = os.readlink(src)
+            # The new prod sits deeper (enricher-prod/src/enricher vs app), so a
+            # relative link that climbs out of the old prod would point somewhere
+            # else there (e.g. a missing .env.local). Links inside the tree are fine.
+            if not os.path.isabs(target):
+                inside = os.path.normpath(os.path.join(os.path.dirname(rel), target))
+                if inside == ".." or inside.startswith("../"):
+                    raise RuntimeError(f"untracked copy: symlink {rel} points outside the old "
+                                       "prod by a relative path; make it absolute first")
             os.symlink(target, dst)
             if os.readlink(dst) != target:
                 raise RuntimeError(f"untracked copy: symlink {rel} did not round-trip")
@@ -1709,9 +1723,8 @@ def old_db_unchanged(cfg: Config, st: State) -> str | None:
     row, and that must not roll a good cutover back."""
     db = cfg.old_prod / "data" / "enricher.db"
     want = st.data.get("old_db_snapshot")
-    if want is None:  # a state written before the snapshot existed
-        same = sha256_file(db) == st.data.get("old_db_sha256")
-        return None if same else "its bytes changed"
+    if want is None:  # phase C always writes it; fail closed rather than guess
+        return "no old_db_snapshot in the state file"
     try:
         conn, _ = connect_ro(db, allow_immutable=True)
     except sqlite3.Error as exc:
@@ -1981,15 +1994,43 @@ def park_new_for_rollback(cfg: Config, st: State, launchd: Launchd) -> None:
     unload_and_quiesce(cfg, st, launchd, ck, cfg.enricher_plist)
 
 
+def _db_max_tick(db: Path) -> int | None:
+    try:
+        conn, _ = connect_ro(db)
+    except sqlite3.Error:
+        return None
+    try:
+        return int(conn.execute("SELECT COALESCE(MAX(id), 0) FROM ticks").fetchone()[0])
+    except sqlite3.Error:
+        return None
+    finally:
+        conn.close()
+
+
 def copy_db_back(cfg: Config, st: State) -> bool:
-    """The new prod did work: put its DB in the old prod (no lost enrichment)."""
+    """The new prod did work: put its DB in the old prod (no lost enrichment).
+
+    "Did work" is any of: the main file's bytes moved, a tick past the copy exists,
+    or a non-empty ``-wal`` (rows a killed writer committed but never checkpointed
+    into the main file). A copy-back already done is redone when the new prod ran
+    more ticks since (a reboot mid-rollback lets launchd start it again)."""
     new_db = cfg.new_enricher / "data" / "enricher.db"
     old_db = cfg.old_prod / "data" / "enricher.db"
+    new_max = _db_max_tick(new_db)
     if st.data.get("rollback_db_copied"):
-        return True
-    if sha256_file(new_db) == st.data.get("copy_sha256"):
-        log("rollback: the new prod DB is unchanged; no copy-back needed")
-        return False
+        done_at = st.data.get("rollback_db_copied_max_tick")
+        if new_max is None or done_at is None or new_max <= int(done_at):
+            return True
+        log(f"rollback: the new prod ran ticks up to #{new_max} after the copy-back "
+            f"(#{done_at}); copying again")
+    else:
+        wal = Path(f"{new_db}-wal")
+        did_work = (sha256_file(new_db) != st.data.get("copy_sha256")
+                    or (new_max or 0) > int(st.data.get("copied_max_tick_id") or 0)
+                    or (wal.exists() and wal.stat().st_size > 0))
+        if not did_work:
+            log("rollback: the new prod DB is unchanged; no copy-back needed")
+            return False
     holders = wait_no_holders(cfg, old_db, cfg.wrapper_exit_s)
     if holders:
         raise RuntimeError(f"old prod DB is open by {holders}; cannot copy back")
@@ -2004,9 +2045,12 @@ def copy_db_back(cfg: Config, st: State) -> bool:
         if side.exists():
             os.replace(side, old_db.with_name(
                 f"{old_db.name}{DB_PRE_ROLLBACK_SUFFIX}{stamp}{suffix}"))
-    os.replace(old_db, old_db.with_name(f"{old_db.name}{DB_PRE_ROLLBACK_SUFFIX}{stamp}"))
+    # A crash between these two renames leaves no old_db; the retry must not trip on it.
+    if old_db.exists():
+        os.replace(old_db, old_db.with_name(f"{old_db.name}{DB_PRE_ROLLBACK_SUFFIX}{stamp}"))
     os.replace(tmp, old_db)
     st.data["rollback_db_copied"] = True
+    st.data["rollback_db_copied_max_tick"] = new_max
     st.event(f"new prod DB copied back into the old prod (old kept as pre-rollback-{stamp})")
     st.save()
     log(f"rollback: copied the new prod DB back; the stale one is enricher.db.pre-rollback-{stamp}")
@@ -2174,17 +2218,19 @@ def run_mode(cfg: Config) -> int:
     cfg.state_dir.mkdir(parents=True, exist_ok=True)
     LOG.file = cfg.state_dir / "cutover.log"
     flight = SingleFlight(cfg.state_dir)
-    if not flight.acquire():
-        log("another cutover is running; deferring")
-        return EXIT_DEFERRED
     try:
-        st = State.load(cfg.state_file)
-        return drive(cfg, st, Launchd(cfg))
+        if not flight.acquire():
+            log("another cutover is running; deferring")
+            return EXIT_DEFERRED
+        try:
+            st = State.load(cfg.state_file)
+            return drive(cfg, st, Launchd(cfg))
+        finally:
+            flight.release()
     finally:
-        flight.release()
-        # watcher.sh hands us its lock through `exec` (same pid). Drop it on the way
-        # out, or a later fire could read a recycled pid as a live cutover and wait
-        # for a reboot.
+        # watcher.sh hands us its lock through `exec` (same pid). Drop it on every
+        # way out (the busy path too), or a later fire could read a recycled pid as
+        # a live cutover and wait for a reboot.
         release_if_ours(cfg.state_dir / "watcher.lock")
 
 

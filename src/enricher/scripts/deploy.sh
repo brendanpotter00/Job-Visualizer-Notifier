@@ -108,7 +108,8 @@ launchctl unload "$PLIST" 2>/dev/null || echo "[deploy] worker not loaded (conti
 #     the job "wasn't loaded" (benign) and when unload FAILED while the job is still
 #     loaded (dangerous). Ask launchd directly: if the label is still listed the worker
 #     is live, so hard-abort BEFORE touching the tree.
-if launchctl list | grep -q "com.bp.job-enricher"; then
+# Exact label match: a future com.bp.job-enricher-* agent must not read as "still loaded".
+if launchctl list | awk '{print $3}' | grep -qx "com.bp.job-enricher"; then
   echo "[deploy] ABORT: worker still loaded after unload — refusing to move the tree while a tick could fire. Investigate launchctl." >&2
   exit 1
 fi

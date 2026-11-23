@@ -2727,18 +2727,6 @@ def _cmd_parity_check(args: argparse.Namespace) -> int:
     """GET the live /api/jobs/facets and assert parity."""
     import httpx
 
-    if args.write_snapshot:
-        # There is no vendored snapshot any more: the offline half reads the
-        # backend's own artifact in this monorepo. The flag stays accepted so a
-        # stale caller gets this message, not an argparse usage error.
-        print(
-            "parity-check: --write-snapshot is retired. The snapshot is JVN's "
-            f"generated {JVN_TAXONOMY_ARTIFACT.relative_to(JVN_ROOT)}; regenerate "
-            f"it with {JVN_TAXONOMY_GENERATOR}.",
-            file=sys.stderr,
-        )
-        return 2
-
     url = f"{args.base_url.rstrip('/')}/api/jobs/facets"
     try:
         resp = httpx.get(url, timeout=args.timeout)
@@ -3256,9 +3244,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="tolerate JVN reporting zero subcategories (expected until "
              "SCHEMA-7 seeds the 17 rows)",
     )
-    pc.add_argument("--write-snapshot", action="store_true",
-                    help="retired: exits 2 (the snapshot is the backend's "
-                         "src/backend/taxonomy.json)")
     pc.add_argument("--text-on-divergence", action="store_true",
                     help="send an SMS via the message-brendan skill on mismatch")
     pc.set_defaults(func=_cmd_parity_check)

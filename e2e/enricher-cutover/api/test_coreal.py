@@ -2,7 +2,9 @@
 
 The tree the cutover will move on the real machine (``git archive
 enricher-prod-eeff1c9:src/enricher``, or ``$E2E_CUTOVER_REAL_TAG``) becomes the
-old prod, with a real ``cli init`` database. Phases A-D run the REAL ``uv sync
+old prod, with a real ``cli init`` database and 3 closed ticks made the same way
+as the faked first tick below (so phase E's "did the new prod do what the old one
+did" rule has a real history to compare with). Phases A-D run the REAL ``uv sync
 --frozen`` (venv equivalence: same Python, same installed packages) and the REAL
 ``cli health`` equivalence; launchd is stubbed and the first tick is faked
 (``fixtures/stubs/real_first_tick.sh``: the real CLI's tick-acquire/tick-end,

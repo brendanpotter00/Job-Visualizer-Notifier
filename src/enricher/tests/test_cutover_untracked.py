@@ -171,6 +171,19 @@ def test_copy_preserves_symlinks(tmp_path):
     assert os.readlink(dst / "link") == "target-that-need-not-exist" and copied[0]["symlink"]
 
 
+def test_a_relative_symlink_out_of_the_old_prod_is_refused(tmp_path):
+    """The new prod is two levels deeper than app/: ../x would land elsewhere."""
+    src, dst = tmp_path / "src", tmp_path / "dst"
+    src.mkdir()
+    dst.mkdir()
+    (src / ".env.local").symlink_to("../secrets/.env.local")
+    with pytest.raises(RuntimeError, match="outside the old prod"):
+        co.copy_untracked(src, dst, [".env.local"])
+    assert not os.path.lexists(dst / ".env.local")
+    (src / "abs").symlink_to(tmp_path / "secrets" / ".env.local")  # absolute: same file
+    assert co.copy_untracked(src, dst, ["abs"])[0]["symlink"]
+
+
 def test_inventory_and_copy_never_expose_contents(cfg, old_prod, tmp_path, capsys):
     items = co.inventory(cfg, old_prod)
     co.copy_untracked(old_prod, tmp_path, co.list_untracked(cfg, old_prod))
