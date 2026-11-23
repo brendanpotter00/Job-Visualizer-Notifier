@@ -5,10 +5,20 @@
 // other. If the two controls OR rather than AND, the list GROWS when the user
 // adds the second filter — which is the version of this bug a person actually
 // notices.
-import { expect, expectResults, gotoRecentJobs, reseed, selectLevel, selectSubcategory, test } from './helpers';
-import { job, titlesFor, titlesForSubcategory } from './corpus';
+import {
+  expect,
+  expectResults,
+  gotoRecentJobs,
+  reseed,
+  selectCategory,
+  selectLevel,
+  selectSubcategory,
+  test,
+} from './helpers';
+import { CORPUS, job, titlesFor, titlesForSubcategory } from './corpus';
 
 const SWE = 'Software Engineering';
+const PM = 'Product Manager';
 
 test.beforeEach(() => {
   reseed({ reveal: true });
@@ -47,6 +57,28 @@ test.describe('SC-03 filters compose', () => {
       page.getByRole('heading', { level: 3, name: job('J-BACKEND-MID').title }),
       'a mid-level job survived a Senior selection — the two filters are OR-ing, so ' +
         'the list widens when the user narrows',
+    ).toHaveCount(0);
+  });
+
+  // The specialty scope: a specialty narrows ONLY software-engineering rows.
+  // Ticking Backend (which auto-checks its parent) and then Product Manager
+  // must ADD every product-manager row and keep the SWE rows narrowed to
+  // Backend. Under the old rule the PM rows stayed hidden.
+  test('SC-03 a second role keeps all its jobs beside a specialty', async ({ signedInPage: page }) => {
+    await gotoRecentJobs(page);
+    await selectSubcategory(page, SWE, 'Backend');
+    const backendOnly = titlesForSubcategory('backend');
+    await expectResults(page, backendOnly);
+
+    await selectCategory(page, PM);
+    const pmTitles = CORPUS.jobs.filter((j) => j.category === CORPUS.nonSweCategory).map((j) => j.title);
+    expect(pmTitles.length, 'the corpus must carry a product-manager row, or this proves nothing').toBeGreaterThan(0);
+    await expectResults(page, [...backendOnly, ...pmTitles]);
+    // The decoy: a SWE row outside Backend stays narrowed out.
+    await expect(
+      page.getByRole('heading', { level: 3, name: job('J-MOBILE').title }),
+      'a non-Backend SWE job appeared once Product Manager was added — the specialty ' +
+        'stopped narrowing software engineering',
     ).toHaveCount(0);
   });
 });

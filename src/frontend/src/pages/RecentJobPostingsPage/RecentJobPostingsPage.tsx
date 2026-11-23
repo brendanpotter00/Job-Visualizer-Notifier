@@ -2,7 +2,6 @@ import { Container, Typography, Box } from '@mui/material';
 import { useRecentJobsSearch } from '../../features/jobs/hooks/useRecentJobsSearch';
 import { RecentJobsFilters } from '../../components/recent-jobs-page/RecentJobsFilters';
 import { RecentJobsList } from '../../components/recent-jobs-page/RecentJobsList/RecentJobsList';
-import { EditCompanyPreferencesRow } from '../../components/recent-jobs-page/EditCompanyPreferencesRow';
 import { ErrorState } from '../../components/shared/ErrorDisplay';
 import { LoadingState } from '../../components/shared/LoadingIndicator';
 import { RESPONSIVE } from '../../config/responsive';
@@ -44,15 +43,17 @@ export function RecentJobPostingsPage() {
   return (
     <Container maxWidth="xl">
       <Box sx={{ my: RESPONSIVE.spacing.pageMarginY }}>
+        {/* No caption under the title: the "Showing jobs from … · Choose your
+            companies" line was removed (2026-11-22). Company preferences live
+            on Saved Filters, which the side menu links to. The 16px margin is
+            the gap that line used to leave above the filters. */}
         <Typography
           variant="h3"
           component="h1"
-          gutterBottom
-          sx={{ fontSize: RESPONSIVE.fontSize.pageTitle }}
+          sx={{ fontSize: RESPONSIVE.fontSize.pageTitle, mb: 2 }}
         >
           Recent Job Postings
         </Typography>
-        <EditCompanyPreferencesRow />
 
         {isAwaitingDeploy ? (
           <LoadingState caption="Finishing an update — jobs will appear in a moment." />

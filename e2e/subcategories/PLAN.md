@@ -242,6 +242,7 @@ row was never there".
 | SC-02 | `J-SECURITY` ({security}) absent under `mobile` | `?subcategory=security` returns it |
 | SC-03 | `J-BACKEND-MID` (right slug, wrong level) absent under `+senior` | `?level=mid` returns it |
 | SC-03 | `J-OTHER-BACK` (right slug, other company) absent under the primary scope | its own company returns it |
+| SC-03 | every non-`backend` SWE row (`J-MOBILE`, `J-SECURITY`, `J-NULL`, `J-EMPTY`, `J-FRONTEND`) absent under SWE + PM + `backend` | `J-PM` present: a specialty narrows ONLY software-engineering rows (the specialty scope, changed with the onboarding PR — `e2e/onboarding/PLAN.md` §7; it replaced the old "a subcategory beside the wrong parent is unsatisfiable" rule) |
 | SC-04 | `J-FRONTEND`/`J-BACKEND` absent under `full_stack` | each returns under its own slug |
 | SC-06 | `J-NULL`/`J-EMPTY` absent under any active filter | present with no subcategory filter |
 

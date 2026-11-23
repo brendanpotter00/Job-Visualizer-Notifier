@@ -99,6 +99,9 @@ Use the `add-company` skill (`.claude/skills/add-company/`, `/add-company`) — 
 **Checking Scraper Health:**
 Use the `scraper-health-watch` skill (`.claude/skills/scraper-health-watch/`) — detects dead/stale scrape sources, mass closures, and worker death against prod; researches moved boards and opens a fix PR (never merges); texts Brendan only when something is wrong. Runs daily via launchd (`com.bp.jvn-health-watch`); ops runbook in `scripts/health_watch/README.md`.
 
+**Improving the North Star (autonomous loop):**
+Use the `north-star-loop` skill (`.claude/skills/north-star-loop/`) — texts Brendan once a week with up to 3 small ideas aimed at 7-day+ return plus the best big initiative for him to build (ranked against past ideas and existing ClickUp work, checked against STRATEGY.md); builds only the small ideas he picks (plan doc in `docs/north-star-loop/`, ClickUp task, PR via no-mistakes, never merges), never the big ones; reads out the result after merge. State and every decision/mistake live in `scripts/north_star_loop/loop.py` (`loop.py show N`); runbook in `scripts/north_star_loop/README.md`.
+
 **Working on the enricher:**
 Edit it in this checkout's `src/enricher/` (or a JVN worktree); its tests run with `cd src/enricher && uv run pytest`. Prod is a separate JVN clone at `~/developer/personal/enricher-prod`, changed only by `src/enricher/scripts/deploy.sh <ref>` — merging to `main` deploys nothing to it. Never run the enricher CLI against prod. `~/developer/personal/app` and `~/developer/personal/job-enricher` are retired once the post-merge cutover has run (until then `app/` is still prod; the `com.bp.job-enricher` plist's `WorkingDirectory` is always the truth). Start with `src/enricher/AGENTS.md`.
 

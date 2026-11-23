@@ -6,7 +6,8 @@
   "scripts": {
     "test:add-companies": "playwright test --config=add-companies/playwright.config.ts",
     "test:subcategories": "playwright test --config=subcategories/playwright.config.ts",
-    "test:billing": "playwright test --config=billing/playwright.config.ts"
+    "test:billing": "playwright test --config=billing/playwright.config.ts",
+    "test:onboarding": "playwright test --config=onboarding/playwright.config.ts"
   },
   "devDependencies": {
     "@playwright/test": "^1.57.0"

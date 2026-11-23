@@ -52,6 +52,14 @@ vi.mock('../../../features/auth/GoogleCredentialContext', () => ({
   ),
 }));
 
+// Sentinel: every branch must mount the page load's ONE shared current-user
+// request (see useCurrentUser), inside the auth providers it reads the token from.
+vi.mock('../../../features/auth/CurrentUserProvider', () => ({
+  CurrentUserProvider: ({ children }: { children: ReactNode }) => (
+    <div data-testid="current-user-provider">{children}</div>
+  ),
+}));
+
 // Sentinel so we can detect whether GoogleOneTap was rendered by AuthProviders.
 vi.mock('../../../features/auth/GoogleOneTap', () => ({
   GoogleOneTap: () => <div data-testid="google-one-tap-rendered" />,
@@ -84,7 +92,7 @@ describe('AuthProviders', () => {
     // Key invariant: GoogleOneTap must NOT mount outside its GoogleOAuthProvider.
     expect(screen.queryByTestId('google-one-tap-rendered')).not.toBeInTheDocument();
     expect(screen.queryByTestId('google-oauth-provider')).not.toBeInTheDocument();
-    expect(screen.getByText('child')).toBeInTheDocument();
+    expect(screen.getByTestId('current-user-provider')).toContainElement(screen.getByText('child'));
   });
 
   it('short-circuits above real providers in bypass mode (no GoogleOneTap, no Auth0)', async () => {
@@ -104,7 +112,7 @@ describe('AuthProviders', () => {
     expect(screen.queryByTestId('google-oauth-provider')).not.toBeInTheDocument();
     expect(screen.queryByTestId('auth0-provider')).not.toBeInTheDocument();
     expect(screen.queryByTestId('google-one-tap-rendered')).not.toBeInTheDocument();
-    expect(screen.getByText('child')).toBeInTheDocument();
+    expect(screen.getByTestId('current-user-provider')).toContainElement(screen.getByText('child'));
   });
 
   it('renders GoogleOneTap inside the providers when auth is enabled', async () => {
@@ -121,6 +129,23 @@ describe('AuthProviders', () => {
     // GoogleOneTap must be nested inside GoogleOAuthProvider so useGoogleOneTapLogin has context.
     expect(screen.getByTestId('google-oauth-provider')).toContainElement(oneTap);
     expect(screen.getByText('child')).toBeInTheDocument();
+  });
+
+  it('mounts the shared current-user request inside the auth providers, around the app', async () => {
+    const { AuthProviders } = await import('../../../components/shared/AuthProviders');
+
+    render(
+      <AuthProviders>
+        <div>child</div>
+      </AuthProviders>
+    );
+
+    // Inside: it reads the token from Auth0 and the Google credential.
+    const shared = screen.getByTestId('current-user-provider');
+    expect(screen.getByTestId('auth0-provider')).toContainElement(shared);
+    expect(screen.getByTestId('google-credential-provider')).toContainElement(shared);
+    // Around: every useCurrentUser() in the app reads the same one.
+    expect(shared).toContainElement(screen.getByText('child'));
   });
 
   it('caps Auth0 background silent-auth via authorizeTimeoutInSeconds', async () => {

@@ -44,6 +44,7 @@ erDiagram
         int visit_count "NOT NULL default 0"
         timestamptz last_visit_at "nullable"
         boolean is_internal "NOT NULL default false"
+        timestamptz onboarding_completed_at "nullable, no default"
     }
 
     user_enabled_companies {
@@ -177,6 +178,7 @@ Authenticated accounts (Auth0 / Google One Tap). One row per person.
 | `visit_count` | integer | Page-load count for the admin roster's "most frequent users" view; incremented once per full load via `POST /api/users/visit`. `NOT NULL DEFAULT 0`. |
 | `last_visit_at` | timestamptz | Most recent page-load time; `NULL` until the user's first visit after this feature shipped. |
 | `is_internal` | boolean | Accounts the `metrics` views skip. Only the owner's account is flagged (rev `bcbc67dbd87e`); the `nonadmin@nonadmin.com` prod test account is deliberately counted. `NOT NULL DEFAULT false`. |
+| `onboarding_completed_at` | timestamptz | When the account answered or skipped the first-sign-in questions. `NULL` = not yet, and the SPA's `OnboardingGate` opens the questions only then. Nullable with **no default** (a `now()` default would stamp every new account at insert). Rev `ef0f7d8c8e11` backfilled every row that existed then; stamped once by `POST /api/users/onboarding` (`WHERE onboarding_completed_at IS NULL`), never cleared. |
 
 ### `user_visits`
 Append-only log, one row per `POST /api/users/visit` (one full page load). `visited_at`

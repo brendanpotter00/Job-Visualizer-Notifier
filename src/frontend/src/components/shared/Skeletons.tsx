@@ -21,6 +21,7 @@ import type { Breakpoint, SxProps, Theme } from '@mui/material';
 import type { GridProps } from '@mui/material/Grid';
 import { RESPONSIVE, TABLE_SCROLL_SX } from '../../config/responsive';
 import { useIsMobile } from '../../hooks/useIsMobile';
+import { VISUALLY_HIDDEN_SX } from '../../lib/visuallyHidden';
 
 export const SKELETON_DEFAULT_LABEL = 'Loading…';
 
@@ -35,17 +36,6 @@ const TABLE_PAGINATION_HEIGHT = 52;
 type Responsive<T> = T | Partial<Record<Breakpoint, T>>;
 
 const CELL_WIDTHS = ['80%', '60%', '70%', '45%', '65%'] as const;
-const VISUALLY_HIDDEN_SX = {
-  border: 0,
-  clip: 'rect(0 0 0 0)',
-  height: '1px',
-  margin: '-1px',
-  overflow: 'hidden',
-  padding: 0,
-  position: 'absolute',
-  whiteSpace: 'nowrap',
-  width: '1px',
-} as const;
 
 function clampSkeletonCount(count: number): number {
   if (!Number.isFinite(count) || count <= 0) return 0;

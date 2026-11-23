@@ -565,6 +565,15 @@ class User(Base):
     # migration flags only the owner's account (the nonadmin@nonadmin.com test
     # account is deliberately NOT internal and stays counted).
     is_internal = Column(Boolean, nullable=False, server_default=text("false"))
+    # When the account answered (or skipped) the first-sign-in questions.
+    # NULL means "not yet": the SPA's OnboardingGate opens the questions for a
+    # NULL row and for nothing else. Deliberately NO server_default — a
+    # default of now() would stamp every new account at INSERT and the
+    # questions would never show. The migration that added it backfilled
+    # every row that existed then, so only accounts created after it start
+    # NULL. Stamped once by POST /api/users/onboarding (guarded by
+    # ``IS NULL``), never cleared. Real timestamptz, like last_visit_at.
+    onboarding_completed_at = Column(TIMESTAMP(timezone=True), nullable=True)
 
     __table_args__ = (
         UniqueConstraint("email", name="users_email_key"),

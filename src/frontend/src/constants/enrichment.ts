@@ -181,6 +181,14 @@ export const SUBCATEGORY_FILTER_EXPANSION: Record<string, string[]> = {
   backend: ['backend', 'full_stack'],
 };
 
+/**
+ * The one category the subcategories refine (the backend's
+ * `enrichment_writer.SUBCATEGORY_PARENT`). A subcategory filter narrows only
+ * jobs of this category; another selected category keeps all its jobs (see
+ * `matchesSubcategory`).
+ */
+export const SUBCATEGORY_PARENT_SLUG = 'software_engineering';
+
 /** Quick slug -> label lookup across every fallback set (chip rendering). */
 export const FACET_LABELS: Record<string, string> = Object.fromEntries(
   [...FALLBACK_CATEGORIES, ...FALLBACK_SUBCATEGORIES, ...FALLBACK_LEVELS].map((f) => [

@@ -11,6 +11,7 @@ import { getTimeWindowDuration } from '../../../lib/date.ts';
 import {
   LEVEL_FILTER_EXPANSION,
   SUBCATEGORY_FILTER_EXPANSION,
+  SUBCATEGORY_PARENT_SLUG,
 } from '../../../constants/enrichment.ts';
 import { US_STATE_NAME_TO_CODE, stripUsSuffix } from '../../../lib/location.ts';
 
@@ -361,6 +362,13 @@ export function matchesLevel(job: Job, levels: string[] | undefined): boolean {
  * SECONDARY LABELS COUNT: the array is ordered so index 0 is the primary
  * specialty, but for filtering it is a set.
  *
+ * A SPECIALTY NARROWS SOFTWARE JOBS ONLY. Pass the selected `categories`: when
+ * any of them is not Software Engineering (Product Manager + Backend), every
+ * job of another category passes this check untested, so that role keeps all
+ * its jobs while the SWE jobs are narrowed. With no category, or SWE alone, it
+ * is the plain overlap. Same rule as the server's clause in
+ * `services/job_search.py`, pinned for both by the committed oracle.
+ *
  * SOLE EXPANDER FOR THE CLIENT PATH. `filterJobsByFilters` is reachable from
  * exactly two places now — `graphFiltersSelectors.ts` (the Companies trend page,
  * whose chart and list share one filter set) and the demo-only branch of
@@ -369,8 +377,19 @@ export function matchesLevel(job: Job, levels: string[] | undefined): boolean {
  * copies of the taxonomy in play and would persist the widened pair into saved
  * filters and chips.
  */
-export function matchesSubcategory(job: Job, subcategories: string[] | undefined): boolean {
+export function matchesSubcategory(
+  job: Job,
+  subcategories: string[] | undefined,
+  categories?: string[]
+): boolean {
   if (!subcategories?.length) {
+    return true;
+  }
+  if (
+    categories?.some((category) => category !== SUBCATEGORY_PARENT_SLUG) &&
+    job.category != null &&
+    job.category !== SUBCATEGORY_PARENT_SLUG
+  ) {
     return true;
   }
   const jobSubs = job.subcategories;
@@ -432,10 +451,10 @@ export function filterJobsByFilters(
     if (!matchesCategory(job, filters.category)) {
       return false;
     }
-    // AND, not OR: category and subcategory compose, so selecting Growth AND
-    // Backend hides every Growth row (they carry no subcategories). That is the
-    // same composition every other dimension uses rather than a special case.
-    if (!matchesSubcategory(job, filters.subcategory)) {
+    // A specialty narrows only the Software Engineering jobs: with Growth AND
+    // Backend selected, every Growth job stays and the SWE jobs must be Backend
+    // (or Full Stack). The selected categories are passed for exactly that.
+    if (!matchesSubcategory(job, filters.subcategory, filters.category)) {
       return false;
     }
     if (!matchesLevel(job, filters.level)) {

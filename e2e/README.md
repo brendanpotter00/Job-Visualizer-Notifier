@@ -19,6 +19,7 @@ e2e/run.sh <section> [--fast] [--case AC-06] [--refresh-db]
 | `live-view` | **The discovery live view stays on screen** — five scripted sessions against a real browser, a real cross-origin iframe and a real poll, asserting the frame never blinks while the session is open and really goes when it ends. See `live-view/README.md` | ~3.5 min (measured) | **$0.** Opens no browser session. `--live` opts into exactly one real Browserbase discovery (~1 billed minute) |
 | `subcategories` | **The SWE subcategory filter** — SC-00..SC-06: the parent category still returns its unlabelled rows, one subcategory returns only its own, filters AND, the `full_stack` widening stays one-way, the reveal flag gates the UI and nothing else, and `NULL` never becomes `[]`. See `subcategories/CASES.md` | ~80–95 s full (measured) / **10 s** `--fast` | **$0, unconditionally** — no LLM call, no Browserbase session, no opt-in that changes it |
 | `billing` | **Stripe Pro plan** — BL-01..BL-15: checkout pays and grants Pro, renewal, declined card with 3-day grace, recovery, cancel at period end, portal, webhook signature/replay/out-of-order safety. Real Stripe sandbox + test clocks. See `billing/CASES.md` | ~2.7 min full (measured) | **$0** — sandbox only; a live key is refused. Needs `stripe login`; local-only |
+| `onboarding` | **The first-sign-in questions** — OB-01..OB-09 (API) and OB-U1..OB-U13 (UI): a brand-new identity is asked once — straight from sign-in, never after a page loads — answers land on the filtered list, signing in again (a new browser context) never asks, Skip/Escape/leaving half-way, a failed save, an older backend, never on `/pricing`, phone layout. Fresh identity per case. See `onboarding/CASES.md` | **54–56 s** full (measured, twice) / **9 s** `--fast` | **$0, unconditionally** — PostHog blanked (and refused at boot), the browser fenced to `127.0.0.1` |
 | `enricher` | **The local enrichment worker** — EN-00..EN-10: the REAL `enrich_tick_wrapper.sh` + CLI (a sandbox copy of `src/enricher`) against the real backend + Postgres, with a deterministic stub ollama: one tick end to end, judge routing, the metrics channel, the tick lock, engine outage, bad model output, idempotent re-delivery, the kill switch, the subcategory knob, isolation. `--enricher-ref <ref>` runs another version (e.g. the prod tag). See `enricher/CASES.md` | **60 s** full / **27 s** `--fast` (measured) | **$0, unconditionally** — stub model on loopback, no `claude`, never the real ollama, blank Anthropic key |
 | `enricher-cutover` | **The enricher's move from `app/` to a JVN clone, and its merge trigger** — CO-01..CO-19, CO-REAL, WT-01..WT-07: the REAL `cutover.sh` / `watcher.sh` / `install_watcher.sh` against a throwaway sandbox per case (fake HOME, fake old prod + old dev git checkouts, a local bare repo standing in for GitHub JVN, a stub launchd that really fires a fake worker): park-before-unload, wedged tick, refusals, rollback with/without the DB copy-back, crash + resume, a first tick killed mid-run, read-only preflight, secrets, and the real prod tag's tree. No stack, no ports. **Also runs in GitHub CI.** See `enricher-cutover/CASES.md` | **~3.3 min** full / **28 s** `--fast` (measured) | **$0, unconditionally, and no network** — local file remotes, uv offline, stub `launchctl`/`gh`/`send.sh` |
 
@@ -40,6 +41,15 @@ the full table — including the two guards the knobs came with (`stack_up.sh` r
 `:8000`/`:8100`/`:3000`; `ensure_db.sh` and `e2e_app.py` refuse any database not named
 `jobscraper_e2e` or `jobscraper_e2e_<section>`).
 
+**Provisioning from a dev database** (`E2E_SOURCE_DB=jobscraper`, when `jobscraper_pr243` is
+absent): `ensure_db.sh --schema-only` copies the source's `alembic_version` row, so the clone is
+only as right as that row. Two generalisations (both no-ops for an older source) cover the gaps
+an up-to-date dev DB hits: `job_subcategories` rows are copied from the source when the clone is
+still empty after `upgrade head`, and `E2E_SOURCE_DB_REVISION=<rev>` stamps a FRESH clone at the
+revision the source's schema is really at — for a source a test fixture `alembic stamp head`-ed
+without upgrading (the local `jobscraper` on 2026-11-22: stamped `ef0f7d8c8e11`, column missing;
+`E2E_SOURCE_DB_REVISION=bcbc67dbd87e … --refresh-db`).
+
 ## Which runner owns what
 
 There are **two** front doors to this repo's end-to-end coverage, and they are not
@@ -53,7 +63,8 @@ for to *see a feature work*.
 | `e2e/run.sh company-name-search` | The name-search **intent** test against the live web — is the answer still right *today* | **~$0.27** |
 | `e2e/run.sh company-name-search --replay <f>` / `--validate-only` | The same judge over recorded bodies / the case-file rules | **$0** (no backend, no key) |
 | `e2e/run.sh live-view` | Live-view **continuity** — LV-01..LV-05, is the frame on screen from first paint until the session really ends, and which closer fired | $0 (`--live`: one billed browser-minute) |
-| `e2e/run.sh subcategories` | The SWE-subcategory filter — SC-00..SC-06: parent-vs-child scope, exact single-slug matching, AND composition, the one-way `full_stack` widening, the reveal flag's UI-only reach, and the `NULL`/`'{}'` distinction | **$0** |
+| `e2e/run.sh subcategories` | The SWE-subcategory filter — SC-00..SC-06: parent-vs-child scope, exact single-slug matching, AND composition (and the specialty scope: a specialty narrows only SWE rows), the one-way `full_stack` widening, the reveal flag's UI-only reach, and the `NULL`/`'{}'` distinction | **$0** |
+| `e2e/run.sh onboarding` | The first-sign-in questions — OB-01..OB-09, OB-U1..OB-U13: asked exactly once per account, across sign-ins, contexts and devices | **$0** |
 | `e2e/run.sh enricher` | The local enrichment worker — EN-00..EN-10: the real wrapper + CLI against a real backend with a stub model; `--enricher-ref <ref>` for another version (the prod tag before a deploy or the cutover) | **$0** |
 | `e2e/run.sh enricher-cutover` | The enricher cutover + its merge watcher — CO-01..CO-19, CO-REAL, WT-01..WT-07, each in its own sandboxed "machine"; runs locally and in CI | **$0**, no network |
 | `verify-onesecondswe` skill | Driving the app the way a user does through `window.__webmcp__`, plus the two surfaces the shim cannot reach: `@live-view` (URL **integrity** + liveness) and `@name-search` (the typed name reaches the endpoint **verbatim**) | **$0**, except `helpers/name_search.sh --live` which delegates straight back to `e2e/run.sh` |
@@ -73,13 +84,14 @@ BLOCKED semantics, and `features/add-companies.md` points at it rather than dupl
   right; a section that collided would not merely fail to bind, it would have its
   `stack_down.sh` kill the owner's dev server by pidfile on the way out. Ports in use today:
   `:8201`/`:3201` (add-companies + live-view, sharing one stack and one lock), `:8202`
-  (add-companies' short-lived flagged backends), `:8203`/`:3203` (subcategories),
-  `:8204`/`:3204` (billing), `:8207` + `:8206` + `:8215` (enricher: backend, its short-lived
-  kill-switch backend, the stub ollama; no frontend). `enricher-cutover` binds no port at all.
+  (add-companies' short-lived flagged backends), `:8203`/`:3203` (subcategories), `:8204`/`:3204`
+  (billing), `:8205`/`:3205` (onboarding), `:8207` + `:8206` + `:8215` (enricher: backend, its
+  short-lived kill-switch backend, the stub ollama; no frontend). `enricher-cutover` binds no
+  port at all.
 - **A section that SEEDS rows owns its own database.** Two sections writing fixtures into one
   database is the same class of bug as two runs sharing one stack — one silently changes the
   other's answers. `add-companies` and `live-view` share `jobscraper_e2e` because neither seeds;
-  `subcategories` has `jobscraper_e2e_subcategories`, `enricher` has `jobscraper_e2e_enricher`.
+  `subcategories`, `billing`, `onboarding` and `enricher` each have their own `jobscraper_e2e_<section>`.
 - `CAPTURE_USE_BROWSERBASE=false`, asserted at boot. Browser hours are the expensive
   line and no section may ever bill one.
 - A blank Browserbase key, asserted at boot — with TWO deliberate exceptions.

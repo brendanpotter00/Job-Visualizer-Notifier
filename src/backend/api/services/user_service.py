@@ -23,6 +23,14 @@ from typing import TypedDict, cast
 import psycopg2
 from psycopg2 import sql
 from psycopg2.extensions import connection as Connection
+from psycopg2.extras import Json
+
+from .enrichment_writer import SUBCATEGORY_PARENT
+from .saved_filters_service import (
+    SavedFiltersRow,
+    default_saved_filters,
+    get_saved_filters,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +38,7 @@ _USERS_TABLE = sql.Identifier("users")
 _USER_VISITS_TABLE = sql.Identifier("user_visits")
 _JOB_APPLY_CLICKS_TABLE = sql.Identifier("job_apply_clicks")
 _JOB_LISTINGS_TABLE = sql.Identifier("job_listings")
+_SAVED_FILTERS_TABLE = sql.Identifier("user_saved_filters")
 
 # Hard cap on a per-user visit-history page (root AGENTS.md gotcha #7 — never
 # return an unbounded list). The admin modal shows the most recent visits;
@@ -66,6 +75,7 @@ class UserRow(TypedDict):
     visit_count: int
     last_visit_at: datetime | None
     is_internal: bool
+    onboarding_completed_at: datetime | None
 
 
 def get_or_create_user(
@@ -418,3 +428,129 @@ def get_user_by_email(
     )
     row = cursor.fetchone()
     return cast(UserRow, dict(row)) if row else None
+
+
+class OnboardingResult(TypedDict):
+    """What ``complete_onboarding`` did, for the router.
+
+    ``completed_at`` is the account's stamp (this request's, or the earlier
+    one). ``newly_completed`` is True only for the request that set it, so the
+    analytics events fire once per account. ``saved_filters`` is the account's
+    saved filters after the call.
+    """
+
+    completed_at: datetime
+    newly_completed: bool
+    saved_filters: SavedFiltersRow
+
+
+def complete_onboarding(
+    conn: Connection,
+    user_id: str,
+    *,
+    category: list[str],
+    subcategory: list[str],
+    level: list[str],
+    locations: list[str],
+) -> OnboardingResult | None:
+    """Stamp the account as onboarded and save its answers (POST /api/users/onboarding).
+
+    ONE transaction, two writes:
+
+    1. ``UPDATE users SET onboarding_completed_at = now() WHERE id = %s AND
+       onboarding_completed_at IS NULL``. The ``IS NULL`` guard is what makes the
+       call idempotent: a retry or a second tab matches no row (a concurrent
+       one waits on the row lock, then re-checks the guard and matches none).
+       When it matches nothing, NOTHING is written — the answers of a later
+       call never replace the first ones — and the existing stamp is returned.
+    2. An UPSERT of the four onboarding columns of ``user_saved_filters``
+       (``category``, ``subcategory``, ``level``, ``locations``). An existing
+       row keeps its time windows and keyword-list pointers. A NEW row sets
+       the time windows explicitly to the app defaults (Recent ``'all'``,
+       Trend ``'90d'``, from ``default_saved_filters``): the columns' own DB
+       defaults are the stale ``'3h'`` / ``'7d'``.
+
+    ``subcategory`` is a software-engineering refinement, so it is saved only
+    when ``software_engineering`` is among ``category``; otherwise it is
+    stored as ``[]`` (no filter).
+
+    Returns ``None`` when no ``users`` row has this id (deleted mid-request;
+    the caller upserts it first). Rolls back and re-raises on
+    ``psycopg2.Error``.
+    """
+    if SUBCATEGORY_PARENT not in category:
+        subcategory = []
+    defaults = default_saved_filters()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            sql.SQL(
+                "UPDATE {} SET onboarding_completed_at = now()"
+                " WHERE id = %s AND onboarding_completed_at IS NULL"
+                " RETURNING onboarding_completed_at"
+            ).format(_USERS_TABLE),
+            (user_id,),
+        )
+        stamped = cursor.fetchone()
+        if stamped is None:
+            # Already onboarded (or no such row). Write nothing; report what is
+            # there now.
+            cursor.execute(
+                sql.SQL("SELECT onboarding_completed_at FROM {} WHERE id = %s").format(
+                    _USERS_TABLE
+                ),
+                (user_id,),
+            )
+            existing = cursor.fetchone()
+            saved = get_saved_filters(conn, user_id)
+            conn.commit()
+            if existing is None or existing["onboarding_completed_at"] is None:
+                logger.warning(
+                    "complete_onboarding matched no user row for user_id=%s", user_id
+                )
+                return None
+            return {
+                "completed_at": existing["onboarding_completed_at"],
+                "newly_completed": False,
+                "saved_filters": saved,
+            }
+
+        cursor.execute(
+            sql.SQL(
+                "INSERT INTO {} ("
+                " user_id, recent_time_window, trend_time_window,"
+                " locations, category, level, subcategory"
+                ") VALUES (%s, %s, %s, %s, %s, %s, %s)"
+                " ON CONFLICT (user_id) DO UPDATE SET"
+                " locations = EXCLUDED.locations,"
+                " category = EXCLUDED.category,"
+                " level = EXCLUDED.level,"
+                " subcategory = EXCLUDED.subcategory,"
+                " updated_at = now()"
+            ).format(_SAVED_FILTERS_TABLE),
+            (
+                user_id,
+                defaults["recent_time_window"],
+                defaults["trend_time_window"],
+                Json(locations),
+                Json(category),
+                Json(level),
+                Json(subcategory),
+            ),
+        )
+        saved = get_saved_filters(conn, user_id)
+        conn.commit()
+    except psycopg2.Error as exc:
+        conn.rollback()
+        logger.error(
+            "Database error in complete_onboarding for user_id=%s: %s",
+            user_id,
+            exc,
+            exc_info=True,
+        )
+        raise
+    return {
+        "completed_at": stamped["onboarding_completed_at"],
+        "newly_completed": True,
+        "saved_filters": saved,
+    }

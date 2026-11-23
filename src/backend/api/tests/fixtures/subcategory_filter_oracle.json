@@ -74,10 +74,11 @@
       "enrichment_subcategories": ["backend"],
       "_why": [
         "A DECOY that should not exist in real data. It proves the subcategory",
-        "predicate reads the ARRAY and nothing else — the category predicate is a",
-        "separate condition that ANDs with it. Both languages must return it for a",
-        "bare backend selection, and both must drop it once a category filter is",
-        "also active."
+        "predicate reads the ARRAY when no category is picked: both languages must",
+        "return it for a bare backend selection. Once Software Engineering ALONE is",
+        "picked it drops out (the category clause). Once a non-SWE category is",
+        "picked it is a Growth job like any other, and the specialty does not",
+        "narrow it (see category_composition)."
       ]
     },
     {
@@ -179,10 +180,32 @@
       "expected": ["o-backend", "o-full-stack", "o-backend-ai"]
     },
     {
-      "name": "a non-SWE category with a SWE subcategory returns nothing",
+      "_comment": [
+        "A SPECIALTY NARROWS SOFTWARE JOBS ONLY. A non-SWE category keeps every",
+        "one of its jobs, whatever specialty is also picked: a Growth row is never",
+        "tested against the subcategory array."
+      ],
+      "name": "a non-SWE category with a SWE subcategory keeps all its jobs",
       "category": ["growth"],
       "subcategory": ["frontend"],
-      "expected": []
+      "expected": ["o-nonswe-backend", "o-nonswe-null"]
+    },
+    {
+      "_comment": [
+        "THE ONBOARDING CASE (Product Manager + Backend, here Growth + Backend):",
+        "the other role's jobs ALL stay, while the software jobs are narrowed to",
+        "the specialty, with its full_stack widening."
+      ],
+      "name": "SWE and a non-SWE category with a SWE subcategory: other role whole, SWE narrowed",
+      "category": ["software_engineering", "growth"],
+      "subcategory": ["backend"],
+      "expected": [
+        "o-backend",
+        "o-full-stack",
+        "o-backend-ai",
+        "o-nonswe-backend",
+        "o-nonswe-null"
+      ]
     }
   ]
 }

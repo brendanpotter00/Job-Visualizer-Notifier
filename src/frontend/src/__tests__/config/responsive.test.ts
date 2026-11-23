@@ -81,6 +81,17 @@ const SM_DESKTOP: Record<string, number | string> = {
   'pricing.priceFontSize': '3.5rem',
   'pricing.proHeadlineFontSize': '2.25rem',
   'pricing.rowFontSize': '1rem',
+  // First-sign-in questions — a new surface, so `sm` IS the desktop design value.
+  'onboarding.barHeight': 64,
+  'onboarding.gutterX': 3,
+  'onboarding.stepRowPaddingTop': '24px',
+  'onboarding.bodyPaddingTop': 3,
+  'onboarding.bodyPaddingBottom': 4,
+  'onboarding.footPaddingTop': '14px',
+  'onboarding.footPaddingBottom': '22px',
+  'onboarding.questionFontSize': '1.875rem',
+  'onboarding.toastTop': 80,
+  'onboarding.toastRight': 24,
 };
 
 // Desktop (`default`) value expected for each `{ compact, default }` token.

@@ -5,16 +5,17 @@ import { AUTH_CONFIG } from '../../config/auth';
 import { GoogleCredentialProvider } from '../../features/auth/GoogleCredentialContext';
 import { GoogleOneTap } from '../../features/auth/GoogleOneTap';
 import { handleAuthRedirect } from '../../features/auth/returnTo';
+import { CurrentUserProvider } from '../../features/auth/CurrentUserProvider';
 
 export function AuthProviders({ children }: { children: React.ReactNode }) {
   // Bypass short-circuits above real providers: dynamic preview URLs can't
   // complete real OAuth callbacks, and mounting Auth0Provider / GoogleOAuthProvider
   // with empty clientIds throws. useAuth module-dispatches to a fake impl.
-  if (AUTH_CONFIG.bypassEnabled) {
-    return <>{children}</>;
-  }
-  if (!AUTH_CONFIG.isEnabled) {
-    return <>{children}</>;
+  //
+  // Every branch mounts `CurrentUserProvider`: the page load's ONE shared
+  // `GET /api/users` (see `useCurrentUser`).
+  if (AUTH_CONFIG.bypassEnabled || !AUTH_CONFIG.isEnabled) {
+    return <CurrentUserProvider>{children}</CurrentUserProvider>;
   }
   return (
     <GoogleOAuthProvider clientId={AUTH_CONFIG.googleClientId}>
@@ -29,8 +30,7 @@ export function AuthProviders({ children }: { children: React.ReactNode }) {
         // always runs and stalls on Chrome's blocked third-party cookies. One Tap
         // no longer waits on it (see GoogleOneTap.tsx), but bounding it to 8s
         // limits wasted background work and the transient "authenticated but
-        // isLoading still true" window that gates UserMenu / SignInOverlay /
-        // EditCompanyPreferencesLink.
+        // isLoading still true" window that gates UserMenu / SignInOverlay.
         authorizeTimeoutInSeconds={8}
         onRedirectCallback={handleAuthRedirect}
         authorizationParams={{
@@ -41,7 +41,7 @@ export function AuthProviders({ children }: { children: React.ReactNode }) {
       >
         <GoogleCredentialProvider>
           <GoogleOneTap />
-          {children}
+          <CurrentUserProvider>{children}</CurrentUserProvider>
         </GoogleCredentialProvider>
       </Auth0Provider>
     </GoogleOAuthProvider>
