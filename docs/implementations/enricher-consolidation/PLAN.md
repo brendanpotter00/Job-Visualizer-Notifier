@@ -724,7 +724,9 @@ the session scratchpad `u5/skill-backup/`.
 4. **Bring in current `main` first.** Since 2026-11-23 it carries #385/#386 (onboarding),
    which conflict textually with this branch in `e2e/README.md`,
    `.claude/skills/e2e-gate/SKILL.md` and `e2e/run.sh` (both sides added a section row,
-   usage line and banner — keep both). The port clash is already fixed on this branch:
+   usage line and banner — keep both), and #387 (north-star loop) conflicts in the root
+   `AGENTS.md` "Common Tasks" list (keep both paragraphs). In `e2e/run.sh` the two hand-off
+   blocks share one closing `fi`: give each its own. The port clash is already fixed on this branch:
    `onboarding` keeps `:8205`/`:3205`, the enricher backend moved to `:8207`. Re-run both
    `enricher` gates after the merge.
 5. Raise the PR through no-mistakes. In the PR body: **merge with "Create a merge commit"** to
