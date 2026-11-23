@@ -64,15 +64,15 @@ Pick the mode from the argument (`propose`, `text`, `build N`, `readout N`). Wit
    - **Risk**: what could break or get worse, which guardrail it could hurt; rollback (revert the PR).
    - **Measurement**: when the readout can land at the current signup rate (time to 30 post-ship signups + 31 days), whether a lift of the hoped size is detectable at that n (say "likely inconclusive" plainly if not), and one **leading signal** readable weekly from week 1. At today's volume the leading signal is the real test.
    - **Ranked candidates**: the week's full table (every candidate from step 6 with Impact, Confidence, Effort, score, scope, strategy verdict, one line each), identical in every brief of the batch, and why the picked ones won.
-8. Record them, small ideas first in rank order: `LOOP add --scope small|big --title "<the change, ≤12 words>" --metric "7d return" --expected "<now%> → <hoped%>" --risk low|medium|high --brief-file <file>` (each prints its id). `now%` is the pooled 7-day+ return over all mature cohorts, with n in the brief. Right after the last `add`, before anything else: compose the weekly text (§3) with the real ids, record it with `LOOP texted "<text>" <every id in the text>`, and send it with notify.sh. Only then `LOOP log N decision ...` each choice from steps 3-6 on the idea it concerns. (If the run dies between `add` and `texted`, the next fire's `LOOP next` prints `text` and finishes the batch.)
+8. Record them, small ideas first in rank order: `LOOP add --scope small|big --title "<the change, ≤12 words>" --metric "7d return" --expected "<now%> → <hoped%>" --risk low|medium|high --brief-file <file>` (each prints its id). `now%` is the pooled 7-day+ return over all mature cohorts, with n in the brief. Right after the last `add`, before anything else: compose the weekly text (§3) with the real ids and send it with notify.sh. Only if notify.sh exits 0, 4 or 5, record it with `LOOP texted "<text>" <every id in the text>`; on exit 2 or 3 do not run `texted` (§0.9 error). Then `LOOP log N decision ...` each choice from steps 3-6 on the idea it concerns. (If the run dies or the send fails before `texted`, the next fire's `LOOP next` prints `text` and retries the batch; the accepted worst case is a duplicate text if the run dies between the send and `texted`.)
 
 ### text
 
-The weekly batch was saved but its text never went out (a propose run died between `add` and `texted`).
+The weekly batch was saved but its text was never recorded as sent (a propose run died, or its send failed, before `texted`).
 
 1. Run `LOOP sync` then `LOOP next`. If it does not print `text`, write the heartbeat (`outcome=none`) and stop.
 2. `LOOP list`, then `LOOP show N` on every `proposed` or `flagged` idea with no `sms:` line. No new research, no new ideas, no data queries: the saved briefs are the whole input.
-3. Compose the weekly text (§3) from those briefs (7d return and scores as the briefs state them), record it with `LOOP texted "<text>" <every id in the text>`, and send it with notify.sh. If notify.sh exits 2 or 3, clear nothing: log the mistake per §0.9 and end with `outcome=error` (the wrapper's failure text fires; Brendan can rerun).
+3. Compose the weekly text (§3) from those briefs (7d return and scores as the briefs state them) and send it with notify.sh. Only if notify.sh exits 0, 4 or 5, record it with `LOOP texted "<text>" <every id in the text>`. If it exits 2 or 3, do not run `texted`: log the mistake per §0.9 and end with `outcome=error`; the ideas stay untexted, so the next fire prints `text` again and retries.
 4. `LOOP log N mistake "weekly text sent late by a text run: the propose run stopped before texting"` on each idea it named.
 
 ### build N

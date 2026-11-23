@@ -7,13 +7,13 @@ An agent that, once a week, texts Brendan up to 3 **small** improvements aimed a
 ```
 propose ──weekly text──> Brendan ──"yes 4 6"──> build 4, build 6 ──> PRs (via no-mistakes) ──merge──> readout ──text
    │  (3 small + 1 big)      └─"no 5 <why>"──> rejected (the reason steers every later proposal)
-   ├─ run died before the text went out ──> next fire: text (sends the saved batch, no new research)
+   ├─ run died or send failed before the text was recorded ──> next fire: text (sends the saved batch, no new research)
    ├─ small ideas not picked in 7 days ──> expired
    └─ the big initiative stays "flagged": a record for Brendan, never built by the loop
 ```
 
 - **propose** (weekly, once last week's ideas are answered or expired and fewer than 3 small ideas are in flight): reads STRATEGY.md, every past idea (rejected ones and Brendan's reasons first), the PostHog North Star dashboard, the prod `metrics` views, and the ClickUp list (so it never duplicates a ticket and can raise an existing one instead). Scores 5-6 candidates by Impact × Confidence ÷ Effort against the drivers of 7-day+ return (SKILL.md §1), keeps only ones STRATEGY.md's align test passes, and judges each small or big with a one-line reason. Saves a full brief for the top 3 small and the top big, then sends one text. No ClickUp write, branch, or repo change yet.
-- **text** (a propose run saved its ideas but died before recording the text): the next fire composes the weekly text from the saved briefs and sends it. No new research, no new ideas.
+- **text** (a propose run saved its ideas but died, or its send failed, before recording the text): the next fire composes the weekly text from the saved briefs and sends it, and keeps retrying each fire until a send succeeds. No new research, no new ideas. The text is recorded only after it is sent, so the worst case is a duplicate text if a run dies between the two.
 - **build N** (a small idea he picked): plan doc at `docs/north-star-loop/ns-N-<slug>.md` (brief, plan, every decision it made), ClickUp task in list `1000430000001112` (or a comment on the existing ticket it raised), change + test in a throwaway worktree, PR through no-mistakes. Never merges.
 - **readout N** (38+ days after merge, deferred until 30+ post-ship signups or 120 days): before/after 7-day+ return, the targeted driver and guardrails with n, confounders named, verdict keep / revert suggested / inconclusive.
 
