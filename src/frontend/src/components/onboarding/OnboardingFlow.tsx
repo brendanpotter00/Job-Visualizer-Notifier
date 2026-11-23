@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Dialog from '@mui/material/Dialog';
-import { keyframes } from '@mui/material/styles';
+import { keyframes, useTheme } from '@mui/material/styles';
 import { useAppDispatch, useAppSelector } from '../../app/hooks';
 import { WORDMARK_COLOR, WORDMARK_FONT_FAMILY, SIGNAL_GREEN } from '../../config/brand';
 import { APP_TITLE } from '../../config/constants';
@@ -165,6 +165,7 @@ export interface OnboardingFlowProps {
  * this visit only: the stamp stays unset, so they open again on the next load.
  */
 export function OnboardingFlow({ open, onDone, onDismiss, onExited }: OnboardingFlowProps) {
+  const theme = useTheme();
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
   const [step, setStep] = useState<OnboardingStep>(0);
@@ -294,6 +295,12 @@ export function OnboardingFlow({ open, onDone, onDismiss, onExited }: Onboarding
     <Dialog
       open={open}
       fullScreen
+      // No fade IN: the questions take the place of the loading screen
+      // `RootLayout` holds while it waits for the answer (`useOnboardingHold`).
+      // A fade would show the page through the half-transparent dialog for a
+      // moment — the very "page first, then the questions" jump that hold
+      // removes. The fade OUT stays: `onExited` waits for it.
+      transitionDuration={{ enter: 0, exit: theme.transitions.duration.leavingScreen }}
       // Escape (and any other close) counts as Skip.
       onClose={() => void submit(true)}
       aria-labelledby={titleId}

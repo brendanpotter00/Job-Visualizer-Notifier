@@ -7,7 +7,9 @@ import { GlobalAppBar } from './GlobalAppBar';
 import { NavigationDrawer } from './NavigationDrawer';
 import { AppFooter } from './AppFooter';
 import { PageSkeleton } from '../shared/Skeletons';
+import { LoadingState } from '../shared/LoadingIndicator';
 import { OnboardingGate } from '../onboarding/OnboardingGate';
+import { useOnboardingHold } from '../onboarding/useOnboardingHold';
 
 const DRAWER_WIDTH = 240;
 export const MINI_DRAWER_WIDTH = 65; // Match NavigationDrawer's calculated width
@@ -31,6 +33,11 @@ const DrawerHeader = styled('div')(({ theme }) => ({
  * - Responsive navigation drawer (persistent on desktop, temporary on mobile)
  * - Main content area for page rendering via Outlet
  * - Global footer
+ * - Holds everything behind a full-page loading screen while a signed-in
+ *   reader's first-sign-in questions may be about to open
+ *   (`useOnboardingHold`), so a brand-new account goes from the sign-in
+ *   loading screen straight to the questions and never sees a page load
+ *   first. It is the same screen `HomeRoute` shows while a sign-in completes.
  *
  * State Management:
  * - Drawer state managed locally (no persistence)
@@ -66,6 +73,11 @@ export function RootLayout() {
   const handleDrawerClose = () => {
     setDrawerOpen(false);
   };
+
+  const holdForOnboarding = useOnboardingHold();
+  if (holdForOnboarding) {
+    return <LoadingState fullPage />;
+  }
 
   return (
     <Box sx={{ display: 'flex', minHeight: '100vh', flexDirection: 'column' }}>
