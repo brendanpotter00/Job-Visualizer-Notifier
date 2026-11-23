@@ -126,8 +126,8 @@ at phase C's untracked scan and waits until it is writing (CO-16).
   the real cutover state dir (every file except the installed watcher's own `jvn.git`, `run/` and
   `watcher.lock` — it fires every 5 min; `state.json` IS hashed), whether the watcher's log files
   exist, and `~/developer/personal/{app,job-enricher,enricher-prod}` (HEAD, tracked changes, role,
-  `CLAUDE.local.md`, a stat of every file except what the live worker writes: `data/`, `.venv/`,
-  `__pycache__/`), before and after pytest.
+  `CLAUDE.local.md`, a stat of every file except what the live worker writes —
+  `real_manifest.py`'s `LIVE_WRITES`), before and after pytest.
   A difference is recorded as a FAILED case `real_machine_paths_unchanged` in the JUnit
   file, so the summary's verdict is RED. It started out fingerprinting all of
   `LaunchAgents` and immediately flagged a Creative Cloud agent rewriting its own plist

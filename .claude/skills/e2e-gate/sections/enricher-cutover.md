@@ -88,7 +88,7 @@ watcher run's stdout + stderr), `state.json`, `cutover.log`, `launchctl-calls.js
 | `no uv-managed Python 3.12` at session start | uv manages no 3.12 (a system one does not count: prod's venv is built on a managed one) | `uv python install 3.12` (CI does this before the section) |
 | CO-REAL: `tag enricher-prod-eeff1c9 is not in this checkout` | tags not fetched / not pushed | `git fetch --tags origin`; push the tag |
 | CO-REAL: `uv sync` fails offline | the uv cache lacks the enricher's wheels | run `cd src/enricher && uv sync` once (online), then re-run |
-| `ISOLATION BREACH` naming `app/` files under a path the live worker writes | the live worker wrote somewhere `real_manifest.py` does not exclude | read the diff; only `data/`, `.venv/`, `__pycache__/` are excluded |
+| `ISOLATION BREACH` naming `app/` files under a path the live worker writes | the live worker wrote somewhere `real_manifest.py` does not exclude | read the diff; the exclusions are `real_manifest.py`'s `LIVE_WRITES` |
 | `REFUSING TO START — another enricher-cutover run` | a second copy of this section | wait for it |
 
 ## Known non-coverage

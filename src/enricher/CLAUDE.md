@@ -133,8 +133,7 @@ reading health/ticks/jobs and editing runtime knobs. Launch with **`scripts/run_
 rebuilds `dashboard/dist` (gitignored, so every checkout must build it locally), and serves
 at `http://127.0.0.1:8788`. `cli dashboard` itself **refuses to run from
 a `.claude/worktrees/` checkout** (exit 2) and warns if not on `main`, so a stale worktree
-build can't silently keep serving an old UI (this happened once — see
-`docs/handoffs/2026-07-12-prod-monitoring-after-ollama-cutover.md`). Binds `127.0.0.1` only;
+build can't silently keep serving an old UI (this happened once). Binds `127.0.0.1` only;
 a non-loopback `--host` is refused unless `--allow-remote`, and even then it must NEVER be
 placed behind the Cloudflare tunnel (`server.py`'s edge) — the knob-edit endpoint is
 unauthenticated. Never run it against the prod checkout.
