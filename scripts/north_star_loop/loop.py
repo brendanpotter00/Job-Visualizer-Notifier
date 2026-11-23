@@ -7,7 +7,8 @@ one-line summary. Lifecycle:
 
     proposed -> approved -> building -> pr_open -> shipped -> measured
              \-> rejected | expired           \-> closed  (PR closed unmerged)
-                            building -> blocked (build failed twice)
+                            building -> blocked (build failed twice, or the
+                                                 skill found it stale or over the trust level)
                             building -> paused  (a no-mistakes gate asks Brendan;
                                                  he sets pr_open, or approved to rebuild)
 
