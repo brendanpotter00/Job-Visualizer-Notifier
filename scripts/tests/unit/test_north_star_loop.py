@@ -177,3 +177,28 @@ def test_set_rejects_unknown_status_and_pr_open_without_url(loop):
     assert no_url.returncode != 0 and "needs pr_url" in no_url.stderr
     assert "status: proposed" in loop("show", "1").stdout
     assert next_action(loop, now="2026-12-09T09:00:00+00:00") == "none"
+
+
+def test_sync_survives_unreadable_gh_output_and_still_expires(loop, tmp_path):
+    loop.add()
+    gh = tmp_path / "gh"
+    gh.write_text("#!/bin/sh\necho 'not json'\n")
+    gh.chmod(gh.stat().st_mode | stat.S_IEXEC)
+    loop("set", "1", "status=closed")
+    loop.add(now="2026-12-02T09:00:00+00:00")
+    loop("set", "1", "status=pr_open", "pr_url=https://github.com/x/y/pull/9")
+    loop("sync", now="2026-12-10T09:00:00+00:00", gh=str(gh))
+    assert "could not read PR state" in loop("show", "1").stdout
+    assert "status: expired" in loop("show", "2").stdout
+
+
+def test_dump_prints_title_text_and_full_brief(loop, tmp_path):
+    brief = tmp_path / "long-brief.md"
+    brief.write_text("## Problem\n47% never come back\n\n## Risk\nrevert the PR\n")
+    loop("add", "--title", "Divider for jobs since last visit", "--metric", "7d return",
+         "--expected", "26% -> 28%", "--risk", "low", "--sms", "NS-{N} idea\nReply yes {N}",
+         "--brief-file", str(brief))
+    out = loop("dump").stdout
+    assert "NS-1 · Divider for jobs since last visit" in out
+    assert "NS-1 idea\nReply yes 1" in out
+    assert "47% never come back" in out and "revert the PR" in out

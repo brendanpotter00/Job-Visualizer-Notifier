@@ -6,8 +6,6 @@
 # names an action. Same safety shell as scripts/health_watch/wrapper.sh:
 # single-flight lock, hard wall-clock cap with a process-group kill,
 # heartbeat-advance check, and a failure text at most once per 6h.
-# Every fire ends with `loop.py publish`, which mirrors the state to the
-# loop-state branch (a no-op commit-wise when nothing changed).
 set -u
 
 CLAUDE_BIN="/Users/bpotter/.local/bin/claude"
@@ -33,14 +31,12 @@ trap 'rmdir "$LOCK_DIR" 2>/dev/null || true' EXIT
 cd "$PROJECT_DIR" || { log "cd $PROJECT_DIR failed" >&2; exit 1; }
 LOOP="python3 scripts/north_star_loop/loop.py"
 NOTIFY="scripts/north_star_loop/notify.sh"   # send.sh + Boop history
-publish() { $LOOP publish || log "publish to loop-state failed (state is safe locally)" >&2; }
 
 $LOOP sync || log "sync failed (continuing)" >&2
 ACTION=$($LOOP next) || { log "next failed" >&2; exit 1; }
 if [ "$ACTION" = "none" ]; then
   echo "$(date -u +%FT%TZ) mode=idle ns=- outcome=none texts=0" >> "$HEARTBEAT"
   log "nothing to do"
-  publish
   exit 0
 fi
 
@@ -72,6 +68,5 @@ if [ "$STATUS" -ne 0 ]; then
     case $? in 0|4|5) touch "$FAIL_STAMP" ;; esac
   fi
 fi
-publish
 log "end status=$STATUS"
 exit "$STATUS"

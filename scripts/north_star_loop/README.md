@@ -20,23 +20,15 @@ propose ──text──> Brendan ──"yes N"──> build N ──> PR (via n
 |---|---|
 | `.claude/skills/north-star-loop/SKILL.md` | The procedure, hard rules, metric hierarchy + scoring, text formats |
 | `.claude/commands/north-star-once.md` | Headless shim: `claude -p "/north-star-once <action>"` |
-| `scripts/north_star_loop/loop.py` | SQLite state: ideas, briefs, decisions, mistakes; `sync` + `next` pick the action; `publish` mirrors to git |
+| `scripts/north_star_loop/loop.py` | SQLite state: ideas, briefs, decisions, mistakes; `sync` + `next` pick the action; `dump` prints it all as markdown |
 | `scripts/north_star_loop/notify.sh` | Sends a text and writes it into Brendan's Boop conversation history |
-| `scripts/north_star_loop/wrapper.sh` | launchd entry: lock, `sync`/`next` (no tokens when idle), 90-min cap, failure text, `publish` |
+| `scripts/north_star_loop/wrapper.sh` | launchd entry: lock, `sync`/`next` (no tokens when idle), 90-min cap, failure text |
 | `scripts/north_star_loop/com.bp.jvn-north-star-loop.plist.template` | LaunchAgent, 09:30 / 13:30 / 17:30 / 21:30 |
 | `scripts/north_star_loop/install_launch_agent.sh` | Idempotent install |
 
-Runtime state on the server: `~/Library/Application Support/jvn-north-star-loop/` (`loop.db`, `heartbeat.log`, `notify.env`, the `loop-state` worktree, build worktrees) and `~/Library/Logs/jvn-north-star-loop.{log,err}`.
+Runtime state on the server: `~/Library/Application Support/jvn-north-star-loop/` (`loop.db`, `heartbeat.log`, `notify.env`, build worktrees) and `~/Library/Logs/jvn-north-star-loop.{log,err}`.
 
-## State in git
-
-Every scheduled fire ends with `loop.py publish`: it commits `loop.db` and a generated `LOG.md` (every idea, its text, full brief, decisions and mistakes, newest first) to the **`loop-state`** branch and pushes it. It commits only when something changed. That branch is an orphan that never merges into `main` and needs no PR. CI runs only on `main` pushes and PRs, and Vercel deploys only `main`. Any agent can read the history:
-
-```sh
-git fetch origin loop-state && git show origin/loop-state:LOG.md
-```
-
-The server's local `loop.db` is the authoritative copy; the branch is its mirror (at most one fire behind).
+State never goes into git: briefs quote prod data and the repo is public. Agents on the server read it with `loop.py list`, `loop.py show <N>`, or `loop.py dump` (every idea, its text, full brief, decisions and mistakes, newest first, as markdown).
 
 ## Texts and replies (Boop)
 
@@ -57,7 +49,10 @@ python3 scripts/north_star_loop/loop.py decide <N> no <reason words...>
 
 The next scheduled fire (within ~4h) starts the build. Without Boop, run the command yourself.
 
-A "NS-N paused" text means a no-mistakes gate is waiting on you; the idea stays `paused` (holding the one-idea slot, never rebuilt by the schedule) until you answer the gate and then run one of:
+An idea is `paused` (holding the one-idea slot, never rebuilt by the schedule) for one of two reasons, each with its own text:
+
+- **"NS-N needs you first: <checklist>"** — stage 1 needs something only you can do (an account, a DNS record, a secret). Do it, then run `python3 scripts/north_star_loop/loop.py set <N> status=approved`; the next fire builds it.
+- **"NS-N paused: ..."** — a no-mistakes gate is waiting on you. Answer the gate, then run one of:
 
 ```sh
 python3 scripts/north_star_loop/loop.py set <N> status=pr_open pr_url=<url>   # the PR went up
@@ -72,15 +67,15 @@ launchctl kickstart gui/$(id -u)/com.bp.jvn-north-star-loop      # fire now
 launchctl bootout gui/$(id -u)/com.bp.jvn-north-star-loop        # pause
 python3 scripts/north_star_loop/loop.py list                     # every idea and its status
 python3 scripts/north_star_loop/loop.py show <N>                 # full brief + decisions + mistakes
-python3 scripts/north_star_loop/loop.py dump                     # everything, as LOG.md holds it
+python3 scripts/north_star_loop/loop.py dump                     # everything as markdown: texts, briefs, events
 tail -5 "$HOME/Library/Application Support/jvn-north-star-loop/heartbeat.log"
 ```
 
-Dry run anywhere (no texts, ClickUp writes, pushes or publish): invoke the `north-star-loop` skill in a Claude session with `JVN_LOOP_DRY_RUN=1`, `JVN_LOOP_DB` pointing at a throwaway file, and `JVN_LOOP_STATE_DIR` at a throwaway folder. A real run with a missing `send.sh` is an error, not a silent dry run. `JVN_LOOP_SEND` overrides the send script path.
+Dry run anywhere (no texts, ClickUp writes or pushes): invoke the `north-star-loop` skill in a Claude session with `JVN_LOOP_DRY_RUN=1`, `JVN_LOOP_DB` pointing at a throwaway file, and `JVN_LOOP_STATE_DIR` at a throwaway folder. A real run with a missing `send.sh` is an error, not a silent dry run. `JVN_LOOP_SEND` overrides the send script path.
 
 ## Design notes
 
-- **The brief is the hand-off.** The builder reads the proposer's full evidence, scores and reasoning, not one sentence. Unapproved ideas never reach `main`; they live in the DB and on `loop-state`.
+- **The brief is the hand-off.** The builder reads the proposer's full evidence, scores and reasoning, not one sentence. Unapproved ideas never reach `main`; they live only in the local DB.
 - **One idea open at a time**, so before/after readouts are not confounded by the loop's own changes. Shipped ideas being measured do not block the next proposal; the readout lists them as confounders.
 - **No size cap.** Ideas are ranked by Impact × Confidence ÷ Effort, so a bigger change has to earn its effort. Every build still goes through no-mistakes and Brendan's merge, and STRATEGY.md is the only hard filter.
 - **No A/B split yet.** At ~10 signups a month a 50/50 flag halves an already tiny sample; readouts are before/after with named confounders and say "inconclusive" when n is small. Revisit flags once weekly signups reach ~60.
