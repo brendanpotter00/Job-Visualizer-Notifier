@@ -6,9 +6,16 @@ postings for **JVN** (Job-Visualizer-Notifier) — adding a **normalized locatio
 **subscription** (no per-token API cost), gated by an **adversarial Sonnet LLM-as-judge**. The category and
 level enums (the single source of truth) live in `.claude/skills/taxonomy/SKILL.md`.
 
-> **Prod vs dev:** this repo is checked out twice — `~/developer/personal/app` (**prod**,
-> where the launchd worker runs against real JVN) and `~/developer/personal/job-enricher`
-> (**dev**, where you edit). Run `cat .checkout-role` to see which you're in, and read
+> **Where it lives:** `src/enricher/` of the JVN monorepo (it was the separate `job-enricher`
+> repo until 2026-11).
+>
+> | | Path |
+> |---|---|
+> | **prod** (the launchd worker, real JVN) | `~/developer/personal/enricher-prod/src/enricher` |
+> | **dev** (where you edit) | `~/developer/personal/Job-Visualizer-Notifier/src/enricher`, or a JVN worktree's |
+> | **retired** (never edit) | `~/developer/personal/app`, `~/developer/personal/job-enricher` |
+>
+> Run `cat .checkout-role` to see which you're in, and read
 > [`docs/ENVIRONMENTS.md`](docs/ENVIRONMENTS.md) before editing or deploying.
 
 ## Why a second path?
@@ -49,14 +56,14 @@ claude -p /enrich-tick                         # classify -> judge -> write-back
 ```
 
 Run the loop continuously with `claude` + `/loop /enrich-tick`, or install the launchd worker:
-`scripts/install_launchagents.sh` (StartInterval=600s).
+`scripts/install_launchagents.sh` (StartInterval=60s, a continuous worker).
 
 For a local read+edit UI (health, ticks, jobs, runtime knobs), run `scripts/run_dashboard.sh`
 — `http://127.0.0.1:8788`. Dev-only; not part of the prod deploy.
 
 ## Tests
 ```bash
-uv run pytest
+uv run pytest    # from src/enricher, inside the JVN checkout (parity reads src/backend/taxonomy.json)
 ```
 
 See `CLAUDE.md` for the full operator guide and `docs/` for architecture + the JVN handoff.

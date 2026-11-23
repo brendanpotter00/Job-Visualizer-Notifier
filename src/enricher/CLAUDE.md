@@ -6,14 +6,20 @@ with JVN by **PULL**: the laptop polls JVN, enriches locally, and writes results
 JVN never depends on this laptop being up (the cloud Haiku location pipeline is the floor).
 
 ## ⚠️ Which checkout am I in? (prod vs dev — check FIRST)
-This repo is checked out **twice** on the laptop, and this file is identical in both. The
-per-directory truth is the untracked marker `.checkout-role` — run `cat .checkout-role`:
-- **`prod`** → the LIVE checkout at `~/developer/personal/app`. The launchd worker runs a
-  real tick here every 10 min against real JVN + the authoritative DB. Do **NOT** edit files
-  or run ticks by hand here — make changes in dev, PR, then `scripts/deploy.sh`.
-- **`dev`** → `~/developer/personal/job-enricher`. Safe to edit; DB + `.env.local` are
-  throwaway/staging. This is where you and agents work (or in a worktree of it).
-- **Missing** → assume dev, but confirm you're not in `~/developer/personal/app`.
+This directory is `src/enricher/` of the JVN monorepo, and the laptop has more than one
+checkout of it; this file is identical in all of them. The per-directory truth is the
+untracked marker `.checkout-role` — run `cat .checkout-role`:
+- **`prod`** → the LIVE checkout at `~/developer/personal/enricher-prod/src/enricher` (a JVN
+  clone). The launchd worker runs here as a 60 s continuous worker (the next tick starts
+  about a minute after the last one ends) against real JVN + the authoritative DB. Do
+  **NOT** edit files or run ticks by hand here — make changes in dev, PR to JVN, then
+  `scripts/deploy.sh`.
+- **`dev`** → your JVN checkout's `src/enricher`
+  (`~/developer/personal/Job-Visualizer-Notifier/src/enricher`) or a JVN worktree's. Safe to
+  edit; DB + `.env.local` are throwaway/staging. This is where you and agents work.
+- **`retired`** → `~/developer/personal/app` (the old prod, kept as a rollback artifact) or
+  `~/developer/personal/job-enricher` (the old repo). **Stop** and work in JVN instead.
+- **Missing** → assume dev, but confirm you're not in a prod or retired path.
 
 Full details + deploy/rollback runbook: **`docs/ENVIRONMENTS.md`**.
 
@@ -121,8 +127,9 @@ inbound edge (`server.py` + Cloudflare tunnel) is OFF by default and not needed 
 ## Dashboard (local dev tool — not part of prod)
 A React/Vite SPA (`dashboard/`) + FastAPI JSON API (`src/job_enricher/dashboard.py`) for
 reading health/ticks/jobs and editing runtime knobs. Launch with **`scripts/run_dashboard.sh`**
-— it pulls `main`, rebuilds `dashboard/dist` (gitignored, so every checkout must build it
-locally), and serves at `http://127.0.0.1:8788`. `cli dashboard` itself **refuses to run from
+— it never touches git (update your checkout yourself), prints the branch + sha it serves,
+rebuilds `dashboard/dist` (gitignored, so every checkout must build it locally), and serves
+at `http://127.0.0.1:8788`. `cli dashboard` itself **refuses to run from
 a `.claude/worktrees/` checkout** (exit 2) and warns if not on `main`, so a stale worktree
 build can't silently keep serving an old UI (this happened once — see
 `docs/handoffs/2026-07-12-prod-monitoring-after-ollama-cutover.md`). Binds `127.0.0.1` only;

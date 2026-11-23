@@ -17,6 +17,7 @@ Job Posting Analytics - A monorepo containing a TypeScript + React frontend, Pyt
 ├── STRATEGY.md            # Product vision: accept/resist tests for every change (read first)
 ├── src/frontend/          # React SPA (see src/frontend/AGENTS.md)
 ├── src/backend/api/       # FastAPI backend (see src/backend/AGENTS.md)
+├── src/enricher/          # Local enrichment worker, runs on the Mac (see src/enricher/AGENTS.md)
 ├── scripts/               # Python scrapers (see scripts/AGENTS.md)
 ├── api/                   # Vercel serverless functions (ATS proxies)
 └── docs/                  # Docs: local setup, implementations, incidents, analysis, enrichment, animations
@@ -97,6 +98,9 @@ Use the `add-company` skill (`.claude/skills/add-company/`, `/add-company`) — 
 
 **Checking Scraper Health:**
 Use the `scraper-health-watch` skill (`.claude/skills/scraper-health-watch/`) — detects dead/stale scrape sources, mass closures, and worker death against prod; researches moved boards and opens a fix PR (never merges); texts Brendan only when something is wrong. Runs daily via launchd (`com.bp.jvn-health-watch`); ops runbook in `scripts/health_watch/README.md`.
+
+**Working on the enricher:**
+Edit it in this checkout's `src/enricher/` (or a JVN worktree); its tests run with `cd src/enricher && uv run pytest`. Prod is a separate JVN clone at `~/developer/personal/enricher-prod`, changed only by `src/enricher/scripts/deploy.sh <ref>` — merging to `main` deploys nothing to it. Never run the enricher CLI against prod. `~/developer/personal/app` and `~/developer/personal/job-enricher` are retired. Start with `src/enricher/AGENTS.md`.
 
 **Reading the North Star metrics:**
 The USER-METRICS.md definitions live as read-only views in the Postgres `metrics` schema: `SELECT * FROM metrics.north_star_weekly ORDER BY cohort_week` (also `metrics.signup_retention`, one row per user, and `metrics.apply_clicks_weekly`). Use only rows with `mature = true`. Accounts with `users.is_internal` are skipped. The same numbers are tiles on the PostHog "North Star" dashboard, computed from the mirrored `user_signed_up` / `user_visited` / `job_apply_clicked` events.

@@ -1,41 +1,47 @@
 # Environments: prod vs dev (READ THIS FIRST)
 
-This repo is checked out **twice** on the laptop. One copy is **production** — a launchd
-worker enriches real JVN jobs from it every 10 minutes against the authoritative database.
-The other is **dev** — where humans and agents make changes. Editing the wrong tree pushes
-untested code (or a half-saved file) into production within one tick.
+The enricher lives in the JVN monorepo at `src/enricher/`, and the laptop has **two kinds of
+checkout** of it. One is **production** — a launchd worker (`com.bp.job-enricher`, a 60 s
+continuous worker: the next tick starts about a minute after the last one ends) enriches real
+JVN jobs from it against the authoritative database. The others are **dev** — where humans
+and agents make changes. Editing the wrong tree pushes untested code (or a half-saved file)
+into production within one tick.
 
-## The two checkouts
+## The checkouts
 
 | | **PROD** | **DEV** |
 |---|---|---|
-| Path | `~/developer/personal/app` | `~/developer/personal/job-enricher` |
-| Role marker (`.checkout-role`) | `prod` | `dev` |
-| launchd worker | **runs here** every 600s | never |
+| Path | `~/developer/personal/enricher-prod/src/enricher` (a JVN clone, detached at the deployed ref) | `~/developer/personal/Job-Visualizer-Notifier/src/enricher`, or a JVN worktree's `src/enricher` |
+| Role marker (`src/enricher/.checkout-role`) | `prod` | `dev`, or absent |
+| launchd worker | **runs here** (StartInterval 60 s) | never |
 | `data/enricher.db` | **authoritative** (real jobs) | throwaway |
 | `.env.local` → `JVN_BASE_URL` | real JVN (Railway) | local/staging JVN, or absent |
 | Who touches it | only `scripts/deploy.sh` | you + agents (freely) |
 
-> The `app` checkout root is the production home; `job-enricher` (the original,
-> naturally-typed path) is intentionally the dev workspace so muscle memory lands you
-> somewhere safe.
+**Retired** (`.checkout-role` = `retired`, kept on disk, never edit):
+`~/developer/personal/app` (the pre-monorepo prod clone of the old `job-enricher` repo — it
+stays as the rollback artifact) and `~/developer/personal/job-enricher` (the old dev clone).
+
+> Until the post-merge cutover has run, prod is still `~/developer/personal/app`. The truth
+> is the plist: `/usr/libexec/PlistBuddy -c 'Print :WorkingDirectory'
+> ~/Library/LaunchAgents/com.bp.job-enricher.plist`.
 
 ## How to tell which one you're in
 
-`CLAUDE.md` is git-tracked, so it is **byte-identical in both checkouts** and can't itself
+`CLAUDE.md` is git-tracked, so it is **byte-identical in every checkout** and can't itself
 say "this is prod." The per-directory truth is an **untracked, gitignored** marker file:
 
 ```bash
-cat .checkout-role      # -> "prod" or "dev"  (missing => assume dev, but verify your path)
+cat .checkout-role      # -> "prod", "dev" or "retired"  (missing => assume dev, but verify your path)
 ```
 
 - `prod` → **stop.** Do not edit files or run ticks by hand here. Make the change in dev,
-  open a PR, merge, then `scripts/deploy.sh`.
+  open a JVN PR, merge, then `scripts/deploy.sh`.
+- `retired` → **stop.** Work in your JVN checkout's `src/enricher` instead.
 - `dev` → safe to edit and experiment.
 
-**Agents:** always work in the dev checkout, or in a git worktree of it
-(`.claude/worktrees/…`). Never edit prod. The background-job harness already isolates edits
-into worktrees; this just tells you which repo to start from.
+**Agents:** always work in a dev checkout — your JVN checkout's `src/enricher`, or a JVN
+worktree (`.claude/worktrees/…`). Never edit prod.
 
 ## State ownership
 
@@ -44,7 +50,7 @@ into worktrees; this just tells you which repo to start from.
 
 | State | Where | Authoritative? |
 |---|---|---|
-| `data/enricher.db` (~18 MB) | prod only, gitignored | **YES** — the production datastore (jobs, enrichments, ticks, knobs `meta`) |
+| `data/enricher.db` (~640 MB) | prod only, gitignored | **YES** — the production datastore (jobs, enrichments, ticks, knobs `meta`) |
 | `.env.local` | per-checkout, gitignored | **YES** — carries the JVN URL + `INTERNAL_API_KEY` |
 | `data/.tick.lock`, `data/chunks/` (the pipeline's `classify-*.json` / `judge-*.json` scratch) | prod, local | no — per-tick scratch, regenerated |
 | `golden/seed/golden.json` + `golden/scorecards/baseline.json` | git-tracked | travels via git (dev has it too) |
@@ -53,7 +59,7 @@ into worktrees; this just tells you which repo to start from.
 
 All durable paths resolve **package-relative** (`REPO_ROOT = Path(__file__).resolve().parents[2]`
 in `src/job_enricher/store.py`), so each checkout automatically reads/writes its **own**
-`data/`, `golden/`, and lock — the two can never collide. The only cwd-sensitive piece is
+`data/`, `golden/`, and lock — checkouts can never collide. The only cwd-sensitive piece is
 `.env.local` (loaded relative to the process working dir, `config.py`), which the launchd
 plist's `WorkingDirectory` and the wrapper's `cd` already pin to the prod root.
 
@@ -116,28 +122,31 @@ scripts/deploy.sh <previous-tag-or-sha>
 
 ## How prod runs
 
-- **launchd agent** `~/Library/LaunchAgents/com.bp.job-enricher.plist` — `StartInterval=600`,
+- **launchd agent** `~/Library/LaunchAgents/com.bp.job-enricher.plist` — `StartInterval=60`,
   `WorkingDirectory` + `ProgramArguments` point at the prod checkout; regenerate it by running
   `scripts/install_launchagents.sh` **from the prod checkout** (it derives the path from its
   own location — no hardcoded path).
 - **Wrapper** `scripts/enrich_tick_wrapper.sh` — acquires the lock, pre-runs `pull`+`clean`,
-  then hands off to `claude -p /enrich-tick-once`; pushes metrics after. It anchors to its own
+  then runs the in-process `classify-run`/`judge-run` pipeline for the local engines (prod:
+  `ollama`, no `claude` call) or hands off to `claude -p /enrich-tick-once` for `claude-code`;
+  pushes metrics after. It anchors to its own
   checkout via `PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"`.
 - **Logs** — `~/Library/Logs/job-enricher.log` and `.err`.
 
 ```bash
 launchctl list | grep job-enricher          # is the worker loaded?
 tail -f ~/Library/Logs/job-enricher.log     # watch ticks
-cd ~/developer/personal/app && uv run python -m job_enricher.cli health
+cd "$(/usr/libexec/PlistBuddy -c 'Print :WorkingDirectory' ~/Library/LaunchAgents/com.bp.job-enricher.plist)" \
+  && uv run python -m job_enricher.cli health
 ```
 
 ## Dashboard (dev-only, not deployed)
 
 The local dashboard (`dashboard/` SPA + `src/job_enricher/dashboard.py`) is a **dev tool**,
 not part of the prod deploy surface — `scripts/deploy.sh` never touches it. Launch it with
-`scripts/run_dashboard.sh` from the dev checkout: it updates to the latest `main`, rebuilds
-`dashboard/dist` (gitignored — never travels via git or deploy), and serves on
-`127.0.0.1:8788`. `cli dashboard` refuses to serve from a `.claude/worktrees/` path, so a
+`scripts/run_dashboard.sh` from a dev checkout: it never touches git (update your checkout
+yourself), prints the branch + sha it serves, rebuilds `dashboard/dist` (gitignored — never
+travels via git or deploy), and serves on `127.0.0.1:8788`. `cli dashboard` refuses to serve from a `.claude/worktrees/` path, so a
 stale scratch worktree can't quietly keep serving an old build. Never run it from the prod
 checkout, and never place it behind the Cloudflare tunnel.
 
@@ -162,7 +171,7 @@ prod is verified so rollback is just re-pointing launchd back.
 - **Prod:** `cd ~/developer/personal/app && uv run python -m job_enricher.cli health` (job
   counts match pre-migration); `cat .checkout-role` = `prod`; watch one interval of
   `~/Library/Logs/job-enricher.log` for a clean tick + `metrics-push`.
-- **Dev:** `cd ~/developer/personal/job-enricher`; `cat .checkout-role` = `dev`;
+- **Dev:** `cd ~/developer/personal/Job-Visualizer-Notifier/src/enricher`; `cat .checkout-role` = `dev` (or absent);
   `uv run pytest` passes; a `cli pull` does **not** reach real JVN.
 
 ---
