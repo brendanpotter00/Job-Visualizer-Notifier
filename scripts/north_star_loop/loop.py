@@ -363,7 +363,7 @@ def main(argv=None) -> None:
     sub.add_parser("show", help="full brief + every event").add_argument("id", type=int)
     sub.add_parser("list")
     sub.add_parser("sync", help="expire stale ideas, detect merged PRs")
-    sub.add_parser("next", help="print the action to take: propose | build N | readout N | none")
+    sub.add_parser("next", help="print the action to take: propose | text | build N | readout N | none")
     sub.add_parser("dump", help="print every idea as markdown: briefs, texts, events")
     a = p.parse_args(argv)
     db = connect()
