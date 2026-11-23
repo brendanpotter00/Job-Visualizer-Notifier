@@ -34,6 +34,7 @@ EXPIRE_DAYS = 7  # an unanswered idea expires so the next one can go out
 READOUT_DAYS = 38
 MAX_BUILD_ATTEMPTS = 2
 OPEN = ("proposed", "approved", "building", "paused", "pr_open")
+STATUSES = (*OPEN, "shipped", "measured", "rejected", "expired", "closed", "blocked")
 SETTABLE = {"status", "pr_url", "branch", "clickup_id", "plan_path", "result", "readout_at"}
 
 SCHEMA = """
@@ -146,7 +147,14 @@ def cmd_set(db, a) -> None:
         if key not in SETTABLE:
             sys.exit(f"cannot set {key}; allowed: {', '.join(sorted(SETTABLE))}")
         fields[key] = value
-    if fields.get("status") == "building":
+    status = fields.get("status")
+    if status is not None and status not in STATUSES:
+        sys.exit(f"unknown status {status}; allowed: {', '.join(STATUSES)}")
+    if status == "pr_open" and not (fields.get("pr_url") or get(db, a.id)["pr_url"]):
+        sys.exit("status=pr_open needs pr_url=<url>")
+    if status == "approved":
+        fields["build_attempts"] = 0
+    elif status == "building":
         fields["build_attempts"] = get(db, a.id)["build_attempts"] + 1
     update(db, a.id, **fields)
     log_event(db, a.id, "set", json.dumps(fields))

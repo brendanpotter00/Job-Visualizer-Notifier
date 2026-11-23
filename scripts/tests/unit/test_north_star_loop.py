@@ -155,3 +155,25 @@ def test_paused_idea_holds_the_slot_and_is_not_rebuilt(loop):
 
     loop("set", "1", "status=pr_open", "pr_url=https://github.com/x/y/pull/9")
     assert "status: pr_open" in loop("show", "1").stdout
+
+
+def test_rebuild_after_pause_gets_its_own_two_attempts(loop):
+    loop.add()
+    loop("decide", "1", "yes")
+    loop("set", "1", "status=building")
+    loop("set", "1", "status=paused")
+    loop("set", "1", "status=approved")
+    loop("set", "1", "status=building")
+    loop("sync")
+    assert "status: building" in loop("show", "1").stdout
+    assert next_action(loop) == "build 1"
+
+
+def test_set_rejects_unknown_status_and_pr_open_without_url(loop):
+    loop.add()
+    typo = loop("set", "1", "status=pr-open", check=False)
+    assert typo.returncode != 0 and "unknown status pr-open" in typo.stderr
+    no_url = loop("set", "1", "status=pr_open", check=False)
+    assert no_url.returncode != 0 and "needs pr_url" in no_url.stderr
+    assert "status: proposed" in loop("show", "1").stdout
+    assert next_action(loop, now="2026-12-09T09:00:00+00:00") == "none"

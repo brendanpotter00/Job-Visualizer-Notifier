@@ -42,7 +42,7 @@ A "NS-N paused" text means a no-mistakes gate is waiting on you; the idea stays 
 
 ```sh
 python3 scripts/north_star_loop/loop.py set <N> status=pr_open pr_url=<url>   # the PR went up
-python3 scripts/north_star_loop/loop.py set <N> status=approved               # rebuild from scratch
+python3 scripts/north_star_loop/loop.py set <N> status=approved               # rebuild from scratch (fresh branch, 2 attempts)
 ```
 
 ## Ops
