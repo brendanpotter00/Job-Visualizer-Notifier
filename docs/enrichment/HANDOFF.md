@@ -8,9 +8,9 @@
 > human corrections + re-enrich). This document remains the design record; the
 > per-section notes below flag what shipped and what changed.
 
-> Companion: the enrichment workflow itself lives in the separate **job-enricher**
-> repo (the laptop-side Claude Code agent that pulls, cleans, classifies, judges,
-> and writes back). See that repo's `AGENTS.md` + `README.md`.
+> Companion: the enrichment workflow itself lives in **`src/enricher/`** (the
+> laptop-side worker that pulls, cleans, classifies, judges, and writes back).
+> See `src/enricher/AGENTS.md` + `src/enricher/README.md`.
 
 ---
 

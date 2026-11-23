@@ -1,4 +1,4 @@
-"""Internal enrichment endpoints — the pull integration with job-enricher.
+"""Internal enrichment endpoints: the pull integration with src/enricher/.
 
 Mounted at /api/internal/enrichment and protected by the global
 require_internal_key middleware (X-Internal-Key), so no per-route auth here. The

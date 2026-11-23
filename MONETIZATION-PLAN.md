@@ -60,8 +60,8 @@ Pro becomes instant alerts.
 
 ### 3a. Move the enrichment pipeline into this repo
 
-The enricher lives in its own repo, `job-enricher`, and runs on the server laptop.
-It pulls new jobs from this backend every 10 minutes, classifies and judges them, and writes the results back.
+The enricher now lives in this repo at `src/enricher/` (moved with its git history) and runs on the server laptop.
+It pulls new jobs from this backend continuously (a new tick about a minute after the last one ends), classifies and judges them, and writes the results back.
 
 - Move its code into this repo, keeping its git history.
 - It keeps running on the server laptop, now deployed from a checkout of this repo.
