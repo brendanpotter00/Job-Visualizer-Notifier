@@ -778,3 +778,20 @@ Each unit is a coherent commit series, conventional-commit subjects, trailer
 Not verified here (by design or out of reach): real launchd, real GitHub (banner push,
 `gh repo archive`), a real text, GitHub CI (nothing pushed), and the branch merged with
 today's `main` (§8 step 4).
+
+### 10.1 Second verification pass (2026-11-23, from a clean state)
+
+| Check | Result |
+|---|---|
+| Enricher unit suite, fresh `.venv` (`uv sync --locked && uv run pytest`) | 1000 passed, 9 skipped (all 9 are documented RUN/live skips) |
+| CI job's commands in a fresh clone (no root `.venv`, so `run.sh` takes CI's `uv run --project src/enricher` path): unit suite, `uv python install 3.12`, `bash e2e/run.sh enricher-cutover` | all exit 0; cutover 28 passed + isolation check |
+| `e2e/run.sh enricher` / `--enricher-ref enricher-prod-eeff1c9` / `enricher-cutover` | 16/16, 12/12 (4 `v7` deselected), 29/29 |
+| `e2e/run.sh enricher --refresh-db` | **was 14/16 red** when booted inside a fan-out window (fixed in `1c56bf83`, see `e2e/enricher/PLAN.md` §4); after the fix 16/16 inside the 17:00Z window and outside it |
+| Branch merged with `origin/main` `4390fab1` in a scratch clone (4 add/add conflicts, both sides kept: `e2e/README.md`, `e2e/run.sh`, `.claude/skills/e2e-gate/SKILL.md`, root `AGENTS.md`) | unit 1000 passed; `enricher` 16/16 (also with the fix and `--refresh-db`); prod tag 12/12; `enricher-cutover` 28 passed + isolation |
+| `add-companies --fast` (default stack path, frontend on `:3201`) | 75 passed, 11 failed, the **same 11 at base `0c773ae0`**: fleet drift (Cisco, Atlassian, Jane Street are now public), not this branch |
+| `subcategories --fast` | refused: an orphaned vite from a 2026-09-16 run in `.claude/worktrees/flagout` holds `:3203`. With `E2E_SKIP_FRONTEND=1`: 36/36 |
+| Backend enrichment tests (`test_internal_enrichment`, `test_enrichment_admin`, `test_taxonomy_artifact`, `test_proxy_path_allowlists`, `test_response_shapes`, `test_migration_job_subcategories`, `test_db_models`), `-n 4` on a throwaway DB | 293 passed |
+| no-mistakes `prepare` + `lint` (Node 22.14.0) | exit 0: eslint 0 errors / 68 warnings (cap 149), `tsc` clean. No frontend file changed, so no Vitest |
+| Enricher dashboard (`npm ci`, `typecheck`, `vitest run`, `vite build`) | 53/53 tests, build OK (not in CI, as before the move) |
+| `ci.yml` | parses; `enricher` job = checkout (fetch-depth 0), setup-uv 0.11.14, unit suite, cutover e2e, artifacts on failure. `actionlint` not installed |
+| `cutover.sh --preflight --jvn-repo <JVN> --json` on the real machine (code read first: only reads, `launchctl list/print`, `plutil -lint -`, `ls-remote`, `gh auth status`) | exit 0, PASS; ref `enricher-prod-eeff1c9` → `3ea04981`; only warning: tag not on the remote yet. Before/after fingerprint (`real_manifest.py`, `app/data` listing, `com.bp.*` labels, state dir, `.git/index` stats): identical |
