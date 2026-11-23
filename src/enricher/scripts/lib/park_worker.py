@@ -58,6 +58,10 @@ EXIT_USAGE = 2
 PS_BIN = "/bin/ps"
 SYSCTL_BIN = "/usr/sbin/sysctl"
 
+#: How the wrapper spells every stage it runs — ``uv run python -m
+#: job_enricher.cli <stage>`` — in both the ``uv`` process and its interpreter.
+STAGE_NEEDLE = "job_enricher.cli"
+
 Log = Callable[[str], None]
 
 
@@ -209,6 +213,37 @@ def wrapper_pids(
         pid for pid, ppid, cmd in rows
         if needle in cmd and pid not in skip and not _is_orphan_watchdog(pid, ppid, rows)
     )
+
+
+def stage_pids(
+    wrapper_path: str | Path,
+    *,
+    procs: list[tuple[int, int, str]] | None = None,
+) -> list[int]:
+    """Pids of the enricher STAGES this checkout's wrapper is running: every
+    ``uv run python -m job_enricher.cli <stage>`` that DESCENDS from a
+    ``wrapper_pids`` process, and the interpreter each of those spawns.
+
+    Descent, never the checkout's path in the command line: ``uv run`` spawns
+    whatever the venv's ``sys.executable`` resolves to, and for a venv built on
+    a macOS framework Python that is the framework's own ``bin/python3``, far
+    outside the checkout — a path match then finds no stage at all."""
+    rows = list_processes() if procs is None else procs
+    parent = {pid: ppid for pid, ppid, _cmd in rows}
+    roots = set(wrapper_pids(wrapper_path, procs=rows))
+    out: list[int] = []
+    for pid, ppid, cmd in rows:
+        if STAGE_NEEDLE not in cmd:
+            continue
+        seen = {pid}
+        cur = ppid
+        while cur > 1 and cur not in seen:
+            if cur in roots:
+                out.append(pid)
+                break
+            seen.add(cur)
+            cur = parent.get(cur, 0)
+    return sorted(out)
 
 
 def boot_epoch(sysctl_bin: str = SYSCTL_BIN) -> float | None:

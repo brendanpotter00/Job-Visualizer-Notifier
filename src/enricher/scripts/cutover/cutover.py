@@ -1958,8 +1958,7 @@ def park_new_for_rollback(cfg: Config, st: State, launchd: Launchd) -> None:
     if not res.claimed:
         # A wedged tick: TERM its python stage first, so the wrapper still
         # writes back and closes the tick (the sleep-socket-hang runbook order).
-        kids = [pid for pid, _pp, cmd in park_worker.list_processes()
-                if str(ck) in cmd and "job_enricher.cli" in cmd]
+        kids = park_worker.stage_pids(ck / WRAPPER_REL)
         log(f"rollback: new prod tick wedged; TERM python stage pid(s) {kids}")
         _term_pids(kids)
         res = park(cfg, st, launchd, ck, budget_s=max(cfg.wrapper_exit_s * 5, 60),

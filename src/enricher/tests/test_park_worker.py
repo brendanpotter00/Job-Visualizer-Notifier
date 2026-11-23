@@ -197,6 +197,51 @@ def test_wrapper_pids_against_the_real_process_table():
         p.wait()
 
 
+@pytest.mark.parametrize(
+    "rows, expected",
+    [
+        # prod's shape: wrapper -> stages subshell -> uv -> the venv's python
+        ([(10, 1, f"/bin/sh {WRAPPER}"), (11, 10, f"/bin/sh {WRAPPER}"),
+          (12, 11, "/opt/homebrew/bin/uv run python -m job_enricher.cli classify-run"),
+          (13, 12, "/x/prod/.venv/bin/python3 -m job_enricher.cli classify-run")], [12, 13]),
+        # a venv built on a macOS framework Python: the interpreter it spawns
+        # lives OUTSIDE the checkout, so only descent can find the stage
+        ([(10, 1, f"/bin/sh {WRAPPER}"),
+          (11, 10, "/opt/homebrew/bin/uv run python -m job_enricher.cli work --tick-id 4"),
+          (12, 11, "/Library/Frameworks/Python.framework/Versions/3.12/bin/python3 "
+                   "-m job_enricher.cli work --tick-id 4")], [11, 12]),
+        # another checkout's tick: never ours to signal
+        ([(20, 1, "/bin/sh /other/checkout/scripts/enrich_tick_wrapper.sh"),
+          (21, 20, "/other/checkout/.venv/bin/python3 -m job_enricher.cli classify-run")], []),
+        # an orphaned stage (its wrapper is gone): no root to descend from
+        ([(31, 1, "/x/prod/.venv/bin/python3 -m job_enricher.cli classify-run")], []),
+        # the wrapper and its watchdog are not stages
+        ([(10, 1, f"/bin/sh {WRAPPER}"), (11, 10, f"/bin/sh {WRAPPER}"), (12, 11, "sleep 10800")], []),
+    ],
+)
+def test_stage_pids(rows, expected):
+    assert pw.stage_pids(WRAPPER, procs=rows) == expected
+
+
+def test_stage_pids_against_the_real_process_table(tmp_path):
+    wrapper = tmp_path / "scripts" / "enrich_tick_wrapper.sh"
+    wrapper.parent.mkdir(parents=True)
+    # Like the real wrapper: a child spelled the way a stage is, waited on.
+    wrapper.write_text("#!/bin/sh\n/bin/sh -c 'sleep 5; :' python -m job_enricher.cli work &\nwait\n")
+    wrapper.chmod(0o755)
+    p = subprocess.Popen([str(wrapper)], start_new_session=True)
+    try:
+        time.sleep(0.3)
+        rows = pw.list_processes()
+        stage = [pid for pid, ppid, cmd in rows if ppid == p.pid and "job_enricher.cli" in cmd]
+        assert stage, "the fake stage did not start"
+        assert pw.stage_pids(wrapper, procs=rows) == stage
+        assert pw.stage_pids("/no/such/checkout/scripts/enrich_tick_wrapper.sh", procs=rows) == []
+    finally:
+        os.killpg(p.pid, 9)
+        p.wait()
+
+
 def test_classify_holder(live_pid):
     now = time.time()
     live = pw.LockInfo(f"{live_pid}|x", live_pid, now)
