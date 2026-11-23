@@ -131,3 +131,7 @@ The cutover relies only on these, all present at `enricher-prod-eeff1c9` and on 
   a live pid holds it;
 - `scripts/enrich_tick_wrapper.sh`, the launchd program, run with cwd = the checkout;
 - `uv run python -m job_enricher.cli health` printing one JSON object.
+
+`e2e/enricher-cutover/fixtures/fake_enricher/` (JVN root) is a fake enricher that honours
+exactly this contract; the `enricher-cutover` e2e section runs these scripts against it
+(`e2e/run.sh enricher-cutover`, also in CI). Change the contract → change the fake too.

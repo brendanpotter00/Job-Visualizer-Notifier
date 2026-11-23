@@ -44,6 +44,7 @@ attempts this itself but a pre-set `PATH` wins.
 | `subcategories` | `sections/subcategories.md` — $0, unconditionally |
 | `billing` | `sections/billing.md` — $0, Stripe sandbox; needs `stripe login`, local-only |
 | `enricher` | `sections/enricher.md` — $0, unconditionally (stub model); `--enricher-ref <ref>` tests another version |
+| `enricher-cutover` | `sections/enricher-cutover.md` — $0, no network, no stack; sandboxed cutover + watcher; also in CI |
 
 Adding a section: create `e2e/<section>/` (its own `PLAN.md`, `CASES.md`, `api/`, `ui/`),
 add a row here and to `e2e/README.md`, and write `sections/<section>.md`. Never grow
@@ -61,8 +62,8 @@ with a line saying so.
 
 **The lock is per-STACK, not global.** `subcategories` owns a different stack (`:8203`/`:3203`,
 its own database) and takes a lock keyed on its own section name, so it can run **alongside**
-the add-companies gate — it will only refuse a second copy of itself. `billing` and `enricher`
-do the same.
+the add-companies gate — it will only refuse a second copy of itself. `billing`, `enricher`
+and `enricher-cutover` do the same.
 
 ## What green means
 

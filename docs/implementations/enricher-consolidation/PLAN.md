@@ -622,6 +622,30 @@ no Postgres.** Runs in GitHub CI (macOS job) as well as locally.
 --section enricher-cutover`. Prove two cases bite (e.g. drop the "unload only after park" ordering
 → CO-02 red; skip the rollback DB copy-back → CO-07 red).
 
+**As built (Unit 4, 2026-11-23).** 28 cases + an isolation check, GREEN (full ~3 min, `--fast`
+28 s), locally and as a step of the CI `enricher` job; proven to bite with M1 (unload before
+park → CO-02 red in both unload modes) and M2 (skip the copy-back → CO-07 red). Details:
+`e2e/enricher-cutover/PLAN.md` + `CASES.md`. Corrections and additions:
+
+- **`cutover.py` fix:** CO-11 found `--preflight` left `-wal`/`-shm` files in an idle prod
+  DB's `data/` (a `mode=ro` WAL reader creates them). Preflight's DB reads now use
+  `immutable=1` when no `-wal` exists (`connect_ro(..., quiescent_immutable=True)`).
+- **CO-16** keeps the old DB moving during the backup (a writer started by a `git` stub via
+  `CUTOVER_GIT_BIN`); the suggested "stubbed backup" is impossible (in-process API).
+- **CO-09** kills via a `plutil` stub on phase D's lint (before the write) and via the
+  `launchctl` stub on the new plist's load (after it).
+- **CO-REAL**'s first tick runs the real CLI's tick lifecycle, not the real wrapper (it
+  hardcodes `/opt/homebrew/bin/uv`, absent in CI).
+- **Added:** CO-17 (a first tick that never ends: the close-deadline extension, the hard
+  cap, and the rollback's TERM-the-python-stage path, all previously unexercised) and WT-06
+  (`install_watcher.sh`: dry run, install + `RunAtLoad` fire, refusal after `DONE`).
+- **Isolation** is a case: `real_manifest.py` fingerprints the real `com.bp.*` LaunchAgents,
+  state dir and `~/developer/personal/{app,job-enricher,enricher-prod}` before/after; a
+  difference turns the verdict RED. Not the whole LaunchAgents dir: a third-party agent
+  rewrote its own plist mid-run.
+- A SIGTERMed wrapper does **not** orphan its lock (macOS `/bin/sh` runs the EXIT trap on
+  SIGTERM); only SIGKILL / power loss does.
+
 ---
 
 ## 6. Future deploy of `main` from the monorepo layout (documented, not executed)

@@ -35,7 +35,9 @@ cd src/enricher && uv sync --locked && uv run pytest
 End to end: `e2e/run.sh enricher` runs the REAL wrapper + CLI from a sandbox copy against a
 real backend + Postgres and a stub model ($0; `--fast` for the quick subset;
 `--enricher-ref <ref>` to test the version prod runs or is about to). Runbook:
-`.claude/skills/e2e-gate/sections/enricher.md`.
+`.claude/skills/e2e-gate/sections/enricher.md`. `e2e/run.sh enricher-cutover` runs the real
+`scripts/cutover/` (cutover, watcher, installer) in a sandboxed fake machine — no network,
+also in CI. Runbook: `.claude/skills/e2e-gate/sections/enricher-cutover.md`.
 
 CI runs the unit suite as the `enricher` job (macOS). The suite must run **inside JVN**:
 `tests/test_taxonomy_parity.py` reads the backend's `src/backend/taxonomy.json`. To change a
