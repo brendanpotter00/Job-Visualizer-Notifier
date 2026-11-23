@@ -7,7 +7,7 @@ each case proves, how to run just it, and what to look at first when it goes red
 ## Run it
 
 ```bash
-e2e/run.sh onboarding              # full gate (API OB-01..OB-09 + UI OB-U1..OB-U12)
+e2e/run.sh onboarding              # full gate (API OB-01..OB-09 + UI OB-U1..OB-U13)
 e2e/run.sh onboarding --fast       # API tier only — run on every commit
 e2e/run.sh onboarding --case OB-U1 # one case (OB-U1 and OB-U2 run together: U2 builds on U1)
 e2e/run.sh onboarding --keep-up    # leave the stack on :8205/:3205 (and the identities) for a fix loop
@@ -78,6 +78,7 @@ SWE jobs; never on `/` or `/pricing`) are product decisions in the plan, not tes
 | **OB-U10** | Phone 390x844: full-screen dialog; Back/Continue on screen with 17 specialties open; chips keep their width when tapped; toast under the app bar | `ChoiceChip` padding math, `RESPONSIVE.onboarding` |
 | **OB-U11** | A 500 on save: Skip still closes, the tab title is the page's own again (oracle: the pre-existing account's `/jobs` title), DB NULL; reload asks again; server back → Skip stamps | **Proven to bite** twice: removing `onDismiss()` on a failed Skip, and keying the title restore on mount instead of `open` |
 | **OB-U12** | `GET /api/users` without the field (older backend) never opens them; mirror: the field restored does | `OnboardingGate`'s `=== null`. **Proven to bite** (`!onboardingCompletedAt`) |
+| **OB-U13** | With prod-like latency on `/api/users*`, a brand-new account's page h1 is never painted before the questions, and a load sends ONE `GET /api/users`; mirror: a stamped account on a new device waits for that one answer, and on its next load is not held | `RootLayout`'s `useOnboardingHold` + the shared `CurrentUserProvider`. **Proven to bite** (pre-fix frontend: page h1 at 818 ms, questions at 2094 ms — the 2026-11-23 prod report) |
 
 ## Reading a red
 

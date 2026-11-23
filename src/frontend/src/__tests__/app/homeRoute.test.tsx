@@ -15,6 +15,11 @@ vi.mock('../../pages/RecentJobPostingsPage/RecentJobPostingsPage', () => ({
 }));
 
 const authState = { isAuthenticated: false, isLoading: false };
+// Module-stable, like the real `getToken` (a `useCallback`). A fresh function
+// per render makes `useCurrentUser` abort and refetch on every render, so
+// `GET /api/users` never completes — and the layout now holds a signed-in
+// reader's page until it does (`useOnboardingHold`).
+const getToken = () => Promise.resolve('test-token');
 
 vi.mock('../../features/auth/useAuth', () => ({
   useAuth: () => ({
@@ -24,7 +29,7 @@ vi.mock('../../features/auth/useAuth', () => ({
     user: authState.isAuthenticated ? { sub: 'auth0|test' } : null,
     login: vi.fn(),
     logout: vi.fn(),
-    getToken: () => Promise.resolve('test-token'),
+    getToken,
   }),
 }));
 
@@ -54,6 +59,20 @@ vi.mock('recharts', () => ({
   Legend: () => null,
 }));
 
+const RETURNING_USER = {
+  id: 'u-test',
+  providerSubject: 'auth0|test',
+  email: 'test@example.com',
+  displayName: null,
+  givenName: null,
+  familyName: null,
+  pictureUrl: null,
+  createdAt: '2026-01-01T00:00:00Z',
+  updatedAt: '2026-01-01T00:00:00Z',
+  isAdmin: false,
+  onboardingCompletedAt: '2026-01-01T00:05:00Z',
+};
+
 function renderAppAt(path: string) {
   window.history.pushState({}, '', path);
   return render(
@@ -66,8 +85,14 @@ function renderAppAt(path: string) {
 beforeEach(() => {
   authState.isAuthenticated = false;
   authState.isLoading = false;
-  globalThis.fetch = vi.fn(
-    async () => new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } })
+  globalThis.fetch = vi.fn(async (input: RequestInfo | URL) =>
+    // A returning reader: answered the first-sign-in questions long ago.
+    input === '/api/users'
+      ? new Response(JSON.stringify(RETURNING_USER), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      : new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } })
   ) as unknown as typeof fetch;
 });
 

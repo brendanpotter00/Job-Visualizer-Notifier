@@ -5,16 +5,17 @@ import { AUTH_CONFIG } from '../../config/auth';
 import { GoogleCredentialProvider } from '../../features/auth/GoogleCredentialContext';
 import { GoogleOneTap } from '../../features/auth/GoogleOneTap';
 import { handleAuthRedirect } from '../../features/auth/returnTo';
+import { CurrentUserProvider } from '../../features/auth/CurrentUserProvider';
 
 export function AuthProviders({ children }: { children: React.ReactNode }) {
   // Bypass short-circuits above real providers: dynamic preview URLs can't
   // complete real OAuth callbacks, and mounting Auth0Provider / GoogleOAuthProvider
   // with empty clientIds throws. useAuth module-dispatches to a fake impl.
-  if (AUTH_CONFIG.bypassEnabled) {
-    return <>{children}</>;
-  }
-  if (!AUTH_CONFIG.isEnabled) {
-    return <>{children}</>;
+  //
+  // Every branch mounts `CurrentUserProvider`: the page load's ONE shared
+  // `GET /api/users` (see `useCurrentUser`).
+  if (AUTH_CONFIG.bypassEnabled || !AUTH_CONFIG.isEnabled) {
+    return <CurrentUserProvider>{children}</CurrentUserProvider>;
   }
   return (
     <GoogleOAuthProvider clientId={AUTH_CONFIG.googleClientId}>
@@ -40,7 +41,7 @@ export function AuthProviders({ children }: { children: React.ReactNode }) {
       >
         <GoogleCredentialProvider>
           <GoogleOneTap />
-          {children}
+          <CurrentUserProvider>{children}</CurrentUserProvider>
         </GoogleCredentialProvider>
       </Auth0Provider>
     </GoogleOAuthProvider>

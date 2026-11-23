@@ -106,7 +106,8 @@ avatar is rendered, and the page `h1` is visible — THEN assert there is no dia
 asserting for a short settle window (e.g. 1.5s polling) to catch a late open.
 
 As built (`ui/helpers.ts::expectQuestionsNeverOpen`): it counts EVERY `GET /api/users` the page
-starts (the user menu, the drawer and the gate each make one) and waits until all have finished,
+starts (one per load since 2026-11-23 — every caller shares `CurrentUserProvider`'s; before, the
+user menu, the drawer, the analytics hook and the gate each made one) and waits until all have finished,
 then the user menu and the h1 (CSS locators — an open dialog makes the rest of the page
 aria-hidden, and a role locator would time out naming the wrong thing), then polls for no
 dialog every 100 ms for 1.5 s. `/pricing` (OB-U8) makes no `/api/users` call, so its evidence
@@ -116,7 +117,7 @@ is its signed-in-only `GET /api/billing/subscription` plus its h1.
 
 - `api/` (pytest, fast, `--fast` runs only this): direct HTTP against `:8205` with minted
   bearer tokens + DB assertions via `shared/db/assertions.py`. Covers OB-01..OB-09.
-- `ui/` (Playwright, chromium): OB-U1..OB-U12, at desktop (1280x800) and phone (390x844)
+- `ui/` (Playwright, chromium): OB-U1..OB-U13, at desktop (1280x800) and phone (390x844)
   where the case says so. Screenshots on the headline steps into the run's artifacts dir.
 
 ## 7. The `subcategories` gate must change with this PR
