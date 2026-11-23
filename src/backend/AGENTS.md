@@ -184,6 +184,7 @@ All configuration via environment variables:
 - `GET /api/users` - Get or create authenticated user's profile (requires Bearer token)
 - `PUT /api/users` - Update display name (requires Bearer token)
 - `POST /api/users/visit` - Record one full-page-load visit (204; upserts the row then increments `visit_count` + stamps `last_visit_at`; requires Bearer token). Optional body `{"sessionId"}` (the PostHog session) is stored on the `user_visits` row; the visit is mirrored to PostHog as `user_visited` (best-effort)
+- `POST /api/users/onboarding` - Save the first-sign-in answers and stamp `users.onboarding_completed_at` (body `category`, `subcategory`, `level`, `locations`, `skipped`, optional `step` 1-3 and `sessionId`; `extra='forbid'`, lists bounded like the saved-filters PUT). One transaction: `UPDATE users … WHERE onboarding_completed_at IS NULL` plus an UPSERT of those four `user_saved_filters` columns; a NEW row gets Recent `'all'` / Trend `'90d'` explicitly (the column defaults are `'3h'`/`'7d'`). `subcategory` is stored only when `software_engineering` is among `category`. **Idempotent**: once stamped, a second call writes nothing and returns the stored stamp + saved filters. Skip keeps the answers given. Returns `{onboardingCompletedAt, savedFilters}`. Mirrors PostHog `onboarding_completed` / `onboarding_skipped` (with answer counts; `step` on skip) only from the call that set the stamp. `GET`/`PUT /api/users` return `onboardingCompletedAt` (`null` = show the questions)
 - `POST /api/users/apply-click` - Log one Apply press by a signed-in user (204; body `sourceId`, `jobId`, `surface`, optional `sessionId`; `extra='forbid'`). Writes `job_apply_clicks` with `job_age_seconds` computed server-side from `job_listings.first_seen_at`, then mirrors PostHog `job_apply_clicked` (best-effort). Feeds `metrics.apply_clicks_weekly` and the PostHog "North Star" dashboard
 - `GET /api/users/enabled-companies` - List user's enabled companies (requires Bearer token)
 - `PUT /api/users/enabled-companies` - Update user's enabled companies (requires Bearer token)
@@ -231,10 +232,16 @@ filter set in SQL and pages the *result*. Router `routers/jobs_search.py`, SQL
   `location`, `include`, `exclude`. Repeated (`?category=a&category=b`) rather than
   CSV because canonical location names and keywords legitimately contain commas.
 - **`?subcategory=` in full**, because every clause of it is load-bearing:
-  - **Repeatable, OR within the dimension, AND across dimensions.** `?category=growth
-    &subcategory=backend` returns NOTHING — Growth rows carry no subcategories and
-    the two predicates AND. That is the same composition every other dimension uses
-    rather than a special case, and it is worth a product call before the reveal.
+  - **Repeatable, OR within the dimension, and it narrows SOFTWARE rows only.**
+    A specialty refines Software Engineering, so when `category` also names a
+    non-SWE role, that role keeps all its rows: `?category=product_manager
+    &category=software_engineering&subcategory=backend` returns every PM job plus
+    the Backend (and Full Stack) SWE jobs, and `?category=growth&subcategory=backend`
+    returns every Growth job. The SQL is `(enrichment_category <> 'software_engineering'
+    OR enrichment_subcategories && …)`, used only when some selected category is not
+    SWE; with no category, or SWE alone, it is the plain overlap. The client
+    matcher (`matchesSubcategory`) applies the same rule, and the committed oracle
+    (`fixtures/subcategory_filter_oracle.json`) pins both.
   - **Every slug implies the `software_engineering` parent.** The dimension hangs
     off exactly one category; the server does not enforce that, it simply falls out
     of the data.

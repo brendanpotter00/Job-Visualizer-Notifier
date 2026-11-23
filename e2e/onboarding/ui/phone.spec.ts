@@ -1,0 +1,116 @@
+// OB-U10 — the headline path on a 390x844 phone.
+//
+// What only a real phone-sized layout can show: the dialog covers the whole
+// screen; Back and Continue stay on screen at the bottom even with all 17
+// specialties open above them; a chip keeps ONE width picked or not (the check
+// replaces padding, so a tap never reflows the row); and the "Saved filters"
+// toast sits under the app bar, not over it.
+import { expect, test } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
+import { CORPUS } from './corpus';
+import {
+  HEADLINE_LABELS,
+  PHONE,
+  RECENT_JOBS,
+  button,
+  chip,
+  expectJobs,
+  expectNoAccountYet,
+  expectQuestion,
+  expectStamped,
+  freshIdentity,
+  openSignedIn,
+  questions,
+  roleBox,
+  savedToast,
+  shot,
+} from './helpers';
+
+/** Tap a chip and prove its width did not change. */
+async function tapKeepsWidth(page: Page, target: Locator, label: string) {
+  const before = await target.boundingBox();
+  await target.tap();
+  await expect(target).toBeChecked();
+  // The chip re-renders with the check in place of its left padding.
+  await page.waitForTimeout(50);
+  const after = await target.boundingBox();
+  expect(before && after, `${label}: chip geometry`).toBeTruthy();
+  if (before && after) {
+    expect(Math.abs(after.width - before.width), `${label}: the chip changed width when tapped`).toBeLessThanOrEqual(0.5);
+    expect(Math.abs(after.height - before.height), `${label}: the chip changed height when tapped`).toBeLessThanOrEqual(0.5);
+  }
+}
+
+/** Back + Continue are on screen, at the bottom. */
+async function expectFooterReachable(page: Page, dialog: Locator, primary: 'Continue' | 'Show my jobs', what: string) {
+  for (const name of ['Back', primary] as const) {
+    const b = button(dialog, name);
+    await expect(b, `${what}: ${name} on screen`).toBeInViewport({ ratio: 1 });
+    const box = await b.boundingBox();
+    expect(box, `${what}: ${name} geometry`).toBeTruthy();
+    if (box) {
+      expect(box.y + box.height, `${what}: ${name} inside the screen`).toBeLessThanOrEqual(PHONE.height);
+      expect(box.y, `${what}: ${name} in the bottom bar`).toBeGreaterThan(PHONE.height * 0.75);
+    }
+  }
+}
+
+test.describe('OB-U10 phone', () => {
+  test('OB-U10 the headline path at 390x844', async ({ browser }) => {
+    const me = freshIdentity('OB-U10');
+    expectNoAccountYet(me);
+    const context = await openSignedIn(browser, me, { phone: true });
+    const page = await context.newPage();
+    await page.goto(RECENT_JOBS);
+
+    let dialog = await expectQuestion(page, 0);
+    // Full screen: the dialog's paper is the whole viewport.
+    const paper = await page.locator('.MuiDialog-paper').boundingBox();
+    expect(paper, 'dialog geometry').toBeTruthy();
+    if (paper) {
+      expect(paper.x).toBeCloseTo(0, 0);
+      expect(paper.y).toBeCloseTo(0, 0);
+      expect(paper.width).toBeCloseTo(PHONE.width, 0);
+      expect(paper.height).toBeCloseTo(PHONE.height, 0);
+    }
+
+    await roleBox(dialog, HEADLINE_LABELS.role).tap();
+    await expect(roleBox(dialog, HEADLINE_LABELS.role)).toBeChecked();
+    // All 17 specialties are open now; the footer must still be reachable.
+    await expect(chip(dialog, 'Security')).toBeAttached();
+    await expectFooterReachable(page, dialog, 'Continue', 'Q1 with the specialties open');
+    await tapKeepsWidth(page, chip(dialog, HEADLINE_LABELS.specialty), 'Backend specialty chip');
+    await shot(page, 'OB-U10', '01-roles');
+    await button(dialog, 'Continue').tap();
+
+    dialog = await expectQuestion(page, 1);
+    await tapKeepsWidth(page, chip(dialog, HEADLINE_LABELS.level), 'Entry level chip');
+    await expectFooterReachable(page, dialog, 'Continue', 'Q2');
+    await shot(page, 'OB-U10', '02-levels');
+    await button(dialog, 'Continue').tap();
+
+    dialog = await expectQuestion(page, 2);
+    await tapKeepsWidth(page, chip(dialog, HEADLINE_LABELS.place), 'San Francisco place chip');
+    await expectFooterReachable(page, dialog, 'Show my jobs', 'Q3');
+    await shot(page, 'OB-U10', '03-places');
+    await button(dialog, 'Show my jobs').tap();
+    await expect(questions(page)).toHaveCount(0);
+
+    // The toast sits under the app bar, never over it.
+    const toast = savedToast(page);
+    await expect(toast).toBeVisible();
+    await toast.hover();
+    const bar = await page.locator('header').first().boundingBox();
+    const toastBox = await toast.boundingBox();
+    expect(bar && toastBox, 'app bar + toast geometry').toBeTruthy();
+    if (bar && toastBox) {
+      expect(toastBox.y, 'the toast covers the app bar').toBeGreaterThanOrEqual(bar.y + bar.height);
+      expect(toastBox.x + toastBox.width, 'the toast runs off the screen').toBeLessThanOrEqual(PHONE.width);
+    }
+    await shot(page, 'OB-U10', '04-landed');
+
+    await expectJobs(page, CORPUS.headline.expectedKeys, 'OB-U10 with the headline answers');
+    await expectStamped(me, 'OB-U10 after "Show my jobs"');
+    await context.close();
+  });
+});

@@ -119,6 +119,24 @@ describe('/api/users serverless function', () => {
       expect(calledOptions.body).toBe('{"sourceId":"s","jobId":"j","surface":"recent"}');
     });
 
+    it('forwards POST /api/users/onboarding with its body', async () => {
+      mockReq.method = 'POST';
+      mockReq.query = { path: 'onboarding' };
+      mockReq.body = { category: ['growth'], skipped: false };
+
+      fetchMock.mockResolvedValue(mockJsonResponse(200, {}));
+
+      await handler(mockReq as VercelRequest, mockRes as VercelResponse);
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        'http://localhost:8000/api/users/onboarding',
+        expect.any(Object)
+      );
+      const calledOptions = fetchMock.mock.calls[0][1] as RequestInit;
+      expect(calledOptions.method).toBe('POST');
+      expect(calledOptions.body).toBe('{"category":["growth"],"skipped":false}');
+    });
+
     it('should handle multiple path segments as array', async () => {
       mockReq.query = { path: ['saved-filters', 'keyword-lists'] };
 

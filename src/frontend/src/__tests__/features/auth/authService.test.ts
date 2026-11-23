@@ -92,6 +92,45 @@ describe('authService', () => {
       await expect(fetchCurrentUser('token')).rejects.toThrow(/missing isAdmin field/);
     });
 
+    describe('onboardingCompletedAt', () => {
+      it('keeps null: the one value that opens the first-sign-in questions', async () => {
+        vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+          new Response(JSON.stringify({ ...mockUser, onboardingCompletedAt: null }), {
+            status: 200,
+          })
+        );
+        const user = await fetchCurrentUser('token');
+        expect(user.onboardingCompletedAt).toBeNull();
+      });
+
+      it('keeps a timestamp', async () => {
+        vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+          new Response(
+            JSON.stringify({ ...mockUser, onboardingCompletedAt: '2026-11-22T10:00:00Z' }),
+            { status: 200 }
+          )
+        );
+        const user = await fetchCurrentUser('token');
+        expect(user.onboardingCompletedAt).toBe('2026-11-22T10:00:00Z');
+      });
+
+      it('leaves it undefined (never null) for a backend older than the field', async () => {
+        vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+          new Response(JSON.stringify(mockUser), { status: 200 })
+        );
+        const user = await fetchCurrentUser('token');
+        expect(user.onboardingCompletedAt).toBeUndefined();
+        expect(user.onboardingCompletedAt).not.toBeNull();
+      });
+
+      it('rejects a value that is neither a string nor null', async () => {
+        vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+          new Response(JSON.stringify({ ...mockUser, onboardingCompletedAt: 0 }), { status: 200 })
+        );
+        await expect(fetchCurrentUser('token')).rejects.toThrow(/onboardingCompletedAt/);
+      });
+    });
+
     it('rejects a 2xx body whose isAdmin is not a boolean', async () => {
       vi.spyOn(globalThis, 'fetch').mockResolvedValue(
         new Response(JSON.stringify({ ...mockUser, isAdmin: 'true' }), { status: 200 })

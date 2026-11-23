@@ -30,10 +30,30 @@
 # The two modes agree on everything after the restore: both run `alembic
 # upgrade head` against the result and both run `_scrub.py`, so a schema-only
 # database is at the same migration head with the same seeded taxonomy.
+#
+# One env knob, OFF by default (unset is exactly the behaviour that shipped):
+#
+#   E2E_SOURCE_DB_REVISION  the Alembic revision the SOURCE's schema is really
+#                           at, for a source whose `alembic_version` row claims
+#                           a later one (a dev DB a test fixture `alembic stamp
+#                           head`-ed without running the upgrade). Applied ONLY
+#                           to a clone made in this call: it is stamped at this
+#                           revision before `upgrade head`, so the migrations
+#                           the source skipped really run. Never touches the
+#                           source, and never re-stamps an existing clone.
+#
+# and one conditional step, a no-op for every source this script was written
+# against: in --schema-only mode, if `job_subcategories` is still EMPTY after
+# `upgrade head` (the source was already past 5a7d3e9c1b46, so the migration
+# that inserts the 17 rows never runs on the clone), its rows are copied from
+# the source, read-only. A source older than that migration gets the rows from
+# the migration exactly as before, and the copy is skipped.
 
 set -euo pipefail
 
 SOURCE_DB="${E2E_SOURCE_DB:-jobscraper_pr243}"
+SOURCE_REVISION="${E2E_SOURCE_DB_REVISION:-}"
+FRESH_CLONE=0
 TARGET_DB="jobscraper_e2e"
 CONTAINER="${E2E_PG_CONTAINER:-jobscraper-postgres}"
 PGUSER="postgres"
@@ -139,6 +159,7 @@ elif [ "$SCHEMA_ONLY" = "1" ]; then
     || echo "ensure_db.sh: dimension-data restore reported warnings; continuing"
   END=$(date +%s)
   echo "ensure_db.sh: schema-only clone took $((END - START))s"
+  FRESH_CLONE=1
 else
   echo "ensure_db.sh: cloning $SOURCE_DB -> $TARGET_DB via pg_dump -Fc | pg_restore"
   docker exec "$CONTAINER" createdb -U "$PGUSER" "$TARGET_DB"
@@ -148,6 +169,19 @@ else
     || echo "ensure_db.sh: pg_restore reported warnings (often benign — extensions/roles); continuing"
   END=$(date +%s)
   echo "ensure_db.sh: clone took $((END - START))s"
+  FRESH_CLONE=1
+fi
+
+# E2E_SOURCE_DB_REVISION (see the header): only for a clone made just now, so
+# a clone a previous call already upgraded is never stamped backwards.
+if [ -n "$SOURCE_REVISION" ] && [ "$FRESH_CLONE" = "1" ]; then
+  echo "ensure_db.sh: E2E_SOURCE_DB_REVISION — stamping the new $TARGET_DB at $SOURCE_REVISION" \
+    "(the revision $SOURCE_DB's schema is really at) before upgrading"
+  (
+    cd "$REPO_ROOT"
+    DATABASE_URL="postgresql://postgres:postgres@localhost:5432/${TARGET_DB}" \
+      "$REPO_ROOT/.venv/bin/python" -m alembic stamp --purge "$SOURCE_REVISION"
+  )
 fi
 
 echo "ensure_db.sh: alembic upgrade head against $TARGET_DB"
@@ -156,6 +190,20 @@ echo "ensure_db.sh: alembic upgrade head against $TARGET_DB"
   DATABASE_URL="postgresql://postgres:postgres@localhost:5432/${TARGET_DB}" \
     "$REPO_ROOT/.venv/bin/python" -m alembic upgrade head
 )
+
+# The seeded taxonomy, for a source already past the migration that inserts it
+# (see the header). Read-only on the source; a no-op whenever the migration ran.
+if [ "$SCHEMA_ONLY" = "1" ]; then
+  _subcats_now=$(docker exec "$CONTAINER" psql -U "$PGUSER" -d "$TARGET_DB" -tAc \
+    "SELECT count(*) FROM job_subcategories" 2>/dev/null || echo "")
+  if [ "$_subcats_now" = "0" ]; then
+    echo "ensure_db.sh: job_subcategories is empty after upgrade ($SOURCE_DB is past its seed" \
+      "migration) — copying its rows from $SOURCE_DB (read-only)"
+    docker exec "$CONTAINER" bash -c \
+      "pg_dump -U $PGUSER --data-only --no-owner --no-acl -t job_subcategories '$SOURCE_DB' | psql -U $PGUSER -q -d '$TARGET_DB'" \
+      || echo "ensure_db.sh: job_subcategories copy reported warnings; continuing"
+  fi
+fi
 
 echo "ensure_db.sh: scrubbing inherited visibility='user' rows and stale procrastinate_jobs"
 "$REPO_ROOT/.venv/bin/python" "$SCRIPT_DIR/_scrub.py" "$TARGET_DB"

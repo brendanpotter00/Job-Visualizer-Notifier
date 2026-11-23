@@ -67,6 +67,7 @@ Backend-Scraper (api/clients/backendScraperClient.ts) is the only production cli
 - `/why` - Why This Was Built (pages/WhyPage/WhyPage.tsx) - About page
 - `/qa` - QA (pages/QAPage/QAPage.tsx) - Admin page for triggering scrapers, viewing scrape runs, and debugging
 - `/account` - Account (pages/AccountPage/AccountPage.tsx)
+- First-sign-in questions (components/onboarding/, no route) - `OnboardingGate`, mounted once in `RootLayout`, opens a full-screen `OnboardingFlow` dialog (roles → levels → places, one per screen) ONLY when the signed-in user's `onboardingCompletedAt === null` (`undefined` from an older backend and any timestamp never open it; never on `/` or `/pricing`). Finish, Skip, Escape and any close all `POST /api/users/onboarding` (Skip keeps the answers); the answers then reach the live filters through `upsertQueryData('getSavedFilters')` + `savedFiltersPropagationActions` (hydration is one-shot). With at least one answer the app lands on `/jobs` and a "Saved filters" toast (link to `/saved-filters`, 6 s, paused on hover/focus) shows; a Skip with no answers stays on the current page. A Skip whose save FAILS still closes the questions, for this visit only: the stamp stays `null`, so they open again on the next load (the flow stays mounted while closed, so the tab title is tied to `open`, not to mount). Pure rules in `onboardingModel.ts`; plan `docs/implementations/onboardingFlow/plan.html`
 - `/saved-filters` - Saved Filters (pages/SavedFiltersPage/SavedFiltersPage.tsx) - Login-gated page to set default time windows (per page), shared locations, the saved-companies picker, and reusable keyword lists that auto-apply (but stay editable) on the Recent and Trend pages
 - `/vote-features` - Vote for Features (pages/VoteFeaturesPage/VoteFeaturesPage.tsx) - Feature voting page; shipped features move out of the vote list into a read-only "Shipped — built with the community" section
 - `/admin/enrichment` - Admin Enrichment Pipeline (pages/AdminEnrichmentPage/AdminEnrichmentPage.tsx) - Admin-only oversight of the laptop enrichment agent: liveness verdict, backlog funnel, tick EKG/charts (metrics push), eval scorecard, needs-human queue. Each queue row carries a one-click **Confirm** (validate the AI's proposal as-is → `human_decision='confirmed_correct'`), the **Correct** dialog (fix labels → `'corrected'`), and **Re-enrich**. The "confirmed correct" vs "human-corrected" outcome chip is a shared pure helper in `pages/AdminEnrichmentPage/outcomeChip.ts`
@@ -125,6 +126,10 @@ own eventual signup. Event taxonomy (custom events live in `features/analytics/e
   `location` of `appbar | job_overlay | edit_prefs_link | account_page | landing_header | landing_cta`. (Google One-Tap is
   intentionally excluded — its success callback can't distinguish a silent re-auth from a
   real tap; One-Tap signups are attributed via the backend signup-provider split.)
+- `onboarding_viewed` / `onboarding_step_completed` (`{ step, answered }`) — the first-sign-in
+  questions opened / a question was left forward. Their end is server-side:
+  `onboarding_completed` (answer counts) or `onboarding_skipped` (`step` + counts), sent by
+  `POST /api/users/onboarding` only from the call that stamped the account.
 - `signin_overlay_viewed` — mid-funnel. Fired when the signed-out job-list overlay becomes
   visible, with `page` of `recent | companies | bucket_modal`.
 - `user_signed_up` — **conversion.** Fired **server-side** (`src/backend/api/routers/users.py`)

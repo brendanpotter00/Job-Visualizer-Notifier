@@ -1,0 +1,511 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>First Sign-In Onboarding</title>
+<link rel="stylesheet" href="/Users/brendanpotter/.claude/plugins/cache/claude-community/html-plan/1.0.0/skills/html-plan/runtime/htmlplan.css">
+<link rel="stylesheet" href="https://api.fontshare.com/v2/css?f[]=infra-mono@400,700&display=swap">
+<script src="/Users/brendanpotter/.claude/plugins/cache/claude-community/html-plan/1.0.0/skills/html-plan/runtime/htmlplan.js" defer></script>
+<style>
+  /* The prototype lab breaks out of the 740px reading column. */
+  .lab { position: relative; width: min(1080px, calc(100vw - 40px)); left: 50%; transform: translateX(-50%); margin: 8px 0 40px; }
+  .lab > h2, .lab > .dek { max-width: 740px; margin-left: auto; margin-right: auto; }
+  .lab > .dek { margin-bottom: 20px; }
+  .lab > .dek.after { margin: 20px auto 0; }
+  @media (max-width: 600px) { .lab { width: calc(100vw - 32px); } body { padding-left: 16px; padding-right: 16px; } }
+</style>
+<style data-mock-shared>
+  .o { position: relative; font: 15px/1.45 "Helvetica", "Arial", sans-serif; color: #000; background: #fff; border: 1px solid #d0d0d0; border-radius: 14px; overflow: hidden; }
+  .o .bar { background: #000; color: #F2EEE9; height: 48px; display: flex; align-items: center; gap: 8px; padding: 0 14px; font: 700 17px/1 "Infra Mono", ui-monospace, Menlo, monospace; letter-spacing: -0.03em; }
+  .o .bar .dot { width: 7px; height: 7px; border-radius: 50%; background: #2F8F3F; box-shadow: 0 0 6px rgba(47,143,63,.6); }
+  .o .bar .r { margin-left: auto; font: 500 15px/1 "Helvetica", "Arial", sans-serif; letter-spacing: 0; }
+  .o .bar .av { margin-left: auto; width: 28px; height: 28px; border-radius: 50%; background: #F2EEE9; color: #000; font: 700 13px/28px "Helvetica", sans-serif; text-align: center; letter-spacing: 0; }
+  .o .in { padding: 14px 14px 12px; }
+  .o .st { font-size: 13px; line-height: 1; color: #666; margin-bottom: 6px; }
+  .o .pb { height: 4px; border-radius: 2px; background: #e0e0e0; margin-bottom: 12px; overflow: hidden; }
+  .o .pb i { display: block; height: 100%; border-radius: 2px; background: #000; }
+  .o .pb.p1 i { width: 33.33%; } .o .pb.p2 i { width: 66.67%; }
+  .o .nv { padding: 8px 14px 0; font-size: 13.5px; }
+  .o .nv .nl { display: flex; align-items: center; gap: 8px; min-height: 26px; }
+  .o .nv .st { margin: 0; } .o .nv .sk { margin-left: auto; font-weight: 500; } .o .nv .pb { margin: 4px 0 0; }
+  .o h4 { font-weight: 500; font-size: 22px; letter-spacing: -0.03em; line-height: 1.15; margin: 0 0 14px; }
+  .o .h { color: #666; font-size: 13.5px; margin: 0 0 10px; }
+  .o .row { display: flex; align-items: center; gap: 12px; min-height: 46px; border-bottom: 1px solid #e0e0e0; font-size: 15.5px; }
+  .o .row.first { border-top: 1px solid #e0e0e0; }
+  .o .bx { width: 18px; height: 18px; border: 2px solid #757575; border-radius: 4px; flex: none; display: inline-flex; align-items: center; justify-content: center; color: #fff; font-size: 12px; line-height: 1; }
+  .o .bx.on { background: #000; border-color: #000; }
+  .o .row .m { margin-left: auto; color: #666; font-size: 13px; }
+  .o .rv { border-bottom: 1px solid #e0e0e0; padding: 10px 0 12px 30px; position: relative; }
+  .o .rv::before { content: ""; position: absolute; left: 8px; top: 0; bottom: 10px; border-left: 2px solid #000; }
+  .o .rv small { display: block; color: #666; font-size: 12.5px; margin-bottom: 8px; }
+  .o .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .o .chip { border: 1px solid #757575; border-radius: 4px; padding: 0 10px; min-height: 34px; display: inline-flex; align-items: center; gap: 4px; font-size: 13.5px; }
+  .o .chip.on { background: #000; color: #fff; border-color: #000; }
+  .o .ft { display: flex; gap: 8px; padding: 10px 14px 14px; border-top: 1px solid #e0e0e0; }
+  .o .btn { min-height: 42px; border-radius: 8px; border: 1px solid #000; display: inline-flex; align-items: center; justify-content: center; padding: 0 14px; font-weight: 500; }
+  .o .btn.pri { background: #000; color: #fff; flex: 1; }
+  .o .btn.dis { border-color: rgba(0,0,0,.12); color: rgba(0,0,0,.38); }
+  /* The Recent Job Postings page as production draws it on a phone (xs tokens in config/responsive.ts). */
+  .o .ab { background: #000; height: 48px; display: flex; align-items: center; gap: 14px; padding: 0 14px; }
+  .o .ab .tg { width: 19px; height: 15px; border: 1.5px solid #fff; border-radius: 3px; position: relative; flex: none; }
+  .o .ab .tg::after { content: ""; position: absolute; left: 4px; top: 0; bottom: 0; border-left: 1.5px solid #fff; }
+  .o .ab .wm { font: 700 19px/1 "Infra Mono", ui-monospace, Menlo, monospace; letter-spacing: -0.03em; color: #F2EEE9; display: inline-flex; align-items: center; gap: 6px; }
+  .o .ab .dot { width: 7px; height: 7px; border-radius: 50%; background: #2F8F3F; box-shadow: 0 0 6px rgba(47,143,63,.6); }
+  .o .ab .av { margin-left: auto; width: 28px; height: 28px; border-radius: 50%; background: #7e57c2; color: #fff; font: 400 13px/28px "Helvetica", sans-serif; text-align: center; }
+  .o .ph1 { font-weight: 600; font-size: 20px; line-height: 1.3; margin: 0 0 12px; }
+  .o .pref { font-size: 12px; color: #666; margin: 0 0 10px; } .o .pref b { color: #000; font-weight: 400; }
+  .o .fl { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
+  .o .fd { position: relative; border: 1px solid rgba(0,0,0,.23); border-radius: 8px; min-height: 32px; padding: 5px 26px 5px 12px; font-size: 12px; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+  .o .fd::after { content: ""; position: absolute; right: 10px; top: 50%; margin-top: -2px; border: 4px solid transparent; border-top: 5px solid rgba(0,0,0,.54); border-bottom: 0; }
+  .o .fd .lb { position: absolute; left: 8px; top: 0; transform: translateY(-50%); background: #fff; padding: 0 4px; font-size: 9.5px; line-height: 1; color: rgba(0,0,0,.6); }
+  .o .fd .lb.in { position: static; transform: none; padding: 0; font-size: 12px; background: none; }
+  .o .fd .tag { background: rgba(0,0,0,.08); border-radius: 4px; padding: 2px 6px; font-size: 11px; }
+  .o .rs { align-self: flex-start; border: 1px solid rgba(0,0,0,.5); border-radius: 8px; font-size: 11px; font-weight: 500; padding: 8px 10px; line-height: 1; }
+  .o .jc { background: #f5f5f5; border: 1px solid #e0e0e0; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,.12); padding: 8px; margin-bottom: 8px; display: flex; flex-direction: column; gap: 3px; }
+  .o .jc .hd { display: flex; align-items: center; gap: 10px; }
+  .o .jc .lg { width: 30px; height: 30px; border-radius: 7px; border: 1px solid #e0e0e0; overflow: hidden; flex: none; }
+  .o .jc .lg img { width: 100%; height: 100%; display: block; }
+  .o .jc .co { font-size: 12.5px; font-weight: 700; color: #666; display: block; line-height: 1.4; }
+  .o .jc b { display: block; font-weight: 600; font-size: 14px; line-height: 1.4; }
+  .o .jc .ap { margin-left: auto; align-self: flex-start; background: #000; color: #fff; border-radius: 16px; padding: 8px 10px; font-size: 11.5px; font-weight: 500; line-height: 1; }
+  .o .jc .cr { display: flex; flex-wrap: wrap; gap: 6px; }
+  .o .mc { font-size: 10px; border-radius: 4px; padding: 2px 5px; line-height: 1.3; } .o .mc.ol { border: 1px solid #bdbdbd; } .o .mc.f { background: rgba(0,0,0,.08); }
+  .o .jc .dm { font-size: 11px; } .o .jc .pa { font-size: 11px; color: #666; }
+  .o .note { border: 1px solid #000; border-radius: 8px; padding: 8px 10px; font-size: 13.5px; margin-bottom: 10px; display: flex; gap: 8px; align-items: flex-start; }
+  .o .snk { position: absolute; top: 54px; right: 10px; z-index: 2; display: inline-flex; align-items: center; gap: 8px; padding: 7px 10px 7px 12px; border-radius: 8px; background: #000; color: #fff; font-size: 13px; box-shadow: 0 6px 14px rgba(0,0,0,.25); }
+  .o .snk .ck { color: #4cbb5e; font-weight: 700; } .o .snk .lk { font-weight: 500; text-decoration: underline; text-underline-offset: 3px; } .o .snk .xx { margin-left: 6px; font-size: 15px; line-height: 1; }
+  .o .sbtn { border: 1px solid #000; border-radius: 8px; min-height: 40px; display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 8px; font-weight: 500; }
+</style>
+<body>
+
+<header>
+  <h1>First Sign-In Onboarding</h1>
+  <doc-changes new="9" changed="17" deleted="4"></doc-changes>
+  <details class="thread"><summary>Why · 7 requests</summary>
+    <doc-quote via="prompt" from="the user">I want to create an onboarding flow for this website that only happens after someone signs in for the first time. Meaning if they already have an account and they signed in again, the sign onboarding flow should not run.</doc-quote>
+    <doc-quote via="prompt" from="the user">It should only be to ask the user maybe what type of rules that they want to see and also what level and location. Those are the three things I want to ask. Very simple.</doc-quote>
+    <doc-quote via="prompt" from="the user">make sure it's mobile, compliant, not compatible, it should be extremely simple.</doc-quote>
+    <doc-quote via="prompt" from="the user">if they click on software engineer, then it opens up the subcategories like an accordion, therefore decreasing the total amount of clicks … And then if they choose to, like, business operations, then it's just business operations.</doc-quote>
+    <doc-quote via="prompt" from="the user">I want something I can actually click through and simulate the onboarding flow multiple times. Basically I want a prototype inside the plan in different versions and at least three different versions</doc-quote>
+    <doc-quote via="prompt" from="the user">on version a the recent job page isnt like the one in prod</doc-quote>
+    <doc-quote via="prompt" from="the user">can we do 1/3 questions but also a visual bar and only redo version a and remove the others</doc-quote>
+  </details>
+</header>
+
+<main>
+
+<section class="lab" id="try">
+  <h2>Try the onboarding</h2>
+  <p class="dek">A new account sees the questions. Sign out and sign in again: the questions do not show. Screen switches between a phone and a desktop. The page behind the questions copies Recent Job Postings in production.</p>
+  <proto-lab></proto-lab>
+
+  <p class="dek after" id="pick">Why one question on each screen: it is the simplest on a phone, with a keyboard and with a screen reader. The first prototype also tried one long page and a sheet over the list. Both lost.</p>
+</section>
+
+<h2 id="the-plan">The plan</h2>
+
+<doc-plan>
+
+<!-- ═════ 1 ═════ -->
+<doc-claim>
+  <p>A new account answers three short questions, one on each screen.</p>
+  <doc-mock frame="none" w="360"><template>
+<div class="o">
+  <div class="bar">onesecondswe<span class="dot"></span></div>
+  <div class="nv" data-ref="st"><div class="nl"><span class="st">1/3</span><span class="sk" data-ref="skip">Skip</span></div><div class="pb p1"><i></i></div></div>
+  <div class="in">
+    <h4>What roles are you looking for?</h4>
+    <div class="row first"><span class="bx"></span>Software Engineering<span class="m">▾</span></div>
+    <div class="row"><span class="bx"></span>Hardware Engineer</div>
+    <div class="row"><span class="bx"></span>Product Manager</div>
+    <div class="row"><span class="bx"></span>Data Scientist</div>
+    <div class="row"><span class="bx"></span>Growth</div>
+    <div class="row"><span class="bx"></span>Business Ops</div>
+  </div>
+  <div class="ft" data-ref="go"><span class="btn dis">Back</span><span class="btn pri">Continue</span></div>
+</div></template>
+    <doc-pin ref="skip" anchor="tr" title="Skip ends the flow for good">It sits with 1/3, above the bar, on every step.</doc-pin>
+    <doc-pin ref="st" anchor="l" title="1/3 and a bar">A screen reader hears Question 1 of 3. The bar is hidden from it.</doc-pin>
+    <doc-pin ref="go" anchor="tr" title="Back and Continue">Back is disabled on question 1. Continue never waits for an answer. An empty step means any.</doc-pin>
+  </doc-mock>
+
+  <doc-claim>
+    <p>A tap on Software Engineering selects it and shows 17 specialties.</p>
+    <doc-mock frame="none" w="360"><template>
+<div class="o"><div class="in">
+  <div class="row first"><span class="bx on">✓</span>Software Engineering<span class="m">▴</span></div>
+  <div class="rv" data-ref="rv"><small>Select for more specific roles</small>
+    <div class="chips"><span class="chip">AI Engineering</span><span class="chip on">✓ Backend</span><span class="chip">Data Engineering</span><span class="chip">DevOps &amp; Site Reliability</span><span class="chip">Frontend</span><span class="chip on">✓ Full Stack</span><span class="chip">Machine Learning</span><span class="chip">Mobile</span><span class="chip">… 9 more</span></div></div>
+  <div class="row"><span class="bx"></span>Hardware Engineer</div>
+  <div class="row" data-ref="biz"><span class="bx on">✓</span>Business Ops</div>
+</div></div></template>
+      <doc-pin ref="rv" anchor="tr" title="Own fieldset, right after the checkbox">Shown only when sweSubcategoriesEnabled is on.</doc-pin>
+      <doc-pin ref="biz" anchor="r" title="Other roles do not open">Business Ops is only Business Ops.</doc-pin>
+    </doc-mock>
+    <doc-note tone="risk"><strong>Risk</strong> GOV.UK found that a checkbox that shows more checkboxes can confuse screen reader users. The specialties come right after it, in their own fieldset, and the label names the count. Test with VoiceOver and TalkBack.</doc-note>
+  </doc-claim>
+
+  <doc-claim>
+    <p>Each question is optional, and Back keeps the earlier answers.</p>
+    <doc-code title="OnboardingFlow.tsx · sketch" lang="tsx" hl="3-4,12">
+<script type="text/plain">
+export function OnboardingFlow({ onDone }: { onDone: (user: User) => void }) {
+  const [step, setStep] = useState<0 | 1 | 2>(0);
+  // One draft for all three steps: Back shows the earlier answers (WCAG 3.3.7).
+  const [draft, setDraft] = useState<OnboardingDraft>(EMPTY_DRAFT);
+  const [complete, { isLoading }] = useCompleteOnboardingMutation();
+
+  const submit = async (skipped: boolean) => {
+    if (isLoading) return;                         // a double tap sends one request
+    onDone(await complete(toRequest(draft, skipped)).unwrap());
+  };
+  // Continue is always on. An empty step means "any".
+  const next = () => (step < 2 ? setStep((s) => (s + 1) as 1 | 2) : submit(false));
+  const back = () => setStep((s) => (s - 1) as 0 | 1);
+  // … RoleQuestion / LevelQuestion / LocationQuestion by step
+}
+</script>
+    </doc-code>
+  </doc-claim>
+
+  <doc-claim>
+    <p>The location question shows six common places above a search.</p>
+    <doc-calls title="Location" caption="The search is the one the filter bars use today.">
+<script type="text/plain">
++ <**LocationQuestion**/>                                 @ src/frontend/src/components/onboarding/LocationQuestion.tsx:1
++   6 preset chips: SF, New York, Seattle, Austin, Remote (US), United States   @ src/frontend/src/components/onboarding/LocationQuestion.tsx:1   -- top prod locations; United States = every on-site US job
++   <AsyncMultiSelectAutocomplete/>                       @ src/frontend/src/components/shared/filters/AsyncMultiSelectAutocomplete.tsx:49
+      GET /api/locations/search?q=                        @ src/frontend/src/features/locations/locationsApi.ts:80
+</script>
+    </doc-calls>
+  </doc-claim>
+
+  <doc-claim>
+    <p>Each new step moves focus to its question.</p>
+    <doc-code title="OnboardingFlow.tsx · sketch" lang="tsx" hl="3,8">
+<script type="text/plain">
+const titleRef = useRef<HTMLHeadingElement>(null);
+useEffect(() => {
+  titleRef.current?.focus();                        // the h1 has tabIndex={-1}
+  document.title = `Question ${step + 1} of 3: ${STEP_NAMES[step]} | onesecondswe`;
+}, [step]);
+
+return (
+  <Dialog open fullScreen
+          aria-labelledby={titleId} onClose={() => submit(true)}>
+    {/* legend > h1 is the question. Escape = Skip. */}
+  </Dialog>
+);
+</script>
+      <doc-pin line="8" title="Full screen at every size">Nothing shows behind the questions. On a desktop the content is one 560px column.</doc-pin>
+      <doc-pin line="9" tone="warn" title="Any close is Skip">The flag is one-way.</doc-pin>
+    </doc-code>
+  </doc-claim>
+</doc-claim>
+
+<!-- ═════ 2 ═════ -->
+<doc-claim>
+  <p>The questions show once for each account and never again.</p>
+  <doc-machine name="acct" caption="A later sign-in stays in done. A closed tab goes back to fresh.">
+<script type="text/plain">
+machine acct initial none
+state none         # No users row for this person yet.
+state fresh        # The row exists. onboarding_completed_at is NULL.
+state asking       # The questions are on the screen.
+state done  final  # Stamped. Every later sign-in goes to the list.
+
+| none | fresh | asking | done |
+
+none   -signin-> fresh  : first sign-in
+fresh  -gate->   asking : NULL
+asking -end->    done   : Finish or Skip
+asking -leave->  fresh  : tab closed
+</script>
+    <div data-state="none"><doc-mock frame="none" w="320"><template><div class="o"><div class="in"><h4>Sign in</h4><p class="h">No account yet. The first sign-in creates it.</p><div class="sbtn">Continue with Google</div><div class="sbtn">Continue with email</div></div></div></template></doc-mock></div>
+    <div data-state="fresh"><doc-mock frame="terminal" title="GET /api/users" w="420"><template><span class="dim">→</span> GET /api/users
+<span class="g">200</span> { "id": "7f3a…", "isAdmin": false,
+      "onboardingCompletedAt": <b>null</b> }
+<span class="dim"># OnboardingGate opens the questions</span></template></doc-mock></div>
+    <div data-state="asking"><doc-mock frame="none" w="320"><template><div class="o"><div class="bar">onesecondswe<span class="dot"></span></div><div class="nv"><div class="nl"><span class="st">2/3</span><span class="sk">Skip</span></div><div class="pb p2"><i></i></div></div><div class="in"><h4>Which levels fit you?</h4><div class="chips"><span class="chip">Intern</span><span class="chip on">✓ New Grad</span><span class="chip on">✓ Entry</span><span class="chip">Mid</span><span class="chip">Senior</span><span class="chip">Staff / Principal</span><span class="chip">Manager</span></div></div><div class="ft"><span class="btn">Back</span><span class="btn pri">Continue</span></div></div></template></doc-mock></div>
+    <div data-state="done"><doc-mock frame="none" w="320"><template><div class="o"><div class="ab"><span class="tg"></span><span class="wm">1s<span class="dot"></span></span><span class="av">B</span></div><div class="in"><div class="ph1">Recent Job Postings</div><div class="fl"><div class="fd"><span class="lb">Job Category</span>Software Engineering, Backend</div><div class="fd"><span class="lb">Level</span>Entry</div></div><div class="jc"><div class="hd"><span class="lg"><img src="data:image/png;base64,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" alt=""></span><span><span class="co">Stripe</span><b>Software Engineer, Backend</b></span><span class="ap">Apply</span></div><div class="cr"><span class="mc ol">San Francisco, CA, US</span></div><div class="cr"><span class="mc f">Backend</span><span class="mc f">Entry</span></div><span class="dm">DM the hiring team ↗</span><span class="pa">Posted 4 minutes ago</span></div></div></div></template></doc-mock></div>
+  </doc-machine>
+
+  <doc-claim>
+    <p>A nullable column on users holds the stamp; NULL means ask.</p>
+    <doc-schema id="users" lang="sql" diff title="users" caption="Green is new. No default, so a new row starts NULL.">
+<script type="text/plain">
+ CREATE TABLE users (
+   id                       text PRIMARY KEY,
+   auth0_id                 text NOT NULL UNIQUE,
+   email                    text NOT NULL UNIQUE,
+   created_at               text NOT NULL,        -- legacy text, not used here
+   updated_at               text NOT NULL,        -- changes on every request
+   last_visit_at            timestamptz,
+   is_internal              boolean NOT NULL DEFAULT false,
++  onboarding_completed_at  timestamptz           -- NULL: show the questions
+   -- … 7 more columns
+ );
+</script>
+    </doc-schema>
+  </doc-claim>
+
+  <doc-claim>
+    <p>The migration stamps all 368 accounts that exist today.</p>
+    <doc-code title="alembic/versions/…_users_onboarding_completed_at.py · sketch" lang="py" hl="6,10-13">
+<script type="text/plain">
+revision = "<autogenerated>"
+down_revision = "bcbc67dbd87e"   # head today; check again before merge
+
+def upgrade() -> None:
+    # ### commands auto generated by Alembic - please adjust! ###
+    op.add_column("users", sa.Column("onboarding_completed_at", sa.TIMESTAMP(timezone=True), nullable=True))
+    # ### end Alembic commands ###
+
+    # Every account that exists today is past its first sign-in.
+    op.execute(
+        "UPDATE users SET onboarding_completed_at = now() "
+        "WHERE onboarding_completed_at IS NULL"
+    )
+
+def downgrade() -> None:
+    op.drop_column("users", "onboarding_completed_at")
+</script>
+      <doc-pin line="6" title="No server_default">A default of now() stamps every new account too.</doc-pin>
+      <doc-pin line="11" tone="warn" title="Without this, 368 users see the questions"></doc-pin>
+    </doc-code>
+  </doc-claim>
+
+  <doc-claim>
+    <p>The gate reads the server stamp, not the sign-in event.</p>
+    <doc-calls title="The gate" caption="One mount in RootLayout covers Auth0 and Google One-Tap.">
+<script type="text/plain">
+~ <RootLayout/>                                        @ src/frontend/src/components/layout/RootLayout.tsx:103
++   <**OnboardingGate**/>                              @ src/frontend/src/components/onboarding/OnboardingGate.tsx:1   -- not on / or /pricing
+      useCurrentUser()                                 @ src/frontend/src/features/auth/useCurrentUser.ts:6
+~       parseUserResponse()                            @ src/frontend/src/features/auth/authService.ts:74   -- strict null check
++     <**OnboardingFlow**/> when === null              @ src/frontend/src/components/onboarding/OnboardingFlow.tsx:1
+
+~ get_current_user_profile()                           @ src/backend/api/routers/users.py:99
+~   _row_to_user_response()                            @ src/backend/api/routers/users.py:70   -- adds onboarding_completed_at
+</script>
+    </doc-calls>
+    <doc-note tone="info"><strong>Why not created_at = updated_at</strong> That test is true for one response only. In prod, POST /visit beat the first GET /api/users for 79% of new accounts since June.</doc-note>
+    <doc-claim at="src/frontend/src/components/onboarding/OnboardingGate.tsx:1">
+      <p><b>OnboardingGate.tsx</b> · OnboardingGate()</p>
+      <doc-code title="OnboardingGate.tsx · sketch" lang="tsx" hl="5">
+<script type="text/plain">
+export function OnboardingGate() {
+  const { isAuthenticated } = useAuth();
+  const { user, setUser } = useCurrentUser();
+  // undefined (an older backend) or a loading user never opens the flow.
+  if (!isAuthenticated || AUTH_CONFIG.bypass || user?.onboardingCompletedAt !== null) return null;
+  // The response carries the stamp, so the flow closes with no refetch.
+  return <OnboardingFlow onDone={(updated) => setUser(updated)} />;
+}
+</script>
+      </doc-code>
+    </doc-claim>
+  </doc-claim>
+</doc-claim>
+
+<!-- ═════ 3 ═════ -->
+<doc-claim>
+  <p>One request saves the answers and stamps the account.</p>
+  <doc-calls title="Finish or Skip" caption="Both writes happen in one transaction.">
+<script type="text/plain">
++ <**OnboardingFlow**/> submit()                            @ src/frontend/src/components/onboarding/OnboardingFlow.tsx:1
++   **completeOnboarding** mutation                         @ src/frontend/src/features/savedFilters/savedFiltersApi.ts:173   -- next to updateSavedFilters
+~     POST /api/users/onboarding                            @ api/users.ts:38   -- one new allowlist entry
+
++ **post_onboarding**(body: OnboardingRequest)              @ src/backend/api/routers/users.py:186   -- after /visit
+    get_or_create_user()                                    @ src/backend/api/services/user_service.py:71   -- no 404 on a new row
++   **complete_onboarding**(conn, user_id, answers)         @ src/backend/api/services/user_service.py:186
++     UPDATE users SET onboarding_completed_at = now()      @ src/backend/api/services/user_service.py:186
++     UPSERT user_saved_filters (4 columns)                 @ src/backend/api/services/user_service.py:186
+?   _capture_event("onboarding_completed")                  @ src/backend/api/routers/users.py:42   -- only when the stamp is new
+</script>
+  </doc-calls>
+  <doc-ask id="skip">
+    <p>A user answers one question, then presses Skip. What happens to that answer?</p>
+    <label><input type="radio" name="skip" value="keep" checked> Keep it <small>Skip only stops the questions</small></label>
+    <label><input type="radio" name="skip" value="drop"> Drop it <small>Skip always means no filters</small></label>
+  </doc-ask>
+
+  <doc-claim>
+    <p>A second request changes nothing.</p>
+    <doc-code title="complete_onboarding() · sketch" lang="sql" hl="2-4">
+<script type="text/plain">
+-- 1. Stamp. Only the first request matches a row.
+UPDATE users SET onboarding_completed_at = now()
+WHERE id = %(user_id)s AND onboarding_completed_at IS NULL
+RETURNING onboarding_completed_at;
+-- No row back: already onboarded. Write nothing. Return the user.
+
+-- 2. Write the answers. Update only the four onboarding columns.
+INSERT INTO user_saved_filters
+  (user_id, recent_time_window, trend_time_window, locations, category, level, subcategory)
+VALUES (%(user_id)s, 'all', '90d', %(locations)s, %(category)s, %(level)s, %(subcategory)s)
+ON CONFLICT (user_id) DO UPDATE SET
+  locations = EXCLUDED.locations, category = EXCLUDED.category,
+  level = EXCLUDED.level, subcategory = EXCLUDED.subcategory, updated_at = now();
+
+-- 3. One COMMIT for both. On psycopg2.Error, roll back both.
+</script>
+      <doc-pin line="3" title="The guard against a retry or a second tab"></doc-pin>
+    </doc-code>
+  </doc-claim>
+
+  <doc-claim>
+    <p>The new row uses the app time windows, not the column defaults.</p>
+    <doc-code src="src/backend/api/services/saved_filters_service.py" lines="69-81" hl="80-81">
+      <doc-pin line="80" tone="warn" title="The insert sets these by hand">The column default is '3h'.</doc-pin>
+    </doc-code>
+  </doc-claim>
+</doc-claim>
+
+<!-- ═════ 4 ═════ -->
+<doc-claim>
+  <p>The list opens with the answers applied as filters.</p>
+  <doc-mock frame="none" w="360"><template>
+<div class="o">
+  <div class="ab"><span class="tg"></span><span class="wm">1s<span class="dot"></span></span><span class="av">B</span></div>
+  <div class="snk" data-ref="note"><span class="ck">✓</span><span class="lk">Saved filters</span><span class="xx">×</span></div>
+  <div class="in">
+    <div class="ph1">Recent Job Postings</div>
+    <div class="fl" data-ref="mirror"><div class="fd"><span class="lb in">Keywords</span></div><div class="fd"><span class="lb">Time Window</span>All time</div><div class="fd"><span class="lb">Job Category</span>Software Engineering, Backend, Full Stack</div><div class="fd"><span class="lb">Level</span>Entry</div><div class="fd"><span class="lb">Location</span><span class="tag">San Francisco, CA, US</span><span class="tag">Remote (US)</span></div><span class="rs">Reset Filters</span></div>
+    <div class="jc"><div class="hd"><span class="lg"><img src="data:image/png;base64,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" alt=""></span><span><span class="co">Stripe</span><b>Software Engineer, Backend</b></span><span class="ap">Apply</span></div><div class="cr"><span class="mc ol">San Francisco, CA, US</span></div><div class="cr"><span class="mc f">Backend</span><span class="mc f">Entry</span></div><span class="dm">DM the hiring team ↗</span><span class="pa">Posted 4 minutes ago</span></div>
+    <div class="jc"><div class="hd"><span class="lg"><img src="data:image/png;base64,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" alt=""></span><span><span class="co">Vercel</span><b>Software Engineer, Full Stack</b></span><span class="ap">Apply</span></div><div class="cr"><span class="mc ol">Remote (US)</span></div><div class="cr"><span class="mc f">Full Stack</span><span class="mc f">Entry</span></div><span class="dm">DM the hiring team ↗</span><span class="pa">Posted about 1 hour ago</span></div>
+  </div>
+</div></template>
+    <doc-pin ref="note" anchor="l" title="A toast, once, after the questions">It links to /saved-filters. It hides after 6 seconds. Hover or focus keeps it open.</doc-pin>
+    <doc-pin ref="mirror" anchor="br" title="The answers, shown back">The filter fields of the page show them. Nothing new to build.</doc-pin>
+  </doc-mock>
+
+  <doc-claim>
+    <p>The page gets the new filters by the same path as Saved filters.</p>
+    <doc-calls title="After the response" caption="Hydration runs once, so the page needs the push.">
+<script type="text/plain">
++ <OnboardingFlow/> onSuccess                               @ src/frontend/src/components/onboarding/OnboardingFlow.tsx:1
++   upsertQueryData('getSavedFilters', saved)               @ src/frontend/src/features/savedFilters/savedFiltersApi.ts:164
++   savedFiltersPropagationActions(saved, lists)            @ src/frontend/src/features/savedFilters/propagateSavedFilters.ts:41
+      setRecentJobsCategory / Level / Location …            @ src/frontend/src/features/savedFilters/propagateSavedFilters.ts:76
+      useRecentJobsSearch() searches again                  @ src/frontend/src/features/jobs/hooks/useRecentJobsSearch.ts:110
++   setUser({ ...user, onboardingCompletedAt })             @ src/frontend/src/features/auth/useCurrentUser.ts:59
+</script>
+    </doc-calls>
+    <doc-claim at="src/frontend/src/features/savedFilters/propagateSavedFilters.ts:41">
+      <p><b>propagateSavedFilters.ts:41</b> · savedFiltersPropagationActions()</p>
+      <doc-code src="src/frontend/src/features/savedFilters/propagateSavedFilters.ts" lines="63-80" hl="76-80"></doc-code>
+    </doc-claim>
+  </doc-claim>
+
+  <doc-claim>
+    <p>A specialty narrows only the software jobs, not other roles.</p>
+    <doc-code diff file="src/backend/api/services/job_search.py" title="job_search.py">
+<script type="text/plain">
+@@ -750,9 +750,14 @@
+     if subcategories:
+         # Array OVERLAP. `&&` gives OR-within-the-dimension for free AND hides
+         # unlabelled rows without a second clause: `NULL && x` is NULL and
+         # `'{}' && x` is false, so both the never-evaluated queue and the
+         # evaluated-but-no-specialty terminal state drop out the moment a filter
+         # is active. It ANDs with every other condition, including the cursor
+         # comparison, and never touches `_KEYSET_ORDER_BY`.
+-        conditions.append(sql.SQL("job_listings.enrichment_subcategories && %s::text[]"))
++        overlap = sql.SQL("job_listings.enrichment_subcategories && %s::text[]")
++        if categories and any(c != "software_engineering" for c in categories):
++            # A specialty narrows software jobs only; the other picked roles keep theirs.
++            conditions.append(sql.SQL("(job_listings.enrichment_category <> 'software_engineering' OR {})").format(overlap))
++        else:
++            conditions.append(overlap)
+         params.append(expand_subcategories(subcategories))
+</script>
+    </doc-code>
+    <doc-ask id="subcat">
+      <p>A user picks Product Manager and Backend. What does the list show?</p>
+      <label><input type="radio" name="subcat" value="scope" checked> PM jobs and Backend jobs <small>a specialty narrows only software jobs</small></label>
+      <label><input type="radio" name="subcat" value="solo"> Save specialties only if software is the only role <small>no search change; the specialties drop</small></label>
+      <label><input type="radio" name="subcat" value="asis"> Only Backend jobs <small>the rule today; PM jobs go away</small></label>
+    </doc-ask>
+    <div data-if="subcat=scope"><doc-note tone="info">The filter bars get the same fix. matchesSubcategory() at jobFilteringUtils.ts:372 changes too, so the Trend page agrees with the server.</doc-note></div>
+    <div data-if="subcat=asis"><doc-note tone="warn">Then the role question must warn the user before it saves a specialty with another role.</doc-note></div>
+  </doc-claim>
+
+  <doc-claim>
+    <p>Four events record what users do with the questions.</p>
+    <doc-calls title="Analytics" caption="Strike a row that you do not want.">
+<script type="text/plain">
+? trackOnboardingViewed()                       @ src/frontend/src/features/analytics/events.ts:117   -- once, with a ref guard
+? trackOnboardingStep({ step, answered })       @ src/frontend/src/features/analytics/events.ts:117
+? onboarding_completed { counts }               @ src/backend/api/routers/users.py:42   -- server side
+? onboarding_skipped { step }                   @ src/backend/api/routers/users.py:42   -- server side
+</script>
+    </doc-calls>
+  </doc-claim>
+</doc-claim>
+
+<!-- ═════ shared · not changing ═════ -->
+<!-- ═════ 5 ═════ -->
+<doc-claim>
+  <p>Recent Job Postings drops the company caption under its title.</p>
+  <doc-code title="RecentJobPostingsPage.tsx" lang="diff">
+<script type="text/plain">
+@@ -3,5 +3,4 @@
+ import { RecentJobsFilters } from '../../components/recent-jobs-page/RecentJobsFilters';
+ import { RecentJobsList } from '../../components/recent-jobs-page/RecentJobsList/RecentJobsList';
+-import { EditCompanyPreferencesRow } from '../../components/recent-jobs-page/EditCompanyPreferencesRow';
+ import { ErrorState } from '../../components/shared/ErrorDisplay';
+ import { LoadingState } from '../../components/shared/LoadingIndicator';
+@@ -47,9 +46,8 @@
+         <Typography
+           variant="h3"
+           component="h1"
+-          gutterBottom
+-          sx={{ fontSize: RESPONSIVE.fontSize.pageTitle }}
++          sx={{ fontSize: RESPONSIVE.fontSize.pageTitle, mb: 2 }}
+         >
+           Recent Job Postings
+         </Typography>
+-        <EditCompanyPreferencesRow />
+</script>
+    <doc-pin old="55" tone="warn" title="Every variant goes">All companies, your N companies, and the signed-out Sign in line. EditCompanyPreferencesLink, EditCompanyPreferencesRow and their tests are deleted.</doc-pin>
+  </doc-code>
+</doc-claim>
+
+<doc-claim aux="shared">
+  <p>Shared: one request body and one new user field.</p>
+  <doc-schema id="api" lang="py" diff title="src/backend/api/models.py" caption="Green is new. The request reuses the saved-filter bounds.">
+<script type="text/plain">
++class OnboardingRequest(BaseModel):    # POST /api/users/onboarding
++    model_config = CAMEL_FORBID         # camelCase, extra="forbid"
++    skipped: bool = False
++    category: FacetSlugs = []          # SavedFilters bounds
++    subcategory: FacetSlugs = []       # only with SWE picked
++    level: FacetSlugs = []             # unexpanded
++    locations: LocationNames = []      # canonical names
++    session_id: SessionId | None = None
+
+ class UserResponse(BaseModel):
+     # … id, email, created_at, is_admin
++    onboarding_completed_at: datetime | None  # no default
+</script>
+  </doc-schema>
+</doc-claim>
+
+<doc-claim aux="scope">
+  <p>Not changing: existing accounts, Saved filters, sign-in, the landing page.</p>
+  <ul>
+    <li>The 368 accounts of today never see the questions.</li>
+    <li>The Saved filters page and its PUT stay as they are. It is where a user changes the answers later.</li>
+    <li>Auth0 and Google One-Tap code stay as they are. The gate reads only the server stamp.</li>
+    <li>The landing page and /pricing stay as they are. The gate is in RootLayout, so a Checkout return is not stopped.</li>
+    <li>No resume upload, no salary, no visa question, no email.</li>
+  </ul>
+</doc-claim>
+
+</doc-plan>
+</main>
+<script src="proto-logos.js"></script>
+<script src="proto-lab.js"></script>
+</body>
+</html>

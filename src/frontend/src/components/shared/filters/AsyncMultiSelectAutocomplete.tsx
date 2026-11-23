@@ -1,13 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Autocomplete, TextField, Chip, CircularProgress } from '@mui/material';
 import { getArrayDiff } from '../../../features/filters/utils/filterUtils.ts';
-import {
-  useSearchLocationsQuery,
-  type LocationSearchResult,
-} from '../../../features/locations/locationsApi.ts';
+import { type LocationSearchResult } from '../../../features/locations/locationsApi.ts';
+import { useLocationSearch } from '../../../features/locations/useLocationSearch.ts';
 import { upsertLocationDescriptors } from '../../../features/locations/locationCatalogSlice.ts';
 import { useAppDispatch } from '../../../app/hooks.ts';
-import { extractErrorMessage } from '../../../lib/errors.ts';
 
 export interface AsyncMultiSelectAutocompleteProps {
   label: string;
@@ -23,15 +20,10 @@ export interface AsyncMultiSelectAutocompleteProps {
   limit?: number;
 }
 
-/** Debounce delay (ms) before a keystroke triggers a location search. */
-const DEBOUNCE_MS = 300;
-/** Minimum query length before hitting the search endpoint. */
-const MIN_QUERY_LEN = 2;
-
 /**
  * Multi-select autocomplete backed by the public server-side location search
  * endpoint. Mirrors `MultiSelectAutocomplete` (string array, add/remove
- * callbacks) but sources its options from a debounced `useSearchLocationsQuery`
+ * callbacks) but sources its options from the debounced `useLocationSearch`
  * over the FULL canonical `locations` table rather than a static `options`
  * prop. Used by the Recent Jobs + company hiring-trend filter dropdowns and the
  * Saved Filters page — so a user can pick any location, even one no currently-
@@ -59,20 +51,12 @@ export function AsyncMultiSelectAutocomplete({
 }: AsyncMultiSelectAutocompleteProps) {
   const dispatch = useAppDispatch();
   const [inputValue, setInputValue] = useState('');
-  const [debouncedQuery, setDebouncedQuery] = useState('');
-
-  // Debounce the raw input into the query that drives the request.
-  useEffect(() => {
-    const handle = setTimeout(() => setDebouncedQuery(inputValue), DEBOUNCE_MS);
-    return () => clearTimeout(handle);
-  }, [inputValue]);
-
-  const trimmedQuery = debouncedQuery.trim();
-  const belowMinLength = trimmedQuery.length < MIN_QUERY_LEN;
-  const { data, isFetching, isError, error } = useSearchLocationsQuery(
-    { q: trimmedQuery, openOnly, limit },
-    { skip: belowMinLength }
-  );
+  const {
+    results: data,
+    isFetching,
+    errorMessage,
+    noOptionsText,
+  } = useLocationSearch(inputValue, { openOnly, limit });
 
   // Keep already-selected values present as options so their chips render and
   // stay removable even when they aren't in the latest search results.
@@ -80,14 +64,6 @@ export function AsyncMultiSelectAutocomplete({
     const fromSearch = (data ?? []).map((r) => r.canonicalName);
     return Array.from(new Set([...value, ...fromSearch]));
   }, [data, value]);
-
-  // Distinguish the three "no suggestions" reasons so the dropdown never reads
-  // as a bare empty void (the original silent-failure bug): too-short query,
-  // a failed request, or a genuinely empty result set.
-  const errorMessage = isError ? extractErrorMessage(error, 'Location search failed') : null;
-  const noOptionsText = belowMinLength
-    ? `Type at least ${MIN_QUERY_LEN} characters to search`
-    : (errorMessage ?? 'No matching locations');
 
   const handleChange = (_: unknown, newValue: string[]) => {
     if (!Array.isArray(newValue)) return;
@@ -133,7 +109,7 @@ export function AsyncMultiSelectAutocomplete({
           {...params}
           label={label}
           placeholder={placeholder}
-          error={isError}
+          error={errorMessage !== null}
           helperText={errorMessage ?? undefined}
           slotProps={{
             input: {

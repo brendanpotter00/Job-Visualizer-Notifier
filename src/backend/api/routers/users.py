@@ -15,6 +15,9 @@ from ..models import (
     ApplyClickRequest,
     EnabledCompaniesResponse,
     EnabledCompaniesUpdateRequest,
+    OnboardingRequest,
+    OnboardingResponse,
+    SavedFiltersResponse,
     UserResponse,
     UserUpdateRequest,
     VisitRequest,
@@ -27,6 +30,7 @@ from ..services.user_preferences_service import (
 )
 from ..services.user_service import (
     UserRow,
+    complete_onboarding,
     get_or_create_user,
     get_user_by_email,
     record_apply_click,
@@ -93,6 +97,7 @@ def _row_to_user_response(row: UserRow, *, is_admin: bool) -> UserResponse:
         created_at=row["created_at"],
         updated_at=row["updated_at"],
         is_admin=is_admin,
+        onboarding_completed_at=row["onboarding_completed_at"],
     )
 
 
@@ -242,6 +247,80 @@ async def record_user_apply_click(
         body.session_id,
     )
     return Response(status_code=204)
+
+
+@router.post("/onboarding", response_model=OnboardingResponse)
+async def complete_user_onboarding(
+    body: OnboardingRequest,
+    conn: Connection = Depends(get_db),
+    user: TokenClaims = Depends(get_current_user),
+) -> OnboardingResponse:
+    """Save the first-sign-in answers and stamp the account as onboarded.
+
+    Finish and Skip both end here (``skipped`` tells them apart, and Skip
+    keeps the answers already given). The stamp and the four saved-filter
+    columns are written in one transaction by ``complete_onboarding``, whose
+    ``IS NULL`` guard makes a second call a no-op: it neither re-stamps nor
+    replaces the first answers, and it answers with what is stored.
+
+    The user row is upserted first, like ``/visit``, so this never 404s for a
+    signed-in caller whose row does not exist yet. Subject/email resolution
+    and error handling mirror ``record_user_visit``: only ``psycopg2.Error``
+    becomes a 500, and ``RuntimeError`` (ambiguous identity) propagates.
+
+    ``onboarding_completed`` / ``onboarding_skipped`` are mirrored to PostHog
+    (best-effort) only by the request that set the stamp, so each account
+    counts once.
+    """
+    auth0_id = get_normalized_subject(user)
+    if not auth0_id:
+        raise HTTPException(status_code=401, detail="Token missing required 'sub' claim")
+    email = user.get("email")
+    if not email:
+        raise HTTPException(status_code=401, detail="Token missing required 'email' claim")
+    try:
+        row = get_or_create_user(
+            conn,
+            auth0_id=auth0_id,
+            email=email,
+            given_name=user.get("given_name"),
+            family_name=user.get("family_name"),
+            picture_url=user.get("picture"),
+        )
+        result = complete_onboarding(
+            conn,
+            row["id"],
+            category=body.category,
+            subcategory=body.subcategory,
+            level=body.level,
+            locations=body.locations,
+        )
+    except psycopg2.Error:
+        logger.exception("Failed to complete onboarding for sub=%s", auth0_id)
+        raise HTTPException(status_code=500, detail="Failed to save onboarding")
+    if result is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    saved = result["saved_filters"]
+    if result["newly_completed"]:
+        counts = {
+            "category_count": len(saved["category"]),
+            "subcategory_count": len(saved["subcategory"]),
+            "level_count": len(saved["level"]),
+            "location_count": len(saved["locations"]),
+        }
+        if body.skipped:
+            _capture_event(
+                "onboarding_skipped",
+                auth0_id,
+                {"step": body.step, **counts},
+                body.session_id,
+            )
+        else:
+            _capture_event("onboarding_completed", auth0_id, counts, body.session_id)
+    return OnboardingResponse(
+        onboarding_completed_at=result["completed_at"],
+        saved_filters=SavedFiltersResponse.model_validate(saved),
+    )
 
 
 @router.put("", response_model=UserResponse)

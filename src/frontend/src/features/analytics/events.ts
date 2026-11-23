@@ -92,6 +92,27 @@ export function trackSignInOverlayViewed(page: OverlayPage): void {
 }
 
 /**
+ * The first-sign-in questions opened. Fired once per showing (the flow guards it
+ * with a ref), so a re-render never double-counts. Its pair, the end of the flow,
+ * is server-side: `onboarding_completed` / `onboarding_skipped`, captured by
+ * `POST /api/users/onboarding` only for the request that stamped the account.
+ */
+export function trackOnboardingViewed(): void {
+  if (!POSTHOG_CONFIG.isEnabled) return;
+  safeAnalytics(() => posthog.capture('onboarding_viewed'));
+}
+
+/**
+ * The reader left one question forward (Continue, or "Show my jobs" on the last).
+ * `step` is 1-based; `answered` is whether that question had any answer, so the
+ * funnel can tell "moved on with an answer" from "moved on with any".
+ */
+export function trackOnboardingStep(props: { step: number; answered: boolean }): void {
+  if (!POSTHOG_CONFIG.isEnabled) return;
+  safeAnalytics(() => posthog.capture('onboarding_step_completed', props));
+}
+
+/**
  * The current PostHog `$session_id`, or `undefined` when PostHog is off or has no
  * session yet. Sent with the visit and apply-click calls so the backend can store
  * it and stamp it on the events it mirrors to PostHog. Never throws.

@@ -29,8 +29,7 @@ export function AuthProviders({ children }: { children: React.ReactNode }) {
         // always runs and stalls on Chrome's blocked third-party cookies. One Tap
         // no longer waits on it (see GoogleOneTap.tsx), but bounding it to 8s
         // limits wasted background work and the transient "authenticated but
-        // isLoading still true" window that gates UserMenu / SignInOverlay /
-        // EditCompanyPreferencesLink.
+        // isLoading still true" window that gates UserMenu / SignInOverlay.
         authorizeTimeoutInSeconds={8}
         onRedirectCallback={handleAuthRedirect}
         authorizationParams={{

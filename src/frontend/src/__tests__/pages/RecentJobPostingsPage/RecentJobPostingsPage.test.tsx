@@ -25,10 +25,6 @@ vi.mock('../../../components/recent-jobs-page/RecentJobsFilters', () => ({
   RecentJobsFilters: () => <div data-testid="recent-jobs-filters" />,
 }));
 
-vi.mock('../../../components/recent-jobs-page/EditCompanyPreferencesRow', () => ({
-  EditCompanyPreferencesRow: () => <div data-testid="edit-company-preferences-row" />,
-}));
-
 /** The `search` object the list stub was handed on its last render. */
 let listSearchProp: RecentJobsSearch | null = null;
 
@@ -234,7 +230,8 @@ describe('RecentJobPostingsPage', () => {
       expect(
         screen.getByRole('heading', { name: /Recent Job Postings/i, level: 1 })
       ).toBeInTheDocument();
-      expect(screen.getByTestId('edit-company-preferences-row')).toBeInTheDocument();
+      // The company caption under the title is gone, in every variant.
+      expect(screen.queryByText(/Showing jobs from/i)).not.toBeInTheDocument();
       expect(screen.getByTestId('recent-jobs-filters')).toBeInTheDocument();
       expect(screen.getByTestId('recent-jobs-list')).toHaveAttribute('data-job-count', '2');
     });

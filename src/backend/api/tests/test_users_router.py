@@ -36,6 +36,7 @@ class TestGetMe:
         expected_keys = {
             "id", "providerSubject", "email", "displayName", "givenName",
             "familyName", "pictureUrl", "createdAt", "updatedAt", "isAdmin",
+            "onboardingCompletedAt",
         }
         assert set(data.keys()) == expected_keys
 
@@ -43,7 +44,8 @@ class TestGetMe:
         """No snake_case keys should leak into the response."""
         resp = client.get("/api/users")
         snake_keys = {"provider_subject", "auth0_id", "display_name", "given_name",
-                      "family_name", "picture_url", "created_at", "updated_at"}
+                      "family_name", "picture_url", "created_at", "updated_at",
+                      "onboarding_completed_at"}
         assert not snake_keys.intersection(resp.json().keys())
 
     def test_is_admin_true_when_user_has_admin_grant(self, client, db_conn):

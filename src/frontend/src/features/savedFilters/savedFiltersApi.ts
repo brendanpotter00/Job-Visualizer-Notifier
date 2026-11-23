@@ -15,6 +15,34 @@ export interface UpdateKeywordListArgs {
   position?: number;
 }
 
+/** The first-sign-in answers. Every list may be empty, which means "any". */
+export interface OnboardingAnswers {
+  category: string[];
+  /** SWE specialties; the server keeps them only with `software_engineering` in `category`. */
+  subcategory: string[];
+  level: string[];
+  /** Canonical location names (or the `United States` whole-country option). */
+  locations: string[];
+}
+
+/** Body of `POST /api/users/onboarding`. */
+export interface CompleteOnboardingArgs extends OnboardingAnswers {
+  /** True for Skip (and any close of the questions). Skip keeps the answers. */
+  skipped: boolean;
+  /** The question on screen when the flow ended, 1-3 (analytics only). */
+  step: 1 | 2 | 3;
+  /** The PostHog session, when PostHog is on. */
+  sessionId?: string;
+}
+
+/** Answer of `POST /api/users/onboarding`. */
+export interface OnboardingResult {
+  /** The account's stamp: this request's, or the earlier one on a repeat call. */
+  onboardingCompletedAt: string;
+  /** The account's saved filters after the call. */
+  savedFilters: SavedFilters;
+}
+
 interface SavedFiltersApiExtra {
   getTokenOrNull: () => Promise<string | null>;
 }
@@ -145,6 +173,24 @@ export function validateSavedFilters(res: unknown): SavedFilters {
   };
 }
 
+/**
+ * Validate the `POST /api/users/onboarding` answer. Its `savedFilters` goes
+ * straight into the saved-filters cache and the live filter slices, so it gets
+ * the same check as a `GET /api/users/saved-filters` body. Exported for tests.
+ */
+export function validateOnboardingResult(res: unknown): OnboardingResult {
+  if (!isRecord(res)) {
+    throw new Error('Invalid /api/users/onboarding response: body is not an object');
+  }
+  if (typeof res.onboardingCompletedAt !== 'string' || res.onboardingCompletedAt.length === 0) {
+    throw new Error('Invalid /api/users/onboarding response: onboardingCompletedAt must be a string');
+  }
+  return {
+    onboardingCompletedAt: res.onboardingCompletedAt,
+    savedFilters: validateSavedFilters(res.savedFilters),
+  };
+}
+
 export const savedFiltersApi = createApi({
   reducerPath: 'savedFiltersApi',
   baseQuery: fetchBaseQuery({
@@ -174,6 +220,15 @@ export const savedFiltersApi = createApi({
       query: (body) => ({ url: '/saved-filters', method: 'PUT', body }),
       transformResponse: (res: unknown) => validateSavedFilters(res),
       invalidatesTags: ['SavedFilters'],
+    }),
+    // Saves the first-sign-in answers and stamps the account. No
+    // `invalidatesTags`: the answer carries the new saved filters, and the
+    // caller writes them into the `getSavedFilters` cache itself
+    // (`upsertQueryData`) together with the live filter slices, so a refetch
+    // would only repeat what it already has.
+    completeOnboarding: builder.mutation<OnboardingResult, CompleteOnboardingArgs>({
+      query: (body) => ({ url: '/onboarding', method: 'POST', body }),
+      transformResponse: (res: unknown) => validateOnboardingResult(res),
     }),
     getKeywordLists: builder.query<KeywordList[], void>({
       query: () => '/saved-filters/keyword-lists',
@@ -223,6 +278,7 @@ export const savedFiltersApi = createApi({
 export const {
   useGetSavedFiltersQuery,
   useUpdateSavedFiltersMutation,
+  useCompleteOnboardingMutation,
   useGetKeywordListsQuery,
   useCreateKeywordListMutation,
   useUpdateKeywordListMutation,
