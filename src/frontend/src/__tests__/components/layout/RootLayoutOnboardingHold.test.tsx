@@ -83,7 +83,8 @@ function installFetch() {
     answerUsers = resolve;
   });
   return vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
-    const url = typeof input === 'string' ? input : input instanceof Request ? input.url : String(input);
+    const url =
+      typeof input === 'string' ? input : input instanceof Request ? input.url : String(input);
     if (url === '/api/users') return pending;
     return new Response(JSON.stringify({ detail: 'not in this test' }), { status: 404 });
   });
@@ -166,7 +167,10 @@ describe('RootLayout holds the page until the first-sign-in decision is in', () 
   });
 
   it('another account remembered on this browser does not release the hold for this one', () => {
-    window.localStorage.setItem('jvn.onboardingAnswered.v1', JSON.stringify(['auth0|someone-else']));
+    window.localStorage.setItem(
+      'jvn.onboardingAnswered.v1',
+      JSON.stringify(['auth0|someone-else'])
+    );
     renderApp();
 
     expect(page()).toBeNull();

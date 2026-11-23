@@ -126,8 +126,8 @@ export async function openSignedIn(
 }
 
 /**
- * Counts this page's `GET /api/users` calls (UserMenu, the drawer and the gate
- * each make one). PLAN.md §5: "the questions do NOT appear" is asserted only
+ * Counts this page's `GET /api/users` calls (ONE per load since 2026-11-23:
+ * every caller shares `CurrentUserProvider`'s; OB-U13 pins that). PLAN.md §5: "the questions do NOT appear" is asserted only
  * after every one of them has come back — the gate cannot have decided before.
  * Install BEFORE the first navigation.
  */

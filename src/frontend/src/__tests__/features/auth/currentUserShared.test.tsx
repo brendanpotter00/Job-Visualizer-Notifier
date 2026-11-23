@@ -46,24 +46,18 @@ const ROW = {
 
 function Reader({ name }: { name: string }) {
   const { user, loading } = useCurrentUser();
-  return (
-    <p data-testid={name}>
-      {loading ? 'loading' : (user?.displayName ?? 'none')}
-    </p>
-  );
+  return <p data-testid={name}>{loading ? 'loading' : (user?.displayName ?? 'none')}</p>;
 }
 
 function Renamer() {
   const { setUser } = useCurrentUser();
   return (
-    <button onClick={() => setUser((u) => (u ? { ...u, displayName: 'After' } : u))}>
-      rename
-    </button>
+    <button onClick={() => setUser((u) => (u ? { ...u, displayName: 'After' } : u))}>rename</button>
   );
 }
 
-const usersGets = (spy: ReturnType<typeof vi.spyOn>) =>
-  spy.mock.calls.filter(([url]) => url === '/api/users').length;
+const usersGets = (spy: { mock: { calls: unknown[][] } }) =>
+  spy.mock.calls.filter((args) => args[0] === '/api/users').length;
 
 describe('useCurrentUser under CurrentUserProvider', () => {
   let fetchSpy: ReturnType<typeof vi.spyOn>;
@@ -89,7 +83,9 @@ describe('useCurrentUser under CurrentUserProvider', () => {
     );
 
     for (const name of ['menu', 'drawer', 'analytics', 'gate']) {
-      expect(await screen.findByText('Before', { selector: `[data-testid="${name}"]` })).toBeInTheDocument();
+      expect(
+        await screen.findByText('Before', { selector: `[data-testid="${name}"]` })
+      ).toBeInTheDocument();
     }
     expect(usersGets(fetchSpy)).toBe(1);
   });
@@ -115,7 +111,9 @@ describe('useCurrentUser under CurrentUserProvider', () => {
 
   it('without a provider each caller still works on its own (a unit test rendering one component)', async () => {
     render(<Reader name="alone" />);
-    expect(await screen.findByText('Before', { selector: '[data-testid="alone"]' })).toBeInTheDocument();
+    expect(
+      await screen.findByText('Before', { selector: '[data-testid="alone"]' })
+    ).toBeInTheDocument();
     expect(usersGets(fetchSpy)).toBe(1);
   });
 });

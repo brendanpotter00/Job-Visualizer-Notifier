@@ -12,6 +12,8 @@ context as the same identity.
 tier itself runs in ~1.3 s; the browser tier is ~47 s. First provision of the database adds
 ~10 s, once. Cost **$0** (no LLM, no Browserbase, no PostHog, browser fenced to `127.0.0.1`).
 
+**2026-11-23 (OB-U13 added, `fix/onboarding-opens-before-page`):** full gate 13 API + 13 UI = 26 collected, 26 PASS, exit 0; the `subcategories` gate 55/55 alongside it. OB-U13 alone ~13 s.
+
 **No case was dropped.** Every case keeps its oracle and decoy; where implementation added a
 mirror or changed the evidence, the row says so ("Refined").
 
@@ -60,6 +62,7 @@ edits), the relevant cases run, and each mutation reverted (`git status` clean o
 | **OB-U10** | **Phone size.** OB-U1's path at 390x844: the dialog fills the screen, Continue/Back are reachable at the bottom, chips do not change width when tapped (measure before/after), the toast does not cover the app bar | Taps (touch context). Footer measured with all 17 specialties open; chips measured on Backend, Entry and San Francisco; ends with the one-row list and the stamp | 🟢 1/1 |
 | **OB-U11** | **A failed save does not trap the user.** Route `POST /api/users/onboarding` → 500; Skip → the dialog closes for this visit and `document.title` is back to the page's own title; DB still NULL; reload (same context) → the dialog opens again; remove the route, Skip → stamped | Pins the review fix (failed Skip closes for the visit only) and the tab-title fix. Refined: the "page's own title" oracle is read off the pre-existing account's `/jobs`, never hard-coded. **Proven to bite** (both fixes) | 🟢 1/1 |
 | **OB-U12** | **An older backend never opens it.** Route `GET /api/users` to strip `onboardingCompletedAt` from the body (fresh identity) → no dialog; DB still NULL | The staggered-deploy guarantee: `undefined` must never mean "ask". Refined: mirror — un-route and reload, the same account IS asked. **Proven to bite** | 🟢 1/1 |
+| **OB-U13** | **A brand-new account goes STRAIGHT to the questions.** Every `GET /api/users*` held back 1.5 s (prod measured 1.5–3.5 s for a new account, 2026-11-23). Fresh identity opens `/jobs` → the questions open, and the page's own "Recent Job Postings" h1 was never painted before them (first-paint times recorded in the page, one clock); the load sent exactly ONE `GET /api/users` | Rejects the page loading first and the questions snapping in over it (the 2026-11-23 report), and one request per caller (Chrome runs identical GETs one after another, so the gate answered after three round trips). Mirror: the pre-existing stamped account on a NEW context is held until its one `GET /api/users` resolves, gets the page and no questions; on reload (same browser, now known) the page is painted while that request is still in flight — a returning reader never pays the hold twice. **Proven to bite** (pre-fix frontend: page h1 at 818 ms, questions at 2094 ms) | 🟢 1/1 |
 
 ## Known non-coverage
 

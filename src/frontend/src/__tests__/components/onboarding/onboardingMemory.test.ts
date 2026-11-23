@@ -21,22 +21,24 @@ function jwt(payload: Record<string, unknown>): string {
 describe('signInSubject', () => {
   it('uses the Auth0 sub as is (it already names its provider)', () => {
     expect(signInSubject('auth0|6b0464bc', null)).toBe('auth0|6b0464bc');
-    expect(signInSubject('google-oauth2|123', jwt({ sub: '999', iss: 'accounts.google.com' }))).toBe(
-      'google-oauth2|123'
-    );
+    expect(
+      signInSubject('google-oauth2|123', jwt({ sub: '999', iss: 'accounts.google.com' }))
+    ).toBe('google-oauth2|123');
   });
 
   it('prefixes a Google-issued One-Tap sub with google|, for both issuer spellings', () => {
-    expect(signInSubject(undefined, jwt({ sub: '1234567890', iss: 'https://accounts.google.com' }))).toBe(
-      'google|1234567890'
+    expect(
+      signInSubject(undefined, jwt({ sub: '1234567890', iss: 'https://accounts.google.com' }))
+    ).toBe('google|1234567890');
+    expect(signInSubject(undefined, jwt({ sub: '42', iss: 'accounts.google.com' }))).toBe(
+      'google|42'
     );
-    expect(signInSubject(undefined, jwt({ sub: '42', iss: 'accounts.google.com' }))).toBe('google|42');
   });
 
   it('leaves a credential from any other issuer unprefixed (the e2e stack mints these)', () => {
-    expect(signInSubject(undefined, jwt({ sub: 'e2e|onboarding-x', iss: 'https://e2e.local.test/' }))).toBe(
-      'e2e|onboarding-x'
-    );
+    expect(
+      signInSubject(undefined, jwt({ sub: 'e2e|onboarding-x', iss: 'https://e2e.local.test/' }))
+    ).toBe('e2e|onboarding-x');
   });
 
   it('is null when nothing readable identifies the reader', () => {
