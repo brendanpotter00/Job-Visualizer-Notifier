@@ -77,7 +77,24 @@ def test_a_weekly_batch_holds_three_small_ideas_and_one_big(loop):
     assert status(loop, 4) == "flagged"
     second_big = loop.add(scope="big", check=False)
     assert second_big.returncode != 0 and "one big initiative a week" in second_big.stderr
+    loop("texted", "NS weekly", "1", "2", "3", "4")
     assert next_action(loop) == "none"  # waiting on Brendan's picks
+
+
+def test_a_batch_saved_but_never_texted_is_texted_by_the_next_fire(loop):
+    loop.add()
+    loop.add(scope="big", title="Daily digest email")
+    assert next_action(loop, now="2026-12-01T13:30:00+00:00") == "text"
+    loop("texted", "NS weekly\n1) Divider\nBig (yours): Daily digest · NS-2", "1", "2")
+    assert next_action(loop, now="2026-12-01T13:30:00+00:00") == "none"
+
+
+def test_a_batch_stamped_minutes_into_a_fire_is_due_at_the_same_slot_next_week(loop):
+    loop.add(now="2026-12-01T09:35:00+00:00")
+    loop("texted", "NS weekly", "1", now="2026-12-01T09:36:00+00:00")
+    loop("sync", now="2026-12-08T09:30:00+00:00")
+    assert status(loop, 1) == "expired"
+    assert next_action(loop, now="2026-12-08T09:30:00+00:00") == "propose"
 
 
 def test_picked_small_ideas_are_built_in_order_and_a_no_keeps_his_reason(loop):

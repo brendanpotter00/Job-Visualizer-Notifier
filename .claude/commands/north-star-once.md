@@ -1,6 +1,6 @@
 # /north-star-once — one headless north-star-loop run
 
-Headless one-shot for `scripts/north_star_loop/wrapper.sh` (LaunchAgent `com.bp.jvn-north-star-loop`). The wrapper has already run `loop.py sync` and `loop.py next`, and passes the action as the argument: `propose`, `build N`, or `readout N`. Interactively, invoke the `north-star-loop` skill instead.
+Headless one-shot for `scripts/north_star_loop/wrapper.sh` (LaunchAgent `com.bp.jvn-north-star-loop`). The wrapper has already run `loop.py sync` and `loop.py next`, and passes the action as the argument: `propose`, `text` (send a saved weekly batch whose text never went out), `build N`, or `readout N`. Interactively, invoke the `north-star-loop` skill instead.
 
 Action: $ARGUMENTS
 

@@ -43,7 +43,7 @@ State: `scripts/north_star_loop/loop.py` (SQLite at `~/Library/Application Suppo
 
 ## §2 Modes
 
-Pick the mode from the argument (`propose`, `build N`, `readout N`). With no argument, run `LOOP sync` then `LOOP next` and do what it prints (`none` → write the heartbeat and stop).
+Pick the mode from the argument (`propose`, `text`, `build N`, `readout N`). With no argument, run `LOOP sync` then `LOOP next` and do what it prints (`none` → write the heartbeat and stop).
 
 ### propose
 
@@ -64,7 +64,16 @@ Pick the mode from the argument (`propose`, `build N`, `readout N`). With no arg
    - **Risk**: what could break or get worse, which guardrail it could hurt; rollback (revert the PR).
    - **Measurement**: when the readout can land at the current signup rate (time to 30 post-ship signups + 31 days), whether a lift of the hoped size is detectable at that n (say "likely inconclusive" plainly if not), and one **leading signal** readable weekly from week 1. At today's volume the leading signal is the real test.
    - **Ranked candidates**: the week's full table (every candidate from step 6 with Impact, Confidence, Effort, score, scope, strategy verdict, one line each), identical in every brief of the batch, and why the picked ones won.
-8. Record them, small ideas first in rank order: `LOOP add --scope small|big --title "<the change, ≤12 words>" --metric "7d return" --expected "<now%> → <hoped%>" --risk low|medium|high --brief-file <file>` (each prints its id). `now%` is the pooled 7-day+ return over all mature cohorts, with n in the brief. Then `LOOP log N decision ...` each choice from steps 3-6 on the idea it concerns. Compose the weekly text (§3) with the real ids, record it with `LOOP texted "<text>" <every id in the text>`, and send it with notify.sh.
+8. Record them, small ideas first in rank order: `LOOP add --scope small|big --title "<the change, ≤12 words>" --metric "7d return" --expected "<now%> → <hoped%>" --risk low|medium|high --brief-file <file>` (each prints its id). `now%` is the pooled 7-day+ return over all mature cohorts, with n in the brief. Right after the last `add`, before anything else: compose the weekly text (§3) with the real ids, record it with `LOOP texted "<text>" <every id in the text>`, and send it with notify.sh. Only then `LOOP log N decision ...` each choice from steps 3-6 on the idea it concerns. (If the run dies between `add` and `texted`, the next fire's `LOOP next` prints `text` and finishes the batch.)
+
+### text
+
+The weekly batch was saved but its text never went out (a propose run died between `add` and `texted`).
+
+1. Run `LOOP sync` then `LOOP next`. If it does not print `text`, write the heartbeat (`outcome=none`) and stop.
+2. `LOOP list`, then `LOOP show N` on every `proposed` or `flagged` idea with no `sms:` line. No new research, no new ideas, no data queries: the saved briefs are the whole input.
+3. Compose the weekly text (§3) from those briefs (7d return and scores as the briefs state them), record it with `LOOP texted "<text>" <every id in the text>`, and send it with notify.sh. If notify.sh exits 2 or 3, clear nothing: log the mistake per §0.9 and end with `outcome=error` (the wrapper's failure text fires; Brendan can rerun).
+4. `LOOP log N mistake "weekly text sent late by a text run: the propose run stopped before texting"` on each idea it named.
 
 ### build N
 
@@ -111,5 +120,5 @@ Short enough to read on a lock screen. No greeting, no sign-off. notify.sh adds 
 
 Last steps of every run, even a failed one:
 1. Append one line to `${JVN_LOOP_STATE_DIR:-$HOME/Library/Application Support/jvn-north-star-loop}/heartbeat.log`:
-   `<UTC ISO time> mode=<mode> ns=<ids or -> outcome=<proposed|pr_open|blocked|paused|deferred|measured|none|error> texts=<k>` (`k` counts texts actually sent; dry-run prints are 0).
+   `<UTC ISO time> mode=<mode> ns=<ids or -> outcome=<proposed|texted|pr_open|blocked|paused|deferred|measured|none|error> texts=<k>` (`k` counts texts actually sent; dry-run prints are 0).
 2. Print a 3-line status block and end the turn.

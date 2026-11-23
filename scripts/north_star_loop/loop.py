@@ -20,7 +20,8 @@ one text. Small-idea lifecycle:
 
 At most 3 small ideas are in flight (approved through pr_open) at once.
 
-`next` prints the one action the scheduled run should take. `sync` does the
+`next` prints the one action the scheduled run should take (`text` when this
+week's batch was saved but its text was never recorded as sent). `sync` does the
 token-free bookkeeping first (merge detection via `gh`, expiry). See
 .claude/skills/north-star-loop/SKILL.md for the procedure that drives it.
 """
@@ -47,6 +48,9 @@ MAX_IN_FLIGHT = 3  # small ideas approved but not yet merged or closed
 # the same "week + 38 days" rule as metrics.north_star_weekly.mature.
 READOUT_DAYS = 38
 MAX_BUILD_ATTEMPTS = 2
+# Fires are 4h apart and a batch is stamped minutes into one, so "a week ago"
+# leaves half a fire of slack to keep each batch on the same weekly slot.
+SLACK = timedelta(hours=1)
 IN_FLIGHT = ("approved", "building", "paused", "pr_open")
 STATUSES = ("proposed", *IN_FLIGHT, "flagged", "shipped", "measured", "rejected",
             "expired", "closed", "blocked")
@@ -106,6 +110,10 @@ def connect() -> sqlite3.Connection:
     return db
 
 
+def days_ago(days: int) -> datetime:
+    return now() - timedelta(days=days) + SLACK
+
+
 def count(db, where: str, *params) -> int:
     return db.execute(f"SELECT count(*) FROM proposals WHERE {where}", params).fetchone()[0]
 
@@ -142,8 +150,7 @@ def cmd_add(db, a) -> None:
             sys.exit(f"refused: this week's batch already has {BATCH_SIZE} small ideas")
         status = "proposed"
     else:
-        week_ago = iso(now() - timedelta(days=PROPOSE_EVERY_DAYS))
-        if count(db, "scope = 'big' AND created_at > ?", week_ago):
+        if count(db, "scope = 'big' AND created_at > ?", iso(days_ago(PROPOSE_EVERY_DAYS))):
             sys.exit("refused: one big initiative a week")
         status = "flagged"
     brief = Path(a.brief_file).read_text()
@@ -242,9 +249,8 @@ def gh_pr_state(url: str):
 
 
 def cmd_sync(db, a) -> None:
-    t = now()
     for r in db.execute("SELECT * FROM proposals WHERE status = 'proposed'").fetchall():
-        if datetime.fromisoformat(r["created_at"]) <= t - timedelta(days=EXPIRE_DAYS):
+        if datetime.fromisoformat(r["created_at"]) <= days_ago(EXPIRE_DAYS):
             update(db, r["id"], status="expired")
             log_event(db, r["id"], "expired", f"no reply in {EXPIRE_DAYS} days")
     for r in db.execute("SELECT * FROM proposals WHERE status = 'pr_open'").fetchall():
@@ -278,10 +284,13 @@ def next_action(db) -> str:
     ).fetchone()
     if r:
         return f"readout {r['id']}"
+    if count(db, "sms = '' AND status IN ('proposed', 'flagged') AND created_at > ?",
+             iso(days_ago(EXPIRE_DAYS))):
+        return "text"  # this week's batch was saved but its text never went out
     if count(db, "status = 'proposed'") or in_flight(db) >= MAX_IN_FLIGHT:
         return "none"  # waiting on the weekly answer, or every slot is taken
     last = db.execute("SELECT max(created_at) AS c FROM proposals").fetchone()["c"]
-    if last is None or datetime.fromisoformat(last) <= now() - timedelta(days=PROPOSE_EVERY_DAYS):
+    if last is None or datetime.fromisoformat(last) <= days_ago(PROPOSE_EVERY_DAYS):
         return "propose"
     return "none"
 
