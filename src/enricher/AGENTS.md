@@ -32,7 +32,12 @@ the DB and runs `init_schema` (a migration, if the code is newer).
 cd src/enricher && uv sync --locked && uv run pytest
 ```
 
-CI runs this as the `enricher` job (macOS). The suite must run **inside JVN**:
+End to end: `e2e/run.sh enricher` runs the REAL wrapper + CLI from a sandbox copy against a
+real backend + Postgres and a stub model ($0; `--fast` for the quick subset;
+`--enricher-ref <ref>` to test the version prod runs or is about to). Runbook:
+`.claude/skills/e2e-gate/sections/enricher.md`.
+
+CI runs the unit suite as the `enricher` job (macOS). The suite must run **inside JVN**:
 `tests/test_taxonomy_parity.py` reads the backend's `src/backend/taxonomy.json`. To change a
 taxonomy slug, change the backend, regenerate it with
 `src/backend/tools/generate_taxonomy_artifact.py`, and update `job_enricher.taxonomy` in the

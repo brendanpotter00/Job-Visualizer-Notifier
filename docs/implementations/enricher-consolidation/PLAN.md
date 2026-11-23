@@ -182,7 +182,7 @@ a row in `e2e/README.md` and in the skill's table, a cost banner + hand-off in `
 | Frontend | **none** — new `stack_up.sh` knob `E2E_SKIP_FRONTEND=1` |
 | Database | **`jobscraper_e2e_enricher`**, `--schema-only` (it seeds its own rows) |
 | LLM | `e2e/enricher/stub_ollama.py` on **:8215** — a stdlib HTTP server implementing `POST /api/chat` |
-| Enricher | a **sandbox copy** of the enricher tree under `$E2E_ARTIFACTS_DIR/enricher/`, `uv sync --frozen`, real CLI + real `scripts/enrich_tick_wrapper.sh` |
+| Enricher | a **sandbox copy** of the enricher tree under `$TMPDIR/jvn-e2e-<hash>/enricher-sandbox/<run>/` *(as built: outside the repo; each case's `data/` is copied into `artifacts/<run>/enricher-data/`)*, `uv sync --frozen`, real CLI + real `scripts/enrich_tick_wrapper.sh` |
 | Cost | **$0, unconditionally.** No Claude, no Anthropic API, no real ollama, no Browserbase, no host but loopback |
 
 **Shared changes (generalise, never fork; every default = today's behaviour):**
@@ -191,6 +191,9 @@ a row in `e2e/README.md` and in the skill's table, a cost banner + hand-off in `
   (default empty → the existing `unset INTERNAL_API_KEY` stands; non-empty → export it after
   the unset). The enricher **must** present a key (`JVNClient` raises without one), so this
   section is the first to run the backend with the internal-key middleware armed.
+- *(as built)* `E2E_BLANK_ANTHROPIC_KEY` (default `0` → inherit as today; `1` → export it
+  EMPTY, which beats the root `.env.local` the backend reads directly). Without it the
+  backend's 5-minute `scan_unnormalized` task holds a real Haiku key during the run.
 - `stack_down.sh` already tolerates a missing frontend pidfile — verify, don't change.
 - `e2e/run.sh`: banners + `exec` hand-offs for `enricher` and `enricher-cutover` (same shape
   as `subcategories`), and the usage text.
@@ -211,6 +214,17 @@ sandbox path. That assertion is the isolation proof; the run refuses if it fails
 `~/developer/personal/{app,enricher-prod,job-enricher}`; `cli health` in the sandbox reports
 `classify_engine=ollama` and `judge_engine=ollama` (so the wrapper can never reach `claude -p`).
 
+*(As built)* the guard runs `cli init` before `cli health`: `cli health` does not create
+`data/` and fails `unable to open database file` on a never-initialised checkout.
+
+**Database drift (found while building).** The schema-only clone of `jobscraper_pr243` lacks
+`job_listings.search_text`/`primary_country` and the `data_scientist`/`intern` dimension rows
+(the local source DB is stamped past migrations it never ran), which makes EVERY `/results`
+item fail. `e2e/enricher/seed.py` repairs the section's own DB idempotently from
+`src/backend/taxonomy.json` + the migration's column definition; `ensure_db.sh` is unchanged.
+It also disables every non-fixture company so the backend's `*/30` fan-outs cannot scrape real
+boards into the DB the enricher claims from. Details: `e2e/enricher/PLAN.md` §4.
+
 **`--enricher-ref <ref>`** runs the same cases against another version — notably
 `enricher-prod-eeff1c9`, the code the cutover will put in prod. Cases that need v7-only
 behaviour carry `@pytest.mark.v7`; `run.sh` deselects them (`-m "not v7"`, so they are not
@@ -229,16 +243,16 @@ both the tag's (v6) and main's (v7) response shapes; extra keys are ignored by v
 | ID | Proves | Tier/marker |
 |---|---|---|
 | **EN-00** | Contract: the sandbox enricher's `taxonomy.CATEGORIES`/`LEVELS` (and, v7, `SUBCATEGORIES`) agree with the e2e backend's `GET /api/jobs/facets`. A known drift at the prod tag is marked known-red in CASES.md, never weakened. | fast |
-| **EN-01** | One real wrapper fire enriches the seeded OPEN jobs end-to-end: JVN `job_listings.enrichment_*` set, `enrichment_status` leaves `claimed`, `job_enrichment` provenance carries the engine/model (`qwen3:32b`) and tick id; local tick closes `ok` with `claimed == classified == sent`; the stub saw only `/api/chat`, `model=qwen3:32b`, `temperature=0`. | fast |
+| **EN-01** | One real wrapper fire enriches the seeded OPEN jobs end-to-end: JVN `job_listings.enrichment_*` set, `enrichment_status` leaves `claimed`, `job_enrichment` carries taxonomy version/confidence/reasoning *(as built: JVN stores neither model nor tick — `classify_model = qwen3:32b` and `tick_id` are asserted in the enricher's LOCAL `enrichments`, the model also in the `/metrics` knobs)*; local tick closes `ok` with `claimed == classified == sent`; the stub saw only `/api/chat`, `model=qwen3:32b`, `temperature=0`. | fast |
 | **EN-02** | Judge routing: only low-confidence rows reach the judge; a judge revision lands in JVN; a verdict below `judge:human_floor` arrives as `needs_human`. | |
 | **EN-03** | Metrics channel: a `running` snapshot appears mid-tick (stub `slow`) and the final `ok` push upserts the **same** `tick_uuid` in JVN's tick table; `GET /api/internal/enrichment/health` reflects `last_enriched_at`. | |
 | **EN-04** | Single-flight lock: a second wrapper fired during a running tick prints `lock held; skipping this fire`, exits 0 and leaves the lock untouched; a dead-holder lock aged > 3 h is reclaimed; a lock whose mtime predates boot is reclaimed immediately. | fast |
 | **EN-05** | Delivery-first under engine failure: stub `http500` → the tick still reaches write-back + tick-end, nothing is sent, rows stay pending; the next tick (stub `normal`) delivers them, with no duplicates in JVN. | slow |
-| **EN-06** | Bad model output never kills a wave: hallucinated ids are skipped and counted, an invalid facet slug reaches JVN as a nulled facet with a `warnings[]` entry, non-JSON output is an engine error for that chunk only. | |
+| **EN-06** | Bad model output never kills a wave: hallucinated ids are skipped and counted, an invalid facet slug reaches JVN as a nulled facet with a `warnings[]` entry, non-JSON output is an engine error for that chunk only. *(As built: the enricher nulls an invalid slug locally, so JVN gets `null` and no warning — `warnings[]` is exercised by an over-long tag; at batch 1 a mis-echoed id is repaired, so the hallucination is an EXTRA object; prose content records nothing and counts no error, an HTML body is the engine error.)* | |
 | **EN-07** | Idempotent re-delivery: re-posting the same results leaves `job_enrichment` / `job_tags` row counts and values unchanged. | |
 | **EN-08** | Kill switch: against the :8206 backend with `ENRICHMENT_USE_EXTERNAL=false`, a tick claims 0, closes `ok`, and touches no JVN row. | slow |
 | **EN-09** | (v7) Subcategory dark knob: with `writeback:send_subcategories` off (default) SWE rows keep `enrichment_subcategories IS NULL` (not `'{}'`); after `set` on, the next write-back populates SWE rows only. | v7 |
-| **EN-10** | Isolation: after the run, the dev tree's `src/enricher/data/` is unchanged (absent today), the sandbox DB holds every tick, and the stub's request count equals the chunks queued. | fast |
+| **EN-10** | Isolation: after the run, the dev tree's `src/enricher/data/` is unchanged (absent today), the sandbox DB holds every tick *(as built: each case gets a fresh local DB, so this is per-case accounting)*, and the stub's request count equals the chunks queued. | fast |
 
 `--fast` = the `fast` cases only. Every case writes `cases/<test>/step.txt` naming the failing
 step in words. Prove at least **two** cases bite with a deliberate, reverted mutation
@@ -251,6 +265,12 @@ as `subcategories` did.
 
 **CI.** Local-only, like every stack section: it needs the `jobscraper-postgres` container and
 the `jobscraper_pr243` source DB that `ensure_db.sh` clones from.
+
+**As built (Unit 2, 2026-11-23).** 16 cases; GREEN at HEAD (60 s), `--fast` (7 cases, 27 s)
+and `--enricher-ref enricher-prod-eeff1c9` (12 cases, 4 `v7` deselected, 51 s). Proven to bite
+with two reverted mutations (wrapper skips write-back → EN-01 + EN-05 red; stub omits one row →
+EN-10 red). Results, corrections and the pre-existing behaviours it pinned:
+`e2e/enricher/CASES.md`.
 
 ---
 
