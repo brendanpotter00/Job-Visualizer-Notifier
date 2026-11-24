@@ -69,7 +69,7 @@ volatile keys, and `scripts/enrich_tick_wrapper.sh` with the real wrapper's lock
 It is a zero-dependency, non-package uv project, so `uv sync --frozen` needs no network and
 no build backend. Behaviour per checkout comes from `control.env` (`OLD_*` / `NEW_*`:
 `START`, `TICK_S`, `STATUS`, counters), re-read while a tick runs (lower `TICK_S` to
-unwedge). Every lifecycle step appends to `events.jsonl` (`acquire`, `skip`, `end`, `killed`).
+unwedge). Every lifecycle step appends to `events.jsonl` (`acquire`, `skip`, `end`, `killed` = SIGTERMed while it owned a tick, `killed_idle` = SIGTERMed before owning one, e.g. a fire that raced the unload).
 
 **Stub `launchctl`** (Python; conftest rewrites its shebang to the test interpreter):
 

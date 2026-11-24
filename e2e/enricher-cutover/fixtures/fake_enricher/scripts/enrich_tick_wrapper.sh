@@ -23,9 +23,19 @@ on_term() {
   # Like the real wrapper TERMed mid-tick (launchd's unload): the tick stays
   # 'running', and the EXIT trap still runs (macOS /bin/sh does run it on SIGTERM),
   # clearing our own lock. Only a SIGKILL or a power loss leaves an orphan lock.
-  echo "[fake-wrapper] SIGTERM mid-tick (pid=$$)"
+  # A fire TERMed before it owned a tick (it was still starting, or about to exit
+  # 75 on a lock the cutover holds) is not a mid-tick kill: launchd's unload can
+  # always race a fire that just started, and that fire holds nothing. Only a
+  # kill while this wrapper owned a tick counts as "killed".
+  if [ "$ACQUIRED" = "1" ]; then
+    echo "[fake-wrapper] SIGTERM mid-tick (pid=$$)"
+    ev=killed
+  else
+    echo "[fake-wrapper] SIGTERM before owning a tick (pid=$$)"
+    ev=killed_idle
+  fi
   if [ -n "${FAKE_EVENTS:-}" ]; then
-    printf '{"ev": "killed", "pid": %s, "dir": "%s"}\n' "$$" "$PROJECT_DIR" >> "$FAKE_EVENTS"
+    printf '{"ev": "%s", "pid": %s, "dir": "%s"}\n' "$ev" "$$" "$PROJECT_DIR" >> "$FAKE_EVENTS"
   fi
   exit 143
 }
