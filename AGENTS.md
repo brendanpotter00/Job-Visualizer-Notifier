@@ -17,6 +17,7 @@ Job Posting Analytics - A monorepo containing a TypeScript + React frontend, Pyt
 ├── STRATEGY.md            # Product vision: accept/resist tests for every change (read first)
 ├── src/frontend/          # React SPA (see src/frontend/AGENTS.md)
 ├── src/backend/api/       # FastAPI backend (see src/backend/AGENTS.md)
+├── src/enricher/          # Local enrichment worker, runs on the Mac (see src/enricher/AGENTS.md)
 ├── scripts/               # Python scrapers (see scripts/AGENTS.md)
 ├── api/                   # Vercel serverless functions (ATS proxies)
 └── docs/                  # Docs: local setup, implementations, incidents, analysis, enrichment, animations
@@ -100,6 +101,9 @@ Use the `scraper-health-watch` skill (`.claude/skills/scraper-health-watch/`) �
 
 **Improving the North Star (autonomous loop):**
 Use the `north-star-loop` skill (`.claude/skills/north-star-loop/`) — texts Brendan once a week with up to 3 small ideas aimed at 7-day+ return plus the best big initiative for him to build (ranked against past ideas and existing ClickUp work, checked against STRATEGY.md); builds only the small ideas he picks (plan doc in `docs/north-star-loop/`, ClickUp task, PR via no-mistakes, never merges), never the big ones; reads out the result after merge. State and every decision/mistake live in `scripts/north_star_loop/loop.py` (`loop.py show N`); runbook in `scripts/north_star_loop/README.md`.
+
+**Working on the enricher:**
+Edit it in this checkout's `src/enricher/` (or a JVN worktree); its tests run with `cd src/enricher && uv run pytest`. Prod is a separate JVN clone at `~/developer/personal/enricher-prod`, changed only by `src/enricher/scripts/deploy.sh <ref>` — merging to `main` deploys nothing to it. Never run the enricher CLI against prod. `~/developer/personal/app` and `~/developer/personal/job-enricher` are retired once the post-merge cutover has run (until then `app/` is still prod; the `com.bp.job-enricher` plist's `WorkingDirectory` is always the truth). Start with `src/enricher/AGENTS.md`.
 
 **Reading the North Star metrics:**
 The USER-METRICS.md definitions live as read-only views in the Postgres `metrics` schema: `SELECT * FROM metrics.north_star_weekly ORDER BY cohort_week` (also `metrics.signup_retention`, one row per user, and `metrics.apply_clicks_weekly`). Use only rows with `mature = true`. Accounts with `users.is_internal` are skipped. The same numbers are tiles on the PostHog "North Star" dashboard, computed from the mirrored `user_signed_up` / `user_visited` / `job_apply_clicked` events.

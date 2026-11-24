@@ -16,3 +16,5 @@ data
 .env
 .env.local
 .env.*.local
+# Local enrichment worker (runs on a Mac, never in the backend image)
+src/enricher

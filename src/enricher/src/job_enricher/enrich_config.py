@@ -1,0 +1,503 @@
+"""Meta-backed runtime knobs, read fresh each tick.
+
+Port of job-watcher's match_config pattern: tolerate bad/missing values (return
+the default, never crash a tick); write helpers validate/clamp then persist.
+These are the dials the /enrich-tick command reads at Step 0.6 and the
+CLI subcommands expose (model, batch, fan-out, judge on/off + floor).
+"""
+
+from __future__ import annotations
+
+from typing import Protocol
+
+
+class _MetaStore(Protocol):
+    def get_meta(self, key: str) -> str | None: ...
+    def set_meta(self, key: str, value: str, ts: str | None = ...) -> None: ...
+    def delete_meta(self, key: str) -> None: ...
+
+
+# classify model
+CLASSIFY_MODEL_DEFAULT = "haiku"
+CLASSIFY_MODEL_META_KEY = "classify:model"
+MODEL_CHOICES: tuple[str, ...] = ("haiku", "sonnet", "opus")
+
+# classify batch (jobs per sub-agent) + fan-out (parallel agents per wave)
+CLASSIFY_BATCH_DEFAULT = 3
+CLASSIFY_BATCH_META_KEY = "classify:batch_size"
+CLASSIFY_BATCH_BOUNDS = (1, 10)
+
+CLASSIFY_FANOUT_DEFAULT = 12
+CLASSIFY_FANOUT_META_KEY = "classify:fan_out"
+CLASSIFY_FANOUT_BOUNDS = (1, 20)
+
+# judge — Sonnet, globally toggleable. Default scope is LOW-CONFIDENCE rows only:
+# the measured lift of judging every row was NEGATIVE (all of the judge's level
+# changes on confident rows moved away from gold), so the judge concentrates on
+# rows classify itself was unsure about (confidence below the ceiling), rows
+# whose facets were nulled at ingest, and rows already flagged needs_human.
+JUDGE_ENABLED_DEFAULT = True
+JUDGE_ENABLED_META_KEY = "judge:enabled"
+# The judge MAY correct subcategories, under four code-enforced rails (see
+# cli._merge_judge). The knob exists so the lift can be MEASURED and KILLED in one
+# command — which matters more under D3, because the judge is working from the
+# compact section 1b too.
+JUDGE_SUBCATEGORY_CORRECTIONS_DEFAULT = True
+JUDGE_SUBCATEGORY_CORRECTIONS_META_KEY = "judge:subcategory_corrections"
+
+# ⚠ SHIPS DARK — default FALSE. When off, `_row_to_result` OMITS both subcategory
+# keys entirely.
+#
+# WHY A KNOB AND NOT JUST A FIELD: JVN's `EnrichmentResultItem` (models.py:879,
+# model_config at :906) sets `alias_generator=to_camel, populate_by_name=True`
+# and NOTHING else — no `extra='forbid'`. Pydantic's default is `ignore`, so an
+# EARLY `subcategories` field is SILENTLY DROPPED and the row still counts as
+# `written`. The failure is not a 422 you would notice; it is a clean-looking
+# success that persists nothing. The knob makes the deploy order reversible
+# without a code push.
+#
+# ⚠ It may only be flipped ON after JVN's EnrichmentResultItem has the field
+# (SCHEMA-4) AND enrichment_writer has SUBCATEGORY_SLUGS + the column write.
+WRITEBACK_SEND_SUBCATEGORIES_DEFAULT = False
+WRITEBACK_SEND_SUBCATEGORIES_META_KEY = "writeback:send_subcategories"
+
+JUDGE_MODEL_DEFAULT = "sonnet"
+JUDGE_MODEL_META_KEY = "judge:model"
+
+# below this judge self-confidence, flag needs_human instead of trusting the fix
+JUDGE_HUMAN_FLOOR_DEFAULT = 0.60
+JUDGE_HUMAN_FLOOR_META_KEY = "judge:human_floor"
+
+# which rows the judge sees: 'low_confidence' (default) or 'all'
+JUDGE_SCOPE_DEFAULT = "low_confidence"
+JUDGE_SCOPE_META_KEY = "judge:scope"
+JUDGE_SCOPE_CHOICES: tuple[str, ...] = ("all", "low_confidence")
+
+# under scope=low_confidence, judge rows with classify_confidence below this
+JUDGE_CONFIDENCE_CEILING_DEFAULT = 0.85
+JUDGE_CONFIDENCE_CEILING_META_KEY = "judge:confidence_ceiling"
+
+# inference engine — WHICH harness runs classify/judge, independent of the model
+# tier. 'claude-code' = the sandboxed Claude sub-agent fan-out (subscription, the
+# default and the only path used for untrusted production text); 'ollama' = the
+# local open model over Ollama's HTTP API; 'opencode' = the same local weights
+# driven through the OpenCode CLI harness. The open engines read `opencode:model`
+# for the Ollama tag (e.g. qwen3:32b). See docs/LOCAL-OPEN-MODEL.md.
+ENGINE_CHOICES: tuple[str, ...] = ("claude-code", "ollama", "opencode")
+
+# Default engine for both stages is the fully-local, subscription-free open model
+# (qwen3:32b via Ollama). Chosen for $0 marginal cost; the tradeoff is throughput
+# (a single GPU serializes — no fan-out — so run OFF the 10-min tick as a
+# continuous worker) and ~a few points of accuracy vs Claude. See
+# docs/handoffs/2026-07-12-local-ollama-cutover.md. An explicit `classify:engine`/
+# `judge:engine` knob still overrides this per-deployment.
+CLASSIFY_ENGINE_DEFAULT = "ollama"
+CLASSIFY_ENGINE_META_KEY = "classify:engine"
+
+JUDGE_ENGINE_DEFAULT = "ollama"
+JUDGE_ENGINE_META_KEY = "judge:engine"
+
+# Ollama model tag the open engines classify/judge with (free-form; whatever is
+# pulled locally). Not a fixed choice set — `ollama list` is the source of truth.
+OPENCODE_MODEL_DEFAULT = "qwen3:32b"
+OPENCODE_MODEL_META_KEY = "opencode:model"
+
+# Per-tick queue cap for the IN-PROCESS engines (ollama/opencode). These run
+# serially on one local GPU (~100 s/job), so a tick that queued the ENTIRE cleaned
+# backlog into `classify-run`/`judge-run` would grind for many hours and be killed
+# by the wrapper's 3 h watchdog BEFORE ever reaching judge -> write-back -> tick-end
+# — delivering nothing and never closing the tick. Bounding each in-process stage to
+# a slice makes every tick finish and write its results back to JVN; the backlog
+# drains a slice at a time across ticks. Does NOT apply to the `claude-code` fan-out
+# (parallel sub-agents clear a whole batch fast, so it stays unbounded). Tunable via
+# `set-enrich-per-tick-limit`; the ceiling keeps a full stage well under the watchdog.
+ENRICH_PER_TICK_LIMIT_DEFAULT = 40
+ENRICH_PER_TICK_LIMIT_META_KEY = "enrich:per_tick_limit"
+ENRICH_PER_TICK_LIMIT_BOUNDS = (1, 500)
+
+# ---- BF-9: the Tier-2 backfill lane ----------------------------------------
+# ⚠ SHIPS DARK. False is the committed default so the schema-only deploy (step 3
+# of the cross-repo order) cannot start labelling before the v7 gate has run.
+# Re-read from meta at every CHUNK boundary, so flipping it off stops the night's
+# run within seconds without a signal.
+BACKFILL_ENABLED_DEFAULT = False
+BACKFILL_ENABLED_META_KEY = "backfill:enabled"
+
+# The number of rows in ONE model call. ⚠ This is the lever for wall time, along
+# with the model tier — there is deliberately NO concurrency knob (see
+# backfill.run_backfill's docstring). The ceiling on this value is enforced at
+# 02:00 by BF-9's echo-mismatch breaker: a model that cannot echo ids reliably at
+# batch B means B is too high.
+BACKFILL_BATCH_SIZE_DEFAULT = 10
+BACKFILL_BATCH_SIZE_META_KEY = "backfill:batch_size"
+BACKFILL_BATCH_SIZE_BOUNDS = (1, 25)
+
+# Attempts before a row is RETIRED from the selector. Bumped on failure too, which
+# is the only reason the claim-free selector cannot spin in place.
+BACKFILL_MAX_ATTEMPTS_DEFAULT = 3
+BACKFILL_MAX_ATTEMPTS_META_KEY = "backfill:max_attempts"
+BACKFILL_MAX_ATTEMPTS_BOUNDS = (1, 5)
+
+# ---- BF-12b: the throttled drain to JVN ------------------------------------
+# ⚠ EVERY ONE OF THESE IS DERIVED FROM BF-16's MEASUREMENT, NOT INVENTED. The
+# draft's "200 per tick" was a guess and it is the number that produced the
+# two-week lag. The defaults here are the plan's placeholders; the runbook
+# records the measured pair and the arithmetic that justified it.
+SUBCATEGORY_PUSH_BATCH_DEFAULT = 250
+SUBCATEGORY_PUSH_BATCH_META_KEY = "writeback:subcategory_push_batch"
+SUBCATEGORY_PUSH_BATCH_BOUNDS = (1, 500)     # SCHEMA-14 422s above 500
+
+SUBCATEGORY_PUSH_DUTY_DEFAULT = 25
+SUBCATEGORY_PUSH_DUTY_META_KEY = "writeback:subcategory_push_duty_pct"
+SUBCATEGORY_PUSH_DUTY_BOUNDS = (1, 50)
+
+# ⚠ One hour, so an UNATTENDED run cannot drift into peak hours.
+SUBCATEGORY_PUSH_MAX_SECONDS_DEFAULT = 3600
+SUBCATEGORY_PUSH_MAX_SECONDS_META_KEY = "writeback:subcategory_push_max_seconds"
+SUBCATEGORY_PUSH_MAX_SECONDS_BOUNDS = (0, 21600)
+
+# ⚠ THERE IS NO CONCURRENCY KNOB, deliberately. One in-flight request = one of
+# the pool's 15 slots. See backfill.push_subcategories' comment naming
+# docs/incidents/2026-05-17-recent-jobs-pool-exhaustion.md.
+
+
+def _get_choice(store: _MetaStore, key: str, default: str, choices: tuple[str, ...]) -> str:
+    raw = store.get_meta(key)
+    return raw if raw in choices else default
+
+
+def _get_str(store: _MetaStore, key: str, default: str) -> str:
+    """Free-form string knob (no fixed choice set): return the stored value if
+    present and non-blank, else the committed default."""
+    raw = store.get_meta(key)
+    return raw if raw not in (None, "") else default
+
+
+def _get_bounded_int(store: _MetaStore, key: str, default: int, bounds: tuple[int, int]) -> int:
+    raw = store.get_meta(key)
+    if raw is None:
+        return default
+    try:
+        parsed = int(raw)
+    except ValueError:
+        return default
+    lo, hi = bounds
+    return default if parsed < lo or parsed > hi else parsed
+
+
+def get_classify_model(store: _MetaStore) -> str:
+    return _get_choice(store, CLASSIFY_MODEL_META_KEY, CLASSIFY_MODEL_DEFAULT, MODEL_CHOICES)
+
+
+def get_classify_batch_size(store: _MetaStore) -> int:
+    return _get_bounded_int(store, CLASSIFY_BATCH_META_KEY, CLASSIFY_BATCH_DEFAULT, CLASSIFY_BATCH_BOUNDS)
+
+
+def get_classify_fan_out(store: _MetaStore) -> int:
+    return _get_bounded_int(store, CLASSIFY_FANOUT_META_KEY, CLASSIFY_FANOUT_DEFAULT, CLASSIFY_FANOUT_BOUNDS)
+
+
+def get_judge_enabled(store: _MetaStore) -> bool:
+    raw = store.get_meta(JUDGE_ENABLED_META_KEY)
+    if raw is None:
+        return JUDGE_ENABLED_DEFAULT
+    return raw.strip().lower() in ("1", "true", "on", "yes")
+
+
+def get_judge_subcategory_corrections(store: _MetaStore) -> bool:
+    raw = store.get_meta(JUDGE_SUBCATEGORY_CORRECTIONS_META_KEY)
+    if raw is None:
+        return JUDGE_SUBCATEGORY_CORRECTIONS_DEFAULT
+    return raw.strip().lower() in ("1", "true", "on", "yes")
+
+
+def get_writeback_send_subcategories(store: _MetaStore) -> bool:
+    raw = store.get_meta(WRITEBACK_SEND_SUBCATEGORIES_META_KEY)
+    if raw is None:
+        return WRITEBACK_SEND_SUBCATEGORIES_DEFAULT
+    return raw.strip().lower() in ("1", "true", "on", "yes")
+
+
+def get_judge_model(store: _MetaStore) -> str:
+    return _get_choice(store, JUDGE_MODEL_META_KEY, JUDGE_MODEL_DEFAULT, MODEL_CHOICES)
+
+
+def get_judge_human_floor(store: _MetaStore) -> float:
+    raw = store.get_meta(JUDGE_HUMAN_FLOOR_META_KEY)
+    if raw is None:
+        return JUDGE_HUMAN_FLOOR_DEFAULT
+    try:
+        v = float(raw)
+    except ValueError:
+        return JUDGE_HUMAN_FLOOR_DEFAULT
+    return v if 0.0 <= v <= 1.0 else JUDGE_HUMAN_FLOOR_DEFAULT
+
+
+def get_judge_scope(store: _MetaStore) -> str:
+    return _get_choice(store, JUDGE_SCOPE_META_KEY, JUDGE_SCOPE_DEFAULT, JUDGE_SCOPE_CHOICES)
+
+
+def get_judge_confidence_ceiling(store: _MetaStore) -> float:
+    raw = store.get_meta(JUDGE_CONFIDENCE_CEILING_META_KEY)
+    if raw is None:
+        return JUDGE_CONFIDENCE_CEILING_DEFAULT
+    try:
+        v = float(raw)
+    except ValueError:
+        return JUDGE_CONFIDENCE_CEILING_DEFAULT
+    return v if 0.0 <= v <= 1.0 else JUDGE_CONFIDENCE_CEILING_DEFAULT
+
+
+def get_classify_engine(store: _MetaStore) -> str:
+    return _get_choice(store, CLASSIFY_ENGINE_META_KEY, CLASSIFY_ENGINE_DEFAULT, ENGINE_CHOICES)
+
+
+def get_judge_engine(store: _MetaStore) -> str:
+    return _get_choice(store, JUDGE_ENGINE_META_KEY, JUDGE_ENGINE_DEFAULT, ENGINE_CHOICES)
+
+
+def get_opencode_model(store: _MetaStore) -> str:
+    return _get_str(store, OPENCODE_MODEL_META_KEY, OPENCODE_MODEL_DEFAULT)
+
+
+def get_enrich_per_tick_limit(store: _MetaStore) -> int:
+    return _get_bounded_int(
+        store, ENRICH_PER_TICK_LIMIT_META_KEY,
+        ENRICH_PER_TICK_LIMIT_DEFAULT, ENRICH_PER_TICK_LIMIT_BOUNDS,
+    )
+
+
+def set_classify_model(store: _MetaStore, value: str) -> str:
+    if value not in MODEL_CHOICES:
+        raise ValueError(f"invalid model {value!r}; expected one of {MODEL_CHOICES}")
+    store.set_meta(CLASSIFY_MODEL_META_KEY, value)
+    return value
+
+
+def set_classify_batch_size(store: _MetaStore, value: int) -> int:
+    lo, hi = CLASSIFY_BATCH_BOUNDS
+    clamped = max(lo, min(hi, int(value)))
+    store.set_meta(CLASSIFY_BATCH_META_KEY, str(clamped))
+    return clamped
+
+
+def set_classify_fan_out(store: _MetaStore, value: int) -> int:
+    lo, hi = CLASSIFY_FANOUT_BOUNDS
+    clamped = max(lo, min(hi, int(value)))
+    store.set_meta(CLASSIFY_FANOUT_META_KEY, str(clamped))
+    return clamped
+
+
+def set_judge_enabled(store: _MetaStore, value: bool) -> bool:
+    store.set_meta(JUDGE_ENABLED_META_KEY, "on" if value else "off")
+    return value
+
+
+def set_judge_subcategory_corrections(store: _MetaStore, value: bool) -> bool:
+    store.set_meta(JUDGE_SUBCATEGORY_CORRECTIONS_META_KEY, "on" if value else "off")
+    return value
+
+
+def set_writeback_send_subcategories(store: _MetaStore, value: bool) -> bool:
+    store.set_meta(WRITEBACK_SEND_SUBCATEGORIES_META_KEY, "on" if value else "off")
+    return value
+
+
+def get_backfill_enabled(store: _MetaStore) -> bool:
+    raw = store.get_meta(BACKFILL_ENABLED_META_KEY)
+    if raw is None:
+        return BACKFILL_ENABLED_DEFAULT
+    return raw == "on"
+
+
+def set_backfill_enabled(store: _MetaStore, value: bool) -> bool:
+    store.set_meta(BACKFILL_ENABLED_META_KEY, "on" if value else "off")
+    return value
+
+
+def get_backfill_batch_size(store: _MetaStore) -> int:
+    return _get_bounded_int(
+        store, BACKFILL_BATCH_SIZE_META_KEY, BACKFILL_BATCH_SIZE_DEFAULT,
+        BACKFILL_BATCH_SIZE_BOUNDS,
+    )
+
+
+def set_backfill_batch_size(store: _MetaStore, value: int) -> int:
+    lo, hi = BACKFILL_BATCH_SIZE_BOUNDS
+    clamped = max(lo, min(hi, int(value)))
+    store.set_meta(BACKFILL_BATCH_SIZE_META_KEY, str(clamped))
+    return clamped
+
+
+def get_subcategory_push_batch(store: _MetaStore) -> int:
+    return _get_bounded_int(
+        store, SUBCATEGORY_PUSH_BATCH_META_KEY, SUBCATEGORY_PUSH_BATCH_DEFAULT,
+        SUBCATEGORY_PUSH_BATCH_BOUNDS,
+    )
+
+
+def set_subcategory_push_batch(store: _MetaStore, value: int) -> int:
+    lo, hi = SUBCATEGORY_PUSH_BATCH_BOUNDS
+    clamped = max(lo, min(hi, int(value)))
+    store.set_meta(SUBCATEGORY_PUSH_BATCH_META_KEY, str(clamped))
+    return clamped
+
+
+def get_subcategory_push_duty_pct(store: _MetaStore) -> int:
+    return _get_bounded_int(
+        store, SUBCATEGORY_PUSH_DUTY_META_KEY, SUBCATEGORY_PUSH_DUTY_DEFAULT,
+        SUBCATEGORY_PUSH_DUTY_BOUNDS,
+    )
+
+
+def set_subcategory_push_duty_pct(store: _MetaStore, value: int) -> int:
+    lo, hi = SUBCATEGORY_PUSH_DUTY_BOUNDS
+    clamped = max(lo, min(hi, int(value)))
+    store.set_meta(SUBCATEGORY_PUSH_DUTY_META_KEY, str(clamped))
+    return clamped
+
+
+def get_subcategory_push_max_seconds(store: _MetaStore) -> int:
+    return _get_bounded_int(
+        store, SUBCATEGORY_PUSH_MAX_SECONDS_META_KEY,
+        SUBCATEGORY_PUSH_MAX_SECONDS_DEFAULT, SUBCATEGORY_PUSH_MAX_SECONDS_BOUNDS,
+    )
+
+
+def set_subcategory_push_max_seconds(store: _MetaStore, value: int) -> int:
+    lo, hi = SUBCATEGORY_PUSH_MAX_SECONDS_BOUNDS
+    clamped = max(lo, min(hi, int(value)))
+    store.set_meta(SUBCATEGORY_PUSH_MAX_SECONDS_META_KEY, str(clamped))
+    return clamped
+
+
+def get_backfill_max_attempts(store: _MetaStore) -> int:
+    return _get_bounded_int(
+        store, BACKFILL_MAX_ATTEMPTS_META_KEY, BACKFILL_MAX_ATTEMPTS_DEFAULT,
+        BACKFILL_MAX_ATTEMPTS_BOUNDS,
+    )
+
+
+def set_backfill_max_attempts(store: _MetaStore, value: int) -> int:
+    lo, hi = BACKFILL_MAX_ATTEMPTS_BOUNDS
+    clamped = max(lo, min(hi, int(value)))
+    store.set_meta(BACKFILL_MAX_ATTEMPTS_META_KEY, str(clamped))
+    return clamped
+
+
+def set_judge_model(store: _MetaStore, value: str) -> str:
+    if value not in MODEL_CHOICES:
+        raise ValueError(f"invalid model {value!r}; expected one of {MODEL_CHOICES}")
+    store.set_meta(JUDGE_MODEL_META_KEY, value)
+    return value
+
+
+def set_judge_human_floor(store: _MetaStore, value: float) -> float:
+    clamped = max(0.0, min(1.0, float(value)))
+    store.set_meta(JUDGE_HUMAN_FLOOR_META_KEY, str(clamped))
+    return clamped
+
+
+def set_judge_scope(store: _MetaStore, value: str) -> str:
+    if value not in JUDGE_SCOPE_CHOICES:
+        raise ValueError(f"invalid judge scope {value!r}; expected one of {JUDGE_SCOPE_CHOICES}")
+    store.set_meta(JUDGE_SCOPE_META_KEY, value)
+    return value
+
+
+def set_judge_confidence_ceiling(store: _MetaStore, value: float) -> float:
+    clamped = max(0.0, min(1.0, float(value)))
+    store.set_meta(JUDGE_CONFIDENCE_CEILING_META_KEY, str(clamped))
+    return clamped
+
+
+def set_classify_engine(store: _MetaStore, value: str) -> str:
+    if value not in ENGINE_CHOICES:
+        raise ValueError(f"invalid engine {value!r}; expected one of {ENGINE_CHOICES}")
+    store.set_meta(CLASSIFY_ENGINE_META_KEY, value)
+    return value
+
+
+def set_judge_engine(store: _MetaStore, value: str) -> str:
+    if value not in ENGINE_CHOICES:
+        raise ValueError(f"invalid engine {value!r}; expected one of {ENGINE_CHOICES}")
+    store.set_meta(JUDGE_ENGINE_META_KEY, value)
+    return value
+
+
+def set_opencode_model(store: _MetaStore, value: str) -> str:
+    value = str(value).strip()
+    if not value:
+        raise ValueError("opencode model must be a non-empty Ollama tag (e.g. qwen3:32b)")
+    store.set_meta(OPENCODE_MODEL_META_KEY, value)
+    return value
+
+
+def set_enrich_per_tick_limit(store: _MetaStore, value: int) -> int:
+    lo, hi = ENRICH_PER_TICK_LIMIT_BOUNDS
+    clamped = max(lo, min(hi, int(value)))
+    store.set_meta(ENRICH_PER_TICK_LIMIT_META_KEY, str(clamped))
+    return clamped
+
+
+def config_snapshot(store: _MetaStore) -> dict[str, object]:
+    """The JSON the /enrich-tick command reads at Step 0.6."""
+    return {
+        "classify_engine": get_classify_engine(store),
+        "classify_model": get_classify_model(store),
+        "classify_batch_size": get_classify_batch_size(store),
+        "classify_fan_out": get_classify_fan_out(store),
+        "judge_enabled": get_judge_enabled(store),
+        "judge_engine": get_judge_engine(store),
+        "judge_model": get_judge_model(store),
+        "judge_human_floor": get_judge_human_floor(store),
+        "judge_scope": get_judge_scope(store),
+        "judge_confidence_ceiling": get_judge_confidence_ceiling(store),
+        "judge_subcategory_corrections": get_judge_subcategory_corrections(store),
+        "writeback_send_subcategories": get_writeback_send_subcategories(store),
+        "opencode_model": get_opencode_model(store),
+        "enrich_per_tick_limit": get_enrich_per_tick_limit(store),
+        "backfill_enabled": get_backfill_enabled(store),
+        "backfill_batch_size": get_backfill_batch_size(store),
+        "backfill_max_attempts": get_backfill_max_attempts(store),
+        "subcategory_push_batch": get_subcategory_push_batch(store),
+        "subcategory_push_duty_pct": get_subcategory_push_duty_pct(store),
+        "subcategory_push_max_seconds": get_subcategory_push_max_seconds(store),
+    }
+
+
+# The full set of runtime-knob meta keys. `reset_knob` deletes one of these so its
+# getter falls back to the committed default — the way to make an already-running
+# prod follow a newly-deployed default instead of a stale explicit override.
+KNOB_META_KEYS: frozenset[str] = frozenset(
+    {
+        CLASSIFY_ENGINE_META_KEY,
+        CLASSIFY_MODEL_META_KEY,
+        CLASSIFY_BATCH_META_KEY,
+        CLASSIFY_FANOUT_META_KEY,
+        JUDGE_ENABLED_META_KEY,
+        JUDGE_ENGINE_META_KEY,
+        JUDGE_MODEL_META_KEY,
+        JUDGE_HUMAN_FLOOR_META_KEY,
+        JUDGE_SCOPE_META_KEY,
+        JUDGE_CONFIDENCE_CEILING_META_KEY,
+        JUDGE_SUBCATEGORY_CORRECTIONS_META_KEY,
+        WRITEBACK_SEND_SUBCATEGORIES_META_KEY,
+        OPENCODE_MODEL_META_KEY,
+        ENRICH_PER_TICK_LIMIT_META_KEY,
+        BACKFILL_ENABLED_META_KEY,
+        BACKFILL_BATCH_SIZE_META_KEY,
+        BACKFILL_MAX_ATTEMPTS_META_KEY,
+        SUBCATEGORY_PUSH_BATCH_META_KEY,
+        SUBCATEGORY_PUSH_DUTY_META_KEY,
+        SUBCATEGORY_PUSH_MAX_SECONDS_META_KEY,
+    }
+)
+
+
+def reset_knob(store: _MetaStore, key: str) -> str:
+    """Clear an explicit knob override so its getter returns the committed default."""
+    if key not in KNOB_META_KEYS:
+        raise ValueError(f"unknown knob {key!r}; expected one of {sorted(KNOB_META_KEYS)}")
+    store.delete_meta(key)
+    return key

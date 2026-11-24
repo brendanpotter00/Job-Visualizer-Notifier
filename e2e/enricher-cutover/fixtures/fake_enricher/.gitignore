@@ -1,0 +1,12 @@
+# Same untracked shape as the real enricher's .gitignore (prod tag), so the
+# cutover's untracked-state classification sees what it sees in prod.
+.venv/
+data/*.db
+data/*.db-*
+data/.tick.lock
+data/chunks/
+.env.local
+.checkout-role
+__pycache__/
+*.pyc
+.pytest_cache/

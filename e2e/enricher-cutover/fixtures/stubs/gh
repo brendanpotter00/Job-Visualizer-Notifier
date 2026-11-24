@@ -1,0 +1,11 @@
+#!/bin/sh
+# Stub `gh` for the enricher-cutover e2e section: records argv, exits
+# $FAKE_GH_EXIT (default 0). It never talks to GitHub.
+printf '%s\n' "$*" >> "${FAKE_GH_LOG:?FAKE_GH_LOG is not set}"
+case "$1 $2" in
+  "auth status") [ "${FAKE_GH_EXIT:-0}" = "0" ] && echo "github.com: logged in (stub)" ;;
+esac
+if [ "${FAKE_GH_EXIT:-0}" != "0" ]; then
+  echo "stub gh: failing on purpose (FAKE_GH_EXIT=${FAKE_GH_EXIT})" >&2
+fi
+exit "${FAKE_GH_EXIT:-0}"

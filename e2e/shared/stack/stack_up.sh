@@ -23,6 +23,16 @@
 #   E2E_VITE_CONFIG     default $SCRIPT_DIR/vite.e2e.config.ts
 #   E2E_APP_MODULE      default e2e.shared.stack.e2e_app:app (a section's own
 #                       wrapper that adds boot guards)
+#   E2E_SKIP_FRONTEND   default 0 (1 => backend only: no vite, and the frontend
+#                       port is neither checked nor claimed — for a section with
+#                       no UI tier, e.g. `enricher`)
+#   E2E_INTERNAL_API_KEY default empty (empty => INTERNAL_API_KEY stays UNSET,
+#                       the shipped behaviour; non-empty => the backend runs
+#                       with the internal-key middleware ARMED on that value)
+#   E2E_BLANK_ANTHROPIC_KEY default 0 (0 => inherit ANTHROPIC_API_KEY as today;
+#                       1 => export it EMPTY, which beats the root .env.local
+#                       the backend would otherwise read it from, so the
+#                       backend cannot make a billed Haiku call at all)
 #
 # Never touches :8000/:8100/:3000 — the owner's stack. Only starts processes
 # on the two ports above, and only ever kills what stack_down.sh's pidfiles
@@ -45,8 +55,17 @@ APP_MODULE="${E2E_APP_MODULE:-e2e.shared.stack.e2e_app:app}"
 # :8100 are his backends, :3000 his frontend; a section that fat-fingers a port
 # into one of them takes his dev stack down (and stack_down.sh would then kill
 # it by pidfile on the way out).
+SKIP_FRONTEND="${E2E_SKIP_FRONTEND:-0}"
+# The ports this run will actually bind. With the frontend skipped its port is
+# not ours to check or claim — a section with no UI tier must not refuse to
+# start because some other section's vite happens to hold the default :3201.
+OUR_PORTS="$BACKEND_PORT"
+if [ "$SKIP_FRONTEND" != "1" ]; then
+  OUR_PORTS="$BACKEND_PORT $FRONTEND_PORT"
+fi
+
 for _reserved in 8000 8100 3000; do
-  if [ "$BACKEND_PORT" = "$_reserved" ] || [ "$FRONTEND_PORT" = "$_reserved" ]; then
+  if [ "$BACKEND_PORT" = "$_reserved" ] || { [ "$SKIP_FRONTEND" != "1" ] && [ "$FRONTEND_PORT" = "$_reserved" ]; }; then
     echo "stack_up.sh: refusing to start on port $_reserved — that is the owner's" \
       "stack, not an e2e port." >&2
     exit 1
@@ -82,7 +101,7 @@ _port_owner_pid() {
   lsof -tiTCP:"$1" -sTCP:LISTEN 2>/dev/null | head -1 || true
 }
 
-for port in "$BACKEND_PORT" "$FRONTEND_PORT"; do
+for port in $OUR_PORTS; do
   owner="$(_port_owner_pid "$port")"
   if [ -n "$owner" ]; then
     echo "stack_up.sh: refusing to start — port $port is already held by pid $owner," \
@@ -121,11 +140,26 @@ set +a
 # the calling shell already exported one, drop it so the middleware sees
 # settings.internal_api_key as None, not a stale non-empty string.
 unset INTERNAL_API_KEY
+# ...unless the section ASKS for the middleware armed. A section whose client
+# must present a key (the enricher's JVNClient refuses to call without one)
+# passes a TEST value here; it is exported AFTER the unset above, so the
+# default (empty) is byte-for-byte the shipped behaviour.
+if [ -n "${E2E_INTERNAL_API_KEY:-}" ]; then
+  INTERNAL_API_KEY="$E2E_INTERNAL_API_KEY"
+  export INTERNAL_API_KEY
+fi
 
+if [ "${E2E_BLANK_ANTHROPIC_KEY:-0}" = "1" ]; then
+  # EMPTY, not unset: the backend's pydantic Settings also reads the root
+  # .env.local file directly, and only an environment variable beats it. An
+  # empty key is falsy everywhere the backend checks it, so the periodic
+  # scan_unnormalized task (which bills Haiku every 5 minutes) defers nothing.
+  ANTHROPIC_API_KEY=""
+  export ANTHROPIC_API_KEY
 # ANTHROPIC_API_KEY is deliberately absent from env.e2e (PLAN.md — no secret
 # lives under e2e/). Inherit it from the calling shell if present, else fall
 # back to the root .env.local the same way the rest of the app does.
-if [ -z "${ANTHROPIC_API_KEY:-}" ] && [ -f "$REPO_ROOT/.env.local" ]; then
+elif [ -z "${ANTHROPIC_API_KEY:-}" ] && [ -f "$REPO_ROOT/.env.local" ]; then
   ANTHROPIC_API_KEY="$(grep -E '^ANTHROPIC_API_KEY=' "$REPO_ROOT/.env.local" | head -1 | cut -d= -f2-)"
   export ANTHROPIC_API_KEY
 fi
@@ -158,6 +192,12 @@ if [ "$BACKEND_READY" != "1" ]; then
   exit 1
 fi
 echo "stack_up.sh: backend healthy"
+
+if [ "$SKIP_FRONTEND" = "1" ]; then
+  echo "stack_up.sh: E2E_SKIP_FRONTEND=1 — backend only, no frontend started"
+  echo "stack_up.sh: stack is up (backend :$BACKEND_PORT, no frontend, db $TARGET_DB)"
+  exit 0
+fi
 
 # --- Frontend ------------------------------------------------------------
 echo "stack_up.sh: starting frontend on :$FRONTEND_PORT"

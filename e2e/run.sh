@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # e2e/run.sh <section> [--fast] [--case AC-06] [--refresh-db]
+#   (sections that hand off below own their flags — see each <section>/run.sh)
 #
 # Stack-up -> pre-flight -> pytest -> playwright -> stack-down -> summary
 # (PLAN.md §9). ALWAYS tears the stack down, including on failure and on
@@ -27,6 +28,12 @@ if [ -z "$SECTION" ]; then
   echo "  onboarding           \$0, with no opt-in that changes that. First-sign-in questions:" >&2
   echo "                       fresh identities, own stack :8205/:3205, own database. No LLM," >&2
   echo "                       no browser hour, PostHog off, the browser fenced to 127.0.0.1." >&2
+  echo "  enricher             \$0, unconditionally. Real enricher CLI + wrapper against a" >&2
+  echo "                       real backend on :8207 and a STUB ollama on :8215 (never" >&2
+  echo "                       :11434). --enricher-ref <ref> runs another version." >&2
+  echo "  enricher-cutover     \$0, no network: the enricher cutover + its merge watcher in a" >&2
+  echo "                       sandbox (fake HOME, stub launchd/gh/send.sh, local remotes)." >&2
+  echo "                       No stack, no ports. Also runs in GitHub CI." >&2
   echo >&2
   echo "the verify-onesecondswe skill is the \$0 front door to the same features:" >&2
   echo "  .claude/skills/verify-onesecondswe/helpers/name_search.sh   (\$0; --live ~\$0.27)" >&2
@@ -68,6 +75,12 @@ case "$SECTION" in
   onboarding)
     echo "run.sh: COST — \$0, unconditionally. Brand-new identities against its own stack;" \
          "no LLM call, no Browserbase session, no PostHog event, no host but 127.0.0.1." ;;
+  enricher)
+    echo "run.sh: COST — \$0, unconditionally. The enricher's model is a deterministic stub" \
+         "on loopback; no claude, no real ollama, no Browserbase, a blank Anthropic key." ;;
+  enricher-cutover)
+    echo "run.sh: COST — \$0, unconditionally, and no network: local file remotes, uv offline," \
+         "stub launchctl/gh/send.sh. It never touches the real HOME, launchd or app/." ;;
 esac
 
 # `company-name-search` brings its own runner and hands off BEFORE anything below
@@ -112,6 +125,20 @@ fi
 # stamped account), ports :8205/:3205, lock and flags (`--keep-up`).
 if [ "$SECTION" = "onboarding" ]; then
   exec bash "$SCRIPT_DIR/onboarding/run.sh" "$@"
+fi
+
+# `enricher` owns its database, its backend port, a stub model, a throwaway
+# enricher checkout and its own flags (`--keep-up`, `--enricher-ref`); it has
+# no frontend and no boards.
+if [ "$SECTION" = "enricher" ]; then
+  exec bash "$SCRIPT_DIR/enricher/run.sh" "$@"
+fi
+
+# `enricher-cutover` needs no stack at all: every case builds its own sandboxed
+# "machine" (fake HOME, stub launchd, local remotes) around the real cutover and
+# watcher scripts. It owns its lock and flags (`--keep`).
+if [ "$SECTION" = "enricher-cutover" ]; then
+  exec bash "$SCRIPT_DIR/enricher-cutover/run.sh" "$@"
 fi
 
 FAST=0
