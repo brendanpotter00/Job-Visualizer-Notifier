@@ -2,20 +2,26 @@ name: Require no-mistakes
 run-name: "PR #${{ github.event.pull_request.number }} no-mistakes attestation - ${{ github.event.action }}"
 
 # Deterministic check, no agent and no checkout: the PR body must carry the
-# signature and pipeline attestation that `git push no-mistakes` writes, bound
-# to the current head SHA, with review, test and document completed. It is an
-# honor-system guardrail (the body is editable), not a security boundary.
+# signature and pipeline attestation that `git push no-mistakes` writes, with
+# review, test and document completed. It is an honor-system guardrail (the
+# body is editable), not a security boundary.
+#
+# Repo policy: ONE completed no-mistakes run per PR is enough. Upstream binds
+# the attestation to the exact current head, which forces a full (token-heavy)
+# pipeline run on every push. Here any completed run counts, even for a commit
+# that is no longer the head (later pushes, merges from main, rebases). Commits
+# pushed after the run are covered by normal CI only, not by no-mistakes.
 on:
   pull_request:
-    # synchronize: a push that bypasses the gate moves the head past the
-    # attested SHA and must fail. edited: the body, and so the attestation,
+    # synchronize: required checks are per commit, so every new head needs
+    # this check reported on it. edited: the body, and so the attestation,
     # can change after the PR opens.
     types: [opened, edited, synchronize, reopened]
     branches: [main]
 
 permissions:
   contents: read
-  # The action reads the live PR body and head SHA; without this it fails closed.
+  # Both steps read the live PR body and head SHA.
   pull-requests: read
 
 concurrency:
@@ -28,10 +34,60 @@ jobs:
     name: PR must be raised via no-mistakes
     runs-on: ubuntu-latest
     steps:
+      # Reads the live PR body (never the cached event payload, which a job
+      # rerun replays from the original trigger) and pulls out the commit the
+      # attestation was written for. The next step is handed that commit as
+      # the "PR head", so its head-binding check accepts any completed run.
+      # Signature, attestation shape and required steps are still checked
+      # upstream. If anything here fails or no attestation is found, it emits
+      # nothing and the action falls back to its own strict live lookup.
+      - name: Read the attested commit from the live PR body
+        id: attested
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          gh api "repos/$REPO/pulls/$PR_NUMBER" > "$RUNNER_TEMP/pr.json"
+          python3 - "$RUNNER_TEMP/pr.json" <<'PY'
+          import json, os, secrets, sys
+
+          # Same markers and parsing as upstream verify.py.
+          PREFIX = "<!-- no-mistakes-pipeline-attestation:v1 "
+          CLOSING = " -->"
+
+          pr = json.load(open(sys.argv[1]))
+          body = pr.get("body") or ""
+          head = (pr.get("head") or {}).get("sha") or ""
+          start = body.find(PREFIX)
+          end = body.find(CLOSING, start + len(PREFIX)) if start >= 0 else -1
+          try:
+              attestation = json.loads(body[start + len(PREFIX):end]) if end >= 0 else None
+          except json.JSONDecodeError:
+              attestation = None
+          attested = attestation.get("head_sha") if isinstance(attestation, dict) else None
+          if not isinstance(attested, str) or not attested:
+              print("No parseable attestation; leaving the strict check to the action.")
+              sys.exit(0)
+
+          if attested == head:
+              print(f"Attestation is for the current head {head}.")
+          else:
+              print(f"Attestation is for {attested}; PR head is {head}. "
+                    "Accepted: repo policy is one completed run per PR.")
+          delim = f"BODY_{secrets.token_hex(16)}"
+          with open(os.environ["GITHUB_OUTPUT"], "a") as out:
+              out.write(f"head_sha={attested}\n")
+              out.write(f"body<<{delim}\n{body}\n{delim}\n")
+          PY
+
       # Pinned to the v1.106.1 commit, never a branch: the PR being judged
       # must not be able to change the code that judges it.
       - uses: kunchenguid/no-mistakes/.github/actions/require-no-mistakes@5732d1ed88a1572fa6115d6ede5d69bfec097946 # v1.106.1
         with:
+          pr-body: ${{ steps.attested.outputs.body }}
+          pr-head-sha: ${{ steps.attested.outputs.head_sha }}
           # Unattended automations that open PRs as the repo owner and push
           # straight to origin: scraper-health-watch board moves and the
           # weekly AGENTS.md / CLAUDE.md audits. They pass as "exempt", not
