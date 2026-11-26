@@ -7,7 +7,6 @@ import {
   Checkbox,
   ListItemText,
   OutlinedInput,
-  Tooltip,
 } from '@mui/material';
 import type { FacetOption } from '../../../types';
 
@@ -18,8 +17,6 @@ export interface FacetMultiSelectProps {
   value: string[] | undefined;
   /** Emits the full new selection (empty array = All). */
   onChange: (slugs: string[]) => void;
-  /** Optional hover hint on the whole control (e.g. the entry⊇new-grad note). */
-  tooltip?: string;
   size?: 'small' | 'medium';
 }
 
@@ -41,14 +38,13 @@ export function FacetMultiSelect({
   options,
   value,
   onChange,
-  tooltip,
   size = 'small',
 }: FacetMultiSelectProps) {
   const labelId = useId();
   const selected = value ?? [];
   const labelBySlug = new Map(options.map((opt) => [opt.slug, opt.label]));
 
-  const control = (
+  return (
     <FormControl size={size} sx={{ minWidth: 170 }}>
       <InputLabel id={labelId} shrink>
         {label}
@@ -76,13 +72,5 @@ export function FacetMultiSelect({
         ))}
       </Select>
     </FormControl>
-  );
-
-  return tooltip ? (
-    <Tooltip title={tooltip} placement="top" enterDelay={400}>
-      {control}
-    </Tooltip>
-  ) : (
-    control
   );
 }

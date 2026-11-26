@@ -7,7 +7,6 @@ import {
   Checkbox,
   ListItemText,
   OutlinedInput,
-  Tooltip,
 } from '@mui/material';
 import type { FacetOption } from '../../../types';
 
@@ -46,8 +45,6 @@ export interface FacetTreeMultiSelectProps {
    * desyncing a child from its parent with no way to notice.
    */
   onChange: (next: { category: string[]; subcategory: string[] }) => void;
-  /** Optional hover hint on the whole control. */
-  tooltip?: string;
   size?: 'small' | 'medium';
 }
 
@@ -105,7 +102,6 @@ export function FacetTreeMultiSelect({
   value,
   childValue,
   onChange,
-  tooltip,
   size = 'small',
 }: FacetTreeMultiSelectProps) {
   const labelId = useId();
@@ -173,7 +169,7 @@ export function FacetTreeMultiSelect({
     });
   };
 
-  const control = (
+  return (
     <FormControl size={size} sx={{ minWidth: 170 }}>
       <InputLabel id={labelId} shrink>
         {label}
@@ -220,13 +216,5 @@ export function FacetTreeMultiSelect({
         })}
       </Select>
     </FormControl>
-  );
-
-  return tooltip ? (
-    <Tooltip title={tooltip} placement="top" enterDelay={400}>
-      {control}
-    </Tooltip>
-  ) : (
-    control
   );
 }
