@@ -45,7 +45,9 @@ BEAT_BEFORE=$(stat -f %m "$HEARTBEAT" 2>/dev/null || echo 0)
 
 # Run claude in its own process group; a timer kills the whole group at the cap.
 set -m
-"$CLAUDE_BIN" -p "/north-star-once $ACTION" --dangerously-skip-permissions &
+# --chrome: headless -p ignores the interactive Claude-in-Chrome default, so
+# turn it on explicitly (Brendan's Chrome on this server stays signed in).
+"$CLAUDE_BIN" -p "/north-star-once $ACTION" --dangerously-skip-permissions --chrome &
 PID=$!
 ( sleep "$TIMEOUT_SECS"; kill -TERM "-$PID" 2>/dev/null; sleep 15; kill -KILL "-$PID" 2>/dev/null ) &
 TIMER=$!
