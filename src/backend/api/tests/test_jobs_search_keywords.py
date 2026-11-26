@@ -1,9 +1,9 @@
 """Keyword semantics for ``GET /api/jobs/search`` — what ``include``/``exclude`` search,
-and what happens to the characters LIKE would otherwise interpret.
+how a term matches, and what happens to characters a pattern would otherwise interpret.
 
 WHAT THIS FILE PROTECTS
 -----------------------
-Two invariants, both of which fail *silently* — a broken keyword filter still
+Three invariants, all of which fail *silently* — a broken keyword filter still
 returns 200 with a plausible list, and nobody downstream can tell that the list is
 wrong:
 
@@ -16,11 +16,17 @@ wrong:
    test that a term in each field DOES match, and a test that a term in
    ``details`` does NOT.
 
-2. **A user's term is a literal, never a pattern.** ``%``, ``_`` and ``\\`` all mean
-   something to LIKE, and job titles are full of them ("C++ 100% Remote",
-   "senior_swe"). An unescaped ``%`` turns a specific search into "match
-   everything"; an unescaped ``_`` matches one character of anything. Both come
-   back as a longer list, which reads like a *working* search.
+2. **A user's term is a literal, never a pattern.** The term is compiled to a
+   Postgres regex, and job titles are full of regex syntax ("C++ 100% Remote",
+   "Engineer (Remote)", "Node.js"). An unescaped ``.`` matches any character, an
+   unescaped ``+`` or ``(`` changes the pattern's shape or errors. The ``%``/``_``/
+   ``\\`` cases from the LIKE era are kept: they must still be literals.
+
+3. **A term matches WHOLE words, never a fragment of one** (strict: no plural or
+   stem tolerance, by the owner's call). As a substring, ``− intern`` hid
+   "International Payments", ``− mobile`` hid "Automobile …", and ``+ ai`` matched
+   every "Mountain View" job. A word boundary is only required on a side of the
+   term that ends in a letter or digit, so "C++" and ".NET" still match.
 
 The single most dangerous case in this file is
 :func:`test_a_row_with_no_location_survives_an_exclude_term_it_does_not_match`.
@@ -105,18 +111,19 @@ def _search(client, **params) -> set[str]:
 # ---------------------------------------------------------------------------
 
 
-def test_include_matches_a_title_substring_case_insensitively(client, db_conn):
-    """Substring, not prefix or whole-word, and case-folded on both sides.
+def test_include_matches_whole_title_words_case_insensitively(client, db_conn):
+    """Whole words, case-folded on both sides — and a fragment matches nothing.
 
-    The term is spelled in mixed case against a differently-cased title *and* is
-    cut mid-word, so a regression to ``LIKE`` (case-sensitive) or to an
-    anchored/tokenized match fails here rather than degrading quietly into "the
-    user's search finds less than it used to".
+    The term is spelled in mixed case against a differently-cased title, so a
+    regression to a case-sensitive ``~`` fails here. The second assertion is the
+    old substring test turned around: the same phrase cut mid-word used to match
+    and must not any more.
     """
     _seed_job(db_conn, "backend", title="Senior Backend Engineer")
     _seed_job(db_conn, "frontend", title="Senior Frontend Engineer")
 
-    assert _search(client, include="AcKeNd eNgIn") == {"backend"}
+    assert _search(client, include="BaCkEnD eNgInEeR") == {"backend"}
+    assert _search(client, include="AcKeNd eNgIn") == set()
 
 
 def test_include_matches_the_raw_location_text(client, db_conn):
@@ -255,7 +262,8 @@ def test_exclude_removes_every_row_a_term_matches_anywhere_in_the_haystack(
     """
     _seed_job(db_conn, "keep", title="Backend Engineer")
     _seed_job(db_conn, "drop-by-title", title="Contract Backend Engineer")
-    _seed_job(db_conn, "drop-by-company", company="contractco")
+    # A hyphen is a word boundary, so the whole word "contract" is in this slug.
+    _seed_job(db_conn, "drop-by-company", company="contract-co")
     _seed_job(db_conn, "drop-by-location", location="Contract City, TX")
     _seed_job(db_conn, "drop-by-tag")
     _insert_job_tag(db_conn, SourceId.GOOGLE, "drop-by-tag", "contract-to-hire")
@@ -312,7 +320,136 @@ def test_a_row_with_no_location_survives_an_exclude_term_it_does_not_match(
 
 
 # ---------------------------------------------------------------------------
-# (3) LIKE metacharacters are literals, not patterns
+# (3) Whole words: the false friends a substring match got wrong
+# ---------------------------------------------------------------------------
+
+
+def test_include_does_not_match_a_word_that_merely_contains_the_term(client, db_conn):
+    """The include-side false friends, one per term, each against a real match.
+
+    Every pair is a real title shape from prod. Under the substring match each
+    decoy came back too, so the user's "+ ai" list was mostly retail, email and
+    Mountain View jobs — 12,955 OPEN rows contain the letters, 7,268 the word.
+    """
+    _seed_job(db_conn, "mobile", title="Mobile Engineer")
+    _seed_job(db_conn, "automobile", title="Automobile Systems Engineer")
+    _seed_job(db_conn, "intern", title="Software Engineer Intern")
+    _seed_job(db_conn, "international", title="Engineer, International Payments")
+    _seed_job(db_conn, "internal", title="Internal Tools Engineer")
+    _seed_job(db_conn, "ai", title="Applied AI Engineer")
+    _seed_job(db_conn, "retail", title="Retail Engineer")
+    _seed_job(db_conn, "email", title="Email Platform Engineer")
+    _seed_job(db_conn, "mountain-view", location="Mountain View, CA")
+
+    assert _search(client, include="mobile") == {"mobile"}
+    assert _search(client, include="intern") == {"intern"}
+    assert _search(client, include="ai") == {"ai"}
+
+
+def test_exclude_does_not_hide_a_word_that_merely_contains_the_term(client, db_conn):
+    """The exclude-side mirror, and the case that reached real users: "− intern"
+    silently hid every International/Internal job, and "− mobile" every
+    Automobile one. Only the row that really has the word is dropped."""
+    _seed_job(db_conn, "mobile", title="Mobile Engineer")
+    _seed_job(db_conn, "automobile", title="Automobile Systems Engineer")
+    _seed_job(db_conn, "intern", title="Software Engineer Intern")
+    _seed_job(db_conn, "international", title="Engineer, International Payments")
+    _seed_job(db_conn, "internal", title="Internal Tools Engineer")
+
+    everyone = {"mobile", "automobile", "intern", "international", "internal"}
+    assert _search(client, exclude="mobile") == everyone - {"mobile"}
+    assert _search(client, exclude="intern") == everyone - {"intern"}
+
+
+def test_the_match_is_strict_no_plural_or_suffix_tolerance(client, db_conn):
+    """Strict by the owner's decision: "engineer" is not "Engineering" or
+    "Engineers", and "intern" is not "Internship". A user who wants those types
+    them as their own chips. Pinned so a later "helpful" stemmer is a visible
+    product change, not a quiet one."""
+    _seed_job(db_conn, "engineer", title="Software Engineer")
+    _seed_job(db_conn, "engineering", title="Engineering Manager")
+    _seed_job(db_conn, "engineers", title="Founding Engineers")
+    _seed_job(db_conn, "internship", title="Summer Internship")
+
+    assert _search(client, include="engineer") == {"engineer"}
+    assert _search(client, include="engineering") == {"engineering"}
+    assert _search(client, include="intern") == set()
+
+
+def test_a_word_boundary_holds_in_every_haystack_field(client, db_conn):
+    """The boundary rule applies to location, company and tags, not just title —
+    each field has its own decoy that contains the term mid-word."""
+    _seed_job(db_conn, "loc-word", location="Remote - Mobile, AL")
+    _seed_job(db_conn, "loc-decoy", location="Automobile City, MI")
+    _seed_job(db_conn, "company-word", company="mobile-co")
+    _seed_job(db_conn, "company-decoy", company="automobileco")
+    _seed_job(db_conn, "tag-word")
+    _seed_job(db_conn, "tag-decoy")
+    _insert_job_tag(db_conn, SourceId.GOOGLE, "tag-word", "mobile")
+    _insert_job_tag(db_conn, SourceId.GOOGLE, "tag-decoy", "automobile")
+
+    assert _search(client, include="mobile") == {"loc-word", "company-word", "tag-word"}
+
+
+def test_a_multi_word_term_is_an_adjacent_phrase(client, db_conn):
+    """Words in order, next to each other, bounded at both ends. Any run of spaces
+    between the words counts, because ATS titles are not tidy about spacing."""
+    _seed_job(db_conn, "mts", title="Member of Technical Staff")
+    _seed_job(db_conn, "mts-spaced", title="Member of  Technical Staff")
+    _seed_job(db_conn, "reordered", title="Technical Member of Staff")
+    _seed_job(db_conn, "glued", title="Member of Technicality")
+
+    assert _search(client, include="member of technical") == {"mts", "mts-spaced"}
+    assert _search(client, exclude="member of technical") == {"reordered", "glued"}
+
+
+def test_a_boundary_is_only_required_on_a_letter_or_digit_edge(client, db_conn):
+    """``\\y`` sits between a word and a non-word character, so a blanket
+    ``\\yc\\+\\+\\y`` would demand a letter straight after "++" and never match
+    "C++ Developer". The boundary is emitted only where the term's own edge is a
+    letter or digit — each decoy is the near miss that rule must still reject."""
+    _seed_job(db_conn, "cpp", title="C++ Developer")
+    _seed_job(db_conn, "objcpp", title="ObjC++ Developer")
+    _seed_job(db_conn, "csharp", title="C#/.NET Developer")
+    _seed_job(db_conn, "aspnet", title="ASP.NET Developer")
+    _seed_job(db_conn, "node", title="Node.js Engineer")
+    _seed_job(db_conn, "nodex", title="Nodexjs Engineer")
+
+    assert _search(client, include="C++") == {"cpp"}
+    assert _search(client, include="c#") == {"csharp"}
+    assert _search(client, include=".net") == {"csharp", "aspnet"}
+    assert _search(client, include="node.js") == {"node"}
+
+
+# ---------------------------------------------------------------------------
+# (4) Pattern metacharacters are literals, not patterns
+# ---------------------------------------------------------------------------
+
+
+def test_regex_syntax_in_a_term_is_matched_literally(client, db_conn):
+    """The term is compiled to a regex, so every character with regex meaning is
+    escaped. Each decoy is what the UNESCAPED pattern would have matched: ``.`` as
+    any character, ``(…)`` as a group, ``+`` as "one or more", ``[…]`` as a
+    character class, ``*`` as the ``***=`` "director" at the start of a pattern."""
+    _seed_job(db_conn, "parens", title="Engineer (Remote)")
+    _seed_job(db_conn, "no-parens", title="Engineer Remote")
+    _seed_job(db_conn, "dot", title="a.b Engineer")
+    _seed_job(db_conn, "any-char", title="axb Engineer")
+    _seed_job(db_conn, "plus", title="Go+ Engineer")
+    _seed_job(db_conn, "repeated", title="Goo Engineer")
+    _seed_job(db_conn, "brackets", title="[Hybrid] Engineer")
+    _seed_job(db_conn, "class", title="H Engineer")
+    _seed_job(db_conn, "director", title="***=x Engineer")
+
+    assert _search(client, include="(remote)") == {"parens"}
+    assert _search(client, include="a.b") == {"dot"}
+    assert _search(client, include="go+") == {"plus"}
+    assert _search(client, include="[hybrid]") == {"brackets"}
+    assert _search(client, include="***=x") == {"director"}
+
+
+# ---------------------------------------------------------------------------
+# (5) LIKE-era metacharacters stay literals too
 # ---------------------------------------------------------------------------
 
 
@@ -351,14 +488,15 @@ def test_underscore_in_a_term_matches_a_literal_underscore(client, db_conn):
 
 
 def test_backslash_in_a_term_matches_a_literal_backslash(client, db_conn):
-    """The escape character itself, which has to be substituted FIRST or the
-    substitution double-escapes its own output.
+    """The escape character itself.
 
     This fixture makes the failure a full inversion rather than a widening: with
-    ``\\`` unescaped, the pattern ``%C:\\Drivers%`` reads ``\\D`` as "literal D",
-    i.e. ``%C:Drivers%`` — so the regression returns the decoy and NOT the row the
-    user was looking for. A bare ``\\`` term degrades even further, compiling to
-    "contains a percent sign", and matches nothing at all.
+    ``\\`` unescaped, the regex ``C:\\Drivers`` reads ``\\D`` as "any non-digit",
+    so it matches "C:Drivers" (``D`` is a non-digit) and NOT "C:\\Drivers" — the
+    regression returns the decoy and not the row the user was looking for. A bare
+    ``\\`` term degrades further: a trailing backslash is an invalid regex, so the
+    request would 500. (Under the old LIKE match the same two terms failed the same
+    two ways, which is why the test predates the regex.)
     """
     _seed_job(db_conn, "with-backslash", title=r"Windows C:\Drivers Engineer")
     _seed_job(db_conn, "without-backslash", title="Windows C:Drivers Engineer")
@@ -368,17 +506,20 @@ def test_backslash_in_a_term_matches_a_literal_backslash(client, db_conn):
 
 
 def test_accented_terms_match_case_insensitively_in_both_directions(client, db_conn):
-    """ILIKE case-folds non-ASCII too, and the search box is UTF-8 end to end.
+    """``~*`` case-folds non-ASCII too, and the search box is UTF-8 end to end.
 
     Both directions are asserted because the folding is done by the database's
     ctype: a lower-cased term against an upper-cased title exercises a different
     half of the comparison than the reverse, and a C-collation database would pass
     one and fail the other.
 
-    The unaccented decoy pins the other edge: ILIKE case-folds, it does NOT
+    The unaccented decoy pins the other edge: the match case-folds, it does NOT
     accent-fold, so "Ingenieur" is a different string from "Ingénieur" and must
-    not be swept in.
+    not be swept in. The last assertion pins the locale's notion of a word: an
+    accented letter is a WORD character, so "café" does not match inside
+    "Cafémanager" — the same rule the client matcher's ``\\p{L}`` applies.
     """
+    _seed_job(db_conn, "cafe-glued", title="Cafémanager")
     _seed_job(db_conn, "accent-lower", title="Ingénieur Logiciel")
     _seed_job(db_conn, "accent-upper", title="INGÉNIEUR LOGICIEL")
     _seed_job(db_conn, "unaccented", title="Ingenieur Logiciel")
@@ -386,10 +527,11 @@ def test_accented_terms_match_case_insensitively_in_both_directions(client, db_c
     accented = {"accent-lower", "accent-upper"}
     assert _search(client, include="INGÉNIEUR") == accented
     assert _search(client, include="ingénieur") == accented
+    assert _search(client, include="café") == set()
 
 
 # ---------------------------------------------------------------------------
-# (4) The empty result is a first-class answer, not an error
+# (6) The empty result is a first-class answer, not an error
 # ---------------------------------------------------------------------------
 
 

@@ -194,6 +194,87 @@ describe('jobFilteringUtils', () => {
 
       expect(matchesSearchTags(job, tags)).toBe(true);
     });
+
+    // Whole-word semantics, shared with GET /api/jobs/search (`_keyword_regex`).
+    // Each case is a false friend the old substring match got wrong.
+    const matches = (title: string, text: string, mode: SearchTag['mode'] = 'include') =>
+      matchesSearchTags(createMockJob({ title, location: 'Springfield, IL', tags: [] }), [
+        { text, mode },
+      ]);
+
+    it.each([
+      ['Automobile Systems Engineer', 'mobile'],
+      ['International Payments Engineer', 'intern'],
+      ['Internal Tools Engineer', 'intern'],
+      ['Retail Engineer', 'ai'],
+      ['Email Platform Engineer', 'ai'],
+      ['Engineering Manager', 'engineer'],
+      ['Software Engineers', 'engineer'],
+      ['Internship - Software', 'intern'],
+    ])('include does not match a word that merely contains the term: %s / %s', (title, text) => {
+      expect(matches(title, text)).toBe(false);
+    });
+
+    it.each([
+      ['Mobile Engineer', 'mobile'],
+      ['Software Engineer Intern', 'intern'],
+      ['Applied AI Engineer', 'ai'],
+      ['AI/ML Engineer', 'ai'],
+      ['Senior Software Engineer', 'ENGINEER'],
+    ])('include matches the term as a whole word: %s / %s', (title, text) => {
+      expect(matches(title, text)).toBe(true);
+    });
+
+    it('exclude applies the same whole-word rule', () => {
+      expect(matches('Automobile Systems Engineer', 'mobile', 'exclude')).toBe(true);
+      expect(matches('International Payments Engineer', 'intern', 'exclude')).toBe(true);
+      expect(matches('Internal Tools Engineer', 'intern', 'exclude')).toBe(true);
+      expect(matches('Mobile Engineer', 'mobile', 'exclude')).toBe(false);
+      expect(matches('Software Engineer Intern', 'intern', 'exclude')).toBe(false);
+    });
+
+    it('treats a multi-word term as an adjacent phrase', () => {
+      expect(matches('Member of Technical Staff', 'member of technical')).toBe(true);
+      expect(matches('Member of  Technical Staff', 'member of technical')).toBe(true);
+      expect(matches('Technical Member of Staff', 'member of technical')).toBe(false);
+      expect(matches('Member of Technicality', 'member of technical')).toBe(false);
+    });
+
+    it('never matches a phrase across two fields', () => {
+      // The haystack is joined with a newline, which the phrase gap never crosses.
+      const job = createMockJob({ title: 'Backend', location: 'Engineer', tags: [] });
+      expect(matchesSearchTags(job, [{ text: 'backend engineer', mode: 'include' }])).toBe(false);
+      expect(matchesSearchTags(job, [{ text: 'engineer', mode: 'include' }])).toBe(true);
+    });
+
+    it('requires a boundary only on a side that ends in a letter or digit', () => {
+      expect(matches('C++ Developer', 'C++')).toBe(true);
+      expect(matches('ObjC++ Developer', 'C++')).toBe(false);
+      expect(matches('C#/.NET Developer', 'c#')).toBe(true);
+      expect(matches('ASP.NET Developer', '.NET')).toBe(true);
+      expect(matches('Node.js Engineer', 'node.js')).toBe(true);
+      expect(matches('Nodexjs Engineer', 'node.js')).toBe(false);
+      expect(matches('100% Remote Engineer', '100%')).toBe(true);
+      expect(matches('Engineer, 1000 Series', '100%')).toBe(false);
+    });
+
+    it('treats regex syntax in a term as literal text', () => {
+      expect(matches('Engineer (Remote)', '(remote)')).toBe(true);
+      expect(matches('Engineer Remote', '(remote)')).toBe(false);
+      expect(matches('a.b Engineer', 'a.b')).toBe(true);
+      expect(matches('axb Engineer', 'a.b')).toBe(false);
+      expect(matches('senior_swe wanted', 'senior_swe')).toBe(true);
+    });
+
+    it('counts accented letters as word characters, like the backend database', () => {
+      expect(matches('INGÉNIEUR LOGICIEL', 'ingénieur')).toBe(true);
+      expect(matches('Cafémanager', 'café')).toBe(false);
+    });
+
+    it('a term with no words matches nothing', () => {
+      expect(matches('Software Engineer', '   ')).toBe(false);
+      expect(matches('Software Engineer', '   ', 'exclude')).toBe(true);
+    });
   });
 
   describe('matchesLocation', () => {

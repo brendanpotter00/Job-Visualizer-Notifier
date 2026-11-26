@@ -571,6 +571,11 @@ def test_values_at_the_cap_boundary_are_accepted(client, db_conn):
         pytest.param("location", "", "must not be empty", id="empty_location"),
         pytest.param("include", "", "must not be empty", id="empty_include"),
         pytest.param("exclude", "", "must not be empty", id="empty_exclude"),
+        # Whitespace-only is empty too. A whole-word keyword needs at least one
+        # word; a blank one would compile to the empty regex and match EVERY row.
+        pytest.param("include", "   ", "must not be empty", id="blank_include"),
+        pytest.param("exclude", "   ", "must not be empty", id="blank_exclude"),
+        pytest.param("location", "  ", "must not be empty", id="blank_location"),
         pytest.param("location", "Austin\x01, TX", "control characters", id="location_control_char"),
         pytest.param("include", "remote\x7f", "control characters", id="include_control_char"),
     ],
@@ -578,7 +583,7 @@ def test_values_at_the_cap_boundary_are_accepted(client, db_conn):
 def test_a_malformed_free_text_value_is_a_422_with_a_reason(
     client, db_conn, field, value, expected_reason
 ):
-    """Empty is rejected, NOT dropped.
+    """Empty (or whitespace-only) is rejected, NOT dropped.
 
     ``?include=`` means the caller's template misfired; treating it as "no keyword
     filter" hands back an unfiltered result set the caller believes was filtered.

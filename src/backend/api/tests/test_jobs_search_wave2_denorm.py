@@ -9,7 +9,8 @@ to run:
 * country-tier location →
   ``primary_country = %s OR (primary_country IS NULL AND <country-tier EXISTS>)``
 * keyword →
-  ``(search_text IS NOT NULL AND search_text ILIKE %s) OR (search_text IS NULL AND <4-way OR>)``
+  ``(search_text IS NOT NULL AND search_text ~* %s) OR (search_text IS NULL AND <4-way OR>)``
+  (a whole-word regex since the keyword match stopped being a substring ``ILIKE``)
 
 Both columns are **nullable and lazily populated** (write path + a bounded
 post-deploy backfill), so at any instant an arbitrary subset of rows is
@@ -342,3 +343,96 @@ def test_boundary_absolute_expectations_when_backfilled(client, db_conn):
                                                "within-title"}
     assert _ids(client, include="engineer") == {"span-title-loc", "span-two-tags",
                                                 "within-title"}
+
+
+# ---------------------------------------------------------------------------
+# Whole-word parity: the keyword match is a WHOLE-WORD regex (``\y`` boundaries),
+# and a boundary at a field edge must read the same on both branches. In
+# ``search_text`` a field's last character is followed by the newline separator;
+# in the per-field fallback it is followed by the end of the string. Both are a
+# boundary, so a word at the very start or end of a field — and a false friend
+# sitting next to the separator — must answer identically fast and slow.
+# ---------------------------------------------------------------------------
+
+
+def _seed_whole_word_corpus(conn):
+    """False friends and real words, each placed at a field EDGE (next to the
+    separator on the fast path), in every haystack field."""
+    # The word ends the title, so on the fast path it is followed by "\n".
+    _job(conn, "intern-title-end", title="Software Engineer Intern", company="acme",
+         location="Remote")
+    # False friends of "intern": one starts the title, one starts the location.
+    _job(conn, "international", title="International Payments Engineer",
+         company="acme", location="NYC")
+    _job(conn, "internal-loc", title="Engineer", company="acme",
+         location="Internal Tools HQ")
+    # "mobile" as a whole company slug vs. inside a tag.
+    _job(conn, "mobile-company", title="Engineer", company="mobile",
+         location="Austin")
+    _job(conn, "automobile-tag", title="Engineer", company="acme",
+         location="Detroit", tags=("automobile",))
+    # "ai": a whole tag vs. the letters inside a location.
+    _job(conn, "ai-tag", title="Researcher", company="acme", location="Boston",
+         tags=("ai",))
+    _job(conn, "mountain-view", title="Researcher", company="acme",
+         location="Mountain View, CA")
+    # Punctuation edges at the very start of a field.
+    _job(conn, "dotnet-title", title=".NET Developer", company="acme",
+         location="Seattle")
+    _job(conn, "aspnet-tag", title="Developer", company="acme", location="Denver",
+         tags=("asp.net",))
+
+
+_WHOLE_WORD_FILTER_SETS = [
+    {"include": "intern"},
+    {"exclude": "intern"},
+    {"include": "mobile"},
+    {"exclude": "mobile"},
+    {"include": "ai"},
+    {"exclude": "ai"},
+    {"include": ".net"},
+    {"include": "engineer"},
+    {"include": "payments engineer"},
+]
+
+
+def test_whole_word_match_is_identical_fast_and_fallback(client, db_conn):
+    """Fast (backfilled) == fallback (NULL) for every whole-word filter, fully AND
+    partially backfilled, on the include and the exclude path."""
+    _seed_whole_word_corpus(db_conn)
+
+    ground_truth = {_fs_key(fs): _ids(client, **fs) for fs in _WHOLE_WORD_FILTER_SETS}
+
+    keys = _all_keys(db_conn)
+    _backfill(db_conn, keys)
+    for fs in _WHOLE_WORD_FILTER_SETS:
+        assert _ids(client, **fs) == ground_truth[_fs_key(fs)], (
+            f"fully-backfilled result diverged from the NULL fallback for {fs!r} — "
+            f"a word boundary reads differently next to the search_text separator"
+        )
+
+    _null_all(db_conn)
+    _backfill(db_conn, keys[::2])
+    for fs in _WHOLE_WORD_FILTER_SETS:
+        assert _ids(client, **fs) == ground_truth[_fs_key(fs)], (
+            f"partially-backfilled result diverged from the NULL fallback for {fs!r}"
+        )
+
+
+def test_whole_word_absolute_expectations_when_backfilled(client, db_conn):
+    """Pin the answers so the parity check above can't pass on a fallback that
+    regressed to substring matching the same way."""
+    _seed_whole_word_corpus(db_conn)
+    _backfill(db_conn, _all_keys(db_conn))
+    everyone = {
+        "intern-title-end", "international", "internal-loc", "mobile-company",
+        "automobile-tag", "ai-tag", "mountain-view", "dotnet-title", "aspnet-tag",
+    }
+
+    assert _ids(client, include="intern") == {"intern-title-end"}
+    assert _ids(client, exclude="intern") == everyone - {"intern-title-end"}
+    assert _ids(client, include="mobile") == {"mobile-company"}
+    assert _ids(client, exclude="mobile") == everyone - {"mobile-company"}
+    assert _ids(client, include="ai") == {"ai-tag"}
+    assert _ids(client, include=".net") == {"dotnet-title", "aspnet-tag"}
+    assert _ids(client, include="payments engineer") == {"international"}

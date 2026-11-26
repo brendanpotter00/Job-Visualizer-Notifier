@@ -144,16 +144,73 @@ class SearchCounts(TypedDict):
 # Keyword search
 # ---------------------------------------------------------------------------
 
-# Escapes the three characters LIKE treats specially, so a user searching for
-# "C++ (100% remote)" or "senior_swe" gets a literal match instead of a wildcard.
-# The backslash must be substituted FIRST — running it after '%'/'_' would
-# double-escape the backslashes this very substitution just inserted.
-_LIKE_SPECIALS = re.compile(r"([\\%_])")
+# A keyword is a WHOLE-WORD (or whole-phrase) match, never a substring. As a
+# substring, ``− intern`` hid "International Payments" and "Internal Tools",
+# ``− mobile`` hid "Automobile …", and ``+ ai`` reached every "Mountain View" job
+# (prod, 2026-11-25: 12,955 OPEN rows contain the letters "ai", 7,268 the word).
+# The match is STRICT: no stemming, no plural tolerance, so "engineer" does NOT
+# match "Engineering" or "Engineers". That was the owner's call (2026-11-25), made
+# knowing it narrows the built-in Software Engineering list (27,008 -> 24,678 OPEN
+# rows that day) — the list was deliberately left as it is.
+#
+# A term compiles to a Postgres ARE, matched case-insensitively with ``~*``:
+#
+# * Every character the ARE syntax gives a meaning to is backslash-escaped, so a
+#   term is always a literal. In an ARE ``\`` before a NON-alphanumeric character
+#   means "that character", and the escaper never puts a backslash before a letter
+#   or digit, so user text can never mint an escape such as ``\y`` or ``\d``. The
+#   escaped set also covers the start-of-pattern "director" forms (``***=``) and
+#   embedded options (``(?i)``), since ``*`` and ``(`` are escaped.
+# * ``\y`` (word boundary) is emitted ONLY on a side whose edge character is a
+#   word character. ``\y`` sits between a word and a non-word character, so a
+#   blanket ``\yc\+\+\y`` would demand a letter right after "++" and never match
+#   "C++ Developer". Hence "c++" -> ``\yc\+\+`` (not "ObjC++"), ".net" ->
+#   ``\.net\y`` (".NET" and "ASP.NET"), "100%" -> ``\y100%`` ("100% Remote", not
+#   "1000"). A term with no word character at either edge ("%") gets no boundary
+#   and matches its literal anywhere.
+# * A multi-word term is an adjacent PHRASE: its words, in order, joined by
+#   ``[ \t]+`` (any run of spaces/tabs). Deliberately NOT ``\s`` or
+#   ``[[:space:]]``: both include the newline ``search_text`` uses as its field
+#   separator, which would let "backend engineer" match a title ending "Backend"
+#   followed by a raw location "Engineer".
+#
+# "Word character" is the DATABASE's notion, because ``\y`` is evaluated there:
+# prod and the test DB are both libc ``en_US.utf8``, where letters of every script
+# are word characters (so "café" does not match inside "cafémanager"; a C-locale
+# database would disagree). ``_is_word_char`` mirrors it on this side, where it
+# only decides whether a boundary is EMITTED. The client matcher
+# (``matchesSearchTags`` in ``jobFilteringUtils.ts``) uses ``[\p{L}\p{Nd}_]`` for
+# the same reason, and both share these rules so a chip means the same thing on
+# the Companies page as on Recent Jobs.
+_ARE_SPECIALS = re.compile(r"([\\^$.\[\]|()*+?{}])")
+
+# Between the words of a phrase: spaces or tabs, never the newline separator.
+# Splitting the term uses the same two characters, so a term's internal non-ASCII
+# whitespace (a no-break space) stays a literal part of its word, exactly as it
+# was under the substring match.
+_PHRASE_GAP = "[ \t]+"
+_PHRASE_SPLIT = re.compile(_PHRASE_GAP)
 
 
-def _like_pattern(term: str) -> str:
-    """Wrap a user term as an escaped ``%…%`` LIKE pattern (substring semantics)."""
-    return "%" + _LIKE_SPECIALS.sub(r"\\\1", term) + "%"
+def _is_word_char(char: str) -> bool:
+    """Whether Postgres' ``\\y`` counts ``char`` as part of a word (libc UTF-8)."""
+    return char == "_" or char.isalpha() or char.isdecimal()
+
+
+def _keyword_regex(term: str) -> str:
+    """Compile one user term into the whole-word ARE ``_KEYWORD_PREDICATE`` binds."""
+    words = [word for word in _PHRASE_SPLIT.split(term) if word]
+    if not words:
+        # The router rejects blank terms (``_validate_text_list``). One that got
+        # here anyway would compile to ``""``, which matches EVERY row — an include
+        # that filters nothing, an exclude that hides everything — so refuse it.
+        raise ValueError("a keyword term must contain at least one word")
+    pattern = _PHRASE_GAP.join(_ARE_SPECIALS.sub(r"\\\1", word) for word in words)
+    if _is_word_char(words[0][0]):
+        pattern = r"\y" + pattern
+    if _is_word_char(words[-1][-1]):
+        pattern += r"\y"
+    return pattern
 
 
 # One keyword term against the searchable text of a job.
@@ -161,31 +218,41 @@ def _like_pattern(term: str) -> str:
 # FAST PATH + FALLBACK (Perf Wave 2, C3). ``job_listings.search_text`` is a
 # denormalized, lower-cased ``title ‖ raw location ‖ company ‖ tags`` haystack
 # (migration ``e3b1a4c9d7f2``), covered by a GIN trigram index — so
-# ``search_text ILIKE '%term%'`` is one bitmap probe instead of the 4-way OR that
-# spans ``job_listings`` and ``job_tags`` and no per-column trigram can serve.
+# ``search_text ~* <term regex>`` is one bitmap probe instead of the 4-way OR that
+# spans ``job_listings`` and ``job_tags`` and no per-column trigram can serve
+# (``gin_trgm_ops`` serves ``~*`` exactly as it serves ``ILIKE`` — the same bitmap
+# plan for ``'\ykubernetes\y'`` as for ``'%kubernetes%'``, measured on prod when the
+# match became whole-word; at LIMIT 100 the page query usually prefers the keyset
+# walk with this predicate as a Filter, before and after — see the measurement
+# above ``_MAX_KEYWORDS`` in ``routers/jobs_search.py``).
 # But ``search_text`` is nullable and populated lazily (write path + a bounded
 # post-deploy backfill), so a row whose value is NULL has NOT been computed yet
 # and seeking on it would DROP the row. The predicate therefore keeps the
-# ORIGINAL 4-way OR verbatim as a fallback for exactly those NULL rows:
+# per-field 4-way OR as a fallback for exactly those NULL rows:
 #
-#   (search_text IS NOT NULL AND search_text ILIKE %s)    -- backfilled: fast path
-#   OR (search_text IS NULL AND <original 4-way OR>)       -- not-yet-filled
+#   (search_text IS NOT NULL AND search_text ~* %s)    -- backfilled: fast path
+#   OR (search_text IS NULL AND <4-way OR, ~* per field>) -- not-yet-filled
 #
-# This is provably parity-exact with the old predicate for any population state
-# (WAVE2-PLAN.md §5b): ``search_text`` is built with the SAME field set the OR
-# tested, so a backfilled row matches iff the OR would, and a NULL row runs the
-# OR itself. As the backfill drains NULLs the fast branch fires more and the
-# fallback less. There is NO longer a boundary divergence: ``search_text`` joins
-# its fields (and its tags) with ``chr(10)`` (a newline), and
-# ``routers/jobs_search.py``'s ``_validate_text_list`` rejects control characters
-# (newline included) in a term, so a multi-word term can never straddle a field or
-# tag boundary the per-field OR would not — matching the fallback exactly on both
-# the include and the exclude path. (See ``SEARCH_TEXT_EXPR`` in
-# ``scripts/shared/database.py`` for the separator's rationale.)
+# This is parity-exact for any population state (WAVE2-PLAN.md §5b):
+# ``search_text`` is built with the SAME field set the OR tests, so a backfilled
+# row matches iff the OR would, and a NULL row runs the OR itself. As the backfill
+# drains NULLs the fast branch fires more and the fallback less. Whole-word
+# matching keeps that true because the separator is ``chr(10)`` (a newline), which
+# does two jobs at once (see ``SEARCH_TEXT_EXPR`` in ``scripts/shared/database.py``):
+#
+# * A match can never STRADDLE a field or tag boundary. The compiled pattern can
+#   only match the term's own escaped characters and ``[ \t]+`` — never a newline
+#   — and ``routers/jobs_search.py``'s ``_validate_text_list`` rejects control
+#   characters (newline included) in a term, so no term contains one either.
+# * A ``\y`` at a field edge sees the same thing on both branches. The newline is
+#   a NON-word character, so "engineer" at the end of the title is followed by a
+#   boundary in ``search_text`` exactly as it is at the end of ``title`` alone.
+#
+# Both hold on the include and on the exclude path.
 #
 # WHY THE ``IS NOT NULL`` GUARD ON THE FAST BRANCH, not the plan's bare
-# ``search_text ILIKE %s OR (…)``: on the EXCLUDE path the whole predicate is
-# wrapped in ``NOT (…)``, and for a NULL-``search_text`` row ``NULL ILIKE %s`` is
+# ``search_text ~* %s OR (…)``: on the EXCLUDE path the whole predicate is
+# wrapped in ``NOT (…)``, and for a NULL-``search_text`` row ``NULL ~* %s`` is
 # NULL — ``NULL OR (NULL IS NULL AND <false OR>)`` collapses to NULL, and
 # ``NOT (NULL)`` is NULL, which Postgres drops. That is the very
 # null-drops-the-row hazard the ``COALESCE(location,'')`` below guards against,
@@ -194,7 +261,7 @@ def _like_pattern(term: str) -> str:
 # total (each branch is boolean under its guard, so the OR is boolean, never
 # NULL) — safe under both include and exclude.
 #
-# The original 4-way OR, now the fallback, unchanged. Its field set:
+# The original 4-way OR, now the fallback. Its field set:
 # * ``department`` is NOT matched, and the history here is worth keeping because
 #   it reversed twice. It used to be ``details.experience_level`` on the frontend
 #   (``backendScraperTransformer.ts``), mirrored into the denormalized
@@ -219,36 +286,35 @@ def _like_pattern(term: str) -> str:
 # matches none of the other fields makes the OR evaluate to NULL rather than
 # false — and on the exclude path ``AND NOT (NULL)`` is NULL, which drops the
 # row. A negative keyword would then silently hide every location-less job.
+# ``NULL ~* x`` is NULL exactly as ``NULL ILIKE x`` was, so the guard is as
+# load-bearing under the regex as it was under LIKE.
 # ``title`` and ``company`` are NOT NULL. (``search_text`` on the fast branch is
 # built with ``coalesce``s too, so it is never NULL for a backfilled row.)
-#
-# ``ESCAPE '\'`` is stated explicitly rather than relying on LIKE's default, so
-# the escape character is part of the query text.
 _KEYWORD_PREDICATE = sql.SQL(
     "("
     " (job_listings.search_text IS NOT NULL"
-    "  AND job_listings.search_text ILIKE %s ESCAPE '\\')"
+    "  AND job_listings.search_text ~* %s)"
     " OR (job_listings.search_text IS NULL AND ("
-    "   job_listings.title ILIKE %s ESCAPE '\\'"
-    "   OR COALESCE(job_listings.location, '') ILIKE %s ESCAPE '\\'"
-    "   OR job_listings.company ILIKE %s ESCAPE '\\'"
+    "   job_listings.title ~* %s"
+    "   OR COALESCE(job_listings.location, '') ~* %s"
+    "   OR job_listings.company ~* %s"
     "   OR EXISTS ("
     "     SELECT 1 FROM job_tags t"
     "     WHERE t.source_id = job_listings.source_id"
     "       AND t.job_listing_id = job_listings.id"
-    "       AND t.tag ILIKE %s ESCAPE '\\')"
+    "       AND t.tag ~* %s)"
     " ))"
     ")"
 )
 
 # One copy of the pattern for the fast ``search_text`` branch, plus the four the
-# original OR bound (title / location / company / tag).
+# fallback OR binds (title / location / company / tag).
 _KEYWORD_PARAM_COUNT = 5
 
 
 def _keyword_condition(term: str) -> tuple[sql.Composable, list[str]]:
-    """One escaped keyword term plus the five copies of its pattern it binds."""
-    pattern = _like_pattern(term)
+    """One keyword term plus the five copies of its whole-word regex it binds."""
+    pattern = _keyword_regex(term)
     return _KEYWORD_PREDICATE, [pattern] * _KEYWORD_PARAM_COUNT
 
 
@@ -897,7 +963,8 @@ def search_jobs(
 # exactly this request).
 #
 # Measured on prod: the built-in "Software Engineering" keyword set is six terms,
-# each expanding to three ILIKEs plus an EXISTS, and the resulting OR-chain makes
+# each expanding to three per-field ILIKEs (``~*`` regexes since keywords became
+# whole-word) plus an EXISTS, and the resulting OR-chain makes
 # the planner emit 94 JIT-compiled functions — 1,044 ms of inlining/optimisation/
 # emission on top of ~620 ms of actual work. The compiled code is then thrown away
 # with the connection. JIT pays off for long analytical scans, not for a

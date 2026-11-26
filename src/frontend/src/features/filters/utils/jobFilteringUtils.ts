@@ -42,17 +42,87 @@ export function isJobWithinTimeWindow(jobFirstSeenAt: string, timeWindow: TimeWi
 }
 
 /**
- * Check if a job matches search tags (include/exclude logic)
+ * A letter (any script), a decimal digit, or `_`: what Postgres' `\y` counts as
+ * part of a word on the backend's libc `en_US.utf8` database. Keeping the same
+ * definition here is what lets a chip mean the same thing on the Companies page
+ * (matched here) as on Recent Jobs (matched by `GET /api/jobs/search`).
+ */
+const WORD_CHAR = '[\\p{L}\\p{Nd}_]';
+const NON_WORD_CHAR = '[^\\p{L}\\p{Nd}_]';
+const STARTS_WITH_WORD_CHAR = new RegExp(`^${WORD_CHAR}`, 'u');
+const ENDS_WITH_WORD_CHAR = new RegExp(`${WORD_CHAR}$`, 'u');
+/** Every character with syntax meaning in a `u`-flag RegExp (escaping anything else is a SyntaxError there). */
+const REGEX_SYNTAX_CHARS = /[\\^$.*+?()[\]{}|/]/g;
+/** Words of a phrase are separated by spaces/tabs only, never the haystack's newline separator. */
+const PHRASE_GAP = /[ \t]+/;
+
+const keywordRegexCache = new Map<string, RegExp | null>();
+const KEYWORD_REGEX_CACHE_LIMIT = 500;
+
+/**
+ * Compile one keyword chip into its WHOLE-WORD matcher — the client twin of the
+ * backend's `_keyword_regex` (`src/backend/api/services/job_search.py`), which
+ * documents the rules in full:
+ *
+ * - Case-insensitive, strict whole words: `intern` matches "Intern" but not
+ *   "International" or "Internship"; `engineer` does not match "Engineering".
+ * - A multi-word term is an adjacent phrase, words joined by any run of spaces/tabs.
+ * - A boundary is required only on a side whose edge character is a word
+ *   character, so `C++` matches "C++ Developer" (not "ObjC++") and `.NET`
+ *   matches "ASP.NET".
+ *
+ * The leading boundary is a consuming `(?:^|[^…])` group rather than a
+ * lookbehind: `matchesSearchTags` only ever calls `.test()`, so the consumed
+ * character is harmless, and a lookbehind throws a SyntaxError in Safari before
+ * 16.4. Returns `null` for a term with no words, which matches nothing.
+ */
+export function compileKeyword(term: string): RegExp | null {
+  const cached = keywordRegexCache.get(term);
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  const words = term.split(PHRASE_GAP).filter(Boolean);
+  let regex: RegExp | null = null;
+  if (words.length > 0) {
+    let source = words.map((word) => word.replace(REGEX_SYNTAX_CHARS, '\\$&')).join('[ \\t]+');
+    if (STARTS_WITH_WORD_CHAR.test(words[0])) {
+      source = `(?:^|${NON_WORD_CHAR})${source}`;
+    }
+    if (ENDS_WITH_WORD_CHAR.test(words[words.length - 1])) {
+      source = `${source}(?!${WORD_CHAR})`;
+    }
+    regex = new RegExp(source, 'iu');
+  }
+
+  // Chips are few, but a long session can type many; a bounded cache keeps the
+  // compile off the per-job hot path without growing without limit.
+  if (keywordRegexCache.size >= KEYWORD_REGEX_CACHE_LIMIT) {
+    keywordRegexCache.clear();
+  }
+  keywordRegexCache.set(term, regex);
+  return regex;
+}
+
+function matchesKeyword(searchableText: string, term: string): boolean {
+  return compileKeyword(term)?.test(searchableText) ?? false;
+}
+
+/**
+ * Check if a job matches search tags (include/exclude logic), whole-word — see
+ * {@link compileKeyword}.
  */
 export function matchesSearchTags(job: Job, searchTags: SearchTag[] | undefined): boolean {
   if (!searchTags || searchTags.length === 0) {
     return true;
   }
 
+  // Joined with a NEWLINE, like the server's `search_text`: the phrase gap is
+  // spaces/tabs only, so "backend engineer" can never match a title ending
+  // "Backend" followed by a location starting "Engineer".
   const searchableText = [job.title, job.team, job.location, ...(job.tags || [])]
     .filter(Boolean)
-    .join(' ')
-    .toLowerCase();
+    .join('\n');
 
   const includeTags = searchTags.filter((t) => t.mode === 'include');
   const excludeTags = searchTags.filter((t) => t.mode === 'exclude');
@@ -60,7 +130,7 @@ export function matchesSearchTags(job: Job, searchTags: SearchTag[] | undefined)
   // Include logic: If include tags exist, job must match at least one (OR logic)
   if (includeTags.length > 0) {
     const matchesAnyIncludeTag = includeTags.some((tag) =>
-      searchableText.includes(tag.text.toLowerCase())
+      matchesKeyword(searchableText, tag.text)
     );
 
     if (!matchesAnyIncludeTag) {
@@ -71,7 +141,7 @@ export function matchesSearchTags(job: Job, searchTags: SearchTag[] | undefined)
   // Exclude logic: Job must NOT match any exclude tags (AND NOT logic)
   if (excludeTags.length > 0) {
     const matchesAnyExcludeTag = excludeTags.some((tag) =>
-      searchableText.includes(tag.text.toLowerCase())
+      matchesKeyword(searchableText, tag.text)
     );
 
     if (matchesAnyExcludeTag) {
@@ -397,9 +467,7 @@ export function matchesSubcategory(
     return false;
   }
   return subcategories.some((selected) =>
-    (SUBCATEGORY_FILTER_EXPANSION[selected] ?? [selected]).some((slug) =>
-      jobSubs.includes(slug)
-    )
+    (SUBCATEGORY_FILTER_EXPANSION[selected] ?? [selected]).some((slug) => jobSubs.includes(slug))
   );
 }
 

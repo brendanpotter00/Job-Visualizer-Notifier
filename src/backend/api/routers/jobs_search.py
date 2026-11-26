@@ -85,7 +85,8 @@ _MAX_LOCATIONS = 100
 _MAX_LOCATION_LENGTH = 200
 # Keyword terms are the one filter whose cost is linear in the number of VALUES,
 # and the mechanism is NOT the one you would guess from reading
-# ``_KEYWORD_PREDICATE``. Each term adds four ILIKEs plus an ``EXISTS`` over
+# ``_KEYWORD_PREDICATE``. Each term adds four per-field matches (ILIKEs when the
+# numbers below were taken; whole-word ``~*`` regexes now) plus an ``EXISTS`` over
 # ``job_tags`` — but Postgres DE-CORRELATES that EXISTS into a hashed ``SubPlan``,
 # so it is not evaluated per candidate row at all. It is executed ONCE
 # (``loops=1``) and then probed, which makes it **independent of LIMIT**: a 50-row
@@ -122,6 +123,19 @@ _MAX_LOCATION_LENGTH = 200
 # per term over the OPEN ``job_listings`` rows. That is the thing to attack next if
 # this cap ever needs to rise; do NOT raise it on the strength of the trigram index
 # alone.
+#
+# WHOLE-WORD SWITCH (ILIKE '%term%' -> ~* '\yterm\y'), re-measured on prod
+# 2026-11-26 (51,704 OPEN / 326,821 tags; the endpoint's page query, full
+# 251-company roster, LIMIT 100, old vs new, warm). The plan did NOT change in any
+# of nine shapes: today every one is the keyset ``Index Scan Backward`` with the
+# keyword as a ``Filter`` (``search_text`` is fully backfilled, so the fallback's
+# ``job_tags`` SubPlans never execute). Normal pages moved by <= ~2 ms (built-in
+# 6 terms 4.6 -> 4.7 ms; + 3 excludes 5.7 -> 5.8 ms). The worst case — a term
+# matching NOTHING walks all ~51.7K OPEN rows — went 141 -> 166 ms (+17%, the
+# per-row regex being dearer than LIKE). Planning time grows with term count
+# (20 terms: 21 -> ~30 ms). ``idx_job_listings_search_text_trgm`` serves ``~*
+# '\ykubernetes\y'`` with the identical bitmap plan it uses for ILIKE; a 2-char
+# term (``ai``) is unindexable either way.
 #
 # 20 is still above any observed use — the built-in list is 6 terms and the widest
 # saved list in prod is 11 (2026-08-19).
@@ -289,7 +303,12 @@ def _validate_text_list(
         _reject(400, f"'{field}' accepts at most {max_values} values.",
                 field=field, received=len(values), cap=max_values)
     for value in values:
-        if not value:
+        # Whitespace-only counts as empty. For a keyword it is worse than a no-op:
+        # a whole-word term needs at least one word, and the blank compiles to the
+        # empty regex, which matches every row (``services/job_search.py``'s
+        # ``_keyword_regex`` refuses it). For a location it is a name that can
+        # never resolve, i.e. the silent zero-row 200 this module exists to avoid.
+        if not value.strip():
             _reject(422, f"'{field}' values must not be empty.", field=field)
         if len(value) > max_length:
             _reject(422, f"'{field}' values must be at most {max_length} characters.",
@@ -446,12 +465,18 @@ def search(
         default=None,
         description=(
             "Repeatable keyword. A job matches if ANY include term appears in its "
-            "title, raw location, company or tags — case-insensitive substring."
+            "title, raw location, company or tags as a WHOLE word, case-insensitive "
+            "('intern' does not match 'International'; 'engineer' does not match "
+            "'Engineering'). A multi-word term is an adjacent phrase. A side of a "
+            "term that ends in punctuation ('C++', '.NET') has no word boundary."
         ),
     ),
     exclude: list[str] | None = Query(
         default=None,
-        description="Repeatable keyword. A job is dropped if ANY exclude term matches.",
+        description=(
+            "Repeatable keyword. A job is dropped if ANY exclude term matches, by "
+            "the same whole-word rule as 'include'."
+        ),
     ),
 ) -> JobSearchResponse:
     """Search jobs with the Recent page's full filter set applied server-side.
@@ -752,7 +777,7 @@ def search(
         # nothing.
         #
         # One line per slow request, on the endpoint that owns the Recent page's
-        # entire read path. The keyword predicate runs four un-indexed ILIKEs per
+        # entire read path. The keyword predicate runs four un-indexed regexes per
         # term over job_listings on top of the (now trigram-indexed) job_tags
         # probe, and page 1 pays the whole predicate twice — so DB time here
         # scales with the reader's keyword count. ``page`` is read off the RAW
