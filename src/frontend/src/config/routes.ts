@@ -37,7 +37,7 @@ export const ROUTES = {
   ADMIN_USERS: '/admin/users',
   ADMIN_LOCATION_NORMALIZATION: '/admin/location-normalization',
   // Public route (not admin-gated). Admins still get a sidebar link via
-  // ADMIN_NAV_ITEMS; everyone else reaches it from the Changelog card.
+  // ADMIN_NAV_ITEMS; everyone else reaches it only by URL.
   LOCATION_PIPELINE: '/location-pipeline',
   ADMIN_ENRICHMENT: '/admin/enrichment',
   // Read-only oversight for user-added boards (E7). Behind `AdminRoute` only —

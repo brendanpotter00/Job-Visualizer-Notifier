@@ -8,10 +8,9 @@ vi.mock('../../../constants/ui', async (importOriginal) => {
   const actual = (await importOriginal()) as Record<string, unknown>;
   return {
     ...actual,
-    CHANGELOG_INFINITE_SCROLL_CONFIG: {
+    CARD_GRID_INFINITE_SCROLL_CONFIG: {
       INITIAL_BATCH_SIZE: 2,
       SUBSEQUENT_BATCH_SIZE: 2,
-      SKELETON_COUNT: 1,
     },
   };
 });

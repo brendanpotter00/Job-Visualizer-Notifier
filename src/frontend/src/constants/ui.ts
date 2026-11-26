@@ -75,33 +75,27 @@ export const VIRTUAL_LIST_CONFIG = {
 } as const;
 
 /**
- * Configuration for incremental (infinite-scroll) rendering of the feature
- * Changelog on the /vote-features page.
+ * Configuration for incremental (infinite-scroll) rendering of a grid of large
+ * cards whose data is already in memory (the Curated Companies grid).
  *
- * The changelog data is static client-side config, so this is purely about how
- * many cards we render at once — not network loading. Batches are intentionally
- * smaller than INFINITE_SCROLL_CONFIG (which is tuned for compact job rows):
- * changelog cards are larger, and INITIAL_BATCH_SIZE: 50 would render the entire
- * list up front, defeating the purpose. The IntersectionObserver margin and
- * threshold are shared with INFINITE_SCROLL_CONFIG for consistent behavior.
+ * The data is fully loaded, so this is purely about how many cards we render at
+ * once — not network loading. Batches are intentionally smaller than
+ * INFINITE_SCROLL_CONFIG (which is tuned for compact job rows): these cards are
+ * larger, and INITIAL_BATCH_SIZE: 50 would mount far more of them up front than
+ * the first screen shows, defeating the purpose.
  */
-export const CHANGELOG_INFINITE_SCROLL_CONFIG = {
+export const CARD_GRID_INFINITE_SCROLL_CONFIG = {
   /**
-   * Number of changelog cards rendered on initial mount (and after the tag
-   * filter changes).
+   * Number of cards rendered on initial mount (and after the search query
+   * changes).
    */
   INITIAL_BATCH_SIZE: 10,
 
   /**
-   * Number of additional changelog cards revealed each time the sentinel
-   * scrolls into view.
+   * Number of additional cards revealed each time the sentinel scrolls into
+   * view.
    */
   SUBSEQUENT_BATCH_SIZE: 10,
-
-  /**
-   * Number of skeleton cards shown while the next batch is being revealed.
-   */
-  SKELETON_COUNT: 2,
 } as const;
 
 /**

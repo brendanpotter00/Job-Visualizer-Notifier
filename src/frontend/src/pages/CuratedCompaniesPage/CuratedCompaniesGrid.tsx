@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Box, Grid, Typography } from '@mui/material';
 import { EmptyState } from '../../components/shared/ErrorDisplay';
 import { useDebouncedValue } from '../../hooks/useDebouncedValue';
-import { CHANGELOG_INFINITE_SCROLL_CONFIG } from '../../constants/ui';
+import { CARD_GRID_INFINITE_SCROLL_CONFIG } from '../../constants/ui';
 import type { CuratedCompany } from '../../features/companies/companiesApi';
 import { CompanyCard } from './CompanyCard';
 import { SearchBar } from './SearchBar';
@@ -41,7 +41,7 @@ export function CuratedCompaniesGrid({ companies }: CuratedCompaniesGridProps) {
   }, [sorted, debouncedSearch]);
 
   const [visibleCount, setVisibleCount] = useState<number>(
-    CHANGELOG_INFINITE_SCROLL_CONFIG.INITIAL_BATCH_SIZE
+    CARD_GRID_INFINITE_SCROLL_CONFIG.INITIAL_BATCH_SIZE
   );
 
   // Reset to the first batch whenever the (debounced) search query changes, so a
@@ -50,7 +50,7 @@ export function CuratedCompaniesGrid({ companies }: CuratedCompaniesGridProps) {
   const [lastSearch, setLastSearch] = useState(debouncedSearch);
   if (debouncedSearch !== lastSearch) {
     setLastSearch(debouncedSearch);
-    setVisibleCount(CHANGELOG_INFINITE_SCROLL_CONFIG.INITIAL_BATCH_SIZE);
+    setVisibleCount(CARD_GRID_INFINITE_SCROLL_CONFIG.INITIAL_BATCH_SIZE);
   }
 
   const hasMore = visibleCount < filtered.length;
@@ -58,7 +58,7 @@ export function CuratedCompaniesGrid({ companies }: CuratedCompaniesGridProps) {
 
   const loadMore = useCallback(() => {
     setVisibleCount((count) =>
-      Math.min(count + CHANGELOG_INFINITE_SCROLL_CONFIG.SUBSEQUENT_BATCH_SIZE, filtered.length)
+      Math.min(count + CARD_GRID_INFINITE_SCROLL_CONFIG.SUBSEQUENT_BATCH_SIZE, filtered.length)
     );
   }, [filtered.length]);
 
@@ -110,7 +110,7 @@ export function CuratedCompaniesGrid({ companies }: CuratedCompaniesGridProps) {
 
           {hasMore && <Box ref={sentinelRef} aria-hidden="true" sx={{ height: '1px' }} />}
 
-          {!hasMore && filtered.length > CHANGELOG_INFINITE_SCROLL_CONFIG.INITIAL_BATCH_SIZE && (
+          {!hasMore && filtered.length > CARD_GRID_INFINITE_SCROLL_CONFIG.INITIAL_BATCH_SIZE && (
             <Box sx={{ textAlign: 'center', py: 2 }} role="status">
               <Typography variant="body2" color="text.secondary">
                 All {filtered.length} companies shown

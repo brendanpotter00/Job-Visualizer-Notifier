@@ -193,7 +193,7 @@ function AppContent() {
             }
           />
           {/* Public route — not admin-gated. Admins get a sidebar link
-              (ADMIN_NAV_ITEMS); everyone else arrives via the Changelog card. */}
+              (ADMIN_NAV_ITEMS); everyone else reaches it only by URL. */}
           <Route path={ROUTES.LOCATION_PIPELINE} element={<AdminLocationPipelinePage />} />
           <Route
             path={ROUTES.ADMIN_ENRICHMENT}
@@ -271,7 +271,7 @@ function AppContent() {
  * - /why - Why This Was Built page (about)
  * - /qa - QA page (scraper triggers, run history, debugging)
  * - /account - Account page (user profile management)
- * - /vote-features - Vote for features page (changelog + feature voting)
+ * - /vote-features - Give Feedback page (feedback box + feature voting)
  * - anything else - redirected to /
  */
 function App() {

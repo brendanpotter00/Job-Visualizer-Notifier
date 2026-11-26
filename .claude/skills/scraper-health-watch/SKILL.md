@@ -565,14 +565,12 @@ Skip this phase entirely if no company reached `found`/`unsupported`/`gone`.
    form for Ashby). The `id` and `COMPANY_IDS` enum member never change (PK +
    logo key). For soft-disables, remove the entry + enum member (unity3d
    precedent, see commit `0a6ddf9`).
-4. **`src/frontend/src/config/changelog.ts`:** one new top entry modeled on id
-   `ats-migrations-2026-07` (user-facing tone, `tags: ['improvement']`).
-5. **Checks (all inside the worktree):**
+4. **Checks (all inside the worktree):**
    - `npm ci --no-audit --no-fund` then `npm run type-check` (if `npm ci` fails,
      note "type-check not run: <reason>" in the PR body — degraded PR beats no PR)
    - `python3 -m py_compile src/backend/alembic/versions/<newfile>.py`
    - the single-head check above
-6. Commit with a conventional title, e.g.
+5. Commit with a conventional title, e.g.
    `fix(companies): re-point fireworksai and thinkingmachines to Ashby`.
    Plain commit message. **No attribution footers.**
 

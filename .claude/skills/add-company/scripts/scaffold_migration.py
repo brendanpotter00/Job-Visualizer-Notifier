@@ -244,7 +244,7 @@ def main(argv: list[str]) -> int:
     out_path.write_text(contents, encoding="utf-8")
     print(f"wrote {out_path.relative_to(VERSIONS_DIR.parents[3])}")
     print("next: re-run current_head.py to confirm a single head, then add the "
-          "companies.ts entry, changelog.ts entry, and logos.")
+          "companies.ts entry, logos, and the company_profiles.json blurb.")
     return 0
 
 

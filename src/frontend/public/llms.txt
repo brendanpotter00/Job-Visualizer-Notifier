@@ -15,4 +15,4 @@
 - [Jobs board](https://onesecondswe.dev/jobs): every tracked job, newest first.
 - [Companies we track](https://onesecondswe.dev/curated-companies): the curated roster.
 - [Why this was built](https://onesecondswe.dev/why)
-- [Changelog](https://onesecondswe.dev/vote-features): shipped features and what to vote on next.
+- [Give Feedback](https://onesecondswe.dev/vote-features): send feedback, vote on upcoming features, and see recently shipped ones.

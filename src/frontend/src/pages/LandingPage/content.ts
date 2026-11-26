@@ -70,7 +70,7 @@ export interface LandingFaqEntry {
 /**
  * The landing header — the page's only chrome.
  * Deliberately no menu: a wordmark, four quiet nav links (Jobs, Companies,
- * Changelog, Pricing), and the two auth actions. A fifth nav link (or a
+ * Give Feedback, Pricing), and the two auth actions. A fifth nav link (or a
  * dropdown) is a content bug; the content test enforces the cap.
  */
 export interface LandingHeaderContent {
@@ -189,15 +189,15 @@ export const LANDING_CONTENT: LandingContent = {
     'onesecondswe is a free job board for software engineers that shows jobs the day they’re posted.',
   header: {
     wordmark: { label: 'onesecondswe', to: ROUTES.RECENT_JOBS },
-    // "Changelog" points at the vote-features page because that page IS the
-    // public changelog: shipped work moves out of the vote list into its
-    // read-only "Shipped — built with the community" section. It replaced the
-    // "Why" link on 2026-09-03 (owner-directed) — what shipped recently is a
-    // better second link than the origin story.
+    // "Give Feedback" points at the vote-features page, the same page (and the
+    // same label) as the app's sidebar entry: a feedback box, voting on
+    // upcoming features, and a read-only "Shipped — built with the community"
+    // section for what has shipped. This slot replaced the "Why" link on
+    // 2026-09-03 (owner-directed).
     nav: [
       { label: 'Jobs', to: ROUTES.RECENT_JOBS },
       { label: 'Companies', to: ROUTES.CURATED_COMPANIES },
-      { label: 'Changelog', to: ROUTES.VOTE_FEATURES },
+      { label: 'Give Feedback', to: ROUTES.VOTE_FEATURES },
       ...(BILLING_CONFIG.showPricingNav ? [{ label: 'Pricing', to: ROUTES.PRICING }] : []),
     ],
     logIn: { label: 'Log in', to: ROUTES.ACCOUNT },

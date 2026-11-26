@@ -3,8 +3,8 @@ name: add-company
 description: |
   Add (track) a new company end-to-end in this repo: the frontend
   companies.ts entry + COMPANY_IDS enum member, a single-head-safe backend
-  Alembic seed migration for the companies table, a changelog.ts announcement,
-  and brand logos via the fetch-company-logo skill. This is the single source
+  Alembic seed migration for the companies table, a curated blurb, and brand
+  logos via the fetch-company-logo skill. This is the single source
   of truth for onboarding a company — a zero-context agent should be able to
   follow it without reading anything else. Use when asked to add, track, or
   onboard a company / a new job board.
@@ -28,27 +28,28 @@ mode: read-write
 
 # Add a Company
 
-Onboarding one company means **five edits plus logos**, all keyed by a single
+Onboarding one company means **four edits plus logos**, all keyed by a single
 lowercase `id` (the slug, e.g. `reducto`, `spacex`, `happyrobot.ai`):
 
 | # | What | File |
 |---|------|------|
 | 1 | Frontend config entry + enum member | `src/frontend/src/config/companies.ts` |
 | 2 | Backend seed migration (one `companies` row) | `src/backend/alembic/versions/<ts>_<rev>_seed_<id>_company.py` |
-| 3 | Changelog announcement (top entry) | `src/frontend/src/config/changelog.ts` |
-| 4 | Brand logos (icon + wordmark) | `src/frontend/public/logos/{icons,wordmarks}/<id>.png` |
-| 5 | Curated blurb + accomplishment | `src/backend/api/data/company_profiles.json` |
+| 3 | Brand logos (icon + wordmark) | `src/frontend/public/logos/{icons,wordmarks}/<id>.png` |
+| 4 | Curated blurb + accomplishment | `src/backend/api/data/company_profiles.json` |
 
-> **Canonical reference commits** — copy these patterns exactly:
-> `246b24e` *Add Reducto (Ashby) company + changelog entry (#157)* (single company),
-> `80494df` *Add Sierra (Ashby) company and changelog entry (#135)*,
+> **Canonical reference commits** — copy these patterns exactly, but only for the
+> files in the table above (all three also edited a file that has since been
+> removed; skip that part):
+> `246b24e` — Reducto, Ashby (#157) (single company),
+> `80494df` — Sierra, Ashby (#135),
 > `c41d8b7` *Add 8 quant trading firms (#146)* (multiple at once).
 
 Every company added this way flows through the backend `/api/jobs` endpoint: a
 backend Procrastinate worker fetches its jobs on a ~30-min cron once the
 `companies` row exists. (The exceptions are Amazon, Apple, Google, Microsoft and
 TikTok, which use `ats='script'` Python scrapers — mostly **not** added with this
-skill, but see **Step 7** for the one step a new script company still owes.)
+skill, but see **Step 6** for the one step a new script company still owes.)
 
 ## Inputs you need first
 
@@ -60,7 +61,7 @@ skill, but see **Step 7** for the one step a new script company still owes.)
 - **`board_token`** — the ATS board slug. **Often equals `id`, but verify live**
   (step 0). For eightfold/workday you also need a `provider_config` blob.
 - *(optional)* a one-line recruiter LinkedIn search URL.
-- a curated blurb + accomplishment (step 5 — required).
+- a curated blurb + accomplishment (step 4 — required).
 
 The helper scripts in `scripts/` are **stdlib-only** — run them with plain
 `python3` (no venv needed).
@@ -179,31 +180,7 @@ reports two heads, re-chain this migration's `down_revision` onto the new head.
 
 ---
 
-## Step 3 — Changelog announcement (`changelog.ts`)
-
-Add a **new top entry** to the `CHANGELOG` array. The `description` should say
-what the company does **and a recent achievement or the reason for tracking it**
-(e.g. Sierra's entry cites its "$950M / $15.8B raise"; Reducto's explains its
-OCR/document-ingestion product). This is what users see, and adds are
-user-visible because new companies **auto-enroll** existing users (#136).
-
-```ts
-{
-  id: 'add-reducto',
-  title: 'Added Reducto',
-  description:
-    'Reducto — a document-ingestion / OCR API startup that turns complex PDFs into LLM-ready structured data — is now tracked via its Ashby job board. <recent raise / launch / why it matters>.',
-  tags: ['new-companies'],
-  date: '<today, YYYY-MM-DD>',
-  link: { to: ROUTES.ACCOUNT, label: 'Add Reducto to your company preferences' },
-},
-```
-
-`ROUTES` is already imported in `changelog.ts`. Use the real current date.
-
----
-
-## Step 4 — Logos (delegate to `fetch-company-logo`)
+## Step 3 — Logos (delegate to `fetch-company-logo`)
 
 The CI gate `src/frontend/src/__tests__/config/companyLogoAssets.test.ts` fails
 if either `icons/<id>.png` or `wordmarks/<id>.png` is missing. **Invoke the
@@ -213,7 +190,7 @@ logos; use that skill.
 
 ---
 
-## Step 5 — Curated blurb + accomplishment
+## Step 4 — Curated blurb + accomplishment
 
 Every public company needs a Curated Companies description. Add the `id` to
 `src/backend/api/data/company_profiles.json`:
@@ -229,7 +206,7 @@ sorted; one plain sentence each; only facts you found in a source.
 
 ---
 
-## Step 6 — Verify
+## Step 5 — Verify
 
 ```bash
 python3 .claude/skills/add-company/scripts/current_head.py          # exactly one head
@@ -242,15 +219,14 @@ Checklist before declaring done:
 - [ ] `companies.ts` entry + `COMPANY_IDS` member (alphabetical), `sourceAts` set
 - [ ] seed migration present, `down_revision` == current head, **single head**
 - [ ] confirmed what the board's posted date actually is (step 0.5)
-- [ ] `changelog.ts` top entry (recent achievement / reason, today's date)
 - [ ] `company_profiles.json` entry with `blurb` + `accomplishment`
 - [ ] `icons/<id>.png` + `wordmarks/<id>.png` committed (logo skill)
 - [ ] `npm run type-check` + `npm test` green
-- [ ] **script-scraped company only:** careers hosts registered (step 7)
+- [ ] **script-scraped company only:** careers hosts registered (step 6)
 
 ---
 
-## Step 7 — Script-scraped companies only: register the careers hosts
+## Step 6 — Script-scraped companies only: register the careers hosts
 
 **Skip this for every ATS company.** It applies to the `ats='script'` five —
 Amazon, Apple, Google, Microsoft, TikTok — and to any sixth bespoke scraper.
