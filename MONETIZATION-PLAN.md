@@ -41,7 +41,7 @@ What it needs:
 - **Email sending.** The backend sends no email today, so this needs a provider, domain authentication, one-click unsubscribe, and bounce and complaint handling.
 - **A sent record.** Track which job went to which user, so nobody gets the same job twice.
 - **The board's matcher.** Match with the same filter code as `GET /api/jobs/search`, so an email never shows a job the board wouldn't.
-- **Keyword fixes first.** Keywords match as substrings today, so "ai" matches "maintain" and "email".
+- **Keyword fixes first.** Done: keywords match whole words now, so "ai" no longer matches "maintain" and "email".
 
 Measure: clicks per email, unsubscribe rate, and spam-complaint rate under 0.3% ([USER-METRICS.md](USER-METRICS.md)).
 
