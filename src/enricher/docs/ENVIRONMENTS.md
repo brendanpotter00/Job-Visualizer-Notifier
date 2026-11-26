@@ -105,8 +105,8 @@ In order, the script:
 (the first deploy of `main` needs it; see below).
 
 > ⚠ **Schema migrations run inside step 6's `cli health`, with the worker PARKED.**
-> `cli health` opens the DB, which runs `init_schema()`, which runs the migration
-> ladder. A long migration there is a parked-worker outage, not a slow command.
+> `cli health` calls `init_schema()`, which runs the migration ladder (`Store()`
+> alone does not migrate). A long migration there is a parked-worker outage, not a slow command.
 > **Rehearse it first** (`scripts/rehearse_v4_migration.sh` — on a
 > `sqlite3 ".backup"` copy, never `cp`, because the DB is WAL-mode) and **split
 > the migration if it takes more than 30 s.** See
