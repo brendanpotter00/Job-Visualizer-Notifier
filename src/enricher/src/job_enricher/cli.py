@@ -1607,6 +1607,11 @@ def _cmd_health(args: argparse.Namespace) -> int:
         )
         return 2
     print(f"taxonomy_version: {tax.taxonomy_version()}", file=sys.stderr)
+    # deploy.sh step 6 relies on THIS call to run the migration ladder with the
+    # worker parked. Store() alone does not migrate, so without it the first
+    # deploy onto an older DB read the new columns before they existed and
+    # failed with "no such column" (2026-11-26, v3 -> v4).
+    store.init_schema()
     print(json.dumps(collect_health(store)))
     return 0
 
@@ -2284,8 +2289,12 @@ def _cmd_subcategory_backfill(args: argparse.Namespace) -> int:
         for sig in (signal.SIGTERM, signal.SIGINT)
     ]
     try:
+        # --model only takes Claude tiers, so it also picks the claude-code
+        # engine. Without that override the classify knob decides, and on prod
+        # (classify:engine=ollama) "sonnet" went to ollama and 404'd — or, with
+        # no --model, the backfill would compete with the live tick for the GPU.
         engine_kind, model = _stage_engine_model(
-            store, "classify", None, args.model
+            store, "classify", "claude-code" if args.model else None, args.model
         )
         engine = build_engine(engine_kind, model=model)
         deadline = resolve_deadline(args.until, args.tz, args.max_seconds)
@@ -3123,7 +3132,9 @@ def build_parser() -> argparse.ArgumentParser:
     sbf.add_argument("--max-seconds", type=int, default=None)
     sbf.add_argument("--limit", type=int, default=None)
     sbf.add_argument("--batch", type=int, default=None)
-    sbf.add_argument("--model", default=None, choices=["haiku", "sonnet", "opus"])
+    sbf.add_argument("--model", default=None, choices=["haiku", "sonnet", "opus"],
+                     help="Claude tier; runs on the claude-code engine (off the "
+                          "GPU). Omit it and the classify engine knob decides.")
     sbf.add_argument("--open-only", action="store_true")
     sbf.add_argument("--dry-run", action="store_true",
                      help="run the FULL pipeline and write NOTHING; emit a probe JSON")

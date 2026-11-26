@@ -2547,6 +2547,48 @@ def test_subcategory_backfill_second_invocation_exits_75(store, monkeypatch, cap
     assert "skipped" in capsys.readouterr().out
 
 
+@pytest.mark.parametrize("model, expected", [
+    ("sonnet", ("claude-code", "sonnet")),
+    (None, ("ollama", "qwen3:32b")),
+])
+def test_subcategory_backfill_model_picks_the_claude_engine(store, monkeypatch, model, expected):
+    """A Claude tier must run on claude-code even when the classify knob is
+    ollama (prod). Before the fix "sonnet" was sent to ollama and 404'd."""
+    seen = []
+
+    class _Stop(Exception):
+        pass
+
+    def _fake_build(kind, model=None):
+        seen.append((kind, model))
+        raise _Stop
+
+    monkeypatch.setattr(cli, "Store", lambda: store)
+    monkeypatch.setattr("job_enricher.engines.build_engine", _fake_build)
+    with pytest.raises(_Stop):
+        cli._cmd_subcategory_backfill(argparse.Namespace(
+            until=None, tz="America/Chicago", max_seconds=None, limit=1, batch=1,
+            model=model, open_only=False, dry_run=True, probe_json=None, notify=False,
+        ))
+    assert seen == [expected]
+
+
+def test_health_migrates_an_old_db_before_reading_it(store, monkeypatch, capsys):
+    """deploy.sh step 6 runs `cli health` with the worker parked and relies on
+    it to migrate. A v3 DB used to fail with "no such column: e.subcategories"."""
+    with store.connect() as conn:
+        conn.execute("DROP INDEX IF EXISTS idx_enrichments_subcat_push")
+        conn.execute("ALTER TABLE enrichments DROP COLUMN subcategory_sent_at")
+        conn.execute("PRAGMA user_version = 3")
+    monkeypatch.setattr(cli, "Store", lambda: store)
+    assert cli._cmd_health(argparse.Namespace()) == 0
+    json.loads(capsys.readouterr().out)
+    with store.connect() as conn:
+        assert conn.execute("PRAGMA user_version").fetchone()[0] >= 4
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(enrichments)")}
+    assert "subcategory_sent_at" in cols
+
+
 def test_subcategory_backfill_open_only_refuses_on_an_empty_scope(store, monkeypatch, capsys):
     monkeypatch.setattr(cli, "Store", lambda: store)
     rc = cli._cmd_subcategory_backfill(argparse.Namespace(
