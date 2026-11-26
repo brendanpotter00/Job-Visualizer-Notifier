@@ -63,6 +63,8 @@ interface PreloadedOverrides {
   searchTags?: { text: string; mode: 'include' | 'exclude' }[];
   location?: string[];
   softwareOnly?: boolean;
+  category?: string[];
+  subcategory?: string[];
 }
 
 async function seedRecentStore(overrides: PreloadedOverrides = {}) {
@@ -329,7 +331,7 @@ describe('RecentJobsFilters — the subcategory tree', () => {
     expect(screen.getByRole('combobox', { name: 'Job Category' })).toBeInTheDocument();
   });
 
-  it('(b) renders the SWE children immediately, with no expander', async () => {
+  it('(b) hides the SWE specialties until Software Engineering is ticked', async () => {
     const store = await seedRecentStore();
     await seedFacetsAndFlag(store, { reveal: true });
     const user = userEvent.setup();
@@ -337,19 +339,24 @@ describe('RecentJobsFilters — the subcategory tree', () => {
 
     await user.click(screen.getByRole('combobox', { name: 'Job Category' }));
     const listbox = await screen.findByRole('listbox');
-    const swe = within(listbox).getByRole('option', { name: /Software Engineering/ });
-    // The accordion is gone: the parent row has no button to press.
+    expect(within(listbox).queryByRole('option', { name: /Backend/ })).toBeNull();
+
+    // The row says what ticking it reveals, and its chevron is a cue, not a button.
+    const swe = within(listbox).getByRole('option', {
+      name: 'Software Engineering, 2 specialties',
+    });
+    expect(within(swe).getByTestId('facet-tree-chevron')).toBeInTheDocument();
     expect(within(swe).queryByRole('button')).toBeNull();
+    // Growth has no children, so it gets no chevron.
+    const growth = within(listbox).getByRole('option', { name: 'Growth' });
+    expect(within(growth).queryByTestId('facet-tree-chevron')).toBeNull();
 
-
+    await user.click(swe);
     expect(within(listbox).getByRole('option', { name: /Backend/ })).toBeInTheDocument();
     expect(within(listbox).getByRole('option', { name: /Frontend/ })).toBeInTheDocument();
-    // Growth has no children, so it contributes no child rows.
-    const growth = within(listbox).getByRole('option', { name: /Growth/ });
-    expect(within(growth).queryByRole('button')).toBeNull();
   });
 
-  it('(c) ticking a child dispatches BOTH setters onto the slice', async () => {
+  it('(c) ticking SWE and then a specialty dispatches BOTH setters onto the slice', async () => {
     const store = await seedRecentStore();
     await seedFacetsAndFlag(store, { reveal: true });
     const user = userEvent.setup();
@@ -357,15 +364,34 @@ describe('RecentJobsFilters — the subcategory tree', () => {
 
     await user.click(screen.getByRole('combobox', { name: 'Job Category' }));
     const listbox = await screen.findByRole('listbox');
-    const swe = within(listbox).getByRole('option', { name: /Software Engineering/ });
-    // The accordion is gone: the parent row has no button to press.
-    expect(within(swe).queryByRole('button')).toBeNull();
+    await user.click(within(listbox).getByRole('option', { name: /Software Engineering/ }));
     await user.click(within(listbox).getByRole('option', { name: /Backend/ }));
 
     const filters = store.getState().recentJobsFilters.filters;
     expect(filters.subcategory).toEqual(['backend']);
-    // The parent is auto-checked, so the two dimensions stay consistent.
     expect(filters.category).toEqual(['software_engineering']);
+  });
+
+  it('(c2) unticking SWE clears its specialties off the slice in ONE click', async () => {
+    const store = await seedRecentStore({
+      category: ['software_engineering'],
+      subcategory: ['backend'],
+    });
+    await seedFacetsAndFlag(store, { reveal: true });
+    const user = userEvent.setup();
+    renderBar(store);
+
+    await user.click(screen.getByRole('combobox', { name: 'Job Category' }));
+    const listbox = await screen.findByRole('listbox');
+    // Opened with SWE already ticked: its specialties are on screen straight away.
+    expect(within(listbox).getByRole('option', { name: /Backend/ })).toBeInTheDocument();
+
+    await user.click(within(listbox).getByRole('option', { name: /Software Engineering/ }));
+
+    const filters = store.getState().recentJobsFilters.filters;
+    expect(filters.category).toBeUndefined();
+    expect(filters.subcategory).toBeUndefined();
+    expect(within(listbox).queryByRole('option', { name: /Backend/ })).toBeNull();
   });
 
   it('(d) shows NO chevron with the flag off', async () => {
@@ -377,7 +403,10 @@ describe('RecentJobsFilters — the subcategory tree', () => {
     await user.click(screen.getByRole('combobox', { name: 'Job Category' }));
     const listbox = await screen.findByRole('listbox');
 
+    expect(within(listbox).queryByTestId('facet-tree-chevron')).toBeNull();
     expect(within(listbox).queryByRole('button')).toBeNull();
+    // Ticking SWE reveals nothing: with the flag off there is nothing to reveal.
+    await user.click(within(listbox).getByRole('option', { name: 'Software Engineering' }));
     expect(within(listbox).queryByRole('option', { name: /Backend/ })).toBeNull();
   });
 
@@ -404,6 +433,7 @@ describe('RecentJobsFilters — the subcategory tree', () => {
     await user.click(screen.getByRole('combobox', { name: 'Job Category' }));
     const listbox = await screen.findByRole('listbox');
 
+    expect(within(listbox).queryByTestId('facet-tree-chevron')).toBeNull();
     expect(within(listbox).queryByRole('button')).toBeNull();
   });
 });

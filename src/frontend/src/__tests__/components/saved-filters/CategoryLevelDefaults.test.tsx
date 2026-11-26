@@ -69,11 +69,13 @@ describe('CategoryLevelDefaults — the subcategory tree', () => {
     // selection would be emitted and silently dropped.
     const store = await seededStore({ reveal: true });
     const user = userEvent.setup();
-    renderPanel(store); // no onChangeSubcategory
+    // SWE ticked, so a child row would show here if the tree were on.
+    renderPanel(store, { category: ['software_engineering'] }); // no onChangeSubcategory
 
     await user.click(screen.getByRole('combobox', { name: 'Job Category' }));
     const listbox = await screen.findByRole('listbox');
 
+    expect(within(listbox).queryByTestId('facet-tree-chevron')).toBeNull();
     expect(within(listbox).queryByRole('button')).toBeNull();
     expect(within(listbox).queryByRole('option', { name: /Backend/ })).toBeNull();
   });
@@ -81,44 +83,94 @@ describe('CategoryLevelDefaults — the subcategory tree', () => {
   it('renders NO child rows when the handler is present but the flag is OFF', async () => {
     const store = await seededStore({ reveal: false });
     const user = userEvent.setup();
-    renderPanel(store, { subcategory: [], onChangeSubcategory: vi.fn() });
+    renderPanel(store, {
+      category: ['software_engineering'],
+      subcategory: [],
+      onChangeSubcategory: vi.fn(),
+    });
 
     await user.click(screen.getByRole('combobox', { name: 'Job Category' }));
     const listbox = await screen.findByRole('listbox');
 
+    expect(within(listbox).queryByTestId('facet-tree-chevron')).toBeNull();
     expect(within(listbox).queryByRole('button')).toBeNull();
+    expect(within(listbox).queryByRole('option', { name: /Backend/ })).toBeNull();
   });
 
   it('renders the tree when the handler is supplied AND the flag is on', async () => {
     const store = await seededStore({ reveal: true });
     const user = userEvent.setup();
-    renderPanel(store, { subcategory: [], onChangeSubcategory: vi.fn() });
+    // SWE is already a saved default, so its specialties open with the menu.
+    renderPanel(store, {
+      category: ['software_engineering'],
+      subcategory: [],
+      onChangeSubcategory: vi.fn(),
+    });
 
     await user.click(screen.getByRole('combobox', { name: 'Job Category' }));
     const listbox = await screen.findByRole('listbox');
     const swe = within(listbox).getByRole('option', { name: /Software Engineering/ });
-    // The accordion is gone: the parent row has no button to press.
+    // The chevron is a cue, not a button.
+    expect(within(swe).getByTestId('facet-tree-chevron')).toBeInTheDocument();
     expect(within(swe).queryByRole('button')).toBeNull();
 
     expect(within(listbox).getByRole('option', { name: /Backend/ })).toBeInTheDocument();
   });
 
-  it('ticking a child calls BOTH handlers, auto-checking the parent', async () => {
+  it('hides the specialties while SWE is not a saved default', async () => {
+    const store = await seededStore({ reveal: true });
+    const user = userEvent.setup();
+    renderPanel(store, { subcategory: [], onChangeSubcategory: vi.fn() });
+
+    await user.click(screen.getByRole('combobox', { name: 'Job Category' }));
+    const listbox = await screen.findByRole('listbox');
+
+    expect(
+      within(listbox).getByRole('option', { name: 'Software Engineering, 2 specialties' })
+    ).toBeInTheDocument();
+    expect(within(listbox).queryByRole('option', { name: /Backend/ })).toBeNull();
+  });
+
+  it('ticking a revealed child calls BOTH handlers', async () => {
     const store = await seededStore({ reveal: true });
     const onChangeCategory = vi.fn();
     const onChangeSubcategory = vi.fn();
     const user = userEvent.setup();
-    renderPanel(store, { subcategory: [], onChangeCategory, onChangeSubcategory });
+    renderPanel(store, {
+      category: ['software_engineering'],
+      subcategory: [],
+      onChangeCategory,
+      onChangeSubcategory,
+    });
 
     await user.click(screen.getByRole('combobox', { name: 'Job Category' }));
     const listbox = await screen.findByRole('listbox');
-    const swe = within(listbox).getByRole('option', { name: /Software Engineering/ });
-    // The accordion is gone: the parent row has no button to press.
-    expect(within(swe).queryByRole('button')).toBeNull();
     await user.click(within(listbox).getByRole('option', { name: /Backend/ }));
 
     expect(onChangeCategory).toHaveBeenCalledWith(['software_engineering']);
     expect(onChangeSubcategory).toHaveBeenCalledWith(['backend']);
+  });
+
+  it('unticking SWE clears its saved specialties in the same click', async () => {
+    const store = await seededStore({ reveal: true });
+    const onChangeCategory = vi.fn();
+    const onChangeSubcategory = vi.fn();
+    const user = userEvent.setup();
+    renderPanel(store, {
+      category: ['software_engineering'],
+      subcategory: ['backend'],
+      onChangeCategory,
+      onChangeSubcategory,
+    });
+
+    await user.click(screen.getByRole('combobox', { name: 'Job Category' }));
+    const listbox = await screen.findByRole('listbox');
+    await user.click(within(listbox).getByRole('option', { name: /Software Engineering/ }));
+
+    expect(onChangeCategory).toHaveBeenCalledTimes(1);
+    expect(onChangeCategory).toHaveBeenCalledWith([]);
+    expect(onChangeSubcategory).toHaveBeenCalledTimes(1);
+    expect(onChangeSubcategory).toHaveBeenCalledWith([]);
   });
 
   it('leaves the Level control alone', async () => {
