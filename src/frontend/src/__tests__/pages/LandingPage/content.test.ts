@@ -63,14 +63,15 @@ describe('landing content config', () => {
       expect(link.label.trim().length, `header link ${link.to} needs a label`).toBeGreaterThan(0);
     }
     expect(new Set(nav.map((item) => item.label)).size).toBe(nav.length);
-    // Owner-directed 2026-09-03: "Why" gave up the second slot to "Changelog",
-    // pointed at the vote-features page (which IS the public changelog — its
+    // The third link is "Give Feedback", pointed at the vote-features page (the
+    // same label as the app's sidebar entry). It replaced the "Why" link on
+    // 2026-09-03 (owner-directed).
     // "Pricing" is the fourth link only while BILLING_CONFIG.showPricingNav is on
     // (owner-directed 2026-11-17: hidden until there is something to sell).
     expect(nav.map((item) => item.label)).toEqual(
       BILLING_CONFIG.showPricingNav
-        ? ['Jobs', 'Companies', 'Changelog', 'Pricing']
-        : ['Jobs', 'Companies', 'Changelog']
+        ? ['Jobs', 'Companies', 'Give Feedback', 'Pricing']
+        : ['Jobs', 'Companies', 'Give Feedback']
     );
     expect(nav[0].to).toBe(ROUTES.RECENT_JOBS);
     expect(nav[2].to).toBe(ROUTES.VOTE_FEATURES);

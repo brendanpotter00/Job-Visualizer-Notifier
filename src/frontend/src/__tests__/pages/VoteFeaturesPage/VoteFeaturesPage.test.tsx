@@ -17,10 +17,6 @@ vi.mock('../../../features/auth/useAuth', () => ({
   useAuth: () => mockAuthState,
 }));
 
-vi.mock('../../../pages/VoteFeaturesPage/ChangelogColumn', () => ({
-  ChangelogColumn: () => <div data-testid="changelog-column" />,
-}));
-
 vi.mock('../../../pages/VoteFeaturesPage/VotingColumn', () => ({
   VotingColumn: () => <div data-testid="voting-column" />,
 }));
@@ -35,11 +31,6 @@ describe('VoteFeaturesPage', () => {
     expect(
       screen.getByRole('heading', { name: /give feedback/i, level: 1 })
     ).toBeInTheDocument();
-  });
-
-  it('renders the ChangelogColumn', () => {
-    renderWithProviders(<VoteFeaturesPage />);
-    expect(screen.getByTestId('changelog-column')).toBeInTheDocument();
   });
 
   it('renders the VotingColumn', () => {

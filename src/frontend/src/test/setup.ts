@@ -35,7 +35,7 @@ vi.mock('@posthog/react', () => ({
 expect.extend(matchers);
 
 // jsdom does not implement IntersectionObserver. Provide a no-op default so any
-// component using infinite scroll (e.g. RecentJobsList, ChangelogColumn) can
+// component using infinite scroll (e.g. RecentJobsList, CuratedCompaniesGrid) can
 // render without crashing. Tests that need to drive the observer reassign
 // `global.IntersectionObserver` with a capturing mock.
 if (!('IntersectionObserver' in globalThis)) {
