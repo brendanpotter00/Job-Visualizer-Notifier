@@ -75,7 +75,8 @@ from the facets' `parentSlug` (`buildLevelExpansion`).
    `_LEVEL_FILTER_EXPANSION`).
 4. **UI**: two `<Select>`s in `GraphFilters.tsx`. Show `tags` as chips on the job
    row. Keep the "entry includes new grad" note in a tooltip so the hierarchy is
-   discoverable.
+   discoverable. (Shipped, then removed: the Job Category and Level dropdowns no
+   longer carry hover tooltips, so the UI no longer states the hierarchy.)
 5. **Tests**: selector tests under `src/frontend/src/__tests__/features/filters/`
    for the level-expansion behavior.
 

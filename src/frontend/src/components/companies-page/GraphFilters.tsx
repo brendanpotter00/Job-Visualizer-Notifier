@@ -106,14 +106,12 @@ export function GraphFilters() {
               dispatch(setGraphCategory(category));
               dispatch(setGraphSubcategory(subcategory));
             }}
-            tooltip="AI-enriched job category (choose any number). Only jobs matching your selection are shown."
           />
           <FacetMultiSelect
             label="Level"
             options={levelOptions}
             value={filters.level}
             onChange={(slugs) => dispatch(setGraphLevel(slugs))}
-            tooltip="Choose any number; Entry also includes New Grad. Only jobs matching your selection are shown."
           />
 
           <AsyncMultiSelectAutocomplete
