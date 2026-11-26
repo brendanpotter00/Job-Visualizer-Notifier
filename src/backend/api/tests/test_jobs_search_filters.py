@@ -25,6 +25,7 @@ So the assertions here are about MEANING, not about mechanics:
 """
 
 import json
+import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -459,24 +460,38 @@ def _client_matches(job: _OracleJob, filters: dict) -> bool:
     if locations and not any(name in job.canonical_locations for name in locations):
         return False
 
-    haystack = [
-        job.title.lower(),
-        (job.location or "").lower(),
-        job.company.lower(),
-        *(tag.lower() for tag in job.tags),
-    ]
+    haystack = [job.title, job.location or "", job.company, *job.tags]
 
     include = filters.get("include")
     if include and not any(
-        term.lower() in field for term in include for field in haystack
+        _oracle_word_match(term, field) for term in include for field in haystack
     ):
         return False
 
     exclude = filters.get("exclude")
-    if exclude and any(term.lower() in field for term in exclude for field in haystack):
+    if exclude and any(
+        _oracle_word_match(term, field) for term in exclude for field in haystack
+    ):
         return False
 
     return True
+
+
+def _oracle_word_match(term: str, field: str) -> bool:
+    """Whole-word, case-insensitive match of one term in one field.
+
+    Written independently of the server's ``_keyword_regex`` (Python ``re`` with
+    lookarounds instead of a Postgres ARE with ``\\y``) and mirroring the client's
+    ``compileKeyword``: words split on spaces/tabs and rejoined by any run of
+    them; a boundary only on a side whose edge character is a word character.
+    """
+    words = [word for word in re.split(r"[ \t]+", term) if word]
+    pattern = r"[ \t]+".join(re.escape(word) for word in words)
+    if re.match(r"\w", words[0][0]):
+        pattern = r"(?<!\w)" + pattern
+    if re.match(r"\w", words[-1][-1]):
+        pattern += r"(?!\w)"
+    return re.search(pattern, field, re.IGNORECASE) is not None
 
 
 # The corpus. Every attribute cycles on its own modulus so the combinations are
@@ -605,6 +620,13 @@ _ORACLE_FILTER_SETS: list[dict] = [
     # ``location`` in the haystack — every other keyword set would still pass
     # without it.
     {"include": ["remote"]},
+    # Whole words. "engineer" is a fragment of "Engineering Manager" and "engine" of
+    # every "Engineer" title, so a substring match on either side diverges from the
+    # other here; "machine learning" is the in-title phrase.
+    {"include": ["engine"]},
+    {"include": ["engineering"]},
+    {"exclude": ["engineer"]},
+    {"include": ["machine learning"]},
     # "l4" lives ONLY in ``experience_level``, which NEITHER tier searches since
     # E7 Phase 3 removed ``department`` from the frontend model. So this set must
     # come back EMPTY from both — re-add the clause to ``_KEYWORD_PREDICATE`` and

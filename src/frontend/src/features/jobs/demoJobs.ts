@@ -17,8 +17,9 @@ import { getCompanyById } from '../../config/companies.ts';
  * function that the selector calls on every invocation.
  *
  * All company ids below are real entries in `config/companies.ts` so `getCompanyById` resolves
- * names, logos, and careers links. All titles contain "Engineer"/"Developer" so they survive
- * the "Software Engineering" keyword filter (substring match in `matchesSearchTags`).
+ * names, logos, and careers links. All titles contain the whole word "Engineer" or "Developer"
+ * so they survive the "Software Engineering" keyword filter (`matchesSearchTags` matches whole
+ * words, so "Engineering" alone would not).
  */
 
 /** Real, tracked company ids: a mix of big tech, AI labs, and startups. */

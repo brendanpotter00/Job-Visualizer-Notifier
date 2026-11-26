@@ -322,11 +322,12 @@ class JobListing(Base):
             postgresql_where=text("status = 'OPEN'"),
         ),
         # Perf Wave 2 (C3). Fixes keyword search: ``_KEYWORD_PREDICATE`` is a
-        # 4-way OR (title / location / company ILIKE + a ``job_tags`` EXISTS)
+        # 4-way OR (title / location / company + a ``job_tags`` EXISTS)
         # spanning two tables, which no per-column trigram can serve as one unit.
         # ``search_text`` collapses all four fields into one lower-cased haystack,
         # and this GIN + gin_trgm_ops index makes ``search_text ILIKE '%term%'``
-        # a single bitmap probe. Needs the ``pg_trgm`` extension — installed by
+        # — and, since keywords became whole-word, ``search_text ~* '\yterm\y'``,
+        # which gin_trgm_ops serves too — a single bitmap probe. Needs the ``pg_trgm`` extension — installed by
         # the ``before_create`` hook below (create_all/parity bootstrap) and by
         # the migration (prod), exactly as ``JobTag``/``idx_job_tags_tag_trgm``
         # does. Same THREE-char blind spot: ``go``/``ai``/``ml`` yield no
@@ -1392,8 +1393,9 @@ class JobTag(Base):
         PrimaryKeyConstraint("source_id", "job_listing_id", "tag"),
         Index("idx_job_tags_tag", "tag"),
         # Serves the keyword filter behind GET /api/jobs/search. That predicate
-        # (`_KEYWORD_PREDICATE` in api/services/job_search.py) matches
-        # `t.tag ILIKE '%term%'`, and a LEADING wildcard is unservable by the
+        # (`_KEYWORD_PREDICATE` in api/services/job_search.py) matched
+        # `t.tag ILIKE '%term%'` when this was added (a whole-word `t.tag ~*
+        # '\yterm\y'` now, served the same way), and a LEADING wildcard is unservable by the
         # plain btree above — so before this index every keyword term cost one
         # FULL scan of job_tags, de-correlated by the planner into a hashed
         # SubPlan and therefore INDEPENDENT of the page LIMIT. Page 1 pays the

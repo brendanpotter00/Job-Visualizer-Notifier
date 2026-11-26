@@ -303,13 +303,29 @@ filter set in SQL and pages the *result*. Router `routers/jobs_search.py`, SQL
   AND, values within a dimension OR. An active `category`/`level` filter **hides
   unenriched (NULL) rows** — ~65% of OPEN rows. `entry` expands to
   `{entry, new_grad}`. Keyword terms match title / raw location / company / tags —
-  the same haystack `matchesSearchTags` builds on the client. `department` is NOT
+  the same haystack `matchesSearchTags` builds on the client (which does not search
+  company). `department` is NOT
   searched: E7 Phase 3 (#248) deleted the field from the frontend model, so
   matching the `experience_level` column it used to map to would make the endpoint
   WIDER than the page it replaces. `team` is not searched
   because no transformer ever populates it — there is nothing to match.
   Locations resolve hierarchically against the `locations` catalog, including the
   synthesized `United States` and `<State>, US` options that have no catalog row.
+- **Keyword terms match WHOLE words, never substrings.** The server compiles each
+  term with `_keyword_regex` into a `~*` regex with `\y` boundaries; the client
+  (`compileKeyword`) builds the same thing. Both follow these rules:
+  - **Strict, no stemming.** `intern` does not match "International",
+    "Internal" or "Internship". `engineer` does not match "Engineering" or
+    "Engineers", so the built-in Software Engineering list matches fewer rows than
+    it did as a substring. That was a deliberate owner decision (2026-11-25).
+  - **A multi-word term is an adjacent phrase.** Its words are joined by any run
+    of spaces or tabs, never by the newline that separates `search_text`'s
+    fields.
+  - **A boundary is only required on a side whose edge is a letter or digit.**
+    `C++` matches "C++ Developer" but not "ObjC++"; `.NET` matches "ASP.NET".
+  - **"Word character" means the DB locale's.** That is libc `en_US.utf8`, so
+    accented letters count. The client mirrors it with `[\p{L}\p{Nd}_]`.
+  - **A blank (whitespace-only) term is a 422.**
 - **Index:** `idx_job_listings_open_category_keyset` on
   `(enrichment_category, first_seen_at, source_id, id)` partial `WHERE status='OPEN'`
   (migration `4b5d40dbc774`) — equality column leading, sort tuple trailing, so a
@@ -319,15 +335,19 @@ filter set in SQL and pages the *result*. Router `routers/jobs_search.py`, SQL
   query.
 - **Keyword index:** `idx_job_tags_tag_trgm`, a **GIN trigram** index on
   `job_tags(tag)` plus `CREATE EXTENSION pg_trgm` (migration `536c1cddcd28`).
-  `_KEYWORD_PREDICATE` matches `t.tag ILIKE '%term%'`, and a LEADING wildcard is
-  unservable by the plain btree `idx_job_tags_tag` — so before this, every keyword
+  `_KEYWORD_PREDICATE` matched `t.tag ILIKE '%term%'` when this was added (a
+  whole-word `t.tag ~* '\yterm\y'` now; `gin_trgm_ops` serves both), and a LEADING
+  wildcard is unservable by the plain btree `idx_job_tags_tag` — so before this, every keyword
   term cost one FULL scan of `job_tags`, **LIMIT-independent** (the planner
   de-correlates the `EXISTS` into a hashed `SubPlan` run once), and **page 1 pays
   it twice** (the page query and `filtered_total`). Measured at prod scale, the
   6-term built-in list goes 617 ms → 209 ms of DB time and a 20-term set
   1807 ms → 442 ms; the `job_tags` share drops ~25x (~43 ms → ~1.5 ms per term).
   **Blind spot to know about:** a term under THREE characters has no complete
-  trigram, so `go`/`ai`/`ml` still get the `Seq Scan` (~110 ms each). The index is
+  trigram, so `go`/`ai`/`ml` still get the `Seq Scan` (~110 ms each) — under the
+  whole-word regex too. The whole-word switch was re-measured on prod (2026-11-26):
+  no plan changed, normal pages moved ≤ ~2 ms, and a term matching nothing went
+  141 → 166 ms; numbers in `routers/jobs_search.py` above `_MAX_KEYWORDS`. The index is
   mirrored in `db_models.py` with a `before_create` hook that installs the
   extension, because `create_all` would otherwise fail on `gin_trgm_ops`.
   `downgrade()` drops the index but NOT the extension — an extension is

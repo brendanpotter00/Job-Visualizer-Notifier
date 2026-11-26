@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { DEMO_JOBS, DEMO_JOB_COUNT } from '../../../features/jobs/demoJobs';
 import { getCompanyById } from '../../../config/companies';
 import { filterJobsByHours } from '../../../lib/date';
+import { matchesSearchTags } from '../../../features/filters/utils/jobFilteringUtils';
+import { SOFTWARE_ENGINEERING_TAGS } from '../../../constants/tags';
 
 describe('demoJobs (DEMO_JOBS fixture)', () => {
   it(`generates exactly ${DEMO_JOB_COUNT} listings`, () => {
@@ -45,9 +47,10 @@ describe('demoJobs (DEMO_JOBS fixture)', () => {
   });
 
   it('every title survives the Software Engineering keyword filter', () => {
-    // matchesSearchTags lowercases the title; "engineer"/"developer" are SE tag substrings.
+    // Run the real matcher with the real list: keywords are WHOLE words, so a title
+    // that only says "Engineering" would no longer survive it.
     for (const job of DEMO_JOBS) {
-      expect(job.title.toLowerCase()).toMatch(/engineer|developer/);
+      expect(matchesSearchTags(job, [...SOFTWARE_ENGINEERING_TAGS]), job.title).toBe(true);
     }
   });
 

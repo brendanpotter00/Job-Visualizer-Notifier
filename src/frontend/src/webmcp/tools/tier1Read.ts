@@ -83,12 +83,13 @@ export function tier1Read(ctx: ToolCtx): WebMcpToolDef[] {
         include: {
           type: 'array',
           items: { type: 'string' },
-          description: 'Keyword must-match (OR within, applied to title/team/location text).',
+          description:
+            'Keyword must-match (OR within). Each term matches title/location/company/tags as a WHOLE word, case-insensitive ("intern" does not match "International" or "Internship"); a multi-word term is an adjacent phrase.',
         },
         exclude: {
           type: 'array',
           items: { type: 'string' },
-          description: 'Keyword must-not-match.',
+          description: 'Keyword must-not-match, by the same whole-word rule as include.',
         },
         category: {
           type: 'array',
@@ -184,7 +185,9 @@ export function tier1Read(ctx: ToolCtx): WebMcpToolDef[] {
       // Server already filtered and ordered the rows — no client-side filter or
       // sort. Same transformer the Recent page uses, so the mapping stays single.
       const jobs = body.jobs.map((row) => transformBackendJob(row, row.company)).map(toJobSummary);
-      const nextCursor = body.nextCursor ? encodeToolCursor({ c: body.nextCursor, s: since }) : null;
+      const nextCursor = body.nextCursor
+        ? encodeToolCursor({ c: body.nextCursor, s: since })
+        : null;
 
       return ok({
         jobs,
@@ -278,7 +281,9 @@ export function tier1Read(ctx: ToolCtx): WebMcpToolDef[] {
       const openOnly = asBool(rawArgs.openOnly) ?? false;
       try {
         const locations = await runQuery(
-          ctx.store.dispatch(locationsApi.endpoints.searchLocations.initiate({ q, limit, openOnly }))
+          ctx.store.dispatch(
+            locationsApi.endpoints.searchLocations.initiate({ q, limit, openOnly })
+          )
         );
         return ok({ locations });
       } catch (e) {
@@ -307,10 +312,9 @@ export function tier1Read(ctx: ToolCtx): WebMcpToolDef[] {
       if (!source || !id) return err('get_job requires string `source` and `id`.');
       let res: Response;
       try {
-        res = await fetch(
-          `/api/jobs/${encodeURIComponent(source)}/${encodeURIComponent(id)}`,
-          { headers: { Accept: 'application/json' } }
-        );
+        res = await fetch(`/api/jobs/${encodeURIComponent(source)}/${encodeURIComponent(id)}`, {
+          headers: { Accept: 'application/json' },
+        });
       } catch (e) {
         return err(`get_job fetch failed: ${e instanceof Error ? e.message : 'network error'}`);
       }
