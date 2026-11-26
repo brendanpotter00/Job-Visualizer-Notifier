@@ -1888,6 +1888,10 @@ def _cmd_reenrich(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 2
+    if title_regex is not None and not title_regex.strip():
+        # An empty pattern matches every title, i.e. no title filter at all.
+        print("reenrich: --title-regex is empty — it would match every row", file=sys.stderr)
+        return 2
     if below is not None and _TAXONOMY_VERSION_RE.match(below) is None:
         print(
             f"reenrich: --taxonomy-below must look like 'v<N>+<hash>' "

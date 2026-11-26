@@ -1334,6 +1334,7 @@ def test_reenrich_by_title_keeps_the_threshold_guard(store, monkeypatch, capsys)
 
 @pytest.mark.parametrize("kw", [
     dict(title_regex=None),                       # no selector at all
+    dict(title_regex="  "),                       # empty pattern = no filter
     dict(title_regex="(unclosed"),                # bad regex
     dict(category=["business"]),                  # retired / unknown slug
 ])
