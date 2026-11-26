@@ -1,12 +1,12 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Provider } from 'react-redux';
 
 /**
  * T6 — the ask itself: a user's own boards are selectable from the Company
- * Hiring Trends dropdown, under their own heading, under the name the USER gave
- * them.
+ * Hiring Trends company search, in the one alphabetical list, badged, under the
+ * name the USER gave them.
  */
 const { flagState } = vi.hoisted(() => ({ flagState: { isEnabled: true } }));
 vi.mock('../../../../config/customCompanies', () => ({
@@ -37,8 +37,12 @@ function board(id: string, displayName: string): UserCompany {
   };
 }
 
-async function renderSelector(boards: UserCompany[]) {
-  const store = createTestStore();
+async function renderSelector(boards: UserCompany[], selectedCompanyId?: string) {
+  const store = createTestStore(
+    selectedCompanyId
+      ? { app: { selectedCompanyId, selectedATS: 'backend-scraper', isInitialized: true } }
+      : {}
+  );
   if (boards.length > 0) {
     await store.dispatch(
       userCompaniesApi.util.upsertQueryData('getUserCompanies', undefined, { companies: boards })
@@ -114,6 +118,66 @@ describe('CompanySelector — the viewer’s own boards', () => {
     await user.click(await findListboxOption('Acme Boards'));
 
     await waitFor(() => expect(store.getState().app.selectedCompanyId).toBe('u-abc123'));
+  });
+
+  it('shows just the name in the field when a board is selected; the badge is for the list', async () => {
+    await renderSelector([board('u-jw8iz8sqvy', 'Raindrop YC')], 'u-jw8iz8sqvy');
+
+    expect(screen.getByRole('combobox', { name: 'Company' })).toHaveValue('Raindrop YC');
+    // Closed: no row is rendered, so no badge either.
+    expect(screen.queryByText('Custom')).not.toBeInTheDocument();
+  });
+
+  it('finds a board by typing part of its name, badge and all', async () => {
+    const user = userEvent.setup();
+    const store = await renderSelector([board('u-abc123', 'Meridian Labs')]);
+    const input = screen.getByRole('combobox', { name: 'Company' });
+
+    await user.click(input);
+    await user.clear(input);
+    // Fictional on purpose, for the reason the sorting test above gives. Mixed
+    // case and mid-word, so it only matches as a case-insensitive substring.
+    await user.type(input, 'IDIAN la');
+
+    const listbox = await screen.findByRole('listbox');
+    const [only, ...rest] = within(listbox).getAllByRole('option');
+    expect(rest).toEqual([]);
+    expect(only).toHaveAccessibleName('Meridian Labs Custom');
+
+    await user.click(only);
+    await waitFor(() => expect(store.getState().app.selectedCompanyId).toBe('u-abc123'));
+    // The badge never leaks into the field's text.
+    expect(input).toHaveValue('Meridian Labs');
+  });
+
+  it('waits quietly for a selected board whose list has not landed yet', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      // `?company=u-abc123` is selected before GET /api/users/companies answers.
+      const store = await renderSelector([], 'u-abc123');
+      const input = screen.getByRole('combobox', { name: 'Company' });
+
+      // No name to show yet, rather than a guessed one.
+      expect(input).toHaveValue('');
+
+      await act(async () => {
+        await store.dispatch(
+          userCompaniesApi.util.upsertQueryData('getUserCompanies', undefined, {
+            companies: [board('u-abc123', 'Acme Boards')],
+          })
+        );
+      });
+
+      // `waitFor`, not a bare expect: RTK's auto-batch enhancer tells subscribers
+      // about RTK Query actions on the next animation frame, after `act` returns.
+      await waitFor(() => expect(input).toHaveValue('Acme Boards'));
+      expect(warn).not.toHaveBeenCalled();
+      expect(error).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+      error.mockRestore();
+    }
   });
 
   it('shows no badge at all when the viewer owns nothing — the list as before', async () => {

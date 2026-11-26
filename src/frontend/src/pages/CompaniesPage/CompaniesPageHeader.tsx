@@ -8,7 +8,7 @@ import { selectEffectiveCompanyById } from '../../features/userCompanies/effecti
  * Companies page header component
  *
  * Displays the company name with job posting analytics title
- * and provides the company selector dropdown.
+ * and provides the company selector (a type-to-filter search).
  *
  * @returns The companies page header with title and company selector
  */
