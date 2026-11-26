@@ -78,7 +78,10 @@ and `init_schema` has NO downgrade** — rehearse on a `sqlite3 ".backup"` copy 
 (`scripts/rehearse_v4_migration.sh`; never `cp` a WAL DB) and split it if it exceeds 30 s.
 ⚠ **`reenrich --taxonomy-below` is guarded**: it counts first, supports `--dry-run`, refuses
 above 500 matched rows without `--yes-i-mean-all`, and takes `--limit`. At v7 the unguarded
-form matches the ENTIRE corpus.
+form matches the ENTIRE corpus. A rubric-only edit can't be re-queued by version (same N,
+new hash), so `reenrich --title-regex RE [--title-exclude RE] [--category SLUG]` is the
+scoped form (same guards; its dry run lists every matched row) — e.g.
+`docs/RUNBOOK-forward-deployed-reenrich.md`.
 
 ## Runtime knobs (meta table, read fresh each tick)
 `classify:model` (default haiku), `classify:batch_size` (3), `classify:fan_out` (12),
@@ -166,13 +169,17 @@ non-SWE rows.
 equals `--under-test`), `review-build`, `review-render`, `review-apply`, and
 `subcategory-weak-baseline` (the G2 baseline — ⚠ **NOT a day-one gate.** The rule labeler
 needs zero human labels, but SCORING it needs a non-empty
-`load_truth(facet='subcategory')`, which is **0 rows until the `EV-9b` pool run lands**. On
-an empty pool the card is all 0.0s and "beat 0.0 by 0.10" is a free pass, so the card is
-stamped `gate_ready: false` and the command exits 2. See EVAL-V6-V7-PROTOCOL.md's P5/G2 rows).
+`load_truth(facet='subcategory')`, which was **0 rows until the FDE correction added 25
+human `forward_deployed` rows** — a one-slug pool, far below min-n, until the `EV-9b` pool
+run lands. On an empty pool the card is all 0.0s and "beat 0.0 by 0.10" is a free pass, so
+the card is stamped `gate_ready: false` and the command exits 2. See
+EVAL-V6-V7-PROTOCOL.md's P5/G2 rows).
 
 ⚠ **THE HEADLINE CHANGE, once `EV-2b` runs:** the human CATEGORY pool goes from 21 to ≥50, so
 `cli eval --gate` becomes a REAL gate and `--allow-draft` stops being the only way to get a
-number. **Today it is still 21 and that run has not been performed.**
+number. **Today it is 57 — past the min-n — but 36 of those are the human-reviewed
+forward-deployed rows from the FDE correction, so the gate is FDE-heavy and has no
+`data_scientist` row; the stratified `EV-2b` run has still not been performed.**
 
 ⚠ **CORRECTION.** This section used to say the scorer "runs here, in the personal dir, and in
 JVN identically". Verified FALSE: `JVN/src/backend/api/eval/scoring.py` is an unrelated

@@ -28,7 +28,7 @@ a guess.
 | `data_engineering` | The deliverable is **the movement and shaping of data** — pipelines, ETL/ELT, warehouses, streaming, data models. |
 | `devops_sre` | The mandate is **keeping other teams shipping and running**: CI/CD, on-call, reliability, observability, incident response. |
 | `embedded_systems` | Code compiled **against hardware or a kernel** — firmware, drivers, RTOS, bare metal, kernel/systems-level work. |
-| `forward_deployed` | Writes **production code inside a NAMED customer's environment**. The customer is specific, and the deliverable is committed code, not a deck. |
+| `forward_deployed` | **The FDE function**: embedded with **specific customers**, building, integrating and deploying the product **inside their environment**. Customer-facing time (onboarding, pilots, demos, pair-programming) is part of the job; the deliverable is working code and deployments in the customer's stack, not a deck. |
 | `frontend` | **Owns UI and does not also own the server**: web/desktop client code, design systems, browser rendering. |
 | `full_stack` | **Explicitly owns BOTH** halves. **EXCLUSIVE** — see the tie-breakers. |
 | `growth_engineering` | Ships **production code whose success metric is acquisition, activation, retention or monetization** — experimentation platforms *used to run experiments*, onboarding/signup funnels, referral and invite systems, paywalls and pricing surfaces, lifecycle-messaging infrastructure. |
@@ -223,8 +223,8 @@ Engineer" → `mobile` · "Firmware/Kernel/Driver/Embedded SW Engineer" →
 `embedded_systems` · "Robotics/Perception/Autonomy/Controls Engineer" →
 `robotics_autonomy` · "Security/AppSec/Cryptography Engineer" → `security` ·
 "QA/Test Automation/SDET" → `qa_testing` · "Quant Dev"/"Trading Systems
-Engineer"/"Low-Latency Engineer" → `quantitative` · "Forward Deployed Engineer"
-(named customer, ships code) → `forward_deployed` · "Growth Engineer"/"Growth
+Engineer"/"Low-Latency Engineer" → `quantitative` · "Forward Deployed Engineer"/"FDE"
+(incl. customer-facing and FDE managers) → `forward_deployed` · "Growth Engineer"/"Growth
 Software Engineer"/"Engineer, Acquisition|Activation|Monetization|Funnel" →
 `growth_engineering` · "Product Engineer"/"Engineer, Product" (named surface,
 owns what ships) → `product_engineering` · bare **"Software Engineer"**

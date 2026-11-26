@@ -2,7 +2,7 @@
   "input_mode": "title_only",
   "generated_by": "job_enricher.subcategory_rules.label_from_title",
   "row_set": "gold-SWE seed rows (category == software_engineering)",
-  "n": 135,
+  "n": 156,
   "predictions": [
     {
       "job_listing_id": "7347389",
@@ -1008,6 +1008,44 @@
       "subcategory_confidence": null
     },
     {
+      "job_listing_id": "00c2c97b-8514-4617-9883-e53e486b6dcd",
+      "source_id": "lever",
+      "category": "software_engineering",
+      "subcategories": [
+        "forward_deployed"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "013d54ba-6658-448b-9de6-c7ba8dcad77f",
+      "source_id": "ashby",
+      "category": "software_engineering",
+      "subcategories": [
+        "forward_deployed",
+        "infrastructure_platform"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "031c2335-db85-4265-8a88-a54b911be36a",
+      "source_id": "ashby",
+      "category": "software_engineering",
+      "subcategories": [
+        "forward_deployed",
+        "ai_engineering"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "07d62dc2-9bbc-4149-ba43-d4ab748a21f4",
+      "source_id": "ashby",
+      "category": "software_engineering",
+      "subcategories": [
+        "forward_deployed"
+      ],
+      "subcategory_confidence": null
+    },
+    {
       "job_listing_id": "60226f73-954c-421c-b609-c377255b062e",
       "source_id": "ashby_api",
       "category": "software_engineering",
@@ -1161,6 +1199,158 @@
       "source_id": "workday_api",
       "category": "software_engineering",
       "subcategories": [],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "2fd567c7-e7b6-411e-a9e5-0dbbb70c7bb0",
+      "source_id": "ashby_api",
+      "category": "software_engineering",
+      "subcategories": [
+        "forward_deployed"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "9fe1f2b9-8fda-4ae2-98c2-afbd670fb90e",
+      "source_id": "ashby_api",
+      "category": "software_engineering",
+      "subcategories": [
+        "forward_deployed"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "c542d672-691c-46c1-9741-856d66f2c2ea",
+      "source_id": "ashby_api",
+      "category": "software_engineering",
+      "subcategories": [
+        "forward_deployed"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "b2bc2ec7-31a4-4519-bd13-68f37f7972e2",
+      "source_id": "ashby_api",
+      "category": "software_engineering",
+      "subcategories": [
+        "forward_deployed"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "8823788002",
+      "source_id": "greenhouse_api",
+      "category": "software_engineering",
+      "subcategories": [
+        "forward_deployed"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "8043339",
+      "source_id": "greenhouse_api",
+      "category": "software_engineering",
+      "subcategories": [
+        "forward_deployed"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "JR346858",
+      "source_id": "workday_api",
+      "category": "software_engineering",
+      "subcategories": [
+        "forward_deployed"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "2027880",
+      "source_id": "workday_api",
+      "category": "software_engineering",
+      "subcategories": [
+        "forward_deployed"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "103631969127932614",
+      "source_id": "google_scraper",
+      "category": "software_engineering",
+      "subcategories": [
+        "forward_deployed",
+        "ai_engineering"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "115246667455701702",
+      "source_id": "google_scraper",
+      "category": "software_engineering",
+      "subcategories": [
+        "forward_deployed"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "36bdb528-004b-482c-8924-33b27b76121f",
+      "source_id": "ashby_api",
+      "category": "software_engineering",
+      "subcategories": [
+        "forward_deployed"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "8d03c5ce-94c1-4d85-81a9-bdc23d9050fc",
+      "source_id": "ashby_api",
+      "category": "software_engineering",
+      "subcategories": [
+        "forward_deployed"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "am9icG9zdDpEFKODLlLwhiqprhO5GUC4",
+      "source_id": "gem_api",
+      "category": "software_engineering",
+      "subcategories": [
+        "forward_deployed"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "JR366026",
+      "source_id": "workday_api",
+      "category": "software_engineering",
+      "subcategories": [
+        "forward_deployed"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "c53331ce-f70f-420f-ab42-08c6428ead93",
+      "source_id": "ashby_api",
+      "category": "software_engineering",
+      "subcategories": [],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "8793863002",
+      "source_id": "greenhouse_api",
+      "category": "software_engineering",
+      "subcategories": [
+        "forward_deployed"
+      ],
+      "subcategory_confidence": null
+    },
+    {
+      "job_listing_id": "9f5d7596-501a-4934-9a25-daba53412e95",
+      "source_id": "ashby_api",
+      "category": "software_engineering",
+      "subcategories": [
+        "forward_deployed"
+      ],
       "subcategory_confidence": null
     }
   ]

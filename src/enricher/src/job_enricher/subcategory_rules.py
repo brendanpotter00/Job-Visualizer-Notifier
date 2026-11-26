@@ -349,13 +349,20 @@ def rule_label(
 #                 `product_engineering` type exactly one seed title between them
 #                 ("Software Engineer, Product Growth" -> both).
 #
+#   RE-MEASURED over the 156 gold-SWE titles after the Forward Deployed
+#   Engineer correction:
+#     typed 118 / 156 = 0.756  ->  tier A is 38 rows
+#       +21 rows  17 new real FDE postings + 4 existing FDE rows relabelled
+#                 business_ops -> software_engineering; `forward[\s-]deployed`
+#                 types nearly all of them, so coverage ROSE.
+#
 # The design track's 85/126 was measured against a 7-pattern regex over 13
 # slugs and does not survive the move to 15 (`ai_engineering` and `quantitative`
 # were added). `quantitative` matches ZERO titles in this sample, and
 # `growth_engineering` matches ONE — the eval cannot say anything about either
 # slug until the seed grows.
-PARAM_REGEX_COVERAGE_TYPED = 98
-PARAM_REGEX_COVERAGE_TOTAL = 135
+PARAM_REGEX_COVERAGE_TYPED = 118
+PARAM_REGEX_COVERAGE_TOTAL = 156
 
 
 def regex_coverage(rows: Iterable[dict]) -> tuple[int, int]:

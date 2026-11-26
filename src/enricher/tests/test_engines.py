@@ -573,10 +573,14 @@ def test_subprocess_engines_declare_no_subcategory_schema():
 #     +579  the 15 -> 17 subcategory widening — two §1b table rows and two rails.
 # Rounded up to the next 500 per ENR-LAT-1's rule.
 #
+# RE-MEASURED after the Forward Deployed Engineer correction: 41,402.
+#   +1,996  SKILL.md section 1's FDE + FDE-look-alike tie-breakers and two
+#           quick-mapping entries (category rules; the §1b row grew by 46).
+#
 # ⚠ A FAILURE HERE MEANS SOMEONE MOVED DETAIL BACK INTO SECTION 1b. The fix is to
 # move it to SUBCATEGORIES.md, NOT to raise this constant. Raising it is correct
 # ONLY when SKILL.md legitimately grew, and only after re-measuring.
-_CLASSIFY_PROMPT_MAX_CHARS = 39_500
+_CLASSIFY_PROMPT_MAX_CHARS = 41_500
 
 _BUDGET_FIXTURE = {
     "job_listing_id": "1", "source_id": "gh", "title": "Software Engineer",
