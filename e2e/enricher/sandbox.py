@@ -222,6 +222,8 @@ def build(root: Path, ref: str | None, env_file: Path, out: Path) -> dict[str, A
             f"{sandbox}. The enricher would write its DB/lock somewhere else. Refusing."
         )
     v7 = cli(sandbox, "subcategory-push", "--help", check=False).returncode == 0
+    # The FDE correction's scoped form (`reenrich --title-regex`); older refs lack it.
+    scoped_reenrich = "--title-regex" in cli(sandbox, "reenrich", "--help", check=False).stdout
     info = {
         "root": str(root.resolve()),
         "dir": str(sandbox.resolve()),
@@ -232,6 +234,7 @@ def build(root: Path, ref: str | None, env_file: Path, out: Path) -> dict[str, A
         "dirty": dirty,
         "repo_root": repo_root,
         "v7": v7,
+        "scoped_reenrich": scoped_reenrich,
         "taxonomy_version": cli(sandbox, "taxonomy-version").stdout.strip().splitlines()[-1],
         "uv": _run([UV_BIN, "--version"]).stdout.strip(),
     }
@@ -293,7 +296,8 @@ def main(argv: list[str] | None = None) -> int:
     args = p.parse_args(argv)
     if args.cmd == "build":
         info = build(args.root, args.ref, args.env_file, args.out)
-        print(f"sandbox: built {info['dir']} from {info['source']} (v7={info['v7']})")
+        print(f"sandbox: built {info['dir']} from {info['source']} (v7={info['v7']}, "
+              f"scoped_reenrich={info['scoped_reenrich']})")
     elif args.cmd == "guard":
         guard(args.root)
     else:

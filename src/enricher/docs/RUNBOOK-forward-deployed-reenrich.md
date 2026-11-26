@@ -89,6 +89,34 @@ uv run python -m job_enricher.cli reenrich \
 The rows go back to `cleaned`. The next ticks re-classify them (`enrich:per_tick_limit`
 is 40, so about two ticks), the judge runs as usual, and write-back sends them to JVN.
 
+## 3b. ⚠ Ship the `forward_deployed` subcategory (a separate step)
+
+Step 3 moves the **category**. The **subcategory** reaches JVN only when
+`writeback:send_subcategories` is ON, and prod JVN suggests it is OFF: on 2026-11-26
+every one of the 10,575 SWE rows that carry a subcategory came from the backfill drain
+(`enrichment_subcategory_source = 'backfill'`), none from a tick, and the ~1,000 SWE rows
+the ticks wrote in the six days before had none. These ~70 rows were `business_ops`
+during that backfill (it labels SWE rows only), so **after step 3 they sit in Software
+Engineering with no subcategory and do not show under the Forward Deployed filter.**
+
+The re-classify DOES record `["forward_deployed"]` locally. With the knob OFF it stays
+there (`subcategory_sent_at IS NULL`) for the drain to pick up. Check the knob, then
+see what the drain would send:
+
+```bash
+uv run python -m job_enricher.cli enrich-config | python3 -c 'import json,sys; print(json.load(sys.stdin)["writeback_send_subcategories"])'
+uv run python -m job_enricher.cli subcategory-push --dry-run
+```
+
+`subcategory-push` refuses (exit 2) while the knob is OFF, and it drains **every**
+labelled row not yet pushed: the FDE rows **and** every tick-classified SWE row since
+the knob went off. Shipping those is a rollout decision
+(`RUNBOOK-subcategory-backfill.md` §6 step 8, `BACKFILL.md` §1.2), not part of this
+fix. If you take it: `cli writeback-send-subcategories on`, then the paced
+`subcategory-push --probe …` from `BACKFILL.md`. Leave the knob ON afterwards and new
+FDE postings get their subcategory on their first tick. Turn it back OFF and they wait
+for the next drain.
+
 ## 4. Verify (read-only, prod Postgres)
 
 ```sql
