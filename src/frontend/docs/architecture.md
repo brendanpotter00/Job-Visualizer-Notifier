@@ -272,7 +272,7 @@ graph TB
     App --> Header[Header Section]
     App --> Main[Main Content]
 
-    Header --> CompSelector[CompanySelector<br/>Dropdown + Company Selection]
+    Header --> CompSelector[CompanySelector<br/>Type-to-filter Search + Company Selection]
 
     Main --> MetricsDash[MetricsDashboard<br/>Job Count Cards]
     Main --> GraphSection[Graph Section]
