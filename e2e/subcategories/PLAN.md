@@ -198,8 +198,9 @@ are load-bearing and live in `ui/helpers.ts` rather than inline:
 
 1. **A parent row's accessible name carries a suffix.** A parent with children has a visually
    hidden ", 17 specialties" in its label, so the option's computed name is
-   `"Software Engineering, 17 specialties"` and an exact-name match misses it. Hence the
-   anchored regex. (The chevron is decorative and `aria-hidden`.)
+   `"Software Engineering , 17 specialties"` (Chromium adds the space before the comma at the
+   hidden span) and an exact-name match misses it. Hence the anchored regex, which allows
+   the optional space. (The chevron is decorative and `aria-hidden`.)
 2. **Children are in the DOM only under a ticked parent.** Ticking the parent is the expand
    step, and unticking it clears its children and hides them in the same click.
 3. **Filter edits are debounced 300 ms.** A DOM-only wait races a request that has not been

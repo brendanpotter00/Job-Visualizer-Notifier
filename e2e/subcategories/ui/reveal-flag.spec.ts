@@ -53,7 +53,7 @@ test.describe('SC-05 reveal flag', () => {
     // Tick to reveal: the children are hidden until their parent is ticked,
     // and the parent's name says how many it holds.
     await expect(
-      menu.getByRole('option', { name: /^Software Engineering, \d+ specialties$/ }),
+      menu.getByRole('option', { name: /^Software Engineering ?, \d+ specialties$/ }),
       'with the flag on, the Software Engineering row must announce its specialties',
     ).toBeVisible();
     await expect(

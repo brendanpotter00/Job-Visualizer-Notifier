@@ -162,8 +162,9 @@ export async function withSearchResponse(page: Page, action: () => Promise<void>
 // clicks:
 //
 //  1. A PARENT option with children has a suffix on its accessible name: a
-//     visually hidden ", 17 specialties" ("Software Engineering, 17
-//     specialties"). A bare exact match on the label would miss it, hence the
+//     visually hidden ", 17 specialties" (Chromium computes "Software
+//     Engineering , 17 specialties": the hidden span adds a space before the
+//     comma, as in e2e/onboarding/ui/helpers.ts). A bare exact match on the label would miss it, hence the
 //     anchored regex in `parentOption`. That suffix is also how a spec can tell
 //     the tree is on without ticking anything (the chevron is aria-hidden).
 //  2. CHILDREN SHOW ONLY UNDER A TICKED PARENT. Ticking the parent is the
