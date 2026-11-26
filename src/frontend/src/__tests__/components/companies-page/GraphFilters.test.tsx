@@ -374,7 +374,7 @@ describe('GraphFilters — the subcategory tree', () => {
     expect(screen.getByRole('combobox', { name: 'Job Category' })).toBeInTheDocument();
   });
 
-  it('(b) renders the SWE children immediately, with no expander', async () => {
+  it('(b) hides the SWE specialties until Software Engineering is ticked', async () => {
     const store = await seedStore();
     await seedFacetsAndFlag(store, { reveal: true });
     const user = userEvent.setup();
@@ -382,14 +382,20 @@ describe('GraphFilters — the subcategory tree', () => {
 
     await user.click(screen.getByRole('combobox', { name: 'Job Category' }));
     const listbox = await screen.findByRole('listbox');
-    const swe = within(listbox).getByRole('option', { name: /Software Engineering/ });
-    // The accordion is gone: the parent row has no button to press.
+    expect(within(listbox).queryByRole('option', { name: /Backend/ })).toBeNull();
+
+    const swe = within(listbox).getByRole('option', {
+      name: 'Software Engineering, 1 specialty',
+    });
+    // The chevron is a cue, not a button.
+    expect(within(swe).getByTestId('facet-tree-chevron')).toBeInTheDocument();
     expect(within(swe).queryByRole('button')).toBeNull();
 
+    await user.click(swe);
     expect(within(listbox).getByRole('option', { name: /Backend/ })).toBeInTheDocument();
   });
 
-  it('(c) ticking a child dispatches BOTH setters onto the GRAPH slice', async () => {
+  it('(c) ticking SWE and then a specialty dispatches BOTH setters onto the GRAPH slice', async () => {
     const store = await seedStore();
     await seedFacetsAndFlag(store, { reveal: true });
     const user = userEvent.setup();
@@ -397,14 +403,30 @@ describe('GraphFilters — the subcategory tree', () => {
 
     await user.click(screen.getByRole('combobox', { name: 'Job Category' }));
     const listbox = await screen.findByRole('listbox');
-    const swe = within(listbox).getByRole('option', { name: /Software Engineering/ });
-    // The accordion is gone: the parent row has no button to press.
-    expect(within(swe).queryByRole('button')).toBeNull();
+    await user.click(within(listbox).getByRole('option', { name: /Software Engineering/ }));
     await user.click(within(listbox).getByRole('option', { name: /Backend/ }));
 
     const filters = store.getState().graphFilters.filters;
     expect(filters.subcategory).toEqual(['backend']);
     expect(filters.category).toEqual(['software_engineering']);
+  });
+
+  it('(c2) unticking SWE clears its specialty off the GRAPH slice in one click', async () => {
+    const store = await seedStore();
+    await seedFacetsAndFlag(store, { reveal: true });
+    const user = userEvent.setup();
+    renderBar(store);
+
+    await user.click(screen.getByRole('combobox', { name: 'Job Category' }));
+    const listbox = await screen.findByRole('listbox');
+    await user.click(within(listbox).getByRole('option', { name: /Software Engineering/ }));
+    await user.click(within(listbox).getByRole('option', { name: /Backend/ }));
+    await user.click(within(listbox).getByRole('option', { name: /Software Engineering/ }));
+
+    const filters = store.getState().graphFilters.filters;
+    expect(filters.category).toBeUndefined();
+    expect(filters.subcategory).toBeUndefined();
+    expect(within(listbox).queryByRole('option', { name: /Backend/ })).toBeNull();
   });
 
   it('(d) shows NO chevron with the flag off', async () => {
@@ -416,6 +438,7 @@ describe('GraphFilters — the subcategory tree', () => {
     await user.click(screen.getByRole('combobox', { name: 'Job Category' }));
     const listbox = await screen.findByRole('listbox');
 
+    expect(within(listbox).queryByTestId('facet-tree-chevron')).toBeNull();
     expect(within(listbox).queryByRole('button')).toBeNull();
   });
 });

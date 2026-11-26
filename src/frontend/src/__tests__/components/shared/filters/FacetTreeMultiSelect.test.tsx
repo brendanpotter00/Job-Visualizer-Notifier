@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -18,6 +19,49 @@ const CHILDREN: FacetOption[] = [
 
 // `parent_b` deliberately has NO children, so "a chevron appears" is never a
 // property of the control and always a property of the row.
+
+const CHEVRON = 'facet-tree-chevron';
+
+type Selection = { category: string[]; subcategory: string[] };
+
+/**
+ * A controlled wrapper that applies each emit, so a test can watch the menu
+ * react to its own clicks (rows appearing and disappearing). The props-only
+ * renders below cannot: their `value` never moves.
+ */
+function Stateful({
+  initial,
+  onChange,
+  options = PARENTS,
+  childOptions = CHILDREN,
+}: {
+  initial: Selection;
+  onChange: (next: Selection) => void;
+  options?: FacetOption[];
+  childOptions?: FacetOption[];
+}) {
+  const [selection, setSelection] = useState(initial);
+  return (
+    <FacetTreeMultiSelect
+      label="Job Category"
+      options={options}
+      childOptions={childOptions}
+      value={selection.category}
+      childValue={selection.subcategory}
+      onChange={(next) => {
+        onChange(next);
+        setSelection(next);
+      }}
+    />
+  );
+}
+
+/** Every row's text in menu order. A parent with children carries its hidden count. */
+function rowTexts(listbox: HTMLElement): string[] {
+  return within(listbox)
+    .getAllByRole('option')
+    .map((row) => row.textContent ?? '');
+}
 
 describe('FacetTreeMultiSelect', () => {
   let consoleError: ReturnType<typeof vi.spyOn>;
@@ -56,8 +100,9 @@ describe('FacetTreeMultiSelect', () => {
     expect(screen.getByRole('combobox', { name: 'Job Category' })).toHaveTextContent('All');
     const listbox = await openMenu(user);
 
-    expect(within(listbox).getAllByRole('option')).toHaveLength(2);
+    expect(rowTexts(listbox)).toEqual(['Category A', 'Category B']);
     expect(within(listbox).queryByRole('button')).toBeNull();
+    expect(within(listbox).queryByTestId(CHEVRON)).toBeNull();
   });
 
   it('(1b) with childOptions empty, a stored childValue is neither shown nor destroyed', async () => {
@@ -92,81 +137,14 @@ describe('FacetTreeMultiSelect', () => {
     });
   });
 
-  it('(2) renders no chevron on a parent that has no children', async () => {
-    const user = userEvent.setup();
-    render(
-      <FacetTreeMultiSelect
-        label="Job Category"
-        options={PARENTS}
-        childOptions={CHILDREN}
-        value={undefined}
-        childValue={undefined}
-        onChange={vi.fn()}
-      />
-    );
-
-    const listbox = await openMenu(user);
-    const parentB = within(listbox).getByRole('option', { name: /Category B/ });
-    expect(within(parentB).queryByRole('button')).toBeNull();
-  });
-
-  it('(3) a parent with children renders its child rows IMMEDIATELY, and no expander', async () => {
-    // THE ACCORDION IS GONE. The menu opens showing every child under its
-    // parent: no chevron to find, no click between the reader and the options
-    // the menu exists to offer. A button anywhere in a row would also re-open
-    // the MUI trap this control used to need three stopPropagation handlers for.
-    const user = userEvent.setup();
-    render(
-      <FacetTreeMultiSelect
-        label="Job Category"
-        options={PARENTS}
-        childOptions={CHILDREN}
-        value={undefined}
-        childValue={undefined}
-        onChange={vi.fn()}
-      />
-    );
-
-    const listbox = await openMenu(user);
-    expect(within(listbox).getByRole('option', { name: /Child A/ })).toBeInTheDocument();
-    expect(within(listbox).getByRole('option', { name: /Child B/ })).toBeInTheDocument();
-
-    const parentA = within(listbox).getByRole('option', { name: /Category A/ });
-    expect(within(parentA).queryByRole('button')).toBeNull();
-  });
-
-  it('(6) ticking a child AUTO-CHECKS its parent and emits both arrays', async () => {
+  it('(1c) with childOptions empty, unticking a parent still preserves the stored childValue', async () => {
     const onChange = vi.fn();
     const user = userEvent.setup();
     render(
       <FacetTreeMultiSelect
         label="Job Category"
         options={PARENTS}
-        childOptions={CHILDREN}
-        value={undefined}
-        childValue={undefined}
-        onChange={onChange}
-      />
-    );
-
-    const listbox = await openMenu(user);
-    await user.click(within(listbox).getByRole('option', { name: /Child A/ }));
-
-    expect(onChange).toHaveBeenCalledTimes(1);
-    expect(onChange).toHaveBeenCalledWith({
-      category: ['parent_a'],
-      subcategory: ['child_a'],
-    });
-  });
-
-  it('(7) clicking a parent that owns selected children WIDENS: children cleared, parent kept', async () => {
-    const onChange = vi.fn();
-    const user = userEvent.setup();
-    render(
-      <FacetTreeMultiSelect
-        label="Job Category"
-        options={PARENTS}
-        childOptions={CHILDREN}
+        childOptions={[]}
         value={['parent_a']}
         childValue={['child_a']}
         onChange={onChange}
@@ -176,8 +154,191 @@ describe('FacetTreeMultiSelect', () => {
     const listbox = await openMenu(user);
     await user.click(within(listbox).getByRole('option', { name: /Category A/ }));
 
+    // The untick-clears rule is a TREE rule. With the tree off it must not
+    // reach into a selection this control cannot even show.
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onChange).toHaveBeenCalledWith({ category: [], subcategory: ['child_a'] });
+  });
+
+  it('(2) a parent with no children gets no chevron and no hidden count', async () => {
+    const user = userEvent.setup();
+    render(
+      <FacetTreeMultiSelect
+        label="Job Category"
+        options={PARENTS}
+        childOptions={CHILDREN}
+        value={undefined}
+        childValue={undefined}
+        onChange={vi.fn()}
+      />
+    );
+
+    const listbox = await openMenu(user);
+    const parentB = within(listbox).getByRole('option', { name: 'Category B' });
+    expect(within(parentB).queryByTestId(CHEVRON)).toBeNull();
+    expect(within(parentB).queryByRole('button')).toBeNull();
+  });
+
+  it('(3) children stay HIDDEN while their parent is unticked', async () => {
+    const user = userEvent.setup();
+    render(
+      <FacetTreeMultiSelect
+        label="Job Category"
+        options={PARENTS}
+        childOptions={CHILDREN}
+        value={undefined}
+        childValue={undefined}
+        onChange={vi.fn()}
+      />
+    );
+
+    const listbox = await openMenu(user);
+    // Just the parent rows.
+    expect(rowTexts(listbox)).toEqual(['Category A, 2 specialties', 'Category B']);
+    expect(within(listbox).queryByRole('option', { name: /Child/ })).toBeNull();
+
+    // The parent says what ticking it will reveal, to a screen reader only, and
+    // carries a closed chevron that is a cue, not a control.
+    const parentA = within(listbox).getByRole('option', { name: 'Category A, 2 specialties' });
+    const chevron = within(parentA).getByTestId(CHEVRON);
+    expect(chevron).toHaveAttribute('aria-hidden', 'true');
+    expect(chevron).toHaveStyle({ transform: 'none' });
+    expect(within(parentA).queryByRole('button')).toBeNull();
+  });
+
+  it('(4) ticking the parent reveals its children right under it, and turns the chevron', async () => {
+    const onChange = vi.fn();
+    const user = userEvent.setup();
+    render(<Stateful initial={{ category: [], subcategory: [] }} onChange={onChange} />);
+
+    const listbox = await openMenu(user);
+    await user.click(within(listbox).getByRole('option', { name: /Category A/ }));
+
     expect(onChange).toHaveBeenCalledTimes(1);
     expect(onChange).toHaveBeenCalledWith({ category: ['parent_a'], subcategory: [] });
+
+    // Indented under their parent, BEFORE the next parent.
+    expect(rowTexts(listbox)).toEqual([
+      'Category A, 2 specialties',
+      'Child A',
+      'Child B',
+      'Category B',
+    ]);
+    const parentA = within(listbox).getByRole('option', { name: /Category A/ });
+    expect(within(parentA).getByTestId(CHEVRON)).toHaveStyle({ transform: 'rotate(180deg)' });
+  });
+
+  it('(4b) a click on the chevron is a click on the row: it ticks the parent', async () => {
+    // Mechanic 2: the chevron has no handler of its own, so the row's cloned
+    // onClick is what fires. A chevron that swallowed the click (or toggled
+    // something else) would bring back the old accordion's trap.
+    const onChange = vi.fn();
+    const user = userEvent.setup();
+    render(<Stateful initial={{ category: [], subcategory: [] }} onChange={onChange} />);
+
+    const listbox = await openMenu(user);
+    const parentA = within(listbox).getByRole('option', { name: /Category A/ });
+    await user.click(within(parentA).getByTestId(CHEVRON));
+
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onChange).toHaveBeenCalledWith({ category: ['parent_a'], subcategory: [] });
+    expect(within(listbox).getByRole('option', { name: 'Child A' })).toBeInTheDocument();
+  });
+
+  it('(5) opening with the parent already ticked shows its children straight away', async () => {
+    // The saved-filters case: the menu was never used this session, the
+    // selection arrived as props, and the reader must see where it lives.
+    const user = userEvent.setup();
+    render(
+      <FacetTreeMultiSelect
+        label="Job Category"
+        options={PARENTS}
+        childOptions={CHILDREN}
+        value={['parent_a']}
+        childValue={['child_a']}
+        onChange={vi.fn()}
+      />
+    );
+
+    const listbox = await openMenu(user);
+    expect(rowTexts(listbox)).toEqual([
+      'Category A, 2 specialties',
+      'Child A',
+      'Child B',
+      'Category B',
+    ]);
+    expect(
+      within(within(listbox).getByRole('option', { name: 'Child A' })).getByRole('checkbox')
+    ).toBeChecked();
+    expect(
+      within(within(listbox).getByRole('option', { name: 'Child B' })).getByRole('checkbox')
+    ).not.toBeChecked();
+    const parentA = within(listbox).getByRole('option', { name: /Category A/ });
+    expect(within(parentA).getByTestId(CHEVRON)).toHaveStyle({ transform: 'rotate(180deg)' });
+  });
+
+  it('(6) ticking a revealed child emits both arrays in one call', async () => {
+    const onChange = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <FacetTreeMultiSelect
+        label="Job Category"
+        options={PARENTS}
+        childOptions={CHILDREN}
+        value={['parent_a']}
+        childValue={[]}
+        onChange={onChange}
+      />
+    );
+
+    const listbox = await openMenu(user);
+    await user.click(within(listbox).getByRole('option', { name: 'Child A' }));
+
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onChange).toHaveBeenCalledWith({
+      category: ['parent_a'],
+      subcategory: ['child_a'],
+    });
+  });
+
+  it('(7) unticking a parent with ticked children unticks, clears and hides them in ONE emit', async () => {
+    // A second tree (parent_c) is the control: its child must SURVIVE, or the
+    // rule is "clear every child", not "clear this parent's children".
+    const options: FacetOption[] = [
+      ...PARENTS,
+      { slug: 'parent_c', label: 'Category C', sortOrder: 2 },
+    ];
+    const childOptions: FacetOption[] = [
+      ...CHILDREN,
+      { slug: 'child_c', label: 'Child C', sortOrder: 2, parentSlug: 'parent_c' },
+    ];
+    const onChange = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <Stateful
+        options={options}
+        childOptions={childOptions}
+        initial={{ category: ['parent_a', 'parent_c'], subcategory: ['child_a', 'child_c'] }}
+        onChange={onChange}
+      />
+    );
+
+    const listbox = await openMenu(user);
+    await user.click(within(listbox).getByRole('option', { name: /Category A/ }));
+
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onChange).toHaveBeenCalledWith({ category: ['parent_c'], subcategory: ['child_c'] });
+
+    // Collapsed: Category A's children are gone, Category C's are still open.
+    expect(rowTexts(listbox)).toEqual([
+      'Category A, 2 specialties',
+      'Category B',
+      'Category C, 1 specialty',
+      'Child C',
+    ]);
+    const parentA = within(listbox).getByRole('option', { name: /Category A/ });
+    expect(within(parentA).getByRole('checkbox')).not.toBeChecked();
+    expect(within(parentA).getByTestId(CHEVRON)).toHaveStyle({ transform: 'none' });
   });
 
   it('(7b) clicking a checked parent with NO selected children unchecks it', async () => {
@@ -200,7 +361,34 @@ describe('FacetTreeMultiSelect', () => {
     expect(onChange).toHaveBeenCalledWith({ category: [], subcategory: [] });
   });
 
-  it('(8) the parent checkbox is indeterminate when it is checked and a child is ticked', async () => {
+  it('(8) AUTO-CHECK still holds: a stored child with no parent brings its parent on the next emit', async () => {
+    // The menu can no longer offer a child under an unticked parent, but stored
+    // data can still arrive that way. Whatever the reader clicks next, the emit
+    // is made consistent: a child never leaves without its parent.
+    const onChange = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <FacetTreeMultiSelect
+        label="Job Category"
+        options={PARENTS}
+        childOptions={CHILDREN}
+        value={[]}
+        childValue={['child_a']}
+        onChange={onChange}
+      />
+    );
+
+    const listbox = await openMenu(user);
+    await user.click(within(listbox).getByRole('option', { name: 'Category B' }));
+
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onChange).toHaveBeenCalledWith({
+      category: ['parent_b', 'parent_a'],
+      subcategory: ['child_a'],
+    });
+  });
+
+  it('(9) the parent checkbox is indeterminate when it is checked and a child is ticked', async () => {
     const user = userEvent.setup();
     render(
       <FacetTreeMultiSelect
@@ -221,25 +409,37 @@ describe('FacetTreeMultiSelect', () => {
     expect(within(parentB).getByRole('checkbox')).toHaveAttribute('data-indeterminate', 'false');
   });
 
-  it('(9) a pre-selected child is checked, and its row needed no expanding', async () => {
+  it('(10) keyboard: Enter ticks the parent, ArrowDown reaches the revealed child, Enter ticks it', async () => {
+    // The revealed children are ordinary MenuItems in the same list, so MUI's
+    // own roving focus must reach them with no extra wiring.
+    const onChange = vi.fn();
     const user = userEvent.setup();
-    render(
-      <FacetTreeMultiSelect
-        label="Job Category"
-        options={PARENTS}
-        childOptions={CHILDREN}
-        value={['parent_a']}
-        childValue={['child_a']}
-        onChange={vi.fn()}
-      />
-    );
+    render(<Stateful initial={{ category: [], subcategory: [] }} onChange={onChange} />);
 
     const listbox = await openMenu(user);
-    const childA = within(listbox).getByRole('option', { name: /Child A/ });
-    expect(within(childA).getByRole('checkbox')).toBeChecked();
+    const parentA = within(listbox).getByRole('option', { name: /Category A/ });
+    expect(parentA).toHaveFocus();
+
+    await user.keyboard('{Enter}');
+    expect(onChange).toHaveBeenLastCalledWith({ category: ['parent_a'], subcategory: [] });
+    expect(parentA).toHaveFocus();
+
+    await user.keyboard('{ArrowDown}');
+    const childA = within(listbox).getByRole('option', { name: 'Child A' });
+    expect(childA).toHaveFocus();
+
+    await user.keyboard('{Enter}');
+    expect(onChange).toHaveBeenLastCalledWith({
+      category: ['parent_a'],
+      subcategory: ['child_a'],
+    });
+
+    // Past the children, the next parent is still one ArrowDown away from the last child.
+    await user.keyboard('{ArrowDown}{ArrowDown}');
+    expect(within(listbox).getByRole('option', { name: 'Category B' })).toHaveFocus();
   });
 
-  it('(10) renders the placeholder when nothing is selected, and labels when something is', () => {
+  it('(11) renders the placeholder when nothing is selected, and labels when something is', () => {
     const { rerender } = render(
       <FacetTreeMultiSelect
         label="Job Category"
@@ -262,9 +462,10 @@ describe('FacetTreeMultiSelect', () => {
         onChange={vi.fn()}
       />
     );
-    // Parents first, then children — and LABELS, never slugs.
+    // Parents first, then children — and LABELS, never slugs. The hidden
+    // specialty count lives in the menu row only, never in the closed field.
     expect(screen.getByRole('combobox', { name: 'Job Category' })).toHaveTextContent(
-      'Category A, Child A'
+      /^Category A, Child A$/
     );
   });
 });

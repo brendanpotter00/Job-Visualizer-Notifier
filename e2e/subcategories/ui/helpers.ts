@@ -157,18 +157,20 @@ export async function withSearchResponse(page: Page, action: () => Promise<void>
 // --- The category/subcategory tree ---------------------------------------
 //
 // `FacetTreeMultiSelect` is a MUI `Select multiple`: the closed field is a
-// `combobox`, the open menu a `listbox`, each row an `option`. It has no
-// testids. Three mechanics below are not obvious and are why these helpers
-// exist rather than inline clicks:
+// `combobox`, the open menu a `listbox`, each row an `option`. Three mechanics
+// below are not obvious and are why these helpers exist rather than inline
+// clicks:
 //
-//  1. A PARENT option's accessible name used to be polluted by the chevron's
-//     `aria-label`. The chevron is gone, but the anchored regex STAYS: a bare
-//     exact match on "Software Engineering" would also match nothing if the
-//     label ever regains a suffix, and the regex costs nothing.
-//  2. CHILDREN ARE ALWAYS IN THE DOM. There is no expand step — the menu opens
-//     with every subcategory rendered under its parent. `expandParent` is kept
-//     as a no-op shim so the specs read the same and a future re-introduction
-//     of an accordion has ONE place to change.
+//  1. A PARENT option with children has a suffix on its accessible name: a
+//     visually hidden ", 17 specialties" (Chromium computes "Software
+//     Engineering , 17 specialties": the hidden span adds a space before the
+//     comma, as in e2e/onboarding/ui/helpers.ts). A bare exact match on the label would miss it, hence the
+//     anchored regex in `parentOption`. That suffix is also how a spec can tell
+//     the tree is on without ticking anything (the chevron is aria-hidden).
+//  2. CHILDREN SHOW ONLY UNDER A TICKED PARENT. Ticking the parent is the
+//     expand step, so `expandParent` ticks it (and waits for the search that
+//     sends) unless it is already ticked. Unticking it again clears and hides
+//     its children in the same click.
 //  3. The menu stays open after a click (it is a multi-select), so it has to
 //     be dismissed with Escape before the list underneath is interactable.
 
@@ -193,14 +195,21 @@ export function parentOption(menu: Locator, label: string): Locator {
 }
 
 /**
- * NO-OP. The tree renders every child immediately — there is no accordion.
+ * Make a parent's children visible by ticking the parent, unless it is ticked
+ * already.
  *
- * Kept (rather than deleted from the four specs that call it) because it is the
- * single seam where an expand step would go back if the control ever regains
- * one. Deleting it would scatter that decision across every spec.
+ * Ticking it is a real filter edit, so this waits for the search it triggers.
+ * Otherwise that response could land inside the NEXT `withSearchResponse` and
+ * be read as the child's.
  */
-export async function expandParent(_menu: Locator, _label: string): Promise<void> {
-  // nothing to do: children are always rendered.
+export async function expandParent(page: Page, menu: Locator, label: string): Promise<void> {
+  const parent = parentOption(menu, label);
+  if ((await parent.getAttribute('aria-selected')) !== 'true') {
+    await withSearchResponse(page, async () => {
+      await parent.click();
+    });
+  }
+  await expect(parent).toHaveAttribute('aria-selected', 'true');
 }
 
 export async function dismissMenu(page: Page): Promise<void> {
@@ -211,10 +220,11 @@ export async function dismissMenu(page: Page): Promise<void> {
 /**
  * Tick one subcategory child and wait for the search it triggers.
  *
- * Ticking a child AUTO-CHECKS its parent (`FacetTreeMultiSelect.tsx`), so the
- * request this waits on carries BOTH `category=software_engineering` and the
- * child slug. That is the request shape the product actually makes, which is
- * why the API tier has a case for the redundant pair.
+ * The child is only on screen under a ticked parent, so the parent gets ticked
+ * first (`expandParent`), and the request this waits on carries BOTH
+ * `category=software_engineering` and the child slug. That is the request shape
+ * the product actually makes, which is why the API tier has a case for the
+ * redundant pair.
  */
 export async function selectSubcategory(
   page: Page,
@@ -222,7 +232,7 @@ export async function selectSubcategory(
   childLabel: string,
 ): Promise<void> {
   const menu = await openCategoryMenu(page);
-  await expandParent(menu, parentLabel);
+  await expandParent(page, menu, parentLabel);
   await withSearchResponse(page, async () => {
     await menu.getByRole('option', { name: childLabel, exact: true }).click();
   });

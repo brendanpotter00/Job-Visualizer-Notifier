@@ -91,13 +91,18 @@ async function renderPage() {
   );
 }
 
-/** Open the tree and tick Backend. */
+/**
+ * Open the tree and tick Backend.
+ *
+ * SERVER_PREFS already has Software Engineering ticked, so its specialties are
+ * on screen as soon as the menu opens and ticking Backend is a SUBCATEGORY-ONLY
+ * change, which is what the dirty-clause test below needs.
+ */
 async function tickBackend(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByRole('combobox', { name: 'Job Category' }));
   const listbox = await screen.findByRole('listbox');
   const parent = within(listbox).getByRole('option', { name: /Software Engineering/ });
-  // The accordion is gone: the parent row has no button to press.
-  expect(within(parent).queryByRole('button')).toBeNull();
+  expect(within(parent).getByRole('checkbox')).toBeChecked();
   await user.click(within(listbox).getByRole('option', { name: /Backend/ }));
   await user.keyboard('{Escape}');
 }

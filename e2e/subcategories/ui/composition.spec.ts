@@ -61,7 +61,7 @@ test.describe('SC-03 filters compose', () => {
   });
 
   // The specialty scope: a specialty narrows ONLY software-engineering rows.
-  // Ticking Backend (which auto-checks its parent) and then Product Manager
+  // Ticking Software Engineering's Backend and then Product Manager
   // must ADD every product-manager row and keep the SWE rows narrowed to
   // Backend. Under the old rule the PM rows stayed hidden.
   test('SC-03 a second role keeps all its jobs beside a specialty', async ({ signedInPage: page }) => {

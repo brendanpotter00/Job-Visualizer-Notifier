@@ -1,5 +1,6 @@
 import { useId } from 'react';
 import {
+  Box,
   FormControl,
   InputLabel,
   Select,
@@ -8,17 +9,20 @@ import {
   ListItemText,
   OutlinedInput,
 } from '@mui/material';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import { VISUALLY_HIDDEN_SX } from '../../../lib/visuallyHidden';
 import type { FacetOption } from '../../../types';
 
 /**
  * Cap on the open menu's height.
  *
- * UNMEASURED — placeholder; set by FE-UI-1
- *
- * There is no maxHeight on the flat `FacetMultiSelect` today because six
- * category rows fit anywhere. Six parents plus seventeen children is twenty-three
- * rows, and since the children are ALWAYS rendered that is the every-time height,
- * not a worst case — it overflows a phone viewport and most laptop ones.
+ * With every parent unticked the menu is just the six category rows, the same
+ * as the flat `FacetMultiSelect`, which has no cap because six rows fit
+ * anywhere (measured at 316px, 50px a row, on a phone and a laptop alike, so
+ * neither cap is reached). The cap only matters once a parent is OPEN: ticking
+ * Software Engineering adds its seventeen specialties, twenty-three rows and
+ * about 1,170px in all, which overflows a phone viewport and most laptop ones.
+ * The menu then scrolls inside this height instead.
  */
 const MENU_MAX_HEIGHT = { xs: '60vh', sm: 400 };
 
@@ -40,8 +44,8 @@ export interface FacetTreeMultiSelectProps {
    * Emits BOTH arrays on every change.
    *
    * One handler rather than two is load-bearing: the auto-check-parent rule and
-   * the locked-parent rule both move the two selections together, and two
-   * separate callbacks would let a consumer apply one and drop the other,
+   * the untick-clears-children rule both move the two selections together, and
+   * two separate callbacks would let a consumer apply one and drop the other,
    * desyncing a child from its parent with no way to notice.
    */
   onChange: (next: { category: string[]; subcategory: string[] }) => void;
@@ -59,17 +63,37 @@ export interface FacetTreeMultiSelectProps {
  *
  * BEHAVIOUR
  * ---------
- * - Ticking a child AUTO-CHECKS its parent. A subcategory selection with no
- *   category selection would be filtered out server-side by the category
- *   predicate, so the two are only ever emitted consistently.
- * - Clicking a checked parent that owns selected children CLEARS those children
- *   and leaves the parent checked — one click WIDENS to the whole category. A
- *   second click then unchecks it. (A literally dead click is worse UX.)
- * - CHILDREN ARE ALWAYS RENDERED. There is no expand/collapse: the menu opens
- *   showing every subcategory under its parent, indented. This replaced an
- *   accordion — the chevron cost a click to reach the thing the menu exists to
- *   offer, and hid seventeen options behind a control most readers never found.
- *   Twenty-three rows scroll; `MENU_MAX_HEIGHT` is what makes that survivable.
+ * Tick to reveal: the same pattern as the onboarding Job Category question
+ * (`components/onboarding/RoleQuestion.tsx`), kept inside the MUI Select menu.
+ *
+ * - A parent's children are rendered ONLY while that parent is ticked. With it
+ *   unticked the menu shows just the parent rows. Ticking it shows its children
+ *   as indented rows right under it, and opening the menu with it already
+ *   ticked (from saved filters, say) shows them straight away. Today only
+ *   Software Engineering has children, but nothing here is specific to it.
+ * - Unticking a parent unticks it, CLEARS its ticked children and hides them,
+ *   all in ONE emit. This replaced a rule where the first click only cleared
+ *   the children and kept the parent ticked.
+ * - A child AUTO-CHECKS its parent. The menu never offers a child under an
+ *   unticked parent, so this is for stored data: a child saved without its
+ *   parent gets the parent back on the next emit. A subcategory selection with
+ *   no category selection would be filtered out server-side by the category
+ *   predicate, so the two are only ever emitted together.
+ * - A parent with children shows a chevron at the row's right edge that turns
+ *   when the row is open, and a visually hidden ", N specialties" in its label
+ *   so a screen reader hears what ticking it reveals. The parent's checkbox is
+ *   indeterminate while it owns ticked children.
+ * - Revealed children are plain MenuItems in the same list, so MUI's arrow-key
+ *   navigation and Enter toggling reach them with no extra wiring.
+ *
+ * WHY THIS IS NOT THE OLD ACCORDION. An earlier version had a chevron BUTTON
+ * that expanded a parent separately from its checkbox. It cost a click to reach
+ * the thing the menu exists to offer, and it hid seventeen options behind a
+ * control most readers never found. It was replaced by rendering every child
+ * on every open (twenty-three rows each time). Tick to reveal avoids both
+ * costs: there is no extra click, because ticking the parent, which a reader
+ * narrowing to a specialty does anyway, is what opens it. The chevron is only a
+ * cue that the row opens.
  *
  * THREE UNDOCUMENTED MUI `SelectInput` MECHANICS ARE LOAD-BEARING HERE, all
  * three verified against @mui/material 7.3.6:
@@ -81,8 +105,10 @@ export interface FacetTreeMultiSelectProps {
  * 2. `child.props.onClick` FIRES BEFORE `setValueState`. A click anywhere inside
  *    a MenuItem reaches the cloned `handleItemClick` and toggles the row. This
  *    is why no interactive control may be nested inside a row: it would select
- *    the row as a side effect. The old chevron needed three separate
- *    stopPropagation handlers to survive it; removing it removed that trap.
+ *    the row as a side effect. The old chevron BUTTON needed three separate
+ *    stopPropagation handlers to survive it. Today's chevron is an aria-hidden
+ *    icon with no handler, so a click on it toggles the row like a click
+ *    anywhere else in it.
  * 3. `renderValue` SHORT-CIRCUITS the display computation, so the closed field
  *    shows parent and child labels together from one flat merged array.
  *
@@ -142,20 +168,17 @@ export function FacetTreeMultiSelect({
     // MUI can hand back a comma-joined string on native events; normalize.
     const next = typeof raw === 'string' ? raw.split(',') : raw;
     const nextSet = new Set(next);
-    const removed = merged.filter((slug) => !nextSet.has(slug));
+    const removed = new Set(merged.filter((slug) => !nextSet.has(slug)));
 
     let categories = next.filter((slug) => !childSlugs.has(slug));
-    let subcategories = next.filter((slug) => childSlugs.has(slug));
 
-    // THE LOCK. Unchecking a parent that still owns selected children means
-    // "widen to the whole category": drop its children, keep it checked.
-    for (const slug of removed) {
-      if (childSlugs.has(slug)) continue;
-      const owned = subcategories.filter((child) => parentOfChild.get(child) === slug);
-      if (owned.length === 0) continue;
-      subcategories = subcategories.filter((child) => parentOfChild.get(child) !== slug);
-      if (!categories.includes(slug)) categories = [...categories, slug];
-    }
+    // UNTICK CLEARS. A parent unticked in this change takes its children with
+    // it, so the one emit below is the whole "untick, clear, hide".
+    const subcategories = next.filter((slug) => {
+      if (!childSlugs.has(slug)) return false;
+      const parent = parentOfChild.get(slug);
+      return !(parent && removed.has(parent));
+    });
 
     // AUTO-CHECK. Any surviving child implies its parent.
     for (const child of subcategories) {
@@ -190,6 +213,7 @@ export function FacetTreeMultiSelect({
         {options.flatMap((opt) => {
           const kids = childrenOf(opt.slug);
           const parentChecked = selectedParents.includes(opt.slug);
+          const open = parentChecked && kids.length > 0;
 
           const parentRow = (
             <MenuItem key={opt.slug} value={opt.slug}>
@@ -198,11 +222,43 @@ export function FacetTreeMultiSelect({
                 indeterminate={parentChecked && ownsSelectedChild(opt.slug)}
                 size="small"
               />
-              <ListItemText primary={opt.label} />
+              <ListItemText
+                primary={
+                  kids.length === 0 ? (
+                    opt.label
+                  ) : (
+                    <>
+                      {opt.label}
+                      <Box component="span" sx={VISUALLY_HIDDEN_SX}>
+                        , {kids.length} {kids.length === 1 ? 'specialty' : 'specialties'}
+                      </Box>
+                    </>
+                  )
+                }
+              />
+              {kids.length > 0 && (
+                // A cue, not a control: no handler, hidden from assistive tech
+                // (see mechanic 2). It turns when the row opens.
+                <Box
+                  component="span"
+                  aria-hidden
+                  data-testid="facet-tree-chevron"
+                  sx={{
+                    display: 'inline-flex',
+                    ml: 1,
+                    color: 'text.secondary',
+                    transition: 'transform .18s ease',
+                    transform: open ? 'rotate(180deg)' : 'none',
+                    '@media (prefers-reduced-motion: reduce)': { transition: 'none' },
+                  }}
+                >
+                  <ExpandMoreIcon fontSize="small" />
+                </Box>
+              )}
             </MenuItem>
           );
 
-          if (kids.length === 0) return [parentRow];
+          if (!open) return [parentRow];
 
           return [
             parentRow,

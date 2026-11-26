@@ -44,13 +44,14 @@ test.describe('SC-02 one subcategory', () => {
     await expectResults(page, titlesForSubcategory('security'));
   });
 
-  test('SC-02 ticking a child auto-checks its parent in the closed field', async ({
+  test('SC-02 a ticked child shows beside its parent in the closed field', async ({
     signedInPage: page,
   }) => {
-    // The behaviour that makes the request carry BOTH slugs. Asserted on the
-    // control rather than on the wire, because the closed field is what tells
-    // the user what they have selected — and a child selected with no parent
-    // shown reads as a filter that is not on.
+    // A child is only reachable under a ticked parent, which is what makes the
+    // request carry BOTH slugs. Asserted on the control rather than on the
+    // wire, because the closed field is what tells the user what they have
+    // selected — and a child selected with no parent shown reads as a filter
+    // that is not on.
     await gotoRecentJobs(page);
     await selectSubcategory(page, SWE, 'Mobile');
     await expect(page.getByRole('combobox', { name: 'Job Category' })).toHaveText(
