@@ -9,12 +9,18 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# Every job carries a timeout-minutes, about 2-3x its slowest recent run,
+# so a stuck job fails in minutes instead of holding its check for
+# GitHub's 6-hour default. On PR #393 a Scraper Scripts runner stopped
+# responding mid-pytest (it ignored a normal cancel and saved no log) and
+# held the check for 24 minutes until it was force-cancelled.
 jobs:
   # The frontend is split into one lint/type/build job and parallel test
   # shards. Before the split one job ran everything in series and the Vitest
   # suite alone took 4-7 minutes.
   frontend-checks:
     name: Frontend checks
+    timeout-minutes: 10
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -36,6 +42,7 @@ jobs:
 
   frontend-tests:
     name: Frontend tests (${{ matrix.shard }}/${{ strategy.job-total }})
+    timeout-minutes: 10
     runs-on: ubuntu-latest
     strategy:
       # Let every shard finish so one run reports every failing file.
@@ -59,6 +66,7 @@ jobs:
 
   backend:
     name: Backend API
+    timeout-minutes: 15
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -100,6 +108,7 @@ jobs:
 
   scripts:
     name: Scraper Scripts
+    timeout-minutes: 10
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -136,6 +145,7 @@ jobs:
   # the scripts lean on BSD stat, `sysctl kern.boottime` and plutil.
   enricher:
     name: Enricher
+    timeout-minutes: 15
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
