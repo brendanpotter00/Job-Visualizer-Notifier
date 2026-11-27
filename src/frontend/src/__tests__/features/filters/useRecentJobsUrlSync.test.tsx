@@ -7,6 +7,7 @@ import { createTestStore } from '../../../test/testUtils';
 import { useRecentJobsUrlSync } from '../../../features/filters/useRecentJobsUrlSync';
 import {
   hydrateRecentJobsFilters,
+  setRecentJobsCompanyCategory,
   setRecentJobsTimeWindow,
 } from '../../../features/filters/slices/recentJobsFiltersSlice';
 
@@ -105,6 +106,24 @@ describe('useRecentJobsUrlSync — reading a shared link', () => {
     expect(filters.level).toBeUndefined();
   });
 
+  it('reads company_type and keeps it over a later saved-filters hydration', () => {
+    // The landing cards link here. The link wins for the visit, like any other
+    // owned param.
+    const store = mountWith('?company_type=big_tech&company_type=fintech');
+    expect(store.getState().recentJobsFilters.filters.companyCategory).toEqual([
+      'big_tech',
+      'fintech',
+    ]);
+
+    act(() => {
+      store.dispatch(hydrateRecentJobsFilters({ companyCategory: ['ai_labs'], level: ['senior'] }));
+    });
+
+    const filters = store.getState().recentJobsFilters.filters;
+    expect(filters.companyCategory).toEqual(['big_tech', 'fintech']);
+    expect(filters.level).toBeUndefined();
+  });
+
   it('does not read filter params off another page URL', () => {
     // `?time=…` on /companies is not a Recent-page shared link. Hydrating from
     // it would flip the one-shot `hydrated` guard and lock the reader out of
@@ -171,6 +190,18 @@ describe('useRecentJobsUrlSync — writing the address bar', () => {
     });
 
     expect(urlWrites()).toHaveLength(0);
+    expect(window.location.search).toBe('');
+  });
+
+  it('mirrors a company type change into the URL', () => {
+    const store = mountWith('');
+    act(() => {
+      store.dispatch(setRecentJobsCompanyCategory(['ai_labs', 'big_tech']));
+    });
+    expect(window.location.search).toBe('?company_type=ai_labs&company_type=big_tech');
+    act(() => {
+      store.dispatch(setRecentJobsCompanyCategory([]));
+    });
     expect(window.location.search).toBe('');
   });
 

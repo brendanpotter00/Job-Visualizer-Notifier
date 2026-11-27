@@ -98,6 +98,12 @@ export interface SearchJobsArgs {
    * visible rows much more noticeable. Nobody has decided whether to change it.
    */
   subcategory?: string[];
+  /**
+   * Company-category slugs (`company_category` on the wire). The server
+   * resolves them to member company ids and ANDs that with `companies`. Like
+   * `subcategory`, the recency counts ignore it.
+   */
+  companyCategory?: string[];
   /** Canonical location names; the server resolves them hierarchically. */
   locations?: string[];
   /** Keyword terms a job must match at least one of. */

@@ -80,7 +80,7 @@ export function tier3Auth(ctx: ToolCtx): WebMcpToolDef[] {
   const save_filter_defaults: WebMcpToolDef = {
     name: 'save_filter_defaults',
     description:
-      'Save the signed-in user’s default filters (PUT /api/users/saved-filters): time windows, locations, category/subcategory/level, active keyword-list pointers; returns the server echo. Requires sign-in.',
+      'Save the signed-in user’s default filters (PUT /api/users/saved-filters): time windows, locations, category/subcategory/level, company types (Recent page), active keyword-list pointers; returns the server echo. Omit companyCategory to keep the stored company types. Requires sign-in.',
     inputSchema: {
       type: 'object',
       additionalProperties: false,
@@ -91,6 +91,7 @@ export function tier3Auth(ctx: ToolCtx): WebMcpToolDef[] {
         category: { type: 'array', items: { type: 'string' } },
         subcategory: { type: 'array', items: { type: 'string' } },
         level: { type: 'array', items: { type: 'string' } },
+        companyCategory: { type: 'array', items: { type: 'string' } },
         recentActiveKeywordListId: { type: ['string', 'null'] },
         trendActiveKeywordListId: { type: ['string', 'null'] },
       },
@@ -112,6 +113,12 @@ export function tier3Auth(ctx: ToolCtx): WebMcpToolDef[] {
         // all.
         subcategory: asStringArray(rawArgs.subcategory) ?? [],
         level: asStringArray(rawArgs.level) ?? [],
+        // Sent ONLY when the caller passed it (`[]` clears). Omitted, the
+        // backend keeps the stored value, and an older backend, which 422s the
+        // key, still saves the rest.
+        ...('companyCategory' in rawArgs && {
+          companyCategory: asStringArray(rawArgs.companyCategory) ?? [],
+        }),
         recentActiveKeywordListId: asString(rawArgs.recentActiveKeywordListId) ?? null,
         trendActiveKeywordListId: asString(rawArgs.trendActiveKeywordListId) ?? null,
       };

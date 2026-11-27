@@ -91,6 +91,98 @@ class TestGetSavedFilters:
         assert resp.json()["trendTimeWindow"] == "90d"
 
 
+# --- companyCategory: absent = keep ------------------------------------------
+
+
+_BASE_PUT = {
+    "recentTimeWindow": "3h",
+    "trendTimeWindow": "7d",
+    "locations": [],
+    "category": [],
+    "level": [],
+}
+
+
+class TestCompanyCategorySavedFilter:
+    """``companyCategory`` is the one exception to full-replace: a PUT that
+    omits it KEEPS the stored value. Old SPA tabs and other writers that do not
+    know the field must never wipe it."""
+
+    def test_get_defaults_to_an_empty_list(self, sf_client):
+        """Always emitted: the SPA reads its presence as the capability signal."""
+        assert sf_client.get(PREFIX).json()["companyCategory"] == []
+        _create_user_row(sf_client)
+        assert sf_client.get(PREFIX).json()["companyCategory"] == []
+
+    def test_put_stores_and_dedupes(self, sf_client):
+        _create_user_row(sf_client)
+        resp = sf_client.put(
+            PREFIX,
+            json={**_BASE_PUT, "companyCategory": ["big_tech", "ai_labs", "big_tech"]},
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["companyCategory"] == ["big_tech", "ai_labs"]
+        assert sf_client.get(PREFIX).json()["companyCategory"] == ["big_tech", "ai_labs"]
+
+    def test_put_caps_at_fifty_values(self, sf_client):
+        _create_user_row(sf_client)
+        ok = [f"type_{i}" for i in range(50)]
+        assert sf_client.put(
+            PREFIX, json={**_BASE_PUT, "companyCategory": ok}
+        ).status_code == 200
+        too_many = [f"type_{i}" for i in range(51)]
+        resp = sf_client.put(PREFIX, json={**_BASE_PUT, "companyCategory": too_many})
+        assert resp.status_code == 422, resp.text
+
+    def test_a_put_that_OMITS_it_keeps_the_stored_value(self, sf_client):
+        _create_user_row(sf_client)
+        sf_client.put(PREFIX, json={**_BASE_PUT, "companyCategory": ["fintech"]})
+
+        # A writer that does not know the field (old SPA tab, default-search
+        # save, WebMCP). Its other fields still full-replace.
+        resp = sf_client.put(
+            PREFIX, json={**_BASE_PUT, "recentTimeWindow": "24h", "category": ["growth"]}
+        )
+
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["companyCategory"] == ["fintech"]
+        assert resp.json()["recentTimeWindow"] == "24h"
+        assert sf_client.get(PREFIX).json()["companyCategory"] == ["fintech"]
+
+    def test_null_also_keeps_the_stored_value(self, sf_client):
+        _create_user_row(sf_client)
+        sf_client.put(PREFIX, json={**_BASE_PUT, "companyCategory": ["fintech"]})
+        resp = sf_client.put(PREFIX, json={**_BASE_PUT, "companyCategory": None})
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["companyCategory"] == ["fintech"]
+
+    def test_omitted_on_a_first_save_reads_empty(self, sf_client):
+        _create_user_row(sf_client)
+        resp = sf_client.put(PREFIX, json=_BASE_PUT)
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["companyCategory"] == []
+
+    def test_an_empty_list_clears_it(self, sf_client):
+        _create_user_row(sf_client)
+        sf_client.put(PREFIX, json={**_BASE_PUT, "companyCategory": ["fintech"]})
+        resp = sf_client.put(PREFIX, json={**_BASE_PUT, "companyCategory": []})
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["companyCategory"] == []
+
+    def test_an_unknown_key_still_422s(self, sf_client):
+        _create_user_row(sf_client)
+        resp = sf_client.put(
+            PREFIX,
+            json={**_BASE_PUT, "companyCategory": [], "companyCategories": ["big_tech"]},
+        )
+        assert resp.status_code == 422, resp.text
+
+    def test_an_empty_slug_is_rejected(self, sf_client):
+        _create_user_row(sf_client)
+        resp = sf_client.put(PREFIX, json={**_BASE_PUT, "companyCategory": [""]})
+        assert resp.status_code == 422, resp.text
+
+
 # --- PUT scalar saved filters -------------------------------------------------
 
 

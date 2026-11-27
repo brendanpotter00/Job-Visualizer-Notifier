@@ -11,8 +11,8 @@ Card: `components/shared/JobCard/JobListingCard.tsx`.
 ## Sub-features
 
 - **Server-side filter** — the feed reads open jobs filtered by keyword include/exclude,
-  location, employment type, software-only, category, level, and time window. There is
-  **no company filter** on this page (removed 2026-11-12): the companies covered are the
+  location, employment type, software-only, category, level, company type, and time window.
+  There is **no company filter** on this page (removed 2026-11-12): the companies covered are the
   reader's company preferences.
 - **Filter controls** — the on-page `RecentJobsFilters` dispatch the `recentJobsFilters`
   slice; WebMCP's `apply_feed_filters` / `reset_feed_filters` drive the exact same slice.
@@ -26,8 +26,8 @@ Card: `components/shared/JobCard/JobListingCard.tsx`.
 - **Infinite list** — virtualized when signed in; hard-capped at ~12 with a `SignInOverlay`
   when signed out; keyset-paged as the user scrolls.
 - **Open a posting** — each card's "Apply" opens the ATS URL in a new tab.
-- **Filter catalog + location autocomplete** — the category/level dropdowns come from
-  `list_filter_options`; the location filter from `search_locations`; `search_jobs`'
+- **Filter catalog + location autocomplete** — the category/level/company-type dropdowns come
+  from `list_filter_options`; the location filter from `search_locations`; `search_jobs`'
   company resolution from `list_companies`.
 
 ## How to get to it (user POV)
@@ -62,7 +62,7 @@ in the DOM.
   link. Assert the **per-card invariant** — an include keyword also matches the company
   column, so after `include: ['apple']` Apple cards are shown and a company that was visible
   unfiltered (e.g. `SpaceX`) is gone.
-- **Discovery tools** feed the filters: `list_filter_options` → `{ categories, levels }`;
+- **Discovery tools** feed the filters: `list_filter_options` → `{ categories, levels, companyCategories }`;
   `search_locations` → `{ locations: [{ canonicalName, … }] }`; `list_companies` (optional
   `query`) → the curated directory for name→id resolution.
 - **Open a posting (Tier-2, intent only):**

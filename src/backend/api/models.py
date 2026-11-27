@@ -742,6 +742,10 @@ class SavedFiltersResponse(BaseModel):
     # SINGULAR on a saved FILTER; the plural `subcategories` is the JOB-side
     # field. `[]` here means "no filter selected, show everything".
     subcategory: list[str]
+    # Company-category slugs, Recent page only. ALWAYS emitted, even as `[]`:
+    # the SPA reads its presence as "this backend knows the field" and only
+    # then sends it on writes (an older backend 422s unknown keys).
+    company_category: list[str] = Field(default_factory=list)
     recent_active_keyword_list_id: str | None = None
     trend_active_keyword_list_id: str | None = None
 
@@ -758,7 +762,12 @@ class SavedFiltersUpdateRequest(BaseModel):
     ``subcategory`` clears it to ``[]`` like any other field, while a PUT
     carrying an unknown key is a 422 for the WHOLE object. That is why this field
     has to exist server-side before the SPA starts sending it — Railway first,
-    Vercel second. The active-list
+    Vercel second.
+
+    ONE EXCEPTION: ``company_category``. Omitted (or ``null``) means KEEP the
+    stored value; ``[]`` clears it. Old SPA tabs, the default-search save before
+    it learns the field, and WebMCP calls all send PUTs without it, and none of
+    them may wipe it. The active-list
     pointers are bounded at 64 chars to match the uuid4-hex id shape and the
     ``'builtin-swe'`` sentinel; service-layer ownership validation decides
     whether a non-null pointer is accepted (409 otherwise).
@@ -795,6 +804,17 @@ class SavedFiltersUpdateRequest(BaseModel):
             str, StringConstraints(min_length=1, max_length=_MAX_FACET_SLUG_LEN)
         ]
     ] = Field(default_factory=list, max_length=_MAX_FACET_VALUES)
+    # Absent / null = keep the stored value (see the class docstring). Same
+    # bounds as `category`: what a user may STORE (50), not what one search may
+    # QUERY (20).
+    company_category: (
+        list[
+            Annotated[
+                str, StringConstraints(min_length=1, max_length=_MAX_FACET_SLUG_LEN)
+            ]
+        ]
+        | None
+    ) = Field(default=None, max_length=_MAX_FACET_VALUES)
     recent_active_keyword_list_id: str | None = Field(default=None, max_length=64)
     trend_active_keyword_list_id: str | None = Field(default=None, max_length=64)
 
@@ -808,6 +828,11 @@ class SavedFiltersUpdateRequest(BaseModel):
     def _dedup_facet_field(cls, value: list[str]) -> list[str]:
         return _dedup_strings(value)
 
+    @field_validator("company_category")
+    @classmethod
+    def _dedup_optional_facet_field(cls, value: list[str] | None) -> list[str] | None:
+        return None if value is None else _dedup_strings(value)
+
 
 # One enrichment facet slug, bounded exactly like the saved-filters fields above.
 _FacetSlug = Annotated[
@@ -816,8 +841,9 @@ _FacetSlug = Annotated[
 _LocationName = Annotated[
     str, StringConstraints(min_length=1, max_length=_MAX_LOCATION_LEN)
 ]
-# The first-sign-in flow asks three questions (roles, levels, places).
-_ONBOARDING_STEPS = 3
+# The first-sign-in flow asks four questions (roles, levels, places, company
+# types).
+_ONBOARDING_STEPS = 4
 
 
 class OnboardingRequest(BaseModel):
@@ -832,7 +858,11 @@ class OnboardingRequest(BaseModel):
     ``software_engineering`` is among ``category`` (the service drops it
     otherwise).
 
-    ``step`` is the question on screen when the flow ended (1-3), sent for the
+    ``company_category`` follows the saved-filters PUT's exception: omitted (or
+    ``null``) keeps the stored value, so an SPA built before step 4 still
+    saves. An older SPA also never sends ``step`` 4.
+
+    ``step`` is the question on screen when the flow ended (1-4), sent for the
     ``onboarding_skipped`` analytics event; it is not stored.
     """
 
@@ -851,6 +881,9 @@ class OnboardingRequest(BaseModel):
     locations: list[_LocationName] = Field(
         default_factory=list, max_length=_MAX_LOCATIONS
     )
+    company_category: list[_FacetSlug] | None = Field(
+        default=None, max_length=_MAX_FACET_VALUES
+    )
     step: int | None = Field(default=None, ge=1, le=_ONBOARDING_STEPS)
     session_id: SessionId | None = None
 
@@ -858,6 +891,11 @@ class OnboardingRequest(BaseModel):
     @classmethod
     def _dedup_lists(cls, value: list[str]) -> list[str]:
         return _dedup_strings(value)
+
+    @field_validator("company_category")
+    @classmethod
+    def _dedup_optional_list(cls, value: list[str] | None) -> list[str] | None:
+        return None if value is None else _dedup_strings(value)
 
 
 class OnboardingResponse(BaseModel):
@@ -1250,6 +1288,13 @@ class JobFacetsResponse(BaseModel):
     # frontend mirrors this: it normalizes a missing key to `[]` rather than
     # treating it as a malformed response.
     subcategories: list[FacetOption] = Field(default_factory=list)
+    # Company categories ("Big Tech", ...) for the Recent page's "Company
+    # type" filter, in display order, ``parentSlug`` always null. Seeded on
+    # boot from ``data/company_categories.json``, not part of ``taxonomy.json``
+    # (the enricher has no use for it). Wire key ``companyCategories``. The
+    # frontend falls back to its bundled copy of the same file when the key is
+    # missing or empty (old backend, stale edge cache, empty seed).
+    company_categories: list[FacetOption] = Field(default_factory=list)
 
 
 class JobSearchMeta(BaseModel):

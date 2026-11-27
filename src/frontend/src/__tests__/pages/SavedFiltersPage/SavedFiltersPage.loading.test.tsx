@@ -88,6 +88,7 @@ describe('SavedFiltersPage — first-load skeletons', () => {
     expect(sections.map((s) => s.textContent)).toEqual([
       'Default time windows',
       'Default job category & level',
+      'Default company types',
       'Default locations',
       'Keyword lists',
       'Saved companies',
@@ -97,12 +98,12 @@ describe('SavedFiltersPage — first-load skeletons', () => {
     expect(screen.queryByTestId('enabled-companies-stub')).not.toBeInTheDocument();
   });
 
-  it('holds the three prefs sections and the keyword lists while both requests load', () => {
+  it('holds the four prefs sections and the keyword lists while both requests load', () => {
     renderWithProviders(<SavedFiltersPage />);
 
     expect(screen.getByRole('heading', { name: 'Saved Filters', level: 1 })).toBeInTheDocument();
     const prefs = screen.getByRole('status', { name: 'Loading your saved filters…' });
-    expect(within(prefs).getAllByTestId('saved-filters-section-skeleton')).toHaveLength(3);
+    expect(within(prefs).getAllByTestId('saved-filters-section-skeleton')).toHaveLength(4);
     const lists = screen.getByRole('status', { name: 'Loading keyword lists…' });
     expect(within(lists).getByText('Keyword lists')).toBeInTheDocument();
     expect(screen.getByTestId('enabled-companies-stub')).toBeInTheDocument();

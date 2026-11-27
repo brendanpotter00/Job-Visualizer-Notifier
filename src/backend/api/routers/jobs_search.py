@@ -46,6 +46,7 @@ from ..pagination import (
     encode_search_cursor,
     parse_utc_timestamp,
 )
+from ..services.company_categories import resolve_company_category_members
 from ..services.custom_companies_service import list_owned_source_ids
 from ..services.job_search import (
     LocationDescriptor,
@@ -176,6 +177,8 @@ _LEVEL_RE = re.compile(r"\A[a-z_]{1,20}\Z")
 # a 422. The longest live slug is ``infrastructure_platform`` (23), so 40 leaves
 # room without letting anything unbounded through.
 _SUBCATEGORY_RE = re.compile(r"\A[a-z_]{1,40}\Z")
+# Company-category slugs (``company_categories.slug``), same rule and reason.
+_COMPANY_CATEGORY_RE = re.compile(r"\A[a-z_]{1,40}\Z")
 
 # Control characters have no business in a filter value and would corrupt the
 # fingerprint's NUL-separated canonical form if one ever slipped through.
@@ -452,6 +455,16 @@ def search(
         default=None,
         description="Repeatable company id. Multiple values OR together. Omit for all.",
     ),
+    company_category: list[str] | None = Query(
+        default=None,
+        description=(
+            "Repeatable company category slug (e.g. 'big_tech'), as listed in "
+            "facets' companyCategories. Multiple values OR together and AND with "
+            "every other dimension, 'company' included. An unknown slug matches "
+            "nothing. Private custom boards are in no category, so an active "
+            "filter hides them."
+        ),
+    ),
     location: list[str] | None = Query(
         default=None,
         description=(
@@ -566,6 +579,11 @@ def search(
         subcategory, pattern=_SUBCATEGORY_RE, field="subcategory"
     )
     companies = _validate_companies(company)
+    # Like ``category``: a well-formed but unknown slug is not an error, it
+    # just resolves to no company and matches nothing.
+    company_categories = _validate_slugs(
+        company_category, pattern=_COMPANY_CATEGORY_RE, field="company_category"
+    )
     locations = _validate_text_list(
         location,
         field="location",
@@ -633,6 +651,15 @@ def search(
         # is the common case on this endpoint.
         owned_source_ids = _resolve_owned_source_ids(conn, user)
 
+        # Company type -> member company ids, resolved here so the SQL is the
+        # same ``company = ANY(...)`` shape as the ``company`` filter. ``None``
+        # when inactive; ``[]`` when active but nothing matched (match nothing).
+        company_category_ids = (
+            resolve_company_category_members(conn, company_categories)
+            if company_categories
+            else None
+        )
+
         # Fingerprint the EFFECTIVE filter set (post-validation, post-dedupe) so two
         # requests that mean the same thing hash the same way. ``since`` uses the
         # normalized UTC form rather than the raw string, so an equivalent offset
@@ -694,6 +721,13 @@ def search(
         # from the old position under the new filter.
         if subcategories:
             fingerprint_inputs["subcategory"] = subcategories
+        # Same ONLY-WHEN-ACTIVE rule, for the same deploy-day reason. Both the
+        # slugs and the ids they resolved to: a membership change mid-walk
+        # (a reseed on deploy) moves the ids, which turns into a 409 restart
+        # instead of a walk over two different company sets.
+        if company_categories:
+            fingerprint_inputs["company_category"] = company_categories
+            fingerprint_inputs["company_category_ids"] = company_category_ids or []
         fingerprint = compute_filter_fingerprint(fingerprint_inputs)
 
         parsed_cursor: JobCursor | None = None
@@ -723,6 +757,7 @@ def search(
             "subcategories": subcategories,
             "levels": levels,
             "companies": companies,
+            "company_category_ids": company_category_ids,
             "locations": locations,
             "location_ids": other_location_ids,
             "location_country_paths": country_paths,
@@ -786,10 +821,12 @@ def search(
         elapsed_ms = (time.monotonic() - started) * 1000
         if elapsed_ms >= _SLOW_SEARCH_MS:
             logger.warning(
-                "jobs-search slow: %.0fms page=%s keywords=%d companies=%d locations=%d",
+                "jobs-search slow: %.0fms page=%s keywords=%d companies=%d"
+                " locations=%d company_types=%d",
                 elapsed_ms,
                 "1" if cursor is None else "n",
                 len(include_terms or []) + len(exclude_terms or []),
                 len(companies or []),
                 len(locations or []),
+                len(company_categories or []),
             )

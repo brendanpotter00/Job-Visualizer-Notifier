@@ -69,7 +69,7 @@ clean before committing (mirrors the frontend's "Zero TypeScript Errors Required
 ## Prerequisites
 
 - PostgreSQL running on localhost:5432 (use `docker compose up -d postgres` from project root)
-- Database: `jobscraper` (created on first lifespan/migration run). Key tables include `job_listings`, `scrape_runs`, `users`, `user_enabled_companies`, `user_saved_filters`, `user_keyword_lists`, `admins`, `features`, `feature_upvotes`, `companies`, `locations`, `job_locations`, `job_enrichment`, `job_categories`, `job_levels`, `job_subcategories`, `app_settings`, `feedback`, `worker_heartbeats`, and others — see `src/backend/docs/database-schema.md` for the full schema.
+- Database: `jobscraper` (created on first lifespan/migration run). Key tables include `job_listings`, `scrape_runs`, `users`, `user_enabled_companies`, `user_saved_filters`, `user_keyword_lists`, `admins`, `features`, `feature_upvotes`, `companies`, `locations`, `job_locations`, `job_enrichment`, `job_categories`, `job_levels`, `job_subcategories`, `company_categories`, `company_category_members`, `app_settings`, `feedback`, `worker_heartbeats`, and others — see `src/backend/docs/database-schema.md` for the full schema.
 - Python 3.13+ with dependencies from `src/backend/api/requirements.txt`
 
 ## Configuration
@@ -184,12 +184,12 @@ All configuration via environment variables:
 - `GET /api/users` - Get or create authenticated user's profile (requires Bearer token)
 - `PUT /api/users` - Update display name (requires Bearer token)
 - `POST /api/users/visit` - Record one full-page-load visit (204; upserts the row then increments `visit_count` + stamps `last_visit_at`; requires Bearer token). Optional body `{"sessionId"}` (the PostHog session) is stored on the `user_visits` row; the visit is mirrored to PostHog as `user_visited` (best-effort)
-- `POST /api/users/onboarding` - Save the first-sign-in answers and stamp `users.onboarding_completed_at` (body `category`, `subcategory`, `level`, `locations`, `skipped`, optional `step` 1-3 and `sessionId`; `extra='forbid'`, lists bounded like the saved-filters PUT). One transaction: `UPDATE users … WHERE onboarding_completed_at IS NULL` plus an UPSERT of those four `user_saved_filters` columns; a NEW row gets Recent `'all'` / Trend `'90d'` explicitly (the column defaults are `'3h'`/`'7d'`). `subcategory` is stored only when `software_engineering` is among `category`. **Idempotent**: once stamped, a second call writes nothing and returns the stored stamp + saved filters. Skip keeps the answers given. Returns `{onboardingCompletedAt, savedFilters}`. Mirrors PostHog `onboarding_completed` / `onboarding_skipped` (with answer counts; `step` on skip) only from the call that set the stamp. `GET`/`PUT /api/users` return `onboardingCompletedAt` (`null` = show the questions)
+- `POST /api/users/onboarding` - Save the first-sign-in answers and stamp `users.onboarding_completed_at` (body `category`, `subcategory`, `level`, `locations`, optional `companyCategory` (step 4), `skipped`, optional `step` 1-4 and `sessionId`; `extra='forbid'`, lists bounded like the saved-filters PUT). One transaction: `UPDATE users … WHERE onboarding_completed_at IS NULL` plus an UPSERT of those five `user_saved_filters` columns; an omitted `companyCategory` keeps the stored value (same exception as the saved-filters PUT); a NEW row gets Recent `'all'` / Trend `'90d'` explicitly (the column defaults are `'3h'`/`'7d'`). `subcategory` is stored only when `software_engineering` is among `category`. **Idempotent**: once stamped, a second call writes nothing and returns the stored stamp + saved filters. Skip keeps the answers given. Returns `{onboardingCompletedAt, savedFilters}`. Mirrors PostHog `onboarding_completed` / `onboarding_skipped` (with answer counts, `company_category_count` included; `step` on skip) only from the call that set the stamp. `GET`/`PUT /api/users` return `onboardingCompletedAt` (`null` = show the questions)
 - `POST /api/users/apply-click` - Log one Apply press by a signed-in user (204; body `sourceId`, `jobId`, `surface`, optional `sessionId`; `extra='forbid'`). Writes `job_apply_clicks` with `job_age_seconds` computed server-side from `job_listings.first_seen_at`, then mirrors PostHog `job_apply_clicked` (best-effort). Feeds `metrics.apply_clicks_weekly` and the PostHog "North Star" dashboard
 - `GET /api/users/enabled-companies` - List user's enabled companies (requires Bearer token)
 - `PUT /api/users/enabled-companies` - Update user's enabled companies (requires Bearer token)
 
-**Saved Filters Router (`/api/users/saved-filters`):** all routes require a Bearer token. The scalar body carries `category`, `level` and `subcategory` — SINGULAR on a saved FILTER, where the plural `subcategories` is the JOB-side field, and the two must not be mixed. ⚠ **The `[]` collision:** `user_saved_filters.subcategory = []` means "no filter selected, show EVERYTHING", while `job_listings.enrichment_subcategories = '{}'` means "evaluated, and no specialty applies" and is TERMINAL. Same literal, opposite meanings, and the same Redux field name flows through both. The PUT is FULL-REPLACE against an `extra='forbid'` model: omitting `subcategory` clears it, and an unknown key 422s the whole object — which is why the column must exist server-side BEFORE the SPA sends the field (Railway first, Vercel second).
+**Saved Filters Router (`/api/users/saved-filters`):** all routes require a Bearer token. The scalar body carries `category`, `level` and `subcategory` — SINGULAR on a saved FILTER, where the plural `subcategories` is the JOB-side field, and the two must not be mixed. ⚠ **The `[]` collision:** `user_saved_filters.subcategory = []` means "no filter selected, show EVERYTHING", while `job_listings.enrichment_subcategories = '{}'` means "evaluated, and no specialty applies" and is TERMINAL. Same literal, opposite meanings, and the same Redux field name flows through both. The PUT is FULL-REPLACE against an `extra='forbid'` model: omitting `subcategory` clears it, and an unknown key 422s the whole object — which is why the column must exist server-side BEFORE the SPA sends the field (Railway first, Vercel second). **One exception: `companyCategory`** (company-category slugs, Recent page only). Omitted or `null` KEEPS the stored value; `[]` clears it. Old SPA tabs, the default-search save and WebMCP calls send PUTs without it and must not wipe it. The GET always emits it (`[]` by default), and the SPA reads its presence as "this backend knows the field" before sending it, so a new SPA against an old backend never 422s.
 - `GET /api/users/saved-filters` - Scalar saved filters (per-page time windows, shared locations, active keyword-list pointers); never 404s — returns server defaults (`recent=all`, `trend=90d`, no locations) when the user has no row
 - `PUT /api/users/saved-filters` - Full-replace (upsert) the scalar saved filters; 409 if an active keyword-list pointer is unknown or not owned
 - `GET /api/users/saved-filters/keyword-lists` - List the user's named keyword lists by position, with the read-only built-in "Software Engineering" list (`builtin-swe`) synthesized last
@@ -198,7 +198,7 @@ All configuration via environment variables:
 - `DELETE /api/users/saved-filters/keyword-lists/{list_id}` - Delete a list (204; NULLs any active pointer referencing it); 404 if not owned, 422 on the built-in id
 - `GET /api/users/saved-filters/locations/search` - Substring autocomplete over canonical location names (params: `q`, `limit`, `openOnly`)
 
-**Jobs facets:** `GET /api/jobs/facets` - enrichment dropdown catalog with THREE dimensions (categories + levels + subcategories, each carrying labels/order/parent) from the seeded tables. All three row shapes match because the categories query selects `NULL AS parent_slug`, so `FacetOption` needs no per-dimension variant. Since SCHEMA-7 the `subcategories` array carries the seventeen seeded rows; the client still normalizes a MISSING key to `[]`, so an older backend renders exactly today's flat dropdown.
+**Jobs facets:** `GET /api/jobs/facets` - enrichment dropdown catalog with THREE dimensions (categories + levels + subcategories, each carrying labels/order/parent) from the seeded tables. All three row shapes match because the categories query selects `NULL AS parent_slug`, so `FacetOption` needs no per-dimension variant. Since SCHEMA-7 the `subcategories` array carries the seventeen seeded rows; the client still normalizes a MISSING key to `[]`, so an older backend renders exactly today's flat dropdown. A fourth key, **`companyCategories`**, carries the company types (Big Tech, YC Alumni, ...) in display order with `parentSlug: null`. It comes from `company_categories` (seeded on boot from `api/data/company_categories.json`, not part of `taxonomy.json`), and a missing table or failed read gives `[]`, not a 500. The SPA falls back to its bundled copy of the same JSON when the key is missing or empty.
 
 ⚠ **`parentSlug` carries TWO different meanings and they must never be confused.** On `levels` it is a FILTER-EXPANSION edge (`new_grad` sits under `entry`, so selecting Entry also matches New Grad) — that is what the client's level-expansion builder consumes. On `subcategories` it is a GROUPING edge only (`software_engineering` on every row), naming which parent the option renders under. Feeding the subcategory edges into the level-expansion builder would turn one category selection into seventeen, silently, with a 200. The subcategory FILTER expansion is a separate, static map (`enrichment_writer.SUBCATEGORY_FILTER_EXPANSION`) precisely because `full_stack` has two expansion parents that one self-FK column cannot express.
 
@@ -263,6 +263,20 @@ filter set in SQL and pages the *result*. Router `routers/jobs_search.py`, SQL
     canonical form byte-identical to the pre-subcategory build, so every cursor
     minted before the deploy stays valid. A key that were always present — even as
     `[]` — would 409 every in-flight walk once, on deploy day, for every reader.
+- **`?company_category=`** (the Recent page's "Company type"): repeatable slug from
+  facets' `companyCategories`, OR within the dimension, AND with every other one
+  (`company` included). The router resolves the slugs to member company ids
+  (`services/company_categories.resolve_company_category_members`), then filters
+  `job_listings.company = ANY(...)`. Rules:
+  - `\A[a-z_]{1,40}\Z` (422 otherwise), 20-value cap (400), deduped.
+  - An unknown slug, or a category with no members, matches NOTHING. The SQL
+    guard is `is not None`, never truthiness: `[]` is an active filter.
+  - Joins the cursor fingerprint only when present, as both the slugs and the
+    resolved ids. A membership change mid-walk (a reseed on deploy) is a 409.
+  - The recency tiles ignore it. Private custom boards are in no category, so an
+    active filter hides them.
+  - No new index: prod EXPLAIN is the keyset `Index Scan Backward` with company
+    as a `Filter`, no Sort.
 - **SOLE-EXPANDER SPLIT.** The `full_stack` widening runs in exactly one place per
   path. For `/api/jobs/search` that place is `services/job_search.py::expand_subcategories`
   and **the client sends its selection UNEXPANDED**. For the client-side path — the
@@ -464,6 +478,7 @@ src/backend/api/
 │   ├── feedback_service.py  # User feedback submission persistence
 │   ├── companies_service.py # Curated-companies directory queries
 │   ├── companies_seed.py    # Seed/reconcile the companies table from static config
+│   ├── company_categories.py # Seed company_categories + members from data/company_categories.json on boot; facets + search-filter reads
 │   ├── enrichment_monitor.py    # Admin enrichment triage queries (needs-human queue, ticks, recent)
 │   ├── enrichment_writer.py     # Write-back path for enrichment results and corrections
 │   ├── app_settings.py      # Allowlisted runtime settings (key/value, JSONB) + the public flag read
@@ -578,6 +593,7 @@ Schema is managed by **Alembic** (not the old `scripts/shared/migrations/` runne
 For a human-readable overview of every table — an ER diagram plus per-column notes and conventions — see **`src/backend/docs/database-schema.md`** (point-in-time snapshot of `db_models.py`; refresh it when the schema changes).
 
 - FastAPI's lifespan hook runs `apply_alembic_migrations(settings.database_url)` from `src/backend/api/migrations.py` on every startup. Dev and prod use the same code path. `SCRAPER_ENVIRONMENT` is not read anywhere.
+- After migrations and the pool, the lifespan runs three soft-fail seeds, in order: `features_seed.seed_starter_features`, `companies_seed.seed_company_profiles` (`data/company_profiles.json`), then `company_categories.seed_company_categories` (`data/company_categories.json`, idempotent: upsert categories and members, delete what the file dropped). A failed seed is logged and boot continues on the last-good rows. After a deploy that changes the categories file, `SELECT count(*) FROM company_category_members` should equal the file's membership count (472 at launch).
 - Tables are bare across all envs (`job_listings`, `scrape_runs`, `users`, `user_enabled_companies`). The Alembic tracker is the default `alembic_version`; `src/backend/alembic/env.py` does NOT pass `version_table=`.
 - To add a schema change: edit `db_models.py`, then `alembic revision --autogenerate`, then review the generated file per the combined-ALTER-TABLE rule in `docs/implementations/alembicMigration/DEPLOY.md`. Never hand-write a revision file — always autogenerate.
 - Tests bootstrap the schema via `Base.metadata.create_all` + `apply_alembic_migrations(db_url)` inside a per-worker Postgres schema (`PYTEST_SCHEMA=test_<hex>` + `SET search_path`). See `src/backend/api/tests/conftest.py::db_conn` and `scripts/tests/conftest.py::postgres_db`. Teardown is `DROP SCHEMA … CASCADE`; no per-table cleanup.

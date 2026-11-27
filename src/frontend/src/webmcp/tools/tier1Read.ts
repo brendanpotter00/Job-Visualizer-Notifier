@@ -1,5 +1,6 @@
 import type { BackendJobListing } from '../../api/types';
 import { jobsApi, STALE_CURSOR_STATUS } from '../../features/jobs/jobsApi';
+import { companyCategoryOptions } from '../../config/companyCategories';
 import {
   buildSearchJobsArgs,
   buildSearchJobsQuery,
@@ -75,7 +76,7 @@ export function tier1Read(ctx: ToolCtx): WebMcpToolDef[] {
   const search_jobs: WebMcpToolDef = {
     name: 'search_jobs',
     description:
-      'Search open job postings across tracked companies via server-side filtering (GET /api/jobs/search); every filter (category, level, company, location, keyword include/exclude, time window) is applied by the server. Returns serialized job summaries plus meta { filteredTotal, last24h, last3h, returned, nextCursor, hasMore }. Page with the opaque nextCursor: the time window is FROZEN at the first call and echoed inside the cursor, so timeWindow on a follow-up (cursor) call is ignored; change any filter to start a fresh walk.',
+      'Search open job postings across tracked companies via server-side filtering (GET /api/jobs/search); every filter (category, level, company type, company, location, keyword include/exclude, time window) is applied by the server. Returns serialized job summaries plus meta { filteredTotal, last24h, last3h, returned, nextCursor, hasMore }. Page with the opaque nextCursor: the time window is FROZEN at the first call and echoed inside the cursor, so timeWindow on a follow-up (cursor) call is ignored; change any filter to start a fresh walk.',
     inputSchema: {
       type: 'object',
       additionalProperties: false,
@@ -100,6 +101,12 @@ export function tier1Read(ctx: ToolCtx): WebMcpToolDef[] {
           type: 'array',
           items: { type: 'string' },
           description: "Enrichment level slugs; 'entry' also matches new_grad.",
+        },
+        companyCategory: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            'Company-type slugs from list_filter_options companyCategories (OR), e.g. big_tech. ANDs with company.',
         },
         company: {
           type: 'array',
@@ -210,13 +217,18 @@ export function tier1Read(ctx: ToolCtx): WebMcpToolDef[] {
   const list_filter_options: WebMcpToolDef = {
     name: 'list_filter_options',
     description:
-      'List the enrichment filter catalog (categories and levels) from GET /api/jobs/facets; returns { categories, levels } with slug/label/sortOrder each.',
+      'List the filter catalog from GET /api/jobs/facets: job categories, levels and company types; returns { categories, levels, companyCategories } with slug/label/sortOrder each.',
     inputSchema: { type: 'object', additionalProperties: false, properties: {} },
     annotations: { readOnlyHint: true },
     execute: async () => {
       try {
         const facets = await runQuery(ctx.store.dispatch(jobsApi.endpoints.getFacets.initiate()));
-        return ok({ categories: facets.categories, levels: facets.levels });
+        return ok({
+          categories: facets.categories,
+          levels: facets.levels,
+          // The bundled list when the backend has none (same fallback as the UI).
+          companyCategories: companyCategoryOptions(facets),
+        });
       } catch (e) {
         return err(
           `list_filter_options failed: ${e instanceof Error ? e.message : 'unknown error'}`

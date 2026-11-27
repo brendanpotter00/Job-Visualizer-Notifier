@@ -375,6 +375,11 @@ def _clear_tables(conn) -> None:
         # in this same statement, so the FK from it is not an ordering problem.
         sql.Identifier("job_categories"),
         sql.Identifier("job_levels"),
+        # Seeded from data/company_categories.json by the lifespan, never by
+        # create_all, so tests seed them explicitly. Truncated for the same
+        # order-leak reason as the facet dimensions above.
+        sql.Identifier("company_category_members"),
+        sql.Identifier("company_categories"),
     )
     cursor.execute(
         sql.SQL("TRUNCATE {} CASCADE").format(sql.SQL(", ").join(tables))

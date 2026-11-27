@@ -24,7 +24,11 @@ export const QUESTION_TITLES = [
   'What roles are you looking for?',
   'Which levels fit you?',
   'Where do you want to work?',
+  'What kinds of companies do you want?',
 ] as const;
+
+/** How many questions the flow asks. */
+export const STEP_COUNT = QUESTION_TITLES.length;
 
 /** PLAN.md §6: desktop 1280x800, phone 390x844. */
 export const DESKTOP = { width: 1280, height: 800 };
@@ -58,6 +62,7 @@ export interface DbState {
     subcategory: string[];
     level: string[];
     locations: string[];
+    companyCategory: string[] | null;
     recentActiveKeywordListId: string | null;
     trendActiveKeywordListId: string | null;
   } | null;
@@ -164,12 +169,12 @@ export function questions(page: Page): Locator {
 }
 
 /** The dialog is open on question `step` (0-based). */
-export async function expectQuestion(page: Page, step: 0 | 1 | 2): Promise<Locator> {
+export async function expectQuestion(page: Page, step: 0 | 1 | 2 | 3): Promise<Locator> {
   const dialog = questions(page);
   await expect(dialog, `the first-sign-in questions should be open on question ${step + 1}`).toBeVisible();
   await expect(dialog).toHaveAccessibleName(QUESTION_TITLES[step]);
   await expect(dialog.getByRole('heading', { level: 1 })).toHaveText(QUESTION_TITLES[step]);
-  await expect(dialog.getByText(`${step + 1}/3`, { exact: true })).toBeVisible();
+  await expect(dialog.getByText(`${step + 1}/${STEP_COUNT}`, { exact: true })).toBeVisible();
   return dialog;
 }
 
@@ -231,9 +236,10 @@ export const HEADLINE_LABELS = {
   specialty: 'Backend',
   level: 'Entry',
   place: 'San Francisco, CA',
+  companyType: 'Big Tech',
 } as const;
 
-/** Drive questions 1-3 with the headline answers, ending on "Show my jobs". */
+/** Drive questions 1-4 with the headline answers, ending on "Show my jobs". */
 export async function answerHeadline(page: Page, caseId: string): Promise<void> {
   let dialog = await expectQuestion(page, 0);
   await roleBox(dialog, HEADLINE_LABELS.role).check();
@@ -249,6 +255,11 @@ export async function answerHeadline(page: Page, caseId: string): Promise<void> 
   dialog = await expectQuestion(page, 2);
   await chip(dialog, HEADLINE_LABELS.place).check();
   await shot(page, caseId, '03-places');
+  await button(dialog, 'Continue').click();
+
+  dialog = await expectQuestion(page, 3);
+  await chip(dialog, HEADLINE_LABELS.companyType).check();
+  await shot(page, caseId, '04-companies');
 }
 
 // --- The Recent list ---------------------------------------------------------
@@ -280,8 +291,11 @@ export async function expectJobs(page: Page, keys: string[], what: string): Prom
   expect(titles, `${what}: the rendered job titles`).toEqual(expected);
 }
 
-/** The Recent page's three filter fields, as a reader sees them. */
-export function filterField(page: Page, label: 'Job Category' | 'Level' | 'Location'): Locator {
+/** The Recent page's filter fields, as a reader sees them. */
+export function filterField(
+  page: Page,
+  label: 'Job Category' | 'Level' | 'Company type' | 'Location',
+): Locator {
   return page.getByRole('combobox', { name: label });
 }
 
@@ -289,7 +303,7 @@ export function filterField(page: Page, label: 'Job Category' | 'Level' | 'Locat
  * A facet field's chips (one per picked value; the field reads "All", with no
  * chips, when nothing is picked).
  */
-export function filterChips(page: Page, label: 'Job Category' | 'Level'): Locator {
+export function filterChips(page: Page, label: 'Job Category' | 'Level' | 'Company type'): Locator {
   return filterField(page, label).locator('.MuiChip-root');
 }
 
@@ -298,7 +312,11 @@ export function filterChips(page: Page, label: 'Job Category' | 'Level'): Locato
  * left edge, in its padding. Not at its centre: picked values are chips, and
  * a click that lands on a chip's delete icon removes that value instead.
  */
-export async function openFilterMenu(page: Page, label: 'Job Category' | 'Level', how: 'click' | 'tap' = 'click'): Promise<Locator> {
+export async function openFilterMenu(
+  page: Page,
+  label: 'Job Category' | 'Level' | 'Company type',
+  how: 'click' | 'tap' = 'click',
+): Promise<Locator> {
   const field = filterField(page, label);
   if (how === 'tap') await field.tap({ position: { x: 4, y: 4 } });
   else await field.click({ position: { x: 4, y: 4 } });

@@ -1,3 +1,4 @@
+import type { PayloadAction } from '@reduxjs/toolkit';
 import { createFilterSlice } from './createFilterSlice';
 import type { RecentJobsFilters } from '../../../types';
 
@@ -31,13 +32,23 @@ export const recentJobsInitialFilters: RecentJobsFilters = {
   // active while visibly clearing everything else — and it typechecks, and every
   // existing test passes.
   subcategory: undefined,
+  // NOT COSMETICS either, for the same reason: without this key Reset leaves a
+  // company type selected.
+  companyCategory: undefined,
 };
 
 /**
- * Recent Jobs filter slice created via factory pattern
- * Generates 19 action creators automatically
+ * Recent Jobs filter slice created via factory pattern.
+ * Generates 19 action creators automatically, plus the Recent-only
+ * `setRecentJobsCompanyCategory` (the trend page is one company, so the graph
+ * slice has no company type).
  */
-const recentJobsFiltersSlice = createFilterSlice('recentJobs', recentJobsInitialFilters);
+const recentJobsFiltersSlice = createFilterSlice('recentJobs', recentJobsInitialFilters, {
+  // `[]` normalizes to `undefined` (the "All" state), like the facet setters.
+  setRecentJobsCompanyCategory: (state, action: PayloadAction<string[] | undefined>) => {
+    state.filters.companyCategory = action.payload?.length ? action.payload : undefined;
+  },
+});
 
 /**
  * Export the generated actions.
@@ -70,6 +81,7 @@ export const {
   setRecentJobsCategory,
   setRecentJobsLevel,
   setRecentJobsSubcategory,
+  setRecentJobsCompanyCategory,
   toggleRecentJobsSoftwareOnly,
   setRecentJobsSoftwareOnly,
   hydrateRecentJobsFilters,

@@ -23,6 +23,11 @@ export interface OnboardingAnswers {
   level: string[];
   /** Canonical location names (or the `United States` whole-country option). */
   locations: string[];
+  /**
+   * Company-type slugs (question 4). OPTIONAL: left out for an older backend,
+   * which 422s an unknown key. Omitted, the server keeps the stored value.
+   */
+  companyCategory?: string[];
 }
 
 /** Body of `POST /api/users/onboarding`. */
@@ -30,11 +35,13 @@ export interface CompleteOnboardingArgs extends OnboardingAnswers {
   /** True for Skip (and any close of the questions). Skip keeps the answers. */
   skipped: boolean;
   /**
-   * The question on screen when the flow ended, 1-3 (analytics only). Absent
-   * when no question was shown: a "Save default search" made while signed out
-   * stamps a new account without opening the questions. The server takes `None`.
+   * The question on screen when the flow ended, 1-4 (analytics only). An older
+   * backend accepts only 1-3, so the flow clamps it there (see `forBackend`).
+   * Absent when no question was shown: a "Save default search" made while
+   * signed out stamps a new account without opening the questions. The server
+   * takes `None`.
    */
-  step?: 1 | 2 | 3;
+  step?: 1 | 2 | 3 | 4;
   /** The PostHog session, when PostHog is on. */
   sessionId?: string;
 }
@@ -155,6 +162,19 @@ export function validateSavedFilters(res: unknown): SavedFilters {
     (!Array.isArray(res.subcategory) || res.subcategory.some((s) => typeof s !== 'string'))
   ) {
     throw new Error('Invalid /api/users/saved-filters response: subcategory must be a string array');
+  }
+  // TOLERANT too, and NOT normalized on the way out (unlike `subcategory`):
+  // absence IS the signal. An older backend does not send the key, and it 422s
+  // a PUT that carries it (`extra='forbid'`), so writers send `companyCategory`
+  // only when this GET returned it. Present-and-wrong is still an error.
+  if (
+    res.companyCategory !== undefined &&
+    (!Array.isArray(res.companyCategory) ||
+      res.companyCategory.some((s) => typeof s !== 'string'))
+  ) {
+    throw new Error(
+      'Invalid /api/users/saved-filters response: companyCategory must be a string array'
+    );
   }
   if (res.recentActiveKeywordListId !== null && typeof res.recentActiveKeywordListId !== 'string') {
     throw new Error(

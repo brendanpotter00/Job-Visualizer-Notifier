@@ -155,6 +155,7 @@ describe('OnboardingGate — a load finishing a signed-out "Save default search"
     category: ['software_engineering'],
     level: ['entry'],
     subcategory: [],
+    companyCategory: [],
   };
 
   it('keeps the questions closed for a null stamp (the search stands in for them)', async () => {
@@ -177,6 +178,7 @@ describe('OnboardingGate — after the questions', () => {
     renderGate('/companies');
     await screen.findByRole('dialog');
     await user.click(screen.getByRole('checkbox', { name: 'Growth' }));
+    await user.click(screen.getByRole('button', { name: 'Continue' }));
     await user.click(screen.getByRole('button', { name: 'Continue' }));
     await user.click(screen.getByRole('button', { name: 'Continue' }));
     await user.click(screen.getByRole('button', { name: 'Show my jobs' }));

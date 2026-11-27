@@ -32,6 +32,7 @@ export const RECENT_LIST_FIELDS = [
   { filter: 'category', saved: 'category' },
   { filter: 'level', saved: 'level' },
   { filter: 'subcategory', saved: 'subcategory' },
+  { filter: 'companyCategory', saved: 'companyCategory' },
 ] as const;
 
 type RecentListField = (typeof RECENT_LIST_FIELDS)[number];
@@ -114,13 +115,19 @@ export function toSavedFiltersPayload(
 ): SavedFilters {
   const lists = {} as Record<ListSavedKey, string[]>;
   for (const row of RECENT_LIST_FIELDS) lists[row.saved] = [...search[row.filter]];
-  return {
+  const payload: SavedFilters = {
     recentTimeWindow: search.timeWindow,
     trendTimeWindow: current.trendTimeWindow,
     ...lists,
     recentActiveKeywordListId: listId,
     trendActiveKeywordListId: listId,
   };
+  // An older backend (the Vercel-before-Railway deploy window) does not know
+  // company types and 422s the unknown key. Its GET omits `companyCategory`, so
+  // send the key only when the GET carried it; a PUT without it keeps the stored
+  // value on a newer backend.
+  if (current.companyCategory === undefined) delete payload.companyCategory;
+  return payload;
 }
 
 /** The Recent slice patch that puts `search` back on screen (empty lists are "no filter"). */
@@ -143,6 +150,7 @@ export function toOnboardingAnswers(search: DefaultSearch): OnboardingAnswers {
     subcategory: search.subcategory,
     level: search.level,
     locations: search.location,
+    companyCategory: search.companyCategory,
   });
 }
 

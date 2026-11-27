@@ -67,6 +67,34 @@ describe('jobsApi getFacets', () => {
     expect(result.data?.categories).toEqual(VALID_FACETS.categories);
   });
 
+  it('passes companyCategories through when it is an array', async () => {
+    const companyCategories = [
+      { slug: 'big_tech', label: 'Big Tech', sortOrder: 0, parentSlug: null },
+    ];
+    fetchMock.mockResolvedValue(jsonResponse({ ...VALID_FACETS, companyCategories }));
+    const store = makeStore();
+
+    const result = await store.dispatch(jobsApi.endpoints.getFacets.initiate());
+
+    expect(result.error).toBeUndefined();
+    expect(result.data?.companyCategories).toEqual(companyCategories);
+  });
+
+  it.each([
+    ['missing', undefined],
+    ['not an array', 'big_tech'],
+  ])('leaves companyCategories undefined when it is %s, never an error', async (_l, value) => {
+    // An older backend omits the key. The dropdown then shows the bundled list.
+    fetchMock.mockResolvedValue(jsonResponse({ ...VALID_FACETS, companyCategories: value }));
+    const store = makeStore();
+
+    const result = await store.dispatch(jobsApi.endpoints.getFacets.initiate());
+
+    expect(result.error).toBeUndefined();
+    expect(result.data?.companyCategories).toBeUndefined();
+    expect(result.data?.categories).toEqual(VALID_FACETS.categories);
+  });
+
   it('passes a body carrying all three dimensions through unchanged', async () => {
     const withSubcats = {
       ...VALID_FACETS,

@@ -830,6 +830,13 @@ class UserSavedFilters(Base):
     category = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     level = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     subcategory = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    # Company-category slugs (``company_categories.slug``) for the Recent page
+    # only. SINGULAR like its siblings. ``[]`` means no filter. The PUT and the
+    # onboarding POST keep the stored value when the key is ABSENT (the one
+    # exception to full-replace); see ``saved_filters_service``.
+    company_category = Column(
+        JSONB, nullable=False, server_default=text("'[]'::jsonb")
+    )
     recent_active_keyword_list_id = Column(Text, nullable=True)
     trend_active_keyword_list_id = Column(Text, nullable=True)
     created_at = Column(
@@ -1067,6 +1074,46 @@ class Company(Base):
             postgresql_where=text("visibility <> 'public'"),
         ),
     )
+
+
+class CompanyCategory(Base):
+    """One company category ("Big Tech", "YC Alumni", ...) for the Recent filter.
+
+    Seeded on every boot from ``data/company_categories.json`` by
+    ``services.company_categories`` (the file is the source of truth; the
+    migration ships the table empty). ``sort_order`` is the category's index
+    in that file, which is also the display order.
+    """
+
+    __tablename__ = "company_categories"
+
+    slug = Column(Text, primary_key=True)                 # 'big_tech', ...
+    label = Column(Text, nullable=False)                  # 'Big Tech'
+    definition = Column(Text, nullable=False)             # the membership rule
+    sort_order = Column(Integer, nullable=False, server_default=text("0"))
+
+
+class CompanyCategoryMember(Base):
+    """One company in one category. A company can be in several.
+
+    ``company_id`` is a SOFT link to ``companies.id`` (no FK), like the other
+    roster links: ``companies`` is truncated freely in tests and the seed must
+    not depend on its order. ``position`` is the company's index in the
+    category's ``companyIds`` list (0 = most recognizable, shown first on the
+    landing card). No extra index: about 470 rows.
+    """
+
+    __tablename__ = "company_category_members"
+
+    category_slug = Column(
+        Text,
+        ForeignKey("company_categories.slug", ondelete="CASCADE"),
+        nullable=False,
+    )
+    company_id = Column(Text, nullable=False)
+    position = Column(Integer, nullable=False)
+
+    __table_args__ = (PrimaryKeyConstraint("category_slug", "company_id"),)
 
 
 class UserCompany(Base):

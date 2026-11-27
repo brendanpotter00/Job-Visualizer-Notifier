@@ -89,6 +89,7 @@ describe('buildSearchJobsArgs — list normalization', () => {
         category: ['software_engineering', 'design', 'design'],
         subcategory: ['frontend', 'backend', 'backend'],
         level: ['senior', 'entry', 'entry'],
+        companyCategory: ['fintech', 'big_tech', 'big_tech'],
         location: ['Seattle, WA, US', 'Austin, TX, US', 'Austin, TX, US'],
         searchTags: [
           { text: 'rust', mode: 'include' },
@@ -106,6 +107,7 @@ describe('buildSearchJobsArgs — list normalization', () => {
     expect(args?.category).toEqual(['design', 'software_engineering']);
     expect(args?.subcategory).toEqual(['backend', 'frontend']);
     expect(args?.level).toEqual(['entry', 'senior']);
+    expect(args?.companyCategory).toEqual(['big_tech', 'fintech']);
     expect(args?.locations).toEqual(['Austin, TX, US', 'Seattle, WA, US']);
     expect(args?.include).toEqual(['backend', 'rust']);
     expect(args?.exclude).toEqual(['intern', 'staff']);
@@ -346,6 +348,17 @@ describe('buildSearchJobsQuery', () => {
   it('omits subcategory entirely when none is selected', () => {
     const params = new URLSearchParams(buildSearchJobsQuery(makeArgs(), null));
     expect(params.has('subcategory')).toBe(false);
+  });
+
+  it('sends company_category as repeated params, never comma-joined', () => {
+    const query = buildSearchJobsQuery(makeArgs({ companyCategory: ['ai_labs', 'big_tech'] }), null);
+    expect(query).toContain('company_category=ai_labs&company_category=big_tech');
+    expect(new URLSearchParams(query).getAll('company_category')).toEqual(['ai_labs', 'big_tech']);
+  });
+
+  it('omits company_category when no company type is selected', () => {
+    const params = new URLSearchParams(buildSearchJobsQuery(makeArgs(), null));
+    expect(params.has('company_category')).toBe(false);
   });
 
   it('repeats a multi-value filter instead of comma-joining it', () => {

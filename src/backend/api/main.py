@@ -436,6 +436,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # prevent the rest of the lifespan from continuing.
     from .services.features_seed import seed_starter_features
     from .services.companies_seed import seed_company_profiles
+    from .services.company_categories import seed_company_categories
     from .dependencies import get_db
 
     try:
@@ -471,6 +472,24 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 pass
     except Exception:
         logger.exception("Failed to seed company profiles during startup")
+
+    # Seed the company categories (Recent page "Company type" filter) from the
+    # committed data/company_categories.json. Same broad soft-fail as the
+    # profiles seed: a bad file raises ValueError/JSONDecodeError/OSError, and
+    # that must keep the last-good DB rows rather than crash-loop boot. Runs
+    # after the profiles seed so its unmatched-id WARN sees the script rows.
+    try:
+        gen = get_db()
+        seed_conn = next(gen)
+        try:
+            seed_company_categories(seed_conn)
+        finally:
+            try:
+                next(gen)
+            except StopIteration:
+                pass
+    except Exception:
+        logger.exception("Failed to seed company categories during startup")
 
     # Start background auto-scraper
     from .services.auto_scraper import auto_scraper_loop

@@ -50,6 +50,7 @@ describe('selectRecentJobsFilterSignature', () => {
     ['category', { category: ['backend'] }],
     ['level', { level: ['senior'] }],
     ['subcategory', { subcategory: ['backend'] }],
+    ['company type', { companyCategory: ['big_tech'] }],
     ['search tags', { searchTags: [{ text: 'rust', mode: 'include' as const }] }],
   ])('changes when the %s filter changes', (_label, override) => {
     expect(signatureOf(override)).not.toBe(signatureOf());
@@ -67,6 +68,12 @@ describe('selectRecentJobsFilterSignature', () => {
 
   it('distinguishes "no enabled-companies preference" from an empty set', () => {
     expect(signatureOf({}, null)).not.toBe(signatureOf({}, []));
+  });
+
+  it('ignores the ORDER of a company type selection', () => {
+    expect(signatureOf({ companyCategory: ['big_tech', 'fintech'] })).toBe(
+      signatureOf({ companyCategory: ['fintech', 'big_tech'] })
+    );
   });
 
   it('ignores the ORDER of a subcategory selection', () => {

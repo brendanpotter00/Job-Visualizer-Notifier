@@ -28,6 +28,8 @@ erDiagram
     companies ||..o{ job_listings : "company name (soft link, no FK)"
     companies ||..o{ scrape_runs : "company name (soft link, no FK)"
     job_listings ||--|| job_freshness : "freshness sidecar (composite FK, CASCADE)"
+    company_categories ||--o{ company_category_members : "has members (CASCADE)"
+    companies ||..o{ company_category_members : "referenced by id (soft link, no FK)"
 
     users {
         text id PK
@@ -58,6 +60,7 @@ erDiagram
         text recent_time_window "NOT NULL default '3h', TimeWindow Literal"
         text trend_time_window "NOT NULL default '7d', TimeWindow Literal"
         jsonb locations "NOT NULL default [] — canonical location strings"
+        jsonb company_category "NOT NULL default [] — company-category slugs (Recent only)"
         text recent_active_keyword_list_id "nullable, soft link (may be 'builtin-swe')"
         text trend_active_keyword_list_id "nullable, soft link (may be 'builtin-swe')"
         timestamptz created_at "NOT NULL default now()"
@@ -220,6 +223,9 @@ Literal at the Pydantic boundary (same pattern as `job_listings.status`), defaul
 `'3h'` / `'7d'`. `locations` is a JSONB array of canonical location strings shared by the
 Recent and Trend pages. `recent_active_keyword_list_id` / `trend_active_keyword_list_id`
 are nullable `Text` soft links to `user_keyword_lists.id` (or the synthetic `'builtin-swe'`).
+`company_category` is a JSONB array of `company_categories.slug` values for the Recent page
+only (`[]` = no filter). Unlike every other column here, the PUT and the onboarding POST
+**keep** it when the key is absent; `[]` clears it.
 
 ### `user_keyword_lists`
 Reusable named keyword lists — many per user. `id` is an app-generated uuid4 hex; `user_id`
@@ -370,6 +376,21 @@ not a frontend redeploy.
   seventeen subcategories. Deliberately unindexed (17 rows, one parent). **Ships EMPTY in
   phase 1**: seeding it is what makes the public dropdown appear, so the seed is a
   user-visible publish and lands with the UI.
+
+### `company_categories` / `company_category_members`
+The company types behind the Recent page's "Company type" filter (Big Tech, YC Alumni, ...).
+**Seeded on every boot** from `api/data/company_categories.json` by
+`services/company_categories.py` (the migration ships them empty). The frontend imports the
+same file, so it is the one source of truth.
+
+- **`company_categories`** — `slug` PK, `label`, `definition` (the membership rule),
+  `sort_order` (the category's index in the file = display order). Ten rows.
+- **`company_category_members`** — PK `(category_slug, company_id)`. `category_slug` →
+  `company_categories.slug` (CASCADE). `company_id` is a soft link to `companies.id` (no FK).
+  `position` is the company's index in that category's `companyIds` (0 = most recognizable,
+  the landing logo order). A company can be in several categories. About 470 rows, no extra
+  index. `/api/jobs/search?company_category=` resolves slugs to these ids, then filters
+  `job_listings.company = ANY(...)`.
 
 ### `app_settings`
 Key/value runtime settings. `key` TEXT PK, `value` JSONB NOT NULL, `updated_at` TIMESTAMPTZ

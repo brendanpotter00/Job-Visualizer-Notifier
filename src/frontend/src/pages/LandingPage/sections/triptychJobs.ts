@@ -8,7 +8,7 @@
  *
  *   1. early_career  intern / new-grad postings (the scarcest, so it claims first)
  *   2. last_24h
- *   3. big_tech      the `big_tech` roster from COMPANY_CATEGORIES
+ *   3. big_tech      the `big_tech` members from `config/companyCategories.ts`
  *
  * — and each later slot only sees what the earlier ones left. Claiming happens
  * AFTER the per-slot cap, so a job that a full slot could not show is still
@@ -21,7 +21,7 @@
  */
 import type { Job } from '../../../types';
 import type { SearchJobsBatchRequest } from '../../../features/jobs/searchJobsTypes';
-import { COMPANY_CATEGORIES } from '../companyCategories';
+import { companyIdsInCategory } from '../../../config/companyCategories';
 
 const HOUR = 3_600_000;
 
@@ -78,15 +78,13 @@ export interface TriptychSlot {
 export type TriptychSlots = readonly [TriptychSlot, TriptychSlot, TriptychSlot];
 
 /**
- * The `big_tech` roster, resolved once from the shared taxonomy rather than
- * re-listed here — one source of truth for "who counts as big tech". If that
- * category id is ever renamed the set goes empty and the slot quietly shows its
- * empty state, so `triptychJobs.test.ts` asserts membership against
- * COMPANY_CATEGORIES to make the rename fail loudly in CI instead.
+ * The `big_tech` members, resolved once from the shared company categories
+ * (`company_categories.json`) rather than re-listed here: one source of truth
+ * for "who counts as big tech". If that slug is ever renamed the set goes
+ * empty and the slot quietly shows its empty state, so `triptychJobs.test.ts`
+ * pins the request's company list to make the rename fail loudly in CI instead.
  */
-const BIG_TECH_COMPANY_IDS: ReadonlySet<string> = new Set(
-  COMPANY_CATEGORIES.find((category) => category.id === 'big_tech')?.companyIds ?? []
-);
+const BIG_TECH_COMPANY_IDS: ReadonlySet<string> = new Set(companyIdsInCategory('big_tech'));
 
 /** The two levels the first slot speaks for. */
 const EARLY_CAREER_LEVELS: ReadonlySet<string> = new Set(['intern', 'new_grad']);

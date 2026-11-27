@@ -9,7 +9,7 @@ import {
   TRIPTYCH_SLOT_IDS,
   type TriptychSlots,
 } from '../../../pages/LandingPage/sections/triptychJobs';
-import { COMPANY_CATEGORIES } from '../../../pages/LandingPage/companyCategories';
+import { COMPANY_CATEGORIES } from '../../../config/companyCategories';
 import { mulberry32 } from '../../../pages/LandingPage/prototypes/shared3d/mulberry32';
 import type { Job } from '../../../types';
 import {
@@ -23,8 +23,8 @@ import {
 const NOW = LANDING_NOW;
 const HOUR = 3_600_000;
 
-const BIG_TECH_IDS = COMPANY_CATEGORIES.find((c) => c.id === 'big_tech')!.companyIds;
-const NOT_BIG_TECH = ['anthropic', 'openai', 'stripe', 'spacex', 'databricks', 'ramp'];
+const BIG_TECH_IDS = COMPANY_CATEGORIES.find((c) => c.slug === 'big_tech')!.companyIds;
+const NOT_BIG_TECH = ['cohere', 'figma', 'stripe', 'spacex', 'databricks', 'ramp'];
 
 interface StubOverrides {
   level?: string | null;
@@ -211,6 +211,32 @@ describe('selectTriptychSlots', () => {
   });
 
   describe('big-tech slot', () => {
+    it('requests exactly the Big Tech members, sorted (the giants only)', () => {
+      // Pinned literally: a renamed slug would empty the set and the slot would
+      // quietly show its empty state.
+      expect(TRIPTYCH_REQUESTS[2].companies).toEqual([
+        'airbnb',
+        'amazon',
+        'anthropic',
+        'apple',
+        'cisco',
+        'cloudflare',
+        'crowdstrike',
+        'google',
+        'intel',
+        'meta',
+        'microsoft',
+        'netflix',
+        'nvidia',
+        'openai',
+        'palantir',
+        'salesforce',
+        'spotify',
+        'tiktok',
+      ]);
+      expect(TRIPTYCH_REQUESTS[2].companies).toEqual([...BIG_TECH_IDS].sort());
+    });
+
     it('only shows companies from the big_tech category of COMPANY_CATEGORIES', () => {
       const slot = slotById(buildRichLandingJobs(NOW), 'big_tech');
       expect(slot.jobs.length).toBeGreaterThan(0);
@@ -223,7 +249,7 @@ describe('selectTriptychSlots', () => {
       const jobs = [
         ...latestFillers(5),
         stubJob('spacex', 30),
-        stubJob('anthropic', 40),
+        stubJob('cohere', 40),
         stubJob('netflix', 50),
       ];
       expect(slotById(jobs, 'big_tech').jobs.map((j) => j.company)).toEqual(['netflix']);
@@ -402,7 +428,7 @@ describe('TRIPTYCH_REQUESTS', () => {
   });
 
   it('selecting over the merged server answers equals selecting over the whole corpus', () => {
-    const companies = [...BIG_TECH_IDS, ...NOT_BIG_TECH, 'cohere', 'xai', 'notion'];
+    const companies = [...BIG_TECH_IDS, ...NOT_BIG_TECH, 'anthropic', 'xai', 'notion'];
     const levels = ['intern', 'new_grad', 'entry', 'mid', 'senior', null];
     const categories = [
       SOFTWARE_ENGINEERING,

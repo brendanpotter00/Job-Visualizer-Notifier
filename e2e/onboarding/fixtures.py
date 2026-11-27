@@ -12,15 +12,15 @@ Three things live here:
   fence the purge helper refuses to cross;
 * the one PRE-EXISTING account — already stamped, the way the migration's
   backfill left every account that existed at deploy time (OB-09 / OB-U9);
-* a five-row JOB CORPUS, so "the list opens with the answers applied" is a
+* a six-row JOB CORPUS, so "the list opens with the answers applied" is a
   visible fact and not only filter text. Every row but one is a decoy for the
-  headline answers, and each decoy fails exactly ONE of the four answers, so a
+  headline answers, and each decoy fails exactly ONE of the five answers, so a
   dropped dimension shows up as one specific row that should not be there.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 #: Every identity this section creates has a `sub` starting with this, and the
 #: purge helper refuses any other. Never reuse shared/auth's `primary` / `other`
@@ -46,15 +46,22 @@ NEW_ROW_TREND_WINDOW = "90d"
 
 @dataclass(frozen=True)
 class Answers:
-    """The four answers, exactly as `POST /api/users/onboarding` takes them."""
+    """The answers, exactly as `POST /api/users/onboarding` takes them.
+
+    `company_category` (question 4) is NONE by default, and None means the key
+    is left out of the body: the server then KEEPS the stored value, which is
+    what an SPA built before question 4 sends. `as_saved()` stays the original
+    four lists so every pre-existing case reads exactly as it did.
+    """
 
     category: list[str] = field(default_factory=list)
     subcategory: list[str] = field(default_factory=list)
     level: list[str] = field(default_factory=list)
     locations: list[str] = field(default_factory=list)
+    company_category: list[str] | None = None
 
     def body(self, *, skipped: bool, step: int) -> dict[str, object]:
-        return {
+        out: dict[str, object] = {
             "skipped": skipped,
             "category": list(self.category),
             "subcategory": list(self.subcategory),
@@ -62,6 +69,9 @@ class Answers:
             "locations": list(self.locations),
             "step": step,
         }
+        if self.company_category is not None:
+            out["companyCategory"] = list(self.company_category)
+        return out
 
     def as_saved(self) -> dict[str, list[str]]:
         return {
@@ -77,6 +87,13 @@ HEADLINE = Answers(category=[SWE], subcategory=["backend"], level=["entry"], loc
 
 #: A deliberately DIFFERENT set, for "the first answers win" (OB-04).
 OTHER = Answers(category=[PM], subcategory=[], level=["senior"], locations=[NEW_YORK])
+
+#: Question 4's answer on the headline path: Big Tech.
+BIG_TECH = "big_tech"
+
+#: The UI headline: OB-U1's four questions, Big Tech on the last. The API
+#: tier's HEADLINE above stays the three-question body (an older SPA's shape).
+HEADLINE_UI = replace(HEADLINE, company_category=[BIG_TECH])
 
 
 @dataclass(frozen=True)
@@ -101,8 +118,24 @@ PREEXISTING = PreexistingAccount(
 # --- The job corpus ---------------------------------------------------------
 
 SOURCE_ID = "e2e_onboarding"
+#: In NO company category (it is not in `company_categories.json`), so it is
+#: the company-type decoy.
 COMPANY_ID = "e2e-onboarding-co"
 COMPANY_NAME = "E2E Onboarding Co"
+
+#: A REAL Big Tech member from `company_categories.json`. The backend seeds the
+#: membership tables from that file on boot; a fixture company cannot be a
+#: member. Google's `companies` row is a `script` one the boot seed registers,
+#: which no worker ever scrapes. Restated here (not read from the JSON) so the
+#: gate cannot follow the data it checks; `seed.py` asserts the backend agrees.
+BIG_TECH_COMPANY_ID = "google"
+BIG_TECH_COMPANY_NAME = "Google"
+
+#: The company types each fixture company belongs to, for the oracle.
+COMPANY_TYPES: dict[str, set[str]] = {
+    BIG_TECH_COMPANY_ID: {BIG_TECH, "ai_labs", "household_names"},
+    COMPANY_ID: set(),
+}
 
 
 @dataclass(frozen=True)
@@ -117,6 +150,8 @@ class Job:
     location: str
     #: The raw `job_listings.location` text a card shows.
     raw_location: str
+    #: `job_listings.company`.
+    company: str = BIG_TECH_COMPANY_ID
 
 
 #   key                 cat  subcats     level   place  why
@@ -127,12 +162,18 @@ class Job:
 #   OB-DECOY-NEW-YORK   SWE  {backend}   entry   NY     fails only the location
 #   OB-PM               PM   NULL        entry   SF     fails only the category; the ONE
 #                                                       row Product Manager shows (OB-U5)
+#   OB-DECOY-NOT-BIG    SWE  {backend}   entry   SF     fails only the company type: it is
+#                                                       at a company in no category
+#
+# Every row but the last is at Google (Big Tech).
 JOBS: list[Job] = [
     Job("OB-MATCH", "Backend Engineer I", SWE, "entry", ["backend"], SAN_FRANCISCO, "San Francisco, CA"),
     Job("OB-DECOY-FRONTEND", "Frontend Engineer I", SWE, "entry", ["frontend"], SAN_FRANCISCO, "San Francisco, CA"),
     Job("OB-DECOY-SENIOR", "Senior Backend Engineer", SWE, "senior", ["backend"], SAN_FRANCISCO, "San Francisco, CA"),
     Job("OB-DECOY-NEW-YORK", "Backend Engineer I, New York", SWE, "entry", ["backend"], NEW_YORK, "New York, NY"),
     Job("OB-PM", "Associate Product Manager", PM, "entry", None, SAN_FRANCISCO, "San Francisco, CA"),
+    Job("OB-DECOY-NOT-BIG", "Backend Engineer I, Small Co", SWE, "entry", ["backend"],
+        SAN_FRANCISCO, "San Francisco, CA", company=COMPANY_ID),
 ]
 BY_KEY: dict[str, Job] = {j.key: j for j in JOBS}
 
@@ -157,8 +198,11 @@ def expected_keys(answers: Answers) -> list[str]:
     for lv in answers.level:
         wanted_levels |= _LEVEL_WIDENING.get(lv, {lv})
     other_role_picked = any(c != SWE for c in answers.category)
+    wanted_types = set(answers.company_category or [])
     out: list[str] = []
     for job in JOBS:
+        if wanted_types and not wanted_types & COMPANY_TYPES[job.company]:
+            continue
         if answers.category and job.category not in answers.category:
             continue
         if wanted_subs and (job.category == SWE or not other_role_picked):
@@ -176,7 +220,11 @@ def _as_json() -> str:
     import json
 
     def _answers(a: Answers) -> dict[str, object]:
-        return {**a.as_saved(), "expectedKeys": expected_keys(a)}
+        return {
+            **a.as_saved(),
+            "companyCategory": list(a.company_category or []),
+            "expectedKeys": expected_keys(a),
+        }
 
     return json.dumps(
         {
@@ -188,7 +236,9 @@ def _as_json() -> str:
                 "email": PREEXISTING.email,
                 "stampedAt": PREEXISTING.stamped_at,
             },
-            "headline": _answers(HEADLINE),
+            "headline": _answers(HEADLINE_UI),
+            # The same answers WITHOUT question 4: what an older backend saves.
+            "headlineNoCompanyType": _answers(HEADLINE),
             "productManagerOnly": _answers(Answers(category=[PM])),
             "everything": _answers(Answers()),
             "jobs": [
@@ -199,6 +249,7 @@ def _as_json() -> str:
                     "level": j.level,
                     "subcategories": j.subcategories,
                     "location": j.location,
+                    "company": j.company,
                 }
                 for j in JOBS
             ],
@@ -215,4 +266,4 @@ if __name__ == "__main__":
     else:
         for _j in JOBS:
             print(f"  {_j.key:<18} {_j.category:<22} {_j.level:<7} {_j.location:<22} {_j.subcategories}")
-        print(f"headline -> {expected_keys(HEADLINE)}")
+        print(f"headline -> {expected_keys(HEADLINE_UI)}")

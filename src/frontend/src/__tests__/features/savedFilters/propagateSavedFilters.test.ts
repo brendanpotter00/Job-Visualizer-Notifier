@@ -77,6 +77,67 @@ describe('savedFiltersPropagationActions (Critique #2: no-refresh propagation)',
     expect(recent.filters.subcategory).toEqual(['backend']);
   });
 
+  it('pushes a saved company type to the Recent slice only', () => {
+    const saved: SavedFilters = {
+      recentTimeWindow: 'all',
+      trendTimeWindow: '90d',
+      locations: [],
+      category: [],
+      level: [],
+      subcategory: [],
+      companyCategory: ['big_tech', 'fintech'],
+      recentActiveKeywordListId: null,
+      trendActiveKeywordListId: null,
+    };
+    const actions = savedFiltersPropagationActions(saved, [], { listsLoaded: false });
+    const types = actions.map((a) => a.type);
+    expect(types).toContain('recentJobsFilters/setRecentJobsCompanyCategory');
+    expect(types.some((t) => t.startsWith('graphFilters/') && /Company/.test(t))).toBe(false);
+
+    const { graph, recent } = applyPropagation(saved, lists);
+    expect(recent.filters.companyCategory).toEqual(['big_tech', 'fintech']);
+    expect('companyCategory' in graph.filters).toBe(false);
+  });
+
+  it('a saved [] clears a live company type', () => {
+    const saved: SavedFilters = {
+      recentTimeWindow: 'all',
+      trendTimeWindow: '90d',
+      locations: [],
+      category: [],
+      level: [],
+      subcategory: [],
+      companyCategory: [],
+      recentActiveKeywordListId: null,
+      trendActiveKeywordListId: null,
+    };
+    let recent = recentJobsReducer(undefined, { type: '@@INIT' });
+    recent = recentJobsReducer(recent, {
+      type: 'recentJobsFilters/setRecentJobsCompanyCategory',
+      payload: ['ai_labs'],
+    });
+    for (const action of savedFiltersPropagationActions(saved, lists)) {
+      recent = recentJobsReducer(recent, action);
+    }
+    expect(recent.filters.companyCategory).toBeUndefined();
+  });
+
+  it('pushes NO company type action when the backend does not know the field', () => {
+    // Absent is not "cleared": an older backend's save must not wipe a live pick.
+    const saved: SavedFilters = {
+      recentTimeWindow: 'all',
+      trendTimeWindow: '90d',
+      locations: [],
+      category: [],
+      level: [],
+      subcategory: [],
+      recentActiveKeywordListId: null,
+      trendActiveKeywordListId: null,
+    };
+    const types = savedFiltersPropagationActions(saved, lists).map((a) => a.type);
+    expect(types).not.toContain('recentJobsFilters/setRecentJobsCompanyCategory');
+  });
+
   it('snaps both slices to the saved time windows, locations, category, level, and active lists', () => {
     const saved: SavedFilters = {
       recentTimeWindow: '24h',

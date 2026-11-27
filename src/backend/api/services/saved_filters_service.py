@@ -95,6 +95,8 @@ class SavedFiltersRow(TypedDict):
     # no specialty applies". Same literal, two meanings, and the same Redux
     # field name flows through both.
     subcategory: list[str]
+    # Company-category slugs, Recent page only. `[]` = no filter.
+    company_category: list[str]
     recent_active_keyword_list_id: str | None
     trend_active_keyword_list_id: str | None
 
@@ -154,6 +156,7 @@ def default_saved_filters() -> SavedFiltersRow:
         "category": [],
         "level": [],
         "subcategory": [],
+        "company_category": [],
         "recent_active_keyword_list_id": None,
         "trend_active_keyword_list_id": None,
     }
@@ -174,6 +177,7 @@ def _row_to_saved_filters(row: dict[str, Any]) -> SavedFiltersRow:
         "category": _coerce_str_list(row["category"]),
         "level": _coerce_str_list(row["level"]),
         "subcategory": _coerce_str_list(row["subcategory"]),
+        "company_category": _coerce_str_list(row["company_category"]),
         "recent_active_keyword_list_id": row["recent_active_keyword_list_id"],
         "trend_active_keyword_list_id": row["trend_active_keyword_list_id"],
     }
@@ -190,7 +194,7 @@ def get_saved_filters(conn: Connection, user_id: str) -> SavedFiltersRow:
     cursor.execute(
         sql.SQL(
             "SELECT recent_time_window, trend_time_window, locations,"
-            " category, level, subcategory,"
+            " category, level, subcategory, company_category,"
             " recent_active_keyword_list_id, trend_active_keyword_list_id"
             " FROM {} WHERE user_id = %s"
         ).format(_SAVED_FILTERS),
@@ -235,25 +239,38 @@ def upsert_saved_filters(
     subcategory: list[str],
     recent_active_keyword_list_id: str | None,
     trend_active_keyword_list_id: str | None,
+    company_category: list[str] | None = None,
 ) -> SavedFiltersRow:
     """Full-replace upsert of the user's scalar saved filters (PUT semantics).
+
+    ONE EXCEPTION to full-replace: ``company_category=None`` (the key was
+    absent from the PUT) KEEPS the stored value, and a new row gets ``[]``.
+    ``[]`` clears it. This protects the field from every writer that does not
+    know it yet: SPA tabs opened before the deploy, the default-search save,
+    and WebMCP calls. It is spelled ``COALESCE(%s::jsonb, <stored>)`` with the
+    value passed twice; ``EXCLUDED`` cannot be used for the keep case, because
+    it already holds the INSERT's coalesced ``[]``.
 
     Validates each non-null active-list pointer against the built-in id or a
     list the caller owns BEFORE writing (raises ``UnknownActiveList`` -> 409),
     then ``INSERT ... ON CONFLICT (user_id) DO UPDATE`` in a single transaction.
     Rolls back and re-raises on ``psycopg2.Error``.
     """
+    company_category_param = (
+        None if company_category is None else Json(company_category)
+    )
     cursor = conn.cursor()
     try:
         _validate_active_pointer(cursor, user_id, recent_active_keyword_list_id)
         _validate_active_pointer(cursor, user_id, trend_active_keyword_list_id)
         cursor.execute(
             sql.SQL(
-                "INSERT INTO {} ("
+                "INSERT INTO {table} ("
                 " user_id, recent_time_window, trend_time_window, locations,"
-                " category, level, subcategory,"
+                " category, level, subcategory, company_category,"
                 " recent_active_keyword_list_id, trend_active_keyword_list_id"
-                ") VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)"
+                ") VALUES (%s, %s, %s, %s, %s, %s, %s,"
+                " COALESCE(%s::jsonb, '[]'::jsonb), %s, %s)"
                 " ON CONFLICT (user_id) DO UPDATE SET"
                 " recent_time_window = EXCLUDED.recent_time_window,"
                 " trend_time_window = EXCLUDED.trend_time_window,"
@@ -261,15 +278,17 @@ def upsert_saved_filters(
                 " category = EXCLUDED.category,"
                 " level = EXCLUDED.level,"
                 " subcategory = EXCLUDED.subcategory,"
+                " company_category ="
+                " COALESCE(%s::jsonb, {table}.company_category),"
                 " recent_active_keyword_list_id ="
                 " EXCLUDED.recent_active_keyword_list_id,"
                 " trend_active_keyword_list_id ="
                 " EXCLUDED.trend_active_keyword_list_id,"
                 " updated_at = now()"
                 " RETURNING recent_time_window, trend_time_window, locations,"
-                " category, level, subcategory,"
+                " category, level, subcategory, company_category,"
                 " recent_active_keyword_list_id, trend_active_keyword_list_id"
-            ).format(_SAVED_FILTERS),
+            ).format(table=_SAVED_FILTERS),
             (
                 user_id,
                 recent_time_window,
@@ -278,8 +297,10 @@ def upsert_saved_filters(
                 Json(category),
                 Json(level),
                 Json(subcategory),
+                company_category_param,
                 recent_active_keyword_list_id,
                 trend_active_keyword_list_id,
+                company_category_param,
             ),
         )
         row = cursor.fetchone()

@@ -10,6 +10,7 @@ import {
   useGetKeywordListsQuery,
   useGetSavedFiltersQuery,
 } from '../savedFilters/savedFiltersApi';
+import { forBackend } from '../../components/onboarding/onboardingModel';
 import { toOnboardingAnswers, toRecentFiltersPatch } from './defaultSearch';
 import { clearPendingDefaultSearch, pendingDefaultSearchAtLoad } from './pendingDefaultSearch';
 import { useSaveDefaultSearch } from './useSaveDefaultSearch';
@@ -87,11 +88,18 @@ export function useApplyPendingDefaultSearch(): void {
       try {
         if (user?.onboardingCompletedAt === null) {
           try {
-            const result = await completeOnboarding({
-              ...toOnboardingAnswers(pending),
-              skipped: false,
-              sessionId: getPostHogSessionId(),
-            }).unwrap();
+            const result = await completeOnboarding(
+              forBackend(
+                {
+                  ...toOnboardingAnswers(pending),
+                  skipped: false,
+                  sessionId: getPostHogSessionId(),
+                },
+                // The saved-filters GET carries `companyCategory` only on a
+                // backend that knows company types (see `forBackend`).
+                savedFilters.companyCategory !== undefined
+              )
+            ).unwrap();
             await dispatch(
               savedFiltersApi.util.upsertQueryData('getSavedFilters', undefined, result.savedFilters)
             );

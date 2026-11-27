@@ -177,6 +177,7 @@ describe('toSavedFiltersPayload', () => {
     category: ['software_engineering'],
     level: ['senior'],
     subcategory: ['backend'],
+    companyCategory: [],
   };
   const current: SavedFilters = {
     ...SERVER_NO_ROW,
@@ -247,6 +248,7 @@ describe('toOnboardingAnswers', () => {
       subcategory: ['backend'],
       level: ['entry'],
       locations: ['Austin, TX, US'],
+      companyCategory: [],
     });
   });
 
@@ -308,5 +310,61 @@ describe('planKeywordList', () => {
 
   it('otherwise creates the list', () => {
     expect(planKeywordList([inc('new')], 'mine', [mine, BUILTIN])).toEqual({ kind: 'create' });
+  });
+});
+
+describe('company types in the default search', () => {
+  const base: DefaultSearch = {
+    timeWindow: 'all',
+    searchTags: [],
+    location: [],
+    category: [],
+    level: [],
+    subcategory: [],
+    companyCategory: [],
+  };
+  const current: SavedFilters = {
+    recentTimeWindow: 'all',
+    trendTimeWindow: '90d',
+    locations: [],
+    category: [],
+    level: [],
+    subcategory: [],
+    recentActiveKeywordListId: null,
+    trendActiveKeywordListId: null,
+  };
+
+  it('counts a company type change as a change, compared as a set', () => {
+    expect(isSameDefaultSearch(base, { ...base, companyCategory: ['fintech'] })).toBe(false);
+    expect(
+      isSameDefaultSearch(
+        { ...base, companyCategory: ['big_tech', 'fintech'] },
+        { ...base, companyCategory: ['fintech', 'big_tech'] }
+      )
+    ).toBe(true);
+  });
+
+  it('reads a saved row without companyCategory (an older backend) as no company type', () => {
+    expect(defaultSearchFromSaved(current, []).companyCategory).toEqual([]);
+    expect(defaultSearchFromSaved({ ...current, companyCategory: ['ai_labs'] }, []).companyCategory).toEqual([
+      'ai_labs',
+    ]);
+  });
+
+  it('sends company types only when the saved-filters GET carried them', () => {
+    const search = { ...base, companyCategory: ['fintech'] };
+    expect(toSavedFiltersPayload(search, current, null)).not.toHaveProperty('companyCategory');
+    expect(toSavedFiltersPayload(search, { ...current, companyCategory: [] }, null).companyCategory).toEqual([
+      'fintech',
+    ]);
+  });
+
+  it('carries company types into the first-sign-in answers', () => {
+    expect(toOnboardingAnswers({ ...base, companyCategory: ['ai_labs'] }).companyCategory).toEqual(['ai_labs']);
+  });
+
+  it('puts company types back on screen, empty as no filter', () => {
+    expect(toRecentFiltersPatch({ ...base, companyCategory: ['fintech'] }).companyCategory).toEqual(['fintech']);
+    expect(toRecentFiltersPatch(base).companyCategory).toBeUndefined();
   });
 });

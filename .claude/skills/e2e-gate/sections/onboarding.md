@@ -7,7 +7,7 @@ each case proves, how to run just it, and what to look at first when it goes red
 ## Run it
 
 ```bash
-e2e/run.sh onboarding              # full gate (API OB-01..OB-09 + UI OB-U1..OB-U17)
+e2e/run.sh onboarding              # full gate (API OB-01..OB-10 + UI OB-U1..OB-U20)
 e2e/run.sh onboarding --fast       # API tier only — run on every commit
 e2e/run.sh onboarding --case OB-U1 # one case (OB-U1 and OB-U2 run together: U2 builds on U1)
 e2e/run.sh onboarding --keep-up    # leave the stack on :8205/:3205 (and the identities) for a fix loop
@@ -69,13 +69,14 @@ SWE jobs; never on `/` or `/pricing`) are product decisions in the plan, not tes
 | **OB-07** | An existing row keeps both windows and both keyword-list pointers | The `ON CONFLICT … DO UPDATE SET` list must name only the four answer columns. **Proven to bite** |
 | **OB-08** | No bearer, an email-less token, a token from another key: all 401, no row | `get_current_user` / the router's `email` check |
 | **OB-09** | The seeded pre-stamped account reads its stamp and a POST leaves it (and creates no saved-filters row) | Same guard as OB-04 |
-| **OB-U1** | **HEADLINE** — first sign-in: questions → SWE/Backend, Entry, San Francisco → lands on `/jobs` with the three fields showing the answers, the `/api/jobs/search` request carrying all four, exactly the one matching row (four one-answer decoys absent), the top-right toast linking to `/saved-filters`, DB stamped | Screenshots in `artifacts/<run>/screenshots/OB-U1/`. A missing search request = propagation (`savedFiltersPropagationActions`); two rows = an answer not applied. **Proven to bite** (specialty dropped from the request) |
+| **OB-10** | Question 4: `companyCategory` saved on finish and on Skip; `step: 4` OK, `5` is 422; a body without the key keeps a stored value | `OnboardingRequest.company_category` and the `COALESCE(%s, user_saved_filters.company_category)` in `complete_onboarding` (absent = keep) |
+| **OB-U1** | **HEADLINE** — first sign-in: questions → SWE/Backend, Entry, San Francisco, Big Tech → lands on `/jobs` with the four fields showing the answers, the `/api/jobs/search` request carrying all five, exactly the one matching row (five one-answer decoys absent, one of them at a company in no company type), the top-right toast linking to `/saved-filters`, DB stamped | Screenshots in `artifacts/<run>/screenshots/OB-U1/`. A missing search request = propagation (`savedFiltersPropagationActions`); two rows = an answer not applied. **Proven to bite** (specialty dropped from the request) |
 | **OB-U2** | **HEADLINE** — a NEW context as the same identity (desktop, then phone): no questions on `/jobs` or `/companies`, saved answers hydrated | The server stamp is the only thing a new context has. **Proven to bite** (`GET /api/users` reporting `null`) |
 | **OB-U3** | Left half-way → asked again at Q1 with nothing kept, DB NULL; Skip → never again | Nothing may save on close-without-Skip |
 | **OB-U4** | Empty Skip on `/companies` stays there, no toast, DB stamped | `savedFiltersHaveAnswers` gating the navigate/toast. **Proven to bite** (always navigating) |
 | **OB-U5** | Skip on Q2 after picking Product Manager → `/jobs` with it applied (only the PM row), toast, DB `category=[product_manager]` | Decision `keep`, end to end |
 | **OB-U6** | Escape counts as Skip (stamped; a new context is not asked) | `Dialog onClose` → `submit(true)` |
-| **OB-U7** | Back disabled on Q1; Back/Continue keep every answer; `1/3`→`2/3`→`3/3` with the bar at ⅓/⅔/1; focus on each h1; moving saves nothing | `OnboardingFlow`'s single draft, `QuestionHeading` focus |
+| **OB-U7** | Back disabled on Q1; Back/Continue keep every answer; `1/4`→`2/4`→`3/4`→`4/4` with the bar at ¼/½/¾/1; focus on each h1; moving saves nothing | `OnboardingFlow`'s single draft, `QuestionHeading` focus |
 | **OB-U8** | `/pricing` never shows them (evidence: the signed-in plan read + h1); one click on to `/jobs` does | Gate mounted outside `RootLayout`, or `isOnboardingExcludedPath` |
 | **OB-U9** | The pre-existing account is never asked | Backfill semantics |
 | **OB-U10** | Phone 390x844: full-screen dialog; Back/Continue on screen with 17 specialties open; chips keep their width when tapped; toast under the app bar. Then the 375px filter row: picked levels wrap as chips inside the field, no sideways scroll, a tap on a chip's x removes just that level | `ChoiceChip` padding math, `RESPONSIVE.onboarding`; for the filter-row step, `FacetValueChips.tsx` |
@@ -86,6 +87,9 @@ SWE jobs; never on `/` or `/pricing`) are product decisions in the plan, not tes
 | **OB-U15** | Signed out → brand-new account: the search survives sign-in in sessionStorage, no questions open, the account is stamped and the search saved | `useApplyPendingDefaultSearch` (restore before `useHydrateSavedFilters`, its `AppContent` order) and `OnboardingGate`'s `hadPendingDefaultSearchAtLoad` |
 | **OB-U16** | Signed out → existing account: its old default is replaced, the trend window and the stamp are not touched | Same hook; a Senior/7-day page = the saved row hydrated before the restore |
 | **OB-U17** | Decoy: an abandoned sign-in shows the search once, sends nothing, drops the pending search, never shows "Default search saved"; Reset to default search and a new bare `/jobs` visit are the site defaults | The discard effect in `useApplyPendingDefaultSearch` (signed-out load) |
+| **OB-U18** | An older backend (saved-filters GET without `companyCategory`, POST 422s the key or a step past 3) still saves: four questions on screen, the POST carries neither | `forBackend` in `onboardingModel.ts` and the capability read in `OnboardingFlow.submit` (the saved-filters GET, never facets) |
+| **OB-U19** | Signed in: a company type change alone offers Update default search; the save writes `company_category`; a new context opens on it; Reset to default search puts it back | `dbState(me).savedFilters.companyCategory`; then `RECENT_LIST_FIELDS` in `defaultSearch.ts` (the companyCategory row) and `toSavedFiltersPayload` (sends the key only when the GET carried it) |
+| **OB-U20** | Signed out with a company type → a brand-new account: the stamp and the save both carry it, and the questions never open | `toOnboardingAnswers` and the `forBackend` call in `useApplyPendingDefaultSearch.ts`; `ROWS_ADDED_AFTER_V1` in `pendingDefaultSearch.ts` |
 
 ## Reading a red
 

@@ -3,7 +3,8 @@
 // OB-U1: a brand-new identity's FIRST sign-in gets the questions, answers
 // them, and lands on Recent Job Postings with the answers APPLIED — proved by
 // the request the list makes and by which seeded rows it shows (one match,
-// four decoys that each fail exactly one answer), not only by filter text.
+// five decoys that each fail exactly one answer, one of them at a company in
+// no company type), not only by filter text.
 //
 // OB-U2: the same identity signing in AGAIN — a new browser context, so empty
 // storage, like a new device — never sees them. That rejects a client-side
@@ -37,13 +38,16 @@ import {
 
 const HEADLINE = CORPUS.headline;
 
-/** The headline answers are on screen in the Recent page's three fields. */
+/** The headline answers are on screen in the Recent page's fields. */
 async function expectHeadlineFilters(page: import('@playwright/test').Page, what: string) {
   await expect(filterChips(page, 'Job Category'), `${what}: Job Category`).toHaveText([
     HEADLINE_LABELS.role,
     HEADLINE_LABELS.specialty,
   ]);
   await expect(filterChips(page, 'Level'), `${what}: Level`).toHaveText([HEADLINE_LABELS.level]);
+  await expect(filterChips(page, 'Company type'), `${what}: Company type`).toHaveText([
+    HEADLINE_LABELS.companyType,
+  ]);
   await expect(locationChips(page), `${what}: Location`).toHaveText(HEADLINE.locations);
 }
 
@@ -63,7 +67,7 @@ test.describe('OB-U1 / OB-U2 headline: first sign-in answers the questions; sign
 
     await answerHeadline(page, 'OB-U1');
 
-    // The list's next search must carry all four answers — the filters are
+    // The list's next search must carry all five answers — the filters are
     // APPLIED, not just displayed.
     const applied = page.waitForResponse((r) => {
       const u = new URL(r.url());
@@ -73,6 +77,7 @@ test.describe('OB-U1 / OB-U2 headline: first sign-in answers the questions; sign
         q.getAll('category').join() === HEADLINE.category.join() &&
         q.getAll('subcategory').join() === HEADLINE.subcategory.join() &&
         q.getAll('level').join() === HEADLINE.level.join() &&
+        q.getAll('company_category').join() === HEADLINE.companyCategory.join() &&
         q.getAll('location').join() === HEADLINE.locations.join()
       );
     });
@@ -97,7 +102,7 @@ test.describe('OB-U1 / OB-U2 headline: first sign-in answers the questions; sign
       expect(viewport.width - (box.x + box.width), 'the toast sits at the right edge').toBeLessThanOrEqual(40);
       expect(box.y, 'the toast sits at the top').toBeLessThan(viewport.height / 4);
     }
-    await shot(page, 'OB-U1', '04-landed');
+    await shot(page, 'OB-U1', '05-landed');
 
     await expectHeadlineFilters(page, 'OB-U1 after landing');
     await expectJobs(page, HEADLINE.expectedKeys, 'OB-U1 with the headline answers');
@@ -111,6 +116,7 @@ test.describe('OB-U1 / OB-U2 headline: first sign-in answers the questions; sign
       subcategory: HEADLINE.subcategory,
       level: HEADLINE.level,
       locations: HEADLINE.locations,
+      companyCategory: HEADLINE.companyCategory,
       recentTimeWindow: 'all',
       trendTimeWindow: '90d',
     });

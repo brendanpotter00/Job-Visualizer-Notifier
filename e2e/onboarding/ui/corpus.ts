@@ -14,6 +14,7 @@ export interface CorpusJob {
   level: string;
   subcategories: string[] | null;
   location: string;
+  company: string;
 }
 
 export interface AnswerSet {
@@ -21,6 +22,8 @@ export interface AnswerSet {
   subcategory: string[];
   level: string[];
   locations: string[];
+  /** Question 4's company types (`[]` = any). */
+  companyCategory: string[];
   /** The rows the Recent list must show — derived in fixtures.py, not by the app. */
   expectedKeys: string[];
 }
@@ -31,6 +34,8 @@ interface Corpus {
   emailDomain: string;
   preexisting: { sub: string; email: string; stampedAt: string };
   headline: AnswerSet;
+  /** The headline answers without question 4 (what an older backend keeps). */
+  headlineNoCompanyType: AnswerSet;
   productManagerOnly: AnswerSet;
   everything: AnswerSet;
   jobs: CorpusJob[];

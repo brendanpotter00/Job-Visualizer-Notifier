@@ -155,6 +155,8 @@ describe('DefaultSearchButtons — signed in', () => {
     expect(saved()).toHaveClass('MuiButton-contained');
     // `success.dark`: white text on it passes AA.
     expect(getComputedStyle(saved()).backgroundColor).toBe('rgb(46, 125, 50)');
+    // Text only: no checkmark icon.
+    expect(saved().querySelector('svg')).toBeNull();
     act(() => {
       store.dispatch(setRecentJobsLevel(['entry']));
     });

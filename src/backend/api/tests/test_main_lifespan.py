@@ -366,3 +366,57 @@ class TestLifespanCompanyProfilesSeedFailureGuard:
         mock_apply.assert_called_once()
         mock_init.assert_called_once()
         mock_seed.assert_called_once()
+
+
+class TestLifespanCompanyCategoriesSeedFailureGuard:
+    """The company-categories seed (`seed_company_categories`) reads a committed
+    JSON file and validates it, so it can raise ValueError (bad data),
+    JSONDecodeError or OSError as well as psycopg2.Error. Like the profiles
+    seed, it sits behind a broad `except Exception`: a bad file must keep the
+    last-good rows and let the app boot, never crash-loop it.
+    """
+
+    def _fake_get_db(self):
+        from unittest.mock import MagicMock
+        def _gen():
+            yield MagicMock()
+        return _gen()
+
+    @pytest.mark.parametrize(
+        "error",
+        [
+            ValueError("company categories: duplicate slug 'big_tech'"),
+            psycopg2.OperationalError("connection dropped"),
+            OSError("file not found"),
+        ],
+    )
+    def test_seed_failure_does_not_prevent_app_boot(self, error):
+        fake_procrastinate = _make_fake_procrastinate()
+        async def _fake_ensure_schema(app):
+            pass
+
+        with patch(
+            "api.services.company_categories.seed_company_categories",
+            side_effect=error,
+        ) as mock_seed, \
+             patch(
+                 "api.services.companies_seed.seed_company_profiles",
+             ) as mock_profiles, \
+             patch(
+                 "api.dependencies.get_db",
+                 side_effect=lambda: self._fake_get_db(),
+             ), \
+             patch.object(api_main, "apply_alembic_migrations_with_retry") as mock_apply, \
+             patch.object(api_main, "init_pool") as mock_init, \
+             patch.object(api_main, "close_pool"), \
+             patch.object(api_main, "procrastinate_app", new=fake_procrastinate), \
+             patch.object(api_main, "ensure_schema_async", new=_fake_ensure_schema), \
+             patch("api.services.auto_scraper.auto_scraper_loop", new=_noop_coro):
+            with TestClient(api_main.app) as client:
+                resp = client.get("/health")
+                assert resp.status_code in (200, 503)
+
+        mock_apply.assert_called_once()
+        mock_init.assert_called_once()
+        mock_profiles.assert_called_once()
+        mock_seed.assert_called_once()

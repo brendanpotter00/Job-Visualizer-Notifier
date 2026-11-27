@@ -81,3 +81,30 @@ describe('validateSavedFilters — the subcategory widening', () => {
     expect(() => validateSavedFilters('nope')).toThrow(/body is not an object/);
   });
 });
+
+describe('validateSavedFilters — companyCategory (absence is the signal)', () => {
+  it('leaves an absent key ABSENT, not normalized (older backend)', () => {
+    const out = validateSavedFilters(LEGACY_PAYLOAD);
+    expect(out).not.toHaveProperty('companyCategory');
+    expect(out.companyCategory).toBeUndefined();
+  });
+
+  it('passes a present array through, [] included', () => {
+    expect(
+      validateSavedFilters({ ...LEGACY_PAYLOAD, companyCategory: ['big_tech'] }).companyCategory
+    ).toEqual(['big_tech']);
+    expect(validateSavedFilters({ ...LEGACY_PAYLOAD, companyCategory: [] }).companyCategory).toEqual(
+      []
+    );
+  });
+
+  it.each([
+    ['null', null],
+    ['a bare string', 'big_tech'],
+    ['a non-string member', [1]],
+  ])('rejects %s', (_label, value) => {
+    expect(() => validateSavedFilters({ ...LEGACY_PAYLOAD, companyCategory: value })).toThrow(
+      /companyCategory must be a string array/
+    );
+  });
+});

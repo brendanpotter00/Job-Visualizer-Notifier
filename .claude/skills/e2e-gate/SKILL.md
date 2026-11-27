@@ -44,6 +44,7 @@ attempts this itself but a pre-set `PATH` wins.
 | `subcategories` | `sections/subcategories.md` — $0, unconditionally |
 | `billing` | `sections/billing.md` — $0, Stripe sandbox; needs `stripe login`, local-only |
 | `onboarding` | `sections/onboarding.md` — $0, unconditionally; first-sign-in questions |
+| `company-categories` | `sections/company-categories.md` — $0, unconditionally; the Company type filter |
 | `enricher` | `sections/enricher.md` — $0, unconditionally (stub model); `--enricher-ref <ref>` tests another version |
 | `enricher-cutover` | `sections/enricher-cutover.md` — $0, no network, no stack; sandboxed cutover + watcher; also in CI |
 
@@ -64,7 +65,8 @@ with a line saying so.
 **The lock is per-STACK, not global.** `subcategories` owns a different stack (`:8203`/`:3203`,
 its own database) and takes a lock keyed on its own section name, so it can run **alongside**
 the add-companies gate — it will only refuse a second copy of itself. `billing` (`:8204`/`:3204`),
-`onboarding` (`:8205`/`:3205`), `enricher` and `enricher-cutover` work the same way.
+`onboarding` (`:8205`/`:3205`), `company-categories` (`:8208`/`:3208`), `enricher` and
+`enricher-cutover` work the same way.
 
 ## What green means
 

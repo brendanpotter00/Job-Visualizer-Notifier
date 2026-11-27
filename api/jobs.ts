@@ -37,6 +37,9 @@ const REPEATABLE_PARAMS = [
   'subcategory',
   'level',
   'company',
+  // Same silent failure as `subcategory`: drop it here and a Company type
+  // selection comes back as an unfiltered 200.
+  'company_category',
   'location',
   'include',
   'exclude',

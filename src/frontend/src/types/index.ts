@@ -268,6 +268,16 @@ export interface SavedFilters {
    * flows through both.
    */
   subcategory: string[];
+  /**
+   * Company-category ("company type") slugs, Recent Jobs page only.
+   *
+   * OPTIONAL ON PURPOSE, and never normalized (unlike `subcategory`): ABSENT
+   * means "this backend does not know the field". An older backend 422s an
+   * unknown key on the PUT (`extra='forbid'`), so writers send it only when the
+   * GET returned it. The newer backend always sends it, `[]` included, and
+   * treats a PUT that omits it as "keep the stored value".
+   */
+  companyCategory?: string[];
   recentActiveKeywordListId: string | null;
   trendActiveKeywordListId: string | null;
 }
@@ -360,6 +370,13 @@ export interface RecentJobsFilters {
    * saved filters and chips.
    */
   subcategory?: string[];
+  /**
+   * Company-category ("company type") slugs (multi-select OR; empty/undefined =
+   * All). Recent page only: the trend page is one company. The server resolves
+   * them to member company ids; a job at a private (custom) board is hidden
+   * while this is active, because categories describe the public roster only.
+   */
+  companyCategory?: string[];
 }
 /**
  * One dropdown option from GET /api/jobs/facets
@@ -393,6 +410,13 @@ export interface JobFacets {
    * carries the key even when the response did not.
    */
   subcategories?: FacetOption[];
+  /**
+   * Company categories ("company types"), in display order. OPTIONAL on the
+   * wire: an older backend omits it. `getFacets` passes it through only when it
+   * is an array; consumers go through `companyCategoryOptions`, which falls back
+   * to the bundled list when it is missing or empty.
+   */
+  companyCategories?: FacetOption[];
 }
 
 /**

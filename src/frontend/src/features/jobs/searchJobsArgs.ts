@@ -131,6 +131,7 @@ export function buildSearchJobsArgs({
     // cache entries.
     subcategory: normalizeList(filters.subcategory),
     level: normalizeList(filters.level),
+    companyCategory: normalizeList(filters.companyCategory),
     locations: normalizeList(filters.location),
     include: normalizeList(includeTerms),
     exclude: normalizeList(excludeTerms),
@@ -144,7 +145,7 @@ export function buildSearchJobsArgs({
  *
  * Multi-value filters are REPEATED params, not comma-joined: canonical location
  * names ("Austin, TX, US") and free-text keywords contain commas, so a joined
- * scalar could not be split back apart unambiguously. One convention for all seven
+ * scalar could not be split back apart unambiguously. One convention for all eight
  * beats two conventions split by which values happen to be comma-free.
  *
  * Spaces are `%20`, not `+`. `URLSearchParams` emits `+`, which is correct for
@@ -160,6 +161,7 @@ export function buildSearchJobsQuery(args: SearchJobsArgs, cursor: string | null
   for (const value of args.category ?? []) params.append('category', value);
   for (const value of args.subcategory ?? []) params.append('subcategory', value);
   for (const value of args.level ?? []) params.append('level', value);
+  for (const value of args.companyCategory ?? []) params.append('company_category', value);
   for (const value of args.locations ?? []) params.append('location', value);
   for (const value of args.include ?? []) params.append('include', value);
   for (const value of args.exclude ?? []) params.append('exclude', value);

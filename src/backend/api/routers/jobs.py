@@ -27,6 +27,7 @@ from ..pagination import (
 from ..services.database import get_jobs, get_job_by_id
 from ..services.app_settings import get_public_settings
 from ..services.enrichment_monitor import get_facets
+from ..services.company_categories import list_company_category_facets
 
 router = APIRouter()
 
@@ -304,6 +305,11 @@ def list_facets(conn: Connection = Depends(get_db)) -> JobFacetsResponse:
         # client normalizes a MISSING key to `[]`, so an older backend and a
         # phase-1 backend both render the same flat dropdown.
         subcategories=[FacetOption(**row) for row in data.get("subcategories", [])],
+        # Read separately from the enrichment taxonomy: a separate seed, and a
+        # missing table or failed read yields [] instead of a 500.
+        company_categories=[
+            FacetOption(**row) for row in list_company_category_facets(conn)
+        ],
     )
 
 

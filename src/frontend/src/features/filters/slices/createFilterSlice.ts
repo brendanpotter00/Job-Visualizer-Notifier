@@ -1,4 +1,4 @@
-import { createSlice, PayloadAction } from '@reduxjs/toolkit';
+import { createSlice, PayloadAction, type CaseReducer } from '@reduxjs/toolkit';
 import type {
   GraphFilters,
   ListFilters,
@@ -54,6 +54,15 @@ export interface FiltersState<T extends Filters> {
 }
 
 /**
+ * A reducer only one slice has. Every one today is a multi-select setter, so
+ * the payload is a slug list; widen this type when one is not.
+ */
+export type SliceOnlyListReducer<T extends Filters> = CaseReducer<
+  FiltersState<T>,
+  PayloadAction<string[] | undefined>
+>;
+
+/**
  * Capitalize first letter of string
  */
 function capitalize(str: string): string {
@@ -77,9 +86,17 @@ function capitalize(str: string): string {
  *
  * @param name - 'graph', 'list', or 'recentJobs'
  * @param initialFilters - Initial filter values
+ * @param sliceReducers - Reducers only this slice has (e.g. the Recent page's
+ *   company type), merged in beside the generated ones. They are EDIT actions,
+ *   so the `userModified` matcher below covers them by prefix for free. A
+ *   NON-edit one would have to be added to `nonEditTypes` (see the invariant).
  * @returns Redux Toolkit slice with all filter actions
  */
-export function createFilterSlice<T extends Filters>(name: FilterSliceName, initialFilters: T) {
+export function createFilterSlice<T extends Filters>(
+  name: FilterSliceName,
+  initialFilters: T,
+  sliceReducers: Record<string, SliceOnlyListReducer<T>> = {}
+) {
   const capitalizedName = capitalize(name);
 
   const initialState: FiltersState<T> = {
@@ -199,6 +216,9 @@ export function createFilterSlice<T extends Filters>(name: FilterSliceName, init
       [`set${capitalizedName}Hydrated`]: (state, action: PayloadAction<boolean>) => {
         state.hydrated = action.payload;
       },
+
+      // Slice-only reducers (see the `sliceReducers` param).
+      ...sliceReducers,
 
       // Reset (1 action). With no payload: back to the initial filters (the site
       // defaults). With a patch: the initial filters, then the patch on top. That

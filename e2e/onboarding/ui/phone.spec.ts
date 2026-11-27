@@ -120,8 +120,14 @@ test.describe('OB-U10 phone', () => {
 
     dialog = await expectQuestion(page, 2);
     await tapKeepsWidth(page, chip(dialog, HEADLINE_LABELS.place), 'San Francisco place chip');
-    await expectFooterReachable(page, dialog, 'Show my jobs', 'Q3');
+    await expectFooterReachable(page, dialog, 'Continue', 'Q3');
     await shot(page, 'OB-U10', '03-places');
+    await button(dialog, 'Continue').tap();
+
+    dialog = await expectQuestion(page, 3);
+    await tapKeepsWidth(page, chip(dialog, HEADLINE_LABELS.companyType), 'Big Tech company type chip');
+    await expectFooterReachable(page, dialog, 'Show my jobs', 'Q4');
+    await shot(page, 'OB-U10', '04-companies');
     await button(dialog, 'Show my jobs').tap();
     await expect(questions(page)).toHaveCount(0);
 
@@ -136,7 +142,7 @@ test.describe('OB-U10 phone', () => {
       expect(toastBox.y, 'the toast covers the app bar').toBeGreaterThanOrEqual(bar.y + bar.height);
       expect(toastBox.x + toastBox.width, 'the toast runs off the screen').toBeLessThanOrEqual(PHONE.width);
     }
-    await shot(page, 'OB-U10', '04-landed');
+    await shot(page, 'OB-U10', '05-landed');
 
     await expectJobs(page, CORPUS.headline.expectedKeys, 'OB-U10 with the headline answers');
     await expectStamped(me, 'OB-U10 after "Show my jobs"');

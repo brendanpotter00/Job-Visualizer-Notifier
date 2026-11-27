@@ -9,8 +9,10 @@ Writes, in order:
    existed at deploy time (OB-09 / OB-U9);
 3. the reveal flag `app_settings.swe_subcategories_enabled = true` — the
    Software Engineering specialties only exist in the questions with it on;
-4. the five-row job corpus from `fixtures.py`, tagged with real canonical
-   location ids so the Location answer filters the list for real.
+4. the six-row job corpus from `fixtures.py`, tagged with real canonical
+   location ids so the Location answer filters the list for real. Five rows are
+   at Google (a real Big Tech member, so question 4 filters for real) and one at
+   the section's own company, which is in no company type.
 
 RAW SQL, for the reason `subcategories/seed.py` gives: the rows are this
 section's INPUT, not its subject. The subject — the `users` stamp and the saved
@@ -82,6 +84,17 @@ def _reseed_jobs(cur: Any) -> None:
         """,
         (fixtures.COMPANY_ID, fixtures.COMPANY_NAME, fixtures.COMPANY_ID),
     )
+    # The boot seed registers Google as a `script` company (never scraped);
+    # this only covers a seed run before the backend ever booted on this DB.
+    # DO NOTHING: never rewrite a row the product owns.
+    cur.execute(
+        """
+        INSERT INTO companies (id, display_name, ats, board_token, enabled, created_at)
+        VALUES (%s, %s, 'script', %s, TRUE, now())
+        ON CONFLICT (id) DO NOTHING
+        """,
+        (fixtures.BIG_TECH_COMPANY_ID, fixtures.BIG_TECH_COMPANY_NAME, fixtures.BIG_TECH_COMPANY_ID),
+    )
     keys = [job.key for job in fixtures.JOBS]
     for table, key in _CHILD_TABLES:
         cur.execute("SELECT to_regclass(%s) AS oid", (table,))
@@ -118,7 +131,7 @@ def _reseed_jobs(cur: Any) -> None:
             {
                 "id": job.key,
                 "title": job.title,
-                "company": fixtures.COMPANY_ID,
+                "company": job.company,
                 "raw_location": job.raw_location,
                 "url": f"https://example.invalid/{fixtures.SOURCE_ID}/{job.key}",
                 "source_id": fixtures.SOURCE_ID,
@@ -181,11 +194,38 @@ def _assert_schema_has_the_stamp(cur: Any) -> None:
         )
 
 
+def _assert_company_types_seeded(cur: Any) -> None:
+    """Question 4 filters through `company_category_members`, which the
+    backend seeds from `company_categories.json` on boot. Check the fixture's
+    assumption (Google is Big Tech, the section's own company is in nothing)
+    against what the backend really holds, so a drift reads as a provisioning
+    failure here rather than as a wrong list in OB-U1."""
+    cur.execute("SELECT to_regclass('company_category_members') AS oid")
+    if cur.fetchone()["oid"] is None:
+        raise AssertionError(
+            "company_category_members does not exist: the clone is behind the company "
+            "categories migration. Re-run against this branch's backend (it upgrades on boot)."
+        )
+    for company, expected in fixtures.COMPANY_TYPES.items():
+        cur.execute(
+            "SELECT category_slug FROM company_category_members WHERE company_id = %s",
+            (company,),
+        )
+        got = {r["category_slug"] for r in cur.fetchall()}
+        if got != expected:
+            raise AssertionError(
+                f"the backend puts {company!r} in company types {sorted(got)}, the fixtures "
+                f"assume {sorted(expected)}. Update fixtures.COMPANY_TYPES (or the boot seed "
+                "has not run yet)."
+            )
+
+
 def reseed(dsn: str = identities.DEFAULT_DSN) -> dict[str, int]:
     conn = db.connect(dsn)
     try:
         with conn.cursor() as cur:
             _assert_schema_has_the_stamp(cur)
+            _assert_company_types_seeded(cur)
         purged = identities.purge(conn)
         with conn.cursor() as cur:
             _seed_preexisting(cur)

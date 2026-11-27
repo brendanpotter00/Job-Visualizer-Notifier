@@ -156,6 +156,7 @@ def state(conn: Any, ident: Identity) -> dict[str, Any]:
             "subcategory": sf["subcategory"],
             "level": sf["level"],
             "locations": sf["locations"],
+            "companyCategory": sf.get("company_category"),
             "recentActiveKeywordListId": sf["recent_active_keyword_list_id"],
             "trendActiveKeywordListId": sf["trend_active_keyword_list_id"],
         }

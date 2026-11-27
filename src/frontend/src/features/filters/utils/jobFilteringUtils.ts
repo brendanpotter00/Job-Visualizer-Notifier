@@ -14,6 +14,7 @@ import {
   SUBCATEGORY_PARENT_SLUG,
 } from '../../../constants/enrichment.ts';
 import { US_STATE_NAME_TO_CODE, stripUsSuffix } from '../../../lib/location.ts';
+import { companyIdsInCategories } from '../../../config/companyCategories.ts';
 
 /**
  * Shared utility functions for job filtering logic.
@@ -491,6 +492,12 @@ export function filterJobsByFilters(
   if (locationCatalog) {
     mergeCatalogIntoIndex(locationIndex, locationCatalog);
   }
+  // Company type is a Recent-only field (the graph/list shapes do not carry
+  // it). The job's company must be a member of ANY selected category, resolved
+  // to member ids once, not per job. Client-side only for demo mode: the live
+  // Recent page is server-filtered (`company_category` on `/api/jobs/search`).
+  const companyCategory = 'companyCategory' in filters ? filters.companyCategory : undefined;
+  const companyTypeIds = companyCategory?.length ? companyIdsInCategories(companyCategory) : null;
 
   return jobs.filter((job: Job) => {
     // Time window filter (recency = when we first saw the job, not ATS posted date)
@@ -526,6 +533,9 @@ export function filterJobsByFilters(
       return false;
     }
     if (!matchesLevel(job, filters.level)) {
+      return false;
+    }
+    if (companyTypeIds && !companyTypeIds.has(job.company)) {
       return false;
     }
 
