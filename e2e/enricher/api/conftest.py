@@ -81,6 +81,10 @@ def pytest_configure(config: pytest.Config) -> None:
     config.addinivalue_line(
         "markers", "v7: needs the v7 enricher (subcategories); deselected for a pre-v7 --enricher-ref"
     )
+    config.addinivalue_line(
+        "markers",
+        "scoped_reenrich: needs `reenrich --title-regex`; deselected for an --enricher-ref without it",
+    )
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:

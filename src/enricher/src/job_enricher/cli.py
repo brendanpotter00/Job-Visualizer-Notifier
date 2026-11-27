@@ -1851,42 +1851,114 @@ REENRICH_CONFIRM_THRESHOLD = 500
 
 
 def _cmd_reenrich(args: argparse.Namespace) -> int:
-    """Re-queue rows whose taxonomy_version is strictly BELOW the given
-    'v<N>+<hash>' (smaller declared N). Rows at the same N with a different
-    hash are NOT below (hashes are unordered) — they are warned and left
-    alone. Unversioned rows count as below.
+    """Re-queue enriched rows for a fresh classify, chosen by one or both of two
+    selectors (ANDed when both are given):
+
+      * ``--taxonomy-below v<N>+<hash>`` — rows whose taxonomy_version is
+        strictly BELOW it (smaller declared N). Rows at the same N with a
+        different hash are NOT below (hashes are unordered) — they are warned
+        and left alone. Unversioned rows count as below.
+      * ``--title-regex RE`` — rows whose title matches RE (case-insensitive),
+        optionally narrowed by ``--title-exclude RE`` and ``--category SLUG``
+        (the row's CURRENT local category; repeatable). This is the scoped
+        backfill path: a rubric-only edit moves the hash and not the declared N,
+        so ``--taxonomy-below`` can never pick it up, and bumping N to make it
+        do so would re-queue the whole corpus. A title-selected row must still
+        have a cleaned inbox row to go back to; one without is skipped, never
+        deleted.
 
     THIS COMMAND IS DESTRUCTIVE AND HAS NO UNDO: it DELETEs the enrichment row
     and flips inbox.status back to 'cleaned' so the row is re-classified from
     scratch. Three guards, all added after the v7 bump made an unguarded run a
     corpus-wide event:
       * `--dry-run` counts and prints, mutating NOTHING (do this first, always);
+        with a title selector it also lists every matched row;
       * above REENRICH_CONFIRM_THRESHOLD matched rows it REFUSES unless
         `--yes-i-mean-all` is passed;
       * `--limit` bounds how many rows are actually reset.
     """
-    if _TAXONOMY_VERSION_RE.match(args.taxonomy_below) is None:
+    below = getattr(args, "taxonomy_below", None)
+    title_regex = getattr(args, "title_regex", None)
+    title_exclude = getattr(args, "title_exclude", None)
+    categories = set(getattr(args, "category", None) or [])
+    if below is None and title_regex is None:
         print(
-            f"reenrich: --taxonomy-below must look like 'v<N>+<hash>' "
-            f"(e.g. v2+3f9a1c2b8e04), got {args.taxonomy_below!r}",
+            "reenrich: give --taxonomy-below and/or --title-regex — refusing to "
+            "select rows by --category/--title-exclude alone",
             file=sys.stderr,
         )
         return 2
+    if title_regex is not None and not title_regex.strip():
+        # An empty pattern matches every title, i.e. no title filter at all.
+        print("reenrich: --title-regex is empty — it would match every row", file=sys.stderr)
+        return 2
+    if below is not None and _TAXONOMY_VERSION_RE.match(below) is None:
+        print(
+            f"reenrich: --taxonomy-below must look like 'v<N>+<hash>' "
+            f"(e.g. v2+3f9a1c2b8e04), got {below!r}",
+            file=sys.stderr,
+        )
+        return 2
+    try:
+        include = re.compile(title_regex, re.IGNORECASE) if title_regex else None
+        exclude = re.compile(title_exclude, re.IGNORECASE) if title_exclude else None
+    except re.error as exc:
+        print(f"reenrich: invalid title regex: {exc}", file=sys.stderr)
+        return 2
+    unknown = sorted(categories - set(tax.CATEGORIES))
+    if unknown:
+        print(f"reenrich: unknown --category {', '.join(unknown)}", file=sys.stderr)
+        return 2
+    by_title = include is not None
+    selector = " and ".join(
+        part
+        for part in (
+            f"taxonomy below {below!r}" if below is not None else "",
+            f"title ~ {title_regex!r}" if by_title else "",
+            f"title !~ {title_exclude!r}" if exclude is not None else "",
+            f"category in {sorted(categories)}" if categories else "",
+        )
+        if part
+    )
     limit = getattr(args, "limit", None)
     store = Store()
     with store.connect() as conn:
         rows = conn.execute(
-            "SELECT job_listing_id, source_id, taxonomy_version FROM enrichments"
+            "SELECT e.job_listing_id, e.source_id, e.taxonomy_version, e.category, "
+            "i.title, i.clean_description IS NOT NULL AS requeueable "
+            "FROM enrichments e LEFT JOIN inbox i "
+            "ON i.source_id = e.source_id AND i.job_listing_id = e.job_listing_id"
         ).fetchall()
-        matched = [
-            r for r in rows if _version_below(r["taxonomy_version"], args.taxonomy_below)
-        ]
+
+        def _selected(r: Any) -> bool:
+            if below is not None and not _version_below(r["taxonomy_version"], below):
+                return False
+            if by_title:
+                title = r["title"] or ""
+                if not include.search(title):
+                    return False
+                if exclude is not None and exclude.search(title):
+                    return False
+            if categories and r["category"] not in categories:
+                return False
+            return True
+
+        matched = [r for r in rows if _selected(r)]
+        skipped: list[Any] = []
+        if by_title:
+            skipped = [r for r in matched if not r["requeueable"]]
+            matched = [r for r in matched if r["requeueable"]]
         # COUNT FIRST, ALWAYS — the count is computed before a single mutation so
         # both the dry run and the refusal below see the true blast radius.
-        print(
-            f"reenrich: {len(matched)} rows match taxonomy below "
-            f"{args.taxonomy_below!r} (of {len(rows)} enrichments)"
-        )
+        print(f"reenrich: {len(matched)} rows match {selector} (of {len(rows)} enrichments)")
+        if skipped:
+            print(
+                f"reenrich: {len(skipped)} more match but have no cleaned inbox row "
+                f"to re-queue — left alone"
+            )
+        if by_title:
+            for r in matched:
+                print(f"  {r['source_id']}\t{r['job_listing_id']}\t{r['category']}\t{r['title']}")
         if getattr(args, "dry_run", False):
             print("reenrich: --dry-run — nothing was modified")
             return 0
@@ -1915,7 +1987,7 @@ def _cmd_reenrich(args: argparse.Namespace) -> int:
                 (r["source_id"], r["job_listing_id"]),
             )
             target += 1
-    print(f"reenrich: reset {target} rows below taxonomy {args.taxonomy_below!r}")
+    print(f"reenrich: reset {target} rows matching {selector}")
     return 0
 
 
@@ -3089,10 +3161,24 @@ def build_parser() -> argparse.ArgumentParser:
 
     rn = subs.add_parser(
         "reenrich",
-        help="manually re-queue rows whose taxonomy version is strictly below "
-             "v<N>+<hash> (smaller declared N; same-N different-hash is NOT below)",
+        help="manually re-queue enriched rows for a fresh classify: by taxonomy "
+             "version strictly below v<N>+<hash> (smaller declared N; same-N "
+             "different-hash is NOT below) and/or by title pattern + current category",
     )
-    rn.add_argument("--taxonomy-below", required=True)
+    rn.add_argument("--taxonomy-below", default=None)
+    rn.add_argument(
+        "--title-regex", default=None,
+        help="select rows whose title matches this regex (case-insensitive) — "
+             "the scoped backfill path after a rubric-only change",
+    )
+    rn.add_argument(
+        "--title-exclude", default=None,
+        help="drop rows whose title matches this regex (case-insensitive)",
+    )
+    rn.add_argument(
+        "--category", action="append", default=None,
+        help="only rows whose CURRENT local category is this slug (repeatable)",
+    )
     rn.add_argument(
         "--dry-run", action="store_true",
         help="print the matched count and exit WITHOUT modifying anything",

@@ -18,7 +18,7 @@ real backend endpoints, a real Postgres — with only the model weights replaced
 
 | | |
 |---|---|
-| **Run it** | `e2e/run.sh enricher` (measured 60 s, 16 cases) · `--fast` (27 s, 7 cases) · `--enricher-ref enricher-prod-eeff1c9` (51 s, 12 cases) |
+| **Run it** | `e2e/run.sh enricher` (17 cases; latest timing in `CASES.md`) · `--fast` (27 s, 7 cases) · `--enricher-ref enricher-prod-eeff1c9` (51 s, 12 cases) |
 | **Cost** | **$0, unconditionally.** The model is a stub on loopback. No `claude`, no real ollama, no Browserbase, a blank Anthropic key on the backend. |
 | **Ports** | backend `8207`, kill-switch backend `8206` (EN-08 only), stub model `8215`. No frontend. |
 | **Database** | **its own** — `jobscraper_e2e_enricher`, schema-only, plus a drift repair (§4) |

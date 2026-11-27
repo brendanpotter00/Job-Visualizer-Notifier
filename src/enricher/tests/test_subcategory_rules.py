@@ -287,7 +287,7 @@ def test_the_committed_weak_artifact_row_set_equals_the_gold_swe_pool():
     }
     got = {(p["source_id"], p["job_listing_id"]) for p in art["predictions"]}
     assert got == swe
-    assert art["n"] == len(swe) == 135
+    assert art["n"] == len(swe) == 156
 
 
 def test_the_committed_weak_artifact_reproduces_from_the_current_rules():

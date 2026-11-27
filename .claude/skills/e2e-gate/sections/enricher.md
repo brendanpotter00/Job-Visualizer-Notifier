@@ -65,6 +65,7 @@ fails because of a bug there, the case is doing its job — **report it; never b
 | **EN-07** | re-delivery changes nothing | `snapshot-1.json` vs `snapshot-2.json` in the case dir — the first differing key is the non-idempotent write |
 | **EN-08** | kill switch claims nothing | `killswitch-backend.log` in the case dir if the second backend did not come up (port 8206 busy?) |
 | **EN-09** | (v7) knob off → NULL not `'{}'`; on → SWE rows only | `'{}'` with the knob off means the write-back started sending the key when it should omit it (`writeback._row_to_result`) |
+| **EN-11** | (scoped reenrich) the FDE backfill: only the selected rows re-classify; JVN takes the new category on `done` and CLOSED rows; subcategory ships only via knob + drain | A look-alike or the SWE row in `ids_seen` means `--title-exclude`/`--category` stopped filtering (`cli._cmd_reenrich`). A CLOSED row still `business_ops` means JVN's writer started filtering on status (`services/enrichment_writer.py`) — the runbook's "history is corrected too" is then false |
 | **EN-10** | every model call hit the stub; nothing left the sandbox | A count mismatch names both numbers. A dev-tree change means something wrote `src/enricher/data` — the sandbox leaked (proven to bite, PLAN.md §6) |
 
 ## Reading a red

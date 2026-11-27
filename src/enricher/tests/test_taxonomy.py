@@ -184,9 +184,12 @@ def test_validate_facets_arity_is_unchanged():
 #   +5,041  main's MTS work (#21) — sections 1, 2 and 6, which this branch only
 #           inherited at the rebase onto `main`.
 #     +579  the 15 -> 17 subcategory widening: two §1b table rows and two rails.
+#   +1,996  the Forward Deployed Engineer correction — section 1's FDE and
+#           FDE-look-alike tie-breakers plus two quick-mapping entries (34,072 ->
+#           36,068). Category rules, not §1b creep: the §1b row grew by 46.
 # ⚠ Still the same rule: if this goes red, move the detail to SUBCATEGORIES.md.
 # Raise it only after re-measuring AND naming what legitimately grew.
-SKILL_MD_MAX_CHARS = 34_500
+SKILL_MD_MAX_CHARS = 36_500
 
 
 class TestRubricSplit:

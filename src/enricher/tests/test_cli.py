@@ -1247,6 +1247,121 @@ def test_reenrich_leaves_same_n_different_hash_alone_and_warns(store, monkeypatc
     assert "different" in caplog.text
 
 
+# ---- reenrich by title + category: the scoped backfill path --------------------
+# WHY: a rubric-only edit (the FDE correction) moves the hash and NOT the declared
+# N, so --taxonomy-below can never re-queue the rows it mislabelled, and bumping N
+# would re-queue the whole corpus. The title selector re-queues just those rows.
+
+_FDE_RE = r"forward[\s-]?deploy|\bFDE\b"
+_LOOKALIKE_RE = r"strateg|program|recruit|engagement"
+
+
+def _seed_titled(store, jid, title, category, clean=True):
+    row = _inbox_row(jid)
+    row["title"] = title
+    store.enqueue_inbox([row])
+    if clean:
+        store.record_clean("greenhouse", jid, "clean " + jid)
+    store.record_enrichment({
+        "job_listing_id": jid, "source_id": "greenhouse", "category": category,
+        "level": "mid", "level_includes": "[]", "tags": "[]", "locations": "[]",
+        "classify_confidence": 0.9, "classify_reasoning": "r",
+        "taxonomy_version": "v7+cur", "needs_human": False,
+    })
+
+
+def _seed_fde_corpus(store):
+    _seed_titled(store, "1", "Forward Deployed Engineer", "business_ops")       # the bug
+    _seed_titled(store, "2", "FDE Lead, NYC", "business_ops")                   # FDE manager
+    _seed_titled(store, "3", "Forward Deployed Strategist", "business_ops")     # look-alike
+    _seed_titled(store, "4", "Forward Deployed Engineer", "software_engineering")  # already right
+    _seed_titled(store, "5", "Senior Backend Engineer", "business_ops")         # unrelated
+
+
+def _title_args(**kw):
+    base = dict(
+        taxonomy_below=None, title_regex=_FDE_RE, title_exclude=_LOOKALIKE_RE,
+        category=["business_ops"], dry_run=False, yes_i_mean_all=False, limit=None,
+    )
+    base.update(kw)
+    return argparse.Namespace(**base)
+
+
+def _enriched_ids(store):
+    with store.connect() as c:
+        return sorted(r[0] for r in c.execute("SELECT job_listing_id FROM enrichments"))
+
+
+def test_reenrich_by_title_resets_only_matching_rows_in_the_category(store, monkeypatch):
+    _seed_fde_corpus(store)
+    monkeypatch.setattr(cli, "Store", lambda: store)
+    assert cli._cmd_reenrich(_title_args()) == 0
+    assert _enriched_ids(store) == ["3", "4", "5"]
+    with store.connect() as c:
+        status = {r[0]: r[1] for r in c.execute("SELECT job_listing_id, status FROM inbox")}
+    assert status["1"] == status["2"] == "cleaned"   # re-queued for classify
+
+
+def test_reenrich_by_title_dry_run_lists_the_rows_and_mutates_nothing(store, monkeypatch, capsys):
+    _seed_fde_corpus(store)
+    monkeypatch.setattr(cli, "Store", lambda: store)
+    assert cli._cmd_reenrich(_title_args(dry_run=True)) == 0
+    out = capsys.readouterr().out
+    assert "2 rows match" in out and "nothing was modified" in out
+    assert "Forward Deployed Engineer" in out and "FDE Lead, NYC" in out
+    assert "Strategist" not in out
+    assert _enriched_ids(store) == ["1", "2", "3", "4", "5"]
+
+
+def test_reenrich_by_title_skips_a_row_it_cannot_requeue(store, monkeypatch, capsys):
+    """Deleting the enrichment of a row with no cleaned inbox text would strand
+    it: nothing would ever classify it again. It is reported and left alone."""
+    _seed_titled(store, "1", "Forward Deployed Engineer", "business_ops", clean=False)
+    monkeypatch.setattr(cli, "Store", lambda: store)
+    assert cli._cmd_reenrich(_title_args()) == 0
+    assert "1 more match but have no cleaned inbox row" in capsys.readouterr().out
+    assert _enriched_ids(store) == ["1"]
+
+
+def test_reenrich_by_title_keeps_the_threshold_guard(store, monkeypatch, capsys):
+    _seed_fde_corpus(store)
+    monkeypatch.setattr(cli, "Store", lambda: store)
+    monkeypatch.setattr(cli, "REENRICH_CONFIRM_THRESHOLD", 1)
+    assert cli._cmd_reenrich(_title_args()) == 2
+    assert "REFUSING" in capsys.readouterr().err
+    assert _enriched_ids(store) == ["1", "2", "3", "4", "5"]
+
+
+@pytest.mark.parametrize("kw", [
+    dict(title_regex=None),                       # no selector at all
+    dict(title_regex="  "),                       # empty pattern = no filter
+    dict(title_regex="(unclosed"),                # bad regex
+    dict(category=["business"]),                  # retired / unknown slug
+])
+def test_reenrich_by_title_refuses_bad_selectors(store, monkeypatch, kw):
+    _seed_fde_corpus(store)
+    monkeypatch.setattr(cli, "Store", lambda: store)
+    assert cli._cmd_reenrich(_title_args(**kw)) == 2
+    assert _enriched_ids(store) == ["1", "2", "3", "4", "5"]
+
+
+def test_reenrich_ands_the_two_selectors(store, monkeypatch):
+    _seed_fde_corpus(store)
+    with store.connect() as c:
+        c.execute("UPDATE enrichments SET taxonomy_version='v6+old' WHERE job_listing_id='1'")
+    monkeypatch.setattr(cli, "Store", lambda: store)
+    assert cli._cmd_reenrich(_title_args(taxonomy_below="v7+cur")) == 0
+    assert _enriched_ids(store) == ["2", "3", "4", "5"]
+
+
+def test_reenrich_cli_parses_the_title_selector():
+    ns = cli.build_parser().parse_args([
+        "reenrich", "--title-regex", _FDE_RE, "--title-exclude", _LOOKALIKE_RE,
+        "--category", "business_ops", "--dry-run",
+    ])
+    assert ns.taxonomy_below is None and ns.category == ["business_ops"]
+
+
 # ---- subcategory-weak-baseline (EV-11) ----------------------------------------
 def _weak_baseline_env(tmp_path, monkeypatch, rows):
     import job_enricher.eval.golden as golden

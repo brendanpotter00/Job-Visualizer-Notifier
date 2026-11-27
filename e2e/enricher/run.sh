@@ -270,6 +270,7 @@ if ! "$PY" "$SCRIPT_DIR/sandbox.py" guard --root "$E2E_SANDBOX_ROOT" 2>&1 | tee 
 fi
 V7="$("$PY" -c "import json,sys; print(1 if json.load(open(sys.argv[1]))['v7'] else 0)" "$E2E_SANDBOX_INFO")"
 export E2E_ENRICHER_V7="$V7"
+SCOPED_REENRICH="$("$PY" -c "import json,sys; print(1 if json.load(open(sys.argv[1])).get('scoped_reenrich') else 0)" "$E2E_SANDBOX_INFO")"
 
 echo "enricher: === pytest (API tier) ==="
 PYTEST_ARGS=(-v -s --timeout=300)
@@ -282,6 +283,10 @@ fi
 if [ "$V7" != "1" ]; then
   echo "enricher: this enricher has no \`subcategory-push\` (pre-v7) — deselecting v7 cases"
   MARKS="${MARKS:+$MARKS and }not v7"
+fi
+if [ "$SCOPED_REENRICH" != "1" ]; then
+  echo "enricher: this enricher has no \`reenrich --title-regex\` — deselecting scoped_reenrich cases"
+  MARKS="${MARKS:+$MARKS and }not scoped_reenrich"
 fi
 if [ -n "$MARKS" ]; then
   PYTEST_ARGS+=(-m "$MARKS")
