@@ -1,5 +1,5 @@
 // OB-U14..OB-U17 — the default-search buttons on Recent Jobs, end to end:
-// "Save default search" (signed in: "Update default search", and a grayed-out
+// "Save default search" (signed in: "Update default search", and a solid green
 // "Default search saved" on the saved default), then "Reset to default search",
 // shown only while the filters differ from the default. There is no Reset
 // Filters and no confirmation text: the button is the confirmation.
@@ -89,7 +89,7 @@ const byName = (page: Page, name: string): Locator => page.getByRole('button', {
 const saveButton = (page: Page): Locator => byName(page, 'Save default search');
 /** Signed in, filters changed. */
 const updateButton = (page: Page): Locator => byName(page, 'Update default search');
-/** Signed in, on the saved default: the grayed-out button is the confirmation. */
+/** Signed in, on the saved default: the solid green button is the confirmation. */
 const savedButton = (page: Page): Locator => byName(page, 'Default search saved');
 const resetButton = (page: Page): Locator => byName(page, 'Reset to default search');
 const timeWindowField = (page: Page): Locator => page.getByRole('combobox', { name: 'Time Window' });
@@ -277,7 +277,7 @@ test.describe('OB-U14 signed-in default-search buttons', () => {
     expect(savedFiltersWrites(), 'OB-U14: Reset to the saved default sends nothing').toHaveLength(writesBeforeReset);
     await context.close();
 
-    // A new device: the page opens on the saved search, button grayed out.
+    // A new device: the page opens on the saved search, button solid green.
     const again = await openSignedIn(browser, me);
     const page2 = await again.newPage();
     const tracker = trackUserFetches(page2);
