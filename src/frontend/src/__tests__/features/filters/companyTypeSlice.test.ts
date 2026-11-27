@@ -8,6 +8,7 @@ import recentJobsFiltersReducer, {
 import graphFiltersReducer from '../../../features/filters/slices/graphFiltersSlice';
 import * as graphActions from '../../../features/filters/slices/graphFiltersSlice';
 import { createFilterSlice } from '../../../features/filters/slices/createFilterSlice';
+import type { RecentJobsFilters } from '../../../types';
 
 /**
  * The Recent page's company type lives on the Recent slice only. It is added
@@ -61,15 +62,12 @@ describe('setRecentJobsCompanyCategory', () => {
 
 describe('createFilterSlice slice-only reducers', () => {
   it('are merged beside the generated ones and covered by the userModified matcher', () => {
-    const slice = createFilterSlice(
-      'recentJobs',
-      { timeWindow: 'all', softwareOnly: false },
-      {
-        setRecentJobsThing: (state, action) => {
-          state.filters.category = action.payload;
-        },
-      }
-    );
+    const initial: RecentJobsFilters = { timeWindow: 'all', softwareOnly: false };
+    const slice = createFilterSlice('recentJobs', initial, {
+      setRecentJobsThing: (state, action) => {
+        state.filters.category = action.payload;
+      },
+    });
     expect(slice.actions).toHaveProperty('setRecentJobsThing');
     expect(slice.actions).toHaveProperty('setRecentJobsLevel');
     const state = slice.reducer(slice.getInitialState(), {
