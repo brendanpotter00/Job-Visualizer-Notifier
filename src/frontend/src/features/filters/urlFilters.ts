@@ -21,9 +21,23 @@
 import type { RecentJobsFilters, SearchTag, TimeWindow } from '../../types';
 import { TIME_WINDOW_DURATIONS } from '../../constants/time';
 import { canAddSearchTag } from '../../constants/tags';
+import { ROUTES } from '../../config/routes';
+
+/**
+ * The company-type param. Reads like the "Company type" label; the endpoint
+ * spells the same filter `company_category`, after the data model.
+ */
+export const COMPANY_TYPE_PARAM = 'company_type';
 
 /** Every param this module owns. Anything else in the URL is left alone. */
-export const FILTER_PARAMS = ['time', 'category', 'level', 'location', 'tag'] as const;
+export const FILTER_PARAMS = [
+  'time',
+  'category',
+  'level',
+  COMPANY_TYPE_PARAM,
+  'location',
+  'tag',
+] as const;
 
 /**
  * The endpoint's own per-dimension caps, mirrored — see
@@ -43,7 +57,8 @@ export const MAX_URL_LOCATIONS = 100;
 export const MAX_URL_LOCATION_LENGTH = 200;
 
 /**
- * Mirrors the endpoint's `_CATEGORY_RE` / `_LEVEL_RE` (`\A[a-z_]{1,40}\Z`).
+ * Mirrors the endpoint's `_CATEGORY_RE` / `_LEVEL_RE` / `_COMPANY_CATEGORY_RE`
+ * (`\A[a-z_]{1,40}\Z`).
  * A slug that cannot match is dropped on the way in rather than 422-ing every
  * search for the visit.
  */
@@ -154,6 +169,13 @@ export function parseFiltersFromSearch(search: string): Partial<RecentJobsFilter
   const level = params.getAll('level').filter(isFacetSlug).slice(0, MAX_URL_FACET_VALUES);
   if (level.length) filters.level = level;
 
+  // Same shape and cap as `category` (the endpoint caps `company_category` at 20
+  // too). Deduped: the landing cards and a hand-edited link can both repeat one.
+  const companyCategory = [
+    ...new Set(params.getAll(COMPANY_TYPE_PARAM).filter(isFacetSlug)),
+  ].slice(0, MAX_URL_FACET_VALUES);
+  if (companyCategory.length) filters.companyCategory = companyCategory;
+
   // Locations are free text (canonical names like "Austin, TX, US"), so there is
   // no pattern to check — only the endpoint's length bound.
   const location = params
@@ -202,9 +224,20 @@ export function buildSearchFromFilters(
   if (filters.timeWindow && filters.timeWindow !== 'all') params.set('time', filters.timeWindow);
   for (const value of filters.category ?? []) params.append('category', value);
   for (const value of filters.level ?? []) params.append('level', value);
+  for (const value of filters.companyCategory ?? []) params.append(COMPANY_TYPE_PARAM, value);
   for (const value of filters.location ?? []) params.append('location', value);
   for (const tag of filters.searchTags ?? []) params.append('tag', encodeTag(tag));
 
   const rendered = params.toString();
   return rendered ? `?${rendered}` : '';
+}
+
+/**
+ * Recent Job Postings, already filtered to one company type. The landing
+ * page's category cards link here.
+ */
+export function recentJobsHrefForCompanyType(slug: string): string {
+  const params = new URLSearchParams();
+  params.set(COMPANY_TYPE_PARAM, slug);
+  return `${ROUTES.RECENT_JOBS}?${params.toString()}`;
 }

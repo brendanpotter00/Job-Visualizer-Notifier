@@ -13,12 +13,14 @@ import {
   setRecentJobsCategory,
   setRecentJobsLevel,
   setRecentJobsSubcategory,
+  setRecentJobsCompanyCategory,
 } from '../../features/filters/slices/recentJobsFiltersSlice.ts';
 import { selectRecentJobsFilters } from '../../features/filters/selectors/recentJobsSelectors.ts';
 import { useGetFacetsQuery } from '../../features/jobs/jobsApi.ts';
 import { FALLBACK_CATEGORIES, FALLBACK_LEVELS } from '../../constants/enrichment.ts';
+import { companyCategoryOptions } from '../../config/companyCategories.ts';
 import { useSubcategoryRevealEnabled } from '../../features/settings/subcategoryReveal.tsx';
-// FacetMultiSelect STAYS — it still backs the Level control below.
+// FacetMultiSelect backs the Level and Company type controls below.
 import { FacetMultiSelect } from '../shared/filters/FacetMultiSelect.tsx';
 import { FacetTreeMultiSelect } from '../shared/filters/FacetTreeMultiSelect.tsx';
 import { KeywordFilterInput } from '../shared/filters/KeywordFilterInput.tsx';
@@ -29,7 +31,7 @@ import { AsyncMultiSelectAutocomplete } from '../shared/filters/AsyncMultiSelect
  * Filter controls for Recent Job Postings page.
  *
  * What is actually rendered: keywords (free text + saved keyword lists), time
- * window, job category, level, location, and Reset. The slice
+ * window, job category, level, company type, location, and Reset. The slice
  * also generates `toggle/setRecentJobsSoftwareOnly`, but
  * NOTHING dispatches them — there is no software-only control on this page; the
  * built-in "Software Engineering" keyword list in the keywords input is how a
@@ -50,6 +52,9 @@ export function RecentJobsFilters() {
   // cache plus a freshly flipped flag cannot produce a parent row that expands
   // into nothing.
   const subcategoryOptions = revealSubcategories ? (facets?.subcategories ?? []) : [];
+  // Never empty: the server's list, else the bundled one (an older backend or
+  // a stale facets cache omits it). A selected type always keeps its label.
+  const companyTypeOptions = companyCategoryOptions(facets);
 
   return (
     <Box sx={{ mb: RESPONSIVE.spacing.sectionMarginB }}>
@@ -57,7 +62,7 @@ export function RecentJobsFilters() {
         spacing={RESPONSIVE.spacing.filterSpacing}
         sx={{
           // Mobile-only compaction of every filter control (search input + the
-          // four selects/autocompletes). The theme floors form controls at 44px
+          // five selects/autocompletes). The theme floors form controls at 44px
           // (on .MuiTextField-root / the Select root) with 1rem text; these
           // xs-scoped descendant overrides shrink them to ~36px / 0.8125rem.
           // Every `sm` slot restates the current desktop value, so this is a
@@ -113,6 +118,14 @@ export function RecentJobsFilters() {
             options={levelOptions}
             value={filters.level}
             onChange={(slugs) => dispatch(setRecentJobsLevel(slugs))}
+          />
+          {/* Sentence case, unlike its "Job Category" neighbour: house style.
+              Renaming that label is out of scope. */}
+          <FacetMultiSelect
+            label="Company type"
+            options={companyTypeOptions}
+            value={filters.companyCategory}
+            onChange={(slugs) => dispatch(setRecentJobsCompanyCategory(slugs))}
           />
 
           <AsyncMultiSelectAutocomplete

@@ -53,6 +53,8 @@ export const selectRecentJobsFilterSignature = createSelector(
       // addresses the same cache entry, and ticking a box issues NO REQUEST AT
       // ALL — until some unrelated filter moves and drags it along.
       subcategory: stableList(filters.subcategory),
+      // Same rule: without this line the Company type dropdown issues no request.
+      companyCategory: stableList(filters.companyCategory),
       // null (not loaded / no preference) is distinct from [] and from a set.
       enabledCompanies: enabledCompanyIds ? [...enabledCompanyIds].sort() : null,
       demoMode: demoModeEnabled,

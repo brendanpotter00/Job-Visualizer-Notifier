@@ -23,7 +23,7 @@ function mockJsonResponse(status: number, body: unknown, headers: Record<string,
 }
 
 /**
- * The six multi-select filters on `GET /api/jobs/search`.
+ * The multi-select filters on `GET /api/jobs/search`.
  *
  * Restated here rather than imported from `api/jobs.ts` so the test asserts the
  * wire contract independently — importing the constant would make a deletion
@@ -34,6 +34,7 @@ const REPEATABLE_PARAMS = [
   'subcategory',
   'level',
   'company',
+  'company_category',
   'location',
   'include',
   'exclude',
@@ -408,6 +409,7 @@ describe('/api/jobs serverless function', () => {
         category: ['software_engineering'],
         subcategory: ['backend', 'frontend'],
         level: ['entry', 'senior'],
+        company_category: ['big_tech', 'fintech'],
         location: ['Austin, TX, US'],
         include: ['rust', 'distributed systems'],
         exclude: ['clearance required'],
@@ -427,6 +429,9 @@ describe('/api/jobs serverless function', () => {
       // bogus slug and match nothing, with a 200.
       expect(params.getAll('subcategory')).toEqual(['backend', 'frontend']);
       expect(params.getAll('level')).toEqual(['entry', 'senior']);
+      // Both values, appended. Dropped here, a Company type pick would come
+      // back as an unfiltered 200.
+      expect(params.getAll('company_category')).toEqual(['big_tech', 'fintech']);
       expect(params.getAll('location')).toEqual(['Austin, TX, US']);
       expect(params.getAll('include')).toEqual(['rust', 'distributed systems']);
       expect(params.getAll('exclude')).toEqual(['clearance required']);

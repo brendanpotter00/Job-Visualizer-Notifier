@@ -72,10 +72,13 @@ export function useRecentJobsUrlSync(): void {
   // both refs latch once per MOUNT, not once per arrival. This hook is mounted
   // at the app root and never unmounts, so a SECOND SPA-internal arrival at `/jobs`
   // carrying new params would be discarded and then overwritten by the in-memory
-  // filters. That is unreachable today — every in-app route to `/jobs` is a bare
-  // path (`GlobalAppBar`, `NavigationDrawer`, `AdminRoute`), so params can only
-  // arrive via a full page load, which remounts. Recorded rather than guarded
-  // because a guard for an unreachable case is a guard nothing tests.
+  // filters. Every in-app route to `/jobs` is a bare path (`GlobalAppBar`,
+  // `NavigationDrawer`, `AdminRoute`) EXCEPT the landing page's company-type
+  // cards (`/jobs?company_type=<slug>`). Those dispatch the filter themselves
+  // before navigating (`CompanyCategoriesSection`), so the slice already holds
+  // what the link says and the write below simply re-renders it; a Back-then-
+  // another-card path works the same way. Any NEW in-app link that carries
+  // params must do the same, or its params are dropped on a second arrival.
   const arrivalHadParams = useRef<boolean | null>(null);
 
   /** Set once the READ effect has had its turn on this route. */

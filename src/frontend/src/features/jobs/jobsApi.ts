@@ -527,6 +527,12 @@ export const jobsApi = createApi({
               subcategories: Array.isArray(facets.subcategories)
                 ? facets.subcategories
                 : [],
+              // Passed through only when it is an array; anything else (an
+              // older backend omits it) is `undefined`, never an error.
+              // `companyCategoryOptions` then falls back to the bundled list.
+              companyCategories: Array.isArray(facets.companyCategories)
+                ? facets.companyCategories
+                : undefined,
             },
           };
         } catch (error) {

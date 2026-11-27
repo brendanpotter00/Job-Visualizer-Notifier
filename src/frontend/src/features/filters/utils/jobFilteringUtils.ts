@@ -14,6 +14,7 @@ import {
   SUBCATEGORY_PARENT_SLUG,
 } from '../../../constants/enrichment.ts';
 import { US_STATE_NAME_TO_CODE, stripUsSuffix } from '../../../lib/location.ts';
+import { companyIdsInCategories } from '../../../config/companyCategories.ts';
 
 /**
  * Shared utility functions for job filtering logic.
@@ -472,6 +473,21 @@ export function matchesSubcategory(
 }
 
 /**
+ * Company type (company category) filter: the job's company is a member of ANY
+ * selected category. Empty/undefined = no filter. Membership comes from the
+ * bundled `company_categories.json`, the same file the server seeds from.
+ *
+ * Client-side only for demo mode: the live Recent page is server-filtered
+ * (`company_category` on `/api/jobs/search`).
+ */
+export function matchesCompanyCategory(job: Job, companyCategory: string[] | undefined): boolean {
+  if (!companyCategory?.length) {
+    return true;
+  }
+  return companyIdsInCategories(companyCategory).has(job.company);
+}
+
+/**
  * Filter jobs based on provided filters
  * Works with GraphFilters, ListFilters, and RecentJobsFilters
  *
@@ -491,6 +507,11 @@ export function filterJobsByFilters(
   if (locationCatalog) {
     mergeCatalogIntoIndex(locationIndex, locationCatalog);
   }
+  // Company type is a Recent-only field (the graph/list shapes do not carry
+  // it). Resolved to member ids once, not per job; same rule as
+  // `matchesCompanyCategory`.
+  const companyCategory = 'companyCategory' in filters ? filters.companyCategory : undefined;
+  const companyTypeIds = companyCategory?.length ? companyIdsInCategories(companyCategory) : null;
 
   return jobs.filter((job: Job) => {
     // Time window filter (recency = when we first saw the job, not ATS posted date)
@@ -526,6 +547,9 @@ export function filterJobsByFilters(
       return false;
     }
     if (!matchesLevel(job, filters.level)) {
+      return false;
+    }
+    if (companyTypeIds && !companyTypeIds.has(job.company)) {
       return false;
     }
 

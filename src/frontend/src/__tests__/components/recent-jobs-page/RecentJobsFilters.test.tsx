@@ -5,6 +5,7 @@ import { renderWithProviders, createTestStore } from '../../../test/testUtils';
 import { RecentJobsFilters } from '../../../components/recent-jobs-page/RecentJobsFilters';
 import { jobsApi } from '../../../features/jobs/jobsApi';
 import { SubcategoryRevealProvider } from '../../../features/settings/subcategoryReveal';
+import { COMPANY_CATEGORIES } from '../../../config/companyCategories';
 
 const { searchMock } = vi.hoisted(() => ({ searchMock: vi.fn() }));
 
@@ -65,6 +66,7 @@ interface PreloadedOverrides {
   softwareOnly?: boolean;
   category?: string[];
   subcategory?: string[];
+  companyCategory?: string[];
 }
 
 async function seedRecentStore(overrides: PreloadedOverrides = {}) {
@@ -435,5 +437,115 @@ describe('RecentJobsFilters — the subcategory tree', () => {
 
     expect(within(listbox).queryByTestId('facet-tree-chevron')).toBeNull();
     expect(within(listbox).queryByRole('button')).toBeNull();
+  });
+});
+
+/**
+ * The Company type dropdown: a checkbox multi-select like Level. Options come
+ * from facets when the backend sends them, else from the bundled data (an
+ * older backend during the deploy window, or a stale facets cache).
+ */
+describe('RecentJobsFilters — Company type', () => {
+  const BASE_FACETS = {
+    categories: [{ slug: 'software_engineering', label: 'Software Engineering', sortOrder: 0 }],
+    levels: [{ slug: 'senior', label: 'Senior', sortOrder: 0, parentSlug: null }],
+    subcategories: [],
+  };
+
+  async function openCompanyType(store: ReturnType<typeof createTestStore>) {
+    const user = userEvent.setup();
+    renderWithProviders(<RecentJobsFilters />, { store });
+    await user.click(screen.getByRole('combobox', { name: 'Company type' }));
+    const listbox = await screen.findByRole('listbox');
+    return { user, listbox };
+  }
+
+  it('renders as a combobox named "Company type" that reads "All" when empty', async () => {
+    const store = await seedRecentStore();
+    renderWithProviders(<RecentJobsFilters />, { store });
+    const combo = screen.getByRole('combobox', { name: 'Company type' });
+    expect(combo).toHaveTextContent('All');
+  });
+
+  it('sits after Level and before Location', async () => {
+    const store = await seedRecentStore();
+    renderWithProviders(<RecentJobsFilters />, { store });
+    const level = screen.getByRole('combobox', { name: 'Level' });
+    const companyType = screen.getByRole('combobox', { name: 'Company type' });
+    const location = screen.getByRole('combobox', { name: 'Location' });
+    expect(level.compareDocumentPosition(companyType) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(
+      companyType.compareDocumentPosition(location) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+  });
+
+  it('uses the facets list when the backend sends one', async () => {
+    const store = await seedRecentStore();
+    await store.dispatch(
+      jobsApi.util.upsertQueryData('getFacets', undefined, {
+        ...BASE_FACETS,
+        companyCategories: [
+          { slug: 'fintech', label: 'Fintech & Trading', sortOrder: 0, parentSlug: null },
+          { slug: 'big_tech', label: 'Big Tech', sortOrder: 1, parentSlug: null },
+        ],
+      })
+    );
+    const { listbox } = await openCompanyType(store);
+    const options = within(listbox).getAllByRole('option');
+    expect(options.map((o) => o.textContent)).toEqual(['Fintech & Trading', 'Big Tech']);
+  });
+
+  it.each([
+    ['missing', undefined],
+    ['empty', []],
+  ])('falls back to the bundled list when the facets key is %s', async (_label, value) => {
+    const store = await seedRecentStore();
+    await store.dispatch(
+      jobsApi.util.upsertQueryData('getFacets', undefined, {
+        ...BASE_FACETS,
+        companyCategories: value,
+      })
+    );
+    const { listbox } = await openCompanyType(store);
+    const options = within(listbox).getAllByRole('option');
+    expect(options.map((o) => o.textContent)).toEqual(COMPANY_CATEGORIES.map((c) => c.label));
+  });
+
+  it('takes several picks as checkboxes and writes them to the slice', async () => {
+    const store = await seedRecentStore();
+    const { user, listbox } = await openCompanyType(store);
+    await user.click(within(listbox).getByRole('option', { name: 'Big Tech' }));
+    await user.click(within(listbox).getByRole('option', { name: 'AI Labs' }));
+
+    expect(store.getState().recentJobsFilters.filters.companyCategory).toEqual([
+      'big_tech',
+      'ai_labs',
+    ]);
+    const bigTech = within(listbox).getByRole('option', { name: 'Big Tech' });
+    expect(within(bigTech).getByRole('checkbox')).toBeChecked();
+
+    // Unticking both is the "All" state.
+    await user.click(within(listbox).getByRole('option', { name: 'Big Tech' }));
+    await user.click(within(listbox).getByRole('option', { name: 'AI Labs' }));
+    expect(store.getState().recentJobsFilters.filters.companyCategory).toBeUndefined();
+  });
+
+  it('shows the selected labels when closed', async () => {
+    const store = await seedRecentStore({ companyCategory: ['big_tech', 'fintech'] });
+    renderWithProviders(<RecentJobsFilters />, { store });
+    expect(screen.getByRole('combobox', { name: 'Company type' })).toHaveTextContent(
+      'Big Tech, Fintech & Trading'
+    );
+  });
+
+  it('is cleared by Reset Filters', async () => {
+    const store = await seedRecentStore({ companyCategory: ['big_tech'] });
+    const user = userEvent.setup();
+    renderWithProviders(<RecentJobsFilters />, { store });
+
+    await user.click(screen.getByRole('button', { name: /reset filters/i }));
+
+    expect(store.getState().recentJobsFilters.filters.companyCategory).toBeUndefined();
+    expect(screen.getByRole('combobox', { name: 'Company type' })).toHaveTextContent('All');
   });
 });

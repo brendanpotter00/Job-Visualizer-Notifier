@@ -1,10 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import {
+  COMPANY_TYPE_PARAM,
   MAX_URL_FACET_VALUES,
   MAX_URL_LOCATIONS,
   MAX_URL_LOCATION_LENGTH,
   buildSearchFromFilters,
   parseFiltersFromSearch,
+  recentJobsHrefForCompanyType,
 } from '../../../features/filters/urlFilters';
 import { MAX_SEARCH_TAGS } from '../../../constants/tags';
 import type { RecentJobsFilters, SearchTag } from '../../../types';
@@ -208,5 +210,50 @@ describe('parseFiltersFromSearch — malformed values are dropped, not carried',
       { text: 'foo', mode: 'include' },
       { text: 'bar', mode: 'include' },
     ]);
+  });
+});
+
+describe('company_type', () => {
+  it('is the URL name of the filter', () => {
+    expect(COMPANY_TYPE_PARAM).toBe('company_type');
+  });
+
+  it('reads repeated values as a list', () => {
+    expect(parseFiltersFromSearch('?company_type=big_tech&company_type=ai_labs')).toEqual({
+      companyCategory: ['big_tech', 'ai_labs'],
+    });
+  });
+
+  it('counts as a link on its own, so it wins over saved filters for the visit', () => {
+    expect(parseFiltersFromSearch('?company_type=big_tech')).not.toBeNull();
+  });
+
+  it('drops a slug the endpoint would reject, and dedupes', () => {
+    expect(parseFiltersFromSearch('?company_type=Big Tech')).toBeNull();
+    expect(
+      parseFiltersFromSearch('?company_type=Big-Tech&company_type=fintech&company_type=fintech')
+    ).toEqual({ companyCategory: ['fintech'] });
+  });
+
+  it('truncates at the endpoint cap', () => {
+    // 30 distinct well-formed slugs: t_a, t_aa, t_aaa, ...
+    const search =
+      '?' + Array.from({ length: 30 }, (_, i) => `company_type=t_${'a'.repeat(i + 1)}`).join('&');
+    expect(parseFiltersFromSearch(search)?.companyCategory).toHaveLength(MAX_URL_FACET_VALUES);
+  });
+
+  it('builds by appending and round-trips', () => {
+    const filters: RecentJobsFilters = { ...base, companyCategory: ['big_tech', 'fintech'] };
+    const search = buildSearchFromFilters(filters);
+    expect(search).toBe('?company_type=big_tech&company_type=fintech');
+    expect(parseFiltersFromSearch(search)).toEqual({ companyCategory: ['big_tech', 'fintech'] });
+  });
+
+  it('is removed when the filter is cleared', () => {
+    expect(buildSearchFromFilters(base, '?company_type=big_tech&utm=x')).toBe('?utm=x');
+  });
+
+  it('builds the landing card link', () => {
+    expect(recentJobsHrefForCompanyType('ai_labs')).toBe('/jobs?company_type=ai_labs');
   });
 });
