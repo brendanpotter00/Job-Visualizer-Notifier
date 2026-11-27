@@ -26,11 +26,12 @@ import { AsyncMultiSelectAutocomplete } from '../shared/filters/AsyncMultiSelect
 import { DefaultSearchButtons } from './DefaultSearchButtons.tsx';
 
 /**
- * The two default-search buttons share one look: outlined, small, and shrunk
- * on mobile (kept >= 36px so each stays an easy tap target). The `sm`
- * slots restate the theme's 44px floor, 16px horizontal padding and the small
- * button's 0.8125rem font. The keyboard focus ring is drawn as an outline,
- * because the default focus ripple is faint on a white outlined button.
+ * The two default-search buttons share one size: small, and shrunk on mobile
+ * (kept >= 36px so each stays an easy tap target). The `sm` slots restate the
+ * theme's 44px floor, 16px horizontal padding and the small button's
+ * 0.8125rem font. The keyboard focus ring is drawn as an outline, because the
+ * default focus ripple is faint on these buttons (the solid save button and
+ * the outlined Reset).
  */
 const FILTER_ACTION_BUTTON_SX = {
   minHeight: RESPONSIVE.control.minHeight,

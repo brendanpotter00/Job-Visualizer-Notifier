@@ -141,7 +141,7 @@ afterEach(() => {
 });
 
 describe('DefaultSearchButtons — signed in', () => {
-  it('on the saved default: one grayed-out "Default search saved" button, no Reset', async () => {
+  it('on the saved default: one disabled "Default search saved" button, no Reset', async () => {
     await renderSignedIn();
     expect(saved()).toBeDisabled();
     expect(queryByName('Update default search')).not.toBeInTheDocument();
