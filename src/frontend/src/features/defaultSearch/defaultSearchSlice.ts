@@ -2,8 +2,10 @@ import { createSlice, type PayloadAction } from '@reduxjs/toolkit';
 
 /**
  * The outcome of the last "Save default search", keyed by the search it saved
- * (`defaultSearchKey`), so the button can show "Saved default search" only while
- * the live filters still ARE that search.
+ * (`defaultSearchKey`), so the screen-reader status can say "Default search
+ * saved" (and an error can show) only while the live filters still ARE that
+ * search. The visible "✓ Default search saved" does not read this: it is the
+ * live filters equal to the saved row.
  *
  * Its own slice rather than a field on `ui`: many tests preload a partial `ui`,
  * and a new required field there would break them. Reset on sign-out
