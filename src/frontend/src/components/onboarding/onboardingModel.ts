@@ -97,7 +97,10 @@ export function forBackend(
   backendKnowsCompanyType: boolean
 ): CompleteOnboardingArgs {
   if (backendKnowsCompanyType) return body;
-  const legacy: CompleteOnboardingArgs = { ...body, step: Math.min(body.step, 3) as 1 | 2 | 3 };
+  const legacy: CompleteOnboardingArgs = { ...body };
+  // `step` is absent when no question was shown (a signed-out Save default search).
+  if (body.step === undefined) delete legacy.step;
+  else legacy.step = Math.min(body.step, 3) as 1 | 2 | 3;
   delete legacy.companyCategory;
   return legacy;
 }

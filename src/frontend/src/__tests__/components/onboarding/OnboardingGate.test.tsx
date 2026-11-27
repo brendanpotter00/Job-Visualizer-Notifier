@@ -155,6 +155,7 @@ describe('OnboardingGate — a load finishing a signed-out "Save default search"
     category: ['software_engineering'],
     level: ['entry'],
     subcategory: [],
+    companyCategory: [],
   };
 
   it('keeps the questions closed for a null stamp (the search stands in for them)', async () => {

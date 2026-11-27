@@ -120,6 +120,8 @@ describe('onboardingModel', () => {
     expect(legacy).not.toHaveProperty('companyCategory');
     expect(legacy.step).toBe(3);
     expect(forBackend({ ...body, step: 2 }, false).step).toBe(2);
+    // No question shown (a signed-out Save default search): the step stays absent.
+    expect(forBackend({ ...body, step: undefined }, false)).not.toHaveProperty('step');
     // The input is not mutated.
     expect(body.companyCategory).toEqual(['fintech']);
   });

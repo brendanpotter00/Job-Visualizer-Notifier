@@ -81,6 +81,7 @@ const PENDING: DefaultSearch = {
   category: ['software_engineering'],
   level: ['entry'],
   subcategory: ['backend'],
+  companyCategory: [],
 };
 
 /** A different, older saved default: the one the pending search replaces. */

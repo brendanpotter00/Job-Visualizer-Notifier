@@ -60,6 +60,7 @@ function search(overrides: Partial<DefaultSearch> = {}): DefaultSearch {
     category: ['software_engineering'],
     level: ['entry'],
     subcategory: ['backend'],
+    companyCategory: [],
     ...overrides,
   };
 }

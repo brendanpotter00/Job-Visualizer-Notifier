@@ -17,6 +17,7 @@ const SEARCH: DefaultSearch = {
   category: ['software_engineering'],
   level: ['entry'],
   subcategory: ['backend'],
+  companyCategory: ['fintech'],
 };
 
 const NOW = 1_800_000_000_000;
@@ -65,6 +66,15 @@ describe('pendingDefaultSearch', () => {
     window.sessionStorage.setItem(PENDING_DEFAULT_SEARCH_KEY, raw);
     expect(pendingDefaultSearchAtLoad(NOW)).toBeNull();
     expect(window.sessionStorage.getItem(PENDING_DEFAULT_SEARCH_KEY)).toBeNull();
+  });
+
+  it('reads a search stored before company types existed as no company type', () => {
+    const { companyCategory: _dropped, ...older } = SEARCH;
+    window.sessionStorage.setItem(
+      PENDING_DEFAULT_SEARCH_KEY,
+      JSON.stringify({ v: 1, savedAt: NOW, search: older })
+    );
+    expect(pendingDefaultSearchAtLoad(NOW)).toEqual({ ...SEARCH, companyCategory: [] });
   });
 
   it('reads storage once per load', () => {

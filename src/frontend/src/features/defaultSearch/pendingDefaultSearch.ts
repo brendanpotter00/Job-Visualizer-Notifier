@@ -43,6 +43,13 @@ function isSearchTag(value: unknown): value is SearchTag {
   return typeof tag.text === 'string' && (tag.mode === 'include' || tag.mode === 'exclude');
 }
 
+/**
+ * Rows added to `RECENT_LIST_FIELDS` after v1 searches were first written. A v1
+ * search stored by a tab opened before that deploy has no such key; it reads as
+ * no filter instead of dropping the whole search. Every other row is required.
+ */
+const ROWS_ADDED_AFTER_V1: ReadonlySet<string> = new Set(['companyCategory']);
+
 function parseSearch(value: unknown): DefaultSearch | null {
   if (value === null || typeof value !== 'object') return null;
   const raw = value as Record<string, unknown>;
@@ -53,10 +60,14 @@ function parseSearch(value: unknown): DefaultSearch | null {
     return null;
   }
   if (!Array.isArray(raw.searchTags) || !raw.searchTags.every(isSearchTag)) return null;
+  const search: Record<string, unknown> = { timeWindow: raw.timeWindow, searchTags: raw.searchTags };
   for (const row of RECENT_LIST_FIELDS) {
-    if (!isStringArray(raw[row.filter])) return null;
+    const values =
+      raw[row.filter] === undefined && ROWS_ADDED_AFTER_V1.has(row.filter) ? [] : raw[row.filter];
+    if (!isStringArray(values)) return null;
+    search[row.filter] = values;
   }
-  return raw as unknown as DefaultSearch;
+  return search as unknown as DefaultSearch;
 }
 
 /** Validate a stored value: right version, not expired, a well-formed search. */
