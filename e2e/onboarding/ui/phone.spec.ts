@@ -3,8 +3,10 @@
 // What only a real phone-sized layout can show: the dialog covers the whole
 // screen; Back and Continue stay on screen at the bottom even with all 17
 // specialties open above them; a chip keeps ONE width picked or not (the check
-// replaces padding, so a tap never reflows the row); and the "Saved filters"
-// toast sits under the app bar, not over it.
+// replaces padding, so a tap never reflows the row); the "Saved filters"
+// toast sits under the app bar, not over it; and on the list, at the narrowest
+// (375px) phone, the filter fields' picks are chips that wrap inside their
+// field, and a tap on a chip's delete icon removes just that pick.
 import { expect, test } from '@playwright/test';
 import type { Locator, Page } from '@playwright/test';
 import { CORPUS } from './corpus';
@@ -18,13 +20,40 @@ import {
   expectNoAccountYet,
   expectQuestion,
   expectStamped,
+  filterChips,
+  filterField,
   freshIdentity,
+  openFilterMenu,
   openSignedIn,
   questions,
   roleBox,
   savedToast,
   shot,
 } from './helpers';
+
+/** The narrowest phone the filter row must fit (iPhone SE / mini width). */
+const NARROW_PHONE = { width: 375, height: 812 };
+
+/** Levels picked on top of the headline's Entry: enough to need a second row. */
+const MORE_LEVELS = ['Mid', 'Senior', 'Staff / Principal', 'Manager', 'New Grad'];
+
+/** Every chip of a facet field sits inside the field, and the field inside the screen. */
+async function expectChipsInsideField(page: Page, label: 'Job Category' | 'Level', what: string) {
+  const field = await filterField(page, label).boundingBox();
+  expect(field, `${what}: ${label} geometry`).toBeTruthy();
+  if (!field) return;
+  expect(field.x, `${what}: ${label} starts off the screen`).toBeGreaterThanOrEqual(0);
+  expect(field.x + field.width, `${what}: ${label} runs off the screen`).toBeLessThanOrEqual(NARROW_PHONE.width);
+  for (const c of await filterChips(page, label).all()) {
+    const box = await c.boundingBox();
+    expect(box, `${what}: ${label} chip geometry`).toBeTruthy();
+    if (!box) continue;
+    const name = await c.innerText();
+    expect(box.x, `${what}: the "${name}" chip starts outside its field`).toBeGreaterThanOrEqual(field.x);
+    expect(box.x + box.width, `${what}: the "${name}" chip runs past its field`).toBeLessThanOrEqual(field.x + field.width);
+    expect(box.y + box.height, `${what}: the "${name}" chip hangs below its field`).toBeLessThanOrEqual(field.y + field.height);
+  }
+}
 
 /** Tap a chip and prove its width did not change. */
 async function tapKeepsWidth(page: Page, target: Locator, label: string) {
@@ -111,6 +140,39 @@ test.describe('OB-U10 phone', () => {
 
     await expectJobs(page, CORPUS.headline.expectedKeys, 'OB-U10 with the headline answers');
     await expectStamped(me, 'OB-U10 after "Show my jobs"');
+
+    // The filter row at the narrowest phone. The toast was hovered above, so
+    // its timer is paused: Escape closes it.
+    await page.keyboard.press('Escape');
+    await expect(toast).toBeHidden();
+    await page.setViewportSize(NARROW_PHONE);
+    await expect(filterChips(page, 'Job Category')).toHaveText([HEADLINE_LABELS.role, HEADLINE_LABELS.specialty]);
+    await expectChipsInsideField(page, 'Job Category', 'OB-U10 at 375px');
+
+    // Many picks wrap onto a second row, inside the field, never off the screen.
+    const menu = await openFilterMenu(page, 'Level', 'tap');
+    for (const level of MORE_LEVELS) await menu.getByRole('option', { name: level, exact: true }).tap();
+    await page.keyboard.press('Escape');
+    await expect(menu).toBeHidden();
+    // Gone, not just fading out, so the screenshot below shows the field.
+    await expect(page.locator('.MuiMenu-root')).toHaveCount(0);
+    const levels = filterChips(page, 'Level');
+    await expect(levels).toHaveText([HEADLINE_LABELS.level, ...MORE_LEVELS]);
+    await expectChipsInsideField(page, 'Level', 'OB-U10 at 375px with six levels');
+    const rows = new Set<number>();
+    for (const c of await levels.all()) rows.add(Math.round((await c.boundingBox())?.y ?? -1));
+    expect(rows.size, 'six levels at 375px: the chips should wrap onto more than one row').toBeGreaterThan(1);
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth),
+      'the page scrolls sideways at 375px',
+    ).toBeLessThanOrEqual(NARROW_PHONE.width);
+    await shot(page, 'OB-U10', '10-filters-375-many-levels');
+
+    // A tap on a chip's delete icon removes just that pick; the menu stays shut.
+    await levels.filter({ hasText: 'Senior' }).locator('.MuiChip-deleteIcon').tap();
+    await expect(levels).toHaveText([HEADLINE_LABELS.level, ...MORE_LEVELS.filter((l) => l !== 'Senior')]);
+    await expect(page.getByRole('listbox')).toHaveCount(0);
+    await shot(page, 'OB-U10', '11-filters-375-chip-removed');
     await context.close();
   });
 });

@@ -9,6 +9,7 @@ import {
   OutlinedInput,
 } from '@mui/material';
 import type { FacetOption } from '../../../types';
+import { FacetValueChips } from './FacetValueChips.tsx';
 
 export interface FacetMultiSelectProps {
   label: string;
@@ -27,7 +28,10 @@ export interface FacetMultiSelectProps {
  * job has exactly one category/level).
  *
  * OR logic within a facet; an empty selection means "All". The closed field
- * shows the selected labels joined (or "All" when empty) via `renderValue`.
+ * shows each selected label as a chip (`FacetValueChips`, the Location field's
+ * look), or "All" when empty, via `renderValue`. A chip's delete icon removes
+ * that one value without opening the menu. There is no search box: a click
+ * opens the checkbox menu.
  * `displayEmpty` + a forced-shrink InputLabel keep the floating label above
  * the "All" placeholder. The InputLabel and Select share a generated labelId so
  * the combobox exposes its accessible name for tests
@@ -61,7 +65,14 @@ export function FacetMultiSelect({
           onChange(typeof next === 'string' ? next.split(',') : next);
         }}
         renderValue={(sel) =>
-          sel.length === 0 ? 'All' : sel.map((slug) => labelBySlug.get(slug) ?? slug).join(', ')
+          sel.length === 0 ? (
+            'All'
+          ) : (
+            <FacetValueChips
+              values={sel.map((slug) => ({ slug, label: labelBySlug.get(slug) ?? slug }))}
+              onDelete={(slug) => onChange(selected.filter((s) => s !== slug))}
+            />
+          )
         }
       >
         {options.map((opt) => (

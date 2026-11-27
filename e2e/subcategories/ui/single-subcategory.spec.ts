@@ -4,8 +4,16 @@
 // `full_stack` widening — so this case cannot pass for SC-04's reason. The
 // decoy is the point: a list that showed the Security job under a Mobile
 // selection is the regression, and "my job is there" would not catch it.
-import { expect, expectResults, gotoRecentJobs, reseed, selectSubcategory, test } from './helpers';
-import { job, titlesForSubcategory } from './corpus';
+import {
+  categoryChips,
+  expect,
+  expectResults,
+  gotoRecentJobs,
+  reseed,
+  selectSubcategory,
+  test,
+} from './helpers';
+import { job, sweTitles, titlesForSubcategory } from './corpus';
 
 const SWE = 'Software Engineering';
 
@@ -54,8 +62,21 @@ test.describe('SC-02 one subcategory', () => {
     // that is not on.
     await gotoRecentJobs(page);
     await selectSubcategory(page, SWE, 'Mobile');
-    await expect(page.getByRole('combobox', { name: 'Job Category' })).toHaveText(
-      `${SWE}, Mobile`,
-    );
+    await expect(categoryChips(page)).toHaveText([SWE, 'Mobile']);
+  });
+
+  test("SC-02 the child chip's delete icon unticks just the child, without opening the menu", async ({
+    signedInPage: page,
+  }) => {
+    // The chip's x is the same edit as unticking the row: the parent stays, so
+    // the list widens back to the whole category. No response wait: the
+    // parent-only search was already made (ticking the parent), so it can come
+    // from the cache; `expectResults` polls the list instead.
+    await gotoRecentJobs(page);
+    await selectSubcategory(page, SWE, 'Mobile');
+    await categoryChips(page).filter({ hasText: 'Mobile' }).locator('.MuiChip-deleteIcon').click();
+    await expect(categoryChips(page)).toHaveText([SWE]);
+    await expect(page.getByRole('listbox')).toHaveCount(0);
+    await expectResults(page, sweTitles());
   });
 });

@@ -178,12 +178,26 @@ export function categoryTrigger(page: Page): Locator {
   return page.getByRole('combobox', { name: CATEGORY_CONTROL_LABEL });
 }
 
+/** The closed field's chips: one per ticked row, each parent then its children. */
+export function categoryChips(page: Page): Locator {
+  return categoryTrigger(page).locator('.MuiChip-root');
+}
+
+/**
+ * Open a facet field's menu with a click at its left edge, in its padding. Not
+ * at its centre: ticked rows show as chips, and a click that lands on a chip's
+ * delete icon unticks that row instead of opening the menu.
+ */
+export async function clickFacetField(field: Locator): Promise<void> {
+  await field.click({ position: { x: 4, y: 4 } });
+}
+
 export function openMenu(page: Page): Locator {
   return page.getByRole('listbox');
 }
 
 export async function openCategoryMenu(page: Page): Promise<Locator> {
-  await categoryTrigger(page).click();
+  await clickFacetField(categoryTrigger(page));
   const menu = openMenu(page);
   await expect(menu).toBeVisible();
   return menu;
@@ -250,7 +264,7 @@ export async function selectCategory(page: Page, parentLabel: string): Promise<v
 
 /** Tick a level in the flat `FacetMultiSelect` beside the tree. */
 export async function selectLevel(page: Page, levelLabel: string): Promise<void> {
-  await page.getByRole('combobox', { name: LEVEL_CONTROL_LABEL }).click();
+  await clickFacetField(page.getByRole('combobox', { name: LEVEL_CONTROL_LABEL }));
   const menu = openMenu(page);
   await expect(menu).toBeVisible();
   await withSearchResponse(page, async () => {

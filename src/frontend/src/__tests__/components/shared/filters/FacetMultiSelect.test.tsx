@@ -10,15 +10,28 @@ const OPTIONS: FacetOption[] = [
   { slug: 'growth', label: 'Growth', sortOrder: 2 },
 ];
 
+/** The closed field's chips (each one is a MUI Chip, so a `button`), by label. */
+function chipLabels(combobox: HTMLElement): string[] {
+  return within(combobox)
+    .queryAllByRole('button')
+    .map((chip) => chip.textContent ?? '');
+}
+
+function chip(combobox: HTMLElement, label: string): HTMLElement {
+  return within(combobox).getByRole('button', { name: label });
+}
+
 describe('FacetMultiSelect', () => {
   it('renders "All" and exposes the combobox by its label when nothing is selected', () => {
     render(
       <FacetMultiSelect label="Category" options={OPTIONS} value={undefined} onChange={vi.fn()} />
     );
-    expect(screen.getByRole('combobox', { name: 'Category' })).toHaveTextContent('All');
+    const combobox = screen.getByRole('combobox', { name: 'Category' });
+    expect(combobox).toHaveTextContent('All');
+    expect(chipLabels(combobox)).toEqual([]);
   });
 
-  it('shows selected options as their labels (joined), not slugs', () => {
+  it('shows each selected option as a chip with its label, not its slug', () => {
     render(
       <FacetMultiSelect
         label="Category"
@@ -27,8 +40,84 @@ describe('FacetMultiSelect', () => {
         onChange={vi.fn()}
       />
     );
+    // The chips do not change the field's accessible name: it is the label alone.
     const combobox = screen.getByRole('combobox', { name: 'Category' });
-    expect(combobox).toHaveTextContent('Software Engineering, Growth');
+    expect(chipLabels(combobox)).toEqual(['Software Engineering', 'Growth']);
+    expect(combobox).not.toHaveTextContent('All');
+    expect(combobox).not.toHaveTextContent(',');
+  });
+
+  it("a chip's delete icon removes just that value and does not open the menu", async () => {
+    const onChange = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <FacetMultiSelect
+        label="Category"
+        options={OPTIONS}
+        value={['software_engineering', 'growth']}
+        onChange={onChange}
+      />
+    );
+
+    const combobox = screen.getByRole('combobox', { name: 'Category' });
+    await user.click(within(chip(combobox, 'Growth')).getByTestId('CancelIcon'));
+
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onChange).toHaveBeenCalledWith(['software_engineering']);
+    expect(screen.queryByRole('listbox')).toBeNull();
+    expect(combobox).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it("deleting the last chip's value emits an empty selection (All)", async () => {
+    const onChange = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <FacetMultiSelect label="Category" options={OPTIONS} value={['growth']} onChange={onChange} />
+    );
+
+    const combobox = screen.getByRole('combobox', { name: 'Category' });
+    await user.click(within(chip(combobox, 'Growth')).getByTestId('CancelIcon'));
+
+    expect(onChange).toHaveBeenCalledWith([]);
+  });
+
+  it("a click on a chip's body opens the menu, like a click anywhere else on the field", async () => {
+    const onChange = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <FacetMultiSelect label="Category" options={OPTIONS} value={['growth']} onChange={onChange} />
+    );
+
+    await user.click(chip(screen.getByRole('combobox', { name: 'Category' }), 'Growth'));
+
+    expect(await screen.findByRole('listbox')).toBeInTheDocument();
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it('the chips are not tab stops: the combobox stays the one stop and still opens from the keyboard', async () => {
+    const user = userEvent.setup();
+    render(
+      <>
+        <FacetMultiSelect
+          label="Category"
+          options={OPTIONS}
+          value={['software_engineering', 'growth']}
+          onChange={vi.fn()}
+        />
+        <button type="button">After</button>
+      </>
+    );
+
+    const combobox = screen.getByRole('combobox', { name: 'Category' });
+    await user.tab();
+    expect(combobox).toHaveFocus();
+    await user.tab();
+    expect(screen.getByRole('button', { name: 'After' })).toHaveFocus();
+
+    await user.tab({ shift: true });
+    expect(combobox).toHaveFocus();
+    await user.keyboard('{ArrowDown}');
+    expect(await screen.findByRole('listbox')).toBeInTheDocument();
   });
 
   it('checking an option calls onChange with that slug in an array', async () => {
@@ -71,12 +160,7 @@ describe('FacetMultiSelect', () => {
     const onChange = vi.fn();
     const user = userEvent.setup();
     render(
-      <FacetMultiSelect
-        label="Category"
-        options={OPTIONS}
-        value={['growth']}
-        onChange={onChange}
-      />
+      <FacetMultiSelect label="Category" options={OPTIONS} value={['growth']} onChange={onChange} />
     );
 
     await user.click(screen.getByRole('combobox', { name: 'Category' }));
@@ -89,12 +173,7 @@ describe('FacetMultiSelect', () => {
   it('marks currently-selected options as aria-selected', async () => {
     const user = userEvent.setup();
     render(
-      <FacetMultiSelect
-        label="Category"
-        options={OPTIONS}
-        value={['growth']}
-        onChange={vi.fn()}
-      />
+      <FacetMultiSelect label="Category" options={OPTIONS} value={['growth']} onChange={vi.fn()} />
     );
 
     await user.click(screen.getByRole('combobox', { name: 'Category' }));

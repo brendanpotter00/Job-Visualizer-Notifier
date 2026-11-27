@@ -12,6 +12,7 @@ import {
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { VISUALLY_HIDDEN_SX } from '../../../lib/visuallyHidden';
 import type { FacetOption } from '../../../types';
+import { FacetValueChips } from './FacetValueChips.tsx';
 
 /**
  * Cap on the open menu's height.
@@ -85,6 +86,11 @@ export interface FacetTreeMultiSelectProps {
  *   indeterminate while it owns ticked children.
  * - Revealed children are plain MenuItems in the same list, so MUI's arrow-key
  *   navigation and Enter toggling reach them with no extra wiring.
+ * - The closed field shows one chip per selected item (`FacetValueChips`, the
+ *   Location field's look): each parent, then its own ticked children, each
+ *   labelled by its own name. A chip's delete icon is the same edit as
+ *   unticking that row: a parent's takes its children with it, a child's
+ *   leaves the parent ticked.
  *
  * WHY THIS IS NOT THE OLD ACCORDION. An earlier version had a chevron BUTTON
  * that expanded a parent separately from its checkbox. It cost a click to reach
@@ -110,7 +116,8 @@ export interface FacetTreeMultiSelectProps {
  *    icon with no handler, so a click on it toggles the row like a click
  *    anywhere else in it.
  * 3. `renderValue` SHORT-CIRCUITS the display computation, so the closed field
- *    shows parent and child labels together from one flat merged array.
+ *    draws its parent and child chips from the selection props, not from MUI's
+ *    own walk over the menu rows.
  *
  * The test file spies on `console.error` and asserts ZERO calls, which is what
  * makes a future MUI major breaking any of the three fail loudly.
@@ -160,9 +167,23 @@ export function FacetTreeMultiSelect({
   //    data.
   const treeEnabled = childOptions.length > 0;
 
-  // ONE array for the Select. Parents first so `renderValue`'s join reads
-  // "Software Engineering, Backend" rather than the other way round.
+  // ONE array for the Select's value.
   const merged = treeEnabled ? [...selectedParents, ...selectedChildren] : [...selectedParents];
+
+  // The chips, in the menu's order: each parent, then its own ticked children,
+  // so a child's chip (its own name only) sits beside the parent it narrows. A
+  // stored child whose parent is not selected (see AUTO-CHECK) goes last.
+  const chipSlugs = treeEnabled
+    ? [
+        ...selectedParents.flatMap((parent) => [
+          parent,
+          ...selectedChildren.filter((child) => parentOfChild.get(child) === parent),
+        ]),
+        ...selectedChildren.filter(
+          (child) => !selectedParents.includes(parentOfChild.get(child) ?? '')
+        ),
+      ]
+    : selectedParents;
 
   const handleChange = (raw: string[] | string) => {
     // MUI can hand back a comma-joined string on native events; normalize.
@@ -206,7 +227,15 @@ export function FacetTreeMultiSelect({
         MenuProps={{ PaperProps: { sx: { maxHeight: MENU_MAX_HEIGHT } } }}
         onChange={(e) => handleChange(e.target.value)}
         renderValue={(sel) =>
-          sel.length === 0 ? 'All' : sel.map((slug) => labelBySlug.get(slug) ?? slug).join(', ')
+          sel.length === 0 ? (
+            'All'
+          ) : (
+            <FacetValueChips
+              values={chipSlugs.map((slug) => ({ slug, label: labelBySlug.get(slug) ?? slug }))}
+              // The same edit as unticking the row, so UNTICK CLEARS holds.
+              onDelete={(slug) => handleChange(merged.filter((s) => s !== slug))}
+            />
+          )
         }
       >
         {/* FLAT array — see mechanic 1 in the module comment. */}
