@@ -27,8 +27,8 @@ after this PR is merged. Merging deploys nothing.
 
 ## 0. (Recommended) confirm the numbers on the production engine first
 
-The PR's before/after scores were measured with the `claude-code` engine (Haiku classify
-+ Sonnet judge). Prod runs `ollama` / `qwen3:32b`. To see the same A/B on the prod model
+The PR's before/after scores (`docs/EVAL-FORWARD-DEPLOYED.md`) were measured with the
+`claude-code` engine (Haiku classify + Sonnet judge). Prod runs `ollama` / `qwen3:32b`. To see the same A/B on the prod model
 before deploying, run it in a **dev** checkout on the enricher host (never the prod one),
 same batch size both times:
 
