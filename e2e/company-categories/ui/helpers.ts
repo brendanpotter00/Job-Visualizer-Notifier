@@ -60,6 +60,14 @@ export function companyTypeField(page: Page): Locator {
 }
 
 /**
+ * The Company type field's chips, one per picked type. With nothing picked the
+ * field reads "All" and has no chips.
+ */
+export function companyTypeChips(page: Page): Locator {
+  return companyTypeField(page).locator('.MuiChip-root');
+}
+
+/**
  * The list holds EXACTLY these fixture rows: the loaded COUNT catches a decoy
  * scrolled out of view, the TITLES catch the right count of the wrong rows.
  *
@@ -109,9 +117,13 @@ export function searchWith(page: Page, slugs: string[]) {
   });
 }
 
-/** Open the Company type dropdown and return its listbox. */
+/**
+ * Open the Company type dropdown and return its listbox. The click lands in the
+ * field's left padding, not its centre: a picked type is a chip, and a click on
+ * its delete icon removes that type instead of opening the menu.
+ */
 export async function openCompanyType(page: Page): Promise<Locator> {
-  await companyTypeField(page).click();
+  await companyTypeField(page).click({ position: { x: 4, y: 4 } });
   const listbox = page.getByRole('listbox');
   await expect(listbox).toBeVisible();
   return listbox;

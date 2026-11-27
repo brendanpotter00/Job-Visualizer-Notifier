@@ -84,7 +84,10 @@ describe('SavedFiltersPage — Default company types', () => {
         'Applied when you open Recent Job Postings. Only jobs at these kinds of companies are shown.'
       )
     ).toBeInTheDocument();
-    expect(screen.getByRole('combobox', { name: 'Company type' })).toHaveTextContent('Big Tech');
+    const chips = within(screen.getByRole('combobox', { name: 'Company type' })).getAllByRole(
+      'button'
+    );
+    expect(chips.map((chip) => chip.textContent)).toEqual(['Big Tech']);
     expect(screen.getByRole('button', { name: 'Save company types' })).toBeDisabled();
   });
 

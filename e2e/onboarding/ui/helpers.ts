@@ -299,6 +299,32 @@ export function filterField(
   return page.getByRole('combobox', { name: label });
 }
 
+/**
+ * A facet field's chips (one per picked value; the field reads "All", with no
+ * chips, when nothing is picked).
+ */
+export function filterChips(page: Page, label: 'Job Category' | 'Level' | 'Company type'): Locator {
+  return filterField(page, label).locator('.MuiChip-root');
+}
+
+/**
+ * Open a facet field's menu with a click (a tap on a phone) at the field's
+ * left edge, in its padding. Not at its centre: picked values are chips, and
+ * a click that lands on a chip's delete icon removes that value instead.
+ */
+export async function openFilterMenu(
+  page: Page,
+  label: 'Job Category' | 'Level' | 'Company type',
+  how: 'click' | 'tap' = 'click',
+): Promise<Locator> {
+  const field = filterField(page, label);
+  if (how === 'tap') await field.tap({ position: { x: 4, y: 4 } });
+  else await field.click({ position: { x: 4, y: 4 } });
+  const menu = page.getByRole('listbox');
+  await expect(menu).toBeVisible();
+  return menu;
+}
+
 /** The Location field's chips (an Autocomplete renders each pick as a chip). */
 export function locationChips(page: Page): Locator {
   return page

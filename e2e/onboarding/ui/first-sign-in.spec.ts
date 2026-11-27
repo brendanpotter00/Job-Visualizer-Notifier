@@ -25,7 +25,7 @@ import {
   expectQuestion,
   expectQuestionsNeverOpen,
   expectStamped,
-  filterField,
+  filterChips,
   freshIdentity,
   locationChips,
   openSignedIn,
@@ -40,13 +40,14 @@ const HEADLINE = CORPUS.headline;
 
 /** The headline answers are on screen in the Recent page's fields. */
 async function expectHeadlineFilters(page: import('@playwright/test').Page, what: string) {
-  await expect(filterField(page, 'Job Category'), `${what}: Job Category`).toHaveText(
-    `${HEADLINE_LABELS.role}, ${HEADLINE_LABELS.specialty}`,
-  );
-  await expect(filterField(page, 'Level'), `${what}: Level`).toHaveText(HEADLINE_LABELS.level);
-  await expect(filterField(page, 'Company type'), `${what}: Company type`).toHaveText(
+  await expect(filterChips(page, 'Job Category'), `${what}: Job Category`).toHaveText([
+    HEADLINE_LABELS.role,
+    HEADLINE_LABELS.specialty,
+  ]);
+  await expect(filterChips(page, 'Level'), `${what}: Level`).toHaveText([HEADLINE_LABELS.level]);
+  await expect(filterChips(page, 'Company type'), `${what}: Company type`).toHaveText([
     HEADLINE_LABELS.companyType,
-  );
+  ]);
   await expect(locationChips(page), `${what}: Location`).toHaveText(HEADLINE.locations);
 }
 

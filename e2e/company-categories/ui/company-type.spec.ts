@@ -9,6 +9,7 @@ import type { Route } from '@playwright/test';
 import { CORPUS, labelOf, union } from './corpus';
 import {
   RECENT_JOBS,
+  companyTypeChips,
   companyTypeField,
   companyTypesInUrl,
   expectJobs,
@@ -54,7 +55,7 @@ test.describe('CC-U1 dropdown', () => {
     await page.keyboard.press('Escape');
     await narrowed;
 
-    await expect(companyTypeField(page)).toHaveText(`${BIG_TECH}, ${FINTECH}`);
+    await expect(companyTypeChips(page)).toHaveText([BIG_TECH, FINTECH]);
     await expectJobs(page, union(CORPUS.expected.bigTech, CORPUS.expected.fintech), 'CC-U1 Big Tech or Fintech');
     await expect.poll(() => companyTypesInUrl(page), { message: 'the URL carries both types' }).toEqual([
       'big_tech',
@@ -81,7 +82,7 @@ test.describe('CC-U1 dropdown', () => {
     const phone = await openContext(browser, { phone: true });
     const phonePage = await phone.newPage();
     await phonePage.goto(`${RECENT_JOBS}?company_type=big_tech&company_type=fintech`);
-    await expect(companyTypeField(phonePage)).toHaveText(`${BIG_TECH}, ${FINTECH}`);
+    await expect(companyTypeChips(phonePage)).toHaveText([BIG_TECH, FINTECH]);
     const box = await companyTypeField(phonePage).boundingBox();
     expect(box, 'the Company type field on a phone').toBeTruthy();
     if (box) expect(box.x + box.width, 'the field fits a 375px screen').toBeLessThanOrEqual(375);
@@ -110,7 +111,7 @@ test.describe('CC-U2 landing card', () => {
     await bigTechCard.click();
     await expect(page).toHaveURL(/\/jobs\?company_type=big_tech$/);
     await bigTechSearch;
-    await expect(companyTypeField(page)).toHaveText(BIG_TECH);
+    await expect(companyTypeChips(page)).toHaveText([BIG_TECH]);
     await expectJobs(page, CORPUS.expected.bigTech, 'CC-U2 after the Big Tech card', { anonymous: true });
     await shot(page, 'CC-U2', '02-big-tech');
 
@@ -123,7 +124,7 @@ test.describe('CC-U2 landing card', () => {
     await fintechCard.click();
     await expect(page).toHaveURL(/\/jobs\?company_type=fintech$/);
     await fintechSearch;
-    await expect(companyTypeField(page)).toHaveText(FINTECH);
+    await expect(companyTypeChips(page)).toHaveText([FINTECH]);
     await expectJobs(page, CORPUS.expected.fintech, 'CC-U2 after Back and the Fintech card', {
       anonymous: true,
     });
@@ -142,7 +143,7 @@ test.describe('CC-U3 saved default', () => {
 
     const field = page.getByRole('combobox', { name: 'Company type' });
     await expect(field).toHaveText('All');
-    await field.click();
+    await field.click({ position: { x: 4, y: 4 } });
     await page.getByRole('listbox').getByRole('option', { name: BIG_TECH, exact: true }).click();
     await page.keyboard.press('Escape');
 
@@ -165,7 +166,7 @@ test.describe('CC-U3 saved default', () => {
     const applied = searchWith(laterPage, ['big_tech']);
     await laterPage.goto(RECENT_JOBS);
     await applied;
-    await expect(companyTypeField(laterPage)).toHaveText(BIG_TECH);
+    await expect(companyTypeChips(laterPage)).toHaveText([BIG_TECH]);
     await expectJobs(laterPage, CORPUS.expected.bigTech, 'CC-U3 with the saved default');
     await shot(laterPage, 'CC-U3', '02-applied');
     await later.close();

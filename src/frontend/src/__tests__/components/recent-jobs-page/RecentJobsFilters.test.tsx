@@ -553,12 +553,13 @@ describe('RecentJobsFilters — Company type', () => {
     expect(store.getState().recentJobsFilters.filters.companyCategory).toBeUndefined();
   });
 
-  it('shows the selected labels when closed', async () => {
+  it('shows each selected label as a chip when closed', async () => {
     const store = await seedRecentStore({ companyCategory: ['big_tech', 'fintech'] });
     renderWithProviders(<RecentJobsFilters />, { store });
-    expect(screen.getByRole('combobox', { name: 'Company type' })).toHaveTextContent(
-      'Big Tech, Fintech & Trading'
+    const chips = within(screen.getByRole('combobox', { name: 'Company type' })).getAllByRole(
+      'button'
     );
+    expect(chips.map((chip) => chip.textContent)).toEqual(['Big Tech', 'Fintech & Trading']);
   });
 
   // Five controls need about 964px in one row. Without wrap, every width from

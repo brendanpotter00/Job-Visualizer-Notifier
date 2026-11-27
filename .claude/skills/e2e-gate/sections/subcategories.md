@@ -35,7 +35,7 @@ Before claiming "ready to test" on anything touching:
 - `models.py`'s `JobListingResponse.subcategories` / `FacetsResponse`
 - `services/database.py`'s `_LIST_COLUMNS` (it serializes the array on both read paths)
 - any migration touching `job_listings.enrichment_subcategories` or `job_subcategories`
-- `src/frontend/src/components/shared/filters/FacetTreeMultiSelect.tsx`,
+- `src/frontend/src/components/shared/filters/FacetTreeMultiSelect.tsx` (and its `FacetValueChips.tsx`),
   `components/recent-jobs-page/RecentJobsFilters.tsx`,
   `features/settings/subcategoryReveal.tsx`, `features/jobs/searchJobsArgs.ts`
 

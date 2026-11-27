@@ -44,8 +44,10 @@ import {
   expectQuestion,
   expectQuestionsNeverOpen,
   expectStamped,
+  filterChips,
   filterField,
   freshIdentity,
+  openFilterMenu,
   openSignedIn,
   questions,
   shot as rawShot,
@@ -125,9 +127,7 @@ async function pickTimeWindow(page: Page, label: string): Promise<void> {
 }
 
 async function pickSpecialty(page: Page, parent: string, child: string): Promise<void> {
-  await filterField(page, 'Job Category').click();
-  const menu = page.getByRole('listbox');
-  await expect(menu).toBeVisible();
+  const menu = await openFilterMenu(page, 'Job Category');
   const parentRow = menu.getByRole('option', { name: new RegExp(`^${parent}`) });
   if ((await parentRow.getAttribute('aria-selected')) !== 'true') await parentRow.click();
   await expect(parentRow).toHaveAttribute('aria-selected', 'true');
@@ -137,17 +137,14 @@ async function pickSpecialty(page: Page, parent: string, child: string): Promise
 }
 
 async function pickLevel(page: Page, label: string): Promise<void> {
-  await filterField(page, 'Level').click();
-  const menu = page.getByRole('listbox');
+  const menu = await openFilterMenu(page, 'Level');
   await menu.getByRole('option', { name: label, exact: true }).click();
   await page.keyboard.press('Escape');
   await expect(menu).toBeHidden();
 }
 
 async function pickCompanyType(page: Page, label: string): Promise<void> {
-  await filterField(page, 'Company type').click();
-  const menu = page.getByRole('listbox');
-  await expect(menu).toBeVisible();
+  const menu = await openFilterMenu(page, 'Company type');
   await menu.getByRole('option', { name: label, exact: true }).click();
   await page.keyboard.press('Escape');
   await expect(menu).toBeHidden();
@@ -340,8 +337,8 @@ test.describe('OB-U15 signed out, then a brand-new account', () => {
     await expectQuestionsNeverOpen(page, tracker, 'OB-U15 back from sign-in (new account)');
 
     await expect(savedButton(page), 'the search was saved on arrival').toBeVisible({ timeout: 15_000 });
-    await expect(filterField(page, 'Job Category')).toHaveText('Software Engineering, Backend');
-    await expect(filterField(page, 'Level')).toHaveText('Entry');
+    await expect(filterChips(page, 'Job Category')).toHaveText(['Software Engineering', 'Backend']);
+    await expect(filterChips(page, 'Level')).toHaveText(['Entry']);
     await expect(page.getByRole('combobox', { name: 'Time Window' })).toHaveText('24 hours');
     await expect(keywordChips(page)).toHaveText(['e2e-kw-15']);
     await expect(savedButton(page)).toBeDisabled();
@@ -374,7 +371,7 @@ test.describe('OB-U15 signed out, then a brand-new account', () => {
     const tracker2 = trackUserFetches(page2);
     await page2.goto(RECENT_JOBS);
     await expectQuestionsNeverOpen(page2, tracker2, 'OB-U15 new context');
-    await expect(filterField(page2, 'Level')).toHaveText('Entry');
+    await expect(filterChips(page2, 'Level')).toHaveText(['Entry']);
     await expect(keywordChips(page2)).toHaveText(['e2e-kw-15']);
     await expect(savedButton(page2)).toBeDisabled();
     expect(dbState(me).onboardingCompletedAt, 'the stamp does not move').toBe(state.onboardingCompletedAt);
@@ -421,7 +418,7 @@ test.describe('OB-U16 signed out, then an existing account', () => {
     await expectQuestionsNeverOpen(page, tracker, 'OB-U16 back from sign-in (existing account)');
     await expect(savedButton(page), 'the search was saved on arrival').toBeVisible({ timeout: 15_000 });
     // The pending search, not the old saved default (Senior, 7 days).
-    await expect(filterField(page, 'Level')).toHaveText('Entry');
+    await expect(filterChips(page, 'Level')).toHaveText(['Entry']);
     await expect(page.getByRole('combobox', { name: 'Time Window' })).toHaveText('All time');
     await shot(page, 'OB-U16', '02-back-saved');
 
@@ -455,7 +452,7 @@ test.describe('OB-U17 decoy: the sign-in is abandoned', () => {
     await page.goto(RECENT_JOBS);
     await expect(page.getByRole('heading', { level: 1, name: 'Recent Job Postings' })).toBeVisible();
     // Restored once (proof the pending search existed)...
-    await expect(filterField(page, 'Level')).toHaveText('Entry');
+    await expect(filterChips(page, 'Level')).toHaveText(['Entry']);
     await expect(keywordChips(page)).toHaveText(['e2e-kw-17']);
     // ...then dropped, with nothing saved and nothing sent.
     await expect
@@ -505,7 +502,7 @@ test.describe('OB-U19 signed-in default search with a company type', () => {
     await expect(savedButton(page), 'on the saved default: "Default search saved"').toBeDisabled();
 
     await pickCompanyType(page, 'Fintech & Trading');
-    await expect(filterField(page, 'Company type')).toHaveText('Fintech & Trading');
+    await expect(filterChips(page, 'Company type')).toHaveText(['Fintech & Trading']);
     await expect(updateButton(page), 'only the company type changed: Update').toBeEnabled();
     await expect(resetButton(page), 'only the company type changed: Reset').toBeEnabled();
     await shot(page, 'OB-U19', '01-company-type-changed');
@@ -526,16 +523,16 @@ test.describe('OB-U19 signed-in default search with a company type', () => {
     const tracker = trackUserFetches(page2);
     await page2.goto(RECENT_JOBS);
     await expectQuestionsNeverOpen(page2, tracker, 'OB-U19 new context');
-    await expect(filterField(page2, 'Company type')).toHaveText('Fintech & Trading');
+    await expect(filterChips(page2, 'Company type')).toHaveText(['Fintech & Trading']);
     await expect(savedButton(page2)).toBeDisabled();
 
     // Clearing it is a change again, and Reset puts the saved company type back.
     await pickCompanyType(page2, 'Fintech & Trading');
-    await expect(filterField(page2, 'Company type')).not.toHaveText('Fintech & Trading');
+    await expect(filterField(page2, 'Company type')).toHaveText('All');
     await expect(updateButton(page2), 'company type cleared: Update').toBeEnabled();
     await shot(page2, 'OB-U19', '03-new-context-cleared');
     await resetButton(page2).click();
-    await expect(filterField(page2, 'Company type')).toHaveText('Fintech & Trading');
+    await expect(filterChips(page2, 'Company type')).toHaveText(['Fintech & Trading']);
     await expect(savedButton(page2), 'reset: back on the saved default').toBeDisabled();
     await expect(resetButton(page2)).toHaveCount(0);
     await shot(page2, 'OB-U19', '04-reset');
@@ -564,8 +561,8 @@ test.describe('OB-U20 signed out with a company type, then a brand-new account',
     await expectQuestionsNeverOpen(page, tracker, 'OB-U20 back from sign-in (new account)');
 
     await expect(savedButton(page), 'the search was saved on arrival').toBeVisible({ timeout: 15_000 });
-    await expect(filterField(page, 'Company type')).toHaveText('AI Labs');
-    await expect(filterField(page, 'Level')).toHaveText('Entry');
+    await expect(filterChips(page, 'Company type')).toHaveText(['AI Labs']);
+    await expect(filterChips(page, 'Level')).toHaveText(['Entry']);
     await expect(savedButton(page)).toBeDisabled();
     await shot(page, 'OB-U20', '02-back-saved');
 
