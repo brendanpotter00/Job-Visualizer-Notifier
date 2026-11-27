@@ -11,7 +11,7 @@
 #
 # --fast skips the UI tier (the API tier is the SQL truth and takes seconds).
 #
-# PORTS: :8208/:3208. Not the :8206/:3206 the plan named: :8206 is already the
+# PORTS: :8208/:3208. Not :8206/:3206: :8206 is already the
 # enricher section's kill-switch backend (EN-08).
 
 set -uo pipefail

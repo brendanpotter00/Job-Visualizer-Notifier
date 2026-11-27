@@ -342,7 +342,7 @@ Run `mypy` clean. On a bare DB, compare pytest against main's baseline (about 21
   - OB-10 (API): `companyCategory` saved; `step: 4` accepted.
   - OB-U1: answer Big Tech; the list holds only the Big Tech match (decoy: the same job at a non-member).
   - OB-U14 (older backend): route the saved-filters GET to strip `companyCategory`, and the POST to 422 when the body carries it or `step > 3`. The flow still saves, and the body had neither.
-- **New section `company-categories`** (ports 8206/3206, DB `jobscraper_e2e_company_categories`, modelled on `subcategories`):
+- **New section `company-categories`** (ports 8208/3208, DB `jobscraper_e2e_company_categories`, modelled on `subcategories`):
   - CC-00: facets equal the JSON (10, in order) and the seeded tables.
   - CC-01: one type returns members only.
   - CC-02: OR across types.

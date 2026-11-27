@@ -19,7 +19,7 @@ and has a decoy.
 | | |
 |---|---|
 | Stack | own: backend `:8208`, frontend `:3208`, database `jobscraper_e2e_company_categories` (schema-only clone) |
-| Ports | not the `:8206/:3206` the feature plan named: `:8206` is the enricher's kill-switch backend |
+| Ports | `:8208/:3208`, not `:8206/:3206`: `:8206` is the enricher's kill-switch backend |
 | Cost | $0, unconditionally: no LLM, no Browserbase, PostHog blanked, the browser fenced to `127.0.0.1` |
 | Auth | the SPA's auth switch is pinned in `env.company_categories` (a worktree has no `src/frontend/.env.local`); one reader identity, `e2e|company-categories-reader` |
 | Fixtures | `fixtures.py`, nine rows at REAL member ids (Google, Apple, Stripe, ...) plus one decoy company in no type. The oracle (`COMPANY_TYPES`) is restated, and CC-00 checks it against the JSON |
