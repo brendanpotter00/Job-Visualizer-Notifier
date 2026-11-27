@@ -3,8 +3,8 @@ name: add-company
 description: |
   Add (track) a new company end-to-end in this repo: the frontend
   companies.ts entry + COMPANY_IDS enum member, a single-head-safe backend
-  Alembic seed migration for the companies table, a curated blurb, and brand
-  logos via the fetch-company-logo skill. This is the single source
+  Alembic seed migration for the companies table, a curated blurb, its
+  company categories, and brand logos via the fetch-company-logo skill. This is the single source
   of truth for onboarding a company — a zero-context agent should be able to
   follow it without reading anything else. Use when asked to add, track, or
   onboard a company / a new job board.
@@ -28,7 +28,7 @@ mode: read-write
 
 # Add a Company
 
-Onboarding one company means **four edits plus logos**, all keyed by a single
+Onboarding one company means **five edits plus logos**, all keyed by a single
 lowercase `id` (the slug, e.g. `reducto`, `spacex`, `happyrobot.ai`):
 
 | # | What | File |
@@ -37,6 +37,7 @@ lowercase `id` (the slug, e.g. `reducto`, `spacex`, `happyrobot.ai`):
 | 2 | Backend seed migration (one `companies` row) | `src/backend/alembic/versions/<ts>_<rev>_seed_<id>_company.py` |
 | 3 | Brand logos (icon + wordmark) | `src/frontend/public/logos/{icons,wordmarks}/<id>.png` |
 | 4 | Curated blurb + accomplishment | `src/backend/api/data/company_profiles.json` |
+| 5 | Company categories (1+) | `src/backend/api/data/company_categories.json` |
 
 > **Canonical reference commits** — copy these patterns exactly, but only for the
 > files in the table above (all three also edited a file that has since been
@@ -62,6 +63,7 @@ skill, but see **Step 6** for the one step a new script company still owes.)
   (step 0). For eightfold/workday you also need a `provider_config` blob.
 - *(optional)* a one-line recruiter LinkedIn search URL.
 - a curated blurb + accomplishment (step 4 — required).
+- its company categories, with sources for the factual ones (step 4.5 — required).
 
 The helper scripts in `scripts/` are **stdlib-only** — run them with plain
 `python3` (no venv needed).
@@ -206,12 +208,51 @@ sorted; one plain sentence each; only facts you found in a source.
 
 ---
 
+## Step 4.5 — Company categories (required)
+
+Every company is in **at least one** category. Categories drive the Recent
+page's "Company type" filter, the landing cards and onboarding step 4. The file
+is `src/backend/api/data/company_categories.json`. The backend seeds its tables
+from it on every boot, and the frontend imports the same file.
+
+1. **Read each category's `definition` in the file.** The definitions are the
+   rules, not the labels.
+2. **Pick every category that fits.** At least one. A company can be in several
+   (Google is Big Tech, AI Labs and Household Names).
+3. **Never add, rename or remove a category.** If none fits, stop and ask
+   Brendan.
+4. **Put sources for the factual ones in the PR body:**
+
+   | Category | What the PR needs |
+   |---|---|
+   | YC Alumni | the company's `ycombinator.com/companies/<slug>` page (it shows the batch) |
+   | Unicorns | a dated source for a $1B+ valuation. Private and independent only |
+   | Big Tech | a dated $100B+ market cap or priced round. Independent only, never a subsidiary |
+   | AI Labs | strict: it trains its own frontier general-purpose models |
+   | Breakout Startups, Household Names | editorial. No source, but stay conservative |
+   | the rest | fits the definition. Link the product page if it isn't obvious |
+
+5. **Insert the `id` into each chosen `companyIds` list.** List order is the
+   landing logo order, most recognizable first, and only the first 6 show on a
+   card. Put it at its recognizability rank; if unsure, append it.
+6. **Check it:** `python3 .claude/skills/add-company/scripts/check_categories.py <id>`
+   prints the id's categories and fails if it has none.
+
+Big Tech stays the giants only (about 20). The data test fails past 25 members
+or on a subsidiary, so ask before adding one.
+
+---
+
 ## Step 5 — Verify
 
 ```bash
 python3 .claude/skills/add-company/scripts/current_head.py          # exactly one head
 npm run type-check                                                  # zero TS errors
 npm test                                                            # incl. companyLogoAssets + config tests
+python3 .claude/skills/add-company/scripts/check_categories.py      # every company has 1+ category
+# categories (Node 22.14.0; never pipe a test run through tail/head):
+cd src/frontend && npx vitest run src/__tests__/config/companyCategories.test.ts
+# backend (needs local Postgres): cd src/backend && pytest api/tests/test_company_categories_data.py
 # backend (optional, if env is set up): pytest test_migration_companies.py
 ```
 
@@ -220,6 +261,7 @@ Checklist before declaring done:
 - [ ] seed migration present, `down_revision` == current head, **single head**
 - [ ] confirmed what the board's posted date actually is (step 0.5)
 - [ ] `company_profiles.json` entry with `blurb` + `accomplishment`
+- [ ] `company_categories.json`: id in 1+ categories, sources for the factual ones in the PR
 - [ ] `icons/<id>.png` + `wordmarks/<id>.png` committed (logo skill)
 - [ ] `npm run type-check` + `npm test` green
 - [ ] **script-scraped company only:** careers hosts registered (step 6)
@@ -311,6 +353,9 @@ Two consequences worth knowing when you pick an `id` and `display_name`:
 - **`current_head.py`** — prints the single current Alembic head (handles both
   quote styles); exits non-zero on 0 or >1 heads. Use it to set `down_revision`
   and to confirm the chain stays single-headed.
+- **`check_categories.py`** — `check_categories.py <id> ...` prints each id's
+  categories and exits 1 if one has none. With no args it checks the whole
+  roster (`company_profiles.json`) against the categories, both ways.
 - **`scaffold_migration.py`** — writes a Reducto-template seed migration chained
   off the current head; `--provider-config` switches to the JSONB-cast variant
   for eightfold/workday; `--dry-run` previews; refuses to duplicate an existing
@@ -332,6 +377,8 @@ Two consequences worth knowing when you pick an `id` and `display_name`:
   carefully; renaming later touches the DB, frontend, and assets.
 - **Logos are CI-gated** — generate them with `fetch-company-logo` or `npm test`
   fails.
+- **Categories are CI-gated too.** A company with no category fails both the
+  frontend and backend data tests. Never invent a category to make one fit.
 - **Don't hand-edit frozen per-ATS seed migrations** or add files under
   `scripts/shared/migrations/` (frozen). New companies = a *new* migration in
   `src/backend/alembic/versions/` only.
