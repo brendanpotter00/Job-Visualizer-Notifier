@@ -9,7 +9,7 @@ Page: `src/frontend/src/pages/SavedFiltersPage/SavedFiltersPage.tsx`.
 ## Sub-features
 
 - **Scalar saved filters** — `recentTimeWindow`, `trendTimeWindow`, `locations`, category /
-  level defaults, active keyword-list pointers. Written by `save_filter_defaults`
+  level / company-type defaults, active keyword-list pointers. Written by `save_filter_defaults`
   (`PUT /api/users/saved-filters`).
 - **Enabled-companies picker** — the set of companies the feed is scoped to. Written by
   `set_enabled_companies` (`PUT /api/users/enabled-companies`).
@@ -58,9 +58,10 @@ when no token is present, so this is where the fixture matters.
   `PRIMARY_USER`) — that is the `--email` to pass `db_assert.py`. AC-10's second identity is
   `e2e+other@jvn.test`.
 - **`save_filter_defaults` copies the `SavedFilters` field set** — pass only real fields
-  (`recentTimeWindow`, `trendTimeWindow`, `locations`, `category`, `level`,
-  `recentActiveKeywordListId`, `trendActiveKeywordListId`); an unknown/owned-elsewhere
-  keyword-list pointer is a 409 server-side.
+  (`recentTimeWindow`, `trendTimeWindow`, `locations`, `category`, `subcategory`, `level`,
+  `companyCategory`, `recentActiveKeywordListId`, `trendActiveKeywordListId`); an omitted
+  `companyCategory` keeps the stored value; an unknown/owned-elsewhere keyword-list pointer
+  is a 409 server-side.
 - **`set_enabled_companies` also refreshes the store** (best-effort `loadEnabledCompanies`)
   after the write — the DB row is the authoritative side effect, asserted above.
 - **Re-runnable:** `cleanup.sh` sweeps owned companies, and `ensure_db.sh` scrubs on the next
