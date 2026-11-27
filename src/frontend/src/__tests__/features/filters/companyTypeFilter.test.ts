@@ -1,8 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import {
-  filterJobsByFilters,
-  matchesCompanyCategory,
-} from '../../../features/filters/utils/jobFilteringUtils';
+import { filterJobsByFilters } from '../../../features/filters/utils/jobFilteringUtils';
 import type { GraphFilters, Job, RecentJobsFilters } from '../../../types';
 
 /**
@@ -25,32 +22,27 @@ function makeJob(company: string): Job {
 
 const recent: RecentJobsFilters = { timeWindow: 'all', softwareOnly: false };
 
-describe('matchesCompanyCategory', () => {
-  it('passes every job when nothing is selected', () => {
-    expect(matchesCompanyCategory(makeJob('stripe'), undefined)).toBe(true);
-    expect(matchesCompanyCategory(makeJob('stripe'), [])).toBe(true);
-  });
-
-  it('keeps members and drops non-members', () => {
-    expect(matchesCompanyCategory(makeJob('google'), ['big_tech'])).toBe(true);
-    expect(matchesCompanyCategory(makeJob('stripe'), ['big_tech'])).toBe(false);
-  });
-
-  it('ORs across categories', () => {
-    expect(matchesCompanyCategory(makeJob('stripe'), ['big_tech', 'fintech'])).toBe(true);
-  });
-
-  it('matches nothing for an unknown slug', () => {
-    expect(matchesCompanyCategory(makeJob('google'), ['not_a_type'])).toBe(false);
-  });
-});
-
 describe('filterJobsByFilters with a company type', () => {
   const jobs = [makeJob('google'), makeJob('stripe'), makeJob('spacex')];
 
-  it('narrows a Recent filter set', () => {
-    const out = filterJobsByFilters(jobs, { ...recent, companyCategory: ['big_tech'] });
-    expect(out.map((j) => j.company)).toEqual(['google']);
+  const companiesFor = (companyCategory: string[] | undefined) =>
+    filterJobsByFilters(jobs, { ...recent, companyCategory }).map((j) => j.company);
+
+  it('passes every job when nothing is selected', () => {
+    expect(companiesFor(undefined)).toEqual(['google', 'stripe', 'spacex']);
+    expect(companiesFor([])).toEqual(['google', 'stripe', 'spacex']);
+  });
+
+  it('keeps members and drops non-members', () => {
+    expect(companiesFor(['big_tech'])).toEqual(['google']);
+  });
+
+  it('ORs across categories', () => {
+    expect(companiesFor(['big_tech', 'fintech'])).toEqual(['google', 'stripe']);
+  });
+
+  it('matches nothing for an unknown slug', () => {
+    expect(companiesFor(['not_a_type'])).toEqual([]);
   });
 
   it('is a no-op when the field is absent (the graph shape has none)', () => {

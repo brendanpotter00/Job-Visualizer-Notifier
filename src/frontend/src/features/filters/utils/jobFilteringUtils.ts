@@ -473,21 +473,6 @@ export function matchesSubcategory(
 }
 
 /**
- * Company type (company category) filter: the job's company is a member of ANY
- * selected category. Empty/undefined = no filter. Membership comes from the
- * bundled `company_categories.json`, the same file the server seeds from.
- *
- * Client-side only for demo mode: the live Recent page is server-filtered
- * (`company_category` on `/api/jobs/search`).
- */
-export function matchesCompanyCategory(job: Job, companyCategory: string[] | undefined): boolean {
-  if (!companyCategory?.length) {
-    return true;
-  }
-  return companyIdsInCategories(companyCategory).has(job.company);
-}
-
-/**
  * Filter jobs based on provided filters
  * Works with GraphFilters, ListFilters, and RecentJobsFilters
  *
@@ -508,8 +493,9 @@ export function filterJobsByFilters(
     mergeCatalogIntoIndex(locationIndex, locationCatalog);
   }
   // Company type is a Recent-only field (the graph/list shapes do not carry
-  // it). Resolved to member ids once, not per job; same rule as
-  // `matchesCompanyCategory`.
+  // it). The job's company must be a member of ANY selected category, resolved
+  // to member ids once, not per job. Client-side only for demo mode: the live
+  // Recent page is server-filtered (`company_category` on `/api/jobs/search`).
   const companyCategory = 'companyCategory' in filters ? filters.companyCategory : undefined;
   const companyTypeIds = companyCategory?.length ? companyIdsInCategories(companyCategory) : null;
 
