@@ -3,7 +3,6 @@ import type { ReactNode } from 'react';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import type { SxProps, Theme } from '@mui/material/styles';
-import CheckIcon from '@mui/icons-material/Check';
 import { useAppDispatch, useAppSelector } from '../../app/hooks';
 import { RESPONSIVE } from '../../config/responsive';
 import { ROUTES } from '../../config/routes';
@@ -46,8 +45,8 @@ const ERROR_SX = {
 } as const;
 
 /**
- * On the saved default the button IS the confirmation: solid green, white check
- * and text, so it reads as "saved", not as a dead gray control. It is still
+ * On the saved default the button IS the confirmation: solid green with white
+ * text (no icon), so it reads as "saved", not as a dead gray control. It is still
  * disabled (nothing to save). `success.dark`, not `success.main`: white on the
  * main green is 4.1:1, under AA for this size; on the dark green it is 5.1:1.
  */
@@ -60,12 +59,7 @@ type SaveLabel = 'save' | 'update' | 'saved' | 'saving';
 const SAVE_LABELS: Record<SaveLabel, ReactNode> = {
   save: 'Save default search',
   update: 'Update default search',
-  saved: (
-    <>
-      <CheckIcon aria-hidden sx={{ fontSize: '1.125rem' }} />
-      Default search saved
-    </>
-  ),
+  saved: 'Default search saved',
   saving: 'Saving…',
 };
 
@@ -75,7 +69,7 @@ const SAVE_LABELS: Record<SaveLabel, ReactNode> = {
  * 1. Save / Update default search. Saves every current filter as the reader's
  *    default, so the page opens on it next time. A solid black button (the
  *    theme's primary); Reset stays outlined, so the two don't compete.
- *    - Signed in, on the saved default: solid green, "✓ Default search saved".
+ *    - Signed in, on the saved default: solid green, "Default search saved".
  *      The button is the confirmation; there is no message beside it.
  *    - Signed in, filters changed: "Update default search".
  *    - Signed out: "Save default search", never the check (nothing is saved).
@@ -207,8 +201,8 @@ export function DefaultSearchButtons({ sx }: { sx?: SxProps<Theme> }) {
         </Button>
       )}
       {/* Screen readers only. A save disables the button (solid green),
-          which drops its keyboard focus, so a sighted reader sees the check but a screen
-          reader would hear nothing; this says it. Always mounted, so the
+          which drops its keyboard focus, so a sighted reader sees it turn green
+          but a screen reader would hear nothing; this says it. Always mounted, so the
           change is announced. */}
       <Box role="status" sx={VISUALLY_HIDDEN_SX}>
         {justSaved ? 'Default search saved' : ''}

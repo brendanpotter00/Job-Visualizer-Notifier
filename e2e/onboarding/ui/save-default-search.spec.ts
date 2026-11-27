@@ -60,13 +60,21 @@ const BACKEND = process.env.E2E_BACKEND_URL ?? 'http://127.0.0.1:8205';
 
 // --- Drivers -------------------------------------------------------------------
 
+/** The Recent page's search debounce (`FILTER_DEBOUNCE_MS` in useRecentJobsSearch.ts) plus slack. */
+const SEARCH_SETTLE_MS = 400;
+
 /**
- * A screenshot taken once the page is still: every finite animation or
- * transition has finished (the save button fades black -> green over 250ms, and
- * a closing menu fades out), capped at 2s so a looping one can't hang it. These
- * screenshots are the PR's evidence, so a mid-fade frame misreports the design.
+ * A screenshot taken once the page is still. These screenshots are the PR's
+ * evidence, so a frame mid-change misreports what the reader sees:
+ * - the job list: a filter change searches after a 300ms debounce, and until
+ *   then the OLD results stay on screen (a Fintech filter over Google jobs);
+ *   then skeletons (`aria-busy`) show until the new page lands;
+ * - animations: the save button fades black -> green over 250ms, and a closing
+ *   menu fades out (capped at 2s so a looping animation can't hang it).
  */
 async function shot(page: Page, caseId: string, name: string): Promise<void> {
+  await page.waitForTimeout(SEARCH_SETTLE_MS);
+  await expect(page.locator('[aria-busy="true"]')).toHaveCount(0, { timeout: 15_000 });
   await page.evaluate(() =>
     Promise.race([
       Promise.all(
@@ -223,6 +231,7 @@ test.describe('OB-U14 signed-in default-search buttons', () => {
     await expect(savedButton(page), 'on the saved default (the server defaults): says so, not clickable').toBeDisabled();
     // The design: a solid green saved state (theme success.dark).
     await expect(savedButton(page)).toHaveCSS('background-color', 'rgb(46, 125, 50)');
+    await expect(savedButton(page).locator('svg'), 'text only, no checkmark').toHaveCount(0);
     await expect(resetButton(page), 'on the default: no Reset').toHaveCount(0);
     await expect(byName(page, 'Reset Filters'), 'Reset Filters is gone').toHaveCount(0);
     await shot(page, 'OB-U14', '01-unchanged');
