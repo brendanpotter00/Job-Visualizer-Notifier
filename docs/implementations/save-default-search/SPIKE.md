@@ -1,6 +1,15 @@
 # Save default search: spike
 
 A **Save default search** button next to **Reset Filters** on Recent Jobs.
+
+> **Revised after review (2026-11-27).** Reset Filters is gone. The row is now
+> `DefaultSearchButtons.tsx`: **Save default search** first (signed in it reads
+> **Update default search**, and on the saved default a grayed-out
+> **✓ Default search saved**, which is the confirmation; no message beside it),
+> then **Reset to default search**, shown only while the filters differ from the
+> default (signed in: the saved default; signed out: the site defaults). Reset is
+> `resetRecentJobsFilters(patch)`: the reset takes an optional patch laid over
+> the site defaults. Where this spike says otherwise below, this note wins.
 It saves every current filter as the reader's default, so the page opens on it next time.
 
 ## Verdict
@@ -262,10 +271,10 @@ Gates to run before "ready to test": `e2e/run.sh onboarding` and `e2e/run.sh sub
 - An existing list with exactly the same keywords is reused instead of copied.
 - Signed out: the button is enabled only when the filters differ from site defaults.
 - Hidden when auth is not configured.
-- Confirmation is inline text beside the button, not a toast.
+- Confirmation is the button itself ("✓ Default search saved"), not text or a toast (revised; was inline text).
 - A pending search skips the first-sign-in questions and stamps the account with the search's answers (`skipped: false`).
 - Pending lives in sessionStorage for 30 minutes and is dropped once a load resolves signed out.
-- Reset Filters still clears to the site defaults, not to the saved default search.
+- Reset Filters is replaced by Reset to default search, which goes back to the saved default (revised; Reset Filters cleared to the site defaults).
 - New `defaultSearch` Redux slice. New sign-in CTA location `save_default_search`.
 - The e2e cases go into the existing onboarding section rather than a new one.
 
