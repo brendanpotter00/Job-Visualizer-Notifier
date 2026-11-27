@@ -1,5 +1,5 @@
 // OB-U7 — moving between the questions: Back is shown but disabled on Q1,
-// Back keeps every answer (one draft holds all three steps), the counter and
+// Back keeps every answer (one draft holds all four steps), the counter and
 // the progress bar advance together, and focus lands on each question's h1 so
 // a screen reader hears the new question. Moving never saves anything.
 import { expect, test } from '@playwright/test';
@@ -49,7 +49,7 @@ test.describe('OB-U7 Back and Continue', () => {
     await expect(button(dialog, 'Back'), 'Back is SHOWN on question 1').toBeVisible();
     await expect(button(dialog, 'Back'), '…and disabled').toBeDisabled();
     await expectFocusedOn(dialog, QUESTION_TITLES[0]);
-    await expectProgress(page, 1 / 3, 'Q1');
+    await expectProgress(page, 1 / 4, 'Q1');
     await roleBox(dialog, 'Software Engineering').check();
     await chip(dialog, 'Backend').check();
     await roleBox(dialog, 'Product Manager').check();
@@ -57,17 +57,17 @@ test.describe('OB-U7 Back and Continue', () => {
 
     // Q2
     dialog = await expectQuestion(page, 1);
-    await expect(dialog.getByText('1/3', { exact: true })).toHaveCount(0);
+    await expect(dialog.getByText('1/4', { exact: true })).toHaveCount(0);
     await expect(button(dialog, 'Back')).toBeEnabled();
     await expectFocusedOn(dialog, QUESTION_TITLES[1]);
-    await expectProgress(page, 2 / 3, 'Q2');
+    await expectProgress(page, 2 / 4, 'Q2');
     await chip(dialog, 'Mid').check();
 
     // Back to Q1: every tick is still there.
     await button(dialog, 'Back').click();
     dialog = await expectQuestion(page, 0);
     await expectFocusedOn(dialog, QUESTION_TITLES[0]);
-    await expectProgress(page, 1 / 3, 'back on Q1');
+    await expectProgress(page, 1 / 4, 'back on Q1');
     await expect(roleBox(dialog, 'Software Engineering')).toBeChecked();
     await expect(chip(dialog, 'Backend'), 'the specialty survives Back').toBeChecked();
     await expect(roleBox(dialog, 'Product Manager')).toBeChecked();
@@ -82,12 +82,19 @@ test.describe('OB-U7 Back and Continue', () => {
     // Q3
     dialog = await expectQuestion(page, 2);
     await expectFocusedOn(dialog, QUESTION_TITLES[2]);
-    await expectProgress(page, 1, 'Q3');
+    await expectProgress(page, 3 / 4, 'Q3');
+    await expect(button(dialog, 'Continue'), 'Q3 is no longer the last step').toBeVisible();
+    await button(dialog, 'Continue').click();
+
+    // Q4, the last
+    dialog = await expectQuestion(page, 3);
+    await expectFocusedOn(dialog, QUESTION_TITLES[3]);
+    await expectProgress(page, 1, 'Q4');
     await expect(button(dialog, 'Show my jobs'), 'the last step finishes, it does not continue').toBeVisible();
     await expect(button(dialog, 'Continue')).toHaveCount(0);
 
     // Moving between questions never saved anything.
-    const state = expectUnstamped(me, 'OB-U7 after moving through all three questions');
+    const state = expectUnstamped(me, 'OB-U7 after moving through all four questions');
     expect(state.savedFilters).toBeNull();
     await context.close();
   });

@@ -28,6 +28,9 @@ if [ -z "$SECTION" ]; then
   echo "  onboarding           \$0, with no opt-in that changes that. First-sign-in questions:" >&2
   echo "                       fresh identities, own stack :8205/:3205, own database. No LLM," >&2
   echo "                       no browser hour, PostHog off, the browser fenced to 127.0.0.1." >&2
+  echo "  company-categories   \$0, unconditionally. The Company type filter: own stack on" >&2
+  echo "                       :8208/:3208, own database, nine seeded rows. No LLM, no" >&2
+  echo "                       browser hour, PostHog off, the browser fenced to 127.0.0.1." >&2
   echo "  enricher             \$0, unconditionally. Real enricher CLI + wrapper against a" >&2
   echo "                       real backend on :8207 and a STUB ollama on :8215 (never" >&2
   echo "                       :11434). --enricher-ref <ref> runs another version." >&2
@@ -75,6 +78,9 @@ case "$SECTION" in
   onboarding)
     echo "run.sh: COST — \$0, unconditionally. Brand-new identities against its own stack;" \
          "no LLM call, no Browserbase session, no PostHog event, no host but 127.0.0.1." ;;
+  company-categories)
+    echo "run.sh: COST — \$0, unconditionally. Nine seeded rows against its own stack; no LLM" \
+         "call, no Browserbase session, no PostHog event, no host but 127.0.0.1." ;;
   enricher)
     echo "run.sh: COST — \$0, unconditionally. The enricher's model is a deterministic stub" \
          "on loopback; no claude, no real ollama, no Browserbase, a blank Anthropic key." ;;
@@ -125,6 +131,12 @@ fi
 # stamped account), ports :8205/:3205, lock and flags (`--keep-up`).
 if [ "$SECTION" = "onboarding" ]; then
   exec bash "$SCRIPT_DIR/onboarding/run.sh" "$@"
+fi
+
+# `company-categories` owns its database (it seeds jobs and saves a reader's
+# filters), ports :8208/:3208, lock and flags (`--keep-up`).
+if [ "$SECTION" = "company-categories" ]; then
+  exec bash "$SCRIPT_DIR/company-categories/run.sh" "$@"
 fi
 
 # `enricher` owns its database, its backend port, a stub model, a throwaway
