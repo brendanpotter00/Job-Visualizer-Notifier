@@ -11,6 +11,7 @@ import {
   savedFiltersPropagationActions,
   activeListContentPropagationActions,
   deletedListPropagationActions,
+  defaultSearchGraphActions,
 } from '../../../features/savedFilters/propagateSavedFilters';
 import type { SavedFilters, KeywordList } from '../../../types';
 
@@ -330,5 +331,46 @@ describe('deletedListPropagationActions (live delete propagation)', () => {
     expect(actions).toEqual([]);
     expect(graph.filters.searchTags).toEqual([{ text: 'golang', mode: 'include' }]);
     expect(recent.filters.searchTags).toEqual([{ text: 'golang', mode: 'include' }]);
+  });
+});
+
+describe('defaultSearchGraphActions (after a Save default search on Recent Jobs)', () => {
+  const saved: SavedFilters = {
+    recentTimeWindow: '24h',
+    trendTimeWindow: '30d',
+    locations: ['Remote (US)'],
+    category: ['software_engineering'],
+    level: ['entry'],
+    subcategory: ['backend'],
+    recentActiveKeywordListId: 'list-1',
+    trendActiveKeywordListId: 'list-1',
+  };
+
+  it("moves the Companies page's shared filters, but not its time window", () => {
+    let graph = graphReducer(undefined, { type: '@@INIT' });
+    const windowBefore = graph.filters.timeWindow;
+    for (const action of defaultSearchGraphActions(saved, lists)) {
+      graph = graphReducer(graph, action);
+    }
+    expect(graph.filters).toMatchObject({
+      location: ['Remote (US)'],
+      category: ['software_engineering'],
+      level: ['entry'],
+      subcategory: ['backend'],
+      searchTags: [{ text: 'golang', mode: 'include' }],
+    });
+    expect(graph.filters.timeWindow).toBe(windowBefore);
+  });
+
+  it('sends no time-window action and nothing to the Recent slice', () => {
+    const types = defaultSearchGraphActions(saved, lists).map((a) => a.type);
+    expect(types).not.toContain(setGraphTimeWindow.type);
+    expect(types.every((type) => type.startsWith('graphFilters/'))).toBe(true);
+    const recent = recentJobsReducer(undefined, { type: '@@INIT' });
+    let after = recent;
+    for (const action of defaultSearchGraphActions(saved, lists)) {
+      after = recentJobsReducer(after, action);
+    }
+    expect(after).toBe(recent);
   });
 });
