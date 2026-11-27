@@ -93,6 +93,18 @@ describe('RecentJobsFilters', () => {
     expect(screen.getByRole('button', { name: /reset filters/i })).toBeInTheDocument();
   });
 
+  it('puts Save default search right after Reset Filters, in the same row', async () => {
+    const store = await seedRecentStore();
+    renderWithProviders(<RecentJobsFilters />, { store });
+
+    const reset = screen.getByRole('button', { name: /reset filters/i });
+    const save = screen.getByRole('button', { name: 'Save default search' });
+    expect(save.parentElement).toBe(reset.parentElement);
+    expect(reset.compareDocumentPosition(save) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // Signed out, and the preloaded 30-day window differs from the site default.
+    expect(save).toBeEnabled();
+  });
+
   it('renders no Company control', async () => {
     const store = await seedRecentStore();
     renderWithProviders(<RecentJobsFilters />, { store });
