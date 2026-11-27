@@ -67,8 +67,8 @@ function tagsEqual(a: SearchTag[], b: SearchTag[]): boolean {
  * A `listRejection` is a sentence about a specific set of chips ("only 2 of 20
  * slots are free"). The moment that set changes the sentence is about a state
  * that no longer exists, and the most visible way it changes is from OUTSIDE
- * this component: `RecentJobsFilters.tsx` renders Reset Filters and dispatches
- * `resetRecentJobsFilters` itself, so `value` empties without any handler here
+ * this component: Reset to default search (`DefaultSearchButtons.tsx`)
+ * dispatches `resetRecentJobsFilters` itself, so `value` changes without any handler here
  * running — leaving "remove some keywords" on screen above zero chips. Mode is
  * in the signature too, because clicking a chip to flip include/exclude goes
  * through `onToggleMode` and likewise never reaches `handleChange`.

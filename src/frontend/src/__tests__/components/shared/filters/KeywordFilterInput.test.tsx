@@ -63,7 +63,7 @@ function renderInput(value: SearchTag[] | undefined, handlers: Partial<typeof no
     /**
      * Push a new `value` in from OUTSIDE, the way Redux does. The component is
      * controlled, and the two most important `value` changes originate in
-     * siblings: Reset Filters lives in `RecentJobsFilters` and dispatches
+     * siblings: Reset to default search (`DefaultSearchButtons`) dispatches
      * `resetRecentJobsFilters` directly, and a chip's include/exclude toggle goes
      * through `onToggleMode`. Neither reaches this component's own handlers.
      */
@@ -494,8 +494,8 @@ describe('KeywordFilterInput', () => {
     });
 
     it('clears a standing refusal when the chips it describes go away', async () => {
-      // Reset Filters is rendered by `RecentJobsFilters`, not by this component,
-      // and dispatches `resetRecentJobsFilters` itself — no handler here runs. So
+      // Reset to default search is rendered by `DefaultSearchButtons`, not by this
+      // component, and dispatches `resetRecentJobsFilters` itself — no handler here runs. So
       // "only 2 of 20 slots are free. Remove some keywords" stayed on screen above
       // ZERO chips: false, and an instruction the reader cannot act on.
       const props = renderInput(chips(MAX_SEARCH_TAGS - 2));

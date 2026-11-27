@@ -85,26 +85,37 @@ async function seedRecentStore(overrides: PreloadedOverrides = {}) {
 }
 
 describe('RecentJobsFilters', () => {
-  it('renders the merged KeywordFilterInput, TimeWindowSelect, Location, Reset button', async () => {
+  it('renders the merged KeywordFilterInput, TimeWindowSelect, Location, and no Reset Filters', async () => {
     const store = await seedRecentStore();
     renderWithProviders(<RecentJobsFilters />, { store });
 
     expect(screen.getByRole('combobox', { name: 'Keywords' })).toBeInTheDocument();
     expect(screen.getAllByText('Time Window').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Location').length).toBeGreaterThan(0);
-    expect(screen.getByRole('button', { name: /reset filters/i })).toBeInTheDocument();
+    // "Reset to default search" replaced it.
+    expect(screen.queryByRole('button', { name: /reset filters/i })).not.toBeInTheDocument();
   });
 
-  it('puts Save default search right after Reset Filters, in the same row', async () => {
+  it('puts Save default search first and Reset to default search right after it, in one row', async () => {
     const store = await seedRecentStore();
     renderWithProviders(<RecentJobsFilters />, { store });
 
-    const reset = screen.getByRole('button', { name: /reset filters/i });
-    const save = screen.getByRole('button', { name: 'Save default search' });
-    expect(save.parentElement).toBe(reset.parentElement);
-    expect(reset.compareDocumentPosition(save) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     // Signed out, and the preloaded 30-day window differs from the site default.
+    const save = screen.getByRole('button', { name: 'Save default search' });
+    const reset = screen.getByRole('button', { name: 'Reset to default search' });
+    expect(reset.parentElement).toBe(save.parentElement);
+    expect(save.compareDocumentPosition(reset) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(save).toBeEnabled();
+  });
+
+  it('shows no Reset to default search on the site defaults (signed out)', async () => {
+    const store = createTestStore();
+    renderWithProviders(<RecentJobsFilters />, { store });
+
+    expect(screen.getByRole('button', { name: 'Save default search' })).toBeDisabled();
+    expect(
+      screen.queryByRole('button', { name: 'Reset to default search' })
+    ).not.toBeInTheDocument();
   });
 
   it('renders no Company control', async () => {
@@ -244,7 +255,7 @@ describe('RecentJobsFilters', () => {
     expect(tags === undefined || tags.length === 0).toBe(true);
   });
 
-  it('dispatches resetRecentJobsFilters when Reset Filters button clicked', async () => {
+  it('Reset to default search (signed out) restores the site defaults', async () => {
     const store = await seedRecentStore({
       searchTags: [{ text: 'senior', mode: 'include' }],
       location: ['SF'],
@@ -252,7 +263,7 @@ describe('RecentJobsFilters', () => {
     const user = userEvent.setup();
     renderWithProviders(<RecentJobsFilters />, { store });
 
-    await user.click(screen.getByRole('button', { name: /reset filters/i }));
+    await user.click(screen.getByRole('button', { name: 'Reset to default search' }));
 
     const filters = store.getState().recentJobsFilters.filters;
     // After reset, the slice's initial state should be restored (timeWindow='all',
@@ -562,12 +573,12 @@ describe('RecentJobsFilters — Company type', () => {
     expect(getComputedStyle(row).flexWrap).toBe('wrap');
   });
 
-  it('is cleared by Reset Filters', async () => {
+  it('is cleared by Reset to default search (signed out: the site defaults)', async () => {
     const store = await seedRecentStore({ companyCategory: ['big_tech'] });
     const user = userEvent.setup();
     renderWithProviders(<RecentJobsFilters />, { store });
 
-    await user.click(screen.getByRole('button', { name: /reset filters/i }));
+    await user.click(screen.getByRole('button', { name: 'Reset to default search' }));
 
     expect(store.getState().recentJobsFilters.filters.companyCategory).toBeUndefined();
     expect(screen.getByRole('combobox', { name: 'Company type' })).toHaveTextContent('All');

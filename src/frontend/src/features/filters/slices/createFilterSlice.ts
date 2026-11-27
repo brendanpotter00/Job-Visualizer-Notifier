@@ -220,10 +220,16 @@ export function createFilterSlice<T extends Filters>(
       // Slice-only reducers (see the `sliceReducers` param).
       ...sliceReducers,
 
-      // Reset (1 action)
-      [`reset${capitalizedName}Filters`]: (state) => {
+      // Reset (1 action). With no payload: back to the initial filters (the site
+      // defaults). With a patch: the initial filters, then the patch on top. That
+      // is "Reset to default search" for a signed-in reader, whose default is
+      // their saved filters, so a field the patch leaves out still clears.
+      [`reset${capitalizedName}Filters`]: (
+        state,
+        action: PayloadAction<Partial<T> | undefined>
+      ) => {
         // Use Object.assign to work with Immer's Draft type
-        Object.assign(state.filters, initialState.filters);
+        Object.assign(state.filters, initialState.filters, action.payload);
         // Clear the user-edit flag so a subsequent sign-in re-hydrates from the
         // (new) user's saved filters rather than treating the slice as touched.
         state.userModified = false;

@@ -6,8 +6,9 @@ import type { RecentJobsFilters } from '../../../types';
  * Initial filter state for Recent Jobs page
  * Default time window is all time.
  *
- * Exported as the signed-out baseline of the "Save default search" button: a
- * signed-out reader's button is enabled only once the filters differ from this.
+ * Exported as the signed-out default search (`DefaultSearchButtons`): a
+ * signed-out reader's Save default search is enabled, and Reset to default
+ * search shown, only once the filters differ from this.
  */
 export const recentJobsInitialFilters: RecentJobsFilters = {
   // Default window for anyone WITHOUT a saved filter (logged-out visitors, and
@@ -27,7 +28,7 @@ export const recentJobsInitialFilters: RecentJobsFilters = {
   // NOT COSMETICS. `reset${Name}Filters` is
   // `Object.assign(state.filters, initialState.filters)`, which copies only the
   // keys PRESENT on the source object. Add `subcategory` to the interface but
-  // omit it here and "Reset Filters" silently leaves a subcategory selection
+  // omit it here and "Reset to default search" silently leaves a subcategory selection
   // active while visibly clearing everything else — and it typechecks, and every
   // existing test passes.
   subcategory: undefined,

@@ -7,7 +7,7 @@ Data: `src/backend/api/data/company_categories.json` (committed with this plan).
 
 - **Every tracked company gets 1+ of 10 categories.** One company can have many (Google is Big Tech, AI Labs and Household Names).
 - **Recent Jobs gets a "Company type" checkbox dropdown.** Check several; the server filters.
-- **Saved filters store it.** The Saved Filters page edits it. Reset Filters clears it.
+- **Saved filters store it.** The Saved Filters page edits it. Reset to default search puts the saved one back (signed out: clears it).
 - **Landing cards deep-link** to `/jobs?company_type=<slug>`.
 - **Onboarding gains step 4 of 4:** "What kinds of companies do you want?" Skippable.
 - **add-company skill** makes picking categories a required step.

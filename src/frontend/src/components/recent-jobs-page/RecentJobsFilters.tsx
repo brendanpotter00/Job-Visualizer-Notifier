@@ -1,4 +1,4 @@
-import { Box, Stack, Button } from '@mui/material';
+import { Box, Stack } from '@mui/material';
 import { RESPONSIVE } from '../../config/responsive';
 import { useAppDispatch, useAppSelector } from '../../app/hooks.ts';
 import {
@@ -9,7 +9,6 @@ import {
   removeRecentJobsSearchTag,
   toggleRecentJobsSearchTagMode,
   setRecentJobsSearchTags,
-  resetRecentJobsFilters,
   setRecentJobsCategory,
   setRecentJobsLevel,
   setRecentJobsSubcategory,
@@ -26,11 +25,11 @@ import { FacetTreeMultiSelect } from '../shared/filters/FacetTreeMultiSelect.tsx
 import { KeywordFilterInput } from '../shared/filters/KeywordFilterInput.tsx';
 import { TimeWindowSelect } from '../shared/filters/TimeWindowSelect.tsx';
 import { AsyncMultiSelectAutocomplete } from '../shared/filters/AsyncMultiSelectAutocomplete.tsx';
-import { SaveDefaultSearchButton } from './SaveDefaultSearchButton.tsx';
+import { DefaultSearchButtons } from './DefaultSearchButtons.tsx';
 
 /**
- * Reset Filters and Save default search share one look: outlined, small, and
- * shrunk on mobile (kept >= 36px so each stays an easy tap target). The `sm`
+ * The two default-search buttons share one look: outlined, small, and shrunk
+ * on mobile (kept >= 36px so each stays an easy tap target). The `sm`
  * slots restate the theme's 44px floor, 16px horizontal padding and the small
  * button's 0.8125rem font. The keyboard focus ring is drawn as an outline,
  * because the default focus ripple is faint on a white outlined button.
@@ -46,8 +45,8 @@ const FILTER_ACTION_BUTTON_SX = {
  * Filter controls for Recent Job Postings page.
  *
  * What is actually rendered: keywords (free text + saved keyword lists), time
- * window, job category, level, company type, location, Reset, and Save default
- * search. The slice
+ * window, job category, level, company type, location, and the default-search
+ * buttons (Save / Update default search, then Reset to default search). The slice
  * also generates `toggle/setRecentJobsSoftwareOnly`, but
  * NOTHING dispatches them — there is no software-only control on this page; the
  * built-in "Software Engineering" keyword list in the keywords input is how a
@@ -163,18 +162,10 @@ export function RecentJobsFilters() {
           />
         </Stack>
 
-        {/* Wraps on a phone: a confirmation beside the buttons drops to the
-            next line instead of squeezing them. */}
+        {/* Wraps on a phone: an error beside the buttons drops to the next
+            line instead of squeezing them. */}
         <Stack direction="row" spacing={2} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center' }}>
-          <Button
-            variant="outlined"
-            size="small"
-            onClick={() => dispatch(resetRecentJobsFilters())}
-            sx={FILTER_ACTION_BUTTON_SX}
-          >
-            Reset Filters
-          </Button>
-          <SaveDefaultSearchButton sx={FILTER_ACTION_BUTTON_SX} />
+          <DefaultSearchButtons sx={FILTER_ACTION_BUTTON_SX} />
         </Stack>
       </Stack>
     </Box>
