@@ -206,8 +206,8 @@ export function DefaultSearchButtons({ sx }: { sx?: SxProps<Theme> }) {
           Reset to default search
         </Button>
       )}
-      {/* Screen readers only. A save grays the button out, which drops its
-          keyboard focus, so a sighted reader sees the check but a screen
+      {/* Screen readers only. A save disables the button (solid green),
+          which drops its keyboard focus, so a sighted reader sees the check but a screen
           reader would hear nothing; this says it. Always mounted, so the
           change is announced. */}
       <Box role="status" sx={VISUALLY_HIDDEN_SX}>
