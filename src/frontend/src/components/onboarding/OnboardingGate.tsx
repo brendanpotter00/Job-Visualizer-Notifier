@@ -4,6 +4,7 @@ import Box from '@mui/material/Box';
 import { AUTH_CONFIG } from '../../config/auth';
 import { useAuth } from '../../features/auth/useAuth';
 import { useCurrentUser } from '../../features/auth/useCurrentUser';
+import { hadPendingDefaultSearchAtLoad } from '../../features/defaultSearch/pendingDefaultSearch';
 import type { OnboardingResult } from '../../features/savedFilters/savedFiltersApi';
 import { VISUALLY_HIDDEN_SX } from '../../lib/visuallyHidden';
 import { OnboardingFlow } from './OnboardingFlow';
@@ -20,7 +21,8 @@ import {
  * Mounted once, in `RootLayout`, so it covers every sign-in path (Auth0 and
  * Google One-Tap alike): it reads the SERVER's stamp, not a sign-in event.
  * The questions open ONLY when the signed-in user's `onboardingCompletedAt`
- * is exactly `null`. `undefined` (a backend older than the field, or a user
+ * is exactly `null` (and never on a load that is finishing a signed-out
+ * "Save default search"). `undefined` (a backend older than the field, or a user
  * still loading) never opens them, and neither does a timestamp, so a later
  * sign-in goes straight to the list. Never on `/` or `/pricing`.
  *
@@ -42,11 +44,16 @@ export function OnboardingGate() {
   const [toastOpen, setToastOpen] = useState(false);
   const [announcement, setAnnouncement] = useState('');
 
+  // A "Save default search" made while signed out stands in for the questions
+  // on the load it returns to: `useApplyPendingDefaultSearch` stamps the account
+  // with the search's answers instead. A load-time memo, not a storage read, so
+  // clearing the pending search mid-load cannot reopen the questions.
   const eligible =
     isAuthenticated &&
     !AUTH_CONFIG.bypassEnabled &&
     user?.onboardingCompletedAt === null &&
-    !isOnboardingExcludedPath(pathname);
+    !isOnboardingExcludedPath(pathname) &&
+    !hadPendingDefaultSearchAtLoad();
 
   const handleExited = () => {
     if (!saved) return;

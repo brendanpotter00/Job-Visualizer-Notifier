@@ -52,6 +52,9 @@ vi.mock('../../../features/savedFilters/savedFiltersApi', async (importOriginal)
 });
 
 const { OnboardingGate } = await import('../../../components/onboarding/OnboardingGate');
+const { resetPendingDefaultSearchForTests, writePendingDefaultSearch } = await import(
+  '../../../features/defaultSearch/pendingDefaultSearch'
+);
 
 function makeUser(onboardingCompletedAt: string | null | undefined): User {
   const user: User = {
@@ -98,6 +101,9 @@ function renderGate(path = '/jobs') {
 const questions = () => screen.queryByRole('dialog', { name: 'What roles are you looking for?' });
 
 beforeEach(() => {
+  // A new "page load" for the pending-search memo, with nothing pending.
+  window.sessionStorage.clear();
+  resetPendingDefaultSearchForTests();
   authState.isAuthenticated = true;
   userState.initial = makeUser(null);
   userState.setUserCalls = [];
@@ -138,6 +144,30 @@ describe('OnboardingGate — when the questions open', () => {
   it.each(['/', '/pricing', '/pricing/'])('never opens on %s', (path) => {
     renderGate(path);
     expect(questions()).toBeNull();
+  });
+});
+
+describe('OnboardingGate — a load finishing a signed-out "Save default search"', () => {
+  const PENDING = {
+    timeWindow: '24h' as const,
+    searchTags: [],
+    location: ['San Francisco, CA, US'],
+    category: ['software_engineering'],
+    level: ['entry'],
+    subcategory: [],
+  };
+
+  it('keeps the questions closed for a null stamp (the search stands in for them)', async () => {
+    writePendingDefaultSearch(PENDING);
+    renderGate();
+    // Give the gate every chance to open.
+    await new Promise((r) => setTimeout(r, 20));
+    expect(questions()).toBeNull();
+  });
+
+  it('mirror: the same account with nothing pending is asked', async () => {
+    renderGate();
+    expect(await screen.findByRole('dialog', { name: 'What roles are you looking for?' })).toBeVisible();
   });
 });
 

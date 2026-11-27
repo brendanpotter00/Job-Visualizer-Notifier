@@ -93,6 +93,27 @@ export function savedFiltersPropagationActions(
 }
 
 /**
+ * The Companies (graph) page's actions after a "Save default search" on Recent
+ * Jobs. The two pages share one saved copy of locations, job category, level,
+ * specialty and the keyword list, so those five follow the save. Deliberately
+ * NOT the graph's time window (Recent saves only its own window), and nothing
+ * on the Recent slice: it is where the search came from, and pushing the saved
+ * copy back could undo an edit made while the save was in flight.
+ */
+export function defaultSearchGraphActions(
+  saved: SavedFilters,
+  lists: KeywordList[]
+): UnknownAction[] {
+  return [
+    setGraphLocation(saved.locations),
+    setGraphCategory(saved.category),
+    setGraphLevel(saved.level),
+    setGraphSubcategory(saved.subcategory),
+    setGraphSearchTags(resolveActiveTags(saved.trendActiveKeywordListId, lists)),
+  ];
+}
+
+/**
  * Build the redux actions that re-push a just-edited keyword list's *contents*
  * into whichever filter pages currently have that list active. Companion to
  * {@link savedFiltersPropagationActions}, but scoped to search tags only: editing

@@ -35,4 +35,4 @@ Netflix, Anthropic, plus a Google product-manager row), two Fintech rows (Stripe
 ## Known non-coverage
 
 - The Vercel proxy's `company_category` forwarding (plain `vite dev` here) — `jobs.serverless.test.ts`.
-- The onboarding question — the `onboarding` section (OB-10, OB-U1, OB-U14).
+- The onboarding question — the `onboarding` section (OB-10, OB-U1, OB-U18).

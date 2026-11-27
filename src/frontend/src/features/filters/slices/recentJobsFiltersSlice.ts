@@ -4,9 +4,12 @@ import type { RecentJobsFilters } from '../../../types';
 
 /**
  * Initial filter state for Recent Jobs page
- * Default time window is all time
+ * Default time window is all time.
+ *
+ * Exported as the signed-out baseline of the "Save default search" button: a
+ * signed-out reader's button is enabled only once the filters differ from this.
  */
-const initialFilters: RecentJobsFilters = {
+export const recentJobsInitialFilters: RecentJobsFilters = {
   // Default window for anyone WITHOUT a saved filter (logged-out visitors, and
   // the frame before a signed-in user's saved filters hydrate). Kept in sync
   // with the backend no-saved-row default
@@ -39,7 +42,7 @@ const initialFilters: RecentJobsFilters = {
  * `setRecentJobsCompanyCategory` (the trend page is one company, so the graph
  * slice has no company type).
  */
-const recentJobsFiltersSlice = createFilterSlice('recentJobs', initialFilters, {
+const recentJobsFiltersSlice = createFilterSlice('recentJobs', recentJobsInitialFilters, {
   // `[]` normalizes to `undefined` (the "All" state), like the facet setters.
   setRecentJobsCompanyCategory: (state, action: PayloadAction<string[] | undefined>) => {
     state.filters.companyCategory = action.payload?.length ? action.payload : undefined;

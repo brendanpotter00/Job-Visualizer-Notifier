@@ -34,4 +34,4 @@ and has a decoy.
 
 - The Vercel proxy (`api/jobs.ts`'s `company_category` entry): the stack runs plain `vite dev`,
   the same gap as every section. Covered by `jobs.serverless.test.ts`.
-- The onboarding question lives in the `onboarding` section (OB-10, OB-U1, OB-U14).
+- The onboarding question lives in the `onboarding` section (OB-10, OB-U1, OB-U18).

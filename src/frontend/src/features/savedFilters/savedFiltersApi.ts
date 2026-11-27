@@ -37,8 +37,11 @@ export interface CompleteOnboardingArgs extends OnboardingAnswers {
   /**
    * The question on screen when the flow ended, 1-4 (analytics only). An older
    * backend accepts only 1-3, so the flow clamps it there (see `forBackend`).
+   * Absent when no question was shown: a "Save default search" made while
+   * signed out stamps a new account without opening the questions. The server
+   * takes `None`.
    */
-  step: 1 | 2 | 3 | 4;
+  step?: 1 | 2 | 3 | 4;
   /** The PostHog session, when PostHog is on. */
   sessionId?: string;
 }

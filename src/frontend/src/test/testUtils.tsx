@@ -8,6 +8,7 @@ import appReducer from '../features/app/appSlice';
 import graphFiltersReducer from '../features/filters/slices/graphFiltersSlice';
 import recentJobsFiltersReducer from '../features/filters/slices/recentJobsFiltersSlice';
 import uiReducer from '../features/ui/uiSlice';
+import defaultSearchReducer from '../features/defaultSearch/defaultSearchSlice';
 import enabledCompaniesReducer from '../features/preferences/enabledCompaniesSlice';
 import { jobsApi } from '../features/jobs/jobsApi';
 import { featuresApi } from '../features/features/featuresApi';
@@ -34,6 +35,7 @@ export function createTestStore(preloadedState: Partial<RootState> | Record<stri
       graphFilters: graphFiltersReducer,
       recentJobsFilters: recentJobsFiltersReducer,
       ui: uiReducer,
+      defaultSearch: defaultSearchReducer,
       enabledCompanies: enabledCompaniesReducer,
       locationCatalog: locationCatalogReducer,
       [jobsApi.reducerPath]: jobsApi.reducer,

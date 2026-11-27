@@ -6,7 +6,7 @@
 //           tab-title fix on this branch.
 //   OB-U12  an older backend that does not send `onboardingCompletedAt` must
 //           never open the questions: `undefined` is "unknown", not "ask".
-//   OB-U14  an older backend that does not know company types (the ~6 min
+//   OB-U18  an older backend that does not know company types (the ~6 min
 //           Vercel-before-Railway window): the questions still save, with no
 //           `companyCategory` in the body and `step` clamped to 3.
 import { expect, test } from '@playwright/test';
@@ -113,9 +113,9 @@ test.describe('OB-U12 older backend', () => {
   });
 });
 
-test.describe('OB-U14 older backend, no company types', () => {
-  test('OB-U14 the questions still save, without companyCategory and with step 3', async ({ browser }) => {
-    const me = freshIdentity('OB-U14');
+test.describe('OB-U18 older backend, no company types', () => {
+  test('OB-U18 the questions still save, without companyCategory and with step 3', async ({ browser }) => {
+    const me = freshIdentity('OB-U18');
     expectNoAccountYet(me);
     const context = await openSignedIn(browser, me);
     const page = await context.newPage();
@@ -159,16 +159,16 @@ test.describe('OB-U14 older backend, no company types', () => {
     await expect(page.getByText('1/4', { exact: true }), 'still four questions on screen').toBeVisible();
     expect(strippedGets, 'the saved-filters GET went through the older-backend shim').toBeGreaterThan(0);
 
-    await answerHeadline(page, 'OB-U14');
+    await answerHeadline(page, 'OB-U18');
     await button(questions(page), 'Show my jobs').click();
     await expect(questions(page), 'the questions close: the save worked').toHaveCount(0);
 
     expect(sentBodies, 'exactly one onboarding POST').toHaveLength(1);
     expect(sentBodies[0], 'the body has no companyCategory').not.toHaveProperty('companyCategory');
     expect(sentBodies[0].step, 'the step is clamped to 3').toBe(3);
-    await shot(page, 'OB-U14', '05-landed');
+    await shot(page, 'OB-U18', '05-landed');
 
-    const state = await expectStamped(me, 'OB-U14 after "Show my jobs"');
+    const state = await expectStamped(me, 'OB-U18 after "Show my jobs"');
     expect(state.savedFilters, 'the first three answers were saved').toMatchObject({
       category: CORPUS.headlineNoCompanyType.category,
       level: CORPUS.headlineNoCompanyType.level,
@@ -178,7 +178,7 @@ test.describe('OB-U14 older backend, no company types', () => {
     // The list holds the three-answer set: the company type was lost in the
     // deploy window, so the not-Big-Tech decoy is back.
     await expect(page.getByRole('combobox', { name: 'Company type' })).toHaveText('All');
-    await expectJobs(page, CORPUS.headlineNoCompanyType.expectedKeys, 'OB-U14 (no company type)');
+    await expectJobs(page, CORPUS.headlineNoCompanyType.expectedKeys, 'OB-U18 (no company type)');
     expect(HEADLINE_LABELS.companyType).toBe('Big Tech');
     await context.close();
   });
