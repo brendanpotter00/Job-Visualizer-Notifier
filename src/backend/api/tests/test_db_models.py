@@ -44,6 +44,9 @@ def test_all_tables_present():
         "company_scripts",
         "company_harvests",
         "company_add_attempts",
+        # Company categories (Recent "Company type" filter), seeded on boot.
+        "company_categories",
+        "company_category_members",
     }, f"Unexpected metadata.tables: {sorted(names)}"
 
 
