@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { ThemeProvider } from '@mui/material/styles';
+import { theme } from '../../../config/theme';
 import { createTestStore, renderWithProviders } from '../../../test/testUtils';
 import type { KeywordList, RecentJobsFilters, SavedFilters, SearchTag } from '../../../types';
 import {
@@ -88,14 +90,19 @@ const ON_SAVED: RecentJobsFilters = {
 async function renderSignedIn(
   saved: SavedFilters = SAVED,
   lists: KeywordList[] = [],
-  filters: RecentJobsFilters = ON_SAVED
+  filters: RecentJobsFilters = ON_SAVED,
+  { appTheme = false } = {}
 ) {
   const store = createTestStore({
     recentJobsFilters: { filters, hydrated: true, userModified: false },
   });
   await store.dispatch(savedFiltersApi.util.upsertQueryData('getSavedFilters', undefined, saved));
   await store.dispatch(savedFiltersApi.util.upsertQueryData('getKeywordLists', undefined, lists));
-  renderWithProviders(<DefaultSearchButtons />, { store });
+  const ui = <DefaultSearchButtons />;
+  // The harness has no ThemeProvider (MUI defaults); the colour test needs the app's.
+  renderWithProviders(appTheme ? <ThemeProvider theme={theme}>{ui}</ThemeProvider> : ui, {
+    store,
+  });
   return store;
 }
 
@@ -141,6 +148,19 @@ describe('DefaultSearchButtons — signed in', () => {
     noReset();
     // The confirmation is the button: no visible message beside it.
     expect(screen.getByRole('status')).toBeEmptyDOMElement();
+  });
+
+  it('solid save button (green when saved, black to update); Reset stays outlined', async () => {
+    const store = await renderSignedIn(SAVED, [], ON_SAVED, { appTheme: true });
+    expect(saved()).toHaveClass('MuiButton-contained');
+    // `success.dark`: white text on it passes AA.
+    expect(getComputedStyle(saved()).backgroundColor).toBe('rgb(46, 125, 50)');
+    act(() => {
+      store.dispatch(setRecentJobsLevel(['entry']));
+    });
+    expect(update()).toHaveClass('MuiButton-contained');
+    // Its black fill is a CSS variable jsdom can't resolve; OB-U14 checks it in Chromium.
+    expect(reset()).toHaveClass('MuiButton-outlined');
   });
 
   it('a change offers Update, then Reset to its right; back on the default, both go', async () => {
