@@ -21,6 +21,7 @@ import {
   expectQuestionsNeverOpen,
   expectStamped,
   expectUnstamped,
+  filterChips,
   filterField,
   freshIdentity,
   openSignedIn,
@@ -134,7 +135,7 @@ test.describe('OB-U5 Skip keeps answers', () => {
     // An answer was given, so it lands on Recent with it applied.
     await expect(page).toHaveURL(new RegExp(`${RECENT_JOBS}(\\?|$)`));
     await expect(savedToast(page), 'Skip with an answer still shows the toast').toBeVisible();
-    await expect(filterField(page, 'Job Category')).toHaveText('Product Manager');
+    await expect(filterChips(page, 'Job Category')).toHaveText(['Product Manager']);
     await expect(filterField(page, 'Level')).toHaveText('All');
     const pmOnly = CORPUS.productManagerOnly;
     await expectJobs(page, pmOnly.expectedKeys, 'OB-U5 with Product Manager kept');

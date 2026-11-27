@@ -56,6 +56,20 @@ function Stateful({
   );
 }
 
+/** The closed field's chips (each one is a MUI Chip, so a `button`), by label. */
+function chipLabels(): string[] {
+  return within(screen.getByRole('combobox', { name: 'Job Category' }))
+    .queryAllByRole('button')
+    .map((chip) => chip.textContent ?? '');
+}
+
+/** Click one chip's delete icon. */
+async function deleteChip(user: ReturnType<typeof userEvent.setup>, label: string) {
+  const combobox = screen.getByRole('combobox', { name: 'Job Category' });
+  const chip = within(combobox).getByRole('button', { name: label });
+  await user.click(within(chip).getByTestId('CancelIcon'));
+}
+
 /** Every row's text in menu order. A parent with children carries its hidden count. */
 function rowTexts(listbox: HTMLElement): string[] {
   return within(listbox)
@@ -124,7 +138,7 @@ describe('FacetTreeMultiSelect', () => {
     );
 
     const combobox = screen.getByRole('combobox', { name: 'Job Category' });
-    expect(combobox).toHaveTextContent('Category A');
+    expect(chipLabels()).toEqual(['Category A']);
     expect(combobox).not.toHaveTextContent('child_a');
 
     await user.click(combobox);
@@ -462,10 +476,137 @@ describe('FacetTreeMultiSelect', () => {
         onChange={vi.fn()}
       />
     );
-    // Parents first, then children — and LABELS, never slugs. The hidden
+    // One chip each, the parent first — and LABELS, never slugs. The hidden
     // specialty count lives in the menu row only, never in the closed field.
+    expect(chipLabels()).toEqual(['Category A', 'Child A']);
     expect(screen.getByRole('combobox', { name: 'Job Category' })).toHaveTextContent(
-      /^Category A, Child A$/
+      /^Category AChild A$/
     );
+  });
+
+  it("(12) each parent's chip is followed by its own children's, whatever order they were picked in", () => {
+    // Picked Category B, then Category A, then Child A. A child's chip carries
+    // only its own name, so it has to sit beside its parent, not after the
+    // last parent picked.
+    render(
+      <FacetTreeMultiSelect
+        label="Job Category"
+        options={PARENTS}
+        childOptions={CHILDREN}
+        value={['parent_a', 'parent_b']}
+        childValue={['child_b', 'child_a']}
+        onChange={vi.fn()}
+      />
+    );
+    expect(chipLabels()).toEqual(['Category A', 'Child B', 'Child A', 'Category B']);
+  });
+
+  it('(12b) a stored child with no parent selected still gets its chip, last', () => {
+    render(
+      <FacetTreeMultiSelect
+        label="Job Category"
+        options={PARENTS}
+        childOptions={CHILDREN}
+        value={['parent_b']}
+        childValue={['child_a']}
+        onChange={vi.fn()}
+      />
+    );
+    expect(chipLabels()).toEqual(['Category B', 'Child A']);
+  });
+
+  it("(13) a child chip's delete icon removes just the child; its parent stays, the menu stays shut", async () => {
+    const onChange = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <Stateful
+        initial={{ category: ['parent_a'], subcategory: ['child_a', 'child_b'] }}
+        onChange={onChange}
+      />
+    );
+
+    await deleteChip(user, 'Child A');
+
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onChange).toHaveBeenCalledWith({ category: ['parent_a'], subcategory: ['child_b'] });
+    expect(chipLabels()).toEqual(['Category A', 'Child B']);
+    expect(screen.queryByRole('listbox')).toBeNull();
+  });
+
+  it("(14) a parent chip's delete icon is an untick: it clears that parent's children, in ONE emit", async () => {
+    // The same rule as (7), through the chip. Category C's child is the control.
+    const options: FacetOption[] = [
+      ...PARENTS,
+      { slug: 'parent_c', label: 'Category C', sortOrder: 2 },
+    ];
+    const childOptions: FacetOption[] = [
+      ...CHILDREN,
+      { slug: 'child_c', label: 'Child C', sortOrder: 2, parentSlug: 'parent_c' },
+    ];
+    const onChange = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <Stateful
+        options={options}
+        childOptions={childOptions}
+        initial={{ category: ['parent_a', 'parent_c'], subcategory: ['child_a', 'child_c'] }}
+        onChange={onChange}
+      />
+    );
+    expect(chipLabels()).toEqual(['Category A', 'Child A', 'Category C', 'Child C']);
+
+    await deleteChip(user, 'Category A');
+
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onChange).toHaveBeenCalledWith({ category: ['parent_c'], subcategory: ['child_c'] });
+    expect(chipLabels()).toEqual(['Category C', 'Child C']);
+    expect(screen.queryByRole('listbox')).toBeNull();
+  });
+
+  it('(14b) with childOptions empty, deleting a parent chip still preserves the stored childValue', async () => {
+    // (1c) through the chip: the tree is off, so the untick-clears rule is too.
+    const onChange = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <FacetTreeMultiSelect
+        label="Job Category"
+        options={PARENTS}
+        childOptions={[]}
+        value={['parent_a', 'parent_b']}
+        childValue={['child_a']}
+        onChange={onChange}
+      />
+    );
+
+    await deleteChip(user, 'Category A');
+
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onChange).toHaveBeenCalledWith({ category: ['parent_b'], subcategory: ['child_a'] });
+  });
+
+  it('(15) the chips are not tab stops, and a click on a chip body opens the menu', async () => {
+    const user = userEvent.setup();
+    render(
+      <>
+        <FacetTreeMultiSelect
+          label="Job Category"
+          options={PARENTS}
+          childOptions={CHILDREN}
+          value={['parent_a']}
+          childValue={['child_a']}
+          onChange={vi.fn()}
+        />
+        <button type="button">After</button>
+      </>
+    );
+
+    const combobox = screen.getByRole('combobox', { name: 'Job Category' });
+    await user.tab();
+    expect(combobox).toHaveFocus();
+    await user.tab();
+    expect(screen.getByRole('button', { name: 'After' })).toHaveFocus();
+
+    await user.click(within(combobox).getByRole('button', { name: 'Child A' }));
+    expect(await screen.findByRole('listbox')).toBeInTheDocument();
   });
 });
